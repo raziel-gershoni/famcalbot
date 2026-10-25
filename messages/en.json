@@ -327,7 +327,7 @@
       "confirmDelete": "Delete “{title}”?",
       "deleteConfirm": "Delete",
       "dayMoveNote": "To move all of them to another day, delete the series and create it again.",
-      "seriesNote": "A calendar or recipient change applies from here on or to all of them.",
+      "seriesNote": "A calendar, alert or recipient change applies from here on or to all of them.",
       "crossKindNote": "Moving to another kind of calendar moves the whole series."
     },
     "empty": {

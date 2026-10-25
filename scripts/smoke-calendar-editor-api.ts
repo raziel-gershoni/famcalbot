@@ -2771,6 +2771,9 @@ async function main() {
     const { occ: occ3 } = await weeklySeries({ alert: 15 });
     await patch({ key: occ3('2026-11-03'), scope: 'following', changes: { repeat: 'none', alert: 'none' } });
     assertSame(alertOf(lastEvent().id), [true, []], 'a stop with an alert change: the one-off has the new one');
+    const first = await weeklySeries({ alert: 15 });
+    await patch({ key: first.occ('2026-10-20'), scope: 'following', changes: { repeat: 'none', alert: 'none' } });
+    assertSame([eventRow(first.id).rrule, alertOf(first.id), tables.nativeEvent.filter((e) => e.title === 'Dentist' && e.rrule === null).length > 0], [null, [true, []], true], 'a stop from the first occurrence with an alert change: the series row is the one-off with the new alert');
     const rem = await post(reminderBody({ repeat: 'daily' }));
     await patch({ key: `famcal|${idOf(rem.body.key)}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { start: '2026-10-22T18:00' } });
     assertSame(alertOf(lastEvent().id), [false, []], 'a reminder\'s tail');
@@ -2795,7 +2798,11 @@ async function main() {
     assertSame([r.status, r.body], [400, { error: 'invalid', field: 'moveAlone' }], 'a move with an alert');
     const reminder = await post(reminderBody());
     const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: idOf(reminder.body.key), scope: 'single', actingUserId: TAL, alert: 15 }));
-    assert(e !== null && /scope/i.test(String(e)), `the store accepted an alert for a reminder: ${e}`);
+    assert(e !== null && (e as Row).field === 'alert', `the store accepted an alert for a reminder: ${e}`);
+    const made = await thrownBy(() => store.createNativeEvent({ calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'r', startsAt: at('2026-10-21 09:00'), endsAt: at('2026-10-21 09:00'), timeZone: IL, kind: 'REMINDER', alert: 15 }));
+    assert(made !== null && (made as Row).field === 'alert', `the store created a reminder with an alert: ${made}`);
+    const plain = await thrownBy(() => store.createNativeEvent({ calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'r', startsAt: at('2026-10-21 09:00'), endsAt: at('2026-10-21 09:00'), timeZone: IL, kind: 'REMINDER', alert: 'default' }));
+    assert(plain === null, `the default is fine for a reminder: ${plain}`);
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

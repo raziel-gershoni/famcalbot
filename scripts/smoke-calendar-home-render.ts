@@ -4890,9 +4890,10 @@ async function main() {
       tapPlus(google.m);
       await settle();
       await typeInto(inDialog(google.m, 'Title'), 'Parents’ evening');
-      await typeInto(selects(google.m)[1], '15');
+      await typeInto(selects(google.m)[1], '30');
       await typeInto(selects(google.m)[2], 'avi@gmail.com');
       assertHas(topText(google.m), ['Alert', 'Default (15 min before)'], 'a read-only row');
+      assertLacks(topText(google.m), ['30 min before'], 'not the lead picked before');
       assert(selects(google.m).length === 2, `no Alert select: ${selects(google.m).length}`);
       serveEditingWith({ editor: ok200(EDITOR_INFO), write: () => ok200({ status: 'ok' }) });
       google.m.click(saveButton(google.m));
@@ -4924,7 +4925,10 @@ async function main() {
       a.m.click(byLabel(topDialog(a.m), 'Edit'));
       await settle();
       assertHas(topText(a.m), ['Alert', '45 min before'], 'an off-list lead shows as it is');
-      assert(options(selects(a.m)[1]).some((o) => o[0] === '45'), 'and is an option');
+      assert(show(options(selects(a.m)[1]).map((o) => o[0])) === show(['default', 'none', '0', '5', '10', '15', '30', '45', '60', '120', '1440']), `in order: ${show(options(selects(a.m)[1]))}`);
+      await typeInto(selects(a.m)[1], '30');
+      assert(options(selects(a.m)[1]).some((o) => o[0] === '45'), 'the option stays after another pick');
+      await typeInto(selects(a.m)[1], '45');
       // Left alone, a title change does not send the alert.
       await typeInto(inDialog(a.m, 'Title'), 'Dentist 2');
       serveEditingWith({ editor: withAlerts, item: dentistInfo({ alert: 45 }), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
@@ -4974,6 +4978,22 @@ async function main() {
     } finally {
       none.m.unmount();
     }
+    // A move to the other kind of calendar: the row shows what the event will land with, not the old alert.
+    const both = ok200(editorWith({ alertsOn: true, calendars: [...EDITOR_INFO.calendars, { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: false, mine: true }] }));
+    const x = await editingHome('en', { editor: both, item: dentistInfo({ alert: 30, canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'avi@gmail.com'] }) });
+    try {
+      await openItem(x.m, 'Dentist');
+      x.m.click(byLabel(topDialog(x.m), 'Edit'));
+      await settle();
+      assertHas(topText(x.m), ['30 min before'], 'the stored alert before the move is picked');
+      assert(selects(x.m).length === 3, `repeat, alert, calendar: ${selects(x.m).length}`);
+      await typeInto(selects(x.m)[2], 'avi@gmail.com');
+      assertHas(topText(x.m), ['Default (15 min before)'], 'the default it lands with');
+      assertLacks(topText(x.m), ['30 min before'], 'not the old alert');
+      assert(selects(x.m).length === 2, 'read-only: no Alert select');
+    } finally {
+      x.m.unmount();
+    }
     // A series: an alert change alone asks "this one and the ones after" or "all of them".
     const s = await editingHome('en', { editor: withAlerts, item: (k) => (k === 'famcal|swim' ? ok200(swimInfo({ alert: 'default' })) : { status: 404, body: {} }) });
     try {
@@ -4985,6 +5005,7 @@ async function main() {
       await settle();
       assertHas(topText(s.m), ['This one and the ones after'], 'the scope sheet offers the series choices');
       assertLacks(topText(s.m), ['Only this one'], 'no "only this one" for an alert');
+      assertHas(topText(s.m), ['A calendar, alert or recipient change applies from here on or to all of them.'], 'the line names the alert');
     } finally {
       s.m.unmount();
     }
@@ -5814,7 +5835,7 @@ async function main() {
   const lastWrite = () => writes()[writes().length - 1];
   const choiceTexts = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button').map((e) => e.textContent.trim());
   const radioOf = (m: Home, text: string) => byRole(topDialog(m), 'radio').filter((e) => e.textContent === text)[0];
-  const PICK_NOTE = 'A calendar or recipient change applies from here on or to all of them.';
+  const PICK_NOTE = 'A calendar, alert or recipient change applies from here on or to all of them.';
   const FROM_HERE = 'From 20 Oct on. Earlier ones stay as they were.';
   const DAY_ALONE = 'Save the day change on its own first.';
 

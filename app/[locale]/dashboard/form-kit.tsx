@@ -132,7 +132,8 @@ export const FORM_CSS = `
 }
 .ch-form-label {
   flex: 1;
-  min-inline-size: 0;
+  /* A label never shrinks below its longest word: a long value wraps (below) instead of painting over it. */
+  min-inline-size: min-content;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -151,9 +152,13 @@ export const FORM_CSS = `
   min-inline-size: 0;
 }
 .ch-form-value-text {
+  /* Up to two lines, end-aligned, then an ellipsis. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: end;
+  overflow-wrap: anywhere;
 }
 .ch-form-chevron {
   flex: none;

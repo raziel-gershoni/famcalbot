@@ -31,7 +31,7 @@ import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
-import { nearestReminderLead } from '../../lib/calendar-view/alert-leads';
+import { nearestReminderLead, normalizeOverrides } from '../../lib/calendar-view/alert-leads';
 
 export { parseGoogleKey };
 
@@ -228,7 +228,7 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     calendar: { id: key.calendarId, name: live?.name ?? ref.name, color: live?.color ?? ref.color },
     forName: null,
     // Google's own alert, shown and not editable (ruling E): its reminders' nearest lead, else the default.
-    alert: nearestReminderLead(read.event.reminders?.overrides) ?? 'default',
+    alert: nearestReminderLead(normalizeOverrides(read.event.reminders?.overrides)) ?? 'default',
     alertReadOnly: true,
     scopes: recurring ? ['single', 'following', 'all'] : ['single'],
     canMoveCalendar: moveTargets.length > 1,

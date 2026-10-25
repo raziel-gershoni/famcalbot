@@ -9,6 +9,7 @@ import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './
 import { isSyncCopy } from './google-sync/markers';
 import { syncCopyFilter } from './google-sync/links';
 import { mapGoogleColour } from '../lib/calendar-colours';
+import { normalizeOverrides } from '../lib/calendar-view/alert-leads';
 import {
   daysFromTo,
   endCarriedRule,
@@ -405,10 +406,7 @@ export async function fetchEventsInRange(
         eventId: event.id || undefined,
         reminders: event.reminders ? {
           useDefault: event.reminders.useDefault || false,
-          overrides: event.reminders.overrides?.map(o => ({
-            method: o.method || 'popup',
-            minutes: o.minutes || 0,
-          })),
+          overrides: normalizeOverrides(event.reminders.overrides),
         } : undefined,
       }));
     })

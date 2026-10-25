@@ -11,7 +11,7 @@
 -- when missing, and the copy touches only rows not already copied (ownAlerts still false), so
 -- a re-run is a no-op.
 
-ALTER TABLE "NativeEvent" ADD COLUMN IF NOT EXISTS "alertMinutes" INTEGER[] NOT NULL DEFAULT '{}';
+ALTER TABLE "NativeEvent" ADD COLUMN IF NOT EXISTS "alertMinutes" INTEGER[] NOT NULL DEFAULT ARRAY[]::INTEGER[];
 ALTER TABLE "NativeEvent" ADD COLUMN IF NOT EXISTS "ownAlerts" BOOLEAN NOT NULL DEFAULT false;
 
 UPDATE "NativeEvent"

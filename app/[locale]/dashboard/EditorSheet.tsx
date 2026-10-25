@@ -66,7 +66,7 @@ import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits'
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
-import { ALERT_LEADS, leadParts, type AlertChoice } from '@/src/lib/calendar-view/alert-leads';
+import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from './BottomSheet';
 import { hebrewLabelOf, hebrewRepeatText } from './hebrew-repeat-words';
 import { FORM_CSS, FormCard, FormRow, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
@@ -343,17 +343,17 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   // event's own alert, or a new event on a Google calendar (it gets the default), is shown and not edited.
   const leadWords = (minutes: number, inline: boolean): string =>
     minutes === 0 ? t(inline ? 'editor.alert.atStartInline' : 'editor.alert.atStart') : t('editor.alert.before', leadParts(minutes));
-  const choiceKey = (choice: AlertChoice): string => String(choice);
   const alertOptions: SelectOption[] = [
     { value: 'default', text: t('editor.alert.default', { lead: leadWords(defaultLead, true) }) },
     { value: 'none', text: t('editor.alert.none') },
-    // A lead stored off the list (a migrated one) is its own option, kept until another is picked.
-    ...[...ALERT_LEADS, ...(typeof form.alert === 'number' && !ALERT_LEADS.includes(form.alert) ? [form.alert] : [])].map((m) => ({ value: String(m), text: leadWords(m, false) })),
+    // A lead stored off the list (a migrated one) is its own option, in order, for as long as the sheet is open.
+    ...[...new Set([...ALERT_LEADS, ...(typeof start.alert === 'number' ? [start.alert] : [])])].sort((a, b) => a - b).map((m) => ({ value: String(m), text: leadWords(m, false) })),
   ];
   const showAlertRow = alertsOn && !form.allDay; // the row sits in the event's card: a reminder has none
-  const alertReadOnly = edit ? info?.alertReadOnly === true : !isNativeCalendar(form.calendarId);
+  // A move to the other kind of calendar drops the alert (Google) or lands on the default (FamCal): shown as that.
+  const alertReadOnly = edit ? info?.alertReadOnly === true || crossPicked : !isNativeCalendar(form.calendarId);
   const readOnlyAlertText =
-    edit && typeof form.alert === 'number'
+    edit && !crossPicked && typeof form.alert === 'number'
       ? t('editor.alert.fromGoogle', { lead: leadWords(form.alert, true) })
       : t('editor.alert.default', { lead: leadWords(defaultLead, true) });
   const alertRow = !showAlertRow ? null : alertReadOnly ? (
@@ -367,7 +367,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   ) : (
     <ValueRow
       label={t('editor.alert.label')}
-      value={choiceKey(form.alert)}
+      value={String(form.alert)}
       options={alertOptions}
       onChange={(v) => change({ ...form, alert: v === 'default' || v === 'none' ? v : Number(v) })}
       error={errorOf('alert')}

@@ -1,5 +1,5 @@
 // The calendar home's editing API, as the client and the routes share it (home editing
-// spec §3). Type-only and client-safe: it imports nothing.
+// spec §3). Type-only and client-safe: it imports only types.
 //
 // Times are wall times, never instants: 'YYYY-MM-DDTHH:mm' for a timed item and
 // 'YYYY-MM-DD' for an all-day one, read on the user's clock (EditorInfoResponse.tz). An

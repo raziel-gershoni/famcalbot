@@ -261,11 +261,11 @@
       "alert": {
         "label": "התראה",
         "default": "ברירת מחדל ({lead})",
-        "none": "ללא",
+        "none": "ללא התראה",
         "atStart": "בתחילת האירוע",
         "atStartInline": "בתחילת האירוע",
         "before": "{unit, select, day {{count, plural, one {יום לפני} two {יומיים לפני} other {# ימים לפני}}} hour {{count, plural, one {שעה לפני} two {שעתיים לפני} other {# שעות לפני}}} other {{count, plural, one {דקה אחת לפני} two {שתי דקות לפני} other {# דקות לפני}}}}",
-        "fromGoogle": "מ-Google Calendar: {lead}"
+        "fromGoogle": "לפי יומן Google: {lead}"
       },
       "calendar": "יומן",
       "dayMoveAlone": "כדאי לשמור קודם את שינוי היום בנפרד.",
@@ -327,7 +327,7 @@
       "confirmDelete": "למחוק את ״{title}״?",
       "deleteConfirm": "מחיקה",
       "dayMoveNote": "כדי להעביר את כל המופעים ליום אחר, צריך למחוק את הסדרה וליצור אותה מחדש.",
-      "seriesNote": "שינוי של יומן או של הנמען חל מהמופע הזה והלאה, או על כל המופעים.",
+      "seriesNote": "שינוי של יומן, התראה או נמען חל מהמופע הזה והלאה, או על כל המופעים.",
       "crossKindNote": "העברה ליומן מסוג אחר מעבירה את כל הסדרה."
     },
     "empty": {

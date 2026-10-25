@@ -857,11 +857,12 @@ async function main() {
   // ================= The move, FamCal → Google =================
 
   await check('F→G: a one-off: the copy in Google with the marker, then the original deleted; the key is the copy\'s; analytics; no title in a log', async () => {
-    seedSeries('ev1', { title: SECRET, location: 'Clinic', startsAt: at('2026-10-20T10:00:00') });
+    seedSeries('ev1', { title: SECRET, location: 'Clinic', startsAt: at('2026-10-20T10:00:00'), ownAlerts: true, alertMinutes: [15] });
     const r = await move(NOA, 'famcal|ev1', NOA_CAL, 'single');
     assertSame(r, { status: 'ok', key: gkey(NOA_CAL, 'new1') }, 'result');
     const copy = stored(NOA_CAL, 'new1')!;
     assertSame([copy.summary, copy.location, copy.extendedProperties], [SECRET, 'Clinic', { private: { famcalMovedFrom: 'ev1' } }], 'copy');
+    assertSame(copy.reminders, undefined, 'alerts do not move: an own alert is dropped and Google gives the copy its own default');
     assertSame(eventRow('ev1')!.isDeleted, true, 'original deleted');
     assertSame(tracked.filter((t) => t.action === 'calendar_item_moved').map((t) => t.meta), [{ from: 'famcal', to: 'google', recurring: false, source: 'app' }], 'analytics');
     assert(![...redisStore.keys()].some((k) => k.startsWith('calendar-move:lock:')), `the lock stayed: ${[...redisStore.keys()]}`);
@@ -1035,7 +1036,7 @@ async function main() {
   // ================= The move, Google → FamCal =================
 
   await check('G→F: a series with a cancellation, an override and strays: one FamCal series written whole, then the Google master deleted; the key is famcal|<new>#<opened slot>', async () => {
-    gseed(NOA_CAL, 'gw', { start: '2026-10-06T10:00:00', summary: SECRET, location: 'Office', recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261117T075959Z', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000'] });
+    gseed(NOA_CAL, 'gw', { start: '2026-10-06T10:00:00', summary: SECRET, location: 'Office', recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261117T075959Z', 'EXDATE;TZID=Asia/Jerusalem:20261013T100000'], reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 30 }] } });
     gseedException(NOA_CAL, ginst('gw', '2026-10-27T10:00:00'), { summary: 'Moved sync', start: { dateTime: '2026-10-28T11:00:00+02:00', timeZone: IL }, end: { dateTime: '2026-10-28T12:00:00+02:00', timeZone: IL } });
     gseedException(NOA_CAL, ginst('gw', '2026-11-03T10:00:00'), { status: 'cancelled' });
     eventsOf(NOA_CAL).set('gw_stray', { id: 'gw_stray', recurringEventId: 'gw', iCalUID: 'gw@google.com', status: 'confirmed', summary: 'Stray', originalStartTime: { dateTime: '2026-10-07T10:00:00+03:00' }, start: { dateTime: '2026-10-07T10:00:00+03:00' }, end: { dateTime: '2026-10-07T11:00:00+03:00' } });
@@ -1045,6 +1046,7 @@ async function main() {
     assertSame(r, { status: 'ok', key: `famcal|${made.id}#${at('2026-10-20T10:00:00').toISOString()}` }, 'result');
     assertSame([made.calendarId, made.title, made.location, made.rrule, made.timeZone, isos(made.exdates)], ['fam-shared', SECRET, 'Office', 'FREQ=WEEKLY;UNTIL=20261117T095959', IL, [at('2026-10-13T10:00:00').toISOString(), at('2026-11-03T10:00:00').toISOString()]], 'series');
     assertSame(tables.nativeEventInstance.map((o) => [o.title, o.originalStartsAt.toISOString(), o.startsAt?.toISOString()]), [['Moved sync', at('2026-10-27T10:00:00').toISOString(), at('2026-10-28T11:00:00').toISOString()]], 'override');
+    assertSame([made.ownAlerts, made.alertMinutes], [false, []], 'alerts do not move: Google\'s own 30 minutes is not carried, the event lands on the default');
     assertSame(famSlots(made, tables.nativeEventInstance), want, 'FamCal shows what Google showed');
     assertSame(Boolean(stored(NOA_CAL, 'gw')), false, 'the Google master deleted');
     const listed = calls.find((c) => c.method === 'GET' && c.params.iCalUID);

@@ -16,6 +16,7 @@ import {
   defaultLeadOf,
   leadParts,
   nearestReminderLead,
+  normalizeOverrides,
   parseAlertChoice,
 } from '../src/lib/calendar-view/alert-leads';
 import { createBody, editItemForm, isDirty, newItemForm, scopePlan, updateBody, type EditorForm } from '../src/lib/calendar-view/editor-model';
@@ -67,8 +68,8 @@ check('columns and back: default is (false, []), none (true, []), a lead (true, 
 });
 
 check('leadParts: days when divisible by 1440, hours by 60, else minutes; defaultLeadOf: the user\'s lead, else at start', () => {
-  same([5, 15, 60, 90, 120, 1440, 2880].map(leadParts), [
-    { unit: 'minute', count: 5 }, { unit: 'minute', count: 15 }, { unit: 'hour', count: 1 }, { unit: 'minute', count: 90 },
+  same([0, 5, 15, 60, 90, 120, 1440, 2880].map(leadParts), [
+    { unit: 'minute', count: 0 }, { unit: 'minute', count: 5 }, { unit: 'minute', count: 15 }, { unit: 'hour', count: 1 }, { unit: 'minute', count: 90 },
     { unit: 'hour', count: 2 }, { unit: 'day', count: 1 }, { unit: 'day', count: 2 },
   ], 'parts');
   same([defaultLeadOf({ defaultReminderMinutes: 15 }), defaultLeadOf({ defaultReminderMinutes: 0 }), defaultLeadOf({ defaultReminderMinutes: null }), defaultLeadOf({})], [15, 0, 0, 0], 'default lead');
@@ -78,8 +79,11 @@ check('nearestReminderLead: the nearest popup, else the nearest email, else null
   assert(nearestReminderLead([{ method: 'popup', minutes: 1440 }, { method: 'popup', minutes: 30 }]) === 30, 'popups');
   assert(nearestReminderLead([{ method: 'email', minutes: 60 }, { method: 'email', minutes: 10 }]) === 10, 'emails');
   assert(nearestReminderLead([{ method: 'email', minutes: 5 }, { method: 'popup', minutes: 120 }]) === 120, 'a popup beats a nearer email');
-  assert(nearestReminderLead([]) === null && nearestReminderLead(undefined) === null && nearestReminderLead(null) === null, 'none');
-  assert(nearestReminderLead([{ method: 'popup', minutes: null }, { method: 'popup' }]) === null, 'unreadable leads are none');
+  assert(nearestReminderLead([]) === null && nearestReminderLead(undefined) === null, 'none');
+  assert(nearestReminderLead(normalizeOverrides([{ method: 'email', minutes: 30 }, { minutes: 90 }])) === 90, 'a missing method is a popup (one normalisation for the fetch, the pass and the item info)');
+  same(normalizeOverrides([{}, { method: 'email', minutes: null }]), [{ method: 'popup', minutes: 0 }, { method: 'email', minutes: 0 }], 'missing minutes are 0');
+  assert(normalizeOverrides(undefined) === undefined, 'no overrides');
+  assert(read('src/services/calendar.ts').includes('normalizeOverrides(') && read('src/services/calendar-write/google-item.ts').includes('normalizeOverrides('), 'both use it');
   const pass = read('src/services/reminders.ts');
   const info = read('src/services/calendar-write/google-item.ts');
   assert(pass.includes('nearestReminderLead(') && info.includes('nearestReminderLead('), 'both call the one function');
@@ -194,6 +198,18 @@ check('copy: the Alert row\'s words in en, he and ru read by the lead (minutes, 
   assert(new IntlMessageFormat(en.fromGoogle, 'en').format({ lead: '30 min before' }) === 'From Google Calendar: 30 min before', 'from Google');
 });
 
+check('copy: Hebrew names Google as the home does and None says what is off; a row\'s label keeps its word and a long value wraps to two lines', () => {
+  const he = JSON.parse(read('messages/he.json')).calendarHome.editor.alert as Record<string, string>;
+  assert(he.fromGoogle === 'לפי יומן Google: {lead}' && he.none === 'ללא התראה', `${he.fromGoogle} / ${he.none}`);
+  for (const lang of ['en', 'he', 'ru']) {
+    const note = JSON.parse(read(`messages/${lang}.json`)).calendarHome.scope.seriesNote as string;
+    assert(lang === 'en' ? /alert/.test(note) : lang === 'he' ? /התראה/.test(note) : /уведомлен/.test(note), `${lang} seriesNote does not name the alert: ${note}`);
+  }
+  const kit = read('app/[locale]/dashboard/form-kit.tsx');
+  assert(/\.ch-form-label \{[^}]*min-inline-size: min-content/.test(kit), 'label floor');
+  assert(/\.ch-form-value-text \{[^}]*-webkit-line-clamp: 2/.test(kit), 'value wraps to two lines');
+});
+
 // ---- The migration ----
 
 check('migration event_alerts: adds both columns if missing, copies a non-null reminderMinutes once, drops nothing', () => {
@@ -202,7 +218,7 @@ check('migration event_alerts: adds both columns if missing, copies a non-null r
   assert(!!name, 'no migration');
   const sql = read(`prisma/migrations/${name}/migration.sql`);
   const code = sql.split('\n').filter((l) => !l.startsWith('--')).join('\n');
-  assert(/ADD COLUMN IF NOT EXISTS "alertMinutes" INTEGER\[\] NOT NULL DEFAULT '\{\}'/.test(code), 'alertMinutes');
+  assert(/ADD COLUMN IF NOT EXISTS "alertMinutes" INTEGER\[\] NOT NULL DEFAULT ARRAY\[\]::INTEGER\[\]/.test(code), 'alertMinutes');
   assert(/ADD COLUMN IF NOT EXISTS "ownAlerts" BOOLEAN NOT NULL DEFAULT false/.test(code), 'ownAlerts');
   assert(/SET "alertMinutes" = ARRAY\["reminderMinutes"\], "ownAlerts" = true/.test(code), 'the copy');
   assert(/WHERE "reminderMinutes" IS NOT NULL AND "ownAlerts" = false/.test(code), 'only rows not already copied');

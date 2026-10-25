@@ -328,8 +328,8 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   };
 
   // The series-level fields (3b spec §3.3), each only when it differs from what the item
-  // has: a repeat other than the one the Repeat row shows, another calendar, the other
-  // recipient (relative to the reminder's creator).
+  // has: a repeat other than the one the Repeat row shows, another calendar, another alert,
+  // the other recipient (relative to the reminder's creator).
   const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, stored) ? c.repeat : undefined;
   const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
   const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;

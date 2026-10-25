@@ -147,7 +147,7 @@ const fakeGoogle = {
 };
 
 /** A native calendar event (one-off), as the event store hands it to the native provider; a REMINDER has no length. */
-type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER'; allDay?: boolean; ownAlerts?: boolean; alertMinutes?: number[] };
+type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER'; allDay?: boolean; ownAlerts?: boolean; alertMinutes?: number[]; recurring?: boolean };
 let nativeCalendars: { id: string; name: string; labels: string[] }[] = [];
 let nativeEvents: NativeRow[] = [];
 
@@ -248,7 +248,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
           series: { id: e.id, kind: e.kind ?? 'EVENT', creatorUserId: 0, forUserId: null, ownAlerts: e.ownAlerts ?? false, alertMinutes: e.alertMinutes ?? [] },
           instance: {
             title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, allDay: e.allDay ?? false, timeZone: e.timeZone,
-            seriesEventId: e.id, instanceStartsAt: e.startsAt, isRecurringInstance: false,
+            seriesEventId: e.id, instanceStartsAt: e.startsAt, isRecurringInstance: e.recurring ?? false,
           },
         })),
     // Nothing done or snoozed.
@@ -764,6 +764,16 @@ async function main() {
     await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 14:00', IL));
     const lines = sentLines(IL);
     assert(lines.join(' | ') === '11:45 🤖 Auto-Reminder: Piano | 12:45 🤖🚗 Auto-Pickup Reminder: Leo', `got ${lines.join(' | ') || '(nothing)'}`);
+  });
+
+  await check('a recurring FamCal series with an own lead pings each occurrence at that lead, once each (the series\' alert reaches every occurrence)', async () => {
+    reset({ id: 44, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(44), IL);
+    nativeCalendars = [{ id: 'cal44', name: 'Dana', labels: ['primary', 'yours'] }];
+    nativeEvents = ['2026-10-13', '2026-10-14'].map((day) => ({ calendarId: 'cal44', id: 'n44', recurring: true, title: 'Swim', startsAt: at(`${day} 10:00`, IL), endsAt: at(`${day} 11:00`, IL), timeZone: IL, ownAlerts: true, alertMinutes: [5] }));
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-14 12:00', IL));
+    assert(sentLines(IL).join(' | ') === '09:55 🔔 Reminder: Swim | 09:55 🔔 Reminder: Swim', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
   });
 
   await check('an event on the default (ownAlerts false) still pings at the user\'s lead; an all-day event with an own alert is skipped', async () => {

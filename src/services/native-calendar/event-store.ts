@@ -407,9 +407,9 @@ export class NativeFixedDaysError extends Error {
 }
 
 /**
- * A series-level change (a new rule, calendar or recipient) asked for a scope that can't
+ * A series-level change (a new rule, calendar, alert or recipient) asked for a scope that can't
  * carry it (3b spec §3.1): 'single' on a series, a new rule for 'all', or a calendar move
- * of a reminder. `field` names what the home answers 400 for.
+ * of a reminder, or an alert for a reminder. `field` names what the home answers 400 for.
  */
 export class NativeScopeError extends Error {
   constructor(
@@ -487,6 +487,8 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
   const access = await getCalendarAccess(creator, calendar);
   if (!canWriteAccess(access)) throw new NativePermissionDeniedError();
 
+  // A reminder pings through its own pass: it has no alert (as an update refuses one).
+  if (isReminder && input.alert !== undefined && input.alert !== 'default') throw new NativeScopeError('alert');
   const event = await eventWrite(isReminder ? 'REMINDER' : 'EVENT', async (db) => {
     const created = await db.nativeEvent.create({
       data: {
@@ -973,10 +975,10 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
 }
 
 /**
- * Refuse a series-level change (a rule, a calendar, a recipient) the store can't make
+ * Refuse a series-level change (a rule, a calendar, an alert, a recipient) the store can't make
  * (3b spec §3.1), before anything is written: the scope, the rule, the destination
  * calendar (write access there too, never the user's own private one for the partner's
- * event) and the recipient (only the creator changes it, to their partner who can be
+ * event), the alert (an event's only) and the recipient (only the creator changes it, to their partner who can be
  * pinged, or back to themselves).
  */
 async function checkSeriesFields(
