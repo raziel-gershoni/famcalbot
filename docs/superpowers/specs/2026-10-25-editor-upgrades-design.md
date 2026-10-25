@@ -147,7 +147,8 @@ and all-day events have no Alert row; an all-day event keeps a stored alert, whi
 made timed. A Google event's alert is read-only (its nearest popup, else its nearest email, else
 Default), and so is the row for a new event on a Google calendar; a lead off the list is shown as it is
 and a stored off-list lead stays an option of its own. Alerts don't cross kinds: moving to Google drops
-the own alert, moving to FamCal lands on Default. `reminderMinutes` stays in the database for this deploy
+the own alert, moving to FamCal lands on Default; while such a move is picked the row shows Default
+read-only, and an alert edited before it goes back, so the move is saved alone. `reminderMinutes` stays in the database for this deploy
 (the old Prisma client still selects it while the migration runs); a later migration drops it.
 
 ## 3. Richer repeats (L)
