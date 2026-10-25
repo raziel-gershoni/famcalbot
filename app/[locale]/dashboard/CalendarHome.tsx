@@ -72,6 +72,14 @@
 //   "following" edit starts a new series, "all" can move its slot) once the refetch the
 //   edit started brings that row, and closes if that refetch landed without the item. The
 //   BackButton cancels the editor (which asks to discard only after a change);
+// - drag to move (editor upgrades spec §4; the Month's picked list and browse chips, never the
+//   Agenda): MonthView draws the lift and the drop (DragSurface); the container saves. A drop is the
+//   editor's own edit with the start shifted (drag-model: the item's edit info, editItemForm, scopePlan,
+//   updateBody), sent through deps.editing.update, so no scope or body rule is restated. The item shows
+//   on its target day at once (the store's shiftItem) with a pending look; a repeating one asks which
+//   occurrences first (the editor's ScopeSheet), and cancelling puts it back. A failure puts it back too,
+//   with the editor's error copy in the bar; a success asks the source's windows again and offers Undo
+//   (not after "this one and the ones after"). The swipe lock and the BackButton count a lift;
 // - an error boundary around all of it; a chunk-load error reloads once.
 //
 // user.id is the page's own user_id (a Telegram id or a DB id), sent as it is to the
@@ -87,7 +95,8 @@ import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiff
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
-import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
+import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
+import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
 import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
@@ -95,7 +104,7 @@ import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, ne
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
-import { hapticSuccess, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -105,6 +114,8 @@ import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
 import { HOME_THEME_CSS } from './home-theme';
+import { DragBar, type BarContent, type BarState, type UndoEntry } from './DragBar';
+import type { DropEvent } from './DragSurface';
 import { EditorSheet, type MoveNote, type SaveOutcome } from './EditorSheet';
 import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
@@ -138,6 +149,19 @@ export interface HomeDeps {
   reminderAction: ReminderActionFn;
   /** The editing requests: the editor info, an item's edit info, create, edit and delete. */
   editing: EditingApi;
+  /** A failure worth a report (a drop that could not be saved): to the console and to Sentry, with this context (no titles). */
+  report: (error: unknown, context: string, extra: Record<string, unknown>) => void;
+}
+
+/**
+ * The real report: the console now, and Sentry through error-capture, loaded on the first report so the
+ * home's graph holds no server module (@sentry/nextjs reaches OpenTelemetry and Prisma's instrumentation).
+ */
+function reportToSentry(error: unknown, context: string, extra: Record<string, unknown>): void {
+  console.error(`[${context}]`, error, extra);
+  import('@/src/lib/error-capture')
+    .then((m) => m.captureError(error, context, extra, 'warning'))
+    .catch((err: unknown) => console.error(`[${context}] The report could not be sent:`, err));
 }
 
 const REAL_DEPS: HomeDeps = {
@@ -149,6 +173,7 @@ const REAL_DEPS: HomeDeps = {
   deviceTimeZone,
   reminderAction: postReminderAction,
   editing: REAL_EDITING,
+  report: reportToSentry,
 };
 
 /** Nothing to subscribe to: the value is read once on the client. */
@@ -178,6 +203,18 @@ type EditorState =
 
 /** A delete asked for from the item sheet. */
 type DeleteState = { key: string; info: ItemEditInfoResponse; title: string };
+
+/** A drop that asks which occurrences first: the item's edit info and the question, with where it went. */
+type ScopeAsk = { key: string; dropDay: string; days: number; info: ItemEditInfoResponse; plan: Extract<MovePlan, { kind: 'ask' }> };
+
+/** How long the drag bar stays (Undo included). */
+export const DRAG_BAR_MS = 6000;
+
+/** The key for a log line: a Google key's calendar id (often an address) is left out. */
+const loggableKey = (key: string) => key.replace(/^google\|[^|]*\|/, 'google|…|');
+
+/** The source an item's windows are asked from after a write. */
+const sourceOfKey = (key: string): SourceName => (key.startsWith('google|') ? 'google' : 'famcal');
 
 /** The editor's field a server field name belongs to. */
 const FIELD_OF: Record<string, 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert' | 'repeat'> = { title: 'title', location: 'location', description: 'notes', start: 'start', end: 'end', alert: 'alert', repeat: 'repeat' };
@@ -351,6 +388,18 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const editorCancel = useRef<(() => void) | null>(null);
   /** A date or time sheet of the editor is open: a wheel dragged down would otherwise minimize the app. */
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** Drag to move: an item is lifted (the swipe lock and the BackButton count it). */
+  const [dragging, setDragging] = useState(false);
+  /** The month picked shows while an item is lifted over a chevron, else null (the picked day's month). */
+  const [previewMonth, setPreviewMonth] = useState<MonthKey | null>(null);
+  /** The item whose move is saving (the pending look), and the drop waiting for which occurrences. */
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [scopeAsk, setScopeAsk] = useState<ScopeAsk | null>(null);
+  /** The bar after a drag (moved with Undo, undone, the note for an item that can't move, an error), and its Undo in flight. */
+  const [bar, setBar] = useState<BarState | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const barSeq = useRef(0);
+  const dragCancel = useRef<(() => void) | null>(null);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
   const [blocked, setBlocked] = useState<'noCredential' | null>(null);
   const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
@@ -748,6 +797,155 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       void refreshWritten(deleting.key.startsWith('google|') ? 'google' : 'famcal');
     } else setDeleteError(result.error);
   };
+
+  // ---- Drag to move (editor upgrades spec §4) ----
+  // The bar after a drag; a newer one replaces it, and it goes after DRAG_BAR_MS (not while Undo runs).
+  const showBar = (next: BarContent) => setBar({ ...next, id: ++barSeq.current });
+  useEffect(() => {
+    if (!bar || undoing) return;
+    return deps.setTimer(() => setBar(null), DRAG_BAR_MS);
+  }, [bar, undoing, deps]);
+  // A drag that failed anywhere: logged with the key and scope (no title), to the console and Sentry.
+  const logDragFailure = (what: string, key: string, scope: EditScope | null, cause: unknown) =>
+    deps.report(cause instanceof Error ? cause : new Error(`Drag to move: ${what}`), 'calendar-home-drag', { user_id: userId, what, key: loggableKey(key), ...(scope ? { scope } : {}) });
+  const putBack = (key: string, days: number) => {
+    dispatch({ type: 'shiftItem', key, days: -days });
+    setPendingKey((cur) => (cur === key ? null : cur));
+  };
+  // The drop could not be saved: the item goes back, the bar says why, the source is asked again (the write may have landed).
+  const failMove = (key: string, days: number, error: SubmitError | null, what: string, cause: unknown, scope: EditScope | null = null) => {
+    putBack(key, days);
+    hapticError();
+    showBar({ kind: 'error', error });
+    logDragFailure(what, key, scope, cause);
+    void refreshWritten(sourceOfKey(key));
+  };
+  const refuseMove = (key: string, days: number, note: CantLift) => {
+    putBack(key, days);
+    hapticWarning();
+    showBar({ kind: 'note', note });
+  };
+
+  // The save of a drop, with the scope picked: the editor's PATCH body, through the editor's client.
+  const sendMove = async (key: string, dropDay: string, days: number, info: ItemEditInfoResponse, plan: Extract<MovePlan, { kind: 'save' | 'ask' }>, scope: EditScope) => {
+    const body = moveBody(plan, key, scope, info);
+    if (!body) {
+      putBack(key, days);
+      return;
+    }
+    if (writingRef.current) return failMove(key, days, 'busy', 'busy', new Error('Another write was running'), scope);
+    writingRef.current = true;
+    let out: WriteOutcome;
+    try {
+      out = await deps.editing.update(userId, body);
+    } catch (err) {
+      logDragFailure('update threw', key, scope, err);
+      out = { kind: 'failed' };
+    }
+    writingRef.current = false;
+    raiseReconnect(out);
+    const result = saveOutcome(out);
+    if (result.kind !== 'ok') return failMove(key, days, result.error, `update ${out.kind}`, new Error(`The move was not saved: ${out.kind}`), scope);
+    hapticSuccess();
+    const answered = out.kind === 'ok' && out.key ? out.key : key;
+    showBar({ kind: 'moved', day: dropDay, undo: undoable(scope) ? { key: answered, scope, days } : null });
+    void refreshWritten(sourceOfKey(key)).then(() => setPendingKey((cur) => (cur === key ? null : cur)));
+  };
+
+  // A drop on another day: the item moves at once, then its edit info says whether and how it saves.
+  const moveItem = async ({ key, grabbedDay, dropDay }: DropEvent) => {
+    const days = dayDelta(grabbedDay, dropDay);
+    if (days === null || days === 0 || !facts) return;
+    if (writingRef.current || scopeAsk !== null) {
+      hapticError();
+      showBar({ kind: 'error', error: 'busy' });
+      return;
+    }
+    writingRef.current = true;
+    dispatch({ type: 'shiftItem', key, days });
+    setPendingKey(key);
+    let info: ItemEditInfoResponse | null = null;
+    try {
+      info = await deps.editing.item(userId, key);
+    } catch (err) {
+      logDragFailure('item info threw', key, null, err);
+    }
+    writingRef.current = false;
+    if (!info) return failMove(key, days, null, 'item info unavailable', new Error('The item could not be read'));
+    const plan = planMove(info, days);
+    switch (plan.kind) {
+      case 'cant':
+        return refuseMove(key, days, plan.reason);
+      case 'nothing':
+        return putBack(key, days);
+      case 'refuse':
+        return failMove(key, days, null, `refused ${plan.note}`, new Error(`The editor refuses this move: ${plan.note}`));
+      case 'ask':
+        setScopeAsk({ key, dropDay, days, info, plan });
+        return;
+      case 'save':
+        return sendMove(key, dropDay, days, info, plan, plan.scope);
+    }
+  };
+  const cancelScopeAsk = () => {
+    if (!scopeAsk) return;
+    putBack(scopeAsk.key, scopeAsk.days);
+    setScopeAsk(null);
+  };
+  const pickScope = (scope: EditScope) => {
+    if (!scopeAsk) return;
+    const ask = scopeAsk;
+    setScopeAsk(null);
+    void sendMove(ask.key, ask.dropDay, ask.days, ask.info, ask.plan, scope);
+  };
+
+  // Undo: the move back, the same way (the item's edit info on the key the PATCH answered, the start shifted back,
+  // the editor's body, the same scope).
+  const runUndo = async (entry: UndoEntry) => {
+    if (writingRef.current || undoing) return;
+    writingRef.current = true;
+    setUndoing(true);
+    let out: WriteOutcome = { kind: 'failed' };
+    try {
+      const info = await deps.editing.item(userId, entry.key);
+      const body = info ? undoBody(info, entry.key, entry.scope, entry.days) : null;
+      if (body) out = await deps.editing.update(userId, body);
+    } catch (err) {
+      logDragFailure('undo threw', entry.key, entry.scope, err);
+    }
+    writingRef.current = false;
+    setUndoing(false);
+    raiseReconnect(out);
+    const result = saveOutcome(out);
+    if (result.kind === 'ok') {
+      hapticSuccess();
+      showBar({ kind: 'undone' });
+    } else {
+      hapticError();
+      showBar({ kind: 'error', error: result.error });
+      logDragFailure(`undo ${out.kind}`, entry.key, entry.scope, new Error(`The undo was not saved: ${out.kind}`));
+    }
+    void refreshWritten(sourceOfKey(entry.key));
+  };
+  const turnPreviewMonth = (delta: -1 | 1) =>
+    setPreviewMonth((cur) => (monthUi && facts ? stepMonth({ ...monthUi, month: cur ?? monthUi.month }, delta, facts.today).month : cur));
+  const dragProps = {
+    pendingKey,
+    previewMonth,
+    onBlocked: (reason: CantLift) => {
+      hapticWarning();
+      showBar({ kind: 'note', note: reason });
+    },
+    onLift: hapticImpact,
+    onTarget: hapticSelection,
+    onDrop: (drop: DropEvent) => void moveItem(drop),
+    onNav: turnPreviewMonth,
+    onDraggingChange: (now: boolean) => {
+      setDragging(now);
+      if (!now) setPreviewMonth(null);
+    },
+    cancelRef: dragCancel,
+  };
   const editing: SheetEditing | undefined =
     openInfo && (openInfo.canEdit || openInfo.canDelete || openInfo.editableInGoogleOnly)
       ? { canEdit: openInfo.canEdit, canDelete: openInfo.canDelete, googleOnly: openInfo.editableInGoogleOnly === true, kind: openInfo.kind, onEdit: openEdit, onDelete: openDelete }
@@ -805,21 +1003,23 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const itemOpen =
     selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null : pickedShown);
   const back = () => {
-    if (deleting !== null) {
+    if (dragging) dragCancel.current?.();
+    else if (scopeAsk !== null) cancelScopeAsk();
+    else if (deleting !== null) {
       if (!deleteBusy) setDeleting(null);
     } else if (editor !== null) editorCancel.current?.();
     else if (sheet !== null) setSheet(null);
     else if (itemOpen) setSelected(null);
     else if (pickedShown && monthUi !== null) changeUi(backToBrowse(monthUi));
   };
-  useTelegramBackButton(itemOpen || pickedShown || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null)), back);
+  useTelegramBackButton(itemOpen || pickedShown || dragging || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null)), back);
   // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
   // included): there a drag down scrolls the months. The header and the tab bar stick
   // over browse at the same time. An open date or time sheet locks them too (editor
-  // upgrades spec §1); dragging an item (part 4) will join this one call as `|| dragging`.
+  // upgrades spec §1), and so does a lifted item (drag to move, spec §4): the finger is dragging it.
   const monthLayout = monthUi?.layout ?? (savedLayout === 'picked' ? 'picked' : 'browse');
   const browsing = activeTab === 'month' && monthLayout === 'browse';
-  useTelegramVerticalSwipes(browsing || pickerOpen);
+  useTelegramVerticalSwipes(browsing || pickerOpen || dragging);
 
   // The Month's chunk, once the first answer is in and the tab bar shows, so the first
   // tap on Month rarely waits for it. A failed fetch is tried again by that tap.
@@ -866,6 +1066,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         onMonthInView={setInView}
         onRetryMonth={retryMonth}
         onChooseCalendars={chooseCalendars}
+        drag={dragProps}
       />
     ) : (
       <MonthLoading />
@@ -946,6 +1147,23 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           cancelRef={editorCancel}
         />
       ) : null}
+      {scopeAsk ? (
+        <ScopeSheet
+          kind={scopeAsk.info.kind}
+          mode="save"
+          title={scopeAsk.info.occurrence.title}
+          day={scopeAsk.info.occurrence.start.slice(0, 10)}
+          all={allOfThem(scopeAsk.info.series.repeat, scopeAsk.info.series.start, scopeAsk.info.series.spec)}
+          weekStart={facts?.weekStart}
+          choices={scopeAsk.plan.choices}
+          note={scopeAsk.plan.note}
+          busy={false}
+          error={null}
+          onPick={pickScope}
+          onClose={cancelScopeAsk}
+        />
+      ) : null}
+      <DragBar bar={bar} undoing={undoing} onUndo={(entry) => void runUndo(entry)} />
       {deleting && deleting.info.scopes.length > 1 ? (
         <ScopeSheet
           kind={deleting.info.kind}

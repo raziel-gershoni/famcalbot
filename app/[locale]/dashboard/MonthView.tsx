@@ -16,6 +16,10 @@
 // - A row tapped under the picked day opens D's ItemSheet, as in AgendaView: the
 //   container holds the selection (its BackButton closes the sheet), and the sheet shows
 //   the row as the latest answer has it, else as it was tapped.
+// - Drag to move (editor upgrades spec §4): with `drag`, both layouts sit in a DragLayer (DragSurface),
+//   so rows of the picked day's list and browse's chips lift and drop on the days. The Agenda has none.
+//   While an item is lifted, picked can show another month than ui's (`drag.previewMonth`): the list
+//   under the grid stays the picked day's, so the lifted row stays in the page.
 // - Until a month has a model (a store drop at midnight, or a model drawn under another
 //   week start), picked draws it as loading, so a day never looks free before it is
 //   answered (§5); browse does the same for each of its months.
@@ -27,9 +31,13 @@ import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, typ
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
+import { DragLayer, type DragLayerProps } from './DragSurface';
 import { ItemSheet, type SheetActions } from './ItemSheet';
 import { MonthBrowse } from './MonthBrowse';
 import { MonthPicked } from './MonthPicked';
+
+/** Drag to move: the DragLayer's props, and the month picked shows while an item is lifted (null: the picked day's). */
+export type MonthDrag = Omit<DragLayerProps, 'children'> & { previewMonth: MonthKey | null };
 
 export interface MonthViewProps {
   /** The facts the Month draws with: the pinned ones, or the last ones through a store drop. */
@@ -64,6 +72,8 @@ export interface MonthViewProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again": the existing select-calendars page. */
   onChooseCalendars: () => void;
+  /** Drag to move; absent: nothing lifts. */
+  drag?: MonthDrag;
 }
 
 /** The month's model when it fits this week start, else the loading one. */
@@ -106,7 +116,15 @@ function UnavailableRow({ count, withStyles, onChooseCalendars }: { count: numbe
   );
 }
 
-export function MonthView({
+export function MonthView(props: MonthViewProps) {
+  const { drag, ...rest } = props;
+  const view = <MonthLayouts {...rest} previewMonth={drag?.previewMonth ?? null} />;
+  if (!drag) return view;
+  const { previewMonth: _previewMonth, ...layer } = drag;
+  return <DragLayer {...layer}>{view}</DragLayer>;
+}
+
+function MonthLayouts({
   today,
   tz,
   weekStart,
@@ -125,7 +143,8 @@ export function MonthView({
   onMonthInView,
   onRetryMonth,
   onChooseCalendars,
-}: MonthViewProps) {
+  previewMonth,
+}: Omit<MonthViewProps, 'drag'> & { previewMonth: MonthKey | null }) {
   const picked = ui.layout === 'picked' && ui.selected !== null ? ui.selected : null;
   const unavailable =
     unavailableCalendars > 0 ? <UnavailableRow count={unavailableCalendars} withStyles={picked === null} onChooseCalendars={onChooseCalendars} /> : null;
@@ -151,20 +170,21 @@ export function MonthView({
     );
   }
 
+  const shownUi = previewMonth ? { ...ui, month: previewMonth } : ui;
   const list = dayRows ?? { rows: [], status: 'loading' as const };
   const sheetRow = selected ? latestRow(list.rows, selected) : null;
   return (
     <>
       {unavailable}
       <MonthPicked
-        model={modelFor(getMonth, ui.month, weekStart, today)}
+        model={modelFor(getMonth, shownUi.month, weekStart, today)}
         selected={picked}
         today={today}
         tz={tz}
         weekStart={weekStart}
         hebrewDates={hebrewDates}
-        canPrev={canStep(ui, -1, today)}
-        canNext={canStep(ui, 1, today)}
+        canPrev={canStep(shownUi, -1, today)}
+        canNext={canStep(shownUi, 1, today)}
         rows={list.rows}
         dayStatus={list.status}
         onSelectDay={(day) => onUi(pickDay(ui, day))}

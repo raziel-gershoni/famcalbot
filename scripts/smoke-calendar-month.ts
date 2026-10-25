@@ -326,6 +326,8 @@ const slot = (kind: MonthSlot['kind'], id: string | null): MonthSlot => ({
   done: false,
   continuesBefore: false,
   continuesAfter: false,
+  canEdit: false,
+  repeatsEveryDay: false,
 });
 const chips = (n: number) => Array.from({ length: n }, (_, i) => slot('timed', `c${i}`));
 

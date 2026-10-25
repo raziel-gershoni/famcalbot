@@ -66,6 +66,7 @@ import {
 } from '@/src/lib/calendar-view/month';
 import type { DayKey, Holiday, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { calendarMark } from './ItemRow';
+import { useDayDrop, useItemDrag } from './DragSurface';
 
 export interface MonthBrowseProps {
   /** The window, oldest first: monthSpan(today), 12 months back to 18 ahead. */
@@ -198,8 +199,17 @@ function blockPx(month: MonthKey, weekStart: WeekStart, hebrewDates: boolean): n
  * meet the next day in Hebrew too; only the title is isolated (<bdi>), so a Hebrew title
  * in English, or an English one in Hebrew, reads in its own direction.
  */
-export function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
-  if (slot.kind === 'spacer') return <span className="ch-mb-slot" />;
+export function Slot({ slot, noTitle, day }: { slot: MonthSlot; noTitle: string; day?: DayKey }) {
+  if (slot.kind === 'spacer' || !slot.key) return <span className="ch-mb-slot" />;
+  return <Chip slot={slot} noTitle={noTitle} day={day} />;
+}
+
+/**
+ * A chip or bar day, draggable from the day it is drawn on (drag to move; inert outside a DragLayer
+ * and without a day). The chip is the drag handle, so a press on the cell's empty part still taps.
+ */
+function Chip({ slot, noTitle, day }: { slot: MonthSlot; noTitle: string; day?: DayKey }) {
+  const lift = useItemDrag({ key: slot.key ?? '', title: slot.title && slot.title.trim() !== '' ? slot.title : noTitle, canEdit: slot.canEdit, repeatsEveryDay: slot.repeatsEveryDay }, day ?? '');
   const cal = calendarMark(slot.color);
   const look = slot.kind === 'timed' ? (slot.mine ? 'is-mine-timed' : 'is-partner-timed') : slot.mine ? 'is-mine-solid' : 'is-partner-solid';
   const className = [
@@ -212,11 +222,11 @@ export function Slot({ slot, noTitle }: { slot: MonthSlot; noTitle: string }) {
     slot.showTitle && slot.count ? 'has-count' : '',
   ]
     .filter(Boolean)
-    .join(' ') + cal.className;
+    .join(' ') + cal.className + (day ? lift.className : '');
   const title = slot.showTitle ? (slot.title && slot.title.trim() !== '' ? slot.title : noTitle) : '';
   return (
     <span className="ch-mb-slot">
-      <span className={className} style={cal.style}>
+      <span className={className} style={cal.style} {...(day ? lift.props : {})}>
         {title ? <bdi className={slot.count ? 'ch-mb-chip-title' : undefined}>{title}</bdi> : null}
         {title && slot.count ? <span className="ch-mb-count" aria-hidden="true">{slot.count}</span> : null}
       </span>
@@ -241,10 +251,16 @@ interface CellProps {
   onPickDay: (day: DayKey) => void;
 }
 
-function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, holidays, noTitle, onPickDay }: CellProps) {
+/** A blank cell (a day of the next month in this month's rows) holds nothing and takes no drop; a day's cell is LiveCell. */
+function Cell(props: CellProps) {
+  return props.cell.inMonth ? <LiveCell {...props} /> : <div className="ch-mb-cell is-blank" aria-hidden="true" />;
+}
+
+function LiveCell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, holidays, noTitle, onPickDay }: CellProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
-  if (!cell.inMonth) return <div className="ch-mb-cell is-blank" aria-hidden="true" />;
+  // The day is a drop target while an item is lifted (drag to move): the outline is the day under the finger.
+  const target = useDayDrop(cell.day);
 
   // A day still loading never looks free: a placeholder in the next free slot.
   const placeholder = cell.status === 'loading' && more === 0 && shown.length < BROWSE_SLOTS;
@@ -272,11 +288,11 @@ function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, 
   else if (cell.status === 'failed') parts.push(t('month.cellFailed'));
   else if (cell.count === 0) parts.push(t('month.cellNothing'));
 
-  const className = ['ch-mb-cell', cell.today ? 'is-today' : '', cell.status === 'loading' ? 'is-loading' : '', cell.status === 'failed' ? 'is-failed' : '']
+  const className = ['ch-mb-cell', cell.today ? 'is-today' : '', cell.status === 'loading' ? 'is-loading' : '', cell.status === 'failed' ? 'is-failed' : '', target.over ? 'is-drop' : '']
     .filter(Boolean)
     .join(' ');
   return (
-    <button type="button" className={className} aria-label={parts.join(', ')} aria-current={cell.today ? 'date' : undefined} onClick={() => onPickDay(cell.day)}>
+    <button {...target.props} type="button" className={className} aria-label={parts.join(', ')} aria-current={cell.today ? 'date' : undefined} onClick={() => onPickDay(cell.day)}>
       <span className="ch-mb-head" aria-hidden="true">
         <span className="ch-mb-day" dir="ltr">
           {Number(cell.day.slice(8, 10))}
@@ -288,7 +304,7 @@ function Cell({ cell, partner, hebrewDates, shown, more, genitive, shortMonths, 
       </span>
       <span className="ch-mb-slots" aria-hidden="true">
         {shown.map((slot, i) => (
-          <Slot key={i} slot={slot} noTitle={noTitle} />
+          <Slot key={i} slot={slot} noTitle={noTitle} day={cell.day} />
         ))}
         {more > 0 ? (
           <span className="ch-mb-slot">

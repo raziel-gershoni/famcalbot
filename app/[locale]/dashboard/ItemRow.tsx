@@ -22,6 +22,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, ReminderMark, Whose } from '@/src/lib/calendar-view/agenda';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import { calendarVars } from '@/src/lib/calendar-view/colours';
+import { useItemDrag } from './DragSurface';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
 
 export interface ItemRowProps {
@@ -144,6 +145,8 @@ export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
   const locale = useLocale();
   const { item, whose, mark } = row;
   const title = useItemTitle(item);
+  // Drag to move (inert in the Agenda, which has no DragLayer): the row lifts from the day it is listed on.
+  const lift = useItemDrag({ key: item.key, title, canEdit: item.canEdit, repeatsEveryDay: item.repeatsEveryDay }, day);
 
   // The time column: what happens on this day.
   let main: string;
@@ -182,7 +185,14 @@ export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
 
   return (
     <li className="ch-row-li">
-      <button type="button" className={`ch-row ch-tap${mark === 'done' ? ' is-done' : ''}`} onClick={() => onOpen(row)}>
+      <button
+        type="button"
+        className={`ch-row ch-tap${mark === 'done' ? ' is-done' : ''}${lift.className}`}
+        {...lift.props}
+        onClick={() => {
+          if (!lift.suppressClick()) onOpen(row);
+        }}
+      >
         <CalendarStripe color={item.calendar.color} mine={whose.mine} />
         <span className="ch-time">
           <span className="ch-time-main" dir={mainIsTime ? 'ltr' : undefined}>

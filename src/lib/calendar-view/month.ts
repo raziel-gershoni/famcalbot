@@ -172,6 +172,9 @@ export interface MonthSlot {
   /** A bar that goes on from the day before / to the day after (flat edges). */
   continuesBefore: boolean;
   continuesAfter: boolean;
+  /** The item's ItemDTO.canEdit and repeatsEveryDay: whether the chip lifts to be dragged (drag-model's liftVerdict). */
+  canEdit: boolean;
+  repeatsEveryDay: boolean;
 }
 
 export interface MonthCell {
@@ -238,6 +241,8 @@ const SPACER: MonthSlot = Object.freeze({
   done: false,
   continuesBefore: false,
   continuesAfter: false,
+  canEdit: false,
+  repeatsEveryDay: false,
 }) as MonthSlot;
 
 /** An item as one cell draws it: whose and done, and whether it goes on before and after the day. */
@@ -369,6 +374,8 @@ function slotOf(d: Drawn, kind: SlotKind, showTitle: boolean): MonthSlot {
     done: d.done,
     continuesBefore: bar && d.before,
     continuesAfter: bar && d.after,
+    canEdit: d.item.canEdit,
+    repeatsEveryDay: d.item.repeatsEveryDay,
   };
 }
 

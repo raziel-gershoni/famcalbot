@@ -157,7 +157,7 @@ async function main() {
   await check('Month: the slot carries the count; the chip puts the pill after the title; the CSS drops the pill below a width before it hides the title', () => {
     const slot = {
       kind: 'allDay' as const, key: 'k', title: "Dana's birthday", showTitle: true, mine: true, color: null, done: false,
-      continuesBefore: false, continuesAfter: false, count: 36,
+      continuesBefore: false, continuesAfter: false, count: 36, canEdit: true, repeatsEveryDay: false,
     };
     const html = renderToString(createElement(Slot, { slot, noTitle: '(No title)' }));
     assert(html.indexOf('<bdi') !== -1 && html.indexOf('<bdi') < html.indexOf('ch-mb-count') && html.includes('has-count'), `chip ${html}`);

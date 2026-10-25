@@ -45,7 +45,7 @@
 // AGENDA_CSS, rendered here as well, because the Agenda isn't mounted on the Month tab
 // (they also style the item sheet MonthView opens over this layout).
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, type MutableRefObject, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
@@ -58,6 +58,7 @@ import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/type
 import { AGENDA_CSS } from './AgendaView';
 import { PlaceholderRows } from './DayList';
 import { ItemRow, calendarMark } from './ItemRow';
+import { useDayDrop, useNavDrop } from './DragSurface';
 
 export interface MonthPickedProps {
   /** The picked month's model (monthModels(store)(ui.month)). */
@@ -88,6 +89,58 @@ export interface MonthPickedProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again" (calendars gone): the existing select-calendars page. */
   onChooseCalendars: () => void;
+}
+
+/** A day of the compact grid: a button, and a drop target while an item is lifted (drag to move). */
+function PickedCell({
+  cell,
+  selected,
+  selectedRef,
+  label,
+  onSelect,
+  children,
+}: {
+  cell: MonthCell;
+  selected: boolean;
+  selectedRef: MutableRefObject<HTMLButtonElement | null>;
+  label: string;
+  onSelect: () => void;
+  children: ReactNode;
+}) {
+  const target = useDayDrop(cell.day);
+  const dropRef = target.props.ref as ((node: HTMLElement | null) => void) | undefined;
+  // Stable, so the library's node registration is not redone on every render.
+  const setRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      if (selected) selectedRef.current = node;
+      dropRef?.(node);
+    },
+    [selected, selectedRef, dropRef],
+  );
+  const state = cell.status === 'loading' ? ' is-loading' : cell.status === 'failed' ? ' is-failed' : '';
+  return (
+    <button
+      ref={setRef}
+      type="button"
+      className={`ch-mp-cell${cell.today ? ' is-today' : ''}${state}${target.over ? ' is-drop' : ''}`}
+      aria-label={label}
+      aria-pressed={selected}
+      aria-current={cell.today ? 'date' : undefined}
+      onClick={onSelect}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A month chevron: a button, and a drop target while an item is lifted (600 ms over it turns the month). */
+function NavButton({ side, label, disabled, onClick }: { side: 'prev' | 'next'; label: string; disabled: boolean; onClick: () => void }) {
+  const target = useNavDrop(side);
+  return (
+    <button {...target.props} type="button" className={`ch-mp-chev${target.over ? ' is-drop-nav' : ''}`} aria-label={label} disabled={disabled} onClick={onClick}>
+      <Chevron back={side === 'prev'} />
+    </button>
+  );
 }
 
 /** A chevron: back (towards the start) or forward. Flipped in RTL by .ch-flip. */
@@ -296,34 +349,28 @@ export function MonthPicked({
         ) : null}
       </div>
       <div className="ch-mp-nav">
-        <button
-          type="button"
-          className="ch-mp-chev"
-          aria-label={t('month.previous')}
+        <NavButton
+          side="prev"
+          label={t('month.previous')}
           disabled={!canPrev}
           onClick={() => {
             refocus.current = 'prev';
             onPrev();
           }}
-        >
-          <Chevron back />
-        </button>
+        />
         <h2 className="ch-mp-title" aria-live="polite">
           <span className="ch-mp-month">{formatMonthTitle(model.month, locale, true)}</span>
           {range ? <span className="ch-mp-range">{range}</span> : null}
         </h2>
-        <button
-          type="button"
-          className="ch-mp-chev"
-          aria-label={t('month.next')}
+        <NavButton
+          side="next"
+          label={t('month.next')}
           disabled={!canNext}
           onClick={() => {
             refocus.current = 'next';
             onNext();
           }}
-        >
-          <Chevron back={false} />
-        </button>
+        />
       </div>
       <NoticeRows model={model} onRetryMonth={onRetryMonth} onChooseCalendars={onChooseCalendars} />
       <div className="ch-mp-weekdays" aria-hidden="true">
@@ -335,17 +382,14 @@ export function MonthPicked({
         {model.weeks.flat().map((cell) => {
           if (!cell.inMonth) return <span key={`blank-${cell.day}`} className="ch-mp-cell ch-mp-blank" aria-hidden="true" />;
           const isSelected = cell.day === selected;
-          const state = cell.status === 'loading' ? ' is-loading' : cell.status === 'failed' ? ' is-failed' : '';
           return (
-            <button
+            <PickedCell
               key={cell.day}
-              ref={isSelected ? selectedCell : undefined}
-              type="button"
-              className={`ch-mp-cell${cell.today ? ' is-today' : ''}${state}`}
-              aria-label={label(cell)}
-              aria-pressed={isSelected}
-              aria-current={cell.today ? 'date' : undefined}
-              onClick={() => {
+              cell={cell}
+              selected={isSelected}
+              selectedRef={selectedCell}
+              label={label(cell)}
+              onSelect={() => {
                 if (!isSelected) onSelectDay(cell.day);
               }}
             >
@@ -360,7 +404,7 @@ export function MonthPicked({
               <span className="ch-mp-marks" aria-hidden="true">
                 <Marks cell={cell} />
               </span>
-            </button>
+            </PickedCell>
           );
         })}
       </div>
