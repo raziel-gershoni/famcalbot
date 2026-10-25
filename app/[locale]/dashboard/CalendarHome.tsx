@@ -180,7 +180,7 @@ type EditorState =
 type DeleteState = { key: string; info: ItemEditInfoResponse; title: string };
 
 /** The editor's field a server field name belongs to. */
-const FIELD_OF: Record<string, 'title' | 'location' | 'notes' | 'start' | 'end'> = { title: 'title', location: 'location', description: 'notes', start: 'start', end: 'end' };
+const FIELD_OF: Record<string, 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert'> = { title: 'title', location: 'location', description: 'notes', start: 'start', end: 'end', alert: 'alert' };
 
 const MOVE_NOTES: readonly MoveNote[] = ['moveAlone', 'moveMeet', 'moveHebrew', 'moveRepeat'];
 
@@ -933,6 +933,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           initial={editor.initial}
           hebrewDates={facts?.hebrewDates ?? false}
           reminderTime={editorInfo?.reminderTime}
+          alertsOn={editorInfo?.alertsOn === true}
+          defaultLead={editorInfo?.defaultLead}
           today={facts?.today}
           weekStart={facts?.weekStart}
           onPickerChange={setPickerOpen}

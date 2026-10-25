@@ -239,6 +239,13 @@ const KEYS: Record<string, readonly string[]> = {
   'editor.repeat.every.weekly': ['count'],
   'editor.repeat.every.monthly': ['count'],
   'editor.repeat.every.yearly': ['count'],
+  'editor.alert.label': [],
+  'editor.alert.default': ['lead'],
+  'editor.alert.none': [],
+  'editor.alert.atStart': [],
+  'editor.alert.atStartInline': [],
+  'editor.alert.before': ['unit', 'count'],
+  'editor.alert.fromGoogle': ['lead'],
   'editor.dayMoveAlone': [],
   'editor.moveAlone': [],
   'editor.move.alertsFollow': [],
@@ -334,6 +341,8 @@ const SAMPLES: Record<string, string | number> = {
   count: 5,
   n: 5,
   weekday: 'tue',
+  lead: '15 min before',
+  unit: 'minute',
   words: 'Every day',
   rule: 'Every week',
   day: 20,
@@ -484,7 +493,7 @@ async function main() {
         if (typeof out !== 'string' || !out.trim()) { problems.push(`${locale} ${key}: empty`); continue; }
         if (/[{}]/.test(out) || out.includes('calendarHome') || out.includes('[missing')) problems.push(`${locale} ${key}: "${out}"`);
         for (const arg of args) {
-          if (arg === 'weekday') continue; // #4 runs every weekday
+          if (arg === 'weekday' || arg === 'unit') continue; // #4 runs every weekday; a unit only picks the wording (smoke-event-alerts.ts)
           if (!out.includes(String(SAMPLES[arg]))) problems.push(`${locale} ${key} never shows {${arg}}: "${out}"`);
         }
       }

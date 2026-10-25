@@ -509,30 +509,34 @@ export interface SelectOption {
 }
 
 /** A value row: the label, the chosen value and a chevron, with a native <select> over the row. */
-export function ValueRow({ label, hint, value, options, onChange }: { label: string; hint?: string; value: string; options: SelectOption[]; onChange: (value: string) => void }) {
+export function ValueRow({ label, hint, value, options, onChange, error }: { label: string; hint?: string; value: string; options: SelectOption[]; onChange: (value: string) => void; error?: string | null }) {
+  const id = useId();
   const chosen = options.find((o) => o.value === value) ?? options[0];
   const dot = chosen?.color && /^#[0-9a-f]{3,8}$/i.test(chosen.color) ? chosen.color : null;
   return (
-    <label className="ch-form-row">
-      <span className="ch-form-label">
-        <span>{label}</span>
-        {hint ? <span className="ch-form-hint">{hint}</span> : null}
-      </span>
-      <span className="ch-form-value">
-        {chosen?.color !== undefined ? <span className="ch-swatch-dot" style={dot ? { background: dot } : undefined} aria-hidden="true" /> : null}
-        <span className="ch-form-value-text" dir="auto">
-          {chosen?.text ?? ''}
+    <>
+      <label className="ch-form-row">
+        <span className="ch-form-label">
+          <span>{label}</span>
+          {hint ? <span className="ch-form-hint">{hint}</span> : null}
         </span>
-      </span>
-      <Chevron />
-      <select className="ch-form-select" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.text}
-          </option>
-        ))}
-      </select>
-    </label>
+        <span className="ch-form-value">
+          {chosen?.color !== undefined ? <span className="ch-swatch-dot" style={dot ? { background: dot } : undefined} aria-hidden="true" /> : null}
+          <span className="ch-form-value-text" dir="auto">
+            {chosen?.text ?? ''}
+          </span>
+        </span>
+        <Chevron />
+        <select className="ch-form-select" value={value} onChange={(e) => onChange(e.target.value)} aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined}>
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.text}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error ? <FieldError id={`${id}-error`} error={error} /> : null}
+    </>
   );
 }
 

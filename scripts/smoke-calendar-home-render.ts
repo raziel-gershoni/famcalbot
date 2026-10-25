@@ -4064,6 +4064,8 @@ async function main() {
     partner: { name: 'Noa', canRemind: true },
     tz: TZ,
     reminderTime: '09:00',
+    alertsOn: false,
+    defaultLead: 15,
   };
   const editorWith = (o: Omit<Partial<EditorInfoResponse>, 'kinds'> & { kinds?: Partial<EditorInfoResponse['kinds']> } = {}): EditorInfoResponse => ({ ...EDITOR_INFO, ...o, kinds: { ...EDITOR_INFO.kinds, ...o.kinds } });
   /** An item's edit info: the Dentist, a one-off event the viewer may change and delete. */
@@ -4130,6 +4132,8 @@ async function main() {
     partner: null,
     tz: TZ,
     reminderTime: '09:00',
+    alertsOn: false,
+    defaultLead: 15,
   };
   /** The home for a Google user on the same fake clock: Google's windows come from `world.items`, the editing routes from `server`. */
   async function googleHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}) {
@@ -4799,6 +4803,190 @@ async function main() {
       assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|recycling', scope: 'single', changes: { start: `${day(5)}T17:30` } }), `reminder body: ${show(writes()[0].body)}`);
     } finally {
       r.m.unmount();
+    }
+  });
+
+  await check('#81a the Alert row (editor upgrades spec §2): in the times card after Repeat for a timed event when alerts can reach the user; Default names the user\'s lead; a lead, None and At start are sent, the default is not; hidden all day, for a reminder and when alerts are off; read-only for a Google calendar; in en, he and ru', async () => {
+    const withAlerts = (o: Partial<EditorInfoResponse> = {}) => ok200(editorWith({ alertsOn: true, ...o }));
+    const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
+    const { m } = await editingHome('en', { editor: withAlerts() });
+    try {
+      tapPlus(m);
+      await settle();
+      assertHas(topText(m), ['Repeat', 'Alert', 'Default (15 min before)'], 'the row, on Default');
+      assert(show(options(selects(m)[1])) === show([['default', 'Default (15 min before)'], ['none', 'None'], ['0', 'At start'], ['5', '5 min before'], ['10', '10 min before'], ['15', '15 min before'], ['30', '30 min before'], ['60', '1 hour before'], ['120', '2 hours before'], ['1440', '1 day before']]), `alert options: ${show(options(selects(m)[1]))}`);
+      await typeInto(inDialog(m, 'Title'), 'Parents’ evening');
+      await typeInto(selects(m)[1], '30');
+      assertHas(topText(m), ['30 min before'], 'the pick shows');
+      serveEditingWith({ editor: withAlerts(), write: () => ok200({ status: 'ok' }) });
+      m.click(saveButton(m));
+      await settle();
+      assert(writes().length === 1 && (writes()[0].body as Row).alert === 30, `a lead is sent: ${show(writes()[0]?.body)}`);
+    } finally {
+      m.unmount();
+    }
+    const b = await editingHome('en', { editor: withAlerts() });
+    try {
+      tapPlus(b.m);
+      await settle();
+      await typeInto(inDialog(b.m, 'Title'), 'Parents’ evening');
+      await typeInto(selects(b.m)[1], 'none');
+      serveEditingWith({ editor: withAlerts(), write: () => ok200({ status: 'ok' }) });
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert((writes()[0].body as Row).alert === 'none', `None is sent: ${show(writes()[0].body)}`);
+    } finally {
+      b.m.unmount();
+    }
+    const c = await editingHome('en', { editor: withAlerts() });
+    try {
+      tapPlus(c.m);
+      await settle();
+      await typeInto(inDialog(c.m, 'Title'), 'Parents’ evening');
+      serveEditingWith({ editor: withAlerts(), write: () => ok200({ status: 'ok' }) });
+      c.m.click(saveButton(c.m));
+      await settle();
+      assert(!('alert' in (writes()[0].body as Row)), `the default is left out: ${show(writes()[0].body)}`);
+    } finally {
+      c.m.unmount();
+    }
+    // The row is gone all day, and for a reminder.
+    const d = await editingHome('en', { editor: withAlerts() });
+    try {
+      tapPlus(d.m);
+      await settle();
+      assert(selects(d.m).length === 3, `repeat, alert and calendar: ${selects(d.m).length}`);
+      d.m.click(switchOf(d.m, 'All day'));
+      assert(selects(d.m).length === 2 && !topText(d.m).includes('Alert'), 'no Alert row all day');
+      d.m.click(switchOf(d.m, 'All day'));
+      tapIn(d.m, 'Reminder');
+      assert(!topText(d.m).includes('Alert'), 'no Alert row for a reminder');
+    } finally {
+      d.m.unmount();
+    }
+    // Alerts off for this user: no row.
+    const off = await editingHome('en');
+    try {
+      tapPlus(off.m);
+      await settle();
+      assert(!topText(off.m).includes('Alert') && selects(off.m).length === 2, 'no Alert row when alerts cannot reach the user');
+    } finally {
+      off.m.unmount();
+    }
+    // A user at start by default: "Default (at start)".
+    const zero = await editingHome('en', { editor: withAlerts({ defaultLead: 0 }) });
+    try {
+      tapPlus(zero.m);
+      await settle();
+      assertHas(topText(zero.m), ['Default (at start)'], 'the default lead of 0');
+    } finally {
+      zero.m.unmount();
+    }
+    // A Google calendar picked: the row is read-only and the body carries no alert.
+    const google = await editingHome('en', {
+      editor: withAlerts({ calendars: [...EDITOR_INFO.calendars, { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5', main: false, mine: true }] }),
+    });
+    try {
+      tapPlus(google.m);
+      await settle();
+      await typeInto(inDialog(google.m, 'Title'), 'Parents’ evening');
+      await typeInto(selects(google.m)[1], '15');
+      await typeInto(selects(google.m)[2], 'avi@gmail.com');
+      assertHas(topText(google.m), ['Alert', 'Default (15 min before)'], 'a read-only row');
+      assert(selects(google.m).length === 2, `no Alert select: ${selects(google.m).length}`);
+      serveEditingWith({ editor: ok200(EDITOR_INFO), write: () => ok200({ status: 'ok' }) });
+      google.m.click(saveButton(google.m));
+      await settle();
+      assert(!('alert' in (writes()[0].body as Row)) && (writes()[0].body as Row).calendarId === 'avi@gmail.com', `no alert for Google: ${show(writes()[0].body)}`);
+    } finally {
+      google.m.unmount();
+    }
+    // The words in he and ru.
+    for (const [locale, label, def, lead] of [['he', 'התראה', 'ברירת מחדל (15 דקות לפני)', '30 דקות לפני'], ['ru', 'Уведомление', 'По умолчанию (за 15 минут)', 'за 30 минут']] as const) {
+      const l = await editingHome(locale, { editor: withAlerts() });
+      try {
+        tapPlus(l.m, messages[locale].calendarHome.header.add);
+        await settle();
+        assertHas(topText(l.m), [label, def], `${locale} row`);
+        assert(options(selects(l.m)[1]).some((o) => o[1] === lead), `${locale} options: ${show(options(selects(l.m)[1]))}`);
+      } finally {
+        l.m.unmount();
+      }
+    }
+  });
+
+  await check('#81b the Alert row on an edit: the stored alert prefilled (an off-list lead as its own option), only a change is sent, a series asks for its scope, a Google item shows its own alert read-only, and the server\'s refusal shows under the row', async () => {
+    const withAlerts = ok200(editorWith({ alertsOn: true }));
+    const options = (sel: Fake) => elements(sel).filter((e) => e.localName === 'option').map((e) => [propsOf(e).value, e.textContent]);
+    const a = await editingHome('en', { editor: withAlerts, item: dentistInfo({ alert: 45 }) });
+    try {
+      await openItem(a.m, 'Dentist');
+      a.m.click(byLabel(topDialog(a.m), 'Edit'));
+      await settle();
+      assertHas(topText(a.m), ['Alert', '45 min before'], 'an off-list lead shows as it is');
+      assert(options(selects(a.m)[1]).some((o) => o[0] === '45'), 'and is an option');
+      // Left alone, a title change does not send the alert.
+      await typeInto(inDialog(a.m, 'Title'), 'Dentist 2');
+      serveEditingWith({ editor: withAlerts, item: dentistInfo({ alert: 45 }), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { title: 'Dentist 2' } }), `body: ${show(writes()[0].body)}`);
+    } finally {
+      a.m.unmount();
+    }
+    const b = await editingHome('en', { editor: withAlerts, item: dentistInfo({ alert: 'none' }) });
+    try {
+      await openItem(b.m, 'Dentist');
+      b.m.click(byLabel(topDialog(b.m), 'Edit'));
+      await settle();
+      assertHas(topText(b.m), ['None'], 'None prefilled');
+      await typeInto(selects(b.m)[1], 'default');
+      serveEditingWith({ editor: withAlerts, item: dentistInfo({ alert: 'none' }), write: () => ({ status: 400, body: { error: 'invalid', field: 'alert' } }) });
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { alert: 'default' } }), `body: ${show(writes()[0].body)}`);
+      assert(show(alerts(b.m)).includes('Check this one'), `the refusal shows under the row: ${show(alerts(b.m))}`);
+    } finally {
+      b.m.unmount();
+    }
+    const g = await editingHome('en', {
+      editor: withAlerts,
+      item: (k) => (k === 'famcal|dentist' ? ok200(infoFor({ source: 'google', alert: 60, alertReadOnly: true, calendar: { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5' } })) : { status: 404, body: {} }),
+    });
+    try {
+      await openItem(g.m, 'Dentist');
+      g.m.click(byLabel(topDialog(g.m), 'Edit'));
+      await settle();
+      assertHas(topText(g.m), ['Alert', 'From Google Calendar: 1 hour before'], 'Google\'s own alert');
+      assert(selects(g.m).length === 1, `only the Repeat select: ${selects(g.m).length}`);
+    } finally {
+      g.m.unmount();
+    }
+    const none = await editingHome('en', {
+      editor: withAlerts,
+      item: (k) => (k === 'famcal|dentist' ? ok200(infoFor({ source: 'google', alert: 'default', alertReadOnly: true, calendar: { id: 'avi@gmail.com', name: 'Avi', color: '#039BE5' } })) : { status: 404, body: {} }),
+    });
+    try {
+      await openItem(none.m, 'Dentist');
+      none.m.click(byLabel(topDialog(none.m), 'Edit'));
+      await settle();
+      assertHas(topText(none.m), ['Default (15 min before)'], 'a Google event with none of its own');
+    } finally {
+      none.m.unmount();
+    }
+    // A series: an alert change alone asks "this one and the ones after" or "all of them".
+    const s = await editingHome('en', { editor: withAlerts, item: (k) => (k === 'famcal|swim' ? ok200(swimInfo({ alert: 'default' })) : { status: 404, body: {} }) });
+    try {
+      await openItem(s.m, 'Swimming');
+      s.m.click(byLabel(topDialog(s.m), 'Edit'));
+      await settle();
+      await typeInto(selects(s.m)[1], '10');
+      s.m.click(saveButton(s.m));
+      await settle();
+      assertHas(topText(s.m), ['This one and the ones after'], 'the scope sheet offers the series choices');
+      assertLacks(topText(s.m), ['Only this one'], 'no "only this one" for an alert');
+    } finally {
+      s.m.unmount();
     }
   });
 
@@ -6801,6 +6989,8 @@ async function main() {
     partner: { name: 'Noa', canRemind: true },
     tz: TZ,
     reminderTime: '09:00',
+    alertsOn: false,
+    defaultLead: 15,
   });
   /** The home for a user with FamCal and Google both: each source's windows from `world`, the editing routes from `server`. */
   async function bothHome(locale: Locale, server: EditingServer = {}, props: Partial<CalendarHomeProps> = {}) {

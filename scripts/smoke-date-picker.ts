@@ -344,6 +344,7 @@ async function main() {
       repeat: 'none',
       calendarId: null,
       forPartner: false,
+      alert: 'default',
       ...over,
     });
     for (const repeat of ['none', 'yearly', 'hebrew'] as const) {

@@ -258,6 +258,15 @@
           "yearly": "{count, plural, one {כל שנה} two {כל שנתיים} other {כל # שנים}}"
         }
       },
+      "alert": {
+        "label": "התראה",
+        "default": "ברירת מחדל ({lead})",
+        "none": "ללא",
+        "atStart": "בתחילת האירוע",
+        "atStartInline": "בתחילת האירוע",
+        "before": "{unit, select, day {{count, plural, one {יום לפני} two {יומיים לפני} other {# ימים לפני}}} hour {{count, plural, one {שעה לפני} two {שעתיים לפני} other {# שעות לפני}}} other {{count, plural, one {דקה אחת לפני} two {שתי דקות לפני} other {# דקות לפני}}}}",
+        "fromGoogle": "מ-Google Calendar: {lead}"
+      },
       "calendar": "יומן",
       "dayMoveAlone": "כדאי לשמור קודם את שינוי היום בנפרד.",
       "moveAlone": "כדאי לשמור קודם את ההעברה בנפרד.",

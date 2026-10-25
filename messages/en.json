@@ -258,6 +258,15 @@
           "yearly": "{count, plural, one {Every year} other {Every # years}}"
         }
       },
+      "alert": {
+        "label": "Alert",
+        "default": "Default ({lead})",
+        "none": "None",
+        "atStart": "At start",
+        "atStartInline": "at start",
+        "before": "{unit, select, day {{count, plural, one {# day before} other {# days before}}} hour {{count, plural, one {# hour before} other {# hours before}}} other {{count} min before}}",
+        "fromGoogle": "From Google Calendar: {lead}"
+      },
       "calendar": "Calendar",
       "dayMoveAlone": "Save the day change on its own first.",
       "moveAlone": "Save the move on its own first.",

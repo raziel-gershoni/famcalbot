@@ -258,6 +258,15 @@
           "yearly": "{count, plural, =1 {Каждый год} one {Каждые # год} few {Каждые # года} many {Каждые # лет} other {Каждые # года}}"
         }
       },
+      "alert": {
+        "label": "Уведомление",
+        "default": "По умолчанию ({lead})",
+        "none": "Без уведомления",
+        "atStart": "В момент начала",
+        "atStartInline": "в момент начала",
+        "before": "{unit, select, day {{count, plural, one {за # день} few {за # дня} many {за # дней} other {за # дня}}} hour {{count, plural, one {за # час} few {за # часа} many {за # часов} other {за # часа}}} other {{count, plural, one {за # минуту} few {за # минуты} many {за # минут} other {за # минуты}}}}",
+        "fromGoogle": "Из Google Календаря: {lead}"
+      },
       "calendar": "Календарь",
       "dayMoveAlone": "Сначала сохраните изменение дня отдельно.",
       "moveAlone": "Сначала сохраните перенос отдельно.",

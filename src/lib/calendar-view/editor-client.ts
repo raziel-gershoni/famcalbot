@@ -53,7 +53,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isEditorInfo(value: unknown): value is EditorInfoResponse {
   if (!isObject(value) || !isObject(value.kinds)) return false;
-  return typeof value.kinds.event === 'boolean' && typeof value.kinds.reminder === 'boolean' && Array.isArray(value.calendars) && typeof value.tz === 'string';
+  return typeof value.kinds.event === 'boolean' && typeof value.kinds.reminder === 'boolean' && Array.isArray(value.calendars) && typeof value.tz === 'string' && optional(value.alertsOn, 'boolean') && optional(value.defaultLead, 'number');
 }
 
 function isItemInfo(value: unknown): value is ItemEditInfoResponse {
@@ -76,7 +76,7 @@ function isItemInfo(value: unknown): value is ItemEditInfoResponse {
   );
 }
 
-const optional = (value: unknown, type: 'boolean' | 'string') => value === undefined || typeof value === type;
+const optional = (value: unknown, type: 'boolean' | 'string' | 'number') => value === undefined || typeof value === type;
 
 /** The 3b fields are optional (an older server omits them), but a present one must be the type the editor reads. */
 function isItemInfoExtras(value: Record<string, unknown>): boolean {
@@ -92,6 +92,8 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
   return (
     ruleOk &&
     optional(series.first, 'boolean') &&
+    (value.alert === undefined || value.alert === 'default' || value.alert === 'none' || typeof value.alert === 'number') &&
+    optional(value.alertReadOnly, 'boolean') &&
     optional(value.canMoveCalendar, 'boolean') &&
     (value.moveTargets === undefined || (Array.isArray(value.moveTargets) && value.moveTargets.every((id) => typeof id === 'string'))) &&
     optional(value.canChangeRecipient, 'boolean') &&

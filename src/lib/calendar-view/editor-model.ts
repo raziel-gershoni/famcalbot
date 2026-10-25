@@ -23,6 +23,7 @@ import {
   type RuleChoice,
   type UpdateItemBody,
 } from './editor-types';
+import { type AlertChoice } from './alert-leads';
 import { MAX_YEAR, MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from './year-limits';
 
 /** What a new event lasts, and the time a new one on another day starts at. */
@@ -59,9 +60,14 @@ export interface EditorForm {
   calendarId: string | null;
   /** The reminder is for the partner (a new one's, or the edited one's current recipient). */
   forPartner: boolean;
+  /**
+   * An event's alert (editor upgrades spec §2): the default, none, or a lead in minutes. A stored
+   * lead off the list is kept as it is until another is picked. A Google item's is its own, read-only.
+   */
+  alert: AlertChoice;
 }
 
-export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end';
+export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert';
 
 /** The copy key (calendarHome.editor.<key>) of each inline error, by field. */
 export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errSeriesYear' | 'errEnd' | 'errField'>>;
@@ -231,6 +237,7 @@ export function newItemForm(ctx: NewItemContext): EditorForm {
     repeat: 'none',
     calendarId: main ? main.id : null,
     forPartner: false,
+    alert: 'default',
   };
 }
 
@@ -264,6 +271,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     repeat: storedChoice(info),
     calendarId: info.calendar.id,
     forPartner: info.forPartner === true,
+    alert: info.alert ?? 'default',
   };
 }
 
@@ -424,6 +432,8 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
   if (!reminder) {
     body.end = wallOf(form.endDay, form.endTime, allDay);
     if (form.calendarId) body.calendarId = form.calendarId;
+    // Only a timed FamCal event takes one: a Google calendar keeps its own, an all-day event has none.
+    if (form.alert !== 'default' && !allDay && isNativeCalendar(form.calendarId)) body.alert = form.alert;
   } else if (form.forPartner) {
     body.forPartner = true;
   }
@@ -467,6 +477,8 @@ export function updateBody(
   if (repeat !== null) changes.repeat = repeat;
   if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
   if (reminder && form.forPartner !== initial.forPartner) changes.forPartner = form.forPartner;
+  const alert = alertChange(form, initial);
+  if (alert !== null) changes.alert = alert;
   // A stop makes this occurrence a one-off: it always carries the occurrence's own times,
   // with the form's edits on top, never the series' (3b spec §3.1).
   if (repeat === 'none' && initial.repeat !== 'none') {
@@ -474,6 +486,14 @@ export function updateBody(
     if (!reminder) changes.end ??= nowEnd;
   }
   return Object.keys(changes).length === 0 ? null : { key, scope, changes };
+}
+
+/**
+ * The alert the person picked, or null while it is as it was. Not sent for a reminder, or while the
+ * form is all-day (the row is hidden then; the stored alert stays and shows again).
+ */
+function alertChange(form: EditorForm, initial: EditorForm): AlertChoice | null {
+  return form.kind === 'event' && !form.allDay && form.alert !== initial.alert ? form.alert : null;
 }
 
 /** The repeat the person picked, or null while the row is as it was (including a custom rule left alone). */
@@ -520,8 +540,8 @@ export type ScopePlan =
 
 /**
  * What Save does for the form against where it started. A repeat change is always from this
- * occurrence on; a calendar or recipient change on a series asks 'following' or 'all' (an
- * occurrence has neither of its own); a day move on a set-weekdays series (the bot's "every
+ * occurrence on; a calendar, alert or recipient change on a series asks 'following' or 'all' (an
+ * occurrence has none of its own); a day move on a set-weekdays series (the bot's "every
  * Tuesday") can apply to this one alone, so it can't share a save with those. A repeat pick
  * writes a rule that names no days, so a move that also picks one is never refused. A day
  * move alone on a set-weekdays series whose rule reads as one of the five offers this one, or
@@ -538,7 +558,10 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   if (!info.series.recurring) return { kind: 'none' };
   if (pickedRepeat(form, initial) !== null) return { kind: 'following' };
   const reminder = form.kind === 'reminder';
-  const seriesLevel = (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) || (reminder && form.forPartner !== initial.forPartner);
+  const seriesLevel =
+    (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||
+    alertChange(form, initial) !== null ||
+    (reminder && form.forPartner !== initial.forPartner);
   const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
   if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };
   if (info.scopes.length <= 1) return { kind: 'none' };

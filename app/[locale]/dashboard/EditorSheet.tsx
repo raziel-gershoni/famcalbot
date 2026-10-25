@@ -66,9 +66,10 @@ import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits'
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
+import { ALERT_LEADS, leadParts, type AlertChoice } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from './BottomSheet';
 import { hebrewLabelOf, hebrewRepeatText } from './hebrew-repeat-words';
-import { FORM_CSS, FormCard, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
+import { FORM_CSS, FormCard, FormRow, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
 /** What the container's request came to. On `ok` the container closes the editor. */
@@ -90,6 +91,10 @@ export interface EditorSheetProps {
   hebrewDates?: boolean;
   /** The user's reminder time (HH:mm), which a date-only reminder pings at; 09:00 until the editor info arrives. */
   reminderTime?: string;
+  /** An alert can reach the user (EditorInfoResponse.alertsOn): the Alert row shows only then. */
+  alertsOn?: boolean;
+  /** The user's default lead in minutes, which the Alert row's "Default" names. */
+  defaultLead?: number;
   /** The server's today and the week's first day, for the date sheet. */
   today?: string;
   weekStart?: WeekStart;
@@ -118,7 +123,7 @@ type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, alertsOn = false, defaultLead = 0, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const [start] = useState(initial);
@@ -334,6 +339,40 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const calendarHint = crossPicked
     ? [form.calendarId && info?.sharedTargets?.includes(form.calendarId) ? t('editor.move.partnerSees') : null, t('editor.move.alertsFollow')].filter(Boolean).join(' · ')
     : (moveReasonText ?? undefined);
+  // The Alert row (editor upgrades spec §2): a timed event, when an alert can reach the user. A Google
+  // event's own alert, or a new event on a Google calendar (it gets the default), is shown and not edited.
+  const leadWords = (minutes: number, inline: boolean): string =>
+    minutes === 0 ? t(inline ? 'editor.alert.atStartInline' : 'editor.alert.atStart') : t('editor.alert.before', leadParts(minutes));
+  const choiceKey = (choice: AlertChoice): string => String(choice);
+  const alertOptions: SelectOption[] = [
+    { value: 'default', text: t('editor.alert.default', { lead: leadWords(defaultLead, true) }) },
+    { value: 'none', text: t('editor.alert.none') },
+    // A lead stored off the list (a migrated one) is its own option, kept until another is picked.
+    ...[...ALERT_LEADS, ...(typeof form.alert === 'number' && !ALERT_LEADS.includes(form.alert) ? [form.alert] : [])].map((m) => ({ value: String(m), text: leadWords(m, false) })),
+  ];
+  const showAlertRow = alertsOn && !reminder && !form.allDay;
+  const alertReadOnly = edit ? info?.alertReadOnly === true : !isNativeCalendar(form.calendarId);
+  const readOnlyAlertText =
+    edit && typeof form.alert === 'number'
+      ? t('editor.alert.fromGoogle', { lead: leadWords(form.alert, true) })
+      : t('editor.alert.default', { lead: leadWords(defaultLead, true) });
+  const alertRow = !showAlertRow ? null : alertReadOnly ? (
+    <FormRow label={t('editor.alert.label')}>
+      <span className="ch-form-value">
+        <span className="ch-form-value-text" dir="auto">
+          {readOnlyAlertText}
+        </span>
+      </span>
+    </FormRow>
+  ) : (
+    <ValueRow
+      label={t('editor.alert.label')}
+      value={choiceKey(form.alert)}
+      options={alertOptions}
+      onChange={(v) => change({ ...form, alert: v === 'default' || v === 'none' ? v : Number(v) })}
+      error={errorOf('alert')}
+    />
+  );
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
   /** What a PillRow needs of the date sheet; a Hebrew yearly repeat opens it in Hebrew. */
   const pickerProps = {
@@ -418,6 +457,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   {...rowPicker('end')}
                 />
                 <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
+                {alertRow}
               </FormCard>
             )}
 
