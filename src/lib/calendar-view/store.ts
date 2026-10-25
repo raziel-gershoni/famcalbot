@@ -1,7 +1,8 @@
 // The calendar home's client store (spec §5): one store of days, fed by the answers of
 // GET /api/calendar/range and shared by the Agenda (Plan D) and the Month (Plan E).
 // A reducer for React's useReducer: pure, no fetch, no clock, no storage. It imports
-// only the DTO types, so it is client-safe and the smoke runs it as it is.
+// only the DTO types and the drag model's optimistic shift (and its restatement of the rule
+// that puts an item on a day), so it is client-safe and the smoke runs it as it is.
 //
 // - An answer replaces, for each source whose status in it is `ok`, that source's items
 //   on every day of its [from, to). Other days, and sources with any other status,
@@ -31,6 +32,7 @@ import {
   type SourceName,
   type WeekStart,
 } from './types';
+import { dayOfInstant, shiftItemDto, spanOnDay } from './drag-model';
 
 /** The order sources are listed in: FamCal before Google, as compareItems does. */
 export const SOURCE_ORDER: readonly SourceName[] = ['famcal', 'google'];
@@ -124,6 +126,13 @@ export type StoreAction =
    * refetch brings its copy. Coverage is kept: the days still read as answered.
    */
   | { type: 'dropItem'; key: string }
+  /**
+   * An item dragged to another day, shown there at once while the save runs (editor upgrades spec
+   * §4): its start and end `days` later (drag-model's shiftItemDto), on every day of the store it now
+   * belongs to (spanOnDay, the server's daySpanOf). Coverage is kept. Undone with the opposite `days`; the
+   * refetch after the save brings the server's copy.
+   */
+  | { type: 'shiftItem'; key: string; days: number }
   /** The midnight timer in tz: drop everything and start over. */
   | { type: 'reset' };
 
@@ -353,6 +362,38 @@ function dropItem(state: CalendarStore, key: string): CalendarStore {
   return { ...state, days, carryOvers };
 }
 
+function shiftItem(state: CalendarStore, key: string, days: number): CalendarStore {
+  const tz = state.facts?.tz;
+  if (!tz || days === 0) return state;
+  let found: ItemDTO | undefined;
+  for (const day of Object.values(state.days)) {
+    found = day.items.find((i) => i.key === key);
+    if (found) break;
+  }
+  if (!found) return state;
+  const moved = shiftItemDto(found, days, tz);
+  if (moved === found) return state;
+  // The days it can belong to: its first day less one to its last plus one (spanOnDay decides).
+  const first = moved.allDay ? moved.start.slice(0, 10) : dayOfInstant(moved.start, tz);
+  const last = moved.allDay ? moved.end.slice(0, 10) : dayOfInstant(moved.end, tz);
+  const lo = first === null ? '' : addDaysToKey(first, -1);
+  const hi = last === null ? '' : addDaysToKey(last, 1);
+  const shifted: Record<DayKey, StoreDay> = {};
+  for (const [date, day] of Object.entries(state.days)) {
+    const had = day.items.some((i) => i.key === key);
+    const on = date >= lo && date <= hi ? spanOnDay(moved, date, tz) : null;
+    if (!had && on === null) {
+      shifted[date] = day;
+      continue;
+    }
+    const items = day.items.filter((i) => i.key !== key);
+    if (on !== null) items.push({ ...moved, span: on.span });
+    items.sort(compareItems);
+    shifted[date] = { ...day, items };
+  }
+  return { ...state, days: shifted };
+}
+
 /** The reducer. It never changes `state` or the answer; an action that changes nothing returns `state` itself. */
 export function reduceStore(state: CalendarStore, action: StoreAction): CalendarStore {
   switch (action.type) {
@@ -368,6 +409,8 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
       return state.reconnect === action.reason ? state : { ...state, reconnect: action.reason };
     case 'dropItem':
       return dropItem(state, action.key);
+    case 'shiftItem':
+      return shiftItem(state, action.key, action.days);
   }
 }
 

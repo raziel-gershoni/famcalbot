@@ -262,3 +262,18 @@ export function hapticSuccess(): void {
 export function hapticSelection(): void {
   tgCall(HAPTIC, 'HapticFeedback.selectionChanged', (tg) => tg.HapticFeedback?.selectionChanged());
 }
+
+/** The tap when an item is lifted to be dragged (Bot API 6.1+). Silent where the client has none. */
+export function hapticImpact(): void {
+  tgCall(HAPTIC, 'HapticFeedback.impactOccurred', (tg) => tg.HapticFeedback?.impactOccurred('medium'));
+}
+
+/** The tap for a drop that failed (Bot API 6.1+). Silent where the client has none. */
+export function hapticError(): void {
+  tgCall(HAPTIC, 'HapticFeedback', (tg) => tg.HapticFeedback?.notificationOccurred('error'));
+}
+
+/** The tap for something that can't be done: a lift of an item that can't move (Bot API 6.1+). Silent where the client has none. */
+export function hapticWarning(): void {
+  tgCall(HAPTIC, 'HapticFeedback', (tg) => tg.HapticFeedback?.notificationOccurred('warning'));
+}

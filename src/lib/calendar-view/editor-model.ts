@@ -176,19 +176,35 @@ export function clockIn(nowMs: number, tz: string): { day: string; time: string 
   return { day: `${part('year')}-${part('month')}-${part('day')}`, time: `${part('hour')}:${part('minute')}` };
 }
 
-/** The day, in `to`, of a wall time on `from`'s clock. A time that is no real time keeps its day. */
-export function dayInZone(day: string, time: string, from: string, to: string): string {
-  if (from === to) return day;
+/**
+ * The instant (ms) whose clock in `zone` reads this wall time, or null when it is no real time. A time the
+ * zone skips (spring forward) reads an hour later; one it repeats (fall back) is the first of the two.
+ */
+export function instantOfWall(day: string, time: string, zone: string): number | null {
   const wall = Date.parse(`${day}T${time}:00Z`);
-  if (Number.isNaN(wall)) return day;
-  // The instant whose clock in `from` reads `wall`: the zone's offset at it, found from a guess.
+  if (Number.isNaN(wall)) return null;
+  // The zone's offset at a guess, then at the instant that guess gives.
   const offsetAt = (ms: number) => {
-    const c = clockIn(ms, from);
+    const c = clockIn(ms, zone);
     return Date.parse(`${c.day}T${c.time}:00Z`) - ms;
   };
-  let instant = wall - offsetAt(wall);
-  instant = wall - offsetAt(instant);
-  return clockIn(instant, to).day;
+  const guess = wall - offsetAt(wall);
+  return wall - offsetAt(guess);
+}
+
+/**
+ * A wall time on `from`'s clock as the wall time on `to`'s clock (the same instant). A time that
+ * is no real time keeps its day and time.
+ */
+export function wallInZone(day: string, time: string, from: string, to: string): { day: string; time: string } {
+  if (from === to) return { day, time };
+  const instant = instantOfWall(day, time, from);
+  return instant === null ? { day, time } : clockIn(instant, to);
+}
+
+/** The day, in `to`, of a wall time on `from`'s clock. A time that is no real time keeps its day. */
+export function dayInZone(day: string, time: string, from: string, to: string): string {
+  return wallInZone(day, time, from, to).day;
 }
 
 /**
