@@ -232,9 +232,9 @@ async function main() {
     assertSame(rec.endOfRule('FREQ=WEEKLY;UNTIL=20261027T095959'), { until: '2026-10-27' }, 'without a start, the UNTIL\'s own day');
     const read = rec.specOfRule('FREQ=WEEKLY;UNTIL=20261027T095959', tue, IL);
     assertSame(read, { freq: 'weekly', interval: 1, byDay: ['TU'], until: '2026-10-20' }, 'the spec says it');
-    // The ruling-5 round trip: the day the sheet shows, sent back, is the stored end (carry).
+    // The ruling-5 round trip: the day the sheet shows, sent back, is the end (a date-only UNTIL on it, not the head's UNTIL a period later).
     const stored = { rrule: 'FREQ=WEEKLY;UNTIL=20261027T095959', startsAt: tue, timeZone: IL };
-    assertSame(write.ruleToWrite(read!, stored, at('2026-10-27 10:00'), IL, null).endGiven, false, 'unchanged end carries');
+    assertSame(write.ruleToWrite(read!, stored, tue, IL, null), { rrule: 'FREQ=WEEKLY;UNTIL=20261020', hebrewRule: null, endGiven: true }, 'the shown end is written');
   });
 
   await check('specOfRule: YEARLY with BYMONTHDAY alone is custom (rrule expands it monthly); with the start\'s BYMONTH it is yearly', () => {
@@ -310,6 +310,24 @@ async function main() {
     assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY;BYDAY=TU,TH', at('2026-10-21 10:00')), true, 'moved onto Wednesday: the chips gain it');
     assertSame(changes({ freq: 'monthly', interval: 1, monthly: 'weekday' }, 'FREQ=MONTHLY;BYDAY=3TU', at('2026-10-27 10:00')), true, 'the ordinal follows the new start (the 4th Tuesday)');
     assert(refused(() => changes({ freq: 'monthly', interval: 1, monthly: 'last' }, 'FREQ=MONTHLY')), 'a "last Tuesday" off the last week throws, so the write answers 400 repeat');
+  });
+
+  await check('ruleToWrite: a split head\'s date-time UNTIL is shown as its last occurrence\'s day, so a spec leaving the end alone writes that day (never the UNTIL a period later); a choice string and a date-only UNTIL are as before', () => {
+    const start = at('2026-10-13 10:00');
+    const head = { rrule: 'FREQ=WEEKLY;UNTIL=20261027T095959', startsAt: start, timeZone: IL };
+    assertSame(write.ruleToWrite({ freq: 'daily', interval: 1, until: '2026-10-20' }, head, start, IL, { at: start, first: true }), { rrule: 'FREQ=DAILY;UNTIL=20261020', hebrewRule: null, endGiven: true }, 'Daily on the head, end untouched');
+    assertSame(write.ruleToWrite({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], until: '2026-10-20' }, head, start, IL, { at: start, first: true }).rrule, 'FREQ=WEEKLY;BYDAY=TU,TH;UNTIL=20261020', 'a day added');
+    const custom = { rrule: 'FREQ=WEEKLY;BYDAY=MO,TU;UNTIL=20261027T095959', startsAt: start, timeZone: IL };
+    assertSame(write.ruleToWrite({ freq: 'weekly', interval: 1, byDay: ['TU'], until: '2026-10-26' }, custom, start, IL, { at: start, first: true }), { rrule: 'FREQ=WEEKLY;UNTIL=20261026', hebrewRule: null, endGiven: true }, 'a custom head left for Weekly (its last occurrence is the Monday)');
+    assertSame(write.ruleToWrite('daily', head, start, IL, { at: start, first: true }), { rrule: 'FREQ=DAILY', hebrewRule: null, endGiven: false }, 'a choice string is the bot\'s carry');
+    assertSame(write.ruleToWrite({ freq: 'daily', interval: 1, until: '2026-12-01' }, { ...head, rrule: 'FREQ=WEEKLY;UNTIL=20261201' }, start, IL, { at: start, first: true }).endGiven, false, 'a date-only UNTIL is its own day');
+  });
+
+  await check('classifyRule: YEARLY with a day of the month and no month expands monthly, so it is custom, not the yearly choice', () => {
+    const start = at('2026-11-14 10:00');
+    assertSame(rec.classifyRule('FREQ=YEARLY;BYMONTHDAY=14', start, IL).choice, 'custom', 'YEARLY;BYMONTHDAY');
+    assertSame(rec.classifyRule('FREQ=YEARLY;BYMONTH=11;BYMONTHDAY=14', start, IL).choice, 'yearly', 'with its month');
+    assertSame(rec.classifyRule('FREQ=YEARLY', start, IL).choice, 'yearly', 'plain');
   });
 
   await check('ruleToWrite: an unchanged end carries (no end in the rule, endGiven false); a changed one is the spec\'s, counted from the first occurrence on a later cut; Never removes it', () => {

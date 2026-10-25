@@ -1281,6 +1281,18 @@ async function main() {
     assertSame(writes().length, 0, 'wrote');
   });
 
+  await check('richer repeats, edit: a Google split head (UNTIL a period past its last occurrence) shown as "until 20 Oct" and given a denser rule with the end untouched ends on the 20th, not on its UNTIL', async () => {
+    seed(NOA_CAL, 'hd', { start: '2026-10-13T10:00:00', summary: 'Swim', recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261027T075959Z'] });
+    const key = gkey(NOA_CAL, inst('hd', '2026-10-13T10:00:00'));
+    const info = await editInfo(NOA, key);
+    assert(info !== 'not_found', 'nf');
+    assertSame(info.series.spec?.until, '2026-10-20', 'the sheet shows the last occurrence\'s day');
+    const r = await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-10-20' } } }), IL);
+    assert(r.status === 'ok', show(r));
+    const sent = writes().map((w) => w.body?.recurrence).filter(Boolean).flat() as string[];
+    assertSame(sent, ['RRULE:FREQ=DAILY;UNTIL=20261020T205959Z'], 'ends at the close of the 20th there');
+  });
+
   await check('richer repeats, edit: a Google every-2-weeks Sun+Tue rule with no WKST keeps Monday weeks when only the end changes', async () => {
     seed(NOA_CAL, 'bi', { start: '2026-10-25T10:00:00', summary: 'Club', recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU'] });
     const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('bi', '2026-11-03T10:00:00')), scope: 'following', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], count: 5 } } }), IL);

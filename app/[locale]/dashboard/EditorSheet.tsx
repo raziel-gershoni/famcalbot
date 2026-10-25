@@ -180,7 +180,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     else if (repeatOpen) setRepeatOpen(false);
     else if (scopeOpen) setScopeOpen(false);
     else if (discardOpen) setDiscardOpen(false);
-    else if (isDirty(form, start)) setDiscardOpen(true);
+    else if (isDirty(form, start, info)) setDiscardOpen(true);
     else onClose();
   };
   const cancelNow = useRef(cancel);
@@ -258,10 +258,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const customOwn = start.repeat === 'custom' && info ? (info.series.rule?.words ?? infoText(t, locale, repeatWords(info.series.repeat, info.series.start), weekStart)) : null;
   const customEnded = customOwn === null ? null : withEndText(t, locale, customOwn, endOfInfo(info?.series.repeat ?? null, info?.series.rule?.until));
   const custom = start.repeat === 'custom' ? { choice: customEnded === null ? t('editor.repeat.currentPlain') : t('editor.repeat.current', { words: customEnded }), summary: customEnded ?? t('editor.repeat.currentPlain') } : null;
-  /** What leaving a rule the sheet can't say carries into the spec that replaces it: its end, and its interval for the same frequency. */
+  /** What leaving a rule the sheet can't say carries into the spec that replaces it: its end (a count stays a count), and its interval for the same frequency. */
   const customSeed: CustomSeed | undefined =
     start.repeat === 'custom' && info
-      ? { ...(info.series.repeat ? { freq: info.series.repeat.hebrew ? ('hebrew' as const) : info.series.repeat.freq, interval: info.series.repeat.interval } : {}), ...endOfInfo(info.series.repeat, info.series.rule?.until) }
+      ? { ...(info.series.repeat ? { freq: info.series.repeat.hebrew ? ('hebrew' as const) : info.series.repeat.freq, interval: info.series.repeat.interval } : {}), ...(info.series.repeat?.count !== undefined ? { count: info.series.repeat.count } : endOfInfo(info.series.repeat, info.series.rule?.until)) }
       : undefined;
   const repeatValue = form.repeat === 'custom' ? (custom?.summary ?? t('editor.repeat.currentPlain')) : repeatFormText(t, locale, form.repeat, wordsCtx);
   /** Under the Repeat row, once the rule is changed from a later occurrence: the earlier ones keep theirs. */

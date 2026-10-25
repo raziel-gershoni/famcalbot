@@ -7570,7 +7570,7 @@ async function main() {
     }
   });
 
-  await check('S12 a weekly Tue/Thu series whose Tuesday is moved to Thursday asks its scope question (never a silent repeat change), and "this one and the ones after" restates Tue/Thu; leaving a custom rule for a frequency keeps its end and, for the same frequency, its N; the Hebrew choice stays while the stored rule is Hebrew', async () => {
+  await check('S12 a weekly Tue/Thu series whose Tuesday is moved to a Thursday it already has offers only "Only this one" (never a silent repeat change, and no "this one and the ones after" the server would refuse), and sends no repeat; leaving a custom rule for a frequency keeps its end and, for the same frequency, its N; the Hebrew choice stays while the stored rule is Hebrew', async () => {
     const multi = swimSeries({ spec: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, fixedDays: true, rule: { choice: 'custom' }, first: false, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], ends: false } });
     const a = await editingHome('en', { item: serveSwim(multi), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
     try {
@@ -7578,10 +7578,10 @@ async function main() {
       await typeInto(inDialog(a.m, 'Start date'), day(7));
       a.m.click(saveButton(a.m));
       await settle();
-      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Cancel']), `asked: ${show(choiceTexts(a.m))}`);
-      tapIn(a.m, 'This one and the ones after');
+      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'Cancel']), `asked: ${show(choiceTexts(a.m))}`);
+      tapIn(a.m, 'Only this one (Tue 20 Oct)');
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { start: `${day(7)}T17:00`, end: `${day(7)}T18:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] } } }), `restated Tue/Thu: ${show(writes()[0]?.body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'single', changes: { start: `${day(7)}T17:00`, end: `${day(7)}T18:00` } }), `this one alone, no repeat: ${show(writes()[0]?.body)}`);
     } finally {
       a.m.unmount();
     }
@@ -7605,6 +7605,17 @@ async function main() {
     } finally {
       b.m.unmount();
     }
+    const counted = swimSeries({ repeat: { freq: 'weekly', interval: 2, byDay: [], ends: true, count: 8 }, rule: { choice: 'custom', until: day(54) } });
+    const c = await editingHome('en', { item: serveSwim(counted), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(c.m, 'Swimming');
+      await openRepeat(c.m);
+      chooseIn(c.m, 'How often', 'Weekly');
+      assert(summaryOf(c.m) === 'Every 2 weeks on Tuesday, 8 times' && endChoices(c.m)[2][1] === 'true', `a count stays a count: ${summaryOf(c.m)} ${show(endChoices(c.m))}`);
+      await sheetCancel(c.m);
+    } finally {
+      c.m.unmount();
+    }
     const h = await hebrewHome('en', false, { item: serveSwim(hebrewSwim('hebrew')) });
     try {
       await openEditor(h.m, 'Swimming');
@@ -7614,6 +7625,28 @@ async function main() {
       await sheetCancel(h.m);
     } finally {
       h.m.unmount();
+    }
+  });
+
+  await check('S13 an untouched Done on the Repeat sheet applies nothing: Tue/Thu moved to a Wednesday, the sheet opened and Done pressed, the start moved back to the Tuesday and the title edited asks its scope question and sends no repeat (the Wednesday was not baked in)', async () => {
+    const multi = swimSeries({ spec: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, fixedDays: true, rule: { choice: 'custom' }, first: false, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'], ends: false } });
+    const a = await editingHome('en', { item: serveSwim(multi), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await openEditor(a.m, 'Swimming');
+      await typeInto(inDialog(a.m, 'Start date'), day(6));
+      await openRepeat(a.m);
+      await sheetDone(a.m);
+      await typeInto(inDialog(a.m, 'Start date'), day(5));
+      await typeInto(inDialog(a.m, 'Title'), 'Pool');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(writes().length === 0, `asked, not written: ${show(writes()[0]?.body)}`);
+      assert(show(choiceTexts(a.m)) === show(['Only this one (Tue 20 Oct)', 'This one and the ones after', 'Every week on Tue and Thu', 'Cancel']), `the scope question: ${show(choiceTexts(a.m))}`);
+      tapIn(a.m, 'This one and the ones after');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'following', changes: { title: 'Pool' } }), `title only: ${show(writes()[0]?.body)}`);
+    } finally {
+      a.m.unmount();
     }
   });
 

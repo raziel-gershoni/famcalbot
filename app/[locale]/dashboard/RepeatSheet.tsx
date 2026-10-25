@@ -25,6 +25,7 @@ import {
   isSpec,
   monthlyOptions,
   pickFrequency,
+  sameRepeat,
   toggleDay,
   weekOrder,
   withCount,
@@ -265,7 +266,7 @@ export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom,
           ) : null}
         </div>
       </div>
-      <SaveBar label={t('editor.repeat.done')} busy={false} error={null} onSave={() => onApply(formRepeat(draft, startDay))} />
+      <SaveBar label={t('editor.repeat.done')} busy={false} error={null} onSave={() => onApply(sameRepeat(draft, value, startDay) ? value : formRepeat(draft, startDay))} />
     </BottomSheet>
   );
 }

@@ -748,6 +748,8 @@ export function classifyRule(rule: string | null, start: Date, zone: string, heb
     });
     if (!matches) return withEnd('custom');
   }
+  // Yearly on a day of the month with no month expands monthly: not the yearly choice.
+  if (choice === 'yearly' && opts.bymonthday !== undefined && opts.bymonth === undefined) return withEnd('custom');
   return withEnd(choice);
 }
 

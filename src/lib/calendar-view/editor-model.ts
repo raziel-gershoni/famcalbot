@@ -394,14 +394,14 @@ export function setKind(form: EditorForm, kind: EditorForm['kind']): EditorForm 
   return { ...form, kind, repeat };
 }
 
-/** Whether the form differs from where it started (Cancel asks to discard only then). */
-export function isDirty(form: EditorForm, initial: EditorForm): boolean {
+/** Whether the form differs from where it started (Cancel asks to discard only then); a repeat is compared on the series' zone day. */
+export function isDirty(form: EditorForm, initial: EditorForm, info?: ItemEditInfoResponse): boolean {
   const keys = Object.keys(initial) as (keyof EditorForm)[];
   return keys.some((k) => {
     // A reminder has no end, and a switch-off time is not an edit.
     if (form.kind === 'reminder' && (k === 'endDay' || k === 'endTime')) return false;
     if (form.allDay && initial.allDay && (k === 'startTime' || k === 'endTime')) return false;
-    if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat, form.startDay);
+    if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat, repeatDayOf(form, info));
     return form[k] !== initial[k];
   });
 }
@@ -550,6 +550,8 @@ function pickedRepeat(form: EditorForm, initial: EditorForm, info?: ItemEditInfo
   return repeatInput(form.repeat, day);
 }
 
+const canonicalByDay = (spec: RepeatSpec): string[] => [...(spec.byDay ?? [])].sort();
+
 /**
  * The shown spec, to send again, when the form moves the day of a set-weekdays series whose
  * rule the sheet can say (Google's own weekly events, BYDAY=MO from a Monday; the bot's "every
@@ -559,7 +561,13 @@ function pickedRepeat(form: EditorForm, initial: EditorForm, info?: ItemEditInfo
  */
 export function restatedRepeat(form: EditorForm, initial: EditorForm, info: ItemEditInfoResponse): RepeatSpec | null {
   if (!info.series.recurring || !info.series.fixedDays || !isSpec(initial.repeat) || !sameRepeat(form.repeat, initial.repeat, repeatDayOf(form, info))) return null;
-  return movesDay(form, initial, info.tz, info.series.zone) ? shownSpec(form.repeat, repeatDayOf(form, info)) : null;
+  if (!movesDay(form, initial, info.tz, info.series.zone)) return null;
+  const restated = shownSpec(form.repeat, repeatDayOf(form, info));
+  // A move onto a day the weekly set already has restates the same rule: the server then sees no change
+  // and refuses the day move, so only "this one" is offered (as in 3b).
+  const opened = shownSpec(initial.repeat, repeatDayOf(initial, info));
+  if (restated?.freq === 'weekly' && opened && canonicalByDay(restated).join() === canonicalByDay(opened).join()) return null;
+  return restated;
 }
 
 /**

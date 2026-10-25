@@ -1661,7 +1661,17 @@ async function main() {
     assertSame((await itemOf(oneOff.body.key)).body.series.spec, undefined, 'a one-off has none');
   });
 
-  await check('richer repeats, edit: a spec equal to the stored rule writes nothing (a bot\'s BYDAY=TU too); a changed one splits there, with the sheet\'s days and interval', async () => {
+  await check('richer repeats, edit: a split head (UNTIL a period past its last occurrence) shown as "until 20 Oct" and given a denser rule with the end untouched ends on the 20th, not on its UNTIL', async () => {
+    seed();
+    const head = seedSeries('head', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Swim', startsAt: at('2026-10-13 10:00'), rrule: 'FREQ=WEEKLY;UNTIL=20261027T095959' });
+    const shown = (await itemOf(`famcal|${head.id}#${iso(at('2026-10-13 10:00'))}`)).body.series.spec;
+    assertSame(shown?.until, '2026-10-20', 'the sheet shows the last occurrence\'s day');
+    const r = await patch({ key: `famcal|${head.id}#${iso(at('2026-10-13 10:00'))}`, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-10-20' } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame(eventRow(head.id).rrule, 'FREQ=DAILY;UNTIL=20261020', 'ends on the day the sheet showed');
+  });
+
+  await check('richer repeats, edit: a spec equal to the stored rule writes nothing (a bot\'s BYDAY=TU is a change: the rule follows its start); a changed one splits there, with the sheet\'s days and interval', async () => {
     seed();
     const bot = seedSeries('every-tuesday', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
     const key = `famcal|${bot.id}#${iso(at('2026-10-27 10:00'))}`;

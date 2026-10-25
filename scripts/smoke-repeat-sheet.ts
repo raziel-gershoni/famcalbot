@@ -239,17 +239,16 @@ async function main() {
     assert(formRepeat(spec({ freq: 'daily', interval: 3 }), '2026-10-20') !== null, 'formRepeat');
   });
 
-  await check('R6 a day move on a series with fixed days restates the repeat: "this one and the ones after" sends the shown spec, which gains the new start\'s day and keeps the rest; the question is asked even when the moved start lands on a day the set already has; "only this one" sends none; a custom rule can\'t', () => {
+  await check('R6 a day move on a series with fixed days restates the repeat: "this one and the ones after" sends the shown spec, which gains the new start\'s day and keeps the rest; a move onto a day the set already has offers only "Only this one" (the restated rule would be the stored one, which the server refuses); "only this one" sends none; a custom rule can\'t', () => {
     const weekly = info({ spec: spec({ freq: 'weekly', byDay: ['TU', 'TH'] }), choice: { choice: 'custom' }, fixedDays: true, first: false, day: '2026-10-20' });
     const initial = formOf(weekly);
     assertSame(initial.repeat, { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'opened on the Tuesday');
     const asks = { kind: 'sheet', choices: ['single', 'following'], note: 'dayMove' };
-    // Tuesday moved to Thursday: a day the series already has. It is still a move, so the scope is asked.
+    // Tuesday moved to Thursday: a day the series already has. The restated rule is the stored one, so only this one is offered.
     const thu = moveStart(initial, { startDay: '2026-10-22' });
-    assertSame(scopePlan(thu, initial, weekly), asks, 'Tuesday to Thursday asks');
-    assertSame(restatedRepeat(thu, initial, weekly), { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'and restates Tue/Thu');
+    assertSame(scopePlan(thu, initial, weekly), { kind: 'sheet', choices: ['single'], note: 'dayMove' }, 'Tuesday to Thursday: this one alone');
+    assert(restatedRepeat(thu, initial, weekly) === null, 'and restates nothing');
     assert(updateBody(thu, initial, 'k', 'single', weekly)?.changes.repeat === undefined, 'only this one sends no repeat');
-    assertSame(updateBody(thu, initial, 'k', 'following', weekly)?.changes.repeat, { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'following restates');
     // Tuesday moved to Wednesday: the shown spec is TU, WE, TH (the ruling\'s example, the server test at the same shape).
     const wed = moveStart(initial, { startDay: '2026-10-21' });
     assertSame(scopePlan(wed, initial, weekly), asks, 'Tuesday to Wednesday asks');
@@ -407,6 +406,10 @@ async function main() {
     const edge = info({ tz: 'America/New_York', zone: 'Asia/Jerusalem', time: '19:00', day: '2026-10-24', spec: spec({ freq: 'monthly', monthly: 'weekday' }), choice: { choice: 'custom' } });
     assertSame(shownSpec(formOf(edge).repeat, repeatDayOf(formOf(edge), edge)), { freq: 'monthly', interval: 1, monthly: 'weekday' }, 'the weekday spec stands');
     assertSame(monthlyOptions(repeatDayOf(formOf(edge), edge)), { ordinal: 4, last: true }, 'the series\' 25 Oct holds a "last"; the user\'s 24 Oct would not');
+    // Cancel's discard question compares on that day too: the plain weekly and the Tuesday-only spec are one repeat there.
+    const tuOnly = withRepeat(f, spec({ freq: 'weekly', byDay: ['TU'] }));
+    assert(!isDirty(tuOnly, f, ny), 'on the series\' Tuesday a plain weekly and {TU} are the same');
+    assert(isDirty(tuOnly, f), 'on the user\'s Monday they would differ');
   });
 
   await check('R12 leaving a rule the sheet can\'t say carries its end, and its interval for the same frequency; a pick from Never starts clean', () => {

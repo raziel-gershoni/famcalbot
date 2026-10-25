@@ -152,7 +152,16 @@ export function ruleToWrite(
   // A stored every-N-weeks rule on several days keeps its own week start when rebuilt (its weeks would shift otherwise).
   const weekStart = storedWeekStart(stored?.rrule ?? null) ?? userWeekStart;
   const unchanged = typeof repeat === 'string' || (spec.until === end.until && spec.count === end.count);
-  if (unchanged) return { ...ruleOfSpec(withoutSpecEnd(spec), tailStart, zone, weekStart), endGiven: false };
+  if (unchanged) {
+    // A stored date-time UNTIL (a split head's, a full period past its last occurrence) is shown as its last
+    // occurrence's day. When that is another day, a rule that fills more days would run past what the sheet
+    // showed, so the shown day is written as the end. The editor's specs only: a choice string keeps the carry.
+    const own = /(^|;)UNTIL=(\d{8})T/i.exec(stored?.rrule ?? '');
+    if (typeof repeat !== 'string' && own && end.until && own[2] !== end.until.replace(/-/g, '')) {
+      return { ...ruleOfSpec({ ...withoutSpecEnd(spec), until: end.until }, tailStart, zone, weekStart), endGiven: true };
+    }
+    return { ...ruleOfSpec(withoutSpecEnd(spec), tailStart, zone, weekStart), endGiven: false };
+  }
   // The end is the spec's now (Never included): the store must not carry the old one onto it.
   if (spec.count !== undefined && stored?.rrule && cut && !cut.first) {
     const left = Math.max(1, spec.count - slotsBefore({ ...stored, rrule: stored.rrule }, cut.at));
