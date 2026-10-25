@@ -755,6 +755,28 @@ async function main() {
     assert(ok.status === 200, `a yearly series to 1950: ${ok.status} ${ok.text}`);
   });
 
+  await check('year floor, series start: "All" from a far-date pick is refused when the moved series start leaves the years; a near pick is fine', async () => {
+    seed();
+    const yearly = await post(eventBody({ start: '1950-03-02T10:00', end: '1950-03-02T11:00', repeat: 'yearly' }));
+    assert(yearly.status === 200, `a yearly item from 1950: ${yearly.status} ${yearly.text}`);
+    const key = `famcal|${idOf(yearly.body.key)}#${iso(at('2026-03-02 10:00'))}`;
+    // Re-entering 1950 on this year's occurrence moves the series start back 27 759 days, to 1874.
+    const refused = await patch({ key, scope: 'all', changes: { start: '1950-03-02T10:00', end: '1950-03-02T11:00' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'the series start would land in 1874');
+    const near = await patch({ key, scope: 'all', changes: { start: '1990-03-02T10:00', end: '1990-03-02T11:00' } });
+    assert(near.status === 200, `a move that keeps the series start in range: ${near.status} ${near.text}`);
+  });
+
+  await check('year floor, repeat change without a start: a 1950 one-off cannot become a daily series, but can become yearly', async () => {
+    seed();
+    const one = await post(eventBody({ start: '1950-03-02T10:00', end: '1950-03-02T11:00' }));
+    assert(one.status === 200, `a one-off from 1950: ${one.status} ${one.text}`);
+    const refused = await patch({ key: one.body.key, scope: 'single', changes: { repeat: 'daily' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'daily from 1950');
+    const ok = await patch({ key: one.body.key, scope: 'single', changes: { repeat: 'yearly' } });
+    assert(ok.status === 200, `yearly from 1950: ${ok.status} ${ok.text}`);
+  });
+
   // ================= create: reminders =================
 
   await check('create reminder: timed, zero-length, on the main calendar for the user, armed, the due gate open', async () => {

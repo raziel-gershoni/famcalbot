@@ -341,8 +341,10 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const masterId = master?.id ?? undefined;
 
   const occ = occurrenceOf(read.event, userTz);
-  // A Google series keeps the 2000 floor (it is read by its rule, which this editor can't classify), a one-off follows the repeat picked.
-  const times = resolveWallTimes(c, occ, false, userTz, userTz, minYearFor(c.repeat ?? (master ? 'custom' : 'none')));
+  // One rule with FamCal's items (year-limits.ts), by the repeat the item will have: the one picked, else the series' own as the Repeat row names it.
+  // The editor's floor comes from that same classified choice, so client and server agree.
+  const rule = ruleInfo(read, userTz);
+  const times = resolveWallTimes(c, occ, false, userTz, userTz, minYearFor(c.repeat ?? rule.choice));
   if (!times.ok) return { status: 'invalid', field: times.field };
   const { start, end, allDay, timeChanged } = times;
   const text = {
@@ -351,7 +353,6 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
     // Google keeps HTML notes and the form shows them as text: written only when the text changed.
     ...(c.description !== undefined && c.description !== (htmlToText(read.event.description) ?? '') ? { description: c.description } : {}),
   };
-  const rule = ruleInfo(read, userTz);
   const repeat = c.repeat !== undefined && repeatChanges(c.repeat, rule.rule, rule.choice) ? c.repeat : undefined;
   if (c.forPartner === true) return { status: 'invalid', field: 'forPartner' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;

@@ -45,7 +45,7 @@ import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './it
 import { endFollows, isHebrewChoice, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
-import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
+import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant } from './walltime';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 
 export type WriteResult =
@@ -309,9 +309,15 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const itemTz = itemZone(series);
   const c = cmd.changes;
   // The repeat the item will have sets the earliest year it may start in: the one picked, else the stored one.
-  const choice = c.repeat ?? classifyRule(series.rrule, series.startsAt, itemTz, series).choice;
-  const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, minYearFor(choice));
+  // Classified once: the floor and "does the repeat change" both read it (an UNTIL or COUNT rule is walked to its last slot).
+  const stored = classifyRule(series.rrule, series.startsAt, itemTz, series).choice;
+  const choice = c.repeat ?? stored;
+  const floor = minYearFor(choice);
+  const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, floor);
   if (!times.ok) return { status: 'invalid', field: times.field };
+  // A repeat change is checked against the start the item will have even when the start doesn't move
+  // (a one-off from 1950 can't become a daily series, whatever the body says about the start).
+  if (c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, stored) && !isDay(dayOfWall(times.start), floor)) return { status: 'invalid', field: 'start' };
   const { start, end, allDay, timeChanged } = times;
   const text = {
     ...(c.title !== undefined && c.title !== occ.title ? { title: c.title } : {}),
@@ -322,7 +328,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // The series-level fields (3b spec §3.3), each only when it differs from what the item
   // has: a repeat other than the one the Repeat row shows, another calendar, the other
   // recipient (relative to the reminder's creator).
-  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, classifyRule(series.rrule, series.startsAt, itemTz, series).choice) ? c.repeat : undefined;
+  const repeat = c.repeat !== undefined && repeatChanges(c.repeat, series.rrule, stored) ? c.repeat : undefined;
   const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
   const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;
   const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
@@ -371,7 +377,12 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       // when it moves, which carries what was skipped or renamed along; this occurrence is
       // then where its slot went (one moved on its own comes back to the rule's day).
       const moved = seriesTimesFor(series, occ.startsAt, { startsAt, endsAt, allDay });
-      if (moved.startsAt.getTime() !== series.startsAt.getTime()) input.startsAt = moved.startsAt;
+      if (moved.startsAt.getTime() !== series.startsAt.getTime()) {
+        // The series start moves by the same days, so a far move can carry it out of the years its repeat allows
+        // (1950 picked on this year's occurrence puts the start in the 1870s). Refused, not clamped.
+        if (!isDay(localDate(moved.startsAt, itemTz), floor)) return { status: 'invalid', field: 'start' };
+        input.startsAt = moved.startsAt;
+      }
       input.endsAt = moved.endsAt;
     } else {
       input.startsAt = startsAt;

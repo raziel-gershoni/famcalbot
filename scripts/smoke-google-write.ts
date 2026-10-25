@@ -1075,6 +1075,16 @@ async function main() {
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forPartner: true } }), IL), { status: 'invalid', field: 'forPartner' }, 'recipient');
   });
 
+  await check('year floor: a yearly Google series may move to 1950 as a FamCal item may (one rule); a weekly one keeps 2000', async () => {
+    seed(NOA_CAL, 'yr', { start: '2026-10-20T10:00:00', summary: 'Birthday', recurrence: ['RRULE:FREQ=YEARLY'] });
+    const yearly = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('yr', '2026-10-20T10:00:00')), scope: 'single', changes: { start: '1950-10-20T10:00', end: '1950-10-20T11:00' } }), IL);
+    assert(yearly.status === 'ok', `yearly to 1950: ${show(yearly)}`);
+    reset();
+    WEEKLY_TUE();
+    const weekly = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')), scope: 'single', changes: { start: '1950-10-20T10:00', end: '1950-10-20T11:00' } }), IL);
+    assertSame(weekly, { status: 'invalid', field: 'start' }, 'weekly to 1950');
+  });
+
   await check('move: the move comes first, then the patch on the destination; the key names the destination', async () => {
     seed(NOA_CAL, 'one', { start: '2026-10-20T10:00:00', summary: 'Dentist' });
     const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, 'one'), scope: 'single', changes: { calendarId: FAMILY, title: 'Dentist 2' } }), IL);
