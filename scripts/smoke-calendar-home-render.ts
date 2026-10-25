@@ -142,6 +142,21 @@ type Row = Record<string, any>;
 
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
+
+// The wheel library runs on touch events and animation frames, which the fake DOM has none of: a
+// stub with the same props stands in for it, and a change goes through its onChange like a field's.
+// The library's own markup and ARIA are checked in smoke-date-picker-render.ts.
+{
+  const wheelLib = nodeRequire.resolve('@ncdai/react-wheel-picker');
+  const StubWheel = (p: { options: { value: string; label: unknown }[]; value: string; onValueChange: (v: string) => void }) =>
+    createElement(
+      'div',
+      { 'data-rwp': '', 'data-stub-wheel': '', 'data-value': p.value, tabIndex: 0, onChange: (e: { target: { value: string } }) => p.onValueChange(e.target.value) },
+      p.options.map((o) => createElement('span', { key: o.value }, String(o.label))),
+    );
+  const StubWrapper = (p: { className?: string; children?: ReactElement }) => createElement('div', { 'data-rwp-wrapper': '', className: p.className }, p.children);
+  nodeRequire.cache[wheelLib] = { id: wheelLib, filename: wheelLib, loaded: true, exports: { WheelPicker: StubWheel, WheelPickerWrapper: StubWrapper } } as unknown as NodeJS.Module;
+}
 const LOCALES = ['en', 'he', 'ru'] as const;
 type Locale = (typeof LOCALES)[number];
 
@@ -581,6 +596,9 @@ class FakeElement extends FakeNode {
     walk(this);
     return out;
   }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
   /** A select's options, which React walks to set the chosen one. */
   get options(): FakeElement[] {
     return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName === 'option');
@@ -1001,7 +1019,7 @@ function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; clos
       events.get(e)?.delete(h);
     },
     openLink: (url: string) => calls.push(`openLink(${url})`),
-    HapticFeedback: { notificationOccurred: (type: string) => calls.push(`haptic(${type})`) },
+    HapticFeedback: { notificationOccurred: (type: string) => calls.push(`haptic(${type})`), selectionChanged: () => calls.push('haptic(selection)') },
     close: () => {
       calls.push('close()');
       if (o.closeThrows) throw new Error('close() failed in the smoke');
@@ -4128,7 +4146,54 @@ async function main() {
   // The fake DOM has no events for inputs: a field's change goes through the props React gave it.
   type Fake = FakeElement;
   const propsOf = (el: Fake): Row => (el as unknown as Row)[Object.keys(el).find((k) => k.startsWith('__reactProps$')) as string];
-  const typeInto = (el: Fake, value: string) => React.act(() => propsOf(el).onChange({ target: { value } }));
+  const clickEl = (el: Fake) => React.act(() => propsOf(el).onClick({ preventDefault: noop, stopPropagation: noop }));
+  const rootOf = (el: Fake) => {
+    let node: FakeNode = el;
+    while (node.parentNode) node = node.parentNode;
+    return node;
+  };
+  /**
+   * A text field's change goes through its onChange. A date or time pill (a button that opens a sheet)
+   * is driven through the sheet as a person would: the date by paging to the month and tapping the
+   * day, the time by setting the two wheels (the stub below) and tapping Done.
+   */
+  const typeInto = async (el: Fake, value: string) => {
+    const kind = el.getAttribute('data-pill');
+    if (!kind) return React.act(() => propsOf(el).onChange({ target: { value } }));
+    const root = rootOf(el);
+    await clickEl(el);
+    await settle();
+    const sheet = () => {
+      const all = byRole(root, 'dialog');
+      return all[all.length - 1];
+    };
+    if (kind === 'date') {
+      for (let guard = 0; guard < 600; guard++) {
+        const days = elements(sheet()).filter((e) => e.getAttribute('data-day') !== null);
+        const cell = days.find((e) => e.getAttribute('data-day') === value);
+        if (cell) {
+          assert(cell.getAttribute('aria-disabled') === null, `${value} is greyed, not pickable`);
+          await clickEl(cell);
+          await settle();
+          return;
+        }
+        const [first, last] = [days[0].getAttribute('data-day') as string, days[days.length - 1].getAttribute('data-day') as string];
+        const label = value > last ? messages.en.calendarHome.picker.nextMonth : messages.en.calendarHome.picker.prevMonth;
+        assert(value > last || value < first, `${value} is in the page but not a cell`);
+        const nav = elements(sheet()).find((e) => e.getAttribute('aria-label') === label) as Fake;
+        assert(nav.getAttribute('disabled') === null, `cannot page to ${value}`);
+        await clickEl(nav);
+      }
+      throw new Error(`never reached ${value}`);
+    }
+    const wheels = elements(sheet()).filter((e) => e.getAttribute('data-stub-wheel') !== null);
+    assert(wheels.length === 2, `${wheels.length} wheels`);
+    const [hour, minute] = value.split(':');
+    await React.act(() => propsOf(wheels[0]).onChange({ target: { value: hour } }));
+    await React.act(() => propsOf(wheels[1]).onChange({ target: { value: minute } }));
+    await clickEl(elements(sheet()).find((e) => e.localName === 'button' && e.textContent.trim() === messages.en.calendarHome.picker.done) as Fake);
+    await settle();
+  };
   const topDialog = (m: Home) => {
     const all = byRole(m.container, 'dialog');
     assert(all.length > 0, 'no dialog open');
@@ -4136,7 +4201,8 @@ async function main() {
   };
   const topText = (m: Home) => textOf(htmlOf(topDialog(m)));
   const inDialog = (m: Home, label: string) => {
-    const found = elements(topDialog(m)).filter((e) => e.getAttribute('aria-label') === label);
+    // A pill's name carries its value ("Start date, Thu 15 Oct 2026").
+    const found = elements(topDialog(m)).filter((e) => e.getAttribute('aria-label') === label || (e.getAttribute('data-pill') !== null && (e.getAttribute('aria-label') ?? '').startsWith(`${label}, `)));
     assert(found.length > 0, `nothing labelled ${show(label)} in the dialog: ${show(topText(m).slice(0, 300))}`);
     return found[0];
   };
@@ -4146,8 +4212,11 @@ async function main() {
     m.click(found[0]);
   };
   const tapPlus = (m: Home, label = 'Add') => m.click(byLabel(m.container, label));
-  const fieldValue = (m: Home, label: string): unknown => propsOf(inDialog(m, label)).value;
-  const hasField = (m: Home, label: string) => elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === label);
+  const fieldValue = (m: Home, label: string): unknown => {
+    const el = inDialog(m, label);
+    return el.getAttribute('data-pill') !== null ? el.getAttribute('data-value') : propsOf(el).value;
+  };
+  const hasField = (m: Home, label: string) => elements(topDialog(m)).some((e) => e.getAttribute('aria-label') === label || (e.getAttribute('data-pill') !== null && (e.getAttribute('aria-label') ?? '').startsWith(`${label}, `)));
   const hasPlus = (m: Home, label = 'Add') => elements(m.container).some((e) => e.getAttribute('aria-label') === label);
 
   await check('#74 the "+" in the header by kinds: shown when the user can add an event, a reminder or both; with neither or a failed editor read no "+"; a Google user is asked and gets it from the server\'s kinds; not before the first answer; en/he/ru label', async () => {
@@ -4336,7 +4405,7 @@ async function main() {
     assert(show(checkForm({ ...f, title: 'x', location: 'y'.repeat(201), notes: 'z'.repeat(2001) })) === show({ location: 'errTooLong', notes: 'errTooLong' }), 'long location and notes');
   });
 
-  await check('#76a a year typed into the start date (0002, 0020, 0202, then 2027) keeps the end the last real length after the start, timed and all day; a year outside 2000-2100 is never measured from; in the editor too', async () => {
+  await check('#76a a year typed into the start date (0002, 0020, 0202, then 2027) keeps the end the last real length after the start, timed and all day; a year outside 1900-2100 is never measured from; in the editor too', async () => {
     const base = { today: TODAY, pickedDay: null, nowMs: Date.parse('2026-10-15T07:00:00Z'), tz: TZ, kinds: { event: true, reminder: true }, calendars: EDITOR_INFO.calendars };
     /** Each value in turn, as a date input sends them, with the editor's last real length held. */
     const typeYear = (from: EditorForm, days: string[]) => {
@@ -4355,10 +4424,10 @@ async function main() {
     const a = typeYear(allDay, ['0002-10-20', '0020-10-20', '0202-10-20', '2028-10-20']);
     assert(`${a.startDay} → ${a.endDay}` === '2028-10-20 → 2028-10-22', `all day: ${a.startDay} → ${a.endDay}`);
     // A start in a year the server refuses is not measured from, held length or not.
-    const odd = { ...timed, startDay: '1999-10-15' };
-    assert(spanOf(odd) === null && spanOf({ ...timed, endDay: '2101-01-01' }) === null, 'a span from 1999 or to 2101');
+    const odd = { ...timed, startDay: '1899-10-15' };
+    assert(spanOf(odd) === null && spanOf({ ...timed, endDay: '2101-01-01' }) === null, 'a span from 1899 or to 2101');
     const fromOdd = moveStart(odd, { startDay: '2026-10-16' });
-    assert(fromOdd.endDay === timed.endDay && fromOdd.endTime === timed.endTime, `no length from 1999: ${fromOdd.endDay} ${fromOdd.endTime}`);
+    assert(fromOdd.endDay === timed.endDay && fromOdd.endTime === timed.endTime, `no length from 1899: ${fromOdd.endDay} ${fromOdd.endTime}`);
     assert(moveStart(odd, { startDay: '2026-10-16' }, { allDay: false, size: 90 }).endTime === '12:30', 'the held length instead');
     assert(moveStart(odd, { startDay: '2026-10-16' }, { allDay: true, size: 1 }).endTime === timed.endTime, 'an all-day length is not a timed one');
     // In the editor: each value through the date input's onChange.
@@ -4367,11 +4436,11 @@ async function main() {
       tapPlus(m);
       await settle();
       await typeInto(inDialog(m, 'End time'), '13:30');
-      for (const v of ['0002-10-15', '0020-10-15', '0202-10-15', '2027-10-15']) await typeInto(inDialog(m, 'Start date'), v);
+      await typeInto(inDialog(m, 'Start date'), '2027-10-15');
       assert(fieldValue(m, 'End date') === '2027-10-15' && fieldValue(m, 'End time') === '13:30', `the end: ${fieldValue(m, 'End date')} ${fieldValue(m, 'End time')}`);
       m.click(switchOf(m, 'All day'));
       await typeInto(inDialog(m, 'End date'), '2027-10-17');
-      for (const v of ['0002-10-20', '0020-10-20', '0202-10-20', '2028-10-20']) await typeInto(inDialog(m, 'Start date'), v);
+      await typeInto(inDialog(m, 'Start date'), '2028-10-20');
       assert(fieldValue(m, 'End date') === '2028-10-22', `all day, the end: ${fieldValue(m, 'End date')}`);
     } finally {
       m.unmount();
@@ -4412,11 +4481,11 @@ async function main() {
       assert(show(options(selects(m)[1])) === show([['native:cal_me_7f3a', 'Family'], ['native:cal_noa_91b2', 'Noa and the kids · Noa']]), `calendars: ${show(options(selects(m)[1]))}`);
       assertHas(topText(m), ['Family'], 'the main calendar is the default');
       // All day hides the times.
-      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 2, 'two time pills');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').length === 2, 'two time pills');
       m.click(switchOf(m, 'All day'));
       assert(switchOf(m, 'All day').getAttribute('aria-checked') === 'true', 'all day is on');
-      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'no time pills all day');
-      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'date').length === 2, 'the dates stay');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').length === 0, 'no time pills all day');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'date').length === 2, 'the dates stay');
       m.click(switchOf(m, 'All day'));
       assert(fieldValue(m, 'Start time') === '16:00' && fieldValue(m, 'End time') === '19:30', 'the times come back');
       // A reminder.
@@ -4429,7 +4498,7 @@ async function main() {
       assert(fieldValue(m, 'Date') === '2026-10-22' && fieldValue(m, 'Time') === '16:00', `when: ${fieldValue(m, 'Date')} ${fieldValue(m, 'Time')}`);
       assert(byRole(topDialog(m), 'radio').filter((e) => e.getAttribute('aria-checked') === 'true').map((e) => e.textContent).includes('Me'), 'for me by default');
       m.click(switchOf(m, 'At a set time'));
-      assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'no time pill without a set time');
+      assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').length === 0, 'no time pill without a set time');
       tapIn(m, 'Event');
       assertHas(topText(m), ['All day'], 'back to an event');
       assert(hasField(m, 'Location') && hasField(m, 'Notes'), 'location and notes are back');
@@ -4694,7 +4763,7 @@ async function main() {
       await openItem(g.m, 'Grandma visits');
       g.m.click(byLabel(topDialog(g.m), 'Edit'));
       await settle();
-      assert(switchOf(g.m, 'All day').getAttribute('aria-checked') === 'true' && elements(topDialog(g.m)).filter((e) => e.getAttribute('type') === 'time').length === 0, 'an all-day event opens all day');
+      assert(switchOf(g.m, 'All day').getAttribute('aria-checked') === 'true' && elements(topDialog(g.m)).filter((e) => e.getAttribute('data-pill') === 'time').length === 0, 'an all-day event opens all day');
       g.m.click(switchOf(g.m, 'All day'));
       assert(fieldValue(g.m, 'Start time') === '09:00' && fieldValue(g.m, 'End time') === '10:00', 'timed again from 09:00 for an hour');
       g.m.click(saveButton(g.m));
@@ -5182,7 +5251,7 @@ async function main() {
         look('new event');
         assert(topDialog(m).getAttribute('aria-label') === l.editor.titleNew, `${locale}: the editor is named ${l.editor.titleNew}`);
         assert(m.html().startsWith('<div class="ch-home" data-theme="light" dir="' + (locale === 'he' ? 'rtl' : 'ltr') + '"'), `${locale}: the root's direction`);
-        assert(elements(topDialog(m)).filter((e) => e.getAttribute('type') === 'time').every((e) => e.getAttribute('dir') === 'ltr'), `${locale}: times run left to right`);
+        assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').every((e) => e.getAttribute('dir') === 'ltr'), `${locale}: times run left to right`);
         m.click(byRole(topDialog(m), 'radio').find((e) => e.textContent === l.editor.kind.reminder) as Fake);
         look('new reminder');
         m.click(byRole(topDialog(m), 'radio').find((e) => e.textContent === l.editor.kind.event) as Fake);
@@ -6508,6 +6577,191 @@ async function main() {
 
   await check('#107 React logged no warning in #102-#105 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeHebrew, `React warned: ${show(reactWarnings.slice(warnedBeforeHebrew, warnedBeforeHebrew + 3))}`);
+  });
+
+  // ---- The date and time pickers in the editor (editor upgrades spec §1; P1-P5) ----
+
+  const warnedBeforePickers = reactWarnings.length;
+  const cellsOf = (m: Home) => elements(topDialog(m)).filter((e) => e.getAttribute('data-day') !== null);
+  const cell = (m: Home, dayKey: string) => cellsOf(m).find((e) => e.getAttribute('data-day') === dayKey) as Fake;
+  const swipeLog = (tg: { calls: string[] }) => tg.calls.filter((c) => /VerticalSwipes/.test(c));
+  const editorSheetName = (m: Home) => topDialog(m).getAttribute('aria-label');
+
+  await check('P1 a date pill opens the date sheet on the chosen day (focus on it, a grid with one tab stop); Escape and Telegram\'s Back close the sheet before the editor; swipes are off while it is open and on after; a pick closes it, sets the day and ticks', async () => {
+    const tg = fakeTelegramHome({ version: '8.0' });
+    resetHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveEditingWith();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      tapPlus(m);
+      await settle();
+      assert(editorSheetName(m) === 'New', `the editor: ${editorSheetName(m)}`);
+      const pill = inDialog(m, 'Start date');
+      assert(pill.localName === 'button' && pill.getAttribute('aria-haspopup') === 'dialog' && pill.getAttribute('data-value') === TODAY, 'the pill is a button naming the day');
+      assert(pill.textContent.includes('Thu, 15 Oct 2026'), `the pill reads the day: ${pill.textContent}`);
+      const before = swipeLog(tg).length;
+      pill.focus(); // a tap focuses the button; the sheet gives focus back to it
+      await clickEl(pill);
+      await settle();
+      assert(editorSheetName(m) === 'Start date', `the date sheet: ${editorSheetName(m)}`);
+      assert(swipeLog(tg).at(-1) === 'disableVerticalSwipes()' && swipeLog(tg).length > before, `swipes off while open: ${show(swipeLog(tg))}`);
+      const grid = byRole(topDialog(m), 'grid');
+      assert(grid.length === 1 && cellsOf(m).length === 31, `one grid of October's 31 days: ${cellsOf(m).length}`);
+      const chosen = cellsOf(m).filter((e) => e.getAttribute('aria-selected') === 'true');
+      assert(chosen.length === 1 && chosen[0].getAttribute('data-day') === TODAY, 'the chosen day is selected');
+      assert(cellsOf(m).filter((e) => e.getAttribute('tabindex') === '0').map((e) => e.getAttribute('data-day')).join() === TODAY, 'one tab stop, on the chosen day');
+      assert(fakeDocument.activeElement === chosen[0], 'focus lands on the chosen day');
+      assert(cell(m, TODAY).getAttribute('aria-current') === 'date' && cell(m, TODAY).getAttribute('aria-label') === 'Thursday, 15 October 2026, 4 Cheshvan', `today's cell: ${cell(m, TODAY).getAttribute('aria-label')}`);
+      // Escape closes the sheet, not the editor.
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(editorSheetName(m) === 'New', `Escape closed only the sheet: ${editorSheetName(m)}`);
+      assert(swipeLog(tg).at(-1) === 'enableVerticalSwipes()', `swipes on again: ${show(swipeLog(tg))}`);
+      assert(fakeDocument.activeElement !== null && (fakeDocument.activeElement as Fake).getAttribute('data-pill') === 'date', 'focus is back on the pill');
+      // Telegram's Back: the sheet first, then the editor.
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      assert(editorSheetName(m) === 'Start date', 'open again');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(editorSheetName(m) === 'New', 'Back closed the sheet and left the editor');
+      // A pick: the day is set, the sheet closed, and the tick sent.
+      const ticks = tg.calls.filter((c) => c === 'haptic(selection)').length;
+      await typeInto(inDialog(m, 'Start date'), day(3));
+      assert(editorSheetName(m) === 'New' && fieldValue(m, 'Start date') === day(3) && fieldValue(m, 'End date') === day(3), `picked: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'End date')}`);
+      assert(tg.calls.filter((c) => c === 'haptic(selection)').length > ticks, 'a day tap ticks');
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assertHas(topText(m), ['Discard your changes?'], 'Back with no sheet open asks about the changed editor');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('P2 the end sheet greys the days before the start and refuses them; the start sheet greys nothing; a series (daily) floors at 2000 and a one-off at 1900 (first and last page chevrons)', async () => {
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      await typeInto(inDialog(m, 'Start date'), day(5));
+      await clickEl(inDialog(m, 'End date'));
+      await settle();
+      assert(editorSheetName(m) === 'End date', 'the end sheet');
+      const dayKeys = cellsOf(m).map((e) => e.getAttribute('data-day') as string);
+      const disabled = (k: string) => cell(m, k).getAttribute('aria-disabled') === 'true';
+      assert(dayKeys.includes(TODAY) && disabled(TODAY) && disabled(day(4)) && !disabled(day(5)) && !disabled(day(6)), 'days before the start are greyed');
+      await clickEl(cell(m, TODAY));
+      assert(editorSheetName(m) === 'End date', 'a greyed day does not close the sheet');
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(fieldValue(m, 'End date') === day(5), 'and does not change the end');
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      assert(cellsOf(m).every((e) => e.getAttribute('aria-disabled') === null), 'the start sheet greys nothing');
+      // The floor: a one-off pages back to 1900, a daily series stops at 2000.
+      const prev = () => elements(topDialog(m)).find((e) => e.getAttribute('aria-label') === 'Previous month') as Fake;
+      const back = async (n: number) => {
+        for (let i = 0; i < n && prev().getAttribute('disabled') === null; i++) await clickEl(prev());
+      };
+      await back(130 * 12);
+      assert(prev().getAttribute('disabled') !== null, 'the first page of a one-off has no earlier one');
+      assert(cellsOf(m)[0].getAttribute('data-day') === '1900-01-01', `a one-off reaches ${cellsOf(m)[0].getAttribute('data-day')}`);
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      await pick(m, 'Repeat', 'daily');
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      await back(130 * 12);
+      assert(cellsOf(m)[0].getAttribute('data-day') === '2000-01-01', `a daily series reaches ${cellsOf(m)[0].getAttribute('data-day')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('P3 a Hebrew yearly repeat opens the date sheet in Hebrew (the Hebrew month, Hebrew days leading, the switch on Hebrew); any other repeat opens it in Gregorian; the switch swaps which calendar leads on the same cells; Hebrew dates off: no switch and no Hebrew line', async () => {
+    const { m } = await hebrewHome('en', true);
+    try {
+      tapPlus(m);
+      await settle();
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      const radios = () => byRole(topDialog(m), 'radio');
+      assert(radios().map((r) => r.textContent).join() === 'Gregorian,Hebrew' && radios()[0].getAttribute('aria-checked') === 'true', `the switch: ${radios().map((r) => r.textContent)}`);
+      assertHas(topText(m), ['October 2026', 'Tishrei – Cheshvan 5787'], 'Gregorian title and the Hebrew months under it');
+      assert(cell(m, TODAY).textContent === '154', `Gregorian leads, the Hebrew day under it: ${cell(m, TODAY).textContent}`);
+      await clickEl(radios()[1]);
+      await settle();
+      assertHas(topText(m), ['Cheshvan 5787', 'Oct – Nov 2026'], 'Hebrew title over the Gregorian months');
+      assert(cell(m, TODAY).textContent === '415', `Hebrew leads on the same cell: ${cell(m, TODAY).textContent}`);
+      assert(cellsOf(m).length === 29 || cellsOf(m).length === 30, `a Hebrew month: ${cellsOf(m).length} days`);
+      assert(cell(m, TODAY).getAttribute('aria-label') === 'Thursday, 15 October 2026, 4 Cheshvan', `the same name in both modes: ${cell(m, TODAY).getAttribute('aria-label')}`);
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      await pick(m, 'Repeat', 'hebrew');
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      assert(radios()[1].getAttribute('aria-checked') === 'true', 'a Hebrew yearly repeat opens in Hebrew');
+      assertHas(topText(m), ['Cheshvan 5787'], 'on the Hebrew month');
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      await pick(m, 'Repeat', 'yearly');
+      await clickEl(inDialog(m, 'Start date'));
+      await settle();
+      assert(radios()[0].getAttribute('aria-checked') === 'true', 'a Gregorian repeat opens in Gregorian, nothing remembered');
+    } finally {
+      m.unmount();
+    }
+    const off = await hebrewHome('en', false);
+    try {
+      tapPlus(off.m);
+      await settle();
+      await clickEl(inDialog(off.m, 'Start date'));
+      await settle();
+      assert(byRole(topDialog(off.m), 'radio').length === 0, 'no switch without Hebrew dates');
+      assert(!topText(off.m).includes('Cheshvan') && !topText(off.m).includes('Chesh.'), 'and no Hebrew line');
+      assert(!elements(topDialog(off.m)).some((e) => (e.getAttribute('class') ?? '').includes('ch-picker-sub')), 'no second line on a cell');
+    } finally {
+      off.m.unmount();
+    }
+  });
+
+  await check('P4 a time pill opens the time sheet on its time (hours 00-23, minutes in fives; a stored off-step minute joins the minutes); Done applies, Escape cancels; the end follows a moved start', async () => {
+    const { m } = await editingHome('en');
+    try {
+      tapPlus(m);
+      await settle();
+      const startTime = fieldValue(m, 'Start time') as string;
+      await clickEl(inDialog(m, 'Start time'));
+      await settle();
+      assert(editorSheetName(m) === 'Start time', 'the time sheet');
+      const wheels = elements(topDialog(m)).filter((e) => e.getAttribute('data-stub-wheel') !== null);
+      assert(wheels.length === 2 && wheels[0].childNodes.length === 24 && wheels[1].childNodes.length === 12, `24 hours and 12 minutes: ${wheels.map((w) => w.childNodes.length)}`);
+      assert(wheels[0].getAttribute('data-value') === startTime.slice(0, 2) && wheels[1].getAttribute('data-value') === startTime.slice(3), 'open on the time it has');
+      await React.act(() => propsOf(wheels[0]).onChange({ target: { value: '15' } }));
+      m.key(topDialog(m), 'Escape');
+      await settle();
+      assert(fieldValue(m, 'Start time') === startTime, 'Escape cancels what the wheels held');
+      await typeInto(inDialog(m, 'Start time'), '15:35');
+      assert(fieldValue(m, 'Start time') === '15:35' && fieldValue(m, 'End time') === '16:35', `Done applies and the end follows: ${fieldValue(m, 'Start time')} ${fieldValue(m, 'End time')}`);
+      // An off-step minute (10:07 from Google or the bot) joins the wheel.
+      await typeInto(inDialog(m, 'Start time'), '10:07');
+      await clickEl(inDialog(m, 'Start time'));
+      await settle();
+      const minutes = elements(topDialog(m)).filter((e) => e.getAttribute('data-stub-wheel') !== null)[1];
+      assert(minutes.childNodes.length === 13 && minutes.childNodes.map((c) => c.textContent).includes('07'), `10:07 joins the minutes: ${minutes.childNodes.map((c) => c.textContent)}`);
+      assert(minutes.getAttribute('data-value') === '07', 'and is the one chosen');
+      await clickEl(elements(topDialog(m)).find((e) => e.localName === 'button' && e.textContent.trim() === 'Done') as Fake);
+      await settle();
+      assert(fieldValue(m, 'Start time') === '10:07', 'open and Done change nothing');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('P5 React logged no warning in P1-P4 (keys, nesting, attributes, act)', () => {
+    assert(reactWarnings.length === warnedBeforePickers, `React warned: ${show(reactWarnings.slice(warnedBeforePickers, warnedBeforePickers + 3))}`);
   });
 
   // ---- Google as a connection (G3): the client reads facts, never calendarSource ----

@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update user with new calendarAssignments and globalRules
-    const updatedUser = await prisma.user.update({
+    await prisma.user.update({
       where: { id: currentUser.id },
       data: {
         calendarAssignments: syncedAssignments as unknown as Prisma.InputJsonValue,
