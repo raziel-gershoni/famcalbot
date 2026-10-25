@@ -140,6 +140,16 @@ value: 400 `invalid`, field `alert`, inline under the row; pass errors already g
 `smoke-calendar-editor-api.ts` (create and patch with an alert, series scope, validation); the copy
 migration.
 
+**As built.** None (an own alert with no lead) silences the event: no start ping and no pickup ping. An
+alert change is series-level, like a calendar change (ScopeSheet "this one and the ones after" or "all";
+"only this one" is refused on a series; the tail gets the new alert, the head keeps its own). Reminders
+and all-day events have no Alert row; an all-day event keeps a stored alert, which shows again when it is
+made timed. A Google event's alert is read-only (its nearest popup, else its nearest email, else
+Default), and so is the row for a new event on a Google calendar; a lead off the list is shown as it is
+and a stored off-list lead stays an option of its own. Alerts don't cross kinds: moving to Google drops
+the own alert, moving to FamCal lands on Default. `reminderMinutes` stays in the database for this deploy
+(the old Prisma client still selects it while the migration runs); a later migration drops it.
+
 ## 3. Richer repeats (L)
 
 **What already works.** The expander is rrule.js; `assertStorableRule` keeps INTERVAL, BYDAY (with
