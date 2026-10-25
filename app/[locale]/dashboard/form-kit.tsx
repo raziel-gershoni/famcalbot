@@ -2,7 +2,7 @@
 
 // The home's form kit (home editing spec §4), for the editor now and F1's screens later:
 // grouped cards, a text field, a switch row, a segmented control, a value row with a
-// native <select> over it, date and time pills (native inputs styled as pills), a radio
+// native <select> over it, date and time pills (buttons that open the picker sheets), a radio
 // pair and a sticky Save bar. The classes are ch-form-*; FORM_CSS draws them from the
 // home's tokens.
 //
@@ -11,7 +11,18 @@
 // over its row at no opacity, so the row looks like the mockups' value row and a tap
 // opens the platform's own picker. Times are always left to right, as the Agenda's are.
 
-import { useId, type ReactNode } from 'react';
+import { Suspense, lazy, useId, useState, type ReactNode } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { formatPillDate } from '@/src/lib/calendar-view/format';
+import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
+import type { PickerMode } from '@/src/lib/calendar-view/picker-model';
+import type { WeekStart } from '@/src/lib/calendar-view/types';
+import { MIN_YEAR_SERIES } from '@/src/lib/calendar-view/year-limits';
+
+// The pickers are a chunk of their own (the wheel library comes with them): a chunk that fails to
+// load falls to the home's error boundary, like the Month's.
+const DatePickerSheet = lazy(() => import('./DatePickerSheet').then((m) => ({ default: m.DatePickerSheet })));
+const TimePickerSheet = lazy(() => import('./TimePickerSheet').then((m) => ({ default: m.TimePickerSheet })));
 
 export const FORM_CSS = `
 .ch-editor-head {
@@ -208,6 +219,10 @@ button.ch-form-row:focus-visible {
 }
 .ch-pill {
   flex: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-block-size: 44px;
   min-inline-size: 0;
   padding: 0 10px;
@@ -218,12 +233,19 @@ button.ch-form-row:focus-visible {
   font: inherit;
   font-size: 15px;
   text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-pill-sub {
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--ch-muted);
 }
 .ch-pill:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 1px;
 }
-.ch-pill[aria-invalid='true'] {
+.ch-pill[data-invalid='true'] {
   outline: 2px solid var(--ch-danger);
 }
 .ch-segmented {
@@ -513,42 +535,134 @@ export interface PillRowProps {
   onDay: (day: string) => void;
   onTime: (time: string) => void;
   error?: string | null;
+  /** The calendar the date sheet opens in: a Hebrew yearly repeat opens it in Hebrew (default Gregorian). */
+  mode?: PickerMode;
+  /** The earliest day the sheet lets through: an end may not precede its start. */
+  min?: string | null;
+  /** The earliest year (year-limits.ts minYearFor); 2000 when the row doesn't say. */
+  minYear?: number;
+  /** The home shows Hebrew dates: the pill's second line and the sheet's Gregorian | Hebrew switch. */
+  hebrewDates?: boolean;
+  /** The server's today and the week's first day, for the sheet. */
+  today?: string;
+  weekStart?: WeekStart;
+  /** Minutes between the time wheel's stops (5 in the editor). */
+  timeStep?: number;
+  /**
+   * Which sheet is open, when the container owns that (the editor closes an open picker before it
+   * cancels); left out, the row keeps it itself.
+   */
+  open?: 'date' | 'time' | null;
+  onOpen?: (open: 'date' | 'time' | null) => void;
 }
 
-/** A label with its date pill and, unless hidden, its time pill: native date and time inputs. */
-export function PillRow({ label, dateLabel, timeLabel, day, time, showTime, onDay, onTime, error }: PillRowProps) {
+/** A label with its date pill and, unless hidden, its time pill. A tap opens the date or time sheet. */
+export function PillRow({
+  label,
+  dateLabel,
+  timeLabel,
+  day,
+  time,
+  showTime,
+  onDay,
+  onTime,
+  error,
+  mode = 'gregorian',
+  min = null,
+  minYear = MIN_YEAR_SERIES,
+  hebrewDates = false,
+  today = '',
+  weekStart = 0,
+  timeStep = 5,
+  open: openProp,
+  onOpen,
+}: PillRowProps) {
   const errorId = useId();
+  const t = useTranslations('calendarHome');
+  const locale = useLocale();
+  const [own, setOwn] = useState<'date' | 'time' | null>(null);
+  const open = openProp !== undefined ? openProp : own;
+  const setOpen = (next: 'date' | 'time' | null) => {
+    if (openProp === undefined) setOwn(next);
+    onOpen?.(next);
+  };
+  const dateText = formatPillDate(day, locale);
+  const hebrewText = hebrewDates && dateText ? hebrewFullDate(day, locale, locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined) : '';
   return (
     <div>
       <div className="ch-form-row">
         <span className="ch-form-label">
           <span>{label}</span>
         </span>
-        <input
-          type="date"
+        <button
+          type="button"
           className="ch-pill"
-          aria-label={dateLabel}
-          aria-invalid={error ? true : undefined}
+          data-pill="date"
+          data-value={day}
+          aria-label={`${dateLabel}, ${dateText || '-'}`}
+          aria-haspopup="dialog"
+          data-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
-          min="2000-01-01"
-          max="2100-12-31"
-          value={day}
-          onChange={(e) => onDay(e.target.value)}
-        />
+          onClick={() => setOpen('date')}
+        >
+          <span dir="auto">{dateText || '-'}</span>
+          {hebrewText ? (
+            <span className="ch-pill-sub" dir="auto">
+              {hebrewText}
+            </span>
+          ) : null}
+        </button>
         {showTime ? (
-          <input
-            type="time"
+          <button
+            type="button"
             className="ch-pill"
+            data-pill="time"
+            data-value={time}
             dir="ltr"
-            aria-label={timeLabel}
-            aria-invalid={error ? true : undefined}
+            aria-label={`${timeLabel}, ${time || '-'}`}
+            aria-haspopup="dialog"
+            data-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            value={time}
-            onChange={(e) => onTime(e.target.value)}
-          />
+            onClick={() => setOpen('time')}
+          >
+            {time || '-'}
+          </button>
         ) : null}
       </div>
       {error ? <FieldError id={errorId} error={error} /> : null}
+      {open === 'date' ? (
+        <Suspense fallback={null}>
+          <DatePickerSheet
+            label={dateLabel}
+            value={day}
+            today={today}
+            weekStart={weekStart}
+            hebrewDates={hebrewDates}
+            mode={mode}
+            minYear={minYear}
+            min={min}
+            onPick={(next) => {
+              setOpen(null);
+              onDay(next);
+            }}
+            onClose={() => setOpen(null)}
+          />
+        </Suspense>
+      ) : null}
+      {open === 'time' ? (
+        <Suspense fallback={null}>
+          <TimePickerSheet
+            label={timeLabel}
+            value={time}
+            step={timeStep}
+            onPick={(next) => {
+              setOpen(null);
+              onTime(next);
+            }}
+            onClose={() => setOpen(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

@@ -223,6 +223,14 @@ export function useTelegramTheme(): ColorScheme {
 }
 
 /**
+ * Only the scheme useTelegramTheme returns, without touching Telegram's header and background:
+ * for a page that brings the home's scope for one sheet (Settings' time picker) and keeps its own colours.
+ */
+export function useColorScheme(): ColorScheme {
+  return useSyncExternalStore(subscribeColorScheme, colorSchemeNow, serverColorScheme);
+}
+
+/**
  * Opens an http(s) link outside the Mini App (an event in Google Calendar): Telegram's
  * openLink on a 6.1+ client, else a new tab (a browser's SDK reports 6.0). Any other
  * link is refused. Returns whether it opened something.
@@ -248,4 +256,9 @@ export function openExternalLink(url: string): boolean {
 /** The success tap after a reminder is marked done (Bot API 6.1+). Silent where the client has none. */
 export function hapticSuccess(): void {
   tgCall(HAPTIC, 'HapticFeedback', (tg) => tg.HapticFeedback?.notificationOccurred('success'));
+}
+
+/** The tick when a day is tapped or a wheel settles (Bot API 6.1+). Silent where the client has none. */
+export function hapticSelection(): void {
+  tgCall(HAPTIC, 'HapticFeedback.selectionChanged', (tg) => tg.HapticFeedback?.selectionChanged());
 }
