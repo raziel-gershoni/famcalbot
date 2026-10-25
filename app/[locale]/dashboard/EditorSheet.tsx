@@ -62,6 +62,8 @@ import {
   type RepeatWords,
   type ScopePlan,
 } from '@/src/lib/calendar-view/editor-model';
+import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
+import type { WeekStart } from '@/src/lib/calendar-view/types';
 import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RepeatChoice, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { BottomSheet } from './BottomSheet';
@@ -88,6 +90,11 @@ export interface EditorSheetProps {
   hebrewDates?: boolean;
   /** The user's reminder time (HH:mm), which a date-only reminder pings at; 09:00 until the editor info arrives. */
   reminderTime?: string;
+  /** The server's today and the week's first day, for the date sheet. */
+  today?: string;
+  weekStart?: WeekStart;
+  /** A date or time sheet opened or closed: the container locks Telegram's vertical swipes while one is open. */
+  onPickerChange?: (open: boolean) => void;
   /** Edit: the item's edit info and key. */
   info?: ItemEditInfoResponse;
   itemKey?: string;
@@ -111,7 +118,7 @@ type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
 const REPEATS: RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly'];
 
-export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const [start] = useState(initial);
@@ -122,12 +129,19 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const [error, setError] = useState<SubmitError | null>(null);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
+  /** The date or time sheet that is open, and for which row: it closes before the scope sheet and the editor do. */
+  const [picker, setPicker] = useState<{ row: 'start' | 'end'; which: 'date' | 'time' } | null>(null);
+  const pickerIsOpen = picker !== null;
+  useEffect(() => {
+    onPickerChange?.(pickerIsOpen);
+    return () => onPickerChange?.(false);
+  }, [pickerIsOpen, onPickerChange]);
   /** The inline line Save shows when it can't save as it is (a day move beside a calendar or recipient change). */
   const [inlineNote, setInlineNote] = useState<InlineNote | null>(null);
   const errorText = useErrorText(error);
   /** The last real start day: the repeat choices keep their words while a date is being typed. */
-  const [lastDay, setLastDay] = useState(isRealDay(initial.startDay) ? initial.startDay : '');
-  if (isRealDay(form.startDay) && form.startDay !== lastDay) setLastDay(form.startDay);
+  const [lastDay, setLastDay] = useState(isRealDay(initial.startDay, MIN_YEAR_BIRTH) ? initial.startDay : '');
+  if (isRealDay(form.startDay, MIN_YEAR_BIRTH) && form.startDay !== lastDay) setLastDay(form.startDay);
   /** The last real length: what a start typed through years that aren't real moves the end by. */
   const [heldSpan, setHeldSpan] = useState(() => spanOf(initial));
   const span = spanOf(form);
@@ -152,7 +166,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   // Cancel: a sheet on top closes first, then the editor, asking only when something changed.
   const cancel = () => {
     if (saving) return;
-    if (scopeOpen) setScopeOpen(false);
+    if (picker) setPicker(null);
+    else if (scopeOpen) setScopeOpen(false);
     else if (discardOpen) setDiscardOpen(false);
     else if (isDirty(form, start)) setDiscardOpen(true);
     else onClose();
@@ -310,6 +325,18 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     ? [form.calendarId && info?.sharedTargets?.includes(form.calendarId) ? t('editor.move.partnerSees') : null, t('editor.move.alertsFollow')].filter(Boolean).join(' · ')
     : (moveReasonText ?? undefined);
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
+  /** What a PillRow needs of the date sheet; a Hebrew yearly repeat opens it in Hebrew. */
+  const pickerProps = {
+    mode: form.repeat === 'hebrew' ? ('hebrew' as const) : ('gregorian' as const),
+    minYear: minYearFor(form.repeat),
+    hebrewDates,
+    today,
+    weekStart,
+  };
+  const rowPicker = (row: 'start' | 'end') => ({
+    open: picker?.row === row ? picker.which : null,
+    onOpen: (which: 'date' | 'time' | null) => setPicker(which ? { row, which } : null),
+  });
 
   return (
     <>
@@ -343,6 +370,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   onDay={(startDay) => change(moveStart(form, { startDay }, heldSpan))}
                   onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
+                  {...pickerProps}
+                  {...rowPicker('start')}
                 />
                 <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: reminderTime })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
                 <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
@@ -360,6 +389,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   onDay={(startDay) => change(moveStart(form, { startDay }, heldSpan))}
                   onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
+                  {...pickerProps}
+                  {...rowPicker('start')}
                 />
                 <PillRow
                   label={t('editor.ends')}
@@ -371,6 +402,10 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   onDay={(endDay) => change({ ...form, endDay })}
                   onTime={(endTime) => change({ ...form, endTime })}
                   error={errorOf('end')}
+                  {...pickerProps}
+                  // An end is never before its start.
+                  min={form.startDay}
+                  {...rowPicker('end')}
                 />
                 <ValueRow label={t('editor.repeat.label')} hint={repeatHint} value={form.repeat} options={repeatOptions} onChange={(repeat) => change({ ...form, repeat: repeat as RuleChoice })} />
               </FormCard>

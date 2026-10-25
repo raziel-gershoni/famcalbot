@@ -347,6 +347,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [follow, setFollow] = useState<{ key: string; next: string | null; landed: boolean; note?: { kind: SheetNote; calendar: string } } | null>(null);
   const writingRef = useRef(false);
   const editorCancel = useRef<(() => void) | null>(null);
+  /** A date or time sheet of the editor is open: a wheel dragged down would otherwise minimize the app. */
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [firstLoad, setFirstLoad] = useState<'busy' | 'error' | null>(null);
   const [blocked, setBlocked] = useState<'noCredential' | null>(null);
   const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
@@ -811,10 +813,11 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   useTelegramBackButton(itemOpen || pickedShown || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null)), back);
   // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
   // included): there a drag down scrolls the months. The header and the tab bar stick
-  // over browse at the same time.
+  // over browse at the same time. An open date or time sheet locks them too (editor
+  // upgrades spec §1); dragging an item (part 4) will join this one call as `|| dragging`.
   const monthLayout = monthUi?.layout ?? (savedLayout === 'picked' ? 'picked' : 'browse');
   const browsing = activeTab === 'month' && monthLayout === 'browse';
-  useTelegramVerticalSwipes(browsing);
+  useTelegramVerticalSwipes(browsing || pickerOpen);
 
   // The Month's chunk, once the first answer is in and the tab bar shows, so the first
   // tap on Month rarely waits for it. A failed fetch is tried again by that tap.
@@ -928,6 +931,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           initial={editor.initial}
           hebrewDates={facts?.hebrewDates ?? false}
           reminderTime={editorInfo?.reminderTime}
+          today={facts?.today}
+          weekStart={facts?.weekStart}
+          onPickerChange={setPickerOpen}
           {...(editor.mode === 'create'
             ? { kinds: editor.kinds, calendars: editor.info.calendars, partner: editor.info.partner }
             : { info: editor.info, itemKey: editor.key, calendars: editorInfo?.calendars, partner: editorInfo?.partner })}
