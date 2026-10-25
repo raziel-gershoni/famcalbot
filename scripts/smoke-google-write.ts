@@ -1182,8 +1182,8 @@ async function main() {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261124T080000Z'] });
     const a = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')));
     assert(a !== 'not_found', 'nf');
-    assertSame(a.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], until: '2026-11-24' }, 'the spec');
-    assertSame(a.series.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], ends: true, until: '2026-11-24' }, 'the parts');
+    assertSame(a.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], until: '2026-11-19' }, 'the spec: the last slot at or before the UNTIL (every other week, so the 19th)');
+    assertSame(a.series.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], ends: true, until: '2026-11-19' }, 'the parts');
     seed(NOA_CAL, 'nth', { start: '2026-10-13T10:00:00', summary: 'Club', recurrence: ['RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=5'] });
     const n = await editInfo(NOA, gkey(NOA_CAL, inst('nth', '2026-11-10T10:00:00')));
     assert(n !== 'not_found', 'nf');
@@ -1261,6 +1261,32 @@ async function main() {
     const r = await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: { ...move, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] } } }), IL);
     assert(r.status === 'ok', show(r));
     assertSame(writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=TU,WE,TH'], 'Wednesday joins');
+  });
+
+  await check('richer repeats, edit: the client\'s restated body on a single-day BYDAY Google series (Tuesday moved to Thursday) is a following tail FREQ=WEEKLY from there; a bot-style BYMONTHDAY moved to the 15th likewise; an untouched plain weekly writes nothing', async () => {
+    seed(NOA_CAL, 'tu1', { start: '2026-10-06T10:00:00', summary: 'Sync', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
+    const key = gkey(NOA_CAL, inst('tu1', '2026-10-20T10:00:00'));
+    const r = await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: { start: '2026-10-22T10:00', end: '2026-10-22T11:00', repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] } } }), IL);
+    assert(r.status === 'ok', show(r));
+    assertSame(writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence, ['RRULE:FREQ=WEEKLY'], 'a tail on Thursdays');
+    reset();
+    seed(NOA_CAL, 'rent', { start: '2026-10-14T10:00:00', summary: 'Rent', recurrence: ['RRULE:FREQ=MONTHLY;BYMONTHDAY=14'] });
+    const d = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('rent', '2026-11-14T10:00:00')), scope: 'following', changes: { start: '2026-11-15T10:00', end: '2026-11-15T11:00', repeat: { freq: 'monthly', interval: 1, monthly: 'day' } } }), IL);
+    assert(d.status === 'ok', show(d));
+    assertSame(writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence, ['RRULE:FREQ=MONTHLY'], 'monthly on the 15th');
+    reset();
+    WEEKLY_TUE();
+    const k2 = gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00'));
+    assertSame(await write.updateItem(NOA, patchCmd({ key: k2, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } }), IL), { status: 'ok', key: k2 }, 'untouched');
+    assertSame(writes().length, 0, 'wrote');
+  });
+
+  await check('richer repeats, edit: a Google every-2-weeks Sun+Tue rule with no WKST keeps Monday weeks when only the end changes', async () => {
+    seed(NOA_CAL, 'bi', { start: '2026-10-25T10:00:00', summary: 'Club', recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU'] });
+    const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('bi', '2026-11-03T10:00:00')), scope: 'following', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], count: 5 } } }), IL);
+    assert(r.status === 'ok', show(r));
+    const rule = writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence?.[0];
+    assert(/WKST=MO/.test(rule), `kept Monday: ${rule}`);
   });
 
   await check('year floor: a yearly Google series may move to 1950 as a FamCal item may (one rule); a weekly one keeps 2000', async () => {

@@ -228,7 +228,7 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     series: {
       recurring,
       start: first.start,
-      repeat: repeatInfo(rule.stored?.rrule ?? null),
+      repeat: repeatInfo(rule.stored?.rrule ?? null, null, rule.stored ? { startsAt: rule.stored.startsAt, zone: rule.stored.timeZone ?? userTz } : undefined),
       fixedDays: fixesDays(rule.rule),
       zone: zoneOf(read, userTz),
       rule: { choice: rule.choice, ...(rule.until ? { until: rule.until } : {}) },

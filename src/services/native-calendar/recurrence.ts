@@ -768,8 +768,13 @@ export const weekdayOrdinalOf = (day: number): number => Math.ceil(day / 7);
 /** Whether a start is in the last seven days of its month, so "the last Tuesday" is its weekday. */
 export const inLastWeek = (day: number, daysInMonth: number): boolean => day > daysInMonth - 7;
 
-/** A rule's end as the sheet shows it: the day of an UNTIL (the series' wall clock) or a COUNT. Neither is Never. */
-export function endOfRule(rule: string | null): { until?: string; count?: number } {
+/**
+ * A rule's end as the sheet shows it: the day of an UNTIL or a COUNT. Neither is Never. A date-only UNTIL is
+ * its own day; a date-time one (a split head's, one second before the cut) is the day of the last slot at or
+ * before it in the series' zone, read with `start` and `zone`, so "until 20 Oct" is the last occurrence's day
+ * (without them, or when no slot is left, the UNTIL's own day).
+ */
+export function endOfRule(rule: string | null, start?: Date, zone?: string, hebrew?: HebrewColumns | null): { until?: string; count?: number } {
   if (!rule) return {};
   let opts: Record<string, unknown>;
   try {
@@ -779,7 +784,17 @@ export function endOfRule(rule: string | null): { until?: string; count?: number
     return {};
   }
   // An UNTIL is read as the series' wall clock (floating), so its day is its UTC date.
-  if (opts.until instanceof Date) return { until: opts.until.toISOString().slice(0, 10) };
+  if (opts.until instanceof Date) {
+    const own = opts.until.toISOString().slice(0, 10);
+    if (/(^|;)UNTIL=\d{8}(;|$)/i.test(bare(rule)) || !start || !zone) return { until: own };
+    try {
+      const last = lastSlot(bare(rule), start, zone, hebrew);
+      return { until: last ? formatInTimeZone(last, zone, 'yyyy-MM-dd') : own };
+    } catch (error) {
+      captureError(error, 'native-rule-end', {}, 'warning');
+      return { until: own };
+    }
+  }
   if (typeof opts.count === 'number') return { count: opts.count };
   return {};
 }
@@ -809,7 +824,7 @@ export function specOfRule(rule: string | null, start: Date, zone: string, hebre
   if (typeof interval !== 'number' || !Number.isInteger(interval) || interval < 1 || interval > REPEAT_INTERVAL_MAX) return null;
   if (opts.count !== undefined && !(typeof opts.count === 'number' && Number.isInteger(opts.count) && opts.count >= 1 && opts.count <= REPEAT_COUNT_MAX)) return null;
   if (opts.until !== undefined && opts.count !== undefined) return null;
-  const end = endOfRule(rule);
+  const end = endOfRule(rule, start, tz, hebrew);
   if (Object.keys(opts).some((k) => !['freq', 'interval', 'until', 'count', 'wkst', ...BY_PARTS].includes(k))) return null;
   const present = BY_PARTS.filter((k) => opts[k] !== undefined);
 
@@ -847,6 +862,8 @@ export function specOfRule(rule: string | null, start: Date, zone: string, hebre
     }
     case RRule.YEARLY: {
       if (present.includes('byweekday')) return null;
+      // BYMONTHDAY alone expands monthly, not yearly: it must come with the start's month.
+      if (present.includes('bymonthday') && !present.includes('bymonth')) return null;
       const own: Record<string, number> = { bymonthday: facts.day, bymonth: facts.month };
       for (const k of present) {
         const values = asList(opts[k]);

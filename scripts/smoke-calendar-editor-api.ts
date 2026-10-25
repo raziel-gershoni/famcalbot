@@ -1666,10 +1666,32 @@ async function main() {
     const bot = seedSeries('every-tuesday', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
     const key = `famcal|${bot.id}#${iso(at('2026-10-27 10:00'))}`;
     const rows = tables.nativeEvent.length;
-    const same = await patch({ key, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } });
-    assertSame([same.body, tables.nativeEvent.length, eventRow(bot.id).rrule], [{ status: 'ok', key }, rows, 'FREQ=WEEKLY;BYDAY=TU'], 'unchanged: nothing written');
-    const str = await patch({ key, scope: 'following', changes: { repeat: 'weekly' } });
-    assert(str.status === 200 && tables.nativeEvent.length === rows + 1, 'a string re-pick still follows the start (today\'s meaning)');
+    // A spec on a bot's every Tuesday is a change (ruling 6: the rule it builds follows the start); the client sends one only for a pick or a restated move.
+    const sameDay = await patch({ key, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } });
+    assert(sameDay.status === 200 && tables.nativeEvent.length === rows + 1 && lastEvent().rrule === 'FREQ=WEEKLY', `a spec rebuilds the rule: ${sameDay.status} ${lastEvent().rrule}`);
+    seed();
+    const bot2 = seedSeries('every-tuesday-2', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
+    // The client's real restated body: the Tuesday moved to Thursday, "this and after", {weekly,1,[TH]}.
+    const moved = await patch({ key: `famcal|${bot2.id}#${iso(at('2026-10-27 10:00'))}`, scope: 'following', changes: { start: '2026-10-29T10:00', end: '2026-10-29T11:00', repeat: { freq: 'weekly', interval: 1, byDay: ['TH'] } } });
+    assert(moved.status === 200, `${moved.status} ${moved.text}`);
+    assertSame([lastEvent().rrule, iso(lastEvent().startsAt), eventRow(bot2.id).rrule], ['FREQ=WEEKLY', iso(at('2026-10-29 10:00')), 'FREQ=WEEKLY;BYDAY=TU;UNTIL=20261027T095959'], 'a following tail on Thursdays');
+    const dom = seedSeries('rent-14', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Rent', startsAt: at('2026-10-14 10:00'), rrule: 'FREQ=MONTHLY;BYMONTHDAY=14' });
+    const domMoved = await patch({ key: `famcal|${dom.id}#${iso(at('2026-11-14 10:00'))}`, scope: 'following', changes: { start: '2026-11-15T10:00', end: '2026-11-15T11:00', repeat: { freq: 'monthly', interval: 1, monthly: 'day' } } });
+    assert(domMoved.status === 200, `${domMoved.status} ${domMoved.text}`);
+    assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=MONTHLY', iso(at('2026-11-15 10:00'))], 'monthly on the 15th from there');
+    // A plain weekly with the sheet untouched (the shown spec, same end) writes nothing.
+    seed();
+    const plainWeekly = await post(eventBody({ repeat: 'weekly' }));
+    const pk = `famcal|${idOf(plainWeekly.body.key)}#${iso(at('2026-10-27 10:00'))}`;
+    const before = tables.nativeEvent.length;
+    const untouched = await patch({ key: pk, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } });
+    assertSame([untouched.body, tables.nativeEvent.length], [{ status: 'ok', key: pk }, before], 'untouched spec: nothing written');
+    seed();
+    const bot3 = seedSeries('every-tuesday-3', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
+    const key3 = `famcal|${bot3.id}#${iso(at('2026-10-27 10:00'))}`;
+    const rows3 = tables.nativeEvent.length;
+    const str = await patch({ key: key3, scope: 'following', changes: { repeat: 'weekly' } });
+    assert(str.status === 200 && tables.nativeEvent.length === rows3 + 1, 'a string re-pick still follows the start (today\'s meaning)');
     assertSame(lastEvent().rrule, 'FREQ=WEEKLY', 'the string choice\'s rule');
     seed();
     const plain = await post(eventBody({ repeat: 'weekly' }));
@@ -1724,6 +1746,31 @@ async function main() {
     const j = counted('weekly-until-before', 'FREQ=WEEKLY');
     r = await patch({ key: cut(j, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-11-02' } } });
     assertSame([r.status, r.body, tables.nativeEvent.length], [400, { error: 'invalid', field: 'repeat' }, rows + 1], 'an until before the cut\'s day is 400 repeat (the row is the seeded one)');
+  });
+
+  await check('richer repeats, a count-only change that comes out byte-equal to the stored rule is still written (n = stored count + slots before the cut)', async () => {
+    seed();
+    const five = seedSeries('weekly-count-5', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;COUNT=5' });
+    const rows = tables.nativeEvent.length;
+    const r = await patch({ key: `famcal|${five.id}#${iso(at('2026-10-27 10:00'))}`, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], count: 6 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame([tables.nativeEvent.length, lastEvent().rrule, eventRow(five.id).rrule], [rows + 1, 'FREQ=WEEKLY;COUNT=5', 'FREQ=WEEKLY;UNTIL=20261027T095959'], 'six in all: one before the cut, five from it');
+    // From the first occurrence it is the series itself, changed in place.
+    const first = seedSeries('weekly-count-5b', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;COUNT=5' });
+    const f = await patch({ key: `famcal|${first.id}#${iso(at('2026-10-20 10:00'))}`, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], count: 5 } } });
+    assertSame([f.body.status, eventRow(first.id).rrule], ['ok', 'FREQ=WEEKLY;COUNT=5'], 'an equal count at the first: nothing to change');
+  });
+
+  await check('richer repeats, an end-only change on a stored every-2-weeks Sun+Tue rule with no WKST keeps its weeks (8 and 22 Nov stay)', async () => {
+    seed();
+    const bi = seedSeries('biweekly-su-tu', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Club', startsAt: at('2026-10-25 10:00'), rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU' });
+    const r = await patch({ key: `famcal|${bi.id}#${iso(at('2026-11-03 10:00'))}`, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], count: 5 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    const tail = lastEvent();
+    assert(/WKST=MO/.test(tail.rrule), `the stored Monday week start is kept: ${tail.rrule}`);
+    const seen = [];
+    for (const d of ['2026-11-03', '2026-11-08', '2026-11-15', '2026-11-17', '2026-11-22', '2026-11-29']) if ((await itemOf(`famcal|${tail.id}#${iso(at(`${d} 10:00`))}`)).status === 200) seen.push(d);
+    assertSame(seen, ['2026-11-03', '2026-11-08', '2026-11-17', '2026-11-22'], 'the same days');
   });
 
   await check('richer repeats, Hebrew ends and every N years: a spec on a Hebrew series changes its interval and end; the pair is kept; the year floor is 1900', async () => {

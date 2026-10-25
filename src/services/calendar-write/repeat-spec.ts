@@ -10,7 +10,6 @@ import {
   endOfRule,
   inLastWeek,
   slotsBefore,
-  specOfRule,
   weekdayOrdinalOf,
   type HebrewColumns,
   type HebrewRule,
@@ -84,14 +83,28 @@ const withoutSpecEnd = (spec: RepeatSpec): RepeatSpec => {
 /** The series a repeat change reads: its rule, start, zone and Hebrew pair as stored. */
 export type StoredSeries = { rrule: string | null; startsAt: Date; timeZone: string | null } & HebrewColumns;
 
-/** A stored rule without its end and the parts that mean nothing for it (WKST, INTERVAL=1), to compare with a choice's. */
+/**
+ * A rule normalised to compare: no prefix, no end, no WKST, no INTERVAL=1, the BYDAY list sorted, the parts in
+ * a fixed order. Two rules that expand alike by the editor's own writing compare equal.
+ */
 function withoutEnd(rule: string): string {
   return rule
     .replace(/^RRULE:/i, '')
     .split(';')
     .filter((p) => !/^(UNTIL|COUNT|WKST)=/i.test(p) && !/^INTERVAL=1$/i.test(p))
+    .map((p) => (/^BYDAY=/i.test(p) ? `BYDAY=${p.slice(6).split(',').sort().join(',')}` : p))
+    .sort()
     .join(';')
     .toUpperCase();
+}
+
+/** The week start a stored rule is shaped by: its WKST (Monday without one) when it is an every-N-weeks rule on several days, else undefined. */
+function storedWeekStart(rule: string | null): WeekStart | undefined {
+  if (!rule) return undefined;
+  const parts = Object.fromEntries(rule.replace(/^RRULE:/i, '').toUpperCase().split(';').map((p) => p.split('=') as [string, string]));
+  if (parts.FREQ !== 'WEEKLY' || !(Number(parts.INTERVAL) > 1) || (parts.BYDAY ?? '').split(',').filter(Boolean).length < 2) return undefined;
+  const at = WEEKDAY_CODES.indexOf((parts.WKST ?? 'MO') as (typeof WEEKDAY_CODES)[number]);
+  return at < 0 ? 1 : (((at + 1) % 7) as WeekStart);
 }
 
 /**
@@ -99,22 +112,21 @@ function withoutEnd(rule: string): string {
  * A string choice: another of the five, or the same one for a rule that isn't the one that choice
  * writes (a bot's "every Tuesday", BYDAY=TU, re-picked as 'weekly' follows its start); ends
  * ignored. A spec: the rule it builds on `tailStart` (the start the new part will have), end
- * excluded, differs from the stored rule as the sheet says it (a stored rule it can't say is
- * compared as it is), or its Hebrew pair differs, or its end is not the stored one.
+ * excluded, differs from the stored rule, end excluded and normalised (withoutEnd), or its Hebrew
+ * pair differs, or its end is not the stored one. The client sends a spec only for a real pick or a
+ * restated move, so a bot's BYDAY=TU series with a spec is a change: the rule follows its start.
  */
 export function repeatChanges(repeat: RepeatInput, stored: StoredSeries, current: RuleChoice, tailStart: Date, zone: string): boolean {
   if (typeof repeat === 'string') {
     if (repeat !== current) return true;
     const spec = specOfChoice(repeat);
-    return spec !== null && stored.rrule !== null && withoutEnd(stored.rrule) !== ruleOfSpec(spec, stored.startsAt, zone).rrule;
+    return spec !== null && stored.rrule !== null && withoutEnd(stored.rrule) !== withoutEnd(ruleOfSpec(spec, stored.startsAt, zone).rrule);
   }
   if (stored.rrule === null) return true;
   const built = ruleOfSpec(withoutSpecEnd(repeat), tailStart, zone);
   if ((stored.hebrewRule ?? null) !== built.hebrewRule) return true;
-  const storedSpec = specOfRule(stored.rrule, stored.startsAt, zone, stored);
-  const storedRule = storedSpec ? ruleOfSpec(withoutSpecEnd(storedSpec), stored.startsAt, zone).rrule : stored.rrule;
-  if (withoutEnd(built.rrule) !== withoutEnd(storedRule)) return true;
-  const end = endOfRule(stored.rrule);
+  if (withoutEnd(built.rrule) !== withoutEnd(stored.rrule)) return true;
+  const end = endOfRule(stored.rrule, stored.startsAt, zone, stored);
   return repeat.until !== end.until || repeat.count !== end.count;
 }
 
@@ -132,11 +144,13 @@ export function ruleToWrite(
   tailStart: Date,
   zone: string,
   cut: { at: Date; first: boolean } | null,
-  weekStart?: WeekStart
+  userWeekStart?: WeekStart
 ): BuiltRule & { endGiven: boolean } {
   const spec = specOfInput(repeat);
   if (!spec) throw new NativeRuleError('No repeat to build');
-  const end = stored?.rrule ? endOfRule(stored.rrule) : {};
+  const end = stored?.rrule ? endOfRule(stored.rrule, stored.startsAt, zone, stored) : {};
+  // A stored every-N-weeks rule on several days keeps its own week start when rebuilt (its weeks would shift otherwise).
+  const weekStart = storedWeekStart(stored?.rrule ?? null) ?? userWeekStart;
   const unchanged = typeof repeat === 'string' || (spec.until === end.until && spec.count === end.count);
   if (unchanged) return { ...ruleOfSpec(withoutSpecEnd(spec), tailStart, zone, weekStart), endGiven: false };
   // The end is the spec's now (Never included): the store must not carry the old one onto it.

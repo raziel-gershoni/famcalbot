@@ -214,7 +214,7 @@ async function main() {
     assertSame(rec.specOfRule('FREQ=MONTHLY;BYMONTHDAY=20;WKST=MO', tue, IL), { freq: 'monthly', interval: 1, monthly: 'day' }, 'BYMONTHDAY at the start\'s day; WKST aside');
     assertSame(rec.specOfRule('FREQ=YEARLY;INTERVAL=2;BYMONTH=10;BYMONTHDAY=20', tue, IL), { freq: 'yearly', interval: 2 }, 'yearly at the start\'s month and day');
     // A cut series' date-time UNTIL (floating) is its day; a Hebrew rule with a BY part is not sayable.
-    assertSame(rec.specOfRule('FREQ=DAILY;UNTIL=20261024T095959', tue, IL), { freq: 'daily', interval: 1, until: '2026-10-24' }, 'a cut\'s UNTIL');
+    assertSame(rec.specOfRule('FREQ=DAILY;UNTIL=20261024T095959', tue, IL), { freq: 'daily', interval: 1, until: '2026-10-23' }, 'a cut\'s UNTIL is its last occurrence\'s day (the 24th at 09:59:59 excludes the 24th at 10:00)');
     assertSame(rec.specOfRule('FREQ=YEARLY;BYMONTH=1', at('2027-01-24 10:00'), IL, { hebrewRule: 'anniversary', hebrewAnchor: '2027-01-24' }), null, 'hebrew with a BY part');
     assertSame(rec.specOfRule(null, tue, IL), null, 'none');
   });
@@ -222,6 +222,41 @@ async function main() {
   await check('endOfRule: an UNTIL is its day, a COUNT its number, neither is Never', () => {
     assertSame([rec.endOfRule('FREQ=DAILY'), rec.endOfRule('RRULE:FREQ=DAILY;COUNT=3'), rec.endOfRule('FREQ=DAILY;UNTIL=20261231'), rec.endOfRule('FREQ=DAILY;UNTIL=20261024T095959'), rec.endOfRule(null)],
       [{}, { count: 3 }, { until: '2026-12-31' }, { until: '2026-10-24' }, {}], 'ends');
+  });
+
+  await check('endOfRule, a date-time UNTIL is the day of the last slot at or before it in the series\' zone; a date-only one its own day', () => {
+    const tue = at('2026-10-20 10:00');
+    assertSame(rec.endOfRule('FREQ=WEEKLY;UNTIL=20261027T095959', tue, IL), { until: '2026-10-20' }, 'a weekly head cut at the 27th ends on the 20th');
+    assertSame(rec.endOfRule('FREQ=WEEKLY;UNTIL=20261027T100000', tue, IL), { until: '2026-10-27' }, 'an UNTIL on the slot');
+    assertSame(rec.endOfRule('FREQ=WEEKLY;UNTIL=20261027', tue, IL), { until: '2026-10-27' }, 'date-only: its own day');
+    assertSame(rec.endOfRule('FREQ=WEEKLY;UNTIL=20261027T095959'), { until: '2026-10-27' }, 'without a start, the UNTIL\'s own day');
+    const read = rec.specOfRule('FREQ=WEEKLY;UNTIL=20261027T095959', tue, IL);
+    assertSame(read, { freq: 'weekly', interval: 1, byDay: ['TU'], until: '2026-10-20' }, 'the spec says it');
+    // The ruling-5 round trip: the day the sheet shows, sent back, is the stored end (carry).
+    const stored = { rrule: 'FREQ=WEEKLY;UNTIL=20261027T095959', startsAt: tue, timeZone: IL };
+    assertSame(write.ruleToWrite(read!, stored, at('2026-10-27 10:00'), IL, null).endGiven, false, 'unchanged end carries');
+  });
+
+  await check('specOfRule: YEARLY with BYMONTHDAY alone is custom (rrule expands it monthly); with the start\'s BYMONTH it is yearly', () => {
+    const tue = at('2026-10-20 10:00');
+    assertSame(rec.specOfRule('FREQ=YEARLY;BYMONTHDAY=20', tue, IL), null, 'BYMONTHDAY alone');
+    assertSame(rec.specOfRule('FREQ=YEARLY;BYMONTH=10;BYMONTHDAY=20', tue, IL), { freq: 'yearly', interval: 1 }, 'both');
+    assertSame(rec.specOfRule('FREQ=YEARLY;BYMONTH=10', tue, IL), { freq: 'yearly', interval: 1 }, 'BYMONTH alone');
+  });
+
+  await check('a rebuilt stored every-N-weeks rule keeps its own week start (Monday without a WKST); a new one takes the user\'s', () => {
+    const sun = at('2026-10-25 10:00');
+    const stored = { rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU', startsAt: sun, timeZone: IL };
+    const cut = { at: at('2026-11-03 10:00'), first: false };
+    const spec: Spec = { freq: 'weekly', interval: 2, byDay: ['SU', 'TU'], count: 5 };
+    const kept = write.ruleToWrite(spec, stored, at('2026-11-03 10:00'), IL, cut, 0).rrule;
+    assert(kept.includes('WKST=MO'), `kept the stored Monday: ${kept}`);
+    assertSame(days(kept, at('2026-11-03 10:00'), '2026-12-01'), ['2026-11-03', '2026-11-08', '2026-11-17', '2026-11-22'], 'the 8th and the 22nd stay');
+    const own = { ...stored, rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU;WKST=SU' };
+    assert(write.ruleToWrite(spec, own, at('2026-11-03 10:00'), IL, cut, 1).rrule.includes('WKST=SU'), 'its own WKST');
+    const plain = { ...stored, rrule: 'FREQ=WEEKLY' };
+    assert(write.ruleToWrite(spec, plain, at('2026-11-03 10:00'), IL, cut, 0).rrule.includes('WKST=SU'), 'a change that introduces the shape takes the user\'s');
+    assert(write.ruleToWrite(spec, null, sun, IL, null, 0).rrule.includes('WKST=SU'), 'a one-off becoming a series');
   });
 
   await check('ruleCrosses: the start is a slot of every spec, so the mapper never refuses one (monthly 31st, a 29 Feb yearly, the last Tuesday)', () => {
@@ -252,7 +287,10 @@ async function main() {
     const stored = (rrule: string | null, hebrew = false) => ({ rrule, startsAt: start, timeZone: IL, ...(hebrew ? { hebrewRule: 'anniversary', hebrewAnchor: '2026-10-20' } : {}) });
     const changes = (spec: Spec, rrule: string | null, tail = start, hebrew = false) => write.repeatChanges(spec, stored(rrule, hebrew), rec.classifyRule(rrule, start, IL, stored(rrule, hebrew)).choice, tail, IL);
     assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU'] }, 'FREQ=WEEKLY'), false, 'the shown spec of a weekly');
-    assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU'] }, 'FREQ=WEEKLY;BYDAY=TU'), false, 'the shown spec of a bot\'s every Tuesday');
+    assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU'] }, 'FREQ=WEEKLY;BYDAY=TU'), true, 'a spec on a bot\'s every Tuesday is a change: the rule follows its start (ruling 6)');
+    assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TH'] }, 'FREQ=WEEKLY;BYDAY=TU', at('2026-10-22 10:00')), true, 'a Tuesday series restated on Thursday: FREQ=WEEKLY from there (the day move)');
+    assertSame(changes({ freq: 'monthly', interval: 1, monthly: 'day' }, 'FREQ=MONTHLY;BYMONTHDAY=14', at('2026-10-15 10:00')), true, 'BYMONTHDAY=14 restated on the 15th');
+    assertSame(changes({ freq: 'weekly', interval: 2, byDay: ['SU', 'TU'] }, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU'), false, 'WKST and the order of the days are ignored');
     assertSame(changes({ freq: 'weekly', interval: 2, byDay: ['TU'] }, 'FREQ=WEEKLY'), true, 'interval');
     assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY'), true, 'a day');
     assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY;BYDAY=TH,TU'), false, 'the same days in another order');
@@ -268,7 +306,7 @@ async function main() {
     assertSame(changes({ freq: 'yearly', interval: 1 }, 'FREQ=YEARLY', start, true), true, 'Hebrew to Gregorian');
     assertSame(changes({ freq: 'hebrew', interval: 1 }, 'FREQ=YEARLY', start, true), false, 'the same Hebrew');
     // A fixed-day series restated on a start that moved: the rule is rebuilt on the new start.
-    assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY;BYDAY=TU,TH', at('2026-10-22 10:00')), false, 'moved onto a listed day');
+    assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY;BYDAY=TU,TH', at('2026-10-22 10:00')), false, 'moved onto a listed day: the same rule, no change (the day move is then "only this one")');
     assertSame(changes({ freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] }, 'FREQ=WEEKLY;BYDAY=TU,TH', at('2026-10-21 10:00')), true, 'moved onto Wednesday: the chips gain it');
     assertSame(changes({ freq: 'monthly', interval: 1, monthly: 'weekday' }, 'FREQ=MONTHLY;BYDAY=3TU', at('2026-10-27 10:00')), true, 'the ordinal follows the new start (the 4th Tuesday)');
     assert(refused(() => changes({ freq: 'monthly', interval: 1, monthly: 'last' }, 'FREQ=MONTHLY')), 'a "last Tuesday" off the last week throws, so the write answers 400 repeat');

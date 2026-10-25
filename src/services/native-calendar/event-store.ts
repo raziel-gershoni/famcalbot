@@ -723,7 +723,7 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: strin
     throw new NativeRuleError('The new repeat has no occurrence at its start');
   };
   // The stored string switched between Gregorian and Hebrew keeps the series' own end: its COUNT, word for word, would start over in the tail.
-  if (newRule !== undefined && newRule !== series.rrule) {
+  if (newRule !== undefined && (endGiven || newRule !== series.rrule)) {
     const carried = endGiven ? newRule : endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
     assertStorableRule(carried, pair.hebrewRule);
     if (startsWith(carried)) return carried;
@@ -976,9 +976,15 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
   // The rule is the pair (hebrew-repeats spec §2): a kind alone keeps the rule string, a rule
   // alone is Gregorian (no kind), and the same rule switched between Gregorian and Hebrew is a change.
   if (out.rrule === undefined && out.hebrewRule !== undefined) out.rrule = series.rrule;
-  if (out.rrule !== undefined && (out.rrule ?? null) === (series.rrule ?? null) && (out.hebrewRule ?? null) === (series.hebrewRule ?? null)) {
+  if (out.rrule !== undefined && !out.endGiven && (out.rrule ?? null) === (series.rrule ?? null) && (out.hebrewRule ?? null) === (series.hebrewRule ?? null)) {
     delete out.rrule;
     delete out.hebrewRule;
+  }
+  // A rule equal to the stored one is no change, unless the edit gives its end (endGiven): a count that comes out
+  // byte-equal is still the caller's new count. The flags that go with a dropped rule go too.
+  if (out.rrule === undefined) {
+    delete out.endGiven;
+    delete out.rebuilt;
   }
   if (out.calendarId !== undefined && out.calendarId === series.calendarId) delete out.calendarId;
   if (out.alert !== undefined && out.alert === alertChoiceOf(series)) delete out.alert;

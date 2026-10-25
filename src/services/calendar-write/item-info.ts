@@ -244,7 +244,7 @@ const WEEKDAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
  * How a stored rule repeats, or null for none (or a frequency the app has no words for). A
  * Hebrew series' (with its pair) names its anchor (hebrew-repeats spec §3).
  */
-export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null): RepeatInfo | null {
+export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null, at?: { startsAt: Date; zone: string }): RepeatInfo | null {
   if (!rrule) return null;
   try {
     const opts = RRule.parseString(rrule.startsWith('RRULE:') ? rrule.slice(6) : rrule);
@@ -259,7 +259,7 @@ export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null):
     const numbers = (v: unknown) => ([] as unknown[]).concat(v ?? []).filter((n): n is number => typeof n === 'number');
     const monthDays = numbers(opts.bymonthday);
     const months = numbers(opts.bymonth);
-    const end = endOfRule(rrule);
+    const end = endOfRule(rrule, at?.startsAt, at?.zone, hebrew);
     const info: RepeatInfo = {
       freq,
       interval: opts.interval ?? 1,
@@ -366,7 +366,7 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     series: {
       recurring: Boolean(series.rrule),
       start: first.start,
-      repeat: repeatInfo(series.rrule, series),
+      repeat: repeatInfo(series.rrule, series, { startsAt: series.startsAt, zone: itemTz }),
       fixedDays: fixesDays(series.rrule),
       zone: itemTz,
       rule,
