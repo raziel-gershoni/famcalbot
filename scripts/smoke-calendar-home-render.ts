@@ -4636,6 +4636,9 @@ async function main() {
       assert(fetchCalls.filter((c) => c.path === '/api/calendar/item' || c.path === '/api/calendar/items').length === 0, 'no request');
       assert(dgRowTitles(m).some((t) => t.includes('Dentist')) && dgBarText(m) === '', 'nothing moved, no bar');
       const asked = ranges().length;
+      // The source's answer is held, so what shows is the item put back, not the refetch's copy.
+      const answerRange = answerFetch;
+      answerFetch = () => new Promise(() => {});
       await dgLift(m, DENTIST, TODAY);
       await dgDrop(m, dgDay(day(2)));
       assert(dgRowTitles(m).some((t) => t.includes('Dentist')), `back on the picked day: ${dgRowTitles(m)}`);
@@ -4644,6 +4647,7 @@ async function main() {
       assert(reports.length === 1 && reports[0].context === 'calendar-home-drag' && reports[0].extra.key === 'famcal|dentist' && reports[0].extra.scope === 'single', `report ${show(reports)}`);
       assert(!show(reports.map((r) => [String(r.error), r.extra])).includes('Dentist'), 'no title in the report');
       assert(ranges().length > asked, 'the source was asked again');
+      answerFetch = answerRange;
       // The other failures say theirs.
       for (const [status, body, text] of [[403, { error: 'not_allowed' }, 'notAllowed'], [409, { error: 'changed' }, 'changed'], [429, { error: 'busy' }, 'busy']] as const) {
         serveEditing = (c) => (c.path === '/api/calendar/item' ? ok200(dgDentistInfo(0)) : { status, body });
