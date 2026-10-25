@@ -350,7 +350,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     // A lead stored off the list (a migrated one) is its own option, kept until another is picked.
     ...[...ALERT_LEADS, ...(typeof form.alert === 'number' && !ALERT_LEADS.includes(form.alert) ? [form.alert] : [])].map((m) => ({ value: String(m), text: leadWords(m, false) })),
   ];
-  const showAlertRow = alertsOn && !reminder && !form.allDay;
+  const showAlertRow = alertsOn && !form.allDay; // the row sits in the event's card: a reminder has none
   const alertReadOnly = edit ? info?.alertReadOnly === true : !isNativeCalendar(form.calendarId);
   const readOnlyAlertText =
     edit && typeof form.alert === 'number'

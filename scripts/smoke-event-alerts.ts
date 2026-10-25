@@ -18,7 +18,7 @@ import {
   nearestReminderLead,
   parseAlertChoice,
 } from '../src/lib/calendar-view/alert-leads';
-import { createBody, editItemForm, newItemForm, scopePlan, updateBody, type EditorForm } from '../src/lib/calendar-view/editor-model';
+import { createBody, editItemForm, isDirty, newItemForm, scopePlan, updateBody, type EditorForm } from '../src/lib/calendar-view/editor-model';
 import type { ItemEditInfoResponse } from '../src/lib/calendar-view/editor-types';
 import { parseCreate, parseUpdate } from '../src/services/calendar-write/validate';
 
@@ -125,6 +125,11 @@ check('updateBody: alert goes only when changed (and not for a reminder or while
   assert(editItemForm(info({ alert: undefined })).alert === 'default', 'an older server');
   const kept = editItemForm(info({ alert: 45 }));
   assert(updateBody({ ...kept, title: 'x' }, kept, 'k', 'all')?.changes.alert === undefined, 'an off-list lead is kept unless another is picked');
+});
+
+check('isDirty: picking another alert is an edit (Cancel asks to discard)', () => {
+  const initial = editItemForm(info({ alert: 15 }));
+  assert(!isDirty(initial, initial) && isDirty({ ...initial, alert: 'none' }, initial), 'alert');
 });
 
 check('scopePlan: an alert change alone on a series asks "this one and after" or "all"; a one-off asks nothing; with a fixed-days day move it is refused', () => {

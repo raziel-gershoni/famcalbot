@@ -2776,6 +2776,18 @@ async function main() {
     assertSame(alertOf(lastEvent().id), [false, []], 'a reminder\'s tail');
   });
 
+  await check('alerts, the store itself: an alert equal to the series\' own is no change (any scope); a different one on a series is refused for "only this one" with nothing written', async () => {
+    seed();
+    const { id } = await weeklySeries({ alert: 15 });
+    const slot = at('2026-10-27 10:00');
+    const same = await store.updateNativeEvent({ seriesCuid: id, instanceStartsAt: slot, scope: 'single', actingUserId: TAL, title: 'Only this', alert: 15 });
+    assertSame([same.key.seriesId, overrides(id).map((o) => o.title)], [id, ['Only this']], 'equal: a single edit, no scope refusal');
+    const before = show(tables.nativeEvent);
+    const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: id, instanceStartsAt: slot, scope: 'single', actingUserId: TAL, alert: 'none' }));
+    assert(e !== null && (e as Row).field === 'scope', `a series\' alert for one occurrence: ${e}`);
+    assert(show(tables.nativeEvent) === before, 'something was written');
+  });
+
   await check('alerts, a cross-source move with an alert change in the same save is "move alone"; the store refuses an alert for a reminder', async () => {
     seed();
     const one = await post(eventBody());
