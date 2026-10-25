@@ -18,6 +18,7 @@ import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { hebrewDayIn, type HebrewMonthName } from '../hebrew-date-resolve';
 
 export interface VirtualInstance {
   // Identity
@@ -556,17 +557,19 @@ function planYearOf(plan: ReturnType<typeof hebrewPlan>, slot: Date): number | n
 
 /**
  * Where a Hebrew series' slots go when it becomes `to` (another Hebrew series): each to `to`'s
- * slot in the same Hebrew year, counted from `ref` (a slot of `from` and where it went in
- * `to`; without, the anchors stand for each other). A day move on the wall clock would put a
- * rolled year one day off (30 Cheshvan moved to 1 Kislev leaves the years with no 30 Cheshvan
- * where they were). The function gives null for a slot that is not one of `from`'s, or a year
- * `to` has no slot in; null in place of the function when `ref` is not a slot pair.
+ * slot in the same Hebrew year, counted from `ref`: a slot of `from` and where it went in `to`,
+ * or the Hebrew years every slot moves by (a yearly "All" move, yearlySlotMap). A day move on the
+ * wall clock would put a rolled year one day off (30 Cheshvan moved to 1 Kislev leaves the years
+ * with no 30 Cheshvan where they were). The function gives null for a slot that is not one of
+ * `from`'s, or a year `to` has no slot in; null in place of the function when `ref` is not a slot pair.
  */
-export function hebrewSlotMap(from: HebrewSeries, to: HebrewSeries, ref?: { from: Date; to: Date }): ((slot: Date) => Date | null) | null {
+export function hebrewSlotMap(from: HebrewSeries, to: HebrewSeries, ref: { from: Date; to: Date } | { years: number }): ((slot: Date) => Date | null) | null {
   const old = hebrewPlan(from);
   const next = hebrewPlan(to);
-  let years = next.anchorYear - old.anchorYear;
-  if (ref) {
+  let years: number;
+  if ('years' in ref) {
+    years = ref.years;
+  } else {
     const was = planYearOf(old, ref.from);
     const is = planYearOf(next, ref.to);
     if (was === null || is === null) return null;
@@ -819,26 +822,214 @@ export const daysFromTo = (from: string, to: string) => Math.round((Date.parse(`
 /** An all-day item's end as the bot stores it: 23:59 on its last day. */
 export const endOfLocalDay = (day: string, tz: string) => fromZonedTime(`${day}T23:59:00`, tz);
 
+/** Where an occurrence goes: its new start and end, and whether it is all day. */
+type MovedTo = { startsAt: Date; endsAt: Date; allDay: boolean };
+
 /**
- * Where a series goes when one of its occurrences moves to `to` and every occurrence
- * follows: by the days that occurrence moved, at its new time of day, so the series keeps
- * its place in the rule and its first occurrences. Timed, it takes the occurrence's new
- * length; all day, its new span in days. `occurrenceStart` is where the occurrence is now
- * (its override's start, when it was moved on its own).
+ * A series' times when it starts on `day`, at the new time of day of `to` (where its occurrence
+ * goes). Timed, it takes the occurrence's new length; all day, its new span in days.
  */
-export function seriesTimesFor(
-  series: { startsAt: Date; timeZone: string | null },
-  occurrenceStart: Date,
-  to: { startsAt: Date; endsAt: Date; allDay: boolean }
-): { startsAt: Date; endsAt: Date } {
-  const tz = series.timeZone || TIMEZONE;
-  const day = addDaysToDate(localDate(series.startsAt, tz), daysFromTo(localDate(occurrenceStart, tz), localDate(to.startsAt, tz)));
+function timesOnDay(day: string, to: MovedTo, tz: string): { startsAt: Date; endsAt: Date } {
   if (to.allDay) {
     const span = daysFromTo(localDate(to.startsAt, tz), localDate(to.endsAt, tz));
     return { startsAt: startOfLocalDay(day, tz), endsAt: endOfLocalDay(addDaysToDate(day, Math.max(0, span)), tz) };
   }
   const startsAt = fromZonedTime(`${day}T${formatInTimeZone(to.startsAt, tz, 'HH:mm')}:00`, tz);
   return { startsAt, endsAt: new Date(startsAt.getTime() + (to.endsAt.getTime() - to.startsAt.getTime())) };
+}
+
+/** A series' times moved by the days its occurrence (now at `occurrenceStart`) moved, at its new time of day. */
+function shiftedTimes(series: { startsAt: Date; timeZone: string | null }, occurrenceStart: Date, to: MovedTo): { startsAt: Date; endsAt: Date } {
+  const tz = series.timeZone || TIMEZONE;
+  return timesOnDay(addDaysToDate(localDate(series.startsAt, tz), daysFromTo(localDate(occurrenceStart, tz), localDate(to.startsAt, tz))), to, tz);
+}
+
+// ---- A yearly series moved with "All" (editor upgrades spec §1, owner ruling 2026-10-25) ----
+//
+// The count hint asks for the original date, so a user opens this year's birthday and picks 1985.
+// Moving the start by the days the occurrence moved lands in the wrong year and slips a day on
+// leap and Hebrew years. A yearly series moves by its years instead: every slot keeps its (Hebrew)
+// year and takes the picked month and day. A date half a year or more away is the series' first
+// date; a nearer one keeps the first year.
+
+/** How far a yearly series' occurrence must move, in days either way, for the new date to be the series' first: half a year. */
+export const FAR_MOVE_DAYS = 183;
+
+/** A series as the yearly move reads it: its start and zone, its rule and its Hebrew pair. */
+export type YearlySeries = { startsAt: Date; timeZone: string | null; rrule?: string | null } & HebrewColumns;
+
+/**
+ * Whether "All" moves a series by its years: a Hebrew series, or a Gregorian FREQ=YEARLY that
+ * follows its start (no BY part fixing its day, fixesDays), with any INTERVAL, UNTIL or COUNT.
+ */
+export function movesByYears(series: Pick<YearlySeries, 'rrule' | 'hebrewRule'>): boolean {
+  if (!series.rrule) return false;
+  return Boolean(series.hebrewRule) || (isYearlyRule(series.rrule) && !fixesDays(series.rrule));
+}
+
+/** How a yearly series moves: every slot to the moved series' slot in its own (Hebrew) year plus `years`. */
+export interface YearlyMove {
+  /** The picked date is the series' first (it is FAR_MOVE_DAYS or more from the occurrence). */
+  far: boolean;
+  /** 0 for a far move; for a near one, the opened occurrence's change of (Hebrew) year (31 Dec to 1 Jan is 1). */
+  years: number;
+  /**
+   * A Hebrew series' new anchor. Null when the anchor's year has no such Hebrew date (30 Cheshvan in a
+   * short year, Adar I in a common one): the anchor can't carry it, and the store refuses the move.
+   * Absent for a Gregorian series.
+   */
+  hebrewAnchor?: string | null;
+}
+
+const pad4 = (n: number) => String(n).padStart(4, '0');
+/** The Gregorian year of an instant's day in `tz`. */
+const civilYearAt = (at: Date, tz: string) => Number(localDate(at, tz).slice(0, 4));
+/** The Hebrew year of an instant's day in `tz` (a slot's own: a rolled day stays in its year). */
+const hebrewYearAt = (at: Date, tz: string) => hebrewDateOf(localDate(at, tz)).getFullYear();
+/** A rule's INTERVAL (1 when absent). */
+const intervalOf = (rule: string) => RRule.parseString(withInclusiveUntil(bare(rule))).interval ?? 1;
+/** A rule without its UNTIL or COUNT. */
+const withoutEnd = (rule: string) => bare(rule).split(';').filter((p) => !/^(UNTIL|COUNT)=/i.test(p)).join(';');
+
+/**
+ * The day a yearly series starts on when its occurrence (`opened`: its slot, and where it is now)
+ * goes to another day, `to`, and how it moves. Far: the picked day is the first, and a Hebrew series
+ * is anchored on it. Near: the series keeps its first year, moved by the opened occurrence's change of
+ * year, on the picked month and day. Gregorian, that is the first of its years that has the day (29
+ * Feb is a leap year's); Hebrew, the anchor takes the picked Hebrew date in its own year
+ * (hebrewDayIn: Adar is Adar II in a leap year), so the count (hebrew-anniversary.ts) stays, and the
+ * first year falls where hebcal's birthday rule puts that date. A null day: the anchor's year has no
+ * such date.
+ */
+function yearlyMoveFor(series: YearlySeries & { rrule: string }, opened: { slot: Date; start: Date }, to: MovedTo, tz: string): { day: string | null; move: YearlyMove } {
+  const picked = localDate(to.startsAt, tz);
+  const far = Math.abs(daysFromTo(localDate(opened.start, tz), picked)) >= FAR_MOVE_DAYS;
+  if (!series.hebrewRule) {
+    if (far) return { day: picked, move: { far, years: 0 } };
+    const pickedYear = Number(picked.slice(0, 4));
+    const years = pickedYear - civilYearAt(opened.slot, tz);
+    const interval = intervalOf(series.rrule);
+    let year = civilYearAt(series.startsAt, tz) + years;
+    // The opened slot is one of the series' years, so the picked year is reached at the latest.
+    while (!isCivilDay(`${pad4(year)}${picked.slice(4)}`) && year < pickedYear) year += interval;
+    const day = `${pad4(year)}${picked.slice(4)}`;
+    return { day: isCivilDay(day) ? day : picked, move: { far, years } };
+  }
+  if (far) return { day: picked, move: { far, years: 0, hebrewAnchor: picked } };
+  const date = hebrewDateOf(picked);
+  const years = date.getFullYear() - hebrewYearAt(opened.slot, tz);
+  const old = hebrewPlan(hebrewSeriesOf(series));
+  const anchorYear = old.anchorYear + years;
+  // The last Adar of a leap year (Adar II) is the plain Adar of a common one: hebcal's birthday rule moves them together.
+  const name = date.getMonthName();
+  const month = (name === 'Adar II' ? 'Adar' : name) as HebrewMonthName;
+  const hebrewAnchor = anchorYear === date.getFullYear() ? picked : hebrewDayIn({ day: date.getDate(), month }, anchorYear);
+  if (!hebrewAnchor) return { day: null, move: { far, years, hebrewAnchor: null } };
+  // Slot 0 is the anchor; the first year is as many slots on as the old series' first was.
+  const next = hebrewPlan({ ...hebrewSeriesOf(series), hebrewAnchor, startsAt: fromZonedTime(`${hebrewAnchor}T00:00:00`, tz) });
+  const first = next.at(old.first);
+  return { day: first ? localDate(first, tz) : null, move: { far, years, hebrewAnchor } };
+}
+
+/**
+ * Where a series goes when one of its occurrences moves to `to` and every occurrence follows
+ * ("All"). `opened` is that occurrence: its slot, and where it is now (its override's start, when
+ * it was moved on its own). A yearly series (movesByYears) moved to another day goes by its years
+ * (yearlyMoveFor), and `yearly` says how; any other, or a new time alone, by the days the
+ * occurrence moved, so it keeps its place in the rule and its first occurrences. Either way at the
+ * new time of day: timed, with the occurrence's new length; all day, its new span in days.
+ */
+export function seriesTimesFor(series: YearlySeries, opened: { slot: Date; start: Date }, to: MovedTo): { startsAt: Date; endsAt: Date; yearly?: YearlyMove } {
+  const tz = series.timeZone || TIMEZONE;
+  if (series.rrule && movesByYears(series) && localDate(to.startsAt, tz) !== localDate(opened.start, tz)) {
+    const { day, move } = yearlyMoveFor({ ...series, rrule: series.rrule }, opened, to, tz);
+    // No day: the store refuses the move (its anchor null), so the day shift's times only stand in.
+    return { ...(day ? timesOnDay(day, to, tz) : shiftedTimes(series, opened.start, to)), yearly: move };
+  }
+  return shiftedTimes(series, opened.start, to);
+}
+
+/**
+ * Where a yearly series' slots go when it moves by `years` (seriesTimesFor's `yearly`) and becomes
+ * `to`, the series as it will be: each to `to`'s slot in its own (Hebrew) year plus `years`, at
+ * `to`'s time of day; null where `to` has no such day that year (29 Feb in a common year). Not held
+ * to `to`'s start, end or interval: its callers keep only what `to` yields.
+ */
+export function yearlySlotMap(from: YearlySeries, to: YearlySeries, years: number): (slot: Date) => Date | null {
+  if (from.rrule && from.hebrewRule && to.rrule && to.hebrewRule) {
+    return hebrewSlotMap(hebrewSeriesOf({ ...from, rrule: from.rrule }), hebrewSeriesOf({ ...to, rrule: to.rrule }), { years }) ?? (() => null);
+  }
+  const fromTz = from.timeZone || TIMEZONE;
+  const tz = to.timeZone || TIMEZONE;
+  const monthDay = localDate(to.startsAt, tz).slice(4);
+  const wall = formatInTimeZone(to.startsAt, tz, 'HH:mm:ss.SSS');
+  return (slot) => {
+    const day = `${pad4(civilYearAt(slot, fromTz) + years)}${monthDay}`;
+    return isCivilDay(day) ? fromZonedTime(`${day}T${wall}`, tz) : null;
+  };
+}
+
+/** The last slot of `series` (its end aside) in Hebrew or Gregorian year `year` or before it, at or after its start; null when there is none. */
+function lastSlotBy(series: YearlySeries & { rrule: string }, year: number): Date | null {
+  const rule = withoutEnd(series.rrule);
+  const tz = series.timeZone || TIMEZONE;
+  if (series.hebrewRule) {
+    const plan = hebrewPlan(hebrewSeriesOf({ ...series, rrule: rule }));
+    const k = Math.floor((year - plan.anchorYear) / plan.interval);
+    return k >= plan.first ? plan.at(k) : null;
+  }
+  const found = buildRuleSet(rule, toFloating(series.startsAt, tz)).before(new Date(`${pad4(year + 1)}-01-01T00:00:00Z`));
+  return found ? fromFloating(found, tz) : null;
+}
+
+/**
+ * How a yearly move changes a series' end (`from`, the series; `to`, the series as it will be): null
+ * when it keeps it (no end, or a near move's COUNT: the same years); an UNTIL moved as the last slot
+ * moved (`from` to `to`), so the series keeps its last year; a date UNTIL on `day` for a far move's
+ * COUNT (counted from the new first date it would end in another year), and on the new start's day
+ * when the series would end before it starts (a far move past its end keeps the picked date).
+ */
+export function yearlyEnd(from: YearlySeries, to: YearlySeries, move: YearlyMove): { from: Date; to: Date } | { day: string } | null {
+  if (!from.rrule || !to.rrule) return null;
+  const until = /(^|;)UNTIL=/i.test(bare(from.rrule));
+  if (!until && !/(^|;)COUNT=/i.test(bare(from.rrule))) return null;
+  const tz = from.timeZone || TIMEZONE;
+  const last = lastSlot(from.rrule, from.startsAt, tz, { hebrewRule: from.hebrewRule, hebrewAnchor: from.hebrewAnchor });
+  if (!last) return null;
+  const year = (from.hebrewRule ? hebrewYearAt(last, tz) : civilYearAt(last, tz)) + move.years;
+  const next = lastSlotBy({ ...to, rrule: to.rrule }, year);
+  if (!next || next < to.startsAt) return { day: localDate(to.startsAt, to.timeZone || TIMEZONE) };
+  if (until) return { from: last, to: next };
+  return move.far ? { day: localDate(next, tz) } : null;
+}
+
+/** A yearly series' rule after its move (yearlyEnd), as the store keeps it: a date UNTIL is read as the end of its day. */
+export function yearlyRuleAfter(from: YearlySeries & { rrule: string }, to: YearlySeries, move: YearlyMove): string {
+  const end = yearlyEnd(from, to, move);
+  if (!end) return from.rrule;
+  if ('day' in end) return `${withoutEnd(from.rrule)};UNTIL=${end.day.replace(/-/g, '')}`;
+  return shiftUntil(from.rrule, end.from, end.to, from.timeZone || TIMEZONE);
+}
+
+/** Whether `series`' rule (its start and end included, exdates aside) has an occurrence at `slot`. */
+function hasSlot(series: YearlySeries & { rrule: string }, slot: Date): boolean {
+  const near = { from: new Date(slot.getTime() - DAY_MS), to: new Date(slot.getTime() + DAY_MS) };
+  if (series.hebrewRule) return hebrewCandidates(hebrewSeriesOf(series), near).some((d) => d.getTime() === slot.getTime());
+  const tz = series.timeZone || TIMEZONE;
+  const at = toFloating(slot, tz);
+  return buildRuleSet(series.rrule, toFloating(series.startsAt, tz))
+    .between(new Date(at.getTime() - 1000), new Date(at.getTime() + 1000), true)
+    .some((d) => d.getTime() === at.getTime());
+}
+
+/**
+ * Where a yearly move (`slotOf`, yearlySlotMap) puts the opened occurrence (`slot`): its year's slot
+ * in `to`, the series as it will be, when `to` has one there; else `to`'s first (a far move forward
+ * leaves that year before the new first date).
+ */
+export function yearlyOpenedSlot(to: YearlySeries & { rrule: string }, slotOf: (slot: Date) => Date | null, slot: Date): Date {
+  const moved = slotOf(slot);
+  return moved && hasSlot(to, moved) ? moved : to.startsAt;
 }
 
 /**
@@ -856,5 +1047,5 @@ export function followingTimesFor(
 ): { startsAt: Date; endsAt: Date } {
   const tz = series.timeZone || TIMEZONE;
   if (!fixesDays(series.rrule) && localDate(to.startsAt, tz) !== localDate(occurrenceStart, tz)) return { startsAt: to.startsAt, endsAt: to.endsAt };
-  return seriesTimesFor({ startsAt: slot, timeZone: series.timeZone }, occurrenceStart, to);
+  return shiftedTimes({ startsAt: slot, timeZone: series.timeZone }, occurrenceStart, to);
 }

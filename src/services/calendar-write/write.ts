@@ -371,19 +371,21 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     });
   } else if (timeChanged) {
     if (scope === 'all' && series.rrule) {
-      // The series moves as this occurrence did (by its days, to its new time of day): a rule
-      // with no BYDAY (what the editor writes) follows its start, so the weekday moves with it;
-      // the store refuses a day move on one with fixed days. Its own start is written only
-      // when it moves, which carries what was skipped or renamed along; this occurrence is
-      // then where its slot went (one moved on its own comes back to the rule's day).
-      const moved = seriesTimesFor(series, occ.startsAt, { startsAt, endsAt, allDay });
-      if (moved.startsAt.getTime() !== series.startsAt.getTime()) {
-        // The series start moves by the same days, so a far move can carry it out of the years its repeat allows
-        // (1950 picked on this year's occurrence puts the start in the 1870s). Refused, not clamped.
-        if (!isDay(localDate(moved.startsAt, itemTz), floor)) return { status: 'invalid', field: 'start' };
-        input.startsAt = moved.startsAt;
+      // The series moves as this occurrence did, which the store works out from the occurrence's
+      // times (occurrenceTimes, as for the bot; seriesTimesFor): a yearly series by its years (a
+      // date half a year or more away becomes its first date, editor upgrades spec §1), any other
+      // by its days, to its new time of day. A rule with no BYDAY (what the editor writes) follows
+      // its start, so the weekday moves with it; the store refuses a day move on one with fixed
+      // days. Its own start is written only when it moves, which carries what was skipped or
+      // renamed along; this occurrence is then where its slot went (one moved on its own comes
+      // back to the rule's day).
+      const moved = seriesTimesFor(series, { slot: key.slot!, start: occ.startsAt }, { startsAt, endsAt, allDay });
+      // The moved start can leave the years its repeat allows (a daily series moved back past 2000, a yearly
+      // one from 1 Jan 1900 to 31 Dec). Refused, not clamped.
+      if (moved.startsAt.getTime() !== series.startsAt.getTime() && !isDay(localDate(moved.startsAt, itemTz), floor)) {
+        return { status: 'invalid', field: 'start' };
       }
-      input.endsAt = moved.endsAt;
+      Object.assign(input, { occurrenceTimes: true, startsAt, endsAt });
     } else {
       input.startsAt = startsAt;
       input.endsAt = endsAt;

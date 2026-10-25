@@ -113,8 +113,11 @@ function monthNumber(name: HebrewMonthName, year: number): number | null {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** The day a Hebrew date falls on in one Hebrew year, as 'yyyy-MM-dd', or null when that year has no such day (30 Cheshvan in a short year). */
-function dayIn(spoken: SpokenHebrewDate, year: number): string | null {
+/**
+ * The day a Hebrew date falls on in one Hebrew year, as 'yyyy-MM-dd', or null when that year has no such day (30 Cheshvan in a
+ * short year, Adar I in a common one). A plain "Adar" is Adar II in a leap year. The store moves a yearly series with it too.
+ */
+export function hebrewDayIn(spoken: SpokenHebrewDate, year: number): string | null {
   const month = monthNumber(spoken.month, year);
   if (month === null || spoken.day > HDate.daysInMonth(month, year)) return null;
   // hebcal hands back local midnight of the civil day, so the local getters read it exactly
@@ -129,11 +132,11 @@ function dayIn(spoken: SpokenHebrewDate, year: number): string | null {
  * when none comes within SEARCH_YEARS. A plain "Adar" is read as spoken: Adar II in a leap year.
  */
 export function resolveSpokenHebrewDate(spoken: SpokenHebrewDate, today: string): string | null {
-  if (spoken.year !== undefined) return dayIn(spoken, spoken.year);
+  if (spoken.year !== undefined) return hebrewDayIn(spoken, spoken.year);
   const [y, m, d] = today.split('-').map(Number);
   const first = new HDate(new Date(y, m - 1, d)).getFullYear();
   for (let year = first; year < first + SEARCH_YEARS; year++) {
-    const date = dayIn(spoken, year);
+    const date = hebrewDayIn(spoken, year);
     if (date && date >= today) return date;
   }
   return null;

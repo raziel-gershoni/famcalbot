@@ -706,6 +706,49 @@ async function main() {
     assertSame([stored(NOA_CAL, 'adx')!.recurrence, visible(NOA_CAL, 'adx').length], [['RRULE:FREQ=DAILY;COUNT=5', 'EXDATE;VALUE=DATE:20261014'], 4], 'all-day');
   });
 
+  // ---- 'all' on a yearly series: by its years (editor upgrades spec §1, one rule with FamCal's) ----
+
+  const dayOf = (i: Row) => (i.start.date ?? formatInTimeZone(new Date(i.start.dateTime), IL, 'yyyy-MM-dd')) as string;
+
+  await check('all, yearly far: 1985 picked on this year\'s occurrence is the master\'s first date; an EXDATE on a later year stays; the opened occurrence keeps its id; the editor\'s path too', async () => {
+    const exdate = `EXDATE:${utcStamp(at('2028-03-02T10:00:00'))}`;
+    seed(NOA_CAL, 'yr', { start: '2020-03-02T10:00:00', summary: 'Birthday', recurrence: ['RRULE:FREQ=YEARLY', exdate] });
+    const r = await update(NOA, NOA_CAL, inst('yr', '2026-03-02T10:00:00'), { startTime: at('1985-03-02T10:00:00'), endTime: at('1985-03-02T11:00:00'), scope: 'all', recurringEventId: 'yr' });
+    assert(r.success, `update ${show(r)}`);
+    const m = stored(NOA_CAL, 'yr')!;
+    assertSame([new Date(m.start.dateTime).toISOString(), new Date(m.end.dateTime).toISOString(), m.recurrence], [at('1985-03-02T10:00:00').toISOString(), at('1985-03-02T11:00:00').toISOString(), ['RRULE:FREQ=YEARLY', exdate]], 'the master from 1985 (the day shift gave 1979)');
+    assertSame(r.instanceId, inst('yr', '2026-03-02T10:00:00'), 'the opened occurrence');
+    const days = visible(NOA_CAL, 'yr').map(dayOf);
+    assertSame([days[0], days.includes('2027-03-02'), days.includes('2028-03-02')], ['1985-03-02', true, false], 'every year on 2 March, 2028 still excluded');
+    reset();
+    seed(NOA_CAL, 'yr', { start: '2020-03-02T10:00:00', summary: 'Birthday', recurrence: ['RRULE:FREQ=YEARLY'] });
+    const key = gkey(NOA_CAL, inst('yr', '2026-03-02T10:00:00'));
+    const item = await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { start: '1985-03-02T10:00', end: '1985-03-02T11:00' } }), IL);
+    assertSame([item.status, new Date(stored(NOA_CAL, 'yr')!.start.dateTime).toISOString()], ['ok', at('1985-03-02T10:00:00').toISOString()], 'the home\'s edit');
+  });
+
+  await check('all, yearly near: 28 Feb moved to 1 Mar keeps the first year (1 Mar 2020, not 29 Feb); 31 Dec moved to 1 Jan (all day) starts on 1 Jan of the year after', async () => {
+    seed(NOA_CAL, 'feb', { start: '2020-02-28T10:00:00', recurrence: ['RRULE:FREQ=YEARLY'] });
+    const r = await update(NOA, NOA_CAL, inst('feb', '2026-02-28T10:00:00'), { startTime: at('2026-03-01T10:00:00'), endTime: at('2026-03-01T11:00:00'), scope: 'all', recurringEventId: 'feb' });
+    assertSame([r.success, new Date(stored(NOA_CAL, 'feb')!.start.dateTime).toISOString(), r.instanceId], [true, at('2020-03-01T10:00:00').toISOString(), inst('feb', '2026-03-01T10:00:00')], 'from 1 Mar 2020');
+    assertSame(visible(NOA_CAL, 'feb').slice(0, 5).map(dayOf), ['2020-03-01', '2021-03-01', '2022-03-01', '2023-03-01', '2024-03-01'], 'leap years too');
+    seed(NOA_CAL, 'nye', { start: '2020-12-31', allDay: true, recurrence: ['RRULE:FREQ=YEARLY'] });
+    const n = await update(NOA, NOA_CAL, instDay('nye', '2026-12-31'), { startTime: at('2027-01-01T00:00:00'), endTime: at('2027-01-01T23:59:00'), allDay: true, scope: 'all', recurringEventId: 'nye' });
+    const m = stored(NOA_CAL, 'nye')!;
+    assertSame([n.success, m.start.date, m.end.date, n.instanceId], [true, '2021-01-01', '2021-01-02', instDay('nye', '2027-01-01')], 'from 1 Jan 2021');
+  });
+
+  await check('all, yearly far forward: a later year is the first date; its COUNT becomes its last date, an EXDATE before the new start goes and a later one moves with its year', async () => {
+    seed(NOA_CAL, 'fwd', { start: '2020-03-02T10:00:00', recurrence: ['RRULE:FREQ=YEARLY;COUNT=20', `EXDATE:${utcStamp(at('2022-03-02T10:00:00'))},${utcStamp(at('2031-03-02T10:00:00'))}`] });
+    const r = await update(NOA, NOA_CAL, inst('fwd', '2026-03-02T10:00:00'), { startTime: at('2030-03-05T10:00:00'), endTime: at('2030-03-05T11:00:00'), scope: 'all', recurringEventId: 'fwd' });
+    assert(r.success, `update ${show(r)}`);
+    const m = stored(NOA_CAL, 'fwd')!;
+    assertSame([new Date(m.start.dateTime).toISOString(), m.recurrence], [at('2030-03-05T10:00:00').toISOString(), [`RRULE:FREQ=YEARLY;UNTIL=${utcStamp(at('2039-03-05T23:59:59'))}`, `EXDATE:${utcStamp(at('2031-03-05T10:00:00'))}`]], 'the master');
+    assertSame(r.instanceId, inst('fwd', '2030-03-05T10:00:00'), 'the opened year is before the new first date: the key is that date');
+    const days = visible(NOA_CAL, 'fwd').map(dayOf);
+    assertSame([days[0], days[1], days[days.length - 1], days.length], ['2030-03-05', '2032-03-05', '2039-03-05', 9], 'from 2030 to 2039, 2031 excluded');
+  });
+
   await check('all: a day move on a series with fixed days (BYDAY, BYMONTHDAY) is FIXED_DAYS, and nothing is written; a time alone is fine', async () => {
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
     const r = await update(NOA, NOA_CAL, inst('wk', '2026-10-20T10:00:00'), { startTime: at('2026-10-21T10:00:00'), endTime: at('2026-10-21T11:00:00'), scope: 'all', recurringEventId: 'wk' });

@@ -526,6 +526,24 @@ async function main() {
     assert(iso(eventRow('daily').startsAt) === iso(at('2026-10-10 09:00')) && (eventRow('daily').exdates as Date[]).map(iso).join() === iso(at('2026-10-12 09:00')), `reminder ${iso(eventRow('daily').startsAt)} ${(eventRow('daily').exdates as Date[]).map(iso).join()}`);
   });
 
+  await check('the bot\'s "every year" on a yearly reminder (editor upgrades spec §1): a date half a year or more away is the first, a later skip stays, the state rows go; a Hebrew one is anchored on it; a near one keeps the first year', async () => {
+    reset();
+    seedEvent('bday', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, title: 'Call Dana', startsAt: at('2020-03-02 09:00'), rrule: 'FREQ=YEARLY', exdates: [at('2028-03-02 09:00')] });
+    seedState('bday', at('2026-03-02 09:00'), 82);
+    const far = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('bday', at('2026-03-02 09:00')), { startTime: at('1985-03-02 09:00'), endTime: at('1985-03-02 09:00'), scope: 'all' });
+    assert(far.success && iso(eventRow('bday').startsAt) === iso(at('1985-03-02 09:00')), `far: ${far.success} ${iso(eventRow('bday').startsAt)}`);
+    assert((eventRow('bday').exdates as Date[]).map(iso).join() === iso(at('2028-03-02 09:00')) && stateKeys('bday').length === 0, `exdates ${(eventRow('bday').exdates as Date[]).map(iso).join()}, states ${stateKeys('bday').length}`);
+    const days = startsOf('bday', '1985-01-01 00:00', '1987-01-01 00:00').concat(startsOf('bday', '2027-01-01 00:00', '2030-01-01 00:00'));
+    assert(days.join() === ['1985-03-02', '1986-03-02', '2027-03-02', '2029-03-02'].map((d) => iso(at(`${d} 09:00`))).join(), `days ${days.join()}`);
+    const near = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('bday', at('2026-03-02 09:00')), { startTime: at('2026-03-04 09:00'), endTime: at('2026-03-04 09:00'), scope: 'all' });
+    assert(near.success && iso(eventRow('bday').startsAt) === iso(at('1985-03-04 09:00')), `near: ${iso(eventRow('bday').startsAt)}`);
+    reset();
+    seedEvent('tu', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, title: 'Plant a tree', startsAt: at('2024-01-25 09:00'), rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2024-01-25' });
+    const heb = await nativeProvider.updateEvent(tables.user[0] as never, 'native:raziel', encodeEventId('tu', at('2026-02-02 09:00')), { startTime: at('1950-02-02 09:00'), endTime: at('1950-02-02 09:00'), scope: 'all' });
+    assert(heb.success && iso(eventRow('tu').startsAt) === iso(at('1950-02-02 09:00')) && eventRow('tu').hebrewAnchor === '1950-02-02', `hebrew: ${iso(eventRow('tu').startsAt)} ${eventRow('tu').hebrewAnchor}`);
+    assert(startsOf('tu', '2026-01-01 00:00', '2028-01-01 00:00').join() === ['2026-02-02', '2027-01-23'].map((d) => iso(at(`${d} 09:00`))).join(), 'every year still on 15 Shvat');
+  });
+
   await check('every one resent with the series\' own start (the bot saying the time it already has): an occurrence moved on its own stays moved, also with the end resent unchanged and through the bot\'s occurrenceTimes; a new end or a new start still resets it', async () => {
     const seed = () => {
       reset();

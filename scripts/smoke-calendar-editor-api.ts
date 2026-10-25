@@ -755,16 +755,25 @@ async function main() {
     assert(ok.status === 200, `a yearly series to 1950: ${ok.status} ${ok.text}`);
   });
 
-  await check('year floor, series start: "All" from a far-date pick is refused when the moved series start leaves the years; a near pick is fine', async () => {
+  await check('year floor, series start: "All" refuses a moved series start that leaves the years (a yearly one from 1 Jan 1900 moved a day back, a daily one moved back past 2000); 1950 re-entered on a 1950 yearly item keeps it', async () => {
     seed();
     const yearly = await post(eventBody({ start: '1950-03-02T10:00', end: '1950-03-02T11:00', repeat: 'yearly' }));
     assert(yearly.status === 200, `a yearly item from 1950: ${yearly.status} ${yearly.text}`);
     const key = `famcal|${idOf(yearly.body.key)}#${iso(at('2026-03-02 10:00'))}`;
-    // Re-entering 1950 on this year's occurrence moves the series start back 27 759 days, to 1874.
-    const refused = await patch({ key, scope: 'all', changes: { start: '1950-03-02T10:00', end: '1950-03-02T11:00' } });
-    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'the series start would land in 1874');
-    const near = await patch({ key, scope: 'all', changes: { start: '1990-03-02T10:00', end: '1990-03-02T11:00' } });
-    assert(near.status === 200, `a move that keeps the series start in range: ${near.status} ${near.text}`);
+    // The count hint asks for the original date: 1950 on this year's occurrence is the series' own first date (the day shift put it in 1874).
+    const same = await patch({ key, scope: 'all', changes: { start: '1950-03-02T10:00', end: '1950-03-02T11:00' } });
+    assertSame([same.status, same.body.key, iso(eventRow(idOf(yearly.body.key)).startsAt)], [200, key, iso(at('1950-03-02 10:00'))], 'the series keeps 1950 and the opened occurrence');
+    const first = await post(eventBody({ start: '1900-01-01T10:00', end: '1900-01-01T11:00', repeat: 'yearly' }));
+    const firstKey = `famcal|${idOf(first.body.key)}#${iso(at('2026-01-01 10:00'))}`;
+    const refused = await patch({ key: firstKey, scope: 'all', changes: { start: '2025-12-31T10:00', end: '2025-12-31T11:00' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'a day back from 1 Jan puts the first date on 31 Dec 1899');
+    assertSame(iso(eventRow(idOf(first.body.key)).startsAt), iso(at('1900-01-01 10:00')), 'nothing written');
+    const daily = await post(eventBody({ start: '2000-01-03T10:00', end: '2000-01-03T11:00', repeat: 'daily' }));
+    const dailyKey = (day: string) => `famcal|${idOf(daily.body.key)}#${iso(at(`${day} 10:00`))}`;
+    const back = await patch({ key: dailyKey('2026-10-20'), scope: 'all', changes: { start: '2026-10-15T10:00', end: '2026-10-15T11:00' } });
+    assertSame([back.status, back.body], [400, { error: 'invalid', field: 'start' }], 'a daily series moved five days back starts in 1999');
+    const near = await patch({ key: dailyKey('2026-10-20'), scope: 'all', changes: { start: '2026-10-21T10:00', end: '2026-10-21T11:00' } });
+    assertSame([near.status, iso(eventRow(idOf(daily.body.key)).startsAt)], [200, iso(at('2000-01-04 10:00'))], 'a day later is fine');
   });
 
   await check('year floor, repeat change without a start: a 1950 one-off cannot become a daily series, but can become yearly', async () => {
@@ -2137,7 +2146,7 @@ async function main() {
     assertSame((await daysOf(bareRem.id, '2022-01-01', '2023-01-01')), ['2022-11-26'], 'its start is still its first occurrence');
   });
 
-  await check('hebrew: a day move keys what was done to rolled years by Hebrew year ("all", "this and after"); "all" from a rolled occurrence is refused', async () => {
+  await check('hebrew: a day move keys what was done to rolled years by Hebrew year ("all", "this and after"); "all" from a rolled occurrence takes every year to its new Hebrew day', async () => {
     // The rolled years of hebrewSeries(): 2023-11-14, 2025-11-21, 2028-11-19 (1 Kislev, no 30
     // Cheshvan there). Moved to 1 Kislev, those stay where they are while the others move a day.
     seed();
@@ -2153,15 +2162,19 @@ async function main() {
     assertSame((await itemOf(r.body.key)).status, 200, 'the key reads');
 
     seed();
+    // From a rolled year (1 Kislev 5784) to 2 Kislev: every year goes to 2 Kislev, the anchor's year too (a yearly move,
+    // editor upgrades spec §1); the day shift left the rolled year where it was and refused it.
     const rolled = hebrewSeries();
     await del({ key: rolled.occ('2025-11-21'), scope: 'single' });
-    const refused = await patch({ key: rolled.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00', end: '2023-11-15T11:00' } });
-    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], '"all" from a rolled year: refused (it would not move)');
-    assertSame([iso(eventRow(rolled.id).startsAt), eventRow(rolled.id).hebrewAnchor, eventRow(rolled.id).exdates.map(iso)], [iso(at('2022-11-24 10:00')), '2022-11-24', [iso(at('2025-11-21 10:00'))]], 'nothing written');
-    const ask = (instance: string, start: string) => store.refusesFixedDays({ seriesCuid: rolled.id, instanceStartsAt: at(`${instance} 10:00`), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at(`${start} 10:00`) });
-    assertSame([await ask('2023-11-14', '2023-11-15'), await ask('2024-12-01', '2024-12-02'), await ask('2023-11-14', '2023-11-14')], [true, false, false], 'the bot asks first: refused from a rolled year only, and only a day move');
-    const timed = await patch({ key: rolled.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-14T12:00', end: '2023-11-14T13:00' } });
-    assertSame([timed.status, eventRow(rolled.id).hebrewAnchor, await daysOf(rolled.id, '2025-01-01', '2026-01-01')], [200, '2022-11-24', []], 'a new time from a rolled year is fine; the cancellation kept');
+    const fromRolled = await patch({ key: rolled.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00', end: '2023-11-15T11:00' } });
+    assertSame([fromRolled.status, fromRolled.body.key, iso(eventRow(rolled.id).startsAt), eventRow(rolled.id).hebrewAnchor], [200, rolled.occ('2023-11-15'), iso(at('2022-11-26 10:00')), '2022-11-26'], '"all" from a rolled year: on 2 Kislev');
+    assertSame(await daysOf(rolled.id, '2022-01-01', '2029-01-01'), ['2022-11-26', '2023-11-15', '2024-12-03', '2026-11-12', '2027-12-02', '2028-11-20'], 'every year on 2 Kislev, the cancelled one still cancelled');
+    seed();
+    const asked = hebrewSeries();
+    const ask = (instance: string, start: string) => store.refusesFixedDays({ seriesCuid: asked.id, instanceStartsAt: at(`${instance} 10:00`), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at(`${start} 10:00`) });
+    assertSame([await ask('2023-11-14', '2023-11-15'), await ask('2024-12-01', '2024-12-02'), await ask('2023-11-14', '2023-11-14')], [false, false, false], 'the bot asks first: a rolled year moves like any other');
+    const timed = await patch({ key: asked.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-14T12:00', end: '2023-11-14T13:00' } });
+    assertSame([timed.status, eventRow(asked.id).hebrewAnchor, await daysOf(asked.id, '2023-01-01', '2025-01-01')], [200, '2022-11-24', ['2023-11-14', '2024-12-01']], 'a new time from a rolled year keeps the anchor (30 Cheshvan stays)');
 
     seed();
     const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', title: 'Light a candle' });
@@ -2171,8 +2184,8 @@ async function main() {
     assertSame(await daysOf(rem.id, '2022-01-01', '2027-01-01'), ['2022-11-25', '2023-11-14', '2024-12-02', '2026-11-11'], 'the reminder\'s cancelled rolled year stays cancelled');
     seed();
     const rem2 = hebrewSeries('heb-rem2', { kind: 'REMINDER', title: 'Light a candle' });
-    const remRefused = await patch({ key: rem2.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00' } });
-    assertSame([remRefused.status, remRefused.body, eventRow(rem2.id).hebrewAnchor], [400, { error: 'invalid', field: 'start' }, '2022-11-24'], 'a reminder "all" from a rolled year: refused');
+    const remRolled = await patch({ key: rem2.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00' } });
+    assertSame([remRolled.status, remRolled.body.key, eventRow(rem2.id).hebrewAnchor], [200, rem2.occ('2023-11-15'), '2022-11-26'], 'a reminder "all" from a rolled year: on 2 Kislev');
 
     seed();
     const tailed = hebrewSeries();
@@ -2402,7 +2415,7 @@ async function main() {
     assertSame([fromDaily.status, pairOf(lastEvent())], [200, ['FREQ=YEARLY;UNTIL=20261029', 'anniversary', '2026-10-22']], 'from another frequency a COUNT is still its last day');
   });
 
-  await check('H2 edit: the item info names the anchor for a Hebrew item, in the rule; a Gregorian one has none; a day move from a rolled year answers 400 start', async () => {
+  await check('H2 edit: the item info names the anchor for a Hebrew item, in the rule; a Gregorian one has none; a day move to a Hebrew date the anchor\'s year lacks answers 400 start', async () => {
     seed();
     const heb = hebrewSeries();
     assertSame((await itemOf(heb.occ('2025-11-21'))).body.series.rule, { choice: 'hebrew', anchor: '2022-11-24' }, 'the rolled year reports the anchor, not its own day');
@@ -2412,10 +2425,189 @@ async function main() {
     assertSame((await itemOf(custom.occ('2022-11-24'))).body.series.rule, { choice: 'custom', anchor: '2022-11-24' }, 'every 2 years: custom, with the anchor');
     const greg = seedSeries('greg', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Wedding', startsAt: at('2022-11-24 10:00'), rrule: 'FREQ=YEARLY' });
     assertSame((await itemOf(`famcal|${greg.id}#${iso(at('2023-11-24 10:00'))}`)).body.series.rule, { choice: 'yearly' }, 'a Gregorian one: no anchor');
-    const refused = await patch({ key: heb.occ('2023-11-14'), scope: 'all', changes: { start: '2023-11-15T10:00', end: '2023-11-15T11:00' } });
-    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'a day move for all from a rolled occurrence');
+    // Anchored on 29 Cheshvan 5784, a short year: 30 Cheshvan picked in 5785 can't be the anchor's day.
+    const short = hebrewSeries('heb-short', { startsAt: at('2023-11-13 10:00'), hebrewAnchor: '2023-11-13' });
+    const refused = await patch({ key: short.occ('2024-11-30'), scope: 'all', changes: { start: '2024-12-01T10:00', end: '2024-12-01T11:00' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'a day move for all to 30 Cheshvan from a short anchor year');
     const edit = await patch({ key: heb.occ('2023-11-14'), scope: 'following', changes: { title: 'Saba' } });
     assertSame(edit.status, 200, 'a Hebrew item is edited like any other');
+  });
+
+  // ================= A yearly series moved with "All" (editor upgrades spec §1, owner ruling 2026-10-25) =================
+
+  /** A Gregorian yearly series as the editor writes one, from `start` ('yyyy-MM-dd HH:mm') at that time. */
+  const yearlySeries = (id: string, start: string, extra: Row = {}) => {
+    const row = seedSeries(id, { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Dana\'s birthday', startsAt: at(start), rrule: 'FREQ=YEARLY', ...extra });
+    const time = start.slice(11);
+    const occ = (day: string) => `famcal|${id}#${iso(at(`${day} ${time}`))}`;
+    /** "All" from the occurrence on `day`, to `to` at the same time, an hour long. */
+    const moveAll = (day: string, to: string) => patch({ key: occ(day), scope: 'all', changes: { start: `${to}T${time}`, end: `${to}T${String(Number(time.slice(0, 2)) + 1).padStart(2, '0')}${time.slice(2)}` } });
+    return { id, occ, moveAll, row };
+  };
+  /** The overrides of a series as [day, status, title], in order. */
+  const rowsOf = (id: string) => overrides(id).map((o) => [formatInTimeZone(o.originalStartsAt, IL, 'yyyy-MM-dd'), o.status, o.title]).sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const yearsOn = (from: number, to: number, monthDay: string, step = 1) => Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => `${from + i * step}-${monthDay}`);
+
+  await check('yearly "All", far: 1985 picked on this year\'s birthday (from 2020) is the first date; later years keep their slots, exceptions and exdates with them', async () => {
+    seed();
+    const s = yearlySeries('bd', '2020-03-02 10:00', { exdates: [at('2029-03-02 10:00')] });
+    assertSame((await patch({ key: s.occ('2027-03-02'), scope: 'single', changes: { title: 'Renamed' } })).status, 200, 'a later year renamed');
+    assertSame((await del({ key: s.occ('2028-03-02'), scope: 'single' })).status, 200, 'a later year cancelled');
+    const r = await s.moveAll('2026-03-02', '1985-03-02');
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt), iso(eventRow(s.id).endsAt), eventRow(s.id).rrule], [200, s.occ('2026-03-02'), iso(at('1985-03-02 10:00')), iso(at('1985-03-02 11:00')), 'FREQ=YEARLY'], 'the series from 1985, the opened occurrence where it was');
+    const want = yearsOn(1985, 2030, '03-02').filter((d) => !['2028-03-02', '2029-03-02'].includes(d));
+    assertSame(await daysOf(s.id, '1980-01-01', '2031-01-01'), want, 'every year on 2 March from 1985, the cancelled and the skipped still out');
+    assertSame([rowsOf(s.id), eventRow(s.id).exdates.map(iso).sort()], [[['2027-03-02', 'OVERRIDE', 'Renamed']], [iso(at('2028-03-02 10:00')), iso(at('2029-03-02 10:00'))]], 'the rename and the skips where they were');
+    assertSame((await itemOf(r.body.key)).status, 200, 'the key reads');
+  });
+
+  await check('yearly "All", near: 28 Feb moved to 1 Mar keeps the first year (2020-03-01, not 29 Feb); a rename moves to its year\'s new day', async () => {
+    seed();
+    const s = yearlySeries('feb', '2020-02-28 10:00');
+    await patch({ key: s.occ('2027-02-28'), scope: 'single', changes: { title: 'Renamed' } });
+    const r = await s.moveAll('2026-02-28', '2026-03-01');
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt)], [200, s.occ('2026-03-01'), iso(at('2020-03-01 10:00'))], 'from 1 Mar 2020');
+    assertSame(await daysOf(s.id, '2019-01-01', '2029-01-01'), yearsOn(2020, 2028, '03-01'), 'every year on 1 March, leap years too');
+    assertSame(rowsOf(s.id), [['2027-03-01', 'OVERRIDE', 'Renamed']], 'the rename on 1 Mar 2027');
+  });
+
+  await check('yearly "All", far forward: a later year is the first date; the years before it go, with what was done to them', async () => {
+    seed();
+    const s = yearlySeries('fwd', '2020-03-02 10:00');
+    await patch({ key: s.occ('2022-03-02'), scope: 'single', changes: { title: 'Early' } });
+    await del({ key: s.occ('2031-03-02'), scope: 'single' });
+    const r = await s.moveAll('2026-03-02', '2030-03-05');
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt)], [200, s.occ('2030-03-05'), iso(at('2030-03-05 10:00'))], 'from 2030, the key on the new first date');
+    assertSame(await daysOf(s.id, '2019-01-01', '2034-01-01'), ['2030-03-05', '2032-03-05', '2033-03-05'], 'nothing before 2030; 2031 still skipped');
+    assertSame([rowsOf(s.id), eventRow(s.id).exdates.map(iso)], [[], [iso(at('2031-03-05 10:00'))]], 'the rename before the new start is gone, the skip moved with its year');
+  });
+
+  await check('yearly "All", near across the year: 31 Dec moved to 1 Jan starts the series on 1 Jan of the year after its first; 1 Jan to 31 Dec on the one before', async () => {
+    seed();
+    const s = yearlySeries('nye', '2020-12-31 10:00');
+    await patch({ key: s.occ('2024-12-31'), scope: 'single', changes: { title: 'Renamed' } });
+    const r = await s.moveAll('2026-12-31', '2027-01-01');
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt)], [200, s.occ('2027-01-01'), iso(at('2021-01-01 10:00'))], 'from 1 Jan 2021');
+    assertSame(await daysOf(s.id, '2020-01-01', '2028-01-01'), yearsOn(2021, 2027, '01-01'), 'nothing on 31 Dec 2020');
+    assertSame(rowsOf(s.id), [['2025-01-01', 'OVERRIDE', 'Renamed']], 'the 2024 rename on 1 Jan 2025');
+    const back = yearlySeries('ny', '2020-01-01 10:00');
+    const b = await back.moveAll('2026-01-01', '2025-12-31');
+    assertSame([b.status, b.body.key, iso(eventRow(back.id).startsAt)], [200, back.occ('2025-12-31'), iso(at('2019-12-31 10:00'))], 'from 31 Dec 2019');
+    // Moved on its own to 30 Dec first: its slot's year (2026) is the one that changes, not the days it is from 1 Jan.
+    const own = yearlySeries('own', '2020-12-31 10:00');
+    await patch({ key: own.occ('2026-12-31'), scope: 'single', changes: { start: '2026-12-30T10:00', end: '2026-12-30T11:00' } });
+    const o = await own.moveAll('2026-12-31', '2027-01-01');
+    assertSame([o.status, o.body.key, iso(eventRow(own.id).startsAt), rowsOf(own.id), overrides(own.id)[0]?.startsAt ?? null], [200, own.occ('2027-01-01'), iso(at('2021-01-01 10:00')), [['2027-01-01', 'OVERRIDE', null]], null], 'from 1 Jan 2021, the occurrence back on the rule (its row without times)');
+  });
+
+  await check('yearly "All", INTERVAL=2: a near move keeps the series\' years; a far one counts them from the new first date', async () => {
+    seed();
+    const near = yearlySeries('two', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;INTERVAL=2' });
+    const n = await near.moveAll('2026-03-02', '2026-03-10');
+    assertSame([n.status, n.body.key, iso(eventRow(near.id).startsAt)], [200, near.occ('2026-03-10'), iso(at('2020-03-10 10:00'))], 'near');
+    assertSame(await daysOf(near.id, '2019-01-01', '2029-01-01'), yearsOn(2020, 2028, '03-10', 2), 'the even years, on 10 March');
+    seed();
+    const far = yearlySeries('two', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;INTERVAL=2' });
+    await patch({ key: far.occ('2024-03-02'), scope: 'single', changes: { title: 'Renamed' } });
+    // Every 2 years is a custom repeat, which keeps the 2000 floor.
+    const f = await far.moveAll('2026-03-02', '2009-03-02');
+    assertSame([f.status, f.body.key, iso(eventRow(far.id).startsAt), eventRow(far.id).rrule], [200, far.occ('2009-03-02'), iso(at('2009-03-02 10:00')), 'FREQ=YEARLY;INTERVAL=2'], 'far: the opened (even) year is no longer one, so the key is the new first date');
+    assertSame(await daysOf(far.id, '2009-01-01', '2029-01-01'), yearsOn(2009, 2027, '03-02', 2), 'the odd years from 2009');
+    assertSame(rowsOf(far.id), [], 'the even year\'s rename went with its year');
+  });
+
+  await check('yearly "All" with an end: a far move turns a COUNT into its last date, an UNTIL moves with the last year, and a far move past the end keeps the picked date', async () => {
+    seed();
+    const counted = yearlySeries('cnt', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;COUNT=8' });
+    await counted.moveAll('2026-03-02', '1985-03-02');
+    assertSame([eventRow(counted.id).rrule, (await daysOf(counted.id, '1980-01-01', '2040-01-01')).slice(-2)], ['FREQ=YEARLY;UNTIL=20270302', ['2026-03-02', '2027-03-02']], 'COUNT: still ends in 2027');
+    const near = yearlySeries('cnt-near', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;COUNT=8' });
+    await near.moveAll('2026-03-02', '2026-03-05');
+    assertSame([eventRow(near.id).rrule, (await daysOf(near.id, '2019-01-01', '2040-01-01')).slice(-1)], ['FREQ=YEARLY;COUNT=8', ['2027-03-05']], 'a near move keeps the COUNT (the same years)');
+    const until = yearlySeries('unt', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;UNTIL=20270302T235959' });
+    await until.moveAll('2026-03-02', '2026-03-05');
+    assertSame([eventRow(until.id).rrule, (await daysOf(until.id, '2019-01-01', '2040-01-01')).slice(-1)], ['FREQ=YEARLY;UNTIL=20270305T235959', ['2027-03-05']], 'UNTIL: moved with the last year');
+    const past = yearlySeries('past', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;COUNT=3' });
+    const p = await past.moveAll('2022-03-02', '2030-03-05');
+    assertSame([p.status, eventRow(past.id).rrule, await daysOf(past.id, '2019-01-01', '2040-01-01')], [200, 'FREQ=YEARLY;UNTIL=20300305', ['2030-03-05']], 'past its end: the picked date alone');
+  });
+
+  await check('yearly "All", Hebrew far: 15 Shvat 5710 picked on this year\'s (anchored 15 Shvat 5784) is the first date and the anchor; every year stays on 15 Shvat', async () => {
+    seed();
+    const s = hebrewSeries('tu', { title: 'Saba', startsAt: at('2024-01-25 10:00'), hebrewAnchor: '2024-01-25' });
+    await patch({ key: s.occ('2027-01-23'), scope: 'single', changes: { title: 'Renamed' } });
+    const r = await patch({ key: s.occ('2026-02-02'), scope: 'all', changes: { start: '1950-02-02T10:00', end: '1950-02-02T11:00' } });
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt), pairOf(eventRow(s.id))], [200, s.occ('2026-02-02'), iso(at('1950-02-02 10:00')), ['FREQ=YEARLY', 'anniversary', '1950-02-02']], 'from 15 Shvat 5710 (the day shift gave 14 Shvat 5708)');
+    assertSame(await daysOf(s.id, '1950-01-01', '1952-01-01'), ['1950-02-02', '1951-01-22'], 'its first years');
+    assertSame(await daysOf(s.id, '2024-01-01', '2029-01-01'), ['2024-01-25', '2025-02-13', '2026-02-02', '2027-01-23', '2028-02-12'], 'the later years on 15 Shvat as before');
+    assertSame(rowsOf(s.id), [['2027-01-23', 'OVERRIDE', 'Renamed']], 'the rename where it was');
+    const info = await itemOf(r.body.key);
+    assertSame([info.status, info.body.series.rule], [200, { choice: 'hebrew', anchor: '1950-02-02' }], 'the item info names the new anchor');
+  });
+
+  await check('yearly "All", Hebrew 30 Cheshvan anchor: a far pick (30 Cheshvan 5750) is the first date and keeps every year\'s day, rolled ones too', async () => {
+    seed();
+    const s = hebrewSeries();
+    await del({ key: s.occ('2025-11-21'), scope: 'single' });
+    const r = await patch({ key: s.occ('2026-11-10'), scope: 'all', changes: { start: '1989-11-28T10:00', end: '1989-11-28T11:00' } });
+    assertSame([r.status, r.body.key, iso(eventRow(s.id).startsAt), eventRow(s.id).hebrewAnchor], [200, s.occ('2026-11-10'), iso(at('1989-11-28 10:00')), '1989-11-28'], 'from 30 Cheshvan 5750');
+    assertSame(await daysOf(s.id, '1989-01-01', '1991-01-01'), ['1989-11-28', '1990-11-18'], '5751 has no 30 Cheshvan: 1 Kislev');
+    assertSame(await daysOf(s.id, '2022-01-01', '2029-01-01'), ['2022-11-24', '2023-11-14', '2024-12-01', '2026-11-10', '2027-11-30', '2028-11-19'], 'the later years as before, the rolled 5786 still cancelled');
+  });
+
+  await check('yearly "All", Hebrew Adar II anchor (14 Adar II 5784): a near move puts every year on the picked day of the last Adar; a far one (14 Adar II 5730) is the first date', async () => {
+    seed();
+    const near = hebrewSeries('purim', { startsAt: at('2024-03-24 10:00'), hebrewAnchor: '2024-03-24' });
+    const n = await patch({ key: near.occ('2025-03-14'), scope: 'all', changes: { start: '2025-03-15T10:00', end: '2025-03-15T11:00' } });
+    assertSame([n.status, n.body.key, iso(eventRow(near.id).startsAt), eventRow(near.id).hebrewAnchor], [200, near.occ('2025-03-15'), iso(at('2024-03-25 10:00')), '2024-03-25'], 'near: 15 Adar II 5784 is the anchor');
+    assertSame(await daysOf(near.id, '2024-01-01', '2028-01-01'), ['2024-03-25', '2025-03-15', '2026-03-04', '2027-03-24'], '15 Adar in a common year, 15 Adar II in a leap one');
+    seed();
+    const far = hebrewSeries('purim', { startsAt: at('2024-03-24 10:00'), hebrewAnchor: '2024-03-24' });
+    const f = await patch({ key: far.occ('2027-03-23'), scope: 'all', changes: { start: '1970-03-22T10:00', end: '1970-03-22T11:00' } });
+    assertSame([f.status, f.body.key, eventRow(far.id).hebrewAnchor], [200, far.occ('2027-03-23'), '1970-03-22'], 'far: anchored on 14 Adar II 5730');
+    assertSame(await daysOf(far.id, '2024-01-01', '2028-01-01'), ['2024-03-24', '2025-03-14', '2026-03-03', '2027-03-23'], 'the later years as before');
+  });
+
+  await check('yearly "All", Hebrew: a near pick the anchor\'s year can\'t have (Adar I, anchored in a common year) is refused, nothing written; the bot is told first', async () => {
+    seed();
+    const s = hebrewSeries('shvat', { startsAt: at('2025-02-08 10:00'), hebrewAnchor: '2025-02-08' });
+    const r = await patch({ key: s.occ('2027-01-18'), scope: 'all', changes: { start: '2027-02-17T10:00', end: '2027-02-17T11:00' } });
+    assertSame([r.status, r.body], [400, { error: 'invalid', field: 'start' }], '10 Adar I 5787 from 10 Shvat');
+    assertSame([iso(eventRow(s.id).startsAt), eventRow(s.id).hebrewAnchor], [iso(at('2025-02-08 10:00')), '2025-02-08'], 'nothing written');
+    const asked = await store.refusesFixedDays({ seriesCuid: s.id, instanceStartsAt: at('2027-01-18 10:00'), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at('2027-02-17 10:00') });
+    assertSame(asked, true, 'refusesFixedDays');
+    const far = await patch({ key: s.occ('2027-01-18'), scope: 'all', changes: { start: '1990-02-04T10:00', end: '1990-02-04T11:00' } });
+    assertSame([far.status, eventRow(s.id).hebrewAnchor], [200, '1990-02-04'], 'a far pick is the anchor itself, whatever its year');
+  });
+
+  await check('yearly "All" through the store (the bot\'s occurrence times, and a series\' own start), and a yearly reminder', async () => {
+    seed();
+    const bot = yearlySeries('bot', '2020-03-02 10:00');
+    await patch({ key: bot.occ('2027-03-02'), scope: 'single', changes: { title: 'Renamed' } });
+    const r = await store.updateNativeEvent({ seriesCuid: bot.id, instanceStartsAt: at('2026-03-02 10:00'), scope: 'all', actingUserId: TAL, occurrenceTimes: true, startsAt: at('1985-03-02 10:00'), endsAt: at('1985-03-02 11:00') });
+    assertSame([iso(eventRow(bot.id).startsAt), iso(r.key.slot), rowsOf(bot.id)], [iso(at('1985-03-02 10:00')), iso(at('2026-03-02 10:00')), [['2027-03-02', 'OVERRIDE', 'Renamed']]], 'occurrence times: the bot\'s far move');
+    const own = yearlySeries('own', '2020-03-02 10:00');
+    await patch({ key: own.occ('2027-03-02'), scope: 'single', changes: { title: 'Renamed' } });
+    await store.updateNativeEvent({ seriesCuid: own.id, scope: 'all', actingUserId: TAL, startsAt: at('1985-03-02 10:00'), endsAt: at('1985-03-02 11:00') });
+    assertSame([iso(eventRow(own.id).startsAt), rowsOf(own.id)], [iso(at('1985-03-02 10:00')), [['2027-03-02', 'OVERRIDE', 'Renamed']]], 'the series\' own start, far from its first: the same');
+    const rem = yearlySeries('rem', '2020-03-02 17:30', { kind: 'REMINDER', title: 'Call Dana' });
+    const m = await patch({ key: rem.occ('2026-03-02'), scope: 'all', changes: { start: '1990-03-02T17:30' } });
+    assertSame([m.status, m.body.key, iso(eventRow(rem.id).startsAt)], [200, rem.occ('2026-03-02'), iso(at('1990-03-02 17:30'))], 'a yearly reminder: far');
+    const remNear = await patch({ key: rem.occ('2026-03-02'), scope: 'all', changes: { start: '2026-03-04T17:30' } });
+    assertSame([remNear.status, remNear.body.key, iso(eventRow(rem.id).startsAt)], [200, rem.occ('2026-03-04'), iso(at('1990-03-04 17:30'))], 'and near');
+  });
+
+  await check('"All" on any other rule keeps the day shift: a monthly and a weekly series move by the days, a yearly one with fixed days is refused a day move', async () => {
+    seed();
+    const monthly = seedSeries('mon', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Rent', startsAt: at('2026-01-15 10:00'), rrule: 'FREQ=MONTHLY' });
+    const m = await patch({ key: `famcal|${monthly.id}#${iso(at('2026-10-15 10:00'))}`, scope: 'all', changes: { start: '2026-10-16T10:00', end: '2026-10-16T11:00' } });
+    assertSame([m.status, iso(eventRow(monthly.id).startsAt)], [200, iso(at('2026-01-16 10:00'))], 'monthly: a day later');
+    const weekly = seedSeries('wkly', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Swim', startsAt: at('2026-01-06 10:00'), rrule: 'FREQ=WEEKLY' });
+    const w = await patch({ key: `famcal|${weekly.id}#${iso(at('2026-10-20 10:00'))}`, scope: 'all', changes: { start: '2027-05-04T10:00', end: '2027-05-04T11:00' } });
+    assertSame([w.status, iso(eventRow(weekly.id).startsAt)], [200, iso(at('2026-07-21 10:00'))], 'weekly: 196 days later, the same days');
+    const fixed = yearlySeries('fixed', '2020-03-02 10:00', { rrule: 'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=2' });
+    const f = await fixed.moveAll('2026-03-02', '1985-03-02');
+    assertSame([f.status, f.body, iso(eventRow(fixed.id).startsAt)], [400, { error: 'invalid', field: 'start' }, iso(at('2020-03-02 10:00'))], 'a yearly rule with fixed days: refused');
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

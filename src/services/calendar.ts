@@ -19,6 +19,12 @@ import {
   shiftOnWall,
   slotsBefore,
   withCount,
+  yearlyEnd,
+  yearlyOpenedSlot,
+  yearlyRuleAfter,
+  yearlySlotMap,
+  type YearlyMove,
+  type YearlySeries,
 } from './native-calendar/recurrence';
 
 // Re-export TIMEZONE and CalendarEvent for convenience
@@ -651,18 +657,25 @@ function exceptionValueAt(value: string, tzid: string | undefined, zone: string)
  * day, else a UTC stamp.
  */
 function movedStamp(at: Date, from: Date, to: Date, zone: string, allDay: boolean): string {
-  const moved = shiftOnWall(at, from, to, zone);
-  return allDay ? compactDay(localDate(moved, zone)) : utcStamp(moved);
+  return stampOf(shiftOnWall(at, from, to, zone), zone, allDay);
 }
 
-/** An exception line's values moved as the series moved (movedStamp), as one line. */
-function movedExceptionLine(head: string, values: readonly string[], from: Date, to: Date, zone: string, allDay: boolean): string {
+/** An instant as a recurrence value of a series: a date all day, else a UTC stamp. */
+const stampOf = (at: Date, zone: string, allDay: boolean) => (allDay ? compactDay(localDate(at, zone)) : utcStamp(at));
+
+/** Where an EXDATE or RDATE instant goes when its series moves, or null when the moved series has no such day. */
+type ValueMove = (at: Date) => Date | null;
+
+/** An exception line's values moved as the series moved (`move`), as one line; null when none is left. */
+function movedExceptionLine(head: string, values: readonly string[], move: ValueMove, zone: string, allDay: boolean): string | null {
   const tzid = /TZID=([^;:]+)/i.exec(head)?.[1];
   const name = head.split(';')[0].toUpperCase();
-  const moved = values.map((v) => {
+  const moved = values.flatMap((v) => {
     const at = exceptionValueAt(v, tzid, zone);
-    return movedStamp(at.date ? startOfLocalDay(at.date, zone) : at.instant!, from, to, zone, allDay);
+    const to = move(at.date ? startOfLocalDay(at.date, zone) : at.instant!);
+    return to ? [stampOf(to, zone, allDay)] : [];
   });
+  if (moved.length === 0) return null;
   return allDay ? `${name};VALUE=DATE:${moved.join(',')}` : `${name}:${moved.join(',')}`;
 }
 
@@ -672,17 +685,38 @@ function movedRuleLine(line: string, from: Date, to: Date, zone: string, allDay:
 }
 
 /**
- * A series' recurrence moved as its start moved, `from` to `to` ('all' with a time change,
- * as FamCal's shiftUntil and carriedExdates): its UNTIL and every EXDATE and RDATE value
- * shift with it, so it keeps its last occurrence and its exclusions stay on their slots.
+ * A series' recurrence moved as its start moved ('all' with a time change, as FamCal's
+ * shiftUntil and carriedExdates): `rule` gives its RRULE line, and every EXDATE and RDATE
+ * value goes where `values` puts it, so it keeps its last occurrence and its exclusions stay
+ * on their slots. A value with nowhere to go is dropped, and a line left with none.
  */
-function movedRecurrence(lines: readonly string[], from: Date, to: Date, zone: string, allDay: boolean): string[] {
-  return lines.map((line) => {
-    if (/^RRULE:/i.test(line)) return movedRuleLine(line, from, to, zone, allDay);
-    if (!/^(EXDATE|RDATE)[:;]/i.test(line)) return line;
+function movedRecurrence(lines: readonly string[], rule: (line: string) => string, values: ValueMove, zone: string, allDay: boolean): string[] {
+  return lines.flatMap((line) => {
+    if (/^RRULE:/i.test(line)) return [rule(line)];
+    if (!/^(EXDATE|RDATE)[:;]/i.test(line)) return [line];
     const colon = line.indexOf(':');
-    return movedExceptionLine(line.slice(0, colon), line.slice(colon + 1).split(',').filter(Boolean), from, to, zone, allDay);
+    const moved = movedExceptionLine(line.slice(0, colon), line.slice(colon + 1).split(',').filter(Boolean), values, zone, allDay);
+    return moved ? [moved] : [];
   });
+}
+
+/**
+ * A yearly series' recurrence after a yearly move (FamCal's yearlyRuleAfter and yearlySlotMap,
+ * editor upgrades spec §1): its UNTIL moved as its last slot moved, or an UNTIL on the day
+ * yearlyEnd names (the end of that day in UTC for a timed series), and every EXDATE and RDATE
+ * value on the moved series' day in its year (dropped before its new first date).
+ */
+function yearlyRecurrence(lines: readonly string[], from: YearlySeries, to: YearlySeries, move: YearlyMove, zone: string, allDay: boolean): string[] {
+  const end = yearlyEnd(from, to, move);
+  const rule = (line: string): string => {
+    if (!end) return line;
+    if ('from' in end) return movedRuleLine(line, end.from, end.to, zone, allDay);
+    const bare = bareRule(line).split(';').filter((p) => !/^(UNTIL|COUNT)=/i.test(p)).join(';');
+    return `RRULE:${withUntilDay(`${bare};UNTIL=${compactDay(end.day)}`, end.day, allDay, zone)}`;
+  };
+  // A value moved before the new first date has no occurrence left to exclude (a far move forward).
+  const slotOf = yearlySlotMap(from, to, move.years);
+  return movedRecurrence(lines, rule, (at) => { const moved = slotOf(at); return moved && moved >= to.startsAt ? moved : null; }, zone, allDay);
 }
 
 /**
@@ -718,7 +752,7 @@ function splitExceptionLines(
       continue;
     }
     // The new part moved: its excluded occurrences move with it, written in UTC (or as dates).
-    after.push(movedExceptionLine(head, late, cut, shift.to, zone, shift.allDay));
+    after.push(movedExceptionLine(head, late, (at) => shiftOnWall(at, cut, shift.to, zone), zone, shift.allDay)!);
   }
   return { before, after };
 }
@@ -879,10 +913,11 @@ async function updateOne(calendar: GClient, calendarId: string, eventId: string,
 /**
  * Every occurrence (3b spec §3.2 "'all' with a time change"): the master's fields, and for
  * a time change its start moved as the occurrence moved (seriesTimesFor, FamCal's
- * arithmetic): by the days from where it is shown to where it goes, at its new time of day
- * on the event's wall clock (whole days, all day). Its recurrence moves with it
- * (movedRecurrence): the UNTIL and every EXDATE and RDATE value. A day move on a rule with
- * fixed days is refused before anything is written.
+ * arithmetic): a yearly rule by its years (a date half a year or more away is its first date,
+ * editor upgrades spec §1), any other by the days from where it is shown to where it goes, at
+ * its new time of day on the event's wall clock (whole days, all day). Its recurrence moves
+ * with it (movedRecurrence, yearlyRecurrence): the UNTIL and every EXDATE and RDATE value. A
+ * day move on a rule with fixed days is refused before anything is written.
  */
 async function updateSeries(calendar: GClient, calendarId: string, instanceId: string, masterId: string, updates: UpdateEventData): Promise<UpdateEventResult> {
   const body = textFields(updates);
@@ -898,14 +933,25 @@ async function updateSeries(calendar: GClient, calendarId: string, instanceId: s
     if (fixesDays(ruleOf(master.recurrence)) && movesDay(shown.start, to.start, zone)) return FIXED_DAYS_FAILURE;
     const target = { startsAt: to.start, endsAt: to.end, allDay: to.allDay };
     const masterTimes = timesOf(master, zone);
-    const moved = seriesTimesFor({ startsAt: masterTimes.start, timeZone: zone }, shown.start, target);
+    const rule = ruleOf(master.recurrence);
+    const series: YearlySeries = { startsAt: masterTimes.start, timeZone: zone, rrule: rule ? nativeRuleOf(rule, zone) : null };
+    const opened = { slot: slotOf(instance, zone), start: shown.start };
+    const moved = seriesTimesFor(series, opened, target);
     Object.assign(body, googleTimes({ start: moved.startsAt, end: moved.endsAt, allDay: to.allDay }, zone));
     const lines = master.recurrence ?? [];
+    // A yearly move: the master as it will be (its new start, its rule with the end moved, as FamCal reads it).
+    const yearly = moved.yearly && series.rrule ? { move: moved.yearly, from: { ...series, rrule: series.rrule } } : null;
+    const after = yearly ? { ...series, startsAt: moved.startsAt, rrule: yearlyRuleAfter(yearly.from, { ...series, startsAt: moved.startsAt }, yearly.move) } : null;
     if (masterTimes.start.getTime() !== moved.startsAt.getTime() || masterTimes.allDay !== to.allDay) {
-      const recurrence = movedRecurrence(lines, masterTimes.start, moved.startsAt, zone, to.allDay);
-      if (recurrence.some((l, i) => l !== lines[i])) body.recurrence = recurrence;
+      const recurrence = yearly && after
+        ? yearlyRecurrence(lines, yearly.from, after, yearly.move, zone, to.allDay)
+        : movedRecurrence(lines, (line) => movedRuleLine(line, masterTimes.start, moved.startsAt, zone, to.allDay), (at) => shiftOnWall(at, masterTimes.start, moved.startsAt, zone), zone, to.allDay);
+      if (recurrence.length !== lines.length || recurrence.some((l, i) => l !== lines[i])) body.recurrence = recurrence;
     }
-    newSlot = { at: seriesTimesFor({ startsAt: slotOf(instance, zone), timeZone: zone }, shown.start, target).startsAt, allDay: to.allDay, zone };
+    const at = yearly && after
+      ? yearlyOpenedSlot(after, yearlySlotMap(series, after, yearly.move.years), opened.slot)
+      : seriesTimesFor({ startsAt: opened.slot, timeZone: zone }, opened, target).startsAt;
+    newSlot = { at, allDay: to.allDay, zone };
   }
   const response = await calendar.events.patch({ calendarId, eventId: masterId, requestBody: body });
   return {
