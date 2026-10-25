@@ -471,6 +471,8 @@ export interface UpdateEventData {
   rrule?: string | null;
   /** The new rule's end (or none) is the caller's: the old rule's end is not carried onto it (richer repeats ruling 5). */
   endGiven?: boolean;
+  /** The new rule was built on the new part's start (the Repeat sheet): a day move is not a move off a fixed day. */
+  rebuilt?: boolean;
   /** 3b: a 'following' edit's new part goes on this calendar. */
   toCalendarId?: string;
 }
@@ -1015,7 +1017,7 @@ async function updateFromOccurrence(calendar: GClient, calendarId: string, insta
   const ruleAfter = newRule !== undefined ? newRule : rule;
   const shown = timesOf(instance, zone);
   const to = requestedTimes(updates, shown, zone, userTz);
-  if (to && !stop && fixesDays(ruleAfter) && movesDay(shown.start, to.start, zone)) return FIXED_DAYS_FAILURE;
+  if (to && !stop && !updates.rebuilt && fixesDays(ruleAfter) && movesDay(shown.start, to.start, zone)) return FIXED_DAYS_FAILURE;
 
   // Where the new part (or the one-off) starts: a stop keeps the occurrence's own times; a
   // new time follows followingTimesFor (FamCal's); no new time starts it at the cut, with

@@ -73,6 +73,8 @@ export interface UpdateEventInput {
   rrule?: string | null;
   // Google only: the new rule's end (or none) is the caller's, so the old rule's end is not carried (richer repeats ruling 5).
   endGiven?: boolean;
+  // Google only: the new rule was built on the new part's start (the Repeat sheet), so a day move is not a move off a fixed day.
+  rebuilt?: boolean;
   // Google only: a 'following' edit puts the new part on this calendar.
   toCalendarId?: string;
 }

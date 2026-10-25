@@ -1178,6 +1178,91 @@ async function main() {
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forPartner: true } }), IL), { status: 'invalid', field: 'forPartner' }, 'recipient');
   });
 
+  await check('richer repeats, item info: series.spec says a Google rule (an UTC UNTIL as its wall day); a rule the sheet can\'t say has none and keeps its words\' parts', async () => {
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261124T080000Z'] });
+    const a = await editInfo(NOA, gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')));
+    assert(a !== 'not_found', 'nf');
+    assertSame(a.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], until: '2026-11-24' }, 'the spec');
+    assertSame(a.series.repeat, { freq: 'weekly', interval: 2, byDay: ['TU', 'TH'], ends: true, until: '2026-11-24' }, 'the parts');
+    seed(NOA_CAL, 'nth', { start: '2026-10-13T10:00:00', summary: 'Club', recurrence: ['RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=5'] });
+    const n = await editInfo(NOA, gkey(NOA_CAL, inst('nth', '2026-11-10T10:00:00')));
+    assert(n !== 'not_found', 'nf');
+    assertSame(n.series.spec, { freq: 'monthly', interval: 1, monthly: 'weekday', count: 5 }, 'the second Tuesday');
+    seed(NOA_CAL, 'odd', { start: '2026-10-06T10:00:00', summary: 'Odd', recurrence: ['RRULE:FREQ=MONTHLY;BYDAY=1MO,3FR'] });
+    const o = await editInfo(NOA, gkey(NOA_CAL, inst('odd', '2026-11-02T10:00:00')));
+    assert(o !== 'not_found', 'nf');
+    assertSame([o.series.spec, o.series.repeat?.byDayOrdinals], [undefined, [1, 3]], 'custom: no spec');
+  });
+
+  await check('richer repeats, create: a spec goes through the one builder to Google (a timed UNTIL in UTC, an all-day one a date); a Hebrew spec and a bad spec are 400 repeat and write nothing', async () => {
+    const make = async (repeat: unknown, over: Row = {}) => write.createItem(NOA, createCmd({ kind: 'event', title: 'Swim', allDay: false, start: '2026-10-22T18:00', end: '2026-10-22T19:00', repeat, calendarId: FAMILY, ...over }), IL);
+    const rule = async (repeat: unknown, over: Row = {}) => {
+      calls.length = 0;
+      const r = await make(repeat, over);
+      assert(r.status === 'ok', `${show(repeat)} ${show(r)}`);
+      return writes()[0].body!.recurrence;
+    };
+    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['MO'], until: '2026-12-01' }), ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;UNTIL=20261201T215959Z'], 'timed: Thursday start, Monday chip, until at the end of the day in Israel (UTC)');
+    assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'weekday', count: 4 }, { start: '2026-10-13T18:00', end: '2026-10-13T19:00' }), ['RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=4'], 'the second Tuesday, 4 times');
+    assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'last' }, { start: '2026-10-29T18:00', end: '2026-10-29T19:00' }), ['RRULE:FREQ=MONTHLY;BYDAY=-1TH'], 'the last Thursday');
+    assertSame(await rule({ freq: 'daily', interval: 3, until: '2026-12-01' }, { allDay: true, start: '2026-10-22', end: '2026-10-22' }), ['RRULE:FREQ=DAILY;INTERVAL=3;UNTIL=20261201'], 'all-day: a date');
+    assertSame(await rule('daily'), ['RRULE:FREQ=DAILY'], 'a string is its spec');
+    calls.length = 0;
+    for (const [name, repeat, over] of [
+      ['a Hebrew spec', { freq: 'hebrew', interval: 1 }, {}],
+      ['a last weekday off the last week', { freq: 'monthly', interval: 1, monthly: 'last' }, {}],
+      ['an until before the start', { freq: 'daily', interval: 1, until: '2026-10-21' }, {}],
+    ] as [string, Row, Row][]) {
+      assertSame([await make(repeat, over), writes().length], [{ status: 'invalid', field: 'repeat' }, 0], name);
+    }
+  });
+
+  await check('richer repeats, edit: a spec equal to the stored rule writes nothing; a changed one is a "following" rule; a changed end counts from the first occurrence, an unchanged one carries, Never removes it; a Hebrew spec is 400 repeat', async () => {
+    WEEKLY_TUE();
+    const key = gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00'));
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } }), IL), { status: 'ok', key }, 'same spec');
+    assertSame(writes().length, 0, 'wrote');
+    const changed = await write.updateItem(NOA, patchCmd({ key, scope: 'single', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] } } }), IL);
+    assert(changed.status === 'ok', show(changed));
+    const inserted = writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path));
+    assertSame(inserted?.body?.recurrence, ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR'], 'the new part\'s rule');
+    assertSame([tracked[0].meta.scope, stored(NOA_CAL, 'wk')!.recurrence], ['following', ['RRULE:FREQ=WEEKLY;UNTIL=20261020T065959Z']], 'forced following, the master cut');
+    // Ends: a COUNT series, cut after two slots.
+    reset();
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;COUNT=6'] });
+    const cut = gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00'));
+    const recurrenceOfNewPart = () => writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence;
+    assert((await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 5 } } }), IL)).status === 'ok', 'count 5');
+    assertSame(recurrenceOfNewPart(), ['RRULE:FREQ=DAILY;COUNT=3'], 'five in all, two before the cut');
+    reset();
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;COUNT=6'] });
+    assert((await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 6 } } }), IL)).status === 'ok', 'count 6');
+    assertSame(recurrenceOfNewPart(), ['RRULE:FREQ=DAILY;UNTIL=20261110T215959Z'], 'an unchanged count carries as the end of the old rule\'s last day (10 November, Israel)');
+    reset();
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261231T215959Z'] });
+    assert((await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 } } }), IL)).status === 'ok', 'never');
+    assertSame(recurrenceOfNewPart(), ['RRULE:FREQ=DAILY'], 'Never removes the stored end');
+    reset();
+    WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;UNTIL=20261231T215959Z'] });
+    assert((await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-12-15' } } }), IL)).status === 'ok', 'until');
+    assertSame(recurrenceOfNewPart(), ['RRULE:FREQ=DAILY;UNTIL=20261215T215959Z'], 'a new until');
+    reset();
+    WEEKLY_TUE();
+    assertSame([await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'hebrew', interval: 1 } } }), IL), await write.updateItem(NOA, patchCmd({ key: cut, scope: 'following', changes: { repeat: { freq: 'monthly', interval: 1, monthly: 'last' } } }), IL), writes().length], [{ status: 'invalid', field: 'repeat' }, { status: 'invalid', field: 'repeat' }, 0], 'Hebrew, and a last weekday off the last week');
+  });
+
+  await check('richer repeats, edit: a fixed-day Google series moved with its shown spec restated is a "following" rule on the new start (the chips gain the day); without it the move is refused', async () => {
+    seed(NOA_CAL, 'tt', { start: '2026-10-06T10:00:00', summary: 'Class', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU,TH'] });
+    const key = gkey(NOA_CAL, inst('tt', '2026-10-22T10:00:00'));
+    const move = { start: '2026-10-21T10:00', end: '2026-10-21T11:00' };
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: move }), IL), { status: 'invalid', field: 'start' }, 'refused alone');
+    reset();
+    seed(NOA_CAL, 'tt', { start: '2026-10-06T10:00:00', summary: 'Class', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU,TH'] });
+    const r = await write.updateItem(NOA, patchCmd({ key, scope: 'following', changes: { ...move, repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] } } }), IL);
+    assert(r.status === 'ok', show(r));
+    assertSame(writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path))?.body?.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=TU,WE,TH'], 'Wednesday joins');
+  });
+
   await check('year floor: a yearly Google series may move to 1950 as a FamCal item may (one rule); a weekly one keeps 2000', async () => {
     seed(NOA_CAL, 'yr', { start: '2026-10-20T10:00:00', summary: 'Birthday', recurrence: ['RRULE:FREQ=YEARLY'] });
     const yearly = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('yr', '2026-10-20T10:00:00')), scope: 'single', changes: { start: '1950-10-20T10:00', end: '1950-10-20T11:00' } }), IL);

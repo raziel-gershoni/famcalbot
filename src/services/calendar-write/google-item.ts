@@ -424,7 +424,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
       : {}),
     scope,
     ...(masterId ? { recurringEventId: masterId } : {}),
-    ...(newLine !== undefined ? { rrule: newLine, ...(endGiven ? { endGiven } : {}) } : {}),
+    ...(newLine !== undefined ? { rrule: newLine, ...(endGiven ? { endGiven } : {}), ...(newLine ? { rebuilt: true } : {}) } : {}),
   };
   const changedFields = [
     ...(text.title !== undefined ? ['title'] : []),

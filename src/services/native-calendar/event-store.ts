@@ -640,6 +640,12 @@ export interface UpdateNativeEventInput {
    */
   endGiven?: boolean;
   /**
+   * The new rule was built on the new part's start (the editor's Repeat sheet, ruleOfSpec), so it has an
+   * occurrence there and a day move with 'following' is not a move off a fixed day (richer repeats ruling 8).
+   * A rule that does not yield the start is still refused (tailRule).
+   */
+  rebuilt?: boolean;
+  /**
    * The new rule's Hebrew kind (hebrew-repeats spec §2), sent with `rrule` as a pair: a rule
    * without it is a Gregorian one (null), and a kind without a rule keeps the stored rule
    * string. The store sets the anchor: copied to a tail, replaced only when the start moves
@@ -896,6 +902,7 @@ async function ownTimes(series: NativeEvent, input: UpdateNativeEventInput): Pro
 function movesFixedDays(series: NativeEvent, input: OwnTimes): boolean {
   if (rollsHebrewDay(series, input)) return true;
   if (input.startsAt === undefined || !fixesDays(ruleAfter(series, input))) return false;
+  if (input.rebuilt && input.scope === 'following') return false;
   const tz = series.timeZone || TIMEZONE;
   if (input.scope === 'all') return localDate(input.startsAt, tz) !== localDate(series.startsAt, tz);
   if (input.scope === 'following' && input.instanceStartsAt) return localDate(input.startsAt, tz) !== localDate(input.instanceStartsAt, tz);

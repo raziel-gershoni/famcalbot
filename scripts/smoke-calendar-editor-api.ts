@@ -1610,6 +1610,169 @@ async function main() {
     assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=DAILY;UNTIL=20261124', iso(at('2026-10-29 17:30'))], 'a reminder\'s too');
   });
 
+  // ---- Richer repeats (editor upgrades spec §3): the RepeatSpec on both bodies ----
+
+  await check('richer repeats, create: a spec writes the one builder\'s rule (interval, days with the start\'s added, n-th and last weekday, ends); a string is its spec; a bad spec is 400 repeat and writes nothing', async () => {
+    seed();
+    const rule = async (repeat: unknown, over: Row = {}) => {
+      const r = await post(eventBody({ repeat, ...over }));
+      assert(r.status === 200, `${show(repeat)}: ${r.status} ${r.text}`);
+      return eventRow(idOf(r.body.key)).rrule;
+    };
+    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['TH'], count: 4 }), 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;COUNT=4', 'Tuesday start, Thursday chip');
+    assertSame(await rule({ freq: 'weekly', interval: 1, byDay: ['TU'] }), 'FREQ=WEEKLY', 'a single start day writes no BYDAY');
+    assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'weekday' }, { start: '2026-10-13T10:00', end: '2026-10-13T11:00' }), 'FREQ=MONTHLY;BYDAY=2TU', 'the second Tuesday');
+    assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'last', until: '2027-03-30' }, { start: '2026-10-27T10:00', end: '2026-10-27T11:00' }), 'FREQ=MONTHLY;BYDAY=-1TU;UNTIL=20270330', 'the last Tuesday, until');
+    assertSame(await rule({ freq: 'daily', interval: 3 }), 'FREQ=DAILY;INTERVAL=3', 'every 3 days');
+    assertSame(await rule('weekly'), 'FREQ=WEEKLY', 'the string, as before');
+    const heb = await post(eventBody({ repeat: { freq: 'hebrew', interval: 2, count: 3 } }));
+    assertSame([eventRow(idOf(heb.body.key)).rrule, eventRow(idOf(heb.body.key)).hebrewRule], ['FREQ=YEARLY;INTERVAL=2;COUNT=3', 'anniversary'], 'every 2 years on the Hebrew date, 3 times');
+    const rem = await post(reminderBody({ repeat: { freq: 'weekly', interval: 1, byDay: ['MO', 'TU'], until: '2026-12-31' } }));
+    assertSame(eventRow(idOf(rem.body.key)).rrule, 'FREQ=WEEKLY;BYDAY=MO,TU;UNTIL=20261231', 'a reminder takes the same builder');
+    const before = tables.nativeEvent.length;
+    for (const [name, repeat, over] of [
+      ['a last weekday off the last week', { freq: 'monthly', interval: 1, monthly: 'last' }, {}],
+      ['an until before the start', { freq: 'daily', interval: 1, until: '2026-10-19' }, {}],
+      ['an interval over the limit', { freq: 'daily', interval: 100 }, {}],
+      ['a count over the limit', { freq: 'daily', interval: 1, count: 1000 }, {}],
+      ['both ends', { freq: 'daily', interval: 1, count: 3, until: '2026-12-01' }, {}],
+      ['no days', { freq: 'weekly', interval: 1, byDay: [] }, {}],
+      ['days on a monthly one', { freq: 'monthly', interval: 1, byDay: ['MO'] }, {}],
+    ] as [string, Row, Row][]) {
+      const r = await post(eventBody({ repeat, ...over }));
+      assertSame([r.status, r.body], [400, { error: 'invalid', field: 'repeat' }], name);
+    }
+    assertSame(tables.nativeEvent.length, before, 'nothing written');
+  });
+
+  await check('richer repeats, item info: series.spec says the stored rule (FamCal, bot rules too); a rule it can\'t say has none, and its repeat info keeps the real words', async () => {
+    seed();
+    const created = await post(eventBody({ repeat: { freq: 'monthly', interval: 2, monthly: 'weekday', count: 4 }, start: '2026-10-13T10:00', end: '2026-10-13T11:00' }));
+    const info = await itemOf(created.body.key);
+    assertSame(info.body.series.spec, { freq: 'monthly', interval: 2, monthly: 'weekday', count: 4 }, 'the spec it was made from');
+    assertSame(info.body.series.repeat, { freq: 'monthly', interval: 2, byDay: ['TU'], ends: true, byDayOrdinals: [2], count: 4 }, 'the words\' parts');
+    const odd = seedSeries('second-friday', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Club', startsAt: at('2026-10-09 10:00'), rrule: 'FREQ=MONTHLY;BYDAY=2FR;BYMONTH=10,11,12;UNTIL=20261231' });
+    const oddInfo = await itemOf(`famcal|${odd.id}#${iso(at('2026-10-09 10:00'))}`);
+    assertSame(oddInfo.body.series.spec, undefined, 'custom: no spec');
+    assertSame([oddInfo.body.series.rule.choice, oddInfo.body.series.repeat], ['custom', { freq: 'monthly', interval: 1, byDay: ['FR'], ends: true, byDayOrdinals: [2], byMonth: [10, 11, 12], until: '2026-12-31' }], 'but its parts are there');
+    const dom = seedSeries('on-the-15th', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Rent', startsAt: at('2026-10-15 10:00'), rrule: 'FREQ=MONTHLY;BYMONTHDAY=15,30' });
+    assertSame((await itemOf(`famcal|${dom.id}#${iso(at('2026-10-15 10:00'))}`)).body.series.repeat.byMonthDay, [15, 30], 'BYMONTHDAY');
+    const oneOff = await post(eventBody());
+    assertSame((await itemOf(oneOff.body.key)).body.series.spec, undefined, 'a one-off has none');
+  });
+
+  await check('richer repeats, edit: a spec equal to the stored rule writes nothing (a bot\'s BYDAY=TU too); a changed one splits there, with the sheet\'s days and interval', async () => {
+    seed();
+    const bot = seedSeries('every-tuesday', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Piano', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU' });
+    const key = `famcal|${bot.id}#${iso(at('2026-10-27 10:00'))}`;
+    const rows = tables.nativeEvent.length;
+    const same = await patch({ key, scope: 'following', changes: { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } } });
+    assertSame([same.body, tables.nativeEvent.length, eventRow(bot.id).rrule], [{ status: 'ok', key }, rows, 'FREQ=WEEKLY;BYDAY=TU'], 'unchanged: nothing written');
+    const str = await patch({ key, scope: 'following', changes: { repeat: 'weekly' } });
+    assert(str.status === 200 && tables.nativeEvent.length === rows + 1, 'a string re-pick still follows the start (today\'s meaning)');
+    assertSame(lastEvent().rrule, 'FREQ=WEEKLY', 'the string choice\'s rule');
+    seed();
+    const plain = await post(eventBody({ repeat: 'weekly' }));
+    const pid = idOf(plain.body.key);
+    const r = await patch({ key: `famcal|${pid}#${iso(at('2026-10-27 10:00'))}`, scope: 'all', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame([lastEvent().rrule, eventRow(pid).rrule], ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR', 'FREQ=WEEKLY;UNTIL=20261027T095959'], 'the tail every other week on Tue and Fri; the head cut');
+    assertSame((await itemOf(r.body.key)).body.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] }, 'and it reads back as the spec');
+  });
+
+  await check('richer repeats, ends on a split: an unchanged end carries (a COUNT as its last day); a changed count counts from the first occurrence; Never removes the end; an until is the sheet\'s', async () => {
+    seed();
+    const counted = (id: string, rule: string, extra: Row = {}) => seedSeries(id, { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Course', startsAt: at('2026-10-20 10:00'), rrule: rule, ...extra });
+    const cut = (s: Row, d: string) => `famcal|${s.id}#${iso(at(`${d} 10:00`))}`;
+    // Unchanged count (6), a changed rule: today's carry, the COUNT as its last day under the old rule.
+    const a = counted('weekly-count-6', 'FREQ=WEEKLY;COUNT=6');
+    let r = await patch({ key: cut(a, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 6 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame(lastEvent().rrule, 'FREQ=DAILY;UNTIL=20261124', 'the carried end');
+    // A changed count (5 in all) cut after two slots: 3 left.
+    const b = counted('weekly-count-6b', 'FREQ=WEEKLY;COUNT=6');
+    r = await patch({ key: cut(b, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 5 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame([lastEvent().rrule, eventRow(b.id).rrule], ['FREQ=DAILY;COUNT=3', 'FREQ=WEEKLY;UNTIL=20261103T095959'], 'five in all, two before the cut');
+    // At least 1.
+    const c = counted('weekly-count-6c', 'FREQ=WEEKLY;COUNT=6');
+    r = await patch({ key: cut(c, '2026-11-17'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 2 } } });
+    assertSame(lastEvent().rrule, 'FREQ=DAILY;COUNT=1', 'never below 1');
+    // From the first occurrence it is the whole count.
+    const d = counted('weekly-count-6d', 'FREQ=WEEKLY;COUNT=6');
+    r = await patch({ key: cut(d, '2026-10-20'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 4 } } });
+    assertSame([eventRow(d.id).rrule, tables.nativeEvent.length === 0 ? 0 : tables.nativeEvent.filter((e) => e.id === d.id).length], ['FREQ=DAILY;COUNT=4', 1], 'the whole series, in place');
+    // A count added to an endless series, a stored UNTIL replaced, Never on a stored UNTIL.
+    const e = counted('weekly-endless', 'FREQ=WEEKLY');
+    r = await patch({ key: cut(e, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 5 } } });
+    assertSame(lastEvent().rrule, 'FREQ=DAILY;COUNT=3', 'a count added counts from the first occurrence');
+    const f = counted('weekly-until', 'FREQ=WEEKLY;UNTIL=20261231');
+    r = await patch({ key: cut(f, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-12-15' } } });
+    assertSame(lastEvent().rrule, 'FREQ=DAILY;UNTIL=20261215', 'a new until replaces the carried one');
+    const g = counted('weekly-until-never', 'FREQ=WEEKLY;UNTIL=20261231');
+    r = await patch({ key: cut(g, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 } } });
+    assertSame(lastEvent().rrule, 'FREQ=DAILY', 'Never removes the stored end');
+    const h = counted('weekly-count-never', 'FREQ=WEEKLY;COUNT=6');
+    r = await patch({ key: cut(h, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1 } } });
+    assertSame(lastEvent().rrule, 'FREQ=DAILY', 'Never removes a stored COUNT');
+    // The same change on a reminder, and an until the new part could not start in.
+    const rem = seedSeries('weekly-count-reminder', { calendarId: 'cal-tal', creatorUserId: TAL, kind: 'REMINDER', title: 'Pills', startsAt: at('2026-10-20 17:30'), rrule: 'FREQ=WEEKLY;COUNT=6' });
+    r = await patch({ key: `famcal|${rem.id}#${iso(at('2026-11-03 17:30'))}`, scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, count: 5 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame(lastEvent().rrule, 'FREQ=DAILY;COUNT=3', 'a reminder, too');
+    const rows = tables.nativeEvent.length;
+    const j = counted('weekly-until-before', 'FREQ=WEEKLY');
+    r = await patch({ key: cut(j, '2026-11-03'), scope: 'following', changes: { repeat: { freq: 'daily', interval: 1, until: '2026-11-02' } } });
+    assertSame([r.status, r.body, tables.nativeEvent.length], [400, { error: 'invalid', field: 'repeat' }, rows + 1], 'an until before the cut\'s day is 400 repeat (the row is the seeded one)');
+  });
+
+  await check('richer repeats, Hebrew ends and every N years: a spec on a Hebrew series changes its interval and end; the pair is kept; the year floor is 1900', async () => {
+    seed();
+    const created = await post(eventBody({ repeat: { freq: 'hebrew', interval: 1 }, start: '1950-03-02T10:00', end: '1950-03-02T11:00' }));
+    assert(created.status === 200, `${created.status} ${created.text}`);
+    const id = idOf(created.body.key);
+    assertSame([eventRow(id).rrule, eventRow(id).hebrewRule], ['FREQ=YEARLY', 'anniversary'], 'created from 1950');
+    assertSame((await itemOf(created.body.key)).body.series.spec, { freq: 'hebrew', interval: 1 }, 'its spec');
+    const r = await patch({ key: created.body.key, scope: 'all', changes: { repeat: { freq: 'hebrew', interval: 2, count: 5 } } });
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame([eventRow(id).rrule, eventRow(id).hebrewRule], ['FREQ=YEARLY;INTERVAL=2;COUNT=5', 'anniversary'], 'every 2 years, 5 times (from the first occurrence: in place)');
+    assertSame((await itemOf(r.body.key)).body.series.spec, { freq: 'hebrew', interval: 2, count: 5 }, 'reads back');
+    const daily = await post(eventBody({ repeat: { freq: 'daily', interval: 1 }, start: '1950-03-02T10:00', end: '1950-03-02T11:00' }));
+    assertSame([daily.status, daily.body], [400, { error: 'invalid', field: 'start' }], 'a daily spec keeps the 2000 floor');
+  });
+
+  await check('richer repeats, a fixed-day series: a day move alone is "only this one"; with the shown spec restated it applies from there, the chips gaining the new day and a weekday ordinal following the start', async () => {
+    seed();
+    const two = seedSeries('tue-thu', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Class', startsAt: at('2026-10-20 10:00'), rrule: 'FREQ=WEEKLY;BYDAY=TU,TH' });
+    const key = `famcal|${two.id}#${iso(at('2026-10-22 10:00'))}`;
+    const refusedMove = await patch({ key, scope: 'following', changes: { start: '2026-10-21T10:00', end: '2026-10-21T11:00' } });
+    assertSame([refusedMove.status, refusedMove.body], [400, { error: 'invalid', field: 'start' }], 'moving a fixed-day series is refused for more than this one');
+    const rows = tables.nativeEvent.length;
+    const restated = await patch({ key, scope: 'following', changes: { start: '2026-10-21T10:00', end: '2026-10-21T11:00', repeat: { freq: 'weekly', interval: 1, byDay: ['TU', 'TH'] } } });
+    assert(restated.status === 200, `${restated.status} ${restated.text}`);
+    assertSame([tables.nativeEvent.length, lastEvent().rrule, iso(lastEvent().startsAt)], [rows + 1, 'FREQ=WEEKLY;BYDAY=TU,WE,TH', iso(at('2026-10-21 10:00'))], 'Wednesday joins');
+    const nth = seedSeries('second-tuesday', { calendarId: 'cal-tal', creatorUserId: TAL, title: 'Club', startsAt: at('2026-10-13 10:00'), rrule: 'FREQ=MONTHLY;BYDAY=2TU' });
+    const moved = await patch({ key: `famcal|${nth.id}#${iso(at('2026-11-10 10:00'))}`, scope: 'following', changes: { start: '2026-11-17T10:00', end: '2026-11-17T11:00', repeat: { freq: 'monthly', interval: 1, monthly: 'weekday' } } });
+    assert(moved.status === 200, `${moved.status} ${moved.text}`);
+    assertSame([lastEvent().rrule, iso(lastEvent().startsAt)], ['FREQ=MONTHLY;BYDAY=3TU', iso(at('2026-11-17 10:00'))], 'the ordinal follows the new start (the third Tuesday)');
+  });
+
+  await check('richer repeats, a bad spec on an edit: a last weekday off the last week, an until before the start; 400 repeat and nothing written', async () => {
+    seed();
+    const created = await post(eventBody({ repeat: 'weekly' }));
+    const id = idOf(created.body.key);
+    const key = `famcal|${id}#${iso(at('2026-11-03 10:00'))}`;
+    for (const [name, repeat] of [
+      ['a last weekday off the last week', { freq: 'monthly', interval: 1, monthly: 'last' }],
+      ['an until before the start', { freq: 'weekly', interval: 1, byDay: ['TU'], until: '2026-11-02' }],
+      ['past the limits', { freq: 'weekly', interval: 0 }],
+    ] as [string, Row][]) {
+      const r = await patch({ key, scope: 'following', changes: { repeat } });
+      assertSame([r.status, r.body], [400, { error: 'invalid', field: 'repeat' }], name);
+    }
+    assertSame([tables.nativeEvent.length, eventRow(id).rrule], [1, 'FREQ=WEEKLY'], 'nothing written');
+  });
+
   await check('3b repeat: a repeat change that moves the opened occurrence past the carried end keeps it: the end goes to its new day, never an empty series', async () => {
     seed();
     const yields = async (key: string) => (await itemOf(key)).status;

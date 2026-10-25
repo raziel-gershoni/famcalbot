@@ -357,7 +357,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     actingUserId: user.id,
     ...text,
     // The pair goes with the rule, null for a Gregorian choice (hebrew-repeats spec §2).
-    ...(built !== undefined ? { rrule: built?.rrule ?? null, hebrewRule: built?.hebrewRule ?? null, ...(built?.endGiven ? { endGiven: true } : {}) } : {}),
+    ...(built !== undefined ? { rrule: built?.rrule ?? null, hebrewRule: built?.hebrewRule ?? null, ...(built?.endGiven ? { endGiven: true } : {}), ...(built ? { rebuilt: true } : {}) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(alert !== undefined ? { alert } : {}),
     ...(forUserId !== undefined ? { forUserId } : {}),
