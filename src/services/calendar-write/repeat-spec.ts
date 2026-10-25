@@ -16,6 +16,7 @@ import {
   type HebrewRule,
 } from '../native-calendar/recurrence';
 import { WEEKDAY_CODES, type RepeatChoice, type RepeatInput, type RepeatSpec, type RuleChoice } from '../../lib/calendar-view/editor-types';
+import type { WeekStart } from '../../lib/calendar-view/types';
 import { specWithinLimits } from './validate';
 
 /** The spec a string choice stands for (cached clients send those), or null for 'none': every write goes through ruleOfSpec. */
@@ -47,7 +48,7 @@ const inZone = (start: Date, zone: string) => {
  * Throws NativeRuleError for a spec beyond its limits, an until before the start's day, or a rule
  * the store won't keep (assertStorableRule).
  */
-export function ruleOfSpec(spec: RepeatSpec, start: Date, zone: string): BuiltRule {
+export function ruleOfSpec(spec: RepeatSpec, start: Date, zone: string, weekStart?: WeekStart): BuiltRule {
   if (!specWithinLimits(spec)) throw new NativeRuleError('The repeat is beyond its limits');
   const at = inZone(start, zone);
   if (spec.until !== undefined && spec.until < at.date) throw new NativeRuleError('The repeat ends before it starts');
@@ -55,7 +56,12 @@ export function ruleOfSpec(spec: RepeatSpec, start: Date, zone: string): BuiltRu
   if (spec.interval > 1) parts.push(`INTERVAL=${spec.interval}`);
   if (spec.freq === 'weekly') {
     const days = new Set([...(spec.byDay ?? []).map((d) => WEEKDAY_CODES.indexOf(d)), at.weekday]);
-    if (days.size > 1) parts.push(`BYDAY=${[...days].sort((a, b) => a - b).map((n) => WEEKDAY_CODES[n]).join(',')}`);
+    if (days.size > 1) {
+      parts.push(`BYDAY=${[...days].sort((a, b) => a - b).map((n) => WEEKDAY_CODES[n]).join(',')}`);
+      // Every N weeks on several days pairs the days within a week, and which week it is depends on where weeks start:
+      // the saving user's week start. Every other spec writes no WKST.
+      if (spec.interval > 1 && weekStart !== undefined) parts.push(`WKST=${WEEKDAY_CODES[(weekStart + 6) % 7]}`);
+    }
   } else if (spec.freq === 'monthly' && spec.monthly === 'weekday') {
     parts.push(`BYDAY=${weekdayOrdinalOf(at.day)}${WEEKDAY_CODES[at.weekday]}`);
   } else if (spec.freq === 'monthly' && spec.monthly === 'last') {
@@ -125,17 +131,18 @@ export function ruleToWrite(
   stored: StoredSeries | null,
   tailStart: Date,
   zone: string,
-  cut: { at: Date; first: boolean } | null
+  cut: { at: Date; first: boolean } | null,
+  weekStart?: WeekStart
 ): BuiltRule & { endGiven: boolean } {
   const spec = specOfInput(repeat);
   if (!spec) throw new NativeRuleError('No repeat to build');
   const end = stored?.rrule ? endOfRule(stored.rrule) : {};
   const unchanged = typeof repeat === 'string' || (spec.until === end.until && spec.count === end.count);
-  if (unchanged) return { ...ruleOfSpec(withoutSpecEnd(spec), tailStart, zone), endGiven: false };
+  if (unchanged) return { ...ruleOfSpec(withoutSpecEnd(spec), tailStart, zone, weekStart), endGiven: false };
   // The end is the spec's now (Never included): the store must not carry the old one onto it.
   if (spec.count !== undefined && stored?.rrule && cut && !cut.first) {
     const left = Math.max(1, spec.count - slotsBefore({ ...stored, rrule: stored.rrule }, cut.at));
-    return { ...ruleOfSpec({ ...spec, count: left }, tailStart, zone), endGiven: true };
+    return { ...ruleOfSpec({ ...spec, count: left }, tailStart, zone, weekStart), endGiven: true };
   }
-  return { ...ruleOfSpec(spec, tailStart, zone), endGiven: true };
+  return { ...ruleOfSpec(spec, tailStart, zone, weekStart), endGiven: true };
 }

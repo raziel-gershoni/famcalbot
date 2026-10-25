@@ -131,6 +131,25 @@ async function main() {
     assertSame(build({ freq: 'weekly', interval: 1, byDay: ['TH'] }, '2026-10-20 00:30').rrule, 'FREQ=WEEKLY;BYDAY=TU,TH', 'Israel\'s Tuesday');
   });
 
+  await check('ruleOfSpec, WKST: every N weeks on several days carries the user\'s week start, so the days pair within their week; nothing else writes WKST', () => {
+    const sun = at('2026-10-25 10:00'); // a Sunday
+    const spec: Spec = { freq: 'weekly', interval: 2, byDay: ['TU'] };
+    const sunStart = write.ruleOfSpec(spec, sun, IL, 0).rrule;
+    const monStart = write.ruleOfSpec(spec, sun, IL, 1).rrule;
+    assertSame([sunStart, monStart], ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SU', 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=MO'], 'rules');
+    assertSame(days(sunStart, sun, '2026-11-20'), ['2026-10-25', '2026-10-27', '2026-11-08', '2026-11-10'], 'Sunday-start week: Sun and Tue of the same week');
+    assertSame(days(monStart, sun, '2026-11-20'), ['2026-10-25', '2026-11-03', '2026-11-08', '2026-11-17'], 'Monday-start week: the Sunday ends its week, the Tuesday is two weeks on');
+    assertSame(write.ruleOfSpec({ freq: 'weekly', interval: 1 }, sun, IL, 0).rrule, 'FREQ=WEEKLY', 'a plain weekly');
+    assertSame(write.ruleOfSpec({ freq: 'weekly', interval: 1, byDay: ['TU'] }, sun, IL, 0).rrule, 'FREQ=WEEKLY;BYDAY=TU,SU', 'interval 1');
+    assertSame(write.ruleOfSpec({ freq: 'weekly', interval: 2 }, sun, IL, 0).rrule, 'FREQ=WEEKLY;INTERVAL=2', 'one day');
+    assertSame(write.ruleOfSpec({ freq: 'daily', interval: 2 }, sun, IL, 0).rrule, 'FREQ=DAILY;INTERVAL=2', 'daily');
+    assertSame(write.ruleOfSpec({ freq: 'weekly', interval: 2, byDay: ['TU'], count: 3 }, sun, IL, 6).rrule, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,SU;WKST=SA;COUNT=3', 'Saturday, before the end');
+    assertSame(mapper.googleRuleLine(sunStart, false, IL), `RRULE:${sunStart}`, 'Google keeps it');
+    assertSame(rec.specOfRule(sunStart, sun, IL), { freq: 'weekly', interval: 2, byDay: ['TU', 'SU'] }, 'reading ignores it');
+    const stored = { rrule: sunStart, startsAt: sun, timeZone: IL };
+    assertSame(write.repeatChanges({ freq: 'weekly', interval: 2, byDay: ['TU', 'SU'] }, stored, 'custom', sun, IL), false, 'the change test ignores it');
+  });
+
   await check('ruleOfSpec, Hebrew: FREQ=YEARLY with the pair, every N years and an end', () => {
     assertSame(build({ freq: 'hebrew', interval: 2, count: 3 }, '2027-01-24 10:00'), { rrule: 'FREQ=YEARLY;INTERVAL=2;COUNT=3', hebrewRule: 'anniversary' }, 'every 2 years, 3 times');
     assertSame(build({ freq: 'hebrew', interval: 1, until: '2030-01-01' }, '2027-01-24 10:00'), { rrule: 'FREQ=YEARLY;UNTIL=20300101', hebrewRule: 'anniversary' }, 'until');

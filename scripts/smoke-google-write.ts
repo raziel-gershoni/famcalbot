@@ -1202,7 +1202,7 @@ async function main() {
       assert(r.status === 'ok', `${show(repeat)} ${show(r)}`);
       return writes()[0].body!.recurrence;
     };
-    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['MO'], until: '2026-12-01' }), ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;UNTIL=20261201T215959Z'], 'timed: Thursday start, Monday chip, until at the end of the day in Israel (UTC)');
+    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['MO'], until: '2026-12-01' }), ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;WKST=SU;UNTIL=20261201T215959Z'], 'timed: Thursday start, Monday chip, until at the end of the day in Israel (UTC)');
     assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'weekday', count: 4 }, { start: '2026-10-13T18:00', end: '2026-10-13T19:00' }), ['RRULE:FREQ=MONTHLY;BYDAY=2TU;COUNT=4'], 'the second Tuesday, 4 times');
     assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'last' }, { start: '2026-10-29T18:00', end: '2026-10-29T19:00' }), ['RRULE:FREQ=MONTHLY;BYDAY=-1TH'], 'the last Thursday');
     assertSame(await rule({ freq: 'daily', interval: 3, until: '2026-12-01' }, { allDay: true, start: '2026-10-22', end: '2026-10-22' }), ['RRULE:FREQ=DAILY;INTERVAL=3;UNTIL=20261201'], 'all-day: a date');
@@ -1225,7 +1225,7 @@ async function main() {
     const changed = await write.updateItem(NOA, patchCmd({ key, scope: 'single', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] } } }), IL);
     assert(changed.status === 'ok', show(changed));
     const inserted = writes().find((w) => w.method === 'POST' && /\/events$/.test(w.path));
-    assertSame(inserted?.body?.recurrence, ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR'], 'the new part\'s rule');
+    assertSame(inserted?.body?.recurrence, ['RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR;WKST=SU'], 'the new part\'s rule');
     assertSame([tracked[0].meta.scope, stored(NOA_CAL, 'wk')!.recurrence], ['following', ['RRULE:FREQ=WEEKLY;UNTIL=20261020T065959Z']], 'forced following, the master cut');
     // Ends: a COUNT series, cut after two slots.
     reset();

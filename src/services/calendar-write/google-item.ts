@@ -29,7 +29,7 @@ import { getPartnerUserId } from '../native-calendar/event-store';
 import { googleCrossRefusal, googleRuleLine, type CrossRefusal } from '../calendar-move/mapper';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
-import { createTimes, resolveWallTimes, type WriteResult } from './write';
+import { createTimes, resolveWallTimes, weekStartOf, type WriteResult } from './write';
 import { repeatChanges, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule, type StoredSeries } from './repeat-spec';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
@@ -325,7 +325,7 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
   let rule: string | null;
   try {
     const spec = specOfInput(cmd.repeat);
-    rule = googleLineOf(spec ? ruleOfSpec(spec, times.startsAt, tz) : null, cmd.allDay, tz);
+    rule = googleLineOf(spec ? ruleOfSpec(spec, times.startsAt, tz, weekStartOf(user, tz)) : null, cmd.allDay, tz);
   } catch (err) {
     if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
     throw err;
@@ -409,7 +409,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   let endGiven = false;
   if (repeat !== undefined) {
     try {
-      const built = repeat === 'none' ? null : ruleToWrite(repeat, rule.stored ?? null, tailStart, zone, masterId && cut ? { at: cut, first: read.first } : null);
+      const built = repeat === 'none' ? null : ruleToWrite(repeat, rule.stored ?? null, tailStart, zone, masterId && cut ? { at: cut, first: read.first } : null, weekStartOf(user, userTz));
       newLine = googleLineOf(built, allDay, zone);
       endGiven = Boolean(built?.endGiven);
     } catch (err) {

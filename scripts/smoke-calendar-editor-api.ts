@@ -1619,7 +1619,7 @@ async function main() {
       assert(r.status === 200, `${show(repeat)}: ${r.status} ${r.text}`);
       return eventRow(idOf(r.body.key)).rrule;
     };
-    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['TH'], count: 4 }), 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;COUNT=4', 'Tuesday start, Thursday chip');
+    assertSame(await rule({ freq: 'weekly', interval: 2, byDay: ['TH'], count: 4 }), 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;WKST=SU;COUNT=4', 'Tuesday start, Thursday chip; the user\'s week starts on Sunday');
     assertSame(await rule({ freq: 'weekly', interval: 1, byDay: ['TU'] }), 'FREQ=WEEKLY', 'a single start day writes no BYDAY');
     assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'weekday' }, { start: '2026-10-13T10:00', end: '2026-10-13T11:00' }), 'FREQ=MONTHLY;BYDAY=2TU', 'the second Tuesday');
     assertSame(await rule({ freq: 'monthly', interval: 1, monthly: 'last', until: '2027-03-30' }, { start: '2026-10-27T10:00', end: '2026-10-27T11:00' }), 'FREQ=MONTHLY;BYDAY=-1TU;UNTIL=20270330', 'the last Tuesday, until');
@@ -1676,7 +1676,7 @@ async function main() {
     const pid = idOf(plain.body.key);
     const r = await patch({ key: `famcal|${pid}#${iso(at('2026-10-27 10:00'))}`, scope: 'all', changes: { repeat: { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] } } });
     assert(r.status === 200, `${r.status} ${r.text}`);
-    assertSame([lastEvent().rrule, eventRow(pid).rrule], ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR', 'FREQ=WEEKLY;UNTIL=20261027T095959'], 'the tail every other week on Tue and Fri; the head cut');
+    assertSame([lastEvent().rrule, eventRow(pid).rrule], ['FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR;WKST=SU', 'FREQ=WEEKLY;UNTIL=20261027T095959'], 'the tail every other week on Tue and Fri; the head cut');
     assertSame((await itemOf(r.body.key)).body.series.spec, { freq: 'weekly', interval: 2, byDay: ['TU', 'FR'] }, 'and it reads back as the spec');
   });
 
