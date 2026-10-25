@@ -97,7 +97,7 @@ import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/da
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
 import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
 import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
-import { DRAG_BAR_CSS } from '../app/[locale]/dashboard/DragBar';
+import { DRAG_BAR_CSS, DragBar } from '../app/[locale]/dashboard/DragBar';
 import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
@@ -4894,6 +4894,13 @@ async function main() {
       assert(!/font-size: ([0-9]|10)px/.test(css), 'no text under 11 px');
       assert(!/:hover/.test(css), 'no hover');
     }
+  });
+  await check('#d12 an Undo tapped while another write runs: the bar says so and keeps the Undo, so it can be tapped again', async () => {
+    const entry = { key: 'famcal|dentist#moved', scope: 'single' as const, days: 2 };
+    const html = renderToString(inHome('en', createElement(DragBar, { bar: { id: 1, kind: 'error', error: 'busy', undo: entry }, undoing: false, onUndo: noop })));
+    assert(html.includes('<button') && html.includes(`>${messages.en.calendarHome.drag.undo}</button>`), `the busy bar keeps its Undo: ${html}`);
+    const plain = renderToString(inHome('en', createElement(DragBar, { bar: { id: 2, kind: 'error', error: 'busy' }, undoing: false, onUndo: noop })));
+    assert(!plain.includes('<button'), 'an error with no entry has no Undo');
   });
 
   await check('#76 the editor\'s defaults for the day in view: the Month\'s picked day, else today at the next round hour for an hour (a late hour rolls into tomorrow); a reminder form; the start moves the end with it; all day keeps the days between', () => {

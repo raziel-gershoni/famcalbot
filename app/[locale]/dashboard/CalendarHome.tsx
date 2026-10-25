@@ -916,12 +916,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
 
   // Undo: the move back, the same way (the item's edit info on the key the PATCH answered, the start shifted back,
   // the editor's body, the same scope). A tap never does nothing: while it runs the button is busy, and while another
-  // write runs the bar says so.
+  // write runs the bar says so and keeps the Undo for another tap.
   const runUndo = async (entry: UndoEntry) => {
     if (undoing) return;
     if (writingRef.current) {
       hapticError();
-      showBar({ kind: 'error', error: 'busy' });
+      showBar({ kind: 'error', error: 'busy', undo: entry });
       return;
     }
     writingRef.current = true;

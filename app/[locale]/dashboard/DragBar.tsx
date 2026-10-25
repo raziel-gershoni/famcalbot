@@ -32,7 +32,7 @@ export type BarContent =
    * error: the editor's copy for the failure: a message key under calendarHome (an inline error such as
    * editor.errors.errSeriesYear, or the day-move note), else a write's failure, else null for the drag's own ("Couldn't move it").
    */
-  | { kind: 'error'; error: SubmitError | null; key?: string };
+  | { kind: 'error'; error: SubmitError | null; key?: string; undo?: UndoEntry };
 
 /** The bar's content with an `id` that is new for each, so a newer one restarts the timer. */
 export type BarState = { id: number } & BarContent;
@@ -62,7 +62,8 @@ function BarText({ bar }: { bar: BarState }) {
 
 export function DragBar({ bar, undoing, onUndo }: DragBarProps) {
   const t = useTranslations('calendarHome');
-  const undo = bar && bar.kind === 'moved' ? bar.undo : null;
+  // A busy Undo (another write was running) keeps its entry, so it can be tapped again.
+  const undo = bar && (bar.kind === 'moved' || bar.kind === 'error') ? (bar.undo ?? null) : null;
   return (
     <div className="ch-dbar-region" aria-live="polite">
       <style>{DRAG_BAR_CSS}</style>
