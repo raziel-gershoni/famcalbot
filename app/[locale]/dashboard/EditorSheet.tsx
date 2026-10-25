@@ -8,16 +8,17 @@
 //   all day, starts, ends (moving the start keeps the duration), repeat, calendar and
 //   notes; a reminder has title, when (a date, and a time with "At a set time"), repeat,
 //   and For when the partner can be pinged.
-// - Edit: the same fields prefilled from the item's edit info, with the Repeat row (the
-//   stored rule selected; a rule the five can't say is a sixth, first choice; an end is
-//   kept and named; with the home's Hebrew dates on and a FamCal calendar, also "every year on
-//   <Hebrew date>", worded from the stored anchor or the form's start day), the
+// - Edit: the same fields prefilled from the item's edit info, with the Repeat row (its value
+//   is the repeat in words; it opens the Repeat sheet, RepeatSheet.tsx, whose Done applies a
+//   draft: the stored rule is selected, a rule the sheet can't say is a first choice "Current:
+//   <words>", an end is kept; with the home's Hebrew dates on and a FamCal calendar, also "every
+//   year on the Hebrew date", worded from the stored anchor or the form's start day), the
 //   Calendar row (the item's move targets) and, for a reminder's
 //   creator, the For row. Where the info doesn't allow a row, its value stays text. What a
 //   Save applies to is editor-model's scopePlan: a repeat change is from this occurrence on
 //   with no question, a calendar or recipient change on a series asks 'this one and the
 //   ones after' or 'all', a day move on a set-weekdays series is this one's, or, when its
-//   rule reads as one of the five, from this one on with that rule following the start.
+//   rule is one the sheet can say, from this one on with the shown spec sent again (restatedRepeat).
 //   A Calendar row pick of the other kind (FamCal and Google) is the cross-source move
 //   ("Google as a connection" §5): its row says that alerts and colour follow the new calendar
 //   (and that the partner will see it there), Save refuses it beside any other change ("Save
