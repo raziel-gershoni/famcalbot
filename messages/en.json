@@ -279,6 +279,7 @@
         "errTitleLong": "Keep the title to {max} characters or fewer",
         "errTooLong": "That’s too long",
         "errDate": "Enter a valid date and time",
+        "errYear": "Repeating items can start from the year 2000",
         "errEnd": "It ends before it starts",
         "errField": "Check this one"
       },
@@ -323,6 +324,20 @@
       "title": "Nothing planned",
       "hintEvents": "To add an event, send the bot a voice message, forward it a message, or share a photo of an invitation.",
       "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”."
+    },
+    "picker": {
+      "dateSheet": "Choose a date",
+      "timeSheet": "Choose a time",
+      "gregorian": "Gregorian",
+      "hebrew": "Hebrew",
+      "today": "Today",
+      "done": "Done",
+      "chooseMonth": "Choose month",
+      "year": "Year",
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month",
+      "hour": "Hour",
+      "minute": "Minute"
     },
     "hebrewMonthGenitive": ["Tishrei", "Cheshvan", "Kislev", "Tevet", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"],
     "hebrewMonthShort": ["Tish.", "Chesh.", "Kis.", "Tev.", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"]

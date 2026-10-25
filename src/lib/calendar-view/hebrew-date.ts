@@ -45,7 +45,7 @@ function langOf(lang: string): Lang {
 }
 
 /** The Hebrew date of a day key, or null when the key isn't a real 'yyyy-MM-dd' day. */
-function hebrewDateOf(dayKey: DayKey): HDate | null {
+export function hebrewDateOf(dayKey: DayKey): HDate | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
   if (!match) return null;
   const [y, m, d] = [Number(match[1]), Number(match[2]), Number(match[3])];
@@ -55,6 +55,13 @@ function hebrewDateOf(dayKey: DayKey): HDate | null {
   const date = new Date(y, m - 1, d);
   if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
   return new HDate(date);
+}
+
+/** The day key of an HDate's civil day (the date picker pages by Hebrew month and needs the days back). */
+export function dayKeyOfHDate(hd: HDate): DayKey {
+  const date = hd.greg();
+  const pad = (n: number, width: number) => String(n).padStart(width, '0');
+  return `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`;
 }
 
 /** A month-name list from messages (the genitives, or the Month's short names): 14 non-empty strings. */
@@ -185,4 +192,15 @@ export function hebrewCellLabel(dayKey: DayKey, lang: string, withMonth: boolean
 export function hebrewCellMonth(dayKey: DayKey, lang: string, shortMonths?: readonly string[]): string {
   const hd = hebrewDateOf(dayKey);
   return hd ? shortMonthName(hd, langOf(lang), shortMonths) : '';
+}
+
+/** The Hebrew month of a day, named as a title names it and without its year: "Adar II" / "אדר ב׳" / "Адар II". '' for a key that isn't a real day. */
+export function hebrewMonthOf(dayKey: DayKey, lang: string): string {
+  const hd = hebrewDateOf(dayKey);
+  return hd ? monthLabel(hd, langOf(lang), undefined) : '';
+}
+
+/** A Hebrew year as a title writes it: gematriya in Hebrew ("תשפ״ז"), digits otherwise ("5787"). */
+export function hebrewYearText(year: number, lang: string): string {
+  return langOf(lang) === 'he' ? gematriya(year) : String(year);
 }

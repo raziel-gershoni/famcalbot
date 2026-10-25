@@ -232,3 +232,49 @@ export function formatWeekdayHeader(weekday: WeekStart, locale: string): string 
   }
   return formatter(locale, { weekday: 'narrow', timeZone: 'UTC' }).format(d);
 }
+
+const PILL_DAY: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' };
+const FULL_DAY: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' };
+
+/** "Sun, 14 Mar 2027" / "ראשון 14 במרץ 2027" / "вс, 14 мар. 2027": a date pill's text. '' for a key that isn't a real day. */
+export function formatPillDate(day: DayKey, locale: string): string {
+  const d = keyDate(day);
+  if (!d) return '';
+  if (isHebrew(locale)) return `${hebrewWeekday(d, 'UTC')} ${formatter(locale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d)}`;
+  // ru-RU closes a year with " г."; a pill has no room for it.
+  const text = formatter(locale, PILL_DAY).format(d).replace(/\s?г\.$/, '');
+  // en-GB writes no comma after the weekday; the pill and the mockups have one.
+  return intlLocale(locale) === INTL_LOCALES.en ? text.replace(/^(\p{L}+)\s/u, '$1, ') : text;
+}
+
+/** "Sunday, 14 March 2027" / "יום ראשון, 14 במרץ 2027" / "воскресенье, 14 марта 2027 г.": a chosen day in full. '' for a key that isn't a real day. */
+export function formatDayFull(day: DayKey, locale: string): string {
+  const d = keyDate(day);
+  if (!d) return '';
+  const f = formatter(locale, FULL_DAY);
+  if (intlLocale(locale) !== INTL_LOCALES.en) return f.format(d);
+  return f
+    .formatToParts(d)
+    .map((part, i, parts) =>
+      part.type === 'literal' && parts[i - 1]?.type === 'weekday' && !part.value.includes(',') ? `,${part.value}` : part.value
+    )
+    .join('');
+}
+
+const MONTH_SHORT: Intl.DateTimeFormatOptions = { month: 'short', timeZone: 'UTC' };
+
+/**
+ * The Gregorian months a run of days touches, short, with the year once or on both sides:
+ * "Mar – Apr 2027", "Mar 2027", "Dec 2026 – Jan 2027". The date picker's second title line in
+ * Hebrew mode. '' for a malformed key or a backwards run.
+ */
+export function formatMonthRange(firstKey: DayKey, lastKey: DayKey, locale: string): string {
+  const a = keyDate(firstKey);
+  const b = keyDate(lastKey);
+  if (!a || !b || lastKey < firstKey) return '';
+  const name = (d: Date) => formatter(locale, MONTH_SHORT).format(d).replace(/\.$/, '');
+  const [ya, yb] = [a.getUTCFullYear(), b.getUTCFullYear()];
+  if (ya !== yb) return `${name(a)} ${ya} – ${name(b)} ${yb}`;
+  if (a.getUTCMonth() === b.getUTCMonth()) return `${name(a)} ${ya}`;
+  return `${name(a)} – ${name(b)} ${ya}`;
+}
