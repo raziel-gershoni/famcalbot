@@ -28,8 +28,11 @@ export type BarContent =
   | { kind: 'moved'; day: DayKey; undo: UndoEntry | null }
   | { kind: 'undone' }
   | { kind: 'note'; note: CantLift }
-  /** error: a write's failure (the editor's copy for it), or null for the drag's own ("Couldn't move it"). */
-  | { kind: 'error'; error: SubmitError | null };
+  /**
+   * error: the editor's copy for the failure: a message key under calendarHome (an inline error such as
+   * editor.errors.errSeriesYear, or the day-move note), else a write's failure, else null for the drag's own ("Couldn't move it").
+   */
+  | { kind: 'error'; error: SubmitError | null; key?: string };
 
 /** The bar's content with an `id` that is new for each, so a newer one restarts the timer. */
 export type BarState = { id: number } & BarContent;
@@ -44,7 +47,7 @@ export interface DragBarProps {
 function BarText({ bar }: { bar: BarState }) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
-  const errorText = useErrorText(bar.kind === 'error' ? bar.error : null);
+  const errorText = useErrorText(bar.kind === 'error' && !bar.key ? bar.error : null);
   switch (bar.kind) {
     case 'moved':
       return <>{t('drag.moved', { date: formatDayShort(bar.day, locale) })}</>;
@@ -53,7 +56,7 @@ function BarText({ bar }: { bar: BarState }) {
     case 'note':
       return <>{t(`drag.${bar.note}`)}</>;
     case 'error':
-      return <>{errorText ?? t('drag.failed')}</>;
+      return <>{bar.key ? t(bar.key) : (errorText ?? t('drag.failed'))}</>;
   }
 }
 

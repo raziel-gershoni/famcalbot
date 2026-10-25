@@ -40,6 +40,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type Modifier,
 } from '@dnd-kit/core';
 import { dayOfDrop, dropId, liftVerdict, type CantLift } from '@/src/lib/calendar-view/drag-model';
 import type { DayKey } from '@/src/lib/calendar-view/types';
@@ -103,21 +104,83 @@ export interface DragLayerProps {
   cancelRef: MutableRefObject<(() => void) | null>;
 }
 
+/** An element as the hit test reads it (a DOM Element, or a plain object in a smoke). */
+export interface HitElement {
+  contains: (other: HitElement) => boolean;
+  closest?: (selector: string) => unknown;
+}
+
+/** The class of the drag overlay's wrapper: it is on top of everything and never a drop target. */
+export const OVERLAY_CLASS = 'ch-drag-overlay';
+
 /**
- * The day cell under the pointer by the DOM's own hit test: the registered cells whose rect holds
- * the pointer, kept only if that element is what the page draws there (a sticky bar over a cell
- * hides it). Without elementFromPoint (a fake DOM), the rect test stands.
+ * The drop targets under the pointer, by what the page draws there. `hits` are the registered cells whose
+ * rect holds the pointer; `stack` is what the browser draws at that point, top first
+ * (document.elementsFromPoint). The ghost's wrapper is skipped (it also takes no pointer events), so it can
+ * never hide the cell under the finger; a sticky bar over a cell still hides it. With no stack (no
+ * elementsFromPoint) the rect test stands.
  */
+export function visibleHits<T extends { id: string | number }>(hits: readonly T[], nodeOf: (id: T['id']) => HitElement | null | undefined, stack: readonly HitElement[] | null): T[] {
+  if (!stack) return [...hits];
+  const under = stack.find((el) => !el.closest?.(`.${OVERLAY_CLASS}`));
+  if (!under) return [...hits];
+  return hits.filter((hit) => {
+    const node = nodeOf(hit.id);
+    return !node || node.contains(under);
+  });
+}
+
 const hitTest: CollisionDetection = (args) => {
   const hits = pointerWithin(args);
   const point = args.pointerCoordinates;
-  if (!point || typeof document === 'undefined' || typeof document.elementFromPoint !== 'function') return hits;
-  const under = document.elementFromPoint(point.x, point.y);
-  if (!under) return hits;
-  return hits.filter((hit) => {
-    const node = args.droppableContainers.find((c) => c.id === hit.id)?.node.current;
-    return !node || node.contains(under);
-  });
+  const canStack = typeof document !== 'undefined' && typeof document.elementsFromPoint === 'function';
+  return visibleHits(
+    hits,
+    (id) => args.droppableContainers.find((c) => c.id === id)?.node.current as HitElement | null | undefined,
+    point && canStack ? (document.elementsFromPoint(point.x, point.y) as unknown as HitElement[]) : null,
+  );
+};
+
+/** Gap between the ghost and the finger, px. */
+const GHOST_GAP_PX = 14;
+const EDGE_PX = 4;
+
+/**
+ * Where the ghost goes so it follows the finger and never sits under it: centred on the finger, its bottom
+ * edge a few px above it, kept inside the screen. `transform` is the library's (the finger's movement),
+ * `finger` where the press began, `origin` the lifted element's top-left (the overlay's natural position),
+ * `ghost` the overlay's own size. Returns the translation to apply; direction-independent (RTL included).
+ */
+export function ghostTranslation(
+  transform: { x: number; y: number },
+  finger: { x: number; y: number } | null,
+  origin: { left: number; top: number } | null,
+  ghost: { width: number; height: number } | null,
+  screen: { width: number; height: number } | null = null,
+): { x: number; y: number } {
+  if (!finger || !origin) return transform;
+  const w = ghost?.width ?? 0;
+  const h = ghost?.height ?? 0;
+  let left = finger.x + transform.x - w / 2;
+  let top = finger.y + transform.y - h - GHOST_GAP_PX;
+  if (screen) left = Math.min(Math.max(left, EDGE_PX), Math.max(EDGE_PX, screen.width - w - EDGE_PX));
+  top = Math.max(top, EDGE_PX);
+  return { x: left - origin.left, y: top - origin.top };
+}
+
+/** Where a press began (client coordinates), from the event that started the drag. */
+function fingerOf(event: Event | null | undefined): { x: number; y: number } | null {
+  const e = event as { clientX?: number; clientY?: number; touches?: ArrayLike<{ clientX: number; clientY: number }>; changedTouches?: ArrayLike<{ clientX: number; clientY: number }> } | null | undefined;
+  if (!e) return null;
+  const touch = e.touches?.[0] ?? e.changedTouches?.[0];
+  if (touch) return { x: touch.clientX, y: touch.clientY };
+  return typeof e.clientX === 'number' && typeof e.clientY === 'number' ? { x: e.clientX, y: e.clientY } : null;
+}
+
+const ghostModifier: Modifier = ({ transform, activatorEvent, activeNodeRect, overlayNodeRect }) => {
+  const screen = typeof window === 'undefined' ? null : { width: window.innerWidth, height: window.innerHeight };
+  const moved = ghostTranslation(transform, fingerOf(activatorEvent), activeNodeRect, overlayNodeRect ?? null, screen);
+  return { ...transform, x: moved.x, y: moved.y };
 };
 
 /** The screen-reader texts are the library's keyboard ones; there is no keyboard drag (the date picker is the accessible way), so none. */
@@ -229,9 +292,9 @@ export function DragLayer({ children, pendingKey, onBlocked, onLift, onTarget, o
   return (
     <DragContext.Provider value={value}>
       <style>{DRAG_CSS}</style>
-      <DndContext sensors={sensors} collisionDetection={hitTest} accessibility={ACCESSIBILITY} onDragStart={start} onDragOver={over} onDragEnd={end} onDragCancel={cancel}>
+      <DndContext sensors={sensors} collisionDetection={hitTest} autoScroll={lifted !== null} accessibility={ACCESSIBILITY} onDragStart={start} onDragOver={over} onDragEnd={end} onDragCancel={cancel}>
         {children}
-        <DragOverlay dropAnimation={null} style={{ inlineSize: 'auto', blockSize: 'auto', maxInlineSize: '72vw' }}>
+        <DragOverlay dropAnimation={null} className={OVERLAY_CLASS} modifiers={[ghostModifier]} style={{ inlineSize: 'auto', blockSize: 'auto', maxInlineSize: '72vw', pointerEvents: 'none' }}>
           {lifted ? (
             <div className="ch-drag-ghost" dir="auto" aria-hidden="true">
               <bdi>{lifted.title}</bdi>
@@ -304,6 +367,9 @@ export const DRAG_CSS = `
 .ch-liftable.is-pending {
   opacity: 0.6;
   animation: ch-pulse 1.4s ease-in-out infinite;
+}
+.ch-drag-overlay {
+  pointer-events: none;
 }
 .ch-drag-ghost {
   padding: 10px 14px;

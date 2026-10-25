@@ -456,6 +456,8 @@ async function main() {
       [famcal('e2', 'e', at, end, { rrule: 'RRULE:FREQ=DAILY;INTERVAL=1;UNTIL=20261231T000000Z' }), true],
       [famcal('e3', 'e', at, end, { rrule: 'FREQ=DAILY;COUNT=5;INTERVAL=1' }), true],
       [famcal('e4', 'e', at, end, { rrule: 'FREQ=DAILY;INTERVAL=2' }), false],
+      [famcal('e4b', 'e', at, end, { rrule: 'RRULE:INTERVAL=2;FREQ=DAILY' }), false],
+      [famcal('e4c', 'e', at, end, { rrule: 'RRULE:INTERVAL=1;FREQ=DAILY' }), true],
       [famcal('e5', 'e', at, end, { rrule: 'FREQ=WEEKLY;BYDAY=MO' }), false],
       [famcal('e6', 'e', at, end, { rrule: 'FREQ=YEARLY;BYMONTH=10' }), false],
       [famcal('e7', 'e', at, end), false],

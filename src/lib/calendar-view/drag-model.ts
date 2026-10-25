@@ -17,6 +17,7 @@ import type { DayKey, ItemDTO, ItemSpan } from './types';
 import type { EditScope, ItemEditInfoResponse, UpdateItemBody } from './editor-types';
 import {
   addDays,
+  checkForm,
   clockIn,
   daysApart,
   editItemForm,
@@ -26,6 +27,7 @@ import {
   updateBody,
   wallInZone,
   type EditorForm,
+  type FieldErrors,
   type ScopePlan,
 } from './editor-model';
 
@@ -81,6 +83,8 @@ export type MovePlan =
   | { kind: 'cant'; reason: CantLift }
   /** Nothing to change (the shifted start is the start). */
   | { kind: 'nothing' }
+  /** The editor's own check blocks the moved form (calendarHome.editor.errors.<error>): a year the series can't start in, a repeat that would end before it starts. */
+  | { kind: 'invalid'; error: NonNullable<FieldErrors[keyof FieldErrors]> }
   /** Save with this scope, no question. */
   | { kind: 'save'; scope: EditScope; form: EditorForm; initial: EditorForm }
   /** Ask which occurrences (the editor's ScopeSheet), with these choices and note. */
@@ -95,6 +99,10 @@ export function planMove(info: ItemEditInfoResponse, days: number): MovePlan {
   const initial = editItemForm(info);
   const form = shiftedForm(info, days);
   if (updateBody(form, initial, '', 'single', info) === null) return { kind: 'nothing' };
+  // The editor's checks for what a date move can break (the title and the notes are not touched by it).
+  const errors = checkForm(form, info);
+  const blocked = errors.start ?? errors.end ?? errors.repeat;
+  if (blocked) return { kind: 'invalid', error: blocked };
   const plan: ScopePlan = scopePlan(form, initial, info);
   switch (plan.kind) {
     case 'none':

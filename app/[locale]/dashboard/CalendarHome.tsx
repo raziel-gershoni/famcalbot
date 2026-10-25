@@ -97,12 +97,12 @@ import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
-import { dayStatus, emptyStore, homeNotices, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
+import { dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
-import type { ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
+import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { NoCredentialCard } from '../PageGate';
@@ -154,14 +154,13 @@ export interface HomeDeps {
 }
 
 /**
- * The real report: the console now, and Sentry through error-capture, loaded on the first report so the
+ * The real report: error-capture's one console line and Sentry, loaded on the first report so the
  * home's graph holds no server module (@sentry/nextjs reaches OpenTelemetry and Prisma's instrumentation).
  */
 function reportToSentry(error: unknown, context: string, extra: Record<string, unknown>): void {
-  console.error(`[${context}]`, error, extra);
   import('@/src/lib/error-capture')
     .then((m) => m.captureError(error, context, extra, 'warning'))
-    .catch((err: unknown) => console.error(`[${context}] The report could not be sent:`, err));
+    .catch((err: unknown) => console.error(`[${context}] The report could not be sent:`, err, error, extra));
 }
 
 const REAL_DEPS: HomeDeps = {
@@ -205,7 +204,7 @@ type EditorState =
 type DeleteState = { key: string; info: ItemEditInfoResponse; title: string };
 
 /** A drop that asks which occurrences first: the item's edit info and the question, with where it went. */
-type ScopeAsk = { key: string; dropDay: string; days: number; info: ItemEditInfoResponse; plan: Extract<MovePlan, { kind: 'ask' }> };
+type ScopeAsk = { key: string; days: number; copies: Readonly<Record<string, ItemDTO>>; info: ItemEditInfoResponse; plan: Extract<MovePlan, { kind: 'ask' }> };
 
 /** How long the drag bar stays (Undo included). */
 export const DRAG_BAR_MS = 6000;
@@ -450,7 +449,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     weeksRef.current = weeks;
     blockedRef.current = blocked;
     firstLoadRef.current = firstLoad;
-    monthRef.current = { tab: activeTab, ui: monthUi, near, inView };
+    // While an item is lifted over a chevron, the month shown is the one wanted (it loads, with its neighbours).
+    monthRef.current = { tab: activeTab, ui: previewMonth && monthUi ? { ...monthUi, month: previewMonth } : monthUi, near, inView };
   });
 
   useEffect(() => {
@@ -492,7 +492,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // scrolls, or changes layout or month.
   useEffect(() => {
     loaderRef.current?.ensure();
-  }, [store, weeks, blocked, firstLoad, activeTab, near, inView, monthUi]);
+  }, [store, weeks, blocked, firstLoad, activeTab, near, inView, monthUi, previewMonth]);
 
   // Back in the foreground: the visible windows again (FamCal is one query; a Google
   // cache hit is one MGET). No pull-to-refresh: in Telegram that gesture minimizes the app.
@@ -805,50 +805,59 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     if (!bar || undoing) return;
     return deps.setTimer(() => setBar(null), DRAG_BAR_MS);
   }, [bar, undoing, deps]);
-  // A drag that failed anywhere: logged with the key and scope (no title), to the console and Sentry.
-  const logDragFailure = (what: string, key: string, scope: EditScope | null, cause: unknown) =>
+  // A failure is reported once, with its cause (the console line is error-capture's): the key and scope, never a title.
+  const reportDrag = (what: string, key: string, scope: EditScope | null, cause: unknown) =>
     deps.report(cause instanceof Error ? cause : new Error(`Drag to move: ${what}`), 'calendar-home-drag', { user_id: userId, what, key: loggableKey(key), ...(scope ? { scope } : {}) });
-  const putBack = (key: string, days: number) => {
-    dispatch({ type: 'shiftItem', key, days: -days });
+  // The item exactly as the store held it before the lift's shift, and the source asked again: an answer that
+  // landed since can't leave it on a day it never had.
+  const putBack = (key: string, copies: Readonly<Record<string, ItemDTO>>) => {
+    dispatch({ type: 'restoreItem', key, copies });
     setPendingKey((cur) => (cur === key ? null : cur));
-  };
-  // The drop could not be saved: the item goes back, the bar says why, the source is asked again (the write may have landed).
-  const failMove = (key: string, days: number, error: SubmitError | null, what: string, cause: unknown, scope: EditScope | null = null) => {
-    putBack(key, days);
-    hapticError();
-    showBar({ kind: 'error', error });
-    logDragFailure(what, key, scope, cause);
     void refreshWritten(sourceOfKey(key));
   };
-  const refuseMove = (key: string, days: number, note: CantLift) => {
-    putBack(key, days);
+  // The drop could not be saved: the item goes back, the bar says why in the editor's words.
+  const failMove = (key: string, copies: Readonly<Record<string, ItemDTO>>, bar: { error: SubmitError | null; key?: string }, what: string, cause: unknown, scope: EditScope | null = null) => {
+    putBack(key, copies);
+    hapticError();
+    showBar({ kind: 'error', ...bar });
+    reportDrag(what, key, scope, cause);
+  };
+  const refuseMove = (key: string, copies: Readonly<Record<string, ItemDTO>>, note: CantLift) => {
+    putBack(key, copies);
     hapticWarning();
     showBar({ kind: 'note', note });
   };
+  // A refusal as the editor words it (EditorSheet.run): the series would start too early, a repeat the server
+  // refused, a day move the rule fixes (retrying would fail the same way); else the write's own error.
+  const refusalCopy = (result: Extract<SaveOutcome, { kind: 'error' }>, scope: EditScope): { error: SubmitError | null; key?: string } => {
+    if (result.fieldError) return { error: result.error, key: `editor.errors.${result.fieldError}` };
+    if (result.field === 'repeat') return { error: result.error, key: 'editor.errors.errRepeat' };
+    if (result.field === 'start' && scope !== 'single') return { error: result.error, key: 'scope.dayMoveNote' };
+    return { error: result.error };
+  };
 
   // The save of a drop, with the scope picked: the editor's PATCH body, through the editor's client.
-  const sendMove = async (key: string, dropDay: string, days: number, info: ItemEditInfoResponse, plan: Extract<MovePlan, { kind: 'save' | 'ask' }>, scope: EditScope) => {
+  const sendMove = async (key: string, days: number, copies: Readonly<Record<string, ItemDTO>>, info: ItemEditInfoResponse, plan: Extract<MovePlan, { kind: 'save' | 'ask' }>, scope: EditScope) => {
     const body = moveBody(plan, key, scope, info);
-    if (!body) {
-      putBack(key, days);
-      return;
-    }
-    if (writingRef.current) return failMove(key, days, 'busy', 'busy', new Error('Another write was running'), scope);
+    if (!body) return putBack(key, copies);
+    if (writingRef.current) return failMove(key, copies, { error: 'busy' }, 'busy', new Error('Another write was running'), scope);
     writingRef.current = true;
     let out: WriteOutcome;
+    let thrown: unknown = null;
     try {
       out = await deps.editing.update(userId, body);
     } catch (err) {
-      logDragFailure('update threw', key, scope, err);
+      thrown = err;
       out = { kind: 'failed' };
     }
     writingRef.current = false;
     raiseReconnect(out);
     const result = saveOutcome(out);
-    if (result.kind !== 'ok') return failMove(key, days, result.error, `update ${out.kind}`, new Error(`The move was not saved: ${out.kind}`), scope);
+    if (result.kind !== 'ok') return failMove(key, copies, refusalCopy(result, scope), `update ${out.kind}`, thrown ?? new Error(`The move was not saved: ${out.kind}`), scope);
     hapticSuccess();
     const answered = out.kind === 'ok' && out.key ? out.key : key;
-    showBar({ kind: 'moved', day: dropDay, undo: undoable(scope) ? { key: answered, scope, days } : null });
+    // The bar names the item's new start day (a multi-day item grabbed on its 2nd day starts before the drop day).
+    showBar({ kind: 'moved', day: plan.form.startDay, undo: undoable(scope) ? { key: answered, scope, days } : null });
     void refreshWritten(sourceOfKey(key)).then(() => setPendingKey((cur) => (cur === key ? null : cur)));
   };
 
@@ -861,57 +870,70 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       showBar({ kind: 'error', error: 'busy' });
       return;
     }
+    // The last drag's bar (and its Undo) goes: its Undo could not run while this one writes.
+    setBar(null);
     writingRef.current = true;
+    const copies = itemCopies(storeRef.current, key);
     dispatch({ type: 'shiftItem', key, days });
     setPendingKey(key);
     let info: ItemEditInfoResponse | null = null;
+    let thrown: unknown = null;
     try {
       info = await deps.editing.item(userId, key);
     } catch (err) {
-      logDragFailure('item info threw', key, null, err);
+      thrown = err;
     }
     writingRef.current = false;
-    if (!info) return failMove(key, days, null, 'item info unavailable', new Error('The item could not be read'));
+    if (!info) return failMove(key, copies, { error: null }, 'item info unavailable', thrown ?? new Error('The item could not be read'));
     const plan = planMove(info, days);
     switch (plan.kind) {
       case 'cant':
-        return refuseMove(key, days, plan.reason);
+        return refuseMove(key, copies, plan.reason);
       case 'nothing':
-        return putBack(key, days);
+        return putBack(key, copies);
+      case 'invalid':
+        return failMove(key, copies, { error: null, key: `editor.errors.${plan.error}` }, `blocked ${plan.error}`, new Error(`The editor's check blocks this move: ${plan.error}`));
       case 'refuse':
-        return failMove(key, days, null, `refused ${plan.note}`, new Error(`The editor refuses this move: ${plan.note}`));
+        return failMove(key, copies, { error: null, key: plan.note === 'dayMoveAlone' ? 'editor.dayMoveAlone' : 'editor.moveAlone' }, `refused ${plan.note}`, new Error(`The editor refuses this move: ${plan.note}`));
       case 'ask':
-        setScopeAsk({ key, dropDay, days, info, plan });
+        setScopeAsk({ key, days, copies, info, plan });
         return;
       case 'save':
-        return sendMove(key, dropDay, days, info, plan, plan.scope);
+        return sendMove(key, days, copies, info, plan, plan.scope);
     }
   };
   const cancelScopeAsk = () => {
     if (!scopeAsk) return;
-    putBack(scopeAsk.key, scopeAsk.days);
+    putBack(scopeAsk.key, scopeAsk.copies);
     setScopeAsk(null);
   };
   const pickScope = (scope: EditScope) => {
     if (!scopeAsk) return;
     const ask = scopeAsk;
     setScopeAsk(null);
-    void sendMove(ask.key, ask.dropDay, ask.days, ask.info, ask.plan, scope);
+    void sendMove(ask.key, ask.days, ask.copies, ask.info, ask.plan, scope);
   };
 
   // Undo: the move back, the same way (the item's edit info on the key the PATCH answered, the start shifted back,
-  // the editor's body, the same scope).
+  // the editor's body, the same scope). A tap never does nothing: while it runs the button is busy, and while another
+  // write runs the bar says so.
   const runUndo = async (entry: UndoEntry) => {
-    if (writingRef.current || undoing) return;
+    if (undoing) return;
+    if (writingRef.current) {
+      hapticError();
+      showBar({ kind: 'error', error: 'busy' });
+      return;
+    }
     writingRef.current = true;
     setUndoing(true);
     let out: WriteOutcome = { kind: 'failed' };
+    let thrown: unknown = null;
     try {
       const info = await deps.editing.item(userId, entry.key);
       const body = info ? undoBody(info, entry.key, entry.scope, entry.days) : null;
       if (body) out = await deps.editing.update(userId, body);
     } catch (err) {
-      logDragFailure('undo threw', entry.key, entry.scope, err);
+      thrown = err;
     }
     writingRef.current = false;
     setUndoing(false);
@@ -922,8 +944,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       showBar({ kind: 'undone' });
     } else {
       hapticError();
-      showBar({ kind: 'error', error: result.error });
-      logDragFailure(`undo ${out.kind}`, entry.key, entry.scope, new Error(`The undo was not saved: ${out.kind}`));
+      showBar({ kind: 'error', ...refusalCopy(result, entry.scope) });
+      reportDrag(`undo ${out.kind}`, entry.key, entry.scope, thrown ?? new Error(`The undo was not saved: ${out.kind}`));
     }
     void refreshWritten(sourceOfKey(entry.key));
   };

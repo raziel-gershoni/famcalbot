@@ -34,7 +34,8 @@ import {
 } from '../src/lib/calendar-view/drag-model';
 import { fromZonedTime } from 'date-fns-tz';
 import { daySpanOf } from '../src/utils/day-events';
-import { dayItems, dayStatus, emptyStore, reduceStore } from '../src/lib/calendar-view/store';
+import { OVERLAY_CLASS, ghostTranslation, visibleHits, type HitElement } from '../app/[locale]/dashboard/DragSurface';
+import { dayItems, dayStatus, emptyStore, itemCopies, reduceStore } from '../src/lib/calendar-view/store';
 import type { RangeResponse } from '../src/lib/calendar-view/types';
 import type { EditScope, ItemEditInfoResponse, RepeatInfo, RepeatSpec } from '../src/lib/calendar-view/editor-types';
 import type { ItemDTO } from '../src/lib/calendar-view/types';
@@ -418,6 +419,91 @@ check('store item: shiftItem moves an all-day item by its days, an item to a day
   assert(reduceStore(s0, { type: 'shiftItem', key: 'famcal|nope', days: 2 }) === s0, 'an unknown key');
   assert(reduceStore(s0, { type: 'shiftItem', key: 'famcal|trip', days: 0 }) === s0, 'no move');
   assert(reduceStore(emptyStore(), { type: 'shiftItem', key: 'famcal|trip', days: 2 }).facts === null, 'an empty store');
+});
+
+check('store item: restoreItem puts the item back exactly as it was, wherever a refetch that landed in between left it (the relative shift back would go to the 17th)', () => {
+  const whereIs = (st: ReturnType<typeof storeWith>, key: string) => Object.keys(st.days).sort().filter((d) => dayItems(st, d).some((i) => i.key === key)).map((d) => `${d}:-`);
+  const swim = dto({ key: 'famcal|swim', start: '2026-10-20T07:00:00.000Z', end: '2026-10-20T08:00:00.000Z' });
+  const loaded = () => storeWith([{ item: swim, days: [['2026-10-20', null]] }], '2026-10-11');
+  const s0 = loaded();
+  const copies = itemCopies(s0, 'famcal|swim');
+  same(Object.keys(copies), ['2026-10-20'], 'the copies taken before the lift');
+  // Dropped +3, then the refetch lands (the server still has it on the 20th), then the sheet is closed.
+  let s = reduceStore(s0, { type: 'shiftItem', key: 'famcal|swim', days: 3 });
+  same(whereIs(s, 'famcal|swim'), ['2026-10-23:-'], 'dropped');
+  s = reduceStore(s, { type: 'response', response: { ...(storeResponse()), days: storeResponse().days }, epoch: 0 });
+  same(whereIs(s, 'famcal|swim'), ['2026-10-20:-'], 'the refetch landed');
+  same(whereIs(reduceStore(s, { type: 'shiftItem', key: 'famcal|swim', days: -3 }), 'famcal|swim'), ['2026-10-17:-'], 'the shift back (what was wrong)');
+  same(whereIs(reduceStore(s, { type: 'restoreItem', key: 'famcal|swim', copies }), 'famcal|swim'), ['2026-10-20:-'], 'restored after the refetch');
+  const dropped = reduceStore(s0, { type: 'shiftItem', key: 'famcal|swim', days: 3 });
+  same(whereIs(reduceStore(dropped, { type: 'restoreItem', key: 'famcal|swim', copies }), 'famcal|swim'), ['2026-10-20:-'], 'restored with no refetch');
+  assert(dayStatus(reduceStore(dropped, { type: 'restoreItem', key: 'famcal|swim', copies }), '2026-10-23') === 'answered', 'coverage kept');
+  function storeResponse() {
+    const days: { date: string; items: ItemDTO[] }[] = [];
+    for (let d = new Date('2026-10-11T00:00:00Z'); d.toISOString().slice(0, 10) < '2026-11-08'; d.setUTCDate(d.getUTCDate() + 1)) {
+      const date = d.toISOString().slice(0, 10);
+      days.push({ date, items: date === '2026-10-20' ? [swim] : [] });
+    }
+    return { tz: IL, today: '2026-10-20', weekStart: 'sunday', hebrewDates: false, from: '2026-10-11', to: '2026-11-08', sources: { famcal: { status: 'ok' } }, calendars: [], partner: null, carryOvers: null, days } as unknown as RangeResponse;
+  }
+});
+
+check('blocked: planMove runs the editor\'s checks on the moved form: a repeat that would end before it starts, a year a series can\'t start in', () => {
+  const ends = info({ start: '2026-10-20T17:00', end: '2026-10-20T18:00', series: { recurring: true, start: '2026-10-06T17:00', repeat: { ...weekly(), ends: true }, rule: { choice: 'weekly', until: '2026-10-27' }, spec: { freq: 'weekly', interval: 1, byDay: ['TU'], until: '2026-10-27' }, first: false } });
+  same(planMove(ends, 14), { kind: 'invalid', error: 'errRepeatEnd' }, 'past its end');
+  assert(planMove(ends, 7).kind === 'ask', 'on its last day is fine');
+  const early = info({ start: '2000-01-02', end: '2000-01-02', allDay: true, series: { recurring: true, start: '2000-01-02', repeat: weekly(), rule: { choice: 'weekly' }, spec: weeklySpec(['SU']), first: true } });
+  same(planMove(early, -5), { kind: 'invalid', error: 'errYear' }, 'before 2000 for a series');
+  assert(planMove(info({ start: '2000-01-02', end: '2000-01-02', allDay: true }), -5).kind === 'save', 'a one-off may');
+  const untitled = info({ start: '2026-10-20T09:00', end: '2026-10-20T10:00' });
+  untitled.occurrence.title = '';
+  assert(planMove(untitled, 2).kind === 'save', 'a move does not need a title');
+});
+
+check('ghost: it follows the finger (centred on it, above it, inside the screen), whatever side of the row was pressed, in LTR and RTL', () => {
+  const ghost = { width: 100, height: 40 };
+  // A full-width row at the screen's left edge; the finger on its inline-end side (RTL: the right) or start side (LTR: the left).
+  const origin = { left: 0, top: 300 };
+  const at = (fingerX: number, move: { x: number; y: number }) => ghostTranslation(move, { x: fingerX, y: 320 }, origin, ghost, { width: 390, height: 800 });
+  // Right-hand press (Hebrew title): the ghost's centre is on the finger, 14 px above.
+  const rtl = at(350, { x: -100, y: 200 });
+  same([origin.left + rtl.x + ghost.width / 2, origin.top + rtl.y + ghost.height + 14], [250, 520], 'RTL press, moved left and down');
+  const ltr = at(40, { x: 120, y: -150 });
+  same([origin.left + ltr.x + ghost.width / 2, origin.top + ltr.y + ghost.height + 14], [160, 170], 'LTR press, moved right and up');
+  // Near the screen edges it stays on the screen.
+  const edge = at(20, { x: -20, y: -330 });
+  same([origin.left + edge.x, origin.top + edge.y], [4, 4], 'clamped at the corner');
+  const right = at(380, { x: 0, y: 0 });
+  same(origin.left + right.x + ghost.width, 386, 'clamped at the right edge');
+  same(ghostTranslation({ x: 5, y: 6 }, null, origin, ghost), { x: 5, y: 6 }, 'no press known: the library\'s own');
+});
+
+check('hit test: the ghost\'s wrapper never hides the cell under the finger; a bar over a cell does; no stack means the rect test', () => {
+  const el = (name: string, parent: HitElement | null = null, overlay = false): HitElement & { name: string; kids: HitElement[] } => {
+    const self: HitElement & { name: string; kids: HitElement[] } = {
+      name,
+      kids: [],
+      contains: (other) => other === self || self.kids.some((k) => k.contains(other)),
+      closest: (selector) => (overlay && selector === `.${OVERLAY_CLASS}` ? self : parent ? parent.closest?.(selector) ?? null : null),
+    };
+    if (parent) (parent as unknown as { kids: HitElement[] }).kids.push(self);
+    return self;
+  };
+  const cell1 = el('cell1');
+  const cell2 = el('cell2');
+  const chip = el('chip', cell1);
+  const wrapper = el('wrapper', null, true);
+  const ghost = el('ghost', wrapper);
+  const bar = el('bar');
+  const nodes: Record<string, HitElement> = { a: cell1, b: cell2 };
+  const nodeOf = (id: string | number) => nodes[String(id)];
+  const ids = (hits: { id: string }[]) => hits.map((h) => h.id).join();
+  // The finger is over cell2 and the ghost is on top of it: cell2 is still the hit.
+  assert(ids(visibleHits([{ id: 'b' }], nodeOf, [ghost, wrapper, cell2])) === 'b', 'the overlay is skipped');
+  assert(ids(visibleHits([{ id: 'a' }], nodeOf, [wrapper, chip, cell1])) === 'a', 'a chip inside the cell is the cell');
+  assert(ids(visibleHits([{ id: 'b' }], nodeOf, [bar, cell2])) === '', 'a sticky bar over a cell hides it');
+  assert(ids(visibleHits([{ id: 'a' }, { id: 'b' }], nodeOf, [cell2])) === 'b', 'only the cell that holds the element under the point');
+  assert(ids(visibleHits([{ id: 'b' }], nodeOf, null)) === 'b' && ids(visibleHits([{ id: 'b' }], nodeOf, [])) === 'b', 'no stack: the rects stand');
 });
 
 const failed = results.filter((r) => !r.ok);

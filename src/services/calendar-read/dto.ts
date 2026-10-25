@@ -69,8 +69,9 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
 
 /** Whether a FamCal rule repeats every single day: FREQ=DAILY with no interval, or INTERVAL=1. */
 export function repeatsEveryDay(rrule: string | null): boolean {
-  if (!rrule || !/(^|;)FREQ=DAILY(;|$)/.test(rrule.replace(/^RRULE:/, ''))) return false;
-  const interval = /(?:^|;)INTERVAL=(\d+)(?:;|$)/.exec(rrule);
+  const rule = rrule?.replace(/^RRULE:/, '');
+  if (!rule || !/(^|;)FREQ=DAILY(;|$)/.test(rule)) return false;
+  const interval = /(?:^|;)INTERVAL=(\d+)(?:;|$)/.exec(rule);
   return !interval || Number(interval[1]) === 1;
 }
 

@@ -375,7 +375,7 @@
       "undo": "Undo",
       "undone": "Moved back",
       "cantMove": "This calendar can’t be changed here",
-      "cantMoveDaily": "An every-day repeat can’t be dragged",
+      "cantMoveDaily": "Items that repeat every day can’t be dragged",
       "failed": "Couldn’t move it. Try again."
     },
     "empty": {

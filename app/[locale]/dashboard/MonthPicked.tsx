@@ -57,8 +57,8 @@ import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
 import { PlaceholderRows } from './DayList';
-import { ItemRow, calendarMark } from './ItemRow';
-import { useDayDrop, useNavDrop } from './DragSurface';
+import { ItemRow, calendarMark, useItemTitle, type ItemRowProps } from './ItemRow';
+import { useDayDrop, useItemDrag, useNavDrop } from './DragSurface';
 
 export interface MonthPickedProps {
   /** The picked month's model (monthModels(store)(ui.month)). */
@@ -89,6 +89,14 @@ export interface MonthPickedProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again" (calendars gone): the existing select-calendars page. */
   onChooseCalendars: () => void;
+}
+
+/** A row of the picked day's list, lifted from that day (drag to move; the Agenda's rows never are, so the library stays in the Month's chunk). */
+function LiftableRow(props: ItemRowProps) {
+  const { item } = props.row;
+  const title = useItemTitle(item);
+  const lift = useItemDrag({ key: item.key, title, canEdit: item.canEdit, repeatsEveryDay: item.repeatsEveryDay }, props.day);
+  return <ItemRow {...props} lift={lift} />;
 }
 
 /** A day of the compact grid: a button, and a drop target while an item is lifted (drag to move). */
@@ -429,7 +437,7 @@ export function MonthPicked({
         {rows.length > 0 ? (
           <ul className="ch-list" role="list">
             {rows.map((row) => (
-              <ItemRow key={row.item.key} row={row} day={selected} tz={tz} onOpen={onOpenItem} />
+              <LiftableRow key={row.item.key} row={row} day={selected} tz={tz} onOpen={onOpenItem} />
             ))}
           </ul>
         ) : null}

@@ -22,7 +22,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, ReminderMark, Whose } from '@/src/lib/calendar-view/agenda';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import { calendarVars } from '@/src/lib/calendar-view/colours';
-import { useItemDrag } from './DragSurface';
+import type { ItemDrag } from './DragSurface';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
 
 export interface ItemRowProps {
@@ -31,6 +31,8 @@ export interface ItemRowProps {
   day: DayKey;
   tz: string;
   onOpen: (row: AgendaRow) => void;
+  /** Drag to move: what the Month's list hands a row (MonthPicked's LiftableRow); absent in the Agenda, which has no drag and loads none of the library. */
+  lift?: ItemDrag;
 }
 
 /**
@@ -140,13 +142,12 @@ function timeOn(value: string | null, day: DayKey, tz: string, locale: string): 
   return instantDay(value, tz) === day ? formatTime(value, tz, locale) : formatWeekdayTime(value, tz, locale);
 }
 
-export function ItemRow({ row, day, tz, onOpen }: ItemRowProps) {
+export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const { item, whose, mark } = row;
   const title = useItemTitle(item);
-  // Drag to move (inert in the Agenda, which has no DragLayer): the row lifts from the day it is listed on.
-  const lift = useItemDrag({ key: item.key, title, canEdit: item.canEdit, repeatsEveryDay: item.repeatsEveryDay }, day);
+  const lift: ItemDrag = liftIn ?? { props: {}, className: '', suppressClick: () => false };
 
   // The time column: what happens on this day.
   let main: string;

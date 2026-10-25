@@ -96,7 +96,7 @@ import CalendarHome, { CalendarHomeContainer, DRAG_BAR_MS, GONE_NOTE_MS, HOME_TO
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
 import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
-import { DRAG_CSS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
+import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
 import { DRAG_BAR_CSS } from '../app/[locale]/dashboard/DragBar';
 import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
@@ -2702,6 +2702,9 @@ async function main() {
     nodeRequire(views[0]);
     const view = graph(views[0]);
     assert(view.has(views[1]) && view.has(views[2]), 'MonthView loads MonthBrowse and MonthPicked');
+    // Drag to move: the library and DragSurface come with the Month's chunk, not the Agenda's first one.
+    assert(!home.has(dashboard('DragSurface.tsx')) && ![...home].some((p) => /@dnd-kit/.test(p)), `dnd-kit in CalendarHome's own chunk: ${show([...home].filter((p) => /@dnd-kit|DragSurface/.test(p)).map((p) => path.relative(ROOT, p)))}`);
+    assert(view.has(dashboard('DragSurface.tsx')) && [...view].some((p) => /@dnd-kit[\\/]core/.test(p)), 'the Month views load the drag surface');
     const forbidden = [...home, ...view].filter((p) =>
       /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
@@ -4458,6 +4461,20 @@ async function main() {
     }
     throw new Error('no DndContext above the grid');
   };
+  /** The DragOverlay's props, found below the DndContext. */
+  const dgOverlay = (m: Home): Row => {
+    const grid = byClass(m.container, 'ch-mp-grid')[0] ?? byClass(m.container, 'ch-mb-grid')[0];
+    const key = Object.keys(grid).find((k) => k.startsWith('__reactFiber$')) as string;
+    let context: Row | null = null;
+    for (let f = (grid as unknown as Row)[key]; f && !context; f = f.return) if (f.memoizedProps && typeof f.memoizedProps.onDragEnd === 'function') context = f;
+    const queue: Row[] = [context as Row];
+    while (queue.length) {
+      const f = queue.shift() as Row;
+      if (f.memoizedProps && 'dropAnimation' in f.memoizedProps && 'modifiers' in f.memoizedProps) return f.memoizedProps;
+      for (let c = f.child; c; c = c.sibling) queue.push(c);
+    }
+    throw new Error('no DragOverlay');
+  };
   const dgLiftEvent = (it: ItemDTO, onDay: DayKey) => ({ active: { id: `${it.key}@${onDay}`, data: { current: { key: it.key, day: onDay, title: it.title, verdict: liftVerdict(it) } } } });
   const dgLift = (m: Home, it: ItemDTO, onDay: DayKey) => React.act(async () => dgDnd(m).onDragStart(dgLiftEvent(it, onDay)));
   const dgHover = (m: Home, id: string | null) => React.act(async () => dgDnd(m).onDragOver({ over: id === null ? null : { id } }));
@@ -4501,7 +4518,7 @@ async function main() {
       assert(browseShown(m), 'browse');
       const chips = byClass(m.container, 'ch-mb-chip');
       const markers = chips.filter((c) => c.getAttribute('data-lift') === 'yes');
-      assert(chips.length > markers.length && markers.length > 0, `${markers.length} of ${chips.length} chips dgLift`);
+      assert(chips.length > markers.length && markers.length > 0, `${markers.length} of ${chips.length} chips lift`);
       assert(markers.every((c) => textOf(htmlOf(c)).includes('Dentist') || textOf(htmlOf(c)).includes('Swimming')), 'only the Dentist and Swimming');
       // The Agenda has none at all.
       m.click(tabButton(m, 'agenda'));
@@ -4512,7 +4529,7 @@ async function main() {
     }
   });
 
-  await check('#d2 a drop on another day: the item is on that day at once with the pending look, the editor\'s PATCH goes out (its info read first, the start shifted, the same body), then the source is asked again; the bar says where, with Undo; swipes are locked while it is lifted; haptics', async () => {
+  await check('#d2 a drop on another day: the item leaves the picked day at once, the editor\'s PATCH goes out (its info read first, the start shifted, the same body), then the source is asked again; the bar says where, with Undo; swipes are locked while it is lifted; haptics', async () => {
     let moved = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -4531,9 +4548,16 @@ async function main() {
       assert(swipeCalls(tg.calls).slice(before).join() === 'disableVerticalSwipes()', `swipes locked: ${swipeCalls(tg.calls).slice(before)}`);
       await dgHover(m, dgDay(day(2)));
       assert(tg.calls.includes('haptic(selection)'), 'a tick per new day');
+      // The ghost never takes the pointer (it would hide the cell under the finger from the hit test), follows the finger,
+      // and the page auto-scrolls only while something is really lifted.
+      const overlay = dgOverlay(m);
+      assert(overlay.className === OVERLAY_CLASS && (overlay.style as Row).pointerEvents === 'none' && overlay.modifiers.length === 1, `overlay ${show({ c: overlay.className, s: overlay.style })}`);
+      assert(dgDnd(m).autoScroll === true, 'auto-scroll while lifted');
+      assert(DRAG_CSS.includes('.ch-drag-overlay {\n  pointer-events: none;'), 'the wrapper takes no pointer events in CSS either');
       await React.act(async () => dgDnd(m).onDragEnd({ over: { id: dgDay(day(2)) } }));
       await settle();
       assert(swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()', 'swipes back on at the drop');
+      assert(dgDnd(m).autoScroll === false, 'no auto-scroll once dropped');
       // The PATCH is in flight: the item has left the picked day and stands on the target, pending.
       assert(!dgRowTitles(m).some((t) => t.includes('Dentist')), `still on the picked day: ${dgRowTitles(m)}`);
       assert(writes().length === 1, 'one PATCH in flight');
@@ -4559,12 +4583,23 @@ async function main() {
     }
   });
 
-  await check('#d3 Undo sends the move back the same way (the item\'s info on the key the PATCH answered, the start shifted back, the same scope) and says so; a newer drag replaces the bar', async () => {
-    let at = 0;
-    const { m, world } = await dgHome('en', { item: () => ok200(dgDentistInfo(at)), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+  await check('#d3 Undo sends the move back the same way (the item\'s info read on the key the PATCH ANSWERED, the start shifted back, the same scope) and says so; a newer drag takes the old bar away at once and replaces it; a failed Undo says why and is reported', async () => {
+    const answered = 'famcal|dentist#moved';
+    let writeCount = 0;
+    let release!: () => void;
+    let gate: Promise<void> | null = null;
+    const { m, world } = await dgHome('en', {
+      // The moved item lives under the key the PATCH answered; the original key is read at day 0.
+      item: (key) => ok200(dgDentistInfo(key === answered ? 2 : 0)),
+      write: async () => {
+        writeCount++;
+        if (gate) await gate;
+        if (writeCount === 4) return { status: 500, body: { error: 'internal_error' } };
+        return ok200(writeCount === 1 ? { status: 'ok', key: answered } : { status: 'ok' });
+      },
+    });
     try {
       await dgLift(m, DENTIST, TODAY);
-      at = 2;
       world.week = { ...dgWeek(), [day(0)]: [STANDUP, SHARED_VIEW], [day(2)]: [dgMovedTo(DENTIST, 2)] };
       await dgDrop(m, dgDay(day(2)));
       assert(dgUndo(m) && dgBarText(m).includes('Moved to'), `bar ${dgBarText(m)}`);
@@ -4573,10 +4608,25 @@ async function main() {
       await tap(m, dgUndo(m));
       await settle();
       assert(writes().length === 2, `${writes().length} writes`);
-      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30` } }), `undo body ${show(writes()[1].body)}`);
-      assert(itemCalls().length === itemReads + 1 && itemCalls().at(-1)?.query.get('key') === 'famcal|dentist', 'its info was read on the answered key');
+      assert(itemCalls().length === itemReads + 1 && itemCalls().at(-1)?.query.get('key') === answered, `its info was read on ${itemCalls().at(-1)?.query.get('key')}, not the answered key`);
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: answered, scope: 'single', changes: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30` } }), `undo body ${show(writes()[1].body)}`);
       assert(dgBarText(m) === DGMSG.drag.undone && !dgUndo(m), `bar: ${dgBarText(m)}`);
       assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'back on the picked day');
+      // A newer drag: the old bar (and its Undo) is gone while it writes, then the new one takes its place.
+      gate = new Promise<void>((resolve) => (release = resolve));
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(day(3)));
+      assert(dgBarText(m) === '' && !dgUndo(m), `the old bar is gone while the new drop writes: ${dgBarText(m)}`);
+      gate = null;
+      await React.act(async () => release());
+      await settle();
+      assert(dgBarText(m).includes(`Moved to ${formatDayShort(day(3), 'en')}`) && !dgBarText(m).includes(DGMSG.drag.undone), `the new bar: ${dgBarText(m)}`);
+      // Undo that fails: the editor\'s words, a report with the key and scope, no title.
+      writeCount = 3;
+      await tap(m, dgUndo(m));
+      await settle();
+      assert(dgBarText(m) === messages.en.calendarHome.editor.submitErrors.failed && !dgUndo(m), `failed undo: ${dgBarText(m)}`);
+      assert(reports.length === 1 && String(reports[0].extra.what).startsWith('undo') && reports[0].extra.scope === 'single' && !show(reports).includes('Dentist'), `report ${show(reports.map((r) => r.extra))}`);
     } finally {
       m.unmount();
     }
@@ -4706,6 +4756,11 @@ async function main() {
       assert(fetchCalls.filter((c) => c.path.startsWith('/api/calendar/item')).length === 0, 'nothing dropped');
       await React.act(async () => dgDnd(m).onDragCancel());
       assert(backCalls(tg.calls).at(-1) === 'BackButton.hide()', 'hidden again');
+      // A tab switch while lifted: the Month goes, and the swipe lock with it (the Agenda scrolls and swipes as ever).
+      await dgLift(m, DENTIST, TODAY);
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      assert(swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()' && backCalls(tg.calls).at(-1) === 'BackButton.hide()', `after the tab switch: ${swipeCalls(tg.calls).at(-2)}, ${swipeCalls(tg.calls).at(-1)}, ${backCalls(tg.calls).at(-1)}`);
     } finally {
       m.unmount();
     }
@@ -4722,12 +4777,96 @@ async function main() {
       await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
       assert(title().includes('November'), `turned: ${title()}`);
       assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'the lifted row is still in the page');
+      // Still over the chevron: it turns again after another dwell, and the month it lands on is asked (loaded) while lifted.
+      await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
+      assert(title().includes('December'), `turned again: ${title()}`);
+      await settle();
+      assert(rangeCalls().some((c) => (c.query.get('from') ?? '').startsWith('2027-01') || (c.query.get('to') ?? '').startsWith('2027-01')), `January (December's neighbour) was asked: ${ranges()}`);
       await dgHover(m, dgDay('2026-11-03'));
       await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
-      assert(title().includes('November'), 'it does not keep turning off the chevron');
+      assert(title().includes('December'), 'it does not keep turning off the chevron');
       await dgDrop(m, dgDay('2026-11-03'));
       assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: '2026-11-03T09:30', end: '2026-11-03T10:30' } }), `body ${show(writes()[0].body)}`);
       assert(title().includes('October'), `back on the picked day's month: ${title()}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d10 browse: a bar of a multi-day all-day item grabbed on its 2nd day and dropped on a cell moves by the days between the two; it shows on the target at once with the pending look and the bar names its new start day (not the drop day)', async () => {
+    const TRIP = (span: ItemDTO['span']) => item('trip', { title: 'Camping', allDay: true, tz: null, start: day(5), end: day(8), span });
+    const tripInfo = infoFor({ occurrence: { start: day(5), end: day(7), allDay: true, title: 'Camping', location: '', description: '' }, series: { recurring: false, start: day(5), repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const week = { [day(5)]: [TRIP('endsLater')], [day(6)]: [TRIP('spansDay')], [day(7)]: [TRIP('continues')] };
+    const { m, world } = await editingHome('en', { item: () => ok200(tripInfo), write: async () => { await gate; return ok200({ status: 'ok' }); } }, {}, week);
+    try {
+      await openMonth(m);
+      assert(browseShown(m), 'browse');
+      const cellOf = (d: DayKey) => dayButton(m, d);
+      const pendingIn = (d: DayKey) => byClass(cellOf(d), 'ch-mb-chip').filter((c) => c.className.includes('is-pending')).length;
+      const chipsIn = (d: DayKey) => byClass(cellOf(d), 'ch-mb-chip').filter((c) => c.getAttribute('data-lift') === 'yes').length;
+      assert(chipsIn(day(5)) === 1 && chipsIn(day(6)) === 1 && chipsIn(day(7)) === 1, 'the bar lifts from each of its days');
+      const delta = 4; // grabbed on day(6), dropped on day(10)
+      await dgLift(m, TRIP('spansDay'), day(6));
+      world.week = { [day(9)]: [{ ...TRIP('endsLater'), start: day(9), end: day(12) }], [day(10)]: [{ ...TRIP('spansDay'), start: day(9), end: day(12) }], [day(11)]: [{ ...TRIP('continues'), start: day(9), end: day(12) }] };
+      await dgDrop(m, dgDay(day(10)));
+      assert(writes().length === 1 && sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|trip', scope: 'single', changes: { start: day(5 + delta), end: day(7 + delta) } }), `body ${show(writes()[0].body)}`);
+      assert(chipsIn(day(5)) === 0 && pendingIn(day(9)) === 1 && pendingIn(day(10)) === 1, `on its new days, pending: ${pendingIn(day(9))} ${pendingIn(day(10))} ${chipsIn(day(5))}`);
+      await React.act(async () => release());
+      await settle();
+      assert(dgBarText(m).includes(`Moved to ${formatDayShort(day(9), 'en')}`) && !dgBarText(m).includes(formatDayShort(day(10), 'en')), `bar: ${dgBarText(m)}`);
+      assert(byClass(m.container, 'is-pending').length === 0, 'the pending look is gone after the refetch');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d11 a repeating item\'s refusals in the editor\'s words: a day move the rule fixes (the rolled Hebrew year\'s "delete the series" note), the series starting too early, a repeat the server refused, a repeat that would end before it starts; and a cancel puts the item back as it was even after a refetch landed', async () => {
+    const swimAt = (o: Partial<ItemEditInfoResponse['series']> = {}) =>
+      swimInfo({ series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC', ...o } });
+    let answer: FetchAnswer = { status: 400, body: { error: 'invalid', field: 'start' } };
+    const { m, tg } = await dgHome('en', { item: () => ok200(swimAt()), write: () => answer });
+    try {
+      await tap(m, dayButton(m, day(5)));
+      const choice = (text: string) => elements(topDialog(m)).filter((e) => e.localName === 'button').find((b) => textOf(htmlOf(b)).includes(text)) as FakeElement;
+      const attempt = async (pick: string) => {
+        await dgLift(m, SWIM, day(5));
+        await dgDrop(m, dgDay(day(7)));
+        m.click(choice(pick));
+        await settle();
+      };
+      const copy = messages.en.calendarHome;
+      await attempt('Every Tuesday');
+      assert(dgBarText(m) === copy.scope.dayMoveNote, `rolled year / fixed days: ${dgBarText(m)}`);
+      assert(dgRowTitles(m).some((r) => r.includes('Swimming')), 'back on its day');
+      answer = { status: 400, body: { error: 'invalid', field: 'start', reason: 'year' } };
+      await attempt('Every Tuesday');
+      assert(dgBarText(m) === copy.editor.errors.errSeriesYear, `series year: ${dgBarText(m)}`);
+      answer = { status: 400, body: { error: 'invalid', field: 'repeat' } };
+      await attempt('This one and the ones after');
+      assert(dgBarText(m) === copy.editor.errors.errRepeat, `repeat: ${dgBarText(m)}`);
+      answer = { status: 400, body: { error: 'invalid', field: 'start' } };
+      await attempt('Only this one');
+      assert(dgBarText(m) === copy.editor.submitErrors.failed, `only this one is not the day-move case: ${dgBarText(m)}`);
+      // The editor's own check on the moved form: past the series' last day, nothing is sent.
+      const sent = writes().length;
+      serveEditingWith({ item: () => ok200(swimAt({ repeat: { freq: 'weekly', interval: 1, byDay: [], ends: true }, rule: { choice: 'weekly', until: day(5) }, spec: { freq: 'weekly', interval: 1, byDay: ['TU'], until: day(5) } })), write: () => answer });
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(7)));
+      assert(dgBarText(m) === copy.editor.errors.errRepeatEnd && writes().length === sent && dgRowTitles(m).some((r) => r.includes('Swimming')), `past its end: ${dgBarText(m)}`);
+      // A refetch lands while the scope question is open; closing it puts the item back where the store has it, not a shift away.
+      serveEditingWith({ item: () => ok200(swimAt()), write: () => answer });
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(7)));
+      assert(byRole(m.container, 'dialog').length === 1 && !dgRowTitles(m).some((r) => r.includes('Swimming')), 'the question is open, the item already on its new day');
+      await React.act(async () => tg.fire('activated'));
+      await settle();
+      tapIn(m, 'Cancel');
+      await settle();
+      assert(dgRowTitles(m).some((r) => r.includes('Swimming')), `back on its own day: ${dgRowTitles(m)}`);
+      await tap(m, dayButton(m, day(3)));
+      assert(!dgRowTitles(m).some((r) => r.includes('Swimming')), 'and not two days before it');
     } finally {
       m.unmount();
     }
@@ -4753,7 +4892,7 @@ async function main() {
     for (const css of [DRAG_CSS, DRAG_BAR_CSS]) {
       assert(!/(margin|padding|border)-(left|right)|\b(left|right):/.test(css), 'logical properties only');
       assert(!/font-size: ([0-9]|10)px/.test(css), 'no text under 11 px');
-      assert(!/:dgHover/.test(css), 'no hover');
+      assert(!/:hover/.test(css), 'no hover');
     }
   });
 

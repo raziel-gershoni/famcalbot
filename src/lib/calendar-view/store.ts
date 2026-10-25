@@ -133,6 +133,12 @@ export type StoreAction =
    * refetch after the save brings the server's copy.
    */
   | { type: 'shiftItem'; key: string; days: number }
+  /**
+   * A dragged item put back exactly as it was (itemCopies, taken before the shift): its copies are
+   * taken off every day and the saved ones listed again, so an answer that landed in between never
+   * leaves it on a day it never had. Coverage is kept.
+   */
+  | { type: 'restoreItem'; key: string; copies: Readonly<Record<DayKey, ItemDTO>> }
   /** The midnight timer in tz: drop everything and start over. */
   | { type: 'reset' };
 
@@ -362,6 +368,32 @@ function dropItem(state: CalendarStore, key: string): CalendarStore {
   return { ...state, days, carryOvers };
 }
 
+/** The copies of an item as the store lists them now, by day (for restoreItem). */
+export function itemCopies(state: CalendarStore, key: string): Record<DayKey, ItemDTO> {
+  const copies: Record<DayKey, ItemDTO> = {};
+  for (const [date, day] of Object.entries(state.days)) {
+    const found = day.items.find((i) => i.key === key);
+    if (found) copies[date] = found;
+  }
+  return copies;
+}
+
+function restoreItem(state: CalendarStore, key: string, copies: Readonly<Record<DayKey, ItemDTO>>): CalendarStore {
+  const restored: Record<DayKey, StoreDay> = {};
+  for (const [date, day] of Object.entries(state.days)) {
+    const copy = copies[date];
+    if (!copy && !day.items.some((i) => i.key === key)) {
+      restored[date] = day;
+      continue;
+    }
+    const items = day.items.filter((i) => i.key !== key);
+    if (copy) items.push(copy);
+    items.sort(compareItems);
+    restored[date] = { ...day, items };
+  }
+  return { ...state, days: restored };
+}
+
 function shiftItem(state: CalendarStore, key: string, days: number): CalendarStore {
   const tz = state.facts?.tz;
   if (!tz || days === 0) return state;
@@ -411,6 +443,8 @@ export function reduceStore(state: CalendarStore, action: StoreAction): Calendar
       return dropItem(state, action.key);
     case 'shiftItem':
       return shiftItem(state, action.key, action.days);
+    case 'restoreItem':
+      return restoreItem(state, action.key, action.copies);
   }
 }
 
