@@ -240,6 +240,16 @@ haptics. No keyboard drag: the date picker stays the accessible way to move an i
 midnight, DST day), which items lift, scope choices per series type, the undo body and none after
 "following"; `canEdit` per source.
 
+**As built.** A drop is an editor edit with its dates shifted (`drag-model.ts`: the item's edit info,
+`editItemForm`, the editor's shift, `checkForm`, `scopePlan`, `updateBody`), so scope questions,
+refusals and their copy are the editor's. `ItemDTO.canEdit` (FamCal access or the reminder's creator;
+Google: the role from the calendar list the read already fetches, plus `editableInHome`) and
+`repeatsEveryDay` (any kind; daily repeats don't lift, `drag.cantMoveDaily`). A Google item cached
+before the deploy lifts only after its next live read. Put-back restores the item's pre-lift copy and
+refetches. The Undo bar names the new start day; an Undo tapped while another write runs keeps its
+entry. dnd-kit loads with the Month views only. Real touch (lift timing, iOS swipe lock, Android browse
+scrolling) is for the owner's device check.
+
 ## Risks
 
 - On iOS `disableVerticalSwipes` may not stop a touch already in progress, so a drag in picked could
