@@ -4,32 +4,34 @@
 
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { MAX_YEAR, MIN_YEAR_SERIES } from '../../lib/calendar-view/year-limits';
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const WALL = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/;
-/** The years the editor accepts: a typo like 0026 or 20260 is refused, not stored. */
-const MIN_YEAR = 2000;
-const MAX_YEAR = 2100;
 const DAY_MS = 86_400_000;
 /** The longest an item may last: a year, to the day. */
 export const MAX_SPAN_DAYS = 366;
 
-/** A yyyy-MM-dd that names a real date within the accepted years: 2026-02-30 doesn't. */
-export function isDay(value: unknown): value is string {
+/**
+ * A yyyy-MM-dd that names a real date within the accepted years: 2026-02-30 doesn't, nor a typo
+ * like 0026 or 20260. `minYear` is the item's floor (year-limits.ts minYearFor): 2000 unless the
+ * item is a one-off or a yearly one.
+ */
+export function isDay(value: unknown, minYear: number = MIN_YEAR_SERIES): value is string {
   if (typeof value !== 'string') return false;
   const m = DAY.exec(value);
   if (!m) return false;
   const year = Number(m[1]);
-  if (year < MIN_YEAR || year > MAX_YEAR) return false;
+  if (year < minYear || year > MAX_YEAR) return false;
   const t = Date.parse(`${value}T00:00:00Z`);
   return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === value;
 }
 
 /** A YYYY-MM-DDTHH:mm with a real date and a clock time (00:00 to 23:59). */
-export function isWall(value: unknown): value is string {
+export function isWall(value: unknown, minYear: number = MIN_YEAR_SERIES): value is string {
   if (typeof value !== 'string') return false;
   const m = WALL.exec(value);
-  if (!m || !isDay(m[1])) return false;
+  if (!m || !isDay(m[1], minYear)) return false;
   return Number(m[2]) < 24 && Number(m[3]) < 60;
 }
 

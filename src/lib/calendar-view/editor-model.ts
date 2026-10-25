@@ -23,13 +23,12 @@ import {
   type RuleChoice,
   type UpdateItemBody,
 } from './editor-types';
+import { MAX_YEAR, MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from './year-limits';
 
 /** What a new event lasts, and the time a new one on another day starts at. */
 export const DEFAULT_EVENT_MINUTES = 60;
 export const DEFAULT_EVENT_TIME = '09:00';
-/** The years the server accepts. */
-const MIN_YEAR = 2000;
-const MAX_YEAR = 2100;
+/** The years the server accepts (year-limits.ts: the floor depends on the repeat). */
 /** The longest an item may last (the server's limit). */
 const MAX_SPAN_DAYS = 366;
 
@@ -65,7 +64,7 @@ export interface EditorForm {
 export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end';
 
 /** The copy key (calendarHome.editor.<key>) of each inline error, by field. */
-export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errEnd' | 'errField'>>;
+export type FieldErrors = Partial<Record<FieldName, 'errTitle' | 'errTitleLong' | 'errTooLong' | 'errDate' | 'errYear' | 'errEnd' | 'errField'>>;
 
 // ---- Wall-time arithmetic ----
 
@@ -93,18 +92,24 @@ function timeOf(ms: number): string {
   return `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
-/** Whether `day` names a real date in the years the server accepts. */
-export function isRealDay(day: string): boolean {
+/**
+ * Whether `day` names a real date in the years the server accepts. `minYear` is the earliest
+ * year (year-limits.ts minYearFor): 2000 unless the item is a one-off or a yearly one.
+ */
+export function isRealDay(day: string, minYear: number = MIN_YEAR_SERIES): boolean {
   const ms = wallMs(day, '00:00');
   if (ms === null) return false;
   const year = new Date(ms).getUTCFullYear();
-  return year >= MIN_YEAR && year <= MAX_YEAR;
+  return year >= minYear && year <= MAX_YEAR;
 }
+
+/** The earliest year the form's item may start in, by its repeat. */
+const floorOf = (form: EditorForm): number => minYearFor(form.repeat);
 
 const isRealTime = (time: string) => wallMs('2000-01-01', time) !== null;
 
-/** wallMs of a day the server accepts (isRealDay), else null: a year being typed (0002, 0202) is not one. */
-const realWallMs = (day: string, time: string) => (isRealDay(day) ? wallMs(day, time) : null);
+/** wallMs of a day the server accepts (isRealDay) from `minYear` on, else null: a year being typed (0002, 0202) is not one. */
+const realWallMs = (day: string, time: string, minYear: number) => (isRealDay(day, minYear) ? wallMs(day, time) : null);
 
 /** `day` moved by `n` days; `day` itself when it isn't a real date. */
 export function addDays(day: string, n: number): string {
@@ -278,12 +283,13 @@ export interface FormSpan {
 
 /** The form's span, or null while its start or end is not a real date and time (isRealDay). */
 export function spanOf(form: EditorForm): FormSpan | null {
+  const floor = floorOf(form);
   if (form.allDay) {
-    const days = isRealDay(form.startDay) && isRealDay(form.endDay) ? daysApart(form.startDay, form.endDay) : null;
+    const days = isRealDay(form.startDay, floor) && isRealDay(form.endDay, floor) ? daysApart(form.startDay, form.endDay) : null;
     return days === null ? null : { allDay: true, size: days };
   }
-  const from = realWallMs(form.startDay, form.startTime);
-  const to = realWallMs(form.endDay, form.endTime);
+  const from = realWallMs(form.startDay, form.startTime, floor);
+  const to = realWallMs(form.endDay, form.endTime, floor);
   return from === null || to === null ? null : { allDay: false, size: Math.round((to - from) / MINUTE_MS) };
 }
 
@@ -299,9 +305,9 @@ export function moveStart(form: EditorForm, patch: { startDay?: string; startTim
   const span = spanOf(form) ?? (held && held.allDay === form.allDay ? held : null);
   if (span === null) return next;
   if (form.allDay) {
-    return isRealDay(next.startDay) ? { ...next, endDay: addDays(next.startDay, span.size) } : next;
+    return isRealDay(next.startDay, floorOf(next)) ? { ...next, endDay: addDays(next.startDay, span.size) } : next;
   }
-  if (realWallMs(next.startDay, next.startTime) === null) return next;
+  if (realWallMs(next.startDay, next.startTime, floorOf(next)) === null) return next;
   const end = shiftWall(next.startDay, next.startTime, span.size);
   return { ...next, endDay: end.day, endTime: end.time };
 }
@@ -363,9 +369,14 @@ export function checkForm(form: EditorForm): FieldErrors {
 
   const reminder = form.kind === 'reminder';
   const timed = !form.allDay;
-  if (!isRealDay(form.startDay) || (timed && !isRealTime(form.startTime))) errors.start = 'errDate';
+  const floor = floorOf(form);
+  /** The year-floor error when the day is real from 1900 on but not from this repeat's floor, else the plain date error. */
+  const dayError = (day: string): 'errYear' | 'errDate' => (isRealDay(day, MIN_YEAR_BIRTH) ? 'errYear' : 'errDate');
+  if (!isRealDay(form.startDay, floor)) errors.start = dayError(form.startDay);
+  else if (timed && !isRealTime(form.startTime)) errors.start = 'errDate';
   if (!reminder && !errors.start) {
-    if (!isRealDay(form.endDay) || (timed && !isRealTime(form.endTime))) errors.end = 'errDate';
+    if (!isRealDay(form.endDay, floor)) errors.end = dayError(form.endDay);
+    else if (timed && !isRealTime(form.endTime)) errors.end = 'errDate';
     else if (timed) {
       const start = wallMs(form.startDay, form.startTime);
       const end = wallMs(form.endDay, form.endTime);

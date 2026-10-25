@@ -10,6 +10,7 @@ import {
   type ItemKind,
   type RepeatChoice,
 } from '../../lib/calendar-view/editor-types';
+import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { MAX_SPAN_DAYS, daysBetween, dayOfWall, isDay, isWall } from './walltime';
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; field: string };
@@ -61,8 +62,8 @@ export function endFollows(start: string, end: string, allDay: boolean): boolean
   return end > start && daysBetween(dayOfWall(start), dayOfWall(end)) <= MAX_SPAN_DAYS;
 }
 
-/** A start or end in the form `allDay` says. */
-export const isTime = (value: unknown, allDay: boolean): value is string => (allDay ? isDay(value) : isWall(value));
+/** A start or end in the form `allDay` says; `minYear` is the item's floor (year-limits.ts minYearFor). */
+export const isTime = (value: unknown, allDay: boolean, minYear?: number): value is string => (allDay ? isDay(value, minYear) : isWall(value, minYear));
 
 export interface CreateCommand {
   kind: ItemKind;
@@ -92,16 +93,18 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (description === null) return fail('description');
   if (typeof raw.allDay !== 'boolean') return fail('allDay');
   const allDay = raw.allDay;
-  if (!isTime(raw.start, allDay)) return fail('start');
+  if (raw.repeat !== undefined && (typeof raw.repeat !== 'string' || !(REPEATS as readonly string[]).includes(raw.repeat))) return fail('repeat');
+  const repeat = (raw.repeat ?? 'none') as RepeatChoice;
+  // The earliest year depends on the repeat: 1900 for a one-off or a yearly item, 2000 for the rest.
+  const minYear = minYearFor(repeat);
+  if (!isTime(raw.start, allDay, minYear)) return fail('start');
   const start = raw.start;
   // A reminder has one time: an end sent with it is ignored, as the store ignores it.
   let end: string | undefined;
   if (kind === 'event' && raw.end !== undefined) {
-    if (!isTime(raw.end, allDay) || !endFollows(start, raw.end, allDay)) return fail('end');
+    if (!isTime(raw.end, allDay, minYear) || !endFollows(start, raw.end, allDay)) return fail('end');
     end = raw.end;
   }
-  if (raw.repeat !== undefined && (typeof raw.repeat !== 'string' || !(REPEATS as readonly string[]).includes(raw.repeat))) return fail('repeat');
-  const repeat = (raw.repeat ?? 'none') as RepeatChoice;
   let calendarId: string | undefined;
   if (kind === 'event' && raw.calendarId !== undefined) {
     // A FamCal calendar ('native:<cuid>') or a Google one (3b spec §3.3), checked against

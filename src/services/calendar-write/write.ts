@@ -46,6 +46,7 @@ import { endFollows, isHebrewChoice, itemKeyOf, isTime, type CreateCommand, type
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, wallToInstant } from './walltime';
+import { minYearFor } from '../../lib/calendar-view/year-limits';
 
 export type WriteResult =
   // leftIn: a cross-source move made its copy, but the original is still in that calendar
@@ -236,13 +237,16 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
  * leaves out stays, or follows. A moved start keeps the length, and a form change takes the
  * nearest sensible value. `occ` is the occurrence as it stands; all-day days are read in
  * `itemTz`, timed walls on the user's clock. The Google items share it (google-item.ts).
+ * `minYear` is the earliest year the item may start in (year-limits.ts minYearFor, by the
+ * repeat the item will have).
  */
 export function resolveWallTimes(
   c: UpdateCommand['changes'],
   occ: { startsAt: Date; endsAt: Date; allDay: boolean },
   reminder: boolean,
   userTz: string,
-  itemTz: string
+  itemTz: string,
+  minYear?: number
 ): { ok: true; start: string; end: string; allDay: boolean; timeChanged: boolean } | { ok: false; field: 'start' | 'end' } {
   const was = wallFor(occ.startsAt, occ.endsAt, occ.allDay, userTz, itemTz);
   const wasEnd = reminder ? was.start : was.end;
@@ -252,7 +256,7 @@ export function resolveWallTimes(
   // a moved start keeps the length, and a form change takes the nearest sensible value.
   let start: string;
   if (c.start !== undefined) {
-    if (!isTime(c.start, allDay)) return { ok: false, field: 'start' };
+    if (!isTime(c.start, allDay, minYear)) return { ok: false, field: 'start' };
     start = c.start;
   } else if (allDay === occ.allDay) {
     start = was.start;
@@ -265,7 +269,7 @@ export function resolveWallTimes(
   if (reminder) {
     end = start;
   } else if (c.end !== undefined) {
-    if (!isTime(c.end, allDay)) return { ok: false, field: 'end' };
+    if (!isTime(c.end, allDay, minYear)) return { ok: false, field: 'end' };
     end = c.end;
   } else if (allDay !== occ.allDay) {
     end = allDay ? start : instantToWall(new Date(wallToInstant(start, userTz).getTime() + HOUR_MS), userTz);
@@ -304,7 +308,9 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const reminder = series.kind === 'REMINDER';
   const itemTz = itemZone(series);
   const c = cmd.changes;
-  const times = resolveWallTimes(c, occ, reminder, userTz, itemTz);
+  // The repeat the item will have sets the earliest year it may start in: the one picked, else the stored one.
+  const choice = c.repeat ?? classifyRule(series.rrule, series.startsAt, itemTz, series).choice;
+  const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, minYearFor(choice));
   if (!times.ok) return { status: 'invalid', field: times.field };
   const { start, end, allDay, timeChanged } = times;
   const text = {

@@ -711,6 +711,50 @@ async function main() {
     assert(!show(tracked).includes(SECRET_TITLE), 'a title reached analytics');
   });
 
+  await check('year floor: a one-off or a yearly item (Gregorian or Hebrew) may start in 1950, any other repeat is refused with the start named; 1899 and 2101 are refused for all', async () => {
+    seed();
+    const old = { start: '1950-03-02T10:00', end: '1950-03-02T11:00' };
+    for (const repeat of ['none', 'yearly', 'hebrew']) {
+      const r = await post(eventBody({ ...old, repeat }));
+      assert(r.status === 200, `1950 ${repeat}: ${r.status} ${r.text}`);
+    }
+    const allDay = await post(eventBody({ allDay: true, start: '1950-03-02', end: '1950-03-03', repeat: 'yearly' }));
+    assert(allDay.status === 200, `an all-day yearly item from 1950: ${allDay.status} ${allDay.text}`);
+    const reminder = await post(reminderBody({ start: '1950-03-02T10:00', repeat: 'yearly' }));
+    assert(reminder.status === 200, `a yearly reminder from 1950: ${reminder.status} ${reminder.text}`);
+    const created = eventsAll().length;
+    for (const repeat of ['daily', 'weekly', 'monthly']) {
+      const r = await post(eventBody({ ...old, repeat }));
+      assertSame([r.status, r.body], [400, { error: 'invalid', field: 'start' }], `1950 ${repeat} is refused`);
+    }
+    const late = await post(eventBody({ start: '1999-12-31T10:00', end: '1999-12-31T11:00', repeat: 'daily' }));
+    assertSame([late.status, late.body.field], [400, 'start'], '1999 daily is refused');
+    const edge = await post(eventBody({ start: '2000-01-01T10:00', end: '2000-01-01T11:00', repeat: 'daily' }));
+    assert(edge.status === 200, `2000 daily is fine: ${edge.status} ${edge.text}`);
+    const endOnly = await post(eventBody({ start: '2000-01-01T10:00', end: '1950-01-01T11:00' }));
+    assertSame([endOnly.status, endOnly.body.field], [400, 'end'], 'an end before the start is still refused');
+    const tooOld = await post(eventBody({ start: '1899-12-31T10:00', end: '1899-12-31T11:00' }));
+    assertSame([tooOld.status, tooOld.body.field], [400, 'start'], '1899 is refused even as a one-off');
+    const tooNew = await post(eventBody({ start: '2101-01-01T10:00', end: '2101-01-01T11:00' }));
+    assertSame([tooNew.status, tooNew.body.field], [400, 'start'], '2101 is refused');
+    assert(eventsAll().length === created + 1, 'only the 2000 daily one was written after the 1950 ones');
+  });
+
+  await check('year floor, edits: a one-off moves to 1950; a daily series does not; picking Yearly in the same save lets it', async () => {
+    seed();
+    const one = await post(eventBody());
+    const moved = await patch({ key: one.body.key, scope: 'single', changes: { start: '1950-03-02T10:00', end: '1950-03-02T11:00' } });
+    assert(moved.status === 200, `a one-off to 1950: ${moved.status} ${moved.text}`);
+    const daily = await post(eventBody({ repeat: 'daily' }));
+    const dailyKey = `famcal|${idOf(daily.body.key)}#${iso(at('2026-10-20 10:00'))}`;
+    const refused = await patch({ key: dailyKey, scope: 'all', changes: { start: '1950-03-02T10:00', end: '1950-03-02T11:00' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'start' }], 'a daily series to 1950');
+    const yearly = await post(eventBody({ repeat: 'yearly' }));
+    const yearlyKey = `famcal|${idOf(yearly.body.key)}#${iso(at('2026-10-20 10:00'))}`;
+    const ok = await patch({ key: yearlyKey, scope: 'all', changes: { start: '1950-10-20T10:00', end: '1950-10-20T11:00' } });
+    assert(ok.status === 200, `a yearly series to 1950: ${ok.status} ${ok.text}`);
+  });
+
   // ================= create: reminders =================
 
   await check('create reminder: timed, zero-length, on the main calendar for the user, armed, the due gate open', async () => {

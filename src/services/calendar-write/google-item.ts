@@ -30,6 +30,7 @@ import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type D
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
 import { createTimes, repeatChanges, resolveWallTimes, ruleFor, type WriteResult } from './write';
 import { liveGoogleChoices } from '../../lib/google-state';
+import { minYearFor } from '../../lib/calendar-view/year-limits';
 
 export { parseGoogleKey };
 
@@ -340,7 +341,8 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const masterId = master?.id ?? undefined;
 
   const occ = occurrenceOf(read.event, userTz);
-  const times = resolveWallTimes(c, occ, false, userTz, userTz);
+  // A Google series keeps the 2000 floor (it is read by its rule, which this editor can't classify), a one-off follows the repeat picked.
+  const times = resolveWallTimes(c, occ, false, userTz, userTz, minYearFor(c.repeat ?? (master ? 'custom' : 'none')));
   if (!times.ok) return { status: 'invalid', field: times.field };
   const { start, end, allDay, timeChanged } = times;
   const text = {
