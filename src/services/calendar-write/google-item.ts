@@ -29,7 +29,8 @@ import { getPartnerUserId } from '../native-calendar/event-store';
 import { googleCrossRefusal, googleRuleLine, type CrossRefusal } from '../calendar-move/mapper';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
 import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
-import { createTimes, repeatChanges, resolveWallTimes, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule, type StoredSeries, type WriteResult } from './write';
+import { createTimes, resolveWallTimes, type WriteResult } from './write';
+import { repeatChanges, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule, type StoredSeries } from './repeat-spec';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { nearestReminderLead, normalizeOverrides } from '../../lib/calendar-view/alert-leads';
@@ -405,10 +406,12 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   else if (masterId && moveTo !== undefined && scope === 'single') return { status: 'invalid', field: 'scope' };
 
   let newLine: string | null | undefined;
+  let endGiven = false;
   if (repeat !== undefined) {
     try {
       const built = repeat === 'none' ? null : ruleToWrite(repeat, rule.stored ?? null, tailStart, zone, masterId && cut ? { at: cut, first: read.first } : null);
       newLine = googleLineOf(built, allDay, zone);
+      endGiven = Boolean(built?.endGiven);
     } catch (err) {
       if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
       throw err;
@@ -421,7 +424,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
       : {}),
     scope,
     ...(masterId ? { recurringEventId: masterId } : {}),
-    ...(newLine !== undefined ? { rrule: newLine } : {}),
+    ...(newLine !== undefined ? { rrule: newLine, ...(endGiven ? { endGiven } : {}) } : {}),
   };
   const changedFields = [
     ...(text.title !== undefined ? ['title'] : []),

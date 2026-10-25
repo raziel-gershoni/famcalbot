@@ -469,6 +469,8 @@ export interface UpdateEventData {
   timeZone?: string;              // The user's: the clock an all-day event's instants are on (allDayDates), and the last zone to fall back on
   /** 3b: the new rule from this occurrence on ('RRULE:…' or bare), null to stop; omitted keeps it. */
   rrule?: string | null;
+  /** The new rule's end (or none) is the caller's: the old rule's end is not carried onto it (richer repeats ruling 5). */
+  endGiven?: boolean;
   /** 3b: a 'following' edit's new part goes on this calendar. */
   toCalendarId?: string;
 }
@@ -804,10 +806,10 @@ function tailRecurrence(lines: readonly string[], master: Times, cut: Date, zone
  * UTC for a timed series); Never has none. An end before the new part's start moves to that
  * start's day, so the new part keeps its first occurrence.
  */
-function newRuleRecurrence(newRule: string, oldRule: string, lines: readonly string[], master: Times, cut: Date, zone: string, tailStart: Date): string[] {
-  let rule = endCarriedRule(bareRule(newRule), oldRule, { startsAt: master.start, timeZone: zone }) ?? bareRule(newRule);
+function newRuleRecurrence(newRule: string, oldRule: string, lines: readonly string[], master: Times, cut: Date, zone: string, tailStart: Date, endGiven = false): string[] {
+  let rule = endGiven ? bareRule(newRule) : (endCarriedRule(bareRule(newRule), oldRule, { startsAt: master.start, timeZone: zone }) ?? bareRule(newRule));
   const until = /(^|;)UNTIL=(\d{8})(?=;|$)/i.exec(rule);
-  if (until && /(^|;)COUNT=/i.test(oldRule)) rule = withUntilDay(rule, dayOfCompact(until[2]), master.allDay, zone);
+  if (until && !endGiven && /(^|;)COUNT=/i.test(oldRule)) rule = withUntilDay(rule, dayOfCompact(until[2]), master.allDay, zone);
   const end = /(^|;)UNTIL=([^;]+)/i.exec(rule)?.[2];
   if (end && untilInstant(end, zone).getTime() < tailStart.getTime()) rule = withUntilDay(rule, localDate(tailStart, zone), master.allDay, zone);
   const { after } = splitExceptionLines(lines, cut, zone, { to: tailStart, allDay: master.allDay });
@@ -1069,7 +1071,7 @@ async function updateFromOccurrence(calendar: GClient, calendarId: string, insta
   const body: GEvent = { ...tailFields(instance, updates), ...googleTimes(tail, zone) };
   if (!stop) {
     body.recurrence = newRule !== undefined
-      ? newRuleRecurrence(newRule, rule, lines, masterTimes, cut, zone, tail.start)
+      ? newRuleRecurrence(newRule, rule, lines, masterTimes, cut, zone, tail.start, updates.endGiven)
       : tailRecurrence(lines, masterTimes, cut, zone, tail.start);
   }
   if (first) {

@@ -71,6 +71,8 @@ export interface UpdateEventInput {
   // null to stop repeating; omitted keeps it. A rule change on a series always works from
   // the occurrence (eventId), whatever the scope.
   rrule?: string | null;
+  // Google only: the new rule's end (or none) is the caller's, so the old rule's end is not carried (richer repeats ruling 5).
+  endGiven?: boolean;
   // Google only: a 'following' edit puts the new part on this calendar.
   toCalendarId?: string;
 }

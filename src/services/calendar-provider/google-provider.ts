@@ -129,6 +129,7 @@ export const googleProvider: CalendarProvider = {
       recurringEventId: data.recurringEventId,
       // instanceStartsAt is native-only; GCal uses the instance eventId (the occurrence) directly.
       rrule: data.rrule,
+      endGiven: data.endGiven,
       toCalendarId: data.toCalendarId,
       timeZone: await userTimezone(user),
     }));

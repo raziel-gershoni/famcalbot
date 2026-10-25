@@ -635,6 +635,11 @@ export interface UpdateNativeEventInput {
    */
   rrule?: string | null;
   /**
+   * The new rule's end (or none, for Never) is the caller's: the old rule's end is not carried onto it
+   * (richer repeats ruling 5, an end the editor changed). Without it the old end carries (3b spec §2.1).
+   */
+  endGiven?: boolean;
+  /**
    * The new rule's Hebrew kind (hebrew-repeats spec §2), sent with `rrule` as a pair: a rule
    * without it is a Gregorian one (null), and a kind without a rule keeps the stored rule
    * string. The store sets the anchor: copied to a tail, replaced only when the start moves
@@ -705,7 +710,7 @@ export async function isFirstOccurrence(series: NativeEvent, cut: Date): Promise
  * cut to what is left after the slots before the cut (at least 1, the cut being a slot);
  * after such a switch, one that has no occurrence at its start is refused too.
  */
-function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair): string {
+function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: string | undefined, pair: HebrewPair, endGiven = false): string {
   const endsAt = new Date(newStart.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
   const startsWith = (rule: string) => yieldsSlots({ ...series, ...pair, rrule: rule, startsAt: newStart, endsAt }, [newStart]).size > 0;
   const refuse = (): never => {
@@ -713,7 +718,7 @@ function tailRule(series: NativeEvent, cut: Date, newStart: Date, newRule: strin
   };
   // The stored string switched between Gregorian and Hebrew keeps the series' own end: its COUNT, word for word, would start over in the tail.
   if (newRule !== undefined && newRule !== series.rrule) {
-    const carried = endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
+    const carried = endGiven ? newRule : endCarriedRule(newRule, series.rrule!, series, { cut, hebrewRule: pair.hebrewRule })!;
     assertStorableRule(carried, pair.hebrewRule);
     if (startsWith(carried)) return carried;
     const pushed = withUntilOnDayOf(carried, newStart, series.timeZone);
@@ -1321,7 +1326,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
     const newStarts = input.startsAt ?? cut;
     const newEnds = input.endsAt ?? new Date(newStarts.getTime() + (series.endsAt.getTime() - series.startsAt.getTime()));
     const pair = tailPair(series, input, cut, newStarts);
-    const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined, pair);
+    const rrule = tailRule(series, cut, newStarts, input.rrule ?? undefined, pair, input.endGiven);
     const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: newStarts, endsAt: newEnds, allDay: input.allDay ?? series.allDay };
     const slotOf = slotMapFor(series, shape, cut, newStarts);
     const retimed = input.startsAt !== undefined || input.endsAt !== undefined || input.allDay !== undefined;
@@ -1483,7 +1488,7 @@ async function updateNativeReminder(
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
     const pair = tailPair(series, input, cut, target.startsAt);
-    const rrule = tailRule(series, cut, target.startsAt, newRule, pair);
+    const rrule = tailRule(series, cut, target.startsAt, newRule, pair, input.endGiven);
     const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
     const slotOf = slotMapFor(series, shape, cut, target.startsAt);
     const cleared = {
