@@ -339,6 +339,13 @@ const KEYS: Record<string, readonly string[]> = {
   'scope.dayMoveNote': [],
   'scope.seriesNote': [],
   'scope.crossKindNote': [],
+  // Drag to move (editor upgrades spec §4)
+  'drag.moved': ['date'],
+  'drag.undo': [],
+  'drag.undone': [],
+  'drag.cantMove': [],
+  'drag.cantMoveDaily': [],
+  'drag.failed': [],
   // The empty state (D5), Ruling R10
   'empty.title': [],
   'empty.hintEvents': [],
@@ -948,6 +955,9 @@ async function main() {
       ['ru', 'editor.repeat.every.yearly', { count: 21 }, 'Каждые 21 год'],
       ['ru', 'editor.repeat.every.daily', { count: 1 }, 'Каждый день'],
       ['en', 'scope.single', { date: 'Tue 20 Oct' }, 'Only this one (Tue 20 Oct)'],
+      ['en', 'drag.moved', { date: 'Thu, 15 Oct' }, 'Moved to Thu, 15 Oct'],
+      ['he', 'drag.moved', { date: 'חמישי 15 באוק׳' }, 'הועבר ליום חמישי 15 באוק׳'],
+      ['ru', 'drag.moved', { date: 'чт, 15 окт.' }, 'Перенесено на чт, 15 окт.'],
       ['en', 'scope.everyWeekday', { weekday: 'tue' }, 'Every Tuesday'],
       ['he', 'scope.everyWeekday', { weekday: 'tue' }, 'כל יום שלישי'],
       ['ru', 'scope.everyWeekday', { weekday: 'tue' }, 'Каждый вторник'],

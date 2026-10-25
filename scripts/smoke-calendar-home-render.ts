@@ -92,10 +92,12 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
 // The views first: the import-rule checks walk what these load.
-import CalendarHome, { CalendarHomeContainer, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
+import CalendarHome, { CalendarHomeContainer, DRAG_BAR_MS, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
 import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
+import { DRAG_CSS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
+import { DRAG_BAR_CSS } from '../app/[locale]/dashboard/DragBar';
 import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
 import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
@@ -134,6 +136,7 @@ import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
+import { liftVerdict } from '../src/lib/calendar-view/drag-model';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
 import { checkForm, editItemForm, moveStart, movesDay, newItemForm, scopePlan, setAllDay, setKind, spanOf, updateBody, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
@@ -658,6 +661,14 @@ function layoutRect(el: FakeElement) {
   return rectAt(-scrollY, 0);
 }
 
+const documentEvents: Row[] = [];
+(globalThis as Row).KeyboardEvent = class {
+  constructor(
+    public type: string,
+    public init: Row = {},
+  ) {}
+};
+
 const fakeDocument: Row = {
   nodeType: 9,
   nodeName: '#document',
@@ -667,6 +678,11 @@ const fakeDocument: Row = {
   createTextNode: (text: string) => new FakeText(text),
   addEventListener: noop,
   removeEventListener: noop,
+  // What the home dispatches on the document (drag to move: Escape, the library's own cancel).
+  dispatchEvent: (event: Row) => {
+    documentEvents.push(event);
+    return true;
+  },
 };
 fakeDocument.body = new FakeElement('body', HTML_NS);
 fakeDocument.activeElement = fakeDocument.body;
@@ -956,6 +972,9 @@ async function settle() {
   });
 }
 
+/** What the home reported (drag to move: a failed drop), apart from the console. */
+const reports: { error: unknown; context: string; extra: Record<string, unknown> }[] = [];
+
 /** A clock for CalendarHomeContainer's deps: its timers run only on advance(). */
 function fakeClock(startIso: string, deviceZone: string | null = TZ) {
   let now = Date.parse(startIso);
@@ -974,6 +993,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
     deviceTimeZone: () => deviceZone,
     reminderAction: postReminderAction,
     editing: REAL_EDITING,
+    report: (error, context, extra) => void reports.push({ error, context, extra }),
   };
   return {
     deps,
@@ -1022,7 +1042,7 @@ function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; clos
       events.get(e)?.delete(h);
     },
     openLink: (url: string) => calls.push(`openLink(${url})`),
-    HapticFeedback: { notificationOccurred: (type: string) => calls.push(`haptic(${type})`), selectionChanged: () => calls.push('haptic(selection)') },
+    HapticFeedback: { notificationOccurred: (type: string) => calls.push(`haptic(${type})`), selectionChanged: () => calls.push('haptic(selection)'), impactOccurred: (style: string) => calls.push(`haptic(impact ${style})`) },
     close: () => {
       calls.push('close()');
       if (o.closeThrows) throw new Error('close() failed in the smoke');
@@ -1156,6 +1176,7 @@ function resetHome() {
   resetHolidaysCache();
   serveEditing = () => ({ status: 500, body: { error: 'not served' } });
   pushes.length = 0;
+  reports.length = 0;
   reloads.length = 0;
   fakeWindow.sessionStorage = fakeStorage();
   fakeWindow.localStorage = fakeStorage();
@@ -4121,8 +4142,9 @@ async function main() {
     const world = { week };
     answerFetch = (c) => answerFor(c, { items: world.week });
     serveEditingWith(server);
-    const m = await mountHome(locale, props, fakeClock('2026-10-15T07:00:00Z'));
-    return { m, tg, world };
+    const clock = fakeClock('2026-10-15T07:00:00Z');
+    const m = await mountHome(locale, props, clock);
+    return { m, tg, world, clock };
   }
 
   /** A Google user's editor info (3b spec §2.4, §3.3): events only, the writable calendars the server read live, the primary marked. */
@@ -4410,6 +4432,324 @@ async function main() {
       assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `today picked: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
     } finally {
       m.unmount();
+    }
+  });
+
+  // ================= Drag to move (editor upgrades spec §4) =================
+  // The library's own sensors need a real pointer, so these checks drive the DndContext's handlers (onDragStart,
+  // onDragOver, onDragEnd, onDragCancel) the way the library calls them, with the data the draggables registered,
+  // and read the rest from the page: the markers, the requests, the store, the bar, Telegram's calls.
+
+  const SHARED_VIEW = item('shared', { title: 'Noa’s dentist', start: at(0, '12:00'), end: at(0, '13:00'), calendar: NOA_CAL, canEdit: false });
+  const STANDUP = item('standup', { title: 'Standup', start: at(0, '08:30'), end: at(0, '09:00'), recurring: true, seriesId: 'series_standup', repeatsEveryDay: true });
+  const dgMovedTo = (it: ItemDTO, days: number): ItemDTO => ({ ...it, start: at(days, '09:30'), end: at(days, '10:30') });
+  const dgWeek = (): Record<DayKey, ItemDTO[]> => ({ [day(0)]: [STANDUP, DENTIST, SHARED_VIEW], [day(5)]: [SWIM] });
+  /** The Dentist's edit info when it is on `days` after today. */
+  const dgDentistInfo = (days: number, o: Partial<ItemEditInfoResponse> = {}) =>
+    infoFor({ occurrence: { start: `${day(days)}T09:30`, end: `${day(days)}T10:30`, allDay: false, title: 'Dentist', location: '', description: '' }, series: { recurring: false, start: `${day(days)}T09:30`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true }, ...o });
+
+  const dgDnd = (m: Home): Row => {
+    const grid = byClass(m.container, 'ch-mp-grid')[0] ?? byClass(m.container, 'ch-mb-grid')[0];
+    assert(grid, 'no month grid');
+    const key = Object.keys(grid).find((k) => k.startsWith('__reactFiber$')) as string;
+    for (let f = (grid as unknown as Row)[key]; f; f = f.return) {
+      const p = f.memoizedProps;
+      if (p && typeof p.onDragEnd === 'function' && p.collisionDetection) return p;
+    }
+    throw new Error('no DndContext above the grid');
+  };
+  const dgLiftEvent = (it: ItemDTO, onDay: DayKey) => ({ active: { id: `${it.key}@${onDay}`, data: { current: { key: it.key, day: onDay, title: it.title, verdict: liftVerdict(it) } } } });
+  const dgLift = (m: Home, it: ItemDTO, onDay: DayKey) => React.act(async () => dgDnd(m).onDragStart(dgLiftEvent(it, onDay)));
+  const dgHover = (m: Home, id: string | null) => React.act(async () => dgDnd(m).onDragOver({ over: id === null ? null : { id } }));
+  const dgDrop = async (m: Home, id: string | null) => {
+    await React.act(async () => dgDnd(m).onDragEnd({ over: id === null ? null : { id } }));
+    await settle();
+  };
+  const dgDay = (d: DayKey) => `day:${d}`;
+  const dgBar = (m: Home) => byClass(m.container, 'ch-dbar-region')[0];
+  const dgBarText = (m: Home) => textOf(htmlOf(dgBar(m)));
+  const dgUndo = (m: Home) => byClass(m.container, 'ch-dbar-undo')[0];
+  const dgRowTitles = (m: Home) => byClass(m.container, 'ch-row').map((r) => textOf(htmlOf(r)));
+  const dgRow = (m: Home, title: string) => byClass(m.container, 'ch-row').find((r) => textOf(htmlOf(r)).includes(title)) as FakeElement;
+  const DGMSG = messages.en.calendarHome;
+
+  /** The home on the Month with TODAY picked, the editing routes serving the Dentist's info. */
+  async function dgHome(locale: Locale, server: EditingServer = {}, week = dgWeek()) {
+    const home = await editingHome(locale, server, {}, week);
+    await openMonth(home.m);
+    const label = formatDayLong(TODAY, locale);
+    await tap(home.m, byClass(home.m.container, 'ch-mb-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(label)) as FakeElement);
+    assert(pickedShown(home.m), 'a day is picked');
+    return home;
+  }
+
+  await check('#d1 what lifts: a row of picked\'s list and a chip of browse carry the one marker when the item can be changed and does not repeat every day; none in the Agenda; the library gets the spec\'s sensors', async () => {
+    const { m } = await dgHome('en');
+    try {
+      const lifted = (title: string) => dgRow(m, title).getAttribute('data-lift');
+      assert(lifted('Dentist') === 'yes', 'the Dentist lifts');
+      assert(lifted('Standup') === null, 'an every-day repeat does not');
+      assert(lifted('Noa’s dentist') === null, 'an item the viewer can\'t change does not');
+      assert(dgRow(m, 'Dentist').className.includes('ch-liftable') && dgRow(m, 'Noa’s dentist').className.includes('ch-liftable'), 'both take the press (the second says why)');
+      const sensors = dgDnd(m).sensors as { sensor: { name: string }; options: Row }[];
+      assert(show(sensors.map((s) => [s.sensor.name, s.options.activationConstraint])) === show([['MouseSensor', { distance: MOUSE_DISTANCE_PX }], ['TouchSensor', { delay: LIFT_DELAY_MS, tolerance: LIFT_TOLERANCE_PX }]]), `sensors ${show(sensors)}`);
+      assert(MOUSE_DISTANCE_PX === 6 && LIFT_DELAY_MS === 450 && LIFT_TOLERANCE_PX === 8 && NAV_DWELL_MS === 600 && DRAG_BAR_MS === 6000, 'the spec\'s numbers');
+      // Browse: the chips.
+      m.click(byClass(m.container, 'ch-mp-back')[0]);
+      await settle();
+      flushFrames();
+      assert(browseShown(m), 'browse');
+      const chips = byClass(m.container, 'ch-mb-chip');
+      const markers = chips.filter((c) => c.getAttribute('data-lift') === 'yes');
+      assert(chips.length > markers.length && markers.length > 0, `${markers.length} of ${chips.length} chips dgLift`);
+      assert(markers.every((c) => textOf(htmlOf(c)).includes('Dentist') || textOf(htmlOf(c)).includes('Swimming')), 'only the Dentist and Swimming');
+      // The Agenda has none at all.
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      assert(elements(m.container).every((e) => e.getAttribute('data-lift') === null && !e.className.includes('ch-liftable')), 'the Agenda has no draggable');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d2 a drop on another day: the item is on that day at once with the pending look, the editor\'s PATCH goes out (its info read first, the start shifted, the same body), then the source is asked again; the bar says where, with Undo; swipes are locked while it is lifted; haptics', async () => {
+    let moved = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { m, tg, world, clock } = await dgHome('en', {
+      item: () => ok200(dgDentistInfo(moved)),
+      write: async () => {
+        await gate;
+        return ok200({ status: 'ok' });
+      },
+    });
+    try {
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'listed on the picked day');
+      const before = swipeCalls(tg.calls).length;
+      await dgLift(m, DENTIST, TODAY);
+      assert(tg.calls.includes('haptic(impact medium)'), 'a medium impact on the lift');
+      assert(swipeCalls(tg.calls).slice(before).join() === 'disableVerticalSwipes()', `swipes locked: ${swipeCalls(tg.calls).slice(before)}`);
+      await dgHover(m, dgDay(day(2)));
+      assert(tg.calls.includes('haptic(selection)'), 'a tick per new day');
+      await React.act(async () => dgDnd(m).onDragEnd({ over: { id: dgDay(day(2)) } }));
+      await settle();
+      assert(swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()', 'swipes back on at the drop');
+      // The PATCH is in flight: the item has left the picked day and stands on the target, pending.
+      assert(!dgRowTitles(m).some((t) => t.includes('Dentist')), `still on the picked day: ${dgRowTitles(m)}`);
+      assert(writes().length === 1, 'one PATCH in flight');
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: `${day(2)}T09:30`, end: `${day(2)}T10:30` } }), `body ${show(writes()[0].body)}`);
+      assert(itemCalls().map((c) => c.query.get('key')).join() === 'famcal|dentist', 'its edit info was read first');
+      moved = 2;
+      world.week = { ...dgWeek(), [day(0)]: [STANDUP, SHARED_VIEW], [day(2)]: [dgMovedTo(DENTIST, 2)] };
+      const asked = ranges().length;
+      await React.act(async () => release());
+      await settle();
+      assert(tg.calls.includes('haptic(success)'), 'a success tap');
+      assert(dgBar(m).getAttribute('aria-live') === 'polite', 'the bar is a polite live region');
+      assert(dgBarText(m).includes(`Moved to ${formatDayShort(day(2), 'en')}`) && dgBarText(m).includes('Undo'), `bar: ${dgBarText(m)}`);
+      assert(ranges().length > asked && ranges().slice(asked).every((r) => r.startsWith('famcal')), `FamCal asked again: ${ranges().slice(asked)}`);
+      assert(byClass(m.container, 'is-pending').length === 0, 'the pending look is gone once the refetch landed');
+      // The bar goes after six seconds.
+      await clock.advance(5000);
+      assert(dgBarText(m).includes('Moved to'), 'still there at five seconds');
+      await clock.advance(1100);
+      assert(!dgBarText(m).includes('Moved to') && !dgUndo(m), `gone: ${dgBarText(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d3 Undo sends the move back the same way (the item\'s info on the key the PATCH answered, the start shifted back, the same scope) and says so; a newer drag replaces the bar', async () => {
+    let at = 0;
+    const { m, world } = await dgHome('en', { item: () => ok200(dgDentistInfo(at)), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await dgLift(m, DENTIST, TODAY);
+      at = 2;
+      world.week = { ...dgWeek(), [day(0)]: [STANDUP, SHARED_VIEW], [day(2)]: [dgMovedTo(DENTIST, 2)] };
+      await dgDrop(m, dgDay(day(2)));
+      assert(dgUndo(m) && dgBarText(m).includes('Moved to'), `bar ${dgBarText(m)}`);
+      world.week = dgWeek();
+      const itemReads = itemCalls().length;
+      await tap(m, dgUndo(m));
+      await settle();
+      assert(writes().length === 2, `${writes().length} writes`);
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30` } }), `undo body ${show(writes()[1].body)}`);
+      assert(itemCalls().length === itemReads + 1 && itemCalls().at(-1)?.query.get('key') === 'famcal|dentist', 'its info was read on the answered key');
+      assert(dgBarText(m) === DGMSG.drag.undone && !dgUndo(m), `bar: ${dgBarText(m)}`);
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'back on the picked day');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d4 a repeating item asks which occurrences first (the editor\'s ScopeSheet), with the item already on its new day; Close or the BackButton puts it back with no request; a choice saves with that scope; no Undo after "this one and the ones after"', async () => {
+    const swimAt = (days: number) => swimInfo({ occurrence: { start: `${day(days)}T17:00`, end: `${day(days)}T18:00`, allDay: false, title: 'Swimming', location: '', description: '' }, series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC' } });
+    const { m, tg } = await dgHome('en', { item: () => ok200(swimAt(5)), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
+    try {
+      await tap(m, dayButton(m, day(5)));
+      assert(dgRowTitles(m).some((t) => t.includes('Swimming')), 'Swimming on its day');
+      // Close puts it back.
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(7)));
+      assert(dialogText(m.container).includes('This event repeats') && dialogText(m.container).includes('Only this one') && dialogText(m.container).includes('Every Tuesday'), `sheet: ${dialogText(m.container)}`);
+      assert(writes().length === 0, 'nothing sent yet');
+      assert(!dgRowTitles(m).some((t) => t.includes('Swimming')), 'already on its new day');
+      tapIn(m, 'Cancel');
+      await settle();
+      assert(writes().length === 0 && dgRowTitles(m).some((t) => t.includes('Swimming')), `Close: ${dgRowTitles(m)}`);
+      // The BackButton does too.
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(7)));
+      assert(byRole(m.container, 'dialog').length === 1, 'the sheet again');
+      await React.act(async () => tg.fire('backButtonClicked'));
+      await settle();
+      assert(byRole(m.container, 'dialog').length === 0 && writes().length === 0 && dgRowTitles(m).some((t) => t.includes('Swimming')), 'the BackButton put it back');
+      // A choice saves with its scope.
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(7)));
+      const choice = (text: string) => elements(topDialog(m)).filter((e) => e.localName === 'button').find((b) => textOf(htmlOf(b)).includes(text)) as FakeElement;
+      m.click(choice('Only this one'));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|swim', scope: 'single', changes: { start: `${day(7)}T17:00`, end: `${day(7)}T18:00` } }), `body ${show(writes()[0].body)}`);
+      assert(dgUndo(m), 'Undo after only this one');
+      // This one and the ones after: saved, but no Undo.
+      await dgLift(m, SWIM, day(5));
+      await dgDrop(m, dgDay(day(6)));
+      m.click(choice('This one and the ones after'));
+      await settle();
+      assert(writes()[1].body?.scope === 'following', `scope ${writes()[1].body?.scope}`);
+      assert(dgBarText(m).includes('Moved to') && !dgUndo(m), `no Undo after following: ${dgBarText(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d5 a drop that fails puts the item back, says why in the editor\'s words, taps an error, logs the key and scope (no title) and asks the source again; a drop on its own day or outside the grid sends nothing', async () => {
+    const { m, tg } = await dgHome('en', { item: () => ok200(dgDentistInfo(0)), write: () => ({ status: 500, body: { error: 'internal_error' } }) });
+    try {
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(TODAY));
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, null);
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, 'nav:next');
+      assert(fetchCalls.filter((c) => c.path === '/api/calendar/item' || c.path === '/api/calendar/items').length === 0, 'no request');
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')) && dgBarText(m) === '', 'nothing moved, no bar');
+      const asked = ranges().length;
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(day(2)));
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), `back on the picked day: ${dgRowTitles(m)}`);
+      assert(dgBarText(m) === messages.en.calendarHome.editor.submitErrors.failed && !dgUndo(m), `bar: ${dgBarText(m)}`);
+      assert(tg.calls.includes('haptic(error)'), 'an error tap');
+      assert(reports.length === 1 && reports[0].context === 'calendar-home-drag' && reports[0].extra.key === 'famcal|dentist' && reports[0].extra.scope === 'single', `report ${show(reports)}`);
+      assert(!show(reports.map((r) => [String(r.error), r.extra])).includes('Dentist'), 'no title in the report');
+      assert(ranges().length > asked, 'the source was asked again');
+      // The other failures say theirs.
+      for (const [status, body, text] of [[403, { error: 'not_allowed' }, 'notAllowed'], [409, { error: 'changed' }, 'changed'], [429, { error: 'busy' }, 'busy']] as const) {
+        serveEditing = (c) => (c.path === '/api/calendar/item' ? ok200(dgDentistInfo(0)) : { status, body });
+        await dgLift(m, DENTIST, TODAY);
+        await dgDrop(m, dgDay(day(2)));
+        assert(dgBarText(m) === messages.en.calendarHome.editor.submitErrors[text], `${status}: ${dgBarText(m)}`);
+      }
+      // An edit info that can't be read is the drag's own message.
+      serveEditing = () => ({ status: 500, body: { error: 'internal_error' } });
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(day(2)));
+      assert(dgBarText(m) === DGMSG.drag.failed && dgRowTitles(m).some((t) => t.includes('Dentist')), `info: ${dgBarText(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d6 an item that can\'t move says why on a long-press (a warning tap and the bar), stays inert (no swipe lock, no drop); the drop\'s own edit info is the final word for a read-only or an every-day series', async () => {
+    const { m, tg } = await dgHome('en', { item: () => ok200(dgDentistInfo(0, { canEdit: false })) });
+    try {
+      const before = swipeCalls(tg.calls).length;
+      await dgLift(m, SHARED_VIEW, TODAY);
+      assert(dgBarText(m) === DGMSG.drag.cantMove, `bar: ${dgBarText(m)}`);
+      assert(tg.calls.includes('haptic(warning)') && !tg.calls.includes('haptic(impact medium)'), 'a warning, no lift');
+      assert(swipeCalls(tg.calls).length === before, 'no swipe lock');
+      await dgDrop(m, dgDay(day(2)));
+      assert(fetchCalls.filter((c) => c.path.startsWith('/api/calendar/item')).length === 0, 'nothing sent');
+      await dgLift(m, STANDUP, TODAY);
+      assert(dgBarText(m) === DGMSG.drag.cantMoveDaily, `bar: ${dgBarText(m)}`);
+      // The edit info says it can't be changed: it snaps back with that note.
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(day(2)));
+      assert(dgBarText(m) === DGMSG.drag.cantMove && dgRowTitles(m).some((t) => t.includes('Dentist')) && writes().length === 0, `info says no: ${dgBarText(m)}`);
+      // A Google series shown as a plain event, daily by its info.
+      serveEditing = (c) => (c.path === '/api/calendar/item' ? ok200(dgDentistInfo(0, { series: { recurring: true, start: `${day(0)}T09:30`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC' }, scopes: ['single', 'following', 'all'] })) : ok200({ status: 'ok' }));
+      await dgLift(m, DENTIST, TODAY);
+      await dgDrop(m, dgDay(day(2)));
+      assert(dgBarText(m) === DGMSG.drag.cantMoveDaily && dgRowTitles(m).some((t) => t.includes('Dentist')) && writes().length === 0, `daily by its info: ${dgBarText(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d7 the BackButton cancels a lift (Escape, the library\'s own cancel, and nothing dropped), shown while lifting in browse; a tab switch while lifted lets the swipe lock go', async () => {
+    const { m, tg } = await editingHome('en', { item: () => ok200(dgDentistInfo(0)) }, {}, dgWeek());
+    try {
+      await openMonth(m);
+      assert(browseShown(m), 'browse');
+      assert(backCalls(tg.calls).at(-1) === 'BackButton.hide()', 'hidden in browse');
+      await dgLift(m, DENTIST, TODAY);
+      assert(backCalls(tg.calls).at(-1) === 'BackButton.show()', 'shown while lifted');
+      documentEvents.length = 0;
+      await React.act(async () => tg.fire('backButtonClicked'));
+      assert(documentEvents.some((e) => e.type === 'keydown' && (e.init as Row).code === 'Escape'), 'Escape went out');
+      await dgDrop(m, dgDay(day(2)));
+      assert(fetchCalls.filter((c) => c.path.startsWith('/api/calendar/item')).length === 0, 'nothing dropped');
+      await React.act(async () => dgDnd(m).onDragCancel());
+      assert(backCalls(tg.calls).at(-1) === 'BackButton.hide()', 'hidden again');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d8 over a month chevron for 600 ms the picked month turns (the picked day\'s list stays), again every 600 ms while the finger stays; a drop there is on a day of that month; it comes back to the picked day\'s month after', async () => {
+    const { m } = await dgHome('en', { item: () => ok200(dgDentistInfo(0)), write: () => ok200({ status: 'ok' }) });
+    try {
+      const title = () => textOf(htmlOf(byClass(m.container, 'ch-mp-title')[0]));
+      assert(title().includes('October'), title());
+      await dgLift(m, DENTIST, TODAY);
+      await dgHover(m, 'nav:next');
+      assert(title().includes('October'), 'not before the dwell');
+      await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
+      assert(title().includes('November'), `turned: ${title()}`);
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'the lifted row is still in the page');
+      await dgHover(m, dgDay('2026-11-03'));
+      await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
+      assert(title().includes('November'), 'it does not keep turning off the chevron');
+      await dgDrop(m, dgDay('2026-11-03'));
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: '2026-11-03T09:30', end: '2026-11-03T10:30' } }), `body ${show(writes()[0].body)}`);
+      assert(title().includes('October'), `back on the picked day's month: ${title()}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#d9 the bar in Hebrew and Russian: the date in the locale\'s short form and Undo; the drag\'s styles: no text menu on an item, a 2 px accent outline on the day under the finger, the ghost, a 44 px Undo, logical properties only, reduced motion respected', async () => {
+    for (const locale of ['he', 'ru'] as const) {
+      const { m } = await dgHome(locale, { item: () => ok200(dgDentistInfo(0)), write: () => ok200({ status: 'ok' }) });
+      try {
+        await dgLift(m, DENTIST, TODAY);
+        await dgDrop(m, dgDay(day(2)));
+        const msg = messages[locale].calendarHome.drag;
+        assert(dgBarText(m) === `${msg.moved.replace('{date}', formatDayShort(day(2), locale))} ${msg.undo}`, `${locale}: ${dgBarText(m)}`);
+        assert(elements(m.container).find((e) => e.className === 'ch-home')?.getAttribute('dir') === (locale === 'he' ? 'rtl' : 'ltr'), `${locale} direction`);
+      } finally {
+        m.unmount();
+      }
+    }
+    assert(/-webkit-touch-callout: none/.test(DRAG_CSS) && /user-select: none/.test(DRAG_CSS), 'no text menu on an item');
+    assert(/\.is-drop \{[^}]*outline: 2px solid var\(--ch-accent\)/.test(DRAG_CSS), 'the 2 px accent outline');
+    assert(/prefers-reduced-motion: reduce[\s\S]*animation: none/.test(DRAG_CSS), 'reduced motion');
+    assert(/min-block-size: 44px/.test(DRAG_BAR_CSS) && /min-inline-size: 44px/.test(DRAG_BAR_CSS), 'a 44 px Undo');
+    for (const css of [DRAG_CSS, DRAG_BAR_CSS]) {
+      assert(!/(margin|padding|border)-(left|right)|\b(left|right):/.test(css), 'logical properties only');
+      assert(!/font-size: ([0-9]|10)px/.test(css), 'no text under 11 px');
+      assert(!/:dgHover/.test(css), 'no hover');
     }
   });
 
