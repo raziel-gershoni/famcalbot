@@ -71,7 +71,7 @@ export function toUnifiedEvent(
     instanceStartsAt: Date;
     isRecurringInstance: boolean;
   },
-  series?: Pick<NativeEvent, 'kind'> & Partial<Pick<NativeEvent, 'hebrewRule' | 'hebrewAnchor'>>,
+  series?: Pick<NativeEvent, 'kind'> & Partial<Pick<NativeEvent, 'hebrewRule' | 'hebrewAnchor' | 'ownAlerts' | 'alertMinutes'>>,
   info?: ReminderInfo
 ): UnifiedEvent {
   const isReminder = series?.kind === 'REMINDER';
@@ -103,6 +103,8 @@ export function toUnifiedEvent(
     recurringEventId: instance.isRecurringInstance ? instance.seriesEventId : undefined,
     eventId: encodeEventId(instance.seriesEventId, instance.isRecurringInstance ? instance.instanceStartsAt : undefined),
     reminders: undefined,
+    // An event with an alert of its own (editor upgrades spec §2): the pass reads it before the user's default.
+    ...(series?.ownAlerts ? { alertLeads: series.alertMinutes ?? [] } : {}),
     provider: PROVIDER_NAME,
     instanceStartsAt: instance.isRecurringInstance ? instance.instanceStartsAt.toISOString() : undefined,
     timeZone: instance.timeZone,

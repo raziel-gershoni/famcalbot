@@ -21,14 +21,14 @@ import { markUnreachableAfterSendFailure } from '../lib/user-reachability';
 import { isAllDayEvent } from '../utils/event-formatter';
 import { localDate, nextDate } from '../utils/day-events';
 import { escapeHtml } from '../utils/html';
+import { MAX_LEAD_MINUTES, defaultLeadOf, nearestReminderLead } from '../lib/calendar-view/alert-leads';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
-// The longest reminder lead time the bot sends, the evening before included (23:55 for a
-// 00:10 start): one day, Google's "1 day before". A ping for an event on a later calendar
-// day than the ping says so ("tomorrow at 10:00", formatReminderMessage), so it never reads
-// as starting now. A longer lead is skipped.
-const MAX_LEAD_MINUTES = 1440;
+// MAX_LEAD_MINUTES (alert-leads.ts, one source with the editor's list) is the longest lead
+// the bot sends. A ping for an event on a later calendar day than the ping says so
+// ("tomorrow at 10:00", formatReminderMessage), so it never reads as starting now. A longer
+// lead is skipped.
 
 export type ReminderType = 'start' | 'pickup';
 
@@ -44,22 +44,24 @@ export interface DueReminder {
 
 /**
  * Get the reminder minutes for an event
- * Priority: event reminders > user default > 0 (at event time)
- * Returns both the minutes and whether it's an auto-reminder (using default)
+ * Priority: the event's own alert (a FamCal event's, set in the editor) > the event's Google reminders > user default > 0 (at event time)
+ * Returns both the minutes and whether it's an auto-reminder (using default); null when the
+ * event is set to no alert at all.
  */
-function getReminderMinutes(event: CalendarEvent, userDefault?: number): { minutes: number; isAuto: boolean } {
-  // Check event-specific reminders
-  if (event.reminders?.overrides?.length) {
-    // The nearest of the popups (or, without one, the emails): an event that also has
-    // "1 day before" is reminded at its 30-minute popup too, not only a day ahead.
-    // Taking the first one dropped the 30-minute popup of such an event.
-    const popups = event.reminders.overrides.filter(r => r.method === 'popup');
-    const leads = (popups.length ? popups : event.reminders.overrides).map(r => r.minutes);
-    return { minutes: Math.min(...leads), isAuto: false };
+function getReminderMinutes(event: CalendarEvent, user: Pick<UserConfig, 'defaultReminderMinutes'>): { minutes: number; isAuto: boolean } | null {
+  // A FamCal event with an alert of its own: its lead, or none (an empty list).
+  if (event.alertLeads) {
+    if (event.alertLeads.length === 0) return null;
+    return { minutes: Math.min(...event.alertLeads), isAuto: false };
   }
 
+  // Check event-specific reminders: the nearest of the popups (or, without one, the emails).
+  // Taking the first one dropped the 30-minute popup of an event that also has "1 day before".
+  const lead = nearestReminderLead(event.reminders?.overrides);
+  if (lead !== null) return { minutes: lead, isAuto: false };
+
   // Fall back to user default
-  return { minutes: userDefault ?? 0, isAuto: true };
+  return { minutes: defaultLeadOf(user), isAuto: true };
 }
 
 /**
@@ -184,7 +186,10 @@ export async function getDueReminders(
 
     const startTime = new Date(event.start);
     const endTime = new Date(event.end);
-    const { minutes: reminderMinutes, isAuto } = getReminderMinutes(event, user.defaultReminderMinutes ?? undefined);
+    const lead = getReminderMinutes(event, user);
+    // An event set to no alert pings neither at its start nor at its pickup.
+    if (!lead) continue;
+    const { minutes: reminderMinutes, isAuto } = lead;
 
     // Debug logging with actual times
     const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
@@ -373,7 +378,7 @@ export async function sendReminder(
 
     trackActivityAsync(user.id, 'reminder_sent', {
       reminder_type: reminder.type,
-      minutes_before: getReminderMinutes(reminder.event, user.defaultReminderMinutes ?? undefined).minutes,
+      minutes_before: getReminderMinutes(reminder.event, user)?.minutes,
     });
     incrementUsage(user.id, 'reminders').catch(err => {
       console.error('[Subscription] Failed to increment reminders:', err);

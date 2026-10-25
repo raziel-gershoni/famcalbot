@@ -67,7 +67,7 @@ function hebrew(start: Date, o: Partial<NativeEvent> = {}): NativeEvent {
     hebrewRule: 'anniversary',
     hebrewAnchor: dayIn(start, tz),
     exdates: [],
-    reminderMinutes: null,
+    reminderMinutes: null, ownAlerts: false, alertMinutes: [],
     kind: 'EVENT',
     forUserId: null,
     armedAt: null,

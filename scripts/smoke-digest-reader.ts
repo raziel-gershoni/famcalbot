@@ -325,7 +325,7 @@ function nativeCalendar(fields: Partial<NativeCalendar> & Pick<NativeCalendar, '
 function nativeEvent(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendarId' | 'creatorUserId' | 'title' | 'startsAt'>): NativeEvent {
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
-    reminderMinutes: null, isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
+    reminderMinutes: null, ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
     kind: 'EVENT', forUserId: null, armedAt: null,
     ...fields,
   };

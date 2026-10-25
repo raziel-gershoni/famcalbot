@@ -62,7 +62,7 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS = ['seriesEventId_originalStartsAt'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], reminderMinutes: null, isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], reminderMinutes: null, ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
 };

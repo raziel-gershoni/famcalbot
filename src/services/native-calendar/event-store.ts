@@ -16,6 +16,7 @@ import type {
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
 import { TIMEZONE } from '../../config/constants';
+import { alertChoiceOf, alertColumns, type AlertChoice } from '../../lib/calendar-view/alert-leads';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
@@ -353,7 +354,8 @@ export interface CreateNativeEventInput {
    */
   hebrewRule?: HebrewRule | null;
   hebrewAnchor?: string | null;
-  reminderMinutes?: number | null;
+  /** The event's alert (editor upgrades spec §2); omitted = the user's default. Not for a reminder. */
+  alert?: AlertChoice;
   // A reminder is an event with no length (spec §1). forUserId is the partner it
   // is for; null means the creator. Ignored for an EVENT.
   kind?: 'EVENT' | 'REMINDER';
@@ -411,7 +413,7 @@ export class NativeFixedDaysError extends Error {
  */
 export class NativeScopeError extends Error {
   constructor(
-    public readonly field: 'scope' | 'calendarId',
+    public readonly field: 'scope' | 'calendarId' | 'alert',
     message = 'This change cannot apply to that scope'
   ) {
     super(message);
@@ -500,7 +502,7 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
         rrule: input.rrule ?? null,
         hebrewRule: input.hebrewRule ?? null,
         hebrewAnchor,
-        reminderMinutes: input.reminderMinutes ?? null,
+        ...alertColumns(input.alert ?? 'default'),
         // armedAt bounds how far back the ping pass looks, so a reminder created for a
         // time long gone doesn't ping (spec §4.2).
         ...(isReminder
@@ -639,6 +641,8 @@ export interface UpdateNativeEventInput {
   hebrewRule?: HebrewRule | null;
   /** An event's new calendar (a native cuid). A reminder has none to change. */
   calendarId?: string;
+  /** An event's new alert (editor upgrades spec §2): series-level, like the calendar. A reminder has none. */
+  alert?: AlertChoice;
   /** A reminder's new recipient: the creator's ACTIVE partner, or null for the creator. Only the creator may change it. */
   forUserId?: number | null;
 }
@@ -963,6 +967,7 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
     delete out.hebrewRule;
   }
   if (out.calendarId !== undefined && out.calendarId === series.calendarId) delete out.calendarId;
+  if (out.alert !== undefined && out.alert === alertChoiceOf(series)) delete out.alert;
   if (out.forUserId !== undefined && (out.forUserId ?? null) === (series.forUserId ?? null)) delete out.forUserId;
   return out;
 }
@@ -980,16 +985,18 @@ async function checkSeriesFields(
   actor: Pick<User, 'id' | 'pairingId'>,
   input: UpdateNativeEventInput
 ): Promise<void> {
-  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.forUserId !== undefined;
+  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined;
   if (!seriesLevel) return;
   if (series.rrule) {
-    // An occurrence has no rule, calendar or recipient of its own.
+    // An occurrence has no rule, calendar, alert or recipient of its own.
     if (input.scope === 'single') throw new NativeScopeError('scope');
     // A rule changes from an occurrence on: the earlier ones keep theirs.
     if (input.rrule !== undefined && (input.scope !== 'following' || !input.instanceStartsAt)) throw new NativeScopeError('scope');
   }
   if (input.rrule !== undefined) assertStorableRule(input.rrule, input.hebrewRule);
   const isReminder = series.kind === 'REMINDER';
+  // A reminder pings through its own pass: it has no alert of its own.
+  if (input.alert !== undefined && isReminder) throw new NativeScopeError('alert');
   if (input.calendarId !== undefined) {
     // A reminder lives on its creator's main calendar.
     if (isReminder) throw new NativeScopeError('calendarId');
@@ -1058,7 +1065,10 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
   const times = isReminder ? normalizeReminderTimes(start, allDay, tz) : { startsAt: start, endsAt: end };
   const moved = times.startsAt.getTime() !== occ.startsAt.getTime() || allDay !== occ.allDay;
   const reassign = isReminder && input.forUserId !== undefined;
+  // The alert the one-off ends up with: the edit's, else the series' own.
+  const alertNow = input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes };
   const values = {
+    ...alertNow,
     title: input.title ?? occ.title,
     description: input.description !== undefined ? input.description : (occ.description ?? null),
     location: input.location !== undefined ? input.location : (occ.location ?? null),
@@ -1104,7 +1114,6 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
         creatorUserId: series.creatorUserId,
         kind: series.kind,
         timeZone: series.timeZone,
-        reminderMinutes: series.reminderMinutes,
         rrule: null,
         hebrewRule: null,
         hebrewAnchor: null,
@@ -1176,6 +1185,7 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
   if (input.endsAt !== undefined) seriesUpdate.endsAt = input.endsAt;
   if (input.allDay !== undefined) seriesUpdate.allDay = input.allDay;
   if (input.calendarId !== undefined) seriesUpdate.calendarId = input.calendarId;
+  if (input.alert !== undefined) Object.assign(seriesUpdate, alertColumns(input.alert));
   // A one-off that starts repeating keeps its row; its key gains its start.
   if (input.rrule && !series.rrule) {
     seriesUpdate.rrule = input.rrule;
@@ -1360,7 +1370,8 @@ export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<
           timeZone: series.timeZone,
           rrule,
           ...pair,
-          reminderMinutes: series.reminderMinutes,
+          // The tail gets the new alert; the head keeps its own.
+          ...(input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes }),
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
         },
       });
@@ -1537,7 +1548,8 @@ async function updateNativeReminder(
           timeZone: series.timeZone,
           rrule,
           ...pair,
-          reminderMinutes: series.reminderMinutes,
+          ownAlerts: series.ownAlerts,
+          alertMinutes: series.alertMinutes,
           kind: 'REMINDER',
           forUserId,
           armedAt,

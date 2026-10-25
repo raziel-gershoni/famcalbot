@@ -251,7 +251,7 @@ function household() {
   ];
   const series = (id: string, calendarId: string, creatorUserId: number, title: string, startsAt: Date, extra: Row = {}): Row => ({
     id, calendarId, creatorUserId, title, startsAt, endsAt: startsAt, description: null, location: null, allDay: false, timeZone: IL,
-    rrule: null, exdates: [], reminderMinutes: null, isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
+    rrule: null, exdates: [], reminderMinutes: null, ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
     kind: 'REMINDER', forUserId: null, armedAt: CREATED, ...extra,
   });
   db.events = [

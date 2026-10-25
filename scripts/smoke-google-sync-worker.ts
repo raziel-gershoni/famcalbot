@@ -99,7 +99,7 @@ const RELATIONS: Record<string, Record<string, { to: string; many?: boolean; of:
 };
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], rules: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], reminderMinutes: null, isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], reminderMinutes: null, ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   googleSyncLink: () => ({
     googleCalendarId: null, googleAccount: null, enabled: true, state: 'creating', unlinkChoice: null, unlinkToken: null, dirtySeq: 0, pushedSeq: 0,

@@ -91,6 +91,9 @@ export interface CalendarEvent {
     useDefault: boolean;
     overrides?: Array<{ method: string; minutes: number }>;
   };
+  // A built-in calendar event's own alert (editor upgrades spec §2): its leads in minutes before
+  // the start, [] for "None". Present only when the event has one of its own; absent = the user's default.
+  alertLeads?: number[];
   // How the event sits on the summary day when it is not wholly inside it. Set by
   // shapeEventsForDay (src/utils/day-events.ts); unset means within the day.
   daySpan?: DaySpan;

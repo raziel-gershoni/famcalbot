@@ -68,7 +68,7 @@ let world: World;
 function freshWorld(): World {
   const event = (row: Row): Row => ({
     calendarId: 'cal-raziel', description: null, location: null, allDay: false, rrule: null, exdates: [],
-    reminderMinutes: null, kind: 'REMINDER', forUserId: null, armedAt: new Date('2026-10-13T08:00:00Z'), isDeleted: false,
+    reminderMinutes: null, ownAlerts: false, alertMinutes: [], kind: 'REMINDER', forUserId: null, armedAt: new Date('2026-10-13T08:00:00Z'), isDeleted: false,
     createdAt: new Date('2026-10-13T08:00:00Z'), updatedAt: new Date('2026-10-13T08:00:00Z'),
     ...row,
     endsAt: row.startsAt,
