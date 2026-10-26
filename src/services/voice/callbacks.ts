@@ -146,6 +146,7 @@ export async function handleEventCallback(
       if (reminder) {
         trackActivityAsync(user.id, 'native_reminder_created', {
           for_partner: event.forUserId != null,
+          for_both: event.forBoth === true,
           all_day: event.allDay,
           recurring: !!event.recurrence,
         });

@@ -1,12 +1,13 @@
 // The native reminder pass (spec §4): find the reminder occurrences due now, claim each
-// one, and ping the person it is for with ✅ Done and 💤 Snooze.
+// one for each person it is for (one person, or both partners), and ping them with ✅ Done
+// and 💤 Snooze.
 //
 // A 1-minute cron runs it behind an in-process gate (due-gate.ts), so the database is
 // read only when something may be due; the pass's nextDue says when that is. Due times
 // are worked out here rather than in SQL: a date-only reminder pings at 09:00 in the
 // recipient's timezone, which the query can't know, so it fetches a wide window.
 
-import type { NativeEvent, NativeEventInstance, NativeReminderState, Prisma } from '@prisma/client';
+import type { NativeEvent, NativeEventInstance, NativeReminderPing, NativeReminderState, Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
 import { describeDeliveryError } from '../../lib/delivery-errors';
@@ -15,13 +16,11 @@ import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
-import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
+import { getActivePartnerSummary, recipientIds } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
-import { buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
-import { getBotMessage } from '../../lib/bot-messages';
-import { escapeHtml } from '../../utils/html';
+import { buildDoneText, buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
 
 const HOUR_MS = 60 * 60 * 1000;
 // The window occurrences are expanded over. A date-only reminder pings at the recipient's
@@ -52,8 +51,12 @@ interface Candidate {
   occ: VirtualInstance;
   due: Date;
   snoozed: boolean;
-  state: NativeReminderState | undefined;
+  state: StateRow | undefined;
+  /** This recipient's own ping of the occurrence: their snooze and last ping. */
+  ping: NativeReminderPing | undefined;
 }
+
+type StateRow = NativeReminderState & { pings: NativeReminderPing[] };
 
 type SendOutcome = 'sent' | 'lost' | 'raced' | 'retry' | 'failed';
 
@@ -96,10 +99,12 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
  * occurrence was.
  */
 async function loadCandidateSeries(now: Date, range: { from: Date; to: Date }) {
-  const snoozes = await prisma.nativeReminderState.findMany({
-    where: { doneAt: null, snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to } },
-    select: { seriesEventId: true, originalStartsAt: true },
+  const snoozeRows = await prisma.nativeReminderPing.findMany({
+    where: { snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to }, state: { doneAt: null } },
+    select: { state: { select: { seriesEventId: true, originalStartsAt: true } } },
   });
+  // Two recipients may have snoozed the same occurrence: one key.
+  const snoozes = [...new Map(snoozeRows.map((r) => [occurrenceKey(r.state.seriesEventId, r.state.originalStartsAt), r.state])).values()];
   const snoozedSeriesIds = [...new Set(snoozes.map((s) => s.seriesEventId))];
   const series = await prisma.nativeEvent.findMany({
     where: {
@@ -173,27 +178,28 @@ function isPassingFailure(error: unknown): boolean {
 }
 
 /**
- * Whether the series changed since the pass read it: deleted, for someone else, or edited
+ * Whether the series changed since the pass read it: deleted, for someone else (or for both), or edited
  * at all (its updatedAt). A recipient change keeps the occurrence's key, so a claim made on
  * the old read would ping the old person and leave the new one silent (3b spec §3.1).
  */
 async function changedSinceRead(series: NativeEvent): Promise<boolean> {
   const now = await prisma.nativeEvent.findUnique({
     where: { id: series.id },
-    select: { forUserId: true, isDeleted: true, updatedAt: true },
+    select: { forUserId: true, forBoth: true, isDeleted: true, updatedAt: true },
   });
-  return !now || now.isDeleted || now.forUserId !== series.forUserId || now.updatedAt.getTime() !== series.updatedAt.getTime();
+  return !now || now.isDeleted || now.forUserId !== series.forUserId || now.forBoth !== series.forBoth || now.updatedAt.getTime() !== series.updatedAt.getTime();
 }
 
-/** Claim one occurrence and send its ping. */
+/** Claim one occurrence for one recipient and send their ping. */
 async function pingOccurrence(
   series: NativeEvent,
   candidate: Candidate,
   creator: PassUser,
   recipient: PassUser & { telegramId: bigint },
+  forBoth: boolean,
   now: Date
 ): Promise<SendOutcome> {
-  const claim = await claimOccurrence(series.id, candidate.occ.instanceStartsAt, candidate.due, now);
+  const claim = await claimOccurrence(series.id, candidate.occ.instanceStartsAt, recipient.id, candidate.due, now);
   if (!claim) return 'lost'; // another pass sent it, or it was just marked done
   if (await changedSinceRead(series)) {
     // An edit landed between the read and the claim: give the claim back, and the next
@@ -208,30 +214,33 @@ async function pingOccurrence(
     const text = await buildPingText({
       title: candidate.occ.title,
       creatorName: creator.id === recipient.id ? undefined : creator.name,
+      forBoth,
       language: recipient.language,
     });
-    messageId = await sendPing(recipient.telegramId, text, await buildPingKeyboard(claim.id, recipient.language));
+    messageId = await sendPing(recipient.telegramId, text, await buildPingKeyboard(claim.stateId, recipient.language));
   } catch (error) {
-    return handleSendFailure(error, claim, recipient);
+    return handleSendFailure(error, claim, recipient, series.id);
   }
 
   try {
-    const saved = await prisma.nativeReminderState.update({
+    const saved = await prisma.nativeReminderPing.update({
       where: { id: claim.id },
       data: { pingChatId: recipient.telegramId, pingMessageId: messageId },
-      select: { doneAt: true },
+      select: { state: { select: { doneAt: true, doneByUserId: true, doneBy: { select: { name: true } } } } },
     });
     // An in-app done between the claim and this save found no message to edit: close it here.
-    if (saved.doneAt) {
-      const done = await getBotMessage(recipient.language, 'nativeReminders.done', { title: escapeHtml(candidate.occ.title) });
+    if (saved.state.doneAt) {
+      const byOther = forBoth && saved.state.doneByUserId !== recipient.id;
+      const done = await buildDoneText({ title: candidate.occ.title, doneByName: byOther ? saved.state.doneBy?.name : undefined, language: recipient.language });
       await stripPingButtons(recipient.telegramId, messageId, done);
     }
   } catch (error) {
     // The ping went out; only a later edit to it (on a move) is lost.
-    captureError(error, 'native-reminders-save-ping', { user_id: recipient.id }, 'warning');
+    captureError(error, 'native-reminders-save-ping', { user_id: recipient.id, series_id: series.id }, 'warning');
   }
   trackActivityAsync(recipient.id, 'native_reminder_pinged', {
     for_partner: creator.id !== recipient.id,
+    for_both: forBoth,
     snoozed: candidate.snoozed,
     all_day: candidate.occ.allDay,
   });
@@ -243,15 +252,81 @@ async function pingOccurrence(
  * the claim back for a later pass, up to MAX_PING_ATTEMPTS sends. Anything else keeps
  * the claim: a retry would be refused the same way.
  */
-async function handleSendFailure(error: unknown, claim: Claim, recipient: PassUser): Promise<SendOutcome> {
+async function handleSendFailure(error: unknown, claim: Claim, recipient: PassUser, seriesId: string): Promise<SendOutcome> {
   if (await markUnreachableAfterSendFailure(recipient, error)) return 'failed';
   if (isPassingFailure(error) && claim.pingAttempts < MAX_PING_ATTEMPTS) {
-    console.warn(`[NativeReminders] Ping to user ${recipient.id} failed (attempt ${claim.pingAttempts}), retrying: ${describeDeliveryError(error)}`);
+    console.warn(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId} failed (attempt ${claim.pingAttempts}), retrying: ${describeDeliveryError(error)}`);
     await releaseClaim(claim);
     return 'retry';
   }
-  captureError(error, 'native-reminders-send', { user_id: recipient.id, attempts: claim.pingAttempts });
+  console.error(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId} failed for good (attempt ${claim.pingAttempts}): ${describeDeliveryError(error)}`);
+  captureError(error, 'native-reminders-send', { user_id: recipient.id, series_id: seriesId, attempts: claim.pingAttempts });
   return 'failed';
+}
+
+/**
+ * One recipient's share of a series: work out their due times and ping the newest due
+ * occurrence. Resolves to 'retry' when a tick soon should look at this series again.
+ */
+async function passForRecipient(a: {
+  series: NativeEvent;
+  occurrences: VirtualInstance[];
+  overrideAt: Map<number, NativeEventInstance>;
+  states: Map<string, StateRow>;
+  creator: PassUser;
+  recipient: PassUser;
+  forBoth: boolean;
+  now: Date;
+  result: NativeReminderPassResult;
+  tz: string;
+  reachable: (telegramId: bigint) => Promise<boolean>;
+}): Promise<SendOutcome | 'idle'> {
+  const { series: s, recipient, now, result, tz } = a;
+  const candidates: Candidate[] = [];
+  for (const occ of a.occurrences) {
+    const state = a.states.get(occurrenceKey(s.id, occ.instanceStartsAt));
+    if (state?.doneAt) continue;
+    const ping = state?.pings.find((p) => p.userId === recipient.id);
+    const snoozed = !!ping?.snoozedUntil;
+    const due = ping?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime);
+    if (due > now && (!result.nextDue || due < result.nextDue)) result.nextDue = due;
+    candidates.push({ occ, due, snoozed, state, ping });
+  }
+
+  const eligible = candidates.filter((c) =>
+    isEligible({
+      due: c.due,
+      now,
+      armedAt: armedAtOf(s, c.occ, a.overrideAt.get(c.occ.instanceStartsAt.getTime())),
+      snoozed: c.snoozed,
+      dateOnlyDay: c.occ.allDay ? pingDayOf(c.due, tz) : null,
+      lastPingedAt: c.ping?.lastPingedAt ?? null,
+      doneAt: c.state?.doneAt ?? null,
+    })
+  );
+  if (eligible.length === 0) return 'idle';
+
+  const telegramId = recipient.telegramId;
+  const reachable = telegramId != null && !recipient.suspendedAt && !recipient.unreachableSince && (await a.reachable(telegramId));
+  if (!reachable) {
+    result.skipped += eligible.length;
+    return 'idle';
+  }
+
+  // One live ping per series and recipient: the newest due goes out. Older ones (a daily
+  // reminder snoozed into the next day's) are claimed without a send, so they stay quiet.
+  eligible.sort((x, y) => y.due.getTime() - x.due.getTime() || y.occ.instanceStartsAt.getTime() - x.occ.instanceStartsAt.getTime());
+  const [newest, ...older] = eligible;
+  for (const old of older) {
+    await claimOccurrence(s.id, old.occ.instanceStartsAt, recipient.id, old.due, now);
+    result.skipped++;
+  }
+
+  const outcome = await pingOccurrence(s, newest, a.creator, { ...recipient, telegramId }, a.forBoth, now);
+  if (outcome === 'sent') result.sent++;
+  else if (outcome === 'lost' || outcome === 'raced') result.skipped++;
+  else result.failed++;
+  return outcome === 'retry' || outcome === 'raced' ? 'retry' : outcome;
 }
 
 /**
@@ -282,6 +357,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
   const keys = expanded.flatMap((e) => e.occurrences.map((o) => o.instanceStartsAt));
   const stateRows = keys.length
     ? await prisma.nativeReminderState.findMany({
+        include: { pings: true },
         where: {
           seriesEventId: { in: expanded.map((e) => e.series.id) },
           originalStartsAt: { in: [...new Map(keys.map((k) => [k.getTime(), k])).values()] },
@@ -311,61 +387,28 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
     try {
       const creator = await users(s.creatorUserId);
       if (!creator) continue;
-      const ownerId = effectiveOwnerId(s, await partnerOf(creator.id));
-      const recipient = ownerId === creator.id ? creator : await users(ownerId);
-      if (!recipient) continue;
-      const tz = await timezoneOf(recipient.id);
-
-      const candidates: Candidate[] = [];
-      for (const occ of occurrences) {
-        const state = states.get(occurrenceKey(s.id, occ.instanceStartsAt));
-        if (state?.doneAt) continue;
-        const snoozed = !!state?.snoozedUntil;
-        const due = state?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime);
-        if (due > now && (!result.nextDue || due < result.nextDue)) result.nextDue = due;
-        candidates.push({ occ, due, snoozed, state });
-      }
-
+      // Everyone it is for: one person, or both partners (ownership.ts, the one rule).
+      const ids = recipientIds(s, await partnerOf(creator.id));
+      const forBoth = ids.length > 1;
       const overrideAt = new Map(overrides.map((o) => [o.originalStartsAt.getTime(), o]));
-      const eligible = candidates.filter((c) =>
-        isEligible({
-          due: c.due,
-          now,
-          armedAt: armedAtOf(s, c.occ, overrideAt.get(c.occ.instanceStartsAt.getTime())),
-          snoozed: c.snoozed,
-          dateOnlyDay: c.occ.allDay ? pingDayOf(c.due, tz) : null,
-          lastPingedAt: c.state?.lastPingedAt ?? null,
-          doneAt: c.state?.doneAt ?? null,
-        })
-      );
-      if (eligible.length === 0) continue;
-
-      const telegramId = recipient.telegramId;
-      const reachable =
-        telegramId != null &&
-        !recipient.suspendedAt &&
-        !recipient.unreachableSince &&
-        !(await isBlocked(telegramId)) &&
-        (await creatorSupported(creator.id));
-      if (!reachable) {
-        result.skipped += eligible.length;
-        continue;
+      for (const recipientId of ids) {
+        try {
+          const recipient = recipientId === creator.id ? creator : await users(recipientId);
+          if (!recipient) continue;
+          const outcome = await passForRecipient({
+            series: s, occurrences, overrideAt, states, creator, recipient, forBoth, now, result,
+            tz: await timezoneOf(recipient.id),
+            reachable: async (telegramId) => !(await isBlocked(telegramId)) && (await creatorSupported(creator.id)),
+          });
+          if (outcome === 'retry') retrySoon = true;
+        } catch (error) {
+          // One recipient's trouble (a database blip) never stops the other's ping or the other series.
+          console.error(`[NativeReminders] Pass failed for series ${s.id}, recipient ${recipientId}`);
+          captureError(error, 'native-reminders-series', { series_id: s.id, user_id: recipientId });
+          result.failed++;
+          retrySoon = true;
+        }
       }
-
-      // One live ping per series: the newest due goes out. Older ones (a daily reminder
-      // snoozed into the next day's) are claimed without a send, so they stay quiet.
-      eligible.sort((a, b) => b.due.getTime() - a.due.getTime() || b.occ.instanceStartsAt.getTime() - a.occ.instanceStartsAt.getTime());
-      const [newest, ...older] = eligible;
-      for (const old of older) {
-        await claimOccurrence(s.id, old.occ.instanceStartsAt, old.due, now);
-        result.skipped++;
-      }
-
-      const outcome = await pingOccurrence(s, newest, creator, { ...recipient, telegramId }, now);
-      if (outcome === 'sent') result.sent++;
-      else if (outcome === 'lost' || outcome === 'raced') result.skipped++;
-      else result.failed++;
-      if (outcome === 'retry' || outcome === 'raced') retrySoon = true;
     } catch (error) {
       // A database blip on one series mustn't stop the others; the next tick tries it again.
       captureError(error, 'native-reminders-series', { series_id: s.id });

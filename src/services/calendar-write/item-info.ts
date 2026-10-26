@@ -8,6 +8,7 @@ import { RRule } from 'rrule';
 import type {
   EditorCalendar,
   EditorInfoResponse,
+  ForWho,
   ItemEditInfoResponse,
   RepeatInfo,
 } from '../../lib/calendar-view/editor-types';
@@ -26,7 +27,7 @@ import {
   type NativeAccess,
 } from '../native-calendar/event-store';
 import { classifyRule, endOfRule, fixesDays, isHebrewRule, specOfRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
-import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
+import { loadViewerContext, recipientIdsForViewer, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import { reminderTimeOf } from '../../lib/reminder-time';
 import { alertChoiceOf, defaultLeadOf } from '../../lib/calendar-view/alert-leads';
@@ -200,7 +201,7 @@ export async function loadItem(user: UserConfig, key: ItemKey): Promise<LoadedIt
     isReminder &&
     series.forUserId === user.id &&
     ctx.partner?.id === series.creatorUserId &&
-    effectiveOwnerForViewer(series, ctx) === user.id;
+    recipientIdsForViewer(series, ctx).includes(user.id);
   if (access === 'none' && !masked) return { status: 'not_found' };
   // A repeating series is addressed by an occurrence, a one-off by itself.
   if (Boolean(series.rrule) !== Boolean(key.slot)) return { status: 'not_found' };
@@ -284,15 +285,18 @@ export function repeatInfo(rrule: string | null, hebrew?: HebrewColumns | null, 
 }
 
 /**
- * Whether a reminder is for its creator's partner, relative to its creator, as the viewer
- * can tell: the creator's ACTIVE partner is the viewer's when the viewer created it, and
- * the viewer when the partner did. The stored value, even for a partner who can't be
- * pinged now, so the creator can take it back.
+ * Who a reminder is for, relative to its creator, as the viewer can tell: the creator's
+ * ACTIVE partner is the viewer's when the viewer created it, and the viewer when the partner
+ * did. The stored value, even for a partner who can't be pinged now, so the creator can take
+ * it back: 'partner', or 'both' when it is also for the creator.
  */
-export function isForPartner(series: Pick<NativeEvent, 'kind' | 'creatorUserId' | 'forUserId'>, ctx: ViewerContext): boolean {
-  if (series.kind !== 'REMINDER' || series.forUserId === null || !ctx.partner) return false;
-  if (series.creatorUserId === ctx.viewerId) return series.forUserId === ctx.partner.id;
-  return series.creatorUserId === ctx.partner.id && series.forUserId === ctx.viewerId;
+export function forWhoOf(series: Pick<NativeEvent, 'kind' | 'creatorUserId' | 'forUserId' | 'forBoth'>, ctx: ViewerContext): ForWho {
+  if (series.kind !== 'REMINDER' || series.forUserId === null || !ctx.partner) return 'me';
+  const forPartner = series.creatorUserId === ctx.viewerId
+    ? series.forUserId === ctx.partner.id
+    : series.creatorUserId === ctx.partner.id && series.forUserId === ctx.viewerId;
+  if (!forPartner) return 'me';
+  return series.forBoth ? 'both' : 'partner';
 }
 
 /** Whether the viewer's partner can be pinged, so a reminder can be for them (resolve.ts targetFor). */
@@ -335,7 +339,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
   const isReminder = series.kind === 'REMINDER';
   const at = wallFor(occurrence.startsAt, occurrence.endsAt, occurrence.allDay, userTz, itemTz);
   const first = wallFor(series.startsAt, series.endsAt, series.allDay, userTz, itemTz);
-  const ownerIsPartner = isReminder && ctx.partner !== null && effectiveOwnerForViewer(series, ctx) === ctx.partner.id;
+  const recipients = recipientIdsForViewer(series, ctx);
+  const ownerIsPartner = isReminder && ctx.partner !== null && recipients.length === 1 && recipients[0] === ctx.partner.id;
   const classified = classifyRule(series.rrule, series.startsAt, itemTz, series);
   // The stored rule as the Repeat sheet says it, when it can (richer repeats spec §3).
   const spec = specOfRule(series.rrule, series.startsAt, itemTz, series);
@@ -348,7 +353,7 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
   const ownKind = await moveTargetsOf(user, item);
   const cross = ownKind.length > 0 ? await googleTargetsOf(user, item) : { ids: [] };
   const moveTargets = [...ownKind, ...cross.ids];
-  const forPartner = isForPartner(series, ctx);
+  const forWho = forWhoOf(series, ctx);
   const creator = isReminder && series.creatorUserId === user.id;
   return {
     kind: isReminder ? 'reminder' : 'event',
@@ -384,8 +389,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     canMoveCalendar: moveTargets.length > 1,
     moveTargets,
     // The creator, while the partner can be pinged or it is theirs now (so it can come back).
-    canChangeRecipient: creator && (partnerCanRemind(ctx) || forPartner),
-    forPartner,
+    canChangeRecipient: creator && (partnerCanRemind(ctx) || forWho !== 'me'),
+    forWho,
     source: 'famcal',
     ...(cross.reason ? { moveReason: cross.reason } : {}),
   };

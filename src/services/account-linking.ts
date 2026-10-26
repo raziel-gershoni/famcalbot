@@ -388,6 +388,11 @@ async function mergeWhatsAppUser(
   await tx.nativeEvent.updateMany({ where: { creatorUserId: w.id }, data: { creatorUserId: t.id } });
   await tx.nativeEvent.updateMany({ where: { forUserId: w.id }, data: { forUserId: t.id } });
   await tx.nativeReminderState.updateMany({ where: { doneByUserId: w.id }, data: { doneByUserId: t.id } });
+  // W's pings (snooze, last ping, live message) follow to T; where T already has the ping row of
+  // the same occurrence (a reminder for both of them), T's stays.
+  const tPingStates = (await tx.nativeReminderPing.findMany({ where: { userId: t.id }, select: { stateId: true } })).map(p => p.stateId);
+  await tx.nativeReminderPing.deleteMany({ where: { userId: w.id, stateId: { in: tPingStates } } });
+  await tx.nativeReminderPing.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
 
   // Subscription (userId is unique): the one that runs longer stays; a tie keeps T's.
   const tSub = await tx.subscription.findUnique({ where: { userId: t.id } });

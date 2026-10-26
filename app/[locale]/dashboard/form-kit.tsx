@@ -875,12 +875,12 @@ export function Segmented<T extends string>({ label, value, options, onChange }:
   );
 }
 
-/** A labelled pair of radio buttons (a reminder's For: Me | Noa). */
+/** A labelled row of radio buttons, two or three across (a reminder's For: Me | Noa | Both of us). */
 export function RadioPair<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: ChoiceOption<T>[]; onChange: (value: T) => void }) {
   return (
     <div className="ch-form-group">
       <span className="ch-form-group-label">{label}</span>
-      <div className="ch-radio-pair" role="radiogroup" aria-label={label}>
+      <div className="ch-radio-pair" role="radiogroup" aria-label={label} style={options.length > 2 ? { gridTemplateColumns: `repeat(${options.length}, 1fr)` } : undefined}>
         {options.map((o) => (
           <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-radio" onClick={() => onChange(o.value)}>
             <bdi>{o.text}</bdi>

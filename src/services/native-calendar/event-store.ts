@@ -314,7 +314,8 @@ export interface ReminderStateRow {
   seriesEventId: string;
   originalStartsAt: Date;
   doneAt: Date | null;
-  snoozedUntil: Date | null;
+  /** Each recipient's own snooze (a ping row per person); the viewer's is the one that shows. */
+  pings: Array<{ userId: number; snoozedUntil: Date | null }>;
 }
 
 /**
@@ -331,7 +332,7 @@ export async function fetchReminderStates(
       seriesEventId: { in: [...new Set(occurrences.map((o) => o.seriesEventId))] },
       originalStartsAt: { in: occurrences.map((o) => o.originalStartsAt) },
     },
-    select: { seriesEventId: true, originalStartsAt: true, doneAt: true, snoozedUntil: true },
+    select: { seriesEventId: true, originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } },
   });
 }
 
@@ -360,6 +361,8 @@ export interface CreateNativeEventInput {
   // is for; null means the creator. Ignored for an EVENT.
   kind?: 'EVENT' | 'REMINDER';
   forUserId?: number | null;
+  /** With forUserId = the partner: for both of them. */
+  forBoth?: boolean;
 }
 
 /**
@@ -508,7 +511,7 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
         // armedAt bounds how far back the ping pass looks, so a reminder created for a
         // time long gone doesn't ping (spec §4.2).
         ...(isReminder
-          ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, armedAt: new Date() }
+          ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, forBoth: input.forUserId != null && input.forBoth === true, armedAt: new Date() }
           : {}),
       },
     });
@@ -658,6 +661,8 @@ export interface UpdateNativeEventInput {
   alert?: AlertChoice;
   /** A reminder's new recipient: the creator's ACTIVE partner, or null for the creator. Only the creator may change it. */
   forUserId?: number | null;
+  /** With forUserId = the partner: for both of them. */
+  forBoth?: boolean;
 }
 
 /** A ping message whose buttons a reminder's time change made stale. */
@@ -988,7 +993,11 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
   }
   if (out.calendarId !== undefined && out.calendarId === series.calendarId) delete out.calendarId;
   if (out.alert !== undefined && out.alert === alertChoiceOf(series)) delete out.alert;
-  if (out.forUserId !== undefined && (out.forUserId ?? null) === (series.forUserId ?? null)) delete out.forUserId;
+  // Who it is for is forUserId and forBoth together: no change when both match.
+  if (out.forUserId !== undefined && (out.forUserId ?? null) === (series.forUserId ?? null) && (out.forBoth === true) === series.forBoth) {
+    delete out.forUserId;
+    delete out.forBoth;
+  }
   return out;
 }
 
@@ -1031,6 +1040,8 @@ async function checkSeriesFields(
   if (input.forUserId !== undefined) {
     if (!isReminder) throw new NativeRecipientError('Only a reminder has a recipient');
     if (series.creatorUserId !== actor.id) throw new NativePermissionDeniedError('Only the creator changes who a reminder is for');
+    // "Both" is the creator and the partner forUserId names.
+    if (input.forBoth === true && input.forUserId === null) throw new NativeRecipientError();
     if (input.forUserId !== null) {
       // As resolve.ts targetFor: the ACTIVE partner, on Telegram.
       const partner = await getActivePartnerSummary(actor.id, actor.pairingId ?? null);
@@ -1057,7 +1068,7 @@ export function occurrenceAt(series: NativeEvent, overrides: NativeEventInstance
 
 /** Delete the state rows `where` matches, for occurrences that no longer exist; their live pings ("changed"). */
 async function dropStates(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<ClearedPing[]> {
-  const rows = await tx.nativeReminderState.findMany({ where, select: { pingChatId: true, pingMessageId: true } });
+  const rows = await tx.nativeReminderState.findMany({ where, select: LIVE_PINGS });
   if (rows.length === 0) return [];
   await tx.nativeReminderState.deleteMany({ where });
   return pingsOf(rows);
@@ -1096,7 +1107,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
     allDay,
     calendarId: input.calendarId ?? series.calendarId,
     ...(isReminder
-      ? { forUserId: reassign ? input.forUserId! : series.forUserId, armedAt: moved ? new Date() : series.armedAt }
+      ? { forUserId: reassign ? input.forUserId! : series.forUserId, forBoth: reassign ? input.forBoth === true : series.forBoth, armedAt: moved ? new Date() : series.armedAt }
       : {}),
   };
   const pings = { clearedPings: [] as ClearedPing[], changedPings: [] as ClearedPing[], reassignedPings: [] as ClearedPing[] };
@@ -1104,7 +1115,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
   const settleOpened = async (tx: Prisma.TransactionClient, to: string) => {
     const row = await tx.nativeReminderState.findUnique({
       where: { seriesEventId_originalStartsAt: { seriesEventId: series.id, originalStartsAt: cut } },
-      select: { id: true, doneAt: true, pingChatId: true, pingMessageId: true },
+      select: { id: true, doneAt: true, ...LIVE_PINGS },
     });
     if (!row) return;
     const startsAfresh = reassign && row.doneAt === null;
@@ -1433,15 +1444,10 @@ async function clearReminderStates(
   tx: Prisma.TransactionClient,
   where: Prisma.NativeReminderStateWhereInput
 ): Promise<ClearedPing[]> {
-  const rows = await tx.nativeReminderState.findMany({
-    where,
-    select: { pingChatId: true, pingMessageId: true },
-  });
+  const rows = await tx.nativeReminderState.findMany({ where, select: LIVE_PINGS });
   if (rows.length === 0) return [];
   await tx.nativeReminderState.deleteMany({ where });
-  return rows.flatMap((r) =>
-    r.pingChatId !== null && r.pingMessageId !== null ? [{ chatId: r.pingChatId, messageId: r.pingMessageId }] : []
-  );
+  return pingsOf(rows);
 }
 
 /**
@@ -1496,6 +1502,7 @@ async function updateNativeReminder(
   const newRule = input.rrule ?? undefined;
   const reassign = input.forUserId !== undefined;
   const forUserId = reassign ? input.forUserId! : series.forUserId;
+  const forBoth = reassign ? input.forBoth === true : series.forBoth;
   if (input.scope === 'following' && series.rrule && input.instanceStartsAt) {
     const cut = input.instanceStartsAt;
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
@@ -1543,6 +1550,7 @@ async function updateNativeReminder(
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
             armedAt,
             forUserId,
+            forBoth,
           },
         });
         await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: target.changed, clear: target.changed ? {} : cleared });
@@ -1572,6 +1580,7 @@ async function updateNativeReminder(
           alertMinutes: series.alertMinutes,
           kind: 'REMINDER',
           forUserId,
+          forBoth,
           armedAt,
           // The occurrences skipped after the cut stay skipped, keyed where they went.
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
@@ -1621,7 +1630,7 @@ async function updateNativeReminder(
         // A Hebrew series' anchor moves with its start, by its years ('all', or 'following' with nothing to cut).
         ...(moved && series.hebrewAnchor ? { hebrewAnchor: moved.hebrewAnchor } : {}),
         ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
-        ...(reassign ? { forUserId } : {}),
+        ...(reassign ? { forUserId, forBoth } : {}),
       },
     });
     if (!changed) {
@@ -1661,7 +1670,7 @@ async function takeStates(
   reassign: boolean,
   rule?: { slotOf: (slot: Date) => Date | null; shape: NativeEvent }
 ): Promise<{ clearedPings: ClearedPing[]; reassignedPings: ClearedPing[]; changedPings: ClearedPing[] }> {
-  const rows = await tx.nativeReminderState.findMany({ where, select: { originalStartsAt: true, doneAt: true, pingChatId: true, pingMessageId: true } });
+  const rows = await tx.nativeReminderState.findMany({ where, select: { originalStartsAt: true, doneAt: true, ...LIVE_PINGS } });
   if (rows.length === 0) return { clearedPings: [], reassignedPings: [], changedPings: [] };
   await tx.nativeReminderState.deleteMany({ where });
   const to = (r: { originalStartsAt: Date }) => rule?.slotOf(r.originalStartsAt) ?? null;
@@ -1682,7 +1691,7 @@ async function takeStates(
  */
 async function reassignOpenStates(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<ClearedPing[]> {
   const open = { ...where, doneAt: null };
-  const rows = await tx.nativeReminderState.findMany({ where: open, select: { pingChatId: true, pingMessageId: true } });
+  const rows = await tx.nativeReminderState.findMany({ where: open, select: LIVE_PINGS });
   if (rows.length === 0) return [];
   await tx.nativeReminderState.deleteMany({ where: open });
   return pingsOf(rows);
@@ -1700,7 +1709,7 @@ async function keepYieldedStates(
 ): Promise<ClearedPing[]> {
   const rows = await tx.nativeReminderState.findMany({
     where: { seriesEventId: o.fromSeries, ...(o.since ? { originalStartsAt: { gte: o.since } } : {}) },
-    select: { id: true, originalStartsAt: true, pingChatId: true, pingMessageId: true },
+    select: { id: true, originalStartsAt: true, ...LIVE_PINGS },
   });
   const yields = yieldsSlots(o.shape, rows.map((r) => r.originalStartsAt));
   const gone = rows.filter((r) => !yields.has(r.originalStartsAt.getTime()));
@@ -1712,10 +1721,13 @@ async function keepYieldedStates(
   return pingsOf(gone);
 }
 
-/** The live ping messages of some state rows. */
-function pingsOf(rows: Array<{ pingChatId: bigint | null; pingMessageId: number | null }>): ClearedPing[] {
+/** What a state row hands back of its live pings: one message per recipient who was pinged. */
+const LIVE_PINGS = { pings: { select: { pingChatId: true, pingMessageId: true } } } as const;
+
+/** The live ping messages of some state rows (every recipient's, for a reminder for both). */
+function pingsOf(rows: Array<{ pings: Array<{ pingChatId: bigint | null; pingMessageId: number | null }> }>): ClearedPing[] {
   return rows.flatMap((r) =>
-    r.pingChatId !== null && r.pingMessageId !== null ? [{ chatId: r.pingChatId, messageId: r.pingMessageId }] : []
+    r.pings.flatMap((p) => (p.pingChatId !== null && p.pingMessageId !== null ? [{ chatId: p.pingChatId, messageId: p.pingMessageId }] : []))
   );
 }
 

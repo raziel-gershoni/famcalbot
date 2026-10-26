@@ -16,6 +16,7 @@ import {
   type CreateItemBody,
   type EditScope,
   type EditorCalendar,
+  type ForWho,
   type ItemEditInfoResponse,
   type ItemKind,
   type RepeatInfo,
@@ -71,8 +72,8 @@ export interface EditorForm {
   repeat: RepeatForm;
   /** The event's calendar: a new one's, or the edited one's current calendar (a native id or a Google id). */
   calendarId: string | null;
-  /** The reminder is for the partner (a new one's, or the edited one's current recipient). */
-  forPartner: boolean;
+  /** Who the reminder is for: me, the partner, or both (a new one's, or the edited one's current recipients). */
+  forWho: ForWho;
   /**
    * An event's alert (editor upgrades spec §2): the default, none, or a lead in minutes. A stored
    * lead off the list is kept as it is until another is picked. A Google item's is its own, read-only.
@@ -265,7 +266,7 @@ export function newItemForm(ctx: NewItemContext): EditorForm {
     endTime: end.time,
     repeat: 'none',
     calendarId: main ? main.id : null,
-    forPartner: false,
+    forWho: 'me',
     alert: 'default',
   };
 }
@@ -299,7 +300,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     endTime: allDay ? shiftWall(start.day, DEFAULT_EVENT_TIME, DEFAULT_EVENT_MINUTES).time : end.time,
     repeat: storedRepeat(info, repeatDayOf({ startDay: start.day, startTime: allDay ? '00:00' : start.time, allDay }, info)),
     calendarId: info.calendar.id,
-    forPartner: info.forPartner === true,
+    forWho: info.forWho ?? 'me',
     alert: info.alert ?? 'default',
   };
 }
@@ -493,8 +494,8 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     if (form.calendarId) body.calendarId = form.calendarId;
     // Only a timed FamCal event takes one: a Google calendar keeps its own, an all-day event has none.
     if (form.alert !== 'default' && !allDay && isNativeCalendar(form.calendarId)) body.alert = form.alert;
-  } else if (form.forPartner) {
-    body.forPartner = true;
+  } else if (form.forWho !== 'me') {
+    body.forWho = form.forWho;
   }
   return body;
 }
@@ -535,7 +536,7 @@ export function updateBody(
   const repeat = pickedRepeat(form, initial, info) ?? (scope === 'following' && info ? restatedRepeat(form, initial, info) : null);
   if (repeat !== null) changes.repeat = repeat;
   if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
-  if (reminder && form.forPartner !== initial.forPartner) changes.forPartner = form.forPartner;
+  if (reminder && form.forWho !== initial.forWho) changes.forWho = form.forWho;
   const alert = alertChange(form, initial);
   if (alert !== null) changes.alert = alert;
   // A stop makes this occurrence a one-off: it always carries the occurrence's own times,
@@ -633,7 +634,7 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   const seriesLevel =
     (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||
     alertChange(form, initial) !== null ||
-    (reminder && form.forPartner !== initial.forPartner);
+    (reminder && form.forWho !== initial.forWho);
   const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
   if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };
   if (info.scopes.length <= 1) return { kind: 'none' };

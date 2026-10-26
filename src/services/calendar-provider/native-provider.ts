@@ -41,7 +41,10 @@ import {
   type UpdateNativeEventInput,
   UpdateScope,
 } from '../native-calendar/event-store';
-import { effectiveOwnerForViewer, loadViewerContext, ViewerContext } from '../native-reminders/ownership';
+import { loadViewerContext, pingUserFor, recipientIdsForViewer, ViewerContext } from '../native-reminders/ownership';
+
+/** The columns of a reminder series that say who it is for. */
+type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
@@ -119,24 +122,41 @@ export function toUnifiedEvent(
  * was set by the viewer or their partner, and is for one of the two.
  */
 export function reminderInfoFor(
-  series: { creatorUserId: number; forUserId: number | null },
-  state: Pick<ReminderStateRow, 'doneAt' | 'snoozedUntil'> | undefined,
+  series: ReminderSeriesColumns,
+  state: Pick<ReminderStateRow, 'doneAt' | 'pings'> | undefined,
   ctx: ViewerContext,
   now: Date
 ): ReminderInfo {
-  const ownerId = effectiveOwnerForViewer(series, ctx);
+  const recipients = recipientIdsForViewer(series, ctx);
+  const ownerId = recipients[recipients.length - 1];
   const partnerName = (userId: number) => (ctx.partner?.id === userId ? ctx.partner.name : undefined);
+  const snoozedUntil = viewerSnoozedUntil(series, state, ctx);
   const info: ReminderInfo = {
-    ownerIsViewer: ownerId === ctx.viewerId,
+    // "Owner" is whoever it is for: the viewer is one of them (both partners, for a reminder for both).
+    ownerIsViewer: recipients.includes(ctx.viewerId),
     creatorIsViewer: series.creatorUserId === ctx.viewerId,
     done: !!state?.doneAt,
-    snoozed: !!state?.snoozedUntil && state.snoozedUntil > now,
+    snoozed: !!snoozedUntil && snoozedUntil > now,
+    ...(recipients.length > 1 ? { forBoth: true } : {}),
   };
   const ownerName = info.ownerIsViewer ? undefined : partnerName(ownerId);
   const creatorName = info.creatorIsViewer ? undefined : partnerName(series.creatorUserId);
   if (ownerName) info.ownerName = ownerName;
   if (creatorName) info.creatorName = creatorName;
   return info;
+}
+
+/**
+ * The snooze the viewer sees on an occurrence: their own (each partner snoozes for themselves),
+ * or, for the creator of someone else's single reminder, its one recipient's. Null when none.
+ */
+export function viewerSnoozedUntil(
+  series: ReminderSeriesColumns,
+  state: Pick<ReminderStateRow, 'pings'> | undefined,
+  ctx: ViewerContext
+): Date | null {
+  const pingUserId = pingUserFor(recipientIdsForViewer(series, ctx), ctx.viewerId);
+  return state?.pings.find((p) => p.userId === pingUserId)?.snoozedUntil ?? null;
 }
 
 /** The key a reminder occurrence's state is stored under: its series and original start. */
@@ -357,6 +377,7 @@ export const nativeProvider: CalendarProvider = {
         ...(data.hebrewRule ? { hebrewRule: data.hebrewRule, hebrewAnchor: data.hebrewAnchor } : {}),
         kind: data.kind === 'reminder' ? 'REMINDER' : 'EVENT',
         forUserId: data.forUserId ?? null,
+        forBoth: data.forBoth === true,
       });
       return {
         success: true,

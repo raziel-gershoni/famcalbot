@@ -41,6 +41,11 @@ export const REPEAT_COUNT_MAX = 999;
  * - until (yyyy-MM-dd, a day not before the start's, in the item's zone) or count (1..REPEAT_COUNT_MAX)
  *   ends it; never both, neither is Never.
  */
+/** Who a reminder is for, relative to its creator (the "remind us both" spec): Me, their partner, or Both of us. */
+export type ForWho = 'me' | 'partner' | 'both';
+
+export const FOR_WHO: readonly ForWho[] = ['me', 'partner', 'both'];
+
 export interface RepeatSpec {
   freq: 'daily' | 'weekly' | 'monthly' | 'yearly' | 'hebrew';
   interval: number;
@@ -182,8 +187,8 @@ export interface ItemEditInfoResponse {
   moveTargets?: string[];
   /** 3b: the For row (Me | partner) shows, to the reminder's creator. */
   canChangeRecipient?: boolean;
-  /** 3b: the reminder is for its creator's partner (relative to the creator). */
-  forPartner?: boolean;
+  /** 3b: who the reminder is for, relative to its creator: themselves, their partner, or both of them. */
+  forWho?: ForWho;
   /**
    * An event's alert (editor upgrades spec §2): 'default', 'none' or its lead in minutes (a
    * migrated one may be off the list). Absent for a reminder. A Google item's is its own
@@ -220,8 +225,8 @@ export interface CreateItemBody {
   repeat?: RepeatInput;
   /** Events only: the id of a calendar from the editor info ('native:<cuid>' or a Google id); default the main one. */
   calendarId?: string;
-  /** Reminders only: for the partner. */
-  forPartner?: boolean;
+  /** Reminders only: for the partner, or for both partners; omitted = for the creator. */
+  forWho?: ForWho;
   /** Timed FamCal events only; omitted = the default (editor upgrades spec §2). */
   alert?: AlertChoice;
 }
@@ -247,8 +252,8 @@ export interface UpdateItemBody {
     repeat?: RepeatInput;
     /** 3b: an event's calendar, from the item info's moveTargets; one of the other kind is the cross-source move (alone in its save). */
     calendarId?: string;
-    /** 3b: a reminder for the partner, or (false) its creator. */
-    forPartner?: boolean;
+    /** 3b: a reminder for the partner, for both partners, or ('me') its creator alone. */
+    forWho?: ForWho;
     /** An event's alert, from this occurrence on like the calendar (series-level); a FamCal event only. */
     alert?: AlertChoice;
   };

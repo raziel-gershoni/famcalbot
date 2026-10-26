@@ -21,7 +21,7 @@ import { getActivePartnerSummary } from './ownership';
 import type { PartnerSummary } from './ownership';
 
 export type ResolvedReminder =
-  | { ok: true; calendarId: string; forUserId: number | null; startTime: Date; endTime: Date; allDay: boolean;
+  | { ok: true; calendarId: string; forUserId: number | null; forBoth: boolean; startTime: Date; endTime: Date; allDay: boolean;
       notice?: 'partner_not_on_telegram' | 'time_passed' | 'no_time_set' }
   | { ok: false; error: 'anchor_not_found' | 'anchor_ambiguous' | 'anchor_needs_time' };
 
@@ -37,9 +37,9 @@ const MINUTES_PER_DAY = 24 * 60;
 
 /**
  * Where a parsed reminder goes, for whom and when. `forPerson: 'partner'` makes it the
- * ACTIVE partner's when they are on the built-in calendar and on Telegram. A partner
- * who isn't on Telegram can't be pinged, so it stays the creator's and the card asks
- * about it. Unpaired, or a partner on Google: the creator's.
+ * ACTIVE partner's when they are on the built-in calendar and on Telegram; 'both', the
+ * creator's and theirs. A partner who isn't on Telegram can't be pinged, so it stays the
+ * creator's and the card asks about it. Unpaired, or a partner on Google: the creator's.
  */
 export async function resolveReminderForCreate(
   user: UserConfig,
@@ -47,9 +47,12 @@ export async function resolveReminderForCreate(
   timezone: string,
   now: Date = new Date()
 ): Promise<ResolvedReminder> {
-  const partner = event.forPerson === 'partner' ? await getActivePartnerSummary(user.id, user.pairingId ?? null) : null;
+  const partner = wantsPartner(event) ? await getActivePartnerSummary(user.id, user.pairingId ?? null) : null;
   return resolveWithPartner(user, event, timezone, now, partner);
 }
+
+/** Whether the reminder is for the partner, alone or with the creator. */
+const wantsPartner = (event: ParsedEvent) => event.forPerson === 'partner' || event.forPerson === 'both';
 
 async function resolveWithPartner(
   user: UserConfig,
@@ -67,11 +70,12 @@ async function resolveWithPartner(
   const calendar = await getMainNativeCalendar(user.id);
   const target = targetFor(event, partner);
   const times = normalizeReminderTimes(startTime, allDay, timezone);
-  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now, target.forUserId !== null ? partner?.reminderTime : user.reminderTime);
+  const notice = target.notice ?? timeNotice(times.startsAt, allDay, event.recurrence, timezone, now, target.forUserId !== null && !target.forBoth ? partner?.reminderTime : user.reminderTime);
   return {
     ok: true,
     calendarId: encodeCalendarId(calendar.id),
     forUserId: target.forUserId,
+    forBoth: target.forBoth,
     startTime: times.startsAt,
     endTime: times.endsAt,
     allDay,
@@ -79,14 +83,17 @@ async function resolveWithPartner(
   };
 }
 
-/** Who "remind Dana…" is for: the active partner, only when they can be pinged (on Telegram). */
+/**
+ * Who "remind Dana…" or "remind us…" is for: the active partner (and the creator, for both),
+ * only when they can be pinged (on Telegram). Otherwise the creator alone.
+ */
 function targetFor(
   event: ParsedEvent,
   partner: PartnerSummary | null
-): { forUserId: number | null; notice?: 'partner_not_on_telegram' } {
-  if (event.forPerson !== 'partner' || !partner) return { forUserId: null };
-  if (partner.telegramId === null) return { forUserId: null, notice: 'partner_not_on_telegram' };
-  return { forUserId: partner.id };
+): { forUserId: number | null; forBoth: boolean; notice?: 'partner_not_on_telegram' } {
+  if (!wantsPartner(event) || !partner) return { forUserId: null, forBoth: false };
+  if (partner.telegramId === null) return { forUserId: null, forBoth: false, notice: 'partner_not_on_telegram' };
+  return { forUserId: partner.id, forBoth: event.forPerson === 'both' };
 }
 
 /**
@@ -115,8 +122,9 @@ function timeNotice(
  * each time it is shown. A partner who can't be pinged stays noted, ahead of the time.
  */
 export async function refreshReminderNotice(event: ParsedEvent, timezone: string, now: Date = new Date(), creatorReminderTime?: string | null): Promise<ParsedEvent> {
-  // The pinged person's time: a reminder for the partner pings at the partner's.
-  const reminderTime = event.forUserId != null
+  // The pinged person's time: a reminder for the partner pings at the partner's, one for both
+  // at the creator's (the creator is pinged too).
+  const reminderTime = event.forUserId != null && !event.forBoth
     ? (await prisma.user.findUnique({ where: { id: event.forUserId }, select: { reminderTime: true } }))?.reminderTime
     : creatorReminderTime;
   const notice = event.reminderNotice === 'partner_not_on_telegram'
@@ -210,8 +218,8 @@ export async function resolveReminderIntents(
   const asked = options.selfOnly
     ? intents.map(i => (isReminder(i) ? { ...i, event: { ...i.event!, forPerson: 'self' as const } } : i))
     : intents;
-  const wantsPartner = asked.some(i => isReminder(i) && i.event!.forPerson === 'partner');
-  const partner = wantsPartner ? await getActivePartnerSummary(user.id, user.pairingId ?? null) : null;
+  const needsPartner = asked.some(i => isReminder(i) && wantsPartner(i.event!));
+  const partner = needsPartner ? await getActivePartnerSummary(user.id, user.pairingId ?? null) : null;
 
   const failures: ReminderFailure[] = [];
   const resolved: VoiceIntentResult[] = [];
@@ -239,6 +247,7 @@ export async function resolveReminderIntents(
         allDay: result.allDay,
         anchor: undefined,
         forUserId: result.forUserId,
+        forBoth: result.forBoth,
         forName: named && partner ? partner.name : undefined,
         reminderNotice: result.notice,
       },
@@ -281,7 +290,7 @@ export async function reminderPromptContext(
  * event gets nothing, so its input is unchanged. A reminder has one time: it ends
  * where it starts (the store enforces that too).
  */
-export function reminderCreateFields(event: ParsedEvent): Partial<Pick<CreateEventInput, 'kind' | 'forUserId' | 'endTime'>> {
+export function reminderCreateFields(event: ParsedEvent): Partial<Pick<CreateEventInput, 'kind' | 'forUserId' | 'forBoth' | 'endTime'>> {
   if (event.kind !== 'reminder') return {};
-  return { kind: 'reminder', forUserId: event.forUserId ?? null, endTime: event.startTime };
+  return { kind: 'reminder', forUserId: event.forUserId ?? null, forBoth: event.forBoth === true, endTime: event.startTime };
 }

@@ -125,7 +125,9 @@ export async function showBulkConfirmation(
     const recurringMark = ev.recurrence && !hebrew ? ' 🔁' : '';
     if (ev.kind === 'reminder') {
       const title = await getBotMessage(language, 'nativeReminders.card.title', { title: `<b>${escapeHtml(ev.title)}</b>` });
-      const forPartner = ev.forUserId != null && ev.forName
+      const forPartner = ev.forUserId != null && ev.forBoth
+        ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}`
+        : ev.forUserId != null && ev.forName
         ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: escapeHtml(ev.forName) })}`
         : '';
       // "Confirm all" must not create one that won't ping without saying so
@@ -247,7 +249,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
     if (result.success && result.eventId) {
       success++;
       if (ev.kind === 'reminder') {
-        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, all_day: ev.allDay });
+        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, for_both: ev.forBoth === true, all_day: ev.allDay });
       }
       // "Cancel that" reaches the batch's last reminder, as after a card (spec §11.3)
       if (ev.kind === 'reminder' && pending.user.telegramId != null) {

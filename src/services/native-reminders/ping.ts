@@ -4,18 +4,30 @@
 // Each button's callback data is `nr:<op>:<stateId>`, where stateId is the occurrence's
 // state row (a 36-character UUID, so `nr:s15:<id>` is 43 bytes of Telegram's 64). The
 // row lives as long as the occurrence keeps its time, so an old ping's buttons still work.
+// A reminder for both partners shares the state row; the tapping user picks their own ping.
 
 import TelegramBot from 'node-telegram-bot-api';
 import { getBot } from '../telegram';
 import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
 
-/** `⏰ <b>title</b>`, and a "from: <creator>" line when someone else set it. */
-export async function buildPingText(a: { title: string; creatorName?: string; language: string }): Promise<string> {
+/**
+ * `⏰ <b>title</b>`, then "for both of you" on a reminder for both partners, or a
+ * "from: <creator>" line when someone else set it for just this person.
+ */
+export async function buildPingText(a: { title: string; creatorName?: string; forBoth?: boolean; language: string }): Promise<string> {
   const head = `⏰ <b>${escapeHtml(a.title)}</b>`;
+  if (a.forBoth) return `${head}\n${await getBotMessage(a.language, 'nativeReminders.ping.forBoth')}`;
   if (!a.creatorName) return head;
   const from = await getBotMessage(a.language, 'nativeReminders.ping.from', { name: escapeHtml(a.creatorName) });
   return `${head}\n${from}`;
+}
+
+/** What a ping reads once the occurrence is done: "✅ title", or "✅ Done by Dana: title" when someone else did it. */
+export function buildDoneText(a: { title: string; doneByName?: string; language: string }): Promise<string> {
+  return a.doneByName
+    ? getBotMessage(a.language, 'nativeReminders.doneBy', { name: escapeHtml(a.doneByName), title: escapeHtml(a.title) })
+    : getBotMessage(a.language, 'nativeReminders.done', { title: escapeHtml(a.title) });
 }
 
 /** ✅ Done on its own row, the three snoozes under it. */

@@ -32,11 +32,11 @@ export function movedWhen(startsAt: Date, allDay: boolean, language: string, rea
 /**
  * The other pings an edit retires (3b spec §3.1): those of occurrences that no longer exist
  * (a new rule, or stopping, removed them), which read "changed", and those of open
- * occurrences now for someone else, which read "⏰ <title> · now for <name>".
+ * occurrences now for someone else, which read "⏰ <title> · now for <name>" ("now for both of you" for both partners).
  */
 export interface OtherStalePings {
   changed?: ClearedPing[];
-  reassigned?: { pings: ClearedPing[]; name: string };
+  reassigned?: { pings: ClearedPing[]; name: string; both?: boolean };
 }
 
 /**
@@ -69,7 +69,9 @@ export async function stripMovedPings(
   }
   const reassigned = others?.reassigned;
   for (const ping of reassigned?.pings ?? []) {
-    await strip(ping, (_reader, language) => getBotMessage(language, 'nativeReminders.reassigned', { title, name: escapeHtml(reassigned!.name) }));
+    await strip(ping, (_reader, language) => reassigned!.both
+      ? getBotMessage(language, 'nativeReminders.reassignedBoth', { title })
+      : getBotMessage(language, 'nativeReminders.reassigned', { title, name: escapeHtml(reassigned!.name) }));
   }
   if (pings.length === 0) return;
 

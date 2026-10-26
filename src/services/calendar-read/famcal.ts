@@ -14,8 +14,8 @@
 import type { NativeCalendar, NativeEvent } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import type { UnifiedEvent } from '../calendar-provider/types';
-import { fetchViewerItems } from '../calendar-provider/native-provider';
-import { encodeCalendarId, listVisibleCalendars } from '../native-calendar/event-store';
+import { fetchViewerItems, viewerSnoozedUntil } from '../calendar-provider/native-provider';
+import { encodeCalendarId, listVisibleCalendars, type ReminderStateRow } from '../native-calendar/event-store';
 import { loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
 import type { OpenReminderItem } from '../native-reminders/open-reminders';
 import type { CalendarRef, FamcalRead, ReadItem } from './types';
@@ -63,13 +63,14 @@ function legendById(calendars: readonly CalendarRef[]): Map<string, CalendarRef>
  */
 function toReadItem(
   parts: {
-    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule' | 'hebrewRule' | 'hebrewAnchor'>;
+    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule' | 'hebrewRule' | 'hebrewAnchor' | 'creatorUserId' | 'forUserId' | 'forBoth'>;
     title: string;
     instanceStartsAt: Date;
-    state?: { doneAt: Date | null; snoozedUntil: Date | null };
+    state?: Pick<ReminderStateRow, 'doneAt' | 'pings'>;
     event: UnifiedEvent;
   },
-  calendar: CalendarRef
+  calendar: CalendarRef,
+  ctx: ViewerContext
 ): ReadItem {
   const kind = parts.series.kind === 'REMINDER' ? 'reminder' : 'event';
   return {
@@ -86,7 +87,7 @@ function toReadItem(
     hebrewRule: parts.series.hebrewRule,
     hebrewAnchor: parts.series.hebrewAnchor,
     ...(kind === 'reminder'
-      ? { state: { doneAt: parts.state?.doneAt ?? null, snoozedUntil: parts.state?.snoozedUntil ?? null } }
+      ? { state: { doneAt: parts.state?.doneAt ?? null, snoozedUntil: viewerSnoozedUntil(parts.series, parts.state, ctx) } }
       : {}),
   };
 }
@@ -125,7 +126,8 @@ export async function readFamcal(
       items: items.map(({ row, state, event }) =>
         toReadItem(
           { series: row.series, title: row.instance.title, instanceStartsAt: row.instance.instanceStartsAt, state, event },
-          refFor(row.calendar.id, byId, partner)
+          refFor(row.calendar.id, byId, partner),
+          ctx
         )
       ),
     };
@@ -144,7 +146,8 @@ export function carryOverReadItems(famcal: FamcalOk, carryOvers: readonly OpenRe
   return carryOvers.map((c) =>
     toReadItem(
       { series: c.series, title: c.event.summary, instanceStartsAt: c.instanceStartsAt, state: c.state, event: c.event },
-      refFor(c.calendar.id, byId, famcal.partner)
+      refFor(c.calendar.id, byId, famcal.partner),
+      famcal.ctx
     )
   );
 }

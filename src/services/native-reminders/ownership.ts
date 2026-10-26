@@ -65,6 +65,41 @@ export function effectiveOwnerId(
   return creatorPartner.id;
 }
 
+/** The reminder columns that say who it is for. */
+type RecipientColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
+
+/**
+ * Everyone a reminder pings and shows to, creator first. A reminder for both partners
+ * (forBoth, with forUserId the partner) is for the creator and that partner while R2 still
+ * accepts forUserId; otherwise the creator alone. A single reminder is the effective owner
+ * alone. The ONE recipients rule: the pass, the actions, the digests, the calendar and the
+ * editor all ask it, none re-derives it.
+ */
+export function recipientIds(series: RecipientColumns, creatorPartner: { id: number } | null): number[] {
+  const owner = effectiveOwnerId(series, creatorPartner);
+  if (!series.forBoth) return [owner];
+  return owner === series.creatorUserId ? [series.creatorUserId] : [series.creatorUserId, owner];
+}
+
+/**
+ * Whose ping a snooze or an undo by `actorId` is about: their own when they are a
+ * recipient; else (the creator of someone else's single reminder) its one recipient.
+ * The Mini App shows the same ping's snooze.
+ */
+export function pingUserFor(recipients: number[], actorId: number): number {
+  return recipients.includes(actorId) ? actorId : recipients[0];
+}
+
+/**
+ * The creator's ACTIVE partner, seen from a viewer with no extra query: the viewer's own
+ * partner when the viewer created it, the viewer when the viewer's partner did, otherwise
+ * unknown (null).
+ */
+function creatorPartnerForViewer(series: { creatorUserId: number }, ctx: ViewerContext): { id: number } | null {
+  if (series.creatorUserId === ctx.viewerId) return ctx.partner;
+  return ctx.partner && series.creatorUserId === ctx.partner.id ? { id: ctx.viewerId } : null;
+}
+
 /**
  * effectiveOwnerId seen from a viewer, with no extra query. The viewer's ACTIVE
  * partner is the creator's partner when the viewer created it, and the viewer is
@@ -72,11 +107,10 @@ export function effectiveOwnerId(
  * creator's.
  */
 export function effectiveOwnerForViewer(series: { creatorUserId: number; forUserId: number | null }, ctx: ViewerContext): number {
-  const creatorPartner =
-    series.creatorUserId === ctx.viewerId
-      ? ctx.partner
-      : ctx.partner && series.creatorUserId === ctx.partner.id
-        ? { id: ctx.viewerId }
-        : null;
-  return effectiveOwnerId(series, creatorPartner);
+  return effectiveOwnerId(series, creatorPartnerForViewer(series, ctx));
+}
+
+/** recipientIds seen from a viewer, with no extra query. */
+export function recipientIdsForViewer(series: RecipientColumns, ctx: ViewerContext): number[] {
+  return recipientIds(series, creatorPartnerForViewer(series, ctx));
 }

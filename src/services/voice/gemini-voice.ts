@@ -327,7 +327,8 @@ function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContex
   const whoRules = partner
     ? `2. WHO IT IS FOR - every reminder has "forPerson":
    - "partner" when it is for the user's partner, by name or by role: "remind ${partnerInEnglish} to...", "remind my wife to...", "תזכיר לבעלי...", "תזכירי לאשתי...", "напомни мужу...", "напомни жене...".
-   - "self" for everything else: "remind me", "remind us", and a child or anyone else. Keep that person's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine", "forPerson": "self".`
+   - "both" when it is for the user AND the user's partner together: "remind us to...", "remind both of us to...", "remind me and ${partnerInEnglish} to...", "תזכיר לנו...", "תזכיר לשנינו...", "תזכיר לי ול${partner}...", "напомни нам...", "напомни нам обоим...", "напомни мне и ${partner}...".
+   - "self" for everything else: "remind me", and a child or anyone else. Keep that person's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine", "forPerson": "self".`
     : `2. WHO IT IS FOR - "forPerson" is always "self". Keep anyone else's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine".`;
 
   const forwardedRule = mode === 'text'
@@ -347,6 +348,16 @@ function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContex
     ...(partner
       ? [example('напомни мужу забрать детей в четыре', 'Russian: Remind my husband to pick up the kids at four',
         reminder('"forPerson": "partner", "title": "Забрать детей", "startDate": "YYYY-MM-DD", "startTime": "16:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null'))]
+      : []),
+    ...(partner
+      ? [
+        example('Remind us to book the flights tomorrow', '',
+          reminder('"forPerson": "both", "title": "Book the flights", "startDate": "YYYY-MM-DD", "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null')),
+        example('תזכיר לשנינו לשלם את חשבון החשמל ביום חמישי בשמונה', 'Hebrew: Remind both of us to pay the electricity bill on Thursday at eight',
+          reminder('"forPerson": "both", "title": "לשלם את חשבון החשמל", "startDate": "YYYY-MM-DD", "startTime": "20:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
+        example('напомни нам обоим про родительское собрание в шесть', 'Russian: Remind both of us about the parents meeting at six',
+          reminder('"forPerson": "both", "title": "Родительское собрание", "startDate": "YYYY-MM-DD", "startTime": "18:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
+      ]
       : []),
     example('напомни через 20 минут выключить духовку', 'Russian: Remind me in 20 minutes to turn off the oven; said at 18:40',
       reminder('"forPerson": "self", "title": "Выключить духовку", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
@@ -411,7 +422,7 @@ ${whoRules}
 
 REMINDER FIELDS (inside "event", and inside the "event" of each "intents" entry):
   "kind": "event" | "reminder",
-  "forPerson": "self" | "partner" (reminders only),
+  "forPerson": "self" | "partner" | "both" (reminders only),
   "anchor": {"description": "dentist", "offsetMinutes": -60} or null (reminders only)
 
 REMINDER EXAMPLES:
@@ -665,7 +676,7 @@ function parseReminderCreate(
     confidence,
     recurrence: repeat.recurrence,
     kind: 'reminder',
-    forPerson: eventData.forPerson === 'partner' ? 'partner' : 'self',
+    forPerson: eventData.forPerson === 'partner' || eventData.forPerson === 'both' ? eventData.forPerson : 'self',
     ...(anchor ? { anchor } : {}),
   };
 

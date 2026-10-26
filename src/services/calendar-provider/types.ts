@@ -53,6 +53,8 @@ export interface CreateEventInput {
   // (startTime === endTime), and forUserId is the partner it is for (null: the creator).
   kind?: 'event' | 'reminder';
   forUserId?: number | null;
+  /** With forUserId = the partner: the reminder is for both of them. */
+  forBoth?: boolean;
 }
 
 export interface UpdateEventInput {

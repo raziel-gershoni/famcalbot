@@ -6,7 +6,9 @@ import {
   LOCATION_MAX,
   NOTES_MAX,
   TITLE_MAX,
+  FOR_WHO,
   type EditScope,
+  type ForWho,
   type ItemKind,
   type RepeatChoice,
   type RepeatInput,
@@ -115,14 +117,14 @@ export interface CreateCommand {
   end?: string;
   repeat: RepeatInput;
   calendarId?: string;
-  forPartner: boolean;
+  forWho: ForWho;
   /** Events only; undefined when the body gave none (the default). */
   alert?: AlertChoice;
 }
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner', 'alert']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -154,9 +156,9 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
     if (!isNativeCalendarIdOf(raw.calendarId) && !isGoogleCalendarId(raw.calendarId)) return fail('calendarId');
     calendarId = raw.calendarId;
   }
-  if (raw.forPartner !== undefined && typeof raw.forPartner !== 'boolean') return fail('forPartner');
-  const forPartner = raw.forPartner === true;
-  if (forPartner && kind !== 'reminder') return fail('forPartner');
+  if (raw.forWho !== undefined && !isForWho(raw.forWho)) return fail('forWho');
+  const forWho: ForWho = raw.forWho ?? 'me';
+  if (forWho !== 'me' && kind !== 'reminder') return fail('forWho');
   // An event's alert (editor upgrades spec §2): a listed value. A reminder has none; whether the
   // calendar takes one (a Google one doesn't) is for the write, which knows the calendar.
   let alert: AlertChoice | undefined;
@@ -165,7 +167,7 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
     if (kind !== 'event' || parsed === null) return fail('alert');
     alert = parsed;
   }
-  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forPartner, ...(alert !== undefined ? { alert } : {}) } };
+  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}) } };
 }
 
 /** A FamCal item's key: the series, and the occurrence's original start for a repeating one. */
@@ -240,12 +242,15 @@ export interface UpdateCommand {
     repeat?: RepeatInput;
     /** 3b: an event's calendar, 'native:<cuid>' or a Google id; the other kind's is the cross-source move. */
     calendarId?: string;
-    /** 3b: a reminder for the partner (true) or its creator (false), relative to its creator. */
-    forPartner?: boolean;
+    /** 3b: who a reminder is for, relative to its creator: themselves, their partner, or both. */
+    forWho?: ForWho;
     /** An event's alert, from the opened occurrence on (series-level); a FamCal event only. */
     alert?: AlertChoice;
   };
 }
+
+/** Whether a value is one of the For row's three choices. */
+const isForWho = (value: unknown): value is ForWho => (FOR_WHO as readonly unknown[]).includes(value);
 
 /** A FamCal calendar id as the editor sends it, 'native:<cuid>'. */
 const isNativeCalendarIdOf = (value: unknown): value is string =>
@@ -260,7 +265,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forPartner', 'alert'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -302,9 +307,9 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     if (!isNativeCalendarIdOf(c.calendarId) && !isGoogleCalendarId(c.calendarId)) return fail('calendarId');
     changes.calendarId = c.calendarId as string;
   }
-  if (c.forPartner !== undefined) {
-    if (typeof c.forPartner !== 'boolean') return fail('forPartner');
-    changes.forPartner = c.forPartner;
+  if (c.forWho !== undefined) {
+    if (!isForWho(c.forWho)) return fail('forWho');
+    changes.forWho = c.forWho;
   }
   if (c.alert !== undefined) {
     const alert = parseAlertChoice(c.alert);

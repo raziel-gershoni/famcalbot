@@ -89,13 +89,14 @@ export interface ParsedEvent {
   recurrence?: RecurrencePattern;
   // A reminder once resolved for creation (src/services/native-reminders/resolve.ts).
   // The pending card keeps them, so its confirm creates exactly what the card showed.
-  forUserId?: number | null; // the partner it is for; null = the creator
+  forUserId?: number | null; // the partner it is for (with forBoth, the partner it is also for); null = the creator
+  forBoth?: boolean; // for the creator and that partner
   forName?: string; // that partner's name, for the card and the reply
   reminderNotice?: 'partner_not_on_telegram' | 'time_passed' | 'no_time_set';
   /** 'reminder' for a reminder: one moment, so endTime equals startTime. Unset on an event. */
   kind?: 'event' | 'reminder';
   /** Reminders only: who it is for, as a role. Resolution maps 'partner' to the user's partner. */
-  forPerson?: 'self' | 'partner';
+  forPerson?: 'self' | 'partner' | 'both';
   /**
    * Reminders only, for "an hour before the dentist": the words naming that event and the
    * minutes from its start (negative is before). startTime and endTime are Invalid Dates

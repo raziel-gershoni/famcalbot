@@ -86,6 +86,7 @@ model User {
   createdNativeEvents    NativeEvent[]         @relation("CreatedNativeEvents")
   nativeRemindersFor     NativeEvent[]         @relation("NativeRemindersFor")
   nativeRemindersDone    NativeReminderState[] @relation("NativeRemindersDone")
+  nativeReminderPings    NativeReminderPing[]
   pairingsInvited        Pairing[]             @relation("PairingsInvited")
   pairingsAccepted       Pairing[]             @relation("PairingsAccepted")
   pairingInvitesCreated  PairingInvite[]       @relation("PairingInvitesCreated")
@@ -228,6 +229,7 @@ model NativeEvent {
   kind            NativeEventKind @default(EVENT)
   forUserId       Int? // REMINDER target; null = the creator. Meaningful only for REMINDER
   forUser         User?           @relation("NativeRemindersFor", fields: [forUserId], references: [id], onDelete: SetNull)
+  forBoth         Boolean         @default(false) // REMINDER for both partners: forUserId is then the partner, and the recipients are the creator and that partner
   armedAt         DateTime? // REMINDER: when its time was last set (create or time change); bounds the ping lookback
   isDeleted       Boolean         @default(false)
   createdAt       DateTime        @default(now())
@@ -263,24 +265,44 @@ model NativeEventInstance {
 }
 
 // Per-occurrence state of a REMINDER, keyed like NativeEventInstance. No row means
-// pending; a row appears once the occurrence is pinged, snoozed or marked done.
+// pending; a row appears once the occurrence is pinged, snoozed or marked done. Done is
+// shared by everyone the reminder is for; each recipient's own ping is a NativeReminderPing.
+// (The table still has the old ping columns snoozedUntil, lastPingedAt, pingAttempts,
+// pingChatId, pingMessageId and their index: they left this schema in the "remind us both"
+// release and a later migration drops them.)
 model NativeReminderState {
-  id               String      @id @default(cuid())
+  id               String               @id @default(cuid())
   seriesEventId    String
-  seriesEvent      NativeEvent @relation(fields: [seriesEventId], references: [id], onDelete: Cascade)
+  seriesEvent      NativeEvent          @relation(fields: [seriesEventId], references: [id], onDelete: Cascade)
   originalStartsAt DateTime // occurrence key, exactly expandSeries' instanceStartsAt (one-off: startsAt)
   doneAt           DateTime?
   doneByUserId     Int?
-  doneBy           User?       @relation("NativeRemindersDone", fields: [doneByUserId], references: [id], onDelete: SetNull)
-  snoozedUntil     DateTime?
-  lastPingedAt     DateTime?
-  pingAttempts     Int         @default(0)
-  pingChatId       BigInt? // the live ping message, so later edits can strip its buttons
-  pingMessageId    Int?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  doneBy           User?                @relation("NativeRemindersDone", fields: [doneByUserId], references: [id], onDelete: SetNull)
+  pings            NativeReminderPing[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@unique([seriesEventId, originalStartsAt])
+}
+
+// One recipient's ping of one occurrence: its snooze, the claim that stops a second send,
+// and the live Telegram message, so a Done or a move can edit it. A single reminder has one
+// row per occurrence, a reminder for both partners two.
+model NativeReminderPing {
+  id            String              @id @default(cuid())
+  stateId       String
+  state         NativeReminderState @relation(fields: [stateId], references: [id], onDelete: Cascade)
+  userId        Int
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snoozedUntil  DateTime?
+  lastPingedAt  DateTime?
+  pingAttempts  Int                 @default(0)
+  pingChatId    BigInt? // the live ping message, so later edits can strip its buttons
+  pingMessageId Int?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([stateId, userId])
   @@index([snoozedUntil])
 }
 

@@ -12,12 +12,13 @@
 // lands. It waits for the server's answer, or for the platform's own limit, which fails it.
 
 import { INIT_DATA_HEADER, initDataHeaders, readInitData } from '../read-init-data';
-import type {
-  CreateItemBody,
-  DeleteItemBody,
-  EditorInfoResponse,
-  ItemEditInfoResponse,
-  UpdateItemBody,
+import {
+  FOR_WHO,
+  type CreateItemBody,
+  type DeleteItemBody,
+  type EditorInfoResponse,
+  type ItemEditInfoResponse,
+  type UpdateItemBody,
 } from './editor-types';
 
 /** A read that has not answered by then reads as failed. Writes have none (see above). */
@@ -97,7 +98,7 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
     optional(value.canMoveCalendar, 'boolean') &&
     (value.moveTargets === undefined || (Array.isArray(value.moveTargets) && value.moveTargets.every((id) => typeof id === 'string'))) &&
     optional(value.canChangeRecipient, 'boolean') &&
-    optional(value.forPartner, 'boolean') &&
+    (value.forWho === undefined || (FOR_WHO as readonly unknown[]).includes(value.forWho)) &&
     optional(value.editableInGoogleOnly, 'boolean') &&
     (value.source === undefined || value.source === 'famcal' || value.source === 'google') &&
     (value.moveReason === undefined || value.moveReason === 'meet' || value.moveReason === 'hebrew' || value.moveReason === 'repeat') &&

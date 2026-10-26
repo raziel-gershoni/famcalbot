@@ -3,13 +3,13 @@
 // A reminder stays in the digests until someone marks it done. On the summary day a
 // done occurrence leaves the list and one whose time has passed is marked open. Older
 // undone ones are carried over as "open since <day>", only to the two people
-// responsible for them (its effective owner and its creator), newest first, at most
+// responsible for them (everyone it is for, and its creator), newest first, at most
 // OPEN_REMINDERS_DIGEST_CAP of them. A repeating reminder carries only its latest
 // occurrence before the cutoff, and nothing when it also occurs on the summary day:
 // that occurrence speaks for it. Nor when that occurrence came before the series was
 // armed (created or re-timed): it was never pinged, so it is not open.
 
-import type { NativeEvent, NativeEventInstance, NativeReminderState } from '@prisma/client';
+import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import type { CalendarEvent, ReminderInfo, UserConfig } from '../../types';
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
@@ -17,8 +17,9 @@ import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
 import { isReminderEvent } from '../../utils/event-formatter';
 import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurrence';
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
+import type { ReminderStateRow } from '../native-calendar/event-store';
 import type { UnifiedEvent } from '../calendar-provider/types';
-import { effectiveOwnerForViewer, loadViewerContext, type ViewerContext } from './ownership';
+import { loadViewerContext, recipientIdsForViewer, type ViewerContext } from './ownership';
 import { ARMED_GRACE_MS, reminderDueAt } from './due';
 
 // reminderDueAt moved to the leaf due.ts (the calendar home's DTO code reads it); its
@@ -59,12 +60,15 @@ export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: 
   return shaped;
 }
 
+/** What the carry-over reads of an occurrence's state row: done, and each recipient's snooze. */
+export type OpenReminderState = Pick<ReminderStateRow, 'originalStartsAt' | 'doneAt' | 'pings'>;
+
 /** A REMINDER series with what the carry-over reads: its calendar, overrides and state rows. */
 export interface OpenReminderCandidate {
   series: NativeEvent;
   calendar: { id: string; name: string };
   overrides: NativeEventInstance[];
-  states: Pick<NativeReminderState, 'originalStartsAt' | 'doneAt' | 'snoozedUntil'>[];
+  states: OpenReminderState[];
 }
 
 /**
@@ -80,13 +84,13 @@ export interface OpenReminderItem {
   /** The occurrence's original start, which its state row is keyed by; a one-off's own start. */
   instanceStartsAt: Date;
   /** The occurrence's state row, when it has one (a snoozed one). Never a done one: those are not carried. */
-  state?: Pick<NativeReminderState, 'originalStartsAt' | 'doneAt' | 'snoozedUntil'>;
+  state?: OpenReminderState;
 }
 
 /**
  * Which reminders a digest carries over, without the database. Each series offers its
  * latest occurrence before `cutoff`; it is carried when it is due before the cutoff,
- * not done, the viewer is its effective owner or its creator (R1), and, for a
+ * not done, the viewer is someone it is for or its creator (R1), and, for a
  * repeating one, the series has no occurrence on the summary day and the occurrence is
  * not due before `armedAt - ARMED_GRACE_MS`. A one-off has no armed bound: someone set
  * that one item, so it stays a to-do until done, even when its time had already passed.
@@ -120,8 +124,8 @@ function selectOpenReminderItems(
   const summaryRange = { from: startOfLocalDay(summaryDay, timezone), to: startOfLocalDay(nextDate(summaryDay), timezone) };
   const open: Array<{ due: Date; item: OpenReminderItem }> = [];
   for (const { series, calendar, overrides, states } of candidates) {
-    // R1: carried over only to its effective owner and its creator
-    if (effectiveOwnerForViewer(series, ctx) !== ctx.viewerId && series.creatorUserId !== ctx.viewerId) continue;
+    // R1: carried over only to everyone it is for and its creator
+    if (!recipientIdsForViewer(series, ctx).includes(ctx.viewerId) && series.creatorUserId !== ctx.viewerId) continue;
     let occurrence: ReturnType<typeof latestOccurrenceBefore>;
     let onSummaryDay: boolean;
     try {
@@ -219,7 +223,7 @@ async function loadOpenReminderCandidates(ctx: ViewerContext, cutoff: Date): Pro
         ...(ctx.partner ? [{ creatorUserId: ctx.partner.id, forUserId: ctx.viewerId }] : []),
       ],
     },
-    include: { calendar: true, instances: true, states: true },
+    include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } } } },
   });
   return rows.map(row => ({ series: row, calendar: row.calendar, overrides: row.instances, states: row.states }));
 }

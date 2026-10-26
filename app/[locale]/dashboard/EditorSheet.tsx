@@ -63,7 +63,7 @@ import {
 import { minYearFor, MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
 import { type CustomSeed, sameRepeat, toGregorian } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
-import type { EditScope, EditorCalendar, ItemEditInfoResponse, ItemKind, RuleChoice } from '@/src/lib/calendar-view/editor-types';
+import type { EditScope, EditorCalendar, ForWho, ItemEditInfoResponse, ItemKind, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from './BottomSheet';
@@ -296,6 +296,8 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
   const canPartner = !edit && reminder && !!partner && partner.canRemind;
   /** An edit's For row, for the reminder's creator: Me | the partner (by the name the info or the editor gave). */
   const partnerName = edit && reminder && info?.canChangeRecipient ? (info.forName ?? partner?.name ?? null) : null;
+  /** The For row's partner choice, on create or edit: its name, or null when there is no row. */
+  const forPartnerName = canPartner && partner ? partner.name : partnerName;
   const showCalendarRow = !reminder && (edit ? moveOptions.length > 1 : calendarOptions.length > 0);
   // The move to the other kind of calendar ("Google as a connection" §5): picked, its row says
   // what follows the new calendar (and that the partner will see it, on a calendar they see);
@@ -445,27 +447,16 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
               </FormCard>
             ) : null}
 
-            {partnerName !== null ? (
-              <RadioPair
+            {forPartnerName !== null ? (
+              <RadioPair<ForWho>
                 label={t('editor.forLabel')}
-                value={form.forPartner ? 'partner' : 'me'}
+                value={form.forWho}
                 options={[
                   { value: 'me', text: t('editor.forMe') },
-                  { value: 'partner', text: partnerName },
+                  { value: 'partner', text: forPartnerName },
+                  { value: 'both', text: t('editor.forBoth') },
                 ]}
-                onChange={(who) => change({ ...form, forPartner: who === 'partner' })}
-              />
-            ) : null}
-
-            {canPartner && partner ? (
-              <RadioPair
-                label={t('editor.forLabel')}
-                value={form.forPartner ? 'partner' : 'me'}
-                options={[
-                  { value: 'me', text: t('editor.forMe') },
-                  { value: 'partner', text: partner.name },
-                ]}
-                onChange={(who) => change({ ...form, forPartner: who === 'partner' })}
+                onChange={(forWho) => change({ ...form, forWho })}
               />
             ) : null}
 
@@ -481,7 +472,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
               </p>
             ) : null}
             {moveReasonText && !reminder && !showCalendarRow ? <p className="ch-form-fixed">{moveReasonText}</p> : null}
-            {edit && info?.forName && partnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
+            {edit && info?.forName && forPartnerName === null ? <p className="ch-form-fixed">{t('editor.forName', { name: info.forName })}</p> : null}
           </div>
         </div>
         <SaveBar label={t('editor.save')} busy={saving} error={errorText ?? (inlineNote ? t(INLINE_NOTE_KEY[inlineNote]) : null)} onSave={save} />

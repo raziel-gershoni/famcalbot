@@ -418,9 +418,11 @@ export async function formatReminderCard(
 ): Promise<string> {
   const m = MARKUP[markup];
   const t = await getBotMessages(language);
-  const forPartner = event.forUserId != null && event.forName
-    ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: m.text(event.forName) })}`
-    : '';
+  const forPartner = event.forUserId != null && event.forBoth
+    ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}`
+    : event.forUserId != null && event.forName
+      ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: m.text(event.forName) })}`
+      : '';
   const lines = [
     await getBotMessage(language, 'nativeReminders.card.title', { title: m.bold(m.text(event.title)) }),
     `📆 ${formatReminderWhen(event, language, timezone)}${forPartner}`,
@@ -456,6 +458,9 @@ export async function reminderCreatedLine(
 ): Promise<string> {
   if (event.reminderNotice === 'time_passed') return getBotMessage(language, 'nativeReminders.created.passed');
   const when = await formatReminderRelativeWhen(event, language, timezone);
+  if (event.forUserId != null && event.forBoth) {
+    return getBotMessage(language, event.allDay ? 'nativeReminders.created.bothDateOnly' : 'nativeReminders.created.both', { when });
+  }
   const forPartner = event.forUserId != null && !!event.forName;
   const name = forPartner ? (html ? escapeHtml(event.forName!) : event.forName!) : '';
   if (event.allDay) {

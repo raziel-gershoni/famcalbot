@@ -26,12 +26,14 @@ export function isReminderEvent(event: Pick<CalendarEvent, 'eventType'>): boolea
 /**
  * Whose a reminder is, from the viewer's side, in English like the other prompt
  * markers: "from Dana" on one Dana set for the viewer, "for Dana, you asked" on one
- * the viewer set for Dana. Nothing on the viewer's own, nor on one the partner set
+ * the viewer set for Dana, "for both of you" on one for the two of them. Nothing on the viewer's own, nor on one the partner set
  * for themselves: the section it sits in already says whose it is.
  */
 export function reminderAttribution(event: Pick<CalendarEvent, 'reminder'>): string | undefined {
   const info = event.reminder;
   if (!info) return undefined;
+  // For both partners: it sits in each one's own section, marked so the digest can say so.
+  if (info.forBoth) return 'for both of you';
   if (info.ownerIsViewer && !info.creatorIsViewer) return `from ${sanitizeEventField(info.creatorName || 'your partner', 100)}`;
   if (info.creatorIsViewer && !info.ownerIsViewer) return `for ${sanitizeEventField(info.ownerName || 'your partner', 100)}, you asked`;
   return undefined;

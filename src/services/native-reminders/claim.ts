@@ -1,24 +1,30 @@
-// The atomic claim on a reminder occurrence before its ping is sent (spec §4.3).
+// The atomic claim on a reminder occurrence, for one recipient, before their ping is sent
+// (spec §4.3, "remind us both" spec Data model).
 //
 // Overlapping ticks, a manual run, and the two processes Railway runs during a deploy
 // can each find the same occurrence due. Only the one whose claim returns a row sends.
-// The claim is one conditional upsert on the state row's (seriesEventId,
-// originalStartsAt) key. Prisma's upsert can't carry the condition, hence the raw SQL.
+// The claim is one statement: ensure the occurrence's state row (unique on seriesEventId,
+// originalStartsAt), then insert-or-update the recipient's ping row (unique on stateId,
+// userId) while the occurrence is not done and that recipient has not been pinged for this
+// due time. Prisma's upsert can't carry the condition, hence the raw SQL. A reminder for
+// both partners is claimed once per recipient, so each is pinged once.
 
 import { randomUUID } from 'crypto';
 import { prisma } from '../../utils/prisma';
 
 export interface Claim {
-  id: string; // the state row, which the ping's buttons carry
+  id: string; // the recipient's ping row
+  stateId: string; // the occurrence's state row, which the ping's buttons carry
+  userId: number; // the recipient
   claimedAt: Date; // the lastPingedAt this claim wrote
   previousLastPingedAt: Date | null; // what releaseClaim puts back
-  pingAttempts: number; // claims made on this occurrence, this one included
-  created: boolean; // the claim made the state row (the occurrence had none)
+  pingAttempts: number; // claims made on this recipient's ping, this one included
+  created: boolean; // the claim made the ping row (this recipient had none for the occurrence)
 }
 
 /**
- * Claim one occurrence for a ping due at `due`. Null when it is done or something has
- * already pinged it for this due time. The row is created on the first claim: until
+ * Claim one occurrence for `userId`'s ping due at `due`. Null when it is done or something
+ * has already pinged them for this due time. The rows are created on the first claim: until
  * then the occurrence has no state, which means pending.
  *
  * Timestamps go in as ISO strings read as UTC, because Prisma keeps DateTime columns as
@@ -27,30 +33,48 @@ export interface Claim {
 export async function claimOccurrence(
   seriesEventId: string,
   originalStartsAt: Date,
+  userId: number,
   due: Date,
   now: Date = new Date()
 ): Promise<Claim | null> {
-  const previous = await prisma.nativeReminderState.findUnique({
-    where: { seriesEventId_originalStartsAt: { seriesEventId, originalStartsAt } },
+  const previous = await prisma.nativeReminderPing.findFirst({
+    where: { userId, state: { seriesEventId, originalStartsAt } },
     select: { lastPingedAt: true },
   });
   const at = now.toISOString();
-  const rows = await prisma.$queryRaw<Array<{ id: string; lastPingedAt: Date; pingAttempts: number }>>`
-    INSERT INTO "NativeReminderState" ("id", "seriesEventId", "originalStartsAt", "lastPingedAt", "pingAttempts", "updatedAt")
-    VALUES (${randomUUID()}, ${seriesEventId}, (${originalStartsAt.toISOString()}::timestamptz AT TIME ZONE 'UTC'),
-            (${at}::timestamptz AT TIME ZONE 'UTC'), 1, (${at}::timestamptz AT TIME ZONE 'UTC'))
-    ON CONFLICT ("seriesEventId", "originalStartsAt") DO UPDATE
+  const dueAt = due.toISOString();
+  // The state row insert is a no-op update when the row exists, so RETURNING gives its id and
+  // doneAt either way. The ping row is then written only while the occurrence is not done.
+  const rows = await prisma.$queryRaw<Array<{ id: string; stateId: string; lastPingedAt: Date; pingAttempts: number }>>`
+    WITH state AS (
+      INSERT INTO "NativeReminderState" ("id", "seriesEventId", "originalStartsAt", "updatedAt")
+      VALUES (${randomUUID()}, ${seriesEventId}, (${originalStartsAt.toISOString()}::timestamptz AT TIME ZONE 'UTC'),
+              (${at}::timestamptz AT TIME ZONE 'UTC'))
+      ON CONFLICT ("seriesEventId", "originalStartsAt") DO UPDATE SET "updatedAt" = "NativeReminderState"."updatedAt"
+      RETURNING "id", "doneAt", "lastPingedAt" AS "oldLastPingedAt"
+    )
+    INSERT INTO "NativeReminderPing" ("id", "stateId", "userId", "lastPingedAt", "pingAttempts", "updatedAt")
+    SELECT ${randomUUID()}, state."id", ${userId}, (${at}::timestamptz AT TIME ZONE 'UTC'), 1, (${at}::timestamptz AT TIME ZONE 'UTC')
+    FROM state
+    WHERE state."doneAt" IS NULL
+      -- Deploy-window fallback, this release only: the previous build kept its last ping on the
+      -- state row itself ("lastPingedAt"), which is no longer a column of the schema. A ping it
+      -- sent during the deploy must not be sent again. Delete this condition with the step-2
+      -- migration that drops the column (drop-reminder-state-ping-columns.sql).
+      AND (state."oldLastPingedAt" IS NULL OR state."oldLastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC'))
+    ON CONFLICT ("stateId", "userId") DO UPDATE
       SET "lastPingedAt" = EXCLUDED."lastPingedAt",
-          "pingAttempts" = "NativeReminderState"."pingAttempts" + 1,
+          "pingAttempts" = "NativeReminderPing"."pingAttempts" + 1,
           "updatedAt" = EXCLUDED."updatedAt"
-      WHERE "NativeReminderState"."doneAt" IS NULL
-        AND ("NativeReminderState"."lastPingedAt" IS NULL
-             OR "NativeReminderState"."lastPingedAt" < (${due.toISOString()}::timestamptz AT TIME ZONE 'UTC'))
-    RETURNING "id", "lastPingedAt", "pingAttempts"`;
+      WHERE "NativeReminderPing"."lastPingedAt" IS NULL
+         OR "NativeReminderPing"."lastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC')
+    RETURNING "id", "stateId", "lastPingedAt", "pingAttempts"`;
   const row = rows[0];
   if (!row) return null;
   return {
     id: row.id,
+    stateId: row.stateId,
+    userId,
     claimedAt: row.lastPingedAt,
     previousLastPingedAt: previous?.lastPingedAt ?? null,
     pingAttempts: Number(row.pingAttempts),
@@ -60,15 +84,15 @@ export async function claimOccurrence(
 
 /**
  * Take back a claim made on a stale read of its series (3b spec §3.1, Recipient race): the
- * row it made goes, or the row it updated gets its last ping and attempts back, as if it had
- * never happened. Does nothing once anything else has written lastPingedAt since.
+ * ping row it made goes, or the row it updated gets its last ping and attempts back, as if
+ * it had never happened. Does nothing once anything else has written lastPingedAt since.
  */
 export async function undoClaim(claim: Claim): Promise<void> {
   if (claim.created) {
-    await prisma.nativeReminderState.deleteMany({ where: { id: claim.id, lastPingedAt: claim.claimedAt } });
+    await prisma.nativeReminderPing.deleteMany({ where: { id: claim.id, lastPingedAt: claim.claimedAt } });
     return;
   }
-  await prisma.nativeReminderState.updateMany({
+  await prisma.nativeReminderPing.updateMany({
     where: { id: claim.id, lastPingedAt: claim.claimedAt },
     data: { lastPingedAt: claim.previousLastPingedAt, pingAttempts: Math.max(0, claim.pingAttempts - 1) },
   });
@@ -79,7 +103,7 @@ export async function undoClaim(claim: Claim): Promise<void> {
  * It does nothing once anything else has written lastPingedAt since.
  */
 export async function releaseClaim(claim: Claim): Promise<void> {
-  await prisma.nativeReminderState.updateMany({
+  await prisma.nativeReminderPing.updateMany({
     where: { id: claim.id, lastPingedAt: claim.claimedAt },
     data: { lastPingedAt: claim.previousLastPingedAt },
   });

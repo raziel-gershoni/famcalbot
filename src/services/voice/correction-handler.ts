@@ -242,6 +242,7 @@ export async function handleEventCorrection(
         forPerson: event.forPerson,
         anchor: event.anchor,
         forUserId: event.forUserId,
+        forBoth: event.forBoth,
         forName: event.forName,
         reminderNotice: event.reminderNotice,
       });

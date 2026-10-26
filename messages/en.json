@@ -323,6 +323,7 @@
       "forLabel": "For",
       "forMe": "Me",
       "forName": "For {name}",
+      "forBoth": "Both of us",
       "errors": {
         "errTitle": "Add a title",
         "errTitleLong": "Keep the title to {max} characters or fewer",
@@ -1149,7 +1150,8 @@
     },
     "nativeReminders": {
       "ping": {
-        "from": "from: {name}"
+        "from": "from: {name}",
+        "forBoth": "for both of you"
       },
       "buttons": {
         "done": "✅ Done",
@@ -1165,9 +1167,11 @@
       "doneBy": "✅ Done by {name}: {title}",
       "moved": "⏰ {title} · moved to {when}",
       "reassigned": "⏰ {title} · now for {name}",
+      "reassignedBoth": "⏰ {title} · now for both of you",
       "card": {
         "title": "⏰ {title}",
         "forPartner": "for {name}",
+        "forBoth": "for both of you",
         "noTimeSet": "No time set; it'll be in your summaries.",
         "timePassed": "That time has already passed, so I won't ping. It'll show in your summaries until it's done.",
         "partnerNotOnTelegram": "{name} isn't on Telegram, so I can't ping them. Keep it as yours?",
@@ -1182,6 +1186,8 @@
         "partner": "⏰ I'll remind {name} {when}.",
         "dateOnly": "⏰ Reminder set for {when}.",
         "partnerDateOnly": "⏰ Reminder for {name} set for {when}.",
+        "both": "⏰ I'll remind both of you {when}.",
+        "bothDateOnly": "⏰ Reminder for both of you set for {when}.",
         "passed": "⏰ Saved. That time has already passed, so it'll show in your summaries until it's done."
       },
       "when": {

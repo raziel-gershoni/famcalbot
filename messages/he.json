@@ -323,6 +323,7 @@
       "forLabel": "בשביל",
       "forMe": "אני",
       "forName": "בשביל {name}",
+      "forBoth": "שנינו",
       "errors": {
         "errTitle": "צריך להוסיף כותרת",
         "errTitleLong": "הכותרת ארוכה מדי, עד {max} תווים",
@@ -1149,7 +1150,8 @@
     },
     "nativeReminders": {
       "ping": {
-        "from": "מאת: {name}"
+        "from": "מאת: {name}",
+        "forBoth": "לשניכם"
       },
       "buttons": {
         "done": "✅ בוצע",
@@ -1165,9 +1167,11 @@
       "doneBy": "✅ בוצע ע״י {name}: {title}",
       "moved": "⏰ {title} · זמן חדש: {when}",
       "reassigned": "⏰ {title} · עכשיו בשביל {name}",
+      "reassignedBoth": "⏰ {title} · עכשיו לשניכם",
       "card": {
         "title": "⏰ {title}",
         "forPartner": "בשביל {name}",
+        "forBoth": "לשניכם",
         "noTimeSet": "בלי שעה מסוימת, אז זה יופיע בסיכומים היומיים.",
         "timePassed": "המועד הזה כבר עבר, אז לא אשלח התראה. התזכורת תופיע בסיכומים עד שתסומן כבוצעה.",
         "partnerNotOnTelegram": "{name} לא בטלגרם, אז אין לי איך לשלוח תזכורת. להשאיר אותה אצלך?",
@@ -1182,6 +1186,8 @@
         "partner": "⏰ התזכורת בשביל {name} תישלח {when}.",
         "dateOnly": "⏰ התזכורת נקבעה ל{when}.",
         "partnerDateOnly": "⏰ התזכורת בשביל {name} נקבעה ל{when}.",
+        "both": "⏰ אזכיר לשניכם {when}.",
+        "bothDateOnly": "⏰ התזכורת לשניכם נקבעה ל{when}.",
         "passed": "⏰ נשמר. המועד כבר עבר, אז התזכורת תופיע בסיכומים עד שתסומן כבוצעה."
       },
       "when": {

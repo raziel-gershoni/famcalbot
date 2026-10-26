@@ -230,7 +230,7 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     canMoveCalendar: moveTargets.length > 1,
     moveTargets,
     canChangeRecipient: false,
-    forPartner: false,
+    forWho: 'me',
     editableInGoogleOnly: writable && !editable,
     source: 'google',
     ...(cross.reason ? { moveReason: cross.reason } : {}),
@@ -375,7 +375,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
     if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
     throw err;
   }
-  if (c.forPartner === true) return { status: 'invalid', field: 'forPartner' };
+  if (c.forWho !== undefined && c.forWho !== 'me') return { status: 'invalid', field: 'forWho' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;
   if (moveTo !== undefined) {
     const { calendars, failure } = await googleEditorCalendars(user);

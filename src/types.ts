@@ -109,10 +109,11 @@ export interface CalendarEvent {
  * person it is for, worked out on every read (see src/services/native-reminders/ownership.ts).
  */
 export interface ReminderInfo {
-  ownerIsViewer: boolean;   // the reminder is for the viewer (effective owner === viewer)
+  ownerIsViewer: boolean;   // the reminder is for the viewer (one of the people it is for)
   creatorIsViewer: boolean; // the viewer created it
   ownerName?: string;       // effective owner's display name, set when the owner is not the viewer
   creatorName?: string;     // creator's display name, set when the creator is not the viewer
+  forBoth?: boolean;        // for both partners (the viewer and their partner)
   done?: boolean;           // this occurrence has doneAt set
   snoozed?: boolean;        // this occurrence has snoozedUntil in the future
   open?: boolean;           // set by the summary: due earlier on the summary day, still undone

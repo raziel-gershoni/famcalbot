@@ -1,7 +1,7 @@
 // Done, undo and snooze on one native reminder occurrence (native-reminders spec §5,
 // reminder-actions spec §2). The ping's buttons (callbacks.ts) and the calendar home's
 // route (app/api/calendar/reminder) both come here, so the rules live once: the
-// occurrence must still be live, the actor must be its effective owner or its creator,
+// occurrence must still be live, the actor must be someone it is for (one person, or both partners) or its creator,
 // and every write is conditional on the state it expects.
 //
 // An occurrence is named by its key, (series id, originalStartsAt), never by a state row
@@ -22,8 +22,8 @@ import { escapeHtml } from '../../utils/html';
 import { expandSeries } from '../native-calendar/recurrence';
 import { invalidateDueGate } from './due-gate';
 import { tomorrowMorning } from './due';
-import { effectiveOwnerId, getActivePartnerSummary } from './ownership';
-import { stripPingButtons } from './ping';
+import { getActivePartnerSummary, pingUserFor, recipientIds } from './ownership';
+import { buildDoneText, stripPingButtons } from './ping';
 import type { UserConfig } from '../../types';
 
 export type ReminderAction = 'done' | 'undo' | 'snooze15' | 'snooze60' | 'snoozeTomorrow';
@@ -110,21 +110,24 @@ export async function applyReminderAction(
   if (!live) return { status: 'changed' };
   const { series, title } = live;
 
-  // The effective owner or the creator may act (spec §2).
+  // Anyone it is for, or its creator, may act (spec §2; "remind us both" spec: either partner).
   const creatorPartner = await getActivePartnerSummary(series.creatorUserId, series.creator.pairingId);
-  if (actor.id !== effectiveOwnerId(series, creatorPartner) && actor.id !== series.creatorUserId) {
+  const recipients = recipientIds(series, creatorPartner);
+  if (!recipients.includes(actor.id) && actor.id !== series.creatorUserId) {
     return { status: 'not_yours', wasTarget: actor.id === series.forUserId };
   }
+  const forBoth = recipients.length > 1;
+  const pingUserId = pingUserFor(recipients, actor.id);
 
-  const ownerId = effectiveOwnerId(series, creatorPartner);
-  const where = { seriesEventId_originalStartsAt: key };
   if (action === 'undo') {
     // lastPingedAt stays: an occurrence that pinged does not ping again, it is open again.
     const { count } = await prisma.nativeReminderState.updateMany({
       where: { ...key, doneAt: { not: null } },
-      data: { doneAt: null, doneByUserId: null, snoozedUntil: null },
+      data: { doneAt: null, doneByUserId: null },
     });
     if (count === 0) return { status: 'not_done', title };
+    // Undo reopens it for everyone, and clears only the actor's own snooze.
+    await prisma.nativeReminderPing.updateMany({ where: { userId: pingUserId, state: key }, data: { snoozedUntil: null } });
     invalidateDueGate();
     trackActivityAsync(actor.id, 'native_reminder_undone', { series_event_id: key.seriesEventId, source });
     return { status: 'ok', title };
@@ -139,25 +142,27 @@ export async function applyReminderAction(
       data: { doneAt: now, doneByUserId: actor.id },
     });
     if (count === 0) return { status: 'already_done', title };
-    trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source });
-    if (actor.id !== series.creatorUserId) await notifyCreator(series.creator, actor, title);
-    if (source === 'app') await editLivePing(where, ownerId, actor.id, title, { message: 'done' });
+    trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source, for_both: forBoth });
+    await afterDone(series, key, recipients, actor, title, source);
     return { status: 'ok', title };
   }
 
+  const state = await prisma.nativeReminderState.findUnique({ where: { seriesEventId_originalStartsAt: key }, select: { id: true, doneAt: true } });
+  if (!state || state.doneAt) return { status: 'already_done', title };
   const timeZone = await resolveUserTimezone(actor);
   const until = action === 'snoozeTomorrow' ? tomorrowMorning(now, timeZone, actor.reminderTime) : new Date(now.getTime() + SNOOZE_MS[action]);
+  // The snooze is the person's own: their ping row (made here when they were never pinged).
   // lastPingedAt stays as it is (null for a never-pinged occurrence): either way it is before
   // snoozedUntil, so the pass pings at that time. pingAttempts restarts, so the re-ping the
   // user asked for gets its full retry budget.
-  const { count } = await prisma.nativeReminderState.updateMany({
-    where: { ...key, doneAt: null },
-    data: { snoozedUntil: until, pingAttempts: 0 },
+  await prisma.nativeReminderPing.upsert({
+    where: { stateId_userId: { stateId: state.id, userId: pingUserId } },
+    create: { stateId: state.id, userId: pingUserId, snoozedUntil: until, pingAttempts: 0 },
+    update: { snoozedUntil: until, pingAttempts: 0 },
   });
-  if (count === 0) return { status: 'already_done', title };
   invalidateDueGate();
   trackActivityAsync(actor.id, 'native_reminder_snoozed', { series_event_id: key.seriesEventId, snooze: SNOOZE_OP[action], source });
-  if (source === 'app') await editLivePing(where, ownerId, actor.id, title, { message: 'snoozedUntil', until, action });
+  if (source === 'app') await editSnoozedPing(state.id, pingUserId, actor.id, title, until, action);
   return { status: 'ok', title, until, timeZone };
 }
 
@@ -169,52 +174,97 @@ export function snoozeLabel(until: Date, action: SnoozeAction, language: string,
   return `${until.toLocaleDateString(locale, { weekday: 'short', timeZone })} ${time}`;
 }
 
-/** The creator's quiet "✅ Done by Dana: Buy milk". Telegram only (R12). */
-async function notifyCreator(creator: Series['creator'], doer: UserConfig, title: string): Promise<void> {
-  if (!creator.telegramId || creator.suspendedAt || creator.unreachableSince) return;
+/**
+ * A Done is shared: everyone else it concerns hears of it, once each and never the one who
+ * did it. A reminder for both partners tells the other partner; a single one tells its
+ * creator (today's rule), who may not be its recipient. Then the live pings of the
+ * occurrence are edited, in their owners' languages: for an in-app Done, every ping
+ * (the actor's own too); for a tap on a ping, the other people's (the tap edits its own).
+ * One person's failure never costs the others, or the Done.
+ */
+async function afterDone(
+  series: Series,
+  key: OccurrenceKey,
+  recipients: number[],
+  actor: UserConfig,
+  title: string,
+  source: ReminderActionSource
+): Promise<void> {
+  const forBoth = recipients.length > 1;
+  const noteTo = forBoth ? recipients.filter(id => id !== actor.id) : actor.id !== series.creatorUserId ? [series.creatorUserId] : [];
+  for (const userId of noteTo) await notifyDone(series.id, userId, actor, title);
   try {
-    const text = await getBotMessage(creator.language || 'en', 'nativeReminders.doneBy', {
-      name: escapeHtml(doer.name),
-      title: escapeHtml(title),
+    const state = await prisma.nativeReminderState.findUnique({
+      where: { seriesEventId_originalStartsAt: key },
+      select: { pings: { select: { userId: true, pingChatId: true, pingMessageId: true } } },
     });
-    await getBot().sendMessage(Number(creator.telegramId), text, { parse_mode: 'HTML', disable_notification: true });
+    for (const ping of state?.pings ?? []) {
+      if (!ping.pingChatId || ping.pingMessageId == null) continue;
+      if (source === 'ping' && ping.userId === actor.id) continue;
+      await editDonePing(series.id, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title, forBoth && ping.userId !== actor.id);
+    }
   } catch (error) {
-    if (!(await markUnreachableAfterSendFailure(creator, error))) captureError(error, 'native-reminder-done-notice', { user_id: creator.id }, 'warning');
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: actor.id, series_id: series.id }, 'warning');
+  }
+}
+
+/** The quiet "✅ Done by Dana: Buy milk". Telegram only (R12). */
+async function notifyDone(seriesId: string, userId: number, doer: UserConfig, title: string): Promise<void> {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, language: true, telegramId: true, suspendedAt: true, unreachableSince: true },
+    });
+    if (!user?.telegramId || user.suspendedAt || user.unreachableSince) return;
+    try {
+      const text = await getBotMessage(user.language || 'en', 'nativeReminders.doneBy', {
+        name: escapeHtml(doer.name),
+        title: escapeHtml(title),
+      });
+      await getBot().sendMessage(Number(user.telegramId), text, { parse_mode: 'HTML', disable_notification: true });
+    } catch (error) {
+      if (!(await markUnreachableAfterSendFailure(user, error))) throw error;
+    }
+  } catch (error) {
+    console.error(`[NativeReminders] Done note to user ${userId} for series ${seriesId} failed`);
+    captureError(error, 'native-reminder-done-notice', { user_id: userId, series_id: seriesId }, 'warning');
+  }
+}
+
+/** One person's live ping after a Done: "✅ title", or "✅ Done by Dana: title" when another partner did it. */
+async function editDonePing(seriesId: string, userId: number, chatId: bigint, messageId: number, doer: UserConfig, title: string, byOther: boolean): Promise<void> {
+  try {
+    const owner = await prisma.user.findUnique({ where: { id: userId }, select: { language: true } });
+    const text = await buildDoneText({ title, doneByName: byOther ? doer.name : undefined, language: owner?.language || 'en' });
+    await stripPingButtons(chatId, messageId, text);
+  } catch (error) {
+    console.error(`[NativeReminders] Editing the ping of user ${userId} for series ${seriesId} failed`);
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: userId, series_id: seriesId }, 'warning');
   }
 }
 
 /**
- * An in-app done or snooze shows on the occurrence's live ping, as a tap on its button
- * would: "✅ title" or "💤 title · until 15:40", buttons gone. The ping is the owner's, so
- * its text is in the owner's language and clock, whoever acted. Never fails the action.
+ * An in-app snooze shows on that person's live ping, as a tap on its button would:
+ * "💤 title · until 15:40", buttons gone. The ping is theirs, so its text is in their
+ * language and clock, whoever acted. Never fails the action.
  */
-async function editLivePing(
-  where: { seriesEventId_originalStartsAt: OccurrenceKey },
-  ownerId: number,
-  actorId: number,
-  title: string,
-  edit: { message: 'done' } | { message: 'snoozedUntil'; until: Date; action: SnoozeAction }
-): Promise<void> {
+async function editSnoozedPing(stateId: string, pingUserId: number, actorId: number, title: string, until: Date, action: SnoozeAction): Promise<void> {
   try {
-    const row = await prisma.nativeReminderState.findUnique({
-      where,
+    const row = await prisma.nativeReminderPing.findUnique({
+      where: { stateId_userId: { stateId, userId: pingUserId } },
       select: { pingChatId: true, pingMessageId: true },
     });
     if (!row?.pingChatId || row.pingMessageId == null) return;
     const owner = await prisma.user.findUnique({
-      where: { id: ownerId },
+      where: { id: pingUserId },
       select: { id: true, language: true, location: true, googleRefreshToken: true },
     });
     const language = owner?.language || 'en';
-    let time: string | undefined;
-    if (edit.message === 'snoozedUntil') {
-      // The column is encrypted: the timezone lookup needs the token itself ('' when unreadable).
-      const timeZone = owner ? await resolveUserTimezone({ id: owner.id, location: owner.location ?? undefined, googleRefreshToken: readStoredToken(owner.googleRefreshToken, { userId: owner.id, column: 'googleRefreshToken' }) }) : 'UTC';
-      time = snoozeLabel(edit.until, edit.action, language, timeZone);
-    }
-    const text = await getBotMessage(language, `nativeReminders.${edit.message}`, {
+    // The column is encrypted: the timezone lookup needs the token itself ('' when unreadable).
+    const timeZone = owner ? await resolveUserTimezone({ id: owner.id, location: owner.location ?? undefined, googleRefreshToken: readStoredToken(owner.googleRefreshToken, { userId: owner.id, column: 'googleRefreshToken' }) }) : 'UTC';
+    const text = await getBotMessage(language, 'nativeReminders.snoozedUntil', {
       title: escapeHtml(title),
-      ...(time ? { time } : {}),
+      time: snoozeLabel(until, action, language, timeZone),
     });
     await stripPingButtons(row.pingChatId, row.pingMessageId, text);
   } catch (error) {

@@ -44,7 +44,7 @@ import { classifyRule } from '../native-calendar/recurrence';
 import { repeatChanges, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule } from './repeat-spec';
 // The Repeat sheet's rule model lives in repeat-spec.ts (pure); the editor's writes read it from here.
 export { repeatChanges, ruleOfSpec, ruleToWrite, specOfChoice, specOfInput } from './repeat-spec';
-import { isForPartner, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
+import { forWhoOf, itemZone, loadItem, wallFor, type LoadedItem } from './item-info';
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
@@ -94,7 +94,7 @@ export function refusalOf(err: unknown): WriteResult | null {
   // not_found: the item is still there).
   if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
   if (err instanceof NativeScopeError) return { status: 'invalid', field: err.field };
-  if (err instanceof NativeRecipientError) return { status: 'invalid', field: 'forPartner' };
+  if (err instanceof NativeRecipientError) return { status: 'invalid', field: 'forWho' };
   if (err instanceof NativeDestinationError) return { status: 'invalid', field: 'calendarId' };
   return null;
 }
@@ -181,11 +181,11 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       allDay: cmd.allDay,
       confidence: 'high',
       kind: 'reminder',
-      forPerson: cmd.forPartner ? 'partner' : 'self',
+      forPerson: cmd.forWho === 'me' ? 'self' : cmd.forWho,
     };
     const resolved = await resolveReminderForCreate(user, parsed, tz);
     if (!resolved.ok) throw new Error(`reminder not resolved: ${resolved.error}`);
-    if (cmd.forPartner && resolved.forUserId === null) return { status: 'invalid', field: 'forPartner' };
+    if (cmd.forWho !== 'me' && resolved.forUserId === null) return { status: 'invalid', field: 'forWho' };
     const calendarCuid = decodeCalendarId(resolved.calendarId);
     if (!calendarCuid) throw new Error('reminder resolved to a calendar that is not a native one');
     const reminder = await createNativeEvent({
@@ -196,12 +196,14 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       allDay: resolved.allDay,
       kind: 'REMINDER',
       forUserId: resolved.forUserId,
+      forBoth: resolved.forBoth,
     });
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: reminder.calendarId } });
     if (calendar) await clearCaches(user, [calendar], [resolved.forUserId]);
     trackActivityAsync(user.id, 'voice_event_created', { calendar_id: resolved.calendarId, source: 'app' });
     trackActivityAsync(user.id, 'native_reminder_created', {
       for_partner: resolved.forUserId !== null,
+      for_both: resolved.forBoth,
       all_day: resolved.allDay,
       recurring: rrule !== null,
       source: 'app',
@@ -326,9 +328,9 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const repeat = repeatChanged ? c.repeat : undefined;
   const calendarCuid = c.calendarId !== undefined ? decodeCalendarId(c.calendarId) : null;
   const moveTo = calendarCuid !== null && calendarCuid !== series.calendarId ? calendarCuid : undefined;
-  const forPartner = c.forPartner !== undefined && c.forPartner !== isForPartner(series, item.ctx) ? c.forPartner : undefined;
-  if (forPartner !== undefined && (!reminder || (forPartner && !item.ctx.partner))) return { status: 'invalid', field: 'forPartner' };
-  const forUserId = forPartner === undefined ? undefined : forPartner ? item.ctx.partner!.id : null;
+  const forWho = c.forWho !== undefined && c.forWho !== forWhoOf(series, item.ctx) ? c.forWho : undefined;
+  if (forWho !== undefined && (!reminder || (forWho !== 'me' && !item.ctx.partner))) return { status: 'invalid', field: 'forWho' };
+  const forUserId = forWho === undefined ? undefined : forWho === 'me' ? null : item.ctx.partner!.id;
   // An event's alert is series-level like its calendar (editor upgrades spec §2). A reminder has none.
   if (c.alert !== undefined && reminder) return { status: 'invalid', field: 'alert' };
   const alert = c.alert !== undefined && c.alert !== alertChoiceOf(series) ? c.alert : undefined;
@@ -365,7 +367,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     ...(built !== undefined ? { rrule: built?.rrule ?? null, hebrewRule: built?.hebrewRule ?? null, ...(built?.endGiven ? { endGiven: true } : {}), ...(built ? { rebuilt: true } : {}) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(alert !== undefined ? { alert } : {}),
-    ...(forUserId !== undefined ? { forUserId } : {}),
+    ...(forUserId !== undefined ? { forUserId, forBoth: forWho === 'both' } : {}),
   };
   if (stop) {
     // The one-off is the opened occurrence as it stands with the form's edits on top: its
@@ -413,12 +415,13 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       // for now (best-effort, as for the bot).
       const original = toUnifiedEvent(item.calendar, occ, series);
       const name = forUserId ? (item.ctx.partner?.name ?? '') : user.name;
+      const both = forWho === 'both';
       await stripMovedPings(
         clearedPings,
         original,
         { title: text.title, startTime: startsAt, endTime: endsAt, allDay },
         user,
-        changedPings.length + reassignedPings.length > 0 ? { changed: changedPings, reassigned: { pings: reassignedPings, name } } : undefined
+        changedPings.length + reassignedPings.length > 0 ? { changed: changedPings, reassigned: { pings: reassignedPings, name, both } } : undefined
       );
     }
     const destination = moveTo !== undefined ? await prisma.nativeCalendar.findUnique({ where: { id: moveTo } }) : null;
