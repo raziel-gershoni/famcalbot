@@ -48,7 +48,7 @@ function formatEventsForDay(day: LookaheadDayData): string {
 // Only weeks with reminders get this, so every other prompt stays as it was.
 function buildRemindersGuideline(data: WeekLookaheadPromptData): string {
   if (!data.eventsByDay.some(day => day.events.some(event => event.isReminder))) return '';
-  return `- **Reminders**: Times starting with "Reminder" are reminders: one moment, never a range. Mention each briefly as a to-do, with ⏰ and its time ("⏰ call the plumber at 10:00"); one with no time is simply for that day. "(from [Name])" means [Name] set it for the user; "(for [Name], you asked)" means the user set it for [Name].
+  return `- **Reminders**: Times starting with "Reminder" are reminders: one moment, never a range. Mention each briefly as a to-do, with ⏰ and its time ("⏰ call the plumber at 10:00"); one with no time is simply for that day. "(from [Name])" means [Name] set it for the user; "(for [Name], you asked)" means the user set it for [Name]; "(for both of you)" means it is for the user and their partner together.
 `;
 }
 

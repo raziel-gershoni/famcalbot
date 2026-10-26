@@ -231,6 +231,7 @@ export async function googleEditInfo(user: UserConfig, key: GoogleItemKey, userT
     moveTargets,
     canChangeRecipient: false,
     forWho: 'me',
+    forPartner: false,
     editableInGoogleOnly: writable && !editable,
     source: 'google',
     ...(cross.reason ? { moveReason: cross.reason } : {}),

@@ -12,6 +12,8 @@
 // (Plan C, Task C2, Step 2). That mode refuses to overwrite the file. Take a new
 // snapshot only when the prompts for users without the flag are meant to change:
 // delete the file, then run it again.
+// (Retaken once for "remind us both": the twelve reminder prompts gained one clause explaining
+// "(for both of you)"; nothing else in them moved.)
 //
 // With the flag, a daily or tomorrow prompt gains exactly one line, in its guidelines.
 // The AI, the holiday lookup and Sentry are faked, and the clock is frozen per case.
@@ -586,6 +588,51 @@ async function main() {
       parasha = null;
     }
   }
+
+  // A reminder for both partners ("remind us both"): its marker is explained to the model in all six prompts.
+  const BOTH_INFO: ReminderInfo = { ownerIsViewer: true, creatorIsViewer: true, forBoth: true };
+  const BOTH_EXPLAINED: Record<Lang, { daily: string; week: string }> = {
+    en: { daily: 'keep it in the user\'s own section with "(for both of you)"', week: '"(for both of you)" means it is for the user and their partner together' },
+    he: { daily: 'השאר אותה בחלק של המשתמש עם "(לשניכם)"', week: '"(for both of you)" אומר שהיא לשניכם' },
+    ru: { daily: 'оставьте его в разделе пользователя с пометкой "(для вас обоих)"', week: '"(for both of you)" — что оно для пользователя и его партнёра вместе' },
+  };
+
+  await check('a reminder for both partners: its marker is in the event line, and the daily and week prompts explain it in en/he/ru; the golden prompts carry the explanation too', async () => {
+    for (const l of LANGS) {
+      assert(snapshot[`daily-${l}-reminders`].includes(BOTH_EXPLAINED[l].daily), `${l}: the golden daily prompt lacks the explanation`);
+      assert(snapshot[`tomorrow-${l}-reminders`].includes(BOTH_EXPLAINED[l].daily), `${l}: the golden tomorrow prompt lacks the explanation`);
+      assert(snapshot[`week-${l}-reminders`].includes(BOTH_EXPLAINED[l].week), `${l}: the golden week prompt lacks the explanation`);
+      assert(snapshot[`nextweek-${l}-reminders`].includes(BOTH_EXPLAINED[l].week), `${l}: the golden next-week prompt lacks the explanation`);
+      const name = `daily-${l}-reminders`;
+      const c = CASES[name] as DailyCase;
+      const [me] = c.calendars;
+      const both: CalendarEvent = {
+        summary: WORDS[l].gift, start: ntime(`${c.day} 12:00:00`, TZ_OF[l]), end: ntime(`${c.day} 12:00:00`, TZ_OF[l]),
+        calendarName: me.name, calendarId: me.calendarId, eventId: `${me.calendarId}:both`, eventType: 'reminder', reminder: BOTH_INFO,
+      };
+      const userList = c.lists.user;
+      c.lists = { ...c.lists, user: [...userList, both] };
+      try {
+        const lines = (await promptFor(name)).split('\n');
+        assert(lines.some(x => x.includes(WORDS[l].gift) && x.includes('(for both of you)')), `${l}: no marker on the event line`);
+      } finally {
+        c.lists = { ...c.lists, user: userList };
+      }
+      const week = CASES[`week-${l}-reminders`] as WeeklyCase;
+      const build = week.build;
+      week.build = () => {
+        const built = build();
+        const [mine] = built.calendars;
+        built.lookahead.events.push(la(l, '2026-10-14', mine, labelOf(mine), WORDS[l].gift, '2026-10-16', '12:00', { reminder: BOTH_INFO }));
+        return built;
+      };
+      try {
+        assert((await promptFor(`week-${l}-reminders`)).includes('(for both of you)'), `${l}: no marker in the week prompt`);
+      } finally {
+        week.build = build;
+      }
+    }
+  });
 
   await check('a Jewish-culture daily summary of today with a parasha gains its own line and one instruction line, outside Holidays (en/he/ru); without one the prompt is the golden one', async () => {
     for (const l of LANGS) {

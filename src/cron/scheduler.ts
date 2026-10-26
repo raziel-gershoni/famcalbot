@@ -21,6 +21,16 @@ export function startScheduler(): void {
       captureError(error, 'boot-reminder-cache');
     });
 
+  // Release only ("remind us both" deploy window): bring the ping rows up to date with what the
+  // previous build wrote to the old columns while this one was building, now and three more
+  // times. Remove with the step-2 SQL. Fire-and-forget; runCatchUp never throws.
+  import('../services/native-reminders/deploy-compat')
+    .then(({ scheduleCatchUps }) => scheduleCatchUps())
+    .catch(error => {
+      console.error('[Scheduler] Reminder catch-up failed to start:', error);
+      captureError(error, 'boot-reminder-catchup');
+    });
+
   // Event reminders — every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
     try {

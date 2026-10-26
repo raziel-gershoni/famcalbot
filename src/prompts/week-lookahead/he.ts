@@ -48,7 +48,7 @@ function formatEventsForDay(day: LookaheadDayData): string {
 // Only weeks with reminders get this, so every other prompt stays as it was.
 function buildRemindersGuideline(data: WeekLookaheadPromptData): string {
   if (!data.eventsByDay.some(day => day.events.some(event => event.isReminder))) return '';
-  return `- **תזכורות**: זמנים שמתחילים ב"תזכורת" הם תזכורות: רגע אחד, לא טווח. הזכר כל אחת בקצרה כמשימה, עם ⏰ והשעה שלה ("⏰ להתקשר לאינסטלטור ב-10:00"); תזכורת בלי שעה היא פשוט לאותו יום. "(from [שם])" אומר ש[שם] קבע/ה אותה למשתמש; "(for [שם], you asked)" אומר שהמשתמש קבע אותה ל[שם].
+  return `- **תזכורות**: זמנים שמתחילים ב"תזכורת" הם תזכורות: רגע אחד, לא טווח. הזכר כל אחת בקצרה כמשימה, עם ⏰ והשעה שלה ("⏰ להתקשר לאינסטלטור ב-10:00"); תזכורת בלי שעה היא פשוט לאותו יום. "(from [שם])" אומר ש[שם] קבע/ה אותה למשתמש; "(for [שם], you asked)" אומר שהמשתמש קבע אותה ל[שם]; "(for both of you)" אומר שהיא לשניכם, למשתמש ולבן/בת הזוג יחד.
 `;
 }
 
