@@ -329,6 +329,16 @@ async function extractionChecks() {
     assert(!solo.includes('"forPerson": "both"') && !solo.includes('"both" when'), 'a user with no partner is offered "both"');
   });
 
+  await check('the live eval\'s "remind us" cases are phrased differently from the prompt\'s own examples (nine, three per language), so they test generalisation', () => {
+    const source = readFileSync(path.resolve(__dirname, 'eval-native-reminders.ts'), 'utf8');
+    const texts = [...source.matchAll(/label: 'both: [^']+', text: '([^']+)'/g)].map((m) => m[1]);
+    assert(texts.length === 9, `${texts.length} cases`);
+    for (const mode of ['voice', 'text'] as const) {
+      const rules = rulesFor(mode).toLowerCase();
+      for (const text of texts) assert(!rules.includes(text.toLowerCase()), `${mode}: the prompt already holds "${text}"`);
+    }
+  });
+
   await check('the rules carry the Hebrew, English and Russian phrasings', () => {
     const rules = rulesFor('text');
     const phrases = [

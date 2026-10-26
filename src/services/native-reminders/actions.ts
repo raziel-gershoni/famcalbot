@@ -205,7 +205,8 @@ async function afterDone(
   source: ReminderActionSource
 ): Promise<void> {
   const noteTo = forBoth ? recipients.filter(id => id !== actor.id) : actor.id !== series.creatorUserId ? [series.creatorUserId] : [];
-  for (const userId of noteTo) await notifyDone(series.id, userId, actor, title);
+  const occurrence = key.originalStartsAt.toISOString();
+  for (const userId of noteTo) await notifyDone(series.id, occurrence, userId, actor, title);
   try {
     const state = await prisma.nativeReminderState.findUnique({
       where: { seriesEventId_originalStartsAt: key },
@@ -215,15 +216,15 @@ async function afterDone(
       if (!ping.pingChatId || ping.pingMessageId == null) continue;
       // A tap on a ping edits that ping itself (callbacks.ts), so only the other partner's is left to do.
       if (source === 'ping' && (!forBoth || ping.userId === actor.id)) continue;
-      await editDonePing(series.id, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title, forBoth && ping.userId !== actor.id);
+      await editDonePing(series.id, occurrence, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title, forBoth && ping.userId !== actor.id);
     }
   } catch (error) {
-    captureError(error, 'native-reminder-action-ping-edit', { user_id: actor.id, series_id: series.id }, 'warning');
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: actor.id, series_id: series.id, occurrence }, 'warning');
   }
 }
 
 /** The quiet "✅ Done by Dana: Buy milk". Telegram only (R12). */
-async function notifyDone(seriesId: string, userId: number, doer: UserConfig, title: string): Promise<void> {
+async function notifyDone(seriesId: string, occurrence: string, userId: number, doer: UserConfig, title: string): Promise<void> {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -240,20 +241,20 @@ async function notifyDone(seriesId: string, userId: number, doer: UserConfig, ti
       if (!(await markUnreachableAfterSendFailure(user, error))) throw error;
     }
   } catch (error) {
-    console.error(`[NativeReminders] Done note to user ${userId} for series ${seriesId} failed`);
-    captureError(error, 'native-reminder-done-notice', { user_id: userId, series_id: seriesId }, 'warning');
+    console.error(`[NativeReminders] Done note to user ${userId} for series ${seriesId}, occurrence ${occurrence} failed`);
+    captureError(error, 'native-reminder-done-notice', { user_id: userId, series_id: seriesId, occurrence }, 'warning');
   }
 }
 
 /** One person's live ping after a Done: "✅ title", or "✅ Done by Dana: title" when another partner did it. */
-async function editDonePing(seriesId: string, userId: number, chatId: bigint, messageId: number, doer: UserConfig, title: string, byOther: boolean): Promise<void> {
+async function editDonePing(seriesId: string, occurrence: string, userId: number, chatId: bigint, messageId: number, doer: UserConfig, title: string, byOther: boolean): Promise<void> {
   try {
     const owner = await prisma.user.findUnique({ where: { id: userId }, select: { language: true } });
     const text = await buildDoneText({ title, doneByName: byOther ? doer.name : undefined, language: owner?.language || 'en' });
     await stripPingButtons(chatId, messageId, text);
   } catch (error) {
-    console.error(`[NativeReminders] Editing the ping of user ${userId} for series ${seriesId} failed`);
-    captureError(error, 'native-reminder-action-ping-edit', { user_id: userId, series_id: seriesId }, 'warning');
+    console.error(`[NativeReminders] Editing the ping of user ${userId} for series ${seriesId}, occurrence ${occurrence} failed`);
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: userId, series_id: seriesId, occurrence }, 'warning');
   }
 }
 

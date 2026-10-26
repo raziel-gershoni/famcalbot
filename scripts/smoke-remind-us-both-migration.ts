@@ -104,9 +104,13 @@ check('the schema agrees: the state model has no ping columns left, the ping mod
   assert(JSON.stringify(sqlColumns) === JSON.stringify([...ping].sort()), `SQL columns ${sqlColumns} vs schema ${[...ping].sort()}`);
 });
 
-check('the migration is the newest, so it runs after the ones whose tables it reads', () => {
+check('the migration runs after the ones that make the tables it reads and writes, and the later ones may follow', () => {
   const names = fs.readdirSync(path.join(ROOT, 'prisma/migrations')).filter((n) => /^\d{14}_/.test(n)).sort();
-  assert(names[names.length - 1] === '20261026000000_remind_us_both', `newest is ${names[names.length - 1]}`);
+  const mine = names.indexOf('20261026000000_remind_us_both');
+  assert(mine >= 0, 'the migration is there');
+  for (const dependency of ['20261014000000_native_reminders']) {
+    assert(names.indexOf(dependency) >= 0 && names.indexOf(dependency) < mine, `${dependency} (NativeReminderState, NativeEvent.forUserId) is not before it`);
+  }
 });
 
 let failed = 0;

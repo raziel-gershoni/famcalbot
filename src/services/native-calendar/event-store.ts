@@ -20,7 +20,7 @@ import { alertChoiceOf, alertColumns, type AlertChoice } from '../../lib/calenda
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
-import { effectiveOwnerId, getActivePartnerSummary } from '../native-reminders/ownership';
+import { getActivePartnerSummary, recipientIds } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
 import {
   assertStorableRule,
@@ -1811,7 +1811,7 @@ export async function mayDeleteReminder(series: NativeEvent, actorId: number): P
   });
   if (!creator) return false;
   const creatorPartner = await getActivePartnerSummary(series.creatorUserId, creator.pairingId);
-  return effectiveOwnerId(series, creatorPartner) === actorId;
+  return recipientIds(series, creatorPartner).includes(actorId);
 }
 
 /** The write half of deleteNativeEvent, once the actor may delete. */

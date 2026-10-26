@@ -232,15 +232,15 @@ const ALL_CASES: Case[] = [
   // Two reminders in one message.
   { language: 'en', label: 'two reminders', text: 'Remind me to call mom at 5, and remind Dana to buy bread tomorrow', expect: twoReminders },
   // "Remind us" is for the user and the partner together ("remind me" and "remind Dana" above stay self and partner).
-  { language: 'en', label: 'both: us', text: 'Remind us to book the flights tomorrow', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
-  { language: 'he', label: 'both: us', text: 'תזכיר לנו להזמין טיסות מחר', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
-  { language: 'ru', label: 'both: us', text: 'Напомни нам забронировать билеты завтра', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
-  { language: 'en', label: 'both: both of us', text: 'Remind both of us to pay the electricity bill on Friday', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
-  { language: 'he', label: 'both: both of us', text: 'תזכיר לשנינו לשלם את החשמל ביום שישי', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
-  { language: 'ru', label: 'both: both of us', text: 'Напомни нам обоим оплатить электричество в пятницу', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
-  { language: 'en', label: 'both: me and Dana', text: 'Remind me and Dana to sign the form tomorrow at 5pm', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
-  { language: 'he', label: 'both: me and Dana', text: 'תזכיר לי ולדנה לחתום על הטופס מחר בחמש אחר הצהריים', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
-  { language: 'ru', label: 'both: me and Dana', text: 'Напомни мне и Дане подписать форму завтра в пять вечера', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
+  { language: 'en', label: 'both: us', text: 'Remind us to renew the car insurance on Sunday', expect: reminder({ forPerson: 'both', weekday: 'Sun', allDay: true }) },
+  { language: 'he', label: 'both: us', text: 'תזכיר לנו לחדש את ביטוח הרכב ביום ראשון', expect: reminder({ forPerson: 'both', weekday: 'Sun', allDay: true }) },
+  { language: 'ru', label: 'both: us', text: 'Напомни нам продлить страховку на машину в воскресенье', expect: reminder({ forPerson: 'both', weekday: 'Sun', allDay: true }) },
+  { language: 'en', label: 'both: both of us', text: 'Remind both of us to sign the kindergarten form tomorrow morning', expect: reminder({ forPerson: 'both', inDays: 1, time: '09:00' }) },
+  { language: 'he', label: 'both: both of us', text: 'תזכיר לשנינו לחתום על טופס הגן מחר בבוקר', expect: reminder({ forPerson: 'both', inDays: 1, time: '09:00' }) },
+  { language: 'ru', label: 'both: both of us', text: 'Напомни нам обоим подписать анкету для сада завтра утром', expect: reminder({ forPerson: 'both', inDays: 1, time: '09:00' }) },
+  { language: 'en', label: 'both: me and Dana', text: 'Remind me and Dana to call the landlord on Wednesday at 6pm', expect: reminder({ forPerson: 'both', weekday: 'Wed', time: '18:00' }) },
+  { language: 'he', label: 'both: me and Dana', text: 'תזכיר לי ולדנה להתקשר לבעל הדירה ביום רביעי בשש בערב', expect: reminder({ forPerson: 'both', weekday: 'Wed', time: '18:00' }) },
+  { language: 'ru', label: 'both: me and Dana', text: 'Напомни мне и Дане позвонить хозяину квартиры в среду в шесть вечера', expect: reminder({ forPerson: 'both', weekday: 'Wed', time: '18:00' }) },
 ];
 
 const CASES = ALL_CASES.filter(c => c.label.startsWith(ONLY));

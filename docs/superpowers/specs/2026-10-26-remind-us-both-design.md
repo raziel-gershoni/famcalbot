@@ -105,3 +105,18 @@ Sentry, with ids, never titles.
 
 More than two people (children, others), per-person Done, Google copies of reminders, WhatsApp pings,
 chat edits that change who a reminder is for.
+
+## As built (2026-10-26)
+
+- **Who "both" is, for pings and notes.** The recipients rule (`recipientIds`) follows the pairing only, so
+  the app and the digests show a reminder for both to both partners for as long as they are paired. Pings
+  and Done notes follow the recipients who can be reached now (Telegram, not suspended, not unreachable,
+  not blocked): with only one of the two reachable, the ping has no "for both of you" line and the Done
+  note goes as for a reminder of the creator alone (`isForBothReachable` in ownership.ts).
+- **Deploy window.** Besides the claim's fallback on the state row's old `lastPingedAt`, this release has a
+  catch-up that copies what the previous build wrote to the old columns (a snooze, a ping it sent) into the
+  ping rows, at scheduler start and +5, +15 and +30 minutes, and writes the old `lastPingedAt` after a
+  sent single reminder. The wire field `forPartner` is still accepted and emitted beside `forWho`. All of it
+  goes with the step-2 SQL (see the list in that file's header).
+- **Reassignment.** A ping read by someone the reminder is still for says only that it changed.
+- **Mini App.** The row and the sheet show a "For both of you" chip for a reminder for both partners.

@@ -327,7 +327,7 @@ function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContex
   const whoRules = partner
     ? `2. WHO IT IS FOR - every reminder has "forPerson":
    - "partner" when it is for the user's partner, by name or by role: "remind ${partnerInEnglish} to...", "remind my wife to...", "תזכיר לבעלי...", "תזכירי לאשתי...", "напомни мужу...", "напомни жене...".
-   - "both" when it is for the user AND the user's partner together: "remind us to...", "remind both of us to...", "remind me and ${partnerInEnglish} to...", "תזכיר לנו...", "תזכיר לשנינו...", "תזכיר לי ול${partner}...", "напомни нам...", "напомни нам обоим...", "напомни мне и ${partner}...".
+   - "both" when it is for the user AND the user's partner together: "remind us to...", "remind both of us to...", "remind me and ${partnerInEnglish} to...", "תזכיר לנו...", "תזכיר לשנינו...", "תזכיר לי ול${partner}...", "напомни нам...", "напомни нам обоим...", "напомни мне и <имя партнёра в дательном падеже: «Дане», «Маше»>...".
    - "self" for everything else: "remind me", and a child or anyone else. Keep that person's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine", "forPerson": "self".`
     : `2. WHO IT IS FOR - "forPerson" is always "self". Keep anyone else's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine".`;
 

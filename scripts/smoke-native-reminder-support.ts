@@ -156,10 +156,10 @@ const FLAG = 'nrem:enabled';
 
 /** Every key the later tasks read, as listed in the plan. */
 const COPY_KEYS = [
-  'ping.from', 'buttons.done', 'buttons.snooze15', 'buttons.snooze60', 'buttons.snoozeTomorrow',
-  'done', 'snoozedUntil', 'alreadyDone', 'notYours', 'changed', 'doneBy', 'moved',
-  'card.title', 'card.forPartner', 'card.noTimeSet', 'card.timePassed', 'card.partnerNotOnTelegram', 'card.keepAsMine',
-  'created.self', 'created.partner', 'created.dateOnly', 'created.passed', 'bulk.timePassed', 'bulk.noTimeSet',
+  'ping.from', 'ping.forBoth', 'buttons.done', 'buttons.snooze15', 'buttons.snooze60', 'buttons.snoozeTomorrow',
+  'done', 'snoozedUntil', 'alreadyDone', 'notYours', 'changed', 'doneBy', 'moved', 'reassigned', 'reassignedBoth',
+  'card.title', 'card.forPartner', 'card.forBoth', 'card.noTimeSet', 'card.timePassed', 'card.partnerNotOnTelegram', 'card.keepAsMine',
+  'created.self', 'created.partner', 'created.dateOnly', 'created.both', 'created.bothDateOnly', 'created.passed', 'bulk.timePassed', 'bulk.noTimeSet',
   'when.todayAt', 'when.tomorrowAt', 'when.dateAt', 'when.today', 'when.tomorrow', 'when.date',
   'typed.processing', 'typed.notUnderstood',
   'anchor.notFound', 'anchor.ambiguous', 'anchor.needsTime', 'permissionDenied',

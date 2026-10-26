@@ -815,6 +815,7 @@ async function main() {
     assert(contexts.includes('native-reminder-done-notice') && contexts.filter((c) => c === 'native-reminder-action-ping-edit').length === 2, json(captured));
     assert(captured.every((c) => !JSON.stringify(c.extra ?? {}).includes('Book the flights')), 'no title in the report');
     assert(captured.some((c) => (c.extra as Row)?.user_id === RAZIEL) && captured.some((c) => (c.extra as Row)?.user_id === DANA), `by recipient id: ${json(captured)}`);
+    assert(captured.every((c) => (c.extra as Row)?.occurrence === BOTH_KEY.originalStartsAt.toISOString()), `by occurrence: ${json(captured)}`);
   });
 
   await check('both: the app\'s reminder is each viewer\'s own snooze and shared Done, for both, in the range route\'s DTO', async () => {

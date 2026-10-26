@@ -399,6 +399,16 @@ async function main() {
     assert(eventRow('rem').forUserId === null && eventRow('rem').forBoth === false, 'nothing written');
   });
 
+  await check('both: either partner may delete a reminder for both (the recipients rule); a stranger and an unlinked ex-partner may not', async () => {
+    reset();
+    const row = seedEvent('rem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, forBoth: true, title: 'Feed the cat', startsAt: at('2026-10-10 08:00') });
+    assert((await store.mayDeleteReminder(row as never, 1)) && (await store.mayDeleteReminder(row as never, 2)), 'the two partners');
+    assert(!(await store.mayDeleteReminder(row as never, 3)), 'a stranger');
+    tables.user.find((u) => u.id === 2)!.pairingId = null;
+    tables.user.find((u) => u.id === 1)!.pairingId = null;
+    assert((await store.mayDeleteReminder(row as never, 1)) && !(await store.mayDeleteReminder(row as never, 2)), 'unlinked: the creator only');
+  });
+
   await check('both: this one and the ones after, for both: the new series is for both, the earlier ones keep their recipient', async () => {
     reassignable();
     const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, forUserId: 2, forBoth: true });

@@ -241,7 +241,8 @@ async function pingOccurrence(
     }
   } catch (error) {
     // The ping went out; only a later edit to it (on a move) is lost.
-    captureError(error, 'native-reminders-save-ping', { user_id: recipient.id, series_id: series.id }, 'warning');
+    console.warn(`[NativeReminders] Saving the ping of user ${recipient.id} (series ${series.id}, state ${claim.stateId}) failed`);
+    captureError(error, 'native-reminders-save-ping', { user_id: recipient.id, series_id: series.id, state_id: claim.stateId }, 'warning');
   }
   trackActivityAsync(recipient.id, 'native_reminder_pinged', {
     for_partner: creator.id !== recipient.id,
@@ -260,12 +261,12 @@ async function pingOccurrence(
 async function handleSendFailure(error: unknown, claim: Claim, recipient: PassUser, seriesId: string): Promise<SendOutcome> {
   if (await markUnreachableAfterSendFailure(recipient, error)) return 'failed';
   if (isPassingFailure(error) && claim.pingAttempts < MAX_PING_ATTEMPTS) {
-    console.warn(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId} failed (attempt ${claim.pingAttempts}), retrying: ${describeDeliveryError(error)}`);
+    console.warn(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId}, state ${claim.stateId} failed (attempt ${claim.pingAttempts}), retrying: ${describeDeliveryError(error)}`);
     await releaseClaim(claim);
     return 'retry';
   }
-  console.error(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId} failed for good (attempt ${claim.pingAttempts}): ${describeDeliveryError(error)}`);
-  captureError(error, 'native-reminders-send', { user_id: recipient.id, series_id: seriesId, attempts: claim.pingAttempts });
+  console.error(`[NativeReminders] Ping to user ${recipient.id} for series ${seriesId}, state ${claim.stateId} failed for good (attempt ${claim.pingAttempts}): ${describeDeliveryError(error)}`);
+  captureError(error, 'native-reminders-send', { user_id: recipient.id, series_id: seriesId, state_id: claim.stateId, attempts: claim.pingAttempts });
   return 'failed';
 }
 

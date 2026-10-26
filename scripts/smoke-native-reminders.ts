@@ -363,7 +363,7 @@ const HOUR = 60 * MIN;
 
 let timezones: Record<number, string> = {};
 let tracked: { userId: number; action: string; meta: Row }[] = [];
-let captured: { context: string; severity: string }[] = [];
+let captured: { context: string; severity: string; extra?: Row }[] = [];
 let unreachable: number[] = [];
 const adminNotices: string[] = [];
 let blockedTelegramIds = new Set<string>();
@@ -377,7 +377,7 @@ const stubs: Record<string, object> = {
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma },
   [`${SRC}/utils/redis.ts`]: { redis: {} },
   [`${SRC}/lib/error-capture.ts`]: {
-    captureError: (_error: unknown, context: string, _extra?: unknown, severity = 'error') => captured.push({ context, severity }),
+    captureError: (_error: unknown, context: string, extra?: unknown, severity = 'error') => captured.push({ context, severity, extra: extra as Row | undefined }),
     captureWarning: () => {},
     captureInfo: () => {},
   },
@@ -1202,12 +1202,15 @@ async function main() {
 
   await check('send failure: any other refusal is reported and kept, not retried', async () => {
     reset();
-    reminder({ startsAt: today('10:00') });
+    const r = both({ startsAt: today('10:00') });
     sendFailures = [telegramError(400, "Bad Request: can't parse entities")];
     await pass(today('10:00'));
     await pass(today('10:01'));
-    assert(sendCalls === 1 && unreachable.length === 0, `sends tried ${sendCalls}`);
-    assert(captured.some((c) => c.context === 'native-reminders-send' && c.severity === 'error'), show(captured));
+    assert(sendCalls === 2 && unreachable.length === 0, `sends tried ${sendCalls}`);
+    const report = captured.find((c) => c.context === 'native-reminders-send' && c.severity === 'error');
+    assert(!!report, show(captured));
+    // The report names the series, the occurrence's state row and the recipient (ids, no title).
+    assert(report!.extra?.series_id === r.id && report!.extra?.state_id === stateOf(r.id, today('10:00'))!.id && report!.extra?.user_id === 1, show(report));
   });
 
   // ---- The message ----
