@@ -62,7 +62,7 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS = ['seriesEventId_originalStartsAt'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
   nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
@@ -2210,6 +2210,83 @@ async function main() {
     assertSame([following.body, tail.forUserId, eventRow(id).forUserId, tail.creatorUserId], [{ status: 'ok', key: day('2026-10-25', tail.id) }, NOA, null, TAL], 'this and after: the new series is for Noa');
     const single = await patch({ key: day('2026-10-23'), scope: 'single', changes: { forWho: 'partner' } });
     assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one is refused');
+  });
+
+  await check('both: create reminder for both of us stores the partner and forBoth, clears the partner\'s cache too, and is refused without a partner who can be pinged', async () => {
+    seed();
+    seedRecurrenceCache();
+    const both = await post(reminderBody({ forWho: 'both', title: 'Book the flights' }));
+    assert(both.status === 200, `for both ${both.status} ${both.text}`);
+    assertSame([lastEvent().forUserId, lastEvent().forBoth, lastEvent().creatorUserId, lastEvent().calendarId], [NOA, true, TAL, 'cal-tal'], 'for both, on Tal\'s main calendar');
+    assertSame(cacheUsers(), [11], 'the partner\'s cache goes too');
+    assert(tracked[tracked.length - 1].meta.for_both === true && tracked[tracked.length - 1].meta.for_partner === true, 'analytics for_both');
+    const partner = await post(reminderBody({ forWho: 'partner' }));
+    assert(partner.status === 200 && lastEvent().forBoth === false, 'for the partner alone is not for both');
+    const me = await post(reminderBody({ forWho: 'me' }));
+    assert(me.status === 200 && lastEvent().forUserId === null && lastEvent().forBoth === false, 'me is for the creator');
+    tables.user.find((u) => u.id === NOA)!.telegramId = null;
+    const noTelegram = await post(reminderBody({ forWho: 'both' }));
+    assertSame([noTelegram.status, noTelegram.body], [400, { error: 'invalid', field: 'forWho' }], 'a partner who cannot be pinged');
+    const alone = await post(reminderBody({ forWho: 'both' }), { tg: TG.solo });
+    assertSame([alone.status, alone.body], [400, { error: 'invalid', field: 'forWho' }], 'no partner');
+    const onEvent = await post(eventBody({ forWho: 'both' }));
+    assertSame([onEvent.status, onEvent.body], [400, { error: 'invalid', field: 'forWho' }], 'an event has no For row');
+  });
+
+  await check('both: the item info says me, partner or both, and who may change it', async () => {
+    seed();
+    const both = await post(reminderBody({ forWho: 'both' }));
+    const info = (await itemOf(both.body.key)).body;
+    assertSame([info.forWho, info.canChangeRecipient, info.forName], ['both', true, null], 'a reminder for both');
+    const partner = await post(reminderBody({ forWho: 'partner' }));
+    assertSame([(await itemOf(partner.body.key)).body.forWho, (await itemOf(partner.body.key)).body.forName], ['partner', 'Noa'], 'for the partner alone');
+    const masked = seedSeries('noa-both', { calendarId: 'cal-noa-private', creatorUserId: NOA, forUserId: TAL, forBoth: true, kind: 'REMINDER', title: 'Pay the nursery', startsAt: at('2026-10-21 20:00') });
+    const mine = (await itemOf(`famcal|${masked.id}`)).body;
+    assertSame([mine.forWho, mine.canChangeRecipient], ['both', false], 'the one Noa set for both of them: Tal sees it, only Noa changes it');
+  });
+
+  await check('both: edit reminder me → both → partner → me: each is a recipient change; "now for both of you" for the open pings; the cache of both goes', async () => {
+    seed();
+    seedRecurrenceCache();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const id = idOf(created.body.key);
+    const day = (d: string) => `famcal|${id}#${iso(at(`${d} 17:30`))}`;
+    seedState(id, at('2026-10-21 17:30'), 51, { doneAt: at('2026-10-21 17:35') });
+    seedState(id, at('2026-10-22 17:30'), 52, { lastPingedAt: at('2026-10-22 17:30') });
+    eventRow(id).armedAt = OLD;
+    stripped.length = 0;
+    const toBoth = await patch({ key: day('2026-10-22'), scope: 'all', changes: { forWho: 'both' } });
+    assertSame([toBoth.body, eventRow(id).forUserId, eventRow(id).forBoth, iso(eventRow(id).armedAt)], [{ status: 'ok', key: day('2026-10-22') }, NOA, true, iso(OLD)], 'for both, armedAt kept');
+    assertSame(statesOf(id).map(msgOf), [51], 'the done one stays, the open one starts afresh');
+    assertSame([strips().reassigned, stripped.map((s) => s.extra?.reassigned?.both)], [[52], [true]], 'its ping says "now for both of you"');
+    assertSame(cacheUsers(), [11], 'Noa\'s cache goes too');
+    stripped.length = 0;
+    seedState(id, at('2026-10-23 17:30'), 53, { lastPingedAt: at('2026-10-23 17:30') });
+    const toPartner = await patch({ key: day('2026-10-23'), scope: 'all', changes: { forWho: 'partner' } });
+    assertSame([toPartner.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, NOA, false], 'for Noa alone');
+    assertSame([strips().reassigned, strips().names, stripped.map((s) => s.extra?.reassigned?.both)], [[53], ['Noa'], [false]], '"now for Noa"');
+    const toMe = await patch({ key: day('2026-10-23'), scope: 'all', changes: { forWho: 'me' } });
+    assertSame([toMe.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, null, false], 'back to Tal');
+    const same = await patch({ key: day('2026-10-23'), scope: 'all', changes: { forWho: 'me', title: 'Plumber' } });
+    assertSame([same.status, tracked[tracked.length - 1].meta.changed_fields], [200, ['title']], 'me again is no recipient change');
+    const following = await patch({ key: day('2026-10-26'), scope: 'following', changes: { forWho: 'both' } });
+    const tail = lastEvent();
+    assertSame([following.status, tail.forUserId, tail.forBoth, eventRow(id).forBoth], [200, NOA, true, false], 'this and after: the new series is for both, the earlier ones are not');
+    const single = await patch({ key: day('2026-10-24'), scope: 'single', changes: { forWho: 'both' } });
+    assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one is refused');
+  });
+
+  await check('both: "Keep as mine" on a reminder for both (me) leaves the creator alone; both is refused for a partner who cannot be pinged now, the take-back works', async () => {
+    seed();
+    const both = await post(reminderBody({ forWho: 'both' }));
+    const id = idOf(both.body.key);
+    tables.user.find((u) => u.id === NOA)!.telegramId = null;
+    const refused = await patch({ key: `famcal|${id}`, scope: 'all', changes: { forWho: 'partner' } });
+    assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'forWho' }], 'to the partner alone, who cannot be pinged');
+    const info = (await itemOf(`famcal|${id}`)).body;
+    assertSame([info.canChangeRecipient, info.forWho], [true, 'both'], 'the row stays so it can be taken back');
+    const back = await patch({ key: `famcal|${id}`, scope: 'all', changes: { forWho: 'me' } });
+    assertSame([back.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, null, false], 'taken back');
   });
 
   await check('3b recipient: only the creator, only a partner who can be pinged; the take-back works when the partner no longer can; a new time in the same save says "now for"', async () => {

@@ -388,9 +388,9 @@ const tokenKinds = (tokens: string[]) => JSON.stringify(tokens.map(token => (tok
 async function main() {
   const { getBotMessage, getBotMessages } = await import('../src/lib/bot-messages');
   const resolve = await import('../src/services/native-reminders/resolve');
-  const { resolveReminderForCreate, resolveReminderIntents, reminderCreateFields, anchorCandidates, reminderTimeFromAnchor } = resolve;
+  const { resolveReminderForCreate, resolveReminderIntents, reminderCreateFields, anchorCandidates, reminderTimeFromAnchor, refreshReminderNotice } = resolve;
   const confirmations = await import('../src/services/voice/confirmations');
-  const { showEventConfirmation, formatEventDateTime, formatReminderWhen, formatReminderRelativeWhen, reminderCreatedLine } = confirmations;
+  const { showEventConfirmation, formatEventDateTime, formatReminderWhen, formatReminderRelativeWhen, reminderCreatedLine, formatReminderCard } = confirmations;
   const { handleEventCallback } = await import('../src/services/voice/callbacks');
   const { autoCreateEvent } = await import('../src/services/voice/auto-create');
   const { showBulkConfirmation, handleBulkConfirmAll } = await import('../src/services/voice/bulk-confirmations');
@@ -445,6 +445,69 @@ async function main() {
     partner = null;
     const unpaired = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'partner' }), IL);
     assert(unpaired.ok && unpaired.forUserId === null && unpaired.notice === undefined, `unpaired ${JSON.stringify(unpaired)}`);
+  });
+
+  // ---- Remind us both ----
+
+  await check('both: "remind us" is for the creator and the active partner on Telegram; the partner who cannot be pinged, or none, leaves it the creator\'s', async () => {
+    partner = { ...raziel };
+    const both = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'both' }), IL);
+    assert(both.ok && both.forUserId === 2 && both.forBoth === true && both.notice === undefined, JSON.stringify(both));
+    const alone = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'partner' }), IL);
+    assert(alone.ok && alone.forUserId === 2 && alone.forBoth === false, 'the partner alone is not both');
+    partner = { ...raziel, telegramId: null };
+    const noTelegram = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'both' }), IL);
+    assert(noTelegram.ok && noTelegram.forUserId === null && noTelegram.forBoth === false && noTelegram.notice === 'partner_not_on_telegram', JSON.stringify(noTelegram));
+    partner = null;
+    const unpaired = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'both' }), IL);
+    assert(unpaired.ok && unpaired.forUserId === null && unpaired.forBoth === false && unpaired.notice === undefined, JSON.stringify(unpaired));
+  });
+
+  await check('both: the "no time set" note for a reminder for both uses the creator\'s reminder time, who is pinged too', async () => {
+    const event = parsedReminder({ ...dateOnly('2026-10-14'), forPerson: 'both' });
+    // Noon: the creator's 09:00 has passed; the partner's 18:00 has not.
+    partner = { ...raziel, reminderTime: '18:00' };
+    const r = await resolveReminderForCreate(dana, event, IL, at('2026-10-14 12:00'));
+    assert(r.ok && r.forBoth === true && r.notice === 'no_time_set', `creator's 09:00 is past: ${JSON.stringify(r)}`);
+    const before = await resolveReminderForCreate({ ...dana, reminderTime: '18:00' }, event, IL, at('2026-10-14 12:00'));
+    assert(before.ok && before.notice === undefined, `creator's 18:00 is ahead: ${JSON.stringify(before)}`);
+    const refreshed = await refreshReminderNotice({ ...event, forUserId: 2, forBoth: true }, IL, at('2026-10-14 12:00'), '18:00');
+    assert(refreshed.reminderNotice === undefined, `refresh uses the creator's time: ${refreshed.reminderNotice}`);
+  });
+
+  await check('both: forwarded text is the forwarder\'s own, so "remind us" there is for them alone', async () => {
+    partner = { ...raziel };
+    const { intents } = await resolveReminderIntents(dana, [createIntent(parsedReminder({ forPerson: 'both' }))], IL, { selfOnly: true });
+    assert(intents[0].event?.forUserId === null && intents[0].event?.forBoth === false, JSON.stringify(intents[0].event));
+  });
+
+  await check('both: a resolved reminder for both carries forBoth into the create, the card and the reply, in three languages', async () => {
+    partner = { ...raziel };
+    const event = await resolved(parsedReminder({ forPerson: 'both' }));
+    assert(event.forUserId === 2 && event.forBoth === true && event.forName === 'Raziel', JSON.stringify(event));
+    assert(reminderCreateFields(event).forBoth === true && reminderCreateFields(event).forUserId === 2, JSON.stringify(reminderCreateFields(event)));
+    assert(reminderCreateFields(await resolved(parsedReminder({ forPerson: 'partner' }))).forBoth === false, 'the partner alone');
+    for (const language of ['en', 'he', 'ru']) {
+      const forBoth = await getBotMessage(language, 'nativeReminders.card.forBoth');
+      const card = await formatReminderCard(event, language, IL);
+      assert(card.includes(` · ${forBoth}`) && !card.includes('Raziel'), `${language} card: ${card}`);
+      const when = await getBotMessage(language, 'nativeReminders.created.both', { when: 'x' });
+      const line = await reminderCreatedLine(event, language, IL);
+      assert(!line.includes('{') && !line.includes('Raziel') && when.replace('x', '') !== '' && line.startsWith(when.split('x')[0]), `${language} line: ${line}`);
+      const dateOnlyLine = await reminderCreatedLine(await resolved(parsedReminder({ ...dateOnly('2026-10-16'), forPerson: 'both' })), language, IL);
+      assert(dateOnlyLine.startsWith((await getBotMessage(language, 'nativeReminders.created.bothDateOnly', { when: 'x' })).split('x')[0]) && !dateOnlyLine.includes('{'), `${language} date-only line: ${dateOnlyLine}`);
+    }
+    const forPartner = await formatReminderCard(await resolved(parsedReminder({ forPerson: 'partner' })), 'en', IL);
+    assert(forPartner.includes('for Raziel') && !forPartner.includes('both of you'), forPartner);
+  });
+
+  await check('both: a bulk list marks a reminder for both as "for both of you"', async () => {
+    partner = { ...raziel };
+    const one = await resolved(parsedReminder({ forPerson: 'both' }));
+    const before = serviceCalls.length;
+    await showBulkConfirmation(555, [createIntent(one), createIntent(await resolved(parsedReminder({ title: 'Buy milk', ...dateOnly('2026-10-16') })))], dana, 'two reminders', t, fakeService as never, IL);
+    const card = serviceCalls[before];
+    assert(card.text.includes('1. ⏰ <b>Call the plumber</b> — Thu, Oct 15, 10:00 · for both of you'), card.text);
   });
 
   // ---- resolveReminderForCreate: the no-time note ----

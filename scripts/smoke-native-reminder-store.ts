@@ -51,7 +51,7 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS: Record<string, string[]> = { seriesEventId_originalStartsAt: ['seriesEventId', 'originalStartsAt'] };
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, personEnglishName: null, personGender: null, rules: [], privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
   nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
@@ -326,6 +326,85 @@ async function main() {
     assert(row.forUserId === 2, `forUserId ${row.forUserId}`);
     assert(fresh(row.armedAt), `armedAt ${iso(row.armedAt)}`);
     assert(gateCleared(), 'the due gate is still closed');
+  });
+
+  // ---- Remind us both: who a reminder is for ----
+
+  await check('both: a reminder for both partners stores the partner and forBoth; an event, or a self reminder, never does', async () => {
+    reset();
+    const base = { calendarCuid: 'raziel', creatorUserId: 1, title: 'Book the flights', startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 10:00'), timeZone: IL };
+    const both = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forUserId: 2, forBoth: true })).id);
+    assert(both.forUserId === 2 && both.forBoth === true, `forUserId ${both.forUserId}, forBoth ${both.forBoth}`);
+    const partner = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forUserId: 2 })).id);
+    assert(partner.forUserId === 2 && partner.forBoth === false, `partner: ${partner.forBoth}`);
+    const self = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forBoth: true })).id);
+    assert(self.forUserId === null && self.forBoth === false, 'forBoth with no partner is for the creator alone');
+    const event = eventRow((await createNativeEvent({ ...base, forUserId: 2, forBoth: true })).id);
+    assert(event.kind === 'EVENT' && event.forBoth !== true, 'an event is for no one');
+  });
+
+  /** A repeating reminder of Raziel's for himself, with an open and a done occurrence, both pinged. */
+  function reassignable() {
+    reset();
+    seedEvent('rem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });
+    seedState('rem', at('2026-10-13 08:00'), 11, { doneAt: at('2026-10-13 08:05') });
+    seedState('rem', at('2026-10-14 08:00'), 12);
+  }
+
+  await check('both: handing a reminder to both: the open occurrences start afresh and their pings come back "now for", the done one stays', async () => {
+    reassignable();
+    closeGate();
+    const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: true });
+    const row = eventRow('rem');
+    assert(row.forUserId === 2 && row.forBoth === true, `forUserId ${row.forUserId}, forBoth ${row.forBoth}`);
+    assert(pings(r.reassignedPings) === '5001/12' && r.clearedPings.length === 0, `reassigned ${pings(r.reassignedPings)}`);
+    assert(JSON.stringify(stateKeys('rem')) === JSON.stringify([iso(at('2026-10-13 08:00'))]), `states ${stateKeys('rem')}`);
+    assert(gateCleared(), 'the due gate is closed');
+  });
+
+  await check('both: from both to the partner alone, then to the creator alone: an open occurrence returns BOTH pings', async () => {
+    reset();
+    seedEvent('rem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, forBoth: true, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });
+    seedState('rem', at('2026-10-14 08:00'), 12, {}, 1);
+    const stateId = tables.nativeReminderState[0].id;
+    // Her ping on the same occurrence.
+    tables.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: 'ping-hers', stateId, userId: 2, lastPingedAt: at('2026-10-14 08:00'), pingAttempts: 1, pingChatId: 5002n, pingMessageId: 13 });
+    const toPartner = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: false });
+    assert(eventRow('rem').forUserId === 2 && eventRow('rem').forBoth === false, 'for the partner alone');
+    assert(pings(toPartner.reassignedPings) === '5001/12, 5002/13', `both live pings come back: ${pings(toPartner.reassignedPings)}`);
+    assert(stateKeys('rem').length === 0 && tables.nativeReminderPing.length === 0, 'the state and both ping rows went with it');
+    const toMe = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: null });
+    assert(eventRow('rem').forUserId === null && eventRow('rem').forBoth === false, 'the creator alone, forBoth off');
+    assert(toMe.reassignedPings.length === 0, 'nothing left to edit');
+  });
+
+  await check('both: the same recipients again is no change: the open occurrences keep their state and no ping is touched', async () => {
+    reset();
+    seedEvent('rem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, forBoth: true, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule: 'FREQ=DAILY' });
+    seedState('rem', at('2026-10-14 08:00'), 12, {}, 1);
+    const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: true });
+    assert(r.reassignedPings.length === 0 && stateKeys('rem').length === 1 && tables.nativeReminderPing.length === 1, `reassigned ${pings(r.reassignedPings)}, states ${stateKeys('rem').length}`);
+  });
+
+  await check('both: only the creator can, and only for the active partner on Telegram; forBoth needs that partner', async () => {
+    reassignable();
+    await refused('the partner hands it on', () => updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 2, forUserId: 2, forBoth: true }));
+    for (const [what, input] of [
+      ['a stranger as the partner', { forUserId: 3, forBoth: true }],
+      ['both with no partner', { forUserId: null, forBoth: true }],
+    ] as const) {
+      const outcome = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, ...input }).then(() => 'allowed', (err: Error) => err.name);
+      assert(outcome === 'NativeRecipientError', `${what}: ${outcome}`);
+    }
+    assert(eventRow('rem').forUserId === null && eventRow('rem').forBoth === false, 'nothing written');
+  });
+
+  await check('both: this one and the ones after, for both: the new series is for both, the earlier ones keep their recipient', async () => {
+    reassignable();
+    const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, forUserId: 2, forBoth: true });
+    const tail = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(tail.forUserId === 2 && tail.forBoth === true && eventRow('rem').forUserId === null && eventRow('rem').forBoth === false, `tail ${tail.forBoth}, head ${eventRow('rem').forBoth}`);
+    assert(pings(r.reassignedPings) === '5001/12', `reassigned ${pings(r.reassignedPings)}`);
   });
 
   await check('create: a date-only reminder saved as the bot saves all-day (00:00 to 23:59) is zero-length at 00:00', async () => {

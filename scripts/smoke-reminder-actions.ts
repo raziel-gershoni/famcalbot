@@ -644,6 +644,156 @@ async function main() {
     assertJson(r6.status === 'ok' ? r6.until : null, at('2026-10-20 09:00', NY), 'New York');
   });
 
+  // ---- Remind us both ----
+
+  const BOTH = sid('both');
+  const BOTH_KEY = { seriesEventId: BOTH, originalStartsAt: at('2026-10-19 09:30') };
+  /**
+   * Raziel's reminder for both of them at 09:30, pinged to both (his ping message 61, hers 62):
+   * forUserId is Dana, forBoth marks it.
+   */
+  function addBoth(pinged = true) {
+    db.events.push({
+      id: BOTH, calendarId: 'cal-raz', creatorUserId: RAZIEL, title: 'Book the flights', startsAt: BOTH_KEY.originalStartsAt, endsAt: BOTH_KEY.originalStartsAt,
+      description: null, location: null, allDay: false, timeZone: IL, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false,
+      createdAt: CREATED, updatedAt: CREATED, kind: 'REMINDER', forUserId: DANA, forBoth: true, armedAt: CREATED,
+    });
+    if (!pinged) return;
+    db.states.push({ id: 'state-both', seriesEventId: BOTH, originalStartsAt: BOTH_KEY.originalStartsAt, doneAt: null, doneByUserId: null, createdAt: CREATED, updatedAt: CREATED });
+    db.pings.push(
+      pingRow('state-both', RAZIEL, { lastPingedAt: BOTH_KEY.originalStartsAt, pingAttempts: 1, pingChatId: BigInt(tg(RAZIEL)), pingMessageId: 61 }),
+      pingRow('state-both', DANA, { lastPingedAt: BOTH_KEY.originalStartsAt, pingAttempts: 1, pingChatId: BigInt(tg(DANA)), pingMessageId: 62 })
+    );
+  }
+
+  await check('both: either partner marks it done from the app: shared, the other gets one quiet note, both pings are edited, the actor gets no note', async () => {
+    reset();
+    addBoth();
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assertJson(r, { status: 'ok', title: 'Book the flights' }, 'result');
+    const row = stateFor(BOTH, BOTH_KEY.originalStartsAt)!;
+    assert(same(row.doneAt, NOW) && row.doneByUserId === DANA, json(row));
+    const note = await getBotMessage('he', 'nativeReminders.doneBy', { name: 'Dana', title: 'Book the flights' });
+    assertJson(sends().map((s) => [s.chatId, s.text, s.silent]), [[tg(RAZIEL), note, true]], 'exactly one quiet note, to Raziel, in Hebrew');
+    // His ping reads who did it, in his language; hers (the app marked it) reads the plain done, in hers.
+    const hisEdit = await getBotMessage('he', 'nativeReminders.doneBy', { name: 'Dana', title: 'Book the flights' });
+    const hersEdit = await getBotMessage('en', 'nativeReminders.done', { title: 'Book the flights' });
+    assertJson(
+      edits().map((e) => [e.chatId, e.messageId, e.text, e.buttons]).sort(),
+      [[tg(RAZIEL), 61, hisEdit, false], [tg(DANA), 62, hersEdit, false]].sort(),
+      'both pings edited, no buttons'
+    );
+    assertJson(activity, [{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: BOTH, source: 'app', for_both: true } }], 'analytics');
+    // The other partner's Done afterwards finds it done, and changes nothing.
+    botCalls = [];
+    assertJson(await act(RAZIEL, BOTH_KEY, 'done'), { status: 'already_done', title: 'Book the flights' }, 'the second Done');
+    assert(botCalls.length === 0 && row.doneByUserId === DANA, 'no second note, no second edit');
+  });
+
+  await check('both: Done from a ping button edits the other partner\'s ping and tells them once; the tapped ping is the callback\'s to edit', async () => {
+    reset();
+    addBoth();
+    const r = await act(RAZIEL, BOTH_KEY, 'done', NOW, 'ping');
+    assert(r.status === 'ok', json(r));
+    const note = await getBotMessage('en', 'nativeReminders.doneBy', { name: 'Raziel', title: 'Book the flights' });
+    assertJson(sends().map((s) => [s.chatId, s.text, s.silent]), [[tg(DANA), note, true]], 'one note, to Dana');
+    assertJson(edits().map((e) => [e.chatId, e.messageId, e.text]), [[tg(DANA), 62, note]], 'only her ping; his is the tapped one');
+  });
+
+  await check('both: Done reaches the partner even when their ping was never sent (their time had not come)', async () => {
+    reset();
+    addBoth(false);
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assert(r.status === 'ok', json(r));
+    assertJson(sends().map((s) => s.chatId), [tg(RAZIEL)], 'the note');
+    assert(edits().length === 0, 'no live ping to edit');
+    assert(db.pings.length === 1, 'no ping row made by a Done (only the plumber\'s)');
+  });
+
+  await check('both: a snooze is the actor\'s own: their ping row (made when absent), their ping edited, the other untouched', async () => {
+    reset();
+    addBoth();
+    closeGate();
+    const r = await act(DANA, BOTH_KEY, 'snooze15');
+    assert(r.status === 'ok', json(r));
+    const hers = stateFor(BOTH, BOTH_KEY.originalStartsAt, DANA)!;
+    const his = stateFor(BOTH, BOTH_KEY.originalStartsAt, RAZIEL)!;
+    assertJson(hers.snoozedUntil, new RealDate(NOW.getTime() + 15 * MIN), 'her snooze');
+    assert(his.snoozedUntil === null && his.pingAttempts === 1, `his ping row is untouched: ${json(his)}`);
+    assert(hers.pingAttempts === 0, 'her retry budget restarts');
+    assert(gateOpen(), 'gate woken');
+    assertJson(edits().map((e) => [e.chatId, e.messageId]), [[tg(DANA), 62]], 'only her ping');
+    assert(sends().length === 0, 'a snooze tells nobody');
+    // A partner who was never pinged: the snooze makes their ping row.
+    reset();
+    addBoth(false);
+    await act(RAZIEL, BOTH_KEY, 'snooze60');
+    assertJson(db.pings.filter((p) => p.snoozedUntil).map((p) => [p.userId, (p.snoozedUntil as Date).getTime()]), [[RAZIEL, NOW.getTime() + 60 * MIN]], 'only his row, made by the snooze');
+  });
+
+  await check('both: Undo reopens it for both and clears only the actor\'s own snooze', async () => {
+    reset();
+    addBoth();
+    await act(DANA, BOTH_KEY, 'snooze60');
+    await act(RAZIEL, BOTH_KEY, 'snooze15');
+    await act(DANA, BOTH_KEY, 'done');
+    botCalls = [];
+    const r = await act(RAZIEL, BOTH_KEY, 'undo');
+    assertJson(r, { status: 'ok', title: 'Book the flights' }, 'result');
+    const row = stateFor(BOTH, BOTH_KEY.originalStartsAt)!;
+    assert(row.doneAt === null && row.doneByUserId === null, `reopened: ${json(row)}`);
+    assert(stateFor(BOTH, BOTH_KEY.originalStartsAt, RAZIEL)!.snoozedUntil === null, 'his own snooze cleared');
+    assertJson(stateFor(BOTH, BOTH_KEY.originalStartsAt, DANA)!.snoozedUntil, new RealDate(NOW.getTime() + 60 * MIN), 'her snooze stays');
+    assert(botCalls.length === 0, 'undo edits and tells nobody');
+  });
+
+  await check('both: who may act: either partner and nobody else; once unpaired only the creator, and a Done tells nobody', async () => {
+    reset();
+    addBoth();
+    assert((await act(NOAM, BOTH_KEY, 'done')).status === 'not_yours', 'a stranger');
+    assertJson(await act(EX, BOTH_KEY, 'done'), { status: 'not_yours', wasTarget: false }, 'someone else');
+    db.pairings[0].status = 'UNLINKED';
+    assertJson(await act(DANA, BOTH_KEY, 'snooze15'), { status: 'not_yours', wasTarget: true }, 'the former partner is told it changed hands');
+    assert(db.pings.every((p) => p.snoozedUntil === null), 'nothing written for her');
+    botCalls = [];
+    const r = await act(RAZIEL, BOTH_KEY, 'done');
+    assert(r.status === 'ok', json(r));
+    assert(sends().length === 0, `unpaired, the creator alone: no note, got ${json(sends())}`);
+    // The reminder is done, so her live ping closes too, as the owner's does when the creator marks a single one done.
+    assertJson(edits().map((e) => e.messageId).sort(), [61, 62], 'both live pings close');
+  });
+
+  await check('both: a failed note or edit for one partner is logged by ids and never undoes the Done', async () => {
+    reset();
+    addBoth();
+    botFailure = new Error('ETELEGRAM: 500 Internal Server Error');
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assert(r.status === 'ok' && stateFor(BOTH, BOTH_KEY.originalStartsAt)!.doneAt !== null, json(r));
+    const contexts = captured.map((c) => c.ctx);
+    assert(contexts.includes('native-reminder-done-notice') && contexts.filter((c) => c === 'native-reminder-action-ping-edit').length === 2, json(captured));
+    assert(captured.every((c) => !JSON.stringify(c.extra ?? {}).includes('Book the flights')), 'no title in the report');
+    assert(captured.some((c) => (c.extra as Row)?.user_id === RAZIEL) && captured.some((c) => (c.extra as Row)?.user_id === DANA), `by recipient id: ${json(captured)}`);
+  });
+
+  await check('both: the app\'s reminder is each viewer\'s own snooze and shared Done, for both, in the range route\'s DTO', async () => {
+    reset();
+    addBoth();
+    await act(DANA, BOTH_KEY, 'snooze60');
+    const dtoFor = async (id: number) => {
+      const user = actor(id);
+      const { read, items } = await readFamcal(user, { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
+      if (read.status !== 'ok') throw new Error('read failed');
+      const days = toRangeDays(items, '2026-10-19', '2026-10-20', IL, NOW, '2026-10-19');
+      return days.flatMap((d) => d.items).find((i) => i.key === `famcal|${BOTH}`)?.reminder;
+    };
+    const hers = await dtoFor(DANA);
+    const his = await dtoFor(RAZIEL);
+    assert(!!hers?.snoozedUntil && his?.snoozedUntil === null, `snooze: hers ${json(hers)}, his ${json(his)}`);
+    assert(hers?.ownerIsViewer === true && his?.ownerIsViewer === true && hers?.creatorIsViewer === false && his?.creatorIsViewer === true, 'both are recipients; he created it');
+    await act(RAZIEL, BOTH_KEY, 'done');
+    assert((await dtoFor(DANA))?.done === true && (await dtoFor(RAZIEL))?.done === true, 'done for both');
+  });
+
   // ---- The live ping ----
 
   await check('ping: an in-app done edits it to "✅ title", buttons gone; snooze to "💤 title · until HH:mm"; undo leaves it', async () => {

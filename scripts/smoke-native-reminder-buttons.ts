@@ -692,6 +692,84 @@ async function main() {
     return responses;
   };
 
+  // ---- Remind us both ----
+
+  /** Raziel's reminder for both of them, pinged to both: his message 811, hers 812, on one shared state row. */
+  const BOTH = 'state-both';
+  function addBoth() {
+    world.events.push({
+      id: 'ev-both', calendarId: 'cal-raziel', creatorUserId: RAZIEL, forUserId: DANA, forBoth: true, title: 'Book the flights',
+      startsAt: new Date('2026-10-14T13:00:00Z'), endsAt: new Date('2026-10-14T13:00:00Z'), timeZone: 'Asia/Jerusalem', description: null, location: null,
+      allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], kind: 'REMINDER', armedAt: new Date('2026-10-13T08:00:00Z'), isDeleted: false,
+      createdAt: new Date('2026-10-13T08:00:00Z'), updatedAt: new Date('2026-10-13T08:00:00Z'),
+    });
+    world.states.push({ id: BOTH, seriesEventId: 'ev-both', originalStartsAt: new Date('2026-10-14T13:00:00Z'), doneAt: null, doneByUserId: null, createdAt: NOW, updatedAt: NOW });
+    const ping = (userId: number, messageId: number): Row => ({
+      id: `ping-${userId}`, stateId: BOTH, userId, snoozedUntil: null, lastPingedAt: new Date('2026-10-14T13:00:00Z'), pingAttempts: 1,
+      pingChatId: BigInt(tg(userId)), pingMessageId: messageId, createdAt: NOW, updatedAt: NOW,
+    });
+    world.pings.push(ping(RAZIEL, 811), ping(DANA, 812));
+  }
+
+  await check('both: Done by Dana on her ping: her ping reads done, his reads who did it in Hebrew, he is told once, quietly', async () => {
+    reset();
+    addBoth();
+    const q = tap(DANA, `nr:d:${BOTH}`, 812);
+    await handleNativeReminderCallback(q, NOW);
+    assert(toastOf(q) === undefined, `toast ${toastOf(q)}`);
+    assert(stateRow(BOTH).doneByUserId === DANA && show(stateRow(BOTH).doneAt) === show(NOW), `state ${show(stateRow(BOTH))}`);
+    const byDana = await copy('he', 'doneBy', { name: 'Dana', title: 'Book the flights' });
+    const e = edits();
+    assert(e.length === 2, `edits ${show(e)}`);
+    const hers = e.find(x => x.messageId === 812)!;
+    const his = e.find(x => x.messageId === 811)!;
+    assert(hers.chatId === tg(DANA) && hers.text === '✅ Book the flights' && !hers.buttons && hers.html, `hers ${show(hers)}`);
+    assert(his.chatId === tg(RAZIEL) && his.text === byDana && !his.buttons && his.html, `his ${show(his)}`);
+    const notices = sends();
+    assert(notices.length === 1 && notices[0].chatId === tg(RAZIEL) && notices[0].silent && notices[0].text === byDana, `notices ${show(notices)}`);
+    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: 'ev-both', source: 'ping', for_both: true } }]), `activity ${show(activity)}`);
+  });
+
+  await check('both: the other partner\'s old buttons after a Done answer "already done" and edit their ping, writing nothing', async () => {
+    reset();
+    addBoth();
+    await handleNativeReminderCallback(tap(DANA, `nr:d:${BOTH}`, 812), NOW);
+    botCalls = [];
+    const q = tap(RAZIEL, `nr:s15:${BOTH}`, 811);
+    await handleNativeReminderCallback(q, NOW);
+    assert(toastOf(q) === await copy('he', 'alreadyDone'), `toast ${toastOf(q)}`);
+    assert(world.pings.every(p => p.snoozedUntil === null), 'no snooze written');
+    assert(sends().length === 0, 'no second note');
+  });
+
+  await check('both: a snooze by Dana is hers: her ping row, her ping text; his ping and row stay', async () => {
+    reset();
+    addBoth();
+    const q = tap(DANA, `nr:s15:${BOTH}`, 812);
+    await handleNativeReminderCallback(q, NOW);
+    assert(toastOf(q) === undefined, `toast ${toastOf(q)}`);
+    assert(show(stateRow(BOTH, DANA).snoozedUntil) === show(new Date(NOW.getTime() + 15 * MIN)), `hers ${show(stateRow(BOTH, DANA).snoozedUntil)}`);
+    assert(stateRow(BOTH, RAZIEL).snoozedUntil === null && stateRow(BOTH, RAZIEL).pingAttempts === 1, 'his is untouched');
+    assertEditedTo(tg(DANA), 812, await copy('en', 'snoozedUntil', { title: 'Book the flights', time: '10:15' }));
+    assert(sends().length === 0, 'a snooze tells nobody');
+  });
+
+  await check('both: Raziel\'s Done: Dana\'s ping reads who did it in English and she is told once; after unlinking only the tapper\'s ping closes and nobody is told', async () => {
+    reset();
+    addBoth();
+    await handleNativeReminderCallback(tap(RAZIEL, `nr:d:${BOTH}`, 811), NOW);
+    const byRaziel = await copy('en', 'doneBy', { name: 'רזיאל', title: 'Book the flights' });
+    const e = edits();
+    assert(e.length === 2 && e.find(x => x.messageId === 812)!.text === byRaziel && e.find(x => x.messageId === 811)!.text === '✅ Book the flights', `edits ${show(e)}`);
+    assert(sends().length === 1 && sends()[0].chatId === tg(DANA), `sends ${show(sends())}`);
+    reset();
+    addBoth();
+    world.pairings[0].status = 'UNLINKED';
+    await handleNativeReminderCallback(tap(RAZIEL, `nr:d:${BOTH}`, 811), NOW);
+    assert(sends().length === 0, `unpaired: ${show(sends())}`);
+    assert(edits().filter(x => x.messageId === 811).length === 1, 'his ping closes');
+  });
+
   await check('webhook: an nr: tap reaches the handler and gets a 200', async () => {
     reset();
     const q = tap(DANA, `nr:d:${MILK}`, MILK_MSG);

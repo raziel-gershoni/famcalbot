@@ -20,6 +20,8 @@
 // Lists the cases and prompt sizes without calling the model:
 //   NODE_OPTIONS='--conditions=import' npx tsx scripts/eval-native-reminders.ts --dry-run
 // Options (env): EVAL_RUNS=1
+//   EVAL_ONLY=both     only the cases whose label starts with that word (the "remind us" ones: 9 calls)
+//   EVAL_FAIL_FAST=1   stop at the first failing case
 
 import { formatInTimeZone } from 'date-fns-tz';
 import type { ParsedEvent, VoiceIntentResult } from '../src/services/event-parser';
@@ -27,6 +29,8 @@ import type { ReminderPromptContext } from '../src/services/voice/gemini-voice';
 import type { CalendarAssignment } from '../src/types';
 
 const RUNS = Number(process.env.EVAL_RUNS || 1);
+const ONLY = process.env.EVAL_ONLY || '';
+const FAIL_FAST = process.env.EVAL_FAIL_FAST === '1';
 const TZ = 'Asia/Jerusalem';
 
 type Language = 'en' | 'he' | 'ru';
@@ -61,7 +65,7 @@ const describeAll = (results: VoiceIntentResult[]) =>
   results.map(r => (r.event ? `${r.intent}:${r.event.kind ?? 'event'}` : `${r.intent}${r.error ? ` (${r.error})` : ''}`)).join(', ');
 
 interface ReminderWant {
-  forPerson?: 'self' | 'partner';
+  forPerson?: 'self' | 'partner' | 'both';
   /** Days after today, on the user's clock (0 = today). */
   inDays?: number;
   /** The weekday it falls on, within the coming week ('Thu'). */
@@ -163,7 +167,7 @@ const twoReminders: Expect = results => {
   return got === 'partner,self' ? null : `got [${got}]: ${describeAll(results)}`;
 };
 
-const CASES: Case[] = [
+const ALL_CASES: Case[] = [
   // Timed, for the user.
   { language: 'en', label: 'timed', text: 'Remind me to call the plumber on Thursday at 10', expect: reminder({ forPerson: 'self', weekday: 'Thu', time: '10:00' }) },
   { language: 'he', label: 'timed', text: 'תזכיר לי להתקשר לאינסטלטור ביום חמישי בעשר', expect: reminder({ forPerson: 'self', weekday: 'Thu', time: '10:00' }) },
@@ -227,14 +231,26 @@ const CASES: Case[] = [
   { language: 'ru', label: 'move', text: 'Перенеси напоминание про сантехника на пять вечера', expect: movesTo('17:00') },
   // Two reminders in one message.
   { language: 'en', label: 'two reminders', text: 'Remind me to call mom at 5, and remind Dana to buy bread tomorrow', expect: twoReminders },
+  // "Remind us" is for the user and the partner together ("remind me" and "remind Dana" above stay self and partner).
+  { language: 'en', label: 'both: us', text: 'Remind us to book the flights tomorrow', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
+  { language: 'he', label: 'both: us', text: 'תזכיר לנו להזמין טיסות מחר', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
+  { language: 'ru', label: 'both: us', text: 'Напомни нам забронировать билеты завтра', expect: reminder({ forPerson: 'both', inDays: 1, allDay: true }) },
+  { language: 'en', label: 'both: both of us', text: 'Remind both of us to pay the electricity bill on Friday', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
+  { language: 'he', label: 'both: both of us', text: 'תזכיר לשנינו לשלם את החשמל ביום שישי', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
+  { language: 'ru', label: 'both: both of us', text: 'Напомни нам обоим оплатить электричество в пятницу', expect: reminder({ forPerson: 'both', weekday: 'Fri', allDay: true }) },
+  { language: 'en', label: 'both: me and Dana', text: 'Remind me and Dana to sign the form tomorrow at 5pm', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
+  { language: 'he', label: 'both: me and Dana', text: 'תזכיר לי ולדנה לחתום על הטופס מחר בחמש אחר הצהריים', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
+  { language: 'ru', label: 'both: me and Dana', text: 'Напомни мне и Дане подписать форму завтра в пять вечера', expect: reminder({ forPerson: 'both', inDays: 1, time: '17:00' }) },
 ];
+
+const CASES = ALL_CASES.filter(c => c.label.startsWith(ONLY));
 
 async function main() {
   const { AI_MODEL, AI_MODEL_ID, getExtractionThinkingLevel } = await import('../src/config/ai-models');
   const { buildEventExtractionPrompt } = await import('../src/services/voice/gemini-voice');
   const { processTextWithGemini } = await import('../src/services/forward-event/gemini-text');
 
-  console.log(`\n=== ${AI_MODEL}, thinking ${getExtractionThinkingLevel(AI_MODEL_ID) ?? 'API default'}, ${CASES.length} cases, ${RUNS} run(s) each`);
+  console.log(`\n=== ${AI_MODEL}, thinking ${getExtractionThinkingLevel(AI_MODEL_ID) ?? 'API default'}, ${CASES.length} cases${ONLY ? ` (only "${ONLY}")` : ''}, ${RUNS} run(s) each`);
 
   if (process.argv.includes('--dry-run')) {
     for (const language of ['en', 'he', 'ru'] as const) {
@@ -269,6 +285,7 @@ async function main() {
     passedBy[c.language][0] += ok ? 1 : 0;
     passedBy[c.language][1] += 1;
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${c.language}  ${c.label.padEnd(16)} ${c.text}${ok ? '' : `\n          ${problems.join(' | ')}`}`);
+    if (!ok && FAIL_FAST) break;
   }
 
   console.log(`\n  by language: ${(['en', 'he', 'ru'] as const).map(l => `${l} ${passedBy[l][0]}/${passedBy[l][1]}`).join(', ')}`);

@@ -312,6 +312,23 @@ async function extractionChecks() {
     assert(!rules.includes('"forPerson": "partner"'), 'a partner example is still there');
   });
 
+  await check('with a partner the rules teach "both" (remind us), in English, Hebrew and Russian, with an example of each; without a partner there is none', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      const rules = rulesFor(mode);
+      assert(rules.includes('"forPerson": "self" | "partner" | "both"'), `${mode}: the schema lacks "both"`);
+      for (const phrase of ['"both" when it is for the user AND the user\'s partner together', 'remind us to', 'remind both of us', 'תזכיר לנו', 'תזכיר לשנינו', 'напомни нам', 'напомни нам обоим']) {
+        assert(rules.includes(phrase), `${mode}: no "${phrase}"`);
+      }
+      // "Remind us" is no longer a "self" phrase.
+      assert(!/"self" for everything else: "remind me", "remind us"/.test(rules), `${mode}: remind us is still self`);
+      const bothExamples = rules.split('\n').filter((line) => line.includes('"forPerson": "both"'));
+      assert(bothExamples.length === 3, `${mode}: ${bothExamples.length} examples of both`);
+      assert(/[\u0590-\u05FF]/.test(bothExamples.join('')) && /[\u0400-\u04FF]/.test(bothExamples.join('')) && /Remind us/.test(rules), `${mode}: en, he and ru`);
+    }
+    const solo = rulesFor('text', SOLO);
+    assert(!solo.includes('"forPerson": "both"') && !solo.includes('"both" when'), 'a user with no partner is offered "both"');
+  });
+
   await check('the rules carry the Hebrew, English and Russian phrasings', () => {
     const rules = rulesFor('text');
     const phrases = [
