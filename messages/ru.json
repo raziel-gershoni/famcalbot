@@ -1560,7 +1560,15 @@
       "parashatBeharBrief": "Беар",
       "parashatBeharBechukotai": "Глава Беар-Бехукотай",
       "parashatBeharBechukotaiBrief": "Беар-Бехукотай",
-      "shabbatShirah": "Шаббат Шира"
+      "shabbatShirah": "Шаббат Шира",
+      "parashatHaazinu": "Глава Аазину",
+      "parashatHaazinuBrief": "Аазину",
+      "parashatReeh": "Глава Реэ",
+      "parashatReehBrief": "Реэ",
+      "parashatBehaalotcha": "Глава Беаалотха",
+      "parashatBehaalotchaBrief": "Беаалотха",
+      "shabbatHachodesh": "Шаббат а-Ходеш",
+      "shabbatHagadol": "Шаббат а-Гадоль"
     }
   },
   "googleCopy": {

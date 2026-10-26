@@ -1560,7 +1560,15 @@
       "parashatBeharBrief": "בהר",
       "parashatBeharBechukotai": "פרשת בהר-בחקתי",
       "parashatBeharBechukotaiBrief": "בהר-בחקתי",
-      "shabbatShirah": "שבת שירה"
+      "shabbatShirah": "שבת שירה",
+      "parashatHaazinu": "פרשת האזינו",
+      "parashatHaazinuBrief": "האזינו",
+      "parashatReeh": "פרשת ראה",
+      "parashatReehBrief": "ראה",
+      "parashatBehaalotcha": "פרשת בהעלתך",
+      "parashatBehaalotchaBrief": "בהעלתך",
+      "shabbatHachodesh": "שבת החדש",
+      "shabbatHagadol": "שבת הגדול"
     }
   },
   "googleCopy": {

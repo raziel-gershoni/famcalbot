@@ -1560,7 +1560,15 @@
       "parashatBeharBrief": "Behar",
       "parashatBeharBechukotai": "Parashat Behar-Bechukotai",
       "parashatBeharBechukotaiBrief": "Behar-Bechukotai",
-      "shabbatShirah": "Shabbat Shirah"
+      "shabbatShirah": "Shabbat Shirah",
+      "parashatHaazinu": "Parashat Ha’azinu",
+      "parashatHaazinuBrief": "Ha’azinu",
+      "parashatReeh": "Parashat Re’eh",
+      "parashatReehBrief": "Re’eh",
+      "parashatBehaalotcha": "Parashat Beha’alotcha",
+      "parashatBehaalotchaBrief": "Beha’alotcha",
+      "shabbatHachodesh": "Shabbat HaChodesh",
+      "shabbatHagadol": "Shabbat HaGadol"
     }
   },
   "googleCopy": {
