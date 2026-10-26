@@ -58,7 +58,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## Hebrew Calendar
 - Include the Hebrew date in the summary header
 - Hebrew Date: ${data.summaryHebrewDate}
-- ${data.holidays?.length ? `TODAY: ${data.holidays.join(', ')} - mention this in the header` : ''}${data.parasha ? '\n- Mention this week\'s Torah portion briefly, once, in the header or the greeting' : ''}
+- ${data.holidays?.length ? `TODAY: ${data.holidays.join(', ')} - mention this in the header` : ''}${data.parasha ? '\n- Mention this week\'s Torah portion briefly, once, in the header' : ''}
 - Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")
 `;
 }

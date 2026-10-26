@@ -59,7 +59,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## לוח עברי
 - כלול את התאריך העברי בכותרת הסיכום
 - תאריך עברי: ${data.summaryHebrewDate}
-- ${data.holidays?.length ? `היום: ${data.holidays.join(', ')} - ציין זאת בכותרת` : ''}${data.parasha ? '\n- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת או בברכה' : ''}
+- ${data.holidays?.length ? `היום: ${data.holidays.join(', ')} - ציין זאת בכותרת` : ''}${data.parasha ? '\n- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת' : ''}
 - השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)
 `;
 }

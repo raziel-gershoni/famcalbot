@@ -185,6 +185,8 @@ export async function prepareSummaryForUser(
     globalRules: user.globalRules,
     calendarAssignments: assignments,
     openRemindersMore,
+    // The daily summary (not tomorrow's) names this week's parasha.
+    daily: !summaryDate,
     // Only when Google's events are missing, so every other prompt stays as it is (A-19).
     ...(googleMissing ? { googleUnavailable: true } : {}),
   };

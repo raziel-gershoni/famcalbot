@@ -463,6 +463,8 @@ async function main() {
         calendarAssignments: c.calendars,
         openRemindersMore: c.openRemindersMore,
         ...(flag === undefined ? {} : { googleUnavailable: flag }),
+        // Only the daily summary names the parasha; the caller (telegram/summary.ts) says which this is.
+        daily: c.kind === 'daily',
       };
       await generateSummary(
         c.lists.user, c.lists.spouse, c.lists.other,
@@ -570,9 +572,9 @@ async function main() {
   // ---- This week's parasha (docs: parasha brief, 2026-10-26) ----
 
   const PARASHA_LINE: Record<Lang, { label: string; ask: string }> = {
-    en: { label: "- This week's Torah portion: Parashat Vayera", ask: "- Mention this week's Torah portion briefly, once, in the header or the greeting" },
-    he: { label: '- פרשת השבוע: פרשת וירא', ask: '- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת או בברכה' },
-    ru: { label: '- Недельная глава Торы: Глава Ваера', ask: '- Коротко, один раз, упомяните недельную главу Торы в заголовке или в приветствии' },
+    en: { label: "- This week's Torah portion: Parashat Vayera", ask: "- Mention this week's Torah portion briefly, once, in the header" },
+    he: { label: '- פרשת השבוע: פרשת וירא', ask: '- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת' },
+    ru: { label: '- Недельная глава Торы: Глава Ваера', ask: '- Коротко, один раз, упомяните недельную главу Торы в заголовке' },
   };
   const PARASHA_TEXT: Record<Lang, string> = { en: 'Parashat Vayera', he: 'פרשת וירא', ru: 'Глава Ваера' };
   /** The prompt of a case while the parasha lookup answers `value`. */
@@ -600,13 +602,45 @@ async function main() {
     }
   });
 
-  await check('no parasha line for a user who is not Jewish-culture, nor in a tomorrow summary (the day is not the user\'s today)', async () => {
+  await check('no parasha line for a user who is not Jewish-culture, nor in a tomorrow summary (any culture)', async () => {
     for (const l of LANGS) {
       const nonJewish = Object.keys(CASES).find(n => isDaily(CASES[n]) && CASES[n].kind === 'daily' && CASES[n].language === l && CASES[n].culture !== 'jewish');
       if (nonJewish) assert(await withParasha(nonJewish, PARASHA_TEXT[l]) === snapshot[nonJewish], `${nonJewish}: a parasha for a non-Jewish culture`);
+      // Whatever the culture: a tomorrow summary is the same with and without the lookup's answer.
       const tomorrow = `tomorrow-${l}-family`;
       assert(CASES[tomorrow].kind === 'tomorrow', `${tomorrow} is not a tomorrow case`);
-      assert(await withParasha(tomorrow, PARASHA_TEXT[l]) === snapshot[tomorrow], `${tomorrow}: a parasha in the tomorrow summary`);
+      const c = CASES[tomorrow] as DailyCase;
+      const culture = c.culture;
+      c.culture = 'jewish';
+      try {
+        assert(await withParasha(tomorrow, PARASHA_TEXT[l]) === await withParasha(tomorrow, null), `${tomorrow}: a parasha in the tomorrow summary of a Jewish-culture user`);
+      } finally {
+        c.culture = culture;
+      }
+    }
+  });
+
+  await check('daily or tomorrow is the caller\'s fact, not the clock: a daily summary retried past midnight keeps the line, a tomorrow summary retried past midnight (its day is now today) still has none', async () => {
+    for (const l of LANGS) {
+      const daily = CASES[`daily-${l}-${l === 'en' ? 'reminders' : 'family'}`] as DailyCase;
+      const dailyNow = daily.now;
+      daily.now = `${addDays(daily.day, 1)} 00:30:00`;
+      try {
+        assert((await withParasha(`daily-${l}-${l === 'en' ? 'reminders' : 'family'}`, PARASHA_TEXT[l])).includes(PARASHA_LINE[l].label), `${l}: a daily summary after midnight lost the line`);
+      } finally {
+        daily.now = dailyNow;
+      }
+      const tomorrow = CASES[`tomorrow-${l}-family`] as DailyCase;
+      const tomorrowNow = tomorrow.now;
+      const tomorrowCulture = tomorrow.culture;
+      tomorrow.now = `${tomorrow.day} 00:30:00`;
+      tomorrow.culture = 'jewish';
+      try {
+        assert(!(await withParasha(`tomorrow-${l}-family`, PARASHA_TEXT[l])).includes(PARASHA_LINE[l].label), `${l}: a tomorrow summary after midnight got the line`);
+      } finally {
+        tomorrow.now = tomorrowNow;
+        tomorrow.culture = tomorrowCulture;
+      }
     }
   });
 

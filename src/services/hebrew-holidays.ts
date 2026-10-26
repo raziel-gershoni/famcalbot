@@ -13,6 +13,7 @@ import { gematriya } from '@hebcal/hdate';
 // Adds Russian to hebcal's Locale. Bundles don't share module state in Next 16, so this
 // module registers it itself instead of relying on claude.ts or hebrew-date.ts.
 import '@hebcal/locales/ru';
+import { joinTitles } from '../lib/join-titles';
 import enMessages from '../../messages/en.json';
 import heMessages from '../../messages/he.json';
 import ruMessages from '../../messages/ru.json';
@@ -22,7 +23,7 @@ export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'm
 export interface Holiday {
   /** The full name: "Rosh Hashana 5787", "Chanukah: 8 Candles". */
   title: string;
-  /** The short name for the Month's cells (hebcal's renderBrief). */
+  /** The short name for the Month's cells (hebcal's renderBrief; a portion's name alone). */
   brief: string;
   /** A yom tov, a day off: the home colours these with the accent. */
   chag: boolean;
@@ -151,7 +152,11 @@ function parseDayKey(key: string): Date | null {
 
 /** The Gregorian day key of an event, read from hebcal's own civil date (never through ISO or UTC). */
 function dayKeyOf(ev: Event): string {
-  const d = ev.getDate().greg();
+  return dayKey(ev.getDate().greg());
+}
+
+/** The yyyy-MM-dd key of a local civil date. */
+function dayKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
@@ -264,18 +269,18 @@ export async function getHolidaysForDate(date: Date, language: string, timezone:
 
 /**
  * This week's parasha for the daily summary, Sunday to Friday: the coming Saturday's portion,
- * with its special Shabbat when it has one ("Parashat Vayera", "Parashat Vayakhel and Shabbat
- * Shekalim"). null on Saturday itself (owner, 2026-10-26: the Saturday summary says nothing of it),
- * and when that Saturday is a holiday and has no portion.
+ * with its special Shabbat when it has one ("Parashat Vayera", "Parashat Vayakhel, Shabbat
+ * Shekalim"), joined as the calendar home joins a day's titles. null on Saturday itself (owner,
+ * 2026-10-26: the Saturday summary says nothing of it), and when that Saturday is a holiday
+ * and has no portion.
  */
 export function weekParashaFor(date: Date, language: string, timezone: string): string | null {
   const day = date.toLocaleDateString('en-CA', { timeZone: timezone });
   const local = parseDayKey(day);
   if (!local || local.getDay() === 6) return null;
   const sat = new Date(local.getFullYear(), local.getMonth(), local.getDate() + (6 - local.getDay()));
-  const key = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, '0')}-${String(sat.getDate()).padStart(2, '0')}`;
+  const key = dayKey(sat);
   const titles = (holidaysInRange(key, key, language)[key] ?? []).filter(h => PARASHA_KINDS.has(h.kind)).map(h => h.title);
   if (!titles.length) return null;
-  const locale = Object.hasOwn(LOCALES, language) ? language : 'en';
-  return new Intl.ListFormat(locale, { style: 'long', type: 'unit' }).format(titles);
+  return joinTitles(titles);
 }

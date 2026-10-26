@@ -520,11 +520,13 @@ async function main() {
     assertEqual(admin, [], 'admin pages');
   });
 
-  await check("[guard] without the outage flag the prompt context has today's four keys, and nothing goes under the text (A-19)", async () => {
+  await check("[guard] without the outage flag the prompt context has today's keys (the four, and the daily/tomorrow fact), and nothing goes under the text (A-19)", async () => {
     await summary.sendDailySummaryToUser(1005);
     await summary.sendTomorrowSummaryToUser(1003);
-    const keys = ['culture', 'globalRules', 'calendarAssignments', 'openRemindersMore'];
+    const keys = ['culture', 'globalRules', 'calendarAssignments', 'openRemindersMore', 'daily'];
     assertEqual(aiCalls.map(a => Object.keys(a.context)), [keys, keys], 'the prompt context keys');
+    // The daily summary says so, the tomorrow summary says it is not (it names no parasha).
+    assertEqual(aiCalls.map(a => (a.context as { daily?: boolean }).daily), [true, false], 'daily, then tomorrow');
     assertEqual(messages().map(m => m[3]), ['AI summary', 'AI summary'], 'the texts sent');
     assertEqual(voice, ['AI summary', 'AI summary'], 'the voice texts');
   });
