@@ -184,6 +184,12 @@ export function weekdayOf(day: DayKey): WeekdayId | null {
   return d ? WEEKDAYS[d.getUTCDay()] : null;
 }
 
+/** The Saturday of `day`'s week: the first Saturday on or after it (the day itself on a Saturday); null for a bad key. */
+export function shabbatOf(day: DayKey): DayKey | null {
+  const d = keyDate(day);
+  return d ? addDaysToKey(day, 6 - d.getUTCDay()) : null;
+}
+
 /** Whole calendar days from `from` to `to` (negative when `to` is earlier); NaN for a bad key. */
 export function daysBetween(from: DayKey, to: DayKey): number {
   const a = keyDate(from);

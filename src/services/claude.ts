@@ -67,6 +67,11 @@ export interface SummaryUserContext {
    * line; unset or false, the prompt is unchanged.
    */
   googleUnavailable?: boolean;
+  /**
+   * This is the daily summary (the user's today), not the tomorrow summary: set by the caller that
+   * knows, so a retry past midnight keeps its kind. Only the daily one names this week's parasha.
+   */
+  daily?: boolean;
 }
 
 /**
@@ -321,12 +326,12 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 
   // Fetch holidays for the summary date (Jewish culture only)
   let holidays: string[] | undefined;
-  // This week's parasha: only the summary of the user's own today (not tomorrow's), and never on
-  // Saturday (weekParashaFor says null there).
+  // This week's parasha: only the daily summary (not tomorrow's), and never on Saturday
+  // (weekParashaFor says null there).
   let parasha: string | undefined;
   if (userContext?.culture === 'jewish') {
     holidays = await getHolidaysForDate(date, language || 'en', timezone);
-    if (localDate(date, timezone) === localDate(new Date(), timezone)) {
+    if (userContext.daily) {
       parasha = weekParashaFor(date, language || 'en', timezone) ?? undefined;
     }
   }

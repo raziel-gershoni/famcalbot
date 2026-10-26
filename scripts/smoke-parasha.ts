@@ -63,7 +63,6 @@ const on = (day: string, lang: string): Holiday[] => holidaysInRange(day, day, l
 const portion = (day: string, lang: string): Holiday[] => on(day, lang).filter(h => h.kind === 'parasha');
 /** A Date at 10:00 UTC of a day: the same civil day in Israel and in New York. */
 const noon = (day: string): Date => new Date(`${day}T10:00:00Z`);
-const list = (lang: string, titles: string[]) => new Intl.ListFormat(lang, { style: 'long', type: 'unit' }).format(titles);
 
 async function main() {
   await check('a Saturday has its parasha: title "Parashat X" and brief "X" in en, he and ru (Vayera 2026-10-31)', () => {
@@ -103,6 +102,32 @@ async function main() {
     assertEqual(portion('2027-06-19', 'en').map(h => [h.title, h.brief]), [['Parashat Beha’alotcha', 'Beha’alotcha']], 'en apostrophe');
   });
 
+  await check('Russian names: the owner\'s fixes (2026-10-26) and hebcal\'s kept wording, titles and briefs', () => {
+    const ru = (from: string, to: string) => Object.values(holidaysInRange(from, to, 'ru')).flat().filter(h => h.kind !== 'chag').map(h => `${h.title} (${h.brief})`);
+    // Single Behar, Beha'alotcha, Re'eh, Ha'azinu, Bechukotai, and the specials hebcal leaves odd.
+    assertEqual(ru('2027-05-22', '2027-05-22'), ['Глава Беар (Беар)'], 'Behar');
+    assertEqual(ru('2027-05-29', '2027-05-29'), ['Глава Бехукотай (Бехукотай)'], 'Bechukotai');
+    assertEqual(ru('2027-06-19', '2027-06-19'), ['Глава Беаалотха (Беаалотха)'], 'Beha\'alotcha');
+    const all = ru('2026-09-01', '2028-09-30');
+    assert(all.includes('Глава Аазину (Аазину)') && all.includes('Глава Реэ (Реэ)'), 'Ha\'azinu, Re\'eh');
+    assert(all.includes('Шаббат а-Ходеш (Шаббат а-Ходеш)') && all.includes('Шаббат а-Гадоль (Шаббат а-Гадоль)'), 'HaChodesh, HaGadol');
+    assert(all.includes('Глава Ваякгель (Ваякгель)'), 'Vayakhel stays');
+    assert(!all.some(x => /Бе-ар|Рэ-э|А-Азину|Вегаалотха|Месяца|Большой/.test(x)), `old wording left: ${all.filter(x => /Бе-ар|Рэ-э|А-Азину|Вегаалотха|Месяца|Большой/.test(x))}`);
+    // The single Matot and Masei (weeks that are not doubled), wherever they next fall.
+    const years = Object.values(holidaysInRange('2030-01-01', '2040-12-31', 'ru')).flat().filter(h => h.kind === 'parasha');
+    assert(years.some(h => h.title === 'Глава Матот' && h.brief === 'Матот') && years.some(h => h.title === 'Глава Масей' && h.brief === 'Масей'), 'single Matot and Masei');
+  });
+
+  await check('the day\'s titles join with ", " in every language (the calendar home\'s holidayTitles, the bot\'s line)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { holidayTitles } = require('../src/lib/calendar-view/holidays-client') as { holidayTitles: (l: Holiday[]) => string };
+    const line = (day: string, lang: string) => holidayTitles(holidaysInRange(day, day, lang)[day]);
+    assertEqual(line('2027-01-23', 'ru'), 'Ту би-Шват, Глава Бешалах, Шаббат Шира', 'ru Tu BiShvat on Shirah');
+    assertEqual(line('2027-01-23', 'en'), 'Tu BiShvat, Parashat Beshalach, Shabbat Shirah', 'en');
+    assertEqual(line('2027-01-23', 'he'), 'ט״ו בשבט, פרשת בשלח, שבת שירה', 'he');
+    assertEqual(line('2026-12-12', 'ru'), 'Ханука: 8-й день, Глава Микец', 'ru Shabbat Chanukah');
+  });
+
   await check('a Shabbat that is a holiday has no portion (Sukkot 2026-09-26, Pesach 2027-04-24)', () => {
     for (const day of ['2026-09-26', '2027-04-24']) {
       for (const lang of ['en', 'he', 'ru']) assertEqual(on(day, lang).filter(h => h.kind === 'parasha'), [], `${day} ${lang}`);
@@ -125,11 +150,9 @@ async function main() {
     assertEqual(on('2027-03-06', 'en').map(h => [h.title, h.brief]), [['Parashat Vayakhel', 'Vayakhel'], ['Shabbat Shekalim', 'Shabbat Shekalim']], 'en');
     assertEqual(on('2027-03-06', 'he').map(h => h.title), ['פרשת ויקהל', 'שבת שקלים'], 'he');
     assertEqual(on('2027-03-06', 'ru').map(h => h.title), ['Глава Ваякгель', 'Шаббат Шкалим'], 'ru');
-    const specials = new Set<string>();
     for (const lang of ['en', 'he', 'ru']) {
       const seen = Object.values(holidaysInRange('2026-09-01', '2027-09-30', lang)).flat().filter(h => h.kind === 'specialShabbat');
       assertEqual(seen.length, 9, `${lang}: nine special Shabbatot in 5787`);
-      seen.forEach(h => specials.add(`${lang}|${h.title}`));
       if (lang === 'ru') assert(seen.every(h => /[А-Яа-я]/.test(h.title) && !/[A-Za-z]/.test(h.title)), `ru specials are Russian: ${seen.map(h => h.title)}`);
     }
   });
@@ -174,9 +197,9 @@ async function main() {
   });
 
   await check('weekParashaFor: the special Shabbat joins it the way the holiday titles join; a holiday Shabbat week gives null', () => {
-    assertEqual(weekParashaFor(noon('2027-03-02'), 'en', IL), list('en', ['Parashat Vayakhel', 'Shabbat Shekalim']), 'en');
-    assertEqual(weekParashaFor(noon('2027-03-02'), 'he', IL), list('he', ['פרשת ויקהל', 'שבת שקלים']), 'he');
-    assertEqual(weekParashaFor(noon('2027-03-02'), 'ru', IL), list('ru', ['Глава Ваякгель', 'Шаббат Шкалим']), 'ru');
+    assertEqual(weekParashaFor(noon('2027-03-02'), 'en', IL), 'Parashat Vayakhel, Shabbat Shekalim', 'en');
+    assertEqual(weekParashaFor(noon('2027-03-02'), 'he', IL), 'פרשת ויקהל, שבת שקלים', 'he');
+    assertEqual(weekParashaFor(noon('2027-03-02'), 'ru', IL), 'Глава Ваякгель, Шаббат Шкалим', 'ru');
     // Sukkot I falls on Shabbat 2026-09-26; Pesach CH"M on Shabbat 2027-04-24.
     assertEqual(weekParashaFor(noon('2026-09-22'), 'en', IL), null, 'Sukkot week');
     assertEqual(weekParashaFor(noon('2027-04-20'), 'en', IL), null, 'Pesach week');

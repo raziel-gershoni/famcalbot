@@ -93,16 +93,6 @@ function on(day: string, lang: string): Holiday[] {
   return onAll(day, lang).filter(h => !PARASHA_KINDS.includes(h.kind));
 }
 
-/** holidaysInRange without the portions: only the days that have a holiday. */
-function holidaysOnly(from: string, to: string, lang: string): Record<string, Holiday[]> {
-  const out: Record<string, Holiday[]> = {};
-  for (const [key, list] of Object.entries(holidaysInRange(from, to, lang))) {
-    const kept = list.filter(h => !PARASHA_KINDS.includes(h.kind));
-    if (kept.length) out[key] = kept;
-  }
-  return out;
-}
-
 /** GET /api/calendar/holidays with this query, through the real route. */
 async function ask(query: string): Promise<{ status: number; body: Record<string, unknown>; cache: string | null }> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -255,9 +245,11 @@ async function main() {
 
   await check("English and Hebrew overrides mirror hebcal's own wording for the whole year", () => {
     for (const [lang, locale] of [['en', 'en'], ['he', 'he-x-NoNikud']] as const) {
-      const days = holidaysOnly('2026-09-01', '2027-10-31', lang);
+      const days = holidaysInRange('2026-09-01', '2027-10-31', lang);
       const want: Record<string, string[]> = {};
-      for (const ev of hebcalYear()) {
+      // The portions and special Shabbatot too: the Behar, Shirah... overrides must read as hebcal does.
+      const portionsInRange = HebrewCalendar.calendar({ start: new Date(2026, 8, 1), end: new Date(2027, 9, 31), il: true, sedrot: true }).filter(ev => ev.getFlags() & (flags.PARSHA_HASHAVUA | flags.SPECIAL_SHABBAT));
+      for (const ev of [...hebcalYear(), ...portionsInRange]) {
         const d = ev.getDate().greg();
         const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         (want[key] ??= []).push(ev.render(locale).replace(/\b5\d{3}\b/g, y => (lang === 'he' ? gematriya(Number(y)) : y)));
@@ -276,7 +268,8 @@ async function main() {
     const used = new Set([...hebcalYear(), ...portions].flatMap(ev => {
       const base = holidayNameKey((ev as unknown as { basename(): string }).basename(), 'en').id;
       const id = holidayNameKey(ev.getDesc(), 'en').id;
-      return [id, `${id}Brief`, base, `${base}Base`];
+      // Only a portion reads "<id>Brief".
+      return [id, ...(ev.getFlags() & flags.PARSHA_HASHAVUA ? [`${id}Brief`] : []), base, `${base}Base`];
     }));
     const ids = Object.keys(messages.en.holidays.names);
     assertEqual(ids.filter(id => !used.has(id)), [], 'ids no holiday uses');

@@ -46,7 +46,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
-import { holidayTitles, retryFailedHolidays, useHolidays } from '@/src/lib/calendar-view/holidays-client';
+import { holidayTitles, isPortion, retryFailedHolidays, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import {
   BROWSE_CELL_PX,
   BROWSE_CHIPS_NARROW,
@@ -271,14 +271,15 @@ function LiveCell({ cell, partner, hebrewDates, shown, more, genitive, shortMont
   // the day's highest-priority holiday. The month's first cell, when it isn't Hebrew day 1,
   // gives its name up to a holiday.
   const holiday = holidays?.[0];
-  const showHoliday = holiday !== undefined && (!hebrewMonth || !isHebrewMonthStart(cell.day) || holiday.chag);
+  // The weekly portion (a Saturday's) is no holiday here: the month name keeps the month's first cell.
+  const showHoliday = holiday !== undefined && (!hebrewMonth || (!isHebrewMonthStart(cell.day) && !isPortion(holiday)) || holiday.chag);
   const line = showHoliday ? holiday.brief : hebrewMonth;
 
   const parts = [formatDayLong(cell.day, locale)];
   if (hebrewDates) {
     const full = hebrewDayLabel(cell.day, locale, genitive);
     if (full) parts.push(full);
-    if (holidays && holidays.length > 0) parts.push(holidayTitles(holidays, locale));
+    if (holidays && holidays.length > 0) parts.push(holidayTitles(holidays));
   }
   if (cell.count > 0) {
     parts.push(t('month.cellItems', { count: cell.count }));

@@ -19,8 +19,8 @@ Shipped 2026-10-19 on `feat/holidays`, with these deviations from the design:
   - in the header's today line.
 
 **Out:**
-- parashot;
-- special Shabbatot;
+- ~~parashot;~~ (superseded 2026-10-26, see "As built: the weekly parasha")
+- ~~special Shabbatot;~~ (superseded 2026-10-26, same)
 - the Omer;
 - candle lighting;
 - Isru Chag (CalBrew computes it; hebcal doesn't);
@@ -119,4 +119,15 @@ Holidays show only when the home already shows Hebrew dates (`hebrewDates`). Wit
 
 ### Known limitations (shipped on purpose)
 - Israel schedule for everyone, so diaspora second days are not shown.
-- No parashot, special Shabbatot or Isru Chag.
+- No Isru Chag. (Parashot and special Shabbatot: superseded 2026-10-26, now shown; see "As built: the weekly parasha".)
+
+## As built: the weekly parasha (2026-10-26)
+
+The owner added the weekly Torah portion and the special Shabbatot (Shuva, Shirah, Shekalim, Zachor, Parah, HaChodesh, HaGadol, Chazon, Nachamu), Israel schedule, en/he/ru, shown only when Hebrew dates are on. No candle lighting.
+
+- **Kinds and rank.** Two more kinds in `hebrew-holidays.ts`, `parasha` then `specialShabbat`, ranked below every other kind (the `KINDS` order). `holidaysInRange` asks hebcal for `sedrot: true`; `kindOf` is still the one classifier. A Shabbat that is a holiday has no portion (hebcal's own Israel rule). They are no holidays: `getHolidaysForDate` drops them and the countdown (`nextHoliday`) ignores them.
+- **Names.** Title "Parashat Vayera" / "פרשת וירא" / "Глава Ваера"; the Month cell's brief is the portion name alone ("Vayera"), a doubled week "Matot-Masei". A special Shabbat's brief is its own name. Russian is hebcal's with the owner's fixes in `holidays.names` (Беар, Аазину, Реэ, Беаалотха, Шаббат Шира, Шаббат а-Ходеш, Шаббат а-Гадоль); Russian names follow the usual Hebrew-to-Russian transcription, hyphenated where the Hebrew is, never a doubled "Бе-ар-".
+- **Calendar.** A Saturday lists the portion and the special Shabbat after any real holiday, muted. On a month's first cell the Hebrew month name keeps the line over a portion. A day's titles are joined with ", " in every language (`src/lib/join-titles.ts`).
+- **Today's header, all week.** The Hebrew date's line gets this week's portion (the first Saturday on or after today, from the loaded months; both months when it falls in the next) as one more dot-joined part, then its special Shabbat, then the countdown. The portions never make the holiday line and never hide the countdown.
+- **Bot.** The daily summary (not tomorrow's) of a Jewish-culture user names this week's portion Sunday to Friday (`weekParashaFor`), as its own prompt line plus one instruction line; the Saturday summary carries none, and the portion never enters the Holidays list.
+- **API.** No new endpoint. The month URL carries `v=2` so answers cached before the portions shipped are skipped.

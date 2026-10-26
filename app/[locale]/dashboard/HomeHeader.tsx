@@ -8,9 +8,9 @@
 // Until the first answer the day is a placeholder bar.
 
 import { useLocale, useTranslations } from 'next-intl';
-import { daysBetween, formatDayLong } from '@/src/lib/calendar-view/format';
+import { daysBetween, formatDayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
-import { hasChag, holidayTitles, isPortion, monthLanded, shabbatOf, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
+import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 
@@ -101,7 +101,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
         ) : null}
         {holidays && holidays.length > 0 ? (
           <p className={hasChag(holidays) ? 'ch-head-sub ch-day-holiday is-chag' : 'ch-head-sub ch-day-holiday'}>
-            <bdi>{holidayTitles(holidays, locale)}</bdi>
+            <bdi>{holidayTitles(holidays)}</bdi>
           </p>
         ) : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}

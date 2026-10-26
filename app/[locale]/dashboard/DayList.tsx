@@ -62,7 +62,7 @@ function DayHeader({ day, hebrew }: { day: AgendaDay; hebrew: HebrewDates }) {
         <>
           {' '}
           <span className={hasChag(holidays) ? 'ch-day-holiday is-chag' : 'ch-day-holiday'}>
-            <bdi>{holidayTitles(holidays, locale)}</bdi>
+            <bdi>{holidayTitles(holidays)}</bdi>
           </span>
         </>
       ) : null}
