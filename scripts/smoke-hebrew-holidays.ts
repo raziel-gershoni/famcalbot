@@ -167,6 +167,8 @@ async function main() {
 
   await check('Russian reads the way Russian speakers in Israel say it (holidays.names overrides)', () => {
     const ru = (day: string) => on(day, 'ru').map(h => h.title);
+    // The name stays undeclined after Канун (owner, 2026-10-26): «Канун Рош а-Шана», not «Рош а-Шаны».
+    assertEqual(ru('2026-09-11'), ['Канун Рош а-Шана'], 'erev rosh hashana');
     assertEqual(ru('2026-09-12'), ['Рош а-Шана 5787'], 'rosh hashana');
     assertEqual(ru('2026-09-13'), ['Рош а-Шана II'], 'rosh hashana II');
     assertEqual(ru('2026-09-20'), ['Канун Йом-Кипура'], 'erev yom kippur');
