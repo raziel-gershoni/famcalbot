@@ -14,8 +14,6 @@
 process.env.DATABASE_URL = 'postgresql://test@db.invalid/test';
 process.env.DIRECT_URL = 'postgresql://test@db.invalid/test';
 process.env.GEMINI_API_KEY = 'test';
-process.env.OPENAI_API_KEY = 'test';
-process.env.ANTHROPIC_API_KEY = 'test';
 process.env.UPSTASH_REDIS_REST_URL = 'https://redis.invalid';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'test';
 process.env.TELEGRAM_BOT_TOKEN = 'test';

@@ -54,7 +54,6 @@ function buildMetricsParts(result: AICompletionResult): string[] {
   if (result.thinkingLevel) parts.push(`think:${result.thinkingLevel}`);
   let tok = `${result.usage.inputTokens}→${result.usage.outputTokens}`;
   if (result.usage.thinkingTokens) tok += `+${result.usage.thinkingTokens}t`;
-  if (result.usage.cacheReadTokens) tok += ` (cache:${result.usage.cacheReadTokens})`;
   parts.push(tok + ' tok');
   parts.push(`${(result.durationMs / 1000).toFixed(1)}s`);
   return parts;

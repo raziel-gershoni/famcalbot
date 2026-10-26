@@ -11,7 +11,7 @@
  */
 
 import { ThinkingLevel, type GenerateContentResponse } from '@google/genai';
-import { getAnthropic, getGemini } from '../ai-provider';
+import { getGemini } from '../ai-provider';
 import { getAIConfig } from '../../config/constants';
 import { thinkingLevelFor } from '../../config/ai-models';
 import { notifyAdminWarning } from '../../utils/error-notifier';
@@ -34,70 +34,6 @@ async function alertTokenCeiling(
     'AI Token Ceiling Hit (streaming)',
     `Model: ${model}\nOutput tokens: ${outputTokens}/${maxTokens}\n\nThe streamed AI response was truncated. Consider increasing AI_MAX_TOKENS.`
   );
-}
-
-async function streamClaude(
-  opts: StreamAICompletionOptions
-): Promise<AICompletionResult> {
-  const config = getAIConfig(opts.modelId);
-  // Streaming removes the 10-minute generation cap that forced the 8192 limit
-  // in callClaude, so use the full configured budget.
-  const maxTokens = config.MAX_TOKENS;
-
-  let accumulated = '';
-
-  // The shared Anthropic client at ai-provider.ts:22 has timeout 25_000 to
-  // bound buffered calls. Streamed calls need longer — the prose summaries
-  // can legitimately run 20-30s. Override per-call to 60s; the messaging
-  // adapter's own 25s safety guard still persists partial text before the
-  // Telegram draft's 30s expiry, so even if the model runs the full minute
-  // the user has a real message in their chat by 25s.
-  const stream = getAnthropic().messages.stream(
-    {
-      model: config.MODEL_CONFIG.modelId,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: opts.prompt }],
-    },
-    {
-      timeout: 60_000,
-      ...(opts.abortSignal ? { signal: opts.abortSignal } : {}),
-    }
-  );
-
-  stream.on('text', (delta: string) => {
-    accumulated += delta;
-    // Fire-and-forget: caller is responsible for backpressure (we buffer the
-    // latest text in the TG adapter's flush loop, not per-token).
-    void opts.onTextDelta(delta, accumulated);
-  });
-
-  const finalMessage = await stream.finalMessage();
-
-  if (finalMessage.stop_reason === 'max_tokens') {
-    console.warn('⚠️ WARNING: Claude streamed response was truncated due to token limit!');
-    console.warn(`Used ${finalMessage.usage.output_tokens}/${maxTokens} output tokens`);
-    alertTokenCeiling(
-      config.MODEL_CONFIG.displayName,
-      finalMessage.usage.output_tokens,
-      maxTokens
-    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
-  }
-
-  const usage = finalMessage.usage as unknown as Record<string, number>;
-
-  return {
-    text: accumulated,
-    usage: {
-      inputTokens: finalMessage.usage.input_tokens,
-      outputTokens: finalMessage.usage.output_tokens,
-      cacheReadTokens: usage.cache_read_input_tokens || undefined,
-      cacheCreationTokens: usage.cache_creation_input_tokens || undefined,
-    },
-    stopReason: finalMessage.stop_reason ?? 'unknown',
-    model: config.MODEL_CONFIG.displayName,
-    responseModel: finalMessage.model,
-    durationMs: 0,
-  };
 }
 
 async function streamGemini(
@@ -185,26 +121,13 @@ async function streamGemini(
 /**
  * Stream an AI completion to the caller via onTextDelta. Returns the same
  * AICompletionResult shape as generateAICompletion once the stream finalizes.
- *
- * Provider dispatch matches generateAICompletion. OpenAI streaming is not
- * implemented — none of the 4 target surfaces routes through OpenAI today.
  */
 export async function streamAICompletion(
   opts: StreamAICompletionOptions
 ): Promise<AICompletionResult> {
-  const config = getAIConfig(opts.modelId);
   const startMs = Date.now();
 
-  let result: AICompletionResult;
-  if (config.MODEL_CONFIG.provider === 'claude') {
-    result = await streamClaude(opts);
-  } else if (config.MODEL_CONFIG.provider === 'gemini') {
-    result = await streamGemini(opts);
-  } else {
-    throw new Error(
-      `streamAICompletion: provider "${config.MODEL_CONFIG.provider}" is not supported for streaming. Use generateAICompletion (buffered) instead.`
-    );
-  }
+  const result = await streamGemini(opts);
   result.durationMs = Date.now() - startMs;
 
   console.log('AI Streaming Success:', {

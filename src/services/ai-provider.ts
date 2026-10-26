@@ -1,10 +1,8 @@
 /**
  * AI Provider Abstraction Layer
- * Supports Claude and OpenAI with unified interface, retry logic, and monitoring
+ * Gemini behind a single interface, retry logic, and monitoring
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { getAIConfig, AI_RETRY_CONFIG } from '../config/constants';
 import { thinkingLevelFor, getExtractionThinkingLevel } from '../config/ai-models';
@@ -12,31 +10,7 @@ import { notifyAdminWarning } from '../utils/error-notifier';
 import { captureError } from '../lib/error-capture';
 
 // Lazy initialization of API clients to avoid build-time errors
-let anthropic: Anthropic | null = null;
-let openai: OpenAI | null = null;
 let gemini: GoogleGenAI | null = null;
-
-export const getAnthropic = () => {
-  if (!anthropic) {
-    anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY,
-      timeout: 25_000,
-      maxRetries: 0,
-    });
-  }
-  return anthropic;
-};
-
-const getOpenAI = () => {
-  if (!openai) {
-    openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 25_000,
-      maxRetries: 0,
-    });
-  }
-  return openai;
-};
 
 /**
  * generateContent options for the media pipelines (voice, image, forwarded text and
@@ -57,8 +31,7 @@ export const getGemini = () => {
 };
 
 /**
- * Extra request options. Gemini only: every model in the catalog is Gemini, and the
- * Claude and OpenAI paths ignore these.
+ * Extra request options. Every model in the catalog is Gemini.
  */
 export interface AICompletionOptions {
   /** JSON Schema the answer must follow. Also sets responseMimeType to application/json. */
@@ -73,8 +46,6 @@ export interface AICompletionResult {
   usage: {
     inputTokens: number;
     outputTokens: number;
-    cacheReadTokens?: number;
-    cacheCreationTokens?: number;
     thinkingTokens?: number;
   };
   stopReason: string;
@@ -103,128 +74,6 @@ async function alertTokenCeiling(
     'AI Token Ceiling Hit',
     `Model: ${model}\nOutput tokens: ${outputTokens}/${maxTokens}\n\nThe AI response was truncated. Consider increasing AI_MAX_TOKENS.`
   );
-}
-
-/**
- * Call Claude API with a prompt
- */
-async function callClaude(prompt: string, modelId?: string): Promise<AICompletionResult> {
-  const config = getAIConfig(modelId);
-
-  // Cap at 8192 to avoid "streaming required for >10 min" error
-  // Calendar summaries never need more than ~5000 tokens
-  const maxTokens = Math.min(config.MAX_TOKENS, 8192);
-
-  const message = await getAnthropic().messages.create({
-    model: config.MODEL_CONFIG.modelId,
-    max_tokens: maxTokens,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  });
-
-  const textContent = message.content.find(block => block.type === 'text');
-  const text =
-    textContent && 'text' in textContent ? textContent.text : 'Unable to generate summary.';
-
-  // Check if response was truncated
-  if (message.stop_reason === 'max_tokens') {
-    console.warn('⚠️ WARNING: Claude response was truncated due to token limit!');
-    console.warn(`Used ${message.usage.output_tokens}/${maxTokens} output tokens`);
-
-    // Send alert to admin (non-blocking)
-    alertTokenCeiling(
-      config.MODEL_CONFIG.displayName,
-      message.usage.output_tokens,
-      maxTokens
-    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
-  }
-
-  return {
-    text,
-    usage: {
-      inputTokens: message.usage.input_tokens,
-      outputTokens: message.usage.output_tokens,
-      cacheReadTokens: (message.usage as unknown as Record<string, number>).cache_read_input_tokens || undefined,
-      cacheCreationTokens: (message.usage as unknown as Record<string, number>).cache_creation_input_tokens || undefined,
-    },
-    stopReason: message.stop_reason ?? 'unknown',
-    model: config.MODEL_CONFIG.displayName,
-    responseModel: message.model,
-    durationMs: 0,
-  };
-}
-
-/**
- * Call OpenAI API with a prompt
- */
-async function callOpenAI(prompt: string, modelId?: string): Promise<AICompletionResult> {
-  const config = getAIConfig(modelId);
-
-  // GPT-5/5.1 and o-series models use 'max_completion_tokens', older models use 'max_tokens'
-  const useNewTokenParam = config.MODEL_CONFIG.modelId.startsWith('gpt-5') ||
-                           config.MODEL_CONFIG.modelId.startsWith('o1') ||
-                           config.MODEL_CONFIG.modelId.startsWith('o3') ||
-                           config.MODEL_CONFIG.modelId.startsWith('o4');
-
-  // Use reasoning_effort from model config if specified
-  const reasoningEffort = config.MODEL_CONFIG.reasoningEffort;
-
-  const completion = await getOpenAI().chat.completions.create({
-    model: config.MODEL_CONFIG.modelId,
-    ...(useNewTokenParam
-      ? { max_completion_tokens: config.MAX_TOKENS }
-      : { max_tokens: config.MAX_TOKENS }
-    ),
-    ...(reasoningEffort && { reasoning_effort: reasoningEffort }),
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  });
-
-  const choice = completion.choices[0];
-  const text = choice?.message?.content || 'Unable to generate summary.';
-
-  // Debug logging for missing content
-  if (!choice?.message?.content) {
-    console.error('❌ OpenAI returned no content!');
-    console.error('Choice:', JSON.stringify(choice, null, 2));
-    console.error('Completion:', JSON.stringify(completion, null, 2));
-  }
-
-  // Check if response was truncated
-  if (choice?.finish_reason === 'length') {
-    const outputTokens = completion.usage?.completion_tokens || 0;
-    console.warn('⚠️ WARNING: OpenAI response was truncated due to token limit!');
-    console.warn(`Used ${outputTokens}/${config.MAX_TOKENS} output tokens`);
-
-    // Send alert to admin (non-blocking)
-    alertTokenCeiling(
-      config.MODEL_CONFIG.displayName,
-      outputTokens,
-      config.MAX_TOKENS
-    ).catch(err => captureError(err, 'ai-token-ceiling-alert', {}, 'warning'));
-  }
-
-  return {
-    text,
-    usage: {
-      inputTokens: completion.usage?.prompt_tokens || 0,
-      outputTokens: completion.usage?.completion_tokens || 0,
-      thinkingTokens: (completion.usage?.completion_tokens_details as Record<string, number> | undefined)?.reasoning_tokens || undefined,
-    },
-    stopReason: choice?.finish_reason ?? 'unknown',
-    model: config.MODEL_CONFIG.displayName,
-    responseModel: completion.model,
-    durationMs: 0,
-    thinkingLevel: config.MODEL_CONFIG.reasoningEffort,
-  };
 }
 
 /**
@@ -307,31 +156,21 @@ function isNonRetryableError(error: unknown): boolean {
 
 /**
  * Generate AI completion with retry logic and exponential backoff
- * Automatically routes to the configured provider (Claude, OpenAI, or Gemini)
  *
  * @param prompt - The prompt to send to the AI
  * @param modelId - Optional catalog key; defaults to AI_MODEL (the live eval's --model passes one)
- * @param options - Optional request options (JSON mode); Gemini only
+ * @param options - Optional request options (JSON mode)
  * @returns AI completion result with text and usage statistics
  * @throws Original error if all retries fail (preserves .status for downstream detection)
  */
 export async function generateAICompletion(prompt: string, modelId?: string, options?: AICompletionOptions): Promise<AICompletionResult> {
   let lastError: unknown = null;
   const maxRetries = AI_RETRY_CONFIG.MAX_RETRIES;
-  const config = getAIConfig(modelId);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Route to the appropriate provider with timing
       const startMs = Date.now();
-      let result: AICompletionResult;
-      if (config.MODEL_CONFIG.provider === 'claude') {
-        result = await callClaude(prompt, modelId);
-      } else if (config.MODEL_CONFIG.provider === 'gemini') {
-        result = await callGemini(prompt, modelId, options);
-      } else {
-        result = await callOpenAI(prompt, modelId);
-      }
+      const result = await callGemini(prompt, modelId, options);
       result.durationMs = Date.now() - startMs;
 
       // Log successful completion

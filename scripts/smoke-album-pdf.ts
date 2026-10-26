@@ -209,7 +209,6 @@ const stubs: Record<string, object> = {
   [`${SRC}/services/ai-provider.ts`]: {
     getGemini: () => fakeGemini,
     extractionConfig: () => ({}),
-    getAnthropic: () => { throw new Error('no Anthropic in this test'); },
     generateAICompletion: async () => { throw new Error('no AI completion in this test'); },
     streamAICompletion: async () => { throw new Error('no AI stream in this test'); },
   },

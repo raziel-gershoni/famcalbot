@@ -118,7 +118,7 @@ Switching models is a code change and a redeploy. For text, add the entry to
 
 ```typescript
 'gemini-4-flash': {
-  provider: 'gemini',            // 'claude' | 'openai' | 'gemini'
+  provider: 'gemini',            // the only provider
   modelId: 'gemini-4-flash',     // exact API model ID
   displayName: 'Gemini 4 Flash',
   maxOutputTokens: 65536,

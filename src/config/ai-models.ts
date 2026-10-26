@@ -4,14 +4,13 @@
  */
 
 export interface ModelConfig {
-  provider: 'claude' | 'openai' | 'gemini';
+  provider: 'gemini';
   modelId: string;
   displayName: string;
   maxOutputTokens: number;
   contextWindow: number;
   costPer1MTokens: { input: number; output: number }; // USD
   description: string;
-  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'none'; // Optional: For GPT-5 models
   // Thinking level to send. Without it the API applies the model's own default.
   defaultThinkingLevel?: ThinkingLevelName;
 }
