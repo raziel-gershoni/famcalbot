@@ -17,6 +17,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   summaryDate: 'Summary Date',
   hebrewDate: 'Hebrew Date (Summary)',
   holidays: 'Holidays',
+  parasha: 'This week\'s Torah portion',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -57,7 +58,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## Hebrew Calendar
 - Include the Hebrew date in the summary header
 - Hebrew Date: ${data.summaryHebrewDate}
-- ${data.holidays?.length ? `TODAY: ${data.holidays.join(', ')} - mention this in the header` : ''}
+- ${data.holidays?.length ? `TODAY: ${data.holidays.join(', ')} - mention this in the header` : ''}${data.parasha ? '\n- Mention this week\'s Torah portion briefly, once, in the header or the greeting' : ''}
 - Display Hebrew date using standard numerals (e.g., "28 Kislev 5785")
 `;
 }
@@ -101,7 +102,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.culture,
     data.summaryHebrewDate,
     data.holidays,
-    DATE_INFO_LABELS
+    DATE_INFO_LABELS,
+    data.parasha
   );
 
   const spouseLabel = data.spouseName || 'Spouse';

@@ -515,7 +515,7 @@ function installStubs() {
   stub('src/services/native-reminders/moved-pings.ts', { stripMovedPings: async () => undefined, movedWhen: () => '' });
   const allowed = async () => ({ allowed: true });
   stub('src/services/subscription-service.ts', { checkFeatureAccess: allowed, peekFeatureAccess: allowed });
-  stub('src/services/hebrew-holidays.ts', { getHolidaysForDate: async () => [] });
+  stub('src/services/hebrew-holidays.ts', { getHolidaysForDate: async () => [], weekParashaFor: () => null });
 }
 
 // ================= Fixtures =================

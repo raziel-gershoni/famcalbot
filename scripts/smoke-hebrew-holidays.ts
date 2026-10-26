@@ -4,7 +4,9 @@
 // One definition of "the holidays of a day" serves the bot's summaries (getHolidaysForDate) and
 // the home (holidaysInRange, behind GET /api/calendar/holidays). Every hebcal event that is a
 // yom tov, a fast, an eve, a chol hamoed day, a minor or modern holiday or a Rosh Chodesh
-// is kept and ranked; everything else (parashot, special Shabbatot, the Omer) is dropped.
+// is kept and ranked, and so are the weekly portion and the special Shabbatot (kinds parasha and
+// specialShabbat, ranked last, no holidays: getHolidaysForDate and the countdown leave them out; see
+// scripts/smoke-parasha.ts). Everything else (the Omer...) is dropped.
 // (hebcal writes its English apostrophes as ’.) Hebrew titles are written without nikud and with the year in gematriya.
 //
 // GET /api/calendar/holidays?from&to&lang (app/api/calendar/holidays/route.ts) serves it to the
@@ -79,9 +81,26 @@ function assertEqual<T>(got: T, want: T, label: string) {
   assert(JSON.stringify(got) === JSON.stringify(want), `${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
 }
 
-/** The holidays of one day, in a language. */
-function on(day: string, lang: string): Holiday[] {
+const PARASHA_KINDS = ['parasha', 'specialShabbat'];
+
+/** Everything on one day, in a language: holidays, then the weekly portion and its special Shabbat. */
+function onAll(day: string, lang: string): Holiday[] {
   return holidaysInRange(day, day, lang)[day] ?? [];
+}
+
+/** The holidays of one day, in a language (the portion and the special Shabbat are not holidays). */
+function on(day: string, lang: string): Holiday[] {
+  return onAll(day, lang).filter(h => !PARASHA_KINDS.includes(h.kind));
+}
+
+/** holidaysInRange without the portions: only the days that have a holiday. */
+function holidaysOnly(from: string, to: string, lang: string): Record<string, Holiday[]> {
+  const out: Record<string, Holiday[]> = {};
+  for (const [key, list] of Object.entries(holidaysInRange(from, to, lang))) {
+    const kept = list.filter(h => !PARASHA_KINDS.includes(h.kind));
+    if (kept.length) out[key] = kept;
+  }
+  return out;
 }
 
 /** GET /api/calendar/holidays with this query, through the real route. */
@@ -236,7 +255,7 @@ async function main() {
 
   await check("English and Hebrew overrides mirror hebcal's own wording for the whole year", () => {
     for (const [lang, locale] of [['en', 'en'], ['he', 'he-x-NoNikud']] as const) {
-      const days = holidaysInRange('2026-09-01', '2027-10-31', lang);
+      const days = holidaysOnly('2026-09-01', '2027-10-31', lang);
       const want: Record<string, string[]> = {};
       for (const ev of hebcalYear()) {
         const d = ev.getDate().greg();
@@ -252,9 +271,12 @@ async function main() {
 
   await check('every holidays.names entry is used by some holiday of the year, and en, he and ru hold the same ids', () => {
     // The countdown's base names (nextHoliday) read the same table: by the base name's id, or "<id>Base".
-    const used = new Set(hebcalYear().flatMap(ev => {
+    // The portions and special Shabbatot too, over several years (the doubled weeks move with the year).
+    const portions = [2026, 2027, 2028, 2029, 2030].flatMap(year => HebrewCalendar.calendar({ year, isHebrewYear: false, il: true, sedrot: true }).filter(ev => ev.getFlags() & (flags.PARSHA_HASHAVUA | flags.SPECIAL_SHABBAT)));
+    const used = new Set([...hebcalYear(), ...portions].flatMap(ev => {
       const base = holidayNameKey((ev as unknown as { basename(): string }).basename(), 'en').id;
-      return [holidayNameKey(ev.getDesc(), 'en').id, base, `${base}Base`];
+      const id = holidayNameKey(ev.getDesc(), 'en').id;
+      return [id, `${id}Brief`, base, `${base}Base`];
     }));
     const ids = Object.keys(messages.en.holidays.names);
     assertEqual(ids.filter(id => !used.has(id)), [], 'ids no holiday uses');
@@ -326,14 +348,14 @@ async function main() {
 
   await check('a range returns only days with holidays, inside the range, with sorted keys', () => {
     const days = holidaysInRange('2026-09-18', '2026-09-22', 'en');
-    assertEqual(Object.keys(days), ['2026-09-20', '2026-09-21'], 'keys');
+    assertEqual(Object.keys(days), ['2026-09-19', '2026-09-20', '2026-09-21'], 'keys (the 19th is Shabbat Shuva)');
     assertEqual(holidaysInRange('2026-09-22', '2026-09-18', 'en'), {}, 'reversed range is empty');
     const year = holidaysInRange('2026-09-12', '2027-09-11', 'en');
     const keys = Object.keys(year);
     assert(keys.every(k => k >= '2026-09-12' && k <= '2027-09-11'), 'all keys inside the range');
     assertEqual([...keys].sort(), keys, 'keys ascend');
     // Every holiday of the year has a title and a brief and a valid kind.
-    const kinds = new Set(['chag', 'fast', 'erev', 'cholHamoed', 'minor', 'modern', 'roshChodesh']);
+    const kinds = new Set(['chag', 'fast', 'erev', 'cholHamoed', 'minor', 'modern', 'roshChodesh', 'parasha', 'specialShabbat']);
     for (const list of Object.values(year)) for (const h of list) {
       assert(h.title.length > 0 && h.brief.length > 0 && kinds.has(h.kind) && h.chag === (h.kind === 'chag'), `shape: ${JSON.stringify(h)}`);
     }

@@ -359,7 +359,7 @@ const stubs: Record<string, object> = {
     resolveUserTimezone: async (u: { id: number }) => TZS[u.id] ?? IL,
     resolveTimezoneForLocation: async () => null,
   },
-  [`${SRC}/services/hebrew-holidays.ts`]: { getHolidaysForDate: async () => [] },
+  [`${SRC}/services/hebrew-holidays.ts`]: { getHolidaysForDate: async () => [], weekParashaFor: () => null },
   [`${SRC}/services/analytics-service.ts`]: {
     trackActivityAsync: (userId: number, action: string, meta: Row) => { tracked.push({ userId, action, meta }); },
     trackActivity: async () => undefined,

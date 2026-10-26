@@ -10,7 +10,7 @@ import { timeOfDayGreeting } from '../utils/greeting';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
-import { getHolidaysForDate } from './hebrew-holidays';
+import { getHolidaysForDate, weekParashaFor } from './hebrew-holidays';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 import { liveGoogleChoices } from '../lib/google-state';
 
@@ -106,7 +106,8 @@ function buildPromptData(
   language?: string,
   userContext?: SummaryUserContext,
   weekLookahead?: string,
-  holidays?: string[]
+  holidays?: string[],
+  parasha?: string
 ): SummaryPromptData {
   // Get current date (today) for comparison
   const currentDate = new Date();
@@ -163,6 +164,7 @@ function buildPromptData(
     summaryGregorianDate: gregorianDate,
     summaryHebrewDate: hebrewDateFormatted,
     holidays,
+    parasha,
     greeting,
     userEventsText,
     spouseEventsText,
@@ -319,8 +321,14 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 
   // Fetch holidays for the summary date (Jewish culture only)
   let holidays: string[] | undefined;
+  // This week's parasha: only the summary of the user's own today (not tomorrow's), and never on
+  // Saturday (weekParashaFor says null there).
+  let parasha: string | undefined;
   if (userContext?.culture === 'jewish') {
     holidays = await getHolidaysForDate(date, language || 'en', timezone);
+    if (localDate(date, timezone) === localDate(new Date(), timezone)) {
+      parasha = weekParashaFor(date, language || 'en', timezone) ?? undefined;
+    }
   }
 
   // Build prompt data
@@ -341,7 +349,8 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
     language,
     userContext,
     weekLookahead,
-    holidays
+    holidays,
+    parasha
   );
 
   // Build the prompt

@@ -18,6 +18,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   summaryDate: 'Дата сводки',
   hebrewDate: 'Еврейская дата (сводка)',
   holidays: 'Праздники',
+  parasha: 'Недельная глава Торы',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -58,7 +59,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## Еврейский календарь
 - Включите еврейскую дату в заголовок сводки
 - Еврейская дата: ${data.summaryHebrewDate}
-- ${data.holidays?.length ? `СЕГОДНЯ: ${data.holidays.join(', ')} - упомяните это в заголовке` : ''}
+- ${data.holidays?.length ? `СЕГОДНЯ: ${data.holidays.join(', ')} - упомяните это в заголовке` : ''}${data.parasha ? '\n- Коротко, один раз, упомяните недельную главу Торы в заголовке или в приветствии' : ''}
 - Отображайте еврейскую дату стандартными цифрами (например: "28 Кислев 5785")
 `;
 }
@@ -103,7 +104,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.culture,
     data.summaryHebrewDate,
     data.holidays,
-    DATE_INFO_LABELS
+    DATE_INFO_LABELS,
+    data.parasha
   );
 
   const genderRu = data.userGender === 'male' ? 'мужской род' : 'женский род';

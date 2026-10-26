@@ -1555,7 +1555,12 @@
       "tuBishvat": "Tu BiShvat",
       "tzomTammuz": "Tzom Tammuz",
       "yomHazikaron": "Yom HaZikaron",
-      "yomKippur": "Yom Kippur"
+      "yomKippur": "Yom Kippur",
+      "parashatBehar": "Parashat Behar",
+      "parashatBeharBrief": "Behar",
+      "parashatBeharBechukotai": "Parashat Behar-Bechukotai",
+      "parashatBeharBechukotaiBrief": "Behar-Bechukotai",
+      "shabbatShirah": "Shabbat Shirah"
     }
   },
   "googleCopy": {

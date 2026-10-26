@@ -14,6 +14,7 @@ export interface SummaryPromptData {
   summaryGregorianDate: string;
   summaryHebrewDate: string;
   holidays?: string[];
+  parasha?: string;  // This week's Torah portion (daily summary, Sunday to Friday, Jewish culture)
   greeting: string;
   userEventsText: string;
   spouseEventsText: string;

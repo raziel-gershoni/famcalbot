@@ -86,6 +86,7 @@ const prompts: string[] = [];
 const captured: string[] = [];
 /** What the holiday lookup answers for the case being built. */
 let holidays: string[] = [];
+let parasha: string | null = null;
 
 const ModuleInternals = Module as unknown as {
   new (id: string): { filename: string; loaded: boolean; exports: unknown };
@@ -114,7 +115,7 @@ stub('services/ai-provider.ts', {
     throw new Error('not streamed in this test');
   },
 });
-stub('services/hebrew-holidays.ts', { getHolidaysForDate: async () => holidays });
+stub('services/hebrew-holidays.ts', { getHolidaysForDate: async () => holidays, weekParashaFor: () => parasha });
 stub('lib/error-capture.ts', {
   captureError: (_error: unknown, context: string) => { captured.push(context); },
   captureWarning: () => {},
@@ -563,6 +564,49 @@ async function main() {
       assert(header >= 0 && header < index && index <= rule, `${name}: line ${index + 1}, guidelines from ${header + 1} to ${rule + 1}`);
       const remindersAt = base.findIndex(l => /^- \*\*(Reminders|תזכורות|Напоминания)\*\*/.test(l));
       if (remindersAt >= 0) assert(index === remindersAt + 1, `${name}: line ${index + 1}, the reminders guideline is line ${remindersAt + 1}`);
+    }
+  });
+
+  // ---- This week's parasha (docs: parasha brief, 2026-10-26) ----
+
+  const PARASHA_LINE: Record<Lang, { label: string; ask: string }> = {
+    en: { label: "- This week's Torah portion: Parashat Vayera", ask: "- Mention this week's Torah portion briefly, once, in the header or the greeting" },
+    he: { label: '- פרשת השבוע: פרשת וירא', ask: '- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת או בברכה' },
+    ru: { label: '- Недельная глава Торы: Глава Ваера', ask: '- Коротко, один раз, упомяните недельную главу Торы в заголовке или в приветствии' },
+  };
+  const PARASHA_TEXT: Record<Lang, string> = { en: 'Parashat Vayera', he: 'פרשת וירא', ru: 'Глава Ваера' };
+  /** The prompt of a case while the parasha lookup answers `value`. */
+  async function withParasha(name: string, value: string | null): Promise<string> {
+    parasha = value;
+    try {
+      return await promptFor(name);
+    } finally {
+      parasha = null;
+    }
+  }
+
+  await check('a Jewish-culture daily summary of today with a parasha gains its own line and one instruction line, outside Holidays (en/he/ru); without one the prompt is the golden one', async () => {
+    for (const l of LANGS) {
+      const name = `daily-${l}-${l === 'en' ? 'reminders' : 'family'}`;
+      assert(CASES[name].culture === 'jewish', `${name} is not Jewish culture`);
+      const prompt = await withParasha(name, PARASHA_TEXT[l]);
+      const lines = prompt.split('\n');
+      assert(lines.includes(PARASHA_LINE[l].label), `${name}: no parasha line`);
+      assert(lines.includes(PARASHA_LINE[l].ask), `${name}: no instruction line`);
+      assert(lines.length === snapshot[name].split('\n').length + 2, `${name}: ${lines.length - snapshot[name].split('\n').length} lines added, not 2`);
+      assert(lines.filter(x => x !== PARASHA_LINE[l].label && x !== PARASHA_LINE[l].ask).join('\n') === snapshot[name], `${name}: something else changed`);
+      assert(!lines.some(x => /Holidays|חגים\/מועדים|Праздники/.test(x) && x.includes(PARASHA_TEXT[l])), `${name}: the parasha is inside the holidays line`);
+      assert(await withParasha(name, null) === snapshot[name], `${name}: differs without a parasha`);
+    }
+  });
+
+  await check('no parasha line for a user who is not Jewish-culture, nor in a tomorrow summary (the day is not the user\'s today)', async () => {
+    for (const l of LANGS) {
+      const nonJewish = Object.keys(CASES).find(n => isDaily(CASES[n]) && CASES[n].kind === 'daily' && CASES[n].language === l && CASES[n].culture !== 'jewish');
+      if (nonJewish) assert(await withParasha(nonJewish, PARASHA_TEXT[l]) === snapshot[nonJewish], `${nonJewish}: a parasha for a non-Jewish culture`);
+      const tomorrow = `tomorrow-${l}-family`;
+      assert(CASES[tomorrow].kind === 'tomorrow', `${tomorrow} is not a tomorrow case`);
+      assert(await withParasha(tomorrow, PARASHA_TEXT[l]) === snapshot[tomorrow], `${tomorrow}: a parasha in the tomorrow summary`);
     }
   });
 

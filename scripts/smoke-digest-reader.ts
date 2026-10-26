@@ -896,7 +896,7 @@ const stubs: Record<string, object | ((real: RealModule) => object)> = {
       return aiResult();
     },
   },
-  [`${SRC}/services/hebrew-holidays.ts`]: { getHolidaysForDate: async () => [] },
+  [`${SRC}/services/hebrew-holidays.ts`]: { getHolidaysForDate: async () => [], weekParashaFor: () => null },
   [`${SRC}/services/messaging/index.ts`]: {
     MessagingPlatform, MessageFormat,
     getMessagingService: (platform: MessagingPlatform) => (platform === MessagingPlatform.WHATSAPP ? whatsapp : telegram),

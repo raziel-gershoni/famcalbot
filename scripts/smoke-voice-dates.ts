@@ -68,7 +68,7 @@ const loader = Module as unknown as { _load: Loader; _resolveFilename: (request:
 const load = loader._load;
 loader._load = function (this: unknown, request: string, parent: unknown, ...rest: unknown[]) {
   if (request.startsWith('@hebcal/')) return {};
-  if (request.endsWith('/hebrew-holidays') && loader._resolveFilename(request, parent) === holidaysModule) return { getHolidaysForDate: async () => [] };
+  if (request.endsWith('/hebrew-holidays') && loader._resolveFilename(request, parent) === holidaysModule) return { getHolidaysForDate: async () => [], weekParashaFor: () => null };
   if (request === '@googleapis/calendar') return fakeGoogle;
   if (request.endsWith('/lib/timezone') && loader._resolveFilename(request, parent) === timezoneModule) return fakeTimezone;
   if (request.endsWith('/ai-provider') && loader._resolveFilename(request, parent) === aiProviderModule) {

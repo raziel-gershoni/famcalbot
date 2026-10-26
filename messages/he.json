@@ -1555,7 +1555,12 @@
       "tuBishvat": "ט״ו בשבט",
       "tzomTammuz": "צום י״ז בתמוז",
       "yomHazikaron": "יום הזכרון",
-      "yomKippur": "יום כפור"
+      "yomKippur": "יום כפור",
+      "parashatBehar": "פרשת בהר",
+      "parashatBeharBrief": "בהר",
+      "parashatBeharBechukotai": "פרשת בהר-בחקתי",
+      "parashatBeharBechukotaiBrief": "בהר-בחקתי",
+      "shabbatShirah": "שבת שירה"
     }
   },
   "googleCopy": {

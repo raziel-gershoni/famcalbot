@@ -72,6 +72,8 @@ export interface DateInfoLabels {
   summaryDate: string;
   hebrewDate: string;
   holidays: string;
+  /** This week's Torah portion (the daily summary, Sunday to Friday). */
+  parasha: string;
 }
 
 /**
@@ -84,7 +86,8 @@ export function buildDateInfoSection(
   culture: string | undefined,
   summaryHebrewDate: string,
   holidays: string[] | undefined,
-  labels: DateInfoLabels
+  labels: DateInfoLabels,
+  parasha?: string
 ): string {
   let dateInfo = `**${labels.header}**
 - ${labels.currentDate}: ${currentGregorianDate}
@@ -96,6 +99,10 @@ export function buildDateInfoSection(
     if (holidays?.length) {
       dateInfo += `
 - ${labels.holidays}: ${holidays.join(', ')}`;
+    }
+    if (parasha) {
+      dateInfo += `
+- ${labels.parasha}: ${parasha}`;
     }
   }
 

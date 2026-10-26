@@ -18,6 +18,7 @@ const DATE_INFO_LABELS: DateInfoLabels = {
   summaryDate: 'תאריך הסיכום',
   hebrewDate: 'תאריך עברי (סיכום)',
   holidays: 'חגים/מועדים',
+  parasha: 'פרשת השבוע',
 };
 
 function buildSpouseContext(data: SummaryPromptData): string {
@@ -58,7 +59,7 @@ function buildHebrewDateContext(data: SummaryPromptData): string {
 ## לוח עברי
 - כלול את התאריך העברי בכותרת הסיכום
 - תאריך עברי: ${data.summaryHebrewDate}
-- ${data.holidays?.length ? `היום: ${data.holidays.join(', ')} - ציין זאת בכותרת` : ''}
+- ${data.holidays?.length ? `היום: ${data.holidays.join(', ')} - ציין זאת בכותרת` : ''}${data.parasha ? '\n- ציין בקצרה, פעם אחת, את פרשת השבוע בכותרת או בברכה' : ''}
 - השתמש בגימטריה לתאריך העברי (כ"ח כסלו תשפ"ה)
 `;
 }
@@ -102,7 +103,8 @@ export function buildCalendarSummaryPrompt(data: SummaryPromptData): string {
     data.culture,
     data.summaryHebrewDate,
     data.holidays,
-    DATE_INFO_LABELS
+    DATE_INFO_LABELS,
+    data.parasha
   );
 
   const spouseLabel = data.spouseName || 'בן/בת הזוג';

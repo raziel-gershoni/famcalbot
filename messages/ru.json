@@ -1555,7 +1555,12 @@
       "tuBishvat": "Ту би-Шват",
       "tzomTammuz": "Пост 17 Тамуза",
       "yomHazikaron": "День памяти павших",
-      "yomKippur": "Йом-Кипур"
+      "yomKippur": "Йом-Кипур",
+      "parashatBehar": "Глава Беар",
+      "parashatBeharBrief": "Беар",
+      "parashatBeharBechukotai": "Глава Беар-Бехукотай",
+      "parashatBeharBechukotaiBrief": "Беар-Бехукотай",
+      "shabbatShirah": "Шаббат Шира"
     }
   },
   "googleCopy": {

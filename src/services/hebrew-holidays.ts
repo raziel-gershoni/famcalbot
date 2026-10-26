@@ -8,7 +8,7 @@
  * Server only: @hebcal/core must never reach a client bundle (the home gets holidays as data).
  */
 
-import { HDate, HebrewCalendar, Locale, flags, type Event } from '@hebcal/core';
+import { HDate, HebrewCalendar, Locale, flags, type Event, type ParshaEvent } from '@hebcal/core';
 import { gematriya } from '@hebcal/hdate';
 // Adds Russian to hebcal's Locale. Bundles don't share module state in Next 16, so this
 // module registers it itself instead of relying on claude.ts or hebrew-date.ts.
@@ -17,7 +17,7 @@ import enMessages from '../../messages/en.json';
 import heMessages from '../../messages/he.json';
 import ruMessages from '../../messages/ru.json';
 
-export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh';
+export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh' | 'parasha' | 'specialShabbat';
 
 export interface Holiday {
   /** The full name: "Rosh Hashana 5787", "Chanukah: 8 Candles". */
@@ -38,7 +38,14 @@ const KINDS: ReadonlyArray<{ kind: HolidayKind; mask: number }> = [
   { kind: 'minor', mask: flags.MINOR_HOLIDAY },
   { kind: 'modern', mask: flags.MODERN_HOLIDAY },
   { kind: 'roshChodesh', mask: flags.ROSH_CHODESH },
+  // The weekly portion and its special Shabbat (Shekalim, Zachor...) rank below every holiday (owner,
+  // 2026-10-26). They are no holidays: the summaries' holiday list and the countdown leave them out.
+  { kind: 'parasha', mask: flags.PARSHA_HASHAVUA },
+  { kind: 'specialShabbat', mask: flags.SPECIAL_SHABBAT },
 ];
+
+/** The two kinds that are no holiday (the weekly portion and its special Shabbat). */
+const PARASHA_KINDS: ReadonlySet<HolidayKind> = new Set<HolidayKind>(['parasha', 'specialShabbat']);
 
 /** hebcal's locale for each language the app speaks; anything else reads as English. */
 const LOCALES: Record<string, string> = { en: 'en', he: 'he-x-NoNikud', ru: 'ru' };
@@ -78,7 +85,7 @@ const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6,
 
 const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** The kind of an event, or null when it is not a holiday we show (parashot, special Shabbatot, the Omer...). */
+/** The kind of an event, or null when it is not a holiday we show (the Omer...). */
 function kindOf(ev: Event): HolidayKind | null {
   const f = ev.getFlags();
   for (const { kind, mask } of KINDS) {
@@ -155,6 +162,17 @@ function withGematriyaYear(text: string, locale: string): string {
 }
 
 /**
+ * The portion's name alone for the Month's cell ("Vayera", "Matot-Masei"): hebcal's renderBrief is
+ * the full "Parashat Vayera", so each part (a doubled week has two) is translated by itself.
+ * holidays.names.<id>Brief wins where hebcal's wording is not how people say it.
+ */
+function parashaBrief(ev: ParshaEvent, locale: string, language: string): string {
+  const override = NAMES[language][`${holidayNameKey(ev.getDesc(), locale).id}Brief`];
+  // hebcal writes its English apostrophes as ’.
+  return override ?? ev.parsha.map(part => Locale.gettext(part, locale)).join('-').replace(/'/g, '’');
+}
+
+/**
  * The holidays of each day from `from` to `to` (inclusive, yyyy-MM-dd, civil days), in a language.
  * Only days with a holiday have a key; a day's holidays are sorted by kind priority, then in
  * hebcal's order. A bad or reversed range gives {}.
@@ -167,14 +185,14 @@ export function holidaysInRange(from: string, to: string, lang: string): Record<
   const locale = LOCALES[language];
 
   const days: Record<string, Holiday[]> = {};
-  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: true })) {
+  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: true, sedrot: true })) {
     const kind = kindOf(ev);
     if (!kind) continue;
     const key = dayKeyOf(ev);
     const named = nameOverride(ev, locale, language);
     (days[key] ??= []).push({
       title: named ?? withGematriyaYear(ev.render(locale), locale),
-      brief: named ?? withGematriyaYear(ev.renderBrief(locale), locale),
+      brief: kind === 'parasha' ? parashaBrief(ev as ParshaEvent, locale, language) : named ?? withGematriyaYear(ev.renderBrief(locale), locale),
       chag: kind === 'chag',
       kind,
     });
@@ -235,10 +253,29 @@ export function nextHoliday(after: string, lang: string, maxDays: number = NEXT_
 }
 
 /**
- * The holiday titles of the user's local day, for the summaries' prompt. Async only because
- * the caller (claude.ts) awaits it.
+ * The holiday titles of the user's local day, for the summaries' prompt (no parasha: the daily
+ * summary gets it on its own line, weekParashaFor). Async only because the caller (claude.ts)
+ * awaits it.
  */
 export async function getHolidaysForDate(date: Date, language: string, timezone: string): Promise<string[]> {
   const day = date.toLocaleDateString('en-CA', { timeZone: timezone }); // en-CA gives yyyy-MM-dd
-  return holidaysInRange(day, day, language)[day]?.map(h => h.title) ?? [];
+  return holidaysInRange(day, day, language)[day]?.filter(h => !PARASHA_KINDS.has(h.kind)).map(h => h.title) ?? [];
+}
+
+/**
+ * This week's parasha for the daily summary, Sunday to Friday: the coming Saturday's portion,
+ * with its special Shabbat when it has one ("Parashat Vayera", "Parashat Vayakhel and Shabbat
+ * Shekalim"). null on Saturday itself (owner, 2026-10-26: the Saturday summary says nothing of it),
+ * and when that Saturday is a holiday and has no portion.
+ */
+export function weekParashaFor(date: Date, language: string, timezone: string): string | null {
+  const day = date.toLocaleDateString('en-CA', { timeZone: timezone });
+  const local = parseDayKey(day);
+  if (!local || local.getDay() === 6) return null;
+  const sat = new Date(local.getFullYear(), local.getMonth(), local.getDate() + (6 - local.getDay()));
+  const key = `${sat.getFullYear()}-${String(sat.getMonth() + 1).padStart(2, '0')}-${String(sat.getDate()).padStart(2, '0')}`;
+  const titles = (holidaysInRange(key, key, language)[key] ?? []).filter(h => PARASHA_KINDS.has(h.kind)).map(h => h.title);
+  if (!titles.length) return null;
+  const locale = Object.hasOwn(LOCALES, language) ? language : 'en';
+  return new Intl.ListFormat(locale, { style: 'long', type: 'unit' }).format(titles);
 }
