@@ -9,12 +9,12 @@
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Neon%20Postgres-336791?style=flat-square&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Upstash%20Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
-![Vercel](https://img.shields.io/badge/Vercel-000?style=flat-square&logo=vercel&logoColor=white)
+![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white)
 [![demo · live](https://img.shields.io/badge/demo-live-2ea44f?style=flat-square)](https://famcal.bot)
 
 **🔗 Live demo:** https://famcal.bot  <!-- the public site is reachable directly; the personal dashboard (settings, calendars, pairing, admin) opens from inside the bot via a magic link, so most in-app screens are reached by chatting with the Telegram bot first -->
 
-FamCal is a multi-platform, multilingual calendar assistant for individuals and families. Use the built-in FamCal calendar, optionally connect Google Calendar too, and the bot writes personalized morning and evening briefings, week-ahead previews, weather, and reminders — and turns voice notes and photos of invitations into calendar events. It runs entirely on serverless infrastructure and switches transparently between Claude, GPT, and Gemini behind a single provider abstraction.
+FamCal is a multi-platform, multilingual calendar assistant for individuals and families. Use the built-in FamCal calendar, optionally connect Google Calendar too, and the bot writes personalized morning and evening briefings, week-ahead previews, weather, and reminders — and turns voice notes and photos of invitations into calendar events. It runs as one persistent Node process on Railway, and every AI call goes through a single provider layer on Google Gemini.
 
 <!-- Screenshot placeholder: leave exactly this HTML comment so the owner can drop an image in later:
      ![screenshot](docs/screenshot.png) -->
@@ -36,22 +36,22 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 
 ## 🏗️ How it works
 
-**One AI interface, three providers.** `src/services/ai-provider.ts` wraps Anthropic, OpenAI, and Google Gemini behind a single `generateAICompletion` call. Every call runs on one model, Gemini 3.8 Flash, fixed in a typed model registry (`src/config/ai-models.ts`), so switching from Claude to GPT to Gemini is a one-line code change. The layer adds its own retry/backoff (SDK retries are disabled in favor of explicit control), 25-second client timeouts, per-provider token accounting (including cache and thinking tokens), and admin alerting when a response hits its output-token ceiling.
+**One AI interface.** `src/services/ai-provider.ts` puts every text call behind a single `generateAICompletion` call. Every call runs on one model, Gemini 3.8 Flash, fixed in a typed model registry (`src/config/ai-models.ts`), so changing the model is a one-line code change. The layer adds its own retry/backoff (SDK retries are disabled in favor of explicit control), 25-second client timeouts, token accounting (including cache and thinking tokens), and admin alerting when a response hits its output-token ceiling.
 
-**Streaming UX inside serverless.** User-invoked summaries use a sibling streaming path (`src/services/streaming/text-stream.ts`) that emits text deltas as the model writes, which the Telegram adapter renders as an animated, progressively-updating message draft with live HTML tag-balancing so partial markup never breaks Telegram's parser. Because a partial stream can't be safely retried mid-flight, the streaming path deliberately drops the retry wrapper and callers fall back to the buffered path on failure.
+**Streaming UX.** User-invoked summaries use a sibling streaming path (`src/services/streaming/text-stream.ts`) that emits text deltas as the model writes, which the Telegram adapter renders as an animated, progressively-updating message draft with live HTML tag-balancing so partial markup never breaks Telegram's parser. Because a partial stream can't be safely retried mid-flight, the streaming path deliberately drops the retry wrapper and callers fall back to the buffered path on failure.
 
 **Adapter/factory messaging.** `src/services/messaging/` defines an `IMessagingService` interface implemented by a `TelegramAdapter` and a `WhatsAppAdapter`, created through a small factory with per-platform singletons. Platform detection routes inbound webhooks and enables cross-platform notifications, so the summary, reminder, and event-capture logic is written once against the interface rather than per channel.
 
 **A calendar model that stands on its own.** The Prisma schema (~370 lines) models a native recurring calendar with RFC-5545 `RRULE` strings, per-instance overrides and cancellations, and series-level exdates; `src/services/native-calendar/recurrence.ts` expands series into virtual instances for any date range using `rrule`. The same schema carries couple pairing with invites and status history, subscriptions/trials/usage counters, and a blocklist that persists across account deletion for moderation.
 
-**Serverless correctness.** Cron-triggered jobs (daily and tomorrow summaries, reminders) run behind Upstash Redis distributed locks so a retried or duplicated invocation can't double-send, with Upstash rate limiting on hot paths. Auth spans magic-link/session flows for the dashboard, Telegram login verification, webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Errors flow to Sentry and to admin alerts. Voice replies and the two-host voice show are synthesized in-process with Gemini TTS and encoded from PCM to OGG/Opus.
+**Delivery correctness.** Scheduled jobs (daily and tomorrow summaries, reminders) run in-process on node-cron, and Upstash Redis dedup keys and locks keep a retried or duplicated run from double-sending, with Upstash rate limiting on hot paths. Auth spans magic-link/session flows for the dashboard, Telegram login verification, webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Errors flow to Sentry and to admin alerts. Voice replies and the two-host voice show are synthesized in-process with Gemini TTS and encoded from PCM to OGG/Opus.
 
 ## 🛠️ Tech stack
 
 - **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, next-intl (he/en/ru, RTL), lucide-react, MDX blog, Satori + resvg for generated share/weather images.
 - **Backend/API:** TypeScript on Node 22, Next.js route handlers, node-telegram-bot-api, WhatsApp Business Cloud API, node-cron.
 - **Data:** Prisma ORM, Neon Postgres, Upstash Redis (distributed locks, caching, rate limiting).
-- **AI:** Anthropic Claude, OpenAI GPT, and Google Gemini SDKs behind a unified provider layer; Gemini for voice transcription, photo parsing, and TTS.
+- **AI:** Google Gemini behind a unified provider layer, for text, voice transcription, photo parsing, and TTS.
 - **Integrations:** Google Calendar API, Open-Meteo (weather/air quality), Hebcal (Hebrew dates/holidays), `rrule` (RFC-5545 recurrence).
 - **Infra:** Railway hosting, node-cron for scheduled work, Sentry monitoring.
 
@@ -76,12 +76,11 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `TELEGRAM_BOT_USERNAME`, `WHATSAPP_PHONE_NUMBER` | The bot's username and the WhatsApp number (digits only) behind the t.me and wa.me links, such as the Google connect finish buttons; unset, they fall back to the public bot and number in `src/lib/gate-links.ts` |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
 | `WHATSAPP_APP_SECRET` | Required. The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); unset, every WhatsApp webhook is refused (500) and production startup logs an error |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_REDIRECT_URI` | Google Calendar OAuth |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` | AI provider keys (the fixed models need only `GEMINI_API_KEY`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth |
+| `GEMINI_API_KEY` | Gemini API key for text and voice |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
 | `DATABASE_URL`, `DIRECT_URL` | Postgres connection (pooled + direct for migrations) |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
-| `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | Scheduled job triggering / signature verification |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
 | `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The WhatsApp session cookie and the share-story image links are signed with keys derived from it; unset, both are refused and production startup logs an error. Changing it signs WhatsApp web users out once |
 | `ENCRYPTION_KEY` | Encrypts the stored Google tokens: 64 hex characters (`openssl rand -hex 32`). See [Rotating `ENCRYPTION_KEY`](#rotating-encryption_key) |
@@ -117,9 +116,8 @@ npm install
 # local development: runs the Next.js app and the bot in polling mode together
 npm run dev
 
-# (optional) run each process separately
-npm run dev:next   # Next.js dashboard only
-npm run dev:bot    # Telegram bot only (polling)
+# (optional) the Next.js dashboard only
+npm run dev:next
 
 # type-check
 npm run type-check
@@ -137,7 +135,7 @@ Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Googl
 
 ## 📦 Deployment
 
-Deployed on Railway as one long-running Next.js server. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check, the encryption-key sweep) runs in-process on node-cron, started from `instrumentation.ts`; the health check and the key sweep run only on the schedule; every other job also has an API endpoint for manual runs, guarded by `CRON_SECRET` sent as `Authorization: Bearer <CRON_SECRET>` (a `?secret=` query is refused).
+Deployed on Railway as one persistent Next.js (Node) process, with zero-downtime deploys. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check, the encryption-key sweep) runs in-process on node-cron, started from `instrumentation.ts` into `src/cron/scheduler.ts` (the job logic is in `src/cron/handlers.ts`); the health check and the key sweep run only on the schedule; every other job also has an API endpoint for manual runs, guarded by `CRON_SECRET` sent as `Authorization: Bearer <CRON_SECRET>` (a `?secret=` query is refused).
 
 ## 📄 License
 
