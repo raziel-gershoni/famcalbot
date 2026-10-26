@@ -10,7 +10,7 @@
 import { useLocale, useTranslations } from 'next-intl';
 import { daysBetween, formatDayLong } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
-import { hasChag, holidayTitles, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
+import { hasChag, holidayTitles, isPortion, monthLanded, shabbatOf, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 
@@ -63,7 +63,15 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
   const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const title = today ? formatDayLong(today, locale) : '';
   const hebrew = today && hebrewDates ? hebrewFullDate(today, locale, genitive) : '';
-  const holidays = useHolidays(today ? [today.slice(0, 7)] : [], locale, hebrewDates)[today ?? ''];
+  // This week's parasha (and its special Shabbat) on the Hebrew date's line, all week: the portions of
+  // the first Saturday on or after today, which may fall in next month. They are no holiday: they
+  // never make the holiday line and never hide the countdown.
+  const shabbat = today ? shabbatOf(today) : null;
+  const months = today ? [...new Set([today.slice(0, 7), (shabbat ?? today).slice(0, 7)])] : [];
+  const loaded = useHolidays(months, locale, hebrewDates);
+  const todays = loaded[today ?? ''];
+  const holidays = todays?.filter((h) => !isPortion(h));
+  const portions = (shabbat ? loaded[shabbat] : undefined)?.filter(isPortion) ?? [];
   // On a day with no holiday line (known once the month has landed), a muted countdown to the next
   // holiday worth naming, counted in whole days from the server's today, on the Hebrew date's line.
   const quiet = !!today && monthLanded(today.slice(0, 7), locale) && !(holidays && holidays.length > 0);
@@ -87,6 +95,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
         {hebrew ? (
           <p className="ch-head-sub ch-head-line">
             {hebrew}
+            {portions.map((portion) => <span key={portion.kind} className="ch-head-next"><bdi>{portion.title}</bdi></span>)}
             {countdown ? <span className="ch-head-next"><bdi>{countdown}</bdi></span> : null}
           </p>
         ) : null}

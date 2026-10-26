@@ -6267,6 +6267,113 @@ async function main() {
     }
   });
 
+  await check('#88d the week\'s parasha on the Hebrew date\'s line, all week: <date> · <parasha> · <countdown> in en, he and ru; its special Shabbat as one more part after it; a Saturday today shows its own; the next month\'s Saturday asks for both months; none with Hebrew dates off or on a holiday-Shabbat week; a Shabbat Rosh Chodesh keeps the Rosh Chodesh line with no countdown and the parasha on the date line; the portions never make the holiday line', async () => {
+    const SAT = { en: 'Parashat Vayera', he: 'פרשת וירא', ru: 'Глава Ваера' } as Record<Locale, string>;
+    const SPECIAL = { en: 'Shabbat Shekalim', he: 'שבת שקלים', ru: 'Шаббат Шкалим' } as Record<Locale, string>;
+    const FAR = { en: 'Chanukah in 40 days', he: 'חנוכה בעוד 40 ימים', ru: 'Ханука через 40 дней' } as Record<Locale, string>;
+    const FAR_NAME = { en: 'Chanukah', he: 'חנוכה', ru: 'Ханука' } as Record<Locale, string>;
+    type Table = Record<DayKey, Hol[]>;
+    /** Mounts the home on `today` with these holidays and a next holiday 40 days out; the line's text parts and the home. */
+    const open = async (locale: Locale, today: DayKey, table: Table, o: { hebrewDates?: boolean } = {}) => {
+      resetHome();
+      serveHolidays = (c) => c.query.has('next')
+        ? ok200({ next: { day: addDaysToKey(today, 40), name: FAR_NAME[locale] } })
+        : ok200({ days: Object.fromEntries(Object.entries(table).filter(([k]) => k >= (c.query.get('from') ?? '') && k <= (c.query.get('to') ?? ''))) });
+      answerFetch = (c) => answerFor(c, { today, from: c.query.get('from') ?? today, to: c.query.get('to') ?? addDaysToKey(today, 7), items: {}, ...(o.hebrewDates === false ? { hebrewDates: false } : {}) });
+      const m = await mountHome(locale);
+      await settle();
+      return m;
+    };
+    const monthsAsked = () => holidayCalls.filter((c) => c.query.has('from')).map((c) => `${c.query.get('from')}→${c.query.get('to')} ${c.query.get('lang')}`);
+    const parts = (m: Home) => byClass(m.container, 'ch-head-next').map((e) => e.textContent);
+    const portion = (title: string, kind = 'parasha') => hol(title, kind, title);
+    for (const locale of LOCALES) {
+      // A Thursday: the coming Saturday's parasha between the date and the countdown, each bidi-isolated.
+      let m = await open(locale, '2026-10-15', { '2026-10-17': [portion(SAT[locale])] });
+      try {
+        assert(show(parts(m)) === show([SAT[locale], FAR[locale]]), `${locale}: Thursday: ${show(headSubs(m).map(htmlOf))}`);
+        assert(htmlOf(byClass(m.container, 'ch-head-next')[0]) === `<span class="ch-head-next"><bdi>${SAT[locale]}</bdi></span>`, `${locale}: ${htmlOf(byClass(m.container, 'ch-head-next')[0])}`);
+        assert(headSubs(m).length === 1 && headSubs(m)[0].className === 'ch-head-sub ch-head-line', `${locale}: one line, no holiday line: ${show(headSubs(m).map(htmlOf))}`);
+        assert(show(monthsAsked()) === show([`2026-10-01→2026-10-31 ${locale}`]), `${locale}: one month asked: ${show(monthsAsked())}`);
+      } finally {
+        m.unmount();
+      }
+      // On the Saturday itself: its own parasha, and the countdown too (a plain Saturday has no holiday line).
+      m = await open(locale, '2026-10-17', { '2026-10-17': [portion(SAT[locale])] });
+      try {
+        assert(show(parts(m)) === show([SAT[locale], FAR[locale]]) && headSubs(m).length === 1, `${locale}: Saturday: ${show(headSubs(m).map(htmlOf))}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    // A Saturday with a special Shabbat: parasha, then the special Shabbat, then the countdown.
+    let m = await open('en', '2027-03-04', { '2027-03-06': [portion('Parashat Vayakhel'), portion(SPECIAL.en, 'specialShabbat')] });
+    try {
+      assert(show(parts(m)) === show(['Parashat Vayakhel', SPECIAL.en, 'Chanukah in 40 days']), `special: ${show(headSubs(m).map(htmlOf))}`);
+    } finally {
+      m.unmount();
+    }
+    // The Saturday falls in next month (Thursday 31 December): both months are asked, the part shows.
+    m = await open('en', '2026-12-31', { '2027-01-02': [portion('Parashat Shemot')] });
+    try {
+      assert(show(monthsAsked().sort()) === show(['2026-12-01→2026-12-31 en', '2027-01-01→2027-01-31 en']), `both months: ${show(monthsAsked())}`);
+      assert(show(parts(m)) === show(['Parashat Shemot', 'Chanukah in 40 days']), `next month: ${show(headSubs(m).map(htmlOf))}`);
+    } finally {
+      m.unmount();
+    }
+    // A holiday-Shabbat week has no portion: no part, the countdown stays.
+    m = await open('en', '2026-10-15', { '2026-10-17': [hol('Sukkot I', 'chag')] });
+    try {
+      assert(show(parts(m)) === show(['Chanukah in 40 days']), `holiday Shabbat: ${show(headSubs(m).map(htmlOf))}`);
+    } finally {
+      m.unmount();
+    }
+    // A Shabbat Rosh Chodesh: the Rosh Chodesh line as ever, no countdown, the parasha on the date line.
+    m = await open('en', '2026-10-17', { '2026-10-17': [hol('Rosh Chodesh Test', 'roshChodesh'), portion(SAT.en)] });
+    try {
+      const subs = headSubs(m);
+      assert(subs.length === 2 && show(parts(m)) === show([SAT.en]), `Rosh Chodesh Shabbat: ${show(subs.map(htmlOf))}`);
+      assert(htmlOf(subs[1]) === '<p class="ch-head-sub ch-day-holiday"><bdi>Rosh Chodesh Test</bdi></p>', `the holiday line holds only Rosh Chodesh: ${htmlOf(subs[1])}`);
+      assert(holidayCalls.every((c) => !c.query.has('next')), 'and no countdown is asked');
+    } finally {
+      m.unmount();
+    }
+    // Hebrew dates off: no request, no part.
+    m = await open('en', '2026-10-15', { '2026-10-17': [portion(SAT.en)] }, { hebrewDates: false });
+    try {
+      assert(holidayCalls.length === 0 && !/Parashat/.test(m.text()), `Hebrew dates off: ${show(monthsAsked())}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#91b the Month\'s cell on a Saturday holds the parasha\'s short name; its aria label and the picked day\'s header list the holidays first, then the parasha and the special Shabbat, muted', async () => {
+    resetHome();
+    const SHEKALIM = [hol('Chanukah: 8 Candles', 'minor', 'Chanukah'), hol('Parashat Miketz', 'parasha', 'Miketz'), hol('Shabbat Shekalim', 'specialShabbat')];
+    serveHolidays = (c) => {
+      const days: Record<DayKey, Hol[]> = { '2026-10-17': [hol('Parashat Vayera', 'parasha', 'Vayera')], '2026-10-24': SHEKALIM };
+      return ok200({ days: Object.fromEntries(Object.entries(days).filter(([k]) => k >= (c.query.get('from') ?? '') && k <= (c.query.get('to') ?? ''))) });
+    };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await settle();
+      flushFrames();
+      await settle();
+      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-mb-hmonth')[0];
+      assert(line('2026-10-17').textContent === 'Vayera' && line('2026-10-17').className === 'ch-mb-hmonth', `a Saturday: ${htmlOf(line('2026-10-17'))}`);
+      assert((dayButton(m, '2026-10-17').getAttribute('aria-label') ?? '').includes('Parashat Vayera'), 'the label names the full title');
+      assert(line('2026-10-24').textContent === 'Chanukah', `the holiday keeps the cell: ${htmlOf(line('2026-10-24'))}`);
+      assert((dayButton(m, '2026-10-24').getAttribute('aria-label') ?? '').includes(list('en', SHEKALIM.map((h) => h.title))), `the label lists the holiday first: ${dayButton(m, '2026-10-24').getAttribute('aria-label')}`);
+      await tap(m, dayButton(m, '2026-10-24'));
+      const head = byClass(m.container, 'ch-mp-day')[0];
+      assert(htmlOf(holidayIn(head)) === `<span class="ch-day-holiday"><bdi>${list('en', SHEKALIM.map((h) => h.title))}</bdi></span>`, `the picked day's header: ${htmlOf(head)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#89 with Hebrew dates off there are no holidays: no request, no line, no span, on the Agenda or the Month', async () => {
     resetHome();
     serveHolidays = serveFixtures;
@@ -6422,7 +6529,7 @@ async function main() {
   await check('#93 the holidays\' client is client-safe and the CSS follows the home\'s rules: holidays-client.ts loads only react, the grid and the wire types (never @hebcal/core or the server module); logical properties, no hover, nothing under 11 px; yom tov titles read --ch-accent, the rest --ch-muted', () => {
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/holidays-client.ts'), 'utf8');
     const imports = [...source.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map((m) => `${m[1] ? 'type ' : ''}${m[2]}`);
-    assert(show(imports.sort()) === show(['./grid', 'react', 'type ./types']), `imports: ${show(imports)}`);
+    assert(show(imports.sort()) === show(['./format', './grid', './store', 'react', 'type ./types']), `imports: ${show(imports)}`);
     const walk = (id: string, seen = new Set<string>()): Set<string> => {
       for (const child of require.cache[id]?.children ?? []) if (!seen.has(child.id)) { seen.add(child.id); walk(child.id, seen); }
       return seen;

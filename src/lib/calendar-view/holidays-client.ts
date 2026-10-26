@@ -10,7 +10,9 @@
 // @hebcal/core (the server computes the holidays).
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { weekdayOf } from './format';
 import { monthFirstDay, monthLastDay, type MonthKey } from './grid';
+import { addDaysToKey } from './store';
 import type { DayKey, Holiday } from './types';
 
 /** A month's holidays by day; days without one have no key. */
@@ -206,6 +208,19 @@ export function useNextHoliday(after: DayKey | null, lang: string, on: boolean):
 /** The titles of a day's holidays in one line, joined the way `locale` lists things ("Chanukah: 8 Candles and Rosh Chodesh Tevet"). */
 export function holidayTitles(list: readonly Holiday[], locale: string): string {
   return new Intl.ListFormat(locale, { style: 'long', type: 'unit' }).format(list.map((h) => h.title));
+}
+
+/** Whether a day's entry is the weekly portion or its special Shabbat (listed with the holidays, but none). */
+export function isPortion(h: Holiday): boolean {
+  return h.kind === 'parasha' || h.kind === 'specialShabbat';
+}
+
+const WEEK: readonly string[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+/** The Saturday of `day`'s week: the first Saturday on or after it (the day itself on a Saturday). */
+export function shabbatOf(day: DayKey): DayKey | null {
+  const weekday = weekdayOf(day);
+  return weekday ? addDaysToKey(day, 6 - WEEK.indexOf(weekday)) : null;
 }
 
 /** Whether any of a day's holidays is a yom tov (the accent colour). */

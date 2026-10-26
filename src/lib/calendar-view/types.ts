@@ -159,7 +159,7 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number {
 }
 
 /** What kind of holiday it is, highest priority first (the server ranks a day's holidays by it). */
-export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh';
+export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh' | 'parasha' | 'specialShabbat';
 
 /**
  * A Hebrew holiday of a day, as GET /api/calendar/holidays answers (src/services/hebrew-holidays.ts
