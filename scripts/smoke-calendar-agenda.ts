@@ -665,6 +665,14 @@ async function main() {
     assert(whoseItem(rem('r', T(0, '09:00'), {}, { calendar: NOA_CAL }), 'Noa').mine === true, 'a reminder for me on Noa\'s calendar');
   });
 
+  await check('whose: a reminder for both partners is the viewer\'s, with no name and relation "both"; the summaries say "for both of you" for it', async () => {
+    const { reminderAttribution } = await import('../src/utils/event-formatter');
+    const r = rem('r', T(0, '09:00'), { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Noa', forBoth: true });
+    assertJson(whoseItem(r, 'Noa'), { mine: true, person: null, relation: 'both' }, 'from the partner');
+    assertJson(whoseItem(rem('s', T(0, '09:00'), { ownerIsViewer: true, creatorIsViewer: true, forBoth: true }), 'Noa'), { mine: true, person: null, relation: 'both' }, 'from the creator');
+    assert(reminderAttribution({ reminder: { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Noa', forBoth: true } }) === 'for both of you', 'the summaries');
+  });
+
   await check('whose: the person chip names the partner or the spouse calendar\'s person, with the partner as fallback', () => {
     const cases: [string, ItemDTO, string | null][] = [
       ['own event', ev('a', T(0, '09:00'), T(0, '10:00')), null],

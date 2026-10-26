@@ -64,6 +64,7 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
     creatorIsViewer: info?.creatorIsViewer ?? true,
     ...(info?.ownerName ? { ownerName: info.ownerName } : {}),
     ...(info?.creatorName ? { creatorName: info.creatorName } : {}),
+    ...(info?.forBoth ? { forBoth: true } : {}),
   };
 }
 

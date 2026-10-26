@@ -1233,6 +1233,19 @@ async function main() {
     assert(forbidden.length === 0, `server modules in the view's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
   });
 
+  await check('both: a reminder for both partners carries "For both of you" in the row (en/he/ru), in place of "From <name>"', () => {
+    const BOTH = item('both', { kind: 'reminder', title: 'Book the flights', start: at(1, '10:00'), reminder: rem({ creatorIsViewer: false, creatorName: 'Noa', forBoth: true }) });
+    const week = (): ReturnType<typeof famcalWeek> => model([ok(answer({ items: { ...WEEK, [day(1)]: [...(WEEK[day(1)] ?? []), BOTH] }, carryOvers: [] }))]);
+    const wanted = { en: 'For both of you', he: 'לשניכם', ru: 'Для вас обоих' } as const;
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const text = textOf(renderAgenda(locale, week()));
+      // The row's own text: from its title to the next row's time (or the end).
+      const row = /Book the flights.*?(?=\d\d:\d\d|$)/s.exec(text)?.[0] ?? '';
+      assertHas(row, [wanted[locale]], `${locale} row`);
+      assertLacks(row, ['From Noa', 'מאת', 'От: Noa'], `${locale} row has no "from"`);
+    }
+  });
+
   await check('#2 en: day labels, the Hebrew date, the fold line, times in Israel (24-hour), spans, reminder states and the person chips', () => {
     const text = textOf(renderAgenda('en', famcalWeek()));
     assertHas(

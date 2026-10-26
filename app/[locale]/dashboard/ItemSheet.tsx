@@ -254,7 +254,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
         ) : null}
       </div>
       <When item={item} tz={tz} />
-      {tags.length > 0 || whose.person ? (
+      {tags.length > 0 || whose.person || whose.relation === 'both' ? (
         <p className="ch-sheet-tags">
           {tags.length > 0 ? <span>{tags.join(' · ')}</span> : null}
           <PersonChip whose={whose} />

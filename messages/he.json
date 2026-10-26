@@ -171,7 +171,8 @@
     },
     "person": {
       "from": "מאת {name}",
-      "for": "בשביל {name}"
+      "for": "בשביל {name}",
+      "both": "לשניכם"
     },
     "sheet": {
       "label": "פרטים",

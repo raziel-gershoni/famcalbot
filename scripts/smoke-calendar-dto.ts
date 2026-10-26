@@ -366,6 +366,12 @@ async function main() {
     assert(find('r-tomorrow').reminder?.open === false, 'tomorrow is open');
   });
 
+  await check('forBoth: a reminder for both partners says so in its DTO; any other has no such field', () => {
+    const both = toRangeDays([reminder('r-both', 'Book the flights', utc('2026-10-16 12:00', IL), { reminder: { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Noa', forBoth: true } })], '2026-10-16', '2026-10-17', IL, NOW, TODAY);
+    assert(both[0].items[0].reminder?.forBoth === true, 'forBoth');
+    assert(!('forBoth' in (find('r-past').reminder ?? {})), 'a single reminder carries no forBoth');
+  });
+
   await check("dueAt: every reminder DTO carries when it is due for the viewer: its time, or their reminder time on a date-only one", () => {
     assert(find('r-past').reminder?.dueAt === utc('2026-10-16 08:00', IL), `timed ${find('r-past').reminder?.dueAt}`);
     assert(find('r-dateonly').reminder?.dueAt === '2026-10-16T06:00:00.000Z', `default ${find('r-dateonly').reminder?.dueAt}`);

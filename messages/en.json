@@ -171,7 +171,8 @@
     },
     "person": {
       "from": "From {name}",
-      "for": "For {name}"
+      "for": "For {name}",
+      "both": "For both of you"
     },
     "sheet": {
       "label": "Details",

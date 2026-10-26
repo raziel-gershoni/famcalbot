@@ -90,6 +90,7 @@ export function ReminderIcon({ mark }: { mark: ReminderMark }) {
 /** The person chip's text, or null for the viewer's own item. */
 export function usePersonText(whose: Whose): string | null {
   const t = useTranslations('calendarHome');
+  if (whose.relation === 'both') return t('person.both');
   if (!whose.person) return null;
   if (whose.relation === 'from') return t('person.from', { name: whose.person });
   if (whose.relation === 'for') return t('person.for', { name: whose.person });
@@ -182,7 +183,7 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
   if (note) segments.push({ text: note, user: true });
 
   const snoozeTime = mark === 'snoozed' ? timeOn(item.reminder?.snoozedUntil ?? null, day, tz, locale) : '';
-  const hasMeta = mark === 'open' || segments.length > 0 || !!snoozeTime || !!whose.person || item.source === 'google';
+  const hasMeta = mark === 'open' || segments.length > 0 || !!snoozeTime || !!whose.person || whose.relation === 'both' || item.source === 'google';
 
   return (
     <li className="ch-row-li">

@@ -166,6 +166,7 @@ const KEYS: Record<string, readonly string[]> = {
   // Whose an item is (D5: rows, the still-open card, the item sheet), spec §7.3
   'person.from': ['name'],
   'person.for': ['name'],
+  'person.both': [],
   // ItemSheet (D5), spec §7.5
   'sheet.label': [],
   'sheet.calendar': [],

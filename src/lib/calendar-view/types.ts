@@ -80,6 +80,8 @@ export interface ItemReminderDTO {
   creatorIsViewer: boolean;
   ownerName?: string;
   creatorName?: string;
+  /** A reminder for both partners (the viewer and their partner): the sheet and row say so. */
+  forBoth?: boolean;
 }
 
 export interface ItemDTO {

@@ -47,10 +47,10 @@ export interface Whose {
   /**
    * Reminders only, as the summaries' reminderAttribution (src/utils/event-formatter.ts):
    * 'for' = the viewer set it for `person`; 'from' = `person` set it for the viewer.
-   * null on the viewer's own and on one the partner set for themselves. Never set
-   * without a name.
+   * 'both' = it is for the viewer and their partner together (no name). null on the viewer's
+   * own and on one the partner set for themselves. 'for' and 'from' are never set without a name.
    */
-  relation: 'for' | 'from' | null;
+  relation: 'for' | 'from' | 'both' | null;
 }
 
 /** A reminder's icon (§7.3): open circle, check (title struck through), open circle with "until <time>", bell. */
@@ -144,6 +144,7 @@ const VIEWERS_OWN: Whose = { mine: true, person: null, relation: null };
 export function whoseItem(item: ItemDTO, partnerName: string | null): Whose {
   const r = item.reminder;
   if (item.kind === 'reminder' && r) {
+    if (r.forBoth) return { mine: true, person: null, relation: 'both' };
     if (r.ownerIsViewer) {
       if (r.creatorIsViewer) return VIEWERS_OWN;
       const from = r.creatorName ?? partnerName;
