@@ -1744,7 +1744,7 @@ async function main() {
       await React.act(async () => release(ok200(answer({ items: WEEK, carryOvers: [CARRY_PLUMBER, CARRY_BILL, CARRY_OLD] }))));
       await settle();
       const after = m.html();
-      assert(after.includes('<h1 class="ch-head-title">Thursday, 15 October</h1><p class="ch-head-sub">4 Cheshvan 5787</p>'), `the header: ${textOf(after).slice(0, 120)}`);
+      assert(after.includes('<h1 class="ch-head-title">Thursday, 15 October</h1><p class="ch-head-sub ch-head-line">4 Cheshvan 5787</p>'), `the header: ${textOf(after).slice(0, 120)}`);
       assertHas(textOf(after), [`Today ${ref.dayShort('en-GB', day(0))} 4 Cheshvan`, 'Still open 5 reminders', '09:30 10:30 Dentist', 'Show next week'], 'the Agenda');
       // Plan E: the tab bar under the header, the Agenda selected and its panel shown.
       assert(/<div class="ch-tabs" role="tablist" aria-label="Calendar view" dir="ltr">/.test(after), 'the tablist, named');
@@ -6189,7 +6189,7 @@ async function main() {
     }
   });
 
-  await check('#88c the countdown under the Hebrew date on a day with no holiday line, in en, he and ru: the base name first, "tomorrow" the day before, counted in whole days from the server\'s today; none on a holiday day, with Hebrew dates off, and nothing (logged) when the request fails', async () => {
+  await check('#88c the countdown on the Hebrew date\'s line on a day with no holiday line, in en, he and ru: the base name first, "tomorrow" the day before, counted in whole days from the server\'s today; none on a holiday day, with Hebrew dates off, and nothing (logged) when the request fails', async () => {
     const COPY: Record<Locale, { name: string; far: string; tomorrow: string }> = {
       en: { name: 'Chanukah', far: 'Chanukah in 12 days', tomorrow: 'Chanukah tomorrow' },
       he: { name: 'חנוכה', far: 'חנוכה בעוד 12 ימים', tomorrow: 'חנוכה מחר' },
@@ -6197,9 +6197,9 @@ async function main() {
     };
     const nextCalls = () => holidayCalls.filter((c) => c.query.has('next'));
     const serveNext = (names: (typeof COPY)[Locale], on: DayKey): ((c: FetchCall) => FetchAnswer) => (c) => c.query.has('next') ? ok200({ next: { day: on, name: names.name } }) : ok200({ days: {} });
-    const countdown = (m: Home, locale: Locale) => headSubs(m).filter((e) => e.textContent.includes(COPY[locale].name));
+    const countdown = (m: Home) => byClass(m.container, 'ch-head-next');
     for (const locale of LOCALES) {
-      // Twelve days out: the line follows the Hebrew date, bidi-isolated, muted (the plain sub-line).
+      // Twelve days out: the countdown joins the Hebrew date's line (its dot is CSS), bidi-isolated.
       resetHome();
       serveHolidays = serveNext(COPY[locale], day(12));
       answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -6207,10 +6207,11 @@ async function main() {
       try {
         await settle();
         assert(show(nextCalls().map((c) => `${c.query.get('next')} ${c.query.get('lang')}`)) === show([`${day(0)} ${locale}`]), `${locale}: one next request, from the server's today: ${show(nextCalls().map((c) => c.query.toString()))}`);
-        const [line] = countdown(m, locale);
-        assert(countdown(m, locale).length === 1 && htmlOf(line) === `<p class="ch-head-sub"><bdi>${COPY[locale].far}</bdi></p>`, `${locale}: ${show(headSubs(m).map(htmlOf))}`);
+        const [part] = countdown(m);
+        assert(countdown(m).length === 1 && htmlOf(part) === `<span class="ch-head-next"><bdi>${COPY[locale].far}</bdi></span>`, `${locale}: ${show(headSubs(m).map(htmlOf))}`);
         const subs = headSubs(m);
-        assert(subs.length === 2 && subs[1] === line && !subs[0].className.includes('ch-day-holiday'), `${locale}: the Hebrew date, then the countdown`);
+        const [date, after] = subs[0]?.childNodes ?? [];
+        assert(subs.length === 1 && subs[0].className === 'ch-head-sub ch-head-line' && date instanceof FakeText && date.data.length > 0 && after === part, `${locale}: one line, the Hebrew date, then the countdown: ${show(subs.map(htmlOf))}`);
       } finally {
         m.unmount();
       }
@@ -6221,7 +6222,7 @@ async function main() {
       m = await mountHome(locale);
       try {
         await settle();
-        assert(countdown(m, locale).length === 1 && countdown(m, locale)[0].textContent === COPY[locale].tomorrow, `${locale}: tomorrow: ${show(headSubs(m).map(htmlOf))}`);
+        assert(countdown(m).length === 1 && countdown(m)[0].textContent === COPY[locale].tomorrow, `${locale}: tomorrow: ${show(headSubs(m).map(htmlOf))}`);
       } finally {
         m.unmount();
       }
@@ -6259,7 +6260,7 @@ async function main() {
         await settle();
         const lines = appLogs.slice(logged).filter((l) => l.startsWith('[holidays] next'));
         assert(lines.length === 1 && lines[0].includes(`next after ${day(0)} (en) failed`), `one log line: ${show(lines)}`);
-        assert(headSubs(m).length === 1, `nothing shown: ${show(headSubs(m).map(htmlOf))}`);
+        assert(headSubs(m).length === 1 && countdown(m).length === 0, `nothing shown: ${show(headSubs(m).map(htmlOf))}`);
       } finally {
         m.unmount();
       }

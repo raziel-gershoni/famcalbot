@@ -10,6 +10,9 @@
 //   the sheets are position: fixed, and Plan E's Month bar is sticky.
 // - Logical properties only; directional icons flip in RTL (.ch-flip); nothing under
 //   11 px; every tap at least 44 px; no hover styles (touch only).
+// - The header's Hebrew date and countdown share a line, joined by a dot (.ch-head-line). When
+//   both don't fit, the countdown starts the next line and its dot falls before the line's
+//   start, clipped by overflow: clip: no stray dot.
 
 export const HOME_SHELL_CSS = `
 .ch-home {
@@ -58,6 +61,25 @@ export const HOME_SHELL_CSS = `
   margin: 2px 0 0;
   font-size: 14px;
   color: var(--ch-muted);
+}
+.ch-head-line {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1em;
+  overflow: clip;
+}
+.ch-head-next {
+  position: relative;
+  margin-inline-start: -1em;
+  padding-inline-start: 1em;
+}
+.ch-head-next::before {
+  content: '·';
+  content: '·' / '';
+  position: absolute;
+  inset-inline-start: 0;
+  inline-size: 1em;
+  text-align: center;
 }
 .ch-head-zone {
   margin: 4px 0 0;
