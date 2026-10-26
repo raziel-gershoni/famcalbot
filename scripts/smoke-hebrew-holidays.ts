@@ -167,11 +167,13 @@ async function main() {
 
   await check('Russian reads the way Russian speakers in Israel say it (holidays.names overrides)', () => {
     const ru = (day: string) => on(day, 'ru').map(h => h.title);
-    // The name stays undeclined after Канун (owner, 2026-10-26): «Канун Рош а-Шана», not «Рош а-Шаны».
-    assertEqual(ru('2026-09-11'), ['Канун Рош а-Шана'], 'erev rosh hashana');
+    // An eve is «Канун праздника …», the name undeclined (owner, 2026-10-26); Tisha B'Av, a fast, keeps «Канун Тиша бе-Ав».
+    assertEqual(ru('2026-09-11'), ['Канун праздника Рош а-Шана'], 'erev rosh hashana');
     assertEqual(ru('2026-09-12'), ['Рош а-Шана 5787'], 'rosh hashana');
     assertEqual(ru('2026-09-13'), ['Рош а-Шана II'], 'rosh hashana II');
-    assertEqual(ru('2026-09-20'), ['Канун Йом-Кипура'], 'erev yom kippur');
+    assertEqual(ru('2026-09-20'), ['Канун праздника Йом-Кипур'], 'erev yom kippur');
+    assertEqual(ru('2026-09-25'), ['Канун праздника Суккот'], 'erev sukkot');
+    assertEqual(ru('2027-08-11'), ['Канун Тиша бе-Ав'], 'erev tisha bav');
     assertEqual(ru('2026-09-21'), ['Йом-Кипур'], 'yom kippur');
     assertEqual(ru('2026-09-28'), ['Суккот III (холь а-моэд)'], 'sukkot chol hamoed');
     assertEqual(ru('2026-10-02'), ['Хошана раба'], 'hoshana raba');
