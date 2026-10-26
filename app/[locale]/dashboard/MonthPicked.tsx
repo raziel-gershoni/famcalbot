@@ -429,7 +429,7 @@ export function MonthPicked({
             <>
               {' '}
               <span className={hasChag(dayHolidays) ? 'ch-day-holiday is-chag' : 'ch-day-holiday'}>
-                <bdi>{holidayTitles(dayHolidays, locale)}</bdi>
+                <bdi>{holidayTitles(dayHolidays)}</bdi>
               </span>
             </>
           ) : null}
