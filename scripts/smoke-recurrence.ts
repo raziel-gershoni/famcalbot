@@ -58,6 +58,7 @@ function makeSeries(overrides: Partial<NativeEvent> = {}): NativeEvent {
     ownAlerts: false, alertMinutes: [],
     kind: 'EVENT',
     forUserId: null,
+    forBoth: false,
     armedAt: null,
     isDeleted: false,
     createdAt: now,

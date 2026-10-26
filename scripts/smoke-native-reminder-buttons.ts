@@ -62,7 +62,7 @@ const MOVED_MSG = 504;
 const PILLS_TODAY = new Date('2026-10-14T12:00:00Z'); // Wed 08:00 in New York
 const PILLS_FRIDAY = new Date('2026-10-16T12:00:00Z');
 
-interface World { users: Row[]; pairings: Row[]; calendars: Row[]; events: Row[]; instances: Row[]; states: Row[] }
+interface World { users: Row[]; pairings: Row[]; calendars: Row[]; events: Row[]; instances: Row[]; states: Row[]; pings: Row[] }
 let world: World;
 
 function freshWorld(): World {
@@ -74,8 +74,14 @@ function freshWorld(): World {
     endsAt: row.startsAt,
   });
   const state = (row: Row): Row => ({
-    doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: new Date('2026-10-14T13:00:00Z'), pingAttempts: 1,
+    doneAt: null, doneByUserId: null,
     createdAt: new Date('2026-10-14T13:00:00Z'), updatedAt: new Date('2026-10-14T13:00:00Z'), ...row,
+  });
+  /** The ping row of the person the occurrence pinged. */
+  const ping = (stateId: string, userId: number, chatId: number, messageId: number): Row => ({
+    id: `ping-${stateId}`, stateId, userId, snoozedUntil: null, lastPingedAt: new Date('2026-10-14T13:00:00Z'), pingAttempts: 1,
+    pingChatId: BigInt(chatId), pingMessageId: messageId,
+    createdAt: new Date('2026-10-14T13:00:00Z'), updatedAt: new Date('2026-10-14T13:00:00Z'),
   });
   return {
     users: [
@@ -97,16 +103,43 @@ function freshWorld(): World {
       { id: 'ov-1', seriesEventId: 'ev-pills', originalStartsAt: PILLS_FRIDAY, status: 'OVERRIDE', title: 'Pills (late)', description: null, location: null, startsAt: new Date('2026-10-16T22:30:00Z'), endsAt: new Date('2026-10-16T22:30:00Z'), allDay: null, createdAt: new Date(), updatedAt: new Date() },
     ],
     states: [
-      state({ id: MILK, seriesEventId: 'ev-milk', originalStartsAt: new Date('2026-10-14T13:00:00Z'), pingChatId: BigInt(tg(DANA)), pingMessageId: MILK_MSG }),
-      state({ id: CALL, seriesEventId: 'ev-call', originalStartsAt: new Date('2026-10-14T07:00:00Z'), pingChatId: BigInt(tg(RAZIEL)), pingMessageId: CALL_MSG }),
-      state({ id: PILLS, seriesEventId: 'ev-pills', originalStartsAt: PILLS_TODAY, pingChatId: BigInt(tg(DANA)), pingMessageId: PILLS_MSG }),
-      state({ id: MOVED, seriesEventId: 'ev-pills', originalStartsAt: PILLS_FRIDAY, pingChatId: BigInt(tg(DANA)), pingMessageId: MOVED_MSG }),
+      state({ id: MILK, seriesEventId: 'ev-milk', originalStartsAt: new Date('2026-10-14T13:00:00Z') }),
+      state({ id: CALL, seriesEventId: 'ev-call', originalStartsAt: new Date('2026-10-14T07:00:00Z') }),
+      state({ id: PILLS, seriesEventId: 'ev-pills', originalStartsAt: PILLS_TODAY }),
+      state({ id: MOVED, seriesEventId: 'ev-pills', originalStartsAt: PILLS_FRIDAY }),
+    ],
+    pings: [
+      ping(MILK, DANA, tg(DANA), MILK_MSG),
+      ping(CALL, RAZIEL, tg(RAZIEL), CALL_MSG),
+      ping(PILLS, DANA, tg(DANA), PILLS_MSG),
+      ping(MOVED, DANA, tg(DANA), MOVED_MSG),
     ],
   };
 }
 
 const user = (id: number) => world.users.find(u => u.id === id)!;
-const stateRow = (id: string) => world.states.find(s => s.id === id)!;
+const PING_FIELDS = ['snoozedUntil', 'lastPingedAt', 'pingAttempts', 'pingChatId', 'pingMessageId'];
+/**
+ * A state row seen with one recipient's ping row (by default the person the occurrence is for) as
+ * a single record: a ping column reads and writes that person's ping row.
+ */
+function stateRow(id: string, userId?: number): Row {
+  const row = world.states.find(s => s.id === id)!;
+  const event = world.events.find(e => e.id === row.seriesEventId)!;
+  const who = userId ?? ((event.forUserId ?? event.creatorUserId) as number);
+  const ping = () => world.pings.find(p => p.stateId === id && p.userId === who);
+  return new Proxy(row, {
+    get: (target, prop: string) => (PING_FIELDS.includes(prop) ? (ping() ?? { snoozedUntil: null, lastPingedAt: null, pingAttempts: 0 })[prop] : target[prop]),
+    set: (target, prop: string, value) => {
+      if (PING_FIELDS.includes(prop)) {
+        const p = ping();
+        if (!p) throw new Error('no ping row to write');
+        p[prop] = value;
+      } else target[prop] = value;
+      return true;
+    },
+  });
+}
 const eventRow = (id: string) => world.events.find(e => e.id === id)!;
 
 // ---- Fake Prisma ----
@@ -123,18 +156,43 @@ type FindUnique = { where: { id: unknown }; select?: Record<string, boolean> };
 type SeriesInclude = { calendar: { select: Record<string, boolean> }; creator: { select: Record<string, boolean> }; instances: boolean };
 const fakePrisma = {
   nativeReminderState: {
-    findUnique: async ({ where, select }: { where: { id: string }; select: Record<string, boolean> }) => {
+    findUnique: async ({ where, select }: { where: { id?: string; seriesEventId_originalStartsAt?: Row }; select: Record<string, unknown> }) => {
       if (dbDown) throw new Error('Can\'t reach database server');
-      return pick(world.states.find(s => s.id === where.id), select);
+      const row = where.id !== undefined
+        ? world.states.find(s => s.id === where.id)
+        : world.states.find(s => matches(s, where.seriesEventId_originalStartsAt!));
+      if (!row || !select?.pings) return pick(row, select as Record<string, boolean>);
+      const { pings, ...plain } = select;
+      return { ...pick(row, plain as Record<string, boolean>), pings: world.pings.filter(p => p.stateId === row.id).map(p => pick(p, (pings as { select: Record<string, boolean> }).select)) };
     },
     createMany: async ({ data }: { data: Row[] }) => {
-      for (const row of data) if (!world.states.some(s => matches(s, row))) world.states.push({ id: `new-${world.states.length}`, doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, ...row });
+      for (const row of data) if (!world.states.some(s => matches(s, row))) world.states.push({ id: `new-${world.states.length}`, doneAt: null, doneByUserId: null, ...row });
       return { count: data.length };
     },
     updateMany: async ({ where, data }: { where: Row; data: Row }) => {
       const rows = world.states.filter(s => matches(s, where));
       for (const row of rows) Object.assign(row, data);
       return { count: rows.length };
+    },
+  },
+  nativeReminderPing: {
+    updateMany: async ({ where, data }: { where: { userId: number; state: Row }; data: Row }) => {
+      const states = world.states.filter(s => matches(s, where.state));
+      const rows = world.pings.filter(p => p.userId === where.userId && states.some(s => s.id === p.stateId));
+      for (const row of rows) Object.assign(row, data);
+      return { count: rows.length };
+    },
+    upsert: async ({ where, create, update }: { where: { stateId_userId: { stateId: string; userId: number } }; create: Row; update: Row }) => {
+      const key = where.stateId_userId;
+      const row = world.pings.find(p => p.stateId === key.stateId && p.userId === key.userId);
+      if (row) return Object.assign(row, update);
+      const made = { id: `ping-new-${world.pings.length}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, ...create };
+      world.pings.push(made);
+      return made;
+    },
+    findUnique: async ({ where, select }: { where: { stateId_userId: { stateId: string; userId: number } }; select: Record<string, boolean> }) => {
+      const key = where.stateId_userId;
+      return pick(world.pings.find(p => p.stateId === key.stateId && p.userId === key.userId), select);
     },
   },
   nativeEvent: {

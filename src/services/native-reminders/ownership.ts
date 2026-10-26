@@ -66,7 +66,8 @@ export function effectiveOwnerId(
 }
 
 /** The reminder columns that say who it is for. */
-type RecipientColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
+export type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
+type RecipientColumns = ReminderSeriesColumns;
 
 /**
  * Everyone a reminder pings and shows to, creator first. A reminder for both partners
@@ -88,6 +89,19 @@ export function recipientIds(series: RecipientColumns, creatorPartner: { id: num
  */
 export function pingUserFor(recipients: number[], actorId: number): number {
   return recipients.includes(actorId) ? actorId : recipients[0];
+}
+
+/**
+ * The snooze the viewer sees on an occurrence: their own (each partner snoozes for themselves),
+ * or, for the creator of someone else's single reminder, its one recipient's. Null when none.
+ */
+export function viewerSnoozedUntil(
+  series: ReminderSeriesColumns,
+  state: { pings: Array<{ userId: number; snoozedUntil: Date | null }> } | undefined,
+  ctx: ViewerContext
+): Date | null {
+  const pingUserId = pingUserFor(recipientIdsForViewer(series, ctx), ctx.viewerId);
+  return state?.pings.find((p) => p.userId === pingUserId)?.snoozedUntil ?? null;
 }
 
 /**

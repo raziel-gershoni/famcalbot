@@ -64,7 +64,8 @@ const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
   nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
-  nativeReminderState: () => ({ doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
+  nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
+  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
 };
 let nextId = 0;
 const prismaCalls: string[] = [];
@@ -96,8 +97,11 @@ function matches(row: Row, where: Where): boolean {
   });
 }
 
-const pick = (row: Row | undefined, select?: Record<string, boolean>) =>
-  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, row[k]])) : { ...row };
+/** A state row's `pings` is its relation (the ping rows of its recipients); the other columns are plain. */
+const pick = (row: Row | undefined, select?: Record<string, unknown>): Row | null =>
+  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, k === 'pings' ? pingsOf(row, select[k]) : row[k]])) : { ...row };
+const pingsOf = (state: Row, select: unknown): Array<Row | null> =>
+  tables.nativeReminderPing.filter((p) => p.stateId === state.id).map((p) => pick(p, (select as { select?: Record<string, boolean> }).select));
 
 function apply(row: Row, data: Row) {
   for (const [key, value] of Object.entries(data)) {
@@ -110,8 +114,15 @@ function apply(row: Row, data: Row) {
 
 /** The tables with a unique (seriesEventId, originalStartsAt), as the schema has them. */
 const UNIQUE_SLOT = ['nativeEventInstance', 'nativeReminderState'];
+/** The ping rows have their own unique key (stateId, userId). */
+const UNIQUE_PING = 'nativeReminderPing';
 /** Throw as Postgres does when two rows of `name` share a unique (seriesEventId, originalStartsAt). */
 function checkUnique(name: string) {
+  if (name === UNIQUE_PING) {
+    const keys = tables[name].map((r) => `${r.stateId}|${r.userId}`);
+    if (new Set(keys).size !== keys.length) throw Object.assign(new Error(`stand-in ${name}: unique (stateId, userId) violated`), { code: 'P2002' });
+    return;
+  }
   if (!UNIQUE_SLOT.includes(name)) return;
   const seen = new Set<string>();
   for (const r of tables[name]) {
@@ -130,7 +141,7 @@ function table(name: string) {
     checkUnique(name);
     return { ...row };
   };
-  type Args = { where?: Where; select?: Record<string, boolean>; orderBy?: Array<Record<string, 'asc' | 'desc'>>; data?: Row; create?: Row; update?: Row };
+  type Args = { where?: Where; select?: Record<string, unknown>; orderBy?: Array<Record<string, 'asc' | 'desc'>>; data?: Row; create?: Row; update?: Row };
   const rec = <T>(method: string, fn: () => T) => { prismaCalls.push(`${name}.${method}`); return fn(); };
   return {
     findUnique: async ({ where, select }: Args) => rec('findUnique', () => pick(find(where)[0], select)),
@@ -174,6 +185,8 @@ function table(name: string) {
     deleteMany: async ({ where }: Args) => rec('deleteMany', () => {
       const before = tables[name].length;
       tables[name] = tables[name].filter((r) => !where || !matches(r, where));
+      // The database cascades a state row's pings.
+      if (name === 'nativeReminderState') tables.nativeReminderPing = tables.nativeReminderPing.filter((p) => tables.nativeReminderState.some((s) => s.id === p.stateId));
       return { count: before - tables[name].length };
     }),
   };
@@ -191,7 +204,7 @@ const fakePrisma: Row = {
   },
 };
 // googleSyncLink: no calendar here is copied to Google (google-sync spec §2), so the store's marks find no link.
-for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'adminSettings', 'googleSyncLink']) {
+for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'nativeReminderPing', 'adminSettings', 'googleSyncLink']) {
   tables[name] = [];
   fakePrisma[name] = table(name);
 }
@@ -335,10 +348,17 @@ function seedSeries(id: string, fields: Row): Row {
   return row;
 }
 
-function seedState(seriesEventId: string, originalStartsAt: Date, pingMessageId: number | null, fields: Row = {}) {
-  tables.nativeReminderState.push({
-    ...DEFAULTS.nativeReminderState(), id: `state-${++nextId}`, seriesEventId, originalStartsAt,
-    pingChatId: pingMessageId === null ? null : 5001n, pingMessageId, createdAt: OLD, updatedAt: OLD, ...fields,
+/** The live ping message of a state row's (only) recipient. */
+const msgOf = (s: Row) => tables.nativeReminderPing.find((p) => p.stateId === s.id)?.pingMessageId ?? null;
+
+function seedState(seriesEventId: string, originalStartsAt: Date, pingMessageId: number | null, fields: Row = {}, userId = TAL) {
+  const { lastPingedAt = null, snoozedUntil = null, ...stateFields } = fields;
+  const id = `state-${++nextId}`;
+  tables.nativeReminderState.push({ ...DEFAULTS.nativeReminderState(), id, seriesEventId, originalStartsAt, createdAt: OLD, updatedAt: OLD, ...stateFields });
+  // The ping is its recipient's own row.
+  tables.nativeReminderPing.push({
+    ...DEFAULTS.nativeReminderPing(), id: `ping-${++nextId}`, stateId: id, userId, lastPingedAt, snoozedUntil,
+    pingChatId: pingMessageId === null ? null : 5001n, pingMessageId, createdAt: OLD, updatedAt: OLD,
   });
 }
 
@@ -371,6 +391,7 @@ function seed() {
   tables.nativeEvent = [];
   tables.nativeEventInstance = [];
   tables.nativeReminderState = [];
+  tables.nativeReminderPing = [];
   tables.adminSettings = [];
   tracked.length = 0;
   (globalThis as Row).__recurrenceCache?.clear?.();
@@ -556,8 +577,8 @@ async function main() {
       ['unknown repeat', { repeat: 'hourly' }, 'repeat'],
       ['repeat not a string', { repeat: true }, 'repeat'],
       ['a calendar that is not a native id', { calendarId: 'primary' }, 'calendarId'],
-      ['forPartner on an event', { forPartner: true }, 'forPartner'],
-      ['forPartner not a boolean', { kind: 'reminder', end: undefined, forPartner: 'yes' }, 'forPartner'],
+      ['forWho on an event', { forWho: 'partner' }, 'forWho'],
+      ['forWho not one of the three', { kind: 'reminder', end: undefined, forWho: 'yes' }, 'forWho'],
       ['an unknown field', { colour: 'red' }, 'colour'],
     ];
     for (const [name, patchBody, field] of cases) {
@@ -815,7 +836,7 @@ async function main() {
     const weekly = await post(reminderBody({ repeat: 'weekly' }));
     assert(eventRow(idOf(weekly.body.key)).rrule === 'FREQ=WEEKLY' && weekly.body.key.includes('#'), `weekly ${weekly.body.key}`);
     seedRecurrenceCache();
-    const partner = await post(reminderBody({ forPartner: true, title: 'Pick up the cake' }));
+    const partner = await post(reminderBody({ forWho: 'partner', title: 'Pick up the cake' }));
     assert(partner.status === 200, `for the partner ${partner.status} ${partner.text}`);
     assertSame([lastEvent().forUserId, lastEvent().creatorUserId, lastEvent().calendarId], [NOA, TAL, 'cal-tal'], 'for Noa, on Tal\'s main calendar');
     assertSame(cacheUsers(), [11], 'a reminder for the partner clears their cache too');
@@ -825,12 +846,12 @@ async function main() {
   await check('create reminder: for a partner who cannot be pinged is invalid; with no plan or no Telegram it is 403; a Google user\'s goes to their FamCal main', async () => {
     seed();
     tables.user.find((u) => u.id === NOA)!.telegramId = null;
-    const r = await post(reminderBody({ forPartner: true }));
+    const r = await post(reminderBody({ forWho: 'partner' }));
     assert(r.status === 400, `${r.status} ${r.text}`);
-    assertSame(r.body, { error: 'invalid', field: 'forPartner' }, 'no Telegram');
+    assertSame(r.body, { error: 'invalid', field: 'forWho' }, 'no Telegram');
     assert(eventsAll().length === 0, 'it wrote');
-    const alone = await post(reminderBody({ forPartner: true }), { tg: TG.solo });
-    assertSame([alone.status, alone.body], [400, { error: 'invalid', field: 'forPartner' }], 'no partner');
+    const alone = await post(reminderBody({ forWho: 'partner' }), { tg: TG.solo });
+    assertSame([alone.status, alone.body], [400, { error: 'invalid', field: 'forWho' }], 'no partner');
     noReminderPlan.add(TAL);
     const noPlan = await post(reminderBody());
     assertSame([noPlan.status, noPlan.body.error], [403, 'not_allowed'], 'no plan');
@@ -857,7 +878,7 @@ async function main() {
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
       forName: null, alert: 'default', scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
-      canChangeRecipient: false, forPartner: false, source: 'famcal',
+      canChangeRecipient: false, forWho: 'me', source: 'famcal',
     }, 'a one-off');
     const weekly = await post(eventBody({ repeat: 'weekly' }));
     const occurrence = `famcal|${idOf(weekly.body.key)}#${iso(at('2026-11-03 10:00'))}`;
@@ -1021,7 +1042,7 @@ async function main() {
     assert(back.status === 200 && back.body.key === day('2026-10-21'), `all: ${back.status} ${back.text}`);
     const read = await itemOf(day('2026-10-21'));
     assertSame([read.body.occurrence.start, read.body.occurrence.title, iso(eventRow(id).startsAt)], ['2026-10-21T17:30', 'Plumber, later', iso(at('2026-10-20 17:30'))], 'back at 17:30, its title kept, the series where it was');
-    assertSame(tables.nativeReminderState.map((r) => r.pingMessageId), [62], 'only the moved one\'s state went');
+    assertSame(tables.nativeReminderPing.map((r) => r.pingMessageId), [62], 'only the moved one\'s state went');
     assertSame(stripped.map((x) => x.pings.map((p: Row) => p.messageId)), [[61]], 'and its ping was stripped');
     assert(eventRow(id).armedAt.getTime() > OLD.getTime(), 'armed again');
   });
@@ -1279,7 +1300,7 @@ async function main() {
     seedState(id, at('2026-10-22 17:30'), 42);
     const single = await patch({ key: day('2026-10-21'), scope: 'single', changes: { start: '2026-10-21T19:00' } });
     assert(single.status === 200 && single.body.key === day('2026-10-21'), `single ${single.status} ${single.text}`);
-    assertSame(tables.nativeReminderState.map((s) => s.pingMessageId), [42], 'only that occurrence\'s state went');
+    assertSame(tables.nativeReminderPing.map((p) => p.pingMessageId), [42], 'only that occurrence\'s state went');
     assertSame(stripped.map((s) => s.pings[0].messageId), [41], 'only its ping was stripped');
     const all = await patch({ key: day('2026-10-22'), scope: 'all', changes: { start: '2026-10-22T18:00' } });
     assert(all.status === 200 && all.body.key === day('2026-10-22').replace('17:30', '18:00') || all.body.key.includes(iso(at('2026-10-22 18:00'))), `all ${all.body.key}`);
@@ -1500,7 +1521,7 @@ async function main() {
     ], [null, 'FREQ=DAILY', 'FREQ=DAILY;UNTIL=20261231', 'FREQ=DAILY;UNTIL=20261024T095959', 'FREQ=DAILY;UNTIL=20261103'], 'the ends');
   });
 
-  await check('3b validation: repeat, calendarId and forPartner are checked and named; forPartner on an event is refused', async () => {
+  await check('3b validation: repeat, calendarId and forWho are checked and named; forWho on an event is refused', async () => {
     seed();
     const created = await post(eventBody());
     const key = created.body.key;
@@ -1510,8 +1531,8 @@ async function main() {
       ['custom is not a choice', { repeat: 'custom' }, 'repeat'],
       ['a calendar that is not a native id', { calendarId: 'primary' }, 'calendarId'],
       ['a calendar id not a string', { calendarId: 5 }, 'calendarId'],
-      ['forPartner not a boolean', { forPartner: 'yes' }, 'forPartner'],
-      ['forPartner on an event', { forPartner: true }, 'forPartner'],
+      ['forWho not one of the three', { forWho: 'yes' }, 'forWho'],
+      ['forWho on an event', { forWho: 'partner' }, 'forWho'],
     ] as [string, Row, string][]) {
       const r = await patch({ key, scope: 'single', changes });
       assertSame([r.status, r.body], [400, { error: 'invalid', field }], name);
@@ -1880,7 +1901,7 @@ async function main() {
     assertSame([r.status, r.body.key, tail.rrule, tail.kind, tail.forUserId], [200, day('2026-10-27', tail.id), 'FREQ=WEEKLY', 'REMINDER', null], 'the new series');
     assert(tail.armedAt.getTime() >= before, 'armed from now');
     assertSame(overrides(tail.id).length + overrides(id).length, 0, 'the Wednesday\'s override went');
-    assertSame([statesOf(tail.id).map((s) => s.pingMessageId).sort(), statesOf(id).map((s) => s.pingMessageId)], [[82, 83], [84]], 'the Tuesdays\' state came along, the earlier one stayed');
+    assertSame([statesOf(tail.id).map(msgOf).sort(), statesOf(id).map(msgOf)], [[82, 83], [84]], 'the Tuesdays\' state came along, the earlier one stayed');
     assertSame(strips(), { moved: [], changed: [81], reassigned: [], names: [] }, 'the Wednesday\'s ping reads "changed"');
   });
 
@@ -1910,7 +1931,7 @@ async function main() {
     const r = await patch({ key: day('2026-10-20'), scope: 'following', changes: { repeat: 'weekly' } });
     assertSame([r.body, tables.nativeEvent.length, eventRow(id).rrule, overrides(id).length], [{ status: 'ok', key: day('2026-10-20') }, 1, 'FREQ=WEEKLY', 0], 'in place, the Wednesday\'s override gone');
     assert(eventRow(id).armedAt.getTime() >= before, 'armed from now');
-    assertSame([statesOf(id).map((s) => s.pingMessageId), strips()], [[87], { moved: [], changed: [88], reassigned: [], names: [] }], 'the done first one stays; the Wednesday\'s ping reads "changed"');
+    assertSame([statesOf(id).map(msgOf), strips()], [[87], { moved: [], changed: [88], reassigned: [], names: [] }], 'the done first one stays; the Wednesday\'s ping reads "changed"');
   });
 
   await check('3b stop repeating with a calendar or recipient change in the same save: the one-off takes them', async () => {
@@ -1922,7 +1943,7 @@ async function main() {
     const rid = idOf(reminder.body.key);
     seedState(rid, at('2026-10-22 17:30'), 89, { lastPingedAt: at('2026-10-22 17:30') });
     stripped.length = 0;
-    const p2 = await patch({ key: `famcal|${rid}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', forPartner: true } });
+    const p2 = await patch({ key: `famcal|${rid}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', forWho: 'partner' } });
     const one = lastEvent();
     assertSame([p2.status, one.rrule, one.forUserId, eventRow(rid).forUserId, statesOf(one.id).length], [200, null, NOA, null, 0], 'a reminder, for Noa; the earlier ones stay Tal\'s');
     assertSame(strips(), { moved: [], changed: [], reassigned: [89], names: ['Noa'] }, 'its open ping says "now for Noa"');
@@ -1954,8 +1975,8 @@ async function main() {
     const r = await patch({ key: day('2026-10-22'), scope: 'following', changes: { repeat: 'none' } });
     const one = lastEvent();
     assertSame([r.status, one.rrule, one.kind, iso(one.startsAt)], [200, null, 'REMINDER', iso(at('2026-10-22 17:30'))], 'a one-off reminder');
-    assertSame(statesOf(one.id).map((s) => [iso(s.originalStartsAt), s.doneAt !== null, s.pingMessageId]), [[iso(at('2026-10-22 17:30')), true, 91]], 'its done state came along');
-    assertSame(statesOf(id).map((s) => s.pingMessageId), [93], 'the earlier one stays');
+    assertSame(statesOf(one.id).map((s) => [iso(s.originalStartsAt), s.doneAt !== null, msgOf(s)]), [[iso(at('2026-10-22 17:30')), true, 91]], 'its done state came along');
+    assertSame(statesOf(id).map(msgOf), [93], 'the earlier one stays');
     assertSame(strips(), { moved: [], changed: [92], reassigned: [], names: [] }, 'the later one\'s ping reads "changed"');
     seed();
     const again = await post(reminderBody({ repeat: 'daily' }));
@@ -2009,7 +2030,7 @@ async function main() {
     assertSame([r.status, r.body], [200, { status: 'ok', key: `famcal|${id}` }], 'the same row, a one-off\'s key');
     const row = eventRow(id);
     assertSame([tables.nativeEvent.length, row.rrule, row.exdates.length, overrides(id).length, iso(row.startsAt)], [1, null, 0, 0, iso(at('2026-10-21 08:00'))], 'no rule, no skips, no rows, where it was shown');
-    assertSame(statesOf(id).map((s) => [iso(s.originalStartsAt), s.doneAt !== null, s.pingMessageId]), [[iso(at('2026-10-21 08:00')), true, 71]], 'its done state, at its start');
+    assertSame(statesOf(id).map((s) => [iso(s.originalStartsAt), s.doneAt !== null, msgOf(s)]), [[iso(at('2026-10-21 08:00')), true, 71]], 'its done state, at its start');
     assertSame(strips(), { moved: [], changed: [72], reassigned: [], names: [] }, 'the other\'s ping reads "changed"');
     seed();
     const { id: eid, occ } = await weeklySeries();
@@ -2176,40 +2197,40 @@ async function main() {
     eventRow(id).armedAt = OLD;
     stripped.length = 0;
     tracked.length = 0;
-    const r = await patch({ key: day('2026-10-22'), scope: 'all', changes: { forPartner: true } });
+    const r = await patch({ key: day('2026-10-22'), scope: 'all', changes: { forWho: 'partner' } });
     assertSame([r.body, eventRow(id).forUserId, iso(eventRow(id).armedAt)], [{ status: 'ok', key: day('2026-10-22') }, NOA, iso(OLD)], 'for Noa, armedAt kept');
-    assertSame(statesOf(id).map((s) => s.pingMessageId), [51], 'the done one stays, the open one starts afresh');
+    assertSame(statesOf(id).map(msgOf), [51], 'the done one stays, the open one starts afresh');
     assertSame(strips(), { moved: [], changed: [], reassigned: [52], names: ['Noa'] }, 'its ping says "now for Noa"');
     assertSame(cacheUsers(), [11], 'Noa\'s cache goes too');
     assertSame(tracked.map((t) => t.meta.changed_fields), [['recipient']], 'analytics');
-    const back = await patch({ key: day('2026-10-22'), scope: 'all', changes: { forPartner: false } });
+    const back = await patch({ key: day('2026-10-22'), scope: 'all', changes: { forWho: 'me' } });
     assertSame([back.status, eventRow(id).forUserId], [200, null], 'taken back');
-    const following = await patch({ key: day('2026-10-25'), scope: 'following', changes: { forPartner: true } });
+    const following = await patch({ key: day('2026-10-25'), scope: 'following', changes: { forWho: 'partner' } });
     const tail = lastEvent();
     assertSame([following.body, tail.forUserId, eventRow(id).forUserId, tail.creatorUserId], [{ status: 'ok', key: day('2026-10-25', tail.id) }, NOA, null, TAL], 'this and after: the new series is for Noa');
-    const single = await patch({ key: day('2026-10-23'), scope: 'single', changes: { forPartner: true } });
+    const single = await patch({ key: day('2026-10-23'), scope: 'single', changes: { forWho: 'partner' } });
     assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one is refused');
   });
 
   await check('3b recipient: only the creator, only a partner who can be pinged; the take-back works when the partner no longer can; a new time in the same save says "now for"', async () => {
     seed();
     const onShared = seedSeries('tal-shared-reminder', { calendarId: 'cal-tal-family', creatorUserId: TAL, kind: 'REMINDER', title: 'Bins', startsAt: at('2026-10-21 20:00') });
-    const noa = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forPartner: true } }, { tg: TG.noa });
+    const noa = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forWho: 'partner' } }, { tg: TG.noa });
     assertSame([noa.status, noa.body.error, onShared.forUserId], [403, 'not_allowed', null], 'Noa can edit it but not hand it on');
     tables.user.find((u) => u.id === NOA)!.telegramId = null;
-    const noTelegram = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forPartner: true } });
-    assertSame(noTelegram.body, { error: 'invalid', field: 'forPartner' }, 'no Telegram');
+    const noTelegram = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forWho: 'partner' } });
+    assertSame(noTelegram.body, { error: 'invalid', field: 'forWho' }, 'no Telegram');
     onShared.forUserId = NOA;
-    const takeBack = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forPartner: false } });
+    const takeBack = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forWho: 'me' } });
     assertSame([takeBack.status, onShared.forUserId], [200, null], 'taken back from a partner who can\'t be pinged');
     tables.user.find((u) => u.id === NOA)!.telegramId = BigInt(TG.noa);
     tables.user.find((u) => u.id === NOA)!.calendarSource = 'GOOGLE';
-    const google = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forPartner: true } });
+    const google = await patch({ key: `famcal|${onShared.id}`, scope: 'single', changes: { forWho: 'partner' } });
     assertSame([google.status, onShared.forUserId], [200, NOA], 'a partner with Google connected (Google as a connection)');
     onShared.forUserId = null;
     const solo = await post(reminderBody(), { tg: TG.solo });
-    const alone = await patch({ key: solo.body.key, scope: 'single', changes: { forPartner: true } }, { tg: TG.solo });
-    assertSame(alone.body, { error: 'invalid', field: 'forPartner' }, 'no partner');
+    const alone = await patch({ key: solo.body.key, scope: 'single', changes: { forWho: 'partner' } }, { tg: TG.solo });
+    assertSame(alone.body, { error: 'invalid', field: 'forWho' }, 'no partner');
     const e = await thrownBy(() => store.updateNativeEvent({ seriesCuid: onShared.id, scope: 'single', actingUserId: TAL, forUserId: 11 }));
     assert(e instanceof store.NativeRecipientError, `a stranger as the recipient: ${e}`);
     seed();
@@ -2217,7 +2238,7 @@ async function main() {
     const oid = idOf(one.body.key);
     seedState(oid, eventRow(oid).startsAt, 61, { lastPingedAt: eventRow(oid).startsAt });
     stripped.length = 0;
-    const both = await patch({ key: one.body.key, scope: 'single', changes: { forPartner: true, start: '2026-10-20T18:00' } });
+    const both = await patch({ key: one.body.key, scope: 'single', changes: { forWho: 'partner', start: '2026-10-20T18:00' } });
     assertSame([both.status, eventRow(oid).forUserId, statesOf(oid).length], [200, NOA, 0], 'for Noa at 18:00');
     assertSame(strips(), { moved: [], changed: [], reassigned: [61], names: ['Noa'] }, 'the ping says "now for Noa", not "moved"');
   });
@@ -2226,8 +2247,8 @@ async function main() {
     seed();
     const { occ } = await weeklySeries();
     const first = await itemOf(occ('2026-10-20'));
-    assertSame([first.body.series.rule, first.body.series.first, first.body.canMoveCalendar, first.body.moveTargets, first.body.canChangeRecipient, first.body.forPartner, first.body.source],
-      [{ choice: 'weekly' }, true, true, ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'], false, false, 'famcal'], 'the first of a weekly event');
+    assertSame([first.body.series.rule, first.body.series.first, first.body.canMoveCalendar, first.body.moveTargets, first.body.canChangeRecipient, first.body.forWho, first.body.source],
+      [{ choice: 'weekly' }, true, true, ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'], false, 'me', 'famcal'], 'the first of a weekly event');
     assertSame((await itemOf(occ('2026-10-27'))).body.series.first, false, 'a later one');
     await del({ key: occ('2026-10-20'), scope: 'single' });
     assertSame((await itemOf(occ('2026-10-27'))).body.series.first, true, 'the first visible one');
@@ -2239,13 +2260,13 @@ async function main() {
     assertSame([(await itemOf(`famcal|${viewed.id}`)).body.canMoveCalendar, (await itemOf(`famcal|${viewed.id}`)).body.moveTargets], [false, []], 'a viewer calendar\'s event');
     const mine = await post(reminderBody());
     const m = await itemOf(mine.body.key);
-    assertSame([m.body.canMoveCalendar, m.body.moveTargets, m.body.canChangeRecipient, m.body.forPartner], [false, [], true, false], 'the creator\'s reminder');
-    const forNoa = await post(reminderBody({ forPartner: true }));
-    assertSame([(await itemOf(forNoa.body.key)).body.canChangeRecipient, (await itemOf(forNoa.body.key)).body.forPartner], [true, true], 'one for Noa');
+    assertSame([m.body.canMoveCalendar, m.body.moveTargets, m.body.canChangeRecipient, m.body.forWho], [false, [], true, 'me'], 'the creator\'s reminder');
+    const forNoa = await post(reminderBody({ forWho: 'partner' }));
+    assertSame([(await itemOf(forNoa.body.key)).body.canChangeRecipient, (await itemOf(forNoa.body.key)).body.forWho], [true, 'partner'], 'one for Noa');
     tables.user.find((u) => u.id === NOA)!.telegramId = null;
     assertSame([(await itemOf(mine.body.key)).body.canChangeRecipient, (await itemOf(forNoa.body.key)).body.canChangeRecipient], [false, true], 'Noa can\'t be pinged: only the take-back');
     const masked = seedSeries('noa-for-tal', { calendarId: 'cal-noa-private', creatorUserId: NOA, forUserId: TAL, kind: 'REMINDER', title: 'Call', startsAt: at('2026-10-21 09:00') });
-    assertSame([(await itemOf(`famcal|${masked.id}`)).body.canChangeRecipient, (await itemOf(`famcal|${masked.id}`)).body.forPartner], [false, true], 'the one Noa set for Tal: for her partner, as she set it; only she changes it');
+    assertSame([(await itemOf(`famcal|${masked.id}`)).body.canChangeRecipient, (await itemOf(`famcal|${masked.id}`)).body.forWho], [false, 'partner'], 'the one Noa set for Tal: for her partner, as she set it; only she changes it');
   });
 
   await check('3b rule validity: the store refuses a bad rule on create and update (NativeRuleError); the bot gets UNKNOWN_ERROR with the ids logged; the home answers 400 repeat', async () => {
@@ -2266,7 +2287,7 @@ async function main() {
     assert(captured.some((c) => c.extra?.user_id === TAL && c.extra?.calendar_id === 'native:cal-tal') && !show(captured).includes(SECRET_TITLE), `logged with the ids: ${show(captured)}`);
     const { refusalOf } = await load('src/services/calendar-write/write.ts');
     assertSame([refusalOf(new store.NativeRuleError('x')), refusalOf(new store.NativeScopeError('calendarId')), refusalOf(new store.NativeRecipientError()), refusalOf(new store.NativeDestinationError())],
-      [{ status: 'invalid', field: 'repeat' }, { status: 'invalid', field: 'calendarId' }, { status: 'invalid', field: 'forPartner' }, { status: 'invalid', field: 'calendarId' }], 'the home\'s answers');
+      [{ status: 'invalid', field: 'repeat' }, { status: 'invalid', field: 'calendarId' }, { status: 'invalid', field: 'forWho' }, { status: 'invalid', field: 'calendarId' }], 'the home\'s answers');
   });
 
   await check('3b Asia/Jerusalem across the autumn change: a weekly series made daily from November keeps 10:00 on the wall; a COUNT carried across it ends on its day', async () => {
@@ -2434,7 +2455,7 @@ async function main() {
     assertSame([moved.status, tail.calendarId, pairOf(tail), eventRow(id).hebrewRule], [200, 'cal-tal-family', ['FREQ=YEARLY', 'anniversary', '2022-11-24'], 'anniversary'], 'calendar move');
     seed();
     const rem = hebrewSeries('heb-rem', { kind: 'REMINDER', title: 'Light a candle' });
-    const handed = await patch({ key: rem.occ('2025-11-21'), scope: 'following', changes: { forPartner: true } });
+    const handed = await patch({ key: rem.occ('2025-11-21'), scope: 'following', changes: { forWho: 'partner' } });
     const remTail = lastEvent();
     assertSame([handed.status, remTail.forUserId, remTail.kind, pairOf(remTail)], [200, NOA, 'REMINDER', ['FREQ=YEARLY', 'anniversary', '2022-11-24']], 'recipient');
     assertSame(await daysOf(remTail.id, '2025-01-01', '2029-01-01'), ['2025-11-21', '2026-11-10', '2027-11-30', '2028-11-19'], 'the tail keeps the anchor');

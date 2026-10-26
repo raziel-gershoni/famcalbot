@@ -294,6 +294,7 @@ const KEYS: Record<string, readonly string[]> = {
   'editor.partnerCalendar': ['calendar', 'name'],
   'editor.forLabel': [],
   'editor.forMe': [],
+  'editor.forBoth': [],
   'editor.forName': ['name'],
   'editor.errors.errTitle': [],
   'editor.errors.errTitleLong': ['max'],

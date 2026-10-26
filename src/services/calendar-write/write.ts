@@ -203,7 +203,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     trackActivityAsync(user.id, 'voice_event_created', { calendar_id: resolved.calendarId, source: 'app' });
     trackActivityAsync(user.id, 'native_reminder_created', {
       for_partner: resolved.forUserId !== null,
-      for_both: resolved.forBoth,
+      ...(resolved.forBoth ? { for_both: true } : {}),
       all_day: resolved.allDay,
       recurring: rrule !== null,
       source: 'app',

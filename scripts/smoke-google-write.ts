@@ -1175,7 +1175,7 @@ async function main() {
     const key = gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00'));
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'single', changes: { repeat: 'weekly' } }), IL), { status: 'ok', key }, 'same');
     assertSame(writes().length, 0, 'wrote');
-    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forPartner: true } }), IL), { status: 'invalid', field: 'forPartner' }, 'recipient');
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forWho: 'partner' } }), IL), { status: 'invalid', field: 'forWho' }, 'recipient');
   });
 
   await check('richer repeats, item info: series.spec says a Google rule (an UTC UNTIL as its wall day); a rule the sheet can\'t say has none and keeps its words\' parts', async () => {

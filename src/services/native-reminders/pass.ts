@@ -240,7 +240,7 @@ async function pingOccurrence(
   }
   trackActivityAsync(recipient.id, 'native_reminder_pinged', {
     for_partner: creator.id !== recipient.id,
-    for_both: forBoth,
+    ...(forBoth ? { for_both: true } : {}),
     snoozed: candidate.snoozed,
     all_day: candidate.occ.allDay,
   });

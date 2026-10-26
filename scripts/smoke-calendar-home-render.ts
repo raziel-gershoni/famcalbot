@@ -4915,7 +4915,7 @@ async function main() {
     assert(pick({ pickedDay: '2026-10-20' }) === '2026-10-20 09:00 → 2026-10-20 10:00', `a picked day: ${pick({ pickedDay: '2026-10-20' })}`);
     assert(pick({ pickedDay: TODAY }) === '2026-10-15 11:00 → 2026-10-15 12:00', 'today picked is today');
     const f = newItemForm(base);
-    assert(f.kind === 'event' && f.repeat === 'none' && f.calendarId === 'native:cal_me_7f3a' && !f.allDay && !f.forPartner, `defaults: ${show(f)}`);
+    assert(f.kind === 'event' && f.repeat === 'none' && f.calendarId === 'native:cal_me_7f3a' && !f.allDay && f.forWho === 'me', `defaults: ${show(f)}`);
     assert(newItemForm({ ...base, kinds: { event: false, reminder: true }, calendars: [] }).kind === 'reminder', 'reminders only opens on a reminder');
     // Moving the start keeps the duration; all day keeps the days between.
     const moved = moveStart({ ...f, endTime: '12:30' }, { startTime: '15:00' });
@@ -5163,7 +5163,7 @@ async function main() {
       await pickFreq(m, 'yearly');
       m.click(saveButton(m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: { freq: 'yearly', interval: 1 }, forPartner: true }), `timed: ${show(writes()[0].body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: { freq: 'yearly', interval: 1 }, forWho: 'partner' }), `timed: ${show(writes()[0].body)}`);
       assert(!hasDialog(m), 'closed');
       tapPlus(m);
       await settle();
@@ -6895,39 +6895,61 @@ async function main() {
     }
   });
 
-  await check('#97 the For row on edit, for the reminder\'s creator: Me | <partner> with the current one selected, the take-back always there; the same two-choice sheet for a series; the recipient sees "For <name>" text', async () => {
+  await check('#97 the For row on edit, for the reminder\'s creator: Me | <partner> | Both of us with the current one selected, the take-back always there; the same two-choice sheet for a series; the recipient sees "For <name>" text', async () => {
     const reminder = (o: Partial<ItemEditInfoResponse> = {}, series: Partial<ItemEditInfoResponse['series']> = {}) =>
       infoFor({
         kind: 'reminder',
         occurrence: { start: `${day(0)}T17:00`, end: `${day(0)}T17:00`, allDay: false, title: 'Dentist', location: '', description: '' },
         series: { recurring: false, start: `${day(0)}T17:00`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true, ...series },
         canChangeRecipient: true,
-        forPartner: false,
+        forWho: 'me',
         ...o,
       });
     const a = await editingHome('en', { item: serveDentist(reminder()), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
     try {
       await openEditor(a.m, 'Dentist');
-      assert(show(byRole(topDialog(a.m), 'radio').map((e) => [e.textContent, e.getAttribute('aria-checked')])) === show([['Me', 'true'], ['Noa', 'false']]), 'Me | Noa, Me selected');
+      assert(show(byRole(topDialog(a.m), 'radio').map((e) => [e.textContent, e.getAttribute('aria-checked')])) === show([['Me', 'true'], ['Noa', 'false'], ['Both of us', 'false']]), 'Me | Noa | Both of us, Me selected');
       assertLacks(topText(a.m), ['For Noa'], 'no text line beside the row');
       a.m.click(radioOf(a.m, 'Noa'));
       a.m.click(saveButton(a.m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forPartner: true } }), `to Noa: ${show(writes()[0].body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'partner' } }), `to Noa: ${show(writes()[0].body)}`);
     } finally {
       a.m.unmount();
     }
     // Currently for the partner: Noa selected, Me takes it back, and a reminder for the partner shows the row even when the partner can't be reached now.
-    const b = await editingHome('en', { editor: ok200(editorWith({ partner: { name: 'Noa', canRemind: false } })), item: serveDentist(reminder({ forPartner: true, forName: 'Noa' })), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    const b = await editingHome('en', { editor: ok200(editorWith({ partner: { name: 'Noa', canRemind: false } })), item: serveDentist(reminder({ forWho: 'partner', forName: 'Noa' })), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
     try {
       await openEditor(b.m, 'Dentist');
       assert(radioOf(b.m, 'Noa').getAttribute('aria-checked') === 'true' && radioOf(b.m, 'Me').getAttribute('aria-checked') === 'false', 'Noa selected');
       b.m.click(radioOf(b.m, 'Me'));
       b.m.click(saveButton(b.m));
       await settle();
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forPartner: false } }), `the take-back: ${show(writes()[0].body)}`);
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'me' } }), `the take-back: ${show(writes()[0].body)}`);
     } finally {
       b.m.unmount();
+    }
+    // Both of us: picked from Me it is sent as 'both'; a reminder already for both has Both of us selected and Noa takes it to the partner alone.
+    const bothFromMe = await editingHome('en', { item: serveDentist(reminder()), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openEditor(bothFromMe.m, 'Dentist');
+      bothFromMe.m.click(radioOf(bothFromMe.m, 'Both of us'));
+      bothFromMe.m.click(saveButton(bothFromMe.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'both' } }), `to both: ${show(writes()[0].body)}`);
+    } finally {
+      bothFromMe.m.unmount();
+    }
+    const wasBoth = await editingHome('en', { item: serveDentist(reminder({ forWho: 'both' })), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openEditor(wasBoth.m, 'Dentist');
+      assert(radioOf(wasBoth.m, 'Both of us').getAttribute('aria-checked') === 'true', 'Both of us selected');
+      wasBoth.m.click(radioOf(wasBoth.m, 'Me'));
+      wasBoth.m.click(saveButton(wasBoth.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'me' } }), `keep as mine: ${show(writes()[0].body)}`);
+    } finally {
+      wasBoth.m.unmount();
     }
     // A series: the two-choice sheet and the line.
     const c = await editingHome('en', { item: serveSwim(reminder({ occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Swimming', location: '', description: '' }, scopes: ['single', 'following', 'all'] }, { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, rule: { choice: 'weekly' } })), write: () => ok200({ status: 'ok', key: 'famcal|swim' }) });
@@ -6940,12 +6962,12 @@ async function main() {
       assertHas(topText(c.m), [PICK_NOTE], 'the line');
       tapIn(c.m, 'This one and the ones after');
       await settle();
-      assert(lastWrite().body?.scope === 'following' && sameBody(lastWrite().body?.changes, { forPartner: true }), `following: ${show(lastWrite().body)}`);
+      assert(lastWrite().body?.scope === 'following' && sameBody(lastWrite().body?.changes, { forWho: 'partner' }), `following: ${show(lastWrite().body)}`);
     } finally {
       c.m.unmount();
     }
     // Not the creator: "For Noa" as text and no choice.
-    const d = await editingHome('en', { item: serveDentist(reminder({ canChangeRecipient: false, forName: 'Noa', forPartner: true })) });
+    const d = await editingHome('en', { item: serveDentist(reminder({ canChangeRecipient: false, forName: 'Noa', forWho: 'partner' })) });
     try {
       await openEditor(d.m, 'Dentist');
       assertHas(topText(d.m), ['For Noa'], 'the text line');
@@ -6982,7 +7004,7 @@ async function main() {
       occurrence: { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Swimming', location: '', description: '' },
       series: { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, fixedDays: true, zone: 'UTC', rule: { choice: 'weekly' }, first: true },
       canChangeRecipient: true,
-      forPartner: false,
+      forWho: 'me',
       scopes: ['single', 'following', 'all'],
     });
     const b = await editingHome('en', { item: serveSwim(rem) });

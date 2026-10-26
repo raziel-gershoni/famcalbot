@@ -53,7 +53,8 @@ const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, personEnglishName: null, personGender: null, rules: [], privacy: 'PRIVATE', isDeleted: false }),
   nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
-  nativeReminderState: () => ({ doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
+  nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
+  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
 };
 let nextId = 0;
 
@@ -80,9 +81,11 @@ function matches(row: Row, where: Where): boolean {
   });
 }
 
-/** Prisma returns only the selected columns, so a column the code forgets to select is missing. */
-const pick = (row: Row | undefined, select?: Record<string, boolean>) =>
-  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, row[k]])) : { ...row };
+/** Prisma returns only the selected columns, so a column the code forgets to select is missing; a state row's `pings` is its relation. */
+const pick = (row: Row | undefined, select?: Record<string, unknown>): Row | null =>
+  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, k === 'pings' ? pingsOf(row, select[k]) : row[k]])) : { ...row };
+const pingsOf = (state: Row, select: unknown): Array<Row | null> =>
+  tables.nativeReminderPing.filter((p) => p.stateId === state.id).map((p) => pick(p, (select as { select?: Record<string, boolean> }).select));
 
 /** Prisma skips undefined fields and appends on { push }. */
 function apply(row: Row, data: Row) {
@@ -95,7 +98,7 @@ function apply(row: Row, data: Row) {
 }
 
 /** The unique keys the database enforces: an override's occurrence, a state row's. */
-const UNIQUE: Record<string, string[]> = { nativeEventInstance: ['seriesEventId', 'originalStartsAt'], nativeReminderState: ['seriesEventId', 'originalStartsAt'] };
+const UNIQUE: Record<string, string[]> = { nativeEventInstance: ['seriesEventId', 'originalStartsAt'], nativeReminderState: ['seriesEventId', 'originalStartsAt'], nativeReminderPing: ['stateId', 'userId'] };
 
 function table(name: string) {
   const find = (where?: Where) => tables[name].filter((r) => !where || matches(r, where));
@@ -113,7 +116,7 @@ function table(name: string) {
     tables[name].push(row);
     return { ...row };
   };
-  type Args = { where?: Where; select?: Record<string, boolean>; orderBy?: Array<Record<string, 'asc' | 'desc'>>; data?: Row; create?: Row; update?: Row };
+  type Args = { where?: Where; select?: Record<string, unknown>; orderBy?: Array<Record<string, 'asc' | 'desc'>>; data?: Row; create?: Row; update?: Row };
   return {
     findUnique: async ({ where, select }: Args) => pick(find(where)[0], select),
     findFirst: async ({ where, select }: Args) => pick(find(where)[0], select),
@@ -148,6 +151,8 @@ function table(name: string) {
     deleteMany: async ({ where }: Args) => {
       const before = tables[name].length;
       tables[name] = tables[name].filter((r) => !where || !matches(r, where));
+      // The database cascades a state row's pings.
+      if (name === 'nativeReminderState') tables.nativeReminderPing = tables.nativeReminderPing.filter((p) => tables.nativeReminderState.some((s) => s.id === p.stateId));
       return { count: before - tables[name].length };
     },
   };
@@ -165,7 +170,7 @@ const fakePrisma: Record<string, unknown> = {
   },
 };
 // googleSyncLink: no calendar here is copied to Google (google-sync spec §2), so the store's marks find no link.
-for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'googleSyncLink']) {
+for (const name of ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'nativeReminderPing', 'googleSyncLink']) {
   tables[name] = [];
   fakePrisma[name] = table(name);
 }
@@ -198,12 +203,19 @@ function seedEvent(id: string, fields: Row): Row {
 }
 
 /** A state row: an occurrence that was pinged, snoozed or done, with its ping message when one was sent. */
-function seedState(seriesEventId: string, originalStartsAt: Date, pingMessageId: number | null, fields: Row = {}) {
+function seedState(seriesEventId: string, originalStartsAt: Date, pingMessageId: number | null, fields: Row = {}, userId = 1) {
+  const { snoozedUntil = null, ...stateFields } = fields;
+  const id = `state-${++nextId}`;
   tables.nativeReminderState.push({
-    ...DEFAULTS.nativeReminderState(), id: `state-${++nextId}`, seriesEventId, originalStartsAt,
+    ...DEFAULTS.nativeReminderState(), id, seriesEventId, originalStartsAt,
+    createdAt: originalStartsAt, updatedAt: originalStartsAt, ...stateFields,
+  });
+  // The ping is its recipient's own row.
+  tables.nativeReminderPing.push({
+    ...DEFAULTS.nativeReminderPing(), id: `ping-${++nextId}`, stateId: id, userId, snoozedUntil,
     lastPingedAt: originalStartsAt, pingAttempts: 1,
     pingChatId: pingMessageId === null ? null : 5001n, pingMessageId,
-    createdAt: originalStartsAt, updatedAt: originalStartsAt, ...fields,
+    createdAt: originalStartsAt, updatedAt: originalStartsAt,
   });
 }
 
@@ -227,6 +239,7 @@ function reset() {
   tables.nativeEvent = [];
   tables.nativeEventInstance = [];
   tables.nativeReminderState = [];
+  tables.nativeReminderPing = [];
   testStarted = Date.now();
 }
 

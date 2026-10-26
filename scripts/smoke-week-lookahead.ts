@@ -350,7 +350,7 @@ async function main() {
       return { ctx: { viewerId: u.id, partner: null }, items: viewerItemsFor(u) };
     },
   });
-  stub('services/native-reminders/ownership.ts', { loadViewerContext: async (u: { id: number }) => ({ viewerId: u.id, partner: null }) });
+  stub('services/native-reminders/ownership.ts', { loadViewerContext: async (u: { id: number }) => ({ viewerId: u.id, partner: null }), viewerSnoozedUntil: () => null });
   stub('services/calendar-provider/index.ts', { getCalendarAssignmentsForUser: async () => calendars });
   stub('services/native-calendar/event-store.ts', {
     getNativeSeriesRrule: async (id: string) => {

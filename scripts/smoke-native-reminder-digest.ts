@@ -91,6 +91,7 @@ function series(title: string, startsAt: Date, over: Partial<NativeEvent> = {}):
     ownAlerts: false, alertMinutes: [],
     kind: 'REMINDER',
     forUserId: null,
+    forBoth: false,
     armedAt: startsAt,
     isDeleted: false,
     createdAt: startsAt,
@@ -104,8 +105,8 @@ const dateOnly = (title: string, day: string, over: Partial<NativeEvent> = {}) =
   series(title, startOfLocalDay(day, IL), { allDay: true, ...over });
 
 type StateRow = OpenReminderCandidate['states'][number];
-const done = (originalStartsAt: Date): StateRow => ({ originalStartsAt, doneAt: new Date(originalStartsAt.getTime() + 60_000), snoozedUntil: null });
-const snoozed = (originalStartsAt: Date, until: Date): StateRow => ({ originalStartsAt, doneAt: null, snoozedUntil: until });
+const done = (originalStartsAt: Date): StateRow => ({ originalStartsAt, doneAt: new Date(originalStartsAt.getTime() + 60_000), pings: [] });
+const snoozed = (originalStartsAt: Date, until: Date): StateRow => ({ originalStartsAt, doneAt: null, pings: [{ userId: 1, snoozedUntil: until }] });
 
 const candidate = (s: NativeEvent, states: StateRow[] = [], overrides: NativeEventInstance[] = []): OpenReminderCandidate =>
   ({ series: s, calendar: CALENDAR, overrides, states });
@@ -369,6 +370,41 @@ async function main() {
     assertList(linesOf(events, WEDNESDAY), ['Buy milk (Reminder (open since Mon 12 Oct)) [Calendar: Raziel]']);
   });
 
+  await check('both: a reminder for both partners is carried to each, in their own section, "for both of you"; to nobody else', () => {
+    const byRaziel = series('Book the flights', il('2026-10-12 11:00:00'), { forUserId: 2, forBoth: true });
+    const byDana = series('Pay the nursery', il('2026-10-12 12:00:00'), { creatorUserId: 2, forUserId: 1, forBoth: true });
+    const danaCtx: ViewerContext = { viewerId: 2, partner: { ...dana, id: 1, name: 'Raziel' } };
+    for (const ctx of [razielCtx, danaCtx]) {
+      const { events } = select([candidate(byRaziel), candidate(byDana)], ctx);
+      assertList(events.map(e => e.summary), ['Pay the nursery', 'Book the flights']);
+      assert(events.every(e => e.reminder?.ownerIsViewer === true && e.reminder?.forBoth === true), JSON.stringify(events.map(e => e.reminder)));
+      assertList(linesOf(events, WEDNESDAY), [
+        'Pay the nursery (Reminder (open since Mon 12 Oct)) (for both of you) [Calendar: Raziel]',
+        'Book the flights (Reminder (open since Mon 12 Oct)) (for both of you) [Calendar: Raziel]',
+      ]);
+    }
+    // A third person, or no active pairing, is not a recipient of the other's.
+    assert(select([candidate(byRaziel)], { viewerId: 9, partner: null }).events.length === 0, 'a stranger');
+  });
+
+  await check('both: once the pair is unlinked it is the creator\'s alone, and no longer "for both"; the former partner is not carried it', () => {
+    const byRaziel = series('Book the flights', il('2026-10-12 11:00:00'), { forUserId: 2, forBoth: true });
+    const mine = select([candidate(byRaziel)], { viewerId: 1, partner: null }).events;
+    assert(mine.length === 1 && mine[0].reminder?.forBoth !== true && mine[0].reminder?.ownerIsViewer === true, JSON.stringify(mine[0]?.reminder));
+    assert(select([candidate(byRaziel)], { viewerId: 2, partner: null }).events.length === 0, 'the ex-partner');
+  });
+
+  await check('both: a snooze is the viewer\'s own; the other partner\'s snooze is not shown', () => {
+    const t = il('2026-10-12 11:00:00');
+    const byRaziel = series('Book the flights', t, { forUserId: 2, forBoth: true });
+    const hers: StateRow = { originalStartsAt: t, doneAt: null, pings: [{ userId: 2, snoozedUntil: il('2099-01-01 09:00:00') }] };
+    const mine = select([candidate(byRaziel, [hers])]).events;
+    assert(mine[0].reminder?.snoozed === false, `his view: ${JSON.stringify(mine[0].reminder)}`);
+    const danaCtx: ViewerContext = { viewerId: 2, partner: { ...dana, id: 1, name: 'Raziel' } };
+    const hersView = select([candidate(byRaziel, [hers])], danaCtx).events;
+    assert(hersView[0].reminder?.snoozed === true, `her view: ${JSON.stringify(hersView[0].reminder)}`);
+  });
+
   // ---- Order and cap ----
 
   await check(`cap: newest first, ${OPEN_REMINDERS_DIGEST_CAP} lines and how many more`, () => {
@@ -400,7 +436,7 @@ async function main() {
         }],
         OR: [{ creatorUserId: 1 }, { creatorUserId: 2, forUserId: 1 }],
       },
-      include: { calendar: true, instances: true, states: true },
+      include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } } } },
     }), JSON.stringify(findManyCalls[0]));
   });
 
@@ -513,6 +549,13 @@ async function main() {
     assertList(userEvents.map(e => e.summary), ['From Dana', 'Sign the form', 'Dentist']);
     assertList(spouseEvents.map(e => e.summary), ['For Dana', 'Yoga']);
     assertList(otherEvents.map(e => e.summary), ['School play']);
+  });
+
+  await check('categorize: a reminder for both partners sits in the viewer\'s own section', () => {
+    const both = on('native:danas', dayReminder('Book the flights', '2026-10-14T08:00:00.000Z', '2026-10-14T08:00:00.000Z', { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Dana', forBoth: true }));
+    const { userEvents, spouseEvents } = categorizeEvents([both], raziel, assignments);
+    assertList(userEvents.map(e => e.summary), ['Book the flights']);
+    assert(spouseEvents.length === 0, 'not the partner\'s section');
   });
 
   // ---- The summary prompt ----

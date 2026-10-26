@@ -83,7 +83,7 @@ function matches(row: Row, where: Where, relations: Relations = {}): boolean {
   return Object.entries(where).every(([key, cond]) => {
     if (key === 'OR') return (cond as Where[]).some((w) => matches(row, w, relations));
     if (key === 'AND') return (Array.isArray(cond) ? (cond as Where[]) : [cond as Where]).every((w) => matches(row, w, relations));
-    if (key === 'seriesEventId_originalStartsAt') return matches(row, cond as Where);
+    if (key === 'seriesEventId_originalStartsAt' || key === 'stateId_userId') return matches(row, cond as Where);
     if (Object.hasOwn(relations, key)) {
       const target = relations[key](row);
       if (Array.isArray(target)) {
@@ -126,8 +126,11 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
     const pickRelation = (k: string, opts: unknown) => {
       const target = relations[k](row);
       if (opts === true || typeof opts !== 'object' || opts === null) return target;
-      const { where, select } = opts as { where?: Where; select?: Record<string, boolean> };
-      const narrow = (r: Row) => (select ? Object.fromEntries(Object.keys(select).filter((x) => select[x]).map((x) => [x, r[x]])) : r);
+      const { where, select } = opts as { where?: Where; select?: Record<string, unknown> };
+      // A state row's `pings` is its relation: the ping rows of its recipients.
+      const narrow = (r: Row): Row => (select
+        ? Object.fromEntries(Object.keys(select).filter((x) => select[x]).map((x) => [x, x === 'pings' ? db.pings.filter((p) => p.stateId === r.id).map((p) => Object.fromEntries(Object.keys((select[x] as { select: Row }).select).map((y) => [y, p[y]]))) : r[x]]))
+        : r);
       if (Array.isArray(target)) return target.filter((r) => matches(r, where ?? {})).map(narrow);
       if (target === undefined) return undefined;
       return select ? narrow(target) : target;
@@ -180,17 +183,27 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
           throw new Error('unique constraint');
         }
         rows().push({
-          id: `state-${rows().length + 1}`, doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null,
-          pingAttempts: 0, pingChatId: null, pingMessageId: null, createdAt: new RealDate(clock), updatedAt: new RealDate(clock), ...d,
+          id: `state-${rows().length + 1}`, doneAt: null, doneByUserId: null, createdAt: new RealDate(clock), updatedAt: new RealDate(clock), ...d,
         });
         count++;
       }
       return { count };
     },
+    upsert: async ({ where, create, update }: { where: Where; create: Row; update: Row }) => {
+      run('upsert');
+      const row = rows().find((r) => matches(r, where, relations));
+      if (row) return Object.assign(row, update, { updatedAt: new RealDate(clock) });
+      const made = {
+        id: `ping-${rows().length + 1}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null,
+        createdAt: new RealDate(clock), updatedAt: new RealDate(clock), ...create,
+      };
+      rows().push(made);
+      return made;
+    },
   };
 }
 
-const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[] };
+const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[], pings: [] as Row[] };
 
 const fakePrisma = {
   user: table('user', () => db.users),
@@ -203,7 +216,12 @@ const fakePrisma = {
     states: (r) => db.states.filter((s) => s.seriesEventId === r.id),
   }),
   nativeEventInstance: table('nativeEventInstance', () => db.instances),
-  nativeReminderState: table('nativeReminderState', () => db.states),
+  nativeReminderState: table('nativeReminderState', () => db.states, {
+    pings: (r) => db.pings.filter((p) => p.stateId === r.id),
+  }),
+  nativeReminderPing: table('nativeReminderPing', () => db.pings, {
+    state: (r) => db.states.find((s) => s.id === r.stateId),
+  }),
 };
 
 // ---- The household ----
@@ -275,20 +293,47 @@ function household() {
     override(DAILY, at('2026-10-16 08:00'), { status: 'CANCELLED' }),
   ];
   db.states = [
-    {
-      id: 'state-plumber', seriesEventId: PINGED, originalStartsAt: at('2026-10-19 08:30'), doneAt: null, doneByUserId: null,
-      snoozedUntil: null, lastPingedAt: at('2026-10-19 08:30'), pingAttempts: 1, pingChatId: BigInt(tg(RAZIEL)), pingMessageId: 77,
-      createdAt: CREATED, updatedAt: CREATED,
-    },
+    { id: 'state-plumber', seriesEventId: PINGED, originalStartsAt: at('2026-10-19 08:30'), doneAt: null, doneByUserId: null, createdAt: CREATED, updatedAt: CREATED },
   ];
+  db.pings = [pingRow('state-plumber', RAZIEL, { lastPingedAt: at('2026-10-19 08:30'), pingAttempts: 1, pingChatId: BigInt(tg(RAZIEL)), pingMessageId: 77 })];
+}
+
+/** One recipient's ping row of a state row. */
+const pingRow = (stateId: string, userId: number, fields: Row = {}): Row => ({
+  id: `ping-${stateId}-${userId}`, stateId, userId, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null,
+  createdAt: CREATED, updatedAt: CREATED, ...fields,
+});
+
+const PING_FIELDS = ['snoozedUntil', 'lastPingedAt', 'pingAttempts', 'pingChatId', 'pingMessageId'];
+/**
+ * A state row seen with one recipient's ping row (by default the person the occurrence is for) as a
+ * single record: a ping column reads and writes that person's ping row.
+ */
+function viewOf(row: Row, userId?: number): Row {
+  const series = db.events.find((e) => e.id === row.seriesEventId);
+  const who = userId ?? ((series?.forUserId ?? series?.creatorUserId) as number);
+  const ping = () => db.pings.find((p) => p.stateId === row.id && p.userId === who);
+  return new Proxy(row, {
+    get: (target, prop: string) => (PING_FIELDS.includes(prop) ? (ping() ?? { snoozedUntil: null, lastPingedAt: null, pingAttempts: 0 })[prop] : target[prop]),
+    set: (target, prop: string, value) => {
+      if (PING_FIELDS.includes(prop)) {
+        const p = ping();
+        if (!p) throw new Error('no ping row to write');
+        p[prop] = value;
+      } else target[prop] = value;
+      return true;
+    },
+  });
 }
 
 const actor = (id: number) => {
   const row = db.users.find((u) => u.id === id)!;
   return { ...row, telegramId: Number(row.telegramId) } as unknown as UserConfig;
 };
-const stateFor = (seriesEventId: string, originalStartsAt: Date) =>
-  db.states.find((s) => s.seriesEventId === seriesEventId && same(s.originalStartsAt, originalStartsAt));
+const stateFor = (seriesEventId: string, originalStartsAt: Date, userId?: number) => {
+  const row = db.states.find((s) => s.seriesEventId === seriesEventId && same(s.originalStartsAt, originalStartsAt));
+  return row ? viewOf(row, userId) : undefined;
+};
 const statesOf = (seriesEventId: string) => db.states.filter((s) => s.seriesEventId === seriesEventId);
 
 // ---- Fakes at the edges ----
@@ -618,11 +663,8 @@ async function main() {
 
   await check('ping: the edit is in the ping recipient\'s language and clock, not the actor\'s (Raziel acts on Dana\'s ping)', async () => {
     reset();
-    db.states.push({
-      id: 'state-milk', seriesEventId: MILK, originalStartsAt: MILK_KEY.originalStartsAt, doneAt: null, doneByUserId: null,
-      snoozedUntil: null, lastPingedAt: NOW, pingAttempts: 1, pingChatId: BigInt(tg(DANA)), pingMessageId: 55,
-      createdAt: CREATED, updatedAt: CREATED,
-    });
+    db.states.push({ id: 'state-milk', seriesEventId: MILK, originalStartsAt: MILK_KEY.originalStartsAt, doneAt: null, doneByUserId: null, createdAt: CREATED, updatedAt: CREATED });
+    db.pings.push(pingRow('state-milk', DANA, { lastPingedAt: NOW, pingAttempts: 1, pingChatId: BigInt(tg(DANA)), pingMessageId: 55 }));
     TIMEZONES[DANA] = NY;
     try {
       await act(RAZIEL, MILK_KEY, 'snooze15');

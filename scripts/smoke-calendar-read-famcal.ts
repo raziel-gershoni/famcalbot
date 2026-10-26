@@ -186,7 +186,7 @@ function event(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendar
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
-    kind: 'EVENT', forUserId: null, armedAt: null,
+    kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null,
     ...fields,
   };
 }
@@ -194,11 +194,13 @@ function event(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendar
 /** A reminder has no length: it ends where it starts. */
 const reminder = (fields: Parameters<typeof event>[0]) => event({ kind: 'REMINDER', armedAt: CREATED, ...fields, endsAt: fields.startsAt });
 
-function state(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'>): NativeReminderState {
+function state(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'> & { snoozedUntil?: Date | null }) {
+  // A snooze is its recipient's own ping row now; the fixtures say it with snoozedUntil.
+  const { snoozedUntil = null, ...rest } = fields;
   return {
-    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null, snoozedUntil: null,
-    lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, createdAt: CREATED, updatedAt: CREATED,
-    ...fields,
+    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null,
+    pings: snoozedUntil ? [{ userId: DANA, snoozedUntil }] : [], createdAt: CREATED, updatedAt: CREATED,
+    ...rest,
   };
 }
 
@@ -351,7 +353,7 @@ async function main() {
     const plants = stateOf('Water the plants');
     assert(plants !== 'no key' && plants?.doneAt?.getTime() === at('2026-10-13 09:10').getTime(), 'plants: its done row');
     const milk = stateOf('Buy milk');
-    assert(milk !== 'no key' && milk?.snoozedUntil?.getTime() === NEVER.getTime(), 'milk: its snoozed row');
+    assert(milk !== 'no key' && milk?.pings[0]?.snoozedUntil?.getTime() === NEVER.getTime(), 'milk: its snoozed row');
     assert(stateOf('Vitamins') === 'no key', 'vitamins: today has no row, so no state key');
     assert(stateOf('Dentist') === 'no key', 'an event has no state key');
   });
@@ -582,7 +584,7 @@ async function main() {
     const { items, moreCount } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
     assertJson(items.map((i) => i.event), old.events, 'events');
     assert(moreCount === old.moreCount && moreCount === 0, `moreCount ${moreCount}`);
-    assertJson(items.map((i) => [i.event.summary, i.series.id, i.calendar.id, i.instanceStartsAt.toISOString(), i.state ? i.state.snoozedUntil : 'none']), [
+    assertJson(items.map((i) => [i.event.summary, i.series.id, i.calendar.id, i.instanceStartsAt.toISOString(), i.state ? i.state.pings[0]?.snoozedUntil ?? null : 'none']), [
       ['Book the plumber', 'rem-yesterday', 'cal-raz', at('2026-10-12 17:00').toISOString(), 'none'],
       ['Return the library books', 'rem-library', 'cal-dana', at('2026-10-11 10:00').toISOString(), NEVER.toISOString()],
       ['Recycling out', 'rem-recycling', 'cal-dana', at('2026-10-11 08:00').toISOString(), 'none'],

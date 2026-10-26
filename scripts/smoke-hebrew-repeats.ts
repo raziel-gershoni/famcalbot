@@ -70,6 +70,7 @@ function hebrew(start: Date, o: Partial<NativeEvent> = {}): NativeEvent {
     ownAlerts: false, alertMinutes: [],
     kind: 'EVENT',
     forUserId: null,
+    forBoth: false,
     armedAt: null,
     isDeleted: false,
     createdAt: start,

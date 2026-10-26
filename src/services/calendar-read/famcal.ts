@@ -14,9 +14,9 @@
 import type { NativeCalendar, NativeEvent } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import type { UnifiedEvent } from '../calendar-provider/types';
-import { fetchViewerItems, viewerSnoozedUntil } from '../calendar-provider/native-provider';
+import { fetchViewerItems } from '../calendar-provider/native-provider';
 import { encodeCalendarId, listVisibleCalendars, type ReminderStateRow } from '../native-calendar/event-store';
-import { loadViewerContext, type ViewerContext } from '../native-reminders/ownership';
+import { loadViewerContext, viewerSnoozedUntil, type ViewerContext } from '../native-reminders/ownership';
 import type { OpenReminderItem } from '../native-reminders/open-reminders';
 import type { CalendarRef, FamcalRead, ReadItem } from './types';
 

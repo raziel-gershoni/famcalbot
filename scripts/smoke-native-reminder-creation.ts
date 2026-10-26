@@ -372,10 +372,12 @@ async function extractionChecks() {
     }
   });
 
-  await check('a reminder for the partner says so; anything else is for the user', () => {
+  await check('a reminder for the partner or for both says so; anything else is for the user', () => {
     const partner = parse({ kind: 'reminder', forPerson: 'partner', startDate: '2026-10-15', allDay: true }).event;
     assert(partner?.forPerson === 'partner', `partner → ${partner?.forPerson}`);
-    for (const forPerson of [undefined, null, 'self', 'Dana', 'both']) {
+    const both = parse({ kind: 'reminder', forPerson: 'both', startDate: '2026-10-15', allDay: true }).event;
+    assert(both?.forPerson === 'both', `both → ${both?.forPerson}`);
+    for (const forPerson of [undefined, null, 'self', 'Dana', 'everyone']) {
       const got = parse({ kind: 'reminder', forPerson, startDate: '2026-10-15', allDay: true }).event?.forPerson;
       assert(got === 'self', `${forPerson} → ${got}`);
     }

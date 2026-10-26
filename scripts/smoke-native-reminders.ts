@@ -72,7 +72,7 @@ function assertTime(got: Date | null | undefined, want: Date, label = 'time') {
 // ---- Fake Prisma ----
 
 type Row = Record<string, unknown>;
-const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[] };
+const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[], pings: [] as Row[] };
 /** Every Prisma call, as "<model>.<method>", to see when a pass read the database. */
 const queries: string[] = [];
 /** Thrown by the next nativeEvent.findMany: the database going away. */
@@ -86,6 +86,7 @@ let failNextClaim: Error | null = null;
 // event's calendar relation, and `some` over its instances.
 const relations: Record<string, (row: Row) => Row | undefined> = {
   calendar: (row) => db.calendars.find((c) => c.id === row.calendarId),
+  state: (row) => db.states.find((s) => s.id === row.stateId),
 };
 const listRelations: Record<string, (row: Row) => Row[]> = {
   instances: (row) => db.instances.filter((i) => i.seriesEventId === row.id),
@@ -169,9 +170,21 @@ const fakePrisma = {
     },
   },
   nativeReminderState: {
-    findMany: async ({ where, select }: Args) => {
+    findMany: async ({ where, select, include }: Args & { include?: Row }) => {
       queries.push('nativeReminderState.findMany');
-      return db.states.filter((s) => matches(s, where)).map((s) => pick(s, select));
+      return db.states.filter((s) => matches(s, where)).map((s) => ({
+        ...pick(s, select),
+        ...(include?.pings ? { pings: db.pings.filter((p) => p.stateId === s.id).map((p) => ({ ...p })) } : {}),
+      }));
+    },
+    createMany: async ({ data }: { data: Row[] }) => {
+      queries.push('nativeReminderState.createMany');
+      for (const d of data) {
+        if (!db.states.some((s) => s.seriesEventId === d.seriesEventId && ms(s.originalStartsAt) === ms(d.originalStartsAt))) {
+          db.states.push({ id: `state-${db.states.length + 1}`, doneAt: null, doneByUserId: null, ...d });
+        }
+      }
+      return { count: data.length };
     },
     findUnique: async ({ where, select }: Args) => {
       queries.push('nativeReminderState.findUnique');
@@ -191,9 +204,60 @@ const fakePrisma = {
       return { count: rows.length };
     },
   },
-  // The claim: INSERT … ON CONFLICT (seriesEventId, originalStartsAt) DO UPDATE … WHERE
-  // not done and not yet pinged for this due … RETURNING. One call is atomic here, as
-  // one statement is in Postgres.
+  nativeReminderPing: {
+    findFirst: async ({ where, select }: Args) => {
+      queries.push('nativeReminderPing.findFirst');
+      return pick(db.pings.find((p) => matches(p, where)), select);
+    },
+    findMany: async ({ where, select }: Args) => {
+      queries.push('nativeReminderPing.findMany');
+      return db.pings.filter((p) => matches(p, where)).map((p) => ({
+        ...pick(p, select ? (Object.fromEntries(Object.entries(select).filter(([k]) => k !== 'state')) as Record<string, boolean>) : undefined),
+        ...(select?.state ? { state: pick(db.states.find((s) => s.id === p.stateId), (select.state as unknown as { select: Record<string, boolean> }).select) } : {}),
+      }));
+    },
+    update: async ({ where, data, select }: Args) => {
+      queries.push('nativeReminderPing.update');
+      const row = db.pings.find((p) => p.id === where!.id);
+      if (!row) throw new Error('fake prisma: P2025 record not found');
+      Object.assign(row, data);
+      if (!select?.state) return { ...row };
+      const state = db.states.find((s) => s.id === row.stateId)!;
+      const spec = (select.state as unknown as { select: Record<string, unknown> }).select;
+      const plain = Object.fromEntries(Object.entries(spec).filter(([k]) => k !== 'doneBy')) as Record<string, boolean>;
+      return { state: { ...pick(state, plain), ...(spec.doneBy ? { doneBy: { name: (db.users.find((u) => u.id === state.doneByUserId) ?? {}).name } } : {}) } };
+    },
+    updateMany: async ({ where, data }: Args) => {
+      queries.push('nativeReminderPing.updateMany');
+      const rows = db.pings.filter((p) => matches(p, where));
+      for (const row of rows) Object.assign(row, data);
+      return { count: rows.length };
+    },
+    deleteMany: async ({ where }: Args) => {
+      queries.push('nativeReminderPing.deleteMany');
+      const gone = db.pings.filter((p) => matches(p, where));
+      db.pings = db.pings.filter((p) => !gone.includes(p));
+      return { count: gone.length };
+    },
+    upsert: async ({ where, create, update }: Args & { create: Row; update: Row }) => {
+      queries.push('nativeReminderPing.upsert');
+      const key = where!.stateId_userId as Row;
+      const row = db.pings.find((p) => p.stateId === key.stateId && p.userId === key.userId);
+      if (row) return Object.assign(row, update);
+      const made = { id: `ping-${db.pings.length + 1}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, ...create };
+      db.pings.push(made);
+      return made;
+    },
+    findUnique: async ({ where, select }: Args) => {
+      queries.push('nativeReminderPing.findUnique');
+      const key = where!.stateId_userId as Row;
+      return pick(db.pings.find((p) => p.stateId === key.stateId && p.userId === key.userId), select);
+    },
+  },
+  // The claim: one INSERT … ON CONFLICT statement per (occurrence, recipient): ensure the state
+  // row, then insert or update the recipient's ping row while the occurrence is not done and the
+  // recipient has not been pinged for this due … RETURNING. One call is atomic here, as one
+  // statement is in Postgres.
   $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     queries.push('$queryRaw');
     if (failNextClaim) {
@@ -203,25 +267,31 @@ const fakePrisma = {
     }
     const sql = strings.join('$');
     assert(
-      /INSERT INTO "NativeReminderState"[\s\S]*ON CONFLICT \("seriesEventId", "originalStartsAt"\) DO UPDATE[\s\S]*"doneAt" IS NULL[\s\S]*RETURNING/.test(sql),
+      /WITH state AS \(\s*INSERT INTO "NativeReminderState"[\s\S]*ON CONFLICT \("seriesEventId", "originalStartsAt"\) DO UPDATE[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*"doneAt" IS NULL[\s\S]*ON CONFLICT \("stateId", "userId"\) DO UPDATE[\s\S]*RETURNING/.test(sql),
       `unexpected claim SQL: ${sql}`
     );
-    assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 5, 'every timestamp should be read as UTC');
-    const [id, seriesEventId, occurrence, at] = values as string[];
+    // The deploy-window fallback reads the state row's old lastPingedAt; the step-2 file removes it.
+    assert(/oldLastPingedAt[\s\S]*drop-reminder-state-ping-columns\.sql/.test(sql), 'the fallback should name the step-2 file');
+    assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 7, 'every timestamp should be read as UTC');
+    const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new RealDate(values[values.length - 1] as string).getTime();
     const originalStartsAt = new RealDate(occurrence);
     const lastPingedAt = new RealDate(at);
-    const row = db.states.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
-    if (!row) {
-      db.states.push({
-        id, seriesEventId, originalStartsAt, doneAt: null, doneByUserId: null, snoozedUntil: null,
-        lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null,
-      });
-      return [{ id, lastPingedAt, pingAttempts: 1 }];
+    let state = db.states.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
+    if (!state) {
+      state = { id: stateId, seriesEventId, originalStartsAt, doneAt: null, doneByUserId: null };
+      db.states.push(state);
     }
-    if (row.doneAt || (row.lastPingedAt && (ms(row.lastPingedAt) as number) >= due)) return [];
-    Object.assign(row, { lastPingedAt, pingAttempts: (row.pingAttempts as number) + 1 });
-    return [{ id: row.id, lastPingedAt, pingAttempts: row.pingAttempts }];
+    if (state.doneAt) return [];
+    if (state.oldLastPingedAt && (ms(state.oldLastPingedAt) as number) >= due) return [];
+    const ping = db.pings.find((p) => p.stateId === state!.id && p.userId === userId);
+    if (!ping) {
+      db.pings.push({ id: pingId, stateId: state.id, userId, snoozedUntil: null, lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null });
+      return [{ id: pingId, stateId: state.id, lastPingedAt, pingAttempts: 1 }];
+    }
+    if (ping.lastPingedAt && (ms(ping.lastPingedAt) as number) >= due) return [];
+    Object.assign(ping, { lastPingedAt, pingAttempts: (ping.pingAttempts as number) + 1 });
+    return [{ id: ping.id, stateId: state.id, lastPingedAt, pingAttempts: ping.pingAttempts }];
   },
 };
 
@@ -372,6 +442,7 @@ function reset() {
   db.events = [];
   db.instances = [];
   db.states = [];
+  db.pings = [];
   queries.length = 0;
   sent = [];
   sendFailures = [];
@@ -410,17 +481,55 @@ function dateOnly(day: string, p: Row = {}, tz = IL): Row {
   return reminder({ startsAt, allDay: true, timeZone: tz, armedAt: new RealDate(startsAt.getTime() - 12 * HOUR), ...p });
 }
 
-function state(p: Row & { seriesEventId: unknown; originalStartsAt: Date }): Row {
-  const row: Row = {
-    id: `state-${db.states.length + 1}`, doneAt: null, doneByUserId: null, snoozedUntil: null,
-    lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, ...p,
-  };
-  db.states.push(row);
-  return row;
+const PING_FIELDS = ['snoozedUntil', 'lastPingedAt', 'pingAttempts', 'pingChatId', 'pingMessageId'];
+const PING_DEFAULTS: Row = { snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null };
+
+/** Who an occurrence's ping is for, as the migration copies it: the reminder's forUserId, else its creator. */
+const recipientOf = (seriesEventId: unknown): number => {
+  const e = db.events.find((x) => x.id === seriesEventId);
+  return ((e?.forUserId ?? e?.creatorUserId) as number) ?? 1;
+};
+
+/**
+ * A state row seen with one recipient's ping row (by default the series' own recipient)
+ * as a single record, the way these checks read it: a ping column reads and writes that
+ * person's ping row, made when first written.
+ */
+function viewOf(row: Row, userId: number = recipientOf(row.seriesEventId)): Row {
+  const ping = () => db.pings.find((p) => p.stateId === row.id && p.userId === userId);
+  return new Proxy(row, {
+    get: (target, prop: string) => (PING_FIELDS.includes(prop) ? (ping() ?? PING_DEFAULTS)[prop] : target[prop]),
+    set: (target, prop: string, value) => {
+      if (!PING_FIELDS.includes(prop)) {
+        target[prop] = value;
+        return true;
+      }
+      let p = ping();
+      if (!p) {
+        p = { id: `ping-${db.pings.length + 1}`, stateId: row.id, userId, ...PING_DEFAULTS };
+        db.pings.push(p);
+      }
+      p[prop] = value;
+      return true;
+    },
+  });
 }
 
-const stateOf = (seriesEventId: unknown, originalStartsAt: Date) =>
-  db.states.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
+function state(p: Row & { seriesEventId: unknown; originalStartsAt: Date; userId?: number }): Row {
+  const { userId, ...fields } = p;
+  const pingFields = Object.fromEntries(PING_FIELDS.filter((f) => f in fields).map((f) => [f, fields[f]]));
+  const stateFields = Object.fromEntries(Object.entries(fields).filter(([k]) => !PING_FIELDS.includes(k)));
+  const row: Row = { id: `state-${db.states.length + 1}`, doneAt: null, doneByUserId: null, ...stateFields };
+  db.states.push(row);
+  const view = viewOf(row, userId);
+  for (const [k, v] of Object.entries(pingFields)) view[k] = v;
+  return view;
+}
+
+const stateOf = (seriesEventId: unknown, originalStartsAt: Date, userId?: number) => {
+  const row = db.states.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
+  return row ? viewOf(row, userId) : undefined;
+};
 
 async function quiet<T>(fn: () => Promise<T>): Promise<T> {
   const { log, warn } = console;
@@ -561,7 +670,7 @@ async function main() {
     const [a, b] = await quiet(() => Promise.all([runNativeReminderPass(today('10:00')), runNativeReminderPass(today('10:00'))]));
     assert(sent.length === 1, sentLines());
     assert(a.sent + b.sent === 1 && a.skipped + b.skipped === 1, `${show(a)} ${show(b)}`);
-    assert(db.states.length === 1 && db.states[0].pingAttempts === 1, show(db.states));
+    assert(db.states.length === 1 && db.pings.length === 1 && db.pings[0].pingAttempts === 1, show([db.states, db.pings]));
   });
 
   await check("pass: a date-only reminder for the partner pings at 09:00 where she is, in her language, saying who set it", async () => {
@@ -791,6 +900,189 @@ async function main() {
     reminder({ startsAt: today('10:00') });
     const result = await pass(today('10:00'));
     assert(sent.length === 0 && result.skipped === 2 && db.states.length === 0, `${show(result)} ${sentLines()}`);
+  });
+
+  // ---- Remind us both: one reminder, two recipients ----
+
+  /** A reminder Raziel (1) set for both of them: forUserId is Dana (2), forBoth marks it. */
+  const both = (p: Row & { startsAt: Date }) => reminder({ forUserId: 2, forBoth: true, ...p });
+  const pingsOf = (seriesEventId: unknown) => db.pings.filter((p) => db.states.some((s) => s.id === p.stateId && s.seriesEventId === seriesEventId));
+
+  await check('both: a timed reminder pings each partner once, in their language, with "for both of you" and the same occurrence on the buttons', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    const result = await pass(today('10:00'));
+    assertSame([result.sent, result.failed], [2, 0]);
+    assertSame(sent.map((s) => s.chatId).sort(), ['1001', '1002']);
+    const raziel = sent.find((s) => s.chatId === '1001')!;
+    const dana = sent.find((s) => s.chatId === '1002')!;
+    assert(raziel.text === `⏰ <b>Call the plumber</b>\n${copy.he.ping.forBoth}`, `his text ${raziel.text}`);
+    assert(dana.text === `⏰ <b>Call the plumber</b>\n${copy.en.ping.forBoth}`, `her text ${dana.text}`);
+    const row = stateOf(r.id, today('10:00'))!;
+    assert(db.states.length === 1 && callbacks(raziel.keyboard).every((c) => c.endsWith(`:${row.id}`)) && callbacks(dana.keyboard).every((c) => c.endsWith(`:${row.id}`)), 'one shared state row on both keyboards');
+    assert(raziel.keyboard.inline_keyboard[0][0].text === copy.he.buttons.done && dana.keyboard.inline_keyboard[0][0].text === copy.en.buttons.done, 'buttons in their own languages');
+    // Each ping row holds that person's claim and live message.
+    const mine = stateOf(r.id, today('10:00'), 1)!;
+    const hers = stateOf(r.id, today('10:00'), 2)!;
+    assert(mine.pingChatId === BigInt(1001) && mine.pingMessageId === raziel.messageId && mine.pingAttempts === 1, show(mine));
+    assert(hers.pingChatId === BigInt(1002) && hers.pingMessageId === dana.messageId && hers.pingAttempts === 1, show(hers));
+    await pass(today('10:01'));
+    assert(sent.length === 2, `once each: ${sentLines()}`);
+  });
+
+  await check('both: a date-only reminder pings each partner at their own morning time, in their own timezone', async () => {
+    reset();
+    db.users[1].reminderTime = '18:00';
+    timezones[2] = NY;
+    both({ startsAt: startOfLocalDay('2026-10-15', IL), allDay: true, timeZone: IL, armedAt: new RealDate(startOfLocalDay('2026-10-15', IL).getTime() - 12 * HOUR), title: 'Buy flowers' });
+    await pass(today('09:00', IL));
+    assertSame(sent.map((s) => s.chatId), ['1001']);
+    await pass(today('17:59', NY));
+    assert(sent.length === 1, `early for her: ${sentLines()}`);
+    await pass(today('18:00', NY));
+    assertSame(sent.map((s) => s.chatId), ['1001', '1002']);
+    await pass(today('18:05', NY));
+    assert(sent.length === 2, `once each: ${sentLines()}`);
+  });
+
+  await check('both: the gate sleeps to the earliest due of either partner', async () => {
+    reset();
+    db.users[1].reminderTime = '18:00';
+    both({ startsAt: startOfLocalDay('2026-10-15', IL), allDay: true, timeZone: IL, armedAt: new RealDate(startOfLocalDay('2026-10-15', IL).getTime() - 12 * HOUR) });
+    const result = await pass(today('08:00'));
+    assertTime(result.nextDue, today('09:00'), 'his morning is first');
+    const later = await pass(today('09:30'));
+    assertTime(later.nextDue, today('18:00'), 'then hers');
+  });
+
+  await check('both: a failed send to one partner is retried for that partner only; the other is not pinged twice', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    sendFailures = [telegramError(502, 'Bad Gateway')];
+    const first = await pass(today('10:00'));
+    assertSame([first.sent, first.failed], [1, 1]);
+    assertSame(sent.map((s) => s.chatId), ['1002']);
+    assertTime(first.nextDue, today('10:01'), 'looks again in a minute');
+    assert(stateOf(r.id, today('10:00'), 1)!.lastPingedAt === null && stateOf(r.id, today('10:00'), 1)!.pingAttempts === 1, 'his claim given back');
+    const retry = await pass(today('10:01'));
+    assertSame([retry.sent, sent.map((s) => s.chatId)], [1, ['1002', '1001']]);
+    await pass(today('10:02'));
+    assert(sent.length === 2, `no third ping: ${sentLines()}`);
+  });
+
+  await check('both: a partner who blocked the bot is marked unreachable; the other is still pinged', async () => {
+    reset();
+    both({ startsAt: today('10:00') });
+    sendFailures = [telegramError(403, 'Forbidden: bot was blocked by the user')];
+    const result = await pass(today('10:00'));
+    assertSame([result.sent, result.failed, unreachable], [1, 1, [1]]);
+    assertSame(sent.map((s) => s.chatId), ['1002']);
+  });
+
+  await check('both: a partner who cannot be pinged (unreachable, suspended, no Telegram) leaves the creator pinged alone', async () => {
+    for (const mutate of [
+      () => { db.users[1].unreachableSince = new RealDate(0); },
+      () => { db.users[1].suspendedAt = new RealDate(0); },
+      () => { db.users[1].telegramId = null; },
+    ]) {
+      reset();
+      mutate();
+      both({ startsAt: today('10:00') });
+      const result = await pass(today('10:00'));
+      assert(result.sent === 1 && sent.length === 1 && sent[0].chatId === '1001', `${show(result)} ${sentLines()}`);
+    }
+  });
+
+  await check('both: after unlinking it is the creator\'s alone: one ping, no "for both of you" line, nothing for the ex-partner', async () => {
+    reset();
+    db.pairings[0].status = 'UNLINKED';
+    both({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 1 && sent[0].chatId === '1001' && sent[0].text === '⏰ <b>Call the plumber</b>', sentLines());
+  });
+
+  await check('both: a creator without reminder access pings neither partner', async () => {
+    reset();
+    noAccess = new Set([1]);
+    both({ startsAt: today('10:00') });
+    const result = await pass(today('10:00'));
+    assert(result.sent === 0 && sent.length === 0 && db.states.length === 0, `${show(result)} ${sentLines()}`);
+  });
+
+  await check('both: a Done by either partner is shared: the other partner is never pinged for that occurrence', async () => {
+    reset();
+    db.users[1].reminderTime = '18:00';
+    const r = both({ startsAt: startOfLocalDay('2026-10-15', IL), allDay: true, timeZone: IL, armedAt: new RealDate(startOfLocalDay('2026-10-15', IL).getTime() - 12 * HOUR) });
+    await pass(today('09:00'));
+    assertSame(sent.map((s) => s.chatId), ['1001']);
+    stateOf(r.id, startOfLocalDay('2026-10-15', IL))!.doneAt = today('09:05'); // Raziel taps Done
+    await pass(today('18:00'));
+    assert(sent.length === 1, `Dana was pinged for a done reminder: ${sentLines()}`);
+  });
+
+  await check('both: a snooze is the partner\'s own: only the snoozer is pinged again, at their snooze time', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 2, sentLines());
+    const hers = stateOf(r.id, today('10:00'), 2)!;
+    hers.snoozedUntil = today('10:15'); // Dana's 💤 15 min
+    await pass(today('10:15'));
+    assertSame(sent.map((s) => s.chatId), ['1001', '1002', '1002']);
+    assert(hers.pingMessageId === sent[2].messageId && hers.pingAttempts === 2, show(hers));
+    assert(stateOf(r.id, today('10:00'), 1)!.pingAttempts === 1, 'his ping row is untouched');
+    await pass(today('10:16'));
+    assert(sent.length === 3, `no more: ${sentLines()}`);
+  });
+
+  await check('both: a snooze created in the app for a never-pinged partner pings only them at that time', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    // Dana snoozes from the home at 09:58, before any ping: her ping row is made by the snooze.
+    const row = state({ seriesEventId: r.id, originalStartsAt: today('10:00') });
+    db.pings.push({ id: 'ping-x', stateId: row.id, userId: 2, snoozedUntil: today('10:30'), lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null });
+    await pass(today('10:00'));
+    // He is pinged at the time; her snooze holds hers.
+    assertSame(sent.map((s) => s.chatId), ['1001']);
+    await pass(today('10:30'));
+    assertSame(sent.map((s) => s.chatId), ['1001', '1002']);
+  });
+
+  await check('both: the newest due occurrence only, per recipient: a daily reminder snoozed into the next day by one partner pings the other once', async () => {
+    reset();
+    const daily = both({ startsAt: at('2026-10-10 09:00'), rrule: 'FREQ=DAILY', armedAt: at('2026-10-09 20:00'), title: 'Pills' });
+    state({ seriesEventId: daily.id, originalStartsAt: at('2026-10-14 09:00'), userId: 2, lastPingedAt: at('2026-10-14 09:00'), pingAttempts: 1, snoozedUntil: today('09:00') });
+    const result = await pass(today('09:00'));
+    // Raziel: today's occurrence. Dana: today's too (the newest), with yesterday's claimed silently.
+    assertSame(sent.map((s) => s.chatId).sort(), ['1001', '1002']);
+    assert(result.sent === 2 && result.skipped === 1, show(result));
+    await pass(today('09:01'));
+    assert(sent.length === 2, sentLines());
+  });
+
+  await check('both: an edit landing between the read and the claim (it stops being for both) sends nothing to the stale recipients', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    duringSend = () => { r.forBoth = false; r.forUserId = null; r.updatedAt = new RealDate(clock + 1); };
+    const first = await pass(today('10:00'));
+    assert(first.sent === 1 && sent.length === 1, `${show(first)} ${sentLines()}`);
+    // The first ping was already on its way when the edit landed; the second recipient's claim is undone.
+    const second = await pass(today('10:01'));
+    assertSame(sent.map((s) => s.chatId), ['1001']);
+    assert(second.sent === 0, show(second));
+  });
+
+  await check('both: the deploy-window fallback: a ping the previous build recorded on the state row itself is not sent again', async () => {
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    const old = state({ seriesEventId: r.id, originalStartsAt: today('10:00') });
+    (db.states.find((s) => s.id === old.id) as Row).oldLastPingedAt = today('10:00'); // the old build's lastPingedAt, now an unmapped column
+    const result = await pass(today('10:00'));
+    assert(result.sent === 0 && sent.length === 0 && result.skipped === 2, `${show(result)} ${sentLines()}`);
+    // An old ping from before this due time (an earlier occurrence's) does not hold it back.
+    (db.states.find((s) => s.id === old.id) as Row).oldLastPingedAt = today('09:00');
+    const later = await pass(today('10:01'));
+    assert(later.sent === 2, `${show(later)} ${sentLines()}`);
   });
 
   await check('admin switch off: the pass does nothing and reads nothing', async () => {

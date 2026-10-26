@@ -142,7 +142,7 @@ export async function applyReminderAction(
       data: { doneAt: now, doneByUserId: actor.id },
     });
     if (count === 0) return { status: 'already_done', title };
-    trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source, for_both: forBoth });
+    trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}) });
     await afterDone(series, key, recipients, actor, title, source);
     return { status: 'ok', title };
   }
@@ -200,7 +200,8 @@ async function afterDone(
     });
     for (const ping of state?.pings ?? []) {
       if (!ping.pingChatId || ping.pingMessageId == null) continue;
-      if (source === 'ping' && ping.userId === actor.id) continue;
+      // A tap on a ping edits that ping itself (callbacks.ts), so only the other partner's is left to do.
+      if (source === 'ping' && (!forBoth || ping.userId === actor.id)) continue;
       await editDonePing(series.id, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title, forBoth && ping.userId !== actor.id);
     }
   } catch (error) {

@@ -344,7 +344,7 @@ async function main() {
       endTime: '11:00',
       repeat: 'none',
       calendarId: null,
-      forPartner: false,
+      forWho: 'me',
       alert: 'default',
       ...over,
     });

@@ -174,7 +174,7 @@ export async function autoCreateEvent(
     trackActivityAsync(user.id, 'native_reminder_created', {
       auto: true,
       for_partner: event.forUserId != null,
-      for_both: event.forBoth === true,
+      ...(event.forBoth ? { for_both: true } : {}),
       all_day: event.allDay,
     });
   }

@@ -55,12 +55,13 @@ function assertSame(got: unknown, want: unknown, label: string) {
 // the compound keys, transactions and the claim's raw upsert ----
 
 const db: Record<string, Row[]> = {};
-const MODELS = ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState'];
+const MODELS = ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'nativeReminderState', 'nativeReminderPing'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], privacy: 'PRIVATE', isDeleted: false }),
   nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
-  nativeReminderState: () => ({ doneAt: null, doneByUserId: null, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
+  nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
+  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
 };
 let nextId = 0;
 const ms = (v: unknown) => (v instanceof Date ? v.getTime() : v);
@@ -71,11 +72,17 @@ const toOne: Record<string, Record<string, (row: Row) => Row | undefined>> = {
     calendar: (row) => db.nativeCalendar.find((c) => c.id === row.calendarId),
     creator: (row) => db.user.find((u) => u.id === row.creatorUserId),
   },
+  nativeReminderPing: {
+    state: (row) => db.nativeReminderState.find((s) => s.id === row.stateId),
+  },
 };
 const toMany: Record<string, Record<string, (row: Row) => Row[]>> = {
   nativeEvent: {
     instances: (row) => db.nativeEventInstance.filter((i) => i.seriesEventId === row.id),
     states: (row) => db.nativeReminderState.filter((s) => s.seriesEventId === row.id),
+  },
+  nativeReminderState: {
+    pings: (row) => db.nativeReminderPing.filter((p) => p.stateId === row.id),
   },
 };
 
@@ -139,10 +146,10 @@ function apply(row: Row, data: Row) {
 }
 
 function checkUnique(model: string) {
-  if (model !== 'nativeEventInstance' && model !== 'nativeReminderState') return;
+  if (model !== 'nativeEventInstance' && model !== 'nativeReminderState' && model !== 'nativeReminderPing') return;
   const seen = new Set<string>();
   for (const r of db[model]) {
-    const k = `${r.seriesEventId}|${ms(r.originalStartsAt)}`;
+    const k = model === 'nativeReminderPing' ? `${r.stateId}|${r.userId}` : `${r.seriesEventId}|${ms(r.originalStartsAt)}`;
     if (seen.has(k)) throw Object.assign(new Error(`stand-in ${model}: unique key violated`), { code: 'P2002' });
     seen.add(k);
   }
@@ -233,24 +240,30 @@ const fakePrisma: Row = {
   },
   // The claim: INSERT … ON CONFLICT DO UPDATE … WHERE not done and not yet pinged for this due … RETURNING.
   $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    assert(/INSERT INTO "NativeReminderState"[\s\S]*ON CONFLICT/.test(strings.join('$')), 'not the claim');
+    assert(/INSERT INTO "NativeReminderState"[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*ON CONFLICT/.test(strings.join('$')), 'not the claim');
     if (duringClaim) {
       const hook = duringClaim;
       duringClaim = null;
       await hook();
     }
-    const [id, seriesEventId, occurrence, at] = values as string[];
+    const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new Date(values[values.length - 1] as string).getTime();
     const originalStartsAt = new Date(occurrence);
     const lastPingedAt = new Date(at);
-    const row = db.nativeReminderState.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
-    if (!row) {
-      db.nativeReminderState.push({ ...DEFAULTS.nativeReminderState(), id, seriesEventId, originalStartsAt, lastPingedAt, pingAttempts: 1, createdAt: new Date(), updatedAt: new Date() });
-      return [{ id, lastPingedAt, pingAttempts: 1 }];
+    let state = db.nativeReminderState.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
+    if (!state) {
+      state = { ...DEFAULTS.nativeReminderState(), id: stateId, seriesEventId, originalStartsAt, createdAt: new Date(), updatedAt: new Date() };
+      db.nativeReminderState.push(state);
     }
-    if (row.doneAt || (row.lastPingedAt && ms(row.lastPingedAt) as number >= due)) return [];
-    Object.assign(row, { lastPingedAt, pingAttempts: row.pingAttempts + 1 });
-    return [{ id: row.id, lastPingedAt, pingAttempts: row.pingAttempts }];
+    if (state.doneAt) return [];
+    const ping = db.nativeReminderPing.find((p) => p.stateId === state!.id && p.userId === userId);
+    if (!ping) {
+      db.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: pingId, stateId: state.id, userId, lastPingedAt, pingAttempts: 1, createdAt: new Date(), updatedAt: new Date() });
+      return [{ id: pingId, stateId: state.id, lastPingedAt, pingAttempts: 1 }];
+    }
+    if (ping.lastPingedAt && ms(ping.lastPingedAt) as number >= due) return [];
+    Object.assign(ping, { lastPingedAt, pingAttempts: (ping.pingAttempts as number) + 1 });
+    return [{ id: ping.id, stateId: state.id, lastPingedAt, pingAttempts: ping.pingAttempts }];
   },
 };
 for (const name of MODELS) {
@@ -360,6 +373,7 @@ function seed() {
   db.nativeEvent = [];
   db.nativeEventInstance = [];
   db.nativeReminderState = [];
+  db.nativeReminderPing = [];
 }
 
 function series(id: string, o: Row): Row {
@@ -472,7 +486,7 @@ async function main() {
     };
     const first = await runNativeReminderPass(NOW);
     assertSame(sent.map((s) => s.chatId), [], 'nothing went to Tal');
-    assertSame(db.nativeReminderState.filter((s) => ms(s.originalStartsAt) === KEY.getTime()).length, 0, 'the claim was undone');
+    assertSame(db.nativeReminderPing.length, 0, 'the claim was undone');
     assert(first.skipped >= 1 && first.nextDue !== null && first.nextDue.getTime() <= NOW.getTime() + 60_000, `the pass looks again soon: ${show(first)}`);
     const next = await runNativeReminderPass(new Date(NOW.getTime() + 60_000));
     assertSame([sent.map((s) => s.chatId), next.sent], [['222'], 1], 'the next tick pings Noa');
@@ -482,12 +496,13 @@ async function main() {
     seed();
     series('daily', { kind: 'REMINDER', title: 'Pills', startsAt: at('2026-10-20 08:00'), rrule: 'FREQ=DAILY' });
     const pinged = at('2026-10-21 07:30');
-    db.nativeReminderState.push({ ...DEFAULTS.nativeReminderState(), id: 'state-1', seriesEventId: 'daily', originalStartsAt: KEY, lastPingedAt: pinged, snoozedUntil: at('2026-10-21 08:00'), pingAttempts: 1, createdAt: OLD, updatedAt: OLD });
+    db.nativeReminderState.push({ ...DEFAULTS.nativeReminderState(), id: 'state-1', seriesEventId: 'daily', originalStartsAt: KEY, createdAt: OLD, updatedAt: OLD });
+    db.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: 'ping-1', stateId: 'state-1', userId: TAL, lastPingedAt: pinged, snoozedUntil: at('2026-10-21 08:00'), pingAttempts: 1, createdAt: OLD, updatedAt: OLD });
     duringClaim = async () => {
       await store.updateNativeEvent({ seriesCuid: 'daily', instanceStartsAt: KEY, scope: 'all', actingUserId: TAL, title: 'Vitamins' });
     };
     await runNativeReminderPass(NOW);
-    const row = db.nativeReminderState.find((s) => s.id === 'state-1')!;
+    const row = db.nativeReminderPing.find((s) => s.id === 'ping-1')!;
     assertSame([sent.length, ms(row.lastPingedAt)], [0, pinged.getTime()], 'no send, the last ping put back');
     await runNativeReminderPass(new Date(NOW.getTime() + 60_000));
     assert(sent.length === 1 && sent[0].chatId === '111' && sent[0].text.includes('Vitamins'), `the next tick: ${show(sent)}`);

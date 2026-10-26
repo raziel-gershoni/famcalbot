@@ -326,7 +326,7 @@ function nativeEvent(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'ca
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
-    kind: 'EVENT', forUserId: null, armedAt: null,
+    kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null,
     ...fields,
   };
 }
@@ -334,11 +334,13 @@ function nativeEvent(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'ca
 /** A reminder has no length: it ends where it starts. */
 const reminderRow = (fields: Parameters<typeof nativeEvent>[0]) => nativeEvent({ kind: 'REMINDER', armedAt: CREATED, ...fields, endsAt: fields.startsAt });
 
-function reminderState(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'>): NativeReminderState {
+function reminderState(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'> & { snoozedUntil?: Date | null }) {
+  // A snooze is its recipient's own ping row now; the fixtures say it with snoozedUntil.
+  const { snoozedUntil = null, ...rest } = fields;
   return {
-    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null, snoozedUntil: null,
-    lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, createdAt: CREATED, updatedAt: CREATED,
-    ...fields,
+    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null,
+    pings: snoozedUntil ? [{ userId: 1, snoozedUntil }] : [], createdAt: CREATED, updatedAt: CREATED,
+    ...rest,
   };
 }
 

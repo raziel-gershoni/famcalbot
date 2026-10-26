@@ -251,7 +251,7 @@ function talCarryOvers(): Row[] {
         calendarName: PRIVATE_NAME, calendarId: PRIVATE_ID, eventType: 'reminder', eventId: 'ser-lib', provider: 'native', timeZone: IL,
         reminder: { ownerIsViewer: true, creatorIsViewer: false, creatorName: 'Noa', openSince: '2026-10-15' },
       },
-      series: { id: 'ser-lib', kind: 'REMINDER', rrule: null },
+      series: { id: 'ser-lib', kind: 'REMINDER', rrule: null, creatorUserId: 42, forUserId: 9, forBoth: false },
       calendar: { id: 'cal-noa-private', name: PRIVATE_NAME },
       instanceStartsAt: new RealDate('2026-10-15T06:00:00.000Z'),
     },
@@ -262,10 +262,10 @@ function talCarryOvers(): Row[] {
         recurringEventId: 'ser-water', instanceStartsAt: '2026-10-14T05:00:00.000Z', provider: 'native', timeZone: IL,
         reminder: { ownerIsViewer: true, creatorIsViewer: true, snoozed: true, openSince: '2026-10-14' },
       },
-      series: { id: 'ser-water', kind: 'REMINDER', rrule: 'FREQ=DAILY' },
+      series: { id: 'ser-water', kind: 'REMINDER', rrule: 'FREQ=DAILY', creatorUserId: 9, forUserId: null, forBoth: false },
       calendar: { id: 'cal-own', name: 'Tal' },
       instanceStartsAt: new RealDate('2026-10-14T05:00:00.000Z'),
-      state: { originalStartsAt: new RealDate('2026-10-14T05:00:00.000Z'), doneAt: null, snoozedUntil: new RealDate('2026-10-16T12:00:00.000Z') },
+      state: { originalStartsAt: new RealDate('2026-10-14T05:00:00.000Z'), doneAt: null, pings: [{ userId: 9, snoozedUntil: new RealDate('2026-10-16T12:00:00.000Z') }] },
     },
   ];
 }

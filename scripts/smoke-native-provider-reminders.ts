@@ -134,7 +134,7 @@ function event(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendar
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
-    kind: 'EVENT', forUserId: null, armedAt: null,
+    kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null,
     ...fields,
   };
 }
@@ -142,11 +142,13 @@ function event(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendar
 /** A reminder has no length: it ends where it starts. */
 const reminder = (fields: Parameters<typeof event>[0]) => event({ kind: 'REMINDER', armedAt: CREATED, ...fields, endsAt: fields.startsAt });
 
-function state(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'>): NativeReminderState {
+function state(fields: Partial<NativeReminderState> & Pick<NativeReminderState, 'seriesEventId' | 'originalStartsAt'> & { snoozedUntil?: Date | null }) {
+  // A snooze is its recipient's own ping row now; the fixtures say it with snoozedUntil.
+  const { snoozedUntil = null, ...rest } = fields;
   return {
-    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null, snoozedUntil: null,
-    lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, createdAt: CREATED, updatedAt: CREATED,
-    ...fields,
+    id: `state-${fields.seriesEventId}-${fields.originalStartsAt.getTime()}`, doneAt: null, doneByUserId: null,
+    pings: snoozedUntil ? [{ userId: DANA, snoozedUntil }] : [], createdAt: CREATED, updatedAt: CREATED,
+    ...rest,
   };
 }
 
@@ -283,11 +285,11 @@ async function main() {
     const ctx: ViewerContext = { viewerId: DANA, partner: null };
     const series = { creatorUserId: DANA, forUserId: null };
     const now = at('2026-10-13 12:00');
-    const done = reminderInfoFor(series, { doneAt: at('2026-10-13 09:00'), snoozedUntil: null }, ctx, now);
+    const done = reminderInfoFor(series, { doneAt: at('2026-10-13 09:00'), pings: [] }, ctx, now);
     assert(done.done === true && done.snoozed === false, `done ${JSON.stringify(done)}`);
-    const snoozed = reminderInfoFor(series, { doneAt: null, snoozedUntil: at('2026-10-13 12:15') }, ctx, now);
+    const snoozed = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:15') }] }, ctx, now);
     assert(snoozed.done === false && snoozed.snoozed === true, `snoozed ${JSON.stringify(snoozed)}`);
-    const ranOut = reminderInfoFor(series, { doneAt: null, snoozedUntil: at('2026-10-13 11:45') }, ctx, now);
+    const ranOut = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 11:45') }] }, ctx, now);
     assert(ranOut.snoozed === false, `ran out ${JSON.stringify(ranOut)}`);
     const pending = reminderInfoFor(series, undefined, ctx, now);
     assert(JSON.stringify(pending) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false }), `pending ${JSON.stringify(pending)}`);

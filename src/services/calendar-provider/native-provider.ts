@@ -41,10 +41,7 @@ import {
   type UpdateNativeEventInput,
   UpdateScope,
 } from '../native-calendar/event-store';
-import { loadViewerContext, pingUserFor, recipientIdsForViewer, ViewerContext } from '../native-reminders/ownership';
-
-/** The columns of a reminder series that say who it is for. */
-type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
+import { loadViewerContext, recipientIdsForViewer, viewerSnoozedUntil, ViewerContext, type ReminderSeriesColumns } from '../native-reminders/ownership';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
@@ -144,19 +141,6 @@ export function reminderInfoFor(
   if (ownerName) info.ownerName = ownerName;
   if (creatorName) info.creatorName = creatorName;
   return info;
-}
-
-/**
- * The snooze the viewer sees on an occurrence: their own (each partner snoozes for themselves),
- * or, for the creator of someone else's single reminder, its one recipient's. Null when none.
- */
-export function viewerSnoozedUntil(
-  series: ReminderSeriesColumns,
-  state: Pick<ReminderStateRow, 'pings'> | undefined,
-  ctx: ViewerContext
-): Date | null {
-  const pingUserId = pingUserFor(recipientIdsForViewer(series, ctx), ctx.viewerId);
-  return state?.pings.find((p) => p.userId === pingUserId)?.snoozedUntil ?? null;
 }
 
 /** The key a reminder occurrence's state is stored under: its series and original start. */

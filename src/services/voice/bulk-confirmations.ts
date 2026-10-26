@@ -249,7 +249,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
     if (result.success && result.eventId) {
       success++;
       if (ev.kind === 'reminder') {
-        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, for_both: ev.forBoth === true, all_day: ev.allDay });
+        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, ...(ev.forBoth ? { for_both: true } : {}), all_day: ev.allDay });
       }
       // "Cancel that" reaches the batch's last reminder, as after a card (spec §11.3)
       if (ev.kind === 'reminder' && pending.user.telegramId != null) {
