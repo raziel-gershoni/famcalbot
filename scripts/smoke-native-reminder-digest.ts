@@ -88,7 +88,7 @@ function series(title: string, startsAt: Date, over: Partial<NativeEvent> = {}):
     hebrewRule: null,
     hebrewAnchor: null,
     exdates: [],
-    reminderMinutes: null, ownAlerts: false, alertMinutes: [],
+    ownAlerts: false, alertMinutes: [],
     kind: 'REMINDER',
     forUserId: null,
     armedAt: startsAt,

@@ -223,7 +223,6 @@ model NativeEvent {
   hebrewRule      String? // 'anniversary', the one kind: the series follows its anchor's Hebrew date (rrule is then FREQ=YEARLY with at most INTERVAL, UNTIL or COUNT)
   hebrewAnchor    String? // 'yyyy-MM-dd': the anchor's civil date in timeZone; set exactly when hebrewRule is
   exdates         DateTime[]      @default([]) // Cancelled instance start times (UTC)
-  reminderMinutes Int? // UNUSED: replaced by ownAlerts/alertMinutes (migration 20261025000000_event_alerts); a later migration drops it (the old build still selects it by name during a deploy)
   ownAlerts       Boolean         @default(false) // false = the user's default lead; true = alertMinutes (empty = no alert)
   alertMinutes    Int[]           @default([]) // Lead times in minutes before the start (0 = at start); one per event in the editor
   kind            NativeEventKind @default(EVENT)

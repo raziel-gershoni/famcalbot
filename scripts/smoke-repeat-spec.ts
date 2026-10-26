@@ -64,7 +64,7 @@ async function main() {
     ({
       id: 's1', calendarId: 'c', creatorUserId: 1, title: 't', description: null, location: null, allDay: false, timeZone: IL,
       startsAt: start, endsAt: new Date(start.getTime() + 3_600_000), rrule, hebrewRule: null, hebrewAnchor: null, exdates: [],
-      ownAlerts: false, alertMinutes: [], reminderMinutes: null, kind: 'EVENT', forUserId: null, armedAt: null, isDeleted: false,
+      ownAlerts: false, alertMinutes: [], kind: 'EVENT', forUserId: null, armedAt: null, isDeleted: false,
       createdAt: new Date(0), updatedAt: new Date(0), ...extra,
     }) as unknown as import('@prisma/client').NativeEvent;
   /** The days (yyyy-MM-dd in Israel) a rule yields from its start, the first `n` up to `to`. */

@@ -396,7 +396,7 @@ function reminder(p: Row & { startsAt: Date }): Row {
   const row: Row = {
     id: `rem${++seq}`, calendarId: 'cal-1', creatorUserId: 1, forUserId: null, title: 'Call the plumber',
     description: null, location: null, endsAt: p.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
-    reminderMinutes: null, ownAlerts: false, alertMinutes: [], kind: 'REMINDER', armedAt: new RealDate(p.startsAt.getTime() - HOUR), isDeleted: false,
+    ownAlerts: false, alertMinutes: [], kind: 'REMINDER', armedAt: new RealDate(p.startsAt.getTime() - HOUR), isDeleted: false,
     createdAt: new RealDate(p.startsAt.getTime() - HOUR), updatedAt: new RealDate(p.startsAt.getTime() - HOUR),
     ...p,
   };

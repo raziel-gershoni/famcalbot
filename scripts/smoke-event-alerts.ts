@@ -226,7 +226,7 @@ check('migration event_alerts: adds both columns if missing, copies a non-null r
   assert(/NOT dropped|not dropped/i.test(sql), 'the header explains the deferred drop');
   const schema = read('prisma/schema.prisma');
   assert(/ownAlerts\s+Boolean\s+@default\(false\)/.test(schema) && /alertMinutes\s+Int\[\]\s+@default\(\[\]\)/.test(schema), 'the schema has them');
-  assert(/reminderMinutes Int\? \/\/ UNUSED/.test(schema), 'reminderMinutes stays, marked unused');
+  assert(!/reminderMinutes/.test(schema), 'the schema no longer has the old column (a later migration drops it from the database)');
   const walk = (d: string): string[] =>
     readdirSync(path.join(ROOT, d), { withFileTypes: true }).flatMap((e) => {
       const rel = `${d}/${e.name}`;
@@ -234,8 +234,7 @@ check('migration event_alerts: adds both columns if missing, copies a non-null r
       return /\.(ts|tsx)$/.test(e.name) && /\.reminderMinutes\b|\breminderMinutes\??:/.test(read(rel)) ? [rel] : [];
     });
   const readers = [...walk('src'), ...walk('app')];
-  // The only mention left is the mapper's default NativeEvent object, which fills the column's type.
-  same(readers, ['src/services/calendar-move/mapper.ts'], 'nothing reads or writes the old column');
+  same(readers, [], 'nothing reads or writes the old column');
 });
 
 let failed = 0;

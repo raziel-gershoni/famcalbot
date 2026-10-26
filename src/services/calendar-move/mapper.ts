@@ -52,7 +52,7 @@ function uniqueSorted(dates: readonly Date[]): Date[] {
 /** The fields the recurrence helpers read, as a NativeEvent (the rest are never looked at). */
 type SeriesShape = Pick<NativeEvent, 'startsAt' | 'endsAt' | 'allDay' | 'timeZone' | 'rrule' | 'exdates'> & Partial<NativeEvent>;
 function asSeries(s: SeriesShape): NativeEvent {
-  return { id: s.id ?? 'mapper', calendarId: '', creatorUserId: 0, title: '', description: null, location: null, hebrewRule: null, hebrewAnchor: null, ownAlerts: false, alertMinutes: [], reminderMinutes: null, kind: 'EVENT', forUserId: null, armedAt: null, isDeleted: false, createdAt: new Date(0), updatedAt: new Date(0), ...s } as NativeEvent;
+  return { id: s.id ?? 'mapper', calendarId: '', creatorUserId: 0, title: '', description: null, location: null, hebrewRule: null, hebrewAnchor: null, ownAlerts: false, alertMinutes: [], kind: 'EVENT', forUserId: null, armedAt: null, isDeleted: false, createdAt: new Date(0), updatedAt: new Date(0), ...s } as NativeEvent;
 }
 
 /** Whether the rule can be stored and its start is one of its own slots. */
