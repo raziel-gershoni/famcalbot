@@ -272,6 +272,10 @@ const fakePrisma = {
     );
     // The deploy-window fallback reads the state row's old lastPingedAt; the step-2 file removes it.
     assert(/oldLastPingedAt[\s\S]*drop-reminder-state-ping-columns\.sql/.test(sql), 'the fallback should name the step-2 file');
+    // The conditions the fake below stands in for, exactly: not done; the old build's ping before this due (this release only);
+    // and, per recipient, never pinged or pinged before this due.
+    assert(/WHERE state\."doneAt" IS NULL\s+(--[^\n]*\n\s*)*AND \(state\."oldLastPingedAt" IS NULL OR state\."oldLastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\)\s+ON CONFLICT/.test(sql), `the fallback condition: ${sql}`);
+    assert(/WHERE "NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
     assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 7, 'every timestamp should be read as UTC');
     const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new RealDate(values[values.length - 1] as string).getTime();
@@ -1059,16 +1063,19 @@ async function main() {
     assert(sent.length === 2, sentLines());
   });
 
-  await check('both: an edit landing between the read and the claim (it stops being for both) sends nothing to the stale recipients', async () => {
+  await check('both: an edit landing between the read and the claim (it stops being for both) undoes the stale second claim; the next tick pings her as the one it is for now', async () => {
     reset();
     const r = both({ startsAt: today('10:00') });
-    duringSend = () => { r.forBoth = false; r.forUserId = null; r.updatedAt = new RealDate(clock + 1); };
+    // Only forBoth changes under the pass: that alone is enough to stop the second claim.
+    duringSend = () => { r.forBoth = false; };
     const first = await pass(today('10:00'));
     assert(first.sent === 1 && sent.length === 1, `${show(first)} ${sentLines()}`);
-    // The first ping was already on its way when the edit landed; the second recipient's claim is undone.
+    // The first ping was already on its way when the edit landed; the second recipient's claim was undone.
+    assertSame(first.nextDue && first.nextDue.getTime() === today('10:01').getTime(), true);
+    // Now it is for Dana alone: the next tick pings her once, and him not again.
     const second = await pass(today('10:01'));
-    assertSame(sent.map((s) => s.chatId), ['1001']);
-    assert(second.sent === 0, show(second));
+    assertSame(sent.map((s) => s.chatId), ['1001', '1002']);
+    assert(second.sent === 1, show(second));
   });
 
   await check('both: the deploy-window fallback: a ping the previous build recorded on the state row itself is not sent again', async () => {

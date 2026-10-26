@@ -1934,6 +1934,23 @@ async function main() {
     assertSame([statesOf(id).map(msgOf), strips()], [[87], { moved: [], changed: [88], reassigned: [], names: [] }], 'the done first one stays; the Wednesday\'s ping reads "changed"');
   });
 
+  await check('both: stopping a repeat and handing it to both of us in the same save: the one-off is for both, the earlier ones are not', async () => {
+    seed();
+    const created = await post(reminderBody({ repeat: 'daily' }));
+    const rid = idOf(created.body.key);
+    seedState(rid, at('2026-10-22 17:30'), 95, { lastPingedAt: at('2026-10-22 17:30') });
+    stripped.length = 0;
+    const stop = await patch({ key: `famcal|${rid}#${iso(at('2026-10-22 17:30'))}`, scope: 'following', changes: { repeat: 'none', forWho: 'both' } });
+    const one = lastEvent();
+    assertSame([stop.status, one.rrule, one.forUserId, one.forBoth, eventRow(rid).forBoth], [200, null, NOA, true, false], 'a one-off for both of us; the earlier ones stay Tal\'s');
+    assertSame([strips().reassigned, stripped.map((s) => s.extra?.reassigned?.both)], [[95], [true]], 'its open ping says "now for both of you"');
+    // From the first occurrence the series itself becomes the one-off, in place.
+    const second = await post(reminderBody({ repeat: 'daily' }));
+    const sid = idOf(second.body.key);
+    const first = await patch({ key: `famcal|${sid}#${iso(at('2026-10-20 17:30'))}`, scope: 'following', changes: { repeat: 'none', forWho: 'both' } });
+    assertSame([first.status, eventRow(sid).rrule, eventRow(sid).forUserId, eventRow(sid).forBoth], [200, null, NOA, true], 'in place');
+  });
+
   await check('3b stop repeating with a calendar or recipient change in the same save: the one-off takes them', async () => {
     seed();
     const { occ } = await weeklySeries();

@@ -533,6 +533,21 @@ async function main() {
     assert(/^⏰ Pills &lt;b&gt; · moved to /.test(byId[1] ?? ''), `moved: ${byId[1]}`);
   });
 
+  await check('stale pings for a reminder now for both partners read "now for both of you" in the reader\'s language, without a name', async () => {
+    seed();
+    edits.length = 0;
+    await stripMovedPings(
+      [],
+      { summary: SECRET, start: at('2026-10-21 08:00').toISOString(), end: at('2026-10-21 08:00').toISOString() },
+      { title: 'Pills <b>' },
+      tal(),
+      { reassigned: { pings: [{ chatId: BigInt(111), messageId: 3 }, { chatId: BigInt(222), messageId: 4 }], name: 'Noa', both: true } }
+    );
+    const byId = Object.fromEntries(edits.map((e) => [e.messageId, e.text]));
+    assertSame(byId[3], '⏰ Pills &lt;b&gt; · now for both of you', 'Tal, in English');
+    assert(/Pills &lt;b&gt;/.test(byId[4] ?? '') && !(byId[4] ?? '').includes('Noa') && byId[4] !== byId[3], `Noa, in Hebrew: ${byId[4]}`);
+  });
+
   Object.assign(console, quiet);
   let failed = 0;
   for (const r of results) {

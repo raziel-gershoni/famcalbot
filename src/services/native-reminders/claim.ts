@@ -54,7 +54,7 @@ export async function claimOccurrence(
       RETURNING "id", "doneAt", "lastPingedAt" AS "oldLastPingedAt"
     )
     INSERT INTO "NativeReminderPing" ("id", "stateId", "userId", "lastPingedAt", "pingAttempts", "updatedAt")
-    SELECT ${randomUUID()}, state."id", ${userId}, (${at}::timestamptz AT TIME ZONE 'UTC'), 1, (${at}::timestamptz AT TIME ZONE 'UTC')
+    SELECT ${randomUUID()}::text, state."id", ${userId}::integer, (${at}::timestamptz AT TIME ZONE 'UTC'), 1, (${at}::timestamptz AT TIME ZONE 'UTC')
     FROM state
     WHERE state."doneAt" IS NULL
       -- Deploy-window fallback, this release only: the previous build kept its last ping on the
