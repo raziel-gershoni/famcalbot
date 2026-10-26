@@ -878,7 +878,7 @@ async function main() {
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
       forName: null, alert: 'default', scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
-      canChangeRecipient: false, forWho: 'me', source: 'famcal',
+      canChangeRecipient: false, forWho: 'me', forPartner: false, source: 'famcal',
     }, 'a one-off');
     const weekly = await post(eventBody({ repeat: 'weekly' }));
     const occurrence = `famcal|${idOf(weekly.body.key)}#${iso(at('2026-11-03 10:00'))}`;
@@ -2276,6 +2276,7 @@ async function main() {
     assertSame([toBoth.body, eventRow(id).forUserId, eventRow(id).forBoth, iso(eventRow(id).armedAt)], [{ status: 'ok', key: day('2026-10-22') }, NOA, true, iso(OLD)], 'for both, armedAt kept');
     assertSame(statesOf(id).map(msgOf), [51], 'the done one stays, the open one starts afresh');
     assertSame([strips().reassigned, stripped.map((s) => s.extra?.reassigned?.both)], [[52], [true]], 'its ping says "now for both of you"');
+    assertSame(stripped.map((s) => s.extra?.reassigned?.staying), [[TAL, NOA]], 'and both of them keep it');
     assertSame(cacheUsers(), [11], 'Noa\'s cache goes too');
     stripped.length = 0;
     seedState(id, at('2026-10-23 17:30'), 53, { lastPingedAt: at('2026-10-23 17:30') });
@@ -2283,6 +2284,7 @@ async function main() {
     assertSame([toPartner.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, NOA, false], 'for Noa alone');
     assertSame([strips().reassigned, strips().names, stripped.map((s) => s.extra?.reassigned?.both)], [[53], ['Noa'], [false]], '"now for Noa"');
     const toMe = await patch({ key: day('2026-10-23'), scope: 'all', changes: { forWho: 'me' } });
+    assertSame(stripped.map((s) => s.extra?.reassigned?.staying), [[NOA]], 'only Noa keeps it');
     assertSame([toMe.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, null, false], 'back to Tal');
     const same = await patch({ key: day('2026-10-23'), scope: 'all', changes: { forWho: 'me', title: 'Plumber' } });
     assertSame([same.status, tracked[tracked.length - 1].meta.changed_fields], [200, ['title']], 'me again is no recipient change');
@@ -2291,6 +2293,30 @@ async function main() {
     assertSame([following.status, tail.forUserId, tail.forBoth, eventRow(id).forBoth], [200, NOA, true, false], 'this and after: the new series is for both, the earlier ones are not');
     const single = await patch({ key: day('2026-10-24'), scope: 'single', changes: { forWho: 'both' } });
     assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one is refused');
+  });
+
+  await check('legacy: the previous Mini App bundle\'s forPartner still works for one release: create, edit, the info beside forWho; it cannot be mixed with forWho', async () => {
+    seed();
+    const partner = await post(reminderBody({ forPartner: true, title: 'Old bundle cake' }));
+    assert(partner.status === 200, `create ${partner.status} ${partner.text}`);
+    assertSame([lastEvent().forUserId, lastEvent().forBoth], [NOA, false], 'forPartner: true is for the partner alone');
+    const me = await post(reminderBody({ forPartner: false }));
+    assertSame([me.status, lastEvent().forUserId], [200, null], 'forPartner: false is for the creator');
+    const info = (await itemOf(partner.body.key)).body;
+    assertSame([info.forWho, info.forPartner], ['partner', true], 'the info says both');
+    const both = await post(reminderBody({ forWho: 'both' }));
+    const bothInfo = (await itemOf(both.body.key)).body;
+    assertSame([bothInfo.forWho, bothInfo.forPartner], ['both', true], 'a reminder for both reads as for the partner to the old bundle');
+    const edited = await patch({ key: me.body.key, scope: 'all', changes: { forPartner: true } });
+    assertSame([edited.status, eventRow(idOf(me.body.key)).forUserId], [200, NOA], 'edit to the partner');
+    const back = await patch({ key: me.body.key, scope: 'all', changes: { forPartner: false } });
+    assertSame([back.status, eventRow(idOf(me.body.key)).forUserId], [200, null], 'and back');
+    const mixed = await post(reminderBody({ forPartner: true, forWho: 'both' }));
+    assertSame([mixed.status, mixed.body], [400, { error: 'invalid', field: 'forPartner' }], 'both fields');
+    const notBool = await post(reminderBody({ forPartner: 'yes' }));
+    assertSame([notBool.status, notBool.body], [400, { error: 'invalid', field: 'forPartner' }], 'not a boolean');
+    const onEvent = await post(eventBody({ forPartner: true }));
+    assertSame(onEvent.status, 400, 'an event has no For row');
   });
 
   await check('both: "Keep as mine" on a reminder for both (me) leaves the creator alone; both is refused for a partner who cannot be pinged now, the take-back works', async () => {

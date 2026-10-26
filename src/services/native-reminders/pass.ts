@@ -16,7 +16,7 @@ import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
-import { getActivePartnerSummary, recipientIds } from './ownership';
+import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
@@ -394,7 +394,14 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
       if (!creator) continue;
       // Everyone it is for: one person, or both partners (ownership.ts, the one rule).
       const ids = recipientIds(s, await partnerOf(creator.id));
-      const forBoth = ids.length > 1;
+      // Pings follow the recipients who can be reached: with one of two out of reach it is, for the
+      // ping text, the other's alone (no "for both of you"), as a reminder of the creator's.
+      let reachableCount = 0;
+      for (const id of ids) {
+        const u = await users(id);
+        if (u && isPingable(u) && !(await isBlocked(u.telegramId!))) reachableCount++;
+      }
+      const forBoth = isForBothReachable(reachableCount);
       const overrideAt = new Map(overrides.map((o) => [o.originalStartsAt.getTime(), o]));
       for (const recipientId of ids) {
         try {

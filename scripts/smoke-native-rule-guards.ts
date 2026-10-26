@@ -238,6 +238,7 @@ const fakePrisma: Row = {
       throw err;
     }
   },
+  $executeRaw: async () => 0, // the release-only write of the old lastPingedAt (deploy-compat.ts)
   // The claim: INSERT … ON CONFLICT DO UPDATE … WHERE not done and not yet pinged for this due … RETURNING.
   $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     assert(/INSERT INTO "NativeReminderState"[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*ON CONFLICT/.test(strings.join('$')), 'not the claim');
@@ -531,6 +532,22 @@ async function main() {
     assertSame(byId[2], 'התזכורת הזו השתנתה או שכבר לא קיימת.', 'changed, in Noa\'s Hebrew');
     assertSame(byId[3], '⏰ Pills &lt;b&gt; · now for Noa', 'now for, in Tal\'s English, escaped');
     assert(/^⏰ Pills &lt;b&gt; · moved to /.test(byId[1] ?? ''), `moved: ${byId[1]}`);
+  });
+
+  await check('a ping read by someone the reminder is still for says only that it changed, never "now for" themselves', async () => {
+    seed();
+    edits.length = 0;
+    await stripMovedPings(
+      [],
+      { summary: SECRET, start: at('2026-10-21 08:00').toISOString(), end: at('2026-10-21 08:00').toISOString() },
+      { title: 'Pills' },
+      tal(),
+      // Both → Noa alone: Noa's ping stays hers, Tal's ping is the one that moves away from him.
+      { reassigned: { pings: [{ chatId: BigInt(111), messageId: 5 }, { chatId: BigInt(222), messageId: 6 }], name: 'Noa', both: false, staying: [NOA] } }
+    );
+    const byId = Object.fromEntries(edits.map((e) => [e.messageId, e.text]));
+    assertSame(byId[5], '⏰ Pills · now for Noa', 'Tal, who is out of it now');
+    assertSame(byId[6], 'התזכורת הזו השתנתה או שכבר לא קיימת.', 'Noa, who keeps it: changed');
   });
 
   await check('stale pings for a reminder now for both partners read "now for both of you" in the reader\'s language, without a name', async () => {

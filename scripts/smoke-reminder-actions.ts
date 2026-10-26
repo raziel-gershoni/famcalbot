@@ -115,6 +115,9 @@ const sortKey = (row: Row, key: string) => {
   return v instanceof Date ? v.getTime() : Number(v);
 };
 
+/** Runs as the next snooze reaches the state row: another request's Done landing in between. */
+let duringSnoozeLock: (() => void) | null = null;
+
 /** A query that throws, as "<model>.<method>". */
 let failOn: string | null = null;
 
@@ -169,6 +172,12 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
     },
     updateMany: async ({ where, data }: { where: Where; data: Row }) => {
       run('updateMany');
+      // A Done landing as a snooze takes its lock on the state row (the snooze touches updatedAt).
+      if (name === 'nativeReminderState' && 'updatedAt' in data && duringSnoozeLock) {
+        const hook = duringSnoozeLock;
+        duringSnoozeLock = null;
+        hook();
+      }
       const found = rows().filter((r) => matches(r, where, relations));
       for (const r of found) Object.assign(r, data, { updatedAt: new RealDate(clock) });
       return { count: found.length };
@@ -206,6 +215,7 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
 const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[], pings: [] as Row[] };
 
 const fakePrisma = {
+  $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(fakePrisma),
   user: table('user', () => db.users),
   pairing: table('pairing', () => db.pairings),
   nativeCalendar: table('nativeCalendar', () => db.calendars),
@@ -644,6 +654,23 @@ async function main() {
     assertJson(r6.status === 'ok' ? r6.until : null, at('2026-10-20 09:00', NY), 'New York');
   });
 
+  // ---- Snooze against Done ----
+
+  await check('snooze: a Done that lands as the snooze is written wins: already_done, no snooze left on the done occurrence, no analytics, gate untouched', async () => {
+    reset();
+    closeGate();
+    duringSnoozeLock = () => {
+      const row = stateFor(MILK, MILK_KEY.originalStartsAt)!;
+      row.doneAt = NOW;
+      row.doneByUserId = RAZIEL;
+    };
+    const r = await act(DANA, MILK_KEY, 'snooze15');
+    duringSnoozeLock = null;
+    assertJson(r, { status: 'already_done', title: 'Buy milk' }, 'result');
+    assert(db.pings.every((p) => p.stateId !== stateFor(MILK, MILK_KEY.originalStartsAt)!.id), 'a ping row was written for the done occurrence');
+    assert(activity.length === 0 && !gateOpen() && edits().length === 0, 'nothing else happened');
+  });
+
   // ---- Remind us both ----
 
   const BOTH = sid('both');
@@ -761,6 +788,21 @@ async function main() {
     assert(sends().length === 0, `unpaired, the creator alone: no note, got ${json(sends())}`);
     // The reminder is done, so her live ping closes too, as the owner's does when the creator marks a single one done.
     assertJson(edits().map((e) => e.messageId).sort(), [61, 62], 'both live pings close');
+  });
+
+  await check('both: with one partner out of reach it is, for the Done, the creator\'s alone: no note for the actor, a note to the creator when the partner did it', async () => {
+    reset();
+    addBoth();
+    db.users.find((u) => u.id === DANA)!.unreachableSince = NOW;
+    await act(RAZIEL, BOTH_KEY, 'done');
+    assert(sends().length === 0, `the creator did it, nobody to tell: ${json(sends())}`);
+    reset();
+    addBoth();
+    db.users.find((u) => u.id === DANA)!.suspendedAt = NOW;
+    await act(DANA, BOTH_KEY, 'done');
+    const note = await getBotMessage('he', 'nativeReminders.doneBy', { name: 'Dana', title: 'Book the flights' });
+    assertJson(sends().map((s) => [s.chatId, s.text]), [[tg(RAZIEL), note]], 'as for any single reminder, the creator is told');
+    assert(edits().every((e) => e.text === note || e.text === '✅ Book the flights'), 'no "Done by" for a single');
   });
 
   await check('both: a failed note or edit for one partner is logged by ids and never undoes the Done', async () => {

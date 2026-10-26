@@ -155,6 +155,7 @@ let dbDown = false;
 type FindUnique = { where: { id: unknown }; select?: Record<string, boolean> };
 type SeriesInclude = { calendar: { select: Record<string, boolean> }; creator: { select: Record<string, boolean> }; instances: boolean };
 const fakePrisma = {
+  $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(fakePrisma),
   nativeReminderState: {
     findUnique: async ({ where, select }: { where: { id?: string; seriesEventId_originalStartsAt?: Row }; select: Record<string, unknown> }) => {
       if (dbDown) throw new Error('Can\'t reach database server');
@@ -212,6 +213,8 @@ const fakePrisma = {
   },
   user: {
     findUnique: async ({ where, select }: FindUnique) => pick(world.users.find(u => u.id === where.id), select),
+    findMany: async ({ where, select }: { where: { id: { in: number[] } }; select?: Record<string, boolean> }) =>
+      world.users.filter(u => where.id.in.includes(u.id as number)).map(u => pick(u, select)),
     updateMany: async ({ where, data }: { where: Row; data: Row }) => {
       const rows = world.users.filter(u => matches(u, where));
       for (const row of rows) Object.assign(row, data);

@@ -36,7 +36,8 @@ export function movedWhen(startsAt: Date, allDay: boolean, language: string, rea
  */
 export interface OtherStalePings {
   changed?: ClearedPing[];
-  reassigned?: { pings: ClearedPing[]; name: string; both?: boolean };
+  /** `staying`: who it is still for after the change; a ping read by one of them only says it changed. */
+  reassigned?: { pings: ClearedPing[]; name: string; both?: boolean; staying?: number[] };
 }
 
 /**
@@ -69,9 +70,12 @@ export async function stripMovedPings(
   }
   const reassigned = others?.reassigned;
   for (const ping of reassigned?.pings ?? []) {
-    await strip(ping, (_reader, language) => reassigned!.both
-      ? getBotMessage(language, 'nativeReminders.reassignedBoth', { title })
-      : getBotMessage(language, 'nativeReminders.reassigned', { title, name: escapeHtml(reassigned!.name) }));
+    await strip(ping, (reader, language) => reassigned!.staying?.includes(reader.id)
+      // Still theirs (both → the partner alone, or → me, for the one it stays with): "now for <themselves>" would be wrong.
+      ? getBotMessage(language, 'nativeReminders.changed')
+      : reassigned!.both
+        ? getBotMessage(language, 'nativeReminders.reassignedBoth', { title })
+        : getBotMessage(language, 'nativeReminders.reassigned', { title, name: escapeHtml(reassigned!.name) }));
   }
   if (pings.length === 0) return;
 

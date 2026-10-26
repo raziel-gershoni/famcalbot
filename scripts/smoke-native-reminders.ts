@@ -254,6 +254,17 @@ const fakePrisma = {
       return pick(db.pings.find((p) => p.stateId === key.stateId && p.userId === key.userId), select);
     },
   },
+  // Release only: a sent single reminder's ping is also written to the state row's old lastPingedAt.
+  $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    queries.push('$executeRaw');
+    const sql = strings.join('$');
+    assert(/UPDATE "NativeReminderState"\s+SET "lastPingedAt" = /.test(sql), `unexpected statement: ${sql}`);
+    const [claimedAt, stateId] = values as [string, string];
+    const row = db.states.find((s) => s.id === stateId);
+    if (!row || (row.oldLastPingedAt && (ms(row.oldLastPingedAt) as number) >= new RealDate(claimedAt).getTime())) return 0;
+    row.oldLastPingedAt = new RealDate(claimedAt);
+    return 1;
+  },
   // The claim: one INSERT … ON CONFLICT statement per (occurrence, recipient): ensure the state
   // row, then insert or update the recipient's ping row while the occurrence is not done and the
   // recipient has not been pinged for this due … RETURNING. One call is atomic here, as one
@@ -993,7 +1004,35 @@ async function main() {
       both({ startsAt: today('10:00') });
       const result = await pass(today('10:00'));
       assert(result.sent === 1 && sent.length === 1 && sent[0].chatId === '1001', `${show(result)} ${sentLines()}`);
+      // As a reminder of the creator's alone: no "for both of you" line.
+      assert(sent[0].text === '⏰ <b>Call the plumber</b>', `text ${sent[0].text}`);
     }
+    // The other way round: the creator can't be reached, so Dana gets it as hers alone, from him.
+    reset();
+    db.users[0].unreachableSince = new RealDate(0);
+    both({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 1 && sent[0].chatId === '1002' && sent[0].text === `⏰ <b>Call the plumber</b>\n${fromLine('en', 'רזיאל')}`, sentLines());
+  });
+
+  await check('release only: a sent single reminder\'s ping is also on the state row\'s old lastPingedAt; a reminder for both leaves it alone', async () => {
+    reset();
+    const single = reminder({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    const row = db.states.find((s) => s.seriesEventId === single.id)!;
+    assertTime(row.oldLastPingedAt as Date, today('10:00'), 'the previous build would find it pinged');
+    reset();
+    const twin = both({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 2 && db.states.find((s) => s.seriesEventId === twin.id)!.oldLastPingedAt === undefined, 'a reminder for both is not written to the old column');
+    // A failed send leaves it unwritten, so a retry is not blocked.
+    reset();
+    const failing = reminder({ startsAt: today('10:00') });
+    sendFailures = [telegramError(502, 'Bad Gateway')];
+    await pass(today('10:00'));
+    assert(db.states.find((s) => s.seriesEventId === failing.id)!.oldLastPingedAt === undefined, 'written for a send that failed');
+    await pass(today('10:01'));
+    assert(sent.length === 1, `the retry: ${sentLines()}`);
   });
 
   await check('both: after unlinking it is the creator\'s alone: one ping, no "for both of you" line, nothing for the ex-partner', async () => {

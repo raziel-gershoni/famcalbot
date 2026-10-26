@@ -22,7 +22,7 @@ import { escapeHtml } from '../../utils/html';
 import { expandSeries } from '../native-calendar/recurrence';
 import { invalidateDueGate } from './due-gate';
 import { tomorrowMorning } from './due';
-import { getActivePartnerSummary, pingUserFor, recipientIds } from './ownership';
+import { getActivePartnerSummary, isForBothReachable, isPingable, pingUserFor, recipientIds } from './ownership';
 import { buildDoneText, stripPingButtons } from './ping';
 import type { UserConfig } from '../../types';
 
@@ -116,7 +116,12 @@ export async function applyReminderAction(
   if (!recipients.includes(actor.id) && actor.id !== series.creatorUserId) {
     return { status: 'not_yours', wasTarget: actor.id === series.forUserId };
   }
-  const forBoth = recipients.length > 1;
+  // Pings and notes follow the recipients who can be reached (ownership.ts).
+  const reachable = await prisma.user.findMany({
+    where: { id: { in: recipients } },
+    select: { id: true, telegramId: true, suspendedAt: true, unreachableSince: true },
+  });
+  const forBoth = isForBothReachable(reachable.filter(isPingable).length);
   const pingUserId = pingUserFor(recipients, actor.id);
 
   if (action === 'undo') {
@@ -143,23 +148,31 @@ export async function applyReminderAction(
     });
     if (count === 0) return { status: 'already_done', title };
     trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}) });
-    await afterDone(series, key, recipients, actor, title, source);
+    await afterDone(series, key, recipients, forBoth, actor, title, source);
     return { status: 'ok', title };
   }
 
-  const state = await prisma.nativeReminderState.findUnique({ where: { seriesEventId_originalStartsAt: key }, select: { id: true, doneAt: true } });
-  if (!state || state.doneAt) return { status: 'already_done', title };
+  const state = await prisma.nativeReminderState.findUnique({ where: { seriesEventId_originalStartsAt: key }, select: { id: true } });
+  if (!state) return { status: 'already_done', title };
   const timeZone = await resolveUserTimezone(actor);
   const until = action === 'snoozeTomorrow' ? tomorrowMorning(now, timeZone, actor.reminderTime) : new Date(now.getTime() + SNOOZE_MS[action]);
   // The snooze is the person's own: their ping row (made here when they were never pinged).
   // lastPingedAt stays as it is (null for a never-pinged occurrence): either way it is before
   // snoozedUntil, so the pass pings at that time. pingAttempts restarts, so the re-ping the
-  // user asked for gets its full retry budget.
-  await prisma.nativeReminderPing.upsert({
-    where: { stateId_userId: { stateId: state.id, userId: pingUserId } },
-    create: { stateId: state.id, userId: pingUserId, snoozedUntil: until, pingAttempts: 0 },
-    update: { snoozedUntil: until, pingAttempts: 0 },
+  // user asked for gets its full retry budget. The write is conditional on the occurrence still
+  // being open, as a Done is: the state row is touched (and so locked) first with that condition,
+  // so a Done landing at the same moment either finishes before it (already_done) or waits for it.
+  const snoozed = await prisma.$transaction(async tx => {
+    const { count } = await tx.nativeReminderState.updateMany({ where: { ...key, doneAt: null }, data: { updatedAt: now } });
+    if (count === 0) return false;
+    await tx.nativeReminderPing.upsert({
+      where: { stateId_userId: { stateId: state.id, userId: pingUserId } },
+      create: { stateId: state.id, userId: pingUserId, snoozedUntil: until, pingAttempts: 0 },
+      update: { snoozedUntil: until, pingAttempts: 0 },
+    });
+    return true;
   });
+  if (!snoozed) return { status: 'already_done', title };
   invalidateDueGate();
   trackActivityAsync(actor.id, 'native_reminder_snoozed', { series_event_id: key.seriesEventId, snooze: SNOOZE_OP[action], source });
   if (source === 'app') await editSnoozedPing(state.id, pingUserId, actor.id, title, until, action);
@@ -186,11 +199,11 @@ async function afterDone(
   series: Series,
   key: OccurrenceKey,
   recipients: number[],
+  forBoth: boolean,
   actor: UserConfig,
   title: string,
   source: ReminderActionSource
 ): Promise<void> {
-  const forBoth = recipients.length > 1;
   const noteTo = forBoth ? recipients.filter(id => id !== actor.id) : actor.id !== series.creatorUserId ? [series.creatorUserId] : [];
   for (const userId of noteTo) await notifyDone(series.id, userId, actor, title);
   try {

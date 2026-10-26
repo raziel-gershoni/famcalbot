@@ -82,6 +82,24 @@ export function recipientIds(series: RecipientColumns, creatorPartner: { id: num
   return owner === series.creatorUserId ? [series.creatorUserId] : [series.creatorUserId, owner];
 }
 
+/** The columns that decide whether Telegram can reach a user (the pass also asks the block list). */
+export interface Pingable {
+  telegramId?: bigint | number | string | null;
+  suspendedAt?: Date | null;
+  unreachableSince?: Date | null;
+}
+
+/** Whether a user can be pinged and told things on Telegram now: on Telegram, not suspended, not unreachable. */
+export const isPingable = (user: Pingable): boolean => user.telegramId != null && !user.suspendedAt && !user.unreachableSince;
+
+/**
+ * Whether a reminder is, for pings and notes, for both partners: it has two recipients and both can
+ * be reached. A partner who can't be pinged makes it the one person's alone ("for both of you"
+ * is not said, the Done note goes as for a single reminder). Visibility (the app, the digests)
+ * keeps following the pairing, via recipientIds.
+ */
+export const isForBothReachable = (reachableCount: number): boolean => reachableCount > 1;
+
 /**
  * Whose ping a snooze or an undo by `actorId` is about: their own when they are a
  * recipient; else (the creator of someone else's single reminder) its one recipient.

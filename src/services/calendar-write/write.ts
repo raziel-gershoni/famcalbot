@@ -416,12 +416,14 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       const original = toUnifiedEvent(item.calendar, occ, series);
       const name = forUserId ? (item.ctx.partner?.name ?? '') : user.name;
       const both = forWho === 'both';
+      // Who it is for now, so a ping read by one of them who keeps it says only that it changed.
+      const staying = forWho === 'both' ? [user.id, item.ctx.partner!.id] : forUserId ? [item.ctx.partner!.id] : [user.id];
       await stripMovedPings(
         clearedPings,
         original,
         { title: text.title, startTime: startsAt, endTime: endsAt, allDay },
         user,
-        changedPings.length + reassignedPings.length > 0 ? { changed: changedPings, reassigned: { pings: reassignedPings, name, both } } : undefined
+        changedPings.length + reassignedPings.length > 0 ? { changed: changedPings, reassigned: { pings: reassignedPings, name, both, staying } } : undefined
       );
     }
     const destination = moveTo !== undefined ? await prisma.nativeCalendar.findUnique({ where: { id: moveTo } }) : null;
