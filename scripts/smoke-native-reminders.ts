@@ -906,7 +906,6 @@ async function main() {
 
   /** A reminder Raziel (1) set for both of them: forUserId is Dana (2), forBoth marks it. */
   const both = (p: Row & { startsAt: Date }) => reminder({ forUserId: 2, forBoth: true, ...p });
-  const pingsOf = (seriesEventId: unknown) => db.pings.filter((p) => db.states.some((s) => s.id === p.stateId && s.seriesEventId === seriesEventId));
 
   await check('both: a timed reminder pings each partner once, in their language, with "for both of you" and the same occurrence on the buttons', async () => {
     reset();

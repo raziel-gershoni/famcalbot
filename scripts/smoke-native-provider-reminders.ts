@@ -353,6 +353,41 @@ async function main() {
     assertList(queries, ['nativeCalendar.findMany', 'nativeEvent.findMany', 'nativeEventInstance.findMany']);
   });
 
+  // ---- Remind us both ----
+
+  await check('both: a reminder for both partners is on each one\'s day, as theirs, from either calendar; the creator\'s private calendar still hides the rest', async () => {
+    household();
+    db.events.push(
+      // Raziel's, on his PRIVATE calendar, for both of them; Dana's, on hers, for both.
+      reminder({ id: 'rem-both-raz', calendarId: 'cal-raz', creatorUserId: RAZIEL, forUserId: DANA, forBoth: true, title: 'Book the flights', startsAt: at('2026-10-13 18:00') }),
+      reminder({ id: 'rem-both-dana', calendarId: 'cal-dana', creatorUserId: DANA, forUserId: RAZIEL, forBoth: true, title: 'Pay the nursery', startsAt: at('2026-10-13 19:00') }),
+    );
+    const danas = (await fetchDay(DANA, ['native:cal-dana'])).filter((e) => e.summary === 'Book the flights' || e.summary === 'Pay the nursery');
+    assert(danas.length === 2, `Dana sees ${danas.map((e) => e.summary)}`);
+    for (const e of danas) assert(e.reminder?.ownerIsViewer === true && e.reminder?.forBoth === true && !e.reminder?.ownerName, `${e.summary}: ${JSON.stringify(e.reminder)}`);
+    assert(danas.find((e) => e.summary === 'Book the flights')?.reminder?.creatorName === 'Raziel', 'who set it');
+    const razielsEvents = (await fetchDay(RAZIEL, ['native:cal-raz'])).filter((e) => e.summary === 'Book the flights' || e.summary === 'Pay the nursery');
+    assert(razielsEvents.length === 2 && razielsEvents.every((e) => e.reminder?.ownerIsViewer === true && e.reminder?.forBoth === true), JSON.stringify(razielsEvents.map((e) => e.reminder)));
+    assert(!(await fetchDay(NOAM, ['native:cal-noam'])).some((e) => e.summary === 'Book the flights' || e.summary === 'Pay the nursery'), 'a stranger sees neither');
+  });
+
+  await check('both: reminderInfoFor: the viewer is a recipient on both sides, the snooze is the viewer\'s own, and once unpaired it is the creator\'s alone', () => {
+    const series = { creatorUserId: RAZIEL, forUserId: DANA, forBoth: true };
+    const now = at('2026-10-13 12:00');
+    const hers: ViewerContext = { viewerId: DANA, partner: { id: RAZIEL, name: 'Raziel' } as ViewerContext['partner'] };
+    const his: ViewerContext = { viewerId: RAZIEL, partner: { id: DANA, name: 'Dana' } as ViewerContext['partner'] };
+    const state = { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:30') }] };
+    const forHer = reminderInfoFor(series, state, hers, now);
+    const forHim = reminderInfoFor(series, state, his, now);
+    assert(JSON.stringify(forHer) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: false, done: false, snoozed: true, forBoth: true, creatorName: 'Raziel' }), `hers ${JSON.stringify(forHer)}`);
+    assert(JSON.stringify(forHim) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false, forBoth: true }), `his ${JSON.stringify(forHim)}`);
+    const done = reminderInfoFor(series, { doneAt: at('2026-10-13 11:00'), pings: [] }, his, now);
+    assert(done.done === true, 'a Done is shared');
+    const unpaired = reminderInfoFor(series, state, { viewerId: RAZIEL, partner: null }, now);
+    assert(unpaired.forBoth === undefined && unpaired.ownerIsViewer === true, `unpaired ${JSON.stringify(unpaired)}`);
+    assert(reminderInfoFor(series, state, { viewerId: DANA, partner: null }, now).ownerIsViewer === false, 'the ex-partner is nobody\'s now');
+  });
+
   await check('createEvent: a reminder reaches the store as a REMINDER for the partner, an event as before', async () => {
     household();
     const dana = viewer(DANA);

@@ -104,7 +104,7 @@ async function main() {
   };
   stub('utils/prisma.ts', { prisma: fakePrisma });
 
-  const { effectiveOwnerForViewer, effectiveOwnerId, getActivePartnerSummary, loadViewerContext } =
+  const { effectiveOwnerForViewer, effectiveOwnerId, getActivePartnerSummary, loadViewerContext, pingUserFor, recipientIds, recipientIdsForViewer, viewerSnoozedUntil } =
     await import('../src/services/native-reminders/ownership');
 
   // ---- getActivePartnerSummary / loadViewerContext ----
@@ -193,6 +193,50 @@ async function main() {
 
   await check('viewer whose partner has Google connected: still the partner\'s', () => {
     assert(effectiveOwnerForViewer(reminder(1, 2), viewer(1, { ...partnerSummary(2), calendarSource: 'GOOGLE' } as PartnerSummary)) === 2, 'the creator owns it');
+  });
+
+  // ---- recipientIds: remind us both ----
+
+  const both = (creator: number, partner: number | null) => ({ creatorUserId: creator, forUserId: partner, forBoth: true });
+
+  await check('recipients: a single reminder is its effective owner alone, as before', () => {
+    assertSame(recipientIds(reminder(1, null), partnerSummary(2)), [1]);
+    assertSame(recipientIds(reminder(1, 2), partnerSummary(2)), [2]);
+    assertSame(recipientIds(reminder(1, 9), partnerSummary(2)), [1]);
+    assertSame(recipientIdsForViewer(reminder(1, 2), raziel), [2]);
+    assertSame(recipientIdsForViewer(reminder(1, 2), dana), [2]);
+  });
+
+  await check('recipients: a reminder for both is the creator and the ACTIVE partner it names, from either side', () => {
+    assertSame(recipientIds(both(1, 2), partnerSummary(2)), [1, 2]);
+    assertSame(recipientIdsForViewer(both(1, 2), raziel), [1, 2]);
+    assertSame(recipientIdsForViewer(both(1, 2), dana), [1, 2]);
+    assertSame(recipientIdsForViewer(both(2, 1), raziel), [2, 1]);
+    assertSame(recipientIdsForViewer(both(2, 1), dana), [2, 1]);
+  });
+
+  await check('recipients: unpaired, or a new partner, is the creator alone: nothing is written and a later partner never inherits it', () => {
+    assertSame(recipientIds(both(1, 2), null), [1]);
+    assertSame(recipientIdsForViewer(both(1, 2), viewer(1, null)), [1]);
+    assertSame(recipientIdsForViewer(both(1, 2), viewer(2, null)), [1]);
+    assertSame(recipientIds(both(1, 2), partnerSummary(5)), [1]);
+    assertSame(recipientIdsForViewer(both(1, 2), viewer(1, partnerSummary(5))), [1]);
+    // forBoth with no stored partner (forUserId nulled when she deleted her account) is the creator's.
+    assertSame(recipientIds(both(1, null), partnerSummary(2)), [1]);
+    // A third party's reminder for both is nobody else's.
+    assertSame(recipientIdsForViewer(both(7, 2), raziel), [7]);
+  });
+
+  await check('recipients: whose ping a snooze is about, and whose snooze the viewer sees', () => {
+    assertSame(pingUserFor([1, 2], 2), 2);
+    assertSame(pingUserFor([1, 2], 1), 1);
+    assertSame(pingUserFor([2], 1), 2); // the creator of a reminder for someone else: the one it pings
+    const state = { pings: [{ userId: 1, snoozedUntil: new Date(1000) }, { userId: 2, snoozedUntil: new Date(2000) }] };
+    assertSame(viewerSnoozedUntil(both(1, 2), state, raziel), new Date(1000));
+    assertSame(viewerSnoozedUntil(both(1, 2), state, dana), new Date(2000));
+    assertSame(viewerSnoozedUntil(reminder(1, 2), { pings: [state.pings[1]] }, raziel), new Date(2000));
+    assertSame(viewerSnoozedUntil(both(1, 2), { pings: [] }, raziel), null);
+    assertSame(viewerSnoozedUntil(both(1, 2), undefined, raziel), null);
   });
 
   // ---- Due gate ----

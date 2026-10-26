@@ -68,8 +68,8 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  *   4. Pairing history: a row needs its inviter, so the pairings they started
  *      go; where they were the invitee the row stays with no invitee.
  * NativeEvent.forUserId, NativeReminderState.doneByUserId and
- * PairingInvite.acceptedByUserId are SET NULL and their invites CASCADE in the
- * database, as do their copies to Google (GoogleSyncLink, and its items). The Google
+ * PairingInvite.acceptedByUserId are SET NULL and their invites and their
+ * NativeReminderPing rows CASCADE in the database, as do their copies to Google (GoogleSyncLink, and its items). The Google
  * token goes with the user, so nothing can reach a copy afterwards: before this
  * transaction, each copy with work queued is carried out in Google synchronously
  * (google-sync spec §2): Remove for a copy that is on, the queued Remove or Keep for one
