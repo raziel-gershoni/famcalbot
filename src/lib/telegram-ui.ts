@@ -85,7 +85,8 @@ let liveBackHandler: (() => void) | null = null;
  * - Whenever it stops being needed (`active` turns false, or unmount): offClick(that
  *   handler), then hide(), each on its own so a throw in one still runs the other.
  * The SDK calls every registered handler and any hide() hides the one button, so one
- * component owns it: the home's single call decides what a tap does.
+ * component owns it per screen: AppScreen (components/app-ui/AppScreen.tsx) makes the single
+ * call and decides what a tap does.
  */
 export function useTelegramBackButton(active: boolean, onBack: () => void): void {
   const back = useEffectEvent(onBack);

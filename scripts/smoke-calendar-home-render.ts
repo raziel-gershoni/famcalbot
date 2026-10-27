@@ -1726,7 +1726,7 @@ async function main() {
     };
     walk(root);
     const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/dashboard/${f}`);
-    for (const want of [...parts, 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
+    for (const want of [...parts, 'components/app-ui/AppScreen.tsx', 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>

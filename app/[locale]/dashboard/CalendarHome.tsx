@@ -14,7 +14,7 @@
 //   retries once after about 5 s;
 // - the answers: 401, 403 and any 404 show PageGate's NoCredentialCard; 429 is busy and a 500
 //   is a retry, as a state row once the facts are pinned, else as a card;
-// - the shell: the theme (D4's useTelegramTheme: Telegram's bg_color for the header and
+// - the shell: the theme (AppScreen's, with D4's useTelegramTheme: Telegram's bg_color for the header and
 //   background, data-theme for the tokens), the direction, document-level scroll and
 //   the safe areas (components/app-ui/screen.ts, the home's own ./home-shell), the header, the tab bar, the banners, the tab on
 //   screen (AgendaView, or the Month's MonthView), and the send and menu sheets;
@@ -44,7 +44,7 @@
 //   shows its note and refetches. The open sheet's row is re-derived from the store by
 //   key on every render (the tapped row is only the fallback), and a sheet whose item has
 //   left the store closes a moment after its note;
-// - Telegram's one BackButton (spec §7.6): shown while the item sheet, the Send sheet or
+// - Telegram's one BackButton (spec §7.6; AppScreen's onBack, set while it should show): shown while the item sheet, the Send sheet or
 //   the ⋯ menu is open, or while the Month is in picked. A tap closes the sheet on top,
 //   else the item sheet, else goes back to browse (Android's back gesture too). Vertical
 //   swipes are off while the Month shows browse, its loading included (Ruling 9), and on
@@ -86,7 +86,7 @@
 // range route and execute-command, which resolve it with verifyUserAuth, and used as it
 // is in the storage keys. It is never swapped for another id.
 
-import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
@@ -104,9 +104,8 @@ import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, ne
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
-import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
-import { APP_SCREEN_CSS } from '@/components/app-ui/screen';
-import { APP_THEME_CSS } from '@/components/app-ui/theme';
+import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -268,10 +267,14 @@ export const HOME_TOP_CSS = `
 }
 `;
 
-/** Puts the wrapper's height on .ch-home as --ch-top-h: browse's bar sticks under it, and its titles stop under both. */
-function publishTopHeight(top: HTMLElement | null) {
+/**
+ * Puts the wrapper's height on the home's root as --ch-top-h: browse's bar sticks under it, and its
+ * titles stop under both. React attaches the root's ref after its children's layout effects, so on
+ * the first commit the ref is still empty and the wrapper's parent, the root, stands in.
+ */
+function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLElement | null>) {
   try {
-    const home = top?.parentElement;
+    const home = root.current ?? top?.parentElement;
     if (!top || !home || typeof top.getBoundingClientRect !== 'function') return;
     const height = `${Math.round(top.getBoundingClientRect().height)}px`;
     if (home.style.getPropertyValue?.('--ch-top-h') !== height) home.style.setProperty('--ch-top-h', height);
@@ -286,21 +289,21 @@ function publishTopHeight(top: HTMLElement | null) {
  * own layout effects in the same commit (browse's opening scroll reads it), and a
  * ResizeObserver catches what changes it outside a render (fonts, a rotation).
  */
-function HomeTop({ sticky, children }: { sticky: boolean; children: ReactNode }) {
+function HomeTop({ sticky, homeRef, children }: { sticky: boolean; homeRef: RefObject<HTMLElement | null>; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => publishTopHeight(ref.current));
+  useLayoutEffect(() => publishTopHeight(ref.current, homeRef));
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof window.ResizeObserver !== 'function') return;
     let observer: ResizeObserver;
     try {
-      observer = new window.ResizeObserver(() => publishTopHeight(el));
+      observer = new window.ResizeObserver(() => publishTopHeight(el, homeRef));
       observer.observe(el);
     } catch {
       return;
     }
     return () => observer.disconnect();
-  }, []);
+  }, [homeRef]);
   return (
     <div ref={ref} className={sticky ? 'ch-home-top is-sticky' : 'ch-home-top'}>
       {children}
@@ -357,7 +360,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
-  const scheme = useTelegramTheme();
   const [deps] = useState<HomeDeps>(() => ({ ...REAL_DEPS, ...depsIn }));
   const [store, dispatch] = useReducer(reduceStore, undefined, () => emptyStore());
   const [weeks, setWeeks] = useState(1);
@@ -369,6 +371,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   /** calendar: a note's calendar name ("Moved, but the old one is still in <calendar>"). */
   const [note, setNote] = useState<{ key: string; kind: SheetNote; calendar?: string } | null>(null);
   const actingRef = useRef(false);
+  /** The home's root (AppScreen's), which carries --ch-top-h. */
+  const homeRef = useRef<HTMLDivElement | null>(null);
   /** What the user can add (null until asked, or when the request failed: no "+"). */
   const [editorInfo, setEditorInfo] = useState<EditorInfoResponse | null>(null);
   /** The open item's edit info, with the key it was asked for; bumped to ask again after an edit. */
@@ -1035,7 +1039,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     else if (itemOpen) setSelected(null);
     else if (pickedShown && monthUi !== null) changeUi(backToBrowse(monthUi));
   };
-  useTelegramBackButton(itemOpen || pickedShown || dragging || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null)), back);
+  const backActive = itemOpen || pickedShown || dragging || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null));
   // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
   // included): there a drag down scrolls the months. The header and the tab bar stick
   // over browse at the same time. An open date or time sheet locks them too (editor
@@ -1096,12 +1100,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     );
 
   return (
-    <div className="ch-app ch-screen ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{APP_THEME_CSS}</style>
-      <style>{APP_SCREEN_CSS}</style>
+    <AppScreen className="ch-home" rootRef={homeRef} onBack={backActive ? back : null}>
       <style>{HOME_SHELL_CSS}</style>
       <style>{HOME_TOP_CSS}</style>
-      <HomeTop sticky={browsing}>
+      <HomeTop sticky={browsing} homeRef={homeRef}>
         <HomeHeader
           today={facts?.today ?? null}
           hebrewDates={facts?.hebrewDates ?? false}
@@ -1214,7 +1216,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           onClose={() => !deleteBusy && setDeleting(null)}
         />
       ) : null}
-    </div>
+    </AppScreen>
   );
 }
 

@@ -8,7 +8,12 @@
 //  - contrast: the text pairs reach 4.5:1 and the marks 3:1, in light and dark, with color-mix
 //    on and off, in a browser (no Telegram params) and under a Telegram theme;
 //  - the frame hangs on .ch-screen only: the theme scope a sheet brings into another page
-//    gets no frame and no page paint.
+//    gets no frame and no page paint;
+//  - AppScreen (in real React on a small fake DOM, with a fake Telegram.WebApp): its root, the
+//    scheme it provides, and Telegram's BackButton, which shows exactly while onBack is set,
+//    calls the latest onBack, and goes with the screen; AppScope takes no BackButton and no
+//    Telegram colours; and no other file calls useTelegramBackButton but the three clients
+//    W1 and W3 still have to move.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -17,9 +22,14 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createElement, type ComponentProps, type ReactElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { NextIntlClientProvider } from 'next-intl';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
+import { AppScope, AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
+import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
 const ROOT_SELECTOR = '.ch-app';
@@ -41,6 +51,31 @@ function assert(cond: unknown, message: string): asserts cond {
 }
 
 const show = (value: unknown) => JSON.stringify(value);
+const messages: Record<string, Row> = {
+  en: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8')),
+  he: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')),
+  ru: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/ru.json'), 'utf8')),
+};
+
+// ---- Rendering ----
+
+/** Inside next-intl's provider, as the layout gives it to every page. */
+function inIntl(locale: string, el: ReactElement): ReactElement {
+  // The provider's props type makes children required; createElement takes them as its third argument.
+  return createElement(NextIntlClientProvider, { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as never, el);
+}
+
+/** The screen and the scope with their children passed as createElement arguments (the lint rule forbids the prop). */
+const ScreenProbe = AppScreen as unknown as (props: Omit<ComponentProps<typeof AppScreen>, 'children'>) => ReactElement;
+const ScopeProbe = AppScope as unknown as () => ReactElement;
+
+/** A part that shows the scheme useAppScheme gives it. */
+function SchemeProbe() {
+  return createElement('span', { 'data-probe': 'scheme' }, useAppScheme());
+}
+
+/** The calls the fake Telegram recorded for the BackButton, a handler as `fn` (offClick removes by identity: the fake's backHandlers show it went). */
+const backCalls = (calls: string[]) => calls.filter((c) => c.startsWith('BackButton')).map((c) => c.replace(/fn\d+/, 'fn'));
 
 // ---- React must not warn ----
 
@@ -174,6 +209,119 @@ async function main() {
       const body = rule(APP_THEME_CSS, selector);
       assert(!/(?:min-height|padding-block-start|padding-inline|overflow-x)\s*:/.test(body), `${selector} carries a frame property`);
     }
+  });
+
+  await check('#4 AppScreen: the root is .ch-app .ch-screen plus its class, with data-theme, dir and lang, and both style sheets come first; its ref gets the root; useAppScheme gives the scheme (Telegram\'s, dark here)', () => {
+    for (const locale of ['en', 'he', 'ru']) {
+      const html = renderToString(inIntl(locale, createElement(ScreenProbe, { className: 'ch-home' }, createElement('i', { id: 'child' }))));
+      const dir = locale === 'he' ? 'rtl' : 'ltr';
+      assert(html.startsWith(`<div class="ch-app ch-screen ch-home" data-theme="light" dir="${dir}" lang="${locale}"><style>`), `${locale}: ${html.slice(0, 140)}`);
+      assert(html.indexOf(APP_THEME_CSS) < html.indexOf(APP_SCREEN_CSS) && html.indexOf(APP_SCREEN_CSS) < html.indexOf('<i id="child">'), `${locale}: the theme, the screen, then the children`);
+    }
+    const bare = renderToString(inIntl('en', createElement(ScreenProbe, null, createElement('i'))));
+    assert(bare.startsWith('<div class="ch-app ch-screen" data-theme="light" dir="ltr" lang="en">'), `no class of its own: ${bare.slice(0, 100)}`);
+    installWindow();
+    const calls: string[] = [];
+    const tg = fakeTelegram(calls, '7.7');
+    tg.colorScheme = 'dark';
+    fakeWindow.Telegram = { WebApp: tg };
+    const rootRef: { current: HTMLDivElement | null } = { current: null };
+    const m = mount(inIntl('he', createElement(ScreenProbe, { className: 'ch-home', rootRef }, createElement(SchemeProbe))));
+    try {
+      const home = elements(m.container).find((e) => e.className === 'ch-app ch-screen ch-home');
+      assert(home && home.getAttribute('data-theme') === 'dark' && home.getAttribute('dir') === 'rtl' && home.getAttribute('lang') === 'he', 'the mounted root');
+      assert(elements(m.container).find((e) => e.getAttribute('data-probe') === 'scheme')?.textContent === 'dark', "useAppScheme gives Telegram's scheme");
+      assert(calls.includes('setHeaderColor(bg_color)') && calls.includes('setBackgroundColor(bg_color)'), `Telegram takes the theme's colours: ${show(calls)}`);
+      assert((rootRef.current as unknown) === home, 'rootRef is the root element');
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('#4b AppScreen owns the BackButton: nothing shown without onBack (it only hides a button the client kept); with onBack it registers one handler and shows; a tap calls the latest onBack; clearing onBack takes the handler off and hides; a new onBack is called by the next tap; unmounting takes it off and hides', () => {
+    installWindow();
+    const calls: string[] = [];
+    const tg = fakeTelegram(calls, '7.7');
+    fakeWindow.Telegram = { WebApp: tg };
+    const taps: string[] = [];
+    const screen = (onBack?: (() => void) | null) => inIntl('en', createElement(ScreenProbe, { onBack }, createElement('i')));
+    const m = mount(screen());
+    try {
+      assert(show(backCalls(calls)) === show(['BackButton.hide()']), `no onBack: ${show(backCalls(calls))}`);
+      assert(tg.backHandlers.length === 0, 'no handler registered');
+      calls.length = 0;
+      m.render(screen(() => taps.push('first')));
+      assert(show(backCalls(calls)) === show(['BackButton.onClick(fn)', 'BackButton.show()']), `onBack set: ${show(backCalls(calls))}`);
+      assert(tg.backHandlers.length === 1, 'one handler');
+      tg.backHandlers[0]();
+      assert(show(taps) === show(['first']), `a tap: ${show(taps)}`);
+      // A new onBack with the button still showing: no new registration, the tap reaches the latest one.
+      calls.length = 0;
+      m.render(screen(() => taps.push('second')));
+      assert(backCalls(calls).length === 0 && tg.backHandlers.length === 1, `a new onBack re-registers nothing: ${show(backCalls(calls))}`);
+      tg.backHandlers[0]();
+      assert(show(taps) === show(['first', 'second']), `the latest onBack: ${show(taps)}`);
+      calls.length = 0;
+      m.render(screen(null));
+      assert(show(backCalls(calls)) === show(['BackButton.offClick(fn)', 'BackButton.hide()']) && tg.backHandlers.length === 0, `onBack cleared: ${show(backCalls(calls))}`);
+      calls.length = 0;
+      m.render(screen(() => taps.push('third')));
+      assert(show(backCalls(calls)) === show(['BackButton.onClick(fn)', 'BackButton.show()']), `set again: ${show(backCalls(calls))}`);
+    } finally {
+      calls.length = 0;
+      m.unmount();
+    }
+    assert(show(backCalls(calls)) === show(['BackButton.offClick(fn)', 'BackButton.hide()']) && tg.backHandlers.length === 0, `unmount: ${show(backCalls(calls))}`);
+    fakeWindow.Telegram = undefined;
+  });
+
+  await check("#4c AppScope (a sheet's scope inside a page that is no screen): .ch-app .ch-standalone with the theme only and the device's scheme; no BackButton call, no Telegram colour call, no frame; the scheme reaches useAppScheme", () => {
+    installWindow();
+    const calls: string[] = [];
+    const tg = fakeTelegram(calls, '7.7');
+    tg.colorScheme = 'dark';
+    fakeWindow.Telegram = { WebApp: tg };
+    const m = mount(inIntl('he', createElement(ScopeProbe, null, createElement(SchemeProbe))));
+    try {
+      const scope = elements(m.container).find((e) => e.className === 'ch-app ch-standalone');
+      assert(scope && scope.getAttribute('data-theme') === 'dark' && scope.getAttribute('dir') === 'rtl' && scope.getAttribute('lang') === 'he', 'the mounted scope');
+      assert(elements(m.container).find((e) => e.getAttribute('data-probe') === 'scheme')?.textContent === 'dark', 'useAppScheme');
+      assert(!calls.some((c) => /^(?:BackButton|setHeaderColor|setBackgroundColor)/.test(c)), `no BackButton or colour call: ${show(calls)}`);
+      const styles = elements(m.container).filter((e) => e.localName === 'style').map((e) => e.textContent);
+      assert(styles.length === 1 && styles[0] === APP_THEME_CSS, 'the theme is its only style sheet');
+      assert(byRole(m.container, 'dialog').length === 0, 'it brings no content of its own');
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    const html = renderToString(inIntl('en', createElement(ScopeProbe, null, createElement('i'))));
+    assert(html.startsWith('<div class="ch-app ch-standalone" data-theme="light" dir="ltr" lang="en"><style>') && !html.includes('ch-screen'), 'rendered on the server: no ch-screen');
+  });
+
+  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Settings, Calendars and Pair clients, which W1 and W3 move onto AppScreen; the list is pinned, so a new caller fails", () => {
+    const calls: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const rel = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(rel);
+        else if (/\.tsx?$/.test(entry.name)) {
+          const code = fs.readFileSync(path.join(ROOT, rel), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+          if (/\buseTelegramBackButton\(/.test(code)) calls.push(rel);
+        }
+      }
+    };
+    for (const dir of ['app', 'components', 'src']) walk(dir);
+    const expected = [
+      'app/[locale]/calendars/CalendarsClient.tsx',
+      'app/[locale]/pair/PairClient.tsx',
+      'app/[locale]/settings/SettingsClient.tsx',
+      'components/app-ui/AppScreen.tsx',
+      'src/lib/telegram-ui.ts',
+    ];
+    assert(show(calls.sort()) === show(expected), `callers: ${show(calls)}, want ${show(expected)}`);
+    const owner = fs.readFileSync(path.join(ROOT, 'components/app-ui/AppScreen.tsx'), 'utf8');
+    assert((owner.match(/useTelegramBackButton\(/g) ?? []).length === 1, 'AppScreen makes the one call');
   });
 
   await check('#99 React logged no warning', () => {

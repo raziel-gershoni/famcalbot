@@ -231,7 +231,10 @@ async function main() {
     assert(/<TimePickerSheet[\s\S]*?standalone[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src), "the dashboard's time sheet, standalone, on the 15-minute step");
     assert(/useTelegramBackButton\(timeSheetOpen,/.test(src) && /useTelegramVerticalSwipes\(timeSheetOpen\)/.test(src), 'Back and the swipe lock follow the sheet');
     const kit = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/picker-kit.tsx'), 'utf8');
-    assert(/export function PickerScope/.test(kit) && /APP_THEME_CSS/.test(kit) && /data-theme=\{scheme\}/.test(kit) && /dir=\{locale === 'he'/.test(kit), 'the scope: tokens, data-theme, dir');
+    assert(/export function PickerScope/.test(kit) && /<AppScope>/.test(kit), 'PickerScope is the app\'s scope');
+    const screen = fs.readFileSync(path.join(ROOT, 'components/app-ui/AppScreen.tsx'), 'utf8');
+    const scope = screen.slice(screen.indexOf('export function AppScope'));
+    assert(/APP_THEME_CSS/.test(scope) && /data-theme=\{scheme\}/.test(scope) && /dir=\{dirOf\(locale\)\}/.test(scope), 'the scope: tokens, data-theme, dir');
     const html = render('en', 'light', createElement(TimePickerSheet, { label: 'Reminder time', value: '09:15', step: 15, onPick: () => undefined, onClose: () => undefined, standalone: true }), true);
     assert(count(html, /class="ch-app/g) === 2, 'the standalone sheet brings its own scope');
     assert(html.includes('--ch-bg') && html.includes('.ch-segmented'), "with the home's tokens and the form kit's CSS");

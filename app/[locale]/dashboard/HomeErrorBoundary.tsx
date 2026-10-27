@@ -11,16 +11,13 @@
 // chunk.
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
-import { APP_SCREEN_CSS } from '@/components/app-ui/screen';
-import { APP_THEME_CSS } from '@/components/app-ui/theme';
-import { releaseTelegramControls, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { releaseTelegramControls, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 
 /** The guard's sessionStorage key for the chunk-load reload (reload-guard's, shared with PageGate's boundary). */
 export { CHUNK_RELOAD_KEY };
-
-const noop = () => {};
 
 function reloadPage() {
   try {
@@ -33,14 +30,10 @@ function reloadPage() {
 /** The boundary's card, in the home's look and the page's language. */
 export function HomeCrash() {
   const t = useTranslations('calendarHome');
-  const locale = useLocale();
-  const scheme = useTelegramTheme();
-  useTelegramBackButton(false, noop);
   useTelegramVerticalSwipes(false);
+  // No onBack: AppScreen hides a BackButton the client kept from before.
   return (
-    <div className="ch-app ch-screen ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{APP_THEME_CSS}</style>
-      <style>{APP_SCREEN_CSS}</style>
+    <AppScreen className="ch-home">
       <div className="ch-home-card ch-crash" role="alert">
         <h1 className="ch-home-card-title">{t('errorBoundary.title')}</h1>
         <p className="ch-home-card-body">{t('errorBoundary.body')}</p>
@@ -48,7 +41,7 @@ export function HomeCrash() {
           {t('actions.reload')}
         </button>
       </div>
-    </div>
+    </AppScreen>
   );
 }
 

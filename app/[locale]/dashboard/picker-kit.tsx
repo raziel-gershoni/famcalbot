@@ -16,10 +16,9 @@
 //   data-theme, dir). Inside the home the sheets render in place and inherit it.
 
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { useLocale } from 'next-intl';
 import { WheelPicker, WheelPickerWrapper, type WheelPickerOption } from '@ncdai/react-wheel-picker';
-import { APP_THEME_CSS } from '@/components/app-ui/theme';
-import { hapticSelection, useColorScheme } from '@/src/lib/telegram-ui';
+import { AppScope } from '@/components/app-ui/AppScreen';
+import { hapticSelection } from '@/src/lib/telegram-ui';
 import { FORM_CSS } from './form-kit';
 
 /** The wheel's item height, and the number of options on its ring: a ring of 20 at 44 px is about 280 px tall, the grid's six rows. */
@@ -386,13 +385,10 @@ export { WheelPickerWrapper };
  * color-scheme) never reach it, and the page behind keeps its look. `ch-standalone` only marks it.
  */
 export function PickerScope({ children }: { children: ReactNode }) {
-  const scheme = useColorScheme();
-  const locale = useLocale();
   return (
-    <div className="ch-app ch-standalone" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{APP_THEME_CSS}</style>
+    <AppScope>
       <style>{FORM_CSS}</style>
       {children}
-    </div>
+    </AppScope>
   );
 }

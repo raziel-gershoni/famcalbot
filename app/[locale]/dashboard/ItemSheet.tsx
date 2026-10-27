@@ -19,7 +19,7 @@
 // only Google can change (guests, a special type) says so instead (3b spec §2.4). The sheet
 // only draws them; the container opens the editor and asks before deleting.
 //
-// Telegram's BackButton closes it: the container owns the button (useTelegramBackButton)
+// Telegram's BackButton closes it: the container owns the button (AppScreen's onBack)
 // and the selection, so this sheet only renders. In a browser, the Close button, a tap on
 // the scrim and Escape do the same.
 
