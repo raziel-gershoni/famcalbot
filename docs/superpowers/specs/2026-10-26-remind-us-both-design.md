@@ -105,8 +105,11 @@ Sentry, with ids, never titles.
 
 ## Out of scope
 
-More than two people (children, others), per-person Done, Google copies of reminders, WhatsApp pings,
-chat edits that change who a reminder is for.
+More than two people (children, others), Google copies of reminders, WhatsApp pings, chat edits that
+change who a reminder is for. Per-person Done is no longer out of scope: since 2026-10-28 a reminder
+for both can have the editor's "Each of us marks it done" switch (NativeEvent.eachMarksDone, off by
+default, editor only): each person's Done is their own (NativeReminderPing.doneAt), the one who is done
+stops being pinged, and the occurrence is done for everyone when every reachable recipient is done.
 
 ## As built (2026-10-26)
 
