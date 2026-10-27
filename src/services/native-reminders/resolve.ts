@@ -5,7 +5,7 @@
 // partner. An anchored reminder keeps no link to its anchor (R11): moving the dentist
 // doesn't move it.
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { getCalendarAssignmentsForUser } from '../calendar-provider';
 import type { CreateEventInput } from '../calendar-provider/types';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
@@ -15,6 +15,7 @@ import { findMatchingEvent } from '../voice/event-resolution';
 import type { ReminderPromptContext } from '../voice/gemini-voice';
 import type { CalendarEvent, UserConfig } from '../../types';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
 import { ARMED_GRACE_MS, dueAtForOccurrence } from './due';
 import { getActivePartnerSummary } from './ownership';
@@ -170,7 +171,7 @@ export function reminderTimeFromAnchor(
       // in between doesn't land the reminder an hour off
       const wall = formatInTimeZone(new Date(anchorEvent.start), timezone, "yyyy-MM-dd'T'HH:mm:ss");
       const day = addDaysToDate(wall.slice(0, 10), offset / MINUTES_PER_DAY);
-      return { ok: true, startTime: fromZonedTime(`${day}T${wall.slice(11)}`, timezone), allDay: false };
+      return { ok: true, startTime: wallTimeToInstant(`${day}T${wall.slice(11)}`, timezone), allDay: false };
     }
     return { ok: true, startTime: new Date(new Date(anchorEvent.start).getTime() + offset * 60_000), allDay: false };
   }

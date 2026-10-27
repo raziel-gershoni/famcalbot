@@ -1,10 +1,11 @@
 // When a native reminder occurrence pings, and whether it may ping now (spec §4.2,
 // ruling R6). Pure: no database, and no clock of its own.
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import type { CalendarEvent } from '../../types';
 import { TIMEZONE } from '../../config/constants';
 import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-time';
 
 // Date-only reminders ping at the recipient's reminder time (src/lib/reminder-time.ts,
@@ -20,10 +21,13 @@ export const MAX_PING_ATTEMPTS = 3;
 // 💤 Tomorrow tapped before this local hour means this morning: it's still the night.
 const SAME_MORNING_BEFORE_HOUR = 4;
 
-/** `reminderTime` (HH:mm) on `day` (yyyy-MM-dd) in `tz`. */
+/**
+ * `reminderTime` (HH:mm) on `day` (yyyy-MM-dd) in `tz`. A time the clocks skip that day moves
+ * forward by the jump (02:30 is 03:30), and a repeated one is its first occurrence (wall-time.ts).
+ */
 function morningOf(day: string, tz: string, reminderTime?: string | null): Date {
   const time = isValidReminderTime(reminderTime) ? reminderTime : DEFAULT_REMINDER_TIME;
-  return fromZonedTime(`${day} ${time}:00`, tz);
+  return wallTimeToInstant(`${day}T${time}`, tz);
 }
 
 /**

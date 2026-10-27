@@ -48,7 +48,7 @@ import { forWhoOf, itemZone, loadItem, wallFor, type LoadedItem } from './item-i
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
-import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant } from './walltime';
+import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant, wallToInstantKeeping } from './walltime';
 import { tzKnownFor, weekStartFor } from '../../utils/locale-rules';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { alertChoiceOf } from '../../lib/calendar-view/alert-leads';
@@ -223,6 +223,10 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
  * `itemTz`, timed walls on the user's clock. The Google items share it (google-item.ts).
  * `minYear` is the earliest year the item may start in (year-limits.ts minYearFor, by the
  * repeat the item will have).
+ *
+ * An end that follows the start (a moved start keeps the length; a form change takes an hour) is
+ * also given as an instant, `derivedEnd`: its wall time alone cannot say which of the two a repeated
+ * hour's times it is, so the callers write the instant and the item keeps its exact length.
  */
 export function resolveWallTimes(
   c: UpdateCommand['changes'],
@@ -231,7 +235,7 @@ export function resolveWallTimes(
   userTz: string,
   itemTz: string,
   minYear?: number
-): { ok: true; start: string; end: string; allDay: boolean; timeChanged: boolean } | { ok: false; field: 'start' | 'end' } {
+): { ok: true; start: string; end: string; allDay: boolean; timeChanged: boolean; derivedEnd?: Date } | { ok: false; field: 'start' | 'end' } {
   const was = wallFor(occ.startsAt, occ.endsAt, occ.allDay, userTz, itemTz);
   const wasEnd = reminder ? was.start : was.end;
   const allDay = c.allDay ?? occ.allDay;
@@ -250,23 +254,31 @@ export function resolveWallTimes(
     return { ok: false, field: 'start' };
   }
   let end: string;
+  let derivedEnd: Date | undefined;
   if (reminder) {
     end = start;
   } else if (c.end !== undefined) {
     if (!isTime(c.end, allDay, minYear)) return { ok: false, field: 'end' };
     end = c.end;
   } else if (allDay !== occ.allDay) {
-    end = allDay ? start : instantToWall(new Date(wallToInstant(start, userTz).getTime() + HOUR_MS), userTz);
+    if (allDay) end = start;
+    else {
+      derivedEnd = new Date(wallToInstant(start, userTz).getTime() + HOUR_MS);
+      end = instantToWall(derivedEnd, userTz);
+    }
   } else if (start === was.start) {
     end = wasEnd;
   } else if (allDay) {
     end = addDaysToDate(start, daysBetween(was.start, was.end));
   } else {
-    end = instantToWall(new Date(wallToInstant(start, userTz).getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime())), userTz);
+    derivedEnd = new Date(wallToInstant(start, userTz).getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime()));
+    end = instantToWall(derivedEnd, userTz);
   }
-  if (!reminder && !endFollows(start, end, allDay)) return { ok: false, field: 'end' };
+  // A derived end that is after its start in real time follows it, even where the wall times read the same (the repeated hour).
+  const followsInTime = derivedEnd !== undefined && derivedEnd.getTime() > wallToInstant(start, userTz).getTime();
+  if (!reminder && !followsInTime && !endFollows(start, end, allDay)) return { ok: false, field: 'end' };
 
-  return { ok: true, start, end, allDay, timeChanged: allDay !== occ.allDay || start !== was.start || end !== wasEnd };
+  return { ok: true, start, end, allDay, timeChanged: allDay !== occ.allDay || start !== was.start || end !== wasEnd, ...(derivedEnd ? { derivedEnd } : {}) };
 }
 
 type Ok = Extract<LoadedItem, { status: 'ok' }>;
@@ -299,8 +311,9 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const floor = minYearFor(choice);
   const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, floor);
   if (!times.ok) return { status: 'invalid', field: times.field };
-  const { start, end, allDay, timeChanged } = times;
-  const startsAt = allDay ? dayStart(start, itemTz) : wallToInstant(start, userTz);
+  const { start, end, allDay, timeChanged, derivedEnd } = times;
+  // A time the save leaves alone keeps its instant: on the repeated hour of a clock change one wall time is two instants.
+  const startsAt = allDay ? dayStart(start, itemTz) : wallToInstantKeeping(start, userTz, occ.startsAt);
   // The start the new part of a repeat change has: the opened slot unless this save moves it (the store's newStarts).
   const tailStart = series.rrule && !timeChanged ? key.slot! : startsAt;
   // A spec that can't be built on that start (a "last Tuesday" off the month's last week, an end before the start) is 400 repeat.
@@ -345,7 +358,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   else if (series.rrule && seriesLevel && scope === 'single') return { status: 'invalid', field: 'scope' };
   const stop = repeat === 'none' && Boolean(series.rrule);
 
-  const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : wallToInstant(end, userTz);
+  const endsAt = reminder ? startsAt : allDay ? dayEnd(end, itemTz) : (derivedEnd ?? wallToInstantKeeping(end, userTz, occ.endsAt));
   // The rule the repeat change writes (one builder, ruleToWrite); null for a stop; undefined without a repeat change.
   let built: (BuiltRule & { endGiven: boolean }) | null | undefined;
   if (repeat !== undefined) {

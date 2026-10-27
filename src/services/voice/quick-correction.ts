@@ -13,7 +13,8 @@ import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { getGemini, extractionConfig } from '../ai-provider';
 import { AI_MODEL_ID } from '../../config/ai-models';
-import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import type { ParsedEvent } from '../event-parser';
 import type { CalendarAssignment } from '../../types';
 
@@ -141,7 +142,7 @@ export async function extractFieldPatch(
     if (field === 'time' && current.kind === 'reminder') {
       // One time on the reminder's own day, which a date-only reminder gets for the first time
       const datePart = formatInTimeZone(current.startTime, timezone, 'yyyy-MM-dd');
-      const at = parsed.startTime ? fromZonedTime(`${datePart}T${parsed.startTime}:00`, timezone) : null;
+      const at = parsed.startTime ? wallTimeToInstant(`${datePart}T${parsed.startTime}:00`, timezone) : null;
       if (at && !isNaN(at.getTime())) {
         out.startTime = at;
         out.endTime = at;
@@ -151,15 +152,15 @@ export async function extractFieldPatch(
       // Reuse existing date from current event — IN THE USER'S TIMEZONE,
       // not UTC, so an event near local midnight doesn't slip a day.
       const datePart = formatInTimeZone(current.startTime, timezone, 'yyyy-MM-dd');
-      out.startTime = fromZonedTime(`${datePart}T${parsed.startTime}:00`, timezone);
-      out.endTime = fromZonedTime(`${datePart}T${parsed.endTime}:00`, timezone);
+      out.startTime = wallTimeToInstant(`${datePart}T${parsed.startTime}:00`, timezone);
+      out.endTime = wallTimeToInstant(`${datePart}T${parsed.endTime}:00`, timezone);
     } else if (field === 'day' && parsed.startDate) {
       // Reuse existing time from current event — IN THE USER'S TIMEZONE.
       const startTimePart = formatInTimeZone(current.startTime, timezone, 'HH:mm');
       const endTimePart = formatInTimeZone(current.endTime, timezone, 'HH:mm');
       const endDate = parsed.endDate || parsed.startDate;
-      out.startTime = fromZonedTime(`${parsed.startDate}T${startTimePart}:00`, timezone);
-      out.endTime = fromZonedTime(`${endDate}T${endTimePart}:00`, timezone);
+      out.startTime = wallTimeToInstant(`${parsed.startDate}T${startTimePart}:00`, timezone);
+      out.endTime = wallTimeToInstant(`${endDate}T${endTimePart}:00`, timezone);
     } else if (field === 'cal' && parsed.calendarId) {
       // Validate against user's calendars; fall back to name match.
       const matched = calendars.find((c) => c.calendarId === parsed.calendarId)

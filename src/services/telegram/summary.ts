@@ -149,10 +149,10 @@ export async function prepareSummaryForUser(
   onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
   const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
-  const { fromZonedTime } = await import('date-fns-tz');
+  const { wallTimeToInstant } = await import('../../utils/wall-time');
   const today = localDate(new Date(), userTimezone);
   const day = opts?.day ?? (summaryDate ? nextDate(today) : today);
-  const dayNoon = fromZonedTime(`${day} 12:00:00`, userTimezone);
+  const dayNoon = wallTimeToInstant(`${day}T12:00`, userTimezone);
   // The outage run: Google failed this summary twice, so the day is read from FamCal only. Only
   // a user with a Google token reads Google (sourcesFor), so no other user is affected.
   const googleOut = opts?.googleUnavailable === true && !!user.googleRefreshToken;
@@ -719,9 +719,9 @@ async function sendWeatherOnlyToUser(
   // local date, plus one calendar day for tomorrow. summaryDate is now+24h on the UTC
   // server, which on a spring-forward eve is the day after tomorrow.
   const { localDate, nextDate } = await import('../../utils/day-events');
-  const { fromZonedTime } = await import('date-fns-tz');
+  const { wallTimeToInstant } = await import('../../utils/wall-time');
   const today = localDate(new Date(), timezone);
-  const targetDate = fromZonedTime(`${summaryDate ? nextDate(today) : today} 12:00:00`, timezone);
+  const targetDate = wallTimeToInstant(`${summaryDate ? nextDate(today) : today}T12:00`, timezone);
 
   const dateStr = targetDate.toLocaleDateString(user.language === 'he' ? 'he-IL' : user.language === 'ru' ? 'ru-RU' : 'en-US', {
     weekday: 'long',

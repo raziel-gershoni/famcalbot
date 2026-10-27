@@ -12,11 +12,12 @@ import type { UnifiedEvent } from '../calendar-provider/types';
 import { isNativeCalendarId } from '../native-calendar/event-store';
 import type { UserConfig } from '../../types';
 import { generateAICompletion } from '../ai-provider';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { addDaysToDate, daySpanOf, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
 import { loadViewerContext } from '../native-reminders/ownership';
 import { fetchOpenReminders } from '../native-reminders/open-reminders';
@@ -616,8 +617,8 @@ function closingDay(event: CalendarEvent, span: { startDate: string; lastDay: st
  * an evening party "until 02:00" ends the next morning.
  */
 function endAfter(start: Date, day: string, time: string, timezone: string): Date {
-  const end = fromZonedTime(`${day}T${time}:00`, timezone);
-  return end > start ? end : fromZonedTime(`${nextDate(day)}T${time}:00`, timezone);
+  const end = wallTimeToInstant(`${day}T${time}:00`, timezone);
+  return end > start ? end : wallTimeToInstant(`${nextDate(day)}T${time}:00`, timezone);
 }
 
 /** How long an all-day event made timed lasts when not given an end. */
@@ -630,7 +631,7 @@ const DEFAULT_TIMED_LENGTH_MS = 60 * 60 * 1000;
  * dates on the user's clock (calendar.ts).
  */
 function allDayRange(firstDay: string, lastDay: string, timezone: string): { start: Date; end: Date } {
-  return { start: startOfLocalDay(firstDay, timezone), end: fromZonedTime(`${lastDay}T23:59:00`, timezone) };
+  return { start: startOfLocalDay(firstDay, timezone), end: wallTimeToInstant(`${lastDay}T23:59:00`, timezone) };
 }
 
 /**
@@ -741,22 +742,22 @@ export function convertEditRequestToUpdates(
     // unless given an end time.
     const newStartDate = editRequest.newStartDate || original.startDate;
     updates.startTime = editRequest.newStartTime
-      ? fromZonedTime(`${newStartDate}T${editRequest.newStartTime}:00`, timezone)
+      ? wallTimeToInstant(`${newStartDate}T${editRequest.newStartTime}:00`, timezone)
       : startOfLocalDay(newStartDate, timezone);
     if (!editRequest.newEndTime) {
       updates.endTime = new Date(updates.startTime.getTime() + DEFAULT_TIMED_LENGTH_MS);
     } else if (editRequest.newEndDate) {
-      updates.endTime = fromZonedTime(`${editRequest.newEndDate}T${editRequest.newEndTime}:00`, timezone);
+      updates.endTime = wallTimeToInstant(`${editRequest.newEndDate}T${editRequest.newEndTime}:00`, timezone);
     } else {
       updates.endTime = endAfter(updates.startTime, newStartDate, editRequest.newEndTime, timezone);
     }
   } else if (editRequest.newStartDate || editRequest.newStartTime) {
     const newStartDate = editRequest.newStartDate || original.startDate;
     const newStartTime = editRequest.newStartTime || original.startTime;
-    updates.startTime = fromZonedTime(`${newStartDate}T${newStartTime}:00`, timezone);
+    updates.startTime = wallTimeToInstant(`${newStartDate}T${newStartTime}:00`, timezone);
 
     if (editRequest.newEndDate) {
-      updates.endTime = fromZonedTime(`${editRequest.newEndDate}T${editRequest.newEndTime || original.endTime}:00`, timezone);
+      updates.endTime = wallTimeToInstant(`${editRequest.newEndDate}T${editRequest.newEndTime || original.endTime}:00`, timezone);
     } else if (editRequest.newEndTime) {
       // Without a new end date the end keeps its day relative to the start: "the lesson
       // from tomorrow 15:00 to today 20:00, until 21:00" ends today, not tomorrow
@@ -766,7 +767,7 @@ export function convertEditRequestToUpdates(
       updates.endTime = new Date(updates.startTime.getTime() + duration);
     }
   } else if (editRequest.newEndDate) {
-    updates.endTime = fromZonedTime(`${editRequest.newEndDate}T${editRequest.newEndTime || original.endTime}:00`, timezone);
+    updates.endTime = wallTimeToInstant(`${editRequest.newEndDate}T${editRequest.newEndTime || original.endTime}:00`, timezone);
   } else if (editRequest.newEndTime) {
     updates.endTime = endAfter(originalStart, lastDay, editRequest.newEndTime, timezone);
   }
@@ -806,7 +807,7 @@ function reminderUpdates(editRequest: EditRequest, originalEvent: CalendarEvent,
     }
   } else if (wasAllDay || editRequest.newStartDate || editRequest.newStartTime) {
     const time = editRequest.newStartTime || (wasAllDay ? (isValidReminderTime(reminderTime) ? reminderTime : DEFAULT_REMINDER_TIME) : original.startTime);
-    updates.startTime = fromZonedTime(`${day}T${time}:00`, timezone);
+    updates.startTime = wallTimeToInstant(`${day}T${time}:00`, timezone);
   }
   if (updates.startTime) updates.endTime = updates.startTime;
   if (newAllDay !== undefined || allDay !== wasAllDay) updates.allDay = allDay;

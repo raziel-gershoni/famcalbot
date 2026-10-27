@@ -19,9 +19,10 @@
 
 import type { calendar_v3 } from '@googleapis/calendar';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { htmlToText } from '../../utils/html';
 import { anniversaryCount, titleWithCount } from '../../lib/hebrew-anniversary';
 import { assertStorableRule, expandSeries, yieldsSlots } from '../native-calendar/recurrence';
@@ -36,7 +37,7 @@ export const MOVED_FROM = 'famcalMovedFrom';
 
 const DAY_MS = 86_400_000;
 /** An all-day item's end as FamCal stores it: 23:59 on its last day. */
-const dayEnd = (day: string, zone: string) => fromZonedTime(`${day}T23:59:00`, zone);
+const dayEnd = (day: string, zone: string) => wallTimeToInstant(`${day}T23:59`, zone);
 const compact = (day: string) => day.replace(/-/g, '');
 const dayOfCompact = (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
 const wallStamp = (d: Date, zone: string) => formatInTimeZone(d, zone, "yyyyMMdd'T'HHmmss");
@@ -103,7 +104,7 @@ export function googleRuleLine(rule: string, allDay: boolean, zone: string): str
   const line = bare(rule).replace(/(^|;)UNTIL=(\d{8})(?:T(\d{6})Z?)?(?=;|$)/i, (_m, lead: string, day: string, time: string | undefined) => {
     if (allDay) return `${lead}UNTIL=${day}`;
     const wall = time ? `${dayOfCompact(day)}T${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}` : `${dayOfCompact(day)}T23:59:59`;
-    return `${lead}UNTIL=${utcStamp(fromZonedTime(wall, zone))}`;
+    return `${lead}UNTIL=${utcStamp(wallTimeToInstant(wall, zone))}`;
   });
   return `RRULE:${line}`;
 }
@@ -313,7 +314,7 @@ function exdateValues(line: string, zone: string): ExceptionValue[] | null {
     const wall = `${dayOfCompact(m[1])}T${m[2]}:${m[3]}:${m[4]}`;
     let instant: Date;
     try {
-      instant = m[5] ? new Date(`${wall}Z`) : fromZonedTime(wall, tzid ?? zone);
+      instant = m[5] ? new Date(`${wall}Z`) : wallTimeToInstant(wall, tzid ?? zone);
     } catch {
       return null;
     }

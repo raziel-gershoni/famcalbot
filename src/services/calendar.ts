@@ -1,8 +1,9 @@
 import { calendar as googleCalendar, calendar_v3, auth } from '@googleapis/calendar';
 import { CalendarEvent } from '../types';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { TIMEZONE } from '../config/constants';
 import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
+import { wallTimeToInstant } from '../utils/wall-time';
 import { isTokenError, isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './calendar-read/google-map';
@@ -544,9 +545,9 @@ const dayOfCompact = (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice
 
 /** An RRULE UNTIL as an instant: a UTC stamp as it is, a date as the end of that day in `zone`, a floating time on `zone`'s clock. */
 function untilInstant(until: string, zone: string): Date {
-  if (/^\d{8}$/.test(until)) return fromZonedTime(`${dayOfCompact(until)}T23:59:59`, zone);
+  if (/^\d{8}$/.test(until)) return wallTimeToInstant(`${dayOfCompact(until)}T23:59:59`, zone);
   const wall = `${dayOfCompact(until)}T${until.slice(9, 11)}:${until.slice(11, 13)}:${until.slice(13, 15)}`;
-  return until.endsWith('Z') ? new Date(`${wall}Z`) : fromZonedTime(wall, zone);
+  return until.endsWith('Z') ? new Date(`${wall}Z`) : wallTimeToInstant(wall, zone);
 }
 
 /**
@@ -559,7 +560,7 @@ export function nativeRuleOf(rule: string, zone: string): string {
 
 /** A rule whose UNTIL is the end of `day` (a date for an all-day series, the end of that day in UTC for a timed one). */
 function withUntilDay(rule: string, day: string, allDay: boolean, zone: string): string {
-  const until = allDay ? compactDay(day) : utcStamp(fromZonedTime(`${day}T23:59:59`, zone));
+  const until = allDay ? compactDay(day) : utcStamp(wallTimeToInstant(`${day}T23:59:59`, zone));
   return rule.replace(/(^|;)UNTIL=[^;]+/i, `$1UNTIL=${until}`);
 }
 

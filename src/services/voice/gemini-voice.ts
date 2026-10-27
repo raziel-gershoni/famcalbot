@@ -11,9 +11,10 @@ import { detectAddressedSpeech, detectSpeech, NO_SPEECH } from './speech-presenc
 import { VoiceIntentResult, VoiceIntent, ParsedEvent, RecurrencePattern } from '../event-parser';
 import { CalendarAssignment } from '../../types';
 import { defaultCalendarFor, isFamcalId } from '../../utils/calendar-helpers';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { readSpokenHebrewDate, resolveSpokenHebrewDate } from '../hebrew-date-resolve';
 
 const VOICE_RETRY_CONFIG = {
@@ -496,17 +497,17 @@ export function buildEventTimes(
   const garbledEnd = !!recovered && !isDate(recovered);
   const lastDate = recovered && !garbledEnd ? recovered : startDate;
   if (!allDay) {
-    const start = fromZonedTime(`${startDate}T${startTime}:00`, timezone);
-    const end = fromZonedTime(`${lastDate}T${endTime}:00`, timezone);
+    const start = wallTimeToInstant(`${startDate}T${startTime}:00`, timezone);
+    const end = wallTimeToInstant(`${lastDate}T${endTime}:00`, timezone);
     return {
       start,
-      end: garbledEnd && end.getTime() < start.getTime() ? fromZonedTime(`${nextDate(startDate)}T${endTime}:00`, timezone) : end,
+      end: garbledEnd && end.getTime() < start.getTime() ? wallTimeToInstant(`${nextDate(startDate)}T${endTime}:00`, timezone) : end,
     };
   }
-  const midnight = fromZonedTime(`${startDate}T00:00:00`, timezone);
+  const midnight = wallTimeToInstant(`${startDate}T00:00:00`, timezone);
   return {
     start: isNaN(midnight.getTime()) ? midnight : startOfLocalDay(startDate, timezone),
-    end: fromZonedTime(`${lastDate}T23:59:00`, timezone),
+    end: wallTimeToInstant(`${lastDate}T23:59:00`, timezone),
   };
 }
 

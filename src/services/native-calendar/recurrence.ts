@@ -12,13 +12,14 @@
 // and exdates. Callers feed the result into UnifiedEvent shape via toUnifiedEvent.
 
 import { RRule, RRuleSet } from 'rrule';
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import { HDate, getBirthdayOrAnniversary } from '@hebcal/hdate';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
 import { REPEAT_COUNT_MAX, REPEAT_INTERVAL_MAX, WEEKDAY_CODES, type RepeatSpec, type WeekdayCode } from '../../lib/calendar-view/editor-types';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { wallTimeToInstant } from '../../utils/wall-time';
 import { hebrewDayIn, type HebrewMonthName } from '../hebrew-date-resolve';
 
 export interface VirtualInstance {
@@ -80,9 +81,13 @@ function toFloating(instant: Date, tz: string): Date {
   return new Date(`${formatInTimeZone(instant, tz, "yyyy-MM-dd'T'HH:mm:ss")}Z`);
 }
 
-/** Inverse of toFloating: re-anchor a wall clock in `tz` to a real instant. */
+/**
+ * Inverse of toFloating: re-anchor a wall clock in `tz` to a real instant. A wall time the clocks skip
+ * moves forward by the jump and a repeated one is the first occurrence (wall-time.ts), the same as
+ * everywhere else a wall time becomes an instant.
+ */
 function fromFloating(floating: Date, tz: string): Date {
-  return fromZonedTime(floating.toISOString().slice(0, 19), tz);
+  return wallTimeToInstant(floating.toISOString().slice(0, 19), tz);
 }
 
 /**
@@ -497,7 +502,7 @@ function hebrewPlan(series: HebrewSeries): { at: (j: number) => Date | null; fir
       // Slot 0 is the anchor itself.
       const found = j === 0 ? null : getBirthdayOrAnniversary(anchorYear + j * interval, { yy: anchorYear, mm: month, dd: date });
       const day = j === 0 ? series.hebrewAnchor : found ? civilDayOf(found) : null;
-      slots.set(j, day ? fromZonedTime(`${day}T${wall}`, zone) : null);
+      slots.set(j, day ? wallTimeToInstant(`${day}T${wall}`, zone) : null);
     }
     return slots.get(j)!;
   };
@@ -948,7 +953,7 @@ export function withCount(rule: string, count: number): string {
 /** Calendar days from one yyyy-MM-dd to another. */
 export const daysFromTo = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 /** An all-day item's end as the bot stores it: 23:59 on its last day. */
-export const endOfLocalDay = (day: string, tz: string) => fromZonedTime(`${day}T23:59:00`, tz);
+export const endOfLocalDay = (day: string, tz: string) => wallTimeToInstant(`${day}T23:59`, tz);
 
 /** Where an occurrence goes: its new start and end, and whether it is all day. */
 type MovedTo = { startsAt: Date; endsAt: Date; allDay: boolean };
@@ -962,7 +967,7 @@ function timesOnDay(day: string, to: MovedTo, tz: string): { startsAt: Date; end
     const span = daysFromTo(localDate(to.startsAt, tz), localDate(to.endsAt, tz));
     return { startsAt: startOfLocalDay(day, tz), endsAt: endOfLocalDay(addDaysToDate(day, Math.max(0, span)), tz) };
   }
-  const startsAt = fromZonedTime(`${day}T${formatInTimeZone(to.startsAt, tz, 'HH:mm')}:00`, tz);
+  const startsAt = wallTimeToInstant(`${day}T${formatInTimeZone(to.startsAt, tz, 'HH:mm')}`, tz);
   return { startsAt, endsAt: new Date(startsAt.getTime() + (to.endsAt.getTime() - to.startsAt.getTime())) };
 }
 
@@ -1054,7 +1059,7 @@ function yearlyMoveFor(series: YearlySeries & { rrule: string }, opened: { slot:
   const hebrewAnchor = anchorYear === date.getFullYear() ? picked : hebrewDayIn({ day: date.getDate(), month }, anchorYear);
   if (!hebrewAnchor) return { day: null, move: { far, years, hebrewAnchor: null } };
   // Slot 0 is the anchor; the first year is as many slots on as the old series' first was.
-  const next = hebrewPlan({ ...hebrewSeriesOf(series), hebrewAnchor, startsAt: fromZonedTime(`${hebrewAnchor}T00:00:00`, tz) });
+  const next = hebrewPlan({ ...hebrewSeriesOf(series), hebrewAnchor, startsAt: wallTimeToInstant(`${hebrewAnchor}T00:00:00`, tz) });
   const first = next.at(old.first);
   return { day: first ? localDate(first, tz) : null, move: { far, years, hebrewAnchor } };
 }
@@ -1093,7 +1098,7 @@ export function yearlySlotMap(from: YearlySeries, to: YearlySeries, years: numbe
   const wall = formatInTimeZone(to.startsAt, tz, 'HH:mm:ss.SSS');
   return (slot) => {
     const day = `${pad4(civilYearAt(slot, fromTz) + years)}${monthDay}`;
-    return isCivilDay(day) ? fromZonedTime(`${day}T${wall}`, tz) : null;
+    return isCivilDay(day) ? wallTimeToInstant(`${day}T${wall}`, tz) : null;
   };
 }
 
@@ -1106,7 +1111,7 @@ export function yearlyExtraDateMap(tz: string, years: number): (at: Date) => Dat
   return (at) => {
     const own = localDate(at, tz);
     const day = `${pad4(Number(own.slice(0, 4)) + years)}${own.slice(4)}`;
-    return isCivilDay(day) ? fromZonedTime(`${day}T${formatInTimeZone(at, tz, 'HH:mm:ss.SSS')}`, tz) : null;
+    return isCivilDay(day) ? wallTimeToInstant(`${day}T${formatInTimeZone(at, tz, 'HH:mm:ss.SSS')}`, tz) : null;
   };
 }
 

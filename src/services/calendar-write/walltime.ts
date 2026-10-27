@@ -2,8 +2,8 @@
 // sends 'YYYY-MM-DDTHH:mm' (a timed item) or 'YYYY-MM-DD' (an all-day one) on the user's
 // clock, and the server turns them into instants with the zone it resolved itself. Pure.
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
+import { instantToWallTime, wallTimeToInstant } from '../../utils/wall-time';
 import { MAX_YEAR, MIN_YEAR_SERIES } from '../../lib/calendar-view/year-limits';
 
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -38,20 +38,36 @@ export function isWall(value: unknown, minYear: number = MIN_YEAR_SERIES): value
 /** The day of a wall time or a day. */
 export const dayOfWall = (wall: string): string => wall.slice(0, 10);
 
-/** The instant a wall time is in `tz`. A time a spring-forward skips lands an hour on, as a phone's clock does. */
+/**
+ * The instant a wall time is in `tz`: what every path that turns a time on someone's clock into an instant
+ * uses (src/utils/wall-time.ts, the one resolver), the same whatever zone the server runs in. A time the
+ * clocks skip (02:30 on the night Israel springs forward) lands an hour on, as Google Calendar and a phone's
+ * clock do (03:30); a time they repeat (01:30 on the night it falls back) is its first occurrence.
+ */
 export function wallToInstant(wall: string, tz: string): Date {
-  return fromZonedTime(`${wall}:00`, tz);
+  return wallTimeToInstant(wall, tz);
+}
+
+/**
+ * `wallToInstant`, except that a wall time that is what `current` already reads on that clock is `current`:
+ * a repeated hour has two instants for one wall time, and an edit that leaves a time alone (the end of an
+ * item that starts at the second 01:30) must not move it to the first. Pass the stored instant of the field.
+ */
+export function wallToInstantKeeping(wall: string, tz: string, current: Date): Date {
+  return instantToWall(current, tz) === wall ? current : wallToInstant(wall, tz);
 }
 
 export function instantToWall(instant: Date, tz: string): string {
-  return formatInTimeZone(instant, tz, "yyyy-MM-dd'T'HH:mm");
+  return instantToWallTime(instant, tz).slice(0, 16);
 }
+
+export { wallTimeToInstant };
 
 /** The first instant of an all-day item's first day. */
 export const dayStart = (day: string, tz: string): Date => startOfLocalDay(day, tz);
 
 /** An all-day item's end, as the bot stores it: 23:59 local on the last day. */
-export const dayEnd = (lastDay: string, tz: string): Date => fromZonedTime(`${lastDay}T23:59:00`, tz);
+export const dayEnd = (lastDay: string, tz: string): Date => wallTimeToInstant(`${lastDay}T23:59`, tz);
 
 /** Calendar days from `from` to `to` (both yyyy-MM-dd). */
 export function daysBetween(from: string, to: string): number {

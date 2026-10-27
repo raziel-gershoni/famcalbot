@@ -9,8 +9,9 @@
  * marked so the prompt can say so.
  */
 
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 import type { CalendarEvent, DaySpan } from '../types';
+import { wallTimeToInstant } from './wall-time';
 
 /**
  * An event carried over from the previous day that ends at or before this hour belongs
@@ -40,12 +41,12 @@ export function addDaysToDate(day: string, days: number): string {
 
 /**
  * The first instant of `day` in `timezone`. Where daylight saving starts at midnight
- * (Chile, Cuba, Lebanon) 00:00 does not exist and would resolve to 23:00 the day before,
- * so the day then starts at 01:00.
+ * (Chile, Cuba, Lebanon) 00:00 does not exist and the resolver moves it forward by the
+ * jump, so the day then starts at 01:00; where the clocks go back at midnight, 00:00
+ * happens twice and the day starts at the first.
  */
 export function startOfLocalDay(day: string, timezone: string): Date {
-  const midnight = fromZonedTime(`${day} 00:00:00`, timezone);
-  return formatInTimeZone(midnight, timezone, 'yyyy-MM-dd') === day ? midnight : fromZonedTime(`${day} 01:00:00`, timezone);
+  return wallTimeToInstant(`${day}T00:00`, timezone);
 }
 
 /**
@@ -79,7 +80,7 @@ export function daySpanOf(event: CalendarEvent, day: string, timezone: string): 
   const startsBefore = start < dayStart;
   const endsAfter = end > dayEnd;
   if (startsBefore && !endsAfter) {
-    const cutoff = fromZonedTime(`${day} ${String(OVERNIGHT_CUTOFF_HOUR).padStart(2, '0')}:00:00`, timezone);
+    const cutoff = wallTimeToInstant(`${day}T${String(OVERNIGHT_CUTOFF_HOUR).padStart(2, '0')}:00`, timezone);
     if (end <= cutoff) return null;
   }
   return startsBefore ? (endsAfter ? 'spansDay' : 'continues') : endsAfter ? 'endsLater' : undefined;

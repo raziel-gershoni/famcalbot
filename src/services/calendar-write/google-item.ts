@@ -28,7 +28,7 @@ import { repeatInfo, wallFor, writableCalendarRows } from './item-info';
 import { getPartnerUserId } from '../native-calendar/event-store';
 import { googleCrossRefusal, googleRuleLine, type CrossRefusal } from '../calendar-move/mapper';
 import { googleKeyOf, isHebrewChoice, parseGoogleKey, type CreateCommand, type DeleteCommand, type GoogleItemKey, type UpdateCommand } from './validate';
-import { dayEnd, dayStart, localDate, wallToInstant } from './walltime';
+import { dayEnd, dayStart, localDate, wallToInstantKeeping } from './walltime';
 import { createTimes, resolveWallTimes, weekStartOf, type WriteResult } from './write';
 import { repeatChanges, ruleOfSpec, ruleToWrite, specOfInput, type BuiltRule, type StoredSeries } from './repeat-spec';
 import { liveGoogleChoices } from '../../lib/google-state';
@@ -356,12 +356,12 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const rule = ruleInfo(read, userTz);
   const times = resolveWallTimes(c, occ, false, userTz, userTz, minYearFor(c.repeat ?? rule.choice));
   if (!times.ok) return { status: 'invalid', field: times.field };
-  const { start, end, allDay, timeChanged } = times;
+  const { start, end, allDay, timeChanged, derivedEnd } = times;
   // The cut of a repeat change is the opened occurrence's slot; the new part starts there unless this save moves it.
   const zone = zoneOf(read, userTz);
   const slot = read.event.originalStartTime;
   const cut = slot?.dateTime ? new Date(slot.dateTime) : slot?.date ? dayStart(slot.date, zone) : null;
-  const tailStart = timeChanged ? (allDay ? dayStart(start, userTz) : wallToInstant(start, userTz)) : (cut ?? occ.startsAt);
+  const tailStart = timeChanged ? (allDay ? dayStart(start, userTz) : wallToInstantKeeping(start, userTz, occ.startsAt)) : (cut ?? occ.startsAt);
   const text = {
     ...(c.title !== undefined && c.title !== (read.event.summary ?? '') ? { title: c.title } : {}),
     ...(c.location !== undefined && c.location !== (read.event.location ?? '') ? { location: c.location } : {}),
@@ -405,7 +405,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const data: UpdateEventInput = {
     ...text,
     ...(timeChanged
-      ? { startTime: allDay ? dayStart(start, userTz) : wallToInstant(start, userTz), endTime: allDay ? dayEnd(end, userTz) : wallToInstant(end, userTz), allDay }
+      ? { startTime: allDay ? dayStart(start, userTz) : wallToInstantKeeping(start, userTz, occ.startsAt), endTime: allDay ? dayEnd(end, userTz) : (derivedEnd ?? wallToInstantKeeping(end, userTz, occ.endsAt)), allDay }
       : {}),
     scope,
     ...(masterId ? { recurringEventId: masterId } : {}),
