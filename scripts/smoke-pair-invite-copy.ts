@@ -67,7 +67,8 @@ for (const { namespace, files } of SCREENS) {
       const source = read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       assert(!/\bCOPY\b/.test(source), `${file} still has a COPY table`);
       assert(!/locale === 'he' \?/.test(source.replace(/toLocale\w*String\([\s\S]*?\)/g, '').replace(/'he-IL'/g, '')), `${file} still picks copy by locale`);
-      const text = [...source.matchAll(/>([^<>{}=;()]*[A-Za-z֐-׿Ѐ-ӿ][^<>{}=;()]*)</g)].map(m => m[1].trim()).filter(Boolean);
+      // A tag's end, not an arrow's (`=> Promise<void>` is a type, not text between tags)
+      const text = [...source.matchAll(/(?<!=)>([^<>{}=;()]*[A-Za-z֐-׿Ѐ-ӿ][^<>{}=;()]*)</g)].map(m => m[1].trim()).filter(Boolean);
       assert(text.length === 0, `${file} has text between tags: ${JSON.stringify(text)}`);
       const attrs = [...source.matchAll(/\b(?:aria-label|title|placeholder|alt)="([^"]+)"/g)].map(m => m[1]);
       assert(attrs.length === 0, `${file} has quoted attribute text: ${JSON.stringify(attrs)}`);

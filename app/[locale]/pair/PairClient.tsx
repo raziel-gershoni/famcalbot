@@ -1,13 +1,33 @@
 'use client';
 
-// Pair management — generate / show / revoke invite, view active partner, unlink.
+// The Partner screen, in the home's design (spec 2026-10-19 §4, §5; plan W3): an AppScreen on the grouped ground, a header
+// with its back, and the state the person is in.
+//
+// - Paired: a card with the partner's name and since when, and an Unlink row. The row asks in a bottom sheet (what the
+//   server does: you stop seeing each other's calendars and every shared calendar goes back to private), never in the
+//   browser's own pop-up.
+// - Not paired: the intro, then, when a link exists, a card with the link in a copy field, how long it lasts and a
+//   Revoke row; then Generate. Generating again replaces the link (the server revokes the old one).
+// - One request at a time: the button of the request that runs is busy, and every action is disabled meanwhile. A failure
+//   is said in the page's language, and logged. The page's errors sit at the top of the page; the unlink's sit in its
+//   sheet, since the sheet covers the page.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the unlink
+//   sheet when that is open (and does nothing while the unlink works), else returns to the calendar.
+// - The requests are /api/pair/invite (POST, DELETE) and /api/pair (DELETE), with the Telegram launch data in the body.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Copy, Check, X, Link as LinkIcon, AlertTriangle } from 'lucide-react';
+import { Link as LinkIcon } from 'lucide-react';
 import { readInitData } from '@/src/lib/read-init-data';
-import { useTelegramBackButton } from '@/src/lib/telegram-ui';
+import { formatDeviceDate, formatDeviceDayTime } from '@/src/lib/calendar-view/device-time';
+import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { CopyField } from '@/components/app-ui/CopyField';
+import { FORM_CSS, FormCard, FormRow } from '@/components/app-ui/form-kit';
+import { Notice } from '@/components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 
 interface Props {
   userId: number;
@@ -22,176 +42,170 @@ function getInitData(): string {
   return readInitData();
 }
 
+type Request = 'create' | 'revoke' | 'unlink';
+type Failure = 'generic' | 'alreadyPaired';
+
 export default function PairClient({ userId, locale, initial }: Props) {
   const t = useTranslations('pair');
-  const isRTL = locale === 'he';
+  const ui = useTranslations('ui');
   const router = useRouter();
-  // These pages open from the home's ⋯ menu: Telegram's back button (and Android's back) returns there.
-  useTelegramBackButton(true, () => router.push(`/${locale}/dashboard?user_id=${userId}`));
 
   const [partner, setPartner] = useState(initial.partner);
   const [invite, setInvite] = useState(initial.invite);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string>('');
-  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<Request | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [unlinkFailed, setUnlinkFailed] = useState(false);
+  // A swipe down in the sheet must not minimize the app.
+  useTelegramVerticalSwipes(unlinkOpen);
 
-  const createInvite = async () => {
-    setBusy('create');
-    setError('');
+  const unlinking = busy === 'unlink';
+
+  const send = (method: 'POST' | 'DELETE', path: string) =>
+    fetch(`${path}?user_id=${userId}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData: getInitData() }),
+    });
+
+  /** One request at a time: `kind` is busy while `work` runs; a throw is logged and `fail` tells the person. */
+  const run = async (kind: Request, work: () => Promise<void>, fail: () => void) => {
+    if (busy) return;
+    setBusy(kind);
     try {
-      const res = await fetch(`/api/pair/invite?user_id=${userId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: getInitData() }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.error === 'INVITER_ALREADY_PAIRED' ? t('errorAlreadyPaired') : t('errorGeneric'));
-        return;
-      }
-      setInvite({ token: data.token, url: data.url, expiresAt: data.expiresAt });
+      await work();
+    } catch (error) {
+      console.error(`[pair] ${kind} failed:`, error);
+      fail();
     } finally {
       setBusy(null);
     }
   };
 
-  const revoke = async () => {
-    setBusy('revoke');
-    setError('');
-    try {
-      const res = await fetch(`/api/pair/invite?user_id=${userId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: getInitData() }),
-      });
-      if (!res.ok) {
-        setError(t('errorGeneric'));
-        return;
-      }
-      setInvite(null);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const unlink = async () => {
-    if (!confirm(t('unlinkConfirm'))) return;
-    setBusy('unlink');
-    setError('');
-    try {
-      const res = await fetch(`/api/pair?user_id=${userId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ initData: getInitData() }),
-      });
-      if (!res.ok) {
-        setError(t('errorGeneric'));
-        return;
-      }
-      setPartner(null);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      // Older WebViews: the field is selectable, so the user can long-press to copy.
-      console.error('[Pair] Could not copy the invite link:', err);
-    }
-  };
-
-  const expiresWhen = (iso: string) =>
-    new Date(iso).toLocaleString(
-      locale === 'he' ? 'he-IL' : locale === 'ru' ? 'ru-RU' : 'en-US',
-      { dateStyle: 'medium', timeStyle: 'short' }
+  const createInvite = () =>
+    run(
+      'create',
+      async () => {
+        setFailure(null);
+        const res = await send('POST', '/api/pair/invite');
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          console.warn('[pair] create refused:', res.status, data.error);
+          setFailure(data.error === 'INVITER_ALREADY_PAIRED' ? 'alreadyPaired' : 'generic');
+          return;
+        }
+        setInvite({ token: data.token, url: data.url, expiresAt: data.expiresAt });
+      },
+      () => setFailure('generic'),
     );
 
-  return (
-    <div dir={isRTL ? 'rtl' : 'ltr'} className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4 md:p-8">
-      <div className="max-w-md mx-auto">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6">{t('title')}</h1>
+  const revoke = () =>
+    run(
+      'revoke',
+      async () => {
+        setFailure(null);
+        const res = await send('DELETE', '/api/pair/invite');
+        if (!res.ok) {
+          console.warn('[pair] revoke refused:', res.status);
+          setFailure('generic');
+          return;
+        }
+        setInvite(null);
+      },
+      () => setFailure('generic'),
+    );
 
-        {error && (
-          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-4 text-rose-700 text-sm flex items-start gap-2">
-            <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
+  const unlink = () =>
+    run(
+      'unlink',
+      async () => {
+        setUnlinkFailed(false);
+        const res = await send('DELETE', '/api/pair');
+        if (!res.ok) {
+          console.warn('[pair] unlink refused:', res.status);
+          setUnlinkFailed(true);
+          return;
+        }
+        setPartner(null);
+        setUnlinkOpen(false);
+      },
+      () => setUnlinkFailed(true),
+    );
+
+  const openUnlink = () => {
+    setUnlinkFailed(false);
+    setUnlinkOpen(true);
+  };
+  // Not while the unlink works: the sheet stays until the server has answered
+  const closeUnlink = () => {
+    if (unlinking) return;
+    setUnlinkOpen(false);
+    setUnlinkFailed(false);
+  };
+  const back = () => {
+    if (unlinkOpen) closeUnlink();
+    else router.push(`/${locale}/dashboard?user_id=${userId}`);
+  };
+
+  const since = partner?.acceptedAt ? formatDeviceDate(partner.acceptedAt, locale) : '';
+  const anyBusy = busy !== null;
+
+  return (
+    <AppScreen ground="grouped" onBack={back}>
+      <style>{FORM_CSS}</style>
+      <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
+      <div className="ch-form-page">
+        {failure ? <Notice tone="error">{failure === 'alreadyPaired' ? t('errorAlreadyPaired') : t('errorGeneric')}</Notice> : null}
 
         {partner ? (
-          <div className="bg-white rounded-2xl shadow-xl p-6 text-center">
-            <div className="text-5xl mb-3">🤝</div>
-            <h2 className="text-xl font-bold text-gray-800">{t('pairedWith', { name: partner.name })}</h2>
-            {partner.acceptedAt && (
-              <p className="text-sm text-gray-500 mt-1">
-                {t('pairedSince', { when: new Date(partner.acceptedAt).toLocaleDateString(
-                  locale === 'he' ? 'he-IL' : locale === 'ru' ? 'ru-RU' : 'en-US',
-                  { dateStyle: 'medium' }
-                ) })}
-              </p>
-            )}
-            <button
-              onClick={unlink}
-              disabled={busy === 'unlink'}
-              className="mt-6 w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-medium py-3 rounded-xl transition-colors disabled:opacity-60"
-            >
-              {busy === 'unlink' ? t('unlinking') : t('unlink')}
+          <FormCard>
+            <FormRow label={t('pairedWith', { name: partner.name })} hint={since ? t('pairedSince', { when: since }) : undefined} />
+            <button type="button" className="ch-form-row ch-danger-row" aria-haspopup="dialog" disabled={anyBusy} onClick={openUnlink}>
+              {t('unlink')}
             </button>
-          </div>
+          </FormCard>
         ) : (
-          <div className="bg-white rounded-2xl shadow-xl p-6">
-            <p className="text-gray-600 text-sm mb-4">{t('notPairedSubtitle')}</p>
-
+          <>
+            <p className="ch-form-fixed">{t('notPairedSubtitle')}</p>
             {invite ? (
-              <div className="bg-blue-50 rounded-xl p-4 mb-3">
-                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">{t('activeLink')}</p>
-                <div className="flex items-center gap-2 mb-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={invite.url}
-                    className="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm font-mono text-gray-700 select-all"
-                  />
-                  <button
-                    onClick={() => copyToClipboard(invite.url)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg flex items-center justify-center"
-                    aria-label={t('copyLink')}
-                  >
-                    {copied ? <Check size={18} /> : <Copy size={18} />}
+              <div className="ch-form-group">
+                <SectionLabel>{t('linkLabel')}</SectionLabel>
+                <FormCard>
+                  <CopyField label={t('linkLabel')} value={invite.url} copyLabel={t('copyLink')} copiedLabel={t('copied')} />
+                  <div className="ch-form-row">
+                    <span className="ch-form-label">
+                      <span className="ch-form-hint">{t('activeLink')}</span>
+                      <span className="ch-form-hint">{t('expires', { when: formatDeviceDayTime(invite.expiresAt, locale) })}</span>
+                    </span>
+                  </div>
+                  <button type="button" className="ch-form-row ch-danger-row" disabled={anyBusy} aria-busy={busy === 'revoke' || undefined} onClick={revoke}>
+                    {t('revoke')}
+                    {busy === 'revoke' ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
                   </button>
-                </div>
-                <p className="text-xs text-blue-600">{t('expires', { when: expiresWhen(invite.expiresAt) })}</p>
+                </FormCard>
               </div>
             ) : null}
-
-            <div className="flex gap-2">
-              <button
-                onClick={createInvite}
-                disabled={busy === 'create'}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
-              >
-                <LinkIcon size={16} />
-                {busy === 'create' ? t('creating') : t('generateInvite')}
-              </button>
-              {invite && (
-                <button
-                  onClick={revoke}
-                  disabled={busy === 'revoke'}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-4 rounded-xl transition-colors disabled:opacity-60"
-                  aria-label={t('revoke')}
-                >
-                  {busy === 'revoke' ? '…' : <X size={16} />}
-                </button>
-              )}
-            </div>
-          </div>
+            <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={anyBusy} aria-busy={busy === 'create' || undefined} onClick={createInvite}>
+              {busy === 'create' ? <span className="ch-form-spinner" aria-hidden="true" /> : <LinkIcon size={18} aria-hidden="true" />}
+              {busy === 'create' ? t('creating') : t('generateInvite')}
+            </button>
+          </>
         )}
       </div>
-    </div>
+
+      {unlinkOpen && partner ? (
+        <BottomSheet label={t('unlinkTitle', { name: partner.name })} closeLabel={ui('cancel')} closeDisabled={unlinking} onClose={closeUnlink}>
+          <h2 className="ch-sheet-heading">{t('unlinkTitle', { name: partner.name })}</h2>
+          <p className="ch-sheet-sub">{t('unlinkBody')}</p>
+          <div className="ch-sheet-stack">
+            {unlinkFailed ? <Notice tone="error">{t('errorGeneric')}</Notice> : null}
+            <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={unlinking} aria-busy={unlinking || undefined} onClick={unlink}>
+              {unlinking ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
+              {unlinking ? t('unlinking') : t('unlink')}
+            </button>
+          </div>
+        </BottomSheet>
+      ) : null}
+    </AppScreen>
   );
 }

@@ -209,6 +209,8 @@ export const TEXT_PAIRS: [string, string][] = [
   // W1b: a tag's text on its soft ground, and a near-limit count on the card
   ['--ch-accent', '--ch-accent-soft'],
   ['--ch-warn-text', '--ch-section'],
+  // W3: the copy button's icon (on the icon button's surface fill) and a quiet button's text on the invite card, both on the surface
+  ['--ch-accent', '--ch-surface'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [

@@ -12,7 +12,7 @@
 //  - AppScreen (in real React on a small fake DOM, with a fake Telegram.WebApp): its root, the
 //    scheme it provides, and Telegram's BackButton, which shows exactly while onBack is set,
 //    calls the latest onBack, and goes with the screen; and no other file calls
-//    useTelegramBackButton but the two clients W3 still has to move;
+//    useTelegramBackButton but the Calendars client, which a later plan moves;
 //  - the layer's boundary: nothing in components/app-ui/ imports from app/ or a server module,
 //    so every screen can take it into its client bundle;
 //  - the cards (renderToString in en, he and ru): StateCard draws the home's card with the markup
@@ -32,10 +32,12 @@
 //    additions (a disabled SwitchRow, a note, valueDir, the SaveBar's status, disabled and sticky), the
 //    BottomSheet's closeDisabled, and the new CSS (the switch's off outline, the grouped paint, the chips);
 //  - the fix round (K11, K12): the fake DOM matches the selectors the app passes and throws on the rest, and the
-//    loader of a grouped page (Settings) is on its ground, so Telegram's header does not change colour on arrival;
+//    loader of a grouped page (Settings, Subscription, Pair) is on its ground, so Telegram's header does not change colour on arrival;
 //  - the pieces W1b added (K13-K16, plan docs/superpowers/plans/2026-10-27-app-ui-W1b-subscription-feedback-story.md): Tag, Meter
 //    (its aria, its cap, its near-limit class), the Panel card, the outlined button and the near-limit colour, and lintCss itself
-//    (scripts/lib/css-lint.ts, which #2 and the screens' own smokes run over their CSS).
+//    (scripts/lib/css-lint.ts, which #2 and the screens' own smokes run over their CSS);
+//  - the piece W3 added (K17, plan docs/superpowers/plans/2026-10-27-app-ui-W3-partner-invite.md): CopyField, the copy-link field
+//    (its parts, a tap writing the value and saying Copied for 2 seconds, and a blocked clipboard selecting the text instead).
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -53,6 +55,7 @@ import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
 import { BottomSheet, TABBABLE } from '../components/app-ui/BottomSheet';
+import { CopyField } from '../components/app-ui/CopyField';
 import { DayChips, type DayChip } from '../components/app-ui/DayChips';
 import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components/app-ui/form-kit';
 import { Meter, NEAR_LIMIT } from '../components/app-ui/Meter';
@@ -137,11 +140,14 @@ const backCalls = (calls: string[]) => calls.filter((c) => c.startsWith('BackBut
 // ---- React must not warn ----
 
 const reactWarnings: string[] = [];
+/** What CopyField logs when the clipboard is not there to use (K17 reads it). */
+const copyLogs: string[] = [];
 for (const level of ['error', 'warn'] as const) {
   const original = console[level].bind(console);
   console[level] = (...args: unknown[]) => {
     const text = args.map(String).join(' ');
     if (text.startsWith('[telegram-ui]')) return original(...args);
+    if (text.startsWith('[copy]')) return void copyLogs.push(text);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
     reactWarnings.push(text.slice(0, 300));
@@ -335,7 +341,7 @@ async function main() {
     fakeWindow.Telegram = undefined;
   });
 
-  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Calendars and Pair clients, which W3 moves onto AppScreen; the list is pinned, so a new caller fails", () => {
+  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Calendars client, which a later plan moves onto AppScreen; the list is pinned, so a new caller fails", () => {
     const calls: string[] = [];
     const walk = (dir: string) => {
       for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -350,7 +356,6 @@ async function main() {
     for (const dir of ['app', 'components', 'src']) walk(dir);
     const expected = [
       'app/[locale]/calendars/CalendarsClient.tsx',
-      'app/[locale]/pair/PairClient.tsx',
       'components/app-ui/AppScreen.tsx',
       'src/lib/telegram-ui.ts',
     ];
@@ -866,7 +871,7 @@ async function main() {
     }
   });
 
-  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and the dynamic() fallback of Settings and of Subscription draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
+  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and the dynamic() fallback of Settings, of Subscription and of Pair draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
     installWindow();
     const { AppRouterContext } = createRequire(__filename)('next/dist/shared/lib/app-router-context.shared-runtime');
     const router = { push: noop, replace: noop, prefetch: noop, back: noop, forward: noop, refresh: noop };
@@ -876,7 +881,7 @@ async function main() {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
     try {
-      for (const [page, grouped] of [['settings', true], ['subscription', true], ['dashboard', false]] as const) {
+      for (const [page, grouped] of [['settings', true], ['subscription', true], ['pair', true], ['dashboard', false]] as const) {
         // The gate's own loader, mounted in a light Telegram 7.7
         const calls: string[] = [];
         fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
@@ -1025,6 +1030,98 @@ async function main() {
     assert(repeated.length === 1 && /literal/.test(repeated[0]), `the exempt text twice: only the first is skipped: ${show(repeated)}`);
     const stale = lintCss('.a {\n  color: var(--ch-text);\n}', { exempt: ['gone'] });
     assert(stale.length === 1 && /exempt/.test(stale[0]), `an exemption not in the CSS: ${show(stale)}`);
+  });
+
+  // ---- W3: CopyField (K17; K1-K16 are W1's) ----
+
+  await check("K17 CopyField: a field (label, value, a read-only input that reads left to right, a 44 px icon button named Copy link, a hidden status) whose tap writes the value to the clipboard, then says Copied (the button's name, the check mark and the status) for 2 seconds and goes back; with no clipboard, or one that rejects, it never says Copied, logs why ([copy] clipboard unavailable:), selects the input's whole text so a long press copies it, and throws nothing", async () => {
+    installWindow();
+    const props = { label: 'Invite link', value: 'https://famcal.bot/en/invite/abc123', copyLabel: 'Copy link', copiedLabel: 'Copied' };
+    // Its parts, on the server
+    const server = markupOf(renderToString(createElement(CopyField, props)));
+    assert(server.startsWith('<div class="ch-copy-field"><input ') && server.includes('class="ch-copy-field-input"') && /readonly=""/i.test(server) && server.includes('dir="ltr"'), `the server markup: ${server.slice(0, 240)}`);
+    assert(server.includes('<span class="ch-visually-hidden" role="status"></span></div>'), `the status: ${server.slice(-120)}`);
+    // The clipboard and the 2 second timer, held by hand
+    const navigatorBefore = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const written: string[] = [];
+    const setNavigator = (value: Row) => Object.defineProperty(globalThis, 'navigator', { value, configurable: true });
+    const held: { fn: () => void; delay: number }[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((fn: () => void, delay?: number, ...rest: unknown[]) => {
+      if (delay === 2000) {
+        held.push({ fn, delay });
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(fn, delay, ...rest);
+    }) as typeof setTimeout;
+    // A tap whose handler throws or rejects ends in an unhandled rejection: "throws nothing" is checked here, as a failure of this check
+    const tap = async (m: ReturnType<typeof mount>, el: Parameters<typeof m.click>[0]) => {
+      const thrown: unknown[] = [];
+      const onRejection = (reason: unknown) => void thrown.push(reason);
+      process.on('unhandledRejection', onRejection);
+      try {
+        await act(async () => {
+          m.click(el);
+          for (let i = 0; i < 4; i++) await Promise.resolve();
+        });
+        await new Promise((resolve) => realSetTimeout(resolve, 0));
+      } finally {
+        process.off('unhandledRejection', onRejection);
+      }
+      assert(thrown.length === 0, `a tap threw: ${thrown.map(String).join('; ')}`);
+    };
+    const parts = (m: ReturnType<typeof mount>) => {
+      const all = elements(m.container);
+      const input = all.find((e) => e.localName === 'input');
+      const button = all.find((e) => e.localName === 'button');
+      const status = all.find((e) => e.getAttribute('role') === 'status');
+      assert(input && button && status, 'the three parts');
+      return { input, button, status, svg: all.find((e) => e.localName === 'svg') };
+    };
+    try {
+      // A clipboard that works
+      setNavigator({ clipboard: { writeText: async (text: string) => void written.push(text) } });
+      const m = mount(createElement(CopyField, props));
+      try {
+        const field = elements(m.container).find((e) => e.className === 'ch-copy-field');
+        const { input, button, status, svg } = parts(m);
+        assert(field && show(field.childNodes.map((n) => (n as { localName?: string }).localName)) === show(['input', 'button', 'span']), 'the field holds an input, a button and a status, in that order');
+        assert(input.className === 'ch-copy-field-input' && (input.hasAttribute('readonly') || input.hasAttribute('readOnly')) && input.getAttribute('dir') === 'ltr' && input.getAttribute('aria-label') === props.label && input.value === props.value, `the input: ${show([...input.attributes])}`);
+        assert(button.className === 'ch-icon-btn ch-copy-field-btn' && button.getAttribute('type') === 'button' && button.getAttribute('aria-label') === 'Copy link', `the button: ${button.className} ${button.getAttribute('aria-label')}`);
+        assert(svg?.getAttribute('aria-hidden') === 'true' && /lucide-copy\b/.test(svg.getAttribute('class') ?? ''), `the icon before: ${svg?.getAttribute('class')}`);
+        assert(status.className === 'ch-visually-hidden' && status.textContent === '', 'the status is empty');
+        await tap(m, button);
+        assert(show(written) === show([props.value]), `written: ${show(written)}`);
+        const after = parts(m);
+        assert(after.status.textContent === 'Copied' && after.button.getAttribute('aria-label') === 'Copied' && /lucide-check\b/.test(after.svg?.getAttribute('class') ?? ''), `copied: ${after.status.textContent} ${after.button.getAttribute('aria-label')} ${after.svg?.getAttribute('class')}`);
+        assert(held.length === 1 && copyLogs.length === 0 && after.input.selection === null, `after a tap: ${held.length} timer(s), ${show(copyLogs)}, selection ${show(after.input.selection)}`);
+        act(() => held[0].fn());
+        const back = parts(m);
+        assert(back.status.textContent === '' && back.button.getAttribute('aria-label') === 'Copy link' && /lucide-copy\b/.test(back.svg?.getAttribute('class') ?? ''), 'after 2 seconds it goes back');
+      } finally {
+        m.unmount();
+      }
+      // No clipboard API at all, then one that rejects: never Copied, the text selected, the reason logged, nothing thrown
+      for (const [name, clipboard] of [['no clipboard', undefined], ['a rejecting clipboard', { writeText: () => Promise.reject(new Error('denied')) }]] as const) {
+        copyLogs.length = 0;
+        held.length = 0;
+        setNavigator(clipboard ? { clipboard } : {});
+        const blocked = mount(createElement(CopyField, props));
+        try {
+          const { input, button } = parts(blocked);
+          await tap(blocked, button);
+          const now = parts(blocked);
+          assert(now.status.textContent === '' && now.button.getAttribute('aria-label') === 'Copy link' && held.length === 0, `${name}: Copied was said (${now.status.textContent}), ${held.length} timer(s)`);
+          assert(copyLogs.length === 1 && copyLogs[0].startsWith('[copy] clipboard unavailable:'), `${name}: the log ${show(copyLogs)}`);
+          assert(show(input.selection) === show({ start: 0, end: props.value.length }), `${name}: the selection ${show(input.selection)}`);
+        } finally {
+          blocked.unmount();
+        }
+      }
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      if (navigatorBefore) Object.defineProperty(globalThis, 'navigator', navigatorBefore);
+    }
   });
 
   await check('#99 React logged no warning', () => {

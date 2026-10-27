@@ -244,6 +244,14 @@ export class FakeElement extends FakeNode {
   get options(): FakeElement[] {
     return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName === 'option');
   }
+  /** What select() and setSelectionRange() last asked of a text field (a smoke reads it); null until one is called. */
+  selection: { start: number; end: number } | null = null;
+  select() {
+    this.selection = { start: 0, end: this.value.length };
+  }
+  setSelectionRange(start: number, end: number) {
+    this.selection = { start, end };
+  }
   focus() {
     fakeDocument.activeElement = this;
   }

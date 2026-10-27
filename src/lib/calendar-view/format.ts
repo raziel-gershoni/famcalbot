@@ -116,6 +116,15 @@ export function formatDayLong(day: DayKey, locale: string): string {
     .join('');
 }
 
+const DAY_YEAR: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' };
+
+/** "3 Oct 2026" / "3 באוק׳ 2026" / "3 окт. 2026": a day with its year, for a line of text. '' for a key that isn't a real day. */
+export function formatDayYear(day: DayKey, locale: string): string {
+  const d = keyDate(day);
+  // ru-RU closes a year with " г."; a line of text has no room for it.
+  return d ? formatter(locale, DAY_YEAR).format(d).replace(/\s?г\.$/, '') : '';
+}
+
 /** "6 Oct" / "6 באוק׳" / "6 окт.": an older carry-over's "since". */
 export function formatDayMonth(day: DayKey, locale: string): string {
   const d = keyDate(day);

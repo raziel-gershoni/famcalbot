@@ -1616,11 +1616,14 @@
     "generateInvite": "Generate invite link",
     "revoke": "Revoke link",
     "unlink": "Unlink",
-    "unlinkConfirm": "Unlink? Your partner will lose access to your shared calendars immediately.",
+    "unlinkTitle": "Unlink from {name}?",
+    "unlinkBody": "You'll stop seeing each other's calendars right away, and every shared calendar goes back to private.",
     "copyLink": "Copy link",
+    "copied": "Copied",
+    "linkLabel": "Invite link",
     "expires": "Expires {when}",
     "activeLink": "Send this link to your partner. It expires in 7 days.",
-    "errorGeneric": "Something went wrong.",
+    "errorGeneric": "Something went wrong. Try again.",
     "errorAlreadyPaired": "You are already paired. Unlink first.",
     "creating": "Creating…",
     "unlinking": "Unlinking…"
@@ -1674,6 +1677,7 @@
     "back": "Back",
     "save": "Save",
     "saved": "Saved",
-    "done": "Done"
+    "done": "Done",
+    "cancel": "Cancel"
   }
 }

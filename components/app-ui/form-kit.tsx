@@ -4,7 +4,8 @@
 // field, a switch row, a button row that opens a sheet, a value row with a native <select>
 // over it, radio and stepper rows, a segmented control, a radio pair, a row of day chips and
 // a Save bar (sticky on a screen that scrolls).
-// The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts).
+// The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts). It also draws CopyField's
+// (./CopyField.tsx: ch-copy-field*) and dims a disabled row button (button.ch-form-row:disabled).
 //
 // What only the editor's flow draws (its header and body, the date and time pills, the scope
 // sheet and the calendar swatch ValueRow shows beside a calendar's name) is in
@@ -156,6 +157,35 @@ button.ch-form-row:focus-visible {
 }
 button.ch-danger-row {
   color: var(--ch-danger);
+}
+button.ch-form-row:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ch-copy-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-block-size: 44px;
+  padding-block: 8px;
+  padding-inline: 14px 8px;
+}
+.ch-copy-field-input {
+  flex: 1;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ch-text);
+  font: inherit;
+  font-size: 16px;
+  text-overflow: ellipsis;
+  outline: none;
+  -webkit-user-select: all;
+  user-select: all;
+}
+.ch-copy-field-btn {
+  color: var(--ch-accent);
 }
 .ch-switch {
   flex: none;
