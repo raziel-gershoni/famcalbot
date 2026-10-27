@@ -510,6 +510,7 @@ async function main() {
     const code = source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/className="[^"]*\b(?:bg-|text-(?:gray|rose|blue|xs|sm|lg|xl|2xl|3xl)|rounded|px-\d|py-\d|min-h-screen|flex-1|shadow|mt-\d|mb-\d|p-\d|gap-\d|max-w)/.test(code), 'a Tailwind class is left');
     assert(!/\p{Extended_Pictographic}/u.test(source), 'an emoji in the source');
+    for (const locale of LOCALES) assert(!/\p{Extended_Pictographic}/u.test(JSON.stringify(messages[locale].pair)), `${locale}: an emoji in the pair namespace`);
     assert(!/(?<![\w.])(?:window\.)?confirm\(/.test(code), 'PairClient calls confirm()');
     assert(/function getInitData\(\)[^{]*\{\s*return readInitData\(\);\s*\}/.test(code), 'getInitData is readInitData');
     assert(/<style>\{FORM_CSS\}<\/style>/.test(code) && /<AppScreen ground="grouped"/.test(code), 'the grouped AppScreen and the form kit\'s style sheet');

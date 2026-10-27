@@ -9,8 +9,9 @@
 // API POST, WA accept text) all converge on pairing-service.acceptInvite.
 
 import { notFound } from 'next/navigation';
-import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { StateCard } from '@/components/app-ui/StateCard';
 import { getInviteByToken } from '@/src/services/pairing-service';
 import InviteClient from './InviteClient';
 import { normalizeLocale } from '@/src/utils/locale';
@@ -28,23 +29,9 @@ export default async function InvitePage({ params }: PageProps) {
 
   if (!result) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rose-100 to-amber-100 p-6">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
-          <div className="text-5xl mb-4">⌛</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            {t('invalid.title')}
-          </h1>
-          <p className="text-gray-600 mb-4">
-            {t('invalid.body')}
-          </p>
-          <Link
-            href={`/${locale}`}
-            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
-          >
-            {t('invalid.home')}
-          </Link>
-        </div>
-      </div>
+      <AppScreen>
+        <StateCard tone="crash" title={t('invalid.title')} body={t('invalid.body')} action={{ label: t('invalid.home'), href: `/${locale}` }} />
+      </AppScreen>
     );
   }
 

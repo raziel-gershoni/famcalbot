@@ -1649,7 +1649,7 @@
       "ownInvite": "You cannot accept your own invite.",
       "inviterAlreadyPaired": "The inviter is already paired with someone else.",
       "inviteeAlreadyPaired": "You are already paired. Unlink first.",
-      "alreadyPairedTogether": "You two are already paired 🎉"
+      "alreadyPairedTogether": "You two are already paired."
     },
     "invalid": {
       "title": "Invite link not valid",

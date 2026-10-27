@@ -30,7 +30,8 @@
 // Review fixes: re-tapping the invite you already accepted, later or twice at once, hears
 // the same "already paired" (#15); a pairingId left on an UNLINKED pairing is not "paired
 // together" (#16); and on the invite page that news no longer shows as an error next to a
-// live Accept button (#17, the page's own code run with a stand-in hook dispatcher).
+// live Accept button (#17, the page mounted in real React on the small fake DOM, in the app's
+// design: an information notice and no Accept button, not an error notice).
 //
 // The check named [guard] already passes before the fix and must keep passing. The
 // others fail until the fix lands. Numbers follow the design's smoke list.
@@ -44,6 +45,9 @@ import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
+import { act, createElement } from 'react';
+import { NextIntlClientProvider } from 'next-intl';
+import { elements, fakeTelegram, fakeWindow, installWindow, mount } from './lib/fake-dom';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -462,76 +466,6 @@ const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 /** 'ok' for a fulfilled accept, else the PairingError code (or the message). */
 const outcome = (r: PromiseSettledResult<unknown>) =>
   r.status === 'fulfilled' ? 'ok' : String((r.reason as Row)?.code ?? (r.reason as Error)?.message ?? r.reason);
-
-/**
- * Runs a client component's own code with no DOM, as smoke-google-connect.ts does: React's
- * hook dispatcher is swapped for a small one (useState, useEffect), so its render, effects
- * and handlers run as on the phone. A state update renders again. tree() is the latest render.
- */
-function runClient(component: (props: Row) => unknown, props: Row): { tree: () => unknown } {
-  const internals = nodeRequire('react').__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Row;
-  const slots: Row[] = [];
-  let cursor = 0;
-  let output: unknown;
-  let effects: Array<() => void> = [];
-  let dirty = false;
-  let busy = false;
-  const dispatcher = {
-    useState(init: unknown) {
-      const slot = (slots[cursor++] ??= { value: typeof init === 'function' ? (init as () => unknown)() : init });
-      slot.set ??= (next: unknown) => {
-        const value = typeof next === 'function' ? (next as (v: unknown) => unknown)(slot.value) : next;
-        if (Object.is(value, slot.value)) return;
-        slot.value = value;
-        update();
-      };
-      return [slot.value, slot.set];
-    },
-    useEffect(fn: () => unknown, deps?: unknown[]) {
-      const k = cursor++;
-      const prev = slots[k];
-      if (prev && deps && deps.length === prev.deps.length && deps.every((v, i) => Object.is(v, prev.deps[i]))) return;
-      slots[k] = { deps };
-      effects.push(() => { fn(); });
-    },
-  };
-  function update() {
-    dirty = true;
-    if (busy) return;
-    busy = true;
-    try {
-      while (dirty) {
-        dirty = false;
-        cursor = 0;
-        const saved = internals.H;
-        internals.H = dispatcher;
-        try {
-          output = component(props);
-        } finally {
-          internals.H = saved;
-        }
-        const run = effects;
-        effects = [];
-        run.forEach(effect => effect());
-      }
-    } finally {
-      busy = false;
-    }
-  }
-  update();
-  return { tree: () => output };
-}
-
-/** Every element of a rendered tree. */
-function elementsOf(node: unknown, out: Row[] = []): Row[] {
-  if (Array.isArray(node)) { node.forEach(n => elementsOf(n, out)); return out; }
-  if (!node || typeof node !== 'object') return out;
-  out.push(node as Row);
-  elementsOf((node as Row).props?.children, out);
-  return out;
-}
-/** The text an element holds directly. */
-const ownText = (el: Row) => ([] as unknown[]).concat(el.props?.children ?? []).filter(c => typeof c === 'string').join('');
 
 async function main() {
   installStubs();
@@ -1021,29 +955,11 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#17 the invite page: an accept answered ALREADY_PAIRED_TOGETHER shows the news outside the rose error box and drops the Accept button, in en/he/ru; another error keeps the rose box and the button', async () => {
+  await check('#17 the invite page: an accept answered ALREADY_PAIRED_TOGETHER shows the news as information (a status notice, not the error notice) and drops the Accept button, in en/he/ru; another error keeps the error notice (an alert) and the button', async () => {
     const { POST } = await load('app/api/pair/accept/route.ts');
     const g = globalThis as Row;
     const blocked = g.fetch;
     const problems: string[] = [];
-    // The page reads its copy through next-intl's useTranslations, which needs a provider the
-    // hook stand-in lacks: serve the real translator for the case's locale from the real messages.
-    const { createTranslator } = nodeRequire('next-intl');
-    // next-intl's client entry points, which InviteClient's import resolves to
-    const nextIntlRels = [
-      'node_modules/next-intl/dist/esm/production/index.react-client.js',
-      'node_modules/next-intl/dist/esm/production/react-client/index.js',
-    ];
-    let caseLocale = 'en';
-    for (const rel of nextIntlRels) {
-      stub(rel, {
-        useTranslations: (namespace: string) => createTranslator({
-          locale: caseLocale,
-          messages: JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${caseLocale}.json`), 'utf8')),
-          namespace,
-        }),
-      });
-    }
     const InviteClient = (await load('app/[locale]/invite/[token]/InviteClient.tsx')).default;
     // The phone's fetch reaches the real accept route; the server has no window
     g.fetch = async (url: string, init: RequestInit) => {
@@ -1063,32 +979,40 @@ async function main() {
         { locale: 'en', tgId: 7770005, together: false, news: 'The inviter is already paired with someone else.' },
       ]) {
         pairedSeed();
-        caseLocale = c.locale;
-        const noop = () => undefined;
-        g.window = { Telegram: { WebApp: { initData: initDataFor(c.tgId), initDataUnsafe: { user: { id: c.tgId } }, ready: noop, expand: noop, close: noop } } };
-        const app = runClient(InviteClient, {
-          token: TOKEN_1, inviterName: 'Dana', locale: c.locale, tgDeepLink: '', waDeepLink: '', expiresAt: new Date(Date.now() + 6 * DAY).toISOString(),
-        });
-        const buttons = () => elementsOf(app.tree()).filter(e => e.type === 'button');
-        const tapped = buttons()[0];
-        if (!tapped) { problems.push(`${c.locale} ${c.tgId}: no Accept button before the tap`); continue; }
-        await tapped.props.onClick();
-        await settle();
-        const els = elementsOf(app.tree());
-        const box = els.find(e => ownText(e).includes(c.news));
-        const rose = /rose/.test(String(box?.props?.className ?? ''));
-        const where = `${c.locale}, user ${c.tgId}`;
-        if (!box) problems.push(`${where}: no "${c.news}" on the page: ${show(els.map(ownText).filter(Boolean))}`);
-        else if (c.together && (rose || buttons().length)) problems.push(`${where}: shown in ${show(box.props.className)}, buttons ${show(buttons().map(ownText))}`);
-        else if (!c.together && (!rose || buttons().length !== 1)) problems.push(`${where}: shown in ${show(box.props.className)}, buttons ${show(buttons().map(ownText))}`);
+        installWindow();
+        const tg = fakeTelegram([], '7.7');
+        tg.initData = initDataFor(c.tgId);
+        tg.initDataUnsafe = { user: { id: c.tgId } };
+        fakeWindow.Telegram = { WebApp: tg };
+        const messages = JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${c.locale}.json`), 'utf8'));
+        const page = createElement(NextIntlClientProvider, { locale: c.locale, messages, timeZone: 'Asia/Jerusalem' } as never,
+          createElement(InviteClient as (props: Row) => never, {
+            token: TOKEN_1, inviterName: 'Dana', locale: c.locale, tgDeepLink: '', waDeepLink: '', expiresAt: new Date(Date.now() + 6 * DAY).toISOString(),
+          }));
+        const m = mount(page);
+        try {
+          const buttons = () => elements(m.container).filter(e => e.localName === 'button');
+          const tapped = buttons()[0];
+          const where = `${c.locale}, user ${c.tgId}`;
+          if (!tapped) { problems.push(`${where}: no Accept button before the tap`); continue; }
+          await act(async () => {
+            m.click(tapped);
+            await settle();
+          });
+          const notices = elements(m.container).filter(e => e.className.split(' ').includes('ch-notice'));
+          const box = notices.find(e => e.textContent.includes(c.news));
+          const error = !!box && box.className.split(' ').includes('ch-notice-error') && box.getAttribute('role') === 'alert';
+          if (!box || notices.length !== 1) problems.push(`${where}: no "${c.news}" in a notice: ${show(notices.map(e => e.textContent))}`);
+          else if (c.together && (error || buttons().length)) problems.push(`${where}: shown in ${show(box.className)}, buttons ${show(buttons().map(b => b.textContent))}`);
+          else if (!c.together && (!error || buttons().length !== 1)) problems.push(`${where}: shown in ${show(box.className)}, buttons ${show(buttons().map(b => b.textContent))}`);
+        } finally {
+          m.unmount();
+          fakeWindow.Telegram = undefined;
+        }
       }
     } finally {
       g.fetch = blocked;
       delete g.window;
-      for (const rel of nextIntlRels) {
-        delete stubs[path.join(ROOT, rel)];
-        delete Module._cache[path.join(ROOT, rel)];
-      }
     }
     assert(problems.length === 0, problems.join('; '));
   });

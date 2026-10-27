@@ -1649,7 +1649,7 @@
       "ownInvite": "Нельзя принять собственное приглашение.",
       "inviterAlreadyPaired": "Отправитель уже в паре с другим человеком.",
       "inviteeAlreadyPaired": "Вы уже в паре. Сначала разорвите связь.",
-      "alreadyPairedTogether": "Вы уже связаны друг с другом 🎉"
+      "alreadyPairedTogether": "Вы уже связаны друг с другом."
     },
     "invalid": {
       "title": "Ссылка недействительна",
