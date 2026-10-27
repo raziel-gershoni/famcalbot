@@ -206,6 +206,9 @@ export const TEXT_PAIRS: [string, string][] = [
   ['--ch-text', '--ch-surface'],
   // W1a: the Disconnect button's text on its danger fill (the page's ground, as the selected day's text is: --ch-button-text on --ch-danger is 2.3:1 in the dark)
   ['--ch-bg', '--ch-danger'],
+  // W1b: a tag's text on its soft ground, and a near-limit count on the card
+  ['--ch-accent', '--ch-accent-soft'],
+  ['--ch-warn-text', '--ch-section'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [
@@ -218,4 +221,7 @@ export const MARK_PAIRS: [string, string][] = [
   // W1a: a switch's off outline and its on track, against the card they sit on
   ['--ch-done', '--ch-section'],
   ['--ch-button', '--ch-section'],
+  // W1b: a meter's near-limit fill and its ordinary fill, on the card
+  ['--ch-warn', '--ch-section'],
+  ['--ch-accent', '--ch-section'],
 ];

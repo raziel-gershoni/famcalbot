@@ -32,7 +32,10 @@
 //    additions (a disabled SwitchRow, a note, valueDir, the SaveBar's status, disabled and sticky), the
 //    BottomSheet's closeDisabled, and the new CSS (the switch's off outline, the grouped paint, the chips);
 //  - the fix round (K11, K12): the fake DOM matches the selectors the app passes and throws on the rest, and the
-//    loader of a grouped page (Settings) is on its ground, so Telegram's header does not change colour on arrival.
+//    loader of a grouped page (Settings) is on its ground, so Telegram's header does not change colour on arrival;
+//  - the pieces W1b added (K13-K16, plan docs/superpowers/plans/2026-10-27-app-ui-W1b-subscription-feedback-story.md): Tag, Meter
+//    (its aria, its cap, its near-limit class), the Panel card, the outlined button and the near-limit colour, and lintCss itself
+//    (scripts/lib/css-lint.ts, which #2 and the screens' own smokes run over their CSS).
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -52,14 +55,17 @@ import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } fr
 import { BottomSheet, TABBABLE } from '../components/app-ui/BottomSheet';
 import { DayChips, type DayChip } from '../components/app-ui/DayChips';
 import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components/app-ui/form-kit';
+import { Meter, NEAR_LIMIT } from '../components/app-ui/Meter';
 import { Notice } from '../components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
+import { Tag } from '../components/app-ui/Tag';
 import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
 import PageGate, { NoCredentialCard, renderPage } from '../app/[locale]/PageGate';
 import TelegramDashboardRedirect from '../app/[locale]/dashboard/TelegramDashboardRedirect';
 import { publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
+import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeDocument, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -182,34 +188,25 @@ async function main() {
     assert(problems.length === 0, `${problems.length} differ, first: ${show(problems.slice(0, 5))}`);
   });
 
-  await check('#2 the lint over the theme, the screen and the form kit: nothing under 11 px and every size in px; .ch-btn, .ch-icon-btn and .ch-sheet-close at least 44 px; logical properties only; no hover; no hex or rgb() outside the token blocks (the two page paints\' fallbacks are the dark --ch-bg\'s and the light --ch-surface\'s own)', () => {
-    const sizes = [...CSS.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
-    assert(sizes.length > 5 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
-    // `font: inherit` takes the size from the parent and has none of its own; any other shorthand would hide one.
-    assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s+(?!inherit\s*;)/.test(CSS), 'every font size in px (so the floor is checkable)');
-    for (const selector of ['.ch-btn', '.ch-icon-btn', '.ch-sheet-close']) {
-      const css = selector === '.ch-icon-btn' ? APP_SCREEN_CSS : APP_THEME_CSS;
-      const min = /min-height:\s*(\d+)px/.exec(rule(css, selector));
-      assert(min && Number(min[1]) >= 44, `${selector} min-height ${min?.[1]}`);
-    }
+  await check('#2 the lint over the theme, the screen and the form kit (lintCss, scripts/lib/css-lint.ts): nothing under 11 px and every size in px; .ch-btn, .ch-icon-btn and .ch-sheet-close at least 44 px; logical properties only; no hover; no hex or rgb() outside the token blocks (the two page paints\' fallbacks are the only exemptions, and are the dark --ch-bg\'s and the light --ch-surface\'s own)', () => {
+    const sizes = [...CSS.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)];
+    assert(sizes.length > 5, `font sizes found: ${sizes.length}`);
+    // lintCss checks the rules it finds; these must be there to be checked
+    for (const selector of ['.ch-btn', '.ch-icon-btn', '.ch-sheet-close']) rule(selector === '.ch-icon-btn' ? APP_SCREEN_CSS : APP_THEME_CSS, selector);
     for (const [css, selector] of [[APP_THEME_CSS, '.ch-btn'], [APP_SCREEN_CSS, '.ch-icon-btn']] as const) {
       const body = rule(css, selector);
       assert(/min-width:\s*44px/.test(body), `${selector} min-width 44px`);
     }
     assert(/block-size:\s*44px/.test(rule(APP_SCREEN_CSS, '.ch-icon-btn')) && /inline-size:\s*44px/.test(rule(APP_SCREEN_CSS, '.ch-icon-btn')), '.ch-icon-btn is 44 x 44');
-    const physical = CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
-    assert(!physical, `physical properties: ${show(physical)}`);
-    assert(!/:hover/.test(CSS), 'no hover styles');
     // A token block's declarations are tokens (the shades live there); the two exemptions outside are the page paints'
     // own declarations (html has no tokens above it): the dark one's fallback is checked against the dark --ch-bg's, the
     // grouped one's against the light --ch-surface's, below.
-    const paint = /(html:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*)background-color:\s*var\(--tg-theme-bg-color,\s*#[0-9a-f]{6}\);/i;
-    const groupedPaint = /(html:has\(\.ch-screen\.ch-grouped\) \{\s*)background-color:\s*var\(--tg-theme-secondary-bg-color,\s*#[0-9a-f]{6}\);/i;
-    assert(paint.test(APP_SCREEN_CSS), 'the dark page paint declaration');
-    assert(groupedPaint.test(APP_SCREEN_CSS), 'the grouped page paint declaration');
-    const outside = CSS.replace(/^\s*--[\w-]+\s*:[^;]*;/gm, '').replace(paint, '$1').replace(groupedPaint, '$1');
-    const literal = outside.match(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi);
-    assert(!literal, `colour literals outside the token blocks: ${show(literal)}`);
+    const paint = /(html:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*)background-color:\s*var\(--tg-theme-bg-color,\s*#[0-9a-f]{6}\);/i.exec(APP_SCREEN_CSS);
+    const groupedPaint = /(html:has\(\.ch-screen\.ch-grouped\) \{\s*)background-color:\s*var\(--tg-theme-secondary-bg-color,\s*#[0-9a-f]{6}\);/i.exec(APP_SCREEN_CSS);
+    assert(paint, 'the dark page paint declaration');
+    assert(groupedPaint, 'the grouped page paint declaration');
+    const problems = lintCss(CSS, { exempt: [paint[0], groupedPaint[0]] });
+    assert(problems.length === 0, `lintCss: ${show(problems)}`);
     const dark = /html:has\(\.ch-screen\[data-theme='dark'\]\) \{[^}]*var\(--tg-theme-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_SCREEN_CSS)?.[1];
     const darkBg = /\.ch-app\[data-theme='dark'\] \{[^}]*--ch-bg: var\(--tg-theme-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_THEME_CSS)?.[1];
     assert(dark && dark === darkBg, `the dark page paint ${dark} is the dark --ch-bg's fallback ${darkBg}`);
@@ -905,6 +902,126 @@ async function main() {
     // The gate's cards (nobody proved who they are) are a different screen and stay plain
     const card = renderToString(inIntl('en', createElement(NoCredentialCard, { look: 'app', inTelegram: false, links })));
     assert(card.startsWith('<div class="ch-app ch-screen" '), 'the gate card is plain');
+  });
+
+  // ---- W1b: Tag, Meter, the Panel card, the outlined button and the near-limit colour (K13-K16; K1-K12 are W1a's) ----
+
+  const TagProbe = Tag as unknown as (props: Record<string, never>) => ReactElement;
+  const meterHtml = (props: ComponentProps<typeof Meter>) => markupOf(renderToString(createElement(Meter, props)));
+
+  await check('K13 Tag is a span.ch-tag with its text', () => {
+    assert(renderToString(createElement(TagProbe, {}, 'Current')) === '<span class="ch-tag">Current</span>', `the tag: ${renderToString(createElement(TagProbe, {}, 'Current'))}`);
+    assert(renderToString(createElement(TagProbe, {}, 'גישה מוקדמת')) === '<span class="ch-tag">גישה מוקדמת</span>', 'the text is whatever it is given');
+  });
+
+  await check('K14 Meter: a track with role="meter" (min 0, max the limit, now the used count capped at the limit, text as shown) and a fill whose inline-size is used over limit, capped at 100%; near (the is-near class) from 80% (NEAR_LIMIT) and over the limit; an unlimited one (limit null) is the label and the text alone, with no track and no role', () => {
+    assert(NEAR_LIMIT === 0.8, `NEAR_LIMIT ${NEAR_LIMIT}`);
+    const seven = meterHtml({ label: 'Text summaries', used: 7, limit: 10, valueText: '7 of 10' });
+    assert(
+      seven ===
+        '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Text summaries</span><span class="ch-meter-value"><bdi dir="ltr">7 of 10</bdi></span></div>' +
+          '<div class="ch-meter-track" role="meter" aria-label="Text summaries" aria-valuemin="0" aria-valuemax="10" aria-valuenow="7" aria-valuetext="7 of 10"><div class="ch-meter-fill" style="inline-size:70%"></div></div></div>',
+      `7 of 10: ${seven}`,
+    );
+    // The edges: [used, limit, valuenow, fill, near]
+    for (const [used, limit, now, fill, near] of [
+      [8, 10, 8, '80%', true],
+      [4, 5, 4, '80%', true],
+      [79, 100, 79, '79%', false],
+      [3, 3, 3, '100%', true],
+      [12, 10, 10, '100%', true],
+      [0, 3, 0, '0%', false],
+      [2, 3, 2, '66.66666666666666%', false],
+    ] as const) {
+      const html = meterHtml({ label: 'Voice', used, limit, valueText: `${used} of ${limit}` });
+      assert(html.includes(`aria-valuenow="${now}"`) && html.includes(`aria-valuemax="${limit}"`) && html.includes('aria-valuemin="0"') && html.includes(`aria-valuetext="${used} of ${limit}"`), `${used}/${limit}: the aria: ${html}`);
+      assert(html.includes(`style="inline-size:${fill}"`), `${used}/${limit}: the fill ${fill}: ${html}`);
+      assert(html.startsWith(near ? '<div class="ch-meter is-near">' : '<div class="ch-meter">'), `${used}/${limit}: near ${near}: ${html.slice(0, 40)}`);
+    }
+    const unlimited = meterHtml({ label: 'Calendars', used: 4, limit: null, valueText: 'Unlimited' });
+    assert(unlimited === '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Calendars</span><span class="ch-meter-value"><bdi dir="ltr">Unlimited</bdi></span></div></div>', `unlimited: ${unlimited}`);
+    assert(!/role="meter"|ch-meter-track|ch-meter-fill|is-near/.test(unlimited), 'unlimited: no track, no role, never near');
+    // A limit of 0 draws no NaN: an empty bar if nothing was used, a full one if anything was
+    const zero = meterHtml({ label: 'x', used: 0, limit: 0, valueText: '0' });
+    const over = meterHtml({ label: 'x', used: 1, limit: 0, valueText: '1' });
+    assert(zero.includes('style="inline-size:0%"') && over.includes('style="inline-size:100%"') && !/NaN|Infinity/.test(zero + over), `a limit of 0: ${zero} ${over}`);
+  });
+
+  await check('K15 the Panel card, the outlined button, the tag and the meter on tokens #2b measures: .ch-panel-ring is the 1.5px --ch-button ring; .ch-btn-outline is transparent with that ring, accent text, 15px/600, at least 44 px and after .ch-btn in the cascade; the tag is --ch-accent on --ch-accent-soft; the fill is --ch-accent and, near the limit, --ch-warn with its count in --ch-warn-text; both themes declare the two warn tokens; the new pairs are in the lists, once', () => {
+    const panel = rule(APP_SCREEN_CSS, '.ch-panel');
+    assert(/background:\s*var\(--ch-section\)/.test(panel) && /border-radius:\s*16px/.test(panel) && /padding:\s*16px/.test(panel) && /flex-direction:\s*column/.test(panel) && /gap:\s*10px/.test(panel), `.ch-panel: ${panel}`);
+    assert(/box-shadow:\s*inset 0 0 0 1\.5px var\(--ch-button\)/.test(rule(APP_SCREEN_CSS, '.ch-panel-ring')), '.ch-panel-ring is the 1.5px --ch-button ring');
+    const outline = rule(APP_SCREEN_CSS, '.ch-btn-outline');
+    assert(/background:\s*transparent/.test(outline) && /box-shadow:\s*inset 0 0 0 1\.5px var\(--ch-button\)/.test(outline) && /color:\s*var\(--ch-accent\)/.test(outline), `.ch-btn-outline: ${outline}`);
+    const min = /min-(?:height|block-size):\s*(\d+)px/.exec(outline);
+    assert(min && Number(min[1]) >= 44, `.ch-btn-outline is at least 44 px: ${min?.[1]}`);
+    assert(/font-size:\s*15px/.test(outline) && /font-weight:\s*600/.test(outline), '.ch-btn-outline is 15px/600');
+    // AppScreen renders the theme, then the screen sheet: the outline wins over .ch-btn (same specificity) by coming later
+    const screen = renderToString(inIntl('en', createElement(ScreenProbe, null, createElement('i'))));
+    assert(screen.indexOf('.ch-btn {') !== -1 && screen.indexOf('.ch-btn {') < screen.indexOf('.ch-btn-outline {'), '.ch-btn-outline comes after .ch-btn');
+    const tag = rule(APP_SCREEN_CSS, '.ch-tag');
+    assert(/background:\s*var\(--ch-accent-soft\)/.test(tag) && /color:\s*var\(--ch-accent\)/.test(tag) && /font-size:\s*12px/.test(tag) && /font-weight:\s*600/.test(tag) && /padding:\s*4px 10px/.test(tag) && /border-radius:\s*10px/.test(tag) && /white-space:\s*nowrap/.test(tag), `.ch-tag: ${tag}`);
+    const track = rule(APP_SCREEN_CSS, '.ch-meter-track');
+    assert(/block-size:\s*6px/.test(track) && /border-radius:\s*3px/.test(track) && /background:\s*var\(--ch-separator\)/.test(track) && /overflow:\s*clip/.test(track), `.ch-meter-track: ${track}`);
+    const fill = rule(APP_SCREEN_CSS, '.ch-meter-fill');
+    assert(/block-size:\s*6px/.test(fill) && /border-radius:\s*3px/.test(fill) && /background:\s*var\(--ch-accent\)/.test(fill), `.ch-meter-fill: ${fill}`);
+    assert(/background:\s*var\(--ch-warn\)/.test(rule(APP_SCREEN_CSS, '.ch-meter.is-near .ch-meter-fill')), 'a near meter fills with --ch-warn');
+    assert(/color:\s*var\(--ch-warn-text\)/.test(rule(APP_SCREEN_CSS, '.ch-meter.is-near .ch-meter-value')), 'a near meter counts in --ch-warn-text');
+    assert(/color:\s*var\(--ch-muted\)/.test(rule(APP_SCREEN_CSS, '.ch-meter-value')) && /font-size:\s*14px/.test(rule(APP_SCREEN_CSS, '.ch-meter-value')), 'the count is 14px muted');
+    // The two warn tokens are declared in both themes, as colours (#2b measures them); the dark block holds its own, not the light ones through the cascade
+    for (const theme of ['light', 'dark'] as const) {
+      const r = resolver(APP_THEME_CSS, ROOT_SELECTOR, theme, true);
+      for (const token of ['--ch-warn', '--ch-warn-text']) assert(r.props.has(token) && 'rgb' in r.value(token), `${theme} ${token}`);
+    }
+    const darkBlock = rule(APP_THEME_CSS, ".ch-app[data-theme='dark']");
+    for (const token of ['--ch-warn', '--ch-warn-text']) assert(new RegExp(`\\n\\s*${token}:`).test(`\n${darkBlock}`), `the dark block declares ${token}`);
+    assert(show(resolver(APP_THEME_CSS, ROOT_SELECTOR, 'light', true).colour('--ch-warn')) !== show(resolver(APP_THEME_CSS, ROOT_SELECTOR, 'dark', true).colour('--ch-warn')), 'the dark orange is its own shade');
+    const count = (pairs: [string, string][], a: string, b: string) => pairs.filter(([x, y]) => x === a && y === b).length;
+    for (const [a, b] of [['--ch-accent', '--ch-accent-soft'], ['--ch-warn-text', '--ch-section'], ['--ch-muted', '--ch-section']] as const) assert(count(TEXT_PAIRS, a, b) === 1, `TEXT_PAIRS holds ${a} on ${b} once: ${count(TEXT_PAIRS, a, b)}`);
+    for (const [a, b] of [['--ch-warn', '--ch-section'], ['--ch-accent', '--ch-section'], ['--ch-button', '--ch-section']] as const) assert(count(MARK_PAIRS, a, b) === 1, `MARK_PAIRS holds ${a} on ${b} once: ${count(MARK_PAIRS, a, b)}`);
+  });
+
+  await check('K16 lintCss finds what #2 looks for, in any style sheet: a size under 11 px, a size not in px, a font shorthand that hides one (but not font: inherit), a .ch-btn / .ch-icon-btn / .ch-sheet-close / .ch-btn-outline under 44 px or with no minimum, a physical property, :hover, and a colour literal outside a token block; comments and token blocks are clean; an exemption is that text once, and an exemption that is not in the CSS is a problem', () => {
+    const clean = `/* a #fff in a comment */\n.ch-app {\n  --ch-x: #fff;\n  --ch-y: rgba(0, 0, 0, 0.5);\n}\n.a {\n  font-size: 14px;\n  font: inherit;\n  margin-inline-start: 4px;\n  color: var(--ch-text);\n}\n.ch-btn {\n  min-height: 44px;\n}\n.ch-btn-outline {\n  min-block-size: 48px;\n}\n`;
+    assert(show(lintCss(clean)) === show([]), `clean: ${show(lintCss(clean))}`);
+    const bad: [string, string, RegExp][] = [
+      ['a size under 11 px', '.a {\n  font-size: 10px;\n}', /11/],
+      ['a size in rem', '.a {\n  font-size: 1rem;\n}', /px/],
+      ['a size in %', '.a {\n  font-size: 90%;\n}', /px/],
+      ['a font shorthand', '.a {\n  font: 12px/1.2 sans-serif;\n}', /shorthand/],
+      ['.ch-btn under 44', '.ch-btn {\n  min-height: 40px;\n}', /ch-btn.*44/],
+      ['.ch-btn with no minimum', '.ch-btn {\n  display: flex;\n}', /ch-btn/],
+      ['.ch-icon-btn under 44', '.ch-icon-btn {\n  min-height: 43px;\n}', /ch-icon-btn.*44/],
+      ['.ch-sheet-close under 44', '.ch-sheet-close {\n  min-height: 30px;\n}', /ch-sheet-close.*44/],
+      ['.ch-btn-outline under 44', '.ch-btn-outline {\n  min-block-size: 40px;\n}', /ch-btn-outline.*44/],
+      ['margin-left', '.a {\n  margin-left: 4px;\n}', /physical/],
+      ['padding-right', '.a {\n  padding-right: 4px;\n}', /physical/],
+      ['border-left', '.a {\n  border-left: 1px solid;\n}', /physical/],
+      ['left:', '.a {\n  left: 0;\n}', /physical/],
+      ['text-align: right', '.a {\n  text-align: right;\n}', /physical/],
+      ['float', '.a {\n  float: left;\n}', /physical/],
+      ['a hover', '.a:hover {\n  color: red;\n}', /hover/],
+      ['a hex outside a token block', '.a {\n  color: #fff;\n}', /literal/],
+      ['an 8-digit hex', '.a {\n  color: #ffffff80;\n}', /literal/],
+      ['rgb()', '.a {\n  color: rgb(0, 0, 0);\n}', /literal/],
+      ['rgba()', '.a {\n  background: rgba(0, 0, 0, 0.5);\n}', /literal/],
+      ['hsl()', '.a {\n  color: hsl(0, 0%, 0%);\n}', /literal/],
+    ];
+    for (const [name, css, want] of bad) {
+      const found = lintCss(css);
+      assert(found.length >= 1 && found.some((p) => want.test(p)), `${name}: ${show(found)}`);
+    }
+    // An exemption is a piece of the CSS, once; the same text elsewhere, and the same declaration under another selector, are still literals
+    const paint = 'html:has(.x) {\n  background-color: var(--tg-theme-bg-color, #15151d);';
+    const css = `${paint}\n}\n.b {\n  background-color: var(--tg-theme-bg-color, #15151d);\n}`;
+    assert(lintCss(`${paint}\n}`, { exempt: [paint] }).length === 0, 'the exempt text is clean');
+    const twice = lintCss(css, { exempt: [paint] });
+    assert(twice.length === 1 && /literal/.test(twice[0]), `the same colour elsewhere is not exempt: ${show(twice)}`);
+    const declaration = 'background-color: var(--tg-theme-bg-color, #15151d);';
+    const repeated = lintCss(`.a {\n  ${declaration}\n}\n.b {\n  ${declaration}\n}`, { exempt: [declaration] });
+    assert(repeated.length === 1 && /literal/.test(repeated[0]), `the exempt text twice: only the first is skipped: ${show(repeated)}`);
+    const stale = lintCss('.a {\n  color: var(--ch-text);\n}', { exempt: ['gone'] });
+    assert(stale.length === 1 && /exempt/.test(stale[0]), `an exemption not in the CSS: ${show(stale)}`);
   });
 
   await check('#99 React logged no warning', () => {

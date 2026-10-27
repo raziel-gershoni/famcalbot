@@ -19,6 +19,9 @@
 //   same (html:has(.ch-screen.ch-grouped)), and in the dark the page's own ground comes back.
 // - The header of a screen with a title (.ch-screen-head, ScreenHeader), a section's label
 //   (.ch-section-label, SectionLabel) and a notice on a card (.ch-notice, Notice).
+// - W1b: a small tag (.ch-tag, Tag), a padded card (.ch-panel; .ch-panel-ring outlines it in the button colour),
+//   a meter (.ch-meter*, Meter; .is-near turns the fill and the count to the warn colours) and the outlined
+//   button (.ch-btn-outline, after .ch-btn in the theme's sheet, which AppScreen renders before this one).
 
 export const APP_SCREEN_CSS = `
 .ch-screen {
@@ -136,6 +139,70 @@ html:has(.ch-screen[data-theme='dark']) {
 .ch-notice-action:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 2px;
+}
+.ch-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--ch-accent-soft);
+  color: var(--ch-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--ch-section);
+}
+.ch-panel-ring {
+  box-shadow: inset 0 0 0 1.5px var(--ch-button);
+}
+.ch-meter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ch-meter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ch-meter-label {
+  flex: 1;
+  font-size: 15px;
+}
+.ch-meter-value {
+  font-size: 14px;
+  color: var(--ch-muted);
+}
+.ch-meter-track {
+  block-size: 6px;
+  border-radius: 3px;
+  background: var(--ch-separator);
+  overflow: clip;
+}
+.ch-meter-fill {
+  block-size: 6px;
+  border-radius: 3px;
+  background: var(--ch-accent);
+}
+.ch-meter.is-near .ch-meter-fill {
+  background: var(--ch-warn);
+}
+.ch-meter.is-near .ch-meter-value {
+  color: var(--ch-warn-text);
+}
+.ch-btn-outline {
+  min-block-size: 44px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ch-button);
+  color: var(--ch-accent);
+  font-size: 15px;
+  font-weight: 600;
 }
 .ch-sheet-heading {
   margin: 0 0 4px;

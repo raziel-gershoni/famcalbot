@@ -57,6 +57,8 @@
 //   background with 14% of the accent mixed in.
 // - The switch's thumb: --ch-switch-thumb (white in both themes) and its shadow,
 //   --ch-switch-thumb-shadow, a literal-text token (a shadow has no colour to resolve).
+// - Near a limit (W1b, the Meter): --ch-warn is the fill's orange and --ch-warn-text the count's, on the card
+//   (--ch-section): the fill keeps 3:1 and the text 4.5:1. They are fixed shades (Telegram has no orange).
 
 
 export const APP_THEME_CSS = `
@@ -106,6 +108,8 @@ export const APP_THEME_CSS = `
   --ch-accent-soft: #eee9ff;
   --ch-switch-thumb: #ffffff;
   --ch-switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --ch-warn: #c4580a;
+  --ch-warn-text: #8a3d00;
   color-scheme: light;
   background: var(--ch-bg);
   color: var(--ch-text);
@@ -158,6 +162,8 @@ export const APP_THEME_CSS = `
   --ch-disabled: #4a4a5e;
   --ch-month-title: var(--ch-accent);
   --ch-accent-soft: #2c2550;
+  --ch-warn: #ffb27a;
+  --ch-warn-text: #ffc796;
   color-scheme: dark;
 }
 @supports (color: color-mix(in srgb, red 50%, blue)) {
