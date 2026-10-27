@@ -12,7 +12,7 @@
 //    the Mini App;
 //  - V3 in a browser (the SDK with no launch data, or no SDK at all): no Accept, no request; Open in Telegram, then Open in
 //    WhatsApp, with the exact links, each hidden when its link is empty;
-//  - V4 the server page: an invalid token is the crash card with its way home; a valid one hands InviteClient what it always did
+//  - V4 the server page: an invalid token is the crash card with its way home, as wide as the valid card; a valid one hands InviteClient what it always did
 //    (the inviter's name with its fallbacks, the deep links, the expiry);
 //  - V5 the page is made of the kit: no Tailwind class, no emoji, no gradient, none of the old comments, its own CSS passes the lint;
 //    V6 React logs no warning.
@@ -259,7 +259,7 @@ async function main() {
   process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
   const clientModule = await import('../app/[locale]/invite/[token]/InviteClient');
   Invite = clientModule.default as unknown as (props: Row) => ReactElement;
-  const INVITE_CSS = (clientModule as unknown as { INVITE_CSS: string }).INVITE_CSS;
+  const { INVITE_CSS } = await import('../app/[locale]/invite/[token]/invite-css');
   const InvitePage = (await import('../app/[locale]/invite/[token]/page')).default as unknown as (props: Row) => Promise<ReactElement>;
 
   await check('V1 render in en, he and ru, light (the server\'s markup, hydrated as a browser does it, in a browser and inside Telegram) and dark (Telegram): a plain AppScreen root with its direction and language, the card\'s h1 and body, no raw key, no emoji, no English in he and ru beyond the brands, no hydration mismatch, and the expiry on the device in 24-hour time (15:45, never PM) once the page is on the client', async () => {
@@ -446,7 +446,7 @@ async function main() {
     }
   });
 
-  await check('V4 the server page: an invalid token is the app\'s crash card (an alert, the h1, a link to /<locale> in the card\'s button) in en, he and ru, with no Tailwind, no emoji and no gradient; a valid one hands InviteClient the inviter (name, then English name, then "Someone"), the token, the page\'s language, the Telegram and WhatsApp deep links built as always, and the expiry as an ISO string', async () => {
+  await check('V4 the server page: an invalid token is the app\'s crash card (an alert, the h1, a link to /<locale> in the card\'s button) in en, he and ru, inside the same capped, centred wrapper as the valid card (with the CSS that caps it), with no Tailwind, no emoji and no gradient; a valid one hands InviteClient the inviter (name, then English name, then "Someone"), the token, the page\'s language, the Telegram and WhatsApp deep links built as always, and the expiry as an ISO string', async () => {
     for (const locale of LOCALES) {
       inviteFor = () => null;
       const el = await InvitePage({ params: Promise.resolve({ locale, token: 'bad' }) });
@@ -455,6 +455,9 @@ async function main() {
       assert(html.includes('<div class="ch-home-card ch-crash" role="alert">') && html.includes(`<h1 class="ch-home-card-title">${word(locale, 'invalid.title')}</h1>`), `${locale}: the crash card: ${html.slice(html.indexOf('<div class="ch-home-card'), html.indexOf('<div class="ch-home-card') + 200)}`);
       assert(html.includes(`<a class="ch-btn ch-btn-primary ch-home-card-action" href="/${locale}">${word(locale, 'invalid.home')}</a>`), `${locale}: the way home`);
       assert(textOf(html).includes(word(locale, 'invalid.body')), `${locale}: the body`);
+      // The same width as the valid card: inside the capped, centred wrapper, with the CSS that caps it rendered beside it
+      assert(html.includes('<div class="ch-invite-page"><div class="ch-home-card ch-crash" role="alert">'), `${locale}: the crash card is not inside the invite wrapper`);
+      assert(html.includes(INVITE_CSS) && /\.ch-invite-page \{[^}]*max-inline-size:\s*480px/.test(html), `${locale}: the page does not render the invite CSS`);
       assert(!/\p{Extended_Pictographic}/u.test(html) && !/min-h-screen|bg-gradient|rounded-2xl|text-gray|from-rose/.test(html), `${locale}: an emoji or a Tailwind class`);
     }
     const expires = new Date(Date.UTC(2026, 10, 3, 13, 45));
@@ -491,7 +494,10 @@ async function main() {
     }
     assert(!/from 'next\/link'|<Link\b/.test(sources['page.tsx']), 'the page still uses next/link');
     assert(!/catch\s*\{/.test(sources['InviteClient.tsx']) && sources['InviteClient.tsx'].includes("captureError(error, 'invite-accept'"), 'a bare catch, or the failure is not reported');
-    assert(typeof INVITE_CSS === 'string' && INVITE_CSS.length > 0, 'InviteClient exports its CSS');
+    assert(typeof INVITE_CSS === 'string' && INVITE_CSS.length > 0, 'invite-css.ts exports the CSS');
+    // The CSS is a plain module both files import: a client file's export would reach the server page as a reference, not the string
+    assert(/from '\.\/invite-css'/.test(sources['InviteClient.tsx']) && /from '\.\/invite-css'/.test(sources['page.tsx']) && !/export const INVITE_CSS/.test(sources['InviteClient.tsx']), 'both files import the CSS from ./invite-css');
+    assert(!/^\s*['"]use client['"]/m.test(fs.readFileSync(path.join(dir, 'invite-css.ts'), 'utf8')), 'invite-css.ts is a plain module (no "use client" directive)');
     assert(show(lintCss(INVITE_CSS)) === show([]), `lintCss: ${show(lintCss(INVITE_CSS))}`);
     // A button that waits looks it, and the card stays no wider than a phone's on a desktop
     assert(/\.ch-invite-page \.ch-home-card-action:disabled \{[^}]*opacity:\s*0\.6/.test(INVITE_CSS) && /\.ch-invite-page \{[^}]*max-inline-size:\s*480px[^}]*margin-inline:\s*auto/.test(INVITE_CSS), `the CSS: ${INVITE_CSS}`);

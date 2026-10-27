@@ -22,6 +22,7 @@ import { formatDeviceDayTime } from '@/src/lib/calendar-view/device-time';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { Notice } from '@/components/app-ui/Notice';
 import { StateCard } from '@/components/app-ui/StateCard';
+import { INVITE_CSS } from './invite-css';
 
 interface Props {
   token: string;
@@ -47,25 +48,6 @@ const ERROR_KEYS: Record<string, string> = {
   INVITEE_ALREADY_PAIRED: 'errors.inviteeAlreadyPaired',
   ALREADY_PAIRED_TOGETHER: 'errors.alreadyPairedTogether',
 };
-
-/** What the landing adds to the kit: a card no wider than a phone's, a notice inside it, the expiry line under the buttons, and a button that waits. */
-export const INVITE_CSS = `
-.ch-invite-page {
-  max-inline-size: 480px;
-  margin-inline: auto;
-}
-.ch-home-card .ch-notice {
-  margin-block-start: 12px;
-  text-align: start;
-}
-.ch-invite-expires {
-  margin-block-start: 16px;
-}
-.ch-invite-page .ch-home-card-action:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-`;
 
 // The device's own timezone is not the server's: nothing is written for the expiry until the page is on the client.
 const subscribe = () => () => {};

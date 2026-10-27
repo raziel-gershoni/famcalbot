@@ -14,6 +14,7 @@ import { AppScreen } from '@/components/app-ui/AppScreen';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { getInviteByToken } from '@/src/services/pairing-service';
 import InviteClient from './InviteClient';
+import { INVITE_CSS } from './invite-css';
 import { normalizeLocale } from '@/src/utils/locale';
 
 interface PageProps {
@@ -30,7 +31,10 @@ export default async function InvitePage({ params }: PageProps) {
   if (!result) {
     return (
       <AppScreen>
-        <StateCard tone="crash" title={t('invalid.title')} body={t('invalid.body')} action={{ label: t('invalid.home'), href: `/${locale}` }} />
+        <style>{INVITE_CSS}</style>
+        <div className="ch-invite-page">
+          <StateCard tone="crash" title={t('invalid.title')} body={t('invalid.body')} action={{ label: t('invalid.home'), href: `/${locale}` }} />
+        </div>
       </AppScreen>
     );
   }

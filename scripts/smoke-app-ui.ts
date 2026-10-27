@@ -37,7 +37,7 @@
 //    (its aria, its cap, its near-limit class), the Panel card, the outlined button and the near-limit colour, and lintCss itself
 //    (scripts/lib/css-lint.ts, which #2 and the screens' own smokes run over their CSS);
 //  - the piece W3 added (K17, plan docs/superpowers/plans/2026-10-27-app-ui-W3-partner-invite.md): CopyField, the copy-link field
-//    (its parts, a tap writing the value and saying Copied for 2 seconds, and a blocked clipboard selecting the text instead).
+//    (its parts, a tap writing the value and saying Copied for 2 seconds, a blocked clipboard selecting the text instead, and a disabled field).
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -1034,7 +1034,7 @@ async function main() {
 
   // ---- W3: CopyField (K17; K1-K16 are W1's) ----
 
-  await check("K17 CopyField: a field (label, value, a read-only input that reads left to right, a 44 px icon button named Copy link, a hidden status) whose tap writes the value to the clipboard, then says Copied (the button's name, the check mark and the status) for 2 seconds and goes back; with no clipboard, or one that rejects, it never says Copied, logs why ([copy] clipboard unavailable:), selects the input's whole text so a long press copies it, and throws nothing", async () => {
+  await check("K17 CopyField: a field (label, value, a read-only input that reads left to right, a 44 px icon button named Copy link, a hidden status) whose tap writes the value to the clipboard, then says Copied (the button's name, the check mark and the status) for 2 seconds and goes back; with no clipboard, or one that rejects, it never says Copied, logs why ([copy] clipboard unavailable:), selects the input's whole text so a long press copies it, and throws nothing; a disabled field has a disabled button that copies nothing", async () => {
     installWindow();
     const props = { label: 'Invite link', value: 'https://famcal.bot/en/invite/abc123', copyLabel: 'Copy link', copiedLabel: 'Copied' };
     // Its parts, on the server
@@ -1100,6 +1100,17 @@ async function main() {
         assert(back.status.textContent === '' && back.button.getAttribute('aria-label') === 'Copy link' && /lucide-copy\b/.test(back.svg?.getAttribute('class') ?? ''), 'after 2 seconds it goes back');
       } finally {
         m.unmount();
+      }
+      // A disabled field (a request is changing the link): the button is disabled and a tap copies nothing
+      written.length = 0;
+      const waiting = mount(createElement(CopyField, { ...props, disabled: true }));
+      try {
+        const { button } = parts(waiting);
+        assert(button.hasAttribute('disabled'), 'the button is disabled');
+        await tap(waiting, button);
+        assert(written.length === 0 && copyLogs.length === 0 && parts(waiting).status.textContent === '', `a tap on the disabled button: ${show(written)}`);
+      } finally {
+        waiting.unmount();
       }
       // No clipboard API at all, then one that rejects: never Copied, the text selected, the reason logged, nothing thrown
       for (const [name, clipboard] of [['no clipboard', undefined], ['a rejecting clipboard', { writeText: () => Promise.reject(new Error('denied')) }]] as const) {

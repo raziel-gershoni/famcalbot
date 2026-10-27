@@ -173,6 +173,9 @@ const alertsIn = (node: FakeNode) => byRole(node, 'alert').map(flat);
 const generateOf = (m: Mounted, locale: Locale = 'en') => buttonsOf(m).find((b) => [word(locale, 'generateInvite'), word(locale, 'creating')].includes(flat(b)));
 const revokeOf = (m: Mounted, locale: Locale = 'en') => buttonsOf(m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === word(locale, 'revoke'));
 const unlinkRowOf = (m: Mounted, locale: Locale = 'en') => buttonsOf(m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === word(locale, 'unlink'));
+/** The copy button (named Copy link, or Copied for a moment after a copy) and the hidden status that says Copied. */
+const copyOf = (m: Mounted, locale: Locale = 'en') => buttonsOf(m).find((b) => [word(locale, 'copyLink'), word(locale, 'copied')].includes(b.getAttribute('aria-label') ?? ''));
+const copiedStatus = (m: Mounted) => elements(m.container).find((e) => classes(e).includes('ch-visually-hidden') && e.getAttribute('role') === 'status');
 const linkInput = (m: Mounted) => elements(m.container).find((e) => e.localName === 'input');
 const inSheet = (m: Mounted, predicate: (e: FakeElement) => boolean) => {
   const dialog = dialogs(m)[0];
@@ -258,7 +261,7 @@ async function main() {
     }
   });
 
-  await check('P2 the link\'s life, in en: generate posts once and the link shows; generate again replaces it; revoke sends DELETE once and goes back to Generate; INVITER_ALREADY_PAIRED says it is already paired; a 500 and a request that fails outright say "Something went wrong" (the second is logged) and the next success clears them; each button is busy only while its own request runs and every action is disabled meanwhile; the copy button says Copied', async () => {
+  await check('P2 the link\'s life, in en: generate posts once and the link shows; generate again replaces it; revoke sends DELETE once and goes back to Generate; INVITER_ALREADY_PAIRED says it is already paired; a 500 and a request that fails outright say "Something went wrong" (the second is logged) and the next success clears them; each button is busy only while its own request runs and every action is disabled meanwhile, the copy button included; the copy button says Copied, and a link that replaces it starts without "Copied"', async () => {
     reset();
     const o = open('en', propsOf('en', 'notPaired'));
     const w = (key: string, args?: Row) => word('en', key, 'pair', args);
@@ -284,6 +287,24 @@ async function main() {
           for (let i = 0; i < 4; i++) await Promise.resolve();
         });
         assert(show(written) === show(['https://famcal.bot/en/invite/tok-2']) && elements(o.m.container).some((e) => e.getAttribute('role') === 'status' && flat(e) === w('copied')), `copied: ${show(written)}`);
+        // Copy waits while the link is being replaced (it would copy the link the server is about to revoke), and the new link starts without "Copied"
+        assert(flat(copiedStatus(o.m) as FakeElement) === w('copied') && !copyOf(o.m)?.hasAttribute('disabled'), 'Copied, and the button is usable, before generating again');
+        let swap: (r: Response) => void = () => undefined;
+        world.create = () => new Promise<Response>((resolve) => void (swap = resolve));
+        o.m.click(generateOf(o.m) as FakeElement);
+        await settle();
+        assert(copyOf(o.m)?.hasAttribute('disabled'), 'the copy button is disabled while Generate works');
+        const copiesBefore = written.length;
+        o.m.click(copyOf(o.m) as FakeElement);
+        await settle();
+        assert(written.length === copiesBefore, `a tap on the disabled copy button wrote ${show(written.slice(copiesBefore))}`);
+        await act(async () => {
+          swap(json(newLink(++created)));
+          await new Promise((r) => setTimeout(r, 0));
+        });
+        await settle();
+        assert(linkInput(o.m)?.value === `https://famcal.bot/en/invite/tok-${created}` && flat(copiedStatus(o.m) as FakeElement) === '' && copyOf(o.m)?.getAttribute('aria-label') === w('copyLink') && !copyOf(o.m)?.hasAttribute('disabled'), `the new link: ${linkInput(o.m)?.value}, status ${show(flat(copiedStatus(o.m) as FakeElement))}, button ${copyOf(o.m)?.getAttribute('aria-label')}`);
+        world.create = () => json(newLink(++created));
       } finally {
         if (navigatorBefore) Object.defineProperty(globalThis, 'navigator', navigatorBefore);
       }
@@ -336,6 +357,7 @@ async function main() {
       o.m.click(revokeOf(o.m) as FakeElement);
       await settle();
       assert(revokeOf(o.m)?.getAttribute('aria-busy') === 'true' && revokeOf(o.m)?.hasAttribute('disabled') && generateOf(o.m)?.hasAttribute('disabled') && !generateOf(o.m)?.hasAttribute('aria-busy'), 'revoke is the busy one, generate disabled');
+      assert(copyOf(o.m)?.hasAttribute('disabled'), 'the copy button is disabled while Revoke works');
       await act(async () => {
         release(json({ success: true }));
         await new Promise((r) => setTimeout(r, 0));

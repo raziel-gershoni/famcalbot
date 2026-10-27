@@ -7,7 +7,8 @@
 //   server does: you stop seeing each other's calendars and every shared calendar goes back to private), never in the
 //   browser's own pop-up.
 // - Not paired: the intro, then, when a link exists, a card with the link in a copy field, how long it lasts and a
-//   Revoke row; then Generate. Generating again replaces the link (the server revokes the old one).
+//   Revoke row; then Generate. Generating again replaces the link (the server revokes the old one): the copy button waits
+//   while that request runs, and the new link's field starts without "Copied" (it is keyed by the link's token).
 // - One request at a time: the button of the request that runs is busy, and every action is disabled meanwhile. A failure
 //   is said in the page's language, and logged. The page's errors sit at the top of the page; the unlink's sit in its
 //   sheet, since the sheet covers the page.
@@ -171,7 +172,7 @@ export default function PairClient({ userId, locale, initial }: Props) {
               <div className="ch-form-group">
                 <SectionLabel>{t('linkLabel')}</SectionLabel>
                 <FormCard>
-                  <CopyField label={t('linkLabel')} value={invite.url} copyLabel={t('copyLink')} copiedLabel={t('copied')} />
+                  <CopyField key={invite.token} label={t('linkLabel')} value={invite.url} copyLabel={t('copyLink')} copiedLabel={t('copied')} disabled={anyBusy} />
                   <div className="ch-form-row">
                     <span className="ch-form-label">
                       <span className="ch-form-hint">{t('activeLink')}</span>

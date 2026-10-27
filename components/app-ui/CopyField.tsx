@@ -6,6 +6,8 @@
 //
 // - A tap writes the value to the clipboard, then says "Copied" for 2 seconds: the button's name, the check mark and a
 //   status a screen reader announces (the label comes in already translated).
+// - `disabled` is for a moment when the link is about to change (a request is replacing it): the button is disabled and
+//   copies nothing. A screen that replaces the link gives the field a `key` of the link, so a new link starts without "Copied".
 // - Where the clipboard is not there to use (an old WebView, a refusal) it never says Copied: it logs why and selects the
 //   field's text, so a long press copies it. It never throws.
 //
@@ -25,9 +27,11 @@ export interface CopyFieldProps {
   copyLabel: string;
   /** The button's name, and the status, for the moment after a copy. */
   copiedLabel: string;
+  /** The button is disabled: nothing is copied. */
+  disabled?: boolean;
 }
 
-export function CopyField({ label, value, copyLabel, copiedLabel }: CopyFieldProps) {
+export function CopyField({ label, value, copyLabel, copiedLabel, disabled }: CopyFieldProps) {
   const input = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copied, setCopied] = useState(false);
@@ -65,7 +69,7 @@ export function CopyField({ label, value, copyLabel, copiedLabel }: CopyFieldPro
   return (
     <div className="ch-copy-field">
       <input ref={input} className="ch-copy-field-input" readOnly dir="ltr" aria-label={label} value={value} />
-      <button type="button" className="ch-icon-btn ch-copy-field-btn" aria-label={copied ? copiedLabel : copyLabel} onClick={copy}>
+      <button type="button" className="ch-icon-btn ch-copy-field-btn" aria-label={copied ? copiedLabel : copyLabel} disabled={disabled} onClick={copy}>
         {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
       </button>
       <span className="ch-visually-hidden" role="status">
