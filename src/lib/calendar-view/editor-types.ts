@@ -189,8 +189,6 @@ export interface ItemEditInfoResponse {
   canChangeRecipient?: boolean;
   /** 3b: who the reminder is for, relative to its creator: themselves, their partner, or both of them. */
   forWho?: ForWho;
-  /** The previous bundle's field: forWho !== 'me'. Emitted for one release; nothing reads it (remove with the step-2 SQL). */
-  forPartner?: boolean;
   /**
    * An event's alert (editor upgrades spec §2): 'default', 'none' or its lead in minutes (a
    * migrated one may be off the list). Absent for a reminder. A Google item's is its own

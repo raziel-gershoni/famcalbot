@@ -878,7 +878,7 @@ async function main() {
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
       forName: null, alert: 'default', scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
-      canChangeRecipient: false, forWho: 'me', forPartner: false, source: 'famcal',
+      canChangeRecipient: false, forWho: 'me', source: 'famcal',
     }, 'a one-off');
     const weekly = await post(eventBody({ repeat: 'weekly' }));
     const occurrence = `famcal|${idOf(weekly.body.key)}#${iso(at('2026-11-03 10:00'))}`;
@@ -2295,28 +2295,15 @@ async function main() {
     assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one is refused');
   });
 
-  await check('legacy: the previous Mini App bundle\'s forPartner still works for one release: create, edit, the info beside forWho; it cannot be mixed with forWho', async () => {
+  await check('forPartner, the previous Mini App bundle\'s field, is an unknown key like any other: refused on create and on edit, and the info no longer carries it', async () => {
     seed();
-    const partner = await post(reminderBody({ forPartner: true, title: 'Old bundle cake' }));
-    assert(partner.status === 200, `create ${partner.status} ${partner.text}`);
-    assertSame([lastEvent().forUserId, lastEvent().forBoth], [NOA, false], 'forPartner: true is for the partner alone');
-    const me = await post(reminderBody({ forPartner: false }));
-    assertSame([me.status, lastEvent().forUserId], [200, null], 'forPartner: false is for the creator');
-    const info = (await itemOf(partner.body.key)).body;
-    assertSame([info.forWho, info.forPartner], ['partner', true], 'the info says both');
-    const both = await post(reminderBody({ forWho: 'both' }));
-    const bothInfo = (await itemOf(both.body.key)).body;
-    assertSame([bothInfo.forWho, bothInfo.forPartner], ['both', true], 'a reminder for both reads as for the partner to the old bundle');
-    const edited = await patch({ key: me.body.key, scope: 'all', changes: { forPartner: true } });
-    assertSame([edited.status, eventRow(idOf(me.body.key)).forUserId], [200, NOA], 'edit to the partner');
-    const back = await patch({ key: me.body.key, scope: 'all', changes: { forPartner: false } });
-    assertSame([back.status, eventRow(idOf(me.body.key)).forUserId], [200, null], 'and back');
-    const mixed = await post(reminderBody({ forPartner: true, forWho: 'both' }));
-    assertSame([mixed.status, mixed.body], [400, { error: 'invalid', field: 'forPartner' }], 'both fields');
-    const notBool = await post(reminderBody({ forPartner: 'yes' }));
-    assertSame([notBool.status, notBool.body], [400, { error: 'invalid', field: 'forPartner' }], 'not a boolean');
-    const onEvent = await post(eventBody({ forPartner: true }));
-    assertSame(onEvent.status, 400, 'an event has no For row');
+    const created = await post(reminderBody({ forPartner: true }));
+    assertSame([created.status, created.body], [400, { error: 'invalid', field: 'forPartner' }], 'create');
+    const own = await post(reminderBody({ title: 'No legacy field' }));
+    assert(own.status === 200, `create ${own.status} ${own.text}`);
+    const edited = await patch({ key: own.body.key, scope: 'all', changes: { forPartner: true } });
+    assertSame([edited.status, edited.body], [400, { error: 'invalid', field: 'changes.forPartner' }], 'edit');
+    assert(!('forPartner' in (await itemOf(own.body.key)).body), 'the info should not carry forPartner');
   });
 
   await check('both: "Keep as mine" on a reminder for both (me) leaves the creator alone; both is refused for a partner who cannot be pinged now, the take-back works', async () => {

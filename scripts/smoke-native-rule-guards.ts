@@ -238,7 +238,6 @@ const fakePrisma: Row = {
       throw err;
     }
   },
-  $executeRaw: async () => 0, // the release-only write of the old lastPingedAt (deploy-compat.ts)
   // The claim: INSERT … ON CONFLICT DO UPDATE … WHERE not done and not yet pinged for this due … RETURNING.
   $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
     assert(/INSERT INTO "NativeReminderState"[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*ON CONFLICT/.test(strings.join('$')), 'not the claim');

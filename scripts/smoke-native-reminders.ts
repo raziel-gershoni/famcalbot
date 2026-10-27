@@ -254,17 +254,6 @@ const fakePrisma = {
       return pick(db.pings.find((p) => p.stateId === key.stateId && p.userId === key.userId), select);
     },
   },
-  // Release only: a sent single reminder's ping is also written to the state row's old lastPingedAt.
-  $executeRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
-    queries.push('$executeRaw');
-    const sql = strings.join('$');
-    assert(/UPDATE "NativeReminderState"\s+SET "lastPingedAt" = /.test(sql), `unexpected statement: ${sql}`);
-    const [claimedAt, stateId] = values as [string, string];
-    const row = db.states.find((s) => s.id === stateId);
-    if (!row || (row.oldLastPingedAt && (ms(row.oldLastPingedAt) as number) >= new RealDate(claimedAt).getTime())) return 0;
-    row.oldLastPingedAt = new RealDate(claimedAt);
-    return 1;
-  },
   // The claim: one INSERT … ON CONFLICT statement per (occurrence, recipient): ensure the state
   // row, then insert or update the recipient's ping row while the occurrence is not done and the
   // recipient has not been pinged for this due … RETURNING. One call is atomic here, as one
@@ -281,13 +270,10 @@ const fakePrisma = {
       /WITH state AS \(\s*INSERT INTO "NativeReminderState"[\s\S]*ON CONFLICT \("seriesEventId", "originalStartsAt"\) DO UPDATE[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*"doneAt" IS NULL[\s\S]*ON CONFLICT \("stateId", "userId"\) DO UPDATE[\s\S]*RETURNING/.test(sql),
       `unexpected claim SQL: ${sql}`
     );
-    // The deploy-window fallback reads the state row's old lastPingedAt; the step-2 file removes it.
-    assert(/oldLastPingedAt[\s\S]*drop-reminder-state-ping-columns\.sql/.test(sql), 'the fallback should name the step-2 file');
-    // The conditions the fake below stands in for, exactly: not done; the old build's ping before this due (this release only);
-    // and, per recipient, never pinged or pinged before this due.
-    assert(/WHERE state\."doneAt" IS NULL\s+(--[^\n]*\n\s*)*AND \(state\."oldLastPingedAt" IS NULL OR state\."oldLastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\)\s+ON CONFLICT/.test(sql), `the fallback condition: ${sql}`);
+    // The conditions the fake below stands in for, exactly: not done; and, per recipient, never pinged or pinged before this due.
+    assert(/WHERE state\."doneAt" IS NULL\s+ON CONFLICT/.test(sql), `the done condition: ${sql}`);
     assert(/WHERE "NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
-    assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 7, 'every timestamp should be read as UTC');
+    assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 6, 'every timestamp should be read as UTC');
     const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new RealDate(values[values.length - 1] as string).getTime();
     const originalStartsAt = new RealDate(occurrence);
@@ -298,7 +284,6 @@ const fakePrisma = {
       db.states.push(state);
     }
     if (state.doneAt) return [];
-    if (state.oldLastPingedAt && (ms(state.oldLastPingedAt) as number) >= due) return [];
     const ping = db.pings.find((p) => p.stateId === state!.id && p.userId === userId);
     if (!ping) {
       db.pings.push({ id: pingId, stateId: state.id, userId, snoozedUntil: null, lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null });
@@ -1015,26 +1000,6 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1002' && sent[0].text === `⏰ <b>Call the plumber</b>\n${fromLine('en', 'רזיאל')}`, sentLines());
   });
 
-  await check('release only: a sent single reminder\'s ping is also on the state row\'s old lastPingedAt; a reminder for both leaves it alone', async () => {
-    reset();
-    const single = reminder({ startsAt: today('10:00') });
-    await pass(today('10:00'));
-    const row = db.states.find((s) => s.seriesEventId === single.id)!;
-    assertTime(row.oldLastPingedAt as Date, today('10:00'), 'the previous build would find it pinged');
-    reset();
-    const twin = both({ startsAt: today('10:00') });
-    await pass(today('10:00'));
-    assert(sent.length === 2 && db.states.find((s) => s.seriesEventId === twin.id)!.oldLastPingedAt === undefined, 'a reminder for both is not written to the old column');
-    // A failed send leaves it unwritten, so a retry is not blocked.
-    reset();
-    const failing = reminder({ startsAt: today('10:00') });
-    sendFailures = [telegramError(502, 'Bad Gateway')];
-    await pass(today('10:00'));
-    assert(db.states.find((s) => s.seriesEventId === failing.id)!.oldLastPingedAt === undefined, 'written for a send that failed');
-    await pass(today('10:01'));
-    assert(sent.length === 1, `the retry: ${sentLines()}`);
-  });
-
   await check('both: after unlinking it is the creator\'s alone: one ping, no "for both of you" line, nothing for the ex-partner', async () => {
     reset();
     db.pairings[0].status = 'UNLINKED';
@@ -1115,19 +1080,6 @@ async function main() {
     const second = await pass(today('10:01'));
     assertSame(sent.map((s) => s.chatId), ['1001', '1002']);
     assert(second.sent === 1, show(second));
-  });
-
-  await check('both: the deploy-window fallback: a ping the previous build recorded on the state row itself is not sent again', async () => {
-    reset();
-    const r = both({ startsAt: today('10:00') });
-    const old = state({ seriesEventId: r.id, originalStartsAt: today('10:00') });
-    (db.states.find((s) => s.id === old.id) as Row).oldLastPingedAt = today('10:00'); // the old build's lastPingedAt, now an unmapped column
-    const result = await pass(today('10:00'));
-    assert(result.sent === 0 && sent.length === 0 && result.skipped === 2, `${show(result)} ${sentLines()}`);
-    // An old ping from before this due time (an earlier occurrence's) does not hold it back.
-    (db.states.find((s) => s.id === old.id) as Row).oldLastPingedAt = today('09:00');
-    const later = await pass(today('10:01'));
-    assert(later.sent === 2, `${show(later)} ${sentLines()}`);
   });
 
   await check('admin switch off: the pass does nothing and reads nothing', async () => {

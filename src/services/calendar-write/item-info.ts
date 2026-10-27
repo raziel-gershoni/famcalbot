@@ -391,8 +391,6 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     // The creator, while the partner can be pinged or it is theirs now (so it can come back).
     canChangeRecipient: creator && (partnerCanRemind(ctx) || forWho !== 'me'),
     forWho,
-    // The previous bundle's field, for one release (remove with the step-2 SQL).
-    forPartner: forWho !== 'me',
     source: 'famcal',
     ...(cross.reason ? { moveReason: cross.reason } : {}),
   };

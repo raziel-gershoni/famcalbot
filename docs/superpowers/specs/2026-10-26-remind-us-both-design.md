@@ -79,7 +79,9 @@ it for both.
      the Prisma schema in this push but stay in the database; for this one release the claim also
      treats an old `lastPingedAt` at or after the due time as already pinged (raw SQL), so a ping the
      old build sends during the deploy is not sent twice.
-  2. A later push drops those old columns and the fallback.
+  2. A later push drops those old columns and the fallback. Shipped 2026-10-27, as two pushes: the code
+     that stops reading the columns first (the claim's fallback, the deploy catch-up, the old-column
+     write, the `forPartner` wire field), then the migration `20261027000000_drop_reminder_state_ping_columns`.
 
 ## Error handling and logging
 
@@ -113,10 +115,9 @@ chat edits that change who a reminder is for.
   and Done notes follow the recipients who can be reached now (Telegram, not suspended, not unreachable,
   not blocked): with only one of the two reachable, the ping has no "for both of you" line and the Done
   note goes as for a reminder of the creator alone (`isForBothReachable` in ownership.ts).
-- **Deploy window.** Besides the claim's fallback on the state row's old `lastPingedAt`, this release has a
-  catch-up that copies what the previous build wrote to the old columns (a snooze, a ping it sent) into the
-  ping rows, at scheduler start and +5, +15 and +30 minutes, and writes the old `lastPingedAt` after a
-  sent single reminder. The wire field `forPartner` is still accepted and emitted beside `forWho`. All of it
-  goes with the step-2 SQL (see the list in that file's header).
+- **Deploy window (removed 2026-10-27).** The release carried the claim's fallback on the state row's old
+  `lastPingedAt`, a catch-up that copied what the previous build wrote to the old columns into the ping
+  rows, the write of the old `lastPingedAt` after a sent single reminder, and the wire field `forPartner`
+  beside `forWho`. The step-2 cleanup removed all of it, then dropped the five old columns and their index.
 - **Reassignment.** A ping read by someone the reminder is still for says only that it changed.
 - **Mini App.** The row and the sheet show a "For both of you" chip for a reminder for both partners.

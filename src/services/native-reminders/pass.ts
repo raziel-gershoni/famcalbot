@@ -20,7 +20,6 @@ import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds }
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
-import { recordOldLastPing } from './deploy-compat';
 import { buildDoneText, buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -222,10 +221,6 @@ async function pingOccurrence(
   } catch (error) {
     return handleSendFailure(error, claim, recipient, series.id);
   }
-
-  // Release only: a single reminder's ping is also on the state row's old lastPingedAt, so the
-  // previous build, still running during the overlap, doesn't send it again (remove with step 2).
-  if (!forBoth) await recordOldLastPing(claim.stateId, claim.claimedAt, recipient.id);
 
   try {
     const saved = await prisma.nativeReminderPing.update({

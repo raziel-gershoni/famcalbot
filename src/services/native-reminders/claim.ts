@@ -51,17 +51,12 @@ export async function claimOccurrence(
       VALUES (${randomUUID()}, ${seriesEventId}, (${originalStartsAt.toISOString()}::timestamptz AT TIME ZONE 'UTC'),
               (${at}::timestamptz AT TIME ZONE 'UTC'))
       ON CONFLICT ("seriesEventId", "originalStartsAt") DO UPDATE SET "updatedAt" = "NativeReminderState"."updatedAt"
-      RETURNING "id", "doneAt", "lastPingedAt" AS "oldLastPingedAt"
+      RETURNING "id", "doneAt"
     )
     INSERT INTO "NativeReminderPing" ("id", "stateId", "userId", "lastPingedAt", "pingAttempts", "updatedAt")
     SELECT ${randomUUID()}::text, state."id", ${userId}::integer, (${at}::timestamptz AT TIME ZONE 'UTC'), 1, (${at}::timestamptz AT TIME ZONE 'UTC')
     FROM state
     WHERE state."doneAt" IS NULL
-      -- Deploy-window fallback, this release only: the previous build kept its last ping on the
-      -- state row itself ("lastPingedAt"), which is no longer a column of the schema. A ping it
-      -- sent during the deploy must not be sent again. Delete this condition with the step-2
-      -- migration that drops the column (drop-reminder-state-ping-columns.sql).
-      AND (state."oldLastPingedAt" IS NULL OR state."oldLastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC'))
     ON CONFLICT ("stateId", "userId") DO UPDATE
       SET "lastPingedAt" = EXCLUDED."lastPingedAt",
           "pingAttempts" = "NativeReminderPing"."pingAttempts" + 1,

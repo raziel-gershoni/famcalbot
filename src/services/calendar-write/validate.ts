@@ -124,7 +124,7 @@ export interface CreateCommand {
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'forPartner', 'alert']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -157,9 +157,7 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
     calendarId = raw.calendarId;
   }
   if (raw.forWho !== undefined && !isForWho(raw.forWho)) return fail('forWho');
-  const legacy = legacyForWho(raw.forPartner, raw.forWho);
-  if (legacy === null) return fail('forPartner');
-  const forWho: ForWho = raw.forWho ?? legacy ?? 'me';
+  const forWho: ForWho = raw.forWho ?? 'me';
   if (forWho !== 'me' && kind !== 'reminder') return fail('forWho');
   // An event's alert (editor upgrades spec §2): a listed value. A reminder has none; whether the
   // calendar takes one (a Google one doesn't) is for the write, which knows the calendar.
@@ -254,17 +252,6 @@ export interface UpdateCommand {
 /** Whether a value is one of the For row's three choices. */
 const isForWho = (value: unknown): value is ForWho => (FOR_WHO as readonly unknown[]).includes(value);
 
-/**
- * The wire field the previous Mini App bundle sends (a Mini App can stay open across a deploy): a
- * boolean `forPartner` is 'partner' or 'me'. Undefined when absent, null when it isn't a boolean or
- * comes with `forWho`. THIS RELEASE ONLY: remove with the step-2 SQL.
- */
-function legacyForWho(forPartner: unknown, forWho: unknown): ForWho | undefined | null {
-  if (forPartner === undefined) return undefined;
-  if (typeof forPartner !== 'boolean' || forWho !== undefined) return null;
-  return forPartner ? 'partner' : 'me';
-}
-
 /** A FamCal calendar id as the editor sends it, 'native:<cuid>'. */
 const isNativeCalendarIdOf = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('native:') && ID.test(value.slice(7));
@@ -278,7 +265,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'forPartner', 'alert'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -324,9 +311,6 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     if (!isForWho(c.forWho)) return fail('forWho');
     changes.forWho = c.forWho;
   }
-  const legacy = legacyForWho(c.forPartner, c.forWho);
-  if (legacy === null) return fail('forPartner');
-  if (legacy !== undefined) changes.forWho = legacy;
   if (c.alert !== undefined) {
     const alert = parseAlertChoice(c.alert);
     if (alert === null) return fail('alert');
