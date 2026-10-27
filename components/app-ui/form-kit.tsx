@@ -390,6 +390,14 @@ button.ch-danger-row {
   font-size: 14px;
   color: var(--ch-muted);
 }
+.ch-form-count {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-inline: 4px;
+  font-size: 13px;
+  color: var(--ch-muted);
+}
 .ch-save-bar {
   flex: none;
   padding: 12px 16px calc(12px + max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)));
@@ -481,16 +489,22 @@ export interface TextFieldProps {
   /** The title's larger type. */
   large?: boolean;
   multiline?: boolean;
+  /** The most the field takes: the platform stops typing there. */
+  maxLength?: number;
+  /** A multiline field's height in lines (3 without it). */
+  rows?: number;
+  /** The id of text that describes the field (a count); the error's id, when there is one, follows it. */
+  describedBy?: string;
 }
 
 /** A single-line field (or notes), labelled for assistive tech; it sits on a FormCard. */
-export function TextField({ label, value, onChange, placeholder, large, multiline, error }: TextFieldProps & { error?: string | null }) {
+export function TextField({ label, value, onChange, placeholder, large, multiline, maxLength, rows, describedBy, error }: TextFieldProps & { error?: string | null }) {
   const errorId = useId();
   const common = {
     className: `ch-form-field${large ? ' ch-form-field-title' : ''}${multiline ? ' ch-form-notes' : ''}`,
     'aria-label': label,
     'aria-invalid': error ? true : undefined,
-    'aria-describedby': error ? errorId : undefined,
+    'aria-describedby': [describedBy, error ? errorId : undefined].filter(Boolean).join(' ') || undefined,
     placeholder,
     dir: 'auto' as const,
     value,
@@ -498,9 +512,9 @@ export function TextField({ label, value, onChange, placeholder, large, multilin
   return (
     <>
       {multiline ? (
-        <textarea {...common} rows={3} onChange={(e) => onChange(e.target.value)} />
+        <textarea {...common} rows={rows ?? 3} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
       ) : (
-        <input {...common} type="text" enterKeyHint="done" autoComplete="off" onChange={(e) => onChange(e.target.value)} />
+        <input {...common} type="text" enterKeyHint="done" autoComplete="off" maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
       )}
       {error ? <FieldError id={errorId} error={error} /> : null}
     </>

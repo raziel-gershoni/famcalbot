@@ -508,14 +508,14 @@ const GOOD_PLURALS: Record<Locale, string> = {
 };
 
 async function main() {
-  await check('#1 calendarHome is its own top-level object in en/he/ru, right after dashboard and before admin (away from bot.errors)', () => {
+  await check('#1 calendarHome is its own top-level object in en/he/ru, right after feedback (the place the dashboard namespace had before W1b moved its feedback keys to a top-level feedback) and before admin (away from bot.errors)', () => {
     const problems: string[] = [];
     for (const locale of LOCALES) {
       const messages = messagesOf(locale);
       const top = Object.keys(messages);
       const at = top.indexOf('calendarHome');
       if (at < 0) problems.push(`${locale}: no top-level calendarHome`);
-      else if (top[at - 1] !== 'dashboard' || top[at + 1] !== 'admin') problems.push(`${locale}: calendarHome sits between ${top[at - 1]} and ${top[at + 1]}`);
+      else if (top[at - 1] !== 'feedback' || top[at + 1] !== 'admin') problems.push(`${locale}: calendarHome sits between ${top[at - 1]} and ${top[at + 1]}`);
       if (messages.bot && 'calendarHome' in messages.bot) problems.push(`${locale}: a calendarHome inside bot`);
     }
     assert(problems.length === 0, problems.join('; '));

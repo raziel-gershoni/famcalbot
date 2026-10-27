@@ -21,21 +21,21 @@
       "adminBadge": "Admin"
     }
   },
-  "dashboard": {
-    "feedback": {
-      "title": "Feedback",
-      "pageTitle": "Send Feedback",
-      "placeholder": "Share your thoughts, suggestions, or report issues...",
-      "submit": "Send Feedback",
-      "sending": "Sending...",
-      "success": "Thank you for your feedback!",
-      "successDesc": "Your feedback helps us improve!",
-      "backToDashboard": "Back to Dashboard",
-      "error": "Failed to send feedback. Please try again.",
-      "rateLimit": "You've reached the daily feedback limit. Please try again tomorrow.",
-      "tooShort": "Feedback must be at least 10 characters.",
-      "tooLong": "Feedback must be less than 1000 characters."
-    }
+  "feedback": {
+    "title": "Feedback",
+    "intro": "Tell us what works, what doesn't, and what you'd like FamCal to do.",
+    "fieldLabel": "Your feedback",
+    "placeholder": "Write here",
+    "moreNeeded": "{count, plural, one {# more character to go} other {# more characters to go}}",
+    "send": "Send",
+    "rateLimit": "You've reached today's limit. You can send more tomorrow.",
+    "openFromChat": "Open this page from your FamCal chat to send feedback.",
+    "tooShort": "Write at least {min} characters.",
+    "tooLong": "Keep it to {max} characters.",
+    "failed": "Couldn't send. Try again.",
+    "thanksTitle": "Thanks, it's on its way",
+    "thanksBody": "We read every message.",
+    "backToCalendar": "Back to the calendar"
   },
   "calendarHome": {
     "header": {

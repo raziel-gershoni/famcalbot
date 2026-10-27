@@ -1,10 +1,29 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+// The Feedback screen, in the home's design (spec 2026-10-19 §4, §5; plan W1b): an AppScreen on the grouped ground, a header with
+// its back, one text field with a count line under it, and a Send bar that stays at the bottom. A sent message gives way to a
+// thank-you card in the same screen.
+//
+// - This page has no data of its own: its server page does no user lookup (it would tell anyone whether a user exists), so there
+//   is no gate and no loader; /api/feedback proves the user when the message is sent. Telegram's full height and swipes are
+//   taken on mount, as every app screen has them.
+// - The count is of the trimmed text, which is what the route counts: Send is off until there are ten characters (spaces do
+//   not count), and the field stops at 1000. The limits are FEEDBACK_LIMITS, the route's own.
+// - Why a send failed is said in the page's language, never in the server's words: the daily limit, a page opened outside the
+//   user's FamCal chat (the server could not tell who sent it), the limits again, or "couldn't send". The text stays, so a
+//   failure never costs what was written.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser).
+
+import { useEffect, useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { TelegramLayout } from '@/components/Layout';
-import { MessageSquare, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { FEEDBACK_LIMITS } from '@/src/lib/feedback-limits';
+import { readInitData } from '@/src/lib/read-init-data';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { FORM_CSS, FormCard, SaveBar, TextField } from '@/components/app-ui/form-kit';
+import { ScreenHeader } from '@/components/app-ui/ScreenHeader';
+import { StateCard } from '@/components/app-ui/StateCard';
+import { startMiniApp } from '../PageGate';
 
 interface FeedbackClientProps {
   userId: number;
@@ -12,348 +31,91 @@ interface FeedbackClientProps {
 }
 
 export default function FeedbackClient({ userId, locale }: FeedbackClientProps) {
-  const t = useTranslations('dashboard');
+  const t = useTranslations('feedback');
+  const ui = useTranslations('ui');
   const router = useRouter();
-
-  const [feedbackText, setFeedbackText] = useState('');
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const countId = useId();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-      tg.setHeaderColor('#667eea');
-      tg.setBackgroundColor('#ffffff');
-    }
+    startMiniApp('app');
   }, []);
 
-  const handleBack = () => {
-    router.push(`/${locale}/dashboard?user_id=${userId}`);
+  const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
+
+  const trimmed = text.trim();
+  const short = trimmed.length < FEEDBACK_LIMITS.minLength;
+
+  const edit = (value: string) => {
+    setText(value);
+    setError(null);
   };
 
-  const handleSubmit = async () => {
-    if (!feedbackText.trim() || status === 'submitting') return;
-
-    const trimmedText = feedbackText.trim();
-
-    // Client-side validation
-    if (trimmedText.length < 10) {
-      setErrorMessage(t('feedback.tooShort'));
-      return;
-    }
-    if (trimmedText.length > 1000) {
-      setErrorMessage(t('feedback.tooLong'));
-      return;
-    }
-
-    setStatus('submitting');
-    setErrorMessage(null);
-
+  const send = async () => {
+    if (sending || short) return;
+    setSending(true);
+    setError(null);
     try {
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: trimmedText,
-          user_id: userId,
-          initData,
-        }),
+        body: JSON.stringify({ text: trimmed, user_id: userId, initData: readInitData() }),
       });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setStatus('success');
-        setFeedbackText('');
-      } else {
-        setStatus('error');
-        // Map error codes to translation keys
-        if (data.error === 'rateLimit') {
-          setErrorMessage(t('feedback.rateLimit'));
-        } else if (data.error === 'tooShort') {
-          setErrorMessage(t('feedback.tooShort'));
-        } else if (data.error === 'tooLong') {
-          setErrorMessage(t('feedback.tooLong'));
-        } else {
-          setErrorMessage(t('feedback.error'));
-        }
+      if (response.status === 429) {
+        setError(t('rateLimit'));
+        return;
       }
-    } catch (error) {
-      console.error('Feedback submission error:', error);
-      setStatus('error');
-      setErrorMessage(t('feedback.error'));
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        // Nobody could say who this is: the page was opened outside the user's own chat with the bot
+        console.warn('[feedback] send refused:', response.status);
+        setError(t('openFromChat'));
+        return;
+      }
+      const data: { success?: boolean; error?: string } = await response.json();
+      if (response.ok && data.success) {
+        setSent(true);
+        return;
+      }
+      if (data.error === 'rateLimit') {
+        setError(t('rateLimit'));
+        return;
+      }
+      console.warn('[feedback] send refused:', response.status);
+      setError(data.error === 'tooShort' ? t('tooShort', { min: FEEDBACK_LIMITS.minLength }) : data.error === 'tooLong' ? t('tooLong', { max: FEEDBACK_LIMITS.maxLength }) : t('failed'));
+    } catch (err) {
+      console.error('[feedback] send failed:', err);
+      setError(t('failed'));
+    } finally {
+      setSending(false);
     }
   };
 
-  if (status === 'success') {
-    return (
-      <TelegramLayout>
-        <style jsx>{`
-          .success-container {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            background: white;
-          }
-          .success-icon {
-            margin-bottom: 20px;
-          }
-          .success-title {
-            font-size: 24px;
-            font-weight: 600;
-            color: #22c55e;
-            margin: 0 0 12px 0;
-            text-align: center;
-          }
-          .success-message {
-            font-size: 16px;
-            color: #6b7280;
-            text-align: center;
-            margin: 0 0 32px 0;
-          }
-          .back-btn {
-            padding: 14px 28px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-          }
-          .back-btn:hover {
-            background: #5a67d8;
-          }
-        `}</style>
-        <div className="success-container">
-          <div className="success-icon">
-            <CheckCircle2 size={64} color="#22c55e" />
-          </div>
-          <h1 className="success-title">{t('feedback.success')}</h1>
-          <p className="success-message">{t('feedback.successDesc') || 'Your feedback helps us improve!'}</p>
-          <button className="back-btn" onClick={handleBack}>
-            {t('feedback.backToDashboard') || 'Back to Dashboard'}
-          </button>
-        </div>
-      </TelegramLayout>
-    );
-  }
-
   return (
-    <TelegramLayout>
-      <style jsx>{`
-        .container {
-          max-width: 600px;
-          margin: 0 auto;
-          background: white;
-          min-height: 100vh;
-        }
-
-        header {
-          background: #667eea;
-          color: white;
-          padding: 16px 20px;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .back-button {
-          background: none;
-          border: none;
-          color: white;
-          cursor: pointer;
-          padding: 8px;
-          margin: -8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 8px;
-          transition: background 0.2s;
-        }
-
-        .back-button:hover {
-          background: rgba(255, 255, 255, 0.1);
-        }
-
-        .header-content {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-        }
-
-        header h1 {
-          font-size: 20px;
-          font-weight: 600;
-          margin: 0;
-        }
-
-        .content {
-          padding: 20px;
-        }
-
-        .description {
-          color: #6b7280;
-          font-size: 14px;
-          margin: 0 0 20px 0;
-          line-height: 1.5;
-        }
-
-        .feedback-textarea {
-          width: 100%;
-          min-height: 200px;
-          padding: 16px;
-          border: 2px solid #e5e7eb;
-          border-radius: 12px;
-          font-size: 16px;
-          font-family: inherit;
-          resize: vertical;
-          transition: border-color 0.2s;
-          line-height: 1.5;
-        }
-
-        .feedback-textarea:focus {
-          outline: none;
-          border-color: #667eea;
-        }
-
-        .feedback-textarea:disabled {
-          background: #f9fafb;
-          cursor: not-allowed;
-        }
-
-        .feedback-textarea.error {
-          border-color: #ef4444;
-        }
-
-        .char-count {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-top: 8px;
-          font-size: 13px;
-          color: #9ca3af;
-        }
-
-        .char-count.warning {
-          color: #f59e0b;
-        }
-
-        .char-count.error {
-          color: #ef4444;
-        }
-
-        .error-message {
-          background: #fee2e2;
-          color: #991b1b;
-          padding: 12px 16px;
-          border-radius: 8px;
-          font-size: 14px;
-          margin-top: 16px;
-        }
-
-        .submit-btn {
-          width: 100%;
-          padding: 16px;
-          background: #667eea;
-          color: white;
-          border: none;
-          border-radius: 12px;
-          font-size: 16px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-          margin-top: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-        }
-
-        .submit-btn:hover:not(:disabled) {
-          background: #5a67d8;
-          transform: translateY(-1px);
-        }
-
-        .submit-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .spinner {
-          animation: spin 1s linear infinite;
-        }
-      `}</style>
-
-      <div className="container">
-        <header>
-          <button className="back-button" onClick={handleBack} aria-label="Back">
-            <ArrowLeft size={24} />
-          </button>
-          <div className="header-content">
-            <MessageSquare size={24} />
-            <h1>{t('feedback.pageTitle') || t('feedback.title')}</h1>
-          </div>
-        </header>
-
-        <div className="content">
-          <p className="description">
-            {t('feedback.placeholder')}
-          </p>
-
-          <textarea
-            className={`feedback-textarea ${errorMessage ? 'error' : ''}`}
-            placeholder={t('feedback.placeholder')}
-            value={feedbackText}
-            onChange={(e) => {
-              setFeedbackText(e.target.value);
-              setErrorMessage(null);
-              if (status === 'error') setStatus('idle');
-            }}
-            maxLength={1000}
-            disabled={status === 'submitting'}
-          />
-
-          <div className={`char-count ${feedbackText.length > 950 ? 'warning' : ''} ${feedbackText.length >= 1000 ? 'error' : ''}`}>
-            <span>{feedbackText.length < 10 && feedbackText.length > 0 ? `${10 - feedbackText.length} more characters needed` : ''}</span>
-            <span>{feedbackText.length}/1000</span>
-          </div>
-
-          {errorMessage && (
-            <div className="error-message">
-              {errorMessage}
+    <AppScreen ground="grouped" onBack={back}>
+      <style>{FORM_CSS}</style>
+      <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
+      {sent ? (
+        <StateCard title={t('thanksTitle')} body={t('thanksBody')} action={{ label: t('backToCalendar'), onClick: back }} />
+      ) : (
+        <>
+          <div className="ch-form-page">
+            <p className="ch-form-fixed">{t('intro')}</p>
+            <div className="ch-form-group">
+              <FormCard>
+                <TextField multiline rows={8} label={t('fieldLabel')} placeholder={t('placeholder')} maxLength={FEEDBACK_LIMITS.maxLength} describedBy={countId} value={text} onChange={edit} />
+              </FormCard>
+              <div id={countId} className="ch-form-count">
+                <span>{trimmed.length > 0 && short ? t('moreNeeded', { count: FEEDBACK_LIMITS.minLength - trimmed.length }) : null}</span>
+                <bdi dir="ltr">{`${trimmed.length} / ${FEEDBACK_LIMITS.maxLength}`}</bdi>
+              </div>
             </div>
-          )}
-
-          <button
-            className="submit-btn"
-            onClick={handleSubmit}
-            disabled={status === 'submitting' || !feedbackText.trim() || feedbackText.trim().length < 10}
-          >
-            {status === 'submitting' ? (
-              <>
-                <Loader2 size={20} className="spinner" />
-                {t('feedback.sending')}
-              </>
-            ) : (
-              t('feedback.submit')
-            )}
-          </button>
-        </div>
-      </div>
-    </TelegramLayout>
+          </div>
+          <SaveBar sticky label={t('send')} busy={sending} disabled={short} error={error} onSave={send} />
+        </>
+      )}
+    </AppScreen>
   );
 }

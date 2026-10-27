@@ -10,13 +10,14 @@ import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { notifyAdminFeedback } from '@/src/utils/error-notifier';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
+import { FEEDBACK_LIMITS } from '@/src/lib/feedback-limits';
 
 export const dynamic = 'force-dynamic';
 
 const FEEDBACK_CONFIG = {
-  minLength: 10,
-  maxLength: 1000,
-  rateLimitCount: 3,
+  minLength: FEEDBACK_LIMITS.minLength,
+  maxLength: FEEDBACK_LIMITS.maxLength,
+  rateLimitCount: FEEDBACK_LIMITS.perDay,
   rateLimitHours: 24,
 } as const;
 
