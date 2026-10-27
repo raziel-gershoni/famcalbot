@@ -108,6 +108,15 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 
 ## 4. F1: the shared design layer (no visual change)
 
+**Owner 2026-10-27:** F1 is the lift plus the cards that already have users. The plan is `docs/superpowers/plans/2026-10-27-app-ui-F1.md`. These are built in W1, beside the first screen that uses each:
+- ScreenHeader;
+- day chips;
+- notice;
+- badge;
+- meter;
+- empty states;
+- the `ui` keys Back, Close, Save and Saved.
+
 - **Move the home's tokens and shared CSS** out of `app/[locale]/dashboard/home-theme.ts` and `home-shell.ts` into `components/app-ui/`, on a `.ch-app` root; the home becomes `ch-app ch-home`.
   - Every `--ch-*` and `ch-*` name is kept.
   - Every token is resolved in light and dark before and after the move, and the two must match.
