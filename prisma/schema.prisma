@@ -267,9 +267,6 @@ model NativeEventInstance {
 // Per-occurrence state of a REMINDER, keyed like NativeEventInstance. No row means
 // pending; a row appears once the occurrence is pinged, snoozed or marked done. Done is
 // shared by everyone the reminder is for; each recipient's own ping is a NativeReminderPing.
-// (The table still has the old ping columns snoozedUntil, lastPingedAt, pingAttempts,
-// pingChatId, pingMessageId and their index: they left this schema in the "remind us both"
-// release and a later migration drops them.)
 model NativeReminderState {
   id               String               @id @default(cuid())
   seriesEventId    String
