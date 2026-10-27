@@ -403,7 +403,7 @@
     "hebrewMonthShort": ["Tish.", "Chesh.", "Kis.", "Tev.", "Sh'vat", "Adar", "Adar I", "Adar II", "Nisan", "Iyyar", "Sivan", "Tamuz", "Av", "Elul"]
   },
   "admin": {
-    "title": "Admin Panel",
+    "title": "Admin",
     "badge": "ADMIN",
     "testing": {
       "title": "AI Model Testing",
@@ -430,11 +430,15 @@
     "features": {
       "title": "Feature Toggles",
       "reminders": "Event alerts",
-      "remindersDescription": "Turn event alerts (the heads-up before an event starts) on or off for everyone",
+      "remindersDescription": "The heads-up before an event starts. Turning it off turns it off for everyone.",
       "nativeReminders": "Reminders (built-in calendar)",
       "nativeRemindersDescription": "“Remind me…” for built-in calendar users on Telegram: made by voice or text, pinged with Done/Snooze, kept in summaries until done. Off: no new reminders and no pings.",
-      "earlyAdoption": "Early Adoption Mode",
-      "earlyAdoptionDescription": "Give all users PRO access. Hides payment UI."
+      "earlyAdoption": "Early access for everyone",
+      "earlyAdoptionDescription": "Everyone gets Pro features, and the payment screens are hidden.",
+      "voiceAutoCreate": "Create voice events at once",
+      "voiceAutoCreateDescription": "When the bot is sure about a single event that doesn't repeat, it skips the confirmation card and shows a 30-second Undo instead.",
+      "voiceTtsOutcome": "Speak the result of voice commands",
+      "voiceTtsOutcomeDescription": "After a voice command, the bot also says the result aloud (“Done. Added …”). Every command adds Gemini speech cost."
     },
     "overrides": {
       "title": "User Feature Overrides",
@@ -537,10 +541,10 @@
     },
     "openDashboard": "Open User Dashboard",
     "activity": {
-      "title": "User Activity",
+      "title": "Activity",
       "filterByAction": "Filter by action",
-      "allActions": "All Actions",
-      "noActivity": "No activity found",
+      "allActions": "All actions",
+      "noActivity": "No activity yet",
       "loading": "Loading activity...",
       "loadMore": "Load More",
       "filterByUser": "Filter by user...",
@@ -549,10 +553,11 @@
       "minutes": "min",
       "hours": "hr",
       "days": "d",
-      "userTitle": "Recent activity"
+      "userTitle": "Recent activity",
+      "filter": "Show"
     },
     "feedback": {
-      "title": "User Feedback",
+      "title": "Feedback",
       "noFeedback": "No feedback yet",
       "loading": "Loading feedback...",
       "user": "User",
@@ -560,7 +565,8 @@
       "source": "Source",
       "time": "Time",
       "telegram": "Telegram",
-      "dashboard": "Dashboard"
+      "dashboard": "In the app",
+      "sentAt": "Sent {date}"
     },
     "plan": {
       "names": {
@@ -574,6 +580,67 @@
       "until": "{plan} · until {date}",
       "comped": "{plan} · free from an admin",
       "expired": "{plan} · expired"
+    },
+    "unauthorized": {
+      "title": "Admins only",
+      "body": "This area is only for administrators."
+    },
+    "counts": {
+      "people": "People",
+      "google": "Connected to Google",
+      "calendars": "With calendars",
+      "setup": "Still setting up",
+      "setupDone": "Setup done: {percent}%"
+    },
+    "sections": {
+      "people": "People",
+      "activity": "Activity",
+      "switches": "App switches",
+      "reminders": "Setup reminders"
+    },
+    "rows": {
+      "users": "Users",
+      "feedback": "Feedback",
+      "blocked": "Blocked",
+      "withCount": "{name} ({count})",
+      "activity": "All activity",
+      "activityHint": "What people did in the bot, newest first"
+    },
+    "earlyAccess": {
+      "onTitle": "Turn on early access?",
+      "onBody": "Everyone gets Pro features until you turn this off.",
+      "onConfirm": "Turn on",
+      "offTitle": "Turn off early access?",
+      "offBody": "People without a paid plan lose Pro features now.",
+      "offConfirm": "Turn off"
+    },
+    "reset": {
+      "hint": "Starts the setup reminders over for everyone who hasn't finished setting up.",
+      "row": "Reset everyone still setting up",
+      "title": "Reset setup reminders for everyone?",
+      "body": "Everyone still setting up gets their setup reminders again, from the first one.",
+      "confirm": "Reset",
+      "result": "{count, plural, one {# person reset} other {# people reset}}"
+    },
+    "errors": {
+      "generic": "That didn't work. Try again.",
+      "switch": "Couldn't change that setting. It's back to how it was.",
+      "load": "Couldn't load this. Try again.",
+      "unban": "Couldn't unblock. Try again."
+    },
+    "common": {
+      "showMore": "Show more"
+    },
+    "blocked": {
+      "title": "Blocked",
+      "intro": "These Telegram ids and WhatsApp numbers can't sign up again, even after an account is deleted.",
+      "empty": "No one is blocked",
+      "telegram": "Telegram id",
+      "whatsapp": "WhatsApp number",
+      "unblock": "Unblock",
+      "reasonNone": "No reason given",
+      "blockedOn": "Blocked {date}",
+      "unblocked": "Unblocked"
     }
   },
   "settings": {

@@ -19,6 +19,7 @@
 //   same (html:has(.ch-screen.ch-grouped)), and in the dark the page's own ground comes back.
 // - The header of a screen with a title (.ch-screen-head, ScreenHeader), a section's label
 //   (.ch-section-label, SectionLabel) and a notice on a card (.ch-notice, Notice).
+// - Plan A: a tag's tones (.ch-tag-danger, .ch-tag-muted: Tag tone), which follow .ch-tag in the cascade.
 // - W1b: a small tag (.ch-tag, Tag), a padded card (.ch-panel; .ch-panel-ring outlines it in the button colour),
 //   a meter (.ch-meter*, Meter; .is-near turns the fill and the count to the warn colours) and the outlined
 //   button (.ch-btn-outline, after .ch-btn in the theme's sheet, which AppScreen renders before this one).
@@ -149,6 +150,14 @@ html:has(.ch-screen[data-theme='dark']) {
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
+}
+.ch-tag-danger {
+  background: var(--ch-danger-soft);
+  color: var(--ch-danger);
+}
+.ch-tag-muted {
+  background: var(--ch-surface);
+  color: var(--ch-muted);
 }
 .ch-panel {
   display: flex;

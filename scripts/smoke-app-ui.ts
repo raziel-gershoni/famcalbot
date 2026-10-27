@@ -37,7 +37,9 @@
 //    (its aria, its cap, its near-limit class), the Panel card, the outlined button and the near-limit colour, and lintCss itself
 //    (scripts/lib/css-lint.ts, which #2 and the screens' own smokes run over their CSS);
 //  - the piece W3 added (K17, plan docs/superpowers/plans/2026-10-27-app-ui-W3-partner-invite.md): CopyField, the copy-link field
-//    (its parts, a tap writing the value and saying Copied for 2 seconds, a blocked clipboard selecting the text instead, and a disabled field).
+//    (its parts, a tap writing the value and saying Copied for 2 seconds, a blocked clipboard selecting the text instead, and a disabled field);
+//  - the pieces plan A added (K18, plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md): ListRow (a button row with a title, a quiet
+//    line, tags and a chevron), the Tag tones (danger, muted) with the new --ch-danger-soft token, and FORM_CSS's list row rules.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -61,6 +63,7 @@ import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components
 import { Meter, NEAR_LIMIT } from '../components/app-ui/Meter';
 import { Notice } from '../components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
+import { ListRow } from '../components/app-ui/ListRow';
 import { Tag } from '../components/app-ui/Tag';
 import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
@@ -1133,6 +1136,57 @@ async function main() {
       globalThis.setTimeout = realSetTimeout;
       if (navigatorBefore) Object.defineProperty(globalThis, 'navigator', navigatorBefore);
     }
+  });
+
+  // ---- Plan A: ListRow and the Tag tones (K18) ----
+
+  await check('K18 ListRow and the Tag tones (plan A): a list row is a button row (ch-form-row ch-list-row) with the title (dir="auto"), a quiet line, a row of tags and the chevron, in that order, without the lines it was not given, and a tap calls onClick once; a Tag takes a tone (accent is the plain ch-tag; danger and muted add their class); the tones follow .ch-tag in the cascade on tokens #2b measures (--ch-danger on --ch-danger-soft, --ch-muted on --ch-surface), --ch-danger-soft is declared in both themes as its own shade, and FORM_CSS holds the list row\'s rules after the grouped page\'s row padding', () => {
+    const RowProbe = ListRow as unknown as (props: Omit<ComponentProps<typeof ListRow>, 'children'>) => ReactElement;
+    const TonedTag = Tag as unknown as (props: { tone?: 'accent' | 'danger' | 'muted' }) => ReactElement;
+    const row = markupOf(renderToString(createElement(RowProbe, { title: 'Noa', meta: '9 days left', tags: createElement(TonedTag, { tone: 'danger' }, 'Suspended'), onClick: noop, describedBy: 'hint' })));
+    const order = ['<button type="button" class="ch-form-row ch-list-row" aria-describedby="hint">', '<span class="ch-form-label">', '<span class="ch-list-title" dir="auto">Noa</span>', '<span class="ch-form-hint">9 days left</span>', '<span class="ch-list-tags"><span class="ch-tag ch-tag-danger">Suspended</span></span>', 'class="ch-form-chevron"', '</button>'];
+    let at = -1;
+    for (const part of order) {
+      const found = row.indexOf(part, at + 1);
+      assert(found > at, `the list row: "${part}" is missing or out of order in ${row}`);
+      at = found;
+    }
+    const bare = markupOf(renderToString(createElement(RowProbe, { title: 'Users', onClick: noop })));
+    assert(!bare.includes('ch-form-hint') && !bare.includes('ch-list-tags') && !bare.includes('aria-describedby') && bare.includes('class="ch-form-chevron"'), `a list row with a title only: ${bare}`);
+    installWindow();
+    let taps = 0;
+    const m = mount(createElement(RowProbe, { title: 'Dan', onClick: () => void taps++ }));
+    try {
+      const button = elements(m.container).find((e) => e.localName === 'button');
+      assert(button, 'the row is a button');
+      m.click(button);
+      assert(taps === 1, `a tap called onClick ${taps} time(s)`);
+    } finally {
+      m.unmount();
+    }
+    // Tones
+    const tag = (tone?: 'accent' | 'danger' | 'muted') => renderToString(createElement(TonedTag, { tone }, 'x'));
+    assert(tag() === '<span class="ch-tag">x</span>' && tag('accent') === '<span class="ch-tag">x</span>', `the accent tag: ${tag()} ${tag('accent')}`);
+    assert(tag('danger') === '<span class="ch-tag ch-tag-danger">x</span>' && tag('muted') === '<span class="ch-tag ch-tag-muted">x</span>', `the toned tags: ${tag('danger')} ${tag('muted')}`);
+    assert(/background:\s*var\(--ch-danger-soft\)/.test(rule(APP_SCREEN_CSS, '.ch-tag-danger')) && /color:\s*var\(--ch-danger\)/.test(rule(APP_SCREEN_CSS, '.ch-tag-danger')), '.ch-tag-danger is --ch-danger on --ch-danger-soft');
+    assert(/background:\s*var\(--ch-surface\)/.test(rule(APP_SCREEN_CSS, '.ch-tag-muted')) && /color:\s*var\(--ch-muted\)/.test(rule(APP_SCREEN_CSS, '.ch-tag-muted')), '.ch-tag-muted is --ch-muted on --ch-surface');
+    assert(APP_SCREEN_CSS.indexOf('.ch-tag {') < APP_SCREEN_CSS.indexOf('.ch-tag-danger {') && APP_SCREEN_CSS.indexOf('.ch-tag-danger {') < APP_SCREEN_CSS.indexOf('.ch-tag-muted {'), 'the tones follow .ch-tag');
+    for (const theme of ['light', 'dark'] as const) {
+      const r = resolver(APP_THEME_CSS, ROOT_SELECTOR, theme, true);
+      assert(r.props.has('--ch-danger-soft') && 'rgb' in r.value('--ch-danger-soft'), `${theme}: --ch-danger-soft is a colour`);
+    }
+    const darkBlock = rule(APP_THEME_CSS, ".ch-app[data-theme='dark']");
+    assert(/\n\s*--ch-danger-soft:/.test(`\n${darkBlock}`), 'the dark block declares --ch-danger-soft');
+    assert(show(resolver(APP_THEME_CSS, ROOT_SELECTOR, 'light', false).colour('--ch-danger-soft')) !== show(resolver(APP_THEME_CSS, ROOT_SELECTOR, 'dark', false).colour('--ch-danger-soft')), 'the dark danger ground is its own shade');
+    const count = (pairs: [string, string][], a: string, b: string) => pairs.filter(([x, y]) => x === a && y === b).length;
+    assert(count(TEXT_PAIRS, '--ch-danger', '--ch-danger-soft') === 1 && count(TEXT_PAIRS, '--ch-muted', '--ch-surface') === 1, 'TEXT_PAIRS holds the danger tag and the muted tag once each');
+    // FORM_CSS: the list row's rules, and the grouped page's row padding must not undo them
+    const grouped = FORM_CSS.indexOf('.ch-form-page-grouped .ch-form-row {');
+    const listInGrouped = FORM_CSS.indexOf('.ch-form-page-grouped .ch-list-row {');
+    assert(grouped !== -1 && listInGrouped > grouped, 'the list row beats the grouped page\'s row padding by coming after it at the same specificity');
+    assert(/padding-block:\s*10px/.test(rule(FORM_CSS, '.ch-list-row')) && /padding-block:\s*10px/.test(rule(FORM_CSS, '.ch-form-page-grouped .ch-list-row')), 'a list row is 10px above and below');
+    assert(/font-size:\s*16px/.test(rule(FORM_CSS, '.ch-list-title')) && /overflow-wrap:\s*anywhere/.test(rule(FORM_CSS, '.ch-list-title')), 'the title is 16px and wraps');
+    assert(/flex-wrap:\s*wrap/.test(rule(FORM_CSS, '.ch-list-tags')) && /gap:\s*6px/.test(rule(FORM_CSS, '.ch-list-tags')), 'the tags wrap with a 6px gap');
   });
 
   await check('#99 React logged no warning', () => {

@@ -53,6 +53,8 @@
 // - A disabled chevron: --ch-disabled, faint on purpose (the button is also disabled). It
 //   is the only new colour that reads the hint straight. Every text colour keeps D's
 //   floor: an unselected tab's label reads --ch-muted.
+// - A danger tag's ground (plan A, Tag tone="danger"): --ch-danger-soft, the page's background with a tenth of the danger
+//   colour mixed in; its text is --ch-danger.
 // - The banners' and the accent icon buttons' ground: --ch-accent-soft, the page's
 //   background with 14% of the accent mixed in.
 // - The switch's thumb: --ch-switch-thumb (white in both themes) and its shadow,
@@ -106,6 +108,7 @@ export const APP_THEME_CSS = `
   --ch-disabled: #c9c8d6;
   --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
   --ch-accent-soft: #eee9ff;
+  --ch-danger-soft: #fdecea;
   --ch-switch-thumb: #ffffff;
   --ch-switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   --ch-warn: #c4580a;
@@ -162,6 +165,7 @@ export const APP_THEME_CSS = `
   --ch-disabled: #4a4a5e;
   --ch-month-title: var(--ch-accent);
   --ch-accent-soft: #2c2550;
+  --ch-danger-soft: #3a2226;
   --ch-warn: #ffb27a;
   --ch-warn-text: #ffc796;
   color-scheme: dark;
@@ -182,6 +186,8 @@ export const APP_THEME_CSS = `
     --ch-disabled: color-mix(in srgb, var(--ch-hint) 35%, var(--ch-bg));
     /* The banners' and the accent icon buttons' soft ground. */
     --ch-accent-soft: color-mix(in srgb, var(--ch-accent) 14%, var(--ch-bg));
+    /* The danger tag's ground: the danger colour at a tenth, so its text keeps 4.5:1 on it. */
+    --ch-danger-soft: color-mix(in srgb, var(--ch-danger) 10%, var(--ch-bg));
   }
   .ch-app {
     --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 12%, var(--ch-bg));

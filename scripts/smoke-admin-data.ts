@@ -29,6 +29,7 @@ import { fileURLToPath } from 'url';
 import { act, createElement, useEffect } from 'react';
 import { createTranslator } from 'next-intl';
 import { fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
+import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, PHONE, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
 import type { AdminResult, Outcome } from '../app/[locale]/admin-panel/data/admin-api';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -77,103 +78,18 @@ for (const level of ['error', 'warn'] as const) {
   };
 }
 
-// ---- The world: Telegram, a fake fetch and a small admin back end ----
+// ---- The world: Telegram, a fake fetch and a small admin back end (scripts/lib/admin-world.ts) ----
 
-const VIEWER_TELEGRAM_ID = 5550001; // the page's ?user_id: a Telegram id, never sent as a person's id
-const INIT_DATA = 'query_id=AAE&user=%7B%22id%22%3A5550001%7D&auth_date=1792000000&hash=abc';
-const TARGET = 7; // a User.id
-const OTHER = 8; // another User.id
-const NAMES: Record<number, string> = { [TARGET]: 'Noa', [OTHER]: 'Dan' };
-const PHONE: Record<number, string> = { [TARGET]: '+972501230007', [OTHER]: '+972501230008' };
-
-interface Call {
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  body?: Row;
-}
-const calls: Call[] = [];
-const ok = (body: Row = {}, status = 200) => new Response(JSON.stringify({ success: true, ...body }), { status, headers: { 'Content-Type': 'application/json' } });
-const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-
-const listItem = (id: number): Row => ({
-  id,
-  telegramId: 7000000 + id,
-  name: NAMES[id] ?? `Person ${id}`,
-  suspendedAt: null,
-  subscription: { plan: 'FREE', status: 'TRIALING', trialEndsAt: null, trialDaysRemaining: 9, currentPeriodEnd: null },
-  usage: null,
-  calendarsCount: 1,
-  hasOverride: false,
-});
-const detail = (id: number): Row => ({
-  ...listItem(id),
-  whatsappPhone: PHONE[id] ?? null,
-  messagingPlatform: 'telegram',
-  createdAt: '2026-10-01T10:00:00.000Z',
-  suspendedBy: null,
-  suspendedReason: null,
-  usage: { textSummariesUsed: 1, voiceSummariesUsed: 0, voiceEventsCreated: 0 },
-  limits: { textSummaries: 10, voiceSummaries: 3, calendars: 2 },
-  override: null,
-  paidFeatures: { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false },
-  registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: true, applicableReminder: null, googleState: 'none' },
-  setupReminders: { daysSinceCreated: 3, daysSinceStart: 3, wasReset: false, calendars: [], reconnect: [], location: [] },
-});
-/** A page of `total` rows named `<prefix>-<n>`, as the activity and feedback routes slice them. */
-function page(prefix: string, total: number, url: URL, key: 'activities' | 'feedbacks'): Row {
-  const limit = Number(url.searchParams.get('limit') ?? 50);
-  const offset = Number(url.searchParams.get('offset') ?? 0);
-  const rows = Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, i) => {
-    const n = offset + i;
-    return key === 'activities'
-      ? { id: `${prefix}-${n}`, userId: TARGET, userName: 'x', userTelegramId: null, action: url.searchParams.get('action') ?? 'login', metadata: null, createdAt: '2026-10-27T08:00:00.000Z' }
-      : { id: `${prefix}-${n}`, userId: TARGET, userName: 'x', userTelegramId: null, text: `text ${n}`, source: 'telegram', createdAt: '2026-10-27T08:00:00.000Z' };
-  });
-  return { [key]: rows, pagination: { total, limit, offset, hasMore: offset + limit < total }, ...(key === 'activities' ? { actionStats: [{ action: 'login', count: total }] } : {}) };
-}
-
-const defaultRespond = (call: Call): Response => {
-  const url = new URL(call.url, 'http://localhost');
-  const route = url.pathname.replace('/api/admin/', '');
-  if (call.method === 'GET') {
-    if (route === 'settings') return ok({ remindersEnabled: true, earlyAdoptionMode: false });
-    if (route === 'stats') return ok({ stats: { totalUsers: 3, usersWithOAuth: 1, usersWithCalendars: 1, needSetup: 1 } });
-    if (route === 'user-overrides' && url.searchParams.get('list') === 'all') return ok({ users: [listItem(TARGET), listItem(OTHER)] });
-    if (route === 'user-overrides') return ok({ user: detail(Number(url.searchParams.get('user_id'))) });
-    if (route === 'user-activity') return ok(page(`a${url.searchParams.get('user_id') ?? 'all'}`, 45, url, 'activities'));
-    if (route === 'feedback') return ok(page('f', 120, url, 'feedbacks'));
-    if (route === 'users/blocklist') return ok({ blocklist: [{ id: 1, telegramId: 99, whatsappPhone: null, bannedBy: 9, bannedReason: null, createdAt: '2026-10-20T08:00:00.000Z' }] });
-  }
-  return ok({});
-};
-let respond: (call: Call) => Response | Promise<Response> = defaultRespond;
-
-globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
-  const call: Call = {
-    url: String(input),
-    method: init.method ?? 'GET',
-    headers: Object.fromEntries(new Headers(init.headers).entries()),
-    body: init.body === undefined ? undefined : JSON.parse(String(init.body)),
-  };
-  calls.push(call);
-  return respond(call);
-}) as typeof fetch;
+installFakeFetch();
 
 /** How many requests have been sent since the last reset (a function, so that a narrowed type does not stick). */
 const sent = () => calls.length;
 const reset = () => {
   calls.splice(0);
   adminLogs.length = 0;
-  respond = defaultRespond;
+  world.respond = defaultRespond;
 };
 
-/** A promise settled from outside, to answer a request later than the one after it. */
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
-}
 const settle = () =>
   act(async () => {
     for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
@@ -371,9 +287,9 @@ async function main() {
     expectCall(calls[2], 'GET', `/api/admin/user-activity?user_id=${TARGET}&limit=20&offset=40`, undefined, 'a param left undefined is left out');
     await api.adminDelete('subscription', { user_id: TARGET });
     expectCall(calls[3], 'DELETE', `/api/admin/subscription?user_id=${TARGET}`, undefined, 'DELETE');
-    respond = () => ok({ usersReset: 3 });
+    world.respond = () => ok({ usersReset: 3 });
     const everyone = await resetAllSetupReminders();
-    respond = defaultRespond;
+    world.respond = defaultRespond;
     assert(everyone.ok && everyone.data.usersReset === 3, `reset all answered ${canon(everyone)}`);
     expectCall(calls[4], 'POST', '/api/admin/reset-reminders', { reset_all: true }, 'reset all');
     assert(calls[4].headers['content-type'] === 'application/json', `POST content type ${calls[4].headers['content-type']}`);
@@ -476,7 +392,7 @@ async function main() {
     for (const [verb, run] of verbs) {
       for (const [what, answer, status, code] of answers) {
         reset();
-        respond = answer;
+        world.respond = answer;
         let result: AdminResult<unknown>;
         try {
           result = await run();
@@ -491,12 +407,12 @@ async function main() {
     }
     // A good answer: ok, with the body as data
     reset();
-    respond = () => ok({ users: [] });
+    world.respond = () => ok({ users: [] });
     const good = await api.adminGet<{ users: unknown[] }>('user-overrides', { list: 'all' });
     if (!good.ok || good.data.users.length !== 0 || adminLogs.length) problems.push(`a good answer: ${canon(good)} ${canon(adminLogs)}`);
     // The outcome of an action
     reset();
-    respond = () => json({ error: 'SELF_BAN' }, 400);
+    world.respond = () => json({ error: 'SELF_BAN' }, 400);
     const outcome = api.outcomeOf(await api.adminPost('users/blocklist', {}));
     if (outcome.ok || outcome.code !== 'SELF_BAN') problems.push(`outcomeOf: ${canon(outcome)}`);
     assert(problems.length === 0, problems.join('; '));
@@ -507,7 +423,7 @@ async function main() {
     const h = hooked(() => useAdminSettings(FLAGS));
     // It flips before the answer
     const gate = deferred<Response>();
-    respond = () => gate.promise;
+    world.respond = () => gate.promise;
     let pending!: Promise<Outcome>;
     await act(async () => {
       pending = h.latest().setFlag('earlyAdoptionMode', true);
@@ -517,7 +433,7 @@ async function main() {
     const second = await h.run((x) => x.setFlag('earlyAdoptionMode', false));
     assert(api.isBusy(second) && sent() === 1, `the second tap: ${canon(second)}, ${sent()} requests`);
     // Another switch is its own
-    respond = defaultRespond;
+    world.respond = defaultRespond;
     const other = await h.run((x) => x.setFlag('voiceTtsOutcome', true));
     assert(other.ok && h.latest().flags.voiceTtsOutcome === true && sent() === 2, `another switch: ${canon(other)}`);
     await act(async () => {
@@ -527,14 +443,14 @@ async function main() {
     assert(h.latest().flags.earlyAdoptionMode === true && h.latest().saving.earlyAdoptionMode === false, `after a good answer: ${canon(h.latest())}`);
     // A failure puts it back
     reset();
-    respond = () => json({ error: 'Failed to update settings' }, 500);
+    world.respond = () => json({ error: 'Failed to update settings' }, 500);
     const failed = await h.run((x) => x.setFlag('earlyAdoptionMode', false));
     assert(!failed.ok && failed.status === 500, `the outcome: ${canon(failed)}`);
     assert(h.latest().flags.earlyAdoptionMode === true && h.latest().saving.earlyAdoptionMode === false, `after a failure: ${canon(h.latest())}`);
     assert(adminLogs.length === 1, `logs ${canon(adminLogs)}`);
     // A thrown request too
     reset();
-    respond = () => Promise.reject(new TypeError('Failed to fetch'));
+    world.respond = () => Promise.reject(new TypeError('Failed to fetch'));
     const thrown = await h.run((x) => x.setFlag('remindersEnabled', true));
     assert(!thrown.ok && thrown.status === 0 && h.latest().flags.remindersEnabled === false, `a throw: ${canon(thrown)} ${canon(h.latest().flags)}`);
     h.unmount();
@@ -553,7 +469,7 @@ async function main() {
       }
       return defaultRespond(call);
     };
-    respond = gatedRespond;
+    world.respond = gatedRespond;
     const h = hooked(() => useUserProfile(() => undefined));
     let a!: Promise<void>;
     let b!: Promise<void>;
@@ -579,7 +495,7 @@ async function main() {
 
     // A load answered after the screen is gone
     reset();
-    respond = gatedRespond;
+    world.respond = gatedRespond;
     gates[`user-overrides:${TARGET}`] = deferred<Response>();
     gates[`user-activity:${TARGET}`] = deferred<Response>();
     let late!: Promise<void>;
@@ -602,7 +518,7 @@ async function main() {
     assert(sent() === 1, `${sent()} requests when it opened`);
     assert(log.latest().items.length === 20 && log.latest().hasMore && log.latest().status === 'ready' && log.latest().stats[0]?.action === 'login', `the first page: ${log.latest().items.length}`);
     const gate = deferred<Response>();
-    respond = () => gate.promise;
+    world.respond = () => gate.promise;
     let more!: Promise<void>;
     await act(async () => {
       more = log.latest().loadMore();
@@ -611,7 +527,7 @@ async function main() {
     assert(sent() === 2, `two quick taps on Show more sent ${sent() - 1}`);
     assert(log.latest().loadingMore, 'Show more is busy while its page is on its way');
     // A filter picked now makes that page stale
-    respond = defaultRespond;
+    world.respond = defaultRespond;
     await act(async () => {
       log.latest().setFilter('settings_changed');
     });
@@ -635,7 +551,7 @@ async function main() {
     assert(both.latest().profile.activity.items.length === 20 && both.latest().profile.activity.hasMore, 'the first page of a person\'s activity');
     reset();
     const slow = deferred<Response>();
-    respond = () => slow.promise;
+    world.respond = () => slow.promise;
     let page2!: Promise<void>;
     await act(async () => {
       page2 = both.latest().profile.loadMoreActivity();
@@ -644,7 +560,7 @@ async function main() {
     assert(sent() === 1 && both.latest().profile.activity.loading, `a person's Show more sent ${sent()} for two taps`);
     expectCall(calls[0], 'GET', `/api/admin/user-activity?user_id=${TARGET}&limit=20&offset=20`, undefined, 'a person\'s Show more');
     // Another person is opened while that page is on its way: it lands nowhere
-    respond = defaultRespond;
+    world.respond = defaultRespond;
     await act(async () => {
       void both.latest().profile.load(OTHER);
     });
@@ -690,7 +606,7 @@ async function main() {
       await openProfile(both);
       const before: string = canon(both.latest().profile.profile);
       reset();
-      respond = (call) => (call.method === 'GET' ? defaultRespond(call) : json({ error: 'Failed' }, 500));
+      world.respond = (call) => (call.method === 'GET' ? defaultRespond(call) : json({ error: 'Failed' }, 500));
       const outcome = await both.run((x) => action.run(x.profile));
       assert(!outcome.ok && outcome.status === 500, `${action.name}: ${canon(outcome)}`);
       assert(sent() === 1, `${action.name}: a failed action sent ${sent()} requests`);
@@ -705,7 +621,7 @@ async function main() {
     await openProfile(both);
     reset();
     const gate = deferred<Response>();
-    respond = (call) => (call.method === 'GET' ? defaultRespond(call) : gate.promise);
+    world.respond = (call) => (call.method === 'GET' ? defaultRespond(call) : gate.promise);
     let first!: Promise<Outcome>;
     await act(async () => {
       first = both.latest().profile.suspend('a');
@@ -726,7 +642,7 @@ async function main() {
 
     reset();
     const solo = hooked(useBoth);
-    respond = (call) => {
+    world.respond = (call) => {
       const url = new URL(call.url, 'http://localhost');
       return url.pathname.endsWith('user-overrides') && url.searchParams.has('user_id') ? ok({ user: { ...detail(TARGET), telegramId: null, whatsappPhone: null } }) : defaultRespond(call);
     };
@@ -757,7 +673,7 @@ async function main() {
     reset();
     const gates = [deferred<Response>(), deferred<Response>()];
     let n = 0;
-    respond = () => gates[n++].promise;
+    world.respond = () => gates[n++].promise;
     const h = hooked(useUsers);
     let first!: Promise<void>;
     let second!: Promise<void>;
@@ -775,12 +691,12 @@ async function main() {
     });
     assert(h.latest().users.length === 1 && h.latest().users[0].id === OTHER && h.latest().status === 'ready', `the newer answer wins: ${canon(h.latest().users.map((u) => u.id))}`);
     // A failed refresh keeps what is there; a first load that fails says so
-    respond = () => json({ error: 'x' }, 500);
+    world.respond = () => json({ error: 'x' }, 500);
     await h.run((x) => x.load());
     assert(h.latest().users.length === 1 && h.latest().status === 'ready', 'a failed refresh keeps the rows');
     h.unmount();
     reset();
-    respond = () => json({ error: 'x' }, 500);
+    world.respond = () => json({ error: 'x' }, 500);
     const fresh = hooked(useUsers);
     await fresh.run((x) => x.load());
     assert(fresh.latest().status === 'failed' && fresh.latest().users.length === 0, `a first load that failed: ${fresh.latest().status}`);

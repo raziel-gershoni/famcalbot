@@ -4,7 +4,7 @@
 // which ids are admins. Now the page renders the same client shell for every request and
 // looks no one up; AdminPanelClient loads the toggles from GET /api/admin/settings and
 // the counts from the new GET /api/admin/stats, both admin-only, with initData in the
-// X-Telegram-Init-Data header, and shows the old Unauthorized card on 401/403.
+// X-Telegram-Init-Data header, and shows the denied card (the app's look, in the page's language) on 401/403.
 //
 // The page, both routes, admin-auth and telegram-auth run for real, and the client's
 // loader calls the real routes through a fetch shim. Faked at the boundaries: Prisma (in
@@ -474,7 +474,8 @@ async function main() {
       if (o.calls) problems.push(`${o.id}: ${o.calls} Prisma calls`);
       if (o.props !== outputs[0].props) problems.push(`${o.id}: props ${o.props} vs ${outputs[0].props}`);
       if (o.html !== outputs[0].html) problems.push(`${o.id}: different HTML`);
-      if (/stat-value|role="switch"|aria-checked|Unauthorized|Total Users/.test(o.html)) problems.push(`${o.id}: HTML carries the panel or the Unauthorized card`);
+      const denied = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', 'en.json'), 'utf8')).admin.unauthorized as { title: string; body: string };
+      if (/stat-value|ch-admin-count|role="switch"|aria-checked|Unauthorized|Total Users/.test(o.html) || o.html.includes(denied.title) || o.html.includes(denied.body)) problems.push(`${o.id}: HTML carries the panel or the denied card`);
       if (/render failed/.test(o.html)) problems.push(`${o.id}: ${o.html}`);
     }
     const props = (JSON.parse(serialize(await page(String(ADMIN_TG)))) as Row).props ?? {};
@@ -531,7 +532,7 @@ async function main() {
     assert(requests.every(r => !/initData/i.test(r.url)), `a URL carries initData: ${show(requests.map(r => r.url))}`);
   });
 
-  await check('#5 the client: a user\'s initData or none at all is denied (the Unauthorized card); the DB down is an error, not denied', async () => {
+  await check('#5 the client: a user\'s initData or none at all is denied (the denied card); the DB down is an error, not denied', async () => {
     seed();
     const user = await runLoader(initDataFor(USER_TG));
     const none = await runLoader('');
@@ -544,12 +545,19 @@ async function main() {
     assert(down.kind === 'error', `DB down: ${show(down)}`);
   });
 
-  await check('#6 the Unauthorized card says what the page used to say', async () => {
+  await check('#6 the denied card says what the Unauthorized card used to say, that the area is for administrators only: an alert with the page\'s h1 in the app look (a plain AppScreen), its text from messages in en, he and ru (never the old English in he and ru)', async () => {
     const React = nodeRequire('react');
     const { AdminUnauthorized } = await load('app/[locale]/admin-panel/AdminPanelClient.tsx');
     assert(typeof AdminUnauthorized === 'function', 'AdminPanelClient exports no AdminUnauthorized');
-    const html = renderHtml(React.createElement(AdminUnauthorized), 'he');
-    assert(html.includes('>Unauthorized</h1>') && html.includes('This area is restricted to administrators only.'), html);
+    for (const locale of ['en', 'he', 'ru']) {
+      const words = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${locale}.json`), 'utf8')).admin.unauthorized as { title: string; body: string };
+      assert(words.title && words.body, `${locale}: no admin.unauthorized messages`);
+      const html = renderHtml(React.createElement(AdminUnauthorized), locale);
+      assert(html.includes(`<h1 class="ch-home-card-title">${words.title}</h1>`) && html.includes(`>${words.body}</p>`), `${locale}: ${html.slice(-400)}`);
+      const markup = html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
+      assert(markup.includes('role="alert"') && markup.includes('class="ch-app ch-screen"') && !markup.includes('ch-grouped'), `${locale}: not the app look as an alert on a plain screen: ${markup}`);
+      if (locale !== 'en') assert(!/Unauthorized|restricted to administrators/.test(html), `${locale}: the old English is still there`);
+    }
   });
 
   await check('#7 the rollout switch is gone: the route\'s GET and the loader carry no calendarHomeRollout; a POST of it alone is refused, and next to a toggle it is not saved or echoed', async () => {

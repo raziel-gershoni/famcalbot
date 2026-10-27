@@ -211,6 +211,8 @@ export const TEXT_PAIRS: [string, string][] = [
   ['--ch-warn-text', '--ch-section'],
   // W3: the copy button's icon (on the icon button's surface fill) and a quiet button's text on the invite card, both on the surface
   ['--ch-accent', '--ch-surface'],
+  // A (the admin panel): the danger tag's text on its soft ground. The muted tag is --ch-muted on --ch-surface (W1a's pair above).
+  ['--ch-danger', '--ch-danger-soft'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [

@@ -12,7 +12,8 @@
 // app/[locale]/dashboard/form-kit.tsx with EDITOR_FORM_CSS, which a screen renders after FORM_CSS.
 //
 // Every target is at least 44 px, with logical properties, no :hover and nothing under
-// 11 px. A switch row is one button, role="switch", whole row the target. The select sits
+// 11 px. A list row (./ListRow.tsx: ch-list-row*) is a button row with a title, a quiet line, tags and a chevron.
+// A switch row is one button, role="switch", whole row the target. The select sits
 // over its row at no opacity, so the row looks like the mockups' value row and a tap
 // opens the platform's own picker. Times are always left to right, as the Agenda's are.
 //
@@ -154,6 +155,22 @@ button.ch-form-row {
 button.ch-form-row:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: -2px;
+}
+.ch-list-row {
+  padding-block: 10px;
+}
+.ch-form-page-grouped .ch-list-row {
+  padding-block: 10px;
+}
+.ch-list-title {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.ch-list-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-block-start: 3px;
 }
 button.ch-danger-row {
   color: var(--ch-danger);
@@ -604,7 +621,8 @@ export function SwitchRow({
   );
 }
 
-function Chevron() {
+/** The chevron at the end of a row that leads somewhere (it flips in RTL: .ch-form-chevron). */
+export function Chevron() {
   return (
     <svg className="ch-form-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M9 6l6 6-6 6" />

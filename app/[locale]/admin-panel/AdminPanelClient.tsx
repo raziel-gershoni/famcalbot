@@ -1,13 +1,29 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef, type ReactNode } from 'react';
+// The admin panel's entry (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md): it asks the admin-only routes for
+// the switches and the counts, and shows the loader (the app's, on the grouped ground), the denied card, the error card with its
+// retry, or the panel (./AdminPanel.tsx).
+//
+// - The server HTML carries none of it: the page renders this same shell for every user_id and looks no one up. 401/403
+//   (no initData, or not an admin) is 'denied'.
+// - The panel works only inside Telegram, as it always has: the admin routes read the launch data, which is the only credential.
+// - `userId` is the page's ?user_id: the viewer's Telegram id. It goes on as `viewerTelegramId` and is used only for the way
+//   back to the calendar.
+
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Activity, AlertTriangle, Crown, Lock, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
+import { Activity, Crown, Users, LayoutDashboard, Bell, UserCog, Search, X, Check, Loader2, Clock, RefreshCw, ChevronDown, MessageSquare } from 'lucide-react';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { StateCard } from '@/components/app-ui/StateCard';
 import { initDataHeaders } from '@/src/lib/read-init-data';
 import { activityDetail } from '@/src/lib/admin-activity';
+import { PageLoader, startMiniApp } from '../PageGate';
+import AdminPanel from './AdminPanel';
+import { adminGet } from './data/admin-api';
+import type { ActivityItem, ActivityStats, AdminFlags, AdminStats, FeedbackItem, FilterType, SettingsAnswer, StatsAnswer, UserListItem, UserOverrideDetails } from './data/types';
 
 interface AdminPanelClientProps {
-  /** The page's ?user_id, for the link back to the dashboard. */
+  /** The page's ?user_id: the viewer's Telegram id, for the link back to the dashboard. */
   userId: number;
   locale: string;
 }
@@ -15,12 +31,7 @@ interface AdminPanelClientProps {
 interface AdminPanelProps {
   userId: number;
   locale: string;
-  stats: {
-    totalUsers: number;
-    usersWithOAuth: number;
-    usersWithCalendars: number;
-    needSetup: number;
-  };
+  stats: AdminStats;
   remindersEnabled: boolean;
   earlyAdoptionMode: boolean;
   voiceAutoCreateHighConf: boolean;
@@ -28,123 +39,7 @@ interface AdminPanelProps {
   nativeRemindersEnabled: boolean;
 }
 
-
-interface UserListItem {
-  id: number;
-  telegramId: number | null;
-  name: string;
-  suspendedAt: string | null;
-  subscription: {
-    plan: string;
-    status: string;
-    trialEndsAt: string | null;
-    trialDaysRemaining: number | null;
-    currentPeriodEnd: string | null;
-  } | null;
-  usage: {
-    textSummariesUsed: number;
-    voiceSummariesUsed: number;
-    voiceEventsCreated: number;
-  } | null;
-  calendarsCount: number;
-  hasOverride: boolean;
-  earlyAdopter?: boolean;
-}
-
-type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
-
-interface UserOverrideDetails {
-  id: number;
-  telegramId: number | null;
-  whatsappPhone: string | null;
-  messagingPlatform: string;
-  createdAt: string;
-  name: string;
-  suspendedAt: string | null;
-  suspendedBy: number | null;
-  suspendedReason: string | null;
-  subscription: {
-    plan: string;
-    status: string;
-    trialEndsAt: string | null;
-    trialDaysRemaining: number | null;
-    currentPeriodEnd: string | null;
-    comped: boolean;
-    compedAt: string | null;
-    compReason: string | null;
-  } | null;
-  usage: {
-    textSummariesUsed: number;
-    voiceSummariesUsed: number;
-    voiceEventsCreated: number;
-  };
-  limits: {
-    // getPlanLimits() uses Infinity as the unlimited sentinel, and JSON.stringify
-    // encodes Infinity as null - so an unlimited plan arrives here as null.
-    textSummaries: number | null;
-    voiceSummaries: number | null;
-    calendars: number | null;
-  };
-  calendarsCount: number;
-  override: {
-    unlimitedSummaries: boolean | null;
-    remindersEnabled: boolean | null;
-    voiceEventsEnabled: boolean | null;
-    unlimitedCalendars: boolean | null;
-    earlyAdopter: boolean;
-    reason: string | null;
-    grantedAt: string | null;
-    grantedBy: number | null;
-  } | null;
-  paidFeatures: {
-    unlimitedSummaries: boolean;
-    remindersEnabled: boolean;
-    voiceEventsEnabled: boolean;
-    unlimitedCalendars: boolean;
-  };
-  registrationStatus: {
-    hasOAuth: boolean;
-    hasCalendars: boolean;
-    hasLocation: boolean;
-    applicableReminder: 'calendars' | 'reconnect' | 'location' | null;
-    googleState: 'none' | 'choose' | 'reconnect' | 'connected';
-  };
-  setupReminders: {
-    daysSinceCreated: number;
-    daysSinceStart: number;
-    wasReset: boolean;
-    calendars: Array<{ day: number; sent: boolean; due: boolean }>;
-    reconnect: Array<{ day: number; sent: boolean; due: boolean }>;
-    location: Array<{ day: number; sent: boolean; due: boolean }>;
-  };
-}
-
-interface ActivityItem {
-  id: string;
-  userId: number;
-  userName: string;
-  userTelegramId: number | null;
-  action: string;
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-}
-
-interface ActivityStats {
-  action: string;
-  count: number;
-}
-
-interface FeedbackItem {
-  id: string;
-  userId: number;
-  userName: string;
-  userTelegramId: number | null;
-  text: string;
-  source: 'telegram' | 'dashboard';
-  createdAt: string;
-}
-
-/** What the panel starts from: the toggles and the user counts. */
+/** What the panel starts from: the switches and the user counts. */
 type AdminPanelInitial = Omit<AdminPanelProps, 'userId' | 'locale'>;
 
 export type AdminPanelLoad =
@@ -158,85 +53,50 @@ export type AdminPanelLoad =
  * 401/403 (no initData, or not an admin) is 'denied'.
  */
 export async function loadAdminPanel(): Promise<AdminPanelLoad> {
-  try {
-    const headers = initDataHeaders();
-    const [settingsRes, statsRes] = await Promise.all([
-      fetch('/api/admin/settings', { headers }),
-      fetch('/api/admin/stats', { headers }),
-    ]);
-    if ([settingsRes, statsRes].some((res) => res.status === 401 || res.status === 403)) {
-      return { kind: 'denied' };
-    }
-    if (!settingsRes.ok || !statsRes.ok) return { kind: 'error' };
-    const settings = await settingsRes.json();
-    const { stats } = await statsRes.json();
-    return {
-      kind: 'ready',
-      initial: {
-        stats,
-        remindersEnabled: settings.remindersEnabled ?? false,
-        earlyAdoptionMode: settings.earlyAdoptionMode ?? false,
-        voiceAutoCreateHighConf: settings.voiceAutoCreateHighConf ?? false,
-        voiceTtsOutcome: settings.voiceTtsOutcome ?? false,
-        nativeRemindersEnabled: settings.nativeRemindersEnabled ?? true,
-      },
-    };
-  } catch (error) {
-    console.error('[AdminPanel] load failed:', error);
-    return { kind: 'error' };
-  }
+  const [settings, stats] = await Promise.all([adminGet<SettingsAnswer>('settings'), adminGet<StatsAnswer>('stats')]);
+  if ([settings, stats].some((result) => !result.ok && (result.status === 401 || result.status === 403))) return { kind: 'denied' };
+  if (!settings.ok || !stats.ok) return { kind: 'error' };
+  return {
+    kind: 'ready',
+    initial: {
+      stats: stats.data.stats,
+      remindersEnabled: settings.data.remindersEnabled ?? false,
+      earlyAdoptionMode: settings.data.earlyAdoptionMode ?? false,
+      voiceAutoCreateHighConf: settings.data.voiceAutoCreateHighConf ?? false,
+      voiceTtsOutcome: settings.data.voiceTtsOutcome ?? false,
+      nativeRemindersEnabled: settings.data.nativeRemindersEnabled ?? true,
+    },
+  };
 }
 
-/** The white card on the purple gradient, as the page's own notices look. */
-function AdminCard({ children }: { children: ReactNode }) {
+/** What a non-admin gets: a card in the app's look, in the page's language. */
+export function AdminUnauthorized() {
+  const t = useTranslations('admin');
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '20px'
-    }}>
-      <div style={{
-        background: 'white',
-        padding: '40px',
-        borderRadius: '15px',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.2)',
-        textAlign: 'center',
-        maxWidth: '400px'
-      }}>
-        {children}
-      </div>
-    </div>
+    <AppScreen>
+      <StateCard tone="crash" title={t('unauthorized.title')} body={t('unauthorized.body')} />
+    </AppScreen>
   );
 }
 
-/** What the page used to show a non-admin. */
-export function AdminUnauthorized() {
+/** The data could not be loaded: the app's error card, with its retry. */
+function AdminLoadError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('pageGate');
   return (
-    <AdminCard>
-      <div style={{ marginBottom: '20px' }}><Lock size={64} color="#ef4444" /></div>
-      <h1 style={{ color: '#ef4444', margin: '0 0 10px 0' }}>Unauthorized</h1>
-      <p style={{ color: '#666' }}>This area is restricted to administrators only.</p>
-    </AdminCard>
+    <AppScreen>
+      <StateCard tone="crash" title={t('errorTitle')} body={t('errorBody')} action={{ label: t('retry'), onClick: onRetry }} />
+    </AppScreen>
   );
 }
 
 export default function AdminPanelClient({ userId, locale }: AdminPanelClientProps) {
-  const t = useTranslations('pageGate');
+  const viewerTelegramId = userId;
   const [load, setLoad] = useState<AdminPanelLoad | null>(null);
   const [attempt, setAttempt] = useState(0);
 
-  // The admin panel's only expand()/ready(), at mount while its data loads
+  // Full height at mount while the data loads; the app's look sets no colour of its own on Telegram's chrome
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-      tg.setHeaderColor('#667eea');
-      tg.setBackgroundColor('#ffffff');
-    }
+    startMiniApp('app');
   }, []);
 
   useEffect(() => {
@@ -249,65 +109,26 @@ export default function AdminPanelClient({ userId, locale }: AdminPanelClientPro
     };
   }, [attempt]);
 
-  if (!load) {
-    return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      }}>
-        <div style={{ color: 'white', animation: 'admin-panel-spin 1s linear infinite', display: 'flex' }}>
-          <Loader2 size={48} aria-label={t('loading')} />
-        </div>
-        <style>{`
-          @keyframes admin-panel-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    );
-  }
-
+  if (!load) return <PageLoader look="app" ground="grouped" />;
   if (load.kind === 'denied') return <AdminUnauthorized />;
-
   if (load.kind === 'error') {
     return (
-      <AdminCard>
-        <div style={{ marginBottom: '20px' }}><AlertTriangle size={64} color="#f59e0b" /></div>
-        <h1 style={{ color: '#333', margin: '0 0 10px 0', fontSize: '22px' }}>{t('errorTitle')}</h1>
-        <p style={{ color: '#666', marginTop: '10px' }}>{t('errorBody')}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setLoad(null);
-            setAttempt((n) => n + 1);
-          }}
-          style={{
-            marginTop: '20px',
-            width: '100%',
-            padding: '12px',
-            border: 'none',
-            borderRadius: '12px',
-            background: '#667eea',
-            color: 'white',
-            fontSize: '16px',
-            fontWeight: 500,
-            cursor: 'pointer',
-          }}
-        >
-          {t('retry')}
-        </button>
-      </AdminCard>
+      <AdminLoadError
+        onRetry={() => {
+          setLoad(null);
+          setAttempt((n) => n + 1);
+        }}
+      />
     );
   }
 
-  return <AdminPanel userId={userId} locale={locale} {...load.initial} />;
+  const { stats, ...flags } = load.initial;
+  return <AdminPanel viewerTelegramId={viewerTelegramId} locale={locale} stats={stats} flags={flags satisfies AdminFlags} />;
 }
 
-function AdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelProps) {
+// The previous panel, replaced by ./AdminPanel.tsx. It stays for one commit, until the Users list and a person's profile are
+// built on the new layer; nothing renders it.
+export function LegacyAdminPanel({ userId, locale, stats, remindersEnabled: initialRemindersEnabled, earlyAdoptionMode: initialEarlyAdoptionMode, voiceAutoCreateHighConf: initialVoiceAutoCreateHighConf, voiceTtsOutcome: initialVoiceTtsOutcome, nativeRemindersEnabled: initialNativeRemindersEnabled }: AdminPanelProps) {
   const t = useTranslations('admin');
   const [remindersEnabled, setRemindersEnabled] = useState(initialRemindersEnabled);
   const [remindersSaving, setRemindersSaving] = useState(false);
