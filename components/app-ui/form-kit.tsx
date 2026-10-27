@@ -2,7 +2,8 @@
 
 // The app's form kit (home editing spec §4; the shared layer of F1): grouped cards, a text
 // field, a switch row, a button row that opens a sheet, a value row with a native <select>
-// over it, radio and stepper rows, a segmented control, a radio pair and a sticky Save bar.
+// over it, radio and stepper rows, a segmented control, a radio pair, a row of day chips and
+// a Save bar (sticky on a screen that scrolls).
 // The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts).
 //
 // What only the editor's flow draws (its header and body, the date and time pills, the scope
@@ -154,6 +155,7 @@ button.ch-form-row:focus-visible {
   block-size: 31px;
   border-radius: 16px;
   background: var(--ch-outline);
+  box-shadow: inset 0 0 0 1.5px var(--ch-done);
 }
 .ch-switch::after {
   content: '';
@@ -163,12 +165,13 @@ button.ch-form-row:focus-visible {
   inline-size: 27px;
   block-size: 27px;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  background: var(--ch-switch-thumb);
+  box-shadow: var(--ch-switch-thumb-shadow);
   transition: inset-inline-start 120ms ease-out;
 }
 .ch-switch.is-on {
   background: var(--ch-button);
+  box-shadow: none;
 }
 .ch-switch.is-on::after {
   inset-inline-start: 22px;
@@ -318,6 +321,44 @@ button.ch-form-row:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 2px;
 }
+.ch-daychips {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+}
+.ch-daychip {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 44px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ch-text);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-daychip[aria-pressed='true'] {
+  border-color: var(--ch-button);
+  background: var(--ch-mine-soft);
+  color: var(--ch-mine-soft-text);
+  font-weight: 600;
+}
+.ch-daychip[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.75;
+}
+.ch-daychip:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 1px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ch-daychip {
+    transition: background-color 120ms ease-out, border-color 120ms ease-out;
+  }
+}
 .ch-form-error {
   margin: 0;
   padding-inline: 4px;
@@ -340,6 +381,17 @@ button.ch-form-row:focus-visible {
   gap: 8px;
 }
 .ch-save-bar .ch-form-error {
+  text-align: center;
+}
+.ch-save-bar-sticky {
+  position: sticky;
+  inset-block-end: 0;
+  border-block-start: 1px solid var(--ch-separator);
+}
+.ch-save-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ch-muted);
   text-align: center;
 }
 .ch-save {
@@ -432,13 +484,40 @@ export function FormRow({ label, hint, children }: { label: string; hint?: strin
   );
 }
 
-/** A switch row: the whole row is the button. */
-export function SwitchRow({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (on: boolean) => void }) {
+/**
+ * A switch row: the whole row is the button. `note` is a second hint line (what is used of a limit);
+ * `disabled` keeps the row focusable and announced (aria-disabled) but a tap changes nothing.
+ */
+export function SwitchRow({
+  label,
+  hint,
+  note,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  note?: string;
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
-    <button type="button" role="switch" aria-checked={checked} className="ch-form-row" onClick={() => onChange(!checked)}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      className="ch-form-row"
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
+    >
       <span className="ch-form-label">
         <span>{label}</span>
         {hint ? <span className="ch-form-hint">{hint}</span> : null}
+        {note ? <span className="ch-form-hint">{note}</span> : null}
       </span>
       <span className={`ch-switch${checked ? ' is-on' : ''}`} aria-hidden="true" />
     </button>
@@ -461,8 +540,8 @@ function Check() {
   );
 }
 
-/** A row that opens a sheet, shaped like a value row (the label, the value, a chevron); the inline error sits under it. */
-export function ButtonRow({ label, hint, value, onClick, error }: { label: string; hint?: string; value: string; onClick: () => void; error?: string | null }) {
+/** A row that opens a sheet, shaped like a value row (the label, the value, a chevron); the inline error sits under it. `valueDir="ltr"` keeps a time or a number left to right. */
+export function ButtonRow({ label, hint, value, onClick, error, valueDir }: { label: string; hint?: string; value: string; onClick: () => void; error?: string | null; valueDir?: 'ltr' }) {
   const id = useId();
   return (
     <>
@@ -473,7 +552,7 @@ export function ButtonRow({ label, hint, value, onClick, error }: { label: strin
         </span>
         <span className="ch-form-value">
           <span className="ch-form-value-text" dir="auto">
-            {value}
+            {valueDir === 'ltr' ? <bdi dir="ltr">{value}</bdi> : value}
           </span>
         </span>
         <Chevron />
@@ -558,8 +637,24 @@ export interface SelectOption {
   color?: string | null;
 }
 
-/** A value row: the label, the chosen value and a chevron, with a native <select> over the row. */
-export function ValueRow({ label, hint, value, options, onChange, error }: { label: string; hint?: string; value: string; options: SelectOption[]; onChange: (value: string) => void; error?: string | null }) {
+/** A value row: the label, the chosen value and a chevron, with a native <select> over the row. `valueDir="ltr"` keeps a time left to right. */
+export function ValueRow({
+  label,
+  hint,
+  value,
+  options,
+  onChange,
+  error,
+  valueDir,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  error?: string | null;
+  valueDir?: 'ltr';
+}) {
   const id = useId();
   const chosen = options.find((o) => o.value === value) ?? options[0];
   const dot = chosen?.color && /^#[0-9a-f]{3,8}$/i.test(chosen.color) ? chosen.color : null;
@@ -573,7 +668,7 @@ export function ValueRow({ label, hint, value, options, onChange, error }: { lab
         <span className="ch-form-value">
           {chosen?.color !== undefined ? <span className="ch-swatch-dot" style={dot ? { background: dot } : undefined} aria-hidden="true" /> : null}
           <span className="ch-form-value-text" dir="auto">
-            {chosen?.text ?? ''}
+            {valueDir === 'ltr' ? <bdi dir="ltr">{chosen?.text ?? ''}</bdi> : (chosen?.text ?? '')}
           </span>
         </span>
         <Chevron />
@@ -624,16 +719,40 @@ export function RadioPair<T extends string>({ label, value, options, onChange }:
   );
 }
 
-/** The sticky Save bar: the error above the button, the button disabled while a save is in flight. */
-export function SaveBar({ label, busy, error, onSave }: { label: string; busy: boolean; error: string | null; onSave: () => void }) {
+/**
+ * The Save bar: the error (or a status such as "Saved") above the button, the button disabled while a save is
+ * in flight or when there is nothing to save. `sticky` pins it to the bottom of a screen that scrolls.
+ */
+export function SaveBar({
+  label,
+  busy,
+  error,
+  onSave,
+  status,
+  disabled,
+  sticky,
+}: {
+  label: string;
+  busy: boolean;
+  error: string | null;
+  onSave: () => void;
+  status?: string | null;
+  disabled?: boolean;
+  sticky?: boolean;
+}) {
   return (
-    <div className="ch-save-bar">
+    <div className={sticky ? 'ch-save-bar ch-save-bar-sticky' : 'ch-save-bar'}>
       {error ? (
         <p className="ch-form-error" role="alert">
           {error}
         </p>
       ) : null}
-      <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={busy} aria-busy={busy || undefined} onClick={onSave}>
+      {status ? (
+        <p className="ch-save-status" role="status">
+          {status}
+        </p>
+      ) : null}
+      <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={busy || disabled} aria-busy={busy || undefined} onClick={onSave}>
         {busy ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
         {label}
       </button>

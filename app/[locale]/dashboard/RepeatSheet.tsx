@@ -41,6 +41,7 @@ import {
 import type { PickerMode } from '@/src/lib/calendar-view/picker-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { DayChips } from '@/components/app-ui/DayChips';
 import { FORM_CSS, FormCard, RadioCard, SaveBar, Segmented, StepperRow } from '@/components/app-ui/form-kit';
 import { EDITOR_FORM_CSS, PillRow } from './form-kit';
 import { monthOnNthText, repeatFormText, type WordsContext } from './repeat-words';
@@ -53,44 +54,6 @@ export const REPEAT_CSS = `
   font-weight: 600;
   line-height: 1.3;
   overflow-wrap: anywhere;
-}
-.ch-days {
-  display: flex;
-  gap: 2px;
-  padding: 4px;
-}
-.ch-day {
-  flex: 1;
-  min-inline-size: 0;
-  min-block-size: 44px;
-  padding: 0;
-  border: 1.5px solid transparent;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--ch-text);
-  font: inherit;
-  font-size: 15px;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-.ch-day[aria-pressed='true'] {
-  border-color: var(--ch-button);
-  background: var(--ch-mine-soft);
-  color: var(--ch-mine-soft-text);
-  font-weight: 600;
-}
-.ch-day[aria-disabled='true'] {
-  cursor: default;
-  opacity: 0.75;
-}
-.ch-day:focus-visible {
-  outline: 2px solid var(--ch-accent);
-  outline-offset: 1px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .ch-day {
-    transition: background-color 120ms ease-out, border-color 120ms ease-out;
-  }
 }
 `;
 
@@ -196,29 +159,21 @@ export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom,
           {spec?.freq === 'weekly' ? (
             <>
               <div className="ch-form-card">
-                <div className="ch-days" role="group" aria-label={t('editor.repeat.daysLabel')}>
-                  {weekOrder(weekStart).map((code) => {
-                    const pinned = code === own;
-                    const on = pinned || (spec.byDay ?? []).includes(code);
-                    return (
-                      <button
-                        key={code}
-                        type="button"
-                        className="ch-day"
-                        data-day={code}
-                        aria-pressed={on}
-                        aria-disabled={pinned || undefined}
-                        aria-describedby={pinned ? hintId : undefined}
-                        aria-label={t('editor.repeat.dayLong', { weekday: idOfCode(code) })}
-                        onClick={() => {
-                          if (!pinned) edit(toggleDay(spec, code, startDay));
-                        }}
-                      >
-                        {t('editor.repeat.dayShort', { weekday: idOfCode(code) })}
-                      </button>
-                    );
-                  })}
-                </div>
+                <DayChips
+                  label={t('editor.repeat.daysLabel')}
+                  describedBy={hintId}
+                  days={weekOrder(weekStart).map((code) => ({
+                    id: code,
+                    short: t('editor.repeat.dayShort', { weekday: idOfCode(code) }),
+                    full: t('editor.repeat.dayLong', { weekday: idOfCode(code) }),
+                    on: code === own || (spec.byDay ?? []).includes(code),
+                    pinned: code === own,
+                  }))}
+                  onToggle={(id) => {
+                    const code = weekOrder(weekStart).find((c) => c === id);
+                    if (code && code !== own) edit(toggleDay(spec, code, startDay));
+                  }}
+                />
               </div>
               <p id={hintId} className="ch-form-fixed">
                 {t('editor.repeat.startDayKept')}

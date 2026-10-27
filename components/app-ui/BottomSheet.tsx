@@ -12,7 +12,9 @@
 //   is some 30 day buttons and two chevrons, each of which would change the day): Tab
 //   and Shift+Tab go round its own controls, and focus that lands outside it (a
 //   keyboard's or a screen reader's) comes back to the panel.
-// - Escape (wherever focus is), a tap on the scrim and the Close button all call onClose.
+// - Escape (wherever focus is), a tap on the scrim and the Close button all call onClose,
+//   unless `closeDisabled` (a sheet that must not close while it works: a disconnect in
+//   flight): then the Close button is disabled and the other two do nothing.
 // - `variant="full"` (the editor): the panel fills the screen, with no grab bar and no Close
 //   button of its own, since its content brings a Cancel in a header and a Save bar. The
 //   rest (the dialog, the focus, Escape, the scrim) is the same.
@@ -29,6 +31,8 @@ export interface BottomSheetProps {
   onClose: () => void;
   /** 'full' fills the screen and brings its own controls (the editor). Default 'sheet'. */
   variant?: 'sheet' | 'full';
+  /** The sheet cannot be closed now: the Close button is disabled, and Escape and the scrim do nothing. */
+  closeDisabled?: boolean;
   children: ReactNode;
 }
 
@@ -53,11 +57,14 @@ function controlsIn(root: HTMLElement): HTMLElement[] {
 /** The mounted sheets, oldest first: only the last one owns the focus trap and Escape. */
 const openSheets: object[] = [];
 
-export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', children }: BottomSheetProps) {
+export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', closeDisabled = false, children }: BottomSheetProps) {
   const panel = useRef<HTMLDivElement>(null);
-  const close = useRef(onClose);
+  const requestClose = () => {
+    if (!closeDisabled) onClose();
+  };
+  const close = useRef(requestClose);
   useEffect(() => {
-    close.current = onClose;
+    close.current = requestClose;
   });
 
   // Focus in on open, out on close; while open, focus that lands outside comes back and
@@ -90,7 +97,7 @@ export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', chi
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') {
       e.stopPropagation();
-      onClose();
+      requestClose();
       return;
     }
     if (e.key !== 'Tab' || !panel.current) return;
@@ -114,12 +121,12 @@ export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', chi
 
   return (
     <div className="ch-sheet-layer">
-      <div className="ch-sheet-backdrop" aria-hidden="true" onClick={onClose} />
+      <div className="ch-sheet-backdrop" aria-hidden="true" onClick={requestClose} />
       <div ref={panel} className={variant === 'full' ? 'ch-sheet ch-sheet-full' : 'ch-sheet'} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={onKeyDown}>
         {variant === 'full' ? null : <div className="ch-sheet-grab" aria-hidden="true" />}
         {children}
         {variant === 'full' ? null : (
-          <button type="button" className="ch-btn ch-sheet-close" onClick={onClose}>
+          <button type="button" className="ch-btn ch-sheet-close" disabled={closeDisabled} onClick={requestClose}>
             {closeLabel}
           </button>
         )}

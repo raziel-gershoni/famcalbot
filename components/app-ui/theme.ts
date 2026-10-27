@@ -56,6 +56,8 @@
 //   floor: an unselected tab's label reads --ch-muted.
 // - The banners' and the accent icon buttons' ground: --ch-accent-soft, the page's
 //   background with 14% of the accent mixed in.
+// - The switch's thumb: --ch-switch-thumb (white in both themes) and its shadow,
+//   --ch-switch-thumb-shadow, a literal-text token (a shadow has no colour to resolve).
 
 
 export const APP_THEME_CSS = `
@@ -103,6 +105,8 @@ export const APP_THEME_CSS = `
   --ch-disabled: #c9c8d6;
   --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
   --ch-accent-soft: #eee9ff;
+  --ch-switch-thumb: #ffffff;
+  --ch-switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   color-scheme: light;
   background: var(--ch-bg);
   color: var(--ch-text);
@@ -300,6 +304,10 @@ export const APP_THEME_CSS = `
   min-height: 48px;
   margin-block-start: 16px;
   color: var(--ch-text);
+}
+.ch-sheet-close:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .ch-sheet-full {
   flex: 1;

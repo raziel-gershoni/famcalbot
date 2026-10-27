@@ -3,7 +3,7 @@
 //  - the tokens: every --ch-* of the parent of F1 (scripts/fixtures/app-ui-tokens-golden.json,
 //    resolved from its CSS) resolves to the same colour from APP_THEME_CSS on .ch-app, in
 //    light and dark, with color-mix and without, with no Telegram params and with every one set;
-//  - the CSS lint over the theme and the screen: nothing under 11 px, taps at least 44 px,
+//  - the CSS lint over the theme, the screen and the form kit: nothing under 11 px, taps at least 44 px,
 //    logical properties only, no hover, no hex outside the token blocks;
 //  - contrast: the text pairs reach 4.5:1 and the marks 3:1, in light and dark, with color-mix
 //    on and off, in a browser (no Telegram params) and under a Telegram theme;
@@ -28,6 +28,10 @@
 //    Telegram user, and the app-look gate card without one, in a browser and inside Telegram;
 //  - the home's --ch-top-h: published on the root through AppScreen's ref, and on the first commit,
 //    when React has not attached that ref yet, on the wrapper's parent, the same element.
+//  - the pieces W1a added (K1-K10, plan docs/superpowers/plans/2026-10-27-app-ui-W1a-settings.md): ScreenHeader
+//    and SectionLabel, Notice, DayChips, AppScreen's grouped ground and what it asks Telegram for, the form kit's
+//    additions (a disabled SwitchRow, a note, valueDir, the SaveBar's status, disabled and sticky), the
+//    BottomSheet's closeDisabled, and the new CSS (the switch's off outline, the grouped paint, the chips).
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -37,13 +41,18 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import { createElement, type ComponentProps, type ReactElement } from 'react';
+import { act, createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { AppScope, AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
+import { BottomSheet } from '../components/app-ui/BottomSheet';
+import { DayChips, type DayChip } from '../components/app-ui/DayChips';
+import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components/app-ui/form-kit';
+import { Notice } from '../components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
 import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
 import { NoCredentialCard } from '../app/[locale]/PageGate';
@@ -92,6 +101,9 @@ const ScreenProbe = AppScreen as unknown as (props: Omit<ComponentProps<typeof A
 const ScopeProbe = AppScope as unknown as () => ReactElement;
 
 const CardProbe = StateCard as unknown as (props: StateCardProps) => ReactElement;
+const LabelProbe = SectionLabel as unknown as (props: Record<string, never>) => ReactElement;
+const NoticeProbe = Notice as unknown as (props: Omit<ComponentProps<typeof Notice>, 'children'>) => ReactElement;
+const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
 
 /** The text a reader sees: style sheets, tags and React's text separators out, entities decoded, spaces collapsed. */
 const textOf = (html: string) =>
@@ -132,7 +144,7 @@ for (const level of ['error', 'warn'] as const) {
 
 // ---- The CSS, as the lint reads it ----
 
-const CSS = APP_THEME_CSS + APP_SCREEN_CSS;
+const CSS = APP_THEME_CSS + APP_SCREEN_CSS + FORM_CSS;
 
 /** The body of the rule whose selector is exactly `selector`, in `css`. */
 function rule(css: string, selector: string): string {
@@ -170,10 +182,11 @@ async function main() {
     assert(problems.length === 0, `${problems.length} differ, first: ${show(problems.slice(0, 5))}`);
   });
 
-  await check('#2 the lint over the theme and the screen: nothing under 11 px and every size in px; .ch-btn, .ch-icon-btn and .ch-sheet-close at least 44 px; logical properties only; no hover; no hex or rgb() outside the token blocks (the page paint\'s dark fallback is the dark --ch-bg\'s own)', () => {
+  await check('#2 the lint over the theme, the screen and the form kit: nothing under 11 px and every size in px; .ch-btn, .ch-icon-btn and .ch-sheet-close at least 44 px; logical properties only; no hover; no hex or rgb() outside the token blocks (the two page paints\' fallbacks are the dark --ch-bg\'s and the light --ch-surface\'s own)', () => {
     const sizes = [...CSS.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
     assert(sizes.length > 5 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
-    assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s/.test(CSS), 'every font size in px (so the floor is checkable)');
+    // `font: inherit` takes the size from the parent and has none of its own; any other shorthand would hide one.
+    assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s+(?!inherit\s*;)/.test(CSS), 'every font size in px (so the floor is checkable)');
     for (const selector of ['.ch-btn', '.ch-icon-btn', '.ch-sheet-close']) {
       const css = selector === '.ch-icon-btn' ? APP_SCREEN_CSS : APP_THEME_CSS;
       const min = /min-height:\s*(\d+)px/.exec(rule(css, selector));
@@ -187,16 +200,22 @@ async function main() {
     const physical = CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(CSS), 'no hover styles');
-    // A token block's declarations are tokens (the shades live there); the one exemption outside is the dark page paint's
-    // own declaration (html has no tokens above it), whose fallback is checked against the dark --ch-bg's below.
+    // A token block's declarations are tokens (the shades live there); the two exemptions outside are the page paints'
+    // own declarations (html has no tokens above it): the dark one's fallback is checked against the dark --ch-bg's, the
+    // grouped one's against the light --ch-surface's, below.
     const paint = /(html:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*)background-color:\s*var\(--tg-theme-bg-color,\s*#[0-9a-f]{6}\);/i;
+    const groupedPaint = /(html:has\(\.ch-screen\.ch-grouped\) \{\s*)background-color:\s*var\(--tg-theme-secondary-bg-color,\s*#[0-9a-f]{6}\);/i;
     assert(paint.test(APP_SCREEN_CSS), 'the dark page paint declaration');
-    const outside = CSS.replace(/^\s*--[\w-]+\s*:[^;]*;/gm, '').replace(paint, '$1');
+    assert(groupedPaint.test(APP_SCREEN_CSS), 'the grouped page paint declaration');
+    const outside = CSS.replace(/^\s*--[\w-]+\s*:[^;]*;/gm, '').replace(paint, '$1').replace(groupedPaint, '$1');
     const literal = outside.match(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi);
     assert(!literal, `colour literals outside the token blocks: ${show(literal)}`);
     const dark = /html:has\(\.ch-screen\[data-theme='dark'\]\) \{[^}]*var\(--tg-theme-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_SCREEN_CSS)?.[1];
     const darkBg = /\.ch-app\[data-theme='dark'\] \{[^}]*--ch-bg: var\(--tg-theme-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_THEME_CSS)?.[1];
     assert(dark && dark === darkBg, `the dark page paint ${dark} is the dark --ch-bg's fallback ${darkBg}`);
+    const grouped = /html:has\(\.ch-screen\.ch-grouped\) \{[^}]*var\(--tg-theme-secondary-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_SCREEN_CSS)?.[1];
+    const lightSurface = /\.ch-app \{[^}]*--ch-surface: var\(--tg-theme-secondary-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_THEME_CSS)?.[1];
+    assert(grouped && grouped === lightSurface, `the grouped page paint ${grouped} is the light --ch-surface's fallback ${lightSurface}`);
   });
 
   await check('#2b contrast: the text pairs reach 4.5:1 and the marks that tell whose an item is 3:1, in light and dark, with color-mix on and off, in a browser (no Telegram params) and under a Telegram theme (stand-ins: the fallback palette sent as Telegram params, since the repo holds no captured device themes; TG_ALL, a different grey per param, is #1\'s and the tabs smoke\'s reads)', () => {
@@ -244,8 +263,9 @@ async function main() {
     assert((CSS.match(/min-height:\s*var\(--tg-viewport-stable-height/g) ?? []).length === 1, 'the stable height is declared once');
     assert(!/ch-standalone/.test(CSS), 'no rule hangs on .ch-standalone');
     assert(!/html:has|html\s*\{|:root\s*\{/.test(APP_THEME_CSS), 'the theme scope brings no html-level rule');
+    // In this order: the grouped ground paints over the plain one, and the dark ground over the grouped (same specificity, the later wins).
     const htmlLevel = [...APP_SCREEN_CSS.matchAll(/^(html[^{]*)\{/gm)].map((m) => m[1].trim());
-    assert(show(htmlLevel) === show(['html:has(.ch-screen)', "html:has(.ch-screen[data-theme='dark'])"]), `the html-level rules: ${show(htmlLevel)}`);
+    assert(show(htmlLevel) === show(['html:has(.ch-screen)', 'html:has(.ch-screen.ch-grouped)', "html:has(.ch-screen[data-theme='dark'])"]), `the html-level rules: ${show(htmlLevel)}`);
     // The frame properties are on no other root rule: not on the theme's .ch-app blocks.
     for (const selector of ['.ch-app', ".ch-app[data-theme='dark']"]) {
       const body = rule(APP_THEME_CSS, selector);
@@ -569,6 +589,256 @@ async function main() {
     assert(writes === 1, `an unchanged height is written once: ${writes}`);
     publishTopHeight(topOf(null, 90), asRef(null));
     publishTopHeight(null, asRef(null));
+  });
+
+  // ---- W1a: the pieces Settings and the screens after it share (ScreenHeader, SectionLabel, Notice, DayChips, the grouped ground, the form kit's additions) ----
+
+  const HeaderProbe = ScreenHeader as unknown as (props: ComponentProps<typeof ScreenHeader>) => ReactElement;
+  const ChipsProbe = DayChips as unknown as (props: ComponentProps<typeof DayChips>) => ReactElement;
+  const buttonsIn = (m: { container: Parameters<typeof elements>[0] }) => elements(m.container).filter((e) => e.localName === 'button');
+
+  await check("K1 ScreenHeader: the h1 and, where Telegram has no BackButton, an in-page back (a button with its label, the chevron flipped in RTL) that calls onBack; none in Telegram 6.1+ (the BackButton is AppScreen's), none without onBack, none on the server; the file never calls useTelegramBackButton", () => {
+    installWindow();
+    let backs = 0;
+    const header = (onBack?: (() => void) | null) => inIntl('en', createElement(HeaderProbe, { title: 'Settings', backLabel: 'Back', onBack }));
+    // A browser (no init data): the in-page back is the way back
+    const browser = mount(header(() => void backs++));
+    try {
+      const buttons = buttonsIn(browser);
+      assert(buttons.length === 1 && buttons[0].getAttribute('aria-label') === 'Back' && buttons[0].getAttribute('type') === 'button', `the browser's buttons: ${show(buttons.map((b) => b.getAttribute('aria-label')))}`);
+      assert(buttons[0].className === 'ch-icon-btn ch-icon-btn-plain', `the button's classes: ${buttons[0].className}`);
+      const svg = elements(browser.container).find((e) => e.localName === 'svg');
+      assert(svg && /\bch-flip\b/.test(svg.getAttribute('class') ?? '') && svg.getAttribute('aria-hidden') === 'true', 'the chevron flips in RTL and is hidden from assistive tech');
+      browser.click(buttons[0]);
+      assert(backs === 1, `a tap calls onBack: ${backs}`);
+      const head = elements(browser.container).find((e) => e.localName === 'header');
+      assert(head?.className === 'ch-screen-head' && elements(browser.container).some((e) => e.localName === 'h1' && e.className === 'ch-screen-title' && e.textContent === 'Settings'), 'the header and its h1');
+    } finally {
+      browser.unmount();
+    }
+    // No onBack: no button, in a browser too
+    for (const none of [undefined, null]) {
+      const bare = mount(header(none));
+      try {
+        assert(buttonsIn(bare).length === 0, `onBack ${none}: no button`);
+      } finally {
+        bare.unmount();
+      }
+    }
+    // Telegram 7.7 has the BackButton (AppScreen's); 6.0 has none, and the in-page back returns
+    for (const [version, want] of [['7.7', 0], ['6.0', 1]] as const) {
+      fakeWindow.Telegram = { WebApp: fakeTelegram([], version) };
+      const m = mount(header(() => void backs++));
+      try {
+        assert(buttonsIn(m).length === want, `Telegram ${version}: ${buttonsIn(m).length} in-page back button(s), want ${want}`);
+      } finally {
+        m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
+    // The server renders what Telegram's clients get (no button), so a Telegram page hydrates without a mismatch
+    const server = markupOf(renderToString(header(() => undefined)));
+    assert(!server.includes('<button') && server.includes('<h1 class="ch-screen-title">Settings</h1>'), `on the server: ${server}`);
+    const code = fs.readFileSync(path.join(ROOT, 'components/app-ui/ScreenHeader.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    assert(!/useTelegramBackButton\(/.test(code), 'ScreenHeader never calls useTelegramBackButton');
+  });
+
+  await check('K2 SectionLabel is an h2 with the section-label class', () => {
+    assert(renderToString(createElement(LabelProbe, {}, 'Summaries')) === '<h2 class="ch-section-label">Summaries</h2>', 'the label');
+  });
+
+  await check('K3 Notice: role="status" by default, role="alert" for an error (the danger tone); its action is a button that calls onClick', () => {
+    const html = (props: Omit<ComponentProps<typeof Notice>, 'children'>) => renderToString(createElement(NoticeProbe, props, 'Heads up'));
+    assert(html({}) === '<div class="ch-notice" role="status"><p class="ch-notice-text">Heads up</p></div>', `info: ${html({})}`);
+    assert(html({ tone: 'info' }) === html({}), 'info is the default');
+    assert(html({ tone: 'error' }) === '<div class="ch-notice ch-notice-error" role="alert"><p class="ch-notice-text">Heads up</p></div>', `error: ${html({ tone: 'error' })}`);
+    let taps = 0;
+    const m = mount(createElement(NoticeProbe, { action: { label: 'See plans', onClick: () => void taps++ } }, 'Heads up'));
+    try {
+      const buttons = buttonsIn(m);
+      assert(buttons.length === 1 && buttons[0].className === 'ch-notice-action' && buttons[0].getAttribute('type') === 'button' && buttons[0].textContent === 'See plans', 'the action button');
+      m.click(buttons[0]);
+      assert(taps === 1, `a tap calls onClick: ${taps}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('K4 DayChips: a labelled group of toggle buttons (aria-pressed, the full day as the name, the short one shown); a pinned chip is aria-disabled, described by the hint, and a tap on it calls nothing; a tap on another calls onToggle with its id', () => {
+    const ids = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+    const days: DayChip[] = ids.map((id, i) => ({ id, short: `S${i}`, full: `Day ${id}`, on: i < 3, pinned: i === 2 }));
+    const toggled: string[] = [];
+    const m = mount(createElement(ChipsProbe, { label: 'Days', days, onToggle: (id: string) => void toggled.push(id), describedBy: 'hint-1' }));
+    try {
+      const group = byRole(m.container, 'group');
+      assert(group.length === 1 && group[0].getAttribute('aria-label') === 'Days' && group[0].className === 'ch-daychips', 'the group');
+      const chips = buttonsIn(m);
+      assert(chips.length === 7 && chips.every((c) => c.className === 'ch-daychip' && c.getAttribute('type') === 'button'), 'seven chips');
+      assert(show(chips.map((c) => c.getAttribute('data-day'))) === show(ids), 'in the given order');
+      assert(show(chips.map((c) => c.getAttribute('aria-pressed'))) === show(['true', 'true', 'true', 'false', 'false', 'false', 'false']), 'aria-pressed follows on');
+      assert(chips[0].getAttribute('aria-label') === 'Day sun' && chips[0].textContent === 'S0', 'the full name is the label, the short one the text');
+      assert(chips[2].getAttribute('aria-disabled') === 'true' && chips[2].getAttribute('aria-describedby') === 'hint-1', 'the pinned chip');
+      assert(chips.filter((c) => c.getAttribute('aria-disabled') !== null || c.getAttribute('aria-describedby') !== null).length === 1, 'only the pinned chip carries either');
+      m.click(chips[2]);
+      assert(toggled.length === 0, `a pinned chip calls nothing: ${show(toggled)}`);
+      m.click(chips[3]);
+      m.click(chips[0]);
+      assert(show(toggled) === show(['wed', 'sun']), `the others call onToggle(id): ${show(toggled)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check("K5 AppScreen ground=\"grouped\": the root has ch-grouped; Telegram's header and background take secondary_bg_color in a light theme and bg_color in a dark one, and a themeChanged gives the colour of the scheme it changed to; a plain screen asks bg_color in both", () => {
+    const html = renderToString(inIntl('en', createElement(ScreenProbe, { ground: 'grouped', className: 'ch-settings' }, createElement('i'))));
+    assert(html.startsWith('<div class="ch-app ch-screen ch-grouped ch-settings" data-theme="light" dir="ltr" lang="en">'), `the grouped root: ${html.slice(0, 120)}`);
+    assert(renderToString(inIntl('en', createElement(ScreenProbe, { ground: 'plain' }, createElement('i')))).startsWith('<div class="ch-app ch-screen" '), 'plain has no ch-grouped');
+    installWindow();
+    const colourCalls = (calls: string[]) => calls.filter((c) => /^set(?:Header|Background)Color\(/.test(c));
+    const run = (ground: 'plain' | 'grouped', scheme: 'light' | 'dark') => {
+      const calls: string[] = [];
+      const tg = fakeTelegram(calls, '7.7');
+      tg.colorScheme = scheme;
+      fakeWindow.Telegram = { WebApp: tg };
+      const m = mount(inIntl('en', createElement(ScreenProbe, { ground }, createElement('i'))));
+      return { m, tg, calls };
+    };
+    const light = run('grouped', 'light');
+    try {
+      assert(show(colourCalls(light.calls)) === show(['setHeaderColor(secondary_bg_color)', 'setBackgroundColor(secondary_bg_color)']), `grouped, light: ${show(colourCalls(light.calls))}`);
+      // The user switches Telegram to a dark theme: the handler asks again, with the scheme of that moment
+      light.calls.length = 0;
+      light.tg.colorScheme = 'dark';
+      act(() => {
+        for (const handler of light.tg.eventHandlers.themeChanged ?? []) handler();
+      });
+      assert(show(colourCalls(light.calls)) === show(['setHeaderColor(bg_color)', 'setBackgroundColor(bg_color)']), `grouped, themeChanged to dark: ${show(colourCalls(light.calls))}`);
+      light.calls.length = 0;
+      light.tg.colorScheme = 'light';
+      act(() => {
+        for (const handler of light.tg.eventHandlers.themeChanged ?? []) handler();
+      });
+      assert(show(colourCalls(light.calls)) === show(['setHeaderColor(secondary_bg_color)', 'setBackgroundColor(secondary_bg_color)']), `grouped, themeChanged back to light: ${show(colourCalls(light.calls))}`);
+    } finally {
+      light.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    for (const [ground, scheme] of [['grouped', 'dark'], ['plain', 'light'], ['plain', 'dark']] as const) {
+      const r = run(ground, scheme);
+      try {
+        assert(show(colourCalls(r.calls)) === show(['setHeaderColor(bg_color)', 'setBackgroundColor(bg_color)']), `${ground}, ${scheme}: ${show(colourCalls(r.calls))}`);
+      } finally {
+        r.m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
+  });
+
+  await check('K6 SwitchRow disabled: aria-disabled="true", a tap does not call onChange, and nothing dims it; an enabled one still calls onChange with the new value', () => {
+    const seen: boolean[] = [];
+    const m = mount(createElement(SwitchRow, { label: 'Alerts', hint: 'Soon', checked: false, disabled: true, onChange: (on: boolean) => void seen.push(on) }));
+    try {
+      const sw = byRole(m.container, 'switch');
+      assert(sw.length === 1 && sw[0].getAttribute('aria-disabled') === 'true' && sw[0].getAttribute('aria-checked') === 'false' && !sw[0].hasAttribute('disabled'), 'the disabled switch');
+      m.click(sw[0]);
+      assert(seen.length === 0, `a tap on it calls nothing: ${show(seen)}`);
+    } finally {
+      m.unmount();
+    }
+    const on = mount(createElement(SwitchRow, { label: 'Alerts', checked: false, onChange: (v: boolean) => void seen.push(v) }));
+    try {
+      const sw = byRole(on.container, 'switch')[0];
+      assert(!sw.hasAttribute('aria-disabled'), 'an enabled switch has no aria-disabled');
+      on.click(sw);
+      assert(show(seen) === show([true]), `an enabled one: ${show(seen)}`);
+    } finally {
+      on.unmount();
+    }
+    assert(!/button\.ch-form-row\[aria-disabled[^{]*\{/.test(FORM_CSS) && !/\.ch-form-row\[aria-disabled/.test(FORM_CSS), 'no rule dims a disabled row');
+  });
+
+  await check('K7 ButtonRow and ValueRow valueDir="ltr" draw the value as <bdi dir="ltr">09:15</bdi> (a time stays left to right in Hebrew), and without it no bdi; SwitchRow note is a second hint line under the hint', () => {
+    const button = (extra: Record<string, unknown>) => markupOf(renderToString(createElement(ButtonRow, { label: 'Time', value: '09:15', onClick: noop, ...extra })));
+    assert(button({ valueDir: 'ltr' }).includes('<span class="ch-form-value-text" dir="auto"><bdi dir="ltr">09:15</bdi></span>'), `ButtonRow: ${button({ valueDir: 'ltr' })}`);
+    assert(!button({}).includes('<bdi') && button({}).includes('dir="auto">09:15</span>'), 'ButtonRow without valueDir');
+    const value = (extra: Record<string, unknown>) => markupOf(renderToString(createElement(ValueRow, { label: 'Morning', value: '07', options: [{ value: '07', text: '07:00' }], onChange: noop, ...extra })));
+    assert(value({ valueDir: 'ltr' }).includes('<span class="ch-form-value-text" dir="auto"><bdi dir="ltr">07:00</bdi></span>'), `ValueRow: ${value({ valueDir: 'ltr' })}`);
+    assert(!value({}).includes('<bdi'), 'ValueRow without valueDir');
+    const note = markupOf(renderToString(createElement(SwitchRow, { label: 'Text', hint: 'A message', note: '3 of 5 used', checked: true, onChange: noop })));
+    assert(note.includes('<span class="ch-form-hint">A message</span><span class="ch-form-hint">3 of 5 used</span>'), `the note: ${note}`);
+    assert(!markupOf(renderToString(createElement(SwitchRow, { label: 'Text', hint: 'A message', checked: true, onChange: noop }))).includes('3 of 5'), 'no note, no line');
+  });
+
+  await check('K8 SaveBar: a status renders as role="status", disabled disables the button, sticky adds the class; the error is still role="alert" and busy still disables and marks aria-busy', () => {
+    const html = (props: Partial<ComponentProps<typeof SaveBar>>) => markupOf(renderToString(createElement(SaveBar, { label: 'Save', busy: false, error: null, onSave: noop, ...props })));
+    assert(html({}) === '<div class="ch-save-bar"><button type="button" class="ch-btn ch-btn-primary ch-save">Save</button></div>', `the bar as it was: ${html({})}`);
+    assert(html({ status: 'Saved' }).includes('<p class="ch-save-status" role="status">Saved</p>'), `the status: ${html({ status: 'Saved' })}`);
+    assert(html({ disabled: true }).includes('disabled=""') && !html({}).includes('disabled'), 'disabled disables the button');
+    assert(html({ sticky: true }).startsWith('<div class="ch-save-bar ch-save-bar-sticky">'), `sticky: ${html({ sticky: true })}`);
+    assert(html({ error: 'Nope' }).includes('<p class="ch-form-error" role="alert">Nope</p>'), 'the error');
+    assert(html({ busy: true }).includes('disabled=""') && html({ busy: true }).includes('aria-busy="true"'), 'busy');
+    let saves = 0;
+    const m = mount(createElement(SaveBar, { label: 'Save', busy: false, error: null, disabled: false, onSave: () => void saves++ }));
+    try {
+      m.click(buttonsIn(m)[0]);
+      assert(saves === 1, `a tap saves: ${saves}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('K9 BottomSheet closeDisabled: the close button is disabled, and Escape and the scrim do not call onClose; without it all three do', () => {
+    installWindow();
+    const run = (closeDisabled: boolean) => {
+      let closed = 0;
+      const m = mount(createElement(SheetProbe, { label: 'Sheet', closeLabel: 'Close', onClose: () => void closed++, closeDisabled }, createElement('i')));
+      const panel = byRole(m.container, 'dialog')[0];
+      const close = elements(m.container).find((e) => e.className === 'ch-btn ch-sheet-close');
+      const scrim = elements(m.container).find((e) => e.className === 'ch-sheet-backdrop');
+      assert(panel && close && scrim, 'the sheet');
+      return { m, panel, close, scrim, closed: () => closed };
+    };
+    const locked = run(true);
+    try {
+      assert(locked.close.hasAttribute('disabled'), 'the close button is disabled');
+      locked.m.key(locked.panel, 'Escape');
+      locked.m.click(locked.scrim);
+      locked.m.click(locked.close);
+      assert(locked.closed() === 0, `Escape, the scrim and the button: ${locked.closed()} close(s)`);
+    } finally {
+      locked.m.unmount();
+    }
+    const free = run(false);
+    try {
+      assert(!free.close.hasAttribute('disabled'), 'the close button is enabled');
+      free.m.key(free.panel, 'Escape');
+      assert(free.closed() === 1, `Escape closes: ${free.closed()}`);
+      free.m.click(free.scrim);
+      assert(free.closed() === 2, `the scrim closes: ${free.closed()}`);
+    } finally {
+      free.m.unmount();
+    }
+  });
+
+  await check("K10 the new CSS: the off switch track has an outline and the on track a fill, each in a token #2b holds to 3:1 against the card; the thumb is on tokens; the grouped ground paints the surface; the sticky bar keeps .ch-save-bar's flex: none; the plain icon button follows .ch-icon-btn; a chip is 44 px tall with its transition behind no-preference, and no rule takes the Agenda's .ch-day names", () => {
+    const off = /box-shadow:\s*inset 0 0 0 1\.5px var\((--[\w-]+)\)/.exec(rule(FORM_CSS, '.ch-switch'))?.[1];
+    assert(off, 'the off track has an inset outline');
+    const on = /background:\s*var\((--[\w-]+)\)/.exec(rule(FORM_CSS, '.ch-switch.is-on'))?.[1];
+    assert(on && /box-shadow:\s*none/.test(rule(FORM_CSS, '.ch-switch.is-on')), 'the on track fills with a token and has no outline');
+    const thumb = rule(FORM_CSS, '.ch-switch::after');
+    assert(/background:\s*var\(--ch-switch-thumb\)/.test(thumb) && /box-shadow:\s*var\(--ch-switch-thumb-shadow\)/.test(thumb), 'the thumb is on its tokens');
+    // #2b measures these pairs in every look; the CSS must draw with exactly these tokens
+    const marked = (fg: string) => MARK_PAIRS.some(([a, b]) => a === fg && b === '--ch-section');
+    assert(marked(off), `${off} on --ch-section is not one of #2b's mark pairs`);
+    assert(marked(on), `${on} on --ch-section is not one of #2b's mark pairs`);
+    assert(/\.ch-screen\.ch-grouped \{[^}]*background:\s*var\(--ch-surface\)/.test(APP_SCREEN_CSS), 'a grouped screen paints the surface');
+    assert(/\.ch-app\.ch-grouped\[data-theme='dark'\] \{[^}]*background:\s*var\(--ch-bg\)/.test(APP_SCREEN_CSS), "a grouped screen in the dark paints the page's own ground");
+    assert(/\.ch-save-bar-sticky \{[^}]*position:\s*sticky[^}]*inset-block-end:\s*0/.test(FORM_CSS) && /\.ch-save-bar \{[^}]*flex:\s*none/.test(FORM_CSS), 'a sticky bar that still never shrinks');
+    assert(APP_SCREEN_CSS.indexOf('.ch-icon-btn-plain {') > APP_SCREEN_CSS.indexOf('.ch-icon-btn {') && /\.ch-icon-btn-plain \{[^}]*background:\s*transparent/.test(APP_SCREEN_CSS), 'the plain icon button comes after .ch-icon-btn and is transparent');
+    assert(/\.ch-daychip \{[^}]*min-block-size:\s*44px/.test(FORM_CSS), 'a day chip is at least 44 px tall');
+    const guarded = /@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/.exec(FORM_CSS)?.[0] ?? '';
+    assert(/\.ch-daychip \{[^}]*transition/.test(guarded) && !/\.ch-daychip \{[^}]*transition/.test(FORM_CSS.replace(guarded, '')), 'its transition sits behind no-preference');
+    assert(!/\.ch-day\b(?!chip)|\.ch-days\b/.test(FORM_CSS), "no .ch-day or .ch-days (the Agenda's day sections have those names)");
   });
 
   await check('#99 React logged no warning', () => {

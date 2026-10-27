@@ -7851,7 +7851,7 @@ async function main() {
   // ---- The Repeat sheet (editor upgrades spec §3, ruling 9): the row opens it, the cards, the draft, Back, the words, the errors ----
 
   /** The sheet's parts. */
-  const chipsOf = (m: Home) => byClass(topDialog(m), 'ch-day');
+  const chipsOf = (m: Home) => byClass(topDialog(m), 'ch-daychip');
   const stepValues = (m: Home) => byClass(topDialog(m), 'ch-step-value').map((e) => e.textContent);
   /** A stepper's buttons: [dec, inc] of the n-th stepper. */
   const stepButtons = (m: Home, n: number) => byClass(topDialog(m), 'ch-step').slice(n * 2, n * 2 + 2);
@@ -8376,9 +8376,12 @@ async function main() {
       assert(!/:hover/.test(css) && !/\b(margin|padding)-(left|right)\b|\b(left|right)\s*:|text-align:\s*(left|right)/.test(css), `${what}: no hover, logical properties only`);
       assert(!Array.from(css.matchAll(/font-size:\s*(\d+)px/g)).some((x) => Number(x[1]) < 11), `${what}: nothing under 11px`);
     }
-    assert(/\.ch-day \{[^}]*min-block-size: 44px/.test(REPEAT_CSS), 'a chip is at least 44px tall');
+    // The chips moved to the form kit (W1a: DayChips, .ch-daychip); the Repeat sheet's own CSS has no chip rule and no transition left.
+    assert(/\.ch-daychip \{[^}]*min-block-size: 44px/.test(FORM_CSS), 'a chip is at least 44px tall');
+    assert(!/\.ch-days?\b/.test(REPEAT_CSS) && !/transition/.test(REPEAT_CSS), "the Repeat sheet's CSS has no chip rule left (the Agenda's .ch-day sections have those names)");
     assert(/\.ch-step \{[^}]*inline-size: 44px;[^}]*block-size: 44px/.test(FORM_CSS), 'a stepper button is 44px');
-    assert(/@media \(prefers-reduced-motion: no-preference\)[^@]*transition/.test(REPEAT_CSS) && !/transition/.test(REPEAT_CSS.replace(/@media \(prefers-reduced-motion: no-preference\)[\s\S]*$/, '')), 'its only transition sits behind no-preference');
+    const guarded = /@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/.exec(FORM_CSS)?.[0] ?? '';
+    assert(/\.ch-daychip \{[^}]*transition/.test(guarded) && !/\.ch-daychip \{[^}]*transition/.test(FORM_CSS.replace(guarded, '')), "a chip's transition sits behind no-preference");
     assert(/\.ch-form-row \{[^}]*min-block-size: 48px/.test(FORM_CSS), 'a row is at least 48px');
   });
 

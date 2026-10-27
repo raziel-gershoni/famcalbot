@@ -261,6 +261,7 @@ function versionAtLeast(have: string, want: string): boolean {
  */
 export function fakeTelegram(calls: string[], version: string): Row {
   const backHandlers: (() => void)[] = [];
+  const eventHandlers: Record<string, (() => void)[]> = {};
   const ids = new Map<unknown, string>();
   const label = (a: unknown) => {
     if (typeof a !== 'function') return String(a);
@@ -278,14 +279,21 @@ export function fakeTelegram(calls: string[], version: string): Row {
     isVersionAtLeast: (v: string) => versionAtLeast(version, v),
     setHeaderColor: rec('setHeaderColor'),
     setBackgroundColor: rec('setBackgroundColor'),
-    onEvent: rec('onEvent'),
-    offEvent: rec('offEvent'),
+    onEvent: (event: string, fn: () => void) => {
+      rec('onEvent')(event, fn);
+      (eventHandlers[event] ??= []).push(fn);
+    },
+    offEvent: (event: string, fn: () => void) => {
+      rec('offEvent')(event, fn);
+      eventHandlers[event] = (eventHandlers[event] ?? []).filter((h) => h !== fn);
+    },
     enableVerticalSwipes: rec('enableVerticalSwipes'),
     disableVerticalSwipes: rec('disableVerticalSwipes'),
     ready: rec('ready'),
     expand: rec('expand'),
     close: rec('close'),
     backHandlers,
+    eventHandlers,
     BackButton: {
       onClick: (fn: () => void) => {
         rec('BackButton.onClick')(fn);

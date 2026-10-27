@@ -15,6 +15,11 @@
 //   subheading, the spinner (.ch-spin) and the loader that centres it (.ch-loader), and the
 //   card for a state that stands in for a screen (.ch-home-card: busy, retry, a crash, and
 //   StateCard's; its actions stack in .ch-home-card-actions when there are two).
+// - The grouped ground (.ch-grouped, AppScreen's ground="grouped"): a screen of grouped cards
+//   (Settings) sits on the secondary background, as the editor does; the page root paints the
+//   same (html:has(.ch-screen.ch-grouped)), and in the dark the page's own ground comes back.
+// - The header of a screen with a title (.ch-screen-head, ScreenHeader), a section's label
+//   (.ch-section-label, SectionLabel) and a notice on a card (.ch-notice, Notice).
 
 export const APP_SCREEN_CSS = `
 .ch-screen {
@@ -30,9 +35,18 @@ export const APP_SCREEN_CSS = `
 html:has(.ch-screen) {
   background-color: var(--tg-theme-bg-color, var(--bg-white));
 }
+html:has(.ch-screen.ch-grouped) {
+  background-color: var(--tg-theme-secondary-bg-color, #f3f2f8);
+}
 html:has(.ch-screen[data-theme='dark']) {
   background-color: var(--tg-theme-bg-color, #15151d);
   color-scheme: dark;
+}
+.ch-screen.ch-grouped {
+  background: var(--ch-surface);
+}
+.ch-app.ch-grouped[data-theme='dark'] {
+  background: var(--ch-bg);
 }
 .ch-app[dir='rtl'] .ch-flip {
   transform: scaleX(-1);
@@ -61,7 +75,66 @@ html:has(.ch-screen[data-theme='dark']) {
   background: var(--ch-accent-soft);
   color: var(--ch-accent);
 }
+.ch-icon-btn-plain {
+  background: transparent;
+}
 .ch-icon-btn:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 2px;
+}
+.ch-screen-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px 8px;
+}
+.ch-screen-head:has(.ch-icon-btn) {
+  padding-inline-start: 8px;
+}
+.ch-screen-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.ch-section-label {
+  margin-block: 14px 6px;
+  padding-inline: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ch-muted);
+}
+.ch-section-label:first-child {
+  margin-block-start: 4px;
+}
+.ch-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--ch-section);
+  color: var(--ch-text);
+  font-size: 14px;
+}
+.ch-notice-error {
+  color: var(--ch-danger);
+}
+.ch-notice-text {
+  margin: 0;
+}
+.ch-notice-action {
+  min-block-size: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ch-accent);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-notice-action:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 2px;
 }

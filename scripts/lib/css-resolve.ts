@@ -196,6 +196,14 @@ export const TEXT_PAIRS: [string, string][] = [
   ['--ch-selected-text', '--ch-selected'],
   ['--ch-pill-text', '--ch-pill-bg'],
   ['--ch-month-title', '--ch-bg'],
+  // W1a: text on the grouped ground (the surface) and on its cards (the section colour)
+  ['--ch-muted', '--ch-surface'],
+  ['--ch-text', '--ch-section'],
+  ['--ch-muted', '--ch-section'],
+  ['--ch-danger', '--ch-section'],
+  ['--ch-danger', '--ch-surface'],
+  ['--ch-accent', '--ch-section'],
+  ['--ch-text', '--ch-surface'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [
@@ -205,4 +213,7 @@ export const MARK_PAIRS: [string, string][] = [
   ['--ch-partner-line', '--ch-partner-soft'],
   ['--ch-mine-solid', '--ch-bg'],
   ['--ch-today', '--ch-bg'],
+  // W1a: a switch's off outline and its on track, against the card they sit on
+  ['--ch-done', '--ch-section'],
+  ['--ch-button', '--ch-section'],
 ];

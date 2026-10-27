@@ -294,7 +294,7 @@ async function main() {
     assert(/class="ch-app ch-standalone"/.test(html), 'the scope carries ch-standalone');
     assert(!html.includes('ch-screen') && !html.includes('html:has'), 'the scope brings no frame and no page-level rule');
     const selectors = [...APP_SCREEN_CSS.matchAll(/^(html:has\([^{]*)\{/gm)].map((m) => m[1]);
-    assert(selectors.length === 2, `the two page-level rules: ${selectors}`);
+    assert(selectors.length === 3, `the three page-level rules (plain, grouped, dark): ${selectors}`);
     assert(selectors.every((x) => x.startsWith('html:has(.ch-screen')), `every page-level rule hangs on a screen: ${selectors}`);
   });
 

@@ -50,6 +50,11 @@ export function telegramSupports(version: string): boolean {
   }
 }
 
+/** Whether Telegram's own BackButton is there to use: inside Telegram, on a client that has it (Bot API 6.1). */
+export function hasTelegramBackButton(): boolean {
+  return isInTelegram() && telegramSupports(BACK_BUTTON);
+}
+
 /** Runs `call` when the client supports `version`. A throw is logged, never raised. True when it ran. */
 function tgCall(version: string, what: string, call: (tg: TelegramWebApp) => void): boolean {
   const tg = telegramWebApp();
@@ -200,26 +205,29 @@ function subscribeColorScheme(onChange: () => void): () => void {
 
 const serverColorScheme = (): ColorScheme => 'light';
 
-/** Telegram's header and the area behind the page in the theme's bg_color (6.1+), each call on its own. */
-export function applyTelegramColours(): void {
-  tgCall(COLOURS, "setHeaderColor('bg_color')", (tg) => tg.setHeaderColor('bg_color'));
-  tgCall(COLOURS, "setBackgroundColor('bg_color')", (tg) => tg.setBackgroundColor('bg_color'));
+/** Telegram's header and the area behind the page in one of the theme's colours (6.1+), each call on its own. */
+export function applyTelegramColours(key: 'bg_color' | 'secondary_bg_color' = 'bg_color'): void {
+  tgCall(COLOURS, `setHeaderColor('${key}')`, (tg) => tg.setHeaderColor(key));
+  tgCall(COLOURS, `setBackgroundColor('${key}')`, (tg) => tg.setBackgroundColor(key));
 }
 
 /**
  * The home's look (spec §7.1). On mount, and again on every themeChanged, Telegram's
  * header and background take the theme's bg_color (PageGate's loader set the purple
- * ones). Returns the scheme to render: Telegram's colorScheme, following themeChanged,
- * inside Telegram; prefers-color-scheme in a browser; 'light' on the server.
+ * ones). A grouped screen (cards on a ground, Settings) takes secondary_bg_color in a
+ * light theme, the ground its cards sit on, and bg_color in a dark one, where the ground
+ * is the page's own; the scheme is read when the event fires. Returns the scheme to
+ * render: Telegram's colorScheme, following themeChanged, inside Telegram;
+ * prefers-color-scheme in a browser; 'light' on the server.
  */
-export function useTelegramTheme(): ColorScheme {
+export function useTelegramTheme(ground: 'plain' | 'grouped' = 'plain'): ColorScheme {
   useEffect(() => {
     // Its own handler: the SDK keys handlers by function, so a shared one would be
     // registered once and the first unmount would remove it for every other user.
-    const apply = () => applyTelegramColours();
+    const apply = () => applyTelegramColours(ground === 'grouped' && colorSchemeNow() === 'light' ? 'secondary_bg_color' : 'bg_color');
     apply();
     return onTelegramEvent('themeChanged', apply);
-  }, []);
+  }, [ground]);
   return useSyncExternalStore(subscribeColorScheme, colorSchemeNow, serverColorScheme);
 }
 
