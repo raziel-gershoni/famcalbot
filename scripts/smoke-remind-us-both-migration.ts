@@ -28,6 +28,9 @@ function assert(cond: boolean, message: string): void {
 const ROOT = path.resolve(__dirname, '..');
 const sql = fs.readFileSync(path.join(ROOT, 'prisma/migrations/20261026000000_remind_us_both/migration.sql'), 'utf8');
 const schema = fs.readFileSync(path.join(ROOT, 'prisma/schema.prisma'), 'utf8');
+// "Each of us marks it done" adds a column to each table afterwards (20261028000000_each_marks_done).
+const eachMigration = '20261028000000_each_marks_done';
+const eachSql = fs.readFileSync(path.join(ROOT, 'prisma/migrations', eachMigration, 'migration.sql'), 'utf8');
 /** The statements, without the comments. */
 const code = sql.split('\n').filter((line) => !line.trim().startsWith('--')).join('\n');
 
@@ -98,10 +101,22 @@ check('the schema agrees: the state model has no ping columns left, the ping mod
   for (const column of ['id', 'stateId', 'userId', ...PING_COLUMNS, 'createdAt', 'updatedAt']) assert(ping.includes(column), `NativeReminderPing lacks ${column}`);
   assert(/@@unique\(\[stateId, userId\]\)/.test(modelBody('NativeReminderPing')) && /@@index\(\[snoozedUntil\]\)/.test(modelBody('NativeReminderPing')), 'its unique key and index');
   assert(/forBoth\s+Boolean\s+@default\(false\)/.test(modelBody('NativeEvent')), 'NativeEvent.forBoth');
-  // The SQL table has exactly the model's columns.
+  // The SQL table has exactly the model's columns: the ones it was created with, and the ones a later migration added (doneAt).
   const created = code.slice(code.indexOf('CREATE TABLE IF NOT EXISTS "NativeReminderPing"'), code.indexOf('CONSTRAINT "NativeReminderPing_pkey"'));
-  const sqlColumns = [...created.matchAll(/^\s+"(\w+)" /gm)].map((m) => m[1]).sort();
+  const added = [...eachSql.matchAll(/ALTER TABLE "NativeReminderPing" ADD COLUMN IF NOT EXISTS "(\w+)"/g)].map((m) => m[1]);
+  const sqlColumns = [...[...created.matchAll(/^\s+"(\w+)" /gm)].map((m) => m[1]), ...added].sort();
   assert(JSON.stringify(sqlColumns) === JSON.stringify([...ping].sort()), `SQL columns ${sqlColumns} vs schema ${[...ping].sort()}`);
+});
+
+check('"each of us marks it done": the follow-up migration adds NativeEvent.eachMarksDone (false) and NativeReminderPing.doneAt (nullable), idempotently, and drops nothing', () => {
+  const body = eachSql.split('\n').filter((line) => !line.trim().startsWith('--')).join('\n');
+  assert(/ALTER TABLE "NativeEvent" ADD COLUMN IF NOT EXISTS "eachMarksDone" BOOLEAN NOT NULL DEFAULT false;/.test(body), 'the eachMarksDone column');
+  assert(/ALTER TABLE "NativeReminderPing" ADD COLUMN IF NOT EXISTS "doneAt" TIMESTAMP\(3\);/.test(body), 'the doneAt column, nullable');
+  assert(!/\bDROP\b|DELETE FROM|TRUNCATE|UPDATE\b/i.test(body), 'only additions: nothing dropped, deleted or rewritten');
+  assert(/eachMarksDone\s+Boolean\s+@default\(false\)/.test(modelBody('NativeEvent')), 'NativeEvent.eachMarksDone in the schema');
+  assert(columns(modelBody('NativeReminderPing')).includes('doneAt') && /doneAt\s+DateTime\?/.test(modelBody('NativeReminderPing')), 'NativeReminderPing.doneAt in the schema, nullable');
+  const names = fs.readdirSync(path.join(ROOT, 'prisma/migrations')).filter((n) => /^\d{14}_/.test(n)).sort();
+  assert(names.indexOf(eachMigration) > names.indexOf('20261027000000_drop_reminder_state_ping_columns'), 'it runs after the step-2 drop');
 });
 
 check('the migration runs after the ones that make the tables it reads and writes, and the later ones may follow', () => {

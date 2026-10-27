@@ -92,6 +92,7 @@ function series(title: string, startsAt: Date, over: Partial<NativeEvent> = {}):
     kind: 'REMINDER',
     forUserId: null,
     forBoth: false,
+    eachMarksDone: false,
     armedAt: startsAt,
     isDeleted: false,
     createdAt: startsAt,
@@ -106,7 +107,7 @@ const dateOnly = (title: string, day: string, over: Partial<NativeEvent> = {}) =
 
 type StateRow = OpenReminderCandidate['states'][number];
 const done = (originalStartsAt: Date): StateRow => ({ originalStartsAt, doneAt: new Date(originalStartsAt.getTime() + 60_000), pings: [] });
-const snoozed = (originalStartsAt: Date, until: Date): StateRow => ({ originalStartsAt, doneAt: null, pings: [{ userId: 1, snoozedUntil: until }] });
+const snoozed = (originalStartsAt: Date, until: Date): StateRow => ({ originalStartsAt, doneAt: null, pings: [{ userId: 1, snoozedUntil: until, doneAt: null }] });
 
 const candidate = (s: NativeEvent, states: StateRow[] = [], overrides: NativeEventInstance[] = []): OpenReminderCandidate =>
   ({ series: s, calendar: CALENDAR, overrides, states });
@@ -397,12 +398,38 @@ async function main() {
   await check('both: a snooze is the viewer\'s own; the other partner\'s snooze is not shown', () => {
     const t = il('2026-10-12 11:00:00');
     const byRaziel = series('Book the flights', t, { forUserId: 2, forBoth: true });
-    const hers: StateRow = { originalStartsAt: t, doneAt: null, pings: [{ userId: 2, snoozedUntil: il('2099-01-01 09:00:00') }] };
+    const hers: StateRow = { originalStartsAt: t, doneAt: null, pings: [{ userId: 2, snoozedUntil: il('2099-01-01 09:00:00'), doneAt: null }] };
     const mine = select([candidate(byRaziel, [hers])]).events;
     assert(mine[0].reminder?.snoozed === false, `his view: ${JSON.stringify(mine[0].reminder)}`);
     const danaCtx: ViewerContext = { viewerId: 2, partner: { ...dana, id: 1, name: 'Raziel' } };
     const hersView = select([candidate(byRaziel, [hers])], danaCtx).events;
     assert(hersView[0].reminder?.snoozed === true, `her view: ${JSON.stringify(hersView[0].reminder)}`);
+  });
+
+  await check('each: where each marks their own Done, the carry-over drops the reminder for the person who is done only; the other keeps it until they mark theirs', () => {
+    const t = il('2026-10-12 11:00:00');
+    const each = series('Book the flights', t, { forUserId: 2, forBoth: true, eachMarksDone: true });
+    const danaCtx: ViewerContext = { viewerId: 2, partner: { ...dana, id: 1, name: 'Raziel' } };
+    const danaDone: StateRow = { originalStartsAt: t, doneAt: null, pings: [{ userId: 2, snoozedUntil: null, doneAt: il('2026-10-12 11:05:00') }] };
+    // Hers is done: it leaves her list; his still carries it, and says she has marked hers.
+    assert(select([candidate(each, [danaDone])], danaCtx).events.length === 0, 'she is done, so it is gone for her');
+    const his = select([candidate(each, [danaDone])]).events;
+    assert(his.length === 1 && his[0].reminder?.done === false && his[0].reminder?.eachMarksDone === true && his[0].reminder?.partnerDone === true, JSON.stringify(his[0]?.reminder));
+    assertList(linesOf(his, WEDNESDAY), ['Book the flights (Reminder (open since Mon 12 Oct)) (for both of you) [Calendar: Raziel]']);
+    // His own Done is his: it leaves his list, and hers (not done) stays.
+    const razielDone: StateRow = { originalStartsAt: t, doneAt: null, pings: [{ userId: 1, snoozedUntil: null, doneAt: il('2026-10-12 11:06:00') }] };
+    assert(select([candidate(each, [razielDone])]).events.length === 0, 'he is done');
+    const hers = select([candidate(each, [razielDone])], danaCtx).events;
+    assert(hers.length === 1 && hers[0].reminder?.partnerDone === true, JSON.stringify(hers[0]?.reminder));
+    // Done for everyone leaves both lists.
+    const everyone: StateRow = { originalStartsAt: t, doneAt: il('2026-10-12 11:07:00'), pings: [] };
+    assert(select([candidate(each, [everyone])]).events.length === 0 && select([candidate(each, [everyone])], danaCtx).events.length === 0, 'done for everyone');
+    // Unlinked: the creator alone, whose own Done decides; her Done alone does not close his.
+    assert(select([candidate(each, [danaDone])], { viewerId: 1, partner: null }).events.length === 1, 'after an unlink his own Done decides: not done');
+    assert(select([candidate(each, [razielDone])], { viewerId: 1, partner: null }).events.length === 0, 'after an unlink his own Done closes it');
+    // The switch off: a stale ping Done is never read.
+    const off = series('Book the flights', t, { forUserId: 2, forBoth: true });
+    assert(select([candidate(off, [danaDone])], danaCtx).events.length === 1, 'a stale ping Done is ignored while the switch is off');
   });
 
   // ---- Order and cap ----
@@ -436,7 +463,7 @@ async function main() {
         }],
         OR: [{ creatorUserId: 1 }, { creatorUserId: 2, forUserId: 1 }],
       },
-      include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } } } },
+      include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true, doneAt: true } } } } },
     }), JSON.stringify(findManyCalls[0]));
   });
 

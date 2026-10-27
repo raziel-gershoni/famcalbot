@@ -1241,7 +1241,8 @@
     "nativeReminders": {
       "ping": {
         "from": "מאת: {name}",
-        "forBoth": "לשניכם"
+        "forBoth": "לשניכם",
+        "partnerDone": "✅ {name}: בוצע"
       },
       "buttons": {
         "done": "✅ בוצע",

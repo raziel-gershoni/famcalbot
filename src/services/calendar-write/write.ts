@@ -197,6 +197,8 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       kind: 'REMINDER',
       forUserId: resolved.forUserId,
       forBoth: resolved.forBoth,
+      // The voice and text flow never sets it (resolve.ts leaves it off); only the editor's body does.
+      eachMarksDone: cmd.eachMarksDone === true && resolved.forBoth,
     });
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: reminder.calendarId } });
     if (calendar) await clearCaches(user, [calendar], [resolved.forUserId]);
@@ -204,6 +206,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     trackActivityAsync(user.id, 'native_reminder_created', {
       for_partner: resolved.forUserId !== null,
       ...(resolved.forBoth ? { for_both: true } : {}),
+      ...(cmd.eachMarksDone === true && resolved.forBoth ? { each_marks_done: true } : {}),
       all_day: resolved.allDay,
       recurring: rrule !== null,
       source: 'app',
@@ -355,10 +358,14 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const forWho = c.forWho !== undefined && c.forWho !== forWhoOf(series, item.ctx) ? c.forWho : undefined;
   if (forWho !== undefined && (!reminder || (forWho !== 'me' && !item.ctx.partner))) return { status: 'invalid', field: 'forWho' };
   const forUserId = forWho === undefined ? undefined : forWho === 'me' ? null : item.ctx.partner!.id;
+  // Each marks their own Done: series-level, for a reminder only; the store refuses it (invalid eachMarksDone) unless the reminder is
+  // for both of us after this save, and clears it when the reminder is moved away from both.
+  if (c.eachMarksDone !== undefined && !reminder) return { status: 'invalid', field: 'eachMarksDone' };
+  const eachMarksDone = c.eachMarksDone !== undefined && c.eachMarksDone !== series.eachMarksDone ? c.eachMarksDone : undefined;
   // An event's alert is series-level like its calendar (editor upgrades spec §2). A reminder has none.
   if (c.alert !== undefined && reminder) return { status: 'invalid', field: 'alert' };
   const alert = c.alert !== undefined && c.alert !== alertChoiceOf(series) ? c.alert : undefined;
-  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined;
+  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined || eachMarksDone !== undefined;
   const sameKey = itemKeyOf(series.id, key.slot);
   if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
 
@@ -392,6 +399,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(alert !== undefined ? { alert } : {}),
     ...(forUserId !== undefined ? { forUserId, forBoth: forWho === 'both' } : {}),
+    ...(eachMarksDone !== undefined ? { eachMarksDone } : {}),
   };
   if (stop) {
     // The one-off is the opened occurrence as it stands with the form's edits on top: its
@@ -461,6 +469,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       ...(moveTo !== undefined ? ['calendar'] : []),
       ...(alert !== undefined ? ['alert'] : []),
       ...(forUserId !== undefined ? ['recipient'] : []),
+      ...(eachMarksDone !== undefined ? ['each_marks_done'] : []),
     ];
     trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', provider: 'famcal', changed_fields: changedFields });
     return { status: 'ok', key };

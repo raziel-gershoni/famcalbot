@@ -104,7 +104,7 @@ async function main() {
   };
   stub('utils/prisma.ts', { prisma: fakePrisma });
 
-  const { effectiveOwnerForViewer, effectiveOwnerId, getActivePartnerSummary, loadViewerContext, pingUserFor, recipientIds, recipientIdsForViewer, viewerSnoozedUntil } =
+  const { effectiveOwnerForViewer, effectiveOwnerId, getActivePartnerSummary, loadViewerContext, pingUserFor, recipientIds, recipientIdsForViewer, userDoneAt, viewerSnoozedUntil } =
     await import('../src/services/native-reminders/ownership');
 
   // ---- getActivePartnerSummary / loadViewerContext ----
@@ -237,6 +237,28 @@ async function main() {
     assertSame(viewerSnoozedUntil(reminder(1, 2), { pings: [state.pings[1]] }, raziel), new Date(2000));
     assertSame(viewerSnoozedUntil(both(1, 2), { pings: [] }, raziel), null);
     assertSame(viewerSnoozedUntil(both(1, 2), undefined, raziel), null);
+  });
+
+  // ---- userDoneAt: "each of us marks it done" ----
+
+  await check('own done: the switch off reads the shared Done only, whatever a ping row says (a stale partial never counts)', () => {
+    const shared = new Date(5000);
+    const off = { creatorUserId: 1, forUserId: 2, forBoth: true, eachMarksDone: false };
+    assertSame(userDoneAt(off, { doneAt: shared, pings: [] }, 1), shared);
+    assertSame(userDoneAt(off, { doneAt: null, pings: [{ userId: 1, doneAt: new Date(1000) }] }, 1), null);
+    assertSame(userDoneAt({ creatorUserId: 1, forUserId: 2, forBoth: true }, { doneAt: null, pings: [{ userId: 1, doneAt: new Date(1000) }] }, 1), null);
+    assertSame(userDoneAt(off, undefined, 1), null);
+  });
+
+  await check('own done: the switch on reads the person\'s own ping row, then the shared Done', () => {
+    const on = { creatorUserId: 1, forUserId: 2, forBoth: true, eachMarksDone: true };
+    const state = { doneAt: null, pings: [{ userId: 1, doneAt: new Date(1000) }, { userId: 2, doneAt: null }] };
+    assertSame(userDoneAt(on, state, 1), new Date(1000));
+    assertSame(userDoneAt(on, state, 2), null);
+    assertSame(userDoneAt(on, { doneAt: new Date(9000), pings: [{ userId: 1, doneAt: new Date(1000) }] }, 1), new Date(1000));
+    assertSame(userDoneAt(on, { doneAt: new Date(9000), pings: [] }, 2), new Date(9000)); // done for everyone before the switch went on
+    assertSame(userDoneAt(on, { doneAt: null, pings: [{ userId: 2 }] }, 2), null); // a stand-in without the column
+    assertSame(userDoneAt(on, undefined, 2), null);
   });
 
   // ---- Due gate ----

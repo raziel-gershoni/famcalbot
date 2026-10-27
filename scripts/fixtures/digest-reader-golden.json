@@ -16,7 +16,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": true,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -36,6 +38,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -65,7 +69,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": true
+      "snoozed": true,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -83,6 +89,8 @@
       "creatorIsViewer": true,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "ownerName": "Raziel"
      }
     },
@@ -113,6 +121,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -169,6 +179,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -197,7 +209,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -520,7 +534,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": true,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -540,6 +556,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -569,7 +587,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": true
+      "snoozed": true,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -587,6 +607,8 @@
       "creatorIsViewer": true,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "ownerName": "Raziel"
      }
     },
@@ -617,6 +639,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -673,6 +697,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -701,7 +727,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -1038,6 +1066,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -1066,7 +1096,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -1098,7 +1130,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -1118,6 +1152,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -1136,6 +1172,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -1195,7 +1233,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -1407,7 +1447,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -1427,6 +1469,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -1445,6 +1489,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -1490,6 +1536,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -1522,7 +1570,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -1750,6 +1800,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -1774,6 +1826,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -1961,7 +2015,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": true,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -1981,6 +2037,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2010,7 +2068,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": true
+      "snoozed": true,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -2028,6 +2088,8 @@
       "creatorIsViewer": true,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "ownerName": "Raziel"
      }
     },
@@ -2058,6 +2120,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2103,6 +2167,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2130,7 +2196,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -2147,7 +2215,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -2217,7 +2287,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -2484,7 +2556,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": true,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -2504,6 +2578,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2533,7 +2609,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": true
+      "snoozed": true,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -2551,6 +2629,8 @@
       "creatorIsViewer": true,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "ownerName": "Raziel"
      }
     },
@@ -2581,6 +2661,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2626,6 +2708,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -2653,7 +2737,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -2670,7 +2756,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -2740,7 +2828,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -3010,6 +3100,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -3037,7 +3129,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -3054,7 +3148,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -3089,6 +3185,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -3107,6 +3205,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -3161,7 +3261,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ]
@@ -3400,6 +3502,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -3418,6 +3522,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -3463,6 +3569,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -3685,6 +3793,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -3709,6 +3819,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -3902,7 +4014,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": true
+      "snoozed": true,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -3922,6 +4036,8 @@
       "creatorIsViewer": true,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "ownerName": "Raziel"
      }
     },
@@ -3955,6 +4071,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     },
@@ -4013,7 +4131,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -4045,7 +4165,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     },
     {
@@ -4065,6 +4187,8 @@
       "creatorIsViewer": false,
       "done": false,
       "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null,
       "creatorName": "Raziel"
      }
     }
@@ -4168,7 +4292,9 @@
       "ownerIsViewer": true,
       "creatorIsViewer": true,
       "done": false,
-      "snoozed": false
+      "snoozed": false,
+      "eachMarksDone": false,
+      "partnerDone": null
      }
     }
    ],

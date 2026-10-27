@@ -501,6 +501,15 @@ async function main() {
     assert(forPartner.includes('for Raziel') && !forPartner.includes('both of you'), forPartner);
   });
 
+  await check('each: the voice and text flow never sets "each marks their own Done": a reminder for both resolves, and is created, with the switch off', async () => {
+    partner = { ...raziel };
+    const both = await resolveReminderForCreate(dana, parsedReminder({ forPerson: 'both' }), IL);
+    assert(both.ok && both.forBoth === true && !('eachMarksDone' in both), JSON.stringify(both));
+    const event = await resolved(parsedReminder({ forPerson: 'both' }));
+    const fields = reminderCreateFields(event);
+    assert(fields.forBoth === true && !('eachMarksDone' in fields) && !('eachMarksDone' in event), JSON.stringify(fields));
+  });
+
   await check('both: a bulk list marks a reminder for both as "for both of you"', async () => {
     partner = { ...raziel };
     const one = await resolved(parsedReminder({ forPerson: 'both' }));

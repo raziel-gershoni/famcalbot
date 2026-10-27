@@ -65,6 +65,8 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
     ...(info?.ownerName ? { ownerName: info.ownerName } : {}),
     ...(info?.creatorName ? { creatorName: info.creatorName } : {}),
     ...(info?.forBoth ? { forBoth: true } : {}),
+    // Where each marks their own Done: the partner's status, for the sheet's line under the state.
+    ...(info?.eachMarksDone ? { eachMarksDone: true, partnerDone: info.partnerDone === true, ...(info.partnerName ? { partnerName: info.partnerName } : {}) } : {}),
   };
 }
 

@@ -376,6 +376,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
     throw err;
   }
   if (c.forWho !== undefined && c.forWho !== 'me') return { status: 'invalid', field: 'forWho' };
+  if (c.eachMarksDone !== undefined) return { status: 'invalid', field: 'eachMarksDone' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;
   if (moveTo !== undefined) {
     const { calendars, failure } = await googleEditorCalendars(user);

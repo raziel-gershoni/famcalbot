@@ -41,7 +41,7 @@ import {
   type UpdateNativeEventInput,
   UpdateScope,
 } from '../native-calendar/event-store';
-import { loadViewerContext, recipientIdsForViewer, viewerSnoozedUntil, ViewerContext, type ReminderSeriesColumns } from '../native-reminders/ownership';
+import { loadViewerContext, recipientIdsForViewer, userDoneAt, viewerSnoozedUntil, ViewerContext, type ReminderSeriesColumns } from '../native-reminders/ownership';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
@@ -128,13 +128,19 @@ export function reminderInfoFor(
   const ownerId = recipients[recipients.length - 1];
   const partnerName = (userId: number) => (ctx.partner?.id === userId ? ctx.partner.name : undefined);
   const snoozedUntil = viewerSnoozedUntil(series, state, ctx);
+  // Each marks their own Done: only while the viewer still has a partner on it (an unlink leaves the creator's own Done to decide).
+  const partnerId = series.eachMarksDone && recipients.includes(ctx.viewerId) ? recipients.find((id) => id !== ctx.viewerId) : undefined;
   const info: ReminderInfo = {
     // "Owner" is whoever it is for: the viewer is one of them (both partners, for a reminder for both).
     ownerIsViewer: recipients.includes(ctx.viewerId),
     creatorIsViewer: series.creatorUserId === ctx.viewerId,
-    done: !!state?.doneAt,
+    // Done for the viewer: the shared Done, or (each marks their own) their own.
+    done: userDoneAt(series, state, ctx.viewerId) !== null,
     snoozed: !!snoozedUntil && snoozedUntil > now,
     ...(recipients.length > 1 ? { forBoth: true } : {}),
+    eachMarksDone: partnerId !== undefined,
+    partnerDone: partnerId !== undefined ? userDoneAt(series, state, partnerId) !== null : null,
+    ...(partnerId !== undefined && partnerName(partnerId) ? { partnerName: partnerName(partnerId) } : {}),
   };
   const ownerName = info.ownerIsViewer ? undefined : partnerName(ownerId);
   const creatorName = info.creatorIsViewer ? undefined : partnerName(series.creatorUserId);
@@ -362,6 +368,7 @@ export const nativeProvider: CalendarProvider = {
         kind: data.kind === 'reminder' ? 'REMINDER' : 'EVENT',
         forUserId: data.forUserId ?? null,
         forBoth: data.forBoth === true,
+        eachMarksDone: data.eachMarksDone === true,
       });
       return {
         success: true,

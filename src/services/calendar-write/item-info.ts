@@ -391,6 +391,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     // The creator, while the partner can be pinged or it is theirs now (so it can come back).
     canChangeRecipient: creator && (partnerCanRemind(ctx) || forWho !== 'me'),
     forWho,
+    // Each marks their own Done, for a reminder for both of us (the stored switch is off whenever it is not for both).
+    ...(isReminder ? { eachMarksDone: series.eachMarksDone && forWho === 'both' } : {}),
     source: 'famcal',
     ...(cross.reason ? { moveReason: cross.reason } : {}),
   };

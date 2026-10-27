@@ -23,7 +23,7 @@ import { expandSeries } from '../native-calendar/recurrence';
 import { invalidateDueGate } from './due-gate';
 import { tomorrowMorning } from './due';
 import { getActivePartnerSummary, isForBothReachable, isPingable, pingUserFor, recipientIds } from './ownership';
-import { buildDoneText, stripPingButtons } from './ping';
+import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, stripPingButtons } from './ping';
 import type { UserConfig } from '../../types';
 
 export type ReminderAction = 'done' | 'undo' | 'snooze15' | 'snooze60' | 'snoozeTomorrow';
@@ -34,10 +34,12 @@ export type OccurrenceKey = { seriesEventId: string; originalStartsAt: Date };
  * What an action came to. `already_done` and `not_done` are not failures: the state is
  * what the other side wanted anyway (the route tells the client so). `not_yours` says
  * whether the actor was the reminder's target once (`wasTarget`): the pair unlinked, or
- * they moved to Google, and it is the creator's again.
+ * they moved to Google, and it is the creator's again. On a reminder where each marks their
+ * own Done, `already_done` and `not_done` mean the actor's own, and an `ok` Done says whether
+ * it `completed` the occurrence (the last of the people who can be reached).
  */
 export type ReminderActionResult =
-  | { status: 'ok'; title: string; until?: Date; timeZone?: string }
+  | { status: 'ok'; title: string; until?: Date; timeZone?: string; completed?: boolean }
   | { status: 'already_done'; title: string }
   | { status: 'not_done'; title: string }
   | { status: 'changed' }
@@ -123,6 +125,15 @@ export async function applyReminderAction(
   });
   const forBoth = isForBothReachable(reachable.filter(isPingable).length);
   const pingUserId = pingUserFor(recipients, actor.id);
+  // Each marks their own Done (the creator is always a recipient, so the actor's own ping row is theirs).
+  const eachMarksDone = series.eachMarksDone === true;
+
+  if (action === 'undo' && eachMarksDone) {
+    if (!(await undoOwnDone(key, pingUserId, now))) return { status: 'not_done', title };
+    invalidateDueGate();
+    trackActivityAsync(actor.id, 'native_reminder_undone', { series_event_id: key.seriesEventId, source });
+    return { status: 'ok', title };
+  }
 
   if (action === 'undo') {
     // lastPingedAt stays: an occurrence that pinged does not ping again, it is open again.
@@ -140,6 +151,18 @@ export async function applyReminderAction(
 
   // An occurrence nobody pinged has no row yet. The unique key makes a racing create a no-op.
   await prisma.nativeReminderState.createMany({ data: [key], skipDuplicates: true });
+
+  if (action === 'done' && eachMarksDone) {
+    // Everyone whose Done is awaited: those pings go to now, and the actor.
+    const counted = [...new Set([...reachable.filter(isPingable).map(u => u.id), actor.id])];
+    const marked = await markOwnDone(key, actor.id, counted, now);
+    if (!marked) return { status: 'already_done', title };
+    trackActivityAsync(actor.id, 'native_reminder_done', {
+      series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}), each_marks_done: true, completed: marked.completed,
+    });
+    await afterOwnDone(series, key, marked.stateId, counted, actor, title, source, marked.completed);
+    return { status: 'ok', title, completed: marked.completed };
+  }
 
   if (action === 'done') {
     const { count } = await prisma.nativeReminderState.updateMany({
@@ -165,6 +188,11 @@ export async function applyReminderAction(
   const snoozed = await prisma.$transaction(async tx => {
     const { count } = await tx.nativeReminderState.updateMany({ where: { ...key, doneAt: null }, data: { updatedAt: now } });
     if (count === 0) return false;
+    // Where each marks their own Done, a person who has marked theirs is done: nothing to snooze.
+    if (eachMarksDone) {
+      const own = await tx.nativeReminderPing.findUnique({ where: { stateId_userId: { stateId: state.id, userId: pingUserId } }, select: { doneAt: true } });
+      if (own?.doneAt) return false;
+    }
     await tx.nativeReminderPing.upsert({
       where: { stateId_userId: { stateId: state.id, userId: pingUserId } },
       create: { stateId: state.id, userId: pingUserId, snoozedUntil: until, pingAttempts: 0 },
@@ -177,6 +205,106 @@ export async function applyReminderAction(
   trackActivityAsync(actor.id, 'native_reminder_snoozed', { series_event_id: key.seriesEventId, snooze: SNOOZE_OP[action], source });
   if (source === 'app') await editSnoozedPing(state.id, pingUserId, actor.id, title, until, action);
   return { status: 'ok', title, until, timeZone };
+}
+
+/**
+ * A Done where each marks their own: the actor's ping row gets `doneAt`, and the occurrence is
+ * done for everyone (`state.doneAt`, by the actor) when every person in `counted` has marked
+ * theirs. All in one transaction, the state row locked first (as the snooze does), so two Dones at
+ * the same moment cannot both count the other as still open: the second to take the lock sees the
+ * first's Done and completes the occurrence, and only one write can (it is conditional on
+ * `doneAt` still being empty). Null when the actor's own Done is already set, whether theirs or the
+ * occurrence's (done for everyone before the switch went on).
+ */
+async function markOwnDone(key: OccurrenceKey, actorId: number, counted: number[], now: Date): Promise<{ stateId: string; completed: boolean } | null> {
+  const state = await prisma.nativeReminderState.findUnique({ where: { seriesEventId_originalStartsAt: key }, select: { id: true } });
+  if (!state) return null;
+  const ownRow = { stateId_userId: { stateId: state.id, userId: actorId } };
+  const completed = await prisma.$transaction(async tx => {
+    const { count } = await tx.nativeReminderState.updateMany({ where: { ...key, doneAt: null }, data: { updatedAt: now } });
+    if (count === 0) return null;
+    const own = await tx.nativeReminderPing.findUnique({ where: ownRow, select: { doneAt: true } });
+    if (own?.doneAt) return null;
+    await tx.nativeReminderPing.upsert({
+      where: ownRow,
+      create: { stateId: state.id, userId: actorId, doneAt: now },
+      update: { doneAt: now },
+    });
+    const done = new Set((await tx.nativeReminderPing.findMany({ where: { stateId: state.id, doneAt: { not: null } }, select: { userId: true } })).map(p => p.userId));
+    if (!counted.every(id => done.has(id))) return false;
+    const finished = await tx.nativeReminderState.updateMany({ where: { ...key, doneAt: null }, data: { doneAt: now, doneByUserId: actorId } });
+    return finished.count === 1;
+  });
+  return completed === null ? null : { stateId: state.id, completed };
+}
+
+/**
+ * An Undo where each marks their own: the actor's Done is cleared, and so is the occurrence's
+ * (it is no longer done for everyone; a Done from before the switch went on goes the same way), then
+ * their own snooze. False when they had not marked it. The state row is locked first, as a Done does.
+ */
+async function undoOwnDone(key: OccurrenceKey, pingUserId: number, now: Date): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    const { count } = await tx.nativeReminderState.updateMany({ where: key, data: { updatedAt: now } });
+    if (count === 0) return false;
+    const own = await tx.nativeReminderPing.updateMany({ where: { userId: pingUserId, state: key, doneAt: { not: null } }, data: { doneAt: null } });
+    const shared = await tx.nativeReminderState.updateMany({ where: { ...key, doneAt: { not: null } }, data: { doneAt: null, doneByUserId: null } });
+    if (own.count === 0 && shared.count === 0) return false;
+    // lastPingedAt stays: an occurrence that pinged does not ping again, it is open again.
+    await tx.nativeReminderPing.updateMany({ where: { userId: pingUserId, state: key }, data: { snoozedUntil: null } });
+    return true;
+  });
+}
+
+/**
+ * After a Done where each marks their own, nobody is sent a "Done by" note. The actor's own live
+ * ping closes ("✅ title"; a tap on it is the callback's to edit). Each other person still to mark theirs
+ * keeps their ping as it is, with its buttons, and gains "✅ Dana is done". A ping their snooze rewrote
+ * is left alone: its message reads the snooze, and the ping that wakes carries the line. Once the
+ * occurrence is complete, nobody else is waiting. One person's failure never costs the others, or the Done.
+ */
+async function afterOwnDone(
+  series: Series,
+  key: OccurrenceKey,
+  stateId: string,
+  counted: number[],
+  actor: UserConfig,
+  title: string,
+  source: ReminderActionSource,
+  completed: boolean
+): Promise<void> {
+  const occurrence = key.originalStartsAt.toISOString();
+  try {
+    const pings = await prisma.nativeReminderPing.findMany({
+      where: { stateId },
+      select: { userId: true, pingChatId: true, pingMessageId: true, snoozedUntil: true, lastPingedAt: true, doneAt: true },
+    });
+    for (const ping of pings) {
+      if (!ping.pingChatId || ping.pingMessageId == null) continue;
+      if (ping.userId === actor.id) {
+        if (source === 'app') await editDonePing(series.id, occurrence, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title, false);
+        continue;
+      }
+      const snoozedMessage = ping.snoozedUntil !== null && (ping.lastPingedAt === null || ping.lastPingedAt < ping.snoozedUntil);
+      if (completed || ping.doneAt !== null || snoozedMessage || !counted.includes(ping.userId)) continue;
+      await refreshPartnerDonePing(series.id, occurrence, stateId, ping.userId, ping.pingChatId, ping.pingMessageId, actor, title);
+    }
+  } catch (error) {
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: actor.id, series_id: series.id, occurrence }, 'warning');
+  }
+}
+
+/** One person's live ping, in their language, with "✅ Dana is done" and its buttons as they were. */
+async function refreshPartnerDonePing(seriesId: string, occurrence: string, stateId: string, userId: number, chatId: bigint, messageId: number, doer: UserConfig, title: string): Promise<void> {
+  try {
+    const owner = await prisma.user.findUnique({ where: { id: userId }, select: { language: true } });
+    const language = owner?.language || 'en';
+    const text = await buildPingText({ title, forBoth: true, partnerDoneName: doer.name, language });
+    await refreshPing(chatId, messageId, text, await buildPingKeyboard(stateId, language));
+  } catch (error) {
+    console.error(`[NativeReminders] Refreshing the ping of user ${userId} for series ${seriesId}, occurrence ${occurrence} failed`);
+    captureError(error, 'native-reminder-action-ping-edit', { user_id: userId, series_id: seriesId, occurrence }, 'warning');
+  }
 }
 
 /** "15:40", or "Thu 09:00" for tomorrow morning, on the actor's clock. */

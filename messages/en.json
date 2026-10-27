@@ -1241,7 +1241,8 @@
     "nativeReminders": {
       "ping": {
         "from": "from: {name}",
-        "forBoth": "for both of you"
+        "forBoth": "for both of you",
+        "partnerDone": "✅ {name} is done"
       },
       "buttons": {
         "done": "✅ Done",

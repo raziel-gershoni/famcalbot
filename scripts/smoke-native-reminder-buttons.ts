@@ -80,7 +80,7 @@ function freshWorld(): World {
   /** The ping row of the person the occurrence pinged. */
   const ping = (stateId: string, userId: number, chatId: number, messageId: number): Row => ({
     id: `ping-${stateId}`, stateId, userId, snoozedUntil: null, lastPingedAt: new Date('2026-10-14T13:00:00Z'), pingAttempts: 1,
-    pingChatId: BigInt(chatId), pingMessageId: messageId,
+    pingChatId: BigInt(chatId), pingMessageId: messageId, doneAt: null,
     createdAt: new Date('2026-10-14T13:00:00Z'), updatedAt: new Date('2026-10-14T13:00:00Z'),
   });
   return {
@@ -177,17 +177,20 @@ const fakePrisma = {
     },
   },
   nativeReminderPing: {
-    updateMany: async ({ where, data }: { where: { userId: number; state: Row }; data: Row }) => {
+    updateMany: async ({ where, data }: { where: { userId: number; state: Row; doneAt?: { not: null } }; data: Row }) => {
       const states = world.states.filter(s => matches(s, where.state));
-      const rows = world.pings.filter(p => p.userId === where.userId && states.some(s => s.id === p.stateId));
+      const rows = world.pings.filter(p => p.userId === where.userId && states.some(s => s.id === p.stateId) && (!where.doneAt || p.doneAt != null));
       for (const row of rows) Object.assign(row, data);
       return { count: rows.length };
     },
+    // A state's ping rows, for the Done where each marks their own: every one, or those with a Done.
+    findMany: async ({ where, select }: { where: { stateId: string; doneAt?: { not: null } }; select: Record<string, boolean> }) =>
+      world.pings.filter(p => p.stateId === where.stateId && (!where.doneAt || p.doneAt != null)).map(p => pick(p, select)),
     upsert: async ({ where, create, update }: { where: { stateId_userId: { stateId: string; userId: number } }; create: Row; update: Row }) => {
       const key = where.stateId_userId;
       const row = world.pings.find(p => p.stateId === key.stateId && p.userId === key.userId);
       if (row) return Object.assign(row, update);
-      const made = { id: `ping-new-${world.pings.length}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, ...create };
+      const made = { id: `ping-new-${world.pings.length}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null, ...create };
       world.pings.push(made);
       return made;
     },
@@ -709,7 +712,7 @@ async function main() {
     world.states.push({ id: BOTH, seriesEventId: 'ev-both', originalStartsAt: new Date('2026-10-14T13:00:00Z'), doneAt: null, doneByUserId: null, createdAt: NOW, updatedAt: NOW });
     const ping = (userId: number, messageId: number): Row => ({
       id: `ping-${userId}`, stateId: BOTH, userId, snoozedUntil: null, lastPingedAt: new Date('2026-10-14T13:00:00Z'), pingAttempts: 1,
-      pingChatId: BigInt(tg(userId)), pingMessageId: messageId, createdAt: NOW, updatedAt: NOW,
+      pingChatId: BigInt(tg(userId)), pingMessageId: messageId, doneAt: null, createdAt: NOW, updatedAt: NOW,
     });
     world.pings.push(ping(RAZIEL, 811), ping(DANA, 812));
   }
@@ -771,6 +774,60 @@ async function main() {
     await handleNativeReminderCallback(tap(RAZIEL, `nr:d:${BOTH}`, 811), NOW);
     assert(sends().length === 0, `unpaired: ${show(sends())}`);
     assert(edits().filter(x => x.messageId === 811).length === 1, 'his ping closes');
+  });
+
+  // ---- Each of us marks it done ----
+
+  /** The same reminder with the switch on: each person's Done is their own. */
+  function addEach() {
+    addBoth();
+    eventRow('ev-both').eachMarksDone = true;
+  }
+  const ownDone = (userId: number) => world.pings.find(p => p.stateId === BOTH && p.userId === userId)?.doneAt ?? null;
+
+  await check('each: Dana\'s Done on her ping closes only hers; his stays open with its buttons and gains "Dana is done"; nobody is sent a note', async () => {
+    reset();
+    addEach();
+    const q = tap(DANA, `nr:d:${BOTH}`, 812);
+    await handleNativeReminderCallback(q, NOW);
+    assert(toastOf(q) === undefined, `toast ${toastOf(q)}`);
+    assert(stateRow(BOTH).doneAt === null && show(ownDone(DANA)) === show(NOW) && ownDone(RAZIEL) === null, `state ${show(stateRow(BOTH))}, pings ${show(world.pings.filter(p => p.stateId === BOTH))}`);
+    const e = edits();
+    assert(e.length === 2, `edits ${show(e)}`);
+    const hers = e.find(x => x.messageId === 812)!;
+    const his = e.find(x => x.messageId === 811)!;
+    assert(hers.chatId === tg(DANA) && hers.text === '✅ Book the flights' && !hers.buttons && hers.html, `hers ${show(hers)}`);
+    const line = await copy('he', 'ping.partnerDone', { name: 'Dana' });
+    const head = `⏰ <b>Book the flights</b>\n${await copy('he', 'ping.forBoth')}\n${line}`;
+    assert(his.chatId === tg(RAZIEL) && his.text === head && his.buttons && his.html, `his ${show(his)}`);
+    assert(sends().length === 0, `no "Done by" note: ${show(sends())}`);
+    assert(show(activity) === show([{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: 'ev-both', source: 'ping', for_both: true, each_marks_done: true, completed: false } }]), `activity ${show(activity)}`);
+  });
+
+  await check('each: his own Done then completes it: his ping closes, hers is not touched again, and her old buttons answer "already done"', async () => {
+    reset();
+    addEach();
+    await handleNativeReminderCallback(tap(DANA, `nr:d:${BOTH}`, 812), NOW);
+    botCalls = [];
+    const later = new Date(NOW.getTime() + 5 * MIN);
+    const q = tap(RAZIEL, `nr:d:${BOTH}`, 811);
+    await handleNativeReminderCallback(q, later);
+    assert(toastOf(q) === undefined, `toast ${toastOf(q)}`);
+    assert(stateRow(BOTH).doneByUserId === RAZIEL && show(stateRow(BOTH).doneAt) === show(later), `state ${show(stateRow(BOTH))}`);
+    assertEditedTo(tg(RAZIEL), 811, '✅ Book the flights');
+    assert(sends().length === 0, 'no note');
+    botCalls = [];
+    const again = tap(DANA, `nr:s15:${BOTH}`, 812);
+    await handleNativeReminderCallback(again, later);
+    assert(toastOf(again) === await copy('en', 'alreadyDone'), `toast ${toastOf(again)}`);
+    assert(world.pings.every(p => p.snoozedUntil === null), 'no snooze written');
+  });
+
+  await check('each: with the switch off Dana\'s Done is still the shared one with the "Done by" note (the case above, unchanged)', async () => {
+    reset();
+    addBoth();
+    await handleNativeReminderCallback(tap(DANA, `nr:d:${BOTH}`, 812), NOW);
+    assert(stateRow(BOTH).doneByUserId === DANA && ownDone(DANA) === null && sends().length === 1, `state ${show(stateRow(BOTH))}`);
   });
 
   await check('webhook: an nr: tap reaches the handler and gets a 200', async () => {

@@ -270,9 +270,9 @@ const fakePrisma = {
       /WITH state AS \(\s*INSERT INTO "NativeReminderState"[\s\S]*ON CONFLICT \("seriesEventId", "originalStartsAt"\) DO UPDATE[\s\S]*INSERT INTO "NativeReminderPing"[\s\S]*"doneAt" IS NULL[\s\S]*ON CONFLICT \("stateId", "userId"\) DO UPDATE[\s\S]*RETURNING/.test(sql),
       `unexpected claim SQL: ${sql}`
     );
-    // The conditions the fake below stands in for, exactly: not done; and, per recipient, never pinged or pinged before this due.
+    // The conditions the fake below stands in for, exactly: not done; and, per recipient, not done themselves (each marks their own) and never pinged or pinged before this due.
     assert(/WHERE state\."doneAt" IS NULL\s+ON CONFLICT/.test(sql), `the done condition: ${sql}`);
-    assert(/WHERE "NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
+    assert(/WHERE "NativeReminderPing"\."doneAt" IS NULL\s+AND \("NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
     assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 6, 'every timestamp should be read as UTC');
     const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new RealDate(values[values.length - 1] as string).getTime();
@@ -286,9 +286,10 @@ const fakePrisma = {
     if (state.doneAt) return [];
     const ping = db.pings.find((p) => p.stateId === state!.id && p.userId === userId);
     if (!ping) {
-      db.pings.push({ id: pingId, stateId: state.id, userId, snoozedUntil: null, lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null });
+      db.pings.push({ id: pingId, stateId: state.id, userId, snoozedUntil: null, lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null, doneAt: null });
       return [{ id: pingId, stateId: state.id, lastPingedAt, pingAttempts: 1 }];
     }
+    if (ping.doneAt) return [];
     if (ping.lastPingedAt && (ms(ping.lastPingedAt) as number) >= due) return [];
     Object.assign(ping, { lastPingedAt, pingAttempts: (ping.pingAttempts as number) + 1 });
     return [{ id: ping.id, stateId: state.id, lastPingedAt, pingAttempts: ping.pingAttempts }];
@@ -482,7 +483,7 @@ function dateOnly(day: string, p: Row = {}, tz = IL): Row {
 }
 
 const PING_FIELDS = ['snoozedUntil', 'lastPingedAt', 'pingAttempts', 'pingChatId', 'pingMessageId'];
-const PING_DEFAULTS: Row = { snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null };
+const PING_DEFAULTS: Row = { snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null };
 
 /** Who an occurrence's ping is for, as the migration copies it: the reminder's forUserId, else its creator. */
 const recipientOf = (seriesEventId: unknown): number => {
@@ -1080,6 +1081,119 @@ async function main() {
     const second = await pass(today('10:01'));
     assertSame(sent.map((s) => s.chatId), ['1001', '1002']);
     assert(second.sent === 1, show(second));
+  });
+
+  // ---- Each of us marks it done ----
+
+  /** A reminder for both where each marks their own Done. */
+  const each = (p: Row & { startsAt: Date }) => both({ eachMarksDone: true, ...p });
+  /** A person's own Done on an occurrence: their ping row's doneAt (the row is made when they had none). */
+  function markDone(seriesEventId: unknown, originalStartsAt: Date, userId: number, when: Date) {
+    let row = db.states.find((s) => s.seriesEventId === seriesEventId && ms(s.originalStartsAt) === originalStartsAt.getTime());
+    if (!row) row = state({ seriesEventId, originalStartsAt }) && db.states[db.states.length - 1];
+    const ping = db.pings.find((p) => p.stateId === row!.id && p.userId === userId);
+    if (ping) ping.doneAt = when;
+    else db.pings.push({ id: `ping-${db.pings.length + 1}`, stateId: row.id, userId, ...PING_DEFAULTS, doneAt: when });
+  }
+  const partnerDoneLine = (language: 'en' | 'he', name: string) => (language === 'he' ? he : en).bot.nativeReminders.ping.partnerDone.replace('{name}', name);
+
+  await check('each: a person who has marked theirs is not pinged; the other still is, and that ping says who is done', async () => {
+    reset();
+    const r = each({ startsAt: today('10:00') });
+    markDone(r.id, today('10:00'), 2, today('09:58')); // Dana is done before the time
+    const result = await pass(today('10:00'));
+    // Her Done is a skip before any claim, not a lost claim: nothing is counted for her.
+    assertSame([result.sent, result.skipped, result.failed, sent.map((s) => s.chatId)], [1, 0, 0, ['1001']]);
+    assert(sent[0].text === `⏰ <b>Call the plumber</b>\n${copy.he.ping.forBoth}\n${partnerDoneLine('he', 'Dana')}`, `text ${sent[0].text}`);
+    assertSame(callbacks(sent[0].keyboard).length, 4);
+    await pass(today('10:01'));
+    assert(sent.length === 1, `Dana is never pinged: ${sentLines()}`);
+    assert(db.pings.find((p) => p.userId === 2)!.lastPingedAt === null, 'her ping row was not claimed');
+  });
+
+  await check('each: a person who snoozed and then marked theirs is not woken, and their snooze no longer sets the next check', async () => {
+    reset();
+    const r = each({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 2, sentLines());
+    const hers = stateOf(r.id, today('10:00'), 2)!;
+    hers.snoozedUntil = today('10:15');
+    markDone(r.id, today('10:00'), 2, today('10:05'));
+    // Her snooze (10:15) is still ahead and no longer holds the next check open.
+    const before = await pass(today('10:05'));
+    assert(before.nextDue === null, `her snooze still sets nextDue: ${show(before)}`);
+    const wake = await pass(today('10:15'));
+    assert(sent.length === 2 && wake.skipped === 0, `she was woken: ${sentLines()} ${show(wake)}`);
+    // Undo: the Done is cleared and the past ping stays pinged: she is not pinged for it again.
+    db.pings.find((p) => p.userId === 2)!.doneAt = null;
+    hers.snoozedUntil = null;
+    await pass(today('10:16'));
+    assert(sent.length === 2, `no re-ping of the past: ${sentLines()}`);
+  });
+
+  await check('each: a ping built after the partner marked theirs carries the partner line (a snooze that wakes, a late first ping)', async () => {
+    reset();
+    const r = each({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    stateOf(r.id, today('10:00'), 2)!.snoozedUntil = today('10:30'); // Dana's 💤
+    markDone(r.id, today('10:00'), 1, today('10:10')); // Raziel marks his
+    await pass(today('10:30'));
+    assertSame(sent.map((s) => s.chatId), ['1001', '1002', '1002']);
+    assert(sent[2].text === `⏰ <b>Call the plumber</b>\n${copy.en.ping.forBoth}\n${partnerDoneLine('en', 'רזיאל')}`, `her woken ping ${sent[2].text}`);
+  });
+
+  await check('each: a Done that lands as the ping is on its way: the partner\'s is added to the ping with its buttons, one\'s own closes it', async () => {
+    reset();
+    const r = each({ startsAt: today('10:00') });
+    // Dana marks hers while Raziel's ping is being sent (his ping row has no message yet to edit).
+    duringSend = () => markDone(r.id, today('10:00'), 2, today('10:00'));
+    await pass(today('10:00'));
+    const lateLine = `⏰ <b>Call the plumber</b>\n${copy.he.ping.forBoth}\n${partnerDoneLine('he', 'Dana')}`;
+    const refreshed = edits.filter((e) => e.text === lateLine);
+    assert(refreshed.length === 1 && !!(refreshed[0].options as Row).reply_markup, `edits ${show(edits)}`);
+    assertSame(sent.map((s) => s.chatId), ['1001']);
+    // His own Done lands as his ping is on its way: it closes to the plain done text, no buttons.
+    reset();
+    const r2 = each({ startsAt: today('10:00') });
+    duringSend = () => markDone(r2.id, today('10:00'), 1, today('10:00'));
+    await pass(today('10:00'));
+    // His ping closes; hers, sent right after from the pass's earlier read, gains his Done (as a late partner Done does).
+    assertSame(edits.map((e) => [e.text, !!(e.options as Row).reply_markup]), [
+      [copy.he.done.replace('{title}', 'Call the plumber'), false],
+      [`⏰ <b>Call the plumber</b>\n${copy.en.ping.forBoth}\n${partnerDoneLine('en', 'רזיאל')}`, true],
+    ]);
+  });
+
+  await check('claim: a person\'s done ping row is refused, a not-done one is claimed; undoing a claim never deletes a row that gained a Done', async () => {
+    reset();
+    const { claimOccurrence, undoClaim } = await import('../src/services/native-reminders/claim');
+    const r = each({ startsAt: today('10:00') });
+    markDone(r.id, today('10:00'), 2, today('09:58'));
+    assert((await claimOccurrence(r.id as string, today('10:00'), 2, today('10:00'), today('10:00'))) === null, 'a done person is not claimed');
+    const claim = await claimOccurrence(r.id as string, today('10:00'), 1, today('10:00'), today('10:00'));
+    assert(!!claim && claim.created, 'the not-done person is');
+    // His Done lands between his claim and its undo (a stale read): the undo must not take the row with it.
+    db.pings.find((p) => p.userId === 1)!.doneAt = today('10:00');
+    await undoClaim(claim!);
+    const row = db.pings.find((p) => p.userId === 1);
+    assert(!!row && row.doneAt !== null && row.lastPingedAt === null, `his Done must survive an undone claim: ${show(row)}`);
+  });
+
+  await check('each: the snooze wake scan asks for pings that are not done', async () => {
+    reset();
+    let scanned: Row | undefined;
+    const real = fakePrisma.nativeReminderPing.findMany;
+    fakePrisma.nativeReminderPing.findMany = async (args: Args) => {
+      scanned = args.where;
+      return real(args);
+    };
+    try {
+      each({ startsAt: today('10:00') });
+      await pass(today('09:00'));
+    } finally {
+      fakePrisma.nativeReminderPing.findMany = real;
+    }
+    assert(!!scanned && 'doneAt' in scanned && scanned.doneAt === null, `scan ${show(scanned)}`);
   });
 
   await check('admin switch off: the pass does nothing and reads nothing', async () => {

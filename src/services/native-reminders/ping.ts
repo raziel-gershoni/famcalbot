@@ -13,14 +13,18 @@ import { escapeHtml } from '../../utils/html';
 
 /**
  * `⏰ <b>title</b>`, then "for both of you" on a reminder for both partners, or a
- * "from: <creator>" line when someone else set it for just this person.
+ * "from: <creator>" line when someone else set it for just this person. On a reminder where
+ * each marks their own Done, `partnerDoneName` (the partner who already has) adds "✅ Dana is done".
  */
-export async function buildPingText(a: { title: string; creatorName?: string; forBoth?: boolean; language: string }): Promise<string> {
+export async function buildPingText(a: { title: string; creatorName?: string; forBoth?: boolean; partnerDoneName?: string; language: string }): Promise<string> {
   const head = `⏰ <b>${escapeHtml(a.title)}</b>`;
-  if (a.forBoth) return `${head}\n${await getBotMessage(a.language, 'nativeReminders.ping.forBoth')}`;
-  if (!a.creatorName) return head;
-  const from = await getBotMessage(a.language, 'nativeReminders.ping.from', { name: escapeHtml(a.creatorName) });
-  return `${head}\n${from}`;
+  const body = a.forBoth
+    ? `${head}\n${await getBotMessage(a.language, 'nativeReminders.ping.forBoth')}`
+    : a.creatorName
+      ? `${head}\n${await getBotMessage(a.language, 'nativeReminders.ping.from', { name: escapeHtml(a.creatorName) })}`
+      : head;
+  if (!a.partnerDoneName) return body;
+  return `${body}\n${await getBotMessage(a.language, 'nativeReminders.ping.partnerDone', { name: escapeHtml(a.partnerDoneName) })}`;
 }
 
 /** What a ping reads once the occurrence is done: "✅ title", or "✅ Done by Dana: title" when someone else did it. */
@@ -49,6 +53,26 @@ export async function buildPingKeyboard(stateId: string, language: string): Prom
 export async function sendPing(chatId: bigint, text: string, keyboard: TelegramBot.InlineKeyboardMarkup): Promise<number> {
   const message = await getBot().sendMessage(chatId.toString(), text, { parse_mode: 'HTML', reply_markup: keyboard });
   return message.message_id;
+}
+
+/**
+ * Edit a live ping to `text`, which is HTML, and send its buttons again (an edit without
+ * `reply_markup` would drop them): the person still has their own Done to tap. A ping that
+ * already reads so ("message is not modified", logged at debug) or that the user deleted needs
+ * nothing; any other failure is the caller's.
+ */
+export async function refreshPing(chatId: bigint | number, messageId: number, text: string, keyboard: TelegramBot.InlineKeyboardMarkup): Promise<void> {
+  try {
+    await getBot().editMessageText(text, { chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML', reply_markup: keyboard });
+  } catch (error) {
+    const message = (error as { message?: string })?.message ?? '';
+    if (message.includes('message is not modified')) {
+      console.debug(`[NativeReminders] Ping ${messageId} in chat ${chatId} already reads that; nothing to refresh`);
+      return;
+    }
+    if (message.includes('message to edit not found')) return;
+    throw error;
+  }
 }
 
 /**

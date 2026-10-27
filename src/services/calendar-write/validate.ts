@@ -120,11 +120,13 @@ export interface CreateCommand {
   forWho: ForWho;
   /** Events only; undefined when the body gave none (the default). */
   alert?: AlertChoice;
+  /** A reminder for both of us only, where each marks their own Done; present only when true (the default is the shared Done). */
+  eachMarksDone?: true;
 }
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -159,6 +161,9 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (raw.forWho !== undefined && !isForWho(raw.forWho)) return fail('forWho');
   const forWho: ForWho = raw.forWho ?? 'me';
   if (forWho !== 'me' && kind !== 'reminder') return fail('forWho');
+  // Each marks their own Done means something only for a reminder for both of us; false is the default, accepted anywhere.
+  if (raw.eachMarksDone !== undefined && typeof raw.eachMarksDone !== 'boolean') return fail('eachMarksDone');
+  if (raw.eachMarksDone === true && (kind !== 'reminder' || forWho !== 'both')) return fail('eachMarksDone');
   // An event's alert (editor upgrades spec §2): a listed value. A reminder has none; whether the
   // calendar takes one (a Google one doesn't) is for the write, which knows the calendar.
   let alert: AlertChoice | undefined;
@@ -167,7 +172,7 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
     if (kind !== 'event' || parsed === null) return fail('alert');
     alert = parsed;
   }
-  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}) } };
+  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}), ...(raw.eachMarksDone === true ? { eachMarksDone: true as const } : {}) } };
 }
 
 /** A FamCal item's key: the series, and the occurrence's original start for a repeating one. */
@@ -246,6 +251,8 @@ export interface UpdateCommand {
     forWho?: ForWho;
     /** An event's alert, from the opened occurrence on (series-level); a FamCal event only. */
     alert?: AlertChoice;
+    /** A reminder for both of us: whether each marks their own Done (series-level, creator only). */
+    eachMarksDone?: boolean;
   };
 }
 
@@ -265,7 +272,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -315,6 +322,10 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
     const alert = parseAlertChoice(c.alert);
     if (alert === null) return fail('alert');
     changes.alert = alert;
+  }
+  if (c.eachMarksDone !== undefined) {
+    if (typeof c.eachMarksDone !== 'boolean') return fail('eachMarksDone');
+    changes.eachMarksDone = c.eachMarksDone;
   }
   return { ok: true, value: { key, scope: raw.scope as EditScope, changes } };
 }

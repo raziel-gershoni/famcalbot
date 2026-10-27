@@ -134,7 +134,7 @@ function event(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'calendar
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
-    kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null,
+    kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, armedAt: null,
     ...fields,
   };
 }
@@ -287,12 +287,12 @@ async function main() {
     const now = at('2026-10-13 12:00');
     const done = reminderInfoFor(series, { doneAt: at('2026-10-13 09:00'), pings: [] }, ctx, now);
     assert(done.done === true && done.snoozed === false, `done ${JSON.stringify(done)}`);
-    const snoozed = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:15') }] }, ctx, now);
+    const snoozed = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:15'), doneAt: null }] }, ctx, now);
     assert(snoozed.done === false && snoozed.snoozed === true, `snoozed ${JSON.stringify(snoozed)}`);
-    const ranOut = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 11:45') }] }, ctx, now);
+    const ranOut = reminderInfoFor(series, { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 11:45'), doneAt: null }] }, ctx, now);
     assert(ranOut.snoozed === false, `ran out ${JSON.stringify(ranOut)}`);
     const pending = reminderInfoFor(series, undefined, ctx, now);
-    assert(JSON.stringify(pending) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false }), `pending ${JSON.stringify(pending)}`);
+    assert(JSON.stringify(pending) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false, eachMarksDone: false, partnerDone: null }), `pending ${JSON.stringify(pending)}`);
   });
 
   await check('Dana\'s day: hers, and Raziel\'s for her from his PRIVATE calendar, once each, in order', async () => {
@@ -376,16 +376,45 @@ async function main() {
     const now = at('2026-10-13 12:00');
     const hers: ViewerContext = { viewerId: DANA, partner: { id: RAZIEL, name: 'Raziel' } as ViewerContext['partner'] };
     const his: ViewerContext = { viewerId: RAZIEL, partner: { id: DANA, name: 'Dana' } as ViewerContext['partner'] };
-    const state = { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:30') }] };
+    const state = { doneAt: null, pings: [{ userId: DANA, snoozedUntil: at('2026-10-13 12:30'), doneAt: null }] };
     const forHer = reminderInfoFor(series, state, hers, now);
     const forHim = reminderInfoFor(series, state, his, now);
-    assert(JSON.stringify(forHer) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: false, done: false, snoozed: true, forBoth: true, creatorName: 'Raziel' }), `hers ${JSON.stringify(forHer)}`);
-    assert(JSON.stringify(forHim) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false, forBoth: true }), `his ${JSON.stringify(forHim)}`);
+    assert(JSON.stringify(forHer) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: false, done: false, snoozed: true, forBoth: true, eachMarksDone: false, partnerDone: null, creatorName: 'Raziel' }), `hers ${JSON.stringify(forHer)}`);
+    assert(JSON.stringify(forHim) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false, forBoth: true, eachMarksDone: false, partnerDone: null }), `his ${JSON.stringify(forHim)}`);
     const done = reminderInfoFor(series, { doneAt: at('2026-10-13 11:00'), pings: [] }, his, now);
     assert(done.done === true, 'a Done is shared');
     const unpaired = reminderInfoFor(series, state, { viewerId: RAZIEL, partner: null }, now);
     assert(unpaired.forBoth === undefined && unpaired.ownerIsViewer === true, `unpaired ${JSON.stringify(unpaired)}`);
     assert(reminderInfoFor(series, state, { viewerId: DANA, partner: null }, now).ownerIsViewer === false, 'the ex-partner is nobody\'s now');
+  });
+
+  await check('each: reminderInfoFor reads the viewer\'s own Done, and says whether the partner has marked theirs (true, false, or null when the switch is off or there is no partner)', () => {
+    const on = { creatorUserId: RAZIEL, forUserId: DANA, forBoth: true, eachMarksDone: true };
+    const now = at('2026-10-13 12:00');
+    const hers: ViewerContext = { viewerId: DANA, partner: { id: RAZIEL, name: 'Raziel' } as ViewerContext['partner'] };
+    const his: ViewerContext = { viewerId: RAZIEL, partner: { id: DANA, name: 'Dana' } as ViewerContext['partner'] };
+    const she = { doneAt: null, pings: [{ userId: DANA, snoozedUntil: null, doneAt: at('2026-10-13 11:00') }, { userId: RAZIEL, snoozedUntil: null, doneAt: null }] };
+    const forHer = reminderInfoFor(on, she, hers, now);
+    const forHim = reminderInfoFor(on, she, his, now);
+    assert(JSON.stringify(forHer) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: false, done: true, snoozed: false, forBoth: true, eachMarksDone: true, partnerDone: false, partnerName: 'Raziel', creatorName: 'Raziel' }), `hers ${JSON.stringify(forHer)}`);
+    assert(JSON.stringify(forHim) === JSON.stringify({ ownerIsViewer: true, creatorIsViewer: true, done: false, snoozed: false, forBoth: true, eachMarksDone: true, partnerDone: true, partnerName: 'Dana' }), `his ${JSON.stringify(forHim)}`);
+    // Done for everyone: both are done, each other's partner too.
+    const all = { doneAt: at('2026-10-13 11:30'), pings: she.pings };
+    for (const ctx of [hers, his]) {
+      const info = reminderInfoFor(on, all, ctx, now);
+      assert(info.done === true && info.partnerDone === true, `all done ${JSON.stringify(info)}`);
+    }
+    // Neither has marked: nothing is done.
+    const none = reminderInfoFor(on, { doneAt: null, pings: [] }, his, now);
+    assert(none.done === false && none.partnerDone === false && none.eachMarksDone === true, `none ${JSON.stringify(none)}`);
+    // Unpaired: the creator alone, whose own Done decides, and there is no partner to report.
+    const alone = reminderInfoFor(on, she, { viewerId: RAZIEL, partner: null }, now);
+    assert(alone.done === false && alone.eachMarksDone === false && alone.partnerDone === null && alone.forBoth === undefined, `alone ${JSON.stringify(alone)}`);
+    const aloneDone = reminderInfoFor(on, { doneAt: null, pings: [{ userId: RAZIEL, snoozedUntil: null, doneAt: at('2026-10-13 11:10') }] }, { viewerId: RAZIEL, partner: null }, now);
+    assert(aloneDone.done === true, 'the creator\'s own Done finishes it once the partner is gone');
+    // The switch off: a stale ping Done is never read.
+    const off = reminderInfoFor({ ...on, eachMarksDone: false }, she, hers, now);
+    assert(off.done === false && off.eachMarksDone === false && off.partnerDone === null, `off ${JSON.stringify(off)}`);
   });
 
   await check('createEvent: a reminder reaches the store as a REMINDER for the partner, an event as before', async () => {
@@ -402,6 +431,20 @@ async function main() {
     // The store leaves both columns out for an event, so the database defaults (EVENT, null) apply; the stand-in has none.
     assert((eventRow.kind ?? 'EVENT') === 'EVENT' && (eventRow.forUserId ?? null) === null, `event row ${JSON.stringify(eventRow)}`);
     assert((eventRow.endsAt as Date).getTime() === end.getTime(), `event ends ${String(eventRow.endsAt)}`);
+  });
+
+  await check('createEvent: the switch "each marks their own Done" is stored only with forBoth; the bot\'s create (which never sends it) leaves it off', async () => {
+    household();
+    const dana = viewer(DANA);
+    const time = at('2026-10-15 10:00');
+    const create = async (extra: Record<string, unknown>) => {
+      const made = await nativeProvider.createEvent(dana, 'native:cal-dana', { title: 'Book the flights', startTime: time, endTime: time, kind: 'reminder', forUserId: RAZIEL, ...extra });
+      assert(made.success, JSON.stringify(made));
+      return db.events[db.events.length - 1];
+    };
+    assert((await create({ forBoth: true, eachMarksDone: true })).eachMarksDone === true, 'both, with the switch');
+    assert((await create({ forBoth: true })).eachMarksDone === false, 'the bot\'s create: off');
+    assert((await create({ eachMarksDone: true })).eachMarksDone === false, 'for the partner alone: off');
   });
 
   // The bot's Hebrew repeat (hebrew-repeats spec §2, §5): the provider stores the pair its caller

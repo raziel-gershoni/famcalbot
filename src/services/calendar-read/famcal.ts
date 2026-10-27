@@ -16,7 +16,7 @@ import type { UserConfig } from '../../types';
 import type { UnifiedEvent } from '../calendar-provider/types';
 import { fetchViewerItems } from '../calendar-provider/native-provider';
 import { encodeCalendarId, listVisibleCalendars, type ReminderStateRow } from '../native-calendar/event-store';
-import { loadViewerContext, viewerSnoozedUntil, type ViewerContext } from '../native-reminders/ownership';
+import { loadViewerContext, userDoneAt, viewerSnoozedUntil, type ViewerContext } from '../native-reminders/ownership';
 import type { OpenReminderItem } from '../native-reminders/open-reminders';
 import type { CalendarRef, FamcalRead, ReadItem } from './types';
 
@@ -59,11 +59,12 @@ function legendById(calendars: readonly CalendarRef[]): Map<string, CalendarRef>
 
 /**
  * One occurrence as a ReadItem. `event` is the provider's, untouched. A reminder always
- * has `state` (nulls when the occurrence has no state row); an event has none.
+ * has `state` (nulls when the occurrence has no state row); an event has none. Its Done is the
+ * viewer's own (userDoneAt: the shared Done, or where each marks their own, theirs).
  */
 function toReadItem(
   parts: {
-    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule' | 'hebrewRule' | 'hebrewAnchor' | 'creatorUserId' | 'forUserId' | 'forBoth'>;
+    series: Pick<NativeEvent, 'id' | 'kind' | 'rrule' | 'hebrewRule' | 'hebrewAnchor' | 'creatorUserId' | 'forUserId' | 'forBoth' | 'eachMarksDone'>;
     title: string;
     instanceStartsAt: Date;
     state?: Pick<ReminderStateRow, 'doneAt' | 'pings'>;
@@ -87,7 +88,7 @@ function toReadItem(
     hebrewRule: parts.series.hebrewRule,
     hebrewAnchor: parts.series.hebrewAnchor,
     ...(kind === 'reminder'
-      ? { state: { doneAt: parts.state?.doneAt ?? null, snoozedUntil: viewerSnoozedUntil(parts.series, parts.state, ctx) } }
+      ? { state: { doneAt: userDoneAt(parts.series, parts.state, ctx.viewerId), snoozedUntil: viewerSnoozedUntil(parts.series, parts.state, ctx) } }
       : {}),
   };
 }

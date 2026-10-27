@@ -55,6 +55,8 @@ export interface CreateEventInput {
   forUserId?: number | null;
   /** With forUserId = the partner: the reminder is for both of them. */
   forBoth?: boolean;
+  /** With forBoth: each of them marks their own Done. Only the editor sets it; the bot's create leaves it off. */
+  eachMarksDone?: boolean;
 }
 
 export interface UpdateEventInput {

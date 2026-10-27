@@ -230,6 +230,7 @@ model NativeEvent {
   forUserId       Int? // REMINDER target; null = the creator. Meaningful only for REMINDER
   forUser         User?           @relation("NativeRemindersFor", fields: [forUserId], references: [id], onDelete: SetNull)
   forBoth         Boolean         @default(false) // REMINDER for both partners: forUserId is then the partner, and the recipients are the creator and that partner
+  eachMarksDone   Boolean         @default(false) // REMINDER for both partners: each marks their own Done (NativeReminderPing.doneAt) instead of one Done covering both. False whenever forBoth is
   armedAt         DateTime? // REMINDER: when its time was last set (create or time change); bounds the ping lookback
   isDeleted       Boolean         @default(false)
   createdAt       DateTime        @default(now())
@@ -266,7 +267,8 @@ model NativeEventInstance {
 
 // Per-occurrence state of a REMINDER, keyed like NativeEventInstance. No row means
 // pending; a row appears once the occurrence is pinged, snoozed or marked done. Done is
-// shared by everyone the reminder is for; each recipient's own ping is a NativeReminderPing.
+// shared by everyone the reminder is for (and set once all of them are done, for a reminder
+// where each marks their own); each recipient's own ping is a NativeReminderPing.
 model NativeReminderState {
   id               String               @id @default(cuid())
   seriesEventId    String
@@ -284,7 +286,8 @@ model NativeReminderState {
 
 // One recipient's ping of one occurrence: its snooze, the claim that stops a second send,
 // and the live Telegram message, so a Done or a move can edit it. A single reminder has one
-// row per occurrence, a reminder for both partners two.
+// row per occurrence, a reminder for both partners two. doneAt is that person's own Done, read
+// only while the reminder's eachMarksDone is on.
 model NativeReminderPing {
   id            String              @id @default(cuid())
   stateId       String
@@ -296,6 +299,7 @@ model NativeReminderPing {
   pingAttempts  Int                 @default(0)
   pingChatId    BigInt? // the live ping message, so later edits can strip its buttons
   pingMessageId Int?
+  doneAt        DateTime? // this person's own Done (NativeEvent.eachMarksDone only)
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 

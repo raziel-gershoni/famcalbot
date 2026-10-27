@@ -16,11 +16,11 @@ import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
-import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds } from './ownership';
+import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds, userDoneAt } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
-import { buildDoneText, buildPingKeyboard, buildPingText, sendPing, stripPingButtons } from './ping';
+import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, sendPing, stripPingButtons } from './ping';
 
 const HOUR_MS = 60 * 60 * 1000;
 // The window occurrences are expanded over. A date-only reminder pings at the recipient's
@@ -100,7 +100,8 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
  */
 async function loadCandidateSeries(now: Date, range: { from: Date; to: Date }) {
   const snoozeRows = await prisma.nativeReminderPing.findMany({
-    where: { snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to }, state: { doneAt: null } },
+    // A person who has marked their own Done (each marks theirs) has nothing waking.
+    where: { snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to }, doneAt: null, state: { doneAt: null } },
     select: { state: { select: { seriesEventId: true, originalStartsAt: true } } },
   });
   // Two recipients may have snoozed the same occurrence: one key.
@@ -196,6 +197,7 @@ async function pingOccurrence(
   candidate: Candidate,
   creator: PassUser,
   recipient: PassUser & { telegramId: bigint },
+  peers: PassUser[],
   forBoth: boolean,
   now: Date
 ): Promise<SendOutcome> {
@@ -209,12 +211,15 @@ async function pingOccurrence(
     return 'raced';
   }
 
+  // Each marks their own Done: the partner who already has is named on the ping.
+  const doneBy = series.eachMarksDone ? peers.find((p) => candidate.state?.pings.some((x) => x.userId === p.id && x.doneAt)) : undefined;
   let messageId: number;
   try {
     const text = await buildPingText({
       title: candidate.occ.title,
       creatorName: creator.id === recipient.id ? undefined : creator.name,
       forBoth,
+      ...(doneBy ? { partnerDoneName: doneBy.name } : {}),
       language: recipient.language,
     });
     messageId = await sendPing(recipient.telegramId, text, await buildPingKeyboard(claim.stateId, recipient.language));
@@ -230,9 +235,12 @@ async function pingOccurrence(
     });
     // An in-app done between the claim and this save found no message to edit: close it here.
     if (saved.state.doneAt) {
-      const byOther = forBoth && saved.state.doneByUserId !== recipient.id;
+      // Where each marks their own Done nobody is "done by" another: it reads the plain done.
+      const byOther = forBoth && !series.eachMarksDone && saved.state.doneByUserId !== recipient.id;
       const done = await buildDoneText({ title: candidate.occ.title, doneByName: byOther ? saved.state.doneBy?.name : undefined, language: recipient.language });
       await stripPingButtons(recipient.telegramId, messageId, done);
+    } else if (series.eachMarksDone) {
+      await settleLateOwnDone(candidate, creator, recipient, peers, forBoth, claim.stateId, messageId, doneBy);
     }
   } catch (error) {
     // The ping went out; only a later edit to it (on a move) is lost.
@@ -246,6 +254,38 @@ async function pingOccurrence(
     all_day: candidate.occ.allDay,
   });
   return 'sent';
+}
+
+/**
+ * Where each marks their own Done: a Done made between this ping's claim and its save found no message
+ * to edit. The person's own closes the ping ("✅ title"); a partner's is added to it, with its buttons,
+ * unless the ping was built already saying so (`shown`).
+ */
+async function settleLateOwnDone(
+  candidate: Candidate,
+  creator: PassUser,
+  recipient: PassUser & { telegramId: bigint },
+  peers: PassUser[],
+  forBoth: boolean,
+  stateId: string,
+  messageId: number,
+  shown: PassUser | undefined
+): Promise<void> {
+  const done = new Set((await prisma.nativeReminderPing.findMany({ where: { stateId, doneAt: { not: null } }, select: { userId: true } })).map((p) => p.userId));
+  if (done.has(recipient.id)) {
+    await stripPingButtons(recipient.telegramId, messageId, await buildDoneText({ title: candidate.occ.title, language: recipient.language }));
+    return;
+  }
+  const partner = peers.find((p) => done.has(p.id));
+  if (!partner || partner.id === shown?.id) return;
+  const text = await buildPingText({
+    title: candidate.occ.title,
+    creatorName: creator.id === recipient.id ? undefined : creator.name,
+    forBoth,
+    partnerDoneName: partner.name,
+    language: recipient.language,
+  });
+  await refreshPing(recipient.telegramId, messageId, text, await buildPingKeyboard(stateId, recipient.language));
 }
 
 /**
@@ -276,6 +316,8 @@ async function passForRecipient(a: {
   states: Map<string, StateRow>;
   creator: PassUser;
   recipient: PassUser;
+  /** The other people it is for (a reminder for both partners): who may already have marked their own Done. */
+  peers: PassUser[];
   forBoth: boolean;
   now: Date;
   result: NativeReminderPassResult;
@@ -286,7 +328,8 @@ async function passForRecipient(a: {
   const candidates: Candidate[] = [];
   for (const occ of a.occurrences) {
     const state = a.states.get(occurrenceKey(s.id, occ.instanceStartsAt));
-    if (state?.doneAt) continue;
+    // Done for them: the shared Done, or (each marks their own) theirs. A done person is skipped even when they had snoozed.
+    if (userDoneAt(s, state, recipient.id)) continue;
     const ping = state?.pings.find((p) => p.userId === recipient.id);
     const snoozed = !!ping?.snoozedUntil;
     const due = ping?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime);
@@ -323,7 +366,7 @@ async function passForRecipient(a: {
     result.skipped++;
   }
 
-  const outcome = await pingOccurrence(s, newest, a.creator, { ...recipient, telegramId }, a.forBoth, now);
+  const outcome = await pingOccurrence(s, newest, a.creator, { ...recipient, telegramId }, a.peers, a.forBoth, now);
   if (outcome === 'sent') result.sent++;
   else if (outcome === 'lost' || outcome === 'raced') result.skipped++;
   else result.failed++;
@@ -403,8 +446,9 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
         try {
           const recipient = recipientId === creator.id ? creator : await users(recipientId);
           if (!recipient) continue;
+          const peers = (await Promise.all(ids.filter((id) => id !== recipientId).map((id) => users(id)))).filter((u): u is PassUser => !!u);
           const outcome = await passForRecipient({
-            series: s, occurrences, overrideAt, states, creator, recipient, forBoth, now, result,
+            series: s, occurrences, overrideAt, states, creator, recipient, peers, forBoth, now, result,
             tz: await timezoneOf(recipient.id),
             reachable: async (telegramId) => !(await isBlocked(telegramId)) && (await creatorSupported(creator.id)),
           });

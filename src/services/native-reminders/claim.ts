@@ -5,8 +5,8 @@
 // can each find the same occurrence due. Only the one whose claim returns a row sends.
 // The claim is one statement: ensure the occurrence's state row (unique on seriesEventId,
 // originalStartsAt), then insert-or-update the recipient's ping row (unique on stateId,
-// userId) while the occurrence is not done and that recipient has not been pinged for this
-// due time. Prisma's upsert can't carry the condition, hence the raw SQL. A reminder for
+// userId) while the occurrence is not done, that recipient has not marked their own Done (a
+// reminder where each marks theirs) and has not been pinged for this due time. Prisma's upsert can't carry the condition, hence the raw SQL. A reminder for
 // both partners is claimed once per recipient, so each is pinged once.
 
 import { randomUUID } from 'crypto';
@@ -61,8 +61,9 @@ export async function claimOccurrence(
       SET "lastPingedAt" = EXCLUDED."lastPingedAt",
           "pingAttempts" = "NativeReminderPing"."pingAttempts" + 1,
           "updatedAt" = EXCLUDED."updatedAt"
-      WHERE "NativeReminderPing"."lastPingedAt" IS NULL
-         OR "NativeReminderPing"."lastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC')
+      WHERE "NativeReminderPing"."doneAt" IS NULL
+        AND ("NativeReminderPing"."lastPingedAt" IS NULL
+         OR "NativeReminderPing"."lastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC'))
     RETURNING "id", "stateId", "lastPingedAt", "pingAttempts"`;
   const row = rows[0];
   if (!row) return null;
@@ -81,11 +82,13 @@ export async function claimOccurrence(
  * Take back a claim made on a stale read of its series (3b spec §3.1, Recipient race): the
  * ping row it made goes, or the row it updated gets its last ping and attempts back, as if
  * it had never happened. Does nothing once anything else has written lastPingedAt since.
+ * A row that has gained the person's own Done since is not the claim's to delete (the Done
+ * made it a row in its own right), so it is put back like an updated one.
  */
 export async function undoClaim(claim: Claim): Promise<void> {
   if (claim.created) {
-    await prisma.nativeReminderPing.deleteMany({ where: { id: claim.id, lastPingedAt: claim.claimedAt } });
-    return;
+    const { count } = await prisma.nativeReminderPing.deleteMany({ where: { id: claim.id, lastPingedAt: claim.claimedAt, doneAt: null } });
+    if (count > 0) return;
   }
   await prisma.nativeReminderPing.updateMany({
     where: { id: claim.id, lastPingedAt: claim.claimedAt },

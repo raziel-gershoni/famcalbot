@@ -189,6 +189,8 @@ export interface ItemEditInfoResponse {
   canChangeRecipient?: boolean;
   /** 3b: who the reminder is for, relative to its creator: themselves, their partner, or both of them. */
   forWho?: ForWho;
+  /** A reminder: each of the two partners marks their own Done (only ever on for a reminder for both). Absent for an event. */
+  eachMarksDone?: boolean;
   /**
    * An event's alert (editor upgrades spec §2): 'default', 'none' or its lead in minutes (a
    * migrated one may be off the list). Absent for a reminder. A Google item's is its own
@@ -227,6 +229,8 @@ export interface CreateItemBody {
   calendarId?: string;
   /** Reminders only: for the partner, or for both partners; omitted = for the creator. */
   forWho?: ForWho;
+  /** A reminder for both partners only: each marks their own Done; omitted = one Done covers both. */
+  eachMarksDone?: boolean;
   /** Timed FamCal events only; omitted = the default (editor upgrades spec §2). */
   alert?: AlertChoice;
 }
@@ -254,6 +258,8 @@ export interface UpdateItemBody {
     calendarId?: string;
     /** 3b: a reminder for the partner, for both partners, or ('me') its creator alone. */
     forWho?: ForWho;
+    /** A reminder for both partners: whether each marks their own Done (series-level, so a scope plan). */
+    eachMarksDone?: boolean;
     /** An event's alert, from this occurrence on like the calendar (series-level); a FamCal event only. */
     alert?: AlertChoice;
   };

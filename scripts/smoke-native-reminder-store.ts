@@ -51,10 +51,10 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS: Record<string, string[]> = { seriesEventId_originalStartsAt: ['seriesEventId', 'originalStartsAt'] };
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, personEnglishName: null, personGender: null, rules: [], privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
-  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
+  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null }),
 };
 let nextId = 0;
 
@@ -415,6 +415,131 @@ async function main() {
     const tail = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
     assert(tail.forUserId === 2 && tail.forBoth === true && eventRow('rem').forUserId === null && eventRow('rem').forBoth === false, `tail ${tail.forBoth}, head ${eventRow('rem').forBoth}`);
     assert(pings(r.reassignedPings) === '5001/12', `reassigned ${pings(r.reassignedPings)}`);
+  });
+
+  // ---- Each of us marks it done ----
+
+  /** A reminder of Raziel's for both of them with the switch on; its open occurrence has Dana's own Done, a done one is done for everyone. */
+  function eachReminder(rrule: string | null = 'FREQ=DAILY') {
+    reset();
+    seedEvent('rem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, forUserId: 2, forBoth: true, eachMarksDone: true, title: 'Feed the cat', startsAt: at('2026-10-10 08:00'), rrule });
+    if (!rrule) return;
+    seedState('rem', at('2026-10-13 08:00'), 11, { doneAt: at('2026-10-13 08:10') }, 1);
+    tables.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: 'ping-d13', stateId: tables.nativeReminderState[0].id, userId: 2, lastPingedAt: at('2026-10-13 08:00'), pingAttempts: 1, pingChatId: 5002n, pingMessageId: 21, doneAt: at('2026-10-13 08:05') });
+    seedState('rem', at('2026-10-14 08:00'), 12, {}, 1);
+    tables.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: 'ping-d14', stateId: tables.nativeReminderState[1].id, userId: 2, lastPingedAt: at('2026-10-14 08:00'), pingAttempts: 1, pingChatId: 5002n, pingMessageId: 22, doneAt: at('2026-10-14 08:05') });
+  }
+  const pingDone = (stateIndex: number, userId: number) => tables.nativeReminderPing.find((p) => p.stateId === tables.nativeReminderState[stateIndex].id && p.userId === userId)?.doneAt ?? null;
+
+  await check('each: a reminder is created with the switch only when it is for both partners; an event, a partner-only or a self reminder never has it', async () => {
+    reset();
+    const base = { calendarCuid: 'raziel', creatorUserId: 1, title: 'Book the flights', startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 10:00'), timeZone: IL };
+    const on = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forUserId: 2, forBoth: true, eachMarksDone: true })).id);
+    assert(on.forBoth === true && on.eachMarksDone === true, `both: ${on.eachMarksDone}`);
+    const plain = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forUserId: 2, forBoth: true })).id);
+    assert(plain.eachMarksDone === false, `default off: ${plain.eachMarksDone}`);
+    const partner = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forUserId: 2, eachMarksDone: true })).id);
+    const self = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', eachMarksDone: true })).id);
+    const noPartner = eventRow((await createNativeEvent({ ...base, kind: 'REMINDER', forBoth: true, eachMarksDone: true })).id);
+    const event = eventRow((await createNativeEvent({ ...base, forUserId: 2, forBoth: true, eachMarksDone: true })).id);
+    assert([partner, self, noPartner, event].every((r) => r.eachMarksDone === false), `stored ${[partner, self, noPartner, event].map((r) => r.eachMarksDone)}`);
+  });
+
+  await check('each: turning the switch on or off clears every open occurrence\'s partial Done in place (state rows, snoozes and live pings stay), keeps the done ones, and wakes the gate', async () => {
+    for (const next of [false, true]) {
+      eachReminder();
+      eventRow('rem').eachMarksDone = !next;
+      closeGate();
+      const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: next });
+      assert(eventRow('rem').eachMarksDone === next && eventRow('rem').forBoth === true, `flag ${eventRow('rem').eachMarksDone}`);
+      assert(pingDone(1, 2) === null, 'the open occurrence lost her partial Done');
+      assert(pingDone(0, 2) !== null && tables.nativeReminderState[0].doneAt !== null, 'the done occurrence stays done');
+      assert(tables.nativeReminderState.length === 2 && tables.nativeReminderPing.length === 4, 'no state or ping row was removed');
+      assert(r.clearedPings.length + r.changedPings.length + r.reassignedPings.length === 0, `no live ping is touched: ${pings(r.reassignedPings)}`);
+      assert(gateCleared(), 'the due gate is closed');
+    }
+  });
+
+  await check('each: a switch that is already what the reminder has is no change: nothing is cleared', async () => {
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: true });
+    assert(pingDone(1, 2) !== null, 'a no-op write cleared the partial Done');
+  });
+
+  await check('each: only the creator changes it, and only for a reminder for both partners; "this one" is refused on a repeating series', async () => {
+    eachReminder();
+    await refused('the partner', () => updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 2, eachMarksDone: false }));
+    eventRow('rem').eachMarksDone = false;
+    for (const [what, patch] of [['for the partner alone', { forBoth: false }], ['for the creator alone', { forUserId: null, forBoth: false }]] as const) {
+      Object.assign(eventRow('rem'), patch);
+      const outcome = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: true }).then(() => 'allowed', (err: Error) => err.name);
+      assert(outcome === 'NativeScopeError', `${what}: ${outcome}`);
+      assert(eventRow('rem').eachMarksDone === false, 'nothing written');
+    }
+    Object.assign(eventRow('rem'), { forUserId: 2, forBoth: true });
+    const single = await updateNativeEvent({ seriesCuid: 'rem', scope: 'single', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, eachMarksDone: true }).then(() => 'allowed', (err: Error) => err.name);
+    assert(single === 'NativeScopeError', `single: ${single}`);
+    // A one-off has no series to speak of: its own scope is fine.
+    eachReminder(null);
+    eventRow('rem').eachMarksDone = false;
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'single', actingUserId: 1, eachMarksDone: true });
+    assert(eventRow('rem').eachMarksDone === true, 'a one-off takes it');
+  });
+
+  await check('each: this one and the ones after: the new series carries the switch (also when only the title changes), the earlier ones keep theirs and their Done', async () => {
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, title: 'Feed the cats' });
+    const tail = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(tail.eachMarksDone === true && tail.forBoth === true && eventRow('rem').eachMarksDone === true, `tail ${tail.eachMarksDone}, head ${eventRow('rem').eachMarksDone}`);
+    assert(pingDone(1, 2) !== null, 'the switch did not change, so the open occurrence keeps hers');
+    // Now turn it off from the 14th: the tail loses it and the open occurrence its partial Done; the 13th keeps both.
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, eachMarksDone: false });
+    const off = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(off.eachMarksDone === false && eventRow('rem').eachMarksDone === true, `tail ${off.eachMarksDone}, head ${eventRow('rem').eachMarksDone}`);
+    assert(pingDone(1, 2) === null && pingDone(0, 2) !== null && tables.nativeReminderState[0].seriesEventId === 'rem' && tables.nativeReminderState[1].seriesEventId === off.id, 'the open one is reset and follows the tail; the earlier one is untouched');
+  });
+
+  await check('each: a switch turned on and off again never brings partial progress back', async () => {
+    eachReminder();
+    eventRow('rem').eachMarksDone = false; // off, with a stale partial that must not exist (it is cleared on the way)
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: true });
+    assert(pingDone(1, 2) === null, 'cleared on the way on');
+    tables.nativeReminderPing.find((p) => p.id === 'ping-d14')!.doneAt = at('2026-10-14 09:00'); // she marks hers while it is on
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: false });
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: true });
+    assert(pingDone(1, 2) === null, 'off then on again: her partial Done did not come back');
+  });
+
+  await check('each: moving the reminder away from both clears the switch (to the partner alone, to the creator alone); handing it to both can set it in the same save', async () => {
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: false });
+    assert(eventRow('rem').eachMarksDone === false && eventRow('rem').forBoth === false, 'for the partner alone');
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: null });
+    assert(eventRow('rem').eachMarksDone === false && eventRow('rem').forUserId === null, 'for the creator alone');
+    reassignable();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: true, eachMarksDone: true });
+    assert(eventRow('rem').forBoth === true && eventRow('rem').eachMarksDone === true, 'both with the switch');
+    // Handing it to both without asking for the switch leaves it off.
+    reassignable();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: true });
+    assert(eventRow('rem').eachMarksDone === false, 'off unless asked');
+    // The tail of a "following" recipient change is for both without the switch too, and with it when asked.
+    reassignable();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, forUserId: 2, forBoth: true, eachMarksDone: true });
+    assert(tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!.eachMarksDone === true, 'the tail has the switch');
+  });
+
+  await check('each: stopping a repeat keeps the switch on the one-off, and a switch change in the same save resets its partial Done', async () => {
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, rrule: null, startsAt: at('2026-10-14 08:00'), endsAt: at('2026-10-14 08:00') });
+    const oneOff = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(oneOff.eachMarksDone === true && oneOff.rrule === null && pingDone(1, 2) !== null, `kept: ${oneOff.eachMarksDone}`);
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, rrule: null, startsAt: at('2026-10-14 08:00'), endsAt: at('2026-10-14 08:00'), eachMarksDone: false });
+    const off = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(off.eachMarksDone === false && pingDone(1, 2) === null, `reset: ${off.eachMarksDone}`);
   });
 
   await check('create: a date-only reminder saved as the bot saves all-day (00:00 to 23:59) is zero-length at 00:00', async () => {

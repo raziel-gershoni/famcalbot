@@ -19,7 +19,7 @@ import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurre
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
 import type { ReminderStateRow } from '../native-calendar/event-store';
 import type { UnifiedEvent } from '../calendar-provider/types';
-import { loadViewerContext, recipientIdsForViewer, type ViewerContext } from './ownership';
+import { loadViewerContext, recipientIdsForViewer, userDoneAt, type ViewerContext } from './ownership';
 import { ARMED_GRACE_MS, reminderDueAt } from './due';
 
 // reminderDueAt moved to the leaf due.ts (the calendar home's DTO code reads it); its
@@ -146,7 +146,9 @@ function selectOpenReminderItems(
     if (series.rrule && series.armedAt && due.getTime() < series.armedAt.getTime() - ARMED_GRACE_MS) continue;
     const key = occurrence.instanceStartsAt.getTime();
     const state = states.find(s => s.originalStartsAt.getTime() === key);
-    if (state?.doneAt) continue;
+    // Done for the viewer: the shared Done, or (each marks their own) the viewer's. A partner who is not done does not keep
+    // it in the viewer's list, and the viewer's own Done leaves it there for them only.
+    if (userDoneAt(series, state, ctx.viewerId)) continue;
     const info = reminderInfoFor(series, state, ctx, now);
     info.openSince = localDate(due, timezone);
     open.push({
@@ -223,7 +225,7 @@ async function loadOpenReminderCandidates(ctx: ViewerContext, cutoff: Date): Pro
         ...(ctx.partner ? [{ creatorUserId: ctx.partner.id, forUserId: ctx.viewerId }] : []),
       ],
     },
-    include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } } } },
+    include: { calendar: true, instances: true, states: { select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true, doneAt: true } } } } },
   });
   return rows.map(row => ({ series: row, calendar: row.calendar, overrides: row.instances, states: row.states }));
 }

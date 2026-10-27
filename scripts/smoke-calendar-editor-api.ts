@@ -62,10 +62,10 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS = ['seriesEventId_originalStartsAt'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, armedAt: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
-  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null }),
+  nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null }),
 };
 let nextId = 0;
 const prismaCalls: string[] = [];
@@ -2317,6 +2317,119 @@ async function main() {
     assertSame([info.canChangeRecipient, info.forWho], [true, 'both'], 'the row stays so it can be taken back');
     const back = await patch({ key: `famcal|${id}`, scope: 'all', changes: { forWho: 'me' } });
     assertSame([back.status, eventRow(id).forUserId, eventRow(id).forBoth], [200, null, false], 'taken back');
+  });
+
+  // ---- Each of us marks it done ----
+
+  /** A reminder of Tal's for both of them with the switch on, repeating daily; the 22nd is open with Noa's own Done on it, the 21st is done for both. */
+  async function eachSeries() {
+    const created = await post(reminderBody({ repeat: 'daily', forWho: 'both', eachMarksDone: true }));
+    assert(created.status === 200, `create ${created.status} ${created.text}`);
+    const id = idOf(created.body.key);
+    seedState(id, at('2026-10-21 17:30'), 51, { doneAt: at('2026-10-21 17:35') });
+    seedState(id, at('2026-10-22 17:30'), 52, { lastPingedAt: at('2026-10-22 17:30') });
+    for (const state of statesOf(id)) {
+      tables.nativeReminderPing.push({ ...DEFAULTS.nativeReminderPing(), id: `ping-noa-${state.id}`, stateId: state.id, userId: NOA, lastPingedAt: at('2026-10-22 17:30'), pingAttempts: 1, pingChatId: 5002n, pingMessageId: 90 + Number(String(state.id).replace(/\D/g, '')), doneAt: at('2026-10-22 17:40') });
+    }
+    eventRow(id).armedAt = OLD;
+    stripped.length = 0;
+    return { id, day: (d: string) => `famcal|${id}#${iso(at(`${d} 17:30`))}` };
+  }
+  const noaDone = (id: string, d: string) => tables.nativeReminderPing.find((p) => p.userId === NOA && statesOf(id).some((s) => s.id === p.stateId && iso(s.originalStartsAt) === iso(at(`${d} 17:30`))))?.doneAt ?? null;
+
+  await check('each: create with the switch is stored only for both of us; true for anything else is refused, false is accepted, nothing else changes', async () => {
+    seed();
+    const on = await post(reminderBody({ forWho: 'both', eachMarksDone: true, title: 'Book the flights' }));
+    assert(on.status === 200, `${on.status} ${on.text}`);
+    assertSame([lastEvent().forBoth, lastEvent().eachMarksDone], [true, true], 'both, each');
+    assert(tracked[tracked.length - 1].meta.each_marks_done === true, 'analytics');
+    const plain = await post(reminderBody({ forWho: 'both' }));
+    assertSame([plain.status, lastEvent().eachMarksDone], [200, false], 'default off');
+    assert(!('each_marks_done' in tracked[tracked.length - 1].meta), 'no analytics key when off');
+    const off = await post(reminderBody({ forWho: 'partner', eachMarksDone: false }));
+    assertSame([off.status, lastEvent().eachMarksDone], [200, false], 'an explicit false anywhere');
+    for (const [what, body] of [
+      ['for me', reminderBody({ forWho: 'me', eachMarksDone: true })],
+      ['for the partner', reminderBody({ forWho: 'partner', eachMarksDone: true })],
+      ['no For at all', reminderBody({ eachMarksDone: true })],
+      ['an event', eventBody({ eachMarksDone: true })],
+      ['not a boolean', reminderBody({ forWho: 'both', eachMarksDone: 'yes' })],
+    ] as const) {
+      const before = count(eventsAll());
+      const r = await post(body);
+      assertSame([r.status, r.body, count(eventsAll())], [400, { error: 'invalid', field: 'eachMarksDone' }, before], what);
+    }
+  });
+
+  await check('each: the item info carries the switch for a reminder for both, and false for every other', async () => {
+    seed();
+    const on = await post(reminderBody({ forWho: 'both', eachMarksDone: true }));
+    assertSame((await itemOf(on.body.key)).body.eachMarksDone, true, 'on');
+    const off = await post(reminderBody({ forWho: 'both' }));
+    assertSame((await itemOf(off.body.key)).body.eachMarksDone, false, 'off');
+    const partner = await post(reminderBody({ forWho: 'partner' }));
+    assertSame((await itemOf(partner.body.key)).body.eachMarksDone, false, 'partner');
+    const event = await post(eventBody());
+    assert(!('eachMarksDone' in (await itemOf(event.body.key)).body), 'an event has none');
+    // The reminder Noa set for both, with the switch: Tal sees it on, but only Noa changes it.
+    const masked = seedSeries('noa-each', { calendarId: 'cal-noa-private', creatorUserId: NOA, forUserId: TAL, forBoth: true, eachMarksDone: true, kind: 'REMINDER', title: 'Pay the nursery', startsAt: at('2026-10-21 20:00') });
+    assertSame((await itemOf(`famcal|${masked.id}`)).body.eachMarksDone, true, 'seen from the partner');
+  });
+
+  await check('each: turning it on or off in an edit: series-level, partial Done cleared in place, no live ping stripped, done occurrences stay done', async () => {
+    seed();
+    const { id, day } = await eachSeries();
+    const off = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: false } });
+    assertSame([off.body, eventRow(id).eachMarksDone, eventRow(id).forBoth], [{ status: 'ok', key: day('2026-10-22') }, false, true], 'off');
+    assertSame([noaDone(id, '2026-10-22'), noaDone(id, '2026-10-21') !== null, statesOf(id).length], [null, true, 2], 'the open one lost her partial Done, the done one stays done');
+    assertSame([stripped.length, strips().reassigned, strips().changed, strips().moved], [0, [], [], []], 'live pings are left as they are');
+    assertSame(tracked[tracked.length - 1].meta.changed_fields, ['each_marks_done'], 'analytics');
+    const on = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: true } });
+    assertSame([on.status, eventRow(id).eachMarksDone, noaDone(id, '2026-10-22')], [200, true, null], 'on again, her partial Done did not come back');
+    const same = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: true, title: 'Plumber' } });
+    assertSame([same.status, tracked[tracked.length - 1].meta.changed_fields], [200, ['title']], 'the same switch is no change');
+  });
+
+  await check('each: "this one and the ones after" copies the switch to the new series; "only this one" is refused on a repeating series, a one-off takes it', async () => {
+    seed();
+    const { id, day } = await eachSeries();
+    const title = await patch({ key: day('2026-10-22'), scope: 'following', changes: { title: 'Plumber' } });
+    assert(title.status === 200, `${title.status} ${title.text}`);
+    assertSame([lastEvent().eachMarksDone, eventRow(id).eachMarksDone, lastEvent().id !== id], [true, true, true], 'the tail has the switch too');
+    const single = await patch({ key: day('2026-10-21'), scope: 'single', changes: { eachMarksDone: false } });
+    assertSame([single.status, single.body], [400, { error: 'invalid', field: 'scope' }], 'only this one');
+    seed();
+    const once = await post(reminderBody({ forWho: 'both' }));
+    const set = await patch({ key: once.body.key, scope: 'single', changes: { eachMarksDone: true } });
+    assertSame([set.status, eventRow(idOf(once.body.key)).eachMarksDone], [200, true], 'a one-off');
+  });
+
+  await check('each: the switch is refused unless the reminder is for both of us; moving it away from both clears it; handing it to both can set it in the same save', async () => {
+    seed();
+    const me = await post(reminderBody({ forWho: 'me' }));
+    const partner = await post(reminderBody({ forWho: 'partner' }));
+    for (const created of [me, partner]) {
+      const r = await patch({ key: created.body.key, scope: 'all', changes: { eachMarksDone: true } });
+      assertSame([r.status, r.body], [400, { error: 'invalid', field: 'eachMarksDone' }], 'not for both');
+    }
+    const handed = await patch({ key: me.body.key, scope: 'all', changes: { forWho: 'both', eachMarksDone: true } });
+    assertSame([handed.status, eventRow(idOf(me.body.key)).forBoth, eventRow(idOf(me.body.key)).eachMarksDone], [200, true, true], 'me to both with the switch');
+    const away = await patch({ key: me.body.key, scope: 'all', changes: { forWho: 'partner' } });
+    assertSame([away.status, eventRow(idOf(me.body.key)).forBoth, eventRow(idOf(me.body.key)).eachMarksDone], [200, false, false], 'both to the partner alone clears it');
+    const awayWith = await patch({ key: me.body.key, scope: 'all', changes: { forWho: 'both' } });
+    assertSame([awayWith.status, eventRow(idOf(me.body.key)).eachMarksDone], [200, false], 'handed to both without asking: off');
+    const contradiction = await patch({ key: me.body.key, scope: 'all', changes: { forWho: 'me', eachMarksDone: true } });
+    assertSame([contradiction.status, contradiction.body], [400, { error: 'invalid', field: 'eachMarksDone' }], 'the switch with a For that is not both');
+    const onEvent = await post(eventBody());
+    const event = await patch({ key: onEvent.body.key, scope: 'all', changes: { eachMarksDone: false } });
+    assertSame([event.status, event.body], [400, { error: 'invalid', field: 'eachMarksDone' }], 'an event has no switch');
+  });
+
+  await check('each: only the creator changes it: the partner cannot edit a reminder she was given, whether the switch is on or off', async () => {
+    seed();
+    const { day } = await eachSeries();
+    const byNoa = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: false } }, { tg: TG.noa });
+    assertSame([byNoa.status, byNoa.body.error], [403, 'not_allowed'], 'Noa');
   });
 
   await check('3b recipient: only the creator, only a partner who can be pinged; the take-back works when the partner no longer can; a new time in the same save says "now for"', async () => {

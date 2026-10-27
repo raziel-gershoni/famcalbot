@@ -114,7 +114,10 @@ export interface ReminderInfo {
   ownerName?: string;       // effective owner's display name, set when the owner is not the viewer
   creatorName?: string;     // creator's display name, set when the creator is not the viewer
   forBoth?: boolean;        // for both partners (the viewer and their partner)
-  done?: boolean;           // this occurrence has doneAt set
+  done?: boolean;           // this occurrence is done for the viewer: the shared doneAt, or (eachMarksDone) their own
+  eachMarksDone?: boolean;  // each partner marks their own Done (only while the viewer still has a partner on it)
+  partnerDone?: boolean | null; // eachMarksDone: whether the partner has marked theirs; null when the switch is off or there is no partner
+  partnerName?: string;     // eachMarksDone: the partner's display name, for "Dana is done"
   snoozed?: boolean;        // this occurrence has snoozedUntil in the future
   open?: boolean;           // set by the summary: due earlier on the summary day, still undone
   openSince?: string;       // 'yyyy-MM-dd' in the viewer's tz, set only on carried-over items

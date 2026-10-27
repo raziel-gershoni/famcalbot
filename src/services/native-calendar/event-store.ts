@@ -314,8 +314,8 @@ export interface ReminderStateRow {
   seriesEventId: string;
   originalStartsAt: Date;
   doneAt: Date | null;
-  /** Each recipient's own snooze (a ping row per person); the viewer's is the one that shows. */
-  pings: Array<{ userId: number; snoozedUntil: Date | null }>;
+  /** Each recipient's own snooze and Done (a ping row per person); the viewer's are the ones that show. */
+  pings: Array<{ userId: number; snoozedUntil: Date | null; doneAt: Date | null }>;
 }
 
 /**
@@ -332,7 +332,7 @@ export async function fetchReminderStates(
       seriesEventId: { in: [...new Set(occurrences.map((o) => o.seriesEventId))] },
       originalStartsAt: { in: occurrences.map((o) => o.originalStartsAt) },
     },
-    select: { seriesEventId: true, originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true } } },
+    select: { seriesEventId: true, originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true, doneAt: true } } },
   });
 }
 
@@ -363,6 +363,8 @@ export interface CreateNativeEventInput {
   forUserId?: number | null;
   /** With forUserId = the partner: for both of them. */
   forBoth?: boolean;
+  /** With forBoth: each of them marks their own Done (kept false otherwise). */
+  eachMarksDone?: boolean;
 }
 
 /**
@@ -412,11 +414,12 @@ export class NativeFixedDaysError extends Error {
 /**
  * A series-level change (a new rule, calendar, alert or recipient) asked for a scope that can't
  * carry it (3b spec §3.1): 'single' on a series, a new rule for 'all', or a calendar move
- * of a reminder, or an alert for a reminder. `field` names what the home answers 400 for.
+ * of a reminder, an alert for a reminder, or the "each marks their own Done" switch where the reminder is not
+ * for both partners. `field` names what the home answers 400 for.
  */
 export class NativeScopeError extends Error {
   constructor(
-    public readonly field: 'scope' | 'calendarId' | 'alert',
+    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone',
     message = 'This change cannot apply to that scope'
   ) {
     super(message);
@@ -511,7 +514,14 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
         // armedAt bounds how far back the ping pass looks, so a reminder created for a
         // time long gone doesn't ping (spec §4.2).
         ...(isReminder
-          ? { kind: 'REMINDER' as const, forUserId: input.forUserId ?? null, forBoth: input.forUserId != null && input.forBoth === true, armedAt: new Date() }
+          ? {
+            kind: 'REMINDER' as const,
+            forUserId: input.forUserId ?? null,
+            forBoth: input.forUserId != null && input.forBoth === true,
+            // Each marks their own Done means something only for both partners.
+            eachMarksDone: input.forUserId != null && input.forBoth === true && input.eachMarksDone === true,
+            armedAt: new Date(),
+          }
           : {}),
       },
     });
@@ -663,6 +673,12 @@ export interface UpdateNativeEventInput {
   forUserId?: number | null;
   /** With forUserId = the partner: for both of them. */
   forBoth?: boolean;
+  /**
+   * Each of the two marks their own Done: series-level, and only on a reminder for both partners (so it comes with
+   * forBoth when the recipients change, which also resets it to the value given, false when omitted). Only the creator
+   * changes it. A change of it clears every open occurrence's partial per-person Done, in place.
+   */
+  eachMarksDone?: boolean;
 }
 
 /** A ping message whose buttons a reminder's time change made stale. */
@@ -998,6 +1014,8 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
     delete out.forUserId;
     delete out.forBoth;
   }
+  // The switch alone: no change when it is what the series has (with a recipient change it is recomputed from the pair).
+  if (out.eachMarksDone !== undefined && out.forUserId === undefined && out.eachMarksDone === series.eachMarksDone) delete out.eachMarksDone;
   return out;
 }
 
@@ -1014,7 +1032,7 @@ async function checkSeriesFields(
   actor: Pick<User, 'id' | 'pairingId'>,
   input: UpdateNativeEventInput
 ): Promise<void> {
-  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined;
+  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined || input.eachMarksDone !== undefined;
   if (!seriesLevel) return;
   if (series.rrule) {
     // An occurrence has no rule, calendar, alert or recipient of its own.
@@ -1049,6 +1067,13 @@ async function checkSeriesFields(
         throw new NativeRecipientError();
       }
     }
+  }
+  if (input.eachMarksDone !== undefined) {
+    if (!isReminder) throw new NativeScopeError('eachMarksDone', 'Only a reminder is marked done');
+    if (series.creatorUserId !== actor.id) throw new NativePermissionDeniedError('Only the creator changes how a reminder is marked done');
+    // It means something only for a reminder for both partners: the one the save leaves, or the stored one.
+    const bothAfter = input.forUserId !== undefined ? input.forBoth === true && input.forUserId !== null : series.forBoth;
+    if (input.eachMarksDone && !bothAfter) throw new NativeScopeError('eachMarksDone', 'Each marks their own Done only on a reminder for both partners');
   }
 }
 
@@ -1096,6 +1121,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
   const times = isReminder ? normalizeReminderTimes(start, allDay, tz) : { startsAt: start, endsAt: end };
   const moved = times.startsAt.getTime() !== occ.startsAt.getTime() || allDay !== occ.allDay;
   const reassign = isReminder && input.forUserId !== undefined;
+  const eachMarksDone = isReminder && (reassign ? input.forBoth === true && input.eachMarksDone === true : (input.eachMarksDone ?? series.eachMarksDone));
   // The alert the one-off ends up with: the edit's, else the series' own.
   const alertNow = input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes };
   const values = {
@@ -1107,7 +1133,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
     allDay,
     calendarId: input.calendarId ?? series.calendarId,
     ...(isReminder
-      ? { forUserId: reassign ? input.forUserId! : series.forUserId, forBoth: reassign ? input.forBoth === true : series.forBoth, armedAt: moved ? new Date() : series.armedAt }
+      ? { forUserId: reassign ? input.forUserId! : series.forUserId, forBoth: reassign ? input.forBoth === true : series.forBoth, eachMarksDone, armedAt: moved ? new Date() : series.armedAt }
       : {}),
   };
   const pings = { clearedPings: [] as ClearedPing[], changedPings: [] as ClearedPing[], reassignedPings: [] as ClearedPing[] };
@@ -1125,6 +1151,8 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
       return;
     }
     await tx.nativeReminderState.update({ where: { id: row.id }, data: { seriesEventId: to, originalStartsAt: times.startsAt } });
+    // A change of the switch leaves no partial Done on an open occurrence.
+    if (eachMarksDone !== series.eachMarksDone && row.doneAt === null) await clearPartialDone(tx, { id: row.id });
   };
   const oneOffId = await markedTransaction(async (tx) => {
     if (first) {
@@ -1503,6 +1531,9 @@ async function updateNativeReminder(
   const reassign = input.forUserId !== undefined;
   const forUserId = reassign ? input.forUserId! : series.forUserId;
   const forBoth = reassign ? input.forBoth === true : series.forBoth;
+  // Each marks their own Done: kept only on a reminder for both partners, so a recipient change sets it from the pair.
+  const eachMarksDone = reassign ? input.forBoth === true && input.eachMarksDone === true : (input.eachMarksDone ?? series.eachMarksDone);
+  const eachChanged = eachMarksDone !== series.eachMarksDone;
   if (input.scope === 'following' && series.rrule && input.instanceStartsAt) {
     const cut = input.instanceStartsAt;
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
@@ -1532,6 +1563,8 @@ async function updateNativeReminder(
         ? await keepYieldedStates(tx, { fromSeries: series.id, toSeries: seriesId, since, shape })
         : (await tx.nativeReminderState.updateMany({ where, data: { seriesEventId: seriesId } }), []);
       const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) }) : [];
+      // A change of the switch leaves no partial Done on an open occurrence (its live pings stay as they are).
+      if (eachChanged) await clearPartialDone(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) });
       return { changedPings, reassignedPings };
     };
     if (first) {
@@ -1551,6 +1584,7 @@ async function updateNativeReminder(
             armedAt,
             forUserId,
             forBoth,
+            eachMarksDone,
           },
         });
         await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: target.changed, clear: target.changed ? {} : cleared });
@@ -1581,6 +1615,7 @@ async function updateNativeReminder(
           kind: 'REMINDER',
           forUserId,
           forBoth,
+          eachMarksDone,
           armedAt,
           // The occurrences skipped after the cut stay skipped, keyed where they went.
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
@@ -1631,12 +1666,15 @@ async function updateNativeReminder(
         ...(moved && series.hebrewAnchor ? { hebrewAnchor: moved.hebrewAnchor } : {}),
         ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
         ...(reassign ? { forUserId, forBoth } : {}),
+        ...(reassign || eachChanged ? { eachMarksDone } : {}),
       },
     });
     if (!changed) {
       // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
       const clearedPings = edit && input.scope === 'all' && series.rrule ? await unmoveOccurrences(tx, series) : [];
       const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: series.id }) : [];
+      // A change of the switch leaves no partial Done on an open occurrence (its live pings stay as they are).
+      if (eachChanged) await clearPartialDone(tx, { seriesEventId: series.id });
       return { clearedPings, reassignedPings };
     }
     // Every occurrence moves and starts afresh: what was moved on its own goes, and what
@@ -1695,6 +1733,18 @@ async function reassignOpenStates(tx: Prisma.TransactionClient, where: Prisma.Na
   if (rows.length === 0) return [];
   await tx.nativeReminderState.deleteMany({ where: open });
   return pingsOf(rows);
+}
+
+/**
+ * A change of "each of us marks it done" (3b spec §3.1's silent kin): the open (not done) state rows `where`
+ * matches lose every person's own Done, in place. The rows, their snoozes and their live pings are left as they
+ * are (nothing is re-armed or edited), so a later switch back never brings partial progress back. An occurrence
+ * done for everyone stays done.
+ */
+async function clearPartialDone(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<void> {
+  const open = await tx.nativeReminderState.findMany({ where: { ...where, doneAt: null }, select: { id: true } });
+  if (open.length === 0) return;
+  await tx.nativeReminderPing.updateMany({ where: { stateId: { in: open.map((r) => r.id) }, doneAt: { not: null } }, data: { doneAt: null } });
 }
 
 /**

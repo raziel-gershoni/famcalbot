@@ -82,6 +82,13 @@ export interface ItemReminderDTO {
   creatorName?: string;
   /** A reminder for both partners (the viewer and their partner): the sheet and row say so. */
   forBoth?: boolean;
+  /**
+   * Each partner marks their own Done: `done` and `doneAt` are then the viewer's, and the sheet adds the
+   * partner's status under the state. Present only while the viewer still has a partner on the reminder.
+   */
+  eachMarksDone?: true;
+  partnerDone?: boolean;
+  partnerName?: string;
 }
 
 export interface ItemDTO {

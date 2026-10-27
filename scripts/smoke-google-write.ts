@@ -1176,6 +1176,9 @@ async function main() {
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'single', changes: { repeat: 'weekly' } }), IL), { status: 'ok', key }, 'same');
     assertSame(writes().length, 0, 'wrote');
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forWho: 'partner' } }), IL), { status: 'invalid', field: 'forWho' }, 'recipient');
+    // A Google event has no reminder to mark done: "each marks their own Done" is refused, not dropped.
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { eachMarksDone: false } }), IL), { status: 'invalid', field: 'eachMarksDone' }, 'each marks their own Done');
+    assertSame(writes().length, 0, 'wrote');
   });
 
   await check('richer repeats, item info: series.spec says a Google rule (an UTC UNTIL as its wall day); a rule the sheet can\'t say has none and keeps its words\' parts', async () => {

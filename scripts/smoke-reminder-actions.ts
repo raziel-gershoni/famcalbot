@@ -203,7 +203,7 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
       const row = rows().find((r) => matches(r, where, relations));
       if (row) return Object.assign(row, update, { updatedAt: new RealDate(clock) });
       const made = {
-        id: `ping-${rows().length + 1}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null,
+        id: `ping-${rows().length + 1}`, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null,
         createdAt: new RealDate(clock), updatedAt: new RealDate(clock), ...create,
       };
       rows().push(made);
@@ -214,8 +214,96 @@ function table(name: string, rows: () => Row[], relations: Relations = {}) {
 
 const db = { users: [] as Row[], pairings: [] as Row[], calendars: [] as Row[], events: [] as Row[], instances: [] as Row[], states: [] as Row[], pings: [] as Row[] };
 
+// ---- Transactions, as Postgres runs them where it matters here ----
+// A transaction that writes a state row's updatedAt (the touch) holds that row's lock until it ends, and a
+// ping row it writes is invisible to every other reader until it commits (READ COMMITTED). So two Dones at the
+// same moment complete the occurrence exactly once only when the code takes the lock before it counts.
+type Hidden = { txId: number; undo: () => void; redo: () => void };
+let hiddenWrites: Hidden[] = [];
+let nextTxId = 1;
+const rowLocks = new Map<string, { txId: number; released: Promise<void>; release: () => void }>();
+
+async function acquireLocks(txId: number, ids: string[]) {
+  for (const id of ids) {
+    for (;;) {
+      const held = rowLocks.get(id);
+      if (!held || held.txId === txId) break;
+      await held.released;
+    }
+    if (!rowLocks.has(id)) {
+      let release!: () => void;
+      const released = new Promise<void>((resolve) => { release = resolve; });
+      rowLocks.set(id, { txId, released, release });
+    }
+  }
+}
+function releaseLocks(txId: number) {
+  for (const [id, lock] of rowLocks) {
+    if (lock.txId !== txId) continue;
+    rowLocks.delete(id);
+    lock.release();
+  }
+}
+
+const pingTable = table('nativeReminderPing', () => db.pings, {
+  state: (r) => db.states.find((s) => s.id === r.stateId),
+});
+const stateTable = table('nativeReminderState', () => db.states, {
+  pings: (r) => db.pings.filter((p) => p.stateId === r.id),
+});
+
+/** The ping table as one transaction (null: a lone statement, committed at once) sees and writes it. */
+function pingTableFor(txId: number | null) {
+  const wrap = (method: 'findMany' | 'findUnique' | 'updateMany' | 'upsert') => (args: never) => {
+    // The table's methods do their work before their first await, so the view below is exactly this statement's.
+    const others = hiddenWrites.filter((h) => h.txId !== txId);
+    for (const h of [...others].reverse()) h.undo();
+    const before = db.pings.map((row) => ({ row, copy: { ...row } }));
+    const result = (pingTable[method] as (a: never) => Promise<unknown>)(args);
+    const created = db.pings.filter((row) => !before.some((b) => b.row === row));
+    const changed = before.filter((b) => Object.keys({ ...b.copy, ...b.row }).some((k) => b.copy[k] !== b.row[k] && !(b.copy[k] instanceof Date && b.row[k] instanceof Date && b.copy[k].getTime() === b.row[k].getTime())));
+    const next = changed.map((b) => ({ row: b.row, prev: b.copy, now: { ...b.row } }));
+    const undo = () => {
+      for (const row of created) db.pings.splice(db.pings.indexOf(row), 1);
+      for (const c of next) { for (const k of Object.keys(c.row)) delete c.row[k]; Object.assign(c.row, c.prev); }
+    };
+    const redo = () => {
+      for (const row of created) db.pings.push(row);
+      for (const c of next) Object.assign(c.row, c.now);
+    };
+    for (const h of others) h.redo();
+    if (txId !== null && (created.length > 0 || next.length > 0)) hiddenWrites.push({ txId, undo, redo });
+    return result;
+  };
+  return { findMany: wrap('findMany'), findUnique: wrap('findUnique'), updateMany: wrap('updateMany'), upsert: wrap('upsert') };
+}
+
+function stateTableFor(txId: number) {
+  return {
+    ...stateTable,
+    updateMany: async (args: { where: Where; data: Row }) => {
+      if ('updatedAt' in args.data) await acquireLocks(txId, db.states.filter((r) => matches(r, args.where)).map((r) => r.id as string));
+      return stateTable.updateMany(args);
+    },
+  };
+}
+
 const fakePrisma = {
-  $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(fakePrisma),
+  $transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+    const txId = nextTxId++;
+    const tx = { ...fakePrisma, nativeReminderState: stateTableFor(txId), nativeReminderPing: pingTableFor(txId) };
+    try {
+      const result = await fn(tx);
+      hiddenWrites = hiddenWrites.filter((h) => h.txId !== txId);
+      return result;
+    } catch (error) {
+      for (const h of hiddenWrites.filter((x) => x.txId === txId).reverse()) h.undo();
+      hiddenWrites = hiddenWrites.filter((h) => h.txId !== txId);
+      throw error;
+    } finally {
+      releaseLocks(txId);
+    }
+  },
   user: table('user', () => db.users),
   pairing: table('pairing', () => db.pairings),
   nativeCalendar: table('nativeCalendar', () => db.calendars),
@@ -226,12 +314,8 @@ const fakePrisma = {
     states: (r) => db.states.filter((s) => s.seriesEventId === r.id),
   }),
   nativeEventInstance: table('nativeEventInstance', () => db.instances),
-  nativeReminderState: table('nativeReminderState', () => db.states, {
-    pings: (r) => db.pings.filter((p) => p.stateId === r.id),
-  }),
-  nativeReminderPing: table('nativeReminderPing', () => db.pings, {
-    state: (r) => db.states.find((s) => s.id === r.stateId),
-  }),
+  nativeReminderState: stateTable,
+  nativeReminderPing: pingTableFor(null),
 };
 
 // ---- The household ----
@@ -310,7 +394,7 @@ function household() {
 
 /** One recipient's ping row of a state row. */
 const pingRow = (stateId: string, userId: number, fields: Row = {}): Row => ({
-  id: `ping-${stateId}-${userId}`, stateId, userId, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null,
+  id: `ping-${stateId}-${userId}`, stateId, userId, snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null,
   createdAt: CREATED, updatedAt: CREATED, ...fields,
 });
 
@@ -348,7 +432,7 @@ const statesOf = (seriesEventId: string) => db.states.filter((s) => s.seriesEven
 
 // ---- Fakes at the edges ----
 
-type BotCall = { kind: 'send' | 'edit'; chatId: number; text: string; messageId?: number; silent?: boolean; buttons?: boolean };
+type BotCall = { kind: 'send' | 'edit'; chatId: number; text: string; messageId?: number; silent?: boolean; buttons?: boolean; markup?: unknown };
 let botCalls: BotCall[] = [];
 let botFailure: Error | null = null;
 const fakeBot = {
@@ -358,7 +442,7 @@ const fakeBot = {
     return { message_id: 900 };
   },
   editMessageText: async (text: string, options: { chat_id?: number | string; message_id?: number; reply_markup?: unknown }) => {
-    botCalls.push({ kind: 'edit', chatId: Number(options.chat_id), messageId: options.message_id, text, buttons: options.reply_markup !== undefined });
+    botCalls.push({ kind: 'edit', chatId: Number(options.chat_id), messageId: options.message_id, text, buttons: options.reply_markup !== undefined, markup: options.reply_markup });
     if (botFailure) throw botFailure;
     return true;
   },
@@ -451,6 +535,8 @@ async function main() {
     timezoneTokens.length = 0;
     activity.length = 0;
     failOn = null;
+    hiddenWrites = [];
+    rowLocks.clear();
     authMode = 'ok';
     authAs = DANA;
     authCalls.length = 0;
@@ -837,6 +923,214 @@ async function main() {
     assert((await dtoFor(DANA))?.done === true && (await dtoFor(RAZIEL))?.done === true, 'done for both');
   });
 
+  // ---- Each of us marks it done ----
+
+  /** The same reminder for both of them, with the switch on: each person's Done is their own. */
+  function addEach(pinged = true) {
+    addBoth(pinged);
+    db.events.find((e) => e.id === BOTH)!.eachMarksDone = true;
+  }
+  const stateOfBoth = () => stateFor(BOTH, BOTH_KEY.originalStartsAt)!;
+  const pingOfBoth = (userId: number) => db.pings.find((p) => p.stateId === stateOfBoth().id && p.userId === userId);
+  const LATER = new RealDate(NOW.getTime() + 5 * MIN);
+  /** What a ping reads for `language` when the partner `name` is done: the ping's head, its "for both" line, the partner line. */
+  const pingWithPartnerDone = async (language: string, name: string) =>
+    `⏰ <b>Book the flights</b>\n${await getBotMessage(language, 'nativeReminders.ping.forBoth')}\n${await getBotMessage(language, 'nativeReminders.ping.partnerDone', { name })}`;
+
+  await check('each: the first Done is the actor\'s own: the occurrence stays open, the result says it did not complete, no "Done by" note, their ping closes, the other\'s keeps its buttons and gains the partner line', async () => {
+    reset();
+    addEach();
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assertJson(r, { status: 'ok', title: 'Book the flights', completed: false }, 'result');
+    const row = stateOfBoth();
+    assert(row.doneAt === null && row.doneByUserId === null, `still open for everyone: ${json(row)}`);
+    assert(same(pingOfBoth(DANA)!.doneAt, NOW) && pingOfBoth(RAZIEL)!.doneAt === null, `her own Done only: ${json(db.pings)}`);
+    assert(sends().length === 0, `no separate note: ${json(sends())}`);
+    const hersEdit = await getBotMessage('en', 'nativeReminders.done', { title: 'Book the flights' });
+    assertJson(edits().map((e) => [e.chatId, e.messageId, e.text, e.buttons]).sort(), [
+      [tg(RAZIEL), 61, await pingWithPartnerDone('he', 'Dana'), true],
+      [tg(DANA), 62, hersEdit, false],
+    ].sort(), 'hers closes, his is edited in place with its buttons');
+    const keyboard = edits().find((e) => e.messageId === 61)!.markup as { inline_keyboard: { callback_data: string }[][] };
+    assertJson(keyboard.inline_keyboard.flat().map((b) => b.callback_data), [`nr:d:${row.id}`, `nr:s15:${row.id}`, `nr:s60:${row.id}`, `nr:st:${row.id}`], 'his buttons are the ping\'s own');
+    assertJson(activity, [{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: BOTH, source: 'app', for_both: true, each_marks_done: true, completed: false } }], 'analytics');
+  });
+
+  await check('each: the second Done completes the occurrence: done for everyone at the last Done, by the last person; the result says so; nobody is told, and the first person\'s closed ping is left alone', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    botCalls = [];
+    const r = await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    assertJson(r, { status: 'ok', title: 'Book the flights', completed: true }, 'result');
+    const row = stateOfBoth();
+    assert(same(row.doneAt, LATER) && row.doneByUserId === RAZIEL, `done for everyone by the last: ${json(row)}`);
+    assert(same(pingOfBoth(DANA)!.doneAt, NOW) && same(pingOfBoth(RAZIEL)!.doneAt, LATER), 'each keeps their own moment');
+    assert(sends().length === 0, 'no "Done by" note');
+    assertJson(edits().map((e) => [e.chatId, e.messageId, e.text, e.buttons]), [[tg(RAZIEL), 61, await getBotMessage('he', 'nativeReminders.done', { title: 'Book the flights' }), false]], 'only his own ping closes');
+    assert(activity[1].meta?.completed === true, json(activity));
+  });
+
+  await check('each: a tap on a ping button leaves the tapped message to the callback and refreshes only the other person\'s', async () => {
+    reset();
+    addEach();
+    const r = await act(DANA, BOTH_KEY, 'done', NOW, 'ping');
+    assert(r.status === 'ok', json(r));
+    assertJson(edits().map((e) => [e.chatId, e.messageId, e.text, e.buttons]), [[tg(RAZIEL), 61, await pingWithPartnerDone('he', 'Dana'), true]], 'only his');
+  });
+
+  await check('each: two Dones at the same moment complete the occurrence exactly once, and neither is lost', async () => {
+    reset();
+    addEach();
+    const [a, b] = await Promise.all([act(DANA, BOTH_KEY, 'done'), act(RAZIEL, BOTH_KEY, 'done')]);
+    assert(a.status === 'ok' && b.status === 'ok', `${json(a)} ${json(b)}`);
+    const completed = [a, b].filter((r) => r.status === 'ok' && r.completed === true);
+    assert(completed.length === 1, `exactly one completes it: ${json(a)} ${json(b)}`);
+    const row = stateOfBoth();
+    assert(row.doneAt !== null && (row.doneByUserId === DANA || row.doneByUserId === RAZIEL), `done for everyone: ${json(row)}`);
+    assert(pingOfBoth(DANA)!.doneAt !== null && pingOfBoth(RAZIEL)!.doneAt !== null, 'both Dones are kept');
+    assert(activity.filter((x) => x.meta?.completed === true).length === 1, 'one completion in analytics');
+  });
+
+  await check('each: already_done is the actor\'s own Done: again, or after the occurrence completed, and nothing is edited or changed', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    botCalls = [];
+    assertJson(await act(DANA, BOTH_KEY, 'done', LATER), { status: 'already_done', title: 'Book the flights' }, 'her second');
+    assert(botCalls.length === 0 && same(pingOfBoth(DANA)!.doneAt, NOW) && stateOfBoth().doneAt === null, 'unchanged');
+    await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    botCalls = [];
+    assertJson(await act(DANA, BOTH_KEY, 'done'), { status: 'already_done', title: 'Book the flights' }, 'hers, after it completed');
+    assertJson(await act(RAZIEL, BOTH_KEY, 'done'), { status: 'already_done', title: 'Book the flights' }, 'his, after it completed');
+    assert(botCalls.length === 0 && stateOfBoth().doneByUserId === RAZIEL, 'unchanged');
+  });
+
+  await check('each: a partner who was never pinged gets a ping row from their Done (and the state row is made); it is not complete while the other is out', async () => {
+    reset();
+    addEach(false);
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assertJson(r, { status: 'ok', title: 'Book the flights', completed: false }, 'result');
+    assertJson(db.pings.filter((p) => p.stateId === stateOfBoth().id).map((p) => [p.userId, p.doneAt]), [[DANA, NOW]], 'only her row, with her Done');
+    assert(stateOfBoth().doneAt === null && botCalls.length === 0, 'open, nothing to edit');
+    const next = await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    assert(next.status === 'ok' && next.completed === true && same(stateOfBoth().doneAt, LATER), json(next));
+  });
+
+  await check('each: Undo after a partial Done reopens the actor only (their ping row cleared, the gate woken, no re-ping of the past)', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    pingOfBoth(DANA)!.snoozedUntil = new RealDate(NOW.getTime() + 60 * MIN);
+    closeGate();
+    botCalls = [];
+    const before = pingOfBoth(DANA)!.lastPingedAt;
+    assertJson(await act(DANA, BOTH_KEY, 'undo'), { status: 'ok', title: 'Book the flights' }, 'undo');
+    assert(pingOfBoth(DANA)!.doneAt === null && stateOfBoth().doneAt === null, 'open again for her');
+    assert(pingOfBoth(DANA)!.lastPingedAt === before && pingOfBoth(DANA)!.snoozedUntil === null, 'the past ping stays pinged; her snooze is cleared');
+    assert(gateOpen() && botCalls.length === 0, 'the gate is open; undo edits and tells nobody');
+    assertJson(await act(RAZIEL, BOTH_KEY, 'undo'), { status: 'not_done', title: 'Book the flights' }, 'his undo: he had not marked it');
+    assert(pingOfBoth(RAZIEL)!.doneAt === null, 'his row untouched');
+  });
+
+  await check('each: Undo after the last Done reopens it for the one who undid; the other stays done', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    assert(stateOfBoth().doneAt !== null, 'complete');
+    botCalls = [];
+    assertJson(await act(RAZIEL, BOTH_KEY, 'undo'), { status: 'ok', title: 'Book the flights' }, 'undo');
+    const row = stateOfBoth();
+    assert(row.doneAt === null && row.doneByUserId === null, `no longer done for everyone: ${json(row)}`);
+    assert(pingOfBoth(RAZIEL)!.doneAt === null && same(pingOfBoth(DANA)!.doneAt, NOW), 'his reopened, hers kept');
+    assert(botCalls.length === 0, 'silent');
+    const again = await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    assert(again.status === 'ok' && again.completed === true && stateOfBoth().doneAt !== null, `his Done completes it again: ${json(again)}`);
+  });
+
+  await check('each: a snooze after your own Done is already_done and writes nothing; the other person still snoozes', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    botCalls = [];
+    assertJson(await act(DANA, BOTH_KEY, 'snooze15'), { status: 'already_done', title: 'Book the flights' }, 'hers');
+    assert(pingOfBoth(DANA)!.snoozedUntil === null && botCalls.length === 0, 'nothing written, nothing edited');
+    const r = await act(RAZIEL, BOTH_KEY, 'snooze15');
+    assert(r.status === 'ok', json(r));
+    assertJson(pingOfBoth(RAZIEL)!.snoozedUntil, new RealDate(NOW.getTime() + 15 * MIN), 'his snooze');
+    assert(same(pingOfBoth(DANA)!.doneAt, NOW), 'her Done is kept');
+  });
+
+  await check('each: an unreachable or suspended partner is not counted: the creator\'s Done finishes it; their live ping is not touched', async () => {
+    for (const patch of [{ unreachableSince: NOW }, { suspendedAt: NOW }, { telegramId: null }]) {
+      reset();
+      addEach();
+      Object.assign(db.users.find((u) => u.id === DANA)!, patch);
+      const r = await act(RAZIEL, BOTH_KEY, 'done');
+      assertJson(r, { status: 'ok', title: 'Book the flights', completed: true }, `result for ${json(patch)}`);
+      assert(same(stateOfBoth().doneAt, NOW) && stateOfBoth().doneByUserId === RAZIEL, 'done');
+      assertJson(edits().map((e) => e.messageId), [61], 'only his ping');
+      assert(sends().length === 0, 'no note');
+    }
+  });
+
+  await check('each: after an unlink the creator alone decides: their own Done finishes it, the former partner is told it changed hands', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    db.pairings[0].status = 'UNLINKED';
+    assertJson(await act(DANA, BOTH_KEY, 'snooze15'), { status: 'not_yours', wasTarget: true }, 'her');
+    const r = await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    assertJson(r, { status: 'ok', title: 'Book the flights', completed: true }, 'his Done is the last one now');
+    assert(same(stateOfBoth().doneAt, LATER), 'done');
+  });
+
+  await check('each: with the switch off a ping row\'s stale doneAt is never read: the old shared Done, and the result has no "completed"', async () => {
+    reset();
+    addBoth();
+    pingOfBoth(DANA)!.doneAt = NOW;
+    const r = await act(RAZIEL, BOTH_KEY, 'done');
+    assertJson(r, { status: 'ok', title: 'Book the flights' }, 'result');
+    assert(same(stateOfBoth().doneAt, NOW) && stateOfBoth().doneByUserId === RAZIEL, 'shared');
+    assertJson(sends().map((x) => x.chatId), [tg(DANA)], 'the usual note');
+    reset();
+    addBoth();
+    pingOfBoth(DANA)!.doneAt = NOW;
+    assertJson(await act(DANA, BOTH_KEY, 'done'), { status: 'ok', title: 'Book the flights' }, 'her Done is the shared one, not already_done');
+  });
+
+  await check('each: an occurrence already done for everyone before the switch went on stays done (already_done), and Undo reopens it for both', async () => {
+    reset();
+    addEach();
+    const row = stateOfBoth();
+    row.doneAt = NOW;
+    row.doneByUserId = RAZIEL;
+    assertJson(await act(DANA, BOTH_KEY, 'done'), { status: 'already_done', title: 'Book the flights' }, 'done');
+    assertJson(await act(DANA, BOTH_KEY, 'undo'), { status: 'ok', title: 'Book the flights' }, 'undo');
+    assert(stateOfBoth().doneAt === null, 'reopened');
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assert(r.status === 'ok' && r.completed === false, json(r));
+  });
+
+  await check('each: a person\'s ping that is snoozed (its message reads the snooze) is not rewritten when the partner is done; a failed edit is logged by ids and never undoes the Done', async () => {
+    reset();
+    addEach();
+    await act(RAZIEL, BOTH_KEY, 'snooze15'); // his message 61 now reads the snooze
+    botCalls = [];
+    await act(DANA, BOTH_KEY, 'done');
+    assertJson(edits().map((e) => e.messageId), [62], 'only her own; his snoozed message keeps its text');
+    reset();
+    addEach();
+    botFailure = new Error('ETELEGRAM: 500 Internal Server Error');
+    const r = await act(DANA, BOTH_KEY, 'done');
+    assert(r.status === 'ok' && pingOfBoth(DANA)!.doneAt !== null, json(r));
+    const failures = captured.filter((c) => c.ctx === 'native-reminder-action-ping-edit');
+    assert(failures.length === 2 && failures.every((c) => (c.extra as Row)?.occurrence === BOTH_KEY.originalStartsAt.toISOString()), json(captured));
+    assert(captured.some((c) => (c.extra as Row)?.user_id === RAZIEL) && captured.some((c) => (c.extra as Row)?.user_id === DANA), `by recipient id: ${json(captured)}`);
+    assert(!JSON.stringify(captured).includes('Book the flights'), 'no title in the report');
+  });
+
   // ---- The live ping ----
 
   await check('ping: an in-app done edits it to "✅ title", buttons gone; snooze to "💤 title · until HH:mm"; undo leaves it', async () => {
@@ -1108,6 +1402,43 @@ async function main() {
     // A daily's moved occurrence from yesterday is listed on its day, not in the card (today has its own).
     const moved = await call(good({ seriesId: DAILY, originalStart: at('2026-10-18 08:00').toISOString(), action: 'done' }));
     assert(moved.body.reminder?.done === true && moved.body.reminder.open === false, moved.text);
+  });
+
+  await check('each: the app shows each person their own Done and the partner\'s status; the route answers the actor with the range\'s DTO', async () => {
+    reset();
+    addEach();
+    await act(DANA, BOTH_KEY, 'done');
+    const dtoFor = async (id: number) => {
+      const { read, items } = await readFamcal(actor(id), { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
+      if (read.status !== 'ok') throw new Error('read failed');
+      const days = toRangeDays(items, '2026-10-19', '2026-10-20', IL, NOW, '2026-10-19');
+      return days.flatMap((d) => d.items).find((i) => i.key === `famcal|${BOTH}`)?.reminder;
+    };
+    const hers = await dtoFor(DANA);
+    const his = await dtoFor(RAZIEL);
+    assert(hers?.done === true && hers.doneAt === NOW.toISOString() && hers.open === false, `hers ${json(hers)}`);
+    assert(his?.done === false && his.doneAt === null && his.open === true, `his ${json(his)}`);
+    assert(hers?.eachMarksDone === true && hers.partnerDone === false && hers.partnerName === 'Raziel', `hers ${json(hers)}`);
+    assert(his?.eachMarksDone === true && his.partnerDone === true && his.partnerName === 'Dana', `his ${json(his)}`);
+    reset();
+    addEach();
+    const answer = await call(good({ seriesId: BOTH, originalStart: BOTH_KEY.originalStartsAt.toISOString(), action: 'done' }));
+    assert(answer.body.status === 'ok' && answer.body.reminder?.done === true && answer.body.reminder.partnerDone === false, answer.text);
+    assertJson(answer.body.reminder, await dtoFor(DANA), 'the route\'s DTO is the range\'s');
+    await act(RAZIEL, BOTH_KEY, 'done', LATER);
+    const after = await dtoFor(DANA);
+    assert(after?.done === true && after.partnerDone === true && (await dtoFor(RAZIEL))?.done === true, 'done for both once both are');
+  });
+
+  await check('each: with the switch off the DTO has no each-fields at all (byte-identical to today)', async () => {
+    reset();
+    addBoth();
+    await act(DANA, BOTH_KEY, 'done');
+    const { read, items } = await readFamcal(actor(RAZIEL), { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
+    if (read.status !== 'ok') throw new Error('read failed');
+    const days = toRangeDays(items, '2026-10-19', '2026-10-20', IL, NOW, '2026-10-19');
+    const dto = days.flatMap((d) => d.items).find((i) => i.key === `famcal|${BOTH}`)?.reminder;
+    assert(!!dto && !('eachMarksDone' in dto) && !('partnerDone' in dto) && !('partnerName' in dto), json(dto));
   });
 
   await check('route: a failure is 500 internal_error, no-store, and the captured context holds the user id and no title', async () => {

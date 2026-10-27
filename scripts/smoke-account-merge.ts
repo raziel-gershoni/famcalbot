@@ -605,9 +605,9 @@ function seed() {
   // W's own pings follow to T; where T already has the ping row of the same occurrence (a reminder
   // for both of them), T's stays and W's goes.
   DB.nativeReminderPing = [
-    { id: 'pg-w', stateId: 'st-w', userId: W, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 41, createdAt: days(-1), updatedAt: days(-1) },
-    { id: 'pg-both-w', stateId: 'st-both', userId: W, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 42, createdAt: days(-1), updatedAt: days(-1) },
-    { id: 'pg-both-t', stateId: 'st-both', userId: T, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 43, createdAt: days(-1), updatedAt: days(-1) },
+    { id: 'pg-w', stateId: 'st-w', userId: W, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 41, doneAt: days(-1), createdAt: days(-1), updatedAt: days(-1) },
+    { id: 'pg-both-w', stateId: 'st-both', userId: W, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 42, doneAt: days(-1), createdAt: days(-1), updatedAt: days(-1) },
+    { id: 'pg-both-t', stateId: 'st-both', userId: T, snoozedUntil: null, lastPingedAt: days(-1), pingAttempts: 1, pingChatId: null, pingMessageId: 43, doneAt: null, createdAt: days(-1), updatedAt: days(-1) },
   ];
   DB.nativeEventInstance = [];
   DB.pairing = [];
@@ -759,6 +759,9 @@ async function main() {
     assert(rowOf('nativeReminderState', 'st-w')?.doneByUserId === T, `reminder state ${show(rowOf('nativeReminderState', 'st-w'))}`);
     assert(rowOf('nativeReminderPing', 'pg-w')?.userId === T, `W's ping moved: ${show(rowOf('nativeReminderPing', 'pg-w'))}`);
     assert(!rowOf('nativeReminderPing', 'pg-both-w') && rowOf('nativeReminderPing', 'pg-both-t')?.userId === T && table('nativeReminderPing').length === 2, `the duplicate ping: ${show(table('nativeReminderPing'))}`);
+    // Each marks their own Done: W's own Done goes with its moved row; where T already had the row, T's (not done) wins.
+    assert(rowOf('nativeReminderPing', 'pg-w')?.doneAt !== null, `W's own Done travels with its ping row: ${show(rowOf('nativeReminderPing', 'pg-w'))}`);
+    assert(rowOf('nativeReminderPing', 'pg-both-t')?.doneAt === null, `the surviving row's Done wins: ${show(rowOf('nativeReminderPing', 'pg-both-t'))}`);
     const t = userRow(T);
     assert(t.whatsappPhone === PHONE && t.messagingPlatform === 'all', `T ${show({ whatsappPhone: t.whatsappPhone, messagingPlatform: t.messagingPlatform })}`);
     assert(result.user?.whatsappPhone === PHONE && String(result.user?.telegramId) === '5550010', `returned user ${show(result.user)}`);

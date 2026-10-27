@@ -66,7 +66,7 @@ export function effectiveOwnerId(
 }
 
 /** The reminder columns that say who it is for. */
-export type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean };
+export type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean; eachMarksDone?: boolean };
 type RecipientColumns = ReminderSeriesColumns;
 
 /**
@@ -120,6 +120,26 @@ export function viewerSnoozedUntil(
 ): Date | null {
   const pingUserId = pingUserFor(recipientIdsForViewer(series, ctx), ctx.viewerId);
   return state?.pings.find((p) => p.userId === pingUserId)?.snoozedUntil ?? null;
+}
+
+/** What the readers of one occurrence's Done need of its state row: the shared Done and each recipient's own. */
+export interface DoneState {
+  doneAt: Date | null;
+  pings: Array<{ userId: number; doneAt?: Date | null }>;
+}
+
+/**
+ * When `userId` is done with an occurrence, or null while they are not. The shared Done
+ * (`state.doneAt`) is done for everyone. A reminder where each marks their own Done
+ * (`eachMarksDone`) also counts the person's own ping row, and that is their moment when both
+ * exist. With the switch off a ping row's `doneAt` is never read, so a stale partial one
+ * (a switch turned off again) cannot make anything done. The ONE rule for "is this done for
+ * them": the pass, the digests, the home and the actions all ask it.
+ */
+export function userDoneAt(series: ReminderSeriesColumns, state: DoneState | undefined, userId: number): Date | null {
+  if (!state) return null;
+  const own = series.eachMarksDone ? (state.pings.find((p) => p.userId === userId)?.doneAt ?? null) : null;
+  return own ?? state.doneAt ?? null;
 }
 
 /**
