@@ -12,8 +12,9 @@
 // - Logical properties only; directional icons flip in RTL (.ch-flip); nothing under
 //   11 px; every tap at least 44 px; no hover styles (touch only).
 // - The shared parts: the 44 px icon buttons (.ch-icon-btn), a sheet's heading and
-//   subheading, the spinner (.ch-spin), and the card for a state that stands in for a
-//   screen (.ch-home-card: busy, retry, a crash, and StateCard's).
+//   subheading, the spinner (.ch-spin) and the loader that centres it (.ch-loader), and the
+//   card for a state that stands in for a screen (.ch-home-card: busy, retry, a crash, and
+//   StateCard's; its actions stack in .ch-home-card-actions when there are two).
 
 export const APP_SCREEN_CSS = `
 .ch-screen {
@@ -101,5 +102,17 @@ html:has(.ch-screen[data-theme='dark']) {
   min-height: 48px;
   margin-block-start: 16px;
   padding-inline: 24px;
+  text-decoration: none;
+}
+.ch-home-card-actions {
+  display: flex;
+  flex-direction: column;
+}
+.ch-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 60dvh;
+  color: var(--ch-accent);
 }
 `;

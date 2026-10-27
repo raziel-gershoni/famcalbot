@@ -15,7 +15,14 @@
 //    Telegram colours; and no other file calls useTelegramBackButton but the three clients
 //    W1 and W3 still have to move;
 //  - the layer's boundary: nothing in components/app-ui/ imports from app/ or a server module,
-//    so every screen can take it into its client bundle.
+//    so every screen can take it into its client bundle;
+//  - the cards (renderToString in en, he and ru): StateCard draws the home's card with the markup
+//    the busy, retry and crash cards always had; MissingParameterCard and the 404 are
+//    AppScreens in the page's direction and language with their text from messages (no raw
+//    key, no English in he and ru), and show no BackButton, in Telegram or in a browser; the
+//    gate's card (PageGate's NoCredentialCard) in the app look closes the Mini App or links on;
+//  - an unknown path under a locale calls notFound() (the catch-all), which Next answers with
+//    app/[locale]/not-found.tsx.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -30,6 +37,10 @@ import { NextIntlClientProvider } from 'next-intl';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { AppScope, AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
+import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
+import NotFound from '../app/[locale]/not-found';
+import UnknownPath from '../app/[locale]/[...rest]/page';
+import { NoCredentialCard } from '../app/[locale]/PageGate';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 
@@ -53,6 +64,7 @@ function assert(cond: unknown, message: string): asserts cond {
 }
 
 const show = (value: unknown) => JSON.stringify(value);
+const noop = () => undefined;
 const messages: Record<string, Row> = {
   en: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8')),
   he: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')),
@@ -70,6 +82,23 @@ function inIntl(locale: string, el: ReactElement): ReactElement {
 /** The screen and the scope with their children passed as createElement arguments (the lint rule forbids the prop). */
 const ScreenProbe = AppScreen as unknown as (props: Omit<ComponentProps<typeof AppScreen>, 'children'>) => ReactElement;
 const ScopeProbe = AppScope as unknown as () => ReactElement;
+
+const CardProbe = StateCard as unknown as (props: StateCardProps) => ReactElement;
+
+/** The text a reader sees: style sheets, tags and React's text separators out, entities decoded, spaces collapsed. */
+const textOf = (html: string) =>
+  html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/g, ' ')
+    .replace(/<!-- -->/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The markup without the style sheets. */
+const markupOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 
 /** A part that shows the scheme useAppScheme gives it. */
 function SchemeProbe() {
@@ -339,6 +368,104 @@ async function main() {
       }
     }
     assert(bad.length === 0, `imports the layer must not make: ${show(bad)}`);
+  });
+
+  await check('#7 StateCard draws the home\'s card with the markup its busy, retry and crash cards always had: a status paragraph title with a button; a title, a body and a button; the crash card an alert with an h1 and a ch-crash class; a link action is an anchor in the same classes; a second action stacks under the first, quieter', () => {
+    const html = (props: StateCardProps) => markupOf(renderToString(inIntl('en', createElement(CardProbe, props))));
+    // HomeCard before F1 (CalendarHome.tsx): busy
+    assert(html({ title: 'Busy', action: { label: 'Retry', onClick: noop } }) === '<div class="ch-home-card" role="status"><p class="ch-home-card-title">Busy</p><button type="button" class="ch-btn ch-btn-primary ch-home-card-action">Retry</button></div>', 'the busy card');
+    assert(html({ title: 'Oops', body: 'Try again soon', action: { label: 'Retry', onClick: noop } }) === '<div class="ch-home-card" role="status"><p class="ch-home-card-title">Oops</p><p class="ch-home-card-body">Try again soon</p><button type="button" class="ch-btn ch-btn-primary ch-home-card-action">Retry</button></div>', 'the retry card');
+    // HomeCrash before F1 (HomeErrorBoundary.tsx)
+    assert(html({ tone: 'crash', title: 'Stuck', body: 'Reload', action: { label: 'Reload', onClick: noop } }) === '<div class="ch-home-card ch-crash" role="alert"><h1 class="ch-home-card-title">Stuck</h1><p class="ch-home-card-body">Reload</p><button type="button" class="ch-btn ch-btn-primary ch-home-card-action">Reload</button></div>', 'the crash card');
+    assert(html({ title: 'No actions' }) === '<div class="ch-home-card" role="status"><p class="ch-home-card-title">No actions</p></div>', 'no action, no body');
+    assert(html({ title: 'T', action: { label: 'Go', href: '/he/dashboard' } }) === '<div class="ch-home-card" role="status"><p class="ch-home-card-title">T</p><a class="ch-btn ch-btn-primary ch-home-card-action" href="/he/dashboard">Go</a></div>', 'a link action');
+    assert(
+      html({ title: 'T', action: { label: 'One', href: '/a' }, secondary: { label: 'Two', href: '/b' } }) ===
+        '<div class="ch-home-card" role="status"><p class="ch-home-card-title">T</p><div class="ch-home-card-actions"><a class="ch-btn ch-btn-primary ch-home-card-action" href="/a">One</a><a class="ch-btn ch-home-card-action" href="/b">Two</a></div></div>',
+      'two actions',
+    );
+    assert(/\.ch-home-card-action \{[^}]*text-decoration:\s*none/.test(APP_SCREEN_CSS) && /\.ch-home-card-actions \{[^}]*flex-direction:\s*column/.test(APP_SCREEN_CSS), "a link reads as the card's button, and two stack");
+  });
+
+  await check("#7b MissingParameterCard and the 404 in en, he and ru: an AppScreen with the page's direction and language, the card's h1 and text from messages (no raw key; no Latin letters in he and ru), the 404's link to /<locale>/dashboard, no BackButton in Telegram or in a browser; the card paints through the theme's tokens", () => {
+    for (const locale of ['en', 'he', 'ru']) {
+      const dir = locale === 'he' ? 'rtl' : 'ltr';
+      const ui = messages[locale].ui as Row;
+      const missing = renderToString(inIntl(locale, createElement(MissingParameterCard)));
+      assert(missing.startsWith(`<div class="ch-app ch-screen" data-theme="light" dir="${dir}" lang="${locale}">`), `${locale}: the root: ${missing.slice(0, 120)}`);
+      assert(markupOf(missing).includes(`<h1 class="ch-home-card-title">${ui.missingParameter.title.replace(/'/g, '&#x27;')}</h1>`), `${locale}: the h1`);
+      assert(textOf(missing) === `${ui.missingParameter.title} ${ui.missingParameter.body}`, `${locale}: the text: ${textOf(missing)}`);
+      const gone = renderToString(inIntl(locale, createElement(NotFound)));
+      assert(gone.startsWith(`<div class="ch-app ch-screen" data-theme="light" dir="${dir}" lang="${locale}">`), `${locale}: the 404's root`);
+      assert(textOf(gone) === `${ui.notFound.title} ${ui.notFound.body} ${ui.notFound.home}`, `${locale}: the 404's text: ${textOf(gone)}`);
+      assert(markupOf(gone).includes(`<a class="ch-btn ch-btn-primary ch-home-card-action" href="/${locale}/dashboard">${ui.notFound.home}</a>`), `${locale}: the way back`);
+      for (const html of [missing, gone]) {
+        assert(!/\bui\.(?:missingParameter|notFound)|ui\./.test(textOf(html)), `${locale}: a raw key`);
+        if (locale !== 'en') assert(!/[A-Za-z]/.test(textOf(html)), `${locale}: Latin letters in ${textOf(html)}`);
+      }
+    }
+    // A browser has no Telegram.WebApp calls to make; Telegram gets the BackButton hidden and never shown
+    installWindow();
+    for (const card of [MissingParameterCard, NotFoundCard]) {
+      const plain = mount(inIntl('he', createElement(card)));
+      try {
+        assert(elements(plain.container).some((e) => e.className === 'ch-app ch-screen' && e.getAttribute('dir') === 'rtl'), 'mounted in a browser');
+      } finally {
+        plain.unmount();
+      }
+      const calls: string[] = [];
+      fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
+      const inTelegram = mount(inIntl('en', createElement(card)));
+      try {
+        assert(show(backCalls(calls)) === show(['BackButton.hide()']), `in Telegram: ${show(backCalls(calls))}`);
+      } finally {
+        inTelegram.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
+    // The loader and the cards paint through the same token: Telegram's bg_color first, then the fallback
+    const root = rule(APP_THEME_CSS, '.ch-app');
+    assert(/--ch-bg:\s*var\(--tg-theme-bg-color,\s*var\(--bg-white\)\)/.test(root) && /background:\s*var\(--ch-bg\)/.test(root), `the root's background: ${root}`);
+  });
+
+  await check("#7c PageGate's gate card in the app look (NoCredentialCard): in Telegram its button closes the Mini App; in a browser it links to WhatsApp first and Telegram second, filled then quiet; both are an AppScreen with the card's h1 and no BackButton", () => {
+    installWindow();
+    const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
+    const calls: string[] = [];
+    fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
+    const card = (inTelegram: boolean) => inIntl('he', createElement(NoCredentialCard, { look: 'app', inTelegram, links }));
+    const tg = mount(card(true));
+    try {
+      const buttons = elements(tg.container).filter((e) => e.localName === 'button');
+      assert(buttons.length === 1 && buttons[0].textContent === messages.he.pageGate.close, `the in-Telegram card's buttons: ${show(buttons.map((b) => b.textContent))}`);
+      calls.length = 0;
+      tg.click(buttons[0]);
+      assert(show(calls.filter((c) => c.startsWith('close'))) === show(['close()']), `the click: ${show(calls)}`);
+      assert(elements(tg.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.telegramTitle), 'the title is the h1');
+    } finally {
+      tg.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    const browser = mount(card(false));
+    try {
+      const anchors = elements(browser.container).filter((e) => e.localName === 'a');
+      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([[links.whatsapp, 'ch-btn ch-btn-primary ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card's links: ${show(anchors.map((a) => [a.getAttribute('href'), a.className]))}`);
+    } finally {
+      browser.unmount();
+    }
+  });
+
+  await check("#8 an unknown path under a locale reaches the app's 404: the catch-all page calls notFound(), and the route files are where Next looks (app/[locale]/[...rest]/page.tsx, app/[locale]/not-found.tsx)", () => {
+    let digest = '';
+    try {
+      UnknownPath();
+    } catch (err) {
+      digest = String((err as Row)?.digest ?? err);
+    }
+    assert(/NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(digest), `the catch-all threw ${digest || 'nothing'}`);
+    for (const file of ['app/[locale]/[...rest]/page.tsx', 'app/[locale]/not-found.tsx']) assert(fs.existsSync(path.join(ROOT, file)), `no ${file}`);
+    const gone = fs.readFileSync(path.join(ROOT, 'app/[locale]/not-found.tsx'), 'utf8');
+    assert(/NotFoundCard/.test(gone), 'the 404 is the card');
   });
 
   await check('#99 React logged no warning', () => {

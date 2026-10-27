@@ -133,17 +133,6 @@ function installStubs() {
 
 const he = JSON.parse(readSource('messages/he.json'));
 
-/** Every element in a tree, with the elements inside its props (children, action). */
-function elementsIn(node: unknown, out: Row[] = []): Row[] {
-  if (Array.isArray(node)) {
-    node.forEach(n => elementsIn(n, out));
-  } else if (node && typeof node === 'object' && 'props' in node) {
-    out.push(node as Row);
-    for (const v of Object.values((node as Row).props ?? {})) elementsIn(v, out);
-  }
-  return out;
-}
-
 /** Server-render an element inside the providers the [locale] layout gives a client page. */
 function renderHtml(el: unknown, locale: string): string {
   const React = nodeRequire('react');
@@ -276,7 +265,16 @@ async function main() {
     await withWindow(light.webApp, () => startMiniApp('light'));
     assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
 
+    // The app's own look sets no colour (its AppScreen takes the theme's bg_color), and turns swipes on
+    const app = fakeWebApp([], '7.7');
+    await withWindow(app.webApp, () => startMiniApp('app'));
+    assert(show(app.calls) === show(['ready()', 'expand()', 'enableVerticalSwipes()']), `app look: ${show(app.calls)}`);
+    const appOld = fakeWebApp();
+    await withWindow(appOld.webApp, () => startMiniApp('app'));
+    assert(show(appOld.calls) === show(['ready()', 'expand()']), `app look without the 7.x members: ${show(appOld.calls)}`);
+
     await withWindow(null, () => startMiniApp('telegram'));
+    await withWindow(null, () => startMiniApp('app'));
   });
 
   await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing; the light look stays ready+expand', async () => {
@@ -305,6 +303,13 @@ async function main() {
     const light = fakeWebApp([], '8.0');
     await withWindow(light.webApp, () => startMiniApp('light'));
     assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
+
+    const app = fakeWebApp([], '8.0');
+    await withWindow(app.webApp, () => startMiniApp('app'));
+    assert(app.calls.filter(c => c === 'enableVerticalSwipes()').length === 1 && !app.calls.includes('disableVerticalSwipes()'), `app look 8.0: ${show(app.calls)}`);
+    const appOld = fakeWebApp([], '7.6');
+    await withWindow(appOld.webApp, () => startMiniApp('app'));
+    assert(!appOld.calls.some(c => c.includes('VerticalSwipes')), `app look 7.6: ${show(appOld.calls)}`);
   });
 
   await check('#3 share-story keeps ready() alone: no expand() anywhere in it', () => {
@@ -360,7 +365,7 @@ async function main() {
     const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const problems: string[] = [];
-    for (const look of ['telegram', 'light']) {
+    for (const look of ['telegram', 'light', 'app']) {
       const html = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: LINKS }), 'he');
       const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
       const tg = html.indexOf(`href="${LINKS.telegram}"`);
@@ -380,12 +385,17 @@ async function main() {
     assert(html.includes(asHtml(he.pageGate.telegramBody)) && he.pageGate.close && html.includes(asHtml(he.pageGate.close)),
       `the card: ${html.slice(0, 300)}`);
     assert(!html.includes('wa.me') && !html.includes('t.me/'), 'the in-Telegram card links out');
-    const clicks = elementsIn(treeOf(NoCredentialCard, { look: 'telegram', inTelegram: true, links: LINKS }, 'he'))
-      .map(e => e.props.onClick).filter((f): f is () => void => typeof f === 'function');
-    assert(clicks.length === 1, `${clicks.length} click handlers`);
-    const tg = fakeWebApp();
-    await withWindow(tg.webApp, () => clicks[0]());
-    assert(show(tg.calls) === show(['close()']), `the click called ${show(tg.calls)}`);
+    // The card's action is data for the gate (Gate renders it as a button in each look)
+    for (const look of ['telegram', 'light', 'app']) {
+      const card = treeOf(NoCredentialCard, { look, inTelegram: true, links: LINKS }, 'he') as Row;
+      const clicks = (card.props.actions as Row[]).map(a => a.onClick).filter((f): f is () => void => typeof f === 'function');
+      assert(clicks.length === 1 && card.props.actions.length === 1, `${look}: ${clicks.length} click handlers`);
+      const tg = fakeWebApp();
+      await withWindow(tg.webApp, () => clicks[0]());
+      assert(show(tg.calls) === show(['close()']), `${look}: the click called ${show(tg.calls)}`);
+      const appHtml = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: true, links: LINKS }), 'he');
+      assert(appHtml.includes(asHtml(he.pageGate.telegramTitle)) && appHtml.includes(asHtml(he.pageGate.close)), `${look}: the card's text`);
+    }
   });
 
   await check('#9 PageGate\'s gate outcome renders the shared card with the page\'s links', () => {
@@ -507,10 +517,11 @@ async function main() {
     return { first, html };
   };
 
-  await check('#16 the purple dashboard loader while the home loads, then CalendarHome with exactly CalendarHomeProps (user.id is the page\'s user_id)', async () => {
+  await check('#16 the app\'s dashboard loader (the home\'s own background and a spinner, no purple) while the home loads, then CalendarHome with exactly CalendarHomeProps (user.id is the page\'s user_id)', async () => {
     // The first check that renders the home, so its chunk is not loaded yet
     const { first, html } = await renderDashboard(DASHBOARD);
-    assert(first.includes('linear-gradient(135deg, #667eea 0%, #764ba2 100%)') && !first.includes('smoke:'), `the first pass: ${first.slice(0, 200)}`);
+    assert(first.startsWith('<div class="ch-app ch-screen" data-theme="light" dir="rtl" lang="he">') && first.includes('class="ch-loader" role="status"') && first.includes('ch-spin'), `the first pass: ${first.slice(0, 200)}`);
+    assert(first.includes(asHtml(he.pageGate.loading)) && !first.includes('#667eea') && !first.includes('smoke:'), 'the loading text, no purple, no home yet');
     assert(html.includes('smoke:CalendarHome'), `rendered: ${html.slice(0, 200)}`);
     const want = {
       user: { id: 5550001, name: 'Dana', isAdmin: true },
@@ -539,7 +550,7 @@ async function main() {
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard stays telegram (the loader\'s look)', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard is app (the loader\'s look); the other pages keep theirs', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -549,7 +560,11 @@ async function main() {
     const entry = preload.slice(preload.indexOf('dashboard:'), preload.indexOf('settings:'));
     assert(entry.includes("import('./dashboard/CalendarHome')"), `no CalendarHome chunk in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
     assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
-    assert(/\n\s*dashboard: 'telegram',/.test(block('LOOK')), `LOOK: ${block('LOOK')}`);
+    const look = block('LOOK');
+    assert(/\n\s*dashboard: 'app',/.test(look), `LOOK: ${look}`);
+    for (const [page, kept] of [['settings', 'telegram'], ["'select-calendars'", 'telegram'], ['subscription', 'telegram'], ['calendars', 'light'], ['pair', 'light']]) {
+      assert(new RegExp(`\\n\\s*${page}: '${kept}',`).test(look), `${page} keeps ${kept}: ${look}`);
+    }
   });
 
   await check('#19 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code', async () => {
@@ -564,6 +579,45 @@ async function main() {
     assert(!/calendar-view\/(?:home-client|home-loader|store|format)'|dashboard\/HomeErrorBoundary'/.test(src), 'PageGate imports the home\'s client code, which every page would then load');
     const leaf = readSource('src/lib/calendar-view/reload-guard.ts');
     assert(!/^import /m.test(leaf), 'reload-guard imports something');
+  });
+
+  await check("#20 a missing user_id gives the app's MissingParameterCard on all seven pages that had their own copy (settings, admin-panel, feedback, select-calendars, calendars, pair and refresh-token), in en, he and ru, with its text from messages and none of the old inline cards; subscription still answers notFound; select-calendars' two notices are StateCards in an AppScreen", async () => {
+    const { renderToString } = nodeRequire('react-dom/server');
+    const problems: string[] = [];
+    const old = (html: string) => /Missing Parameter|user_id parameter is required|Missing user_id|#667eea|linear-gradient|text-rose-600/.test(html);
+    for (const locale of ['en', 'he', 'ru']) {
+      const copy = JSON.parse(readSource(`messages/${locale}.json`)).ui.missingParameter;
+      for (const name of ['settings', 'admin-panel', 'feedback', 'select-calendars', 'calendars', 'pair']) {
+        const el = await callPage(`app/[locale]/${name}/page.tsx`, locale);
+        if (el?.type?.name !== 'MissingParameterCard') {
+          problems.push(`${locale} ${name} renders ${el?.type?.name ?? show(el)}`);
+          continue;
+        }
+        const html = renderHtml(el, locale);
+        if (!html.includes(asHtml(copy.title)) || !html.includes(asHtml(copy.body)) || old(html)) problems.push(`${locale} ${name}: ${html.slice(html.indexOf('<h1'), html.indexOf('<h1') + 160)}`);
+        if (!html.startsWith(`<div class="ch-app ch-screen" data-theme="light" dir="${locale === 'he' ? 'rtl' : 'ltr'}" lang="${locale}">`) || !html.includes('<h1 class="ch-home-card-title">')) problems.push(`${locale} ${name}: not an AppScreen with the card's h1`);
+      }
+      // refresh-token sits outside [locale]: its page brings its own provider, in English
+      const refresh = await callPage('app/refresh-token/page.tsx', locale);
+      const html = renderToString(refresh);
+      const en = JSON.parse(readSource('messages/en.json')).ui.missingParameter;
+      if (!html.includes(asHtml(en.title)) || !html.includes(asHtml(en.body)) || old(html) || !html.includes('lang="en"')) problems.push(`refresh-token: ${html.slice(0, 200)}`);
+    }
+    let threw = false;
+    try {
+      await callPage('app/[locale]/subscription/page.tsx', 'en');
+    } catch (err) {
+      threw = /NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(String((err as Row)?.digest ?? err));
+    }
+    if (!threw) problems.push('subscription without a user_id no longer calls notFound()');
+    // The notices of select-calendars
+    const gate = await callPage('app/[locale]/select-calendars/page.tsx', 'en', '5550001');
+    const notices = gate.props.notices as Row;
+    const none = renderHtml(notices.noGoogleToken, 'en');
+    if (!none.startsWith('<div class="ch-app ch-screen"') || !none.includes('No Google Token') || !none.includes('Please refresh your token first.') || old(none)) problems.push(`noGoogleToken: ${none.slice(none.indexOf('<h1'), none.indexOf('<h1') + 200)}`);
+    const error = renderHtml(notices.error, 'en');
+    if (!error.startsWith('<div class="ch-app ch-screen"') || !error.includes('Unknown error') || !error.includes('href="/select-calendars?user_id=5550001"') || !error.includes('Try Again') || old(error)) problems.push(`error: ${error.slice(error.indexOf('<h1'), error.indexOf('<h1') + 300)}`);
+    assert(problems.length === 0, problems.join('; '));
   });
 
   let failed = 0;

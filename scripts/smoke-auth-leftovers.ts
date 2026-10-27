@@ -235,7 +235,7 @@ async function main() {
   await check('#8 [guard] /en/feedback with no user_id still shows the missing-parameter card', async () => {
     const page = (await load('app/[locale]/feedback/page.tsx')).default;
     const el = await page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({}) });
-    assert(show(el).includes('user_id parameter is required'), `renders ${show(el).slice(0, 200)}`);
+    assert(el?.type?.name === 'MissingParameterCard', `renders ${el?.type?.name ?? show(el).slice(0, 200)}`);
   });
 
   // ---- Docs ----

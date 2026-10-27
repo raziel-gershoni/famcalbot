@@ -106,6 +106,7 @@ import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-vi
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { AppScreen } from '@/components/app-ui/AppScreen';
+import { StateCard } from '@/components/app-ui/StateCard';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -322,21 +323,8 @@ function scrollToTop() {
 
 function HomeCard({ kind, onRetry }: { kind: Card; onRetry: () => void }) {
   const t = useTranslations('calendarHome');
-  return (
-    <div className="ch-home-card" role="status">
-      {kind === 'busy' ? (
-        <p className="ch-home-card-title">{t('state.busy')}</p>
-      ) : (
-        <>
-          <p className="ch-home-card-title">{t('state.errorTitle')}</p>
-          <p className="ch-home-card-body">{t('state.errorBody')}</p>
-        </>
-      )}
-      <button type="button" className="ch-btn ch-btn-primary ch-home-card-action" onClick={onRetry}>
-        {t('actions.retry')}
-      </button>
-    </div>
-  );
+  const retry = { label: t('actions.retry'), onClick: onRetry };
+  return kind === 'busy' ? <StateCard title={t('state.busy')} action={retry} /> : <StateCard title={t('state.errorTitle')} body={t('state.errorBody')} action={retry} />;
 }
 
 /** The Month before the first answer (a reload on the Month tab): placeholders, never free days. */
@@ -1056,7 +1044,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   }, [monthPossible]);
 
   if (blocked === 'noCredential') {
-    return <NoCredentialCard look="telegram" inTelegram={inTelegram} links={CLIENT_GATE_LINKS} />;
+    return <NoCredentialCard look="app" inTelegram={inTelegram} links={CLIENT_GATE_LINKS} />;
   }
 
   const zone = facts && zoneDiffers(deviceZone, facts.tz) ? facts.tz : null;

@@ -14,6 +14,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
 import { AppScreen } from '@/components/app-ui/AppScreen';
+import { StateCard } from '@/components/app-ui/StateCard';
 import { releaseTelegramControls, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 
 /** The guard's sessionStorage key for the chunk-load reload (reload-guard's, shared with PageGate's boundary). */
@@ -34,13 +35,7 @@ export function HomeCrash() {
   // No onBack: AppScreen hides a BackButton the client kept from before.
   return (
     <AppScreen className="ch-home">
-      <div className="ch-home-card ch-crash" role="alert">
-        <h1 className="ch-home-card-title">{t('errorBoundary.title')}</h1>
-        <p className="ch-home-card-body">{t('errorBoundary.body')}</p>
-        <button type="button" className="ch-btn ch-btn-primary ch-home-card-action" onClick={reloadPage}>
-          {t('actions.reload')}
-        </button>
-      </div>
+      <StateCard tone="crash" title={t('errorBoundary.title')} body={t('errorBoundary.body')} action={{ label: t('actions.reload'), onClick: reloadPage }} />
     </AppScreen>
   );
 }

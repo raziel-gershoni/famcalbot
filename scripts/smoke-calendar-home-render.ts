@@ -2561,7 +2561,7 @@ async function main() {
     await settle();
     try {
       assert(show(reloads) === show(['reload']) && fakeWindow.sessionStorage.getItem(CHUNK_RELOAD_KEY) !== null, `one reload, with the home's guard key: ${show(reloads)}`);
-      assert(innerHtml(a.container).includes('pagegate-spin'), `the loader while the page reloads: ${textOf(innerHtml(a.container)).slice(0, 120)}`);
+      assert(innerHtml(a.container).includes('class="ch-loader"') && innerHtml(a.container).includes('ch-spin') && !innerHtml(a.container).includes('pagegate-spin'), `the app's loader while the page reloads: ${textOf(innerHtml(a.container)).slice(0, 120)}`);
       assert(appLogs.some((l) => l.startsWith('[calendar-home] The home did not load')), `logged: ${show(appLogs)}`);
     } finally {
       a.unmount();

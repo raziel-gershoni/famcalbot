@@ -6,13 +6,17 @@
 // own client component with the same props it always had. A locale mismatch becomes a
 // router.replace, a notice renders the page's static notice, and 401/403/404 show the
 // pageGate card instead of anyone's data, with a way back to the chat. The dashboard is
-// the calendar home, inside its own chunk-load boundary.
+// the calendar home, inside its own chunk-load boundary. Each page has a look: the dashboard's
+// is the app's own ('app': the home's tokens, no colour of ours on Telegram's chrome), the
+// other pages keep the purple gradient or the light card until W1 and W3 move them.
 
 import { Component, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { notFound, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { StateCard } from '@/components/app-ui/StateCard';
 import type { PageDataResult, PageName, PageNotice, PagePropsMap } from '@/src/lib/page-data';
 import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import type { GateLinks } from '@/src/lib/gate-links';
@@ -20,10 +24,10 @@ import { enableTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { readInitData } from '@/src/lib/read-init-data';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
 
-/** The look each page already has: the purple Telegram gradient, or the light Tailwind one. */
-export type Look = 'telegram' | 'light';
+/** The look of each page: the app's own, the purple Telegram gradient, or the light Tailwind one. */
+export type Look = 'app' | 'telegram' | 'light';
 const LOOK: Record<PageName, Look> = {
-  dashboard: 'telegram',
+  dashboard: 'app',
   settings: 'telegram',
   'select-calendars': 'telegram',
   subscription: 'telegram',
@@ -31,7 +35,21 @@ const LOOK: Record<PageName, Look> = {
   pair: 'light',
 };
 
+/** The app's loader: the home's own background, one spinner and the loading text for a screen reader. */
+function AppLoader({ label }: { label?: string }) {
+  const t = useTranslations('pageGate');
+  return (
+    <AppScreen>
+      <div className="ch-loader" role="status">
+        <Loader2 size={32} className="ch-spin" aria-hidden="true" />
+        <span className="ch-visually-hidden">{label ?? t('loading')}</span>
+      </div>
+    </AppScreen>
+  );
+}
+
 function PageLoader({ look, label }: { look: Look; label?: string }) {
+  if (look === 'app') return <AppLoader label={label} />;
   if (look === 'light') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
@@ -64,33 +82,38 @@ function PageLoader({ look, label }: { look: Look; label?: string }) {
  * Full height and the page's Telegram chrome at once, not after the data round trip.
  * The page's TelegramLayout repeats these later; ready() and expand() are idempotent.
  * Some WebApp versions throw on a hex colour, and a throw here would replace the gate.
+ * The purple page sets its purple header and background. The app's look sets no colour of
+ * its own: its AppScreen takes the theme's bg_color for Telegram's header and background.
  */
 export function startMiniApp(look: Look) {
   const tg = window.Telegram?.WebApp;
   if (!tg) return;
   tg.ready();
   tg.expand();
-  if (look !== 'telegram') return;
-  try {
-    tg.setHeaderColor('#667eea');
-  } catch (e) {
-    console.error('[PageGate] Could not set the header colour:', e);
-  }
-  try {
-    tg.setBackgroundColor('#ffffff');
-  } catch (e) {
-    console.error('[PageGate] Could not set the background colour:', e);
+  if (look === 'light') return;
+  if (look === 'telegram') {
+    try {
+      tg.setHeaderColor('#667eea');
+    } catch (e) {
+      console.error('[PageGate] Could not set the header colour:', e);
+    }
+    try {
+      tg.setBackgroundColor('#ffffff');
+    } catch (e) {
+      console.error('[PageGate] Could not set the background colour:', e);
+    }
   }
   // A reload keeps swipes off if the page before it (Month browse) turned them off
   enableTelegramVerticalSwipes();
 }
 
+const appLoader = () => <PageLoader look="app" />;
 const telegramLoader = () => <PageLoader look="telegram" />;
 const lightLoader = () => <PageLoader look="light" />;
 
 // Each page's existing client component, loaded only once its data has arrived.
 // The calendar home (spec §7.1), behind the dashboard's own loader; it applies its look on mount.
-const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: telegramLoader });
+const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: appLoader });
 const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: telegramLoader });
 const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
 const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
@@ -174,18 +197,7 @@ function reloadPage() {
 /** A calendar home that didn't load: the gate's error card, whose button reloads the page. */
 function HomeLoadFailed() {
   const t = useTranslations('pageGate');
-  return (
-    <GateCard
-      look="telegram"
-      title={t('errorTitle')}
-      lines={[t('errorBody')]}
-      action={
-        <GateActions look="telegram">
-          <GateAction look="telegram" primary onClick={reloadPage}>{t('retry')}</GateAction>
-        </GateActions>
-      }
-    />
-  );
+  return <Gate look="app" title={t('errorTitle')} body={t('errorBody')} actions={[{ label: t('retry'), primary: true, onClick: reloadPage }]} />;
 }
 
 /**
@@ -210,7 +222,7 @@ export class HomeChunkBoundary extends Component<{ children: ReactNode }, { fail
 
   render() {
     if (!this.state.failed) return this.props.children;
-    return this.state.reloading ? <PageLoader look="telegram" /> : <HomeLoadFailed />;
+    return this.state.reloading ? <PageLoader look="app" /> : <HomeLoadFailed />;
   }
 }
 
@@ -264,6 +276,46 @@ function GateCard({ look, title, lines, action }: { look: Look; title: string; l
   );
 }
 
+interface GateActionSpec {
+  label: string;
+  /** The filled one: the card's main way on. */
+  primary?: boolean;
+  href?: string;
+  onClick?: () => void;
+}
+
+/**
+ * A gate's card in the page's look: the app's StateCard inside its own screen, or the
+ * purple and the light pages' card. The first action is the app card's filled one, the
+ * second its quieter one.
+ */
+function Gate({ look, title, body, actions }: { look: Look; title: string; body: string; actions: GateActionSpec[] }) {
+  if (look === 'app') {
+    const [first, second] = actions;
+    return (
+      <AppScreen>
+        <StateCard tone="crash" title={title} body={body} action={first} secondary={second} />
+      </AppScreen>
+    );
+  }
+  return (
+    <GateCard
+      look={look}
+      title={title}
+      lines={[body]}
+      action={
+        <GateActions look={look}>
+          {actions.map((a) => (
+            <GateAction key={a.label} look={look} primary={a.primary} href={a.href} onClick={a.onClick}>
+              {a.label}
+            </GateAction>
+          ))}
+        </GateActions>
+      }
+    />
+  );
+}
+
 /** A gate card's actions, stacked under its text. */
 function GateActions({ look, children }: { look: Look; children: ReactNode }) {
   return look === 'light'
@@ -314,29 +366,23 @@ export function NoCredentialCard({ look, inTelegram, links }: { look: Look; inTe
   const t = useTranslations('pageGate');
   if (inTelegram) {
     return (
-      <GateCard
+      <Gate
         look={look}
         title={t('telegramTitle')}
-        lines={[t('telegramBody')]}
-        action={
-          <GateActions look={look}>
-            <GateAction look={look} primary onClick={() => window.Telegram?.WebApp?.close()}>{t('close')}</GateAction>
-          </GateActions>
-        }
+        body={t('telegramBody')}
+        actions={[{ label: t('close'), primary: true, onClick: () => window.Telegram?.WebApp?.close() }]}
       />
     );
   }
   return (
-    <GateCard
+    <Gate
       look={look}
       title={t('browserTitle')}
-      lines={[t('browserBody')]}
-      action={
-        <GateActions look={look}>
-          <GateAction look={look} primary href={links.whatsapp}>{t('openWhatsApp')}</GateAction>
-          <GateAction look={look} href={links.telegram}>{t('openTelegram')}</GateAction>
-        </GateActions>
-      }
+      body={t('browserBody')}
+      actions={[
+        { label: t('openWhatsApp'), primary: true, href: links.whatsapp },
+        { label: t('openTelegram'), href: links.telegram },
+      ]}
     />
   );
 }
@@ -421,16 +467,7 @@ export default function PageGate({ page, userId, locale, notices = {}, links }: 
   }
 
   const errorCard = (
-    <GateCard
-      look={look}
-      title={t('errorTitle')}
-      lines={[t('errorBody')]}
-      action={
-        <GateActions look={look}>
-          <GateAction look={look} primary onClick={() => setAttempt((n) => n + 1)}>{t('retry')}</GateAction>
-        </GateActions>
-      }
-    />
+    <Gate look={look} title={t('errorTitle')} body={t('errorBody')} actions={[{ label: t('retry'), primary: true, onClick: () => setAttempt((n) => n + 1) }]} />
   );
 
   if (outcome.kind === 'error') return errorCard;

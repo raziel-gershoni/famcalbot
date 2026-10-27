@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { XCircle } from 'lucide-react';
+import { NextIntlClientProvider } from 'next-intl';
+import { MissingParameterCard } from '@/components/app-ui/StateCard';
 import { googleStateOf } from '@/src/lib/google-state';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
@@ -26,32 +27,12 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   // Otherwise → show auth initiation page
   if (!user_id) {
+    // This page sits outside app/[locale]: it brings the provider the card reads its text from, in English
+    // (no user, no language yet). The card formats no date, so the zone is only there to be set.
     return (
-      <div style={{
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        margin: 0,
-        padding: '20px'
-      }}>
-        <div style={{
-          background: 'white',
-          padding: '40px',
-          borderRadius: '15px',
-          boxShadow: '0 10px 40px rgba(0,0,0,0.3)',
-          maxWidth: '400px',
-          textAlign: 'center'
-        }}>
-          <div style={{ marginBottom: '20px' }}><XCircle size={64} color="#ef4444" /></div>
-          <h2 style={{ margin: '0 0 20px 0', color: '#333' }}>Missing Parameter</h2>
-          <p style={{ color: '#666', lineHeight: '1.6' }}>
-            Missing user_id parameter. Please use the link provided by the bot.
-          </p>
-        </div>
-      </div>
+      <NextIntlClientProvider locale="en" messages={{ ui: enMessages.ui }} timeZone="UTC">
+        <MissingParameterCard />
+      </NextIntlClientProvider>
     );
   }
 

@@ -809,7 +809,6 @@
   "errors": {
     "unauthorized": "You are not authorized to use this bot",
     "userNotFound": "User not found",
-    "missingParameter": "Missing required parameter",
     "generic": "Something went wrong. Please try again."
   },
   "progress": {
@@ -1641,8 +1640,7 @@
     "errorGeneric": "Something went wrong.",
     "errorAlreadyPaired": "You are already paired. Unlink first.",
     "creating": "Creating…",
-    "unlinking": "Unlinking…",
-    "missingUserId": "Missing user_id"
+    "unlinking": "Unlinking…"
   },
   "invite": {
     "title": "Pair with {name}?",
@@ -1671,6 +1669,17 @@
       "title": "Invite link not valid",
       "body": "This invite expired, was revoked, or has already been used. Ask for a new one.",
       "home": "Back to home"
+    }
+  },
+  "ui": {
+    "missingParameter": {
+      "title": "Something's missing in this link",
+      "body": "Open it again from the bot's message."
+    },
+    "notFound": {
+      "title": "Page not found",
+      "body": "This page doesn't exist.",
+      "home": "Back to the calendar"
     }
   }
 }

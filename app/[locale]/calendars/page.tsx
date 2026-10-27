@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react';
+import { MissingParameterCard } from '@/components/app-ui/StateCard';
 import PageGate from '../PageGate';
 import { gateLinks } from '@/src/lib/gate-links';
 
@@ -13,14 +13,7 @@ export default async function CalendarsPage({ params, searchParams }: PageProps)
   const userId = sp.user_id ? parseInt(sp.user_id) : null;
 
   if (!userId) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md text-center">
-          <div className="mb-4 flex justify-center"><AlertTriangle size={48} className="text-amber-500" /></div>
-          <h1 className="text-xl font-bold text-rose-600 mb-2">Missing user_id</h1>
-        </div>
-      </div>
-    );
+    return <MissingParameterCard />;
   }
 
   // No user data in the server HTML: PageGate loads it through /api/page-data

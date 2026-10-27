@@ -282,6 +282,7 @@ export function fakeTelegram(calls: string[], version: string): Row {
     offEvent: rec('offEvent'),
     enableVerticalSwipes: rec('enableVerticalSwipes'),
     disableVerticalSwipes: rec('disableVerticalSwipes'),
+    close: rec('close'),
     backHandlers,
     BackButton: {
       onClick: (fn: () => void) => {
