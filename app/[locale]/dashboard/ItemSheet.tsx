@@ -207,6 +207,17 @@ function useReminderState(item: ItemDTO, mark: AgendaRow['mark'], today: DayKey,
   return t('sheet.stateLater');
 }
 
+/**
+ * Where each marks their own Done, the partner's status under the viewer's own state: "Dana is done" or
+ * "Dana hasn't marked it yet". Null for a reminder with one shared Done.
+ */
+function usePartnerLine(item: ItemDTO): string | null {
+  const t = useTranslations('calendarHome');
+  const r = item.reminder;
+  if (!r?.eachMarksDone || !r.partnerName) return null;
+  return t(r.partnerDone ? 'sheet.partnerDone' : 'sheet.partnerNotDone', { name: r.partnerName });
+}
+
 export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
@@ -215,6 +226,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
   const mark = actions ? reminderStateAt(item, actions.now, tz) : row.mark;
   const title = useItemTitle(item);
   const state = useReminderState(item, mark, today, tz);
+  const partnerLine = usePartnerLine(item);
   const editing = actions?.editing;
 
   const tags: string[] = [];
@@ -261,6 +273,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
         </p>
       ) : null}
       {state ? <p className="ch-sheet-state">{state}</p> : null}
+      {state && partnerLine ? <p className="ch-sheet-state ch-sheet-partner">{partnerLine}</p> : null}
       {actions && canAct(item) ? <ReminderActions mark={mark} actions={actions} /> : null}
       {actions?.note ? (
         <p className="ch-sheet-note" role="status">

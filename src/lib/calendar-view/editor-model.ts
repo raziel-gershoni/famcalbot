@@ -75,6 +75,11 @@ export interface EditorForm {
   /** Who the reminder is for: me, the partner, or both (a new one's, or the edited one's current recipients). */
   forWho: ForWho;
   /**
+   * A reminder for both of us: each marks their own Done (off: one Done covers both). Shown, and sent, only while
+   * `forWho` is 'both'; a switch left on under another For is kept in the form but never sent.
+   */
+  eachMarksDone: boolean;
+  /**
    * An event's alert (editor upgrades spec §2): the default, none, or a lead in minutes. A stored
    * lead off the list is kept as it is until another is picked. A Google item's is its own, read-only.
    */
@@ -267,6 +272,7 @@ export function newItemForm(ctx: NewItemContext): EditorForm {
     repeat: 'none',
     calendarId: main ? main.id : null,
     forWho: 'me',
+    eachMarksDone: false,
     alert: 'default',
   };
 }
@@ -301,6 +307,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     repeat: storedRepeat(info, repeatDayOf({ startDay: start.day, startTime: allDay ? '00:00' : start.time, allDay }, info)),
     calendarId: info.calendar.id,
     forWho: info.forWho ?? 'me',
+    eachMarksDone: info.eachMarksDone === true,
     alert: info.alert ?? 'default',
   };
 }
@@ -496,6 +503,8 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     if (form.alert !== 'default' && !allDay && isNativeCalendar(form.calendarId)) body.alert = form.alert;
   } else if (form.forWho !== 'me') {
     body.forWho = form.forWho;
+    // The switch goes only for a reminder for both of us, and only when it is on (the default is one shared Done).
+    if (form.forWho === 'both' && form.eachMarksDone) body.eachMarksDone = true;
   }
   return body;
 }
@@ -537,6 +546,8 @@ export function updateBody(
   if (repeat !== null) changes.repeat = repeat;
   if (!reminder && form.calendarId && form.calendarId !== initial.calendarId) changes.calendarId = form.calendarId;
   if (reminder && form.forWho !== initial.forWho) changes.forWho = form.forWho;
+  const each = eachMarksDoneChange(form, initial);
+  if (each !== null) changes.eachMarksDone = each;
   const alert = alertChange(form, initial);
   if (alert !== null) changes.alert = alert;
   // A stop makes this occurrence a one-off: it always carries the occurrence's own times,
@@ -546,6 +557,14 @@ export function updateBody(
     if (!reminder) changes.end ??= nowEnd;
   }
   return Object.keys(changes).length === 0 ? null : { key, scope, changes };
+}
+
+/**
+ * The "each of us marks it done" switch the person set, or null while it is as it was. Only a reminder for both of us has
+ * one: moving the For away from both sends the For alone (the server clears the switch), and a hidden switch is never sent.
+ */
+function eachMarksDoneChange(form: EditorForm, initial: EditorForm): boolean | null {
+  return form.kind === 'reminder' && form.forWho === 'both' && form.eachMarksDone !== initial.eachMarksDone ? form.eachMarksDone : null;
 }
 
 /**
@@ -634,6 +653,7 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   const seriesLevel =
     (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||
     alertChange(form, initial) !== null ||
+    eachMarksDoneChange(form, initial) !== null ||
     (reminder && form.forWho !== initial.forWho);
   const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
   if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };

@@ -6999,6 +6999,227 @@ async function main() {
     }
   });
 
+  // ---- Each of us marks it done: the editor's switch and the sheet's partner line ----
+
+  await check('each: the copy is the plan\'s, exactly, in en/he/ru (editor, sheet and the bot\'s ping line)', () => {
+    const want = {
+      en: { eachMarksDone: 'Each of us marks it done', hint: 'It stays open for whoever hasn\'t tapped Done yet', done: '{name} is done', notYet: '{name} hasn\'t marked it yet', ping: '✅ {name} is done' },
+      he: { eachMarksDone: 'כל אחד מסמן בוצע בעצמו', hint: 'התזכורת נשארת פתוחה למי שעוד לא סימן בוצע', done: '{name}: בוצע', notYet: '{name}: עדיין לא', ping: '✅ {name}: בוצע' },
+      ru: { eachMarksDone: 'Каждый отмечает сам', hint: 'Напоминание остаётся открытым для того, кто ещё не отметил «Готово»', done: '{name}: готово', notYet: '{name}: ещё нет', ping: '✅ {name}: готово' },
+    } as const;
+    for (const locale of LOCALES) {
+      const home = messages[locale].calendarHome as Row;
+      const bot = (messages[locale] as Row).bot as Row;
+      assert(home.editor.eachMarksDone === want[locale].eachMarksDone, `${locale} editor.eachMarksDone: ${home.editor.eachMarksDone}`);
+      assert(home.editor.eachMarksDoneHint === want[locale].hint, `${locale} editor.eachMarksDoneHint: ${home.editor.eachMarksDoneHint}`);
+      assert(home.sheet.partnerDone === want[locale].done, `${locale} sheet.partnerDone: ${home.sheet.partnerDone}`);
+      assert(home.sheet.partnerNotDone === want[locale].notYet, `${locale} sheet.partnerNotDone: ${home.sheet.partnerNotDone}`);
+      assert(bot.nativeReminders.ping.partnerDone === want[locale].ping, `${locale} bot ping.partnerDone: ${bot.nativeReminders.ping.partnerDone}`);
+    }
+  });
+
+  const EACH = (locale: Locale) => (messages[locale].calendarHome as Row).editor.eachMarksDone as string;
+  const EACH_HINT = (locale: Locale) => (messages[locale].calendarHome as Row).editor.eachMarksDoneHint as string;
+  const eachSwitch = (m: Home, locale: Locale = 'en') => byRole(topDialog(m), 'switch').filter((e) => e.textContent.includes(EACH(locale)));
+  const eachReminderInfo = (o: Partial<ItemEditInfoResponse> = {}, series: Partial<ItemEditInfoResponse['series']> = {}) =>
+    infoFor({
+      kind: 'reminder',
+      occurrence: { start: `${day(0)}T17:00`, end: `${day(0)}T17:00`, allDay: false, title: 'Dentist', location: '', description: '' },
+      series: { recurring: false, start: `${day(0)}T17:00`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true, ...series },
+      canChangeRecipient: true,
+      forWho: 'both',
+      eachMarksDone: false,
+      ...o,
+    });
+
+  await check('each: a new reminder: the switch shows only while For is "Both of us" (with its hint, off), is sent only then, and a hidden one is never sent', async () => {
+    const { m } = await editingHome('en');
+    const warned: string[] = [];
+    const realError = console.error;
+    console.error = (...args: unknown[]) => { warned.push(args.map(String).join(' ')); };
+    try {
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Book the flights');
+      await typeInto(inDialog(m, 'Date'), '2026-10-21');
+      await typeInto(inDialog(m, 'Time'), '18:00');
+      assert(eachSwitch(m).length === 0, 'not for me');
+      tapIn(m, 'Noa');
+      assert(eachSwitch(m).length === 0, 'not for Noa');
+      tapIn(m, 'Both of us');
+      assert(eachSwitch(m).length === 1 && eachSwitch(m)[0].getAttribute('aria-checked') === 'false', 'for both: the switch, off');
+      assertHas(topText(m), [EACH_HINT('en')], 'its hint');
+      // Off: nothing extra in the body.
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Book the flights', allDay: false, start: '2026-10-21T18:00', repeat: 'none', forWho: 'both' }), `both, switch off: ${show(writes()[0].body)}`);
+      // On, for both: sent.
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Book the hotel');
+      await typeInto(inDialog(m, 'Date'), '2026-10-21');
+      await typeInto(inDialog(m, 'Time'), '18:00');
+      tapIn(m, 'Both of us');
+      m.click(eachSwitch(m)[0]);
+      assert(eachSwitch(m)[0].getAttribute('aria-checked') === 'true', 'on');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Book the hotel', allDay: false, start: '2026-10-21T18:00', repeat: 'none', forWho: 'both', eachMarksDone: true }), `both, switch on: ${show(writes()[1].body)}`);
+      // On, then For moved to Noa: the hidden switch is not sent.
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Buy a gift');
+      await typeInto(inDialog(m, 'Date'), '2026-10-21');
+      await typeInto(inDialog(m, 'Time'), '18:00');
+      tapIn(m, 'Both of us');
+      m.click(eachSwitch(m)[0]);
+      tapIn(m, 'Noa');
+      assert(eachSwitch(m).length === 0, 'hidden again');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[2].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Buy a gift', allDay: false, start: '2026-10-21T18:00', repeat: 'none', forWho: 'partner' }), `for Noa: ${show(writes()[2].body)}`);
+    } finally {
+      console.error = realError;
+      m.unmount();
+    }
+    assert(warned.length === 0, `React warnings: ${show(warned)}`);
+  });
+
+  await check('each: editing a reminder: sent only when changed (alone, or with the For it goes with), never from a For that is not both; a series asks for its scope', async () => {
+    const ok = () => ok200({ status: 'ok', key: 'famcal|dentist' });
+    // A reminder for both with the switch off: turn it on.
+    const a = await editingHome('en', { item: serveDentist(eachReminderInfo()), write: ok });
+    try {
+      await openEditor(a.m, 'Dentist');
+      assert(eachSwitch(a.m).length === 1 && eachSwitch(a.m)[0].getAttribute('aria-checked') === 'false', 'off as stored');
+      a.m.click(eachSwitch(a.m)[0]);
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { eachMarksDone: true } }), `on: ${show(writes()[0].body)}`);
+    } finally {
+      a.m.unmount();
+    }
+    // On as stored: shown on; For moved to Me sends the For alone; back to Both is no change at all.
+    const b = await editingHome('en', { item: serveDentist(eachReminderInfo({ eachMarksDone: true })), write: ok });
+    try {
+      await openEditor(b.m, 'Dentist');
+      assert(eachSwitch(b.m)[0].getAttribute('aria-checked') === 'true', 'on as stored');
+      b.m.click(radioOf(b.m, 'Me'));
+      assert(eachSwitch(b.m).length === 0, 'hidden for Me');
+      b.m.click(radioOf(b.m, 'Both of us'));
+      assert(eachSwitch(b.m)[0].getAttribute('aria-checked') === 'true', 'back to both: still on');
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(writes().length === 0 && topDialog(b.m).getAttribute('aria-label') === 'Details', 'nothing changed: Save just closes');
+      await openEditorAgain(b.m);
+      b.m.click(radioOf(b.m, 'Me'));
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'me' } }), `to me: ${show(writes()[0].body)}`);
+    } finally {
+      b.m.unmount();
+    }
+    // Handed to both with the switch in one save.
+    const c = await editingHome('en', { item: serveDentist(eachReminderInfo({ forWho: 'me' })), write: ok });
+    try {
+      await openEditor(c.m, 'Dentist');
+      assert(eachSwitch(c.m).length === 0, 'not for both yet');
+      c.m.click(radioOf(c.m, 'Both of us'));
+      c.m.click(eachSwitch(c.m)[0]);
+      c.m.click(saveButton(c.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'both', eachMarksDone: true } }), `both with the switch: ${show(writes()[0].body)}`);
+    } finally {
+      c.m.unmount();
+    }
+    // The switch set under Both of us and then hidden by another For is never sent: only the For goes.
+    const hidden = await editingHome('en', { item: serveDentist(eachReminderInfo({ forWho: 'me' })), write: ok });
+    try {
+      await openEditor(hidden.m, 'Dentist');
+      hidden.m.click(radioOf(hidden.m, 'Both of us'));
+      hidden.m.click(eachSwitch(hidden.m)[0]);
+      hidden.m.click(radioOf(hidden.m, 'Noa'));
+      assert(eachSwitch(hidden.m).length === 0, 'hidden for Noa');
+      hidden.m.click(saveButton(hidden.m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { forWho: 'partner' } }), `the hidden switch stays home: ${show(writes()[0].body)}`);
+    } finally {
+      hidden.m.unmount();
+    }
+    // A series: the switch is series-level, so the scope is asked (this one and the ones after, or all of them).
+    const swimming = { start: `${day(5)}T17:00`, end: `${day(5)}T17:00`, allDay: false, title: 'Swimming', location: '', description: '' };
+    const d = await editingHome('en', {
+      item: serveSwim(eachReminderInfo({ occurrence: swimming, scopes: ['single', 'following', 'all'] }, { recurring: true, start: `${day(5)}T17:00`, repeat: { freq: 'weekly', interval: 1, byDay: [], ends: false }, rule: { choice: 'weekly' } })),
+      write: () => ok200({ status: 'ok', key: 'famcal|swim' }),
+    });
+    try {
+      await openEditor(d.m, 'Swimming');
+      d.m.click(eachSwitch(d.m)[0]);
+      d.m.click(saveButton(d.m));
+      await settle();
+      assert(show(choiceTexts(d.m)) === show(['This one and the ones after', 'All of them', 'Cancel']), `choices: ${show(choiceTexts(d.m))}`);
+      tapIn(d.m, 'All of them');
+      await settle();
+      assert(lastWrite().body?.scope === 'all' && sameBody(lastWrite().body?.changes, { eachMarksDone: true }), `all of them: ${show(lastWrite().body)}`);
+    } finally {
+      d.m.unmount();
+    }
+    // Not the creator: no For row, so no switch.
+    const e = await editingHome('en', { item: serveDentist(eachReminderInfo({ canChangeRecipient: false, forName: 'Noa', eachMarksDone: true })) });
+    try {
+      await openEditor(e.m, 'Dentist');
+      assert(byRole(topDialog(e.m), 'radio').length === 0 && eachSwitch(e.m).length === 0, 'neither the row nor the switch');
+    } finally {
+      e.m.unmount();
+    }
+  });
+
+  await check('each: the switch reads in he and ru as well (label and hint, RTL-safe), as the row\'s own switch does', async () => {
+    for (const locale of ['he', 'ru'] as const) {
+      const { m } = await editingHome(locale, { item: serveDentist(eachReminderInfo({ eachMarksDone: true })) });
+      try {
+        await openEditor(m, 'Dentist', (messages[locale].calendarHome as Row).sheet.edit as string);
+        assert(eachSwitch(m, locale).length === 1, `${locale}: the switch`);
+        assertHas(topText(m), [EACH_HINT(locale)], `${locale}: the hint`);
+        assert(!topText(m).includes('editor.eachMarksDone'), `${locale}: an untranslated key`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('each: the item sheet adds the partner\'s status under the viewer\'s own state, for both states, in en/he/ru; the row and a reminder without the switch keep their text', () => {
+    for (const locale of LOCALES) {
+      const sheet = messages[locale].calendarHome.sheet as Row;
+      const done = sheetWith(locale, ACT({ open: true, forBoth: true, eachMarksDone: true, partnerDone: true, partnerName: 'Dana' }), IDLE);
+      const waiting = sheetWith(locale, ACT({ open: true, forBoth: true, eachMarksDone: true, partnerDone: false, partnerName: 'Dana' }), IDLE);
+      const plain = sheetWith(locale, ACT({ open: true, forBoth: true }), IDLE);
+      assertHas(textOf(done), [(sheet.partnerDone as string).replace('{name}', 'Dana')], `${locale} partner done`);
+      assertLacks(textOf(done), [(sheet.partnerNotDone as string).replace('{name}', 'Dana')], `${locale} partner done: not the other line`);
+      assertHas(textOf(waiting), [(sheet.partnerNotDone as string).replace('{name}', 'Dana')], `${locale} partner not yet`);
+      assertLacks(textOf(waiting), [(sheet.partnerDone as string).replace('{name}', 'Dana')], `${locale} partner not yet: not the other line`);
+      // The viewer's own state is still the first line, and the partner's is the second paragraph of the state.
+      assertHas(textOf(done), [sheet.stateOpen as string], `${locale} own state`);
+      assert(/<p class="ch-sheet-state">[^<]*<\/p><p class="ch-sheet-state ch-sheet-partner">/.test(markup(done)), `${locale}: the partner line follows the own state: ${show(markup(done).slice(markup(done).indexOf('ch-sheet-state') - 10, markup(done).indexOf('ch-sheet-state') + 260))}`);
+      assertLacks(textOf(plain), [(sheet.partnerDone as string).split('{name}')[0] || 'x', 'Dana'], `${locale} no switch, no line`);
+      assert(!markup(plain).includes('ch-sheet-partner'), `${locale}: no partner paragraph without the switch`);
+      // Done by the viewer themselves: their own state says done, the partner line still follows.
+      const mine = sheetWith(locale, ACT({ done: true, doneAt: at(0, '12:00'), forBoth: true, eachMarksDone: true, partnerDone: false, partnerName: 'Dana' }), IDLE);
+      assertHas(textOf(mine), [(sheet.partnerNotDone as string).replace('{name}', 'Dana')], `${locale} own done, partner not yet`);
+      assertLacks(textOf(mine), [sheet.stateOpen as string], `${locale} own done: not open`);
+    }
+    // The agenda row keeps the viewer's own state: the same text with or without the partner's status.
+    const withPartner = item('both-each', { kind: 'reminder', title: 'Book the flights', start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true, eachMarksDone: true, partnerDone: true, partnerName: 'Dana' }) });
+    const without = item('both-each', { kind: 'reminder', title: 'Book the flights', start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true }) });
+    const week = (it: ItemDTO) => model([ok(answer({ items: { ...WEEK, [day(1)]: [...(WEEK[day(1)] ?? []), it] }, carryOvers: [] }))]);
+    for (const locale of LOCALES) {
+      assert(textOf(renderAgenda(locale, week(withPartner))) === textOf(renderAgenda(locale, week(without))), `${locale}: the row reads the viewer's own state only`);
+    }
+  });
+
   await check('#97a a day move on a set-weekdays series together with a calendar or recipient change can\'t be saved: "Save the day change on its own first." and nothing is written; without the day move, or with a repeat pick, it goes through', async () => {
     const calendars = EDITOR_INFO.calendars;
     const fixed = swimSeries({ fixedDays: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'], ends: false }, rule: { choice: 'weekly' } }, { canMoveCalendar: true, moveTargets: ['native:cal_me_7f3a', 'native:cal_noa_91b2'] });

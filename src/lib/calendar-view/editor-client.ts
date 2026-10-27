@@ -99,6 +99,7 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
     (value.moveTargets === undefined || (Array.isArray(value.moveTargets) && value.moveTargets.every((id) => typeof id === 'string'))) &&
     optional(value.canChangeRecipient, 'boolean') &&
     (value.forWho === undefined || (FOR_WHO as readonly unknown[]).includes(value.forWho)) &&
+    optional(value.eachMarksDone, 'boolean') &&
     optional(value.editableInGoogleOnly, 'boolean') &&
     (value.source === undefined || value.source === 'famcal' || value.source === 'google') &&
     (value.moveReason === undefined || value.moveReason === 'meet' || value.moveReason === 'hebrew' || value.moveReason === 'repeat') &&

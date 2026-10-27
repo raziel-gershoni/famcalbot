@@ -187,6 +187,8 @@
       "stateDone": "Выполнено",
       "stateDoneAt": "Выполнено в {time}",
       "stateSnoozed": "Отложено до {time}",
+      "partnerDone": "{name}: готово",
+      "partnerNotDone": "{name}: ещё нет",
       "stateLater": "Время ещё не пришло",
       "openInGoogle": "Открыть в Google Календаре",
       "googleOnly": "Это можно изменить только в Google Календаре",
@@ -325,6 +327,8 @@
       "forMe": "Мне",
       "forName": "Для {name}",
       "forBoth": "Нам обоим",
+      "eachMarksDone": "Каждый отмечает сам",
+      "eachMarksDoneHint": "Напоминание остаётся открытым для того, кто ещё не отметил «Готово»",
       "errors": {
         "errTitle": "Добавьте название",
         "errTitleLong": "Слишком длинное название, не больше {max} символов",

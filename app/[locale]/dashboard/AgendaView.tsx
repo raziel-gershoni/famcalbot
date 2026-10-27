@@ -532,6 +532,11 @@ export const AGENDA_CSS = `
   font-size: 14px;
   font-weight: 500;
 }
+.ch-sheet-state.ch-sheet-partner {
+  margin-block-start: 2px;
+  font-weight: 400;
+  color: var(--ch-muted);
+}
 .ch-facts {
   margin: 14px 0 0;
 }

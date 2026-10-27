@@ -180,6 +180,8 @@ const KEYS: Record<string, readonly string[]> = {
   'sheet.stateDone': [],
   'sheet.stateDoneAt': ['time'],
   'sheet.stateSnoozed': ['time'],
+  'sheet.partnerDone': ['name'],
+  'sheet.partnerNotDone': ['name'],
   'sheet.stateLater': [],
   'sheet.openInGoogle': [],
   // The reminder actions in the sheet (done, undo, snooze) and the notes after a tap that could not apply
@@ -296,6 +298,8 @@ const KEYS: Record<string, readonly string[]> = {
   'editor.forLabel': [],
   'editor.forMe': [],
   'editor.forBoth': [],
+  'editor.eachMarksDone': [],
+  'editor.eachMarksDoneHint': [],
   'editor.forName': ['name'],
   'editor.errors.errTitle': [],
   'editor.errors.errTitleLong': ['max'],

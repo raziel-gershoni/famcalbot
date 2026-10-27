@@ -345,6 +345,7 @@ async function main() {
       repeat: 'none',
       calendarId: null,
       forWho: 'me',
+      eachMarksDone: false,
       alert: 'default',
       ...over,
     });

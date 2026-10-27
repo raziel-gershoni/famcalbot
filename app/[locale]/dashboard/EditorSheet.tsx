@@ -461,6 +461,17 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                 onChange={(forWho) => change({ ...form, forWho })}
               />
             ) : null}
+            {/* Under the For row, only while it reads "Both of us": the switch means nothing for one person. */}
+            {forPartnerName !== null && form.forWho === 'both' ? (
+              <FormCard>
+                <SwitchRow
+                  label={t('editor.eachMarksDone')}
+                  hint={t('editor.eachMarksDoneHint')}
+                  checked={form.eachMarksDone}
+                  onChange={(eachMarksDone) => change({ ...form, eachMarksDone })}
+                />
+              </FormCard>
+            ) : null}
 
             {reminder ? null : (
               <FormCard>

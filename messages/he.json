@@ -187,6 +187,8 @@
       "stateDone": "בוצעה",
       "stateDoneAt": "בוצעה ב-{time}",
       "stateSnoozed": "נדחתה עד {time}",
+      "partnerDone": "{name}: בוצע",
+      "partnerNotDone": "{name}: עדיין לא",
       "stateLater": "עוד לא הגיע הזמן",
       "openInGoogle": "פתיחה ביומן Google",
       "googleOnly": "אפשר לשנות את זה רק ביומן Google",
@@ -325,6 +327,8 @@
       "forMe": "אני",
       "forName": "בשביל {name}",
       "forBoth": "שנינו",
+      "eachMarksDone": "כל אחד מסמן בוצע בעצמו",
+      "eachMarksDoneHint": "התזכורת נשארת פתוחה למי שעוד לא סימן בוצע",
       "errors": {
         "errTitle": "צריך להוסיף כותרת",
         "errTitleLong": "הכותרת ארוכה מדי, עד {max} תווים",
