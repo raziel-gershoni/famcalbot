@@ -112,6 +112,12 @@ export function wallTimeToInstant(wall: string, zone: string): Date {
   return new Date(floating - Math.min(before, after));
 }
 
+/** `instantToWallTime` to the millisecond: 'yyyy-MM-ddTHH:mm:ss.SSS'. */
+export function instantToWallTimeMs(instant: Date, zone: string): string {
+  const milli = ((instant.getTime() % 1000) + 1000) % 1000;
+  return `${instantToWallTime(instant, zone)}.${String(milli).padStart(3, '0')}`;
+}
+
 /** `instant` on `zone`'s clock as 'yyyy-MM-ddTHH:mm:ss'. Throws RangeError for an unknown zone or an Invalid Date, as Intl does. */
 export function instantToWallTime(instant: Date, zone: string): string {
   const clock = clockOf(zone || 'UTC');

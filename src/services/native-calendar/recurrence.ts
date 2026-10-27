@@ -19,7 +19,7 @@ import { TIMEZONE } from '../../config/constants';
 import { captureError } from '../../lib/error-capture';
 import { REPEAT_COUNT_MAX, REPEAT_INTERVAL_MAX, WEEKDAY_CODES, type RepeatSpec, type WeekdayCode } from '../../lib/calendar-view/editor-types';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
-import { wallTimeToInstant } from '../../utils/wall-time';
+import { instantToWallTime, instantToWallTimeMs, wallTimeToInstant } from '../../utils/wall-time';
 import { hebrewDayIn, type HebrewMonthName } from '../hebrew-date-resolve';
 
 export interface VirtualInstance {
@@ -78,7 +78,7 @@ function buildRuleSet(rrule: string, dtstart: Date): RRuleSet {
  * keeps a constant local time across a DST transition.
  */
 function toFloating(instant: Date, tz: string): Date {
-  return new Date(`${formatInTimeZone(instant, tz, "yyyy-MM-dd'T'HH:mm:ss")}Z`);
+  return new Date(`${instantToWallTime(instant, tz)}Z`);
 }
 
 /**
@@ -494,7 +494,7 @@ function hebrewPlan(series: HebrewSeries): { at: (j: number) => Date | null; fir
   const month = anchor.getMonth();
   const date = anchor.getDate();
   // To the millisecond: a start with a sub-second part would otherwise put slot 0 just before it.
-  const wall = formatInTimeZone(series.startsAt, zone, 'HH:mm:ss.SSS');
+  const wall = instantToWallTimeMs(series.startsAt, zone).slice(11);
   const slots = new Map<number, Date | null>();
   const at = (j: number): Date | null => {
     if (j < 0) return null;
@@ -1095,7 +1095,7 @@ export function yearlySlotMap(from: YearlySeries, to: YearlySeries, years: numbe
   const fromTz = from.timeZone || TIMEZONE;
   const tz = to.timeZone || TIMEZONE;
   const monthDay = localDate(to.startsAt, tz).slice(4);
-  const wall = formatInTimeZone(to.startsAt, tz, 'HH:mm:ss.SSS');
+  const wall = instantToWallTimeMs(to.startsAt, tz).slice(11);
   return (slot) => {
     const day = `${pad4(civilYearAt(slot, fromTz) + years)}${monthDay}`;
     return isCivilDay(day) ? wallTimeToInstant(`${day}T${wall}`, tz) : null;
@@ -1111,7 +1111,7 @@ export function yearlyExtraDateMap(tz: string, years: number): (at: Date) => Dat
   return (at) => {
     const own = localDate(at, tz);
     const day = `${pad4(Number(own.slice(0, 4)) + years)}${own.slice(4)}`;
-    return isCivilDay(day) ? wallTimeToInstant(`${day}T${formatInTimeZone(at, tz, 'HH:mm:ss.SSS')}`, tz) : null;
+    return isCivilDay(day) ? wallTimeToInstant(`${day}T${instantToWallTimeMs(at, tz).slice(11)}`, tz) : null;
   };
 }
 

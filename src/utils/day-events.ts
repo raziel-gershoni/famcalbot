@@ -9,9 +9,8 @@
  * marked so the prompt can say so.
  */
 
-import { formatInTimeZone } from 'date-fns-tz';
 import type { CalendarEvent, DaySpan } from '../types';
-import { wallTimeToInstant } from './wall-time';
+import { instantToWallTime, wallTimeToInstant } from './wall-time';
 
 /**
  * An event carried over from the previous day that ends at or before this hour belongs
@@ -22,7 +21,7 @@ export const OVERNIGHT_CUTOFF_HOUR = 6;
 
 /** The summary day as yyyy-MM-dd in the user's timezone. */
 export function localDate(date: Date, timezone: string): string {
-  return formatInTimeZone(date, timezone, 'yyyy-MM-dd');
+  return instantToWallTime(date, timezone).slice(0, 10);
 }
 
 /** The calendar date after yyyy-MM-dd. */

@@ -2,14 +2,20 @@
  * In-process cron scheduler using node-cron
  * Replaces QStash HTTP-based scheduling with direct function calls
  *
- * Times are UTC (the server's zone) unless a job names one. Israel is UTC+2 (winter) / UTC+3 (summer),
- * so a UTC job lands an hour earlier on Israel's clock in winter. Without a zone option node-cron
- * follows the server process's own zone, which is UTC on Railway (instrumentation.ts logs it at startup).
+ * Times are UTC (the server's zone). Israel is UTC+2 (winter) / UTC+3 (summer), so a UTC job lands an
+ * hour earlier on Israel's clock in winter. node-cron follows the server process's own zone, which is
+ * UTC on Railway (instrumentation.ts logs it at startup). A job that must keep Israel's clock is an
+ * hourly UTC job that acts only at its Israel hour (the setup reminders below), never node-cron's own
+ * `timezone` option: in 4.2.1 its next-run walk skips the day the clocks spring forward.
  */
 
 import cron from 'node-cron';
 import { captureError } from '../lib/error-capture';
 import { TIMEZONE } from '../config/constants';
+import { instantToWallTime } from '../utils/wall-time';
+
+/** The Israel hour the setup reminders go out at. */
+const SETUP_REMINDER_HOUR = 10;
 
 export function startScheduler(): void {
   console.log('[Scheduler] Starting in-process cron scheduler...');
@@ -91,9 +97,12 @@ export function startScheduler(): void {
     }
   });
 
-  // Setup reminders — daily at 10:00 Israel time, summer and winter: a nudge to a person, so it keeps
-  // the person's clock (a UTC job would land at 09:00 in winter)
-  cron.schedule('0 10 * * *', async () => {
+  // Setup reminders — once a day at 10:00 Israel time, summer and winter: a nudge to a person, so it
+  // keeps the person's clock (a UTC job would land at 09:00 in winter). Hourly in UTC, acting only when
+  // Israel's hour is 10, as the summaries pick their users' hours; Israel's offset is whole hours, so
+  // the tick is at :00 there too. The hour reads the clock by instant, whatever zone the server is in.
+  cron.schedule('0 * * * *', async () => {
+    if (Number(instantToWallTime(new Date(), TIMEZONE).slice(11, 13)) !== SETUP_REMINDER_HOUR) return;
     try {
       const { handleSetupReminders } = await import('./handlers');
       const result = await handleSetupReminders();
@@ -103,7 +112,7 @@ export function startScheduler(): void {
       captureError(error, 'cron-setup-reminders');
       notifyAdmin('Setup Reminders', error);
     }
-  }, { timezone: TIMEZONE });
+  });
 
   // Health check + subscription reminders — daily at UTC 03:00 (Israel 06:00 in summer, 05:00 in winter)
   cron.schedule('0 3 * * *', async () => {
@@ -150,7 +159,7 @@ export function startScheduler(): void {
   console.log('  * * * * *    Copy to Google (gated: reads the DB only while a copy may have work)');
   console.log('  0 * * * *    Daily summary (hourly, filters by user preferred hour)');
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
-  console.log(`  0 10 * * *   Setup reminders (10:00 ${TIMEZONE} time, summer and winter)`);
+  console.log(`  0 * * * *    Setup reminders (hourly in UTC, acts at ${SETUP_REMINDER_HOUR}:00 ${TIMEZONE} time, summer and winter)`);
   console.log('  0 3 * * *    Health check (UTC 3:00 = Israel 6:00 in summer, 5:00 in winter)');
   console.log('  30 3 * * *   Activity purge (UserActivity rows older than 90 days, in batches)');
   console.log('  */10 * * * * Key sweep (re-encrypts stored Google tokens after a key rotation; idle in the first 10 min)');

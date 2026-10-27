@@ -19,10 +19,9 @@
 
 import type { calendar_v3 } from '@googleapis/calendar';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
-import { formatInTimeZone } from 'date-fns-tz';
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
-import { wallTimeToInstant } from '../../utils/wall-time';
+import { instantToWallTime, wallTimeToInstant } from '../../utils/wall-time';
 import { htmlToText } from '../../utils/html';
 import { anniversaryCount, titleWithCount } from '../../lib/hebrew-anniversary';
 import { assertStorableRule, expandSeries, yieldsSlots } from '../native-calendar/recurrence';
@@ -40,8 +39,8 @@ const DAY_MS = 86_400_000;
 const dayEnd = (day: string, zone: string) => wallTimeToInstant(`${day}T23:59`, zone);
 const compact = (day: string) => day.replace(/-/g, '');
 const dayOfCompact = (v: string) => `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
-const wallStamp = (d: Date, zone: string) => formatInTimeZone(d, zone, "yyyyMMdd'T'HHmmss");
-const utcStamp = (d: Date) => formatInTimeZone(d, 'UTC', "yyyyMMdd'T'HHmmss'Z'");
+const wallStamp = (d: Date, zone: string) => instantToWallTime(d, zone).replace(/[-:]/g, '');
+const utcStamp = (d: Date) => `${instantToWallTime(d, 'UTC').replace(/[-:]/g, '')}Z`;
 const bare = (rule: string) => rule.replace(/^RRULE:/i, '');
 const byTime = (a: Date, b: Date) => a.getTime() - b.getTime();
 

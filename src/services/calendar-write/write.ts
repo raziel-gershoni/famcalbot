@@ -48,7 +48,7 @@ import { forWhoOf, itemZone, loadItem, wallFor, type LoadedItem } from './item-i
 import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, type UpdateCommand } from './validate';
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
-import { addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant, wallToInstantKeeping } from './walltime';
+import { MAX_SPAN_DAYS, addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant, wallToInstantKeeping } from './walltime';
 import { tzKnownFor, weekStartFor } from '../../utils/locale-rules';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { alertChoiceOf } from '../../lib/calendar-view/alert-leads';
@@ -274,9 +274,20 @@ export function resolveWallTimes(
     derivedEnd = new Date(wallToInstant(start, userTz).getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime()));
     end = instantToWall(derivedEnd, userTz);
   }
-  // A derived end that is after its start in real time follows it, even where the wall times read the same (the repeated hour).
-  const followsInTime = derivedEnd !== undefined && derivedEnd.getTime() > wallToInstant(start, userTz).getTime();
-  if (!reminder && !followsInTime && !endFollows(start, end, allDay)) return { ok: false, field: 'end' };
+  // The end must follow the start. Untouched times are already valid (stored instants), whatever their wall
+  // strings read: on the repeated hour of a clock change an item from the first 01:30 to the second reads
+  // "01:30" to "01:30". A timed pair is compared as the instants they resolve to (the stored one for a time
+  // left alone), not as strings, for the same reason.
+  const untouched = allDay === occ.allDay && start === was.start && end === wasEnd;
+  if (!reminder && !untouched) {
+    if (allDay) {
+      if (!endFollows(start, end, true)) return { ok: false, field: 'end' };
+    } else {
+      const startAt = wallToInstantKeeping(start, userTz, occ.startsAt);
+      const endAt = derivedEnd ?? wallToInstantKeeping(end, userTz, occ.endsAt);
+      if (!(endAt.getTime() > startAt.getTime() && daysBetween(dayOfWall(start), dayOfWall(end)) <= MAX_SPAN_DAYS)) return { ok: false, field: 'end' };
+    }
+  }
 
   return { ok: true, start, end, allDay, timeChanged: allDay !== occ.allDay || start !== was.start || end !== wasEnd, ...(derivedEnd ? { derivedEnd } : {}) };
 }

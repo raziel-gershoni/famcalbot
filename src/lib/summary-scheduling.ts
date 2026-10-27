@@ -3,7 +3,6 @@
  * Filters users by preferred delivery hour and handles dedup via Redis
  */
 
-import { formatInTimeZone } from 'date-fns-tz';
 import { redis } from '@/src/utils/redis';
 import { UserConfig } from '../types';
 import { resolveUserTimezone } from './timezone';
@@ -48,8 +47,10 @@ export async function filterUsersForSummary(
     try {
       const timezone = await resolveUserTimezone(user);
       const now = new Date();
-      const localHour = parseInt(formatInTimeZone(now, timezone, 'H'), 10);
-      const localDate = formatInTimeZone(now, timezone, 'yyyy-MM-dd');
+      // The zone's clock by instant (instantToWallTime), not formatInTimeZone, which reads an hour late in the server's own skipped hour
+      const wall = instantToWallTime(now, timezone);
+      const localHour = Number(wall.slice(11, 13));
+      const localDate = wall.slice(0, 10);
       const preferredHour = summaryType === 'daily'
         ? (user.preferredMorningHour ?? 7)
         : (user.preferredEveningHour ?? 19);
@@ -64,8 +65,7 @@ export async function filterUsersForSummary(
       }
 
       // Check day-of-week preference
-      const isoDay = parseInt(formatInTimeZone(now, timezone, 'i'), 10);
-      const localDay = isoDay === 7 ? 0 : isoDay; // ISO 1=Mon,7=Sun → JS 0=Sun
+      const localDay = new Date(`${localDate}T00:00:00Z`).getUTCDay(); // 0=Sun
       const summaryDays = summaryType === 'daily'
         ? (user.dailySummaryDays ?? [0, 1, 2, 3, 4, 5, 6])
         : (user.tomorrowSummaryDays ?? [0, 1, 2, 3, 4, 5, 6]);
@@ -108,7 +108,7 @@ export async function markSummarySent(
   timezone: string,
   sentFor: Date = new Date()
 ): Promise<void> {
-  const localDate = formatInTimeZone(sentFor, timezone, 'yyyy-MM-dd');
+  const localDate = instantToWallTime(sentFor, timezone).slice(0, 10);
   const dedupKey = REDIS_KEYS.summaryDedup(userId, summaryType, localDate);
   await redis.set(dedupKey, '1', { ex: 23 * 60 * 60 }); // 23h TTL
 }

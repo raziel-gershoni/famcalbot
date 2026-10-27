@@ -95,10 +95,48 @@ async function runChecks(): Promise<void> {
   }
   // What the calendar provider returns for the alert pass, and the cron jobs node-cron was asked for.
   const providerEvents: Array<{ eventId: string; calendarId: string; summary: string; start: string; end: string; reminders?: unknown }> = [];
-  const cronCalls: Array<{ pattern: string; options: unknown }> = [];
+  const cronCalls: Array<{ pattern: string; options: unknown; task: () => unknown }> = [];
+  // node-cron: every job is recorded; while `realCron` is on, a job with a fixed minute (hourly and daily ones) also runs
+  // in the REAL node-cron, which the scheduler check drives on a virtual clock. A job in flight is counted so that check can wait for it.
+  const nodeCron = createRequire(__filename)(path.join(ROOT, 'node_modules/node-cron/dist/cjs/node-cron.js')) as {
+    schedule(pattern: string, task: (...args: unknown[]) => unknown, options?: unknown): { stop(): void };
+  };
+  let realCron = false;
+  let cronInFlight = 0;
+  const cronTasks: Array<{ stop(): void }> = [];
+  // What the cron jobs' handlers were asked to do, by virtual time (minute). handleSetupReminders is the real one for the window check below.
+  const jobRuns: Array<{ job: string; at: string }> = [];
+  let realHandlers: Record<string, unknown> = {};
+  const job = (name: string, result: unknown) => async () => {
+    jobRuns.push({ job: name, at: new RealDate(Date.now()).toISOString().slice(0, 16) });
+    return result;
+  };
+  const SUMMARY_RESULT = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
   const quiet = async () => undefined;
   stubModules({
-    'node-cron': { schedule: (pattern: string, _task: unknown, options?: unknown) => { cronCalls.push({ pattern, options }); return { stop: () => undefined }; } },
+    'node-cron': {
+      schedule: (pattern: string, task: (...args: unknown[]) => unknown, options?: unknown) => {
+        cronCalls.push({ pattern, options, task });
+        if (!realCron || !/^\d/.test(pattern)) return { stop: () => undefined };
+        const started = nodeCron.schedule(
+          pattern,
+          async (...args: unknown[]) => {
+            cronInFlight++;
+            try {
+              return await task(...args);
+            } finally {
+              cronInFlight--;
+            }
+          },
+          // The real node-cron walks times in the zone it is given, and without one in the server's own, where it loses ticks around a
+          // clock change of its own (seen on an hourly job under TZ=Asia/Jerusalem). Production runs UTC, so a job with no options runs
+          // here as it does there; a job that names a zone keeps it, which is what this check exists to catch.
+          options ?? { timezone: 'UTC' }
+        );
+        cronTasks.push(started);
+        return started;
+      },
+    },
     'next/server': {
       NextRequest: class {},
       NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }) },
@@ -118,7 +156,17 @@ async function runChecks(): Promise<void> {
       fakeOver(real, { getUserByTelegramId: async () => ({ id: 1, name: 'U', telegramId: 1, language: 'en' }), getWhatsAppChatId: () => null }),
     [`${SRC}/services/telegram/bot.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getMessagingService: () => ({ sendMessage: quiet }) }),
     // A module the code under test loads with import() keeps only the names of its real file, so those are faked over the real module, not replaced.
-    [`${SRC}/cron/handlers.ts`]: (real: Record<string, unknown>) => fakeOver(real, { bootReminderCache: quiet }),
+    [`${SRC}/cron/handlers.ts`]: (real: Record<string, unknown>) => {
+      realHandlers = real;
+      return fakeOver(real, {
+        bootReminderCache: quiet,
+        handleDailySummary: job('daily', SUMMARY_RESULT),
+        handleTomorrowSummary: job('tomorrow', SUMMARY_RESULT),
+        handleHealth: job('health', { status: 'ok' }),
+        handleActivityPurge: job('purge', {}),
+        handleSetupReminders: job('setup', { message: 'ok' }),
+      });
+    },
     [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: quiet, invalidateFeatureAccessCache: quiet },
     [`${SRC}/services/reminder-cache.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getEarlyAdoptionMode: async () => false }),
     [`${SRC}/services/calendar-provider/index.ts`]: (real: Record<string, unknown>) =>
@@ -415,10 +463,10 @@ async function runChecks(): Promise<void> {
 
   const SECOND_0130 = iso('2026-10-24T23:30:00Z'); // 01:30 the second time, in Israel
   /** What updateItem hands the store for an edit of a one-off (by default the one that starts at the second 01:30 and lasts an hour). */
-  async function editedOneOff(
+  async function runEdit(
     changes: Record<string, unknown>,
     times: { startsAt?: Date; endsAt?: Date; allDay?: boolean } = {}
-  ): Promise<Record<string, unknown>> {
+  ): Promise<unknown> {
     const startsAt = times.startsAt ?? SECOND_0130;
     const endsAt = times.endsAt ?? new RealDate(startsAt.getTime() + 3_600_000);
     const allDay = times.allDay ?? false;
@@ -429,7 +477,10 @@ async function runChecks(): Promise<void> {
       occurrence, calendar: { id: 'c-1', ownerUserId: 1, privacy: 'PRIVATE' },
     };
     updates.length = 0;
-    const result = await write.updateItem({ id: 1, name: 'U' } as never, { key: { source: 'famcal', seriesCuid: 'series-1' }, scope: 'single', changes } as never, IL);
+    return write.updateItem({ id: 1, name: 'U' } as never, { key: { source: 'famcal', seriesCuid: 'series-1' }, scope: 'single', changes } as never, IL);
+  }
+  async function editedOneOff(changes: Record<string, unknown>, times: { startsAt?: Date; endsAt?: Date; allDay?: boolean } = {}): Promise<Record<string, unknown>> {
+    const result = await runEdit(changes, times);
     assertSame(result, { status: 'ok', key: 'famcal|series-1' }, 'the edit result');
     assert(updates.length === 1, `${updates.length} store writes`);
     return updates[0];
@@ -464,6 +515,36 @@ async function runChecks(): Promise<void> {
     const input = await editedOneOff({ title: 'Renamed' });
     assert(!('startsAt' in input) && !('endsAt' in input), `times were written: ${show(input)}`);
     assertSame(input.title, 'Renamed', 'title');
+  });
+
+  await check('an item from the first 01:30 to the second 01:30 on the fall-back night (22:30Z to 23:30Z, both reading "01:30") can still be renamed; so can one from the first 01:30 to the second 01:15, and a zero-length one (an edit that leaves the times alone never re-checks them)', async () => {
+    for (const [startsAt, endsAt] of [['2026-10-24T22:30:00Z', '2026-10-24T23:30:00Z'], ['2026-10-24T22:30:00Z', '2026-10-24T23:15:00Z'], ['2026-10-24T22:30:00Z', '2026-10-24T22:30:00Z']]) {
+      const input = await editedOneOff({ title: 'Renamed' }, { startsAt: iso(startsAt), endsAt: iso(endsAt) });
+      assert(!('startsAt' in input) && !('endsAt' in input), `times were written for ${startsAt}..${endsAt}: ${show(input)}`);
+      assertSame(input.title, 'Renamed', 'title');
+    }
+  });
+
+  await check('an item whose start was moved onto the repeated hour (so its end reads the start\'s wall time) can be renamed afterwards, and its times are written back unchanged on a time edit', async () => {
+    const moved = await editedOneOff({ start: '2026-10-25T01:45' });
+    const [startsAt, endsAt] = [moved.startsAt as Date, moved.endsAt as Date];
+    assertSame([startsAt.toISOString(), endsAt.toISOString()], ['2026-10-24T22:45:00.000Z', '2026-10-24T23:45:00.000Z'], 'the stored times');
+    const renamed = await editedOneOff({ title: 'Renamed' }, { startsAt, endsAt });
+    assert(!('startsAt' in renamed) && !('endsAt' in renamed), `times were written: ${show(renamed)}`);
+    // The editor sends the walls it shows back unchanged with a title: still untouched.
+    const same = await editedOneOff({ title: 'Renamed', start: '2026-10-25T01:45', end: '2026-10-25T01:45' }, { startsAt, endsAt });
+    assert(!('startsAt' in same) && !('endsAt' in same), `times were written: ${show(same)}`);
+  });
+
+  await check('edits that really run backwards are still refused: an ordinary item\'s end before its start, the same on the fall-back night, and an end equal to the start', async () => {
+    const june = { startsAt: iso('2026-06-01T07:00:00Z'), endsAt: iso('2026-06-01T08:00:00Z') }; // 10:00 to 11:00 in Israel
+    assertSame(await runEdit({ title: 'Renamed' }, june), { status: 'ok', key: 'famcal|series-1' }, 'an ordinary item renamed');
+    assertSame(await runEdit({ end: '2026-06-01T09:00' }, june), { status: 'invalid', field: 'end' }, 'end before the start');
+    assertSame(await runEdit({ end: '2026-06-01T10:00' }, june), { status: 'invalid', field: 'end' }, 'end at the start');
+    assertSame(await runEdit({ end: '2026-06-01T11:30' }, june), { status: 'ok', key: 'famcal|series-1' }, 'a later end');
+    const fall = { startsAt: iso('2026-10-24T22:30:00Z'), endsAt: iso('2026-10-24T23:30:00Z') };
+    assertSame(await runEdit({ end: '2026-10-25T01:00' }, fall), { status: 'invalid', field: 'end' }, 'end before the start on the fall-back night');
+    assertSame(await runEdit({ start: '2026-10-25T03:00' }, fall), { status: 'ok', key: 'famcal|series-1' }, 'a start moved past the old end moves the end with it');
   });
 
   /** What updateGoogleItem hands the provider for an edit of a one-off Google event that starts at the second 01:30 and lasts an hour. */
@@ -501,7 +582,7 @@ async function runChecks(): Promise<void> {
 
   const { reminderTimeFromAnchor } = await import('../src/services/native-reminders/resolve');
   const { buildEventTimes } = await import('../src/services/voice/gemini-voice');
-  const { startOfLocalDay, daySpanOf } = await import('../src/utils/day-events');
+  const { startOfLocalDay, daySpanOf, localDate } = await import('../src/utils/day-events');
   const { googleRuleLine } = await import('../src/services/calendar-move/mapper');
   const { convertEditRequestToUpdates } = await import('../src/services/voice/event-resolution');
 
@@ -683,11 +764,11 @@ async function runChecks(): Promise<void> {
   });
 
   await check('the setup reminders\' 14-day window starts 14 days of real time back, over a clock change', async () => {
-    const { handleSetupReminders } = await import('../src/cron/handlers');
+    await import('../src/cron/handlers'); // loads the real module; realHandlers is its real exports
     for (const now of ['2026-11-03T12:00:00Z', '2026-04-05T12:00:00Z']) {
       dbCalls.length = 0;
       setClock(now);
-      await handleSetupReminders();
+      await (realHandlers.handleSetupReminders as () => Promise<unknown>)();
       const back = datesOf('user.findMany').map(d => iso(now).getTime() - d.getTime());
       assert(back.length > 0 && back.every(ms => ms === 14 * DAY), `cut-offs ${show(back.map(ms => ms / DAY))} days back from ${now}`);
     }
@@ -701,21 +782,22 @@ async function runChecks(): Promise<void> {
     }
   });
 
-  await check('no code under src/ or app/ moves a Date by its local fields (setSeconds, setMinutes, setHours, setDate, setMonth, setFullYear, setMilliseconds): the class that broke "now" and the windows', () => {
+  await check('no server code (src/, app/api/) moves a Date by its local fields (setSeconds, setMinutes, setHours, setDate, setMonth, setFullYear, setMilliseconds): the class that broke "now" and the windows. Use epoch arithmetic or the setUTC* setters; a \'use client\' file runs on the viewer\'s own clock and is not scanned', () => {
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const file = path.join(dir, name);
         if (statSync(file).isDirectory()) {
           if (name !== 'node_modules' && name !== '.next') walk(file);
-        } else if (/\.(ts|tsx)$/.test(name) && /\.set(Seconds|Minutes|Hours|Date|Month|FullYear|Milliseconds)\(/.test(readFileSync(file, 'utf8'))) {
-          offenders.push(path.relative(ROOT, file));
+        } else if (/\.(ts|tsx)$/.test(name)) {
+          const text = readFileSync(file, 'utf8');
+          if (!/^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(text) && /\.set(Seconds|Minutes|Hours|Date|Month|FullYear|Milliseconds)\(/.test(text)) offenders.push(path.relative(ROOT, file));
         }
       }
     };
     walk(path.join(ROOT, 'src'));
-    walk(path.join(ROOT, 'app'));
-    assertSame(offenders, [], 'files that still use a local-field setter');
+    walk(path.join(ROOT, 'app', 'api'));
+    assertSame(offenders, [], 'server files that still use a local-field setter (use epoch arithmetic or setUTC*)');
   });
 
   // ---- Summaries: the hour a clock change skips ----
@@ -782,33 +864,174 @@ async function runChecks(): Promise<void> {
 
   // ---- The scheduler and the startup line ----
 
-  await check('the setup reminders are scheduled at 10:00 Israel time with the zone option; health, purge and the hourly jobs stay on the host clock (UTC)', async () => {
+  const days = (first: string, last: string): string[] => {
+    const out: string[] = [];
+    for (let day = first; day <= last; day = walltime.addDaysToDate(day, 1)) out.push(day);
+    return out;
+  };
+
+  /**
+   * startScheduler() with the REAL node-cron on a virtual clock (a Date and a setTimeout that only move when this loop says so),
+   * from `from` to `to`. Returns what the cron handlers were asked to do, by virtual minute. Only the jobs with a fixed minute are
+   * scheduled for real (the hourly and daily ones); the every-minute and every-5-minutes jobs are recorded but not run.
+   */
+  async function runRealScheduler(from: string, to: string): Promise<Array<{ job: string; at: string }>> {
+    const { startScheduler } = await import('../src/cron/scheduler');
+    const timers: Array<{ at: number; id: number; fn: () => void }> = [];
+    let sequence = 0;
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    jobRuns.length = 0;
+    cronCalls.length = 0;
+    cronTasks.length = 0;
+    setClock(from);
+    globalThis.setTimeout = ((fn: () => void, ms?: number) => {
+      const timer = { at: Date.now() + Math.max(0, ms ?? 0), id: ++sequence, fn };
+      timers.push(timer);
+      return Object.assign(timer, { unref: () => timer, ref: () => timer });
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: { id: number }) => {
+      const i = timers.findIndex(t => t.id === timer?.id);
+      if (i >= 0) timers.splice(i, 1);
+    }) as unknown as typeof clearTimeout;
+    realCron = true;
+    const settle = async () => {
+      do {
+        await new Promise<void>(resolve => setImmediate(resolve));
+      } while (cronInFlight > 0);
+    };
+    try {
+      startScheduler();
+      await settle();
+      const last = iso(to).getTime();
+      for (let fired = 0; ; fired++) {
+        // A week of the hourly and daily jobs is about a thousand timers; far more means the scheduler is spinning.
+        if (fired > 20_000) throw new Error(`the scheduler fired ${fired} timers by ${new RealDate(Date.now()).toISOString()}: ${show(timers.slice(0, 4).map(t => new RealDate(t.at).toISOString()))}`);
+        timers.sort((a, b) => a.at - b.at || a.id - b.id);
+        const next = timers[0];
+        if (!next || next.at > last) break;
+        timers.shift();
+        setClock(next.at + 3); // a few ms late, as a real timer is
+        next.fn();
+        await settle();
+      }
+    } finally {
+      realCron = false;
+      for (const task of cronTasks) task.stop();
+      timers.length = 0;
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
+    return [...jobRuns];
+  }
+
+  const CHANGE_WINDOWS = [
+    ['2026-03-24T12:00', '2026-03-31T11:00', '2026-03-25', '2026-03-31'],
+    ['2026-10-22T12:00', '2026-10-29T11:00', '2026-10-23', '2026-10-29'],
+  ] as const;
+  /** The UTC instants of 10:00 Israel time on each day, as 'yyyy-MM-ddTHH:mm', from the independent scan of the zone's clock. */
+  const setupTimes = (firstDay: string, lastDay: string) => days(firstDay, lastDay).map(day => new RealDate(scannedInstant(`${day}T10:00`, IL)).toISOString().slice(0, 16));
+
+  await check('the hourly UTC job the setup reminders run from acts at 10:00 Israel time and at no other hour, on every day of both 2026 changes, whatever the server zone', async () => {
+    const { startScheduler } = await import('../src/cron/scheduler');
+    cronCalls.length = 0;
+    startScheduler();
+    const hourly = cronCalls.filter(c => c.pattern === '0 * * * *').map(c => c.task);
+    assert(hourly.length === 3, `${hourly.length} hourly jobs`);
+    for (const [from, to, firstDay, lastDay] of CHANGE_WINDOWS) {
+      jobRuns.length = 0;
+      for (let t = iso(`${from}:00Z`).getTime(); t <= iso(`${to}:00Z`).getTime(); t += 3_600_000) {
+        setClock(t);
+        for (const task of hourly) await task();
+      }
+      assertSame(jobRuns.filter(r => r.job === 'setup').map(r => r.at), setupTimes(firstDay, lastDay), `setup reminders from ${from}`);
+      assert(jobRuns.filter(r => r.job === 'daily').length === 168, 'the hourly summaries did not run every hour');
+    }
+  });
+
+  const hostIsUtc = [0, 6].every(month => new RealDate(RealDate.UTC(2026, month, 1)).getTimezoneOffset() === 0);
+  await check('node-cron\'s REAL scheduler on a virtual clock runs the setup reminders once a day at 10:00 Israel time, on every day of both 2026 changes, none lost on the day the clocks spring forward (the UTC process, the deployment\'s zone: node-cron itself spins and loses ticks around a clock change of its own server zone)', async () => {
+    if (!hostIsUtc) return;
+    for (const [from, to, firstDay, lastDay] of CHANGE_WINDOWS) {
+      // Off the hour by 30 s, so the first tick is not the start itself.
+      const runs = await runRealScheduler(`${from}:30Z`, `${to.slice(0, 11)}${String(Number(to.slice(11, 13)) + 1).padStart(2, '0')}:00:30Z`);
+      assertSame(runs.filter(r => r.job === 'setup').map(r => r.at), setupTimes(firstDay, lastDay), `setup reminders from ${from}`);
+      // The other jobs keep the UTC clock: the hourly summaries every hour, the health check at 03:00Z.
+      assert(runs.filter(r => r.job === 'daily').length === 168 && runs.filter(r => r.job === 'tomorrow').length === 168, `the hourly summaries ran ${runs.filter(r => r.job === 'daily').length} / ${runs.filter(r => r.job === 'tomorrow').length} times in 7 days`);
+      assertSame(runs.filter(r => r.job === 'health').map(r => r.at.slice(10)), days(firstDay, lastDay).map(() => 'T03:00'), 'the health check');
+    }
+  });
+
+  await check('the scheduler registers its jobs on the host clock with no node-cron zone option (whose next-run walk skips the spring-forward day), the setup reminders among the hourly ones', async () => {
     cronCalls.length = 0;
     const { startScheduler } = await import('../src/cron/scheduler');
     startScheduler();
-    const setup = cronCalls.filter(c => c.pattern === '0 10 * * *');
-    assertSame(setup.map(c => c.options), [{ timezone: IL }], 'the setup-reminders job and its options');
-    for (const pattern of ['0 3 * * *', '30 3 * * *', '0 * * * *', '*/5 * * * *']) {
-      const jobs = cronCalls.filter(c => c.pattern === pattern);
-      assert(jobs.length > 0, `${pattern} is not scheduled`);
-      assert(jobs.every(j => j.options === undefined), `${pattern} has a zone option: ${show(jobs.map(j => j.options))}`);
-    }
-    assert(!cronCalls.some(c => c.pattern === '0 7 * * *'), 'the old UTC 07:00 setup job is still scheduled');
+    assert(cronCalls.every(c => c.options === undefined), `a job has options: ${show(cronCalls.filter(c => c.options !== undefined))}`);
+    assert(cronCalls.filter(c => c.pattern === '0 * * * *').length === 3, `${cronCalls.filter(c => c.pattern === '0 * * * *').length} hourly jobs (two summaries and the setup reminders)`);
+    for (const pattern of ['0 3 * * *', '30 3 * * *', '*/5 * * * *']) assert(cronCalls.some(c => c.pattern === pattern), `${pattern} is not scheduled`);
+    for (const gone of ['0 7 * * *', '0 10 * * *']) assert(!cronCalls.some(c => c.pattern === gone), `${gone} is still scheduled`);
   });
 
-  await check('node-cron fires that job at 10:00 Israel time on either side of each change: 08:00Z in winter time, 07:00Z in summer time', () => {
-    const { TimeMatcher } = createRequire(__filename)(path.join(ROOT, 'node_modules/node-cron/dist/cjs/time/time-matcher.js')) as { TimeMatcher: new (pattern: string, zone?: string) => { match(d: Date): boolean } };
-    const matcher = new TimeMatcher('0 10 * * *', IL);
-    const fires: string[] = [];
-    for (const [from, to] of [['2026-03-25', '2026-03-30'], ['2026-10-23', '2026-10-28']]) {
-      for (let t = iso(`${from}T00:00:00Z`).getTime(); t < iso(`${to}T00:00:00Z`).getTime(); t += MIN) {
-        if (matcher.match(new RealDate(t))) fires.push(new RealDate(t).toISOString().slice(0, 16));
-      }
+  // ---- Another zone's clock, read by a server in a zone with a skipped hour of its own ----
+
+  // The hours the three test servers skip or repeat themselves: Israel 2026-03-27 and New York 2026-03-08 (spring), read in every other zone.
+  const SERVER_GAP_DAYS = [['2026-03-07T00:00:00Z', '2026-03-09T00:00:00Z'], ['2026-03-26T00:00:00Z', '2026-03-28T00:00:00Z']];
+  const everyHalfHour = (visit: (at: Date) => void) => {
+    for (const [from, to] of SERVER_GAP_DAYS) for (let t = iso(from).getTime(); t < iso(to).getTime(); t += 30 * MIN) visit(new RealDate(t));
+  };
+
+  await check('a zone\'s clock reads the same on any server: localDate, instantToWallTime and a series\' floating time agree with the independent reader for every half hour of the days the test servers spring forward (host Asia/Jerusalem, user in New York at 2026-03-27T06:30Z reads 02:30, not 03:30)', () => {
+    const at = iso('2026-03-27T06:30:00Z');
+    assertSame(wallOf(at, NY), '2026-03-27 02:30', 'the independent reader');
+    assertSame(instantToWallTime(at, NY), '2026-03-27T02:30:00', 'instantToWallTime');
+    assertSame(rec.shiftOnWall(at, at, at, NY).toISOString(), at.toISOString(), 'shiftOnWall by nothing on a New York slot');
+    for (const zone of ['UTC', NY, IL, LONDON, MOSCOW]) {
+      everyHalfHour(t => {
+        assertSame(localDate(t, zone), wallOf(t, zone).slice(0, 10), `localDate of ${t.toISOString()} in ${zone}`);
+        assertSame(rec.shiftOnWall(t, t, t, zone).toISOString(), t.toISOString(), `shiftOnWall by nothing of ${t.toISOString()} in ${zone}`);
+      });
     }
-    assertSame(fires, [
-      '2026-03-25T08:00', '2026-03-26T08:00', '2026-03-27T07:00', '2026-03-28T07:00', '2026-03-29T07:00',
-      '2026-10-23T07:00', '2026-10-24T07:00', '2026-10-25T08:00', '2026-10-26T08:00', '2026-10-27T08:00',
-    ], 'fire times (UTC)');
+  });
+
+  await check('a zone\'s DATE is right on a server whose own zone once skipped a whole day (the process zone switched to Pacific/Apia, which has no 2011-12-30): localDate and the floating time do not move a day', () => {
+    const was = process.env.TZ;
+    process.env.TZ = 'Pacific/Apia';
+    try {
+      assert(new RealDate(2011, 11, 30, 12).getDate() !== 30, 'the process zone did not switch: 2011-12-30 still exists in it');
+      const at = iso('2011-12-30T12:00:00Z');
+      assertSame(localDate(at, 'UTC'), '2011-12-30', 'localDate');
+      assertSame(rec.shiftOnWall(at, at, at, 'UTC').toISOString(), at.toISOString(), 'shiftOnWall by nothing');
+    } finally {
+      if (was === undefined) delete process.env.TZ;
+      else process.env.TZ = was;
+    }
+  });
+
+  await check('a New York series keeps its 02:30 into later years on any server: the Hebrew slot, the yearly slot map and the yearly extra date read the series\' time on New York\'s clock', () => {
+    const start = wallTimeToInstant('2026-03-27T02:30', NY); // 06:30Z: the hour Israel skips that day
+    const s = series(start, new RealDate(start.getTime() + 3_600_000), { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2026-03-27', timeZone: NY });
+    const [next] = expand(s, '2027-01-01T00:00:00Z', '2027-12-31T00:00:00Z');
+    assertSame(wallOf(next.startsAt, NY).slice(11), '02:30', 'the Hebrew slot of 2027');
+    const yearly = series(start, new RealDate(start.getTime() + 3_600_000), { rrule: 'FREQ=YEARLY', timeZone: NY }) as never;
+    assertSame(wallOf(rec.yearlySlotMap(yearly, yearly, 1)(start)!, NY), '2027-03-27 02:30', 'yearlySlotMap');
+    assertSame(wallOf(rec.yearlyExtraDateMap(NY, 1)(start)!, NY), '2027-03-27 02:30', 'yearlyExtraDateMap');
+  });
+
+  await check('a summary preferred at 02:00 goes out at 02:00 for a user in New York on 2026-03-27 and for a user in Israel on 2026-03-08, whatever the server skips those days', async () => {
+    for (const type of ['daily', 'tomorrow'] as const) {
+      assertSame(await summarySends(NY, 2, type, '2026-03-26T12:00:00Z', '2026-03-27T12:00:00Z'), ['2026-03-27 02:00'], `${type} New York on the Israeli jump day`);
+      assertSame(await summarySends(IL, 2, type, '2026-03-07T12:00:00Z', '2026-03-08T12:00:00Z'), ['2026-03-08 02:00'], `${type} Israel on the New York jump day`);
+    }
+  });
+
+  await check('a Google copy\'s UNTIL and EXDATE are written on the right clocks on any server: a UTC stamp of 02:30Z on the Israeli jump day, a New York wall time on it', async () => {
+    const { googleRuleLine, toGoogleEvent } = await import('../src/services/calendar-move/mapper');
+    assertSame(googleRuleLine('FREQ=DAILY;UNTIL=20260327T053000', false, IL), 'RRULE:FREQ=DAILY;UNTIL=20260327T023000Z', 'UNTIL 05:30 in Israel is 02:30Z');
+    assertSame(googleRuleLine('FREQ=DAILY;UNTIL=20260308T043000', false, IL), 'RRULE:FREQ=DAILY;UNTIL=20260308T023000Z', 'the same on the New York jump day');
+    const start = wallTimeToInstant('2026-03-20T02:30', NY);
+    const copy = toGoogleEvent(series(start, new RealDate(start.getTime() + 3_600_000), { timeZone: NY, rrule: 'FREQ=DAILY', exdates: [wallTimeToInstant('2026-03-27T02:30', NY)] }) as never, []);
+    assert(copy.ok, 'refused');
+    assertSame(copy.copy.event.recurrence?.[1], 'EXDATE;TZID=America/New_York:20260327T023000', 'the EXDATE line');
   });
 
   await check('the startup line names the process zone and whether it observes summer/winter time, and instrumentation.ts logs it', async () => {
