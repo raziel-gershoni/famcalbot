@@ -205,7 +205,7 @@ check('copy: Hebrew names Google as the home does and None says what is off; a r
     const note = JSON.parse(read(`messages/${lang}.json`)).calendarHome.scope.seriesNote as string;
     assert(lang === 'en' ? /alert/.test(note) : lang === 'he' ? /התראה/.test(note) : /уведомлен/.test(note), `${lang} seriesNote does not name the alert: ${note}`);
   }
-  const kit = read('app/[locale]/dashboard/form-kit.tsx');
+  const kit = read('components/app-ui/form-kit.tsx');
   assert(/\.ch-form-label \{[^}]*min-inline-size: min-content/.test(kit), 'label floor');
   assert(/\.ch-form-value-text \{[^}]*-webkit-line-clamp: 2/.test(kit), 'value wraps to two lines');
 });

@@ -95,12 +95,13 @@
 import CalendarHome, { CalendarHomeContainer, DRAG_BAR_MS, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
 import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
 import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
-import { FORM_CSS } from '../app/[locale]/dashboard/form-kit';
+import { FORM_CSS } from '../components/app-ui/form-kit';
+import { EDITOR_FORM_CSS } from '../app/[locale]/dashboard/form-kit';
 import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
 import { DRAG_BAR_CSS, DragBar } from '../app/[locale]/dashboard/DragBar';
 import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
-import { BottomSheet } from '../app/[locale]/dashboard/BottomSheet';
+import { BottomSheet } from '../components/app-ui/BottomSheet';
 import SelectCalendarsClient from '../app/[locale]/select-calendars/SelectCalendarsClient';
 import CalendarsClient from '../app/[locale]/calendars/CalendarsClient';
 
@@ -1726,7 +1727,7 @@ async function main() {
     };
     walk(root);
     const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/dashboard/${f}`);
-    for (const want of [...parts, 'components/app-ui/AppScreen.tsx', 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
+    for (const want of [...parts, 'components/app-ui/AppScreen.tsx', 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'components/app-ui/BottomSheet.tsx', 'components/app-ui/form-kit.tsx', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>
@@ -6077,7 +6078,7 @@ async function main() {
   });
 
   await check('#86 the form kit\'s CSS (spec §4): every tap at least 44 px, nothing under 11 px, logical properties only, no hover, the date and time pills and the select over a value row, the editor panel full height with a sticky Save bar', () => {
-    const css = [FORM_CSS, APP_THEME_CSS, AGENDA_CSS].join('\n');
+    const css = [FORM_CSS, EDITOR_FORM_CSS, APP_THEME_CSS, AGENDA_CSS].join('\n');
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
       assert(m, `no rule for ${selector}`);
@@ -6092,13 +6093,15 @@ async function main() {
       assert(min && Number(min[1]) >= 44, `${selector} min-block-size ${min?.[1]}`);
     }
     assert(/\.ch-icon-btn \{[^}]*block-size: 44px/.test(APP_SCREEN_CSS), '.ch-icon-btn 44 px')
-    const physical = FORM_CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:|(?:^|[\s;{])(?:width|height)\s*:|(?:min|max)-(?:width|height)\s*:/gm);
-    assert(!physical, `physical properties: ${show(physical)}`);
-    assert(!/:hover/.test(FORM_CSS), 'no hover styles');
-    assert([...FORM_CSS.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), 'nothing under 11 px');
+    for (const [what, part] of [['the generic kit', FORM_CSS], ["the editor's", EDITOR_FORM_CSS]] as const) {
+      const physical = part.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:|(?:^|[\s;{])(?:width|height)\s*:|(?:min|max)-(?:width|height)\s*:/gm);
+      assert(!physical, `${what} physical properties: ${show(physical)}`);
+      assert(!/:hover/.test(part), `${what}: no hover styles`);
+      assert([...part.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), `${what}: nothing under 11 px`);
+    }
     assert(/\.ch-form-select \{[^}]*opacity:\s*0[^}]*\}/.test(FORM_CSS) && /\.ch-form-select \{[^}]*inset:\s*0/.test(FORM_CSS), 'the select sits over the row');
     assert(/\.ch-sheet-full \{[^}]*flex:\s*1[^}]*max-block-size:\s*none/.test(APP_THEME_CSS), 'the editor panel fills the screen');
-    assert(/\.ch-save-bar \{[^}]*flex:\s*none/.test(FORM_CSS) && /\.ch-editor-body \{[^}]*overflow-y:\s*auto/.test(FORM_CSS), 'a scrolling body over a fixed Save bar');
+    assert(/\.ch-save-bar \{[^}]*flex:\s*none/.test(FORM_CSS) && /\.ch-editor-body \{[^}]*overflow-y:\s*auto/.test(EDITOR_FORM_CSS), 'a scrolling body over a fixed Save bar');
     assert(/prefers-reduced-motion/.test(APP_THEME_CSS), 'reduced motion');
   });
 
@@ -8369,7 +8372,7 @@ async function main() {
   });
 
   await check('S10 the Repeat sheet\'s CSS: 44px targets (chips, steppers), logical properties only, nothing under 11px, no hover, a reduced-motion-safe transition; the form kit\'s new rows (choice rows, stepper) follow the same rules', () => {
-    for (const [what, css] of [['RepeatSheet', REPEAT_CSS], ['form kit', FORM_CSS]] as const) {
+    for (const [what, css] of [['RepeatSheet', REPEAT_CSS], ['form kit', FORM_CSS], ["the editor's form CSS", EDITOR_FORM_CSS]] as const) {
       assert(!/:hover/.test(css) && !/\b(margin|padding)-(left|right)\b|\b(left|right)\s*:|text-align:\s*(left|right)/.test(css), `${what}: no hover, logical properties only`);
       assert(!Array.from(css.matchAll(/font-size:\s*(\d+)px/g)).some((x) => Number(x[1]) < 11), `${what}: nothing under 11px`);
     }

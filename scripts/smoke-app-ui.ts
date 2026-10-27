@@ -13,7 +13,9 @@
 //    scheme it provides, and Telegram's BackButton, which shows exactly while onBack is set,
 //    calls the latest onBack, and goes with the screen; AppScope takes no BackButton and no
 //    Telegram colours; and no other file calls useTelegramBackButton but the three clients
-//    W1 and W3 still have to move.
+//    W1 and W3 still have to move;
+//  - the layer's boundary: nothing in components/app-ui/ imports from app/ or a server module,
+//    so every screen can take it into its client bundle.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -322,6 +324,21 @@ async function main() {
     assert(show(calls.sort()) === show(expected), `callers: ${show(calls)}, want ${show(expected)}`);
     const owner = fs.readFileSync(path.join(ROOT, 'components/app-ui/AppScreen.tsx'), 'utf8');
     assert((owner.match(/useTelegramBackButton\(/g) ?? []).length === 1, 'AppScreen makes the one call');
+  });
+
+  await check('#6 the layer is client-safe and stands alone: no file of components/app-ui/ imports from app/, src/services or a server-only package; the files the layer is made of are all there', () => {
+    const dir = path.join(ROOT, 'components/app-ui');
+    const files = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f)).sort();
+    for (const want of ['AppScreen.tsx', 'BottomSheet.tsx', 'form-kit.tsx', 'screen.ts', 'theme.ts']) assert(files.includes(want), `${want} is not in components/app-ui: ${show(files)}`);
+    const forbidden = /^@\/app\/|^(?:\.\.\/)+app\/|(?:^|\/)src\/(?:services|utils|config)\/|^@prisma|^@upstash|^ioredis|^server-only$|^date-fns-tz$|^@hebcal\/|^googleapis$/;
+    const bad: string[] = [];
+    for (const file of files) {
+      const code = fs.readFileSync(path.join(dir, file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+      for (const m of code.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"]([^'"]+)['"]/g)) {
+        if (forbidden.test(m[1])) bad.push(`${file}: ${m[1]}`);
+      }
+    }
+    assert(bad.length === 0, `imports the layer must not make: ${show(bad)}`);
   });
 
   await check('#99 React logged no warning', () => {

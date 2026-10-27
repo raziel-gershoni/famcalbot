@@ -9,7 +9,7 @@
 
 import { useTranslations } from 'next-intl';
 import type { GoogleState } from '@/src/lib/google-state';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 
 export type MenuEntryId = 'settings' | 'calendars' | 'partner' | 'connectGoogle' | 'chooseCalendars' | 'reconnectGoogle' | 'subscription' | 'refresh' | 'feedback' | 'admin';
 

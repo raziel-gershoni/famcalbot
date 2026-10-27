@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { hourOptions, joinTime, minuteOptions, splitTime } from '@/src/lib/calendar-view/picker-model';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { PICKER_CSS, PickerScope, Wheel, WheelPickerWrapper } from './picker-kit';
 
 export interface TimePickerSheetProps {

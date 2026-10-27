@@ -40,8 +40,9 @@ import {
 } from '@/src/lib/calendar-view/repeat-model';
 import type { PickerMode } from '@/src/lib/calendar-view/picker-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
-import { BottomSheet } from './BottomSheet';
-import { FORM_CSS, FormCard, PillRow, RadioCard, SaveBar, Segmented, StepperRow } from './form-kit';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { FORM_CSS, FormCard, RadioCard, SaveBar, Segmented, StepperRow } from '@/components/app-ui/form-kit';
+import { EDITOR_FORM_CSS, PillRow } from './form-kit';
 import { monthOnNthText, repeatFormText, type WordsContext } from './repeat-words';
 
 export const REPEAT_CSS = `
@@ -160,6 +161,7 @@ export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom,
   return (
     <BottomSheet label={t('editor.repeat.label')} closeLabel={t('editor.cancel')} onClose={onClose} variant="full">
       <style>{FORM_CSS}</style>
+      <style>{EDITOR_FORM_CSS}</style>
       <style>{REPEAT_CSS}</style>
       <header className="ch-editor-head">
         <button type="button" className="ch-editor-cancel" onClick={onClose}>

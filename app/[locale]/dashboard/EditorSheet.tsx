@@ -66,10 +66,11 @@ import type { WeekStart } from '@/src/lib/calendar-view/types';
 import type { EditScope, EditorCalendar, ForWho, ItemEditInfoResponse, ItemKind, RuleChoice } from '@/src/lib/calendar-view/editor-types';
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { RepeatSheet } from './RepeatSheet';
 import { endOfInfo, infoText, repeatFormText, withEndText, type WordsContext } from './repeat-words';
-import { ButtonRow, FORM_CSS, FormCard, FormRow, PillRow, preloadPickers, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from './form-kit';
+import { ButtonRow, FORM_CSS, FormCard, FormRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from '@/components/app-ui/form-kit';
+import { EDITOR_FORM_CSS, PillRow, preloadPickers } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
 /** What the container's request came to. On `ok` the container closes the editor. */
@@ -360,6 +361,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     <>
       <BottomSheet label={heading} closeLabel={t('editor.cancel')} onClose={cancel} variant="full">
         <style>{FORM_CSS}</style>
+        <style>{EDITOR_FORM_CSS}</style>
         <header className="ch-editor-head">
           <button type="button" className="ch-editor-cancel" onClick={cancel}>
             {t('editor.cancel')}

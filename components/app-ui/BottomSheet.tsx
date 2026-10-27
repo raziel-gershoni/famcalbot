@@ -1,10 +1,10 @@
 'use client';
 
-// The home's bottom sheet (the approved mockups' sheet): a scrim, a panel from the
+// The app's bottom sheet (the approved mockups' sheet): a scrim, a panel from the
 // bottom with a grab bar, and a Close button at its end, which is the browser's stand-in
 // for Telegram's BackButton. Used by the item sheet (D5); D6's send sheet and menu can
 // use it too. It doesn't touch Telegram's BackButton itself: one owner decides what that
-// button does (the container, CalendarHome).
+// button does (the screen's, AppScreen's onBack, which the container sets).
 //
 // - A dialog (role="dialog", aria-modal) with its own label. Focus moves into the panel
 //   when it opens and back to whatever had it (the tapped row) when it closes.
@@ -16,8 +16,8 @@
 // - `variant="full"` (the editor): the panel fills the screen, with no grab bar and no Close
 //   button of its own, since its content brings a Cancel in a header and a Save bar. The
 //   rest (the dialog, the focus, Escape, the scrim) is the same.
-// - Rendered in place, not in a portal, so it inherits the home's tokens and direction.
-//   It is position: fixed: no ancestor of the home may set transform or filter.
+// - Rendered in place, not in a portal, so it inherits the app's tokens (.ch-app) and direction.
+//   It is position: fixed: no ancestor of a screen may set transform or filter.
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 

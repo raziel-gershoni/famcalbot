@@ -21,9 +21,10 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { EditScope, ItemKind } from '@/src/lib/calendar-view/editor-types';
 import type { allOfThem } from '@/src/lib/calendar-view/editor-model';
 import { formatDayShort } from '@/src/lib/calendar-view/format';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
-import { FORM_CSS } from './form-kit';
+import { FORM_CSS } from '@/components/app-ui/form-kit';
+import { EDITOR_FORM_CSS } from './form-kit';
 import { specText } from './repeat-words';
 
 export type SubmitError = 'notAllowed' | 'changed' | 'failed' | 'busy' | 'reconnect' | 'moveFailed';
@@ -80,6 +81,7 @@ export function ScopeSheet({ kind, mode, title, day, all, weekStart = 0, choices
   return (
     <BottomSheet label={heading} closeLabel={t('scope.cancel')} onClose={onClose}>
       <style>{FORM_CSS}</style>
+      <style>{EDITOR_FORM_CSS}</style>
       <div className="ch-scope">
         <h2 className="ch-scope-title">{heading}</h2>
         <p className="ch-scope-body">
@@ -127,6 +129,7 @@ export function ConfirmSheet({ heading, confirmLabel, cancelLabel, danger, busy,
   return (
     <BottomSheet label={heading} closeLabel={cancelLabel} onClose={onClose}>
       <style>{FORM_CSS}</style>
+      <style>{EDITOR_FORM_CSS}</style>
       <div className="ch-scope">
         <h2 className="ch-scope-title" dir="auto">
           {heading}

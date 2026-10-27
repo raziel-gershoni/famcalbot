@@ -47,8 +47,8 @@ import { formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { hapticSelection } from '@/src/lib/telegram-ui';
-import { BottomSheet } from './BottomSheet';
-import { Segmented } from './form-kit';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { Segmented } from '@/components/app-ui/form-kit';
 import { PICKER_CSS, Wheel, WheelPickerWrapper } from './picker-kit';
 
 export interface DatePickerSheetProps {

@@ -15,7 +15,7 @@ import { formatDateSpan } from '@/src/lib/calendar-view/format';
 import { sendWeekRanges } from '@/src/lib/calendar-view/send-weeks';
 import type { DayKey, WeekStart } from '@/src/lib/calendar-view/types';
 import { SEND_ITEMS, sendToChat, type SendItem, type SendResult } from '@/src/lib/command-client';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 
 export interface SendSheetProps {
   /** The page's own user_id, as CalendarHomeProps carries it (never swapped). */

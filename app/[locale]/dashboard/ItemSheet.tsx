@@ -38,7 +38,7 @@ import {
   instantDay,
 } from '@/src/lib/calendar-view/format';
 import { openExternalLink } from '@/src/lib/telegram-ui';
-import { BottomSheet } from './BottomSheet';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
 import { AnniversaryCount, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 

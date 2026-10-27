@@ -19,7 +19,8 @@ import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type React
 import { WheelPicker, WheelPickerWrapper, type WheelPickerOption } from '@ncdai/react-wheel-picker';
 import { AppScope } from '@/components/app-ui/AppScreen';
 import { hapticSelection } from '@/src/lib/telegram-ui';
-import { FORM_CSS } from './form-kit';
+import { FORM_CSS } from '@/components/app-ui/form-kit';
+import { EDITOR_FORM_CSS } from './form-kit';
 
 /** The wheel's item height, and the number of options on its ring: a ring of 20 at 44 px is about 280 px tall, the grid's six rows. */
 export const WHEEL_ITEM_PX = 44;
@@ -388,6 +389,7 @@ export function PickerScope({ children }: { children: ReactNode }) {
   return (
     <AppScope>
       <style>{FORM_CSS}</style>
+      <style>{EDITOR_FORM_CSS}</style>
       {children}
     </AppScope>
   );
