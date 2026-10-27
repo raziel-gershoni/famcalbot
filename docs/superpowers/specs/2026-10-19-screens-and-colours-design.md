@@ -1,6 +1,6 @@
 # Calendar colours in the home, and every screen in the home's design
 
-Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). H1 is built and live on main (3e13dc8, 99155ce, 29c2c8f, b841371); F1, W1, W3 and A are deferred by the owner. The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. §3 reads as built.
+Status: approved by the owner on 2026-10-19 (the mockups, and §6's defaults). H1 is built and live on main (3e13dc8, 99155ce, 29c2c8f, b841371). F1 is built and live on main (2026-10-27, e299478..b959e56; its plan file is deleted). W1, W3 and A are next, each with its own plan. The scope survey and the owner's decisions from 2026-10-17 are summarised in §1. Mockups: https://claude.ai/artifact/KJQjWZ7MFRRCr3A4raAQos. §3 reads as built.
 
 ## 1. Decisions already made (owner, 2026-10-17/18)
 
@@ -108,7 +108,7 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 
 ## 4. F1: the shared design layer (no visual change)
 
-**Owner 2026-10-27:** F1 is the lift plus the cards that already have users. The plan is `docs/superpowers/plans/2026-10-27-app-ui-F1.md`. These are built in W1, beside the first screen that uses each:
+**Owner 2026-10-27:** F1 is the lift plus the cards that already have users (built; the plan, `docs/superpowers/plans/2026-10-27-app-ui-F1.md`, is deleted now that it shipped). The dashboard's no-user redirect is in the app look too, and select-calendars' two notices read from messages. These are built in W1, beside the first screen that uses each:
 - ScreenHeader;
 - day chips;
 - notice;
