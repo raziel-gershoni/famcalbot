@@ -106,7 +106,8 @@ import CalendarsClient from '../app/[locale]/calendars/CalendarsClient';
 
 /** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
 const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
+import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import fs from 'fs';
 import path from 'path';
 import { spawnSync } from 'child_process';
@@ -345,14 +346,14 @@ const noop = () => undefined;
 
 // ---- Rendering ----
 
-/** CalendarHome's frame (D6): the theme root and its tokens, inside next-intl's provider. */
+/** CalendarHome's frame (D6): the home's root (.ch-app .ch-screen .ch-home) and its tokens, inside next-intl's provider. */
 function inHome(locale: Locale, el: ReactElement): ReactElement {
   // The provider's props type makes children required; createElement takes them as its third argument.
   const provider = { locale, messages: messages[locale], timeZone: TZ } as ComponentProps<typeof NextIntlClientProvider>;
   return createElement(
     NextIntlClientProvider,
     provider,
-    createElement('div', { className: 'ch-home', 'data-theme': 'light' }, createElement('style', null, HOME_THEME_CSS), el),
+    createElement('div', { className: 'ch-app ch-screen ch-home', 'data-theme': 'light' }, createElement('style', null, APP_THEME_CSS), el),
   );
 }
 
@@ -1514,7 +1515,7 @@ async function main() {
     assert(blocks.length === 0, `block elements inside a button (only phrasing content is valid): ${show(blocks.slice(0, 2))}`);
     const svgs = html.match(/<svg[^>]*>/g) ?? [];
     assert(svgs.length > 5 && svgs.every((s) => s.includes('aria-hidden="true"')), 'icons are aria-hidden');
-    const css = HOME_THEME_CSS + AGENDA_CSS;
+    const css = APP_THEME_CSS + AGENDA_CSS;
     const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
     assert(sizes.length > 10 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
     assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s/.test(css), 'every font size in px (so the floor is checkable)');
@@ -1537,15 +1538,15 @@ async function main() {
     const defined = new Set([...globals.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1]));
     // A calendar's tones are set inline on the mark that draws them (calendarVars), not by the theme.
     const inline = new Set(Object.keys(calendarVars('#000000') ?? {}));
-    const read = [...new Set([...HOME_THEME_CSS.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((n) => !/^--(?:tg|ch)-/.test(n) && !inline.has(n));
+    const read = [...new Set([...APP_THEME_CSS.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((n) => !/^--(?:tg|ch)-/.test(n) && !inline.has(n));
     assert(read.length >= 4 && read.every((n) => defined.has(n)), `the fallbacks read ${show(read)}, globals.css defines ${show(read.filter((n) => defined.has(n)))}`);
     for (const [token, brand] of [['--ch-bg', '--bg-white'], ['--ch-text', '--text-primary'], ['--ch-accent', '--brand-primary-dark'], ['--ch-button', '--brand-primary-dark']]) {
-      assert(new RegExp(`${token}: var\\(--tg-theme-[\\w-]+, (?:var\\(--tg-theme-[\\w-]+, )?var\\(${brand}\\)\\)`).test(HOME_THEME_CSS), `${token} falls back to ${brand}`);
+      assert(new RegExp(`${token}: var\\(--tg-theme-[\\w-]+, (?:var\\(--tg-theme-[\\w-]+, )?var\\(${brand}\\)\\)`).test(APP_THEME_CSS), `${token} falls back to ${brand}`);
     }
-    assert(/\.ch-home\[data-theme='dark'\] \{[^}]*--ch-button: var\(--tg-theme-button-color, var\(--brand-primary\)\);/.test(HOME_THEME_CSS), 'the dark button falls back to --brand-primary');
+    assert(/\.ch-app\[data-theme='dark'\] \{[^}]*--ch-button: var\(--tg-theme-button-color, var\(--brand-primary\)\);/.test(APP_THEME_CSS), 'the dark button falls back to --brand-primary');
     // The home scrolls the document: the root behind an iOS bounce takes the theme's background.
-    assert(/\nhtml:has\(\.ch-home:not\(\.ch-standalone\)\) \{\s*background-color: var\(--tg-theme-bg-color, var\(--bg-white\)\);\s*\}/.test(HOME_THEME_CSS), 'the root, light');
-    assert(/\nhtml:has\(\.ch-home:not\(\.ch-standalone\)\[data-theme='dark'\]\) \{\s*background-color: var\(--tg-theme-bg-color, #15151d\);\s*color-scheme: dark;\s*\}/.test(HOME_THEME_CSS), 'the root, dark');
+    assert(/\nhtml:has\(\.ch-screen\) \{\s*background-color: var\(--tg-theme-bg-color, var\(--bg-white\)\);\s*\}/.test(APP_SCREEN_CSS), 'the root, light');
+    assert(/\nhtml:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*background-color: var\(--tg-theme-bg-color, #15151d\);\s*color-scheme: dark;\s*\}/.test(APP_SCREEN_CSS), 'the root, dark');
   });
 
   await check('#15 every date and time follows the route\'s timezone, never the device clock (the same markup in four process zones, Los Angeles included)', () => {
@@ -1725,7 +1726,7 @@ async function main() {
     };
     walk(root);
     const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/dashboard/${f}`);
-    for (const want of [...parts, 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
+    for (const want of [...parts, 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>
@@ -1747,7 +1748,7 @@ async function main() {
       assert(first.headers['X-Telegram-Init-Data'] === tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url), 'the init data in the header, never in the URL');
       assert(first.method === 'GET' && first.credentials === 'same-origin' && first.cache === 'no-store', `request: ${show({ method: first.method, credentials: first.credentials, cache: first.cache })}`);
       const before = m.html();
-      assert(/^<div class="ch-home" data-theme="dark" dir="ltr" lang="en">/.test(before), `the root: ${before.slice(0, 120)}`);
+      assert(/^<div class="ch-app ch-screen ch-home" data-theme="dark" dir="ltr" lang="en">/.test(before), `the root: ${before.slice(0, 120)}`);
       assert(before.includes('class="ch-head-ghost"') && before.includes('aria-busy="true"') && !before.includes('<h1'), 'placeholders until the answer, no made-up day');
       byLabel(m.container, 'Send to chat');
       byLabel(m.container, 'Menu');
@@ -1780,11 +1781,11 @@ async function main() {
     const he = await mountHome('he');
     try {
       const html = he.html();
-      assert(/^<div class="ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the he root: ${html.slice(0, 120)}`);
+      assert(/^<div class="ch-app ch-screen ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the he root: ${html.slice(0, 120)}`);
       assertHas(textOf(html), [`${dayLong('he-IL', TODAY)} ד׳ בחשון תשפ״ז`, 'היום חמישי 15 באוק׳', 'להציג את השבוע הבא'], 'he');
       byLabel(he.container, 'שליחה לצ׳אט');
       byLabel(he.container, 'תפריט');
-      assert(html.includes('<svg class="ch-flip"') && /\.ch-home\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(HOME_SHELL_CSS), 'the send icon flips in RTL');
+      assert(html.includes('<svg class="ch-flip"') && /\.ch-app\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(APP_SCREEN_CSS), 'the send icon flips in RTL');
     } finally {
       he.unmount();
     }
@@ -2287,8 +2288,8 @@ async function main() {
     assert(!zoneDiffers('Asia/Kolkata', 'Asia/Calcutta') && zoneDiffers('UTC', TZ) && !zoneDiffers(null, TZ), 'zoneDiffers');
   });
 
-  await check('#34 the shell\'s CSS (§7.1): nothing under 11 px, taps at least 44 px, logical properties only, no hover, overflow-x: clip (never hidden), the stable viewport height, both safe-area families with 0 fallbacks, no transform or filter on the frame', () => {
-    const css = HOME_SHELL_CSS;
+  await check('#34 the shell\'s and the screen\'s CSS (§7.1): nothing under 11 px, taps at least 44 px, logical properties only, no hover, overflow-x: clip (never hidden), the stable viewport height, both safe-area families with 0 fallbacks, no transform or filter on the frame', () => {
+    const css = APP_SCREEN_CSS + HOME_SHELL_CSS;
     const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
     assert(sizes.length > 10 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
     assert(!/font-size:\s*[\d.]+(?:em|rem|%)|font:\s/.test(css), 'every font size in px');
@@ -2305,7 +2306,7 @@ async function main() {
     const physical = css.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(css), 'no hover styles');
-    const frame = rule('.ch-home');
+    const frame = rule('.ch-screen');
     assert(!/overflow:\s*hidden/.test(css) && /overflow-x:\s*clip/.test(frame), 'overflow-x: clip, never overflow: hidden');
     assert(frame.includes('min-height: var(--tg-viewport-stable-height, 100dvh)'), 'the stable viewport height');
     for (const v of ['--tg-safe-area-inset-top, 0px', '--tg-content-safe-area-inset-top, 0px', '--tg-safe-area-inset-left, 0px', '--tg-content-safe-area-inset-left, 0px', '--tg-safe-area-inset-right, 0px', '--tg-content-safe-area-inset-right, 0px']) {
@@ -2335,7 +2336,7 @@ async function main() {
     const a = crash('he', new TypeError('x is undefined'));
     try {
       const html = innerHtml(a.container);
-      assert(/^<div class="ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the card's root: ${html.slice(0, 120)}`);
+      assert(/^<div class="ch-app ch-screen ch-home" data-theme="light" dir="rtl" lang="he">/.test(html), `the card's root: ${html.slice(0, 120)}`);
       assertHas(textOf(html), ['משהו השתבש היומן נתקע. טעינה מחדש בדרך כלל עוזרת. לטעון מחדש'], 'the he card');
       assert(reloads.length === 0, 'a plain error never reloads by itself');
       a.click(button(a.container, 'לטעון מחדש'));
@@ -3207,7 +3208,7 @@ async function main() {
         .map((e) => e.textContent)
         .join('\n');
       const bad = /(?:^|;|\{)\s*(?:overflow(?:-[xy])?\s*:\s*(?:hidden|auto|scroll)|transform\s*:|filter\s*:)/;
-      // The last compound of each selector (".ch-home[dir='rtl'] .ch-flip" → ".ch-flip"), as tag and classes.
+      // The last compound of each selector (".ch-app[dir='rtl'] .ch-flip" → ".ch-flip"), as tag and classes.
       const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
         .filter((r) => bad.test(`{${r[2]}`))
         .flatMap((r) => r[1].split(',').map((sel) => sel.trim().split(/[\s>+~]+/).pop() ?? ''))
@@ -3298,7 +3299,7 @@ async function main() {
       const stuck = rule(HOME_TOP_CSS, '.ch-home-top.is-sticky');
       assert(decl(stuck, 'position') === 'sticky' && decl(stuck, 'top') === 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))' && decl(stuck, 'background') === 'var(--ch-bg)', `the sticky rule: ${stuck}`);
       const z = Number(decl(stuck, 'z-index'));
-      assert(z > Number(decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'z-index')) && z < Number(decl(rule(HOME_THEME_CSS, '.ch-sheet-layer'), 'z-index')), `z-index ${z}: above the Month's bar, under the sheets`);
+      assert(z > Number(decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'z-index')) && z < Number(decl(rule(APP_THEME_CSS, '.ch-sheet-layer'), 'z-index')), `z-index ${z}: above the Month's bar, under the sheets`);
       assert((decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'top') ?? '').includes('var(--ch-top-h, 0px)') && (decl(rule(MONTH_BROWSE_CSS, '.ch-mb-title'), 'scroll-margin-top') ?? '').includes('var(--ch-top-h, 0px)'), 'the bar\'s top and the titles\' scroll margin add --ch-top-h');
       assert(elements(m.container).some((e) => e.localName === 'style' && e.textContent === HOME_TOP_CSS), 'its styles are rendered');
       scrollPageTo(inViewAt('2026-10'));
@@ -3684,7 +3685,7 @@ async function main() {
     none('a reminder with no series', ACT({ open: true }, { seriesId: null }));
     none('no actions from the container', ACT({ open: true }), null);
     // The CSS: the buttons are the home's ch-btn (44 px), Done 48 px; nothing under 11 px; no hover; logical properties.
-    assert(/\.ch-btn \{[^}]*min-height: 44px/.test(HOME_THEME_CSS), 'ch-btn is 44 px');
+    assert(/\.ch-btn \{[^}]*min-height: 44px/.test(APP_THEME_CSS), 'ch-btn is 44 px');
     assert(/\.ch-sheet-action \{[^}]*min-height: 48px/.test(AGENDA_CSS), 'Done is 48 px');
     const mine = AGENDA_CSS.slice(AGENDA_CSS.indexOf('.ch-actions {'));
     assert(!/:hover/.test(mine) && !/\b(margin|padding)-(left|right|top|bottom)\b|\b(left|right):/.test(mine), 'no hover, no physical property');
@@ -4893,7 +4894,7 @@ async function main() {
         await dgDrop(m, dgDay(day(2)));
         const msg = messages[locale].calendarHome.drag;
         assert(dgBarText(m) === `${msg.moved.replace('{date}', formatDayShort(day(2), locale))} ${msg.undo}`, `${locale}: ${dgBarText(m)}`);
-        assert(elements(m.container).find((e) => e.className === 'ch-home')?.getAttribute('dir') === (locale === 'he' ? 'rtl' : 'ltr'), `${locale} direction`);
+        assert(elements(m.container).find((e) => e.className === 'ch-app ch-screen ch-home')?.getAttribute('dir') === (locale === 'he' ? 'rtl' : 'ltr'), `${locale} direction`);
       } finally {
         m.unmount();
       }
@@ -6034,7 +6035,7 @@ async function main() {
         await settle();
         look('new event');
         assert(topDialog(m).getAttribute('aria-label') === l.editor.titleNew, `${locale}: the editor is named ${l.editor.titleNew}`);
-        assert(m.html().startsWith('<div class="ch-home" data-theme="light" dir="' + (locale === 'he' ? 'rtl' : 'ltr') + '"'), `${locale}: the root's direction`);
+        assert(m.html().startsWith('<div class="ch-app ch-screen ch-home" data-theme="light" dir="' + (locale === 'he' ? 'rtl' : 'ltr') + '"'), `${locale}: the root's direction`);
         assert(elements(topDialog(m)).filter((e) => e.getAttribute('data-pill') === 'time').every((e) => e.getAttribute('dir') === 'ltr'), `${locale}: times run left to right`);
         m.click(byRole(topDialog(m), 'radio').find((e) => e.textContent === l.editor.kind.reminder) as Fake);
         look('new reminder');
@@ -6076,7 +6077,7 @@ async function main() {
   });
 
   await check('#86 the form kit\'s CSS (spec §4): every tap at least 44 px, nothing under 11 px, logical properties only, no hover, the date and time pills and the select over a value row, the editor panel full height with a sticky Save bar', () => {
-    const css = [FORM_CSS, HOME_THEME_CSS, AGENDA_CSS].join('\n');
+    const css = [FORM_CSS, APP_THEME_CSS, AGENDA_CSS].join('\n');
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
       assert(m, `no rule for ${selector}`);
@@ -6090,15 +6091,15 @@ async function main() {
       const min = /min-block-size:\s*(\d+)px/.exec(rule(selector));
       assert(min && Number(min[1]) >= 44, `${selector} min-block-size ${min?.[1]}`);
     }
-    assert(/\.ch-icon-btn \{[^}]*block-size: 44px/.test(HOME_SHELL_CSS), '.ch-icon-btn 44 px')
+    assert(/\.ch-icon-btn \{[^}]*block-size: 44px/.test(APP_SCREEN_CSS), '.ch-icon-btn 44 px')
     const physical = FORM_CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:|(?:^|[\s;{])(?:width|height)\s*:|(?:min|max)-(?:width|height)\s*:/gm);
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(FORM_CSS), 'no hover styles');
     assert([...FORM_CSS.matchAll(/font-size:\s*(\d+)px/g)].every((m) => Number(m[1]) >= 11), 'nothing under 11 px');
     assert(/\.ch-form-select \{[^}]*opacity:\s*0[^}]*\}/.test(FORM_CSS) && /\.ch-form-select \{[^}]*inset:\s*0/.test(FORM_CSS), 'the select sits over the row');
-    assert(/\.ch-sheet-full \{[^}]*flex:\s*1[^}]*max-block-size:\s*none/.test(HOME_THEME_CSS), 'the editor panel fills the screen');
+    assert(/\.ch-sheet-full \{[^}]*flex:\s*1[^}]*max-block-size:\s*none/.test(APP_THEME_CSS), 'the editor panel fills the screen');
     assert(/\.ch-save-bar \{[^}]*flex:\s*none/.test(FORM_CSS) && /\.ch-editor-body \{[^}]*overflow-y:\s*auto/.test(FORM_CSS), 'a scrolling body over a fixed Save bar');
-    assert(/prefers-reduced-motion/.test(HOME_THEME_CSS), 'reduced motion');
+    assert(/prefers-reduced-motion/.test(APP_THEME_CSS), 'reduced motion');
   });
 
   await check('#87 React logged no warning in #74-#86 (keys, nesting, attributes, act)', () => {
@@ -6560,8 +6561,8 @@ async function main() {
       const file = fs.readFileSync(path.join(ROOT, `app/[locale]/dashboard/${view}.tsx`), 'utf8');
       assert(/holidays-client/.test(file) && !/@hebcal\/core|services\/hebrew-holidays/.test(file), `${view} reads holidays-client only`);
     }
-    const css = [HOME_THEME_CSS, MONTH_BROWSE_CSS].join('\n');
-    assert(/\.ch-day-holiday \{\s*color: var\(--ch-muted\);\s*\}/.test(HOME_THEME_CSS) && /\.ch-day-holiday\.is-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(HOME_THEME_CSS), 'the colours');
+    const css = [HOME_SHELL_CSS, MONTH_BROWSE_CSS].join('\n');
+    assert(/\.ch-day-holiday \{\s*color: var\(--ch-muted\);\s*\}/.test(HOME_SHELL_CSS) && /\.ch-day-holiday\.is-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(HOME_SHELL_CSS), 'the colours');
     const holidayCss = [...css.matchAll(/[^{}]*(?:ch-day-holiday|has-chag)[^{}]*\{[^}]*\}/g)].map((m) => m[0]).join('\n');
     assert(holidayCss.length > 0 && !/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|(?:^|[\s;{])(?:width|height)\s*:/.test(holidayCss), `physical properties in ${holidayCss}`);
     // The holiday span is a flex item of a wrapping header: a dot drawn inside it would start the wrapped line, so the 8px gap alone separates it.

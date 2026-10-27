@@ -495,10 +495,10 @@ button.ch-form-row:focus-visible {
   opacity: 0.6;
   cursor: default;
 }
-.ch-home[data-theme='dark'] .ch-save-bar {
+.ch-app[data-theme='dark'] .ch-save-bar {
   background: var(--ch-bg);
 }
-.ch-home[data-theme='dark'] .ch-pill {
+.ch-app[data-theme='dark'] .ch-pill {
   background: var(--ch-separator);
 }
 `;

@@ -9,12 +9,12 @@
 //    follows, and only those keys are taken;
 //  - its CSS: every tab at least 44 px tall, nothing under 11 px, logical properties
 //    only, no hover, the selected tab told apart by weight as well as colour, and only
-//    tokens home-theme.ts defines;
+//    tokens components/app-ui/theme.ts defines;
 //  - the storage helpers (src/lib/calendar-view/home-storage.ts): the per-user keys, the
 //    tab in sessionStorage and the layout in localStorage, and their defaults with no
 //    window, with storage that throws (on the property, on get, on set) and for unknown
 //    values;
-//  - the Month's colour tokens in home-theme.ts: each in light and dark; on Telegram's
+//  - the Month's colour tokens in components/app-ui/theme.ts: each in light and dark; on Telegram's
 //    theme params where one fits (resolved with every param set); the contrast floor on
 //    the fallbacks, with and without color-mix (4.5:1 for text, 3:1 for the marks that
 //    tell the viewer's items from the partner's);
@@ -33,8 +33,8 @@ import React, { createElement, type ComponentProps, type ReactElement } from 're
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { HomeTabs, PANEL_IDS, TAB_IDS, TABS_CSS } from '../app/[locale]/dashboard/HomeTabs';
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
-import { cascade as cascadeOf, contrast, cssBlocks, customProps, resolver as resolverOf, TG_ALL, type Theme } from './lib/css-resolve';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
+import { cascade as cascadeOf, contrast, cssBlocks, customProps, resolver as resolverOf, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
 import { useTelegramBackButton } from '../src/lib/telegram-ui';
 import { homeTabKey, monthLayoutKey, readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '../src/lib/calendar-view/home-storage';
@@ -433,32 +433,12 @@ const TOKENS = [
 ] as const;
 
 // The cascade, the resolver and the contrast are scripts/lib/css-resolve.ts's, over the theme's root selector.
-const ROOT_SELECTOR = '.ch-home';
+const ROOT_SELECTOR = '.ch-app';
 const cascade = (css: string, theme: Theme, colorMix: boolean) => cascadeOf(css, ROOT_SELECTOR, theme, colorMix);
-const resolver = (theme: Theme, colorMix: boolean, tg: Record<string, string> = {}) => resolverOf(HOME_THEME_CSS, ROOT_SELECTOR, theme, colorMix, tg);
+const resolver = (theme: Theme, colorMix: boolean, tg: Record<string, string> = {}) => resolverOf(APP_THEME_CSS, ROOT_SELECTOR, theme, colorMix, tg);
 
-/** Text on what it sits on: 4.5:1 (WCAG 1.4.3). */
-const TEXT_PAIRS: [string, string][] = [
-  ['--ch-tab-on-text', '--ch-tab-on'],
-  ['--ch-muted', '--ch-tab-track'],
-  ['--ch-mine-soft-text', '--ch-mine-soft'],
-  ['--ch-mine-solid-text', '--ch-mine-solid'],
-  ['--ch-partner-soft-text', '--ch-partner-soft'],
-  ['--ch-partner-line-text', '--ch-bg'],
-  ['--ch-today-text', '--ch-today'],
-  ['--ch-selected-text', '--ch-selected'],
-  ['--ch-pill-text', '--ch-pill-bg'],
-  ['--ch-month-title', '--ch-bg'],
-];
-/** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
-const MARK_PAIRS: [string, string][] = [
-  ['--ch-dot-mine', '--ch-bg'],
-  ['--ch-dot-partner', '--ch-bg'],
-  ['--ch-partner-line', '--ch-bg'],
-  ['--ch-partner-line', '--ch-partner-soft'],
-  ['--ch-mine-solid', '--ch-bg'],
-  ['--ch-today', '--ch-bg'],
-];
+/** The tab bar's own pairs (the app's other pairs are smoke-app-ui.ts's): text on the track and on the selected tab, 4.5:1. */
+const TAB_TEXT_PAIRS = TEXT_PAIRS.filter(([, bg]) => bg === '--ch-tab-on' || bg === '--ch-tab-track');
 
 /** The Telegram params each token reads with color-mix, in light and dark alike ([] = a fixed shade: Telegram has no partner colour). */
 const TG_READS: Record<string, string[]> = {
@@ -596,7 +576,7 @@ async function main() {
     }
   });
 
-  await check('#5 the tab bar\'s CSS: every tab at least 44 px tall; nothing under 11 px, every size in px; logical properties only; no hover; no overflow: hidden; the 16 px gutter; the selected tab semibold on --ch-tab-on, the other label in D\'s --ch-muted; a focus ring; only tokens home-theme.ts defines', () => {
+  await check('#5 the tab bar\'s CSS: every tab at least 44 px tall; nothing under 11 px, every size in px; logical properties only; no hover; no overflow: hidden; the 16 px gutter; the selected tab semibold on --ch-tab-on, the other label in D\'s --ch-muted; a focus ring; only tokens theme.ts defines', () => {
     const css = TABS_CSS;
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
@@ -619,7 +599,7 @@ async function main() {
     const pill = rule(".ch-tab[aria-selected='true'] .ch-tab-pill");
     assert(/background:\s*var\(--ch-tab-on\)/.test(pill) && /box-shadow:\s*var\(--ch-tab-shadow\)/.test(pill), `the selected pill: ${pill}`);
     assert(/outline:\s*2px solid var\(--ch-accent\)/.test(rule('.ch-tab:focus-visible')), 'a focus ring');
-    const defined = new Set(cascade(HOME_THEME_CSS, 'dark', true).keys());
+    const defined = new Set(cascade(APP_THEME_CSS, 'dark', true).keys());
     const used = [...new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))];
     assert(used.length >= 5 && used.every((n) => defined.has(n)), `tokens read but not defined: ${show(used.filter((n) => !defined.has(n)))}`);
   });
@@ -706,8 +686,8 @@ async function main() {
   });
 
   await check('#8 Plan E\'s colour tokens: each one declared in the light and the dark block; resolved with every Telegram param set (and color-mix), each reads the params the split maps it onto, the partner\'s shades none, and no text colour reads the hint straight', () => {
-    const lightBlock = cssBlocks(HOME_THEME_CSS).find(([p]) => p === '.ch-home');
-    const darkBlock = cssBlocks(HOME_THEME_CSS).find(([p]) => p === ".ch-home[data-theme='dark']");
+    const lightBlock = cssBlocks(APP_THEME_CSS).find(([p]) => p === '.ch-app');
+    const darkBlock = cssBlocks(APP_THEME_CSS).find(([p]) => p === ".ch-app[data-theme='dark']");
     assert(lightBlock && darkBlock, 'no light or dark block');
     for (const [name, block] of [['light', lightBlock[1]], ['dark', darkBlock[1]]] as const) {
       const declared = new Set(customProps(block).map(([n]) => n));
@@ -721,20 +701,19 @@ async function main() {
       const wrong = Object.keys(TG_READS).filter((t) => show(got[t]) !== show(TG_READS[t]));
       assert(wrong.length === 0, `${theme}: ${show(Object.fromEntries(wrong.map((t) => [t, got[t]])))}, want ${show(Object.fromEntries(wrong.map((t) => [t, TG_READS[t]])))}`);
     }
-    const shadow = (theme: Theme) => cascade(HOME_THEME_CSS, theme, true).get('--ch-tab-shadow');
+    const shadow = (theme: Theme) => cascade(APP_THEME_CSS, theme, true).get('--ch-tab-shadow');
     assert(shadow('light') === '0 1px 2px rgba(26, 26, 46, 0.14)' && shadow('dark') === 'none', `the tab shadow: ${shadow('light')} / ${shadow('dark')}`);
   });
 
-  await check('#9 the contrast floor on the fallbacks (a browser: no Telegram params), light and dark, with and without color-mix: every text colour at least 4.5:1 on what it sits on, and the marks that tell whose an item is (dots, the partner\'s outline, the solid fills) at least 3:1', () => {
+  await check('#9 the tab bar\'s contrast floor on the fallbacks (a browser: no Telegram params), light and dark, with and without color-mix: the selected tab\'s text and the other tab\'s label at least 4.5:1 on what they sit on (the app\'s other pairs are smoke-app-ui.ts\'s)', () => {
+    assert(show(TAB_TEXT_PAIRS) === show([['--ch-tab-on-text', '--ch-tab-on'], ['--ch-muted', '--ch-tab-track']]), `the tabs' pairs: ${show(TAB_TEXT_PAIRS)}`);
     const low: string[] = [];
     for (const theme of ['light', 'dark'] as const) {
       for (const colorMix of [false, true]) {
         const r = resolver(theme, colorMix);
-        for (const [pairs, floor] of [[TEXT_PAIRS, 4.5], [MARK_PAIRS, 3]] as const) {
-          for (const [fg, bg] of pairs) {
-            const ratio = contrast(r.colour(fg), r.colour(bg));
-            if (ratio < floor) low.push(`${theme}${colorMix ? '+mix' : ''} ${fg} on ${bg}: ${ratio.toFixed(2)}`);
-          }
+        for (const [fg, bg] of TAB_TEXT_PAIRS) {
+          const ratio = contrast(r.colour(fg), r.colour(bg));
+          if (ratio < 4.5) low.push(`${theme}${colorMix ? '+mix' : ''} ${fg} on ${bg}: ${ratio.toFixed(2)}`);
         }
       }
     }

@@ -18,7 +18,7 @@
 // floors then hold on the card under any accent, inside Telegram too.
 //
 // calendarVars carries both looks' tones as custom properties on the element that draws
-// the mark; the element also takes the class 'has-cal', and HOME_THEME_CSS picks the
+// the mark; the element also takes the class 'has-cal', and APP_THEME_CSS picks the
 // light or the dark set by the home's data-theme (no theme in React, so the server's
 // render and the client's agree). Anything but '#rrggbb' gives null, and null means
 // today's look: the accent for the viewer's items and orange for the partner's.

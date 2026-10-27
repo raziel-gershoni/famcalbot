@@ -37,7 +37,8 @@
 // The view first: the import check walks what it loads.
 import { MONTH_PICKED_CSS, MonthPicked, type MonthPickedProps } from '../app/[locale]/dashboard/MonthPicked';
 import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
+import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
 import fs from 'fs';
 import path from 'path';
@@ -271,8 +272,9 @@ function inHome(locale: Locale, el: ReactElement): ReactElement {
     provider,
     createElement(
       'div',
-      { className: 'ch-home', 'data-theme': 'light', dir: locale === 'he' ? 'rtl' : 'ltr' },
-      createElement('style', null, HOME_THEME_CSS),
+      { className: 'ch-app ch-screen ch-home', 'data-theme': 'light', dir: locale === 'he' ? 'rtl' : 'ltr' },
+      createElement('style', null, APP_THEME_CSS),
+      createElement('style', null, APP_SCREEN_CSS),
       createElement('style', null, HOME_SHELL_CSS),
       el,
     ),
@@ -1043,12 +1045,12 @@ async function main() {
     assert(/color: var\(--ch-disabled\)/.test(rule('.ch-mp-chev:disabled')) && /color: var\(--ch-muted\)/.test(rule('.ch-mp-cell.is-failed .ch-mp-num')), 'disabled and dimmed');
     assert(/background: var\(--ch-pill-bg\)/.test(rule('.ch-mp-today-pill')) && /color: var\(--ch-pill-text\)/.test(rule('.ch-mp-today-pill')), 'the pill');
     assert(/outline: 2px solid var\(--ch-accent\)/.test(css), 'a focus ring');
-    assert(/\.ch-home\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(HOME_SHELL_CSS), 'the shell flips .ch-flip in RTL');
-    const defined = new Set([...(HOME_THEME_CSS + HOME_SHELL_CSS + AGENDA_CSS).matchAll(/(--(?:ch|cal)-[\w-]+)\s*:/g)].map((m) => m[1]));
+    assert(/\.ch-app\[dir='rtl'\] \.ch-flip \{\s*transform: scaleX\(-1\);/.test(APP_SCREEN_CSS), 'the screen flips .ch-flip in RTL');
+    const defined = new Set([...(APP_THEME_CSS + APP_SCREEN_CSS + HOME_SHELL_CSS + AGENDA_CSS).matchAll(/(--(?:ch|cal)-[\w-]+)\s*:/g)].map((m) => m[1]));
     const used = [...new Set([...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))];
     const undefinedTokens = used.filter((n) => !n.startsWith('--tg-') && !defined.has(n));
     assert(used.length >= 15 && undefinedTokens.length === 0, `tokens read but not defined: ${show(undefinedTokens)}`);
-    assert(/@keyframes ch-pulse/.test(AGENDA_CSS) && /prefers-reduced-motion: reduce/.test(HOME_THEME_CSS), 'the placeholder pulse is D\'s, and reduced motion stops it');
+    assert(/@keyframes ch-pulse/.test(AGENDA_CSS) && /prefers-reduced-motion: reduce/.test(APP_THEME_CSS), 'the placeholder pulse is D\'s, and reduced motion stops it');
     const html = render('en', propsFor(octoberStore(), picked('2026-10-16')));
     const buttons = markup(html).match(/<button[^>]*>/g) ?? [];
     assert(buttons.length > 35 && buttons.every((b) => b.includes('type="button"')), `buttons: ${show(buttons.filter((b) => !b.includes('type="button"')))}`);

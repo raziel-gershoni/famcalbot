@@ -1,24 +1,24 @@
-// The calendar home's look (spec §7.1 Look, §7.7): the colour tokens, mapped onto
-// Telegram's theme params with fallbacks, plus the pieces every part of the home shares
-// (buttons, chips, the bottom sheet).
+// The app's look (spec 2026-10-19 §4): the colour tokens, mapped onto Telegram's theme
+// params with fallbacks, plus the pieces every screen shares (buttons, chips, the bottom
+// sheet). It began as the calendar home's own, and every --ch-* and ch-* name is kept.
 //
 // The fallbacks: the brand colours are app/globals.css's own tokens (--bg-white,
 // --text-primary, --brand-primary-dark, --brand-primary), so the palette lives in one
 // place; the layout imports globals.css on every page. The neutral shades globals.css has
 // no token for (the hint, surfaces, separators, the danger colour, the whole dark
-// palette) are the approved mockups' and belong to the home alone.
+// palette) are the approved mockups' and belong to the app's look alone.
 //
-// The home's root carries it (D6, CalendarHome):
-//   <div className="ch-home" data-theme={useTelegramTheme()} dir={…}>
-//     <style>{HOME_THEME_CSS}</style>
+// The theme scope is the .ch-app class, carried by AppScreen (a whole screen) and AppScope
+// (a zero-height scope a sheet brings into another page):
+//   <div className="ch-app" data-theme={scheme} dir={…}>
+//     <style>{APP_THEME_CSS}</style>
 //     …
 // Inside Telegram the SDK writes --tg-theme-* on <html>, so the tokens follow the
 // user's Telegram theme, light or dark. In a browser there are no --tg-theme-* values,
 // and the fallbacks follow data-theme (prefers-color-scheme).
 //
-// The page's root takes the same background while the home is mounted (html:has(.ch-home:not(.ch-standalone))):
-// the home scrolls the document, and on iOS the bounce past either end shows the root,
-// which globals.css leaves unpainted (white under a dark theme otherwise).
+// The frame (the height, the safe areas) and the page root's paint belong to .ch-screen
+// (./screen.ts), never to the theme scope: a sheet in another page takes the tokens only.
 //
 // Rules: nothing smaller than 11 px; every tap target at least 44 px; logical
 // properties only, so RTL needs no overrides; no hover styles (touch only).
@@ -54,9 +54,12 @@
 // - A disabled chevron: --ch-disabled, faint on purpose (the button is also disabled). It
 //   is the only new colour that reads the hint straight. Every text colour keeps D's
 //   floor: an unselected tab's label reads --ch-muted.
+// - The banners' and the accent icon buttons' ground: --ch-accent-soft, the page's
+//   background with 14% of the accent mixed in.
 
-export const HOME_THEME_CSS = `
-.ch-home {
+
+export const APP_THEME_CSS = `
+.ch-app {
   --ch-bg: var(--tg-theme-bg-color, var(--bg-white));
   --ch-text: var(--tg-theme-text-color, var(--text-primary));
   --ch-hint: var(--tg-theme-hint-color, #5e5e78);
@@ -99,6 +102,7 @@ export const HOME_THEME_CSS = `
   --ch-pill-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
   --ch-disabled: #c9c8d6;
   --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
+  --ch-accent-soft: #eee9ff;
   color-scheme: light;
   background: var(--ch-bg);
   color: var(--ch-text);
@@ -109,7 +113,7 @@ export const HOME_THEME_CSS = `
   text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
 }
-.ch-home[data-theme='dark'] {
+.ch-app[data-theme='dark'] {
   --ch-bg: var(--tg-theme-bg-color, #15151d);
   --ch-text: var(--tg-theme-text-color, #f1f0f7);
   --ch-hint: var(--tg-theme-hint-color, #a6a6be);
@@ -150,11 +154,12 @@ export const HOME_THEME_CSS = `
   --ch-pill-text: var(--ch-accent);
   --ch-disabled: #4a4a5e;
   --ch-month-title: var(--ch-accent);
+  --ch-accent-soft: #2c2550;
   color-scheme: dark;
 }
 @supports (color: color-mix(in srgb, red 50%, blue)) {
-  .ch-home,
-  .ch-home[data-theme='dark'] {
+  .ch-app,
+  .ch-app[data-theme='dark'] {
     /* A contrast floor over the theme's hint colour (§7.7): pulled a quarter towards the text. */
     --ch-muted: color-mix(in srgb, var(--ch-hint) 75%, var(--ch-text));
     --ch-card: color-mix(in srgb, var(--ch-accent) 8%, var(--ch-bg));
@@ -166,37 +171,31 @@ export const HOME_THEME_CSS = `
     --ch-pill-text: color-mix(in srgb, var(--ch-accent) 80%, var(--ch-text));
     --ch-month-title: color-mix(in srgb, var(--ch-accent) 80%, var(--ch-text));
     --ch-disabled: color-mix(in srgb, var(--ch-hint) 35%, var(--ch-bg));
+    /* The banners' and the accent icon buttons' soft ground. */
+    --ch-accent-soft: color-mix(in srgb, var(--ch-accent) 14%, var(--ch-bg));
   }
-  .ch-home {
+  .ch-app {
     --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 12%, var(--ch-bg));
     --ch-pill-line: color-mix(in srgb, var(--ch-accent) 25%, var(--ch-bg));
   }
-  .ch-home[data-theme='dark'] {
+  .ch-app[data-theme='dark'] {
     --ch-mine-soft: color-mix(in srgb, var(--ch-accent) 22%, var(--ch-bg));
     --ch-pill-line: color-mix(in srgb, var(--ch-accent) 30%, var(--ch-bg));
   }
 }
-.ch-home .has-cal {
+.ch-app .has-cal {
   --cal-fill: var(--cal-fill-l);
   --cal-text: var(--cal-text-l);
   --cal-line: var(--cal-line-l);
 }
-.ch-home[data-theme='dark'] .has-cal {
+.ch-app[data-theme='dark'] .has-cal {
   --cal-fill: var(--cal-fill-d);
   --cal-text: var(--cal-text-d);
   --cal-line: var(--cal-line-d);
 }
-/* Not for a scope a sheet brings into another page (.ch-standalone): that page keeps its own look behind the scrim. */
-html:has(.ch-home:not(.ch-standalone)) {
-  background-color: var(--tg-theme-bg-color, var(--bg-white));
-}
-html:has(.ch-home:not(.ch-standalone)[data-theme='dark']) {
-  background-color: var(--tg-theme-bg-color, #15151d);
-  color-scheme: dark;
-}
-.ch-home *,
-.ch-home *::before,
-.ch-home *::after {
+.ch-app *,
+.ch-app *::before,
+.ch-app *::after {
   box-sizing: border-box;
 }
 .ch-visually-hidden {
@@ -312,23 +311,17 @@ html:has(.ch-home:not(.ch-standalone)[data-theme='dark']) {
   border-radius: 0;
   background: var(--ch-surface);
 }
-.ch-home[data-theme='dark'] .ch-sheet-full {
+.ch-app[data-theme='dark'] .ch-sheet-full {
   background: var(--ch-bg);
-}
-.ch-day-holiday {
-  color: var(--ch-muted);
-}
-.ch-day-holiday.is-chag {
-  color: var(--ch-accent);
 }
 @keyframes ch-sheet-in {
   from { transform: translateY(24px); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ch-home *,
-  .ch-home *::before,
-  .ch-home *::after {
+  .ch-app *,
+  .ch-app *::before,
+  .ch-app *::after {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;

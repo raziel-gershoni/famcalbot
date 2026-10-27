@@ -96,8 +96,8 @@ export function HomeTabs({ tab, onTab }: HomeTabsProps) {
 }
 
 /**
- * The tab bar's styles. They read the tokens HOME_THEME_CSS (./home-theme.ts) puts on
- * .ch-home: --ch-tab-track behind both tabs, --ch-tab-on / --ch-tab-on-text /
+ * The tab bar's styles. They read the tokens APP_THEME_CSS (components/app-ui/theme.ts) puts on
+ * .ch-app: --ch-tab-track behind both tabs, --ch-tab-on / --ch-tab-on-text /
  * --ch-tab-shadow for the selected one, D's --ch-muted (the contrast floor) for the other
  * label and --ch-accent for the focus ring. The 16 px side gutter matches the header's.
  * The pill sits 4 px inside the track, with 4 px between the two pills, as in the mockup.

@@ -38,7 +38,7 @@
 
 // The view first: the import-rule check walks what it loads.
 import { MonthBrowse, MONTH_BROWSE_CSS, type MonthBrowseProps } from '../app/[locale]/dashboard/MonthBrowse';
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -237,7 +237,7 @@ function inIntl(locale: Locale, el: ReactElement): ReactElement {
 
 /** The home's frame around the view (CalendarHome's root and its tokens), for the static markup. */
 function inHome(locale: Locale, el: ReactElement): ReactElement {
-  return inIntl(locale, createElement('div', { className: 'ch-home', 'data-theme': 'light' }, createElement('style', null, HOME_THEME_CSS), el));
+  return inIntl(locale, createElement('div', { className: 'ch-app ch-screen ch-home', 'data-theme': 'light' }, createElement('style', null, APP_THEME_CSS), el));
 }
 
 function browseProps(store: CalendarStore, o: Partial<MonthBrowseProps> = {}): MonthBrowseProps {
@@ -1039,7 +1039,7 @@ async function main() {
     const today = ruleOf(css, '.ch-mb-today');
     assert(px(declOf(today, 'min-height')) >= 44 && px(declOf(today, 'min-width')) >= 44, `the Today button: ${today}`);
     assert(px(declOf(ruleOf(css, '.ch-mb-pill'), 'min-height')) >= 44, 'a pill is at least 44 px');
-    assert(/\.ch-btn \{[^}]*min-height: 44px;[^}]*min-width: 44px;/.test(HOME_THEME_CSS), 'the pill\'s action is a .ch-btn (44 × 44)');
+    assert(/\.ch-btn \{[^}]*min-height: 44px;[^}]*min-width: 44px;/.test(APP_THEME_CSS), 'the pill\'s action is a .ch-btn (44 × 44)');
     const physical = css.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(css), 'no hover styles');
@@ -1086,11 +1086,11 @@ async function main() {
     assert(show(look('.ch-mb-chip.is-partner-solid')) === show(['var(--ch-partner-soft)', 'var(--ch-partner-soft-text)', 'var(--ch-partner-line)']), 'the partner\'s, all-day and bars: outlined too');
     assert(show(look('.ch-mb-cell.is-today .ch-mb-day').slice(0, 2)) === show(['var(--ch-today)', 'var(--ch-today-text)']), 'today on the --ch-today fill');
     const used = new Set([...css.matchAll(/var\((--ch-[a-z-]+)/g)].map((m) => m[1]));
-    const defined = new Set([...HOME_THEME_CSS.matchAll(/(--ch-[a-z-]+)\s*:/g)].map((m) => m[1]));
+    const defined = new Set([...APP_THEME_CSS.matchAll(/(--ch-[a-z-]+)\s*:/g)].map((m) => m[1]));
     // The view's own three, and --ch-top-h, which E8's container sets on .ch-home (0px without it).
     const own = new Set(['--ch-mb-bar', '--ch-mb-title', '--ch-mb-cell', '--ch-top-h']);
     const unknown = [...used].filter((v) => !defined.has(v) && !own.has(v));
-    assert(unknown.length === 0, `tokens home-theme.ts doesn't define: ${show(unknown)}`);
+    assert(unknown.length === 0, `tokens theme.ts doesn't define: ${show(unknown)}`);
   });
 
   installWindow();

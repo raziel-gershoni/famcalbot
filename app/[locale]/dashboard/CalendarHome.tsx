@@ -16,7 +16,7 @@
 //   is a retry, as a state row once the facts are pinned, else as a card;
 // - the shell: the theme (D4's useTelegramTheme: Telegram's bg_color for the header and
 //   background, data-theme for the tokens), the direction, document-level scroll and
-//   the safe areas (./home-shell), the header, the tab bar, the banners, the tab on
+//   the safe areas (components/app-ui/screen.ts, the home's own ./home-shell), the header, the tab bar, the banners, the tab on
 //   screen (AgendaView, or the Month's MonthView), and the send and menu sheets;
 // - the tabs (Ruling 1): the bar sits under the header and above the banners, and shows
 //   only while a panel can show (no card, no block). The tab on screen
@@ -105,6 +105,8 @@ import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/
 import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { APP_SCREEN_CSS } from '@/components/app-ui/screen';
+import { APP_THEME_CSS } from '@/components/app-ui/theme';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
@@ -113,7 +115,6 @@ import { HomeErrorBoundary } from './HomeErrorBoundary';
 import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
-import { HOME_THEME_CSS } from './home-theme';
 import { DragBar, type BarContent, type BarState, type UndoEntry } from './DragBar';
 import type { DropEvent } from './DragSurface';
 import { EditorSheet, type MoveNote, type SaveOutcome } from './EditorSheet';
@@ -1095,8 +1096,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     );
 
   return (
-    <div className="ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{HOME_THEME_CSS}</style>
+    <div className="ch-app ch-screen ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
+      <style>{APP_THEME_CSS}</style>
+      <style>{APP_SCREEN_CSS}</style>
       <style>{HOME_SHELL_CSS}</style>
       <style>{HOME_TOP_CSS}</style>
       <HomeTop sticky={browsing}>

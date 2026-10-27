@@ -141,7 +141,7 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 - **Deletions:** LoadingButton is already deleted (7c0e57e removed all of `components/Feedback/`).
 - **`smoke-app-ui`:**
   - a CSS lint: 11 px and 44 px floors, logical properties, no `:hover`, no hex in screen CSS;
-  - contrast in light, dark and real Telegram themes;
+  - contrast in light, dark and Telegram themes. The repo holds no captured device themes, so the Telegram case is a stand-in: the fallback palette sent as Telegram params, which proves the params reach every token. `TG_ALL` (a different grey per param) stays the stand-in for which param each token reads. A Telegram background outside the grounds list is still not guaranteed the floors (§3.5);
   - `renderToString` in en, he and ru;
   - BackButton and sheet focus checks on the fake DOM.
 - **What stays:** `TelegramLayout`, `Header`, `Section` and `CategoryIcon`, which the other screens still use, until W1 and W3 move those screens off them. `DashboardClient` is gone (7c0e57e).

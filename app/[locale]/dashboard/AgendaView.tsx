@@ -164,7 +164,7 @@ export function AgendaView({ agenda, hints, selected, onSelect, sheetActions, on
 }
 
 /**
- * The Agenda's own styles. They read the tokens HOME_THEME_CSS (./home-theme.ts) puts on
+ * The Agenda's own styles. They read the tokens APP_THEME_CSS (components/app-ui/theme.ts) puts on
  * the home's root. Logical properties only; nothing under 11 px; taps at least 44 px.
  */
 export const AGENDA_CSS = `

@@ -675,8 +675,8 @@ export function MonthBrowse(props: MonthBrowseProps) {
 }
 
 /**
- * The browse's styles. They read the tokens HOME_THEME_CSS (./home-theme.ts) puts on
- * .ch-home, D's and E4's, the three heights MonthBrowse sets on its root from
+ * The browse's styles. They read the tokens APP_THEME_CSS (components/app-ui/theme.ts) puts on
+ * .ch-app, D's and E4's, the three heights MonthBrowse sets on its root from
  * month.ts: --ch-mb-bar (monthBarPx), --ch-mb-title (monthTitlePx) and --ch-mb-cell
  * (BROWSE_CELL_PX), and --ch-top-h, the height of what sticks above the bar (the
  * container's header and tab bar; 0px without it). The fixed parts add up to them: the bar is its row and the 24 px

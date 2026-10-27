@@ -32,7 +32,8 @@ import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared
 import SettingsClient from '../app/[locale]/settings/SettingsClient';
 import { preloadPickers } from '../app/[locale]/dashboard/form-kit';
 import { PICKER_CSS, PickerScope, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/dashboard/picker-kit';
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
+import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { pageCells, pageOf } from '../src/lib/calendar-view/picker-model';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
@@ -62,7 +63,7 @@ function assert(cond: unknown, message: string): asserts cond {
 /** Renders `el` inside the home's root for a language and look, as the editor does. */
 function render(locale: Locale, scheme: 'light' | 'dark', el: ReactElement, keepStyle = false): string {
   const provider = { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as unknown as ComponentProps<typeof NextIntlClientProvider>;
-  const root = createElement('div', { className: 'ch-home', 'data-theme': scheme, dir: locale === 'he' ? 'rtl' : 'ltr', lang: locale }, el);
+  const root = createElement('div', { className: 'ch-app ch-screen ch-home', 'data-theme': scheme, dir: locale === 'he' ? 'rtl' : 'ltr', lang: locale }, el);
   const html = renderToString(createElement(NextIntlClientProvider, provider, root));
   // The <style> text names classes and attributes of its own; the markup checks count the elements.
   return keepStyle ? html : html.replace(/<style[\s\S]*?<\/style>/g, '');
@@ -186,7 +187,7 @@ async function main() {
     assert(own.length > 500, 'the picker rules are there');
     assert(!/#[0-9a-f]{3,8}\b|rgba?\(/i.test(own), `a colour of its own: ${/#[0-9a-f]{3,8}\b|rgba?\([^)]*\)/i.exec(own)?.[0]}`);
     const tokens = [...own.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]);
-    assert(tokens.length > 10 && tokens.every((t) => HOME_THEME_CSS.includes(`${t}:`) || t === '--ch-picker-slide'), `unknown tokens: ${tokens.filter((t) => !HOME_THEME_CSS.includes(`${t}:`))}`);
+    assert(tokens.length > 10 && tokens.every((t) => APP_THEME_CSS.includes(`${t}:`) || t === '--ch-picker-slide'), `unknown tokens: ${tokens.filter((t) => !APP_THEME_CSS.includes(`${t}:`))}`);
     const physical = own.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:|(?:^|[\s;{])(?:width|height)\s*:|(?:min|max)-(?:width|height)\s*:/gm);
     assert(!physical, `physical properties: ${JSON.stringify(physical)}`);
     assert(!/:hover/.test(PICKER_CSS), 'no hover styles');
@@ -215,8 +216,8 @@ async function main() {
     assert(/block-size:\s*100%/.test(rule('.ch-wheels')), 'the wheels fill the body: one box, so the sheet never jumps between the grid and the wheels');
     assert(/repeat\(7, 1fr\)/.test(rule('.ch-picker-row')), 'seven columns');
     assert(/120ms/.test(rule('.ch-picker-grid')), 'pages slide in 120 ms');
-    assert(/prefers-reduced-motion: reduce\)\s*\{[^@]*animation: none !important/.test(HOME_THEME_CSS), "the home's reduced-motion rule covers the slide");
-    assert(/\.ch-home\[dir='rtl'\] \.ch-picker-flip \{\s*transform: scaleX\(-1\)/.test(PICKER_CSS), 'the chevrons flip in RTL');
+    assert(/prefers-reduced-motion: reduce\)\s*\{[^@]*animation: none !important/.test(APP_THEME_CSS), "the app's reduced-motion rule covers the slide");
+    assert(/\.ch-app\[dir='rtl'\] \.ch-picker-flip \{\s*transform: scaleX\(-1\)/.test(PICKER_CSS), 'the chevrons flip in RTL');
     assert(/ch-picker-slide-rtl/.test(PICKER_CSS), 'the slide runs in reading direction');
     assert(/\[aria-selected='true'\] \{[^}]*var\(--ch-selected\)[^}]*var\(--ch-selected-text\)|\[aria-selected='true'\] \{[^}]*background: var\(--ch-selected\)/.test(PICKER_CSS), 'the chosen day is --ch-selected');
     assert(/\.ch-picker-cell\.is-today \.ch-picker-num \{[^}]*var\(--ch-accent\)/.test(PICKER_CSS), "today's number is --ch-accent");
@@ -230,9 +231,9 @@ async function main() {
     assert(/<TimePickerSheet[\s\S]*?standalone[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src), "the dashboard's time sheet, standalone, on the 15-minute step");
     assert(/useTelegramBackButton\(timeSheetOpen,/.test(src) && /useTelegramVerticalSwipes\(timeSheetOpen\)/.test(src), 'Back and the swipe lock follow the sheet');
     const kit = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/picker-kit.tsx'), 'utf8');
-    assert(/export function PickerScope/.test(kit) && /HOME_THEME_CSS/.test(kit) && /data-theme=\{scheme\}/.test(kit) && /dir=\{locale === 'he'/.test(kit), 'the scope: tokens, data-theme, dir');
+    assert(/export function PickerScope/.test(kit) && /APP_THEME_CSS/.test(kit) && /data-theme=\{scheme\}/.test(kit) && /dir=\{locale === 'he'/.test(kit), 'the scope: tokens, data-theme, dir');
     const html = render('en', 'light', createElement(TimePickerSheet, { label: 'Reminder time', value: '09:15', step: 15, onPick: () => undefined, onClose: () => undefined, standalone: true }), true);
-    assert(count(html, /class="ch-home/g) === 2, 'the standalone sheet brings its own scope');
+    assert(count(html, /class="ch-app/g) === 2, 'the standalone sheet brings its own scope');
     assert(html.includes('--ch-bg') && html.includes('.ch-segmented'), "with the home's tokens and the form kit's CSS");
   });
 
@@ -285,12 +286,13 @@ async function main() {
     }
   });
 
-  await check("Settings' scope stays off the page behind it: the sheet's root is .ch-standalone and the html-level rules skip it", () => {
+  await check("Settings' scope stays off the page behind it: the sheet's root is a .ch-app scope with no .ch-screen, and the frame and the html-level rules hang on .ch-screen only", () => {
     const html = renderToString(createElement(NextIntlClientProvider, { locale: 'en', messages: en, timeZone: 'Asia/Jerusalem' } as never, createElement(PickerScope, null, createElement('i'))));
-    assert(/class="ch-home ch-standalone"/.test(html), 'the scope carries ch-standalone');
-    const selectors = [...HOME_THEME_CSS.matchAll(/^(html:has\([^{]*)\{/gm)].map((m) => m[1]);
+    assert(/class="ch-app ch-standalone"/.test(html), 'the scope carries ch-standalone');
+    assert(!html.includes('ch-screen') && !html.includes('html:has'), 'the scope brings no frame and no page-level rule');
+    const selectors = [...APP_SCREEN_CSS.matchAll(/^(html:has\([^{]*)\{/gm)].map((m) => m[1]);
     assert(selectors.length === 2, `the two page-level rules: ${selectors}`);
-    assert(selectors.every((x) => x.includes(':not(.ch-standalone)')), `every page-level rule skips a standalone scope: ${selectors}`);
+    assert(selectors.every((x) => x.startsWith('html:has(.ch-screen')), `every page-level rule hangs on a screen: ${selectors}`);
   });
 
   await check('the sheets start loading when the editor opens, a failure is logged', async () => {

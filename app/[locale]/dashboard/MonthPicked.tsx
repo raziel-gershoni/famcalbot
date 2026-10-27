@@ -449,8 +449,8 @@ export function MonthPicked({
 }
 
 /**
- * The picked layout's styles. They read the tokens HOME_THEME_CSS (./home-theme.ts) puts
- * on .ch-home (D's, and E4's --ch-dot-*, --ch-today*, --ch-selected*, --ch-pill-* and
+ * The picked layout's styles. They read the tokens APP_THEME_CSS (components/app-ui/theme.ts) puts
+ * on .ch-app (D's, and E4's --ch-dot-*, --ch-today*, --ch-selected*, --ch-pill-* and
  * --ch-disabled), and D's AGENDA_CSS supplies the rows, the notices' state rows, the
  * placeholders and the pulse. A cell is PICKED_CELL_PX tall: its 1 px top line, 2 px,
  * the 24 px day, the 12 px Hebrew line and 1 px, then the 8 px marks. Logical properties

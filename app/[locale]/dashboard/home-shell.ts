@@ -1,42 +1,25 @@
-// The calendar home's shell styles (spec §7.1 Layout, §7.2; the approved layout A): the
-// page frame, the header, the banners, the send and menu sheets' options, and the cards
-// that stand in for the Agenda (busy, retry, the error boundary). They read the tokens
-// HOME_THEME_CSS (./home-theme.ts) sets on .ch-home, and add one: --ch-accent-soft.
+// The calendar home's own styles (spec §7.1 Layout, §7.2; the approved layout A): the
+// header, the banners, the send and menu sheets' options and the holiday cells. The tokens
+// are APP_THEME_CSS's (components/app-ui/theme.ts, on .ch-app), the frame and the parts
+// every screen shares are APP_SCREEN_CSS's (components/app-ui/screen.ts), and the home's
+// root carries all three classes: .ch-app .ch-screen .ch-home.
 //
-// - Document-level scroll, no inner scroller; the frame is at least the viewport's
-//   stable height; safe areas from --tg-safe-area-inset-* plus
-//   --tg-content-safe-area-inset-* (Bot API 8.0), 0 without them.
-// - overflow-x: clip (never overflow: hidden), and no transform or filter on the frame:
-//   the sheets are position: fixed, and Plan E's Month bar is sticky.
-// - Logical properties only; directional icons flip in RTL (.ch-flip); nothing under
-//   11 px; every tap at least 44 px; no hover styles (touch only).
+// - Logical properties only; nothing under 11 px; every tap at least 44 px; no hover
+//   styles (touch only). The header sits in the frame's document-level scroll.
 // - The header's Hebrew date, this week's parasha (and special Shabbat) and the countdown share a
 //   line, joined by dots (.ch-head-line, each part after the date is a .ch-head-next). When
 //   they don't fit, a part starts the next line and its dot falls before the line's
 //   start, clipped by overflow: clip: no stray dot.
+// - The holiday cells (.ch-day-holiday) come first, ahead of the header's rules, as they
+//   were ahead of them when the theme held them: a header line that is also a holiday cell
+//   keeps the same winner.
 
 export const HOME_SHELL_CSS = `
-.ch-home {
-  --ch-accent-soft: #eee9ff;
-  min-height: var(--tg-viewport-stable-height, 100dvh);
-  padding-block-start: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
-  padding-inline: max(
-    calc(var(--tg-safe-area-inset-left, 0px) + var(--tg-content-safe-area-inset-left, 0px)),
-    calc(var(--tg-safe-area-inset-right, 0px) + var(--tg-content-safe-area-inset-right, 0px))
-  );
-  overflow-x: clip;
+.ch-day-holiday {
+  color: var(--ch-muted);
 }
-.ch-home[data-theme='dark'] {
-  --ch-accent-soft: #2c2550;
-}
-@supports (color: color-mix(in srgb, red 50%, blue)) {
-  .ch-home,
-  .ch-home[data-theme='dark'] {
-    --ch-accent-soft: color-mix(in srgb, var(--ch-accent) 14%, var(--ch-bg));
-  }
-}
-.ch-home[dir='rtl'] .ch-flip {
-  transform: scaleX(-1);
+.ch-day-holiday.is-chag {
+  color: var(--ch-accent);
 }
 .ch-head {
   display: flex;
@@ -113,34 +96,6 @@ export const HOME_SHELL_CSS = `
   flex: none;
   gap: 8px;
 }
-.ch-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  inline-size: 44px;
-  block-size: 44px;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: 12px;
-  background: var(--ch-surface);
-  color: var(--ch-text);
-  cursor: pointer;
-  touch-action: manipulation;
-}
-.ch-icon-btn svg {
-  inline-size: 22px;
-  block-size: 22px;
-}
-.ch-icon-btn-accent {
-  background: var(--ch-accent-soft);
-  color: var(--ch-accent);
-}
-.ch-icon-btn:focus-visible {
-  outline: 2px solid var(--ch-accent);
-  outline-offset: 2px;
-}
 .ch-banners {
   display: flex;
   flex-direction: column;
@@ -209,16 +164,6 @@ export const HOME_SHELL_CSS = `
   flex: none;
   inline-size: 18px;
   block-size: 18px;
-  color: var(--ch-muted);
-}
-.ch-sheet-heading {
-  margin: 0 0 4px;
-  font-size: 18px;
-  font-weight: 600;
-}
-.ch-sheet-sub {
-  margin: 0 0 10px;
-  font-size: 14px;
   color: var(--ch-muted);
 }
 .ch-options {
@@ -307,36 +252,8 @@ export const HOME_SHELL_CSS = `
 .ch-send-result.is-problem {
   color: var(--ch-danger);
 }
-.ch-spin {
-  animation: ch-spin 0.9s linear infinite;
-}
-@keyframes ch-spin {
-  to { transform: rotate(360deg); }
-}
 @keyframes ch-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
-}
-.ch-home-card {
-  margin: 24px 16px 0;
-  padding: 24px 16px;
-  border-radius: 16px;
-  background: var(--ch-surface);
-  text-align: center;
-}
-.ch-home-card-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-}
-.ch-home-card-body {
-  margin: 8px 0 0;
-  font-size: 14px;
-  color: var(--ch-muted);
-}
-.ch-home-card-action {
-  min-height: 48px;
-  margin-block-start: 16px;
-  padding-inline: 24px;
 }
 `;

@@ -1,7 +1,7 @@
 // Smoke test for each calendar's own colour on the calendar home (spec 2026-10-19 §3.2,
 // §3.3; Plan H1): calendarTones and calendarVars in src/lib/calendar-view/colours.ts, and
 // the theme rules that turn a mark's inline tones into --cal-fill, --cal-text and
-// --cal-line (home-theme.ts), with the marks' own rules (the Agenda's stripe, the Month's
+// --cal-line (components/app-ui/theme.ts), with the marks' own rules (the Agenda's stripe, the Month's
 // chips, picked's dots).
 //
 // It checks:
@@ -12,7 +12,7 @@
 //  - the floors hold for any colour (a 4,096-colour grid);
 //  - the grounds cover what the home paints: the theme's page, section, surface and card
 //    fallbacks, the card as color-mix paints it, and any accent's card on the listed
-//    pages (the bounds), read from HOME_THEME_CSS rather than from the module's own list;
+//    pages (the bounds), read from APP_THEME_CSS rather than from the module's own list;
 //  - the hue stays: a tone that moved is still the colour's hue (a pastel blue's text is a
 //    blue), unless the colour is a grey;
 //  - anything but '#rrggbb' gives null, case doesn't matter, and the answers are memoised;
@@ -26,7 +26,7 @@
 //   TZ=UTC npx tsx scripts/smoke-calendar-colours.ts
 
 import { CalendarTones, LINE_FLOOR, TEXT_FLOOR, calendarTones, calendarVars, contrast, toneGrounds, type ToneTheme } from '../src/lib/calendar-view/colours';
-import { HOME_THEME_CSS } from '../app/[locale]/dashboard/home-theme';
+import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
 import { MONTH_PICKED_CSS } from '../app/[locale]/dashboard/MonthPicked';
 import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
@@ -171,8 +171,8 @@ async function main() {
       assert(at >= 0, `no rule ${selector}`);
       return css.slice(at, css.indexOf('}', at));
     };
-    const light = block(HOME_THEME_CSS, '.ch-home .has-cal');
-    const dark = block(HOME_THEME_CSS, ".ch-home[data-theme='dark'] .has-cal");
+    const light = block(APP_THEME_CSS, '.ch-app .has-cal');
+    const dark = block(APP_THEME_CSS, ".ch-app[data-theme='dark'] .has-cal");
     for (const tone of ['fill', 'text', 'line']) {
       assert(light.includes(`--cal-${tone}: var(--cal-${tone}-l);`), `light ${tone}`);
       assert(dark.includes(`--cal-${tone}: var(--cal-${tone}-d);`), `dark ${tone}`);
@@ -208,9 +208,9 @@ async function main() {
   await check('#9 the grounds cover what the home paints, read from the theme: the page, section, surface and card fallbacks in each look and the card as color-mix paints it from the fallback accent; every tone keeps its floors on each; and any accent\'s card on a listed page is no harder than a listed ground', () => {
     const globals = fs.readFileSync(path.join(__dirname, '../app/globals.css'), 'utf8');
     const blockOf = (selector: string) => {
-      const at = HOME_THEME_CSS.indexOf(`${selector} {`);
+      const at = APP_THEME_CSS.indexOf(`${selector} {`);
       assert(at >= 0, `no ${selector}`);
-      return HOME_THEME_CSS.slice(at, HOME_THEME_CSS.indexOf('}', at));
+      return APP_THEME_CSS.slice(at, APP_THEME_CSS.indexOf('}', at));
     };
     /** A token's fallback colour: the last hex in its declaration, or the globals.css token it falls back to. */
     const fallback = (block: string, token: string): string => {
@@ -224,7 +224,7 @@ async function main() {
       return value.toLowerCase();
     };
     const mix8 = (a: string, b: string) => `#${rgb(a).map((c, i) => Math.round(c * 0.08 + rgb(b)[i] * 0.92).toString(16).padStart(2, '0')).join('')}`;
-    const looks = { light: blockOf('.ch-home'), dark: blockOf(".ch-home[data-theme='dark']") };
+    const looks = { light: blockOf('.ch-app'), dark: blockOf(".ch-app[data-theme='dark']") };
     const grid = Array.from({ length: 16 }, (_, i) => (i * 17).toString(16).padStart(2, '0'));
     const accents = grid.flatMap((r) => grid.flatMap((g) => grid.map((b) => `#${r}${g}${b}`)));
     const low: string[] = [];

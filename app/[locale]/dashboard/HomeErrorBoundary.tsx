@@ -13,9 +13,9 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
+import { APP_SCREEN_CSS } from '@/components/app-ui/screen';
+import { APP_THEME_CSS } from '@/components/app-ui/theme';
 import { releaseTelegramControls, useTelegramBackButton, useTelegramTheme, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
-import { HOME_SHELL_CSS } from './home-shell';
-import { HOME_THEME_CSS } from './home-theme';
 
 /** The guard's sessionStorage key for the chunk-load reload (reload-guard's, shared with PageGate's boundary). */
 export { CHUNK_RELOAD_KEY };
@@ -38,9 +38,9 @@ export function HomeCrash() {
   useTelegramBackButton(false, noop);
   useTelegramVerticalSwipes(false);
   return (
-    <div className="ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{HOME_THEME_CSS}</style>
-      <style>{HOME_SHELL_CSS}</style>
+    <div className="ch-app ch-screen ch-home" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
+      <style>{APP_THEME_CSS}</style>
+      <style>{APP_SCREEN_CSS}</style>
       <div className="ch-home-card ch-crash" role="alert">
         <h1 className="ch-home-card-title">{t('errorBoundary.title')}</h1>
         <p className="ch-home-card-body">{t('errorBoundary.body')}</p>

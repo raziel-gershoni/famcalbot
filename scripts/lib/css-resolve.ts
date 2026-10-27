@@ -183,3 +183,26 @@ export const TG_ALL: Record<string, string> = Object.fromEntries(
     `#${(0x111111 * (i + 1)).toString(16).padStart(6, '0')}`,
   ]),
 );
+
+/** Text on what it sits on: 4.5:1 (WCAG 1.4.3). The pairs of the tab bar and of the Month's colours. */
+export const TEXT_PAIRS: [string, string][] = [
+  ['--ch-tab-on-text', '--ch-tab-on'],
+  ['--ch-muted', '--ch-tab-track'],
+  ['--ch-mine-soft-text', '--ch-mine-soft'],
+  ['--ch-mine-solid-text', '--ch-mine-solid'],
+  ['--ch-partner-soft-text', '--ch-partner-soft'],
+  ['--ch-partner-line-text', '--ch-bg'],
+  ['--ch-today-text', '--ch-today'],
+  ['--ch-selected-text', '--ch-selected'],
+  ['--ch-pill-text', '--ch-pill-bg'],
+  ['--ch-month-title', '--ch-bg'],
+];
+/** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
+export const MARK_PAIRS: [string, string][] = [
+  ['--ch-dot-mine', '--ch-bg'],
+  ['--ch-dot-partner', '--ch-bg'],
+  ['--ch-partner-line', '--ch-bg'],
+  ['--ch-partner-line', '--ch-partner-soft'],
+  ['--ch-mine-solid', '--ch-bg'],
+  ['--ch-today', '--ch-bg'],
+];

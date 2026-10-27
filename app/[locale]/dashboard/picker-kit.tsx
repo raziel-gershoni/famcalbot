@@ -12,15 +12,15 @@
 //   element a spinbutton (aria-label, aria-valuetext, aria-valuenow over the list) and hides the
 //   rotated copies of the options from a screen reader. The library already handles arrows,
 //   Home/End and type-ahead on that element.
-// - PickerScope: Settings is outside `.ch-home`, so its picker brings the scope (HOME_THEME_CSS,
+// - PickerScope: Settings is outside the app's `.ch-app` scope, so its picker brings one (APP_THEME_CSS,
 //   data-theme, dir). Inside the home the sheets render in place and inherit it.
 
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useLocale } from 'next-intl';
 import { WheelPicker, WheelPickerWrapper, type WheelPickerOption } from '@ncdai/react-wheel-picker';
+import { APP_THEME_CSS } from '@/components/app-ui/theme';
 import { hapticSelection, useColorScheme } from '@/src/lib/telegram-ui';
 import { FORM_CSS } from './form-kit';
-import { HOME_THEME_CSS } from './home-theme';
 
 /** The wheel's item height, and the number of options on its ring: a ring of 20 at 44 px is about 280 px tall, the grid's six rows. */
 export const WHEEL_ITEM_PX = 44;
@@ -75,7 +75,7 @@ export const PICKER_CSS = `
 .ch-picker-nav.is-hidden {
   visibility: hidden;
 }
-.ch-home[dir='rtl'] .ch-picker-flip {
+.ch-app[dir='rtl'] .ch-picker-flip {
   transform: scaleX(-1);
 }
 .ch-picker-title {
@@ -129,7 +129,7 @@ export const PICKER_CSS = `
   from { transform: translateX(calc(var(--ch-picker-slide, 0) * 14px)); opacity: 0.4; }
   to { transform: none; opacity: 1; }
 }
-.ch-home[dir='rtl'] .ch-picker-grid {
+.ch-app[dir='rtl'] .ch-picker-grid {
   animation-name: ch-picker-slide-rtl;
 }
 @keyframes ch-picker-slide-rtl {
@@ -380,16 +380,17 @@ export function Wheel({ label, options, value, onChange, infinite = false }: Whe
 export { WheelPickerWrapper };
 
 /**
- * The home's scope for a sheet shown outside it (Settings): the tokens, the scheme the device
- * is in and the page's direction. Zero height; the sheet in it is position: fixed. `ch-standalone`
- * keeps the home's page-level rules (the html background and color-scheme) off the page behind.
+ * The app's scope for a sheet shown outside the home (Settings): the tokens, the scheme the device
+ * is in and the page's direction. Zero height; the sheet in it is position: fixed. It is not a
+ * screen: it has no `ch-screen`, so the frame and the page-level rules (the html background and
+ * color-scheme) never reach it, and the page behind keeps its look. `ch-standalone` only marks it.
  */
 export function PickerScope({ children }: { children: ReactNode }) {
   const scheme = useColorScheme();
   const locale = useLocale();
   return (
-    <div className="ch-home ch-standalone" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
-      <style>{HOME_THEME_CSS}</style>
+    <div className="ch-app ch-standalone" data-theme={scheme} dir={locale === 'he' ? 'rtl' : 'ltr'} lang={locale}>
+      <style>{APP_THEME_CSS}</style>
       <style>{FORM_CSS}</style>
       {children}
     </div>
