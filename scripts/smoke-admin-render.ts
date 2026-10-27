@@ -15,7 +15,12 @@
 //  - R6 Feedback: the rows, the sheet with the whole text in its own direction;
 //  - R7 Blocked: the rows, Unblock posts the entry's own identifiers and says so; a failure stays in the sheet and is logged;
 //  - R8 the loader is the grouped app loader, the denied card and the error card are in the app look with their text from messages;
-//  - R9 React logs no warning; R10 the panel's CSS is the kit's rules and its class names are free.
+//  - R9 React logs no warning; R10 the panel's CSS is the kit's rules and its class names are free;
+//  - U1 Users: the rows, their plan lines and tags, the search, the filters, and both kept after a profile; U2 the profile of a person on a
+//    trial, a paid one, one given Pro for free, a WhatsApp-only one and a suspended one, in en, he and ru; U3 every action of a profile (it
+//    asks, Cancel sends nothing, the exact body with the person's database id, a reload on success, our own message and a log on failure);
+//    U4 deleting a person (DELETE typed, a working sheet, the notice on the people list once); U5 a long profile still ends on Account;
+//    U6 a late answer for another person shows nowhere; U7 the panel is made of the kit and its messages are all read.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
 //   TZ=UTC npx tsx scripts/smoke-admin-render.ts
@@ -29,7 +34,10 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted } from './lib/fake-dom';
 import { lintCss } from './lib/css-lint';
-import { calls, defaultRespond, INIT_DATA, installFakeFetch, json, NAMES, OTHER, ok, TARGET, VIEWER_TELEGRAM_ID, world, type Call, type Row } from './lib/admin-world';
+import { ADMIN_CSS } from '../app/[locale]/admin-panel/admin-css';
+import { UserProfile } from '../app/[locale]/admin-panel/views/UserProfile';
+import { FORM_CSS } from '../components/app-ui/form-kit';
+import { calls, defaultRespond, detail, INIT_DATA, installFakeFetch, json, NAMES, OTHER, ok, TARGET, VIEWER_TELEGRAM_ID, world, type Call, type Row } from './lib/admin-world';
 
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
@@ -85,12 +93,67 @@ const BLOCKED = [
   { id: 1, telegramId: 99123, whatsappPhone: null, bannedBy: 9, bannedReason: 'spam', createdAt: ago(3 * 24 * 60) },
   { id: 2, telegramId: null, whatsappPhone: '+972501112233', bannedBy: 9, bannedReason: null, createdAt: ago(9 * 24 * 60) },
 ];
+
+// The people of the Users screen: a person on a trial, a free one, a paid one (its plan includes some features), one given Pro for free,
+// one with WhatsApp only, and a suspended one. Names are in the page's language, so a Hebrew or Russian page shows no Latin from them.
+const TRIAL = TARGET;
+const FREE = OTHER;
+const PAID = 21;
+const COMPED = 22;
+const WA_ONLY = 23;
+const SUSPENDED = 24;
+const IDS = [TRIAL, FREE, PAID, COMPED, WA_ONLY, SUSPENDED];
+const PEOPLE_NAMES: Record<Locale, string[]> = {
+  en: ['Noa Levi', 'Dan Cohen', 'Maya Bar', 'Tom Peretz', 'Rina Katz', 'Omer Dayan'],
+  he: ['נועה לוי', 'דן כהן', 'מאיה בר', 'תום פרץ', 'רינה כץ', 'עומר דיין'],
+  ru: ['Ноа Леви', 'Дан Коэн', 'Майя Бар', 'Том Перец', 'Рина Кац', 'Омер Даян'],
+};
+const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
+const SUBS: Record<string, Row> = {
+  trial: { plan: 'FREE', status: 'TRIALING', trialEndsAt: inDays(9), trialDaysRemaining: 9, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
+  free: { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
+  paid: { plan: 'BASIC', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: inDays(20), comped: false, compedAt: null, compReason: null },
+  comped: { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: true, compedAt: ago(5 * 24 * 60), compReason: 'pilot' },
+};
+const NO_PAID = { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false };
+function makePeople(locale: Locale): Map<number, Row> {
+  const names = PEOPLE_NAMES[locale];
+  const spam = { en: 'spam', he: 'ספאם', ru: 'спам' }[locale];
+  const person = (id: number, over: Row): [number, Row] => [id, detail(id, { name: names[IDS.indexOf(id)], ...over })];
+  return new Map<number, Row>([
+    person(TRIAL, { subscription: SUBS.trial, registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: false, applicableReminder: 'location', googleState: 'none' }, setupReminders: { daysSinceCreated: 12, daysSinceStart: 12, wasReset: false, calendars: [], reconnect: [], location: [{ day: 1, sent: true, due: true }, { day: 3, sent: true, due: true }, { day: 7, sent: false, due: true }, { day: 14, sent: false, due: false }] } }),
+    person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: true, applicableReminder: 'calendars', googleState: 'choose' } }),
+    person(PAID, { subscription: SUBS.paid, whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
+    person(COMPED, { subscription: SUBS.comped, whatsappPhone: null }),
+    person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free }),
+    person(SUSPENDED, { subscription: SUBS.free, suspendedAt: ago(2 * 24 * 60), suspendedReason: spam, suspendedBy: 9 }),
+  ]);
+}
+/** A row of the people list, from a person's profile. */
+const listOf = (d: Row): Row => ({
+  id: d.id,
+  telegramId: d.telegramId,
+  name: d.name,
+  suspendedAt: d.suspendedAt,
+  subscription: d.subscription && { plan: d.subscription.plan, status: d.subscription.status, trialEndsAt: d.subscription.trialEndsAt, trialDaysRemaining: d.subscription.trialDaysRemaining, currentPeriodEnd: d.subscription.currentPeriodEnd, comped: d.subscription.comped },
+  usage: d.usage,
+  calendarsCount: d.calendarsCount,
+  hasOverride: d.override !== null,
+  earlyAdopter: d.override?.earlyAdopter === true,
+});
+
 const scenario = {
+  locale: 'en' as Locale,
+  people: makePeople('en'),
+  /** How many rows of activity each person has. */
+  userActivityTotal: 45,
   feedback: FEEDBACK as Row[],
   feedbackTotal: 2,
   blocked: BLOCKED.map((b) => ({ ...b })) as Row[],
-  /** "POST settings" and the like: answered with a 500. */
+  /** "POST settings" and the like: answered with a 500. A profile's own request is "GET user-overrides?7". */
   fail: new Set<string>(),
+  /** A route answered with something else: "POST users/blocklist" -> a 400 SELF_BAN. */
+  answers: new Map<string, () => Response>(),
   /** A route held until released: "GET user-activity". */
   hold: new Map<string, (r: Response) => void>(),
   resetCount: 4,
@@ -115,13 +178,23 @@ const activityRows = (url: URL): Row[] => {
     };
   });
 };
+const userActivityRows = (id: number, url: URL): Row[] => {
+  const offset = Number(url.searchParams.get('offset') ?? 0);
+  const limit = Number(url.searchParams.get('limit') ?? 20);
+  return Array.from({ length: Math.max(0, Math.min(limit, scenario.userActivityTotal - offset)) }, (_, i) => {
+    const n = offset + i;
+    return { id: `u${id}-${n}`, userId: id, userName: scenario.people.get(id)?.name ?? 'x', userTelegramId: null, action: n === 0 ? 'settings_changed' : 'login', metadata: n === 0 ? { changed_fields: ['location', 'language'] } : null, createdAt: ago(30 + n * 5) };
+  });
+};
 const respond = (call: Call): Response | Promise<Response> => {
   const url = new URL(call.url, 'http://localhost');
   const route = url.pathname.replace('/api/admin/', '');
   const key = `${call.method} ${route}`;
   if (scenario.denied && (route === 'settings' || route === 'stats')) return json({ error: 'Admin access required' }, 403);
   if (scenario.loadFails && (route === 'settings' || route === 'stats')) return json({ error: 'x' }, 500);
-  if (scenario.fail.has(key)) return json({ error: 'Failed' }, 500);
+  if (scenario.fail.has(key) || scenario.fail.has(`${key}?${url.searchParams.get('user_id')}`)) return json({ error: 'Failed' }, 500);
+  const answer = scenario.answers.get(key);
+  if (answer) return answer();
   const held = scenario.hold.get(key);
   if (held) return new Promise<Response>((resolve) => void scenario.hold.set(key, resolve));
   if (key === 'GET feedback') return ok({ feedbacks: scenario.feedback, pagination: { total: scenario.feedbackTotal, limit: 50, offset: 0, hasMore: scenario.feedbackTotal > scenario.feedback.length } });
@@ -130,6 +203,46 @@ const respond = (call: Call): Response | Promise<Response> => {
     const rows = activityRows(url);
     const offset = Number(url.searchParams.get('offset') ?? 0);
     return ok({ activities: rows, pagination: { total: 45, limit: 20, offset, hasMore: offset + 20 < 45 }, actionStats: [{ action: 'login', count: 30 }, { action: 'command_completed', count: 15 }] });
+  }
+  if (key === 'GET user-overrides' && url.searchParams.get('list') === 'all') return ok({ users: [...scenario.people.values()].map(listOf) });
+  if (key === 'GET user-overrides' && url.searchParams.has('user_id')) {
+    const held = scenario.hold.get(`${key}?${url.searchParams.get('user_id')}`);
+    const person = scenario.people.get(Number(url.searchParams.get('user_id')));
+    if (held) return new Promise<Response>((resolve) => void scenario.hold.set(`${key}?${url.searchParams.get('user_id')}`, (r) => resolve(r)));
+    return person ? ok({ user: person }) : json({ error: 'User not found' }, 404);
+  }
+  if (key === 'GET user-activity' && url.searchParams.has('user_id')) {
+    const id = Number(url.searchParams.get('user_id'));
+    const offset = Number(url.searchParams.get('offset') ?? 0);
+    return ok({ activities: userActivityRows(id, url), pagination: { total: scenario.userActivityTotal, limit: 20, offset, hasMore: offset + 20 < scenario.userActivityTotal }, actionStats: [] });
+  }
+  // What an action does to the person, so that the reload after it shows it
+  const target = scenario.people.get(Number(call.body?.user_id ?? url.searchParams.get('user_id')));
+  if (key === 'POST users/moderation' && target) {
+    if (call.body?.action === 'suspend') Object.assign(target, { suspendedAt: ago(0), suspendedReason: call.body.reason ?? null });
+    else if (call.body?.action === 'unsuspend') Object.assign(target, { suspendedAt: null, suspendedReason: null });
+    else if (call.body?.action === 'hard_delete') scenario.people.delete(target.id);
+    return ok({});
+  }
+  if (key === 'POST subscription' && target) {
+    target.subscription = { ...SUBS.comped, compedAt: ago(0), compReason: call.body?.reason ?? null };
+    return ok({});
+  }
+  if (key === 'DELETE subscription' && target) {
+    target.subscription = SUBS.free;
+    return ok({});
+  }
+  if (key === 'POST user-overrides' && target) {
+    target.override = { unlimitedSummaries: call.body?.unlimitedSummaries, remindersEnabled: call.body?.remindersEnabled, voiceEventsEnabled: call.body?.voiceEventsEnabled, unlimitedCalendars: call.body?.unlimitedCalendars, earlyAdopter: call.body?.earlyAdopter, reason: call.body?.reason, grantedAt: ago(0), grantedBy: 9 };
+    return ok({});
+  }
+  if (key === 'POST switch-platform' && target) {
+    Object.assign(target, { whatsappPhone: call.body?.whatsapp_phone, messagingPlatform: 'whatsapp' });
+    return ok({});
+  }
+  if (key === 'POST users/blocklist' && call.body?.action === 'ban') {
+    scenario.blocked.push({ id: 90 + scenario.blocked.length, telegramId: call.body.telegramId, whatsappPhone: call.body.whatsappPhone, bannedBy: 9, bannedReason: call.body.reason, createdAt: ago(0) });
+    return ok({});
   }
   if (key === 'POST users/blocklist' && call.body?.action === 'unban') {
     scenario.blocked = scenario.blocked.filter((b) => !(b.telegramId === call.body?.telegramId && b.whatsappPhone === call.body?.whatsappPhone));
@@ -144,15 +257,22 @@ const reset = () => {
   pushes.length = 0;
   calls.splice(0);
   adminLogs.length = 0;
+  scenario.locale = 'en';
+  scenario.people = makePeople('en');
+  scenario.userActivityTotal = 45;
   scenario.feedback = FEEDBACK;
   scenario.feedbackTotal = 2;
   scenario.blocked = BLOCKED.map((b) => ({ ...b }));
   scenario.fail.clear();
+  scenario.answers.clear();
   scenario.hold.clear();
   scenario.resetCount = 4;
   scenario.denied = false;
   scenario.loadFails = false;
 };
+/** How many requests were sent, and how many failures logged, since the last reset (functions, so that a narrowed type does not stick). */
+const sent = () => calls.length;
+const logged = () => adminLogs.length;
 const urls = () => calls.map((c) => c.url);
 const requests = (method: string, route: string) => calls.filter((c) => c.method === method && c.url.startsWith(`/api/admin/${route}`));
 const posts = (route: string) => requests('POST', route);
@@ -222,6 +342,8 @@ const settle = () =>
 
 /** Mount in a browser (no Telegram) or in Telegram `version`; the caller closes it. */
 function open(locale: Locale, props: Row = propsOf(locale), telegram?: { version: string; scheme?: 'light' | 'dark' }) {
+  scenario.locale = locale;
+  scenario.people = makePeople(locale);
   installWindow();
   const calls: string[] = [];
   const tg = telegram ? fakeTelegram(calls, telegram.version) : null;
@@ -242,7 +364,38 @@ async function enter(o: ReturnType<typeof open>, locale: Locale, rowKey: string)
   await settle();
 }
 
-const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini/g;
+// ---- Task 3's helpers: the people list, a profile, a sheet's fields ----
+
+const searchBox = (m: Mounted, locale: Locale) => elements(m.container).find((e) => e.localName === 'input' && e.getAttribute('aria-label') === word(locale, 'users.search')) as FakeElement;
+const selectOf = (m: Mounted) => elements(m.container).find((e) => e.localName === 'select') as FakeElement;
+const sectionsOf = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'h2' && classes(e).includes('ch-section-label')).map(flat);
+const idFields = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'input' && classes(e).includes('ch-copy-field-input'));
+/** The button whose whole text is `text`. */
+const btn = (m: Mounted, text: string) => buttonsOf(m).find((b) => flat(b) === text) as FakeElement;
+/** The text field in the open sheet. */
+const sheetField = (m: Mounted) => inSheet(m, (e) => e.localName === 'input' || e.localName === 'textarea') as FakeElement;
+/** The people's rows, by their index in PEOPLE_NAMES. */
+const personRow = (m: Mounted, locale: Locale, index: number) => listRows(m).find((r) => flat(r).startsWith(PEOPLE_NAMES[locale][index])) as FakeElement;
+/** From the Overview to a person's profile, through the people list. */
+async function openPerson(o: ReturnType<typeof open>, locale: Locale, index: number) {
+  await enter(o, locale, 'rows.users');
+  o.m.click(personRow(o.m, locale, index));
+  await settle();
+}
+/** After the request at `index`, the screen asked for the profile of `id` and for the list again. */
+const reloadedAfter = (index: number, id: number) => {
+  const later = calls.slice(index + 1).map((c) => `${c.method} ${c.url}`);
+  return later.includes(`GET /api/admin/user-overrides?user_id=${id}`) && later.includes('GET /api/admin/user-overrides?list=all');
+};
+/** Nothing a request carries but its launch data is the viewer's Telegram id. */
+const viewerIdSent = () => calls.some((c) => show({ ...c.body, initData: undefined }).includes(String(VIEWER_TELEGRAM_ID)) || c.url.includes(String(VIEWER_TELEGRAM_ID)));
+
+const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini|\bID\b/g;
+
+/** Every .ts and .tsx file of the panel (app/[locale]/admin-panel), whole path. */
+function panelFiles(dir = path.join(ROOT, 'app/[locale]/admin-panel')): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? panelFiles(path.join(dir, entry.name)) : /\.tsx?$/.test(entry.name) ? [path.join(dir, entry.name)] : []));
+}
 
 async function main() {
   AdminPanel = (await import('../app/[locale]/admin-panel/AdminPanel')).default as unknown as (props: Row) => ReactElement;
@@ -360,7 +513,7 @@ async function main() {
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       assert(posts('settings').length === 1 && !checked(early()) && dialogs(o.m).length === 0, `a failed save: ${posts('settings').length} post(s), on ${checked(early())}`);
-      assert(show(alertsIn(o.m.container)) === show([word('en', 'errors.switch')]) && adminLogs.length === 1 && adminLogs[0].startsWith('[admin] settings failed:'), `the error: ${show(alertsIn(o.m.container))}, logs ${show(adminLogs)}`);
+      assert(show(alertsIn(o.m.container)) === show([word('en', 'errors.switch')]) && logged() === 1 && adminLogs[0].startsWith('[admin] settings failed:'), `the error: ${show(alertsIn(o.m.container))}, logs ${show(adminLogs)}`);
       // The other switches post at once, in either direction, and revert on a failure
       scenario.fail.clear();
       const reminders = () => switchOf(o.m, 'en', 'reminders') as FakeElement;
@@ -382,7 +535,7 @@ async function main() {
       const before = checked(reminders());
       o.m.click(reminders());
       await settle();
-      assert(checked(reminders()) === before && show(alertsIn(o.m.container)) === show([word('en', 'errors.switch')]) && adminLogs.length === 1, `a failed plain switch goes back: on ${checked(reminders())}, ${show(alertsIn(o.m.container))}`);
+      assert(checked(reminders()) === before && show(alertsIn(o.m.container)) === show([word('en', 'errors.switch')]) && logged() === 1, `a failed plain switch goes back: on ${checked(reminders())}, ${show(alertsIn(o.m.container))}`);
       // A switch that is saving takes no second tap
       scenario.fail.clear();
       let release: (r: Response) => void = () => undefined;
@@ -446,7 +599,7 @@ async function main() {
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([word('en', 'errors.generic')]) && statusesIn(o.m.container).length === 0, `a failed reset: ${show(alertsIn(o.m.container))}`);
-      assert(adminLogs.length === 1 && adminLogs[0].startsWith('[admin] reset-reminders failed:') && !confirmOf(o.m)?.hasAttribute('disabled'), `its log ${show(adminLogs)}, the button usable`);
+      assert(logged() === 1 && adminLogs[0].startsWith('[admin] reset-reminders failed:') && !confirmOf(o.m)?.hasAttribute('disabled'), `its log ${show(adminLogs)}, the button usable`);
       // Working: Back, Escape, the scrim and Cancel do nothing
       scenario.fail.clear();
       let release: (r: Response) => void = () => undefined;
@@ -474,13 +627,9 @@ async function main() {
   });
 
   await check('R4 the back stack: Activity, Feedback and Blocked push over the Overview and Telegram\'s Back pops them (one handler, one pop); a sheet closes before the view; at the Overview Back goes to /<locale>/dashboard?user_id=<the viewer\'s Telegram id>; the header\'s own back in a browser does the same and Telegram shows none; AppScreen is the only BackButton caller', async () => {
-    for (const file of ['AdminPanel.tsx', 'navigation.tsx', 'sheets.tsx', 'views']) {
-      const full = path.join(ROOT, 'app/[locale]/admin-panel', file);
-      const sources = fs.statSync(full).isDirectory() ? fs.readdirSync(full).map((f) => path.join(full, f)) : [full];
-      for (const source of sources) {
-        const code = fs.readFileSync(source, 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
-        assert(!/useTelegramBackButton\(/.test(code), `${path.basename(source)} calls useTelegramBackButton`);
-      }
+    for (const source of panelFiles()) {
+      const code = fs.readFileSync(source, 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+      assert(!/useTelegramBackButton\(/.test(code), `${path.relative(ROOT, source)} calls useTelegramBackButton`);
     }
     for (const locale of LOCALES) {
       reset();
@@ -699,7 +848,7 @@ async function main() {
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([word('en', 'errors.unban')]) && scenario.blocked.length === 2, `a failed unblock: ${show(alertsIn(o.m.container))}`);
-      assert(adminLogs.length === 1 && adminLogs[0].startsWith('[admin] users/blocklist failed:') && !confirmOf(o.m)?.hasAttribute('disabled'), `its log ${show(adminLogs)}, the button usable`);
+      assert(logged() === 1 && adminLogs[0].startsWith('[admin] users/blocklist failed:') && !confirmOf(o.m)?.hasAttribute('disabled'), `its log ${show(adminLogs)}, the button usable`);
       assert(statusesIn(o.m.container).filter((s) => s === word('en', 'blocked.unblocked')).length === 0, 'it says Unblocked after a failure');
       scenario.fail.clear();
       o.m.click(confirmOf(o.m) as FakeElement);
@@ -771,8 +920,624 @@ async function main() {
     }
   });
 
+  // ---- Task 3: Users and a person's profile ----
+
+  await check('U1 Users: a row per person (the name; the plan in a line, WhatsApp for someone who is only there; the tags Suspended, Early access and Overrides in their tones) and the count; the search by name (any case) and by Telegram id; each filter; a line for no match; the search and the filter as they were after a profile is opened and Back is tapped; a failed list says so with a retry', async () => {
+    const planLines: Record<Locale, Record<number, string>> = {
+      en: { [TRIAL]: 'Pro · trial, 9 days left', [FREE]: 'Free · expired', [PAID]: 'Basic · until', [COMPED]: 'Pro · free from an admin' },
+      he: { [TRIAL]: 'Pro · תקופת ניסיון, נשארו 9 ימים', [FREE]: 'חינם · פג תוקף', [PAID]: 'בסיסי · עד', [COMPED]: 'Pro · במתנה מהניהול' },
+      ru: { [TRIAL]: 'Pro · пробный период, осталось 9 дней', [FREE]: 'Бесплатный · срок истёк', [PAID]: 'Базовый · до', [COMPED]: 'Pro · бесплатно от администратора' },
+    };
+    const count6: Record<Locale, string> = { en: '6 people', he: '6 אנשים', ru: '6 человек' };
+    const count0: Record<Locale, string> = { en: '0 people', he: '0 אנשים', ru: '0 человек' };
+    const nameSearch: Record<Locale, string> = { en: 'NOA', he: 'נוע', ru: 'НОА' };
+    for (const locale of LOCALES) {
+      reset();
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
+      const names = PEOPLE_NAMES[locale];
+      const shown = () => listRows(o.m).map((r) => names.findIndex((n) => flat(r).startsWith(n)));
+      try {
+        calls.splice(0);
+        await enter(o, locale, 'rows.users');
+        assert(flat(title(o.m) as FakeElement) === w('users.title'), `${locale}: the header`);
+        assert(requests('GET', 'user-overrides').length === 1 && requests('GET', 'user-overrides')[0].url === '/api/admin/user-overrides?list=all', `${locale}: ${show(urls())}`);
+        assert(show(shown()) === show([0, 1, 2, 3, 4, 5]) && page(o.m).includes(count6[locale]), `${locale}: the rows ${show(shown())}, the count: ${page(o.m).slice(0, 200)}`);
+        for (const [index, id] of [[0, TRIAL], [1, FREE], [2, PAID], [3, COMPED]] as const) assert(flat(personRow(o.m, locale, index)).includes(planLines[locale][id]), `${locale}: ${names[index]}: ${flat(personRow(o.m, locale, index))}`);
+        assert(flat(personRow(o.m, locale, 4)).includes(w('users.whatsapp')) && !flat(personRow(o.m, locale, 0)).includes(w('users.whatsapp')), `${locale}: WhatsApp only for the person with no Telegram: ${flat(personRow(o.m, locale, 4))}`);
+        const tagsOf = (row: FakeElement) => elements(row).filter((e) => classes(e).includes('ch-tag')).map((e) => `${classes(e).filter((c) => c.startsWith('ch-tag-')).join('')}:${flat(e)}`);
+        assert(show(tagsOf(personRow(o.m, locale, 5))) === show([`ch-tag-danger:${w('users.suspended')}`]), `${locale}: Suspended: ${show(tagsOf(personRow(o.m, locale, 5)))}`);
+        assert(show(tagsOf(personRow(o.m, locale, 2))) === show([`:${w('users.earlyAccess')}`, `ch-tag-muted:${w('users.overrides')}`]), `${locale}: early access and overrides: ${show(tagsOf(personRow(o.m, locale, 2)))}`);
+        assert(tagsOf(personRow(o.m, locale, 0)).length === 0 && tagsOf(personRow(o.m, locale, 3)).length === 0, `${locale}: tags on people who have none`);
+        // The search: a name in any case, a Telegram id (in part), nothing
+        const type = (text: string) => o.m.input(searchBox(o.m, locale), text);
+        type(nameSearch[locale]);
+        assert(show(shown()) === show([0]), `${locale}: search by name: ${show(shown())}`);
+        type('7000021');
+        assert(show(shown()) === show([2]), `${locale}: search by Telegram id: ${show(shown())}`);
+        type('zzzz');
+        assert(show(shown()) === show([]) && page(o.m).includes(w('users.empty')) && !page(o.m).includes(count0[locale]), `${locale}: no match: ${page(o.m).slice(0, 200)}`);
+        type('');
+        // The filters
+        const pick = (value: string) => o.m.change(selectOf(o.m), value);
+        const wanted: Record<string, number[]> = { trial: [0], paid: [2, 3], free: [1, 4, 5], override: [2], all: [0, 1, 2, 3, 4, 5] };
+        for (const [value, rows] of Object.entries(wanted)) {
+          pick(value);
+          assert(show(shown()) === show(rows), `${locale}: the ${value} filter: ${show(shown())}`);
+        }
+        assert(show(selectOf(o.m).options.map((x) => x.value)) === show(['all', 'trial', 'paid', 'free', 'override']) && flat(selectOf(o.m).options[4]) === w('users.filters.override'), `${locale}: the filter's options`);
+        // Kept after a profile: a filter and a search, a tap on a row, Back
+        pick('free');
+        type('7000');
+        assert(show(shown()) === show([1, 5]), `${locale}: filter and search: ${show(shown())}`);
+        o.m.click(personRow(o.m, locale, 5));
+        await settle();
+        assert(flat(title(o.m) as FakeElement) === names[5], `${locale}: the profile's header ${flat(title(o.m) as FakeElement)}`);
+        tapBack(o);
+        await settle();
+        assert(flat(title(o.m) as FakeElement) === w('users.title') && searchBox(o.m, locale).value === '7000' && selectOf(o.m).value === 'free' && show(shown()) === show([1, 5]), `${locale}: after Back: search ${searchBox(o.m, locale).value}, filter ${selectOf(o.m).value}, rows ${show(shown())}`);
+      } finally {
+        close(o);
+      }
+    }
+    reset();
+    const failing = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      scenario.fail.add('GET user-overrides');
+      await enter(failing, 'en', 'rows.users');
+      assert(alertsIn(failing.m.container).length === 1 && alertsIn(failing.m.container)[0].startsWith(word('en', 'errors.load')) && listRows(failing.m).length === 0, 'a failed list');
+      assert(adminLogs.some((l) => l.startsWith('[admin] user-overrides failed:')), `its log ${show(adminLogs)}`);
+      scenario.fail.clear();
+      failing.m.click(btn(failing.m, word('en', 'retry', 'pageGate')));
+      await settle();
+      assert(listRows(failing.m).length === 6 && alertsIn(failing.m.container).length === 0, 'the retry shows the people');
+    } finally {
+      close(failing);
+    }
+  });
+
+  await check('U2 the profile in en, he and ru for a person on a trial, a paid one, one given Pro for free, one with WhatsApp only and a suspended one: the name as the header; the sections in order; ids left to right and copyable; a meter per limit (none for an unlimited one); what their plan includes is on and cannot be switched, with the note; the Reminders switch only with a Telegram id; the early access note; their own profile offers nothing that locks the viewer out; a profile that fails to load says so with a retry; no raw key, no emoji, no English in he and ru beyond the brands', async () => {
+    const sectionKeys = ['profile.plan.title', 'profile.setup.title', 'profile.access.title', 'profile.messaging.title', 'activity.userTitle', 'profile.account.title'];
+    for (const locale of LOCALES) {
+      const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
+      for (const index of locale === 'en' ? [0, 2, 3, 4, 5] : [0, 5]) {
+        reset();
+        scenario.userActivityTotal = locale === 'en' ? 45 : 0;
+        const id = IDS[index];
+        const o = open(locale, propsOf(locale), { version: '7.7' });
+        const where = `${locale} ${PEOPLE_NAMES[locale][index]}`;
+        try {
+          await openPerson(o, locale, index);
+          const text = page(o.m);
+          const person = scenario.people.get(id) as Row;
+          assert(flat(title(o.m) as FakeElement) === PEOPLE_NAMES[locale][index], `${where}: the header`);
+          assert(show(sectionsOf(o.m)) === show(sectionKeys.map((k) => w(k))), `${where}: sections ${show(sectionsOf(o.m))}`);
+          assert(!/\badmin\.[a-zA-Z]|\bui\.[a-zA-Z]/.test(text) && !/\p{Extended_Pictographic}/u.test(text), `${where}: a raw key or an emoji`);
+          if (locale !== 'en') assert(!/[A-Za-z]/.test(text.replace(BRANDS, '')), `${where}: Latin letters in ${text.replace(BRANDS, '')}`);
+          // Ids: left to right, copyable
+          const fields = idFields(o.m);
+          const wantIds = [person.telegramId === null ? null : String(person.telegramId), person.whatsappPhone].filter(Boolean);
+          assert(show(fields.map((f) => f.value)) === show(wantIds) && fields.every((f) => f.getAttribute('dir') === 'ltr'), `${where}: ids ${show(fields.map((f) => f.value))} want ${show(wantIds)}`);
+          assert(buttonsOf(o.m).filter((b) => b.getAttribute('aria-label') === w('profile.who.copy')).length === wantIds.length, `${where}: copy buttons`);
+          assert(text.includes(person.telegramId === null ? w('profile.who.noTelegram') : w('profile.who.telegram')), `${where}: the Telegram row`);
+          // The plan: its tag, a meter per limit
+          const tagWant: Record<number, string> = { [TRIAL]: w('profile.plan.tagTrial'), [PAID]: w('profile.plan.tagPaid'), [COMPED]: w('profile.plan.tagComped') };
+          const planTags = elements(o.m.container).filter((e) => e.localName === 'span' && e.className === 'ch-tag' && Object.values(tagWant).includes(flat(e))).map(flat);
+          assert(show(planTags) === show(tagWant[id] ? [tagWant[id]] : []), `${where}: the plan tag ${show(planTags)}`);
+          const limits = person.limits as Row;
+          const limited = [limits.textSummaries, limits.voiceSummaries, limits.calendars].filter((n) => n !== null).length;
+          assert(byRole(o.m.container, 'meter').length === limited, `${where}: ${byRole(o.m.container, 'meter').length} meters for ${limited} limits`);
+          assert(elements(o.m.container).filter((e) => classes(e).includes('ch-meter-value') && flat(e) === w('profile.plan.unlimited')).length === 3 - limited, `${where}: Unlimited shows for an unlimited limit only`);
+          // The switches: a plan's own features are locked, the Reminders switch is Telegram's
+          const rows = switches(o.m);
+          assert(rows.length === (person.telegramId === null ? 4 : 5), `${where}: ${rows.length} switches`);
+          if (id === PAID) {
+            const locked = rows.filter((r) => r.getAttribute('aria-disabled') === 'true');
+            assert(locked.length === 2 && locked.every((r) => checked(r) && flat(r).includes(w('profile.access.locked'))), `${where}: locked ${locked.map(flat)}`);
+            assert(checked(rows.find((r) => flat(r).startsWith(w('profile.access.earlyAccess')))) && rows.filter((r) => r.getAttribute('aria-disabled') !== 'true').length === 3, `${where}: the rest`);
+          } else {
+            assert(rows.every((r) => r.getAttribute('aria-disabled') === null && !checked(r)), `${where}: switches start off and free`);
+          }
+          // Plan actions, messaging, the account
+          assert(!!btn(o.m, w('profile.comp.stop')) === (id === COMPED), `${where}: Stop free Pro`);
+          assert(!!btn(o.m, w('profile.messaging.move')) === (person.whatsappPhone === null), `${where}: the Move to WhatsApp row`);
+          assert(!!btn(o.m, w('profile.account.suspend')) === (id !== SUSPENDED) && !!btn(o.m, w('profile.account.unsuspend')) === (id === SUSPENDED), `${where}: suspend / unsuspend`);
+          assert(elements(o.m.container).some((e) => classes(e).includes('ch-tag-danger') && flat(e) === w('users.suspended')) === (id === SUSPENDED), `${where}: the Suspended tag`);
+          assert(buttonsOf(o.m).some((b) => classes(b).includes('ch-danger-row') && flat(b) === w('profile.account.delete')) && !!btn(o.m, w('profile.account.block')), `${where}: delete and block`);
+          // Setup
+          if (id === TRIAL) {
+            assert(text.includes(w('profile.setup.sent', { sent: 2, total: 4 })) && text.includes(w('profile.setup.overdue', { count: 1 })), `${where}: the reminders ${text.slice(0, 300)}`);
+            assert(elements(o.m.container).filter((e) => classes(e).includes('ch-admin-seg')).map((e) => classes(e).join(' ')).join('|') === 'ch-admin-seg is-sent|ch-admin-seg is-sent|ch-admin-seg is-due|ch-admin-seg', `${where}: the bar`);
+            assert(!!btn(o.m, w('profile.setup.send')) && !!btn(o.m, w('profile.setup.reset')), `${where}: the setup actions`);
+            assert([w('profile.setup.send'), w('profile.setup.reset'), w('profile.account.suspend'), w('profile.account.block')].every((text) => classes(btn(o.m, text)).includes('ch-action-row')) && classes(btn(o.m, w('profile.account.delete'))).includes('ch-danger-row'), `${where}: the action rows read as actions`);
+          }
+          if (id === PAID) {
+            assert(elements(o.m.container).filter((e) => classes(e).includes('ch-admin-step')).length === 3 && !btn(o.m, w('profile.setup.send')) && text.includes(w('profile.setup.allDone')), `${where}: a set-up person with Google`);
+          }
+          if (locale === 'en') {
+            assert(text.includes(w('common.showMore')) && dialogs(o.m).length === 0, `${where}: Show more under the activity`);
+          }
+        } finally {
+          close(o);
+        }
+      }
+    }
+    // Early access on for everyone: a note says they have Pro anyway. Off: no note.
+    for (const on of [true, false]) {
+      reset();
+      const o = open('en', propsOf('en', { flags: { ...FLAGS, earlyAdoptionMode: on } }), { version: '7.7' });
+      try {
+        await openPerson(o, 'en', 0);
+        assert(page(o.m).includes(word('en', 'profile.plan.earlyOn')) === on, `early access ${on}: the note`);
+      } finally {
+        close(o);
+      }
+    }
+    // The viewer's own profile (their Telegram id is the person's): nothing that locks them out, and it says why
+    reset();
+    const self = open('en', propsOf('en', { viewerTelegramId: 7000007 }), { version: '7.7' });
+    try {
+      await openPerson(self, 'en', 0);
+      assert(page(self.m).includes(word('en', 'profile.self')) && !buttonsOf(self.m).some((b) => [word('en', 'profile.account.suspend'), word('en', 'profile.account.block'), word('en', 'profile.account.delete')].includes(flat(b))), `the viewer's own profile: ${page(self.m).slice(-300)}`);
+    } finally {
+      close(self);
+    }
+    // A profile that cannot be loaded says so, with a retry that loads it
+    reset();
+    const failing = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      scenario.fail.add(`GET user-overrides?${TRIAL}`);
+      await openPerson(failing, 'en', 0);
+      assert(alertsIn(failing.m.container).length === 1 && alertsIn(failing.m.container)[0].startsWith(word('en', 'errors.load')) && sectionsOf(failing.m).length === 0 && flat(title(failing.m) as FakeElement) === word('en', 'profile.title'), `a failed profile: ${show(alertsIn(failing.m.container))}`);
+      assert(adminLogs.some((l) => l.startsWith('[admin] user-overrides failed:')), 'its log');
+      scenario.fail.clear();
+      failing.m.click(btn(failing.m, word('en', 'retry', 'pageGate')));
+      await settle();
+      assert(flat(title(failing.m) as FakeElement) === PEOPLE_NAMES.en[0] && sectionsOf(failing.m).length === 6 && alertsIn(failing.m.container).length === 0, 'the retry loads the profile');
+    } finally {
+      close(failing);
+    }
+  });
+
+  await check('U3 every action of a profile, in en: the risky ones ask first (a sheet that names the person), Cancel and Back send nothing, Confirm sends the exact body with the person\'s database id (never the viewer\'s Telegram id), a success reloads the profile and the list and says so, a failure shows our own message in the sheet (or under the button), logs once and reloads nothing; and every sheet opens in he and ru with the person\'s name', async () => {
+    const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+    const names = PEOPLE_NAMES.en;
+    // Open a profile with a clean record of requests
+    const profileOf = async (index: number) => {
+      reset();
+      const o = open('en', propsOf('en'), { version: '7.7' });
+      await openPerson(o, 'en', index);
+      calls.splice(0);
+      return o;
+    };
+    /** Open a sheet by its row, cancel it (nothing is sent), open it again. */
+    const askAndCancel = (o: ReturnType<typeof open>, rowText: string, titleText: string) => {
+      o.m.click(btn(o.m, rowText));
+      assert(dialogs(o.m).length === 1 && dialogs(o.m)[0].getAttribute('aria-label') === titleText, `${rowText}: the sheet is ${dialogs(o.m)[0]?.getAttribute('aria-label')}, wanted ${titleText}`);
+      o.m.click(cancelOf(o.m) as FakeElement);
+      assert(dialogs(o.m).length === 0 && sent() === 0, `${rowText}: Cancel sent ${sent()}`);
+      o.m.click(btn(o.m, rowText));
+      tapBack(o);
+      assert(dialogs(o.m).length === 0 && sent() === 0 && pushes.length === 0, `${rowText}: Back sent ${sent()} or left (${show(pushes)})`);
+      o.m.click(btn(o.m, rowText));
+    };
+    const expectPost = (route: string, body: Row, label: string) => {
+      const made = posts(route);
+      assert(made.length === 1 && show(made[0].body) === show({ ...body, initData: INIT_DATA }), `${label}: ${made.length} request(s), ${show(made.map((c) => c.body))}`);
+      return calls.indexOf(made[0]);
+    };
+
+    // Save the feature overrides: the button is on only for a change; the body is the person's, with null for a switch left off
+    let o = await profileOf(0);
+    try {
+      const save = () => btn(o.m, w('profile.access.save'));
+      assert(save().hasAttribute('disabled'), 'Save waits while nothing changed');
+      o.m.click(switches(o.m).find((r) => flat(r).startsWith(w('profile.access.voiceEvents'))) as FakeElement);
+      assert(!save().hasAttribute('disabled'), 'Save is on once a switch moved');
+      o.m.input(elements(o.m.container).find((e) => e.localName === 'input' && e.getAttribute('aria-label') === w('profile.access.reason')) as FakeElement, 'beta');
+      o.m.click(save());
+      await settle();
+      const at = expectPost('user-overrides', { user_id: TRIAL, unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: true, unlimitedCalendars: null, earlyAdopter: false, reason: 'beta' }, 'save');
+      assert(reloadedAfter(at, TRIAL) && statusesIn(o.m.container).includes(w('profile.access.saved')) && save().hasAttribute('disabled'), `save: reloaded ${reloadedAfter(at, TRIAL)}, ${show(statusesIn(o.m.container))}`);
+      assert(!viewerIdSent(), 'save: the viewer\'s Telegram id was sent');
+      // A failure: said under the button, the draft kept, logged once, nothing reloaded
+      calls.splice(0);
+      adminLogs.length = 0;
+      o.m.click(switches(o.m).find((r) => flat(r).startsWith(w('profile.access.unlimitedCalendars'))) as FakeElement);
+      scenario.fail.add('POST user-overrides');
+      o.m.click(save());
+      await settle();
+      assert(show(alertsIn(o.m.container)) === show([w('errors.generic')]) && sent() === 1 && logged() === 1 && !save().hasAttribute('disabled') && checked(switches(o.m).find((r) => flat(r).startsWith(w('profile.access.unlimitedCalendars')))), `a failed save: ${show(alertsIn(o.m.container))}, ${sent()} request(s), ${show(adminLogs)}`);
+    } finally {
+      close(o);
+    }
+
+    // Give Pro for free (a free person), then stop it
+    o = await profileOf(1);
+    try {
+      assert(!!btn(o.m, w('profile.comp.give')) && !btn(o.m, w('profile.comp.stop')), 'a free person can be given Pro');
+      askAndCancel(o, w('profile.comp.give'), w('profile.comp.giveTitle', { name: names[1] }));
+      o.m.input(sheetField(o.m), 'pilot');
+      scenario.answers.set('POST subscription', () => json({ error: 'User already has an active plan (PRO / ACTIVE)' }, 409));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.compGrant')]) && logged() === 1 && !calls.some((c) => c.url.includes('user-overrides')), `a refused give: ${show(alertsIn(o.m.container))}, ${show(adminLogs)}, ${show(urls())}`);
+      scenario.answers.clear();
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('subscription', { user_id: FREE, reason: 'pilot' }, 'give');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, FREE) && show(statusesIn(o.m.container)).includes(w('profile.comp.given', { name: names[1] })) && !!btn(o.m, w('profile.comp.stop')) && !btn(o.m, w('profile.comp.give')), `give: ${show(statusesIn(o.m.container))}`);
+      assert(!viewerIdSent(), 'give: the viewer\'s Telegram id was sent');
+      // Stop it: asks, then DELETE with the id in the URL
+      calls.splice(0);
+      askAndCancel(o, w('profile.comp.stop'), w('profile.comp.stopTitle', { name: names[1] }));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(calls[0].method === 'DELETE' && calls[0].url === `/api/admin/subscription?user_id=${FREE}` && calls[0].body === undefined && reloadedAfter(0, FREE), `stop: ${calls[0]?.method} ${calls[0]?.url}`);
+      assert(show(statusesIn(o.m.container)).includes(w('profile.comp.stopped')) && !!btn(o.m, w('profile.comp.give')), `stopped: ${show(statusesIn(o.m.container))}`);
+    } finally {
+      close(o);
+    }
+
+    // Send a setup reminder (it sends a real message): pick the reminder, name the person; a failure stays in the sheet
+    o = await profileOf(1);
+    try {
+      askAndCancel(o, w('profile.setup.send'), w('profile.setup.sendTitle', { name: names[1] }));
+      const options = elements(dialogs(o.m)[0]).filter((e) => e.getAttribute('role') === 'radio');
+      assert(show(options.map((e) => e.getAttribute('data-value'))) === show(['calendars', 'reconnect', 'location']) && checked(options[0]) && flat(options[1]) === w('profile.setup.types.reconnect'), `the reminders: ${show(options.map((e) => `${e.getAttribute('data-value')}:${e.getAttribute('aria-checked')}`))}`);
+      o.m.click(options[1]);
+      scenario.fail.add('POST send-reminder');
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.generic')]) && logged() === 1 && posts('send-reminder').length === 1, `a failed send: ${show(alertsIn(o.m.container))}`);
+      scenario.fail.clear();
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('send-reminder', { user_id: FREE, reminder_type: 'reconnect' }, 'send');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, FREE) && show(statusesIn(o.m.container)).includes(w('profile.setup.sentTo', { name: names[1] })), `send: ${show(statusesIn(o.m.container))}`);
+      // Reset the person's reminders
+      calls.splice(0);
+      askAndCancel(o, w('profile.setup.reset'), w('profile.setup.resetTitle', { name: names[1] }));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const reset1 = expectPost('reset-reminders', { user_id: FREE }, 'reset');
+      assert(reloadedAfter(reset1, FREE) && show(statusesIn(o.m.container)).includes(w('profile.setup.resetDone')), `reset: ${show(statusesIn(o.m.container))}`);
+      assert(!viewerIdSent(), 'send and reset: the viewer\'s Telegram id was sent');
+    } finally {
+      close(o);
+    }
+
+    // Move to WhatsApp: the number is required, trimmed, and the route's refusals are said in our words
+    o = await profileOf(2);
+    try {
+      o.m.click(btn(o.m, w('profile.messaging.move')));
+      assert(dialogs(o.m)[0].getAttribute('aria-label') === w('profile.messaging.moveTitle', { name: names[2] }) && (confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'the move sheet waits for a number');
+      o.m.click(cancelOf(o.m) as FakeElement);
+      assert(sent() === 0, 'Cancel sent something');
+      o.m.click(btn(o.m, w('profile.messaging.move')));
+      o.m.input(sheetField(o.m), '  +972501234567 ');
+      assert(!(confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'a number turns the button on');
+      for (const [status, text] of [[400, w('errors.invalidPhone')], [409, w('errors.phoneTaken')], [500, w('errors.generic')]] as const) {
+        scenario.answers.set('POST switch-platform', () => json({ error: 'Phone +972501234567 is already used by user X' }, status));
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([text]), `${status}: ${show(alertsIn(o.m.container))}`);
+      }
+      assert(logged() === 3 && !calls.some((c) => c.method === 'GET'), `three refusals, three logs, no reload: ${adminLogs.length}`);
+      scenario.answers.clear();
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('switch-platform', { user_id: PAID, whatsapp_phone: '+972501234567' }, 'move');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, PAID) && !btn(o.m, w('profile.messaging.move')) && show(statusesIn(o.m.container)).includes(w('profile.messaging.moved')), `move: ${show(statusesIn(o.m.container))}`);
+      assert(idFields(o.m).some((f) => f.value === '+972501234567') && !viewerIdSent(), 'the number shows after the reload, and the viewer\'s id was not sent');
+    } finally {
+      close(o);
+    }
+
+    // Suspend (asks, with an optional reason), then unsuspend (at once)
+    o = await profileOf(0);
+    try {
+      askAndCancel(o, w('profile.account.suspend'), w('profile.account.suspendTitle', { name: names[0] }));
+      o.m.input(sheetField(o.m), 'spam');
+      scenario.answers.set('POST users/moderation', () => json({ error: 'Admins cannot moderate their own account' }, 400));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.selfModerate')]) && logged() === 1, `a refused suspend: ${show(alertsIn(o.m.container))}`);
+      scenario.answers.clear();
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('users/moderation', { action: 'suspend', user_id: TRIAL, reason: 'spam' }, 'suspend');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, TRIAL) && show(statusesIn(o.m.container)).includes(w('profile.account.suspended', { name: names[0] })), `suspend: ${show(statusesIn(o.m.container))}`);
+      assert(!!btn(o.m, w('profile.account.unsuspend')) && !btn(o.m, w('profile.account.suspend')) && elements(o.m.container).some((e) => classes(e).includes('ch-tag-danger')), 'the profile shows the suspension');
+      // Unsuspend: no sheet, one request, its outcome said; a failure says so too
+      calls.splice(0);
+      adminLogs.length = 0;
+      scenario.fail.add('POST users/moderation');
+      o.m.click(btn(o.m, w('profile.account.unsuspend')));
+      await settle();
+      assert(dialogs(o.m).length === 0 && posts('users/moderation').length === 1 && show(alertsIn(o.m.container)) === show([w('errors.generic')]) && logged() === 1 && !calls.some((c) => c.method === 'GET'), `a failed unsuspend: ${show(alertsIn(o.m.container))}`);
+      scenario.fail.clear();
+      calls.splice(0);
+      o.m.click(btn(o.m, w('profile.account.unsuspend')));
+      await settle();
+      const back = expectPost('users/moderation', { action: 'unsuspend', user_id: TRIAL, reason: null }, 'unsuspend');
+      assert(reloadedAfter(back, TRIAL) && show(statusesIn(o.m.container)).includes(w('profile.account.unsuspended', { name: names[0] })) && !!btn(o.m, w('profile.account.suspend')), `unsuspend: ${show(statusesIn(o.m.container))}`);
+      assert(!viewerIdSent(), 'suspend: the viewer\'s Telegram id was sent');
+    } finally {
+      close(o);
+    }
+
+    // Block their Telegram and WhatsApp: a switch for each, a reason, never an empty ban; SELF_BAN is said in our words
+    o = await profileOf(0);
+    try {
+      askAndCancel(o, w('profile.account.block'), w('profile.account.blockTitle', { name: names[0] }));
+      const toggles = () => elements(dialogs(o.m)[0]).filter((e) => e.getAttribute('role') === 'switch');
+      assert(toggles().length === 2 && toggles().every(checked) && flat(toggles()[0]).includes('7000007') && flat(toggles()[1]).includes('+972501230007'), `the block sheet: ${toggles().map(flat)}`);
+      o.m.click(toggles()[0]);
+      o.m.click(toggles()[1]);
+      assert((confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'with nothing to block the button waits');
+      o.m.click(toggles()[1]);
+      o.m.input(sheetField(o.m), 'abuse');
+      scenario.answers.set('POST users/blocklist', () => json({ error: 'SELF_BAN' }, 400));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.selfBan')]), `SELF_BAN: ${show(alertsIn(o.m.container))}`);
+      scenario.answers.clear();
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('users/blocklist', { action: 'ban', telegramId: null, whatsappPhone: '+972501230007', reason: 'abuse' }, 'block');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, TRIAL) && show(statusesIn(o.m.container)).includes(w('profile.account.blockedDone')), `block: ${show(statusesIn(o.m.container))}`);
+    } finally {
+      close(o);
+    }
+
+    // Every sheet opens in each language with the person's name
+    const sheets: [number, string, string][] = [
+      [0, 'profile.setup.send', 'profile.setup.sendTitle'],
+      [0, 'profile.setup.reset', 'profile.setup.resetTitle'],
+      [0, 'profile.account.suspend', 'profile.account.suspendTitle'],
+      [0, 'profile.account.block', 'profile.account.blockTitle'],
+      [0, 'profile.account.delete', 'profile.account.deleteTitle'],
+      [1, 'profile.comp.give', 'profile.comp.giveTitle'],
+      [3, 'profile.comp.stop', 'profile.comp.stopTitle'],
+      [2, 'profile.messaging.move', 'profile.messaging.moveTitle'],
+    ];
+    for (const locale of ['he', 'ru'] as const) {
+      for (const [index, row, titleKey] of sheets) {
+        reset();
+        scenario.userActivityTotal = 0;
+        const sheetOpened = open(locale, propsOf(locale), { version: '7.7' });
+        try {
+          await openPerson(sheetOpened, locale, index);
+          sheetOpened.m.click(btn(sheetOpened.m, word(locale, row)));
+          const dialog = dialogs(sheetOpened.m)[0];
+          const name = PEOPLE_NAMES[locale][index];
+          assert(dialog && dialog.getAttribute('aria-label') === word(locale, titleKey, 'admin', { name }) && flat(dialog).includes(name) && flat(cancelOf(sheetOpened.m) as FakeElement) === word(locale, 'cancel', 'ui'), `${locale} ${row}: ${dialog && flat(dialog)}`);
+          assert(!/[A-Za-z]/.test(flat(dialog).replace(BRANDS, '').replace('DELETE', '').replace(/\+972501230\d{3}/, '')), `${locale} ${row}: Latin letters in ${flat(dialog)}`);
+        } finally {
+          close(sheetOpened);
+        }
+      }
+    }
+  });
+
+  await check('U4 deleting a person: the sheet names them, and the button waits until DELETE is typed exactly (Latin in every language); while it works Back, Escape, the scrim and Cancel do nothing and a second tap sends nothing; the request is { action: "hard_delete", user_id, reason: null, confirmation: "DELETE" } with the person\'s id; a failure stays in the sheet; success goes to the people list, which says whose account was deleted, once, without the person, and the profile is not asked for again; opening another person and coming back shows no old notice', async () => {
+    for (const locale of LOCALES) {
+      reset();
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
+      const names = PEOPLE_NAMES[locale];
+      try {
+        await openPerson(o, locale, 0);
+        calls.splice(0);
+        o.m.click(buttonsOf(o.m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === w('profile.account.delete')) as FakeElement);
+        const sheet = dialogs(o.m)[0];
+        assert(sheet.getAttribute('aria-label') === w('profile.account.deleteTitle', { name: names[0] }) && flat(sheet).includes(w('profile.account.deleteBody')) && flat(sheet).includes(w('profile.account.deleteType')), `${locale}: the sheet ${flat(sheet)}`);
+        const field = sheetField(o.m);
+        assert(field.getAttribute('placeholder') === 'DELETE' && field.getAttribute('dir') === 'auto', `${locale}: the field ${field.getAttribute('placeholder')}`);
+        assert(classes(confirmOf(o.m) as FakeElement).includes('ch-btn-danger') && flat(confirmOf(o.m) as FakeElement) === w('profile.account.deleteConfirm'), `${locale}: the red button`);
+        for (const typed of ['', 'delete', 'DELET', 'DELETE ', 'DELETED']) {
+          o.m.input(field, typed);
+          o.m.click(confirmOf(o.m) as FakeElement);
+          assert((confirmOf(o.m) as FakeElement).hasAttribute('disabled') && sent() === 0, `${locale}: "${typed}" turned the delete on (${sent()} request(s))`);
+        }
+        if (locale !== 'en') continue;
+        // The exact word: the button works; while the request runs nothing closes the sheet
+        o.m.input(field, 'DELETE');
+        assert(!(confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'DELETE turns the button on');
+        let release: (r: Response) => void = () => undefined;
+        scenario.hold.set('POST users/moderation', () => undefined);
+        o.m.click(confirmOf(o.m) as FakeElement);
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        release = scenario.hold.get('POST users/moderation') as (r: Response) => void;
+        assert(posts('users/moderation').length === 1, `${posts('users/moderation').length} request(s) for two taps`);
+        const working = confirmOf(o.m) as FakeElement;
+        assert(working.hasAttribute('disabled') && working.getAttribute('aria-busy') === 'true' && (cancelOf(o.m) as FakeElement).hasAttribute('disabled'), 'the working sheet');
+        tapBack(o);
+        o.m.key(dialogs(o.m)[0], 'Escape');
+        o.m.click(elements(o.m.container).find((e) => e.className === 'ch-sheet-backdrop') as FakeElement);
+        o.m.click(cancelOf(o.m) as FakeElement);
+        assert(dialogs(o.m).length === 1 && flat(title(o.m) as FakeElement) === names[0] && pushes.length === 0, `the sheet or the profile closed while it works: ${dialogs(o.m).length} dialog(s), ${flat(title(o.m) as FakeElement)}`);
+        // A failure: the sheet stays, says so, and the person is still there
+        scenario.hold.clear();
+        await act(async () => {
+          release(json({ error: 'Failed to moderate user' }, 500));
+          await new Promise((r) => setTimeout(r, 0));
+        });
+        assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.generic')]) && scenario.people.has(TRIAL) && !(confirmOf(o.m) as FakeElement).hasAttribute('disabled'), `a failed delete: ${show(alertsIn(o.m.container))}`);
+        // Success
+        calls.splice(0);
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        const at = calls.findIndex((c) => c.method === 'POST' && c.url === '/api/admin/users/moderation');
+        assert(show(calls[at].body) === show({ action: 'hard_delete', user_id: TRIAL, reason: null, confirmation: 'DELETE', initData: INIT_DATA }), `the request: ${show(calls[at]?.body)}`);
+        assert(!calls.slice(at + 1).some((c) => c.url === `/api/admin/user-overrides?user_id=${TRIAL}`) && calls.slice(at + 1).some((c) => c.url === '/api/admin/user-overrides?list=all'), `after the delete: ${show(urls().slice(at + 1))}`);
+        assert(!viewerIdSent(), 'the viewer\'s Telegram id was sent');
+        // The people list says whose account it was, once
+        assert(flat(title(o.m) as FakeElement) === w('users.title') && dialogs(o.m).length === 0, `back on ${flat(title(o.m) as FakeElement)}`);
+        assert(show(statusesIn(o.m.container)) === show([w('users.deleted', { name: names[0] })]) && listRows(o.m).length === 5 && !listRows(o.m).some((r) => flat(r).startsWith(names[0])), `the list: ${show(statusesIn(o.m.container))}, ${listRows(o.m).length} rows`);
+        // Another person: no old notice there; and none when the list comes back
+        o.m.click(personRow(o.m, locale, 1));
+        await settle();
+        assert(!page(o.m).includes(w('users.deleted', { name: names[0] })) && statusesIn(o.m.container).every((s) => !s.includes(names[0])), 'the old notice is on another person\'s profile');
+        tapBack(o);
+        await settle();
+        assert(flat(title(o.m) as FakeElement) === w('users.title') && statusesIn(o.m.container).length === 0, `the old notice came back: ${show(statusesIn(o.m.container))}`);
+      } finally {
+        close(o);
+      }
+    }
+    // The notice is said once also when the list is left another way: back to the Overview and in again
+    reset();
+    const again = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(again, 'en', 5);
+      again.m.click(buttonsOf(again.m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === word('en', 'profile.account.delete')) as FakeElement);
+      again.m.input(sheetField(again.m), 'DELETE');
+      again.m.click(confirmOf(again.m) as FakeElement);
+      await settle();
+      assert(statusesIn(again.m.container).length === 1, 'the notice after the delete');
+      tapBack(again);
+      await enter(again, 'en', 'rows.users');
+      assert(statusesIn(again.m.container).length === 0, `the notice came back: ${show(statusesIn(again.m.container))}`);
+    } finally {
+      close(again);
+    }
+  });
+
+  await check('U5 a long profile: Show more three times still ends on the Account section (its rows are in the markup after the last activity row), and nothing of the panel clips a height', async () => {
+    reset();
+    scenario.userActivityTotal = 100;
+    const o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(o, 'en', 0);
+      const rows = () => elements(o.m.container).filter((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr' && /^(?:login|settings_changed)$/.test(flat(e)));
+      assert(rows().length === 20, `${rows().length} activity rows to start with`);
+      calls.splice(0);
+      for (let i = 0; i < 3; i++) {
+        o.m.click(btn(o.m, word('en', 'common.showMore')));
+        await settle();
+      }
+      assert(rows().length === 80 && requests('GET', 'user-activity').length === 3 && requests('GET', 'user-activity').map((c) => c.url).join('|') === [20, 40, 60].map((n) => `/api/admin/user-activity?user_id=${TRIAL}&limit=20&offset=${n}`).join('|'), `${rows().length} rows after three: ${show(urls())}`);
+      const all = elements(o.m.container);
+      const lastRow = all.indexOf(rows()[rows().length - 1]);
+      const accountLabel = all.findIndex((e) => e.localName === 'h2' && flat(e) === word('en', 'profile.account.title'));
+      const deleteRow = all.findIndex((e) => e.localName === 'button' && classes(e).includes('ch-danger-row') && flat(e) === word('en', 'profile.account.delete'));
+      assert(lastRow > -1 && accountLabel > lastRow && deleteRow > accountLabel, `the Account section is after the activity: ${lastRow} < ${accountLabel} < ${deleteRow}`);
+      assert(!/max-(?:height|block-size)/.test(`${ADMIN_CSS}\n${FORM_CSS}`), 'a rule clips a height');
+    } finally {
+      close(o);
+    }
+  });
+
+  await check('U6 two quick taps on different people never show one under the other\'s name: A is opened and its profile is slow, Back, B is opened and shows, then A\'s answer comes in late and shows nowhere (no name, no id); and the profile screen on its own, given another person while the first is on its way, keeps the first answer off the second', async () => {
+    reset();
+    const o = open('en', propsOf('en'), { version: '7.7' });
+    const names = PEOPLE_NAMES.en;
+    try {
+      await enter(o, 'en', 'rows.users');
+      scenario.hold.set(`GET user-overrides?${TRIAL}`, () => undefined);
+      o.m.click(personRow(o.m, 'en', 0));
+      await settle();
+      const release = scenario.hold.get(`GET user-overrides?${TRIAL}`) as (r: Response) => void;
+      assert(flat(title(o.m) as FakeElement) === word('en', 'profile.title') && sectionsOf(o.m).length === 0, 'A is still on its way: the screen waits');
+      tapBack(o);
+      await settle();
+      o.m.click(personRow(o.m, 'en', 1));
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === names[1] && sectionsOf(o.m).length === 6, `B shows: ${flat(title(o.m) as FakeElement)}`);
+      await act(async () => {
+        release(ok({ user: scenario.people.get(TRIAL) }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await settle();
+      const text = page(o.m);
+      assert(flat(title(o.m) as FakeElement) === names[1] && !text.includes(names[0]) && !text.includes(String(7000000 + TRIAL)) && idFields(o.m).every((f) => f.value !== String(7000000 + TRIAL)), `A's late answer showed: ${flat(title(o.m) as FakeElement)}, ${text.slice(0, 200)}`);
+      assert(elements(o.m.container).some((e) => classes(e).includes('ch-copy-field-input') && e.value === String(7000000 + FREE)), 'B\'s own id shows');
+    } finally {
+      close(o);
+    }
+    // The screen on its own, given another person while the first one is still on its way: it is the same screen, so only its own guard
+    // (the shell never does this, since it opens a new screen for each person) keeps the first answer from landing on the second
+    reset();
+    installWindow();
+    fakeWindow.Telegram = { WebApp: { initData: INIT_DATA } };
+    scenario.locale = 'en';
+    scenario.people = makePeople('en');
+    const profileTree = (id: number) => tree('en', createElement(UserProfile, { targetUserId: id, viewerTelegramId: VIEWER_TELEGRAM_ID, earlyAccessOn: false, onUsersChanged: () => undefined, onBack: () => undefined, onDeleted: () => undefined }));
+    scenario.hold.set(`GET user-overrides?${TRIAL}`, () => undefined);
+    const m = mount(profileTree(TRIAL));
+    try {
+      await settle();
+      const late = scenario.hold.get(`GET user-overrides?${TRIAL}`) as (r: Response) => void;
+      m.render(profileTree(FREE));
+      await settle();
+      assert(flat(title(m) as FakeElement) === names[1], `the second person shows: ${flat(title(m) as FakeElement)}`);
+      await act(async () => {
+        late(ok({ user: scenario.people.get(TRIAL) }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await settle();
+      assert(flat(title(m) as FakeElement) === names[1] && !page(m).includes(names[0]) && idFields(m).every((f) => f.value !== String(7000000 + TRIAL)), `the first answer landed on the second person: ${flat(title(m) as FakeElement)}`);
+    } finally {
+      m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check('U7 the panel is made of the kit: no styled-jsx, no :hover, no hex colour, no physical CSS property, no emoji and no Tailwind class in any file of app/[locale]/admin-panel; the old body, its dead messages and the old panel\'s strings are gone; every admin message is read by the panel; none that the panel reads is missing', () => {
+    const dir = path.join(ROOT, 'app/[locale]/admin-panel');
+    const files = panelFiles();
+    const code = (file: string) => fs.readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    const problems: string[] = [];
+    for (const file of files) {
+      const rel = path.relative(ROOT, file);
+      const source = code(file);
+      if (/<style jsx|styled-jsx/.test(source)) problems.push(`${rel}: styled-jsx`);
+      if (/:hover/.test(source)) problems.push(`${rel}: :hover`);
+      if (/#[0-9a-fA-F]{3,8}\b/.test(source)) problems.push(`${rel}: a hex colour`);
+      if (/(?:margin|padding|border)-(?:left|right)|(?:margin|padding)(?:Left|Right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|textAlign:\s*['"](?:left|right)/.test(source)) problems.push(`${rel}: a physical property`);
+      if (/\p{Extended_Pictographic}/u.test(fs.readFileSync(file, 'utf8'))) problems.push(`${rel}: an emoji`);
+      if (/className="[^"]*\b(?:bg-|text-(?:gray|rose|blue|xs|sm|lg|xl)|rounded|px-\d|py-\d|min-h-screen|flex-1|shadow|mt-\d|mb-\d|p-\d|gap-\d|max-w)/.test(source)) problems.push(`${rel}: a Tailwind class`);
+      if (/style=\{\{/.test(source) && !/inlineSize/.test(source)) problems.push(`${rel}: an inline style`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+    const client = fs.readFileSync(path.join(dir, 'AdminPanelClient.tsx'), 'utf8');
+    assert(client.split('\n').length < 150 && !/LegacyAdminPanel|AdminCard|Lock size|#667eea|linear-gradient/.test(client), 'the old panel body or its cards are still in AdminPanelClient.tsx');
+    // The messages: a leaf key is read when its dotted path is written out in the panel's code; and each message the code names exists
+    const sources = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+    const leaves = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? leaves(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
+    for (const locale of LOCALES) {
+      const unread = leaves(messages[locale].admin).filter((key) => !sources.includes(`'${key}'`) && !sources.includes(`"${key}"`) && !sources.includes(`\`${key}\``));
+      assert(unread.length === 0, `${locale}: messages the panel never reads: ${unread.slice(0, 12).join(', ')}${unread.length > 12 ? ` (+${unread.length - 12})` : ''}`);
+    }
+    const dead = ['badge', 'testing', 'statistics', 'health', 'overrides', 'comp', 'openDashboard'];
+    for (const locale of LOCALES) {
+      const present = dead.filter((key) => key in messages[locale].admin);
+      assert(present.length === 0, `${locale}: dead message groups: ${present.join(', ')}`);
+      for (const [group, keys] of Object.entries({ activity: ['filterByAction', 'loading', 'loadMore', 'filterByUser', 'ago', 'justNow', 'minutes', 'hours', 'days'], feedback: ['loading', 'user', 'preview', 'source', 'time'], features: ['title'] })) {
+        const left = keys.filter((key) => key in (messages[locale].admin[group] ?? {}));
+        assert(left.length === 0, `${locale}: dead admin.${group} keys: ${left.join(', ')}`);
+      }
+      // The messages the smokes and the bot pin stay
+      assert(typeof messages[locale].admin.features.nativeReminders === 'string' && typeof messages[locale].admin.features.nativeRemindersDescription === 'string', `${locale}: the native reminders messages`);
+    }
+    // Every message name the panel writes out resolves in every language
+    const names = [...sources.matchAll(/\bt\(\s*['"`]([\w.]+)['"`]/g)].map((m) => m[1]);
+    const lookups = [...sources.matchAll(/(?:label|hint|title|body):\s*'([a-zA-Z.]+)'/g)].map((m) => m[1]);
+    for (const locale of LOCALES) {
+      const missing = [...new Set([...names, ...lookups])].filter((key) => key.includes('.') && /^(?:users|profile|rows|counts|sections|features|earlyAccess|reset|errors|common|activity|feedback|blocked|plan|planLine|unauthorized)\./.test(key)).filter((key) => key.split('.').reduce<unknown>((node, part) => (node as Row | undefined)?.[part], messages[locale].admin) === undefined);
+      assert(missing.length === 0, `${locale}: messages the panel reads that do not exist: ${missing.join(', ')}`);
+    }
+  });
+
   await check('R10 the panel\'s CSS keeps the kit\'s rules (logical properties, no hover, nothing under 11 px, no hex outside a token, a 44 px tap) and its class names are its own: no other file defines .ch-admin-*; the list row\'s and the tag tones\' names are free of the home\'s', () => {
-    const { ADMIN_CSS } = nodeRequire('../app/[locale]/admin-panel/admin-css') as { ADMIN_CSS: string };
     const problems = lintCss(ADMIN_CSS);
     assert(problems.length === 0, `lintCss: ${show(problems)}`);
     assert(/min-block-size:\s*76px/.test(ADMIN_CSS), 'a count tile is taller than 44 px');
@@ -798,7 +1563,7 @@ async function main() {
       for (const dir of ['app', 'components', 'src']) scan(dir);
       return hits;
     };
-    for (const name of ['ch-list-row', 'ch-list-title', 'ch-list-tags', 'ch-tag-danger', 'ch-tag-muted']) {
+    for (const name of ['ch-list-row', 'ch-list-title', 'ch-list-tags', 'ch-tag-danger', 'ch-tag-muted', 'ch-action-row']) {
       const hits = taken(name);
       assert(hits.every((f) => f.startsWith('components/app-ui/')), `.${name} is also in ${hits.join(', ')}`);
     }

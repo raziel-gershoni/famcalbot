@@ -1,5 +1,5 @@
-// How the admin panel's per-user timeline reads an activity row's metadata. The row's action
-// is its label (the badge); this is the short detail beside it. The activity rows the bot
+// How the admin panel reads an activity row's metadata, in everyone's activity log and in a
+// person's profile. The row's action is its label; this is the short detail beside it. The activity rows the bot
 // writes for commands, settings, errors and connections read as words; any other row keeps
 // the raw JSON it always showed, cut to `max` characters.
 

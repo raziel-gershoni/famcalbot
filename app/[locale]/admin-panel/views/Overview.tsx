@@ -24,13 +24,13 @@ import { resetAllSetupReminders } from '../data/use-users';
 import type { AdminView } from '../navigation';
 import { ConfirmSheet } from '../sheets';
 
-/** The switches in the order they show: the flag, and the messages of its label and its line under it (admin.features.*). */
+/** The switches in the order they show: the flag, and the messages of its label and its line under it. */
 const SWITCHES: { flag: AdminFlag; label: string; hint: string }[] = [
-  { flag: 'remindersEnabled', label: 'reminders', hint: 'remindersDescription' },
-  { flag: 'nativeRemindersEnabled', label: 'nativeReminders', hint: 'nativeRemindersDescription' },
-  { flag: 'earlyAdoptionMode', label: 'earlyAdoption', hint: 'earlyAdoptionDescription' },
-  { flag: 'voiceAutoCreateHighConf', label: 'voiceAutoCreate', hint: 'voiceAutoCreateDescription' },
-  { flag: 'voiceTtsOutcome', label: 'voiceTtsOutcome', hint: 'voiceTtsOutcomeDescription' },
+  { flag: 'remindersEnabled', label: 'features.reminders', hint: 'features.remindersDescription' },
+  { flag: 'nativeRemindersEnabled', label: 'features.nativeReminders', hint: 'features.nativeRemindersDescription' },
+  { flag: 'earlyAdoptionMode', label: 'features.earlyAdoption', hint: 'features.earlyAdoptionDescription' },
+  { flag: 'voiceAutoCreateHighConf', label: 'features.voiceAutoCreate', hint: 'features.voiceAutoCreateDescription' },
+  { flag: 'voiceTtsOutcome', label: 'features.voiceTtsOutcome', hint: 'features.voiceTtsOutcomeDescription' },
 ];
 
 interface Count {
@@ -160,8 +160,8 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
           {SWITCHES.map(({ flag, label, hint }) => (
             <SwitchRow
               key={flag}
-              label={t(`features.${label}`)}
-              hint={t(`features.${hint}`)}
+              label={t(label)}
+              hint={t(hint)}
               checked={flags[flag]}
               disabled={saving[flag]}
               onChange={(on) => (flag === 'earlyAdoptionMode' ? setEarlyAsk(on) : void flip(flag, on))}

@@ -39,7 +39,7 @@
 //  - the piece W3 added (K17, plan docs/superpowers/plans/2026-10-27-app-ui-W3-partner-invite.md): CopyField, the copy-link field
 //    (its parts, a tap writing the value and saying Copied for 2 seconds, a blocked clipboard selecting the text instead, and a disabled field);
 //  - the pieces plan A added (K18, plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md): ListRow (a button row with a title, a quiet
-//    line, tags and a chevron), the Tag tones (danger, muted) with the new --ch-danger-soft token, and FORM_CSS's list row rules.
+//    line, tags and a chevron), the Tag tones (danger, muted) with the new --ch-danger-soft token, and FORM_CSS's list row and action row rules.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -1187,6 +1187,8 @@ async function main() {
     assert(/padding-block:\s*10px/.test(rule(FORM_CSS, '.ch-list-row')) && /padding-block:\s*10px/.test(rule(FORM_CSS, '.ch-form-page-grouped .ch-list-row')), 'a list row is 10px above and below');
     assert(/font-size:\s*16px/.test(rule(FORM_CSS, '.ch-list-title')) && /overflow-wrap:\s*anywhere/.test(rule(FORM_CSS, '.ch-list-title')), 'the title is 16px and wraps');
     assert(/flex-wrap:\s*wrap/.test(rule(FORM_CSS, '.ch-list-tags')) && /gap:\s*6px/.test(rule(FORM_CSS, '.ch-list-tags')), 'the tags wrap with a 6px gap');
+    // An action row (a row that does something, as a danger row does something that cannot be undone): the accent, after the danger row
+    assert(/color:\s*var\(--ch-accent\)/.test(rule(FORM_CSS, 'button.ch-action-row')) && FORM_CSS.indexOf('button.ch-action-row {') > FORM_CSS.indexOf('button.ch-danger-row {'), 'an action row reads in the accent, after the danger row');
   });
 
   await check('#99 React logged no warning', () => {

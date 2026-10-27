@@ -5,6 +5,8 @@
 // - The counts card on the Overview: a 2 x 2 grid of four numbers, each a number over a quiet label. A tile that opens
 //   something is a button with a chevron in its corner; one that only counts is a plain box. A hairline runs between the
 //   tiles (the card's separator colour).
+// - A person's profile: a meter inside a row, an id's label above its copy field, and a setup step (a check or a circle, its
+//   reminders as a bar of segments: sent in the accent, overdue in the warn colour, the rest in the separator's grey).
 // - The spinner while a list loads.
 // - A line of text that stops at two lines (a feedback message in a list), the lines of a list row's quiet text, and the
 //   full text of a message in a sheet.
@@ -73,6 +75,48 @@ button.ch-admin-count:focus-visible {
   -webkit-line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+.ch-admin-meter {
+  flex: 1;
+  min-inline-size: 0;
+  padding-block: 6px;
+}
+.ch-admin-field-label {
+  display: block;
+  padding: 10px 14px 0;
+  font-size: 13px;
+  color: var(--ch-muted);
+}
+.ch-form-page-grouped .ch-admin-step {
+  align-items: flex-start;
+  padding-block: 10px;
+}
+.ch-admin-step-icon {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+  margin-block-start: 1px;
+  color: var(--ch-muted);
+}
+.ch-admin-step-icon.is-done {
+  color: var(--ch-accent);
+}
+.ch-admin-bar {
+  display: flex;
+  gap: 2px;
+  margin-block-start: 4px;
+}
+.ch-admin-seg {
+  flex: 1;
+  block-size: 6px;
+  border-radius: 3px;
+  background: var(--ch-separator);
+}
+.ch-admin-seg.is-sent {
+  background: var(--ch-accent);
+}
+.ch-admin-seg.is-due {
+  background: var(--ch-warn);
 }
 .ch-admin-text {
   margin: 0 0 10px;

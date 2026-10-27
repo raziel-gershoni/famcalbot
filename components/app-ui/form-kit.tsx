@@ -175,6 +175,9 @@ button.ch-form-row:focus-visible {
 button.ch-danger-row {
   color: var(--ch-danger);
 }
+button.ch-action-row {
+  color: var(--ch-accent);
+}
 button.ch-form-row:disabled {
   opacity: 0.6;
   cursor: default;

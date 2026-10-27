@@ -49,6 +49,9 @@ export function dateOnly(iso: string, locale: string): string {
 /** The translator of the `admin` namespace (next-intl's useTranslations('admin') or createTranslator). */
 export type AdminTranslate = (key: string, values?: Record<string, string | number>) => string;
 
+/** The message of each plan's name (admin.plan.names.*). */
+const PLAN_NAMES: Record<string, string> = { FREE: 'plan.names.free', BASIC: 'plan.names.basic', PRO: 'plan.names.pro' };
+
 interface PlanSource {
   plan: string;
   status: string;
@@ -64,7 +67,7 @@ interface PlanSource {
  */
 export function planLine(user: { subscription: PlanSource | null }, t: AdminTranslate, locale: string, now: Date = new Date()): string {
   const sub = user.subscription;
-  const name = (plan: string) => t(`plan.names.${plan.toLowerCase()}`);
+  const name = (plan: string) => (PLAN_NAMES[plan] ? t(PLAN_NAMES[plan]) : plan);
   if (!sub) return name('FREE');
   if (sub.comped && sub.status === 'ACTIVE') return t('planLine.comped', { plan: name(sub.plan) });
   if (sub.status === 'TRIALING') {
