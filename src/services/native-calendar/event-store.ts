@@ -1151,8 +1151,8 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
       return;
     }
     await tx.nativeReminderState.update({ where: { id: row.id }, data: { seriesEventId: to, originalStartsAt: times.startsAt } });
-    // A change of the switch leaves no partial Done on an open occurrence.
-    if (eachMarksDone !== series.eachMarksDone && row.doneAt === null) await clearPartialDone(tx, { id: row.id });
+    // A change of the switch leaves no partial Done on an open occurrence, and going off none on a done one either.
+    if (eachMarksDone !== series.eachMarksDone && (row.doneAt === null || !eachMarksDone)) await clearPartialDone(tx, { id: row.id }, !eachMarksDone);
   };
   const oneOffId = await markedTransaction(async (tx) => {
     if (first) {
@@ -1563,8 +1563,8 @@ async function updateNativeReminder(
         ? await keepYieldedStates(tx, { fromSeries: series.id, toSeries: seriesId, since, shape })
         : (await tx.nativeReminderState.updateMany({ where, data: { seriesEventId: seriesId } }), []);
       const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) }) : [];
-      // A change of the switch leaves no partial Done on an open occurrence (its live pings stay as they are).
-      if (eachChanged) await clearPartialDone(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) });
+      // A change of the switch leaves no partial Done on an open occurrence, and going off none on a done one (its live pings stay as they are).
+      if (eachChanged) await clearPartialDone(tx, { seriesEventId: seriesId, ...(since ? { originalStartsAt: { gte: since } } : {}) }, !eachMarksDone);
       return { changedPings, reassignedPings };
     };
     if (first) {
@@ -1673,8 +1673,8 @@ async function updateNativeReminder(
       // Every occurrence at the series' time, which stays: the ones moved on their own come back to it.
       const clearedPings = edit && input.scope === 'all' && series.rrule ? await unmoveOccurrences(tx, series) : [];
       const reassignedPings = reassign ? await reassignOpenStates(tx, { seriesEventId: series.id }) : [];
-      // A change of the switch leaves no partial Done on an open occurrence (its live pings stay as they are).
-      if (eachChanged) await clearPartialDone(tx, { seriesEventId: series.id });
+      // A change of the switch leaves no partial Done on an open occurrence, and going off none on a done one (its live pings stay as they are).
+      if (eachChanged) await clearPartialDone(tx, { seriesEventId: series.id }, !eachMarksDone);
       return { clearedPings, reassignedPings };
     }
     // Every occurrence moves and starts afresh: what was moved on its own goes, and what
@@ -1736,15 +1736,21 @@ async function reassignOpenStates(tx: Prisma.TransactionClient, where: Prisma.Na
 }
 
 /**
- * A change of "each of us marks it done" (3b spec §3.1's silent kin): the open (not done) state rows `where`
- * matches lose every person's own Done, in place. The rows, their snoozes and their live pings are left as they
- * are (nothing is re-armed or edited), so a later switch back never brings partial progress back. An occurrence
- * done for everyone stays done.
+ * A change of "each of us marks it done" (3b spec §3.1's silent kin): the state rows `where` matches lose every
+ * person's own Done, in place. The rows, their snoozes and their live pings are left as they are (nothing is
+ * re-armed or edited), so a later switch back never brings partial progress back. Turning it on clears the open
+ * (not done) occurrences only; turning it off (`includeDone`) the done ones as well, which stay done through their
+ * own state.doneAt, so no leftover is there to block a ping once the switch is off.
+ *
+ * The rows are touched (locked) first: a Done in flight on one of them finishes before its person's Done is
+ * cleared here, or waits and finds the switch already off (actions.ts markOwnDone reads it inside its own lock).
  */
-async function clearPartialDone(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput): Promise<void> {
-  const open = await tx.nativeReminderState.findMany({ where: { ...where, doneAt: null }, select: { id: true } });
-  if (open.length === 0) return;
-  await tx.nativeReminderPing.updateMany({ where: { stateId: { in: open.map((r) => r.id) }, doneAt: { not: null } }, data: { doneAt: null } });
+async function clearPartialDone(tx: Prisma.TransactionClient, where: Prisma.NativeReminderStateWhereInput, includeDone = false): Promise<void> {
+  const inScope = { ...where, ...(includeDone ? {} : { doneAt: null }) };
+  await tx.nativeReminderState.updateMany({ where: inScope, data: { updatedAt: new Date() } });
+  const rows = await tx.nativeReminderState.findMany({ where: inScope, select: { id: true } });
+  if (rows.length === 0) return;
+  await tx.nativeReminderPing.updateMany({ where: { stateId: { in: rows.map((r) => r.id) }, doneAt: { not: null } }, data: { doneAt: null } });
 }
 
 /**

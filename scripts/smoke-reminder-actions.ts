@@ -1404,6 +1404,34 @@ async function main() {
     assert(moved.body.reminder?.done === true && moved.body.reminder.open === false, moved.text);
   });
 
+  await check('each: a Done in flight while the switch is turned off writes no per-person Done: it is the one shared Done of a reminder with one Done', async () => {
+    reset();
+    addEach();
+    // The creator turns the switch off just as Dana's Done reaches the state row; the Done reads the switch inside its lock.
+    duringSnoozeLock = () => { db.events.find((e) => e.id === BOTH)!.eachMarksDone = false; };
+    const r = await act(DANA, BOTH_KEY, 'done');
+    duringSnoozeLock = null;
+    assertJson(r, { status: 'ok', title: 'Book the flights' }, 'the plain result of a shared Done');
+    assert(pingOfBoth(DANA)!.doneAt === null && pingOfBoth(RAZIEL)!.doneAt === null, `no per-person Done was written: ${json(db.pings)}`);
+    assert(same(stateOfBoth().doneAt, NOW) && stateOfBoth().doneByUserId === DANA, `the shared Done: ${json(stateOfBoth())}`);
+    const note = await getBotMessage('he', 'nativeReminders.doneBy', { name: 'Dana', title: 'Book the flights' });
+    assertJson(sends().map((x) => [x.chatId, x.text, x.silent]), [[tg(RAZIEL), note, true]], 'the usual quiet note');
+  });
+
+  await check('each: the partner-done refresh keeps the ping\'s own wording: with the actor out of reach the other person\'s ping is the single-recipient one plus the line, never "for both of you"', async () => {
+    reset();
+    addEach();
+    db.users.find((u) => u.id === DANA)!.suspendedAt = NOW; // she marks hers from the app but cannot be pinged
+    await act(DANA, BOTH_KEY, 'done');
+    assertJson(edits().filter((e) => e.messageId === 61).map((e) => [e.text, e.buttons]), [[`⏰ <b>Book the flights</b>\n${await getBotMessage('he', 'nativeReminders.ping.partnerDone', { name: 'Dana' })}`, true]], 'the creator\'s ping: his own, plus the line');
+    reset();
+    addEach();
+    db.users.find((u) => u.id === RAZIEL)!.suspendedAt = NOW; // he marks his from the app but cannot be pinged
+    await act(RAZIEL, BOTH_KEY, 'done');
+    const from = await getBotMessage('en', 'nativeReminders.ping.from', { name: 'Raziel' });
+    assertJson(edits().filter((e) => e.messageId === 62).map((e) => [e.text, e.buttons]), [[`⏰ <b>Book the flights</b>\n${from}\n${await getBotMessage('en', 'nativeReminders.ping.partnerDone', { name: 'Raziel' })}`, true]], 'her ping: "from" him, plus the line');
+  });
+
   await check('each: the app shows each person their own Done and the partner\'s status; the route answers the actor with the range\'s DTO', async () => {
     reset();
     addEach();

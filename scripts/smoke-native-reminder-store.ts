@@ -445,7 +445,7 @@ async function main() {
     assert([partner, self, noPartner, event].every((r) => r.eachMarksDone === false), `stored ${[partner, self, noPartner, event].map((r) => r.eachMarksDone)}`);
   });
 
-  await check('each: turning the switch on or off clears every open occurrence\'s partial Done in place (state rows, snoozes and live pings stay), keeps the done ones, and wakes the gate', async () => {
+  await check('each: turning the switch on clears the open occurrences\' partial Done, going off every per-person Done (the done ones\' too, still done), in place (state rows, snoozes and live pings stay), and wakes the gate', async () => {
     for (const next of [false, true]) {
       eachReminder();
       eventRow('rem').eachMarksDone = !next;
@@ -453,7 +453,11 @@ async function main() {
       const r = await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, eachMarksDone: next });
       assert(eventRow('rem').eachMarksDone === next && eventRow('rem').forBoth === true, `flag ${eventRow('rem').eachMarksDone}`);
       assert(pingDone(1, 2) === null, 'the open occurrence lost her partial Done');
-      assert(pingDone(0, 2) !== null && tables.nativeReminderState[0].doneAt !== null, 'the done occurrence stays done');
+      assert(tables.nativeReminderState[0].doneAt !== null, 'the done occurrence stays done');
+      // Going off clears every per-person Done, the done occurrence's too (state.doneAt keeps it done), so none can come back or block a ping.
+      assert(next ? pingDone(0, 2) !== null : pingDone(0, 2) === null && pingDone(0, 1) === null, `the done occurrence's own Dones: hers ${pingDone(0, 2)}`);
+      // The state rows in scope are locked (touched) before their pings are cleared, so a Done in flight lands first or finds the switch gone.
+      assert(fresh(tables.nativeReminderState[1].updatedAt) && fresh(tables.nativeReminderState[0].updatedAt) === !next, 'the state rows are touched first');
       assert(tables.nativeReminderState.length === 2 && tables.nativeReminderPing.length === 4, 'no state or ping row was removed');
       assert(r.clearedPings.length + r.changedPings.length + r.reassignedPings.length === 0, `no live ping is touched: ${pings(r.reassignedPings)}`);
       assert(gateCleared(), 'the due gate is closed');
@@ -500,6 +504,15 @@ async function main() {
     assert(pingDone(1, 2) === null && pingDone(0, 2) !== null && tables.nativeReminderState[0].seriesEventId === 'rem' && tables.nativeReminderState[1].seriesEventId === off.id, 'the open one is reset and follows the tail; the earlier one is untouched');
   });
 
+  await check('each: turned off from an occurrence on, the new series\' done occurrences lose their per-person Dones too (still done), the earlier ones keep theirs', async () => {
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-13 08:00'), actingUserId: 1, eachMarksDone: false });
+    const tail = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
+    assert(tail.eachMarksDone === false && tables.nativeReminderState.every((x) => x.seriesEventId === tail.id), 'both occurrences follow the tail');
+    assert(pingDone(0, 2) === null && pingDone(0, 1) === null && pingDone(1, 2) === null, 'no per-person Done is left on either');
+    assert(tables.nativeReminderState[0].doneAt !== null, 'the done one is still done');
+  });
+
   await check('each: a switch turned on and off again never brings partial progress back', async () => {
     eachReminder();
     eventRow('rem').eachMarksDone = false; // off, with a stale partial that must not exist (it is cleared on the way)
@@ -515,6 +528,7 @@ async function main() {
     eachReminder();
     await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: 2, forBoth: false });
     assert(eventRow('rem').eachMarksDone === false && eventRow('rem').forBoth === false, 'for the partner alone');
+    assert(tables.nativeReminderState.length === 1 && tables.nativeReminderState[0].doneAt !== null && pingDone(0, 2) === null && pingDone(0, 1) === null, 'the done occurrence stays done and no per-person Done is left on it');
     eachReminder();
     await updateNativeEvent({ seriesCuid: 'rem', scope: 'all', actingUserId: 1, forUserId: null });
     assert(eventRow('rem').eachMarksDone === false && eventRow('rem').forUserId === null, 'for the creator alone');
@@ -540,6 +554,10 @@ async function main() {
     await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-14 08:00'), actingUserId: 1, rrule: null, startsAt: at('2026-10-14 08:00'), endsAt: at('2026-10-14 08:00'), eachMarksDone: false });
     const off = tables.nativeEvent.find((e) => e.id !== 'rem' && e.kind === 'REMINDER')!;
     assert(off.eachMarksDone === false && pingDone(1, 2) === null, `reset: ${off.eachMarksDone}`);
+    // The opened occurrence is a done one: its per-person Dones go as well, and it stays done.
+    eachReminder();
+    await updateNativeEvent({ seriesCuid: 'rem', scope: 'following', instanceStartsAt: at('2026-10-13 08:00'), actingUserId: 1, rrule: null, startsAt: at('2026-10-13 08:00'), endsAt: at('2026-10-13 08:00'), eachMarksDone: false });
+    assert(pingDone(0, 2) === null && pingDone(0, 1) === null && tables.nativeReminderState[0].doneAt !== null, 'a done occurrence opened to stop repeating');
   });
 
   await check('create: a date-only reminder saved as the bot saves all-day (00:00 to 23:59) is zero-length at 00:00', async () => {

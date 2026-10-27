@@ -200,9 +200,11 @@ const fakePrisma = {
     },
   },
   nativeEvent: {
-    findUnique: async ({ where, include }: { where: { id: string }; include: SeriesInclude }) => {
+    findUnique: async ({ where, select, include }: { where: { id: string }; select?: Record<string, boolean>; include: SeriesInclude }) => {
       const series = world.events.find(e => e.id === where.id);
       if (!series) return null;
+      // The Done where each marks their own reads the series' switch alone, inside its lock.
+      if (select) return pick(series, select);
       return {
         ...series,
         calendar: pick(world.calendars.find(c => c.id === series.calendarId), include.calendar.select),

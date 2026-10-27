@@ -87,6 +87,7 @@ let failNextClaim: Error | null = null;
 const relations: Record<string, (row: Row) => Row | undefined> = {
   calendar: (row) => db.calendars.find((c) => c.id === row.calendarId),
   state: (row) => db.states.find((s) => s.id === row.stateId),
+  seriesEvent: (row) => db.events.find((e) => e.id === row.seriesEventId),
 };
 const listRelations: Record<string, (row: Row) => Row[]> = {
   instances: (row) => db.instances.filter((i) => i.seriesEventId === row.id),
@@ -272,7 +273,12 @@ const fakePrisma = {
     );
     // The conditions the fake below stands in for, exactly: not done; and, per recipient, not done themselves (each marks their own) and never pinged or pinged before this due.
     assert(/WHERE state\."doneAt" IS NULL\s+ON CONFLICT/.test(sql), `the done condition: ${sql}`);
-    assert(/WHERE "NativeReminderPing"\."doneAt" IS NULL\s+AND \("NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
+    // A person's own Done counts only while the series' switch is on (the SQL reads it from the series row); a claim that
+    // refuses a done ping row whatever the switch says is what the stand-in then does too.
+    const gated = /WHERE \("NativeReminderPing"\."doneAt" IS NULL\s+OR NOT COALESCE\(\(SELECT "eachMarksDone" FROM "NativeEvent" WHERE "id" = \$\), false\)\)\s+AND \(/.test(sql);
+    const ungated = /WHERE "NativeReminderPing"\."doneAt" IS NULL\s+AND \(/.test(sql);
+    assert(gated || ungated, `the per-recipient done condition: ${sql}`);
+    assert(/AND \("NativeReminderPing"\."lastPingedAt" IS NULL\s+OR "NativeReminderPing"\."lastPingedAt" < \(\$::timestamptz AT TIME ZONE 'UTC'\)\)\s+RETURNING/.test(sql), `the per-recipient condition: ${sql}`);
     assert(sql.split("::timestamptz AT TIME ZONE 'UTC'").length === 6, 'every timestamp should be read as UTC');
     const [stateId, seriesEventId, occurrence, , pingId, userId, at] = values as [string, string, string, string, string, number, string];
     const due = new RealDate(values[values.length - 1] as string).getTime();
@@ -289,7 +295,7 @@ const fakePrisma = {
       db.pings.push({ id: pingId, stateId: state.id, userId, snoozedUntil: null, lastPingedAt, pingAttempts: 1, pingChatId: null, pingMessageId: null, doneAt: null });
       return [{ id: pingId, stateId: state.id, lastPingedAt, pingAttempts: 1 }];
     }
-    if (ping.doneAt) return [];
+    if (ping.doneAt && (!gated || db.events.find((e) => e.id === seriesEventId)?.eachMarksDone === true)) return [];
     if (ping.lastPingedAt && (ms(ping.lastPingedAt) as number) >= due) return [];
     Object.assign(ping, { lastPingedAt, pingAttempts: (ping.pingAttempts as number) + 1 });
     return [{ id: ping.id, stateId: state.id, lastPingedAt, pingAttempts: ping.pingAttempts }];
@@ -468,7 +474,7 @@ function reminder(p: Row & { startsAt: Date }): Row {
   const row: Row = {
     id: `rem${++seq}`, calendarId: 'cal-1', creatorUserId: 1, forUserId: null, title: 'Call the plumber',
     description: null, location: null, endsAt: p.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
-    ownAlerts: false, alertMinutes: [], kind: 'REMINDER', armedAt: new RealDate(p.startsAt.getTime() - HOUR), isDeleted: false,
+    ownAlerts: false, alertMinutes: [], kind: 'REMINDER', eachMarksDone: false, armedAt: new RealDate(p.startsAt.getTime() - HOUR), isDeleted: false,
     createdAt: new RealDate(p.startsAt.getTime() - HOUR), updatedAt: new RealDate(p.startsAt.getTime() - HOUR),
     ...p,
   };
@@ -1179,21 +1185,69 @@ async function main() {
     assert(!!row && row.doneAt !== null && row.lastPingedAt === null, `his Done must survive an undone claim: ${show(row)}`);
   });
 
-  await check('each: the snooze wake scan asks for pings that are not done', async () => {
-    reset();
-    let scanned: Row | undefined;
-    const real = fakePrisma.nativeReminderPing.findMany;
-    fakePrisma.nativeReminderPing.findMany = async (args: Args) => {
-      scanned = args.where;
+  /** A pass's series read, to see whether the snooze scan asked for a series to be loaded by its id. */
+  async function scanLoadsById(run: () => Promise<unknown>): Promise<boolean> {
+    let asked = false;
+    const real = fakePrisma.nativeEvent.findMany;
+    fakePrisma.nativeEvent.findMany = async (args: Args) => {
+      asked = JSON.stringify(args.where).includes('"id":{"in"');
       return real(args);
     };
     try {
-      each({ startsAt: today('10:00') });
-      await pass(today('09:00'));
+      await run();
     } finally {
-      fakePrisma.nativeReminderPing.findMany = real;
+      fakePrisma.nativeEvent.findMany = real;
     }
-    assert(!!scanned && 'doneAt' in scanned && scanned.doneAt === null, `scan ${show(scanned)}`);
+    return asked;
+  }
+
+  /** What the app leaves after both marked their own Done and the occurrence was undone with the switch gone: a leftover per-person Done, the occurrence open. */
+  function leftoverDone(r: Row, when: Date, users: number[]) {
+    for (const userId of users) markDone(r.id, when, userId, today('09:55'));
+    const row = db.states.find((x) => x.seriesEventId === r.id && ms(x.originalStartsAt) === when.getTime())!;
+    for (const ping of db.pings.filter((x) => x.stateId === row.id)) Object.assign(ping, { lastPingedAt: when, pingAttempts: 1 });
+    return row;
+  }
+
+  await check('each: a leftover per-person Done does not block a ping once the switch is off: a snooze after the Undo wakes (for both, and after the For went to Me)', async () => {
+    // The switch went off (or For changed) after both marked theirs; then Undo; then Dana snoozes: she is pinged at her time.
+    reset();
+    const r = both({ startsAt: today('10:00') });
+    const row = leftoverDone(r, today('10:00'), [1, 2]);
+    db.pings.find((p) => p.stateId === row.id && p.userId === 2)!.snoozedUntil = today('10:15');
+    const woke = await pass(today('10:15'));
+    assertSame([woke.sent, woke.skipped, sent.map((s) => s.chatId)], [1, 0, ['1002']]);
+    // The same, after the reminder was handed back to its creator alone: his snooze wakes him.
+    reset();
+    const mine = reminder({ startsAt: today('10:00') });
+    const mineRow = leftoverDone(mine, today('10:00'), [1]);
+    db.pings.find((p) => p.stateId === mineRow.id && p.userId === 1)!.snoozedUntil = today('10:15');
+    const wokeMe = await pass(today('10:15'));
+    assertSame([wokeMe.sent, wokeMe.skipped, sent.map((s) => s.chatId)], [1, 0, ['1001']]);
+    // A due ping for a person with a leftover (nobody pinged it yet) goes out as well.
+    reset();
+    const fresh = both({ startsAt: today('10:00') });
+    markDone(fresh.id, today('10:00'), 2, today('09:55'));
+    const due = await pass(today('10:00'));
+    assertSame([due.sent, due.skipped, sent.map((s) => s.chatId).sort()], [2, 0, ['1001', '1002']]);
+  });
+
+  await check('each: the snooze scan loads a series for a person\'s snooze whatever a leftover Done says while the switch is off, and not for a person who is done while it is on', async () => {
+    // A one-off from five days ago: only its snooze (waking now) can bring it into the pass.
+    const old = (on: boolean) => {
+      reset();
+      const r = reminder({ startsAt: at('2026-10-10 10:00'), eachMarksDone: on, forUserId: 2, forBoth: true, armedAt: at('2026-10-10 09:00') });
+      const row = leftoverDone(r, at('2026-10-10 10:00'), [2]);
+      db.pings.find((p) => p.stateId === row.id && p.userId === 2)!.snoozedUntil = today('10:00');
+      return r;
+    };
+    old(false);
+    let result: Awaited<ReturnType<typeof pass>> | undefined;
+    assert(await scanLoadsById(async () => { result = await pass(today('10:00')); }), 'switch off: the series is loaded by its id');
+    assertSame([result?.sent, sent.map((s) => s.chatId)], [1, ['1002']]);
+    old(true);
+    assert(!(await scanLoadsById(async () => { result = await pass(today('10:00')); })), 'switch on: a done person has nothing waking');
+    assertSame(sent.length, 0);
   });
 
   await check('admin switch off: the pass does nothing and reads nothing', async () => {

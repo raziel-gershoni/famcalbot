@@ -100,8 +100,13 @@ function groupBy<T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> {
  */
 async function loadCandidateSeries(now: Date, range: { from: Date; to: Date }) {
   const snoozeRows = await prisma.nativeReminderPing.findMany({
-    // A person who has marked their own Done (each marks theirs) has nothing waking.
-    where: { snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to }, doneAt: null, state: { doneAt: null } },
+    // A person who has marked their own Done has nothing waking, but only while "each of us marks it done" is on
+    // (with it off a leftover per-person Done is never read: ownership.userDoneAt).
+    where: {
+      snoozedUntil: { gte: new Date(now.getTime() - PING_LOOKBACK_MS), lt: range.to },
+      state: { doneAt: null },
+      OR: [{ doneAt: null }, { state: { seriesEvent: { eachMarksDone: false } } }],
+    },
     select: { state: { select: { seriesEventId: true, originalStartsAt: true } } },
   });
   // Two recipients may have snoozed the same occurrence: one key.

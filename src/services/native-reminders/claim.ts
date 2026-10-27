@@ -5,9 +5,11 @@
 // can each find the same occurrence due. Only the one whose claim returns a row sends.
 // The claim is one statement: ensure the occurrence's state row (unique on seriesEventId,
 // originalStartsAt), then insert-or-update the recipient's ping row (unique on stateId,
-// userId) while the occurrence is not done, that recipient has not marked their own Done (a
-// reminder where each marks theirs) and has not been pinged for this due time. Prisma's upsert can't carry the condition, hence the raw SQL. A reminder for
-// both partners is claimed once per recipient, so each is pinged once.
+// userId) while the occurrence is not done, that recipient has not marked their own Done and has not
+// been pinged for this due time. A person's own Done counts only while the series' switch "each of us
+// marks it done" is on (the SQL reads it from the series row); with it off a leftover ping Done is never
+// read, as ownership.userDoneAt. Prisma's upsert can't carry the condition, hence the raw SQL. A reminder
+// for both partners is claimed once per recipient, so each is pinged once.
 
 import { randomUUID } from 'crypto';
 import { prisma } from '../../utils/prisma';
@@ -61,7 +63,8 @@ export async function claimOccurrence(
       SET "lastPingedAt" = EXCLUDED."lastPingedAt",
           "pingAttempts" = "NativeReminderPing"."pingAttempts" + 1,
           "updatedAt" = EXCLUDED."updatedAt"
-      WHERE "NativeReminderPing"."doneAt" IS NULL
+      WHERE ("NativeReminderPing"."doneAt" IS NULL
+             OR NOT COALESCE((SELECT "eachMarksDone" FROM "NativeEvent" WHERE "id" = ${seriesEventId}), false))
         AND ("NativeReminderPing"."lastPingedAt" IS NULL
          OR "NativeReminderPing"."lastPingedAt" < (${dueAt}::timestamptz AT TIME ZONE 'UTC'))
     RETURNING "id", "stateId", "lastPingedAt", "pingAttempts"`;

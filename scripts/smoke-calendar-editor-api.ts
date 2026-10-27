@@ -2381,7 +2381,8 @@ async function main() {
     const { id, day } = await eachSeries();
     const off = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: false } });
     assertSame([off.body, eventRow(id).eachMarksDone, eventRow(id).forBoth], [{ status: 'ok', key: day('2026-10-22') }, false, true], 'off');
-    assertSame([noaDone(id, '2026-10-22'), noaDone(id, '2026-10-21') !== null, statesOf(id).length], [null, true, 2], 'the open one lost her partial Done, the done one stays done');
+    // Going off clears every per-person Done, the done occurrence's too: it stays done through its own Done, and nothing is left to block a ping.
+    assertSame([noaDone(id, '2026-10-22'), noaDone(id, '2026-10-21'), statesOf(id).length, statesOf(id).filter((s) => s.doneAt !== null).length], [null, null, 2, 1], 'the open one lost her partial Done, the done one stays done');
     assertSame([stripped.length, strips().reassigned, strips().changed, strips().moved], [0, [], [], []], 'live pings are left as they are');
     assertSame(tracked[tracked.length - 1].meta.changed_fields, ['each_marks_done'], 'analytics');
     const on = await patch({ key: day('2026-10-22'), scope: 'all', changes: { eachMarksDone: true } });
