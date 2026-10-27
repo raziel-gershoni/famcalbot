@@ -113,6 +113,8 @@ const RESERVED = new Set(['default', 'delete', 'new', 'class', 'function', 'var'
 type ResolveHook = (specifier: string, context: { conditions?: string[] }, next: (specifier: string, context: unknown) => { url: string }) => { url: string; shortCircuit?: boolean };
 type LoadHook = (url: string, context: unknown, next: (url: string, context: unknown) => unknown) => unknown;
 const registerHooks = (Module as unknown as { registerHooks?: (hooks: { resolve: ResolveHook; load: LoadHook }) => unknown }).registerHooks;
+// Without the hooks a stand-in would silently miss every module the code loads with import(), so the smoke would test the real one.
+if (!registerHooks) throw new Error(`dst-harness needs module.registerHooks (Node 22.15 or later); this is Node ${process.version}`);
 const STUB_URL = 'file:///dst-stub/';
 (globalThis as unknown as { __dstStub: (key: string) => object | undefined }).__dstStub = (key: string) => standIn(key, () => realLoad.call(Module, key, undefined, false));
 
