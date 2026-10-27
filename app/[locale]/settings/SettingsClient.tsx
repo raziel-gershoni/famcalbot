@@ -146,11 +146,16 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
     setLocationOpen(true);
   };
 
-  /** Closing the sheet: a changed place is shown at once and checked; the check may normalize it. */
+  /**
+   * Closing the sheet: a changed place is shown at once and checked; the check may normalize it. A place that
+   * carries a problem is checked again even when it is unchanged (a check that could not be made is retried by
+   * closing the sheet again, and the same bad name typed again is not let through). Save never turns on for a
+   * place that failed its check: the problem stays until a check clears it.
+   */
   const closeLocation = async () => {
     setLocationOpen(false);
     const place = locationDraft;
-    if (place === form.location) return;
+    if (place === form.location && locationProblem === null) return;
     set('location', place);
     const check = ++lastCheck.current;
     setLocationProblem(null);

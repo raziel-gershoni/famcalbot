@@ -30,7 +30,9 @@
 //  - the pieces W1a added (K1-K10, plan docs/superpowers/plans/2026-10-27-app-ui-W1a-settings.md): ScreenHeader
 //    and SectionLabel, Notice, DayChips, AppScreen's grouped ground and what it asks Telegram for, the form kit's
 //    additions (a disabled SwitchRow, a note, valueDir, the SaveBar's status, disabled and sticky), the
-//    BottomSheet's closeDisabled, and the new CSS (the switch's off outline, the grouped paint, the chips).
+//    BottomSheet's closeDisabled, and the new CSS (the switch's off outline, the grouped paint, the chips);
+//  - the fix round (K11, K12): the fake DOM matches the selectors the app passes and throws on the rest, and the
+//    loader of a grouped page (Settings) is on its ground, so Telegram's header does not change colour on arrival.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -47,18 +49,18 @@ import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
-import { BottomSheet } from '../components/app-ui/BottomSheet';
+import { BottomSheet, TABBABLE } from '../components/app-ui/BottomSheet';
 import { DayChips, type DayChip } from '../components/app-ui/DayChips';
 import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components/app-ui/form-kit';
 import { Notice } from '../components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
 import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
-import { NoCredentialCard } from '../app/[locale]/PageGate';
+import PageGate, { NoCredentialCard, renderPage } from '../app/[locale]/PageGate';
 import TelegramDashboardRedirect from '../app/[locale]/dashboard/TelegramDashboardRedirect';
 import { publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
-import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
+import { byRole, elements, fakeDocument, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
 const ROOT_SELECTOR = '.ch-app';
@@ -813,6 +815,96 @@ async function main() {
     const guarded = /@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/.exec(FORM_CSS)?.[0] ?? '';
     assert(/\.ch-daychip \{[^}]*transition/.test(guarded) && !/\.ch-daychip \{[^}]*transition/.test(FORM_CSS.replace(guarded, '')), 'its transition sits behind no-preference');
     assert(!/\.ch-day\b(?!chip)|\.ch-days\b/.test(FORM_CSS), "no .ch-day or .ch-days (the Agenda's day sections have those names)");
+  });
+
+  await check("K11 the fake DOM's selectors: it matches what the app passes (BottomSheet's TABBABLE finds only the enabled controls, a [attr] list, [attr=\"v\"], [attr^=\"v\"]) and throws \"fake-dom: unsupported selector\" on the rest, so a check that reaches one can't pass on nothing; BottomSheet's Tab trap, which runs on TABBABLE, wraps over the enabled button only", () => {
+    installWindow();
+    const m = mount(
+      createElement(
+        'div',
+        null,
+        createElement('button', { id: 'off', disabled: true }, 'Off'),
+        createElement('button', { id: 'on' }, 'On'),
+        createElement('a', { id: 'link', href: '/x' }, 'Link'),
+        createElement('a', { id: 'bare' }, 'No href'),
+        createElement('input', { id: 'hidden', type: 'hidden' }),
+        createElement('input', { id: 'text', type: 'text', onChange: noop }),
+        createElement('div', { id: 'negative', tabIndex: -1 }),
+        createElement('div', { id: 'zero', tabIndex: 0 }),
+        createElement('i', { id: 'day', 'data-day': '2026-10-15' }),
+        createElement('i', { id: 'options', 'data-rwp-options': '' }),
+        createElement('i', { id: 'highlight', 'data-rwp-highlight-wrapper': '' }),
+      ),
+    );
+    try {
+      const ids = (selector: string) => m.container.querySelectorAll(selector).map((e) => e.getAttribute('id'));
+      assert(show(ids(TABBABLE)) === show(['on', 'link', 'text', 'zero']), `TABBABLE: ${show(ids(TABBABLE))}`);
+      assert(show(ids('[data-rwp-options], [data-rwp-highlight-wrapper]')) === show(['options', 'highlight']), 'a list of attribute presences, in document order');
+      assert(show(ids('[data-day="2026-10-15"]')) === show(['day']) && show(ids('[data-day="2026-10-16"]')) === show([]), 'an attribute value');
+      assert(show(ids('[href^="/"]')) === show(['link']) && show(ids('a')) === show(['link', 'bare']) && show(ids('button:not([disabled])')) === show(['on']), 'a prefix, a tag, a tag and a :not');
+      assert(m.container.querySelector('[data-rwp]') === null && m.container.querySelector('canvas') === null, 'nothing found is null');
+      for (const selector of ['div > p', 'a b', '', '*', 'a:first-child', 'a, ', '[data-x*="v"]', ':not(a b)']) {
+        let message = '';
+        try {
+          m.container.querySelectorAll(selector);
+        } catch (err) {
+          message = err instanceof Error ? err.message : String(err);
+        }
+        assert(message === `fake-dom: unsupported selector ${selector}`, `${show(selector)}: ${show(message)}`);
+      }
+    } finally {
+      m.unmount();
+    }
+    // The sheet's Tab trap: Shift+Tab on its first control wraps to its last. The disabled button is no control, so the enabled one is both.
+    const sheet = mount(createElement(SheetProbe, { label: 'Sheet', closeLabel: 'Close', onClose: noop, variant: 'full' }, createElement('button', { id: 'off', disabled: true }, 'Off'), createElement('button', { id: 'on' }, 'On')));
+    try {
+      const panel = byRole(sheet.container, 'dialog')[0];
+      const enabled = elements(sheet.container).find((e) => e.getAttribute('id') === 'on');
+      assert(panel && enabled, 'the sheet');
+      enabled.focus();
+      const event = sheet.key(panel, 'Tab', { shiftKey: true });
+      assert(event.defaultPrevented === true && fakeDocument.activeElement === enabled, `Shift+Tab wraps over the enabled button only: prevented ${event.defaultPrevented}`);
+    } finally {
+      sheet.unmount();
+    }
+  });
+
+  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and Settings' dynamic() fallback draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
+    installWindow();
+    const { AppRouterContext } = createRequire(__filename)('next/dist/shared/lib/app-router-context.shared-runtime');
+    const router = { push: noop, replace: noop, prefetch: noop, back: noop, forward: noop, refresh: noop };
+    const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
+    const inRouter = (el: ReactElement) => createElement(AppRouterContext.Provider, { value: router }, inIntl('en', el));
+    const GateProbe = PageGate as unknown as (props: Row) => ReactElement;
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+    try {
+      for (const [page, grouped] of [['settings', true], ['dashboard', false]] as const) {
+        // The gate's own loader, mounted in a light Telegram 7.7
+        const calls: string[] = [];
+        fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
+        const m = mount(inRouter(createElement(GateProbe, { page, userId: 1, locale: 'en', links })));
+        try {
+          const root = elements(m.container).find((e) => e.className.startsWith('ch-app ch-screen'));
+          assert(root && root.className === (grouped ? 'ch-app ch-screen ch-grouped' : 'ch-app ch-screen') && elements(m.container).some((e) => e.className === 'ch-loader'), `${page}: the gate's loader: ${root?.className}`);
+          const colour = grouped ? 'secondary_bg_color' : 'bg_color';
+          assert(calls.includes(`setHeaderColor(${colour})`) && calls.includes(`setBackgroundColor(${colour})`), `${page}: ${show(calls.filter((c) => /Color/.test(c)))}`);
+          assert(!calls.some((c) => c === `setHeaderColor(${grouped ? 'bg_color' : 'secondary_bg_color'})`), `${page}: the other colour was asked too: ${show(calls)}`);
+        } finally {
+          m.unmount();
+          fakeWindow.Telegram = undefined;
+        }
+        // The page's chunk loading (next/dynamic's fallback)
+        const props = page === 'settings' ? { userId: 1 } : { user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: false }, locale: 'en', sources: ['famcal'], googleConnected: false, googleState: 'none', trial: { isTrialing: false, daysRemaining: 0, trialEndsAt: null }, isEarlyAdopter: false, hints: { reminders: true, voiceEvents: false }, lookahead7: false };
+        const fallback = renderToString(inRouter(renderPage(page, props as never)));
+        assert(fallback.startsWith(`<div class="${grouped ? 'ch-app ch-screen ch-grouped' : 'ch-app ch-screen'}" `) && fallback.includes('class="ch-loader"'), `${page}: the chunk's fallback: ${fallback.slice(0, 90)}`);
+      }
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+    // The gate's cards (nobody proved who they are) are a different screen and stay plain
+    const card = renderToString(inIntl('en', createElement(NoCredentialCard, { look: 'app', inTelegram: false, links })));
+    assert(card.startsWith('<div class="ch-app ch-screen" '), 'the gate card is plain');
   });
 
   await check('#99 React logged no warning', () => {

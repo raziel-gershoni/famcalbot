@@ -35,11 +35,21 @@ const LOOK: Record<PageName, Look> = {
   pair: 'light',
 };
 
+/**
+ * What a page's own screen is drawn on, where it is not the plain ground: Settings' cards sit on the secondary one.
+ * Its loader takes the same, so Telegram's header and the page do not change colour when the page arrives. The
+ * gate's and the error's cards are a different screen and stay plain.
+ */
+type Ground = 'grouped';
+const GROUND: Partial<Record<PageName, Ground>> = {
+  settings: 'grouped',
+};
+
 /** The app's loader: the home's own background, one spinner and the loading text for a screen reader. */
-function AppLoader({ label }: { label?: string }) {
+function AppLoader({ label, ground }: { label?: string; ground?: Ground }) {
   const t = useTranslations('pageGate');
   return (
-    <AppScreen>
+    <AppScreen ground={ground}>
       <div className="ch-loader" role="status">
         <Loader2 size={32} className="ch-spin" aria-hidden="true" />
         <span className="ch-visually-hidden">{label ?? t('loading')}</span>
@@ -48,9 +58,9 @@ function AppLoader({ label }: { label?: string }) {
   );
 }
 
-/** The loader of a look. Exported for the dashboard's redirect, which shows the dashboard's own. */
-export function PageLoader({ look, label }: { look: Look; label?: string }) {
-  if (look === 'app') return <AppLoader label={label} />;
+/** The loader of a look (and, in the app's, of the ground its page is drawn on). Exported for the dashboard's redirect, which shows the dashboard's own. */
+export function PageLoader({ look, label, ground }: { look: Look; label?: string; ground?: Ground }) {
+  if (look === 'app') return <AppLoader label={label} ground={ground} />;
   if (look === 'light') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
@@ -84,7 +94,8 @@ export function PageLoader({ look, label }: { look: Look; label?: string }) {
  * The old pages' TelegramLayout repeats these later; ready() and expand() are idempotent.
  * Some WebApp versions throw on a hex colour, and a throw here would replace the gate.
  * The purple page sets its purple header and background. The app's look sets no colour of
- * its own: its AppScreen takes the theme's bg_color for Telegram's header and background.
+ * its own: its AppScreen takes the theme's bg_color for Telegram's header and background
+ * (secondary_bg_color in a light theme for a grouped screen, whose loader is grouped too).
  */
 export function startMiniApp(look: Look) {
   const tg = window.Telegram?.WebApp;
@@ -109,13 +120,14 @@ export function startMiniApp(look: Look) {
 }
 
 const appLoader = () => <PageLoader look="app" />;
+const groupedAppLoader = () => <PageLoader look="app" ground={GROUND.settings} />;
 const telegramLoader = () => <PageLoader look="telegram" />;
 const lightLoader = () => <PageLoader look="light" />;
 
 // Each page's existing client component, loaded only once its data has arrived.
 // The calendar home (spec §7.1), behind the dashboard's own loader; it applies its look on mount.
 const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: appLoader });
-const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: appLoader });
+const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: groupedAppLoader });
 const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
 const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
 const Calendars = dynamic(() => import('./calendars/CalendarsClient'), { loading: lightLoader });
@@ -457,7 +469,7 @@ export default function PageGate({ page, userId, locale, notices = {}, links }: 
   const look = LOOK[page];
 
   if (!outcome || outcome.key !== key) {
-    return <PageLoader look={look} label={t('loading')} />;
+    return <PageLoader look={look} label={t('loading')} ground={GROUND[page]} />;
   }
 
   const errorCard = (
@@ -484,6 +496,6 @@ export default function PageGate({ page, userId, locale, notices = {}, links }: 
       return notFound();
     case 'redirect':
       // Handled in the effect; the router is already moving on
-      return <PageLoader look={look} label={t('loading')} />;
+      return <PageLoader look={look} label={t('loading')} ground={GROUND[page]} />;
   }
 }

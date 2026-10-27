@@ -95,6 +95,73 @@ export class FakeText extends FakeNode {
   }
 }
 
+// ---- Selectors: what querySelector(All) understands ----
+
+type ElementTest = (e: FakeElement) => boolean;
+
+/** `.class`, `[attr]`, `[attr="v"]` or `[attr^="v"]` at the start of `text`: its test and what follows. */
+const SIMPLE_SELECTOR = /^(?:\.([\w-]+)|\[([\w-]+)(?:(\^?=)"([^"]*)")?\])/;
+function simpleTest(text: string): [ElementTest, string] | null {
+  const m = SIMPLE_SELECTOR.exec(text);
+  if (!m) return null;
+  const rest = text.slice(m[0].length);
+  const [, cls, name, op, value] = m;
+  if (cls !== undefined) return [(e) => e.className.split(' ').includes(cls), rest];
+  if (op === undefined) return [(e) => e.hasAttribute(name), rest];
+  if (op === '=') return [(e) => e.getAttribute(name) === value, rest];
+  return [(e) => (e.getAttribute(name) ?? '').startsWith(value), rest];
+}
+
+/** A selector list as one test. Throws `fake-dom: unsupported selector <selector>` on anything it cannot parse. */
+function selectorTest(selector: string): ElementTest {
+  const unsupported = () => new Error(`fake-dom: unsupported selector ${selector}`);
+  // Split at the commas outside quotes and brackets
+  const parts: string[] = [];
+  let depth = 0;
+  let quoted = false;
+  let from = 0;
+  for (let i = 0; i < selector.length; i++) {
+    const ch = selector[i];
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && (ch === '[' || ch === '(')) depth++;
+    else if (!quoted && (ch === ']' || ch === ')')) depth--;
+    else if (!quoted && depth === 0 && ch === ',') {
+      parts.push(selector.slice(from, i));
+      from = i + 1;
+    }
+  }
+  parts.push(selector.slice(from));
+  const compounds = parts.map((part) => {
+    let rest = part.trim();
+    if (!rest) throw unsupported();
+    const tests: ElementTest[] = [];
+    const tag = /^[a-z][\w-]*/i.exec(rest);
+    if (tag) {
+      const name = tag[0].toLowerCase();
+      tests.push((e) => e.localName === name);
+      rest = rest.slice(tag[0].length);
+    }
+    while (rest) {
+      const not = /^:not\(((?:[^()"]|"[^"]*")*)\)/.exec(rest);
+      if (not) {
+        const inner = simpleTest(not[1]);
+        if (!inner || inner[1] !== '') throw unsupported();
+        const inside = inner[0];
+        tests.push((e) => !inside(e));
+        rest = rest.slice(not[0].length);
+        continue;
+      }
+      const one = simpleTest(rest);
+      if (!one) throw unsupported();
+      tests.push(one[0]);
+      rest = one[1];
+    }
+    if (tests.length === 0) throw unsupported();
+    return (e: FakeElement) => tests.every((t) => t(e));
+  });
+  return (e) => compounds.some((c) => c(e));
+}
+
 export class FakeElement extends FakeNode {
   tagName: string;
   attributes = new Map<string, string>();
@@ -151,20 +218,18 @@ export class FakeElement extends FakeNode {
   set type(v: string) {
     this.setAttribute('type', v);
   }
-  /** Descendants matching one simple selector: a tag, .class, [attr] or [attr="value"]; any other selector matches nothing. */
+  /**
+   * Descendants matching a selector list, in document order. It knows what the app's own code passes (see `selectorTest`):
+   * a tag, .class, [attr], [attr="v"] and [attr^="v"] combined into one compound, :not() of one of them, and commas.
+   * Any other selector throws, so a check that reaches one fails loudly instead of finding nothing.
+   */
   querySelectorAll(selector: string): FakeElement[] {
-    const attr = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(selector);
-    const matches = (e: FakeElement) => {
-      if (attr) return e.hasAttribute(attr[1]) && (attr[2] === undefined || e.getAttribute(attr[1]) === attr[2]);
-      if (/^\.[\w-]+$/.test(selector)) return e.className.split(' ').includes(selector.slice(1));
-      if (/^[a-z][\w-]*$/i.test(selector)) return e.localName === selector.toLowerCase();
-      return false;
-    };
+    const test = selectorTest(selector);
     const hits: FakeElement[] = [];
     const walk = (node: FakeNode) => {
       for (const c of node.childNodes) {
         if (c instanceof FakeElement) {
-          if (matches(c)) hits.push(c);
+          if (test(c)) hits.push(c);
           walk(c);
         }
       }
@@ -233,8 +298,8 @@ export type Mounted = {
   container: FakeElement;
   render: (el: ReactElement) => void;
   click: (el: FakeNode) => void;
-  /** A keydown on `el`; returns the event, to see whether it was taken (defaultPrevented). */
-  key: (el: FakeNode, key: string) => Row;
+  /** A keydown on `el` (`extra`: modifiers such as shiftKey); returns the event, to see whether it was taken (defaultPrevented). */
+  key: (el: FakeNode, key: string, extra?: Row) => Row;
   /** A select's change to `value`, as the platform's picker makes it. */
   change: (el: FakeNode, value: string) => void;
   /** Typing `value` into a text field. */
@@ -280,7 +345,7 @@ export function mount(el: ReactElement, rootOptions?: Row): Mounted {
     container,
     render: (next) => React.act(() => root.render(next)),
     click: (target) => void dispatch(target, 'click', {}),
-    key: (target, key) => dispatch(target, 'keydown', { key }),
+    key: (target, key, extra = {}) => dispatch(target, 'keydown', { key, ...extra }),
     change: (target, value) => {
       (target as FakeElement).value = value;
       dispatch(target, 'change', {});

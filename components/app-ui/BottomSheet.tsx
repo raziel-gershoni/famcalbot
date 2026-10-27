@@ -46,7 +46,7 @@ function inside(root: TreeNode, node: unknown): boolean {
 }
 
 /** What a keyboard reaches by Tab: enabled controls, links with an href, and anything with a tabindex of 0 or more. */
-const TABBABLE =
+export const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex^="-"])';
 
 /** The panel's tabbable controls, in document order. */

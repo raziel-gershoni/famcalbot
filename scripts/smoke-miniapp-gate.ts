@@ -563,7 +563,7 @@ async function main() {
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard and LOOK.settings are app (the loader\'s look, which Settings\' chunk loads behind); the other pages keep theirs', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard and LOOK.settings are app (the loader\'s look, which Settings\' chunk loads behind, on Settings\' own ground); the other pages keep theirs', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -575,7 +575,7 @@ async function main() {
     assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
     const look = block('LOOK');
     for (const page of ['dashboard', 'settings']) assert(new RegExp(`\\n\\s*${page}: 'app',`).test(look), `${page} is app: ${look}`);
-    assert(/const Settings = dynamic\([^\n]*loading: appLoader/.test(src), "Settings' chunk loads behind the app's loader");
+    assert(/const Settings = dynamic\([^\n]*loading: groupedAppLoader/.test(src) && /const groupedAppLoader = \(\) => <PageLoader look="app" ground=\{GROUND\.settings\} \/>;/.test(src), "Settings' chunk loads behind the app's loader on its own (grouped) ground");
     for (const [page, kept] of [["'select-calendars'", 'telegram'], ['subscription', 'telegram'], ['calendars', 'light'], ['pair', 'light']]) {
       assert(new RegExp(`\\n\\s*${page}: '${kept}',`).test(look), `${page} keeps ${kept}: ${look}`);
     }

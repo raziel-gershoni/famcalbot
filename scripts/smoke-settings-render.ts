@@ -8,8 +8,9 @@
 //  - S3 buildSettingsBody against the JSON the page has always posted;
 //  - S4 saving on the page: Save only while something differs, one request, "Saved", the error that leaves the
 //    controls usable, a changed language reloading the page in it;
-//  - S5 the location: the check after the sheet closes, Save waiting for it and refusing a place that is not one,
-//    the device's place filling the field, and no window.alert anywhere;
+//  - S5 the location: the check after the sheet closes (asked again for a place that carries a problem, however the
+//    sheet is closed), Save waiting for it and refusing a place that is not one, the sheet showing a problem only for
+//    the place it was about, the device's place filling the field, and no window.alert anywhere;
 //  - S6 Back: AppScreen is the only BackButton caller; a sheet's Back closes only that sheet; otherwise the calendar
 //    in the saved language, even after an unsaved language pick;
 //  - S7 the day chips: toggling, the last day pinned and explained, a culture resetting the days;
@@ -578,6 +579,91 @@ async function main() {
       assert(flat(byRole(o.m.container, 'alert')[0]) === word('en', 'location.checkFailed') && appLogs.some((l) => l.includes('location check')), `the check failed: ${show(appLogs)}`);
     } finally {
       close(o);
+    }
+    // A check that could not be made is retried by closing the sheet again, and Save waits for it
+    const searches = () => fetchCalls.filter((c) => c.url.includes('nominatim.openstreetmap.org/search')).length;
+    const openLocation = (r: ReturnType<typeof open>) => r.m.click(rowOf(r.m, word('en', 'location.label')) as FakeElement);
+    const sheetAlerts = (r: ReturnType<typeof open>) => (dialogs(r.m)[0] ? byRole(dialogs(r.m)[0], 'alert').map(flat) : []);
+    const invalid = (r: ReturnType<typeof open>) => elements(r.m.container).find((e) => e.localName === 'input')?.getAttribute('aria-invalid');
+    const cityAnswer = () => json([{ place_rank: 16, addresstype: 'city' }]);
+    reset();
+    const retry = open('en', propsOf());
+    try {
+      world.search = () => json({}, 503);
+      openLocation(retry);
+      type(retry, 'Eilat');
+      retry.m.click(doneButton(retry) as FakeElement);
+      await settle();
+      assert(searches() === 1 && flat(byRole(retry.m.container, 'alert')[0]) === word('en', 'location.checkFailed') && saveButton(retry.m)?.hasAttribute('disabled'), `a failed check: ${searches()} search(es)`);
+      retry.m.click(switchOf(retry.m, word('en', 'weather.label')) as FakeElement);
+      assert(saveButton(retry.m)?.hasAttribute('disabled'), 'while the place has failed its check, Save stays off for any change');
+      // Nominatim recovers: the sheet closed again, unchanged, asks again
+      world.search = cityAnswer;
+      openLocation(retry);
+      retry.m.click(doneButton(retry) as FakeElement);
+      await settle();
+      assert(searches() === 2 && byRole(retry.m.container, 'alert').length === 0 && !saveButton(retry.m)?.hasAttribute('disabled'), `retried: ${searches()} search(es), ${byRole(retry.m.container, 'alert').length} alert(s)`);
+      // Reopened while a check is running: the sheet says "Checking" of the place it holds, and not of what is typed since
+      let answer: (r: Response) => void = () => undefined;
+      world.search = () => new Promise<Response>((resolve) => void (answer = resolve));
+      openLocation(retry);
+      type(retry, 'Acre');
+      retry.m.click(doneButton(retry) as FakeElement);
+      openLocation(retry);
+      const checking = () => (dialogs(retry.m)[0] ? elements(dialogs(retry.m)[0]).filter((e) => e.getAttribute('role') === 'status').map(flat) : []);
+      assert(show(checking()) === show([word('en', 'location.checking')]), `reopened mid-check: ${show(checking())}`);
+      type(retry, 'Ac');
+      assert(checking().length === 0, `typing hides it: ${show(checking())}`);
+      retry.m.click(doneButton(retry) as FakeElement);
+      await act(async () => {
+        answer(cityAnswer());
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await settle();
+      assert(!page(retry.m).includes(word('en', 'location.checking')) && !saveButton(retry.m)?.hasAttribute('disabled'), 'the last check answered');
+    } finally {
+      close(retry);
+    }
+    // A place that is not one: closing the sheet on it again, or typing the same name again, asks again and never lets it through
+    reset();
+    const again = open('en', propsOf());
+    const navigatorBefore = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    try {
+      world.search = () => json([]);
+      openLocation(again);
+      type(again, 'Nowhere');
+      again.m.click(doneButton(again) as FakeElement);
+      await settle();
+      assert(searches() === 1 && saveButton(again.m)?.hasAttribute('disabled'), `not found: ${searches()} search(es)`);
+      openLocation(again);
+      assert(show(sheetAlerts(again)) === show([word('en', 'location.notFound')]) && invalid(again) === 'true', `the sheet says what the check said of the place it holds: ${show(sheetAlerts(again))}, aria-invalid ${invalid(again)}`);
+      // Typing hides it: it was said of the old value
+      type(again, 'Now');
+      assert(sheetAlerts(again).length === 0 && invalid(again) === null, `typing hides the old error: ${show(sheetAlerts(again))}, aria-invalid ${invalid(again)}`);
+      // The same name typed again: checked again (not dropped, not let through)
+      type(again, 'Nowhere');
+      again.m.click(doneButton(again) as FakeElement);
+      await settle();
+      assert(searches() === 2 && flat(byRole(again.m.container, 'alert')[0]) === word('en', 'location.notFound') && saveButton(again.m)?.hasAttribute('disabled'), `the same name again: ${searches()} search(es)`);
+      // Closed unchanged, with nothing typed: checked again too
+      openLocation(again);
+      again.m.click(doneButton(again) as FakeElement);
+      await settle();
+      assert(searches() === 3 && saveButton(again.m)?.hasAttribute('disabled') && byRole(again.m.container, 'alert').length === 1, `closed unchanged: ${searches()} search(es)`);
+      // A place the device finds hides the old error as typing does, and is checked on closing
+      Object.defineProperty(globalThis, 'navigator', { value: { geolocation: { getCurrentPosition: (ok: (p: unknown) => void) => ok({ coords: { latitude: 32.8, longitude: 34.99 } }) } }, configurable: true });
+      world.search = cityAnswer;
+      openLocation(again);
+      assert(sheetAlerts(again).length === 1, 'the old error shows on the place it was about');
+      again.m.click(buttonsOf(again.m).find((b) => flat(b) === word('en', 'location.useCurrent')) as FakeElement);
+      await settle();
+      assert(sheetAlerts(again).length === 0 && invalid(again) === null && (elements(again.m.container).find((e) => e.localName === 'input') as FakeElement).value === 'Haifa, Israel', `a device fill hides it: ${show(sheetAlerts(again))}`);
+      again.m.click(doneButton(again) as FakeElement);
+      await settle();
+      assert(searches() === 4 && byRole(again.m.container, 'alert').length === 0 && !saveButton(again.m)?.hasAttribute('disabled'), `checked and let through: ${searches()} search(es)`);
+    } finally {
+      if (navigatorBefore) Object.defineProperty(globalThis, 'navigator', navigatorBefore);
+      close(again);
     }
     // The device's place
     reset();
