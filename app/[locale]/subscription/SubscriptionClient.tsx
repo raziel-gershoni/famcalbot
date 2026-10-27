@@ -76,6 +76,8 @@ interface SubscriptionClientProps {
 export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked }: SubscriptionClientProps) {
   const t = useTranslations('subscription.screen');
   const names = useTranslations('subscription.plans');
+  // The trial's days left is the home's own line (its banner), read from there so the two never say it twice
+  const home = useTranslations('calendarHome');
   const ui = useTranslations('ui');
   const router = useRouter();
   const ids = useId();
@@ -136,7 +138,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
   const status = isEarlyAdopter
     ? t('earlyAccessNote')
     : trial.isTrialing
-      ? t('trialLeft', { days: trial.daysRemaining })
+      ? home('banner.trial', { count: trial.daysRemaining })
       : subscription.plan !== 'FREE' && subscription.currentPeriodEnd
         ? t('activeUntil', { date: new Date(subscription.currentPeriodEnd).toLocaleDateString(DATE_LOCALES[locale] ?? 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }) })
         : null;

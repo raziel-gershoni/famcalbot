@@ -6,6 +6,9 @@
 // - This sheet comes after the theme, the screen and the form kit in the page, so a rule here settles a tie with a kit
 //   rule of the same specificity by coming later (.ch-plan-current over .ch-panel's gap, .ch-plan-choose-pro over
 //   .ch-btn), never by !important or a longer selector.
+// - A plan card's head wraps, and the name keeps its words whole (it sizes to its text and stops at its longest word):
+//   the price and the tag drop to a second line when there is no room, where a zero flex basis with a break-anywhere cut
+//   "Базовый" in two at 320 px.
 // - Logical properties only, no :hover, nothing under 11 px, no colour of its own: the tokens of ./theme.ts.
 
 export const SUBSCRIPTION_CSS = `
@@ -25,6 +28,7 @@ export const SUBSCRIPTION_CSS = `
 }
 .ch-plan-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
 }
@@ -40,12 +44,11 @@ export const SUBSCRIPTION_CSS = `
   overflow-wrap: anywhere;
 }
 .ch-plan-name {
-  flex: 1;
-  min-inline-size: 0;
+  flex: 1 1 auto;
+  min-inline-size: min-content;
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  overflow-wrap: anywhere;
 }
 .ch-plan-note {
   margin: 0;

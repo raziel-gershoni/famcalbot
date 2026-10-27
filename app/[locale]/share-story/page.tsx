@@ -11,6 +11,10 @@
 //   5 seconds after the composer opens.
 // - It tells Telegram it is ready and never asks for the full height: the story composer needs the window as it is.
 // - Opened outside Telegram (a browser with the link) it says so on a card instead of spinning for ever, and sends nothing.
+//   The effect asks the window itself, never the rendered answer: the page is hydrated, and the first effect runs on the
+//   server's guess ("inside") before React re-renders for the client's.
+// - A client below Bot API 7.8 is told to update Telegram before anything is asked of the server: the live SDK always defines
+//   shareToStory and throws inside it on an old client, so the method's presence says nothing.
 // - What goes wrong is said in the page's language in Telegram's pop-up, never in the server's words (which are logged),
 //   and the window closes once the person has dismissed it.
 
@@ -20,8 +24,11 @@ import { useTranslations } from 'next-intl';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { MissingParameterCard, StateCard } from '@/components/app-ui/StateCard';
 import { initDataHeaders } from '@/src/lib/read-init-data';
-import { isInTelegram, showTelegramAlert } from '@/src/lib/telegram-ui';
+import { isInTelegram, showTelegramAlert, telegramSupports } from '@/src/lib/telegram-ui';
 import { PageLoader } from '../PageGate';
+
+/** The first Bot API version with shareToStory. */
+const STORY_VERSION = '7.8';
 
 // Whether this page is inside Telegram with its SDK (what opening the composer needs) does not change while it is open.
 const subscribe = () => () => {};
@@ -43,7 +50,8 @@ export default function ShareStoryPage() {
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
-    if (!userId || !inside || !tg) return;
+    // The live answer: `inside` is the server's guess during hydration, and a browser holding the SDK would pass it once
+    if (!userId || !insideTelegram() || !tg) return;
 
     tg.ready();
 
@@ -52,7 +60,7 @@ export default function ShareStoryPage() {
       if (!showTelegramAlert(message, () => tg.close())) tg.close();
     };
 
-    if (!tg.shareToStory) {
+    if (!telegramSupports(STORY_VERSION)) {
       sayAndClose(updateTelegram);
       return;
     }
@@ -76,7 +84,7 @@ export default function ShareStoryPage() {
         console.error('[share-story] share failed:', error);
         sayAndClose(shareFailed);
       });
-  }, [userId, inside, source, msg, updateTelegram, loadFailed, shareFailed]);
+  }, [userId, source, msg, updateTelegram, loadFailed, shareFailed]);
 
   if (!userId) return <MissingParameterCard />;
   if (!inside) {

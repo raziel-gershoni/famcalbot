@@ -3,6 +3,9 @@
 // How much of a limit is used (spec 2026-10-19 §4; W1b): the label and the count on one line, and under them a
 // 6 px track with a fill. The label and the count text come in already translated, the count as it is shown
 // ("7 of 10"), which is also what a screen reader hears (aria-valuetext).
+// - The count is a whole translated sentence, so it sits in a bare <bdi>: it takes its own direction ("7 מתוך 10"
+//   reads right to left). Never dir="ltr": that would turn the Hebrew sentence into "10 of 7". Only a value that is
+//   numbers alone (a price) is forced left to right, by its caller.
 //
 // - The track is role="meter" from 0 to the limit; aria-valuenow is the used count, never above the limit. The
 //   fill is the used share of the limit, never over 100%. The fill's inline-size makes it follow the reading direction.
@@ -29,7 +32,7 @@ export function Meter({ label, used, limit, valueText }: MeterProps) {
     <div className="ch-meter-head">
       <span className="ch-meter-label">{label}</span>
       <span className="ch-meter-value">
-        <bdi dir="ltr">{valueText}</bdi>
+        <bdi>{valueText}</bdi>
       </span>
     </div>
   );

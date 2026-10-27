@@ -914,12 +914,12 @@ async function main() {
     assert(renderToString(createElement(TagProbe, {}, 'גישה מוקדמת')) === '<span class="ch-tag">גישה מוקדמת</span>', 'the text is whatever it is given');
   });
 
-  await check('K14 Meter: a track with role="meter" (min 0, max the limit, now the used count capped at the limit, text as shown) and a fill whose inline-size is used over limit, capped at 100%; near (the is-near class) from 80% (NEAR_LIMIT) and over the limit; an unlimited one (limit null) is the label and the text alone, with no track and no role', () => {
+  await check('K14 Meter: the count in a bare <bdi> (it takes the direction of its own sentence, no dir="ltr"); a track with role="meter" (min 0, max the limit, now the used count capped at the limit, text as shown) and a fill whose inline-size is used over limit, capped at 100%; near (the is-near class) from 80% (NEAR_LIMIT) and over the limit; an unlimited one (limit null) is the label and the text alone, with no track and no role', () => {
     assert(NEAR_LIMIT === 0.8, `NEAR_LIMIT ${NEAR_LIMIT}`);
     const seven = meterHtml({ label: 'Text summaries', used: 7, limit: 10, valueText: '7 of 10' });
     assert(
       seven ===
-        '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Text summaries</span><span class="ch-meter-value"><bdi dir="ltr">7 of 10</bdi></span></div>' +
+        '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Text summaries</span><span class="ch-meter-value"><bdi>7 of 10</bdi></span></div>' +
           '<div class="ch-meter-track" role="meter" aria-label="Text summaries" aria-valuemin="0" aria-valuemax="10" aria-valuenow="7" aria-valuetext="7 of 10"><div class="ch-meter-fill" style="inline-size:70%"></div></div></div>',
       `7 of 10: ${seven}`,
     );
@@ -939,8 +939,11 @@ async function main() {
       assert(html.startsWith(near ? '<div class="ch-meter is-near">' : '<div class="ch-meter">'), `${used}/${limit}: near ${near}: ${html.slice(0, 40)}`);
     }
     const unlimited = meterHtml({ label: 'Calendars', used: 4, limit: null, valueText: 'Unlimited' });
-    assert(unlimited === '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Calendars</span><span class="ch-meter-value"><bdi dir="ltr">Unlimited</bdi></span></div></div>', `unlimited: ${unlimited}`);
+    assert(unlimited === '<div class="ch-meter"><div class="ch-meter-head"><span class="ch-meter-label">Calendars</span><span class="ch-meter-value"><bdi>Unlimited</bdi></span></div></div>', `unlimited: ${unlimited}`);
     assert(!/role="meter"|ch-meter-track|ch-meter-fill|is-near/.test(unlimited), 'unlimited: no track, no role, never near');
+    // The count is a translated sentence ("7 מתוך 10"): it takes its own direction, never a forced left to right (which reads "10 of 7" in Hebrew)
+    const hebrew = meterHtml({ label: 'סיכומי טקסט', used: 7, limit: 10, valueText: '7 מתוך 10' });
+    assert(hebrew.includes('<span class="ch-meter-value"><bdi>7 מתוך 10</bdi></span>') && !/dir="ltr"/.test(hebrew + seven + unlimited), `the count has no forced direction: ${hebrew}`);
     // A limit of 0 draws no NaN: an empty bar if nothing was used, a full one if anything was
     const zero = meterHtml({ label: 'x', used: 0, limit: 0, valueText: '0' });
     const over = meterHtml({ label: 'x', used: 1, limit: 0, valueText: '1' });

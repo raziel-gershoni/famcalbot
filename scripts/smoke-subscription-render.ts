@@ -13,6 +13,7 @@
 //    language and never the server's, a throw logged;
 //  - U5 Back: AppScreen is the only BackButton caller, and both backs go to the calendar;
 //  - U6 React logs no warning; U7 the messages: every key of the screen is read, the bot's keys are all still there;
+//  - U8 a plan card's head wraps and the plan's name keeps its words whole (a Basic user in Russian at 320 px read "Базов / ый");
 //  - L1 the page loader hands the screen the calendar count (the count that enforces the limit) and whether Telegram is linked.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -255,7 +256,7 @@ interface MeterRow {
 }
 /** The meters of a server render, in order. */
 const metersOf = (html: string): MeterRow[] =>
-  [...html.matchAll(/<div class="ch-meter( is-near)?"><div class="ch-meter-head"><span class="ch-meter-label">([^<]*)<\/span><span class="ch-meter-value"><bdi dir="ltr">([^<]*)<\/bdi><\/span><\/div>(?:<div class="ch-meter-track" role="meter" aria-label="[^"]*" aria-valuemin="0" aria-valuemax="(\d+)" aria-valuenow="(\d+)" aria-valuetext="([^"]*)"><div class="ch-meter-fill" style="inline-size:([^"]*)"><\/div><\/div>)?<\/div>/g)].map((m) => ({
+  [...html.matchAll(/<div class="ch-meter( is-near)?"><div class="ch-meter-head"><span class="ch-meter-label">([^<]*)<\/span><span class="ch-meter-value"><bdi>([^<]*)<\/bdi><\/span><\/div>(?:<div class="ch-meter-track" role="meter" aria-label="[^"]*" aria-valuemin="0" aria-valuemax="(\d+)" aria-valuenow="(\d+)" aria-valuetext="([^"]*)"><div class="ch-meter-fill" style="inline-size:([^"]*)"><\/div><\/div>)?<\/div>/g)].map((m) => ({
     near: m[1] !== undefined,
     label: m[2],
     text: m[3],
@@ -302,7 +303,7 @@ const close = (opened: Opened) => {
 async function main() {
   Subscription = (await import('../app/[locale]/subscription/SubscriptionClient')).default as unknown as (props: Row) => ReactElement;
 
-  await check('U1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the title, the current plan, then Plans with Basic and Pro; no raw key, no emoji, no Latin in he and ru beyond the brands; the meters\' counts and the Stars prices left to right in <bdi dir="ltr">, the prices as the locale writes them; the star icon hidden from assistive tech beside a hidden sentence; the screen\'s own CSS clean', () => {
+  await check('U1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the title, the current plan, then Plans with Basic and Pro; no raw key, no emoji, no Latin in he and ru beyond the brands; the Stars prices alone left to right in <bdi dir="ltr"> (the prices as the locale writes them) while the meters\' counts, translated sentences, sit in a bare <bdi> and take their own direction; the star icon hidden from assistive tech beside a hidden sentence; the screen\'s own CSS clean', () => {
     for (const locale of LOCALES) {
       const dir = locale === 'he' ? 'rtl' : 'ltr';
       const w = (key: string) => word(locale, key);
@@ -326,7 +327,9 @@ async function main() {
       const bdis = [...html.matchAll(/<bdi dir="ltr">([^<]*)<\/bdi>/g)].map((m) => m[1].replace(/\u00a0/g, ' '));
       const price = (n: number) => new Intl.NumberFormat(locale).format(n).replace(/\u00a0/g, ' ');
       const of = (used: number, limit: number) => w('screen.usageOf').replace('{used}', String(used)).replace('{limit}', String(limit));
-      assert(show(bdis) === show([of(7, 10), of(3, 3), of(2, 3), price(2500), price(5000)]), `${locale}: the left-to-right parts ${show(bdis)}`);
+      assert(show(bdis) === show([price(2500), price(5000)]), `${locale}: the left-to-right parts (the prices alone) ${show(bdis)}`);
+      // The meters' counts are translated sentences ("7 מתוך 10"): each sits in a bare <bdi> and takes its own direction
+      assert(show(metersOf(html).slice(0, 3).map((r) => r.text)) === show([of(7, 10), of(3, 3), of(2, 3)]), `${locale}: the meters' counts ${show(metersOf(html).map((r) => r.text))}`);
       assert(price(2500) === (locale === 'ru' ? '2 500' : '2,500') && price(5000) === (locale === 'ru' ? '5 000' : '5,000'), `${locale}: the number format ${price(2500)}`);
       const svgs = [...html.matchAll(/<svg\b[^>]*>/g)].map((m) => m[0]);
       assert(svgs.length >= 1 && svgs.every((s) => /aria-hidden="true"/.test(s)), `${locale}: an icon is not hidden from assistive tech: ${show(svgs)}`);
@@ -340,6 +343,14 @@ async function main() {
         assert(dark.calls.includes('setHeaderColor(bg_color)') && dark.calls.includes('setBackgroundColor(bg_color)'), `${locale}: dark colours: ${show(dark.calls)}`);
         assert(!dark.calls.some((c) => /^set(?:Header|Background)Color\(#/.test(c)), 'no colour of ours on Telegram');
         assert(show(chooseLabels(dark.m)) === show([choose(locale, 'basic'), choose(locale, 'pro')]), `${locale}: the dark buttons ${show(chooseLabels(dark.m))}`);
+        // In the mounted tree: no element a meter's count sits in, up to the root, forces left to right (it would read "10 of 7" in Hebrew)
+        const counts = elements(dark.m.container).filter((e) => e.className === 'ch-meter-value');
+        assert(counts.length === 3, `${locale}: ${counts.length} meter counts`);
+        for (const count of counts) {
+          for (let up: FakeNode | null = count; up instanceof FakeElement; up = up.parentNode) assert(up.getAttribute('dir') !== 'ltr' || up.className.startsWith('ch-app'), `${locale}: a meter count is inside a dir="ltr" ${up.localName}.${up.className}`);
+          const bdi = count.childNodes[0];
+          assert(bdi instanceof FakeElement && bdi.localName === 'bdi' && !bdi.hasAttribute('dir'), `${locale}: the count is a bare bdi`);
+        }
       } finally {
         close(dark);
       }
@@ -360,7 +371,7 @@ async function main() {
     assert(used.size >= 8 && undefinedClasses.length === 0, `classes with no rule: ${show(undefinedClasses)} (of ${used.size})`);
   });
 
-  await check('U2 the state matrix: Free gets Basic and Pro; a trial gets both and a day count in the language\'s plural forms; Basic gets Pro and a Current tag on its own card; Pro and a comped Pro get no button (a Pro user is never offered Basic); a comped Pro has no "active until"; early access has no Plans section at all; a user with no Telegram gets no button and the note that paying needs it; the prices are the plan\'s', () => {
+  await check('U2 the state matrix: Free gets Basic and Pro; a trial gets both and a day count in the language\'s plural forms (the home\'s banner line: 1 and 2 days in he); Basic gets Pro and a Current tag on its own card; Pro and a comped Pro get no button (a Pro user is never offered Basic); a comped Pro has no "active until"; early access has no Plans section at all; a user with no Telegram gets no button and the note that paying needs it; the prices are the plan\'s', () => {
     assert(PLAN_CONFIGS.BASIC.priceStars === 2500 && PLAN_CONFIGS.PRO.priceStars === 5000, `the prices are ${PLAN_CONFIGS.BASIC.priceStars} and ${PLAN_CONFIGS.PRO.priceStars} Stars`);
     for (const locale of LOCALES) {
       const w = (key: string) => word(locale, key);
@@ -635,14 +646,17 @@ async function main() {
     }
   });
 
-  await check('U7 the messages: every key of subscription.screen is read by the screen and none is left over; the keys the bot reads are all still there; the screen-only keys of the old page are gone; the old page\'s parts (TelegramLayout, Header, Section, styled-jsx, hard-coded English) are gone', () => {
+  await check('U7 the messages: every key of subscription.screen is read by the screen and none is left over (the trial days left are calendarHome.banner.trial, the home line, read with { count }, not a copy of it); the keys the bot reads are all still there; the screen-only keys of the old page are gone; the old page\'s parts (TelegramLayout, Header, Section, styled-jsx, hard-coded English) are gone', () => {
     const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/subscription/SubscriptionClient.tsx'), 'utf8');
     const code = source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     const leaves = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? leaves(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
     for (const locale of LOCALES) {
       const screen = messages[locale].subscription.screen as Row;
       const keys = leaves(screen);
-      assert(keys.length === 28, `${locale}: ${keys.length} keys in subscription.screen`);
+      assert(keys.length === 27, `${locale}: ${keys.length} keys in subscription.screen`);
+      // The trial's days left is the home's banner line, said once: the screen has no copy of it, and reads the home's with { count }
+      assert(!('trialLeft' in screen), `${locale}: subscription.screen.trialLeft is back (the home's calendarHome.banner.trial says it)`);
+      assert(typeof (messages[locale].calendarHome as Row).banner.trial === 'string' && (messages[locale].calendarHome as Row).banner.trial.includes('{count, plural'), `${locale}: calendarHome.banner.trial`);
       const unread = keys.filter((k) => !code.includes(`'${k}'`));
       assert(unread.length === 0, `${locale}: keys nothing reads: ${show(unread)}`);
       const sub = messages[locale].subscription as Row;
@@ -653,9 +667,24 @@ async function main() {
       for (const key of ['textSummaries', 'voiceSummaries', 'calendars', 'reminders', 'voiceEvents']) assert(typeof sub.features[key] === 'string', `${locale}: subscription.features.${key}`);
       for (const key of ['expiringSoon', 'lastDay', 'expired']) assert(typeof sub.reminders[key] === 'object', `${locale}: subscription.reminders.${key}`);
     }
+    assert(code.includes("useTranslations('calendarHome')") && code.includes("home('banner.trial', { count: trial.daysRemaining })"), "the screen does not read the home's banner.trial with { count: trial.daysRemaining }");
     assert(!/TelegramLayout|@\/components\/Layout|@\/components\/UI|styled-jsx|<style jsx|Crown|Sparkles|Clock/.test(code), 'a part of the old page is still imported');
     assert(!/Unable to identify|Failed to send invoice|An error occurred|Invoice sent|'\.\.\.'|\/mo\b/.test(code), 'hard-coded English is still there');
     assert(!fs.existsSync(path.join(ROOT, 'components/UI')), 'components/UI (the Section, whose last user this screen was) is still there');
+  });
+
+  await check('U8 a plan card\'s head wraps (the price and the Current tag drop to a second line when there is no room) and the plan\'s name keeps its words whole: it sizes to its text, may shrink no narrower than its longest word, and has no break-anywhere (a Basic user in Russian at 320 px read "Базов / ый")', () => {
+    const rule = (selector: string): string => {
+      const found = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(SUBSCRIPTION_CSS);
+      assert(found, `no rule for ${selector}`);
+      return found[1];
+    };
+    const head = rule('.ch-plan-head');
+    assert(/flex-wrap:\s*wrap\s*;/.test(head) && /display:\s*flex\s*;/.test(head), `.ch-plan-head: ${head.trim()}`);
+    const name = rule('.ch-plan-name');
+    assert(/(?:^|\s)flex:\s*1 1 auto\s*;/.test(name), `.ch-plan-name sizes to its text, not from a zero basis: ${name.trim()}`);
+    assert(/min-inline-size:\s*min-content\s*;/.test(name), `.ch-plan-name stops at its longest word: ${name.trim()}`);
+    assert(!/overflow-wrap|word-break|hyphens/.test(name), `.ch-plan-name breaks inside a word: ${name.trim()}`);
   });
 
   await check('L1 the page loader hands the screen the calendar count (calendarTotal of the user\'s FamCal and Google calendars, by the DB id: the count that enforces the limit) and whether Telegram is linked; the other props are as they were', async () => {

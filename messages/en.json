@@ -1215,7 +1215,6 @@
         "trial": "Trial",
         "earlyAccess": "Early access"
       },
-      "trialLeft": "{days, plural, one {# day left in your trial} other {# days left in your trial}}",
       "earlyAccessNote": "Every feature is open to you as one of our first users.",
       "activeUntil": "Active until {date}",
       "thisMonth": "This month so far",
