@@ -1,7 +1,8 @@
 // Live evaluation of the two-host show in Hebrew, English and Russian. Costs money: an LLM call or two and up
 // to about a minute of Gemini TTS audio per fixture (roughly $0.02 each).
 //
-// Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash]
+// Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash] [--lang he,en]
+//      [--only name1,name2] [--no-audio]   (--no-audio writes and checks scripts only: no TTS, no length check)
 //
 // Needs GEMINI_API_KEY. For each fixture: writes the script with the real writer; checks facts survive, forbidden
 // phrases are absent, the opening leads where it should, no digits are left, sounds
@@ -540,6 +541,8 @@ function describePeople(context: ShowPromptContext): string {
   return lines.join('\n');
 }
 
+class SkipAudio extends Error {}
+
 async function main() {
   const args = process.argv.slice(2);
   const modelFlag = args.indexOf('--model');
@@ -547,7 +550,11 @@ async function main() {
   // --lang en,ru runs only those languages' fixtures.
   const langFlag = args.indexOf('--lang');
   const langs = langFlag >= 0 ? args[langFlag + 1].split(',') : ['he', 'en', 'ru'];
-  const outDirArg = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--model' && args[i - 1] !== '--lang')[0];
+  // --only a,b runs only the named fixtures; --no-audio skips the TTS (and so the length check).
+  const onlyFlag = args.indexOf('--only');
+  const only = onlyFlag >= 0 ? args[onlyFlag + 1].split(',') : null;
+  const audio = !args.includes('--no-audio');
+  const outDirArg = args.filter((a, i) => !a.startsWith('--') && !['--model', '--lang', '--only'].includes(args[i - 1]))[0];
 
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
 
@@ -570,7 +577,7 @@ async function main() {
   await fs.mkdir(outDir, { recursive: true });
   const report: Array<{ name: string; checks: Check[] }> = [];
 
-  for (const fixture of [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he'))) {
+  for (const fixture of [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he') && (!only || only.includes(f.name)))) {
     console.log(`\n=== ${fixture.name} ===`);
     const checks: Check[] = [];
     const language = fixture.language ?? 'he';
@@ -615,6 +622,8 @@ async function main() {
       checks.push({ name: 'gender', ok: verdict.ok, detail: verdict.problems.join(' / ') || 'ok' });
 
       const lines = toShowLines(turns, language, context.listener.gender);
+      Object.assign(record, { lines });
+      if (!audio) throw new SkipAudio();
       const show = await generateShowVoice(lines, language);
       const [min, max] = fixture.seconds;
       checks.push({ name: 'length', ok: show.audioSeconds >= min && show.audioSeconds <= max, detail: `${show.audioSeconds.toFixed(1)}s (want ${min}-${max}), TTS ${(show.ttsMs / 1000).toFixed(1)}s, ${show.audioTokens} tokens, ${show.ttsModel}` });
@@ -622,7 +631,9 @@ async function main() {
       await fs.unlink(show.filePath).catch(() => {});
       Object.assign(record, { lines, show: { ...show, filePath: undefined } });
     } catch (error) {
-      checks.push({ name: 'run', ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
+      if (error instanceof SkipAudio) {
+        // Scripts only: the run is complete without the voice.
+      } else checks.push({ name: 'run', ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
     }
 
     record.checks = checks;

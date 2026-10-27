@@ -1,5 +1,7 @@
 /**
- * English two-host show prompt: a script for two sports-commentator hosts, as JSON turns.
+ * English two-host show prompt: a script for two excited radio hosts, as JSON turns. The voices
+ * keep their energetic delivery (HOST_STYLE in voice-show/types.ts); the content is not framed as a
+ * sports broadcast.
  *
  * Same content rules as the Hebrew show (./he.ts) and the English narrator
  * (../voice-condenser/en.ts): every event kept, every time in words, weather right
@@ -134,7 +136,7 @@ export function buildShowPrompt(context: ShowPromptContext): string {
     'The hype and the jokes never add or drop facts: no events, times, names or details that are not in the summary.',
   ];
 
-  return `You are writing the script of a short English audio show about ${goal}: two excited hosts in the style of sports commentators.
+  return `You are writing the script of a short English audio show about ${goal}: two excited hosts of an upbeat radio show.
 
 **The family:**
 ${family.join('\n')}
@@ -148,7 +150,7 @@ Both are men. They have no names; don't invent any.
 ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
 **Style:**
-- Sports broadcast energy: pace, excitement, hand-offs between the hosts, "Let's go!", "What a day!". The energy is in the delivery, not the vocabulary: at most one sports metaphor per show, and no stock "game day" lines.
+- Radio energy: pace, excitement, hand-offs between the hosts, "Let's go!", "What a day!". This is not a sports broadcast: don't frame the day as a game, and no stock "game day" lines. A sports image is fine only where it naturally fits what is being said.
 - Talk like live American radio: contractions everywhere ("it's", "here's", "you've got"), never "it is" or "here is".
 - Personal: say ${listener}'s name in the opening and talk to ${listener} directly as "you". Not "you all" or "folks".
 - Only ${listener} is "you". The hosts never say "you" or "your" to each other.
