@@ -1,15 +1,42 @@
 'use client';
 
+// The Subscription screen, in the home's design (spec 2026-10-19 §4, §5; plan W1b): an AppScreen on the grouped
+// ground, a header with its back, the current plan with what the month has used (a meter per limit), and the plans
+// to move to, each with its price in Telegram Stars.
+//
+// - The current plan is the effective plan (a trial or early access counts as Pro), with one tag (Current, Trial,
+//   Early access) and one status line (early access, the trial's days left, or when a paid plan runs until). The
+//   limits come from PLAN_CONFIGS, the same constants that enforce them; the calendar count arrives as a prop.
+// - Only Basic and Pro have a card. A card offers its button when it is above the user's plan (a Pro user is never
+//   offered Basic) and Telegram is linked: paying is a Telegram Stars invoice the bot sends to the user's chat. A user
+//   with no Telegram is told that, in place of the buttons. Early access shows no plans at all.
+// - Choosing sends the request the upgrade route has always read; the invoice itself waits in the chat. In Telegram
+//   the answer is Telegram's pop-up (the window closes once it is dismissed); in a browser it is a notice on the
+//   page. A failure is a notice in the page's language, never the server's text, and is logged. While one request is
+//   in flight every Choose button waits, so a second tap cannot send a second invoice.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser); both go to the calendar.
+
+import { useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { TelegramLayout, Header } from '@/components/Layout';
-import { Section } from '@/components/UI';
-import { useState } from 'react';
-import { Star, Check, X, Crown, Sparkles, Clock } from 'lucide-react';
-import { PLAN_CONFIGS, PlanId, PlanConfig } from '@/src/config/plans';
+import { Star } from 'lucide-react';
+import { PLAN_CONFIGS, type PlanId } from '@/src/config/plans';
+import { readInitData } from '@/src/lib/read-init-data';
+import { showTelegramAlert, telegramWebApp } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { FORM_CSS } from '@/components/app-ui/form-kit';
+import { Meter } from '@/components/app-ui/Meter';
+import { Notice } from '@/components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
+import { Tag } from '@/components/app-ui/Tag';
+import { SUBSCRIPTION_CSS } from './subscription-css';
 
 /** The plans from lowest to highest. */
 const PLAN_ORDER: PlanId[] = ['FREE', 'BASIC', 'PRO'];
+/** The plans that have a card to choose from. */
+const CARD_PLANS = ['BASIC', 'PRO'] as const;
+/** The date's language: Gregorian, in the device's zone (a period end is a point in time, not a Hebrew date). */
+const DATE_LOCALES: Record<string, string> = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' };
 
 interface SubscriptionProps {
   plan: string;
@@ -40,636 +67,152 @@ interface SubscriptionClientProps {
   usage: UsageProps;
   trial: TrialProps;
   isEarlyAdopter: boolean;
+  /** The user's calendars, counted the way the plan's limit counts them (calendarTotal). */
+  calendarsUsed: number;
+  /** Whether the user has a Telegram account: the invoice is sent to their chat. */
+  telegramLinked: boolean;
 }
 
-export default function SubscriptionClient({
-  userId,
-  locale,
-  subscription,
-  usage,
-  trial,
-  isEarlyAdopter,
-}: SubscriptionClientProps) {
-  const t = useTranslations('subscription');
+export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked }: SubscriptionClientProps) {
+  const t = useTranslations('subscription.screen');
+  const names = useTranslations('subscription.plans');
+  const ui = useTranslations('ui');
   const router = useRouter();
-  const [upgrading, setUpgrading] = useState<PlanId | null>(null);
+  const ids = useId();
+  const [choosing, setChoosing] = useState<PlanId | null>(null);
+  const [outcome, setOutcome] = useState<'sent' | 'failed' | null>(null);
+  // Two taps can land before React shows the first one's busy state: the ref is what holds the second back
+  const inFlight = useRef(false);
 
-  const handleBack = () => {
-    router.push(`/${locale}/dashboard?user_id=${userId}`);
-  };
+  const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
+  const nameOf = (id: PlanId) => names(`${id.toLowerCase()}.name`);
+  const price = new Intl.NumberFormat(locale);
 
-  const currentPlan = subscription.effectivePlan;
-  const planConfig = PLAN_CONFIGS[currentPlan];
-  const limits = planConfig.limits;
-  const isRtl = locale === 'he';
+  // A plan above the user's own can be chosen (Pro is never offered Basic); the user's own is marked Current, unless it is a trial
+  const canUpgrade = (id: PlanId) => PLAN_ORDER.indexOf(subscription.plan as PlanId) < PLAN_ORDER.indexOf(id);
+  const isCurrent = (id: PlanId) => id === subscription.plan && !trial.isTrialing;
+  const anyUpgrade = CARD_PLANS.some(canUpgrade);
+  const showButtons = anyUpgrade && telegramLinked;
 
-  const handleUpgrade = async (planId: PlanId) => {
-    await processUpgrade(planId);
-  };
-
-  const processUpgrade = async (planId: PlanId) => {
-    setUpgrading(planId);
+  const choose = async (plan: PlanId) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setChoosing(plan);
+    setOutcome(null);
     try {
-      // Get Telegram Web App initData for authentication
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-
-      // Parse user_id from URL (passed as telegramId)
-      const urlParams = new URLSearchParams(window.location.search);
-      const telegramUserId = urlParams.get('user_id');
-
-      if (!telegramUserId) {
-        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-          window.Telegram.WebApp.showAlert('Unable to identify user. Please try again from Telegram.');
-        }
-        return;
-      }
-
-      // Call API to send invoice
       const response = await fetch('/api/subscription/upgrade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: parseInt(telegramUserId),
-          plan: planId,
-          initData,
-          recurring: false,
-        }),
+        body: JSON.stringify({ user_id: userId, plan, initData: readInitData(), recurring: false }),
       });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        // Close the web app - user will see the invoice in Telegram
-        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-          window.Telegram.WebApp.showAlert(
-            t('page.invoiceSent') || 'Invoice sent! Check your Telegram chat to complete payment.',
-            () => {
-              window.Telegram?.WebApp?.close();
-            }
-          );
-        }
-      } else {
-        if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-          window.Telegram.WebApp.showAlert(data.error || 'Failed to send invoice. Please try again.');
+      if (response.ok) {
+        const data: { success?: boolean } = await response.json();
+        if (data.success) {
+          // The invoice is in the chat. In Telegram its own pop-up says so and the window closes once it is dismissed;
+          // elsewhere, or if the client can't show one, the page says it.
+          if (!showTelegramAlert(t('invoiceSent'), () => telegramWebApp()?.close())) setOutcome('sent');
+          return;
         }
       }
+      console.warn('[subscription] upgrade refused:', response.status);
+      setOutcome('failed');
+      showTelegramAlert(t('upgradeFailed'));
     } catch (error) {
-      console.error('Upgrade error:', error);
-      if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-        window.Telegram.WebApp.showAlert('An error occurred. Please try again.');
-      }
+      console.error('[subscription] upgrade failed:', error);
+      setOutcome('failed');
+      showTelegramAlert(t('upgradeFailed'));
     } finally {
-      setUpgrading(null);
+      inFlight.current = false;
+      setChoosing(null);
     }
   };
 
+  const limits = PLAN_CONFIGS[subscription.effectivePlan].limits;
+  const unlimited = t('unlimited');
+  const measure = (label: string, used: number, limit: number) =>
+    Number.isFinite(limit) ? <Meter label={label} used={used} limit={limit} valueText={t('usageOf', { used, limit })} /> : <Meter label={label} used={used} limit={null} valueText={unlimited} />;
+
+  const tag = isEarlyAdopter ? t('badge.earlyAccess') : trial.isTrialing ? t('badge.trial') : t('badge.current');
+  const status = isEarlyAdopter
+    ? t('earlyAccessNote')
+    : trial.isTrialing
+      ? t('trialLeft', { days: trial.daysRemaining })
+      : subscription.plan !== 'FREE' && subscription.currentPeriodEnd
+        ? t('activeUntil', { date: new Date(subscription.currentPeriodEnd).toLocaleDateString(DATE_LOCALES[locale] ?? 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }) })
+        : null;
+
+  const bullets: Record<(typeof CARD_PLANS)[number], string[]> = {
+    BASIC: [t('basicSummaries'), t('calendarsUpTo', { count: PLAN_CONFIGS.BASIC.limits.calendars })],
+    PRO: [t('proEverything'), t('proVoice'), t('proReminders')],
+  };
+
   return (
-    <TelegramLayout>
-      <div className={`subscription-page ${isRtl ? 'rtl' : ''}`}>
-        <style jsx global>{`
-          .subscription-page {
-            max-width: 600px;
-            margin: 0 auto;
-            background: white;
-            min-height: 100vh;
-          }
-
-          .subscription-content {
-            padding: 20px;
-          }
-
-          .trial-banner {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 16px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }
-
-          .trial-banner-icon {
-            background: rgba(255,255,255,0.2);
-            padding: 8px;
-            border-radius: 50%;
-          }
-
-          .trial-banner-text h3 {
-            margin: 0 0 4px 0;
-            font-size: 16px;
-            font-weight: 600;
-          }
-
-          .trial-banner-text p {
-            margin: 0;
-            font-size: 14px;
-            opacity: 0.9;
-          }
-
-          .current-plan-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-          }
-
-          .current-plan-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-          }
-
-          .current-plan-name {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 20px;
-            font-weight: 600;
-            color: #1a1a1a;
-          }
-
-          .current-plan-badge {
-            background: #10b981;
-            color: white;
-            font-size: 12px;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-weight: 500;
-          }
-
-          .trial-badge {
-            background: #667eea;
-          }
-
-          .period-info {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            color: #6b7280;
-            margin-bottom: 12px;
-          }
-
-          .usage-section {
-            margin-top: 16px;
-          }
-
-          .usage-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #e5e7eb;
-          }
-
-          .usage-item:last-child {
-            border-bottom: none;
-          }
-
-          .usage-label {
-            color: #6b7280;
-            font-size: 14px;
-          }
-
-          .usage-value {
-            font-weight: 600;
-            color: #1a1a1a;
-          }
-
-          .usage-bar {
-            flex: 1;
-            height: 6px;
-            background: #e5e7eb;
-            border-radius: 3px;
-            margin: 0 12px;
-            overflow: hidden;
-          }
-
-          .usage-bar-fill {
-            height: 100%;
-            background: #10b981;
-            border-radius: 3px;
-            transition: width 0.3s;
-          }
-
-          .usage-bar-fill.warning {
-            background: #f59e0b;
-          }
-
-          .usage-bar-fill.danger {
-            background: #ef4444;
-          }
-
-          .plans-grid {
-            display: grid;
-            gap: 16px;
-          }
-
-          .plan-card {
-            border: 2px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 20px;
-            position: relative;
-            transition: all 0.2s;
-            background: white;
-          }
-
-          .plan-card.current {
-            border-color: #10b981;
-            background: #f0fdf4;
-          }
-
-          .plan-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid #e5e7eb;
-          }
-
-          .rtl .plan-card-header {
-            flex-direction: row-reverse;
-          }
-
-          .plan-name {
-            font-size: 20px;
-            font-weight: 700;
-            color: #1a1a1a;
-          }
-
-          .plan-price {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 18px;
-            font-weight: 700;
-            color: #667eea;
-            background: #f0f0ff;
-            padding: 6px 12px;
-            border-radius: 8px;
-          }
-
-          .rtl .plan-price {
-            flex-direction: row-reverse;
-          }
-
-          .plan-features {
-            list-style: none;
-            padding: 0;
-            margin: 0 0 16px 0;
-          }
-
-          .plan-features li {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 0;
-            font-size: 14px;
-            color: #4b5563;
-            border-bottom: 1px solid #f3f4f6;
-          }
-
-          .plan-features li:last-child {
-            border-bottom: none;
-          }
-
-          .rtl .plan-features li {
-            flex-direction: row-reverse;
-            text-align: right;
-          }
-
-          .feature-icon {
-            width: 18px;
-            height: 18px;
-            flex-shrink: 0;
-          }
-
-          .feature-icon.included {
-            color: #10b981;
-          }
-
-          .feature-icon.excluded {
-            color: #d1d5db;
-          }
-
-          .upgrade-button {
-            width: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 12px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            transition: opacity 0.2s;
-          }
-
-          .upgrade-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-          }
-
-          .current-badge {
-            position: absolute;
-            top: -1px;
-            right: -1px;
-            background: #10b981;
-            color: white;
-            font-size: 11px;
-            padding: 4px 12px;
-            border-radius: 0 10px 0 8px;
-            font-weight: 500;
-          }
-
-          .rtl .current-badge {
-            right: auto;
-            left: -1px;
-            border-radius: 10px 0 8px 0;
-          }
-
-          .early-adopter-banner {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 16px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-          }
-
-          .early-adopter-banner-icon {
-            background: rgba(255,255,255,0.2);
-            padding: 8px;
-            border-radius: 50%;
-          }
-
-          .early-adopter-banner-text h3 {
-            margin: 0 0 4px 0;
-            font-size: 16px;
-            font-weight: 600;
-          }
-
-          .early-adopter-banner-text p {
-            margin: 0;
-            font-size: 14px;
-            opacity: 0.9;
-          }
-        `}</style>
-
-        <Header title={t('page.title')} onBackClick={handleBack} />
-
-        <div className="subscription-content">
-          {/* Early Adopter Banner */}
-          {isEarlyAdopter && (
-            <div className="early-adopter-banner">
-              <div className="early-adopter-banner-icon">
-                <Sparkles size={24} />
-              </div>
-              <div className="early-adopter-banner-text">
-                <h3>{t('earlyAdopterBanner')}</h3>
-                <p>{t('earlyAdopterDescription')}</p>
-              </div>
+    <AppScreen ground="grouped" onBack={back}>
+      <style>{FORM_CSS}</style>
+      <style>{SUBSCRIPTION_CSS}</style>
+      <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
+      <div className="ch-plan-page">
+        <section className="ch-panel ch-plan-current" aria-labelledby={`${ids}-current`}>
+          <div className="ch-plan-top">
+            <div className="ch-plan-head ch-plan-head-current">
+              <h2 id={`${ids}-current`} className="ch-plan-title">
+                {nameOf(subscription.effectivePlan)}
+              </h2>
+              <Tag>{tag}</Tag>
             </div>
-          )}
+            {status ? <p className="ch-plan-note">{status}</p> : null}
+          </div>
+          <p className="ch-plan-note">{t('thisMonth')}</p>
+          {measure(t('textSummaries'), usage.textSummaries, limits.textSummaries)}
+          {measure(t('voiceSummaries'), usage.voiceSummaries, limits.voiceSummaries)}
+          {measure(t('calendars'), calendarsUsed, limits.calendars)}
+          {limits.voiceEvents ? <Meter label={t('voiceEvents')} used={usage.voiceEvents} limit={null} valueText={unlimited} /> : null}
+          {limits.reminders ? <Meter label={t('reminders')} used={usage.reminders} limit={null} valueText={unlimited} /> : null}
+        </section>
 
-          {/* Trial Banner */}
-          {!isEarlyAdopter && trial.isTrialing && (
-            <div className="trial-banner">
-              <div className="trial-banner-icon">
-                <Sparkles size={24} />
-              </div>
-              <div className="trial-banner-text">
-                <h3>{t('trialBanner', { days: trial.daysRemaining })}</h3>
-                <p>{t('trialEndsIn', { days: trial.daysRemaining })}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Current Plan Card */}
-          <Section title={t('currentPlan')}>
-            <div className="current-plan-card">
-              <div className="current-plan-header">
-                <div className="current-plan-name">
-                  <Crown size={24} />
-                  {planConfig.name}
-                </div>
-                <span className={`current-plan-badge ${isEarlyAdopter ? '' : trial.isTrialing ? 'trial-badge' : ''}`} style={isEarlyAdopter ? { background: '#10b981' } : undefined}>
-                  {isEarlyAdopter ? t('earlyAdopterBanner') : trial.isTrialing ? t('page.trialBadge') : t('page.currentPlanBadge')}
-                </span>
-              </div>
-
-              {/* Subscription Period - hide for early adopters */}
-              {!isEarlyAdopter && !trial.isTrialing && subscription.currentPeriodEnd && subscription.plan !== 'FREE' && (
-                <div className="period-info">
-                  <Clock size={14} />
-                  <span>
-                    {t('page.validUntil', {
-                      date: new Date(subscription.currentPeriodEnd).toLocaleDateString(
-                        locale === 'he' ? 'he-IL' : locale === 'ru' ? 'ru-RU' : 'en-US',
-                        { month: 'short', day: 'numeric', year: 'numeric' }
-                      ),
-                    })}
+        {isEarlyAdopter ? null : (
+          <>
+            <SectionLabel>{t('plansLabel')}</SectionLabel>
+            {CARD_PLANS.map((id) => (
+              <section key={id} className={id === 'PRO' ? 'ch-panel ch-panel-ring' : 'ch-panel'} aria-labelledby={`${ids}-${id}`}>
+                <div className="ch-plan-head">
+                  <h3 id={`${ids}-${id}`} className="ch-plan-name">
+                    {nameOf(id)}
+                  </h3>
+                  <span className="ch-plan-price" aria-hidden="true">
+                    <Star className="ch-plan-star" fill="currentColor" aria-hidden="true" />
+                    <bdi dir="ltr">{price.format(PLAN_CONFIGS[id].priceStars)}</bdi>
+                    <span className="ch-plan-per">{t('perMonth')}</span>
                   </span>
+                  <span className="ch-visually-hidden">{t('priceA11y', { price: PLAN_CONFIGS[id].priceStars })}</span>
+                  {isCurrent(id) ? <Tag>{t('badge.current')}</Tag> : null}
                 </div>
-              )}
-
-              {/* Usage Stats */}
-              <div className="usage-section">
-                <UsageItem
-                  label={t('textSummaries')}
-                  used={usage.textSummaries}
-                  limit={limits.textSummaries}
-                  unlimited={t('unlimited')}
-                />
-                <UsageItem
-                  label={t('voiceSummaries')}
-                  used={usage.voiceSummaries}
-                  limit={limits.voiceSummaries}
-                  unlimited={t('unlimited')}
-                />
-                {limits.voiceEvents && (
-                  <UsageItem
-                    label={t('voiceEvents')}
-                    used={usage.voiceEvents}
-                    limit={Infinity}
-                    unlimited={t('unlimited')}
-                  />
-                )}
-                {limits.reminders && (
-                  <UsageItem
-                    label={t('usageReminders')}
-                    used={usage.reminders}
-                    limit={Infinity}
-                    unlimited={t('unlimited')}
-                  />
-                )}
-              </div>
-            </div>
-          </Section>
-
-          {/* Plan Comparison - hide for early adopters */}
-          {!isEarlyAdopter && (
-            <Section title={t('page.comparePlans')}>
-              <div className="plans-grid">
-                {PLAN_ORDER.map((planId) => {
-                  const plan = PLAN_CONFIGS[planId];
-                  const isCurrent = planId === subscription.plan ||
-                    (trial.isTrialing && planId === 'FREE');
-                  // Only a higher plan is an upgrade; a Pro user is never offered Basic.
-                  const canUpgrade = !isCurrent &&
-                    PLAN_ORDER.indexOf(subscription.plan as PlanId) < PLAN_ORDER.indexOf(planId);
-
-                  return (
-                    <PlanCard
-                      key={planId}
-                      plan={plan}
-                      isCurrent={isCurrent}
-                      canUpgrade={canUpgrade}
-                      isTrialing={trial.isTrialing}
-                      upgrading={upgrading === planId}
-                      onUpgrade={() => handleUpgrade(planId)}
-                      t={t}
-                    />
-                  );
-                })}
-              </div>
-            </Section>
-          )}
-        </div>
-      </div>
-    </TelegramLayout>
-  );
-}
-
-function UsageItem({
-  label,
-  used,
-  limit,
-  unlimited,
-}: {
-  label: string;
-  used: number;
-  limit: number;
-  unlimited: string;
-}) {
-  const isUnlimited = limit === Infinity;
-  const percentage = isUnlimited ? 0 : Math.min((used / limit) * 100, 100);
-  const barClass = percentage >= 90 ? 'danger' : percentage >= 70 ? 'warning' : '';
-
-  return (
-    <div className="usage-item">
-      <span className="usage-label">{label}</span>
-      {!isUnlimited && (
-        <div className="usage-bar">
-          <div
-            className={`usage-bar-fill ${barClass}`}
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-      )}
-      <span className="usage-value">
-        {isUnlimited ? unlimited : <span dir="ltr">{used} / {limit}</span>}
-      </span>
-    </div>
-  );
-}
-
-function PlanCard({
-  plan,
-  isCurrent,
-  canUpgrade,
-  isTrialing,
-  upgrading,
-  onUpgrade,
-  t,
-}: {
-  plan: PlanConfig;
-  isCurrent: boolean;
-  canUpgrade: boolean;
-  isTrialing: boolean;
-  upgrading: boolean;
-  onUpgrade: () => void;
-  t: ReturnType<typeof useTranslations<'subscription'>>;
-}) {
-  const limits = plan.limits;
-
-  return (
-    <div className={`plan-card ${isCurrent ? 'current' : ''}`}>
-      {isCurrent && !isTrialing && (
-        <span className="current-badge">{t('page.currentPlanBadge')}</span>
-      )}
-
-      <div className="plan-card-header">
-        <span className="plan-name">{plan.name}</span>
-        {plan.priceStars > 0 && (
-          <span className="plan-price">
-            <Star size={16} fill="currentColor" />
-            {plan.priceStars}/mo
-          </span>
+                <ul className="ch-plan-list" role="list">
+                  {bullets[id].map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                {showButtons && canUpgrade(id) ? (
+                  <button
+                    type="button"
+                    className={id === 'PRO' ? 'ch-btn ch-btn-primary ch-plan-choose ch-plan-choose-pro' : 'ch-btn ch-btn-outline ch-plan-choose'}
+                    disabled={choosing !== null}
+                    aria-busy={choosing === id || undefined}
+                    onClick={() => void choose(id)}
+                  >
+                    {choosing === id ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
+                    {t('choose', { plan: nameOf(id) })}
+                  </button>
+                ) : null}
+              </section>
+            ))}
+            {outcome === 'sent' ? <Notice>{t('invoiceSent')}</Notice> : null}
+            {outcome === 'failed' ? <Notice tone="error">{t('upgradeFailed')}</Notice> : null}
+            {showButtons ? <p className="ch-plan-fine">{t('starsNote')}</p> : null}
+            {anyUpgrade && !telegramLinked ? <Notice>{t('needsTelegram')}</Notice> : null}
+          </>
         )}
       </div>
-
-      <ul className="plan-features">
-        <FeatureItem
-          included={true}
-          text={limits.textSummaries === Infinity
-            ? t('planFeatures.textSummariesUnlimited')
-            : t('planFeatures.textSummariesLimit', { count: limits.textSummaries })}
-        />
-        <FeatureItem
-          included={true}
-          text={limits.voiceSummaries === Infinity
-            ? t('planFeatures.voiceSummariesUnlimited')
-            : t('planFeatures.voiceSummariesLimit', { count: limits.voiceSummaries })}
-        />
-        <FeatureItem
-          included={true}
-          text={limits.calendars === Infinity
-            ? t('planFeatures.calendarsUnlimited')
-            : t('planFeatures.calendarsLimit', { count: limits.calendars })}
-        />
-        <FeatureItem
-          included={limits.reminders}
-          text={limits.reminders ? t('planFeatures.remindersIncluded') : t('planFeatures.remindersExcluded')}
-        />
-        <FeatureItem
-          included={limits.voiceEvents}
-          text={limits.voiceEvents ? t('planFeatures.voiceEventsIncluded') : t('planFeatures.voiceEventsExcluded')}
-        />
-      </ul>
-
-      {canUpgrade && (
-        <button
-          className="upgrade-button"
-          onClick={onUpgrade}
-          disabled={upgrading}
-        >
-          <Star size={16} fill="currentColor" />
-          {upgrading ? '...' : t('page.upgradeNow')}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function FeatureItem({ included, text }: { included: boolean; text: string }) {
-  return (
-    <li>
-      {included ? (
-        <Check className="feature-icon included" size={16} />
-      ) : (
-        <X className="feature-icon excluded" size={16} />
-      )}
-      <span style={{ opacity: included ? 1 : 0.5 }}>{text}</span>
-    </li>
+    </AppScreen>
   );
 }

@@ -1208,12 +1208,38 @@
     }
   },
   "subscription": {
-    "currentPlan": "Текущий план",
-    "usage": "Использование в этом месяце",
-    "textSummaries": "Текстовые сводки",
-    "voiceSummaries": "Голосовые сводки",
-    "voiceEvents": "Голосовые события",
-    "usageReminders": "Напоминания",
+    "screen": {
+      "title": "Подписка",
+      "badge": {
+        "current": "Текущий",
+        "trial": "Пробный период",
+        "earlyAccess": "Ранний доступ"
+      },
+      "trialLeft": "{days, plural, one {До конца пробного периода # день} few {До конца пробного периода # дня} many {До конца пробного периода # дней} other {До конца пробного периода # дня}}",
+      "earlyAccessNote": "Вам доступны все функции: вы среди наших первых пользователей.",
+      "activeUntil": "Действует до {date}",
+      "thisMonth": "В этом месяце",
+      "usageOf": "{used} из {limit}",
+      "unlimited": "Без ограничений",
+      "textSummaries": "Текстовые сводки",
+      "voiceSummaries": "Голосовые сводки",
+      "calendars": "Календари",
+      "voiceEvents": "События, добавленные голосом",
+      "reminders": "Напоминания и уведомления",
+      "plansLabel": "Тарифы",
+      "perMonth": "в месяц",
+      "priceA11y": "{price, number} звёзд Telegram в месяц",
+      "basicSummaries": "Безлимитные текстовые и голосовые сводки",
+      "calendarsUpTo": "До {count} календарей",
+      "proEverything": "Всё из тарифа «Базовый» и безлимит календарей",
+      "proVoice": "Добавление событий голосом",
+      "proReminders": "Напоминания и уведомления о событиях",
+      "choose": "Перейти на «{plan}»",
+      "starsNote": "Оплата звёздами Telegram в чате с FamCal.",
+      "invoiceSent": "Счёт отправлен в чат с FamCal в Telegram. Оплатите его там, чтобы сменить тариф.",
+      "upgradeFailed": "Не получилось отправить счёт. Попробуйте ещё раз.",
+      "needsTelegram": "Оплата звёздами Telegram возможна только в Telegram. Чтобы сменить тариф, откройте FamCal в Telegram."
+    },
     "reminders": {
       "expiringSoon": {
         "title": "🌟 Внимание! Подписка {plan} продлевается через {days} дня",
@@ -1240,15 +1266,7 @@
         "button": "💫 Получить {plan} - ⭐{price}/месяц"
       }
     },
-    "calendars": "Календари",
-    "unlimited": "Без ограничений",
-    "of": "из",
-    "trialBanner": "🎉 Пробный период: осталось {days} дней",
-    "trialEndsIn": "Пробный период заканчивается через {days} дней",
-    "earlyAdopterBanner": "Ранний доступ - Полный доступ",
-    "earlyAdopterDescription": "У вас полный доступ ко всем функциям как у раннего пользователя!",
     "upgradeButton": "⭐ Улучшить план",
-    "cancelPlan": "Отменить подписку",
     "paymentSuccess": "✅ <b>Оплата успешна!</b>\n\nВы теперь на плане <b>{plan}</b>.\n\n<b>Разблокированные функции:</b>\n• {features}",
     "paymentError": "❌ Произошла ошибка при активации подписки. Пожалуйста, свяжитесь с поддержкой.",
     "viewSubscription": "Просмотр подписки",
@@ -1261,18 +1279,13 @@
     "remindersRequired": "⭐ <b>Напоминания о событиях - функция Pro</b>\n\nУлучшите до Pro, чтобы получать напоминания о событиях!",
     "plans": {
       "free": {
-        "name": "Бесплатный",
-        "description": "Базовые функции для начала"
+        "name": "Бесплатный"
       },
       "basic": {
-        "name": "Базовый",
-        "description": "Безлимитные сводки для обычных пользователей",
-        "price": "150 ⭐/месяц (~$3)"
+        "name": "Базовый"
       },
       "pro": {
-        "name": "Pro",
-        "description": "Все функции для продвинутых пользователей",
-        "price": "300 ⭐/месяц (~$6)"
+        "name": "Pro"
       }
     },
     "features": {
@@ -1281,32 +1294,6 @@
       "calendars": "Календари",
       "reminders": "Напоминания и уведомления о событиях",
       "voiceEvents": "Создание событий голосом"
-    },
-    "usageDisplay": "{used} / {limit}",
-    "planFeatures": {
-      "textSummariesLimit": "{count} текстовых сводок/мес",
-      "textSummariesUnlimited": "Безлимитные текстовые сводки",
-      "voiceSummariesLimit": "{count} голосовых сводок/мес",
-      "voiceSummariesUnlimited": "Безлимитные голосовые сводки",
-      "calendarsLimit": "{count} календарей",
-      "calendarsUnlimited": "Безлимитные календари",
-      "remindersIncluded": "Напоминания и уведомления о событиях",
-      "remindersExcluded": "Напоминания и уведомления о событиях",
-      "voiceEventsIncluded": "Создание событий голосом",
-      "voiceEventsExcluded": "Создание событий голосом",
-      "perMonth": "/мес"
-    },
-    "page": {
-      "title": "Ваша подписка",
-      "subtitle": "Управляйте планом и просматривайте использование",
-      "comparePlans": "Сравнить планы",
-      "currentPlanBadge": "Текущий",
-      "trialBadge": "Пробный период",
-      "upgradeNow": "Улучшить сейчас",
-      "contactSupport": "Связаться с поддержкой",
-      "invoiceSent": "Счёт отправлен! Проверьте чат в Telegram для завершения оплаты.",
-      "confirmUpgrade": "Перейти на {plan} за ⭐{price}/месяц?",
-      "validUntil": "Действует до {date}"
     }
   },
   "landing": {

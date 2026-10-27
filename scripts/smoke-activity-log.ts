@@ -78,6 +78,8 @@ const stubs: Record<string, Record<string, unknown>> = {
     getTrialStatus: async () => ({ isTrialing: false, trialEndsAt: null, daysLeft: 0 }),
     checkEarlyAdopterAccess: async () => false,
     peekFeatureAccess: async () => ({ allowed: true }),
+    countCalendars: async () => ({ famcal: 1, google: 0 }),
+    calendarTotal: (ownFamcal: number, google: number) => ownFamcal + google,
   },
   [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }), canReceiveReminderPings: async () => true },
   [`${SRC}/services/calendar/index.ts`]: { listUserCalendars: async () => [], scrubbedGoogleError: () => '' },

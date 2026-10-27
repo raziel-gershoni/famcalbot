@@ -6,9 +6,10 @@
 // own client component with the same props it always had. A locale mismatch becomes a
 // router.replace, a notice renders the page's static notice, and 401/403/404 show the
 // pageGate card instead of anyone's data, with a way back to the chat. The dashboard is
-// the calendar home, inside its own chunk-load boundary. Each page has a look: the dashboard's
-// and Settings' are the app's own ('app': the home's tokens, no colour of ours on Telegram's chrome),
-// the other pages keep the purple gradient or the light card until W1b and W3 move them.
+// the calendar home, inside its own chunk-load boundary. Each page has a look: the dashboard's,
+// Settings' and Subscription's are the app's own ('app': the home's tokens, no colour of ours on
+// Telegram's chrome), and the other pages keep the purple gradient (select-calendars) or the light
+// card (calendars and pair) until W3 moves them.
 
 import { Component, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
@@ -30,19 +31,20 @@ const LOOK: Record<PageName, Look> = {
   dashboard: 'app',
   settings: 'app',
   'select-calendars': 'telegram',
-  subscription: 'telegram',
+  subscription: 'app',
   calendars: 'light',
   pair: 'light',
 };
 
 /**
- * What a page's own screen is drawn on, where it is not the plain ground: Settings' cards sit on the secondary one.
- * Its loader takes the same, so Telegram's header and the page do not change colour when the page arrives. The
- * gate's and the error's cards are a different screen and stay plain.
+ * What a page's own screen is drawn on, where it is not the plain ground: Settings' and Subscription's cards sit on
+ * the secondary one. Their loader takes the same, so Telegram's header and the page do not change colour when the
+ * page arrives. The gate's and the error's cards are a different screen and stay plain.
  */
 type Ground = 'grouped';
 const GROUND: Partial<Record<PageName, Ground>> = {
   settings: 'grouped',
+  subscription: 'grouped',
 };
 
 /** The app's loader: the home's own background, one spinner and the loading text for a screen reader. */
@@ -120,7 +122,7 @@ export function startMiniApp(look: Look) {
 }
 
 const appLoader = () => <PageLoader look="app" />;
-const groupedAppLoader = () => <PageLoader look="app" ground={GROUND.settings} />;
+const groupedAppLoader = () => <PageLoader look="app" ground="grouped" />;
 const telegramLoader = () => <PageLoader look="telegram" />;
 const lightLoader = () => <PageLoader look="light" />;
 
@@ -129,7 +131,7 @@ const lightLoader = () => <PageLoader look="light" />;
 const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: appLoader });
 const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: groupedAppLoader });
 const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
-const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
+const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: groupedAppLoader });
 const Calendars = dynamic(() => import('./calendars/CalendarsClient'), { loading: lightLoader });
 const Pair = dynamic(() => import('./pair/PairClient'), { loading: lightLoader });
 

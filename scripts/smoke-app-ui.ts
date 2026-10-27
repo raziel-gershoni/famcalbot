@@ -866,7 +866,7 @@ async function main() {
     }
   });
 
-  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and Settings' dynamic() fallback draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
+  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and the dynamic() fallback of Settings and of Subscription draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
     installWindow();
     const { AppRouterContext } = createRequire(__filename)('next/dist/shared/lib/app-router-context.shared-runtime');
     const router = { push: noop, replace: noop, prefetch: noop, back: noop, forward: noop, refresh: noop };
@@ -876,7 +876,7 @@ async function main() {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
     try {
-      for (const [page, grouped] of [['settings', true], ['dashboard', false]] as const) {
+      for (const [page, grouped] of [['settings', true], ['subscription', true], ['dashboard', false]] as const) {
         // The gate's own loader, mounted in a light Telegram 7.7
         const calls: string[] = [];
         fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
@@ -892,7 +892,7 @@ async function main() {
           fakeWindow.Telegram = undefined;
         }
         // The page's chunk loading (next/dynamic's fallback)
-        const props = page === 'settings' ? { userId: 1 } : { user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: false }, locale: 'en', sources: ['famcal'], googleConnected: false, googleState: 'none', trial: { isTrialing: false, daysRemaining: 0, trialEndsAt: null }, isEarlyAdopter: false, hints: { reminders: true, voiceEvents: false }, lookahead7: false };
+        const props = page !== 'dashboard' ? { userId: 1 } : { user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: false }, locale: 'en', sources: ['famcal'], googleConnected: false, googleState: 'none', trial: { isTrialing: false, daysRemaining: 0, trialEndsAt: null }, isEarlyAdopter: false, hints: { reminders: true, voiceEvents: false }, lookahead7: false };
         const fallback = renderToString(inRouter(renderPage(page, props as never)));
         assert(fallback.startsWith(`<div class="${grouped ? 'ch-app ch-screen ch-grouped' : 'ch-app ch-screen'}" `) && fallback.includes('class="ch-loader"'), `${page}: the chunk's fallback: ${fallback.slice(0, 90)}`);
       }

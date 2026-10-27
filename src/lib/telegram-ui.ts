@@ -254,6 +254,22 @@ export function openExternalLink(url: string): boolean {
   }
 }
 
+/**
+ * Telegram's own pop-up with one OK button; `onClose` runs once the person has dismissed it. True when it was shown.
+ * False outside Telegram, or when the client throws (logged): the caller then says the same on its page.
+ */
+export function showTelegramAlert(message: string, onClose?: () => void): boolean {
+  const tg = telegramWebApp();
+  if (!tg || !isInTelegram()) return false;
+  try {
+    tg.showAlert(message, onClose);
+    return true;
+  } catch (err) {
+    console.error('[telegram-ui] showAlert failed:', err);
+    return false;
+  }
+}
+
 /** The success tap after a reminder is marked done (Bot API 6.1+). Silent where the client has none. */
 export function hapticSuccess(): void {
   tgCall(HAPTIC, 'HapticFeedback', (tg) => tg.HapticFeedback?.notificationOccurred('success'));

@@ -1208,12 +1208,38 @@
     }
   },
   "subscription": {
-    "currentPlan": "Current Plan",
-    "usage": "Usage This Month",
-    "textSummaries": "Text Summaries",
-    "voiceSummaries": "Voice Summaries",
-    "voiceEvents": "Voice Events",
-    "usageReminders": "Reminders",
+    "screen": {
+      "title": "Subscription",
+      "badge": {
+        "current": "Current",
+        "trial": "Trial",
+        "earlyAccess": "Early access"
+      },
+      "trialLeft": "{days, plural, one {# day left in your trial} other {# days left in your trial}}",
+      "earlyAccessNote": "Every feature is open to you as one of our first users.",
+      "activeUntil": "Active until {date}",
+      "thisMonth": "This month so far",
+      "usageOf": "{used} of {limit}",
+      "unlimited": "Unlimited",
+      "textSummaries": "Text summaries",
+      "voiceSummaries": "Voice summaries",
+      "calendars": "Calendars",
+      "voiceEvents": "Events added by voice",
+      "reminders": "Reminders and alerts",
+      "plansLabel": "Plans",
+      "perMonth": "/ month",
+      "priceA11y": "{price, number} Telegram Stars a month",
+      "basicSummaries": "Unlimited text and voice summaries",
+      "calendarsUpTo": "Up to {count} calendars",
+      "proEverything": "Everything in Basic, with unlimited calendars",
+      "proVoice": "Add events by voice",
+      "proReminders": "Reminders and event alerts",
+      "choose": "Choose {plan}",
+      "starsNote": "You pay with Telegram Stars in your chat with FamCal.",
+      "invoiceSent": "The invoice is in your Telegram chat with FamCal. Pay there to switch plans.",
+      "upgradeFailed": "Couldn't send the invoice. Try again.",
+      "needsTelegram": "Paying with Telegram Stars needs Telegram. Open FamCal in Telegram to change your plan."
+    },
     "reminders": {
       "expiringSoon": {
         "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",
@@ -1240,15 +1266,7 @@
         "button": "💫 Get {plan} - ⭐{price}/month"
       }
     },
-    "calendars": "Calendars",
-    "unlimited": "Unlimited",
-    "of": "of",
-    "trialBanner": "🎉 Trial: {days} days remaining",
-    "trialEndsIn": "Your trial ends in {days} days",
-    "earlyAdopterBanner": "Early Adopter - Full Access",
-    "earlyAdopterDescription": "You have full access to all features as an early adopter!",
     "upgradeButton": "⭐ Upgrade Plan",
-    "cancelPlan": "Cancel Subscription",
     "paymentSuccess": "✅ <b>Payment successful!</b>\n\nYou're now on the <b>{plan}</b> plan.\n\n<b>Features unlocked:</b>\n• {features}",
     "paymentError": "❌ There was an error activating your subscription. Please contact support.",
     "viewSubscription": "View Subscription",
@@ -1261,18 +1279,13 @@
     "remindersRequired": "⭐ <b>Event reminders is a Pro feature</b>\n\nUpgrade to Pro to receive event reminders!",
     "plans": {
       "free": {
-        "name": "Free",
-        "description": "Basic features to get started"
+        "name": "Free"
       },
       "basic": {
-        "name": "Basic",
-        "description": "Unlimited summaries for regular users",
-        "price": "150 ⭐/month (~$3)"
+        "name": "Basic"
       },
       "pro": {
-        "name": "Pro",
-        "description": "All features for power users",
-        "price": "300 ⭐/month (~$6)"
+        "name": "Pro"
       }
     },
     "features": {
@@ -1281,32 +1294,6 @@
       "calendars": "Calendars",
       "reminders": "Reminders and Event Alerts",
       "voiceEvents": "Voice Event Creation"
-    },
-    "usageDisplay": "{used} / {limit}",
-    "planFeatures": {
-      "textSummariesLimit": "{count} text summaries/mo",
-      "textSummariesUnlimited": "Unlimited text summaries",
-      "voiceSummariesLimit": "{count} voice summaries/mo",
-      "voiceSummariesUnlimited": "Unlimited voice summaries",
-      "calendarsLimit": "{count} calendars",
-      "calendarsUnlimited": "Unlimited calendars",
-      "remindersIncluded": "Reminders and event alerts",
-      "remindersExcluded": "Reminders and event alerts",
-      "voiceEventsIncluded": "Voice event creation",
-      "voiceEventsExcluded": "Voice event creation",
-      "perMonth": "/mo"
-    },
-    "page": {
-      "title": "Your Subscription",
-      "subtitle": "Manage your plan and view usage",
-      "comparePlans": "Compare Plans",
-      "currentPlanBadge": "Current",
-      "trialBadge": "Trial Active",
-      "upgradeNow": "Upgrade Now",
-      "contactSupport": "Contact Support",
-      "invoiceSent": "Invoice sent! Check your Telegram chat to complete payment.",
-      "confirmUpgrade": "Upgrade to {plan} for ⭐{price}/month?",
-      "validUntil": "Valid until {date}"
     }
   },
   "landing": {

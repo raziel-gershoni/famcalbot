@@ -1208,12 +1208,38 @@
     }
   },
   "subscription": {
-    "currentPlan": "התוכנית הנוכחית",
-    "usage": "שימוש החודש",
-    "textSummaries": "סיכומי טקסט",
-    "voiceSummaries": "סיכומים קוליים",
-    "voiceEvents": "אירועים קוליים",
-    "usageReminders": "תזכורות",
+    "screen": {
+      "title": "מנוי",
+      "badge": {
+        "current": "נוכחי",
+        "trial": "תקופת ניסיון",
+        "earlyAccess": "גישה מוקדמת"
+      },
+      "trialLeft": "{days, plural, one {נשאר יום אחד לתקופת הניסיון} two {נשארו יומיים לתקופת הניסיון} other {נשארו # ימים לתקופת הניסיון}}",
+      "earlyAccessNote": "כל התכונות פתוחות, כחלק מהמשתמשים הראשונים שלנו.",
+      "activeUntil": "פעיל עד {date}",
+      "thisMonth": "החודש עד עכשיו",
+      "usageOf": "{used} מתוך {limit}",
+      "unlimited": "ללא הגבלה",
+      "textSummaries": "סיכומים בטקסט",
+      "voiceSummaries": "סיכומים קוליים",
+      "calendars": "יומנים",
+      "voiceEvents": "אירועים שנוספו בקול",
+      "reminders": "תזכורות והתראות",
+      "plansLabel": "מסלולים",
+      "perMonth": "לחודש",
+      "priceA11y": "{price, number} כוכבים של Telegram לחודש",
+      "basicSummaries": "סיכומים בטקסט ובקול ללא הגבלה",
+      "calendarsUpTo": "עד {count} יומנים",
+      "proEverything": "כל מה שבמסלול בסיסי, ויומנים ללא הגבלה",
+      "proVoice": "הוספת אירועים בקול",
+      "proReminders": "תזכורות והתראות לפני אירועים",
+      "choose": "לעבור למסלול {plan}",
+      "starsNote": "התשלום בכוכבים של Telegram, בצ׳אט עם FamCal.",
+      "invoiceSent": "החשבונית נשלחה לצ׳אט עם FamCal ב־Telegram. משלמים שם ועוברים מסלול.",
+      "upgradeFailed": "לא הצלחנו לשלוח את החשבונית. כדאי לנסות שוב.",
+      "needsTelegram": "התשלום בכוכבים של Telegram אפשרי רק ב־Telegram. כדי לעבור מסלול, פותחים את FamCal ב־Telegram."
+    },
     "reminders": {
       "expiringSoon": {
         "title": "🌟 שים לב! המנוי {plan} שלך מתחדש בעוד {days} ימים",
@@ -1240,15 +1266,7 @@
         "button": "💫 קבלו {plan} - ⭐{price} לחודש"
       }
     },
-    "calendars": "יומנים",
-    "unlimited": "ללא הגבלה",
-    "of": "מתוך",
-    "trialBanner": "🎉 ניסיון: {days} ימים נותרו",
-    "trialEndsIn": "תקופת הניסיון מסתיימת בעוד {days} ימים",
-    "earlyAdopterBanner": "מאמץ מוקדם - גישה מלאה",
-    "earlyAdopterDescription": "יש לך גישה מלאה לכל התכונות כמאמץ מוקדם!",
     "upgradeButton": "⭐ שדרג תוכנית",
-    "cancelPlan": "בטל מנוי",
     "paymentSuccess": "✅ <b>התשלום הצליח!</b>\n\nאתה עכשיו בתוכנית <b>{plan}</b>.\n\n<b>תכונות שנפתחו:</b>\n• {features}",
     "paymentError": "❌ אירעה שגיאה בהפעלת המנוי שלך. אנא פנה לתמיכה.",
     "viewSubscription": "צפה במנוי",
@@ -1261,18 +1279,13 @@
     "remindersRequired": "⭐ <b>תזכורות אירועים היא תכונת Pro</b>\n\nשדרג ל-Pro כדי לקבל תזכורות לאירועים!",
     "plans": {
       "free": {
-        "name": "חינם",
-        "description": "תכונות בסיסיות להתחלה"
+        "name": "חינם"
       },
       "basic": {
-        "name": "בסיסי",
-        "description": "סיכומים ללא הגבלה למשתמשים רגילים",
-        "price": "150 ⭐/חודש (~$3)"
+        "name": "בסיסי"
       },
       "pro": {
-        "name": "Pro",
-        "description": "כל התכונות למשתמשים מתקדמים",
-        "price": "300 ⭐/חודש (~$6)"
+        "name": "Pro"
       }
     },
     "features": {
@@ -1281,32 +1294,6 @@
       "calendars": "יומנים",
       "reminders": "תזכורות והתראות על אירועים",
       "voiceEvents": "יצירת אירועים בקול"
-    },
-    "usageDisplay": "{used} / {limit}",
-    "planFeatures": {
-      "textSummariesLimit": "{count} סיכומי טקסט לחודש",
-      "textSummariesUnlimited": "סיכומי טקסט ללא הגבלה",
-      "voiceSummariesLimit": "{count} סיכומים קוליים לחודש",
-      "voiceSummariesUnlimited": "סיכומים קוליים ללא הגבלה",
-      "calendarsLimit": "{count} יומנים",
-      "calendarsUnlimited": "יומנים ללא הגבלה",
-      "remindersIncluded": "תזכורות והתראות על אירועים",
-      "remindersExcluded": "תזכורות והתראות על אירועים",
-      "voiceEventsIncluded": "יצירת אירועים בקול",
-      "voiceEventsExcluded": "יצירת אירועים בקול",
-      "perMonth": "לחודש"
-    },
-    "page": {
-      "title": "המנוי שלך",
-      "subtitle": "נהל את התוכנית שלך וצפה בשימוש",
-      "comparePlans": "השווה תוכניות",
-      "currentPlanBadge": "נוכחי",
-      "trialBadge": "ניסיון פעיל",
-      "upgradeNow": "שדרג עכשיו",
-      "contactSupport": "צור קשר עם תמיכה",
-      "invoiceSent": "חשבונית נשלחה! בדוק את הצ'אט בטלגרם להשלמת התשלום.",
-      "confirmUpgrade": "לשדרג ל-{plan} תמורת ⭐{price} לחודש?",
-      "validUntil": "בתוקף עד {date}"
     }
   },
   "landing": {

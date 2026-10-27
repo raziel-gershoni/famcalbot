@@ -20,7 +20,7 @@ import type SelectCalendarsClient from '@/app/[locale]/select-calendars/SelectCa
 import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
 import type PairClient from '@/app/[locale]/pair/PairClient';
 import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
-import { getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
+import { calendarTotal, countCalendars, getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
 import { canReceiveReminderPings, getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
@@ -425,10 +425,11 @@ async function pair(user: UserConfig, userId: number, userLocale: string): Promi
 
 async function subscription(user: UserConfig, userId: number, locale: string): Promise<PageDataResult> {
   // Get subscription data (use internal DB user.id, not Telegram userId)
-  const [subWithUsage, trialStatus, isEarlyAdopter] = await Promise.all([
+  const [subWithUsage, trialStatus, isEarlyAdopter, counts] = await Promise.all([
     getSubscriptionWithUsage(user.id),
     getTrialStatus(user.id),
     checkEarlyAdopterAccess(user.id),
+    countCalendars(user.id),
   ]);
 
   if (!subWithUsage) {
@@ -461,6 +462,9 @@ async function subscription(user: UserConfig, userId: number, locale: string): P
       trialEndsAt: trialStatus.trialEndsAt?.toISOString() || null,
     },
     isEarlyAdopter,
+    // The calendars meter counts as the plan's limit does (calendarTotal); the upgrade is a Telegram Stars invoice, sent to the user's chat
+    calendarsUsed: calendarTotal(counts.famcal, counts.google),
+    telegramLinked: user.telegramId !== null,
   };
   return { kind: 'props', props };
 }
