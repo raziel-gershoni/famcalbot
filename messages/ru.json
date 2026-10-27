@@ -1655,6 +1655,13 @@
       "home": "На главную"
     }
   },
+  "shareStory": {
+    "telegramOnlyTitle": "Откройте это в Telegram",
+    "telegramOnlyBody": "Поделиться в истории можно из чата с FamCal в Telegram.",
+    "updateTelegram": "Чтобы делиться историями, обновите Telegram.",
+    "loadFailed": "Не получилось подготовить картинку. Попробуйте ещё раз.",
+    "shareFailed": "Не получилось поделиться. Попробуйте ещё раз."
+  },
   "ui": {
     "missingParameter": {
       "title": "В этой ссылке чего-то не хватает",

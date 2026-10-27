@@ -1655,6 +1655,13 @@
       "home": "Back to home"
     }
   },
+  "shareStory": {
+    "telegramOnlyTitle": "Open this in Telegram",
+    "telegramOnlyBody": "Sharing to a story works from your FamCal chat in Telegram.",
+    "updateTelegram": "Update Telegram to share stories.",
+    "loadFailed": "Couldn't prepare the image. Try again.",
+    "shareFailed": "Couldn't share. Try again."
+  },
   "ui": {
     "missingParameter": {
       "title": "Something's missing in this link",

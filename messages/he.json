@@ -1655,6 +1655,13 @@
       "home": "חזרה לדף הבית"
     }
   },
+  "shareStory": {
+    "telegramOnlyTitle": "הדף הזה נפתח ב־Telegram",
+    "telegramOnlyBody": "שיתוף לסטורי עובד מהצ׳אט עם FamCal ב־Telegram.",
+    "updateTelegram": "כדי לשתף בסטורי, צריך לעדכן את Telegram.",
+    "loadFailed": "לא הצלחנו להכין את התמונה. כדאי לנסות שוב.",
+    "shareFailed": "לא הצלחנו לשתף. כדאי לנסות שוב."
+  },
   "ui": {
     "missingParameter": {
       "title": "חסר משהו בקישור הזה",
