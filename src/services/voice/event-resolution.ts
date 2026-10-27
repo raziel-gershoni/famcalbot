@@ -196,12 +196,10 @@ export function matchSearchRange(
   now: Date,
   timezone: string
 ): { startDate: Date; endDate: Date } {
-  let startDate = new Date(now);
-  let endDate = new Date(now);
-
-  // Default: search 2 weeks ahead and 1 week back
-  startDate.setDate(startDate.getDate() - 7);
-  endDate.setDate(endDate.getDate() + 14);
+  // Default: search 2 weeks ahead and 1 week back, in real time (not the server's calendar days, which
+  // a clock change makes 23 or 25 hours long and which setDate counts by the server's own zone)
+  let startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  let endDate = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
   // If the reference names a day or a time hint is provided, narrow the search
   const { timeHint } = reference;

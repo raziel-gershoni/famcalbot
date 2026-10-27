@@ -13,6 +13,10 @@ export async function register() {
     // Startup never throws: a crash-looping container would take the bot down for everyone
     let missing: string[] = [];
     try {
+      // The server's zone and whether it observes summer/winter time (cron jobs without a zone follow it)
+      const { processZoneLine } = await import('./src/lib/startup-checks');
+      console.info(`[startup] ${processZoneLine()}`);
+
       // Which encryption keys this process holds, by fingerprint only (every environment)
       const { describeKeys } = await import('./src/utils/encryption');
       console.log(describeKeys());

@@ -146,8 +146,9 @@ export async function getDueReminders(
 
   // Truncate to minute boundary to avoid millisecond edge cases
   // e.g., now = 12:35:06 → 12:35:00, so window is [12:35:00, 12:40:00)
-  const now = new Date();
-  now.setSeconds(0, 0); // Truncate seconds and milliseconds
+  // On the epoch, not through local fields: setSeconds(0, 0) reads the server's own clock, which in the
+  // repeated hour of a clock change takes the first occurrence and sends "now" an hour back.
+  const now = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   const windowEnd = new Date(now.getTime() + windowMinutes * 60 * 1000);
   const dueReminders: DueReminder[] = [];
 

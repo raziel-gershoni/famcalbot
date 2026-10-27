@@ -2,11 +2,14 @@
  * In-process cron scheduler using node-cron
  * Replaces QStash HTTP-based scheduling with direct function calls
  *
- * All times are UTC. Israel is UTC+2 (winter) / UTC+3 (summer).
+ * Times are UTC (the server's zone) unless a job names one. Israel is UTC+2 (winter) / UTC+3 (summer),
+ * so a UTC job lands an hour earlier on Israel's clock in winter. Without a zone option node-cron
+ * follows the server process's own zone, which is UTC on Railway (instrumentation.ts logs it at startup).
  */
 
 import cron from 'node-cron';
 import { captureError } from '../lib/error-capture';
+import { TIMEZONE } from '../config/constants';
 
 export function startScheduler(): void {
   console.log('[Scheduler] Starting in-process cron scheduler...');
@@ -88,8 +91,9 @@ export function startScheduler(): void {
     }
   });
 
-  // Setup reminders — daily at UTC 07:00 (Israel ~10:00)
-  cron.schedule('0 7 * * *', async () => {
+  // Setup reminders — daily at 10:00 Israel time, summer and winter: a nudge to a person, so it keeps
+  // the person's clock (a UTC job would land at 09:00 in winter)
+  cron.schedule('0 10 * * *', async () => {
     try {
       const { handleSetupReminders } = await import('./handlers');
       const result = await handleSetupReminders();
@@ -99,9 +103,9 @@ export function startScheduler(): void {
       captureError(error, 'cron-setup-reminders');
       notifyAdmin('Setup Reminders', error);
     }
-  });
+  }, { timezone: TIMEZONE });
 
-  // Health check + subscription reminders — daily at UTC 03:00 (Israel ~06:00)
+  // Health check + subscription reminders — daily at UTC 03:00 (Israel 06:00 in summer, 05:00 in winter)
   cron.schedule('0 3 * * *', async () => {
     try {
       const { handleHealth } = await import('./handlers');
@@ -114,7 +118,7 @@ export function startScheduler(): void {
     }
   });
 
-  // Activity purge — daily at UTC 03:30 (Israel ~06:30): UserActivity rows older than 90 days
+  // Activity purge — daily at UTC 03:30 (Israel 06:30 in summer, 05:30 in winter): UserActivity rows older than 90 days
   cron.schedule('30 3 * * *', async () => {
     try {
       const { handleActivityPurge } = await import('./handlers');
@@ -146,8 +150,8 @@ export function startScheduler(): void {
   console.log('  * * * * *    Copy to Google (gated: reads the DB only while a copy may have work)');
   console.log('  0 * * * *    Daily summary (hourly, filters by user preferred hour)');
   console.log('  0 * * * *    Tomorrow summary (hourly, filters by user preferred hour)');
-  console.log('  0 7 * * *    Setup reminders (UTC 7:00 = Israel ~10:00)');
-  console.log('  0 3 * * *    Health check (UTC 3:00 = Israel ~6:00)');
+  console.log(`  0 10 * * *   Setup reminders (10:00 ${TIMEZONE} time, summer and winter)`);
+  console.log('  0 3 * * *    Health check (UTC 3:00 = Israel 6:00 in summer, 5:00 in winter)');
   console.log('  30 3 * * *   Activity purge (UserActivity rows older than 90 days, in batches)');
   console.log('  */10 * * * * Key sweep (re-encrypts stored Google tokens after a key rotation; idle in the first 10 min)');
 }

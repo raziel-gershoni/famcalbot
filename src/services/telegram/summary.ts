@@ -808,6 +808,16 @@ export async function sendDailySummaryToAll(options?: { filterByHour?: boolean }
 }
 
 /**
+ * The tomorrow flag the summary senders hand down (`summaryDate`): a moment a day of real time ahead.
+ * Only whether it is set matters (the summary day itself is the user's local date plus one calendar day,
+ * prepareSummaryForUser), and its ISO string in a log line, so it is epoch arithmetic, not setDate, which
+ * counts the server's own calendar days.
+ */
+export function tomorrowMarker(): Date {
+  return new Date(Date.now() + 24 * 60 * 60 * 1000);
+}
+
+/**
  * Send tomorrow's summary to a specific user
  */
 export async function sendTomorrowSummaryToUser(
@@ -815,13 +825,10 @@ export async function sendTomorrowSummaryToUser(
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   streamHandle?: StreamMessageHandle
 ): Promise<boolean> {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
   return sendSummaryToUser(
     chatId,
     readSummaryDay,
-    tomorrow,
+    tomorrowMarker(),
     'tomorrowFetch',
     undefined,
     platform,
@@ -833,10 +840,7 @@ export async function sendTomorrowSummaryToUser(
  * Send tomorrow's summary to all users
  */
 export async function sendTomorrowSummaryToAll(options?: { filterByHour?: boolean }): Promise<SummaryBatchResult> {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
-  return sendSummaryToAll(readSummaryDay, tomorrow, options);
+  return sendSummaryToAll(readSummaryDay, tomorrowMarker(), options);
 }
 
 /** Platform options for message delivery */

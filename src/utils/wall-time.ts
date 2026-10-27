@@ -20,31 +20,30 @@ const DAY_MS = 86_400_000;
 const WALL = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-/** One formatter per zone, or null where Intl does not know the zone (a bad name is an Invalid Date, as with fromZonedTime). */
-const clocks = new Map<string, Intl.DateTimeFormat | null>();
+/** One formatter per known zone (an unknown name is not kept: callers get an Invalid Date, as with fromZonedTime). */
+const clocks = new Map<string, Intl.DateTimeFormat>();
 
 function clockOf(zone: string): Intl.DateTimeFormat | null {
-  let clock = clocks.get(zone);
-  if (clock === undefined) {
-    try {
-      clock = new Intl.DateTimeFormat('en-US', {
-        timeZone: zone,
-        hourCycle: 'h23',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-      });
-    } catch (error) {
-      // Intl refuses an unknown zone with a RangeError; any other failure is not ours to hide.
-      if (!(error instanceof RangeError)) throw error;
-      clock = null;
-    }
+  const known = clocks.get(zone);
+  if (known) return known;
+  try {
+    const clock = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    });
     clocks.set(zone, clock);
+    return clock;
+  } catch (error) {
+    // Intl refuses an unknown zone with a RangeError; any other failure is not ours to hide.
+    if (!(error instanceof RangeError)) throw error;
+    return null;
   }
-  return clock;
 }
 
 /** Milliseconds for a calendar reading, carried in a UTC timestamp (any year, 0 to 99 included). */

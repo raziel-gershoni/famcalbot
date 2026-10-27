@@ -19,8 +19,10 @@
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import {
-  RealDate, assert, assertSame, check, fakeOver, installClock, iso, localReading, results, scannedInstant, setClock, show, stubModules, wallOf,
+  RealDate, assert, assertSame, check, datesIn, fakeOver, installClock, iso, localReading, recorder, results, scannedInstant, setClock, show, stubModules, wallOf,
+  type Call,
 } from './lib/dst-harness';
 
 const ZONES = ['UTC', 'Asia/Jerusalem', 'America/New_York'] as const;
@@ -73,11 +75,69 @@ async function runChecks(): Promise<void> {
   // The one Google event the item reader returns, and what the provider is asked to write.
   let googleEvent: Record<string, unknown> | null = null;
   const googleUpdates: Array<Record<string, unknown>> = [];
+  // Prisma and Redis record what the code under test asks of them; Redis also keeps values (expiring on the fake clock).
+  const dbCalls: Call[] = [];
+  const redisData = new Map<string, { value: string; expires: number }>();
+  const redisCalls: Call[] = [];
+  const fakeRedis = new Proxy(recorder(redisCalls), {
+    get: (target, key) => {
+      if (key === 'get') return async (k: string) => (liveRedis(k) ? redisData.get(k)!.value : null);
+      if (key === 'exists') return async (k: string) => (liveRedis(k) ? 1 : 0);
+      if (key === 'del') return async (k: string) => (redisData.delete(k) ? 1 : 0);
+      if (key === 'set') return async (k: string, value: string, opts?: { ex?: number }) => redisData.set(k, { value, expires: Date.now() + (opts?.ex ?? 1e9) * 1000 });
+      return Reflect.get(target, key);
+    },
+  });
+  function liveRedis(key: string): boolean {
+    const entry = redisData.get(key);
+    if (entry && entry.expires <= Date.now()) redisData.delete(key);
+    return redisData.has(key);
+  }
+  // What the calendar provider returns for the alert pass, and the cron jobs node-cron was asked for.
+  const providerEvents: Array<{ eventId: string; calendarId: string; summary: string; start: string; end: string; reminders?: unknown }> = [];
+  const cronCalls: Array<{ pattern: string; options: unknown }> = [];
+  const quiet = async () => undefined;
   stubModules({
-    [`${SRC}/utils/prisma.ts`]: { prisma: {} },
+    'node-cron': { schedule: (pattern: string, _task: unknown, options?: unknown) => { cronCalls.push({ pattern, options }); return { stop: () => undefined }; } },
+    'next/server': {
+      NextRequest: class {},
+      NextResponse: { json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }) },
+    },
+    [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
+    [`${SRC}/lib/timezone.ts`]: (real: Record<string, unknown>) => fakeOver(real, { resolveUserTimezone: async (user: { tz: string }) => user.tz }),
+    [`${SRC}/lib/error-capture.ts`]: {
+      captureError: (error: unknown, context: string) => console.error(`captured (${context}):`, error),
+      captureWarning: () => undefined,
+      captureInfo: () => undefined,
+    },
+    [`${SRC}/lib/api-auth.ts`]: { verifyUserAuth: async () => ({ success: true, user: { id: 1, name: 'U', telegramId: 1 } }) },
+    [`${SRC}/lib/rate-limit.ts`]: { generalRateLimiter: {} },
+    [`${SRC}/lib/bot-messages.ts`]: { getBotMessages: async () => ({}) },
+    [`${SRC}/utils/error-notifier.ts`]: { notifyAdminFeedback: quiet, notifyAdminError: quiet, notifyAdminWarning: quiet, getAdminUserIds: async () => [] },
+    [`${SRC}/services/user-service.ts`]: (real: Record<string, unknown>) =>
+      fakeOver(real, { getUserByTelegramId: async () => ({ id: 1, name: 'U', telegramId: 1, language: 'en' }), getWhatsAppChatId: () => null }),
+    [`${SRC}/services/telegram/bot.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getMessagingService: () => ({ sendMessage: quiet }) }),
+    // A module the code under test loads with import() keeps only the names of its real file, so those are faked over the real module, not replaced.
+    [`${SRC}/cron/handlers.ts`]: (real: Record<string, unknown>) => fakeOver(real, { bootReminderCache: quiet }),
+    [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: quiet, invalidateFeatureAccessCache: quiet },
+    [`${SRC}/services/reminder-cache.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getEarlyAdoptionMode: async () => false }),
+    [`${SRC}/services/calendar-provider/index.ts`]: (real: Record<string, unknown>) =>
+      fakeOver(real, {
+        hasUsableCalendar: async () => true,
+        getCalendarAssignmentsForUser: async () => [
+          { calendarId: 'main', name: 'Main', labels: [], color: '#000000' },
+          { calendarId: 'kids', name: 'Kids', labels: ['kids'], color: '#000000' },
+        ],
+        fetchEventsInRange: async (_user: unknown, _ids: unknown, from: Date, to: Date) => ({
+          events: providerEvents.filter(e => iso(e.end) > from && iso(e.start) < to),
+          failed: [],
+        }),
+      }),
+    // The feedback count answers "at the limit", so the bot command and the route stop after reading the window.
+    [`${SRC}/utils/prisma.ts`]: { prisma: recorder(dbCalls, path => (path === 'userFeedback.count' ? 99 : path.endsWith('.findMany') ? [] : null)) },
     // The summaries' prompt builder pulls in an ES-only hebcal build that a CommonJS run cannot load; none of these checks reach it.
     [`${SRC}/services/claude.ts`]: {},
-    [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => undefined },
+    [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => undefined, trackActivity: quiet, addBreadcrumb: () => undefined },
     [`${SRC}/services/native-calendar/event-store.ts`]: (real: Record<string, unknown>) =>
       fakeOver(real, {
         getPartnerUserId: async () => null,
@@ -112,6 +172,9 @@ async function runChecks(): Promise<void> {
   const write = await import('../src/services/calendar-write/write');
 
   console.log(`process TZ=${process.env.TZ} (Intl: ${Intl.DateTimeFormat().resolvedOptions().timeZone})`);
+  // The services log every event and send; only the checks' own lines are wanted here.
+  const consoleKept = { log: console.log, info: console.info, warn: console.warn };
+  console.log = console.info = console.warn = () => undefined;
 
   // ---- The resolver ----
 
@@ -518,7 +581,247 @@ async function runChecks(): Promise<void> {
     assert(!/[^g]wallToInstant\(/.test(google), 'google-item.ts still resolves a start or end with wallToInstant');
   });
 
+
+  // ================= "Now", the summary gap hour, the setup-reminder hour =================
+
+  const MIN = 60_000;
+  const DAY = 86_400_000;
+  const { getDueReminders } = await import('../src/services/reminders');
+  const { matchSearchRange } = await import('../src/services/voice/event-resolution');
+  const { filterUsersForSummary, markSummarySent } = await import('../src/lib/summary-scheduling');
+
+  const alertUser = { id: 1, telegramId: 1, defaultReminderMinutes: 0, pickupRemindersEnabled: true } as never;
+  const ev = (id: string, calendarId: string, start: string, end: string, extra: Record<string, unknown> = {}) => ({ eventId: id, calendarId, summary: id, start, end, ...extra });
+  /** The alerts a 5-minute pass finds when the clock reads `at`, as 'eventId:type'. */
+  async function alertsAt(at: string | number, events: ReturnType<typeof ev>[], tz = IL): Promise<string[]> {
+    providerEvents.length = 0;
+    providerEvents.push(...events);
+    setClock(at);
+    return (await getDueReminders(alertUser, 5, tz)).map(d => `${d.event.eventId}:${d.type}`).sort();
+  }
+
+  await check('the 5-minute alert pass at 23:30:30Z on 2026-10-24 (the second 01:30 in Israel) finds the alerts due in the second 01:xx hour: a start, a pickup and a "1 hour before"', async () => {
+    const found = await alertsAt('2026-10-24T23:30:30Z', [
+      ev('a', 'main', '2026-10-24T23:30:00Z', '2026-10-25T00:30:00Z'),
+      ev('b', 'main', '2026-10-24T21:00:00Z', '2026-10-24T22:00:00Z'),
+      ev('c', 'main', '2026-10-25T00:30:00Z', '2026-10-25T01:30:00Z', { reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 60 }] } }),
+      ev('p', 'kids', '2026-10-24T22:32:00Z', '2026-10-24T23:32:00Z'),
+      ev('later', 'main', '2026-10-24T23:45:00Z', '2026-10-25T00:45:00Z'),
+    ]);
+    // The kids event p also starts at 22:32Z, an hour before the window; only its pickup is due.
+    assertSame(found, ['a:start', 'c:start', 'p:pickup'], 'the alerts due in [23:30, 23:35)');
+  });
+
+  await check('a sweep of 5-minute passes through each clock change finds every alert exactly once (Israel falling back and springing forward, New York both ways)', async () => {
+    const sweeps: Array<[string, string, string, string]> = [
+      ['IL fall back', IL, '2026-10-24T20:00:30Z', '2026-10-25T02:00:30Z'],
+      ['IL spring forward', IL, '2026-03-26T21:00:30Z', '2026-03-27T03:00:30Z'],
+      ['NY fall back', NY, '2026-11-01T03:00:30Z', '2026-11-01T09:00:30Z'],
+      ['NY spring forward', NY, '2026-03-08T05:00:30Z', '2026-03-08T11:00:30Z'],
+    ];
+    for (const [label, tz, from, to] of sweeps) {
+      const first = iso(from).getTime();
+      const last = iso(to).getTime();
+      // One event on every tenth minute (alert at its start) and a kids event ending on each (a pickup alert at its end, a start alert an hour before).
+      const events: ReturnType<typeof ev>[] = [];
+      const expected: string[] = [];
+      const windowStart = first - 30_000;
+      const windowEnd = last - 30_000 + 5 * MIN;
+      const covered = (t: number) => t >= windowStart && t < windowEnd;
+      for (let t = Math.ceil(first / (10 * MIN)) * 10 * MIN; t < last; t += 10 * MIN) {
+        events.push(ev(`s${t}`, 'main', new RealDate(t).toISOString(), new RealDate(t + 30 * MIN).toISOString()));
+        if (covered(t)) expected.push(`s${t}:start`);
+        events.push(ev(`k${t}`, 'kids', new RealDate(t - 60 * MIN).toISOString(), new RealDate(t).toISOString()));
+        if (covered(t - 60 * MIN)) expected.push(`k${t}:start`);
+        if (covered(t)) expected.push(`k${t}:pickup`);
+      }
+      const seen = new Map<string, number>();
+      for (let tick = first; tick <= last; tick += 5 * MIN) {
+        for (const found of await alertsAt(tick, events, tz)) seen.set(found, (seen.get(found) ?? 0) + 1);
+      }
+      const wrong = [...seen].filter(([key, n]) => n !== 1 || !expected.includes(key)).map(([key, n]) => `${key} x${n}`);
+      const missed = expected.filter(key => !seen.has(key));
+      assertSame({ wrong: wrong.slice(0, 3), missed: missed.slice(0, 3) }, { wrong: [], missed: [] }, `${label}: ${expected.length} alerts expected`);
+      assert(expected.length > 20, `${label}: only ${expected.length} alerts in the sweep`);
+    }
+  });
+
+  await check('the voice flow\'s search range is a week back and two weeks ahead of "now" in real time, over a clock change too', () => {
+    for (const now of ['2026-10-30T12:00:00Z', '2026-03-30T12:00:00Z', '2026-11-05T12:00:00Z', '2026-03-12T12:00:00Z', '2026-06-10T12:00:00Z']) {
+      const r = matchSearchRange({ timeHint: undefined } as never, iso(now), IL);
+      assertSame([r.startDate.getTime() - iso(now).getTime(), r.endDate.getTime() - iso(now).getTime()], [-7 * DAY, 14 * DAY], `range around ${now}`);
+    }
+  });
+
+  /** The Dates in the recorded arguments of one Prisma call ('subscription.findMany'). */
+  const datesOf = (path: string) => dbCalls.filter(c => c.path === path).flatMap(c => datesIn(c.args));
+
+  await check('subscription reminders look for periods ending within 4 days (3-day warning) and 1 day (last-day warning) of real time, over a clock change', async () => {
+    const { processSubscriptionReminders } = await import('../src/services/subscription-reminders');
+    for (const now of ['2026-10-23T12:00:00Z', '2026-03-24T12:00:00Z']) {
+      dbCalls.length = 0;
+      setClock(now);
+      await processSubscriptionReminders();
+      const ahead = datesOf('subscription.findMany').map(d => d.getTime() - iso(now).getTime()).filter(ms => ms > 0);
+      assertSame([...new Set(ahead)].sort((a, b) => a - b), [DAY, 4 * DAY], `windows ahead of ${now}`);
+    }
+  });
+
+  await check('the feedback rate limit counts the last 24 hours of real time, in the bot command and in the dashboard route, over a clock change', async () => {
+    const { handleFeedbackCommand } = await import('../src/services/telegram/commands');
+    const route = await import('../app/api/feedback/route');
+    for (const now of ['2026-10-25T10:00:00Z', '2026-03-27T10:00:00Z']) {
+      setClock(now);
+      dbCalls.length = 0;
+      await handleFeedbackCommand(1, 1, 'a feedback text that is long enough');
+      const viaBot = datesOf('userFeedback.count').map(d => iso(now).getTime() - d.getTime());
+      dbCalls.length = 0;
+      await route.POST({ json: async () => ({ text: 'a feedback text that is long enough', user_id: 1 }) } as never);
+      const viaRoute = datesOf('userFeedback.count').map(d => iso(now).getTime() - d.getTime());
+      assertSame([viaBot, viaRoute], [[DAY], [DAY]], `the window's start before ${now}`);
+    }
+  });
+
+  await check('the setup reminders\' 14-day window starts 14 days of real time back, over a clock change', async () => {
+    const { handleSetupReminders } = await import('../src/cron/handlers');
+    for (const now of ['2026-11-03T12:00:00Z', '2026-04-05T12:00:00Z']) {
+      dbCalls.length = 0;
+      setClock(now);
+      await handleSetupReminders();
+      const back = datesOf('user.findMany').map(d => iso(now).getTime() - d.getTime());
+      assert(back.length > 0 && back.every(ms => ms === 14 * DAY), `cut-offs ${show(back.map(ms => ms / DAY))} days back from ${now}`);
+    }
+  });
+
+  await check('the "tomorrow" a summary batch hands down is a day of real time ahead of now', async () => {
+    const { tomorrowMarker } = await import('../src/services/telegram/summary');
+    for (const now of ['2026-10-24T12:00:00Z', '2026-03-26T12:00:00Z', '2026-06-10T12:00:00Z']) {
+      setClock(now);
+      assertSame(tomorrowMarker().getTime() - iso(now).getTime(), DAY, `from ${now}`);
+    }
+  });
+
+  await check('no code under src/ or app/ moves a Date by its local fields (setSeconds, setMinutes, setHours, setDate, setMonth, setFullYear, setMilliseconds): the class that broke "now" and the windows', () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const file = path.join(dir, name);
+        if (statSync(file).isDirectory()) {
+          if (name !== 'node_modules' && name !== '.next') walk(file);
+        } else if (/\.(ts|tsx)$/.test(name) && /\.set(Seconds|Minutes|Hours|Date|Month|FullYear|Milliseconds)\(/.test(readFileSync(file, 'utf8'))) {
+          offenders.push(path.relative(ROOT, file));
+        }
+      }
+    };
+    walk(path.join(ROOT, 'src'));
+    walk(path.join(ROOT, 'app'));
+    assertSame(offenders, [], 'files that still use a local-field setter');
+  });
+
+  // ---- Summaries: the hour a clock change skips ----
+
+  /** Fresh Redis; every hourly tick from `from` to `to` runs the real filter, and an eligible user is sent and marked, as the batch does. Returns the local time of each send. */
+  async function summarySends(zone: string, hour: number, type: 'daily' | 'tomorrow', from: string, to: string): Promise<string[]> {
+    redisData.clear();
+    const user = { id: 1, tz: zone, telegramId: 1, preferredMorningHour: hour, preferredEveningHour: hour } as never;
+    const sends: string[] = [];
+    for (let tick = iso(from).getTime(); tick < iso(to).getTime(); tick += 3_600_000) {
+      setClock(tick);
+      const { eligible } = await filterUsersForSummary([user], type);
+      if (eligible.length > 0) {
+        await markSummarySent(1, type, zone);
+        sends.push(wallOf(new RealDate(tick), zone));
+      }
+    }
+    return sends;
+  }
+
+  await check('a summary preferred at 02:00 on the day Israel springs forward goes out once, at 03:00; the next day at 02:00 (daily and tomorrow)', async () => {
+    for (const type of ['daily', 'tomorrow'] as const) {
+      assertSame(await summarySends(IL, 2, type, '2026-03-26T12:00:00Z', '2026-03-27T12:00:00Z'), ['2026-03-27 03:00'], `${type} on the jump day`);
+      assertSame(await summarySends(IL, 2, type, '2026-03-27T12:00:00Z', '2026-03-28T12:00:00Z'), ['2026-03-28 02:00'], `${type} the day after`);
+      assertSame(await summarySends(IL, 2, type, '2026-03-25T12:00:00Z', '2026-03-26T12:00:00Z'), ['2026-03-26 02:00'], `${type} the day before`);
+    }
+  });
+
+  await check('a summary preferred at 07:00 goes out once at 07:00 on both change days, in Israel and in New York', async () => {
+    for (const type of ['daily', 'tomorrow'] as const) {
+      assertSame(await summarySends(IL, 7, type, '2026-03-26T12:00:00Z', '2026-03-27T12:00:00Z'), ['2026-03-27 07:00'], `${type} IL jump day`);
+      assertSame(await summarySends(IL, 7, type, '2026-10-24T12:00:00Z', '2026-10-25T12:00:00Z'), ['2026-10-25 07:00'], `${type} IL fall-back day`);
+      assertSame(await summarySends(NY, 7, type, '2026-03-07T13:00:00Z', '2026-03-08T12:00:00Z'), ['2026-03-08 07:00'], `${type} NY jump day`);
+    }
+  });
+
+  await check('a summary preferred at 02:00 in New York on 2026-03-08 goes out at 03:00; in London at 01:00 on 2026-03-29 at 02:00', async () => {
+    assertSame(await summarySends(NY, 2, 'daily', '2026-03-07T12:00:00Z', '2026-03-08T12:00:00Z'), ['2026-03-08 03:00'], 'New York');
+    assertSame(await summarySends(LONDON, 1, 'daily', '2026-03-28T12:00:00Z', '2026-03-29T12:00:00Z'), ['2026-03-29 02:00'], 'London');
+  });
+
+  await check('a summary preferred in the repeated hour (01:00 on the day Israel falls back) goes out once, at the first 01:00; at 02:00 once, at 02:00', async () => {
+    assertSame(await summarySends(IL, 1, 'daily', '2026-10-24T12:00:00Z', '2026-10-25T12:00:00Z'), ['2026-10-25 01:00'], 'hour 1');
+    assertSame(await summarySends(IL, 2, 'daily', '2026-10-24T12:00:00Z', '2026-10-25T12:00:00Z'), ['2026-10-25 02:00'], 'hour 2');
+  });
+
+  await check('every preferred hour, on each of the full days around both Israeli changes, goes out once, at its own hour (only 02:00 on the jump day moves, to 03:00)', async () => {
+    for (const type of ['daily', 'tomorrow'] as const) {
+      for (let hour = 0; hour < 24; hour++) {
+        for (const [firstDay, endDay] of [['2026-03-25', '2026-03-31'], ['2026-10-23', '2026-10-29']]) {
+          // Ticks from the first day's local midnight to the last day's, so every day in between is a full local day.
+          const sends = await summarySends(IL, hour, type, wallTimeToInstant(`${firstDay}T00:00`, IL).toISOString(), wallTimeToInstant(`${endDay}T00:00`, IL).toISOString());
+          const days: string[] = [];
+          for (let day = firstDay; day < endDay; day = walltime.addDaysToDate(day, 1)) days.push(day);
+          assertSame(sends.map(s => s.slice(0, 10)), days, `${type} hour ${hour} from ${firstDay}: one send per day`);
+          for (const s of sends) {
+            const want = hour === 2 && s.startsWith('2026-03-27') ? 3 : hour;
+            assert(Number(s.slice(11, 13)) === want, `${type} hour ${hour}: sent at ${s}`);
+          }
+        }
+      }
+    }
+  });
+
+  // ---- The scheduler and the startup line ----
+
+  await check('the setup reminders are scheduled at 10:00 Israel time with the zone option; health, purge and the hourly jobs stay on the host clock (UTC)', async () => {
+    cronCalls.length = 0;
+    const { startScheduler } = await import('../src/cron/scheduler');
+    startScheduler();
+    const setup = cronCalls.filter(c => c.pattern === '0 10 * * *');
+    assertSame(setup.map(c => c.options), [{ timezone: IL }], 'the setup-reminders job and its options');
+    for (const pattern of ['0 3 * * *', '30 3 * * *', '0 * * * *', '*/5 * * * *']) {
+      const jobs = cronCalls.filter(c => c.pattern === pattern);
+      assert(jobs.length > 0, `${pattern} is not scheduled`);
+      assert(jobs.every(j => j.options === undefined), `${pattern} has a zone option: ${show(jobs.map(j => j.options))}`);
+    }
+    assert(!cronCalls.some(c => c.pattern === '0 7 * * *'), 'the old UTC 07:00 setup job is still scheduled');
+  });
+
+  await check('node-cron fires that job at 10:00 Israel time on either side of each change: 08:00Z in winter time, 07:00Z in summer time', () => {
+    const { TimeMatcher } = createRequire(__filename)(path.join(ROOT, 'node_modules/node-cron/dist/cjs/time/time-matcher.js')) as { TimeMatcher: new (pattern: string, zone?: string) => { match(d: Date): boolean } };
+    const matcher = new TimeMatcher('0 10 * * *', IL);
+    const fires: string[] = [];
+    for (const [from, to] of [['2026-03-25', '2026-03-30'], ['2026-10-23', '2026-10-28']]) {
+      for (let t = iso(`${from}T00:00:00Z`).getTime(); t < iso(`${to}T00:00:00Z`).getTime(); t += MIN) {
+        if (matcher.match(new RealDate(t))) fires.push(new RealDate(t).toISOString().slice(0, 16));
+      }
+    }
+    assertSame(fires, [
+      '2026-03-25T08:00', '2026-03-26T08:00', '2026-03-27T07:00', '2026-03-28T07:00', '2026-03-29T07:00',
+      '2026-10-23T07:00', '2026-10-24T07:00', '2026-10-25T08:00', '2026-10-26T08:00', '2026-10-27T08:00',
+    ], 'fire times (UTC)');
+  });
+
+  await check('the startup line names the process zone and whether it observes summer/winter time, and instrumentation.ts logs it', async () => {
+    const { processZoneLine } = await import('../src/lib/startup-checks');
+    const line = processZoneLine(iso('2026-06-01T00:00:00Z'));
+    const zone = process.env.TZ ?? '';
+    assert(line.includes(zone), `${line} does not name ${zone}`);
+    assert(line.includes('not observed') === (zone === 'UTC'), `${line} is wrong about summer/winter time in ${zone}`);
+    assert(/processZoneLine\(\)/.test(readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8')), 'instrumentation.ts does not log processZoneLine()');
+  });
+
   setClock(null);
+  Object.assign(console, consoleKept);
   report();
 }
 

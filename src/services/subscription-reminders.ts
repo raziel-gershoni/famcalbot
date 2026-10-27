@@ -75,8 +75,8 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
   console.log(`[Subscription Reminders] Sending ${reminderType} reminders...`);
 
   const now = new Date();
-  const windowEnd = new Date(now);
-  windowEnd.setDate(windowEnd.getDate() + daysLeft + 1);
+  // daysLeft + 1 days of real time ahead (setDate would count the server's calendar days)
+  const windowEnd = new Date(now.getTime() + (daysLeft + 1) * 24 * 60 * 60 * 1000);
 
   // Find subscriptions expiring within the window
   const subscriptions = await prisma.subscription.findMany({

@@ -702,8 +702,7 @@ export async function handleFeedbackCommand(
   }
 
   try {
-    const oneDayAgo = new Date();
-    oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const recentFeedbackCount = await prisma.userFeedback.count({
       where: {

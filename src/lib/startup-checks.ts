@@ -36,3 +36,15 @@ export function startupSecretProblems(env: Record<string, string | undefined>): 
   }
   return problems;
 }
+
+/**
+ * One line for the startup log: the zone the server process runs in and whether it observes summer/winter
+ * time. A cron job without a zone option follows it (node-cron), so the log shows whether "UTC" really is.
+ * Reads the process zone on purpose; `now` only picks the year to look at.
+ */
+export function processZoneLine(now: Date = new Date()): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'unknown';
+  const year = now.getUTCFullYear();
+  const observes = new Date(Date.UTC(year, 0, 1)).getTimezoneOffset() !== new Date(Date.UTC(year, 6, 1)).getTimezoneOffset();
+  return `process timezone ${zone}, summer/winter time ${observes ? 'observed' : 'not observed'}`;
+}

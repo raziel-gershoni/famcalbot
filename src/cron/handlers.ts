@@ -444,8 +444,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
   } as const;
   const dateSelect = { ...userSelect, createdAt: true, reminderStartAt: true } as const;
 
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - MAX_DAYS);
+  const cutoffDate = new Date(Date.now() - MAX_DAYS * 24 * 60 * 60 * 1000);
 
   const hasMessagingPlatform = {
     OR: [{ telegramId: { not: null } }, { whatsappPhone: { not: null } }, { whatsappBsuid: { not: null } }],

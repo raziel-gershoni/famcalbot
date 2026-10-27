@@ -65,8 +65,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check rate limit
-    const oneDayAgo = new Date();
-    oneDayAgo.setHours(oneDayAgo.getHours() - FEEDBACK_CONFIG.rateLimitHours);
+    const oneDayAgo = new Date(Date.now() - FEEDBACK_CONFIG.rateLimitHours * 60 * 60 * 1000);
 
     const recentFeedbackCount = await prisma.userFeedback.count({
       where: {
