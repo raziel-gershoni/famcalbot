@@ -20,7 +20,10 @@
 //    trial, a paid one, one given Pro for free, a WhatsApp-only one and a suspended one, in en, he and ru; U3 every action of a profile (it
 //    asks, Cancel sends nothing, the exact body with the person's database id, a reload on success, our own message and a log on failure);
 //    U4 deleting a person (DELETE typed, a working sheet, the notice on the people list once); U5 a long profile still ends on Account;
-//    U6 a late answer for another person shows nowhere; U7 the panel is made of the kit and its messages are all read.
+//    U6 a late answer for another person shows nowhere; U7 the panel is made of the kit and its messages are all read;
+//  - the fix round: U8 a delete waits for the people list and lands on Users with its notice, from Users or from the log; U9 saving away
+//    the last override settles; U10 notices sit under their action; U11 RTL rows start on the page's start side; U12 only open setup
+//    steps can be sent; U13 scroll is kept per view; U14 a plan that will not renew says so.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
 //   TZ=UTC npx tsx scripts/smoke-admin-render.ts
@@ -37,7 +40,8 @@ import { lintCss } from './lib/css-lint';
 import { ADMIN_CSS } from '../app/[locale]/admin-panel/admin-css';
 import { UserProfile } from '../app/[locale]/admin-panel/views/UserProfile';
 import { FORM_CSS } from '../components/app-ui/form-kit';
-import { calls, defaultRespond, detail, INIT_DATA, installFakeFetch, json, NAMES, OTHER, ok, TARGET, VIEWER_TELEGRAM_ID, world, type Call, type Row } from './lib/admin-world';
+import { ListRow } from '../components/app-ui/ListRow';
+import { calls, defaultRespond, detail, INIT_DATA, installFakeFetch, json, NAMES, OTHER, ok, overrideAfterPost, TARGET, VIEWER_TELEGRAM_ID, world, type Call, type Row } from './lib/admin-world';
 
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
@@ -122,7 +126,7 @@ function makePeople(locale: Locale): Map<number, Row> {
   const person = (id: number, over: Row): [number, Row] => [id, detail(id, { name: names[IDS.indexOf(id)], ...over })];
   return new Map<number, Row>([
     person(TRIAL, { subscription: SUBS.trial, registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: false, applicableReminder: 'location', googleState: 'none' }, setupReminders: { daysSinceCreated: 12, daysSinceStart: 12, wasReset: false, calendars: [], reconnect: [], location: [{ day: 1, sent: true, due: true }, { day: 3, sent: true, due: true }, { day: 7, sent: false, due: true }, { day: 14, sent: false, due: false }] } }),
-    person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: true, applicableReminder: 'calendars', googleState: 'choose' } }),
+    person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars', googleState: 'choose' } }),
     person(PAID, { subscription: SUBS.paid, whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
     person(COMPED, { subscription: SUBS.comped, whatsappPhone: null }),
     person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free }),
@@ -204,7 +208,11 @@ const respond = (call: Call): Response | Promise<Response> => {
     const offset = Number(url.searchParams.get('offset') ?? 0);
     return ok({ activities: rows, pagination: { total: 45, limit: 20, offset, hasMore: offset + 20 < 45 }, actionStats: [{ action: 'login', count: 30 }, { action: 'command_completed', count: 15 }] });
   }
-  if (key === 'GET user-overrides' && url.searchParams.get('list') === 'all') return ok({ users: [...scenario.people.values()].map(listOf) });
+  if (key === 'GET user-overrides' && url.searchParams.get('list') === 'all') {
+    const list = 'GET user-overrides?list=all';
+    if (scenario.hold.has(list)) return new Promise<Response>((resolve) => void scenario.hold.set(list, resolve));
+    return ok({ users: [...scenario.people.values()].map(listOf) });
+  }
   if (key === 'GET user-overrides' && url.searchParams.has('user_id')) {
     const held = scenario.hold.get(`${key}?${url.searchParams.get('user_id')}`);
     const person = scenario.people.get(Number(url.searchParams.get('user_id')));
@@ -233,8 +241,8 @@ const respond = (call: Call): Response | Promise<Response> => {
     return ok({});
   }
   if (key === 'POST user-overrides' && target) {
-    target.override = { unlimitedSummaries: call.body?.unlimitedSummaries, remindersEnabled: call.body?.remindersEnabled, voiceEventsEnabled: call.body?.voiceEventsEnabled, unlimitedCalendars: call.body?.unlimitedCalendars, earlyAdopter: call.body?.earlyAdopter, reason: call.body?.reason, grantedAt: ago(0), grantedBy: 9 };
-    return ok({});
+    target.override = overrideAfterPost(call.body ?? {}, ago(0));
+    return ok({ override: target.override });
   }
   if (key === 'POST switch-platform' && target) {
     Object.assign(target, { whatsappPhone: call.body?.whatsapp_phone, messagingPlatform: 'whatsapp' });
@@ -389,6 +397,9 @@ const reloadedAfter = (index: number, id: number) => {
 };
 /** Nothing a request carries but its launch data is the viewer's Telegram id. */
 const viewerIdSent = () => calls.some((c) => show({ ...c.body, initData: undefined }).includes(String(VIEWER_TELEGRAM_ID)) || c.url.includes(String(VIEWER_TELEGRAM_ID)));
+
+/** The markup without the style sheets. */
+const markupOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 
 const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini|\bID\b/g;
 
@@ -1185,7 +1196,7 @@ async function main() {
     try {
       askAndCancel(o, w('profile.setup.send'), w('profile.setup.sendTitle', { name: names[1] }));
       const options = elements(dialogs(o.m)[0]).filter((e) => e.getAttribute('role') === 'radio');
-      assert(show(options.map((e) => e.getAttribute('data-value'))) === show(['calendars', 'reconnect', 'location']) && checked(options[0]) && flat(options[1]) === w('profile.setup.types.reconnect'), `the reminders: ${show(options.map((e) => `${e.getAttribute('data-value')}:${e.getAttribute('aria-checked')}`))}`);
+      assert(show(options.map((e) => e.getAttribute('data-value'))) === show(['calendars', 'location']) && checked(options[0]) && flat(options[1]) === w('profile.setup.types.location'), `the reminders (the steps still open; the server's own pick first): ${show(options.map((e) => `${e.getAttribute('data-value')}:${e.getAttribute('aria-checked')}`))}`);
       o.m.click(options[1]);
       scenario.fail.add('POST send-reminder');
       o.m.click(confirmOf(o.m) as FakeElement);
@@ -1195,7 +1206,7 @@ async function main() {
       calls.splice(0);
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
-      const at = expectPost('send-reminder', { user_id: FREE, reminder_type: 'reconnect' }, 'send');
+      const at = expectPost('send-reminder', { user_id: FREE, reminder_type: 'location' }, 'send');
       assert(dialogs(o.m).length === 0 && reloadedAfter(at, FREE) && show(statusesIn(o.m.container)).includes(w('profile.setup.sentTo', { name: names[1] })), `send: ${show(statusesIn(o.m.container))}`);
       // Reset the person's reminders
       calls.splice(0);
@@ -1535,6 +1546,307 @@ async function main() {
       const missing = [...new Set([...names, ...lookups])].filter((key) => key.includes('.') && /^(?:users|profile|rows|counts|sections|features|earlyAccess|reset|errors|common|activity|feedback|blocked|plan|planLine|unauthorized)\./.test(key)).filter((key) => key.split('.').reduce<unknown>((node, part) => (node as Row | undefined)?.[part], messages[locale].admin) === undefined);
       assert(missing.length === 0, `${locale}: messages the panel reads that do not exist: ${missing.join(', ')}`);
     }
+  });
+
+  // ---- The fix round: a delete that waits, saving away the last override, notices beside their action, RTL rows, due setup reminders, scroll, a plan that won't renew ----
+
+  await check('U8 deleting waits for the people list and lands on Users with its notice: while the list reloads the profile and its working sheet are still there and Back, Escape, the scrim and Cancel do nothing; then the stack is the Overview and Users (one Back goes to the Overview, not two), with "{name} was deleted" once; the same from a profile opened from the activity log', async () => {
+    const LIST = 'GET user-overrides?list=all';
+    const names = PEOPLE_NAMES.en;
+    const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+    const releaseList = async () => {
+      const resolve = scenario.hold.get(LIST) as (r: Response) => void;
+      scenario.hold.delete(LIST);
+      await act(async () => {
+        resolve(ok({ users: [...scenario.people.values()].map(listOf) }));
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      await settle();
+    };
+    const deleteFromProfile = async (o: ReturnType<typeof open>) => {
+      o.m.click(buttonsOf(o.m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === w('profile.account.delete')) as FakeElement);
+      o.m.input(sheetField(o.m), 'DELETE');
+    };
+
+    // Back and the rest, while the list is on its way
+    reset();
+    let o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(o, 'en', 0);
+      await deleteFromProfile(o);
+      scenario.hold.set(LIST, () => undefined);
+      calls.splice(0);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(posts('users/moderation').length === 1 && requests('GET', 'user-overrides').some((c) => c.url === '/api/admin/user-overrides?list=all'), `the delete went and the list was asked for: ${show(urls())}`);
+      const working = confirmOf(o.m) as FakeElement;
+      assert(dialogs(o.m).length === 1 && working.hasAttribute('disabled') && working.getAttribute('aria-busy') === 'true' && flat(title(o.m) as FakeElement) === names[0] && sectionsOf(o.m).length === 6, `while the list reloads the profile and the sheet are there: ${dialogs(o.m).length} dialog(s), ${flat(title(o.m) as FakeElement)}, ${sectionsOf(o.m).length} sections`);
+      tapBack(o);
+      o.m.key(dialogs(o.m)[0], 'Escape');
+      o.m.click(elements(o.m.container).find((e) => e.className === 'ch-sheet-backdrop') as FakeElement);
+      o.m.click(cancelOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && flat(title(o.m) as FakeElement) === names[0] && pushes.length === 0, `Back, Escape, the scrim or Cancel acted while the list reloads: ${dialogs(o.m).length} dialog(s), ${flat(title(o.m) as FakeElement)}, pushes ${show(pushes)}`);
+      await releaseList();
+      assert(flat(title(o.m) as FakeElement) === w('users.title') && dialogs(o.m).length === 0 && show(statusesIn(o.m.container)) === show([w('users.deleted', { name: names[0] })]) && listRows(o.m).length === 5, `after the list answered: ${flat(title(o.m) as FakeElement)}, ${show(statusesIn(o.m.container))}, ${listRows(o.m).length} rows`);
+      // One Back from Users is the Overview (the stack is [Overview, Users]), and the notice does not follow
+      tapBack(o);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === w('title') && pushes.length === 0, `one Back from Users: ${flat(title(o.m) as FakeElement)}`);
+    } finally {
+      close(o);
+    }
+
+    // A profile opened from the activity log: after the delete it is the people list, with the notice, and Back is the Overview
+    reset();
+    o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await enter(o, 'en', 'rows.activity');
+      o.m.click(listRows(o.m)[0]);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === names[0], `the profile from the log: ${flat(title(o.m) as FakeElement)}`);
+      await deleteFromProfile(o);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === w('users.title') && show(statusesIn(o.m.container)) === show([w('users.deleted', { name: names[0] })]) && listRows(o.m).length === 5, `from the log: ${flat(title(o.m) as FakeElement)}, ${show(statusesIn(o.m.container))}`);
+      tapBack(o);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === w('title'), `Back from Users after a delete that began in the log: ${flat(title(o.m) as FakeElement)}`);
+    } finally {
+      close(o);
+    }
+  });
+
+  await check('U9 saving away the last override settles: the route deletes the override and its reason, so after the reload the draft is rebuilt from the profile: Save goes off, says Saved, the reason field is empty, and another tap sends nothing; a reason typed with no switch on (which the route also drops) settles the same way', async () => {
+    const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+    const reasonField = (m: Mounted) => elements(m.container).find((e) => e.localName === 'input' && e.getAttribute('aria-label') === w('profile.access.reason')) as FakeElement;
+    reset();
+    let o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(o, 'en', 2); // a paid person with early access and the reason "early tester"
+      const save = () => btn(o.m, w('profile.access.save'));
+      const early = () => switches(o.m).find((r) => flat(r).startsWith(w('profile.access.earlyAccess'))) as FakeElement;
+      assert(checked(early()) && reasonField(o.m).value === 'early tester' && save().hasAttribute('disabled'), 'it starts saved');
+      calls.splice(0);
+      o.m.click(early());
+      assert(!save().hasAttribute('disabled'), 'switching off the last override turns Save on');
+      o.m.click(save());
+      await settle();
+      assert(posts('user-overrides').length === 1 && show(posts('user-overrides')[0].body) === show({ user_id: PAID, unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: false, reason: 'early tester', initData: INIT_DATA }), `the save: ${show(posts('user-overrides').map((c) => c.body))}`);
+      assert(scenario.people.get(PAID)?.override === null, 'the route kept no override');
+      assert(save().hasAttribute('disabled') && statusesIn(o.m.container).includes(w('profile.access.saved')) && !checked(early()) && reasonField(o.m).value === '', `after the save: Save disabled ${save().hasAttribute('disabled')}, ${show(statusesIn(o.m.container))}, early ${checked(early())}, reason "${reasonField(o.m).value}"`);
+      o.m.click(save());
+      await settle();
+      assert(posts('user-overrides').length === 1, `another tap posted again: ${posts('user-overrides').length}`);
+    } finally {
+      close(o);
+    }
+    // A reason and no switch: the route has nothing to keep
+    reset();
+    o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(o, 'en', 1);
+      const save = () => btn(o.m, w('profile.access.save'));
+      o.m.input(reasonField(o.m), 'just a note');
+      assert(!save().hasAttribute('disabled'), 'a reason alone turns Save on');
+      calls.splice(0);
+      o.m.click(save());
+      await settle();
+      assert(posts('user-overrides').length === 1 && save().hasAttribute('disabled') && statusesIn(o.m.container).includes(w('profile.access.saved')) && reasonField(o.m).value === '', `a reason alone: ${posts('user-overrides').length} post(s), Save disabled ${save().hasAttribute('disabled')}, "${reasonField(o.m).value}"`);
+      o.m.click(save());
+      await settle();
+      assert(posts('user-overrides').length === 1, 'another tap posted again');
+    } finally {
+      close(o);
+    }
+    // A reload that fails after a good save leaves the draft alone (nothing to rebuild it from)
+    reset();
+    o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await openPerson(o, 'en', 0);
+      const save = () => btn(o.m, w('profile.access.save'));
+      o.m.click(switches(o.m).find((r) => flat(r).startsWith(w('profile.access.voiceEvents'))) as FakeElement);
+      scenario.fail.add(`GET user-overrides?${TRIAL}`);
+      o.m.click(save());
+      await settle();
+      assert(checked(switches(o.m).find((r) => flat(r).startsWith(w('profile.access.voiceEvents')))) && posts('user-overrides').length === 1, 'the draft stays when the profile could not be reloaded');
+    } finally {
+      close(o);
+    }
+  });
+
+  await check('U10 a result or a failure of the Overview is said under the card of its action, not at the top of the page: a failed switch under the switches (before the setup reminders), the reset result under the reset row (the last thing on the page)', async () => {
+    reset();
+    const o = open('en', propsOf('en'), { version: '7.7' });
+    const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+    try {
+      const all = () => elements(o.m.container);
+      scenario.fail.add('POST settings');
+      o.m.click(switchOf(o.m, 'en', 'voiceTtsOutcome') as FakeElement);
+      await settle();
+      const lastSwitch = all().lastIndexOf(switches(o.m)[4]);
+      const alert = all().findIndex((e) => e.getAttribute('role') === 'alert');
+      const remindersLabel = all().findIndex((e) => e.localName === 'h2' && flat(e) === w('sections.reminders'));
+      assert(alert > lastSwitch && alert < remindersLabel && show(alertsIn(o.m.container)) === show([w('errors.switch')]), `the failed switch's notice: switch ${lastSwitch}, alert ${alert}, reminders ${remindersLabel}`);
+      scenario.fail.clear();
+      const resetRow = () => all().findIndex((e) => e.localName === 'button' && classes(e).includes('ch-danger-row') && flat(e) === w('reset.row'));
+      o.m.click(all()[resetRow()]);
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const status = all().findIndex((e) => e.getAttribute('role') === 'status' && flat(e) === '4 people reset');
+      assert(status > resetRow() && !all().slice(status).some((e) => e.localName === 'h2' || classes(e).includes('ch-form-card')), `the reset result: row ${resetRow()}, notice ${status}`);
+    } finally {
+      close(o);
+    }
+  });
+
+  await check('U11 in Hebrew the rows of the profile\'s activity, the activity log, the feedback and the blocked start on the page\'s start side: a line is a plain block that reads in the page\'s direction, the action code and an id sit in a <bdi dir="ltr">, free text in a <bdi dir="auto">, and no flex item of a row carries a dir of its own (which would align it by its own text); a name keeps dir="auto"', async () => {
+    const lineProblems = (row: FakeElement, where: string): string[] => {
+      const problems: string[] = [];
+      for (const label of elements(row).filter((e) => classes(e).includes('ch-form-label'))) {
+        for (const child of label.childNodes.filter((n): n is FakeElement => n instanceof FakeElement)) {
+          if (child.getAttribute('dir') !== null && !classes(child).includes('ch-list-title')) problems.push(`${where}: a flex item with dir="${child.getAttribute('dir')}": ${flat(child)}`);
+        }
+      }
+      return problems;
+    };
+    reset();
+    const o = open('he', propsOf('he'), { version: '7.7' });
+    const problems: string[] = [];
+    try {
+      // The profile's activity
+      await openPerson(o, 'he', 0);
+      const rows = elements(o.m.container).filter((e) => classes(e).includes('ch-form-row') && elements(e).some((x) => x.localName === 'bdi' && /^(?:login|settings_changed)$/.test(flat(x))));
+      assert(rows.length === 20, `${rows.length} activity rows`);
+      for (const row of rows) {
+        problems.push(...lineProblems(row, 'profile activity'));
+        const label = elements(row).find((e) => classes(e).includes('ch-form-label')) as FakeElement;
+        const lines = label.childNodes.filter((n): n is FakeElement => n instanceof FakeElement);
+        const action = elements(lines[0]).find((e) => e.localName === 'bdi');
+        if (!action || action.getAttribute('dir') !== 'ltr' || !classes(lines[0]).includes('ch-admin-line')) problems.push(`profile activity: the action is not a <bdi dir="ltr"> in a block line: ${flat(lines[0])}`);
+        if (lines[1] && elements(lines[1]).find((e) => e.localName === 'bdi')?.getAttribute('dir') !== 'auto') problems.push(`profile activity: the detail is not a <bdi dir="auto">: ${flat(lines[1])}`);
+      }
+      tapBack(o);
+      await settle();
+      tapBack(o);
+      await settle();
+      // The log, the feedback, the blocked
+      await enter(o, 'he', 'rows.activity');
+      for (const row of listRows(o.m)) problems.push(...lineProblems(row, 'activity log'));
+      assert(elements(listRows(o.m)[0]).some((e) => classes(e).includes('ch-list-title') && e.getAttribute('dir') === 'auto'), 'a name keeps dir="auto"');
+      tapBack(o);
+      await enter(o, 'he', 'rows.feedback');
+      for (const row of listRows(o.m)) {
+        problems.push(...lineProblems(row, 'feedback'));
+        if (!elements(row).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto')) problems.push(`feedback: the first line is not a <bdi dir="auto">: ${flat(row)}`);
+      }
+      tapBack(o);
+      await enter(o, 'he', 'rows.blocked');
+      for (const row of listRows(o.m)) {
+        problems.push(...lineProblems(row, 'blocked'));
+        const titleEl = elements(row).find((e) => classes(e).includes('ch-list-title')) as FakeElement;
+        if (titleEl.getAttribute('dir') !== null || !elements(titleEl).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr')) problems.push(`blocked: the id's title takes the page's direction and holds a <bdi dir="ltr">: dir=${titleEl.getAttribute('dir')}`);
+        if (!elements(row).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto')) problems.push(`blocked: the reason is not a <bdi dir="auto">: ${flat(row)}`);
+      }
+    } finally {
+      close(o);
+    }
+    assert(problems.length === 0, problems.slice(0, 5).join('; '));
+    // The kit: a title the caller built follows the page, a plain one its own text
+    assert(/ch-list-title"><bdi/.test(markupOf(renderToString(createElement(ListRow as never, { title: createElement('bdi', { dir: 'ltr' }, '5551234'), onClick: () => undefined })))) && /ch-list-title" dir="auto">Noa</.test(markupOf(renderToString(createElement(ListRow as never, { title: 'Noa', onClick: () => undefined })))), 'ListRow: a built title has no dir, a string title dir="auto"');
+  });
+
+  await check('U12 the send-reminder sheet offers a reminder only for a step that is still open (location: no location yet; calendars: a Google token and no calendars chosen; reconnect: a legacy Google user whose token is gone), never "Reconnect Google" to someone whose connection works; with every step done there is no send row', async () => {
+    const cases: [string, Row, string[]][] = [
+      ['no Google, no location', { googleState: 'none', hasOAuth: false, hasCalendars: false, hasLocation: false, applicableReminder: 'location' }, ['location']],
+      ['no Google, location set', { googleState: 'none', hasOAuth: false, hasCalendars: false, hasLocation: true, applicableReminder: null }, []],
+      ['a token, no calendars chosen', { googleState: 'choose', hasOAuth: true, hasCalendars: false, hasLocation: true, applicableReminder: 'calendars' }, ['calendars']],
+      ['a token, no calendars, no location', { googleState: 'choose', hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars' }, ['calendars', 'location']],
+      ['a legacy Google user whose token is gone', { googleState: 'reconnect', hasOAuth: false, hasCalendars: true, hasLocation: true, applicableReminder: 'reconnect' }, ['reconnect']],
+      ['the same, with no location', { googleState: 'reconnect', hasOAuth: false, hasCalendars: true, hasLocation: false, applicableReminder: 'reconnect' }, ['reconnect', 'location']],
+      ['connected, calendars chosen, location set', { googleState: 'connected', hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null }, []],
+    ];
+    for (const [what, registrationStatus, want] of cases) {
+      reset();
+      const o = open('en', propsOf('en'), { version: '7.7' });
+      try {
+        (scenario.people.get(TRIAL) as Row).registrationStatus = registrationStatus;
+        await openPerson(o, 'en', 0);
+        const send = btn(o.m, word('en', 'profile.setup.send'));
+        assert(!!send === (want.length > 0), `${what}: the send row is ${send ? 'there' : 'not there'}`);
+        if (!send) {
+          assert(page(o.m).includes(word('en', 'profile.setup.allDone')), `${what}: it says they are fully set up`);
+          continue;
+        }
+        o.m.click(send);
+        const options = elements(dialogs(o.m)[0]).filter((e) => e.getAttribute('role') === 'radio').map((e) => e.getAttribute('data-value'));
+        assert(show(options) === show(want), `${what}: offered ${show(options)}, wanted ${show(want)}`);
+        assert(!flat(dialogs(o.m)[0]).includes(word('en', 'profile.setup.types.reconnect')) || want.includes('reconnect'), `${what}: "Reconnect Google" offered to a working connection`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
+  await check('U13 a view opens at the top and Back puts the view it returns to where it was left: Users at the row that was opened, the Overview where it was, also after a delete that returns to Users; the offset is the document\'s', async () => {
+    const scrolled: number[] = [];
+    fakeWindow.scrollTo = (_x: number, y: number) => void scrolled.push(y);
+    fakeWindow.scrollY = 300;
+    reset();
+    const o = open('en', propsOf('en'), { version: '7.7' });
+    try {
+      await settle();
+      scrolled.length = 0;
+      await enter(o, 'en', 'rows.users'); // from the Overview, scrolled to 300
+      assert(show(scrolled) === show([0]), `Users opens at the top: ${show(scrolled)}`);
+      fakeWindow.scrollY = 1400; // the person scrolls down the list and taps a row
+      o.m.click(personRow(o.m, 'en', 2));
+      await settle();
+      assert(show(scrolled) === show([0, 0]), `the profile opens at the top: ${show(scrolled)}`);
+      fakeWindow.scrollY = 900;
+      tapBack(o);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === word('en', 'users.title') && scrolled[scrolled.length - 1] === 1400, `back to Users at 1400: ${show(scrolled)}`);
+      tapBack(o);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === word('en', 'title') && scrolled[scrolled.length - 1] === 300, `back to the Overview at 300: ${show(scrolled)}`);
+      // A delete returns to Users, at the offset it was left at
+      fakeWindow.scrollY = 300;
+      await enter(o, 'en', 'rows.users');
+      fakeWindow.scrollY = 700;
+      o.m.click(personRow(o.m, 'en', 5));
+      await settle();
+      o.m.click(buttonsOf(o.m).find((b) => classes(b).includes('ch-danger-row') && flat(b) === word('en', 'profile.account.delete')) as FakeElement);
+      o.m.input(sheetField(o.m), 'DELETE');
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(flat(title(o.m) as FakeElement) === word('en', 'users.title') && scrolled[scrolled.length - 1] === 700, `after a delete, Users at 700: ${show(scrolled)}`);
+    } finally {
+      delete fakeWindow.scrollTo;
+      delete fakeWindow.scrollY;
+      close(o);
+    }
+  });
+
+  await check('U14 a paid plan that will not renew says so, in the list and in the profile, in en, he and ru ("{plan} · until {date}, won\'t renew"); an active one does not; and he says Telegram for a Telegram message (not טלגרם)', async () => {
+    const tails: Record<Locale, string> = { en: ", won't renew", he: ', לא יתחדש', ru: ', без продления' };
+    for (const locale of LOCALES) {
+      reset();
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      const names = PEOPLE_NAMES[locale];
+      try {
+        (scenario.people.get(FREE) as Row).subscription = { ...SUBS.paid, status: 'CANCELED' };
+        await enter(o, locale, 'rows.users');
+        assert(flat(personRow(o.m, locale, 1)).includes(tails[locale]), `${locale}: the list: ${flat(personRow(o.m, locale, 1))}`);
+        assert(!flat(personRow(o.m, locale, 2)).includes(tails[locale]), `${locale}: an active plan says it will not renew: ${flat(personRow(o.m, locale, 2))}`);
+        o.m.click(personRow(o.m, locale, 1));
+        await settle();
+        assert(page(o.m).includes(tails[locale]) && elements(o.m.container).some((e) => e.className === 'ch-tag' && flat(e) === word(locale, 'profile.plan.tagPaid')), `${locale}: the profile of ${names[1]}: ${page(o.m).slice(0, 200)}`);
+      } finally {
+        close(o);
+      }
+    }
+    assert(messages.he.admin.feedback.telegram === 'Telegram' && messages.en.admin.feedback.telegram === 'Telegram' && messages.ru.admin.feedback.telegram === 'Telegram', 'the Telegram source label is the brand in every language');
   });
 
   await check('R10 the panel\'s CSS keeps the kit\'s rules (logical properties, no hover, nothing under 11 px, no hex outside a token, a 44 px tap) and its class names are its own: no other file defines .ch-admin-*; the list row\'s and the tag tones\' names are free of the home\'s', () => {

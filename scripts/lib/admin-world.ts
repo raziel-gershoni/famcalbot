@@ -70,6 +70,27 @@ export function page(prefix: string, total: number, url: URL, key: 'activities' 
   return { [key]: rows, pagination: { total, limit, offset, hasMore: offset + limit < total }, ...(key === 'activities' ? { actionStats: [{ action: 'login', count: total }] } : {}) };
 }
 
+/**
+ * What POST /api/admin/user-overrides does to a person (app/api/admin/user-overrides/route.ts): with none of the five values
+ * true there is no override at all (the route deletes the row, reason included, and answers `override: null`); otherwise the
+ * row holds the values (`?? null`; the early flag is `=== true`), the reason (`?? null`) and the grant. Returns the person's
+ * new `override`.
+ */
+export function overrideAfterPost(body: Row, grantedAt: string): Row | null {
+  const anyOn = [body.unlimitedSummaries, body.remindersEnabled, body.voiceEventsEnabled, body.unlimitedCalendars, body.earlyAdopter].some((v) => v === true);
+  if (!anyOn) return null;
+  return {
+    unlimitedSummaries: body.unlimitedSummaries ?? null,
+    remindersEnabled: body.remindersEnabled ?? null,
+    voiceEventsEnabled: body.voiceEventsEnabled ?? null,
+    unlimitedCalendars: body.unlimitedCalendars ?? null,
+    earlyAdopter: body.earlyAdopter === true,
+    reason: body.reason ?? null,
+    grantedAt,
+    grantedBy: 9,
+  };
+}
+
 /** The routes' answers for a few people; every POST and DELETE works. */
 export const defaultRespond = (call: Call): Response => {
   const url = new URL(call.url, 'http://localhost');

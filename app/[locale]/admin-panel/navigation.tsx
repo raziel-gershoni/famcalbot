@@ -4,7 +4,7 @@
 // in-page stack of views and no routes of its own.
 //
 // - `useViewStack()` is the stack: it starts on the root, `push` opens a view over the current one, `pop` goes back to the one
-//   under it (and never off the root).
+//   under it (and never off the root), and `resetTo` puts a known stack in place of it (after a delete: the root and the people).
 // - A sheet that is open comes before the view in Back. A screen's sheets register a closer while they are open
 //   (`useBackClose`); the shell's Back asks the registry (`closeTop`) first and only then pops. A sheet that must not close now
 //   (a request is running) registers a closer that does nothing, so Back does nothing either.
@@ -22,7 +22,9 @@ export function useViewStack() {
   const [stack, setStack] = useState<AdminView[]>([ROOT]);
   const push = useCallback((view: AdminView) => setStack((s) => [...s, view]), []);
   const pop = useCallback(() => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)), []);
-  return { current: stack[stack.length - 1], depth: stack.length, push, pop };
+  /** Replace the stack with these views, but only while the view on top is still `top` (a move made since is not undone). */
+  const resetTo = useCallback((views: AdminView[], top: AdminView) => setStack((s) => (s[s.length - 1] === top ? views : s)), []);
+  return { current: stack[stack.length - 1], below: stack[stack.length - 2] as AdminView | undefined, depth: stack.length, push, pop, resetTo };
 }
 
 type Closer = () => void;

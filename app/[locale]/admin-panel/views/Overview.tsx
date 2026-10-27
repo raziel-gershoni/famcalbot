@@ -10,7 +10,9 @@
 // - The switches: Early access asks first, in both directions, in a sheet (turning it on gives everyone Pro, turning it off
 //   takes it away); the other four switch at once. A switch that fails goes back and a notice says so.
 // - Reset everyone still setting up is a danger row: it asks, then says how many people it reset.
-// - Every failure is logged by the request helper and said here in the page's language.
+// - Every failure is logged by the request helper and said here in the page's language. A result or a failure is said right under
+//   the card the action belongs to (the switches, the reset row): the page is longer than a screen, and the notice must be where
+//   the finger was.
 
 import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -59,7 +61,9 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
   const t = useTranslations('admin');
   const ui = useTranslations('ui');
   const locale = useLocale();
-  const [message, setMessage] = useState<Message | null>(null);
+  /** What a switch said (a failure), under the switches; and what the reset said, under the reset row. */
+  const [switchMessage, setSwitchMessage] = useState<Message | null>(null);
+  const [resetMessage, setResetMessage] = useState<Message | null>(null);
   /** The value the early-access sheet asks about; null while it is closed. */
   const [earlyAsk, setEarlyAsk] = useState<boolean | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
@@ -67,9 +71,9 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
   const [resetFailed, setResetFailed] = useState(false);
 
   const flip = async (flag: AdminFlag, value: boolean) => {
-    setMessage(null);
+    setSwitchMessage(null);
     const outcome = await setFlag(flag, value);
-    if (!outcome.ok && !isBusy(outcome)) setMessage({ tone: 'error', text: t('errors.switch') });
+    if (!outcome.ok && !isBusy(outcome)) setSwitchMessage({ tone: 'error', text: t('errors.switch') });
   };
 
   const confirmEarly = () => {
@@ -92,7 +96,7 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
     setResetting(false);
     if (result.ok) {
       setResetOpen(false);
-      setMessage({ tone: 'info', text: t('reset.result', { count: result.data.usersReset ?? 0 }) });
+      setResetMessage({ tone: 'info', text: t('reset.result', { count: result.data.usersReset ?? 0 }) });
     } else {
       setResetFailed(true);
     }
@@ -112,7 +116,6 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
     <>
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={onBack} />
       <div className="ch-form-page ch-form-page-grouped">
-        {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
 
         <FormCard>
           <div className="ch-admin-counts">
@@ -168,16 +171,26 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
             />
           ))}
         </FormCard>
+        {switchMessage ? <Notice tone={switchMessage.tone}>{switchMessage.text}</Notice> : null}
 
         <SectionLabel>{t('sections.reminders')}</SectionLabel>
         <FormCard>
           <div className="ch-form-row">
             <span className="ch-form-hint">{t('reset.hint')}</span>
           </div>
-          <button type="button" className="ch-form-row ch-danger-row" aria-haspopup="dialog" onClick={() => setResetOpen(true)}>
+          <button
+            type="button"
+            className="ch-form-row ch-danger-row"
+            aria-haspopup="dialog"
+            onClick={() => {
+              setResetMessage(null);
+              setResetOpen(true);
+            }}
+          >
             {t('reset.row')}
           </button>
         </FormCard>
+        {resetMessage ? <Notice tone={resetMessage.tone}>{resetMessage.text}</Notice> : null}
       </div>
 
       {earlyAsk !== null ? (

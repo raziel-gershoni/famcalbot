@@ -15,7 +15,9 @@
 //  - D7 the formatters in en, he and ru: "ago" in each language's own words, 24-hour dates, the plan line with its plurals;
 //  - D8 POST /api/admin/users/blocklist answers 400 SELF_BAN when an admin bans their own Telegram id or number, and bans
 //    anyone else's;
-//  - D9 React logs no warning.
+//  - D9 React logs no warning;
+//  - D10 the fake route of the render smoke (admin-world's overrideAfterPost) does what POST /api/admin/user-overrides does, run for real;
+//    and D6 holds that a delete reloads the list first, with the profile and `working` still there, and clears the profile only then.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
 //   TZ=UTC npx tsx scripts/smoke-admin-data.ts
@@ -29,7 +31,7 @@ import { fileURLToPath } from 'url';
 import { act, createElement, useEffect } from 'react';
 import { createTranslator } from 'next-intl';
 import { fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
-import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, PHONE, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
+import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, overrideAfterPost, PHONE, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
 import type { AdminResult, Outcome } from '../app/[locale]/admin-panel/data/admin-api';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -84,6 +86,8 @@ installFakeFetch();
 
 /** How many requests have been sent since the last reset (a function, so that a narrowed type does not stick). */
 const sent = () => calls.length;
+/** The requests so far, as "METHOD /url". */
+const requests0 = () => calls.map((c) => `${c.method} ${c.url}`);
 const reset = () => {
   calls.splice(0);
   adminLogs.length = 0;
@@ -134,7 +138,7 @@ function expectCall(call: Call | undefined, method: string, url: string, body?: 
 
 // ---- D8's route harness: the blocklist route for real over a small in-memory Prisma ----
 
-const DB: { user: Row[]; blockedIdentifier: Row[] } = { user: [], blockedIdentifier: [] };
+const DB: { user: Row[]; blockedIdentifier: Row[]; userFeatureOverride: Row[] } = { user: [], blockedIdentifier: [], userFeatureOverride: [] };
 const blocked = () => DB.blockedIdentifier;
 const same = (a: unknown, b: unknown) => a != null && b != null && String(a) === String(b);
 const fakePrisma = {
@@ -152,6 +156,21 @@ const fakePrisma = {
     deleteMany: async () => ({ count: 0 }),
     findMany: async () => DB.blockedIdentifier,
     findFirst: async () => null,
+  },
+  userFeatureOverride: {
+    deleteMany: async ({ where }: Row) => {
+      const keep = DB.userFeatureOverride.filter((r) => !same(r.userId, where.userId));
+      const count = DB.userFeatureOverride.length - keep.length;
+      DB.userFeatureOverride = keep;
+      return { count };
+    },
+    upsert: async ({ where, update, create }: Row) => {
+      const row = DB.userFeatureOverride.find((r) => same(r.userId, where.userId));
+      if (row) return Object.assign(row, update);
+      const made = { id: DB.userFeatureOverride.length + 1, ...create };
+      DB.userFeatureOverride.push(made);
+      return made;
+    },
   },
 };
 const redisStore = new Map<string, string>();
@@ -207,6 +226,7 @@ function seedRoute() {
     { id: 42, name: 'Other', telegramId: BigInt(222222222), whatsappPhone: '+972503334444', whatsappBsuid: null, isAdmin: false, googleRefreshToken: '', language: 'en', messagingPlatform: 'telegram', culture: 'default', calendarSource: 'NATIVE' },
   ];
   DB.blockedIdentifier = [];
+  DB.userFeatureOverride = [];
   redisStore.clear();
   captured.length = 0;
 }
@@ -594,6 +614,7 @@ async function main() {
         assert(!reloadsProfile && both.latest().profile.profile === null && both.latest().profile.status === 'idle', `hardDelete: the profile is cleared and not asked for again: ${canon(requests)}`);
       } else {
         assert(reloadsProfile && both.latest().profile.profile?.id === TARGET, `${action.name}: the profile was not reloaded: ${canon(requests)}`);
+        assert(both.latest().profile.current() === both.latest().profile.profile, `${action.name}: current() is not the reloaded profile`);
       }
       assert(both.latest().profile.working === null, `${action.name}: still working`);
       both.unmount();
@@ -614,6 +635,28 @@ async function main() {
       assert(adminLogs.length === 1, `${action.name}: logs ${canon(adminLogs)}`);
       both.unmount();
     }
+
+    // A delete reloads the list first, with the profile and `working` still there; only when the list has answered is the person gone
+    reset();
+    const deleting = hooked(useBoth);
+    await openProfile(deleting);
+    reset();
+    const listGate = deferred<Response>();
+    world.respond = (call) => (call.method === 'GET' && call.url === '/api/admin/user-overrides?list=all' ? listGate.promise : defaultRespond(call));
+    let deletion!: Promise<Outcome>;
+    await act(async () => {
+      deletion = deleting.latest().profile.hardDelete('DELETE');
+    });
+    await settle();
+    const waiting = deleting.latest().profile;
+    assert(waiting.profile?.id === TARGET && waiting.status === 'ready' && waiting.working === 'hardDelete' && requests0().includes('GET /api/admin/user-overrides?list=all'), `while the list reloads the profile is still there and working: ${canon({ id: waiting.profile?.id, status: waiting.status, working: waiting.working })}`);
+    await act(async () => {
+      listGate.resolve(defaultRespond({ url: '/api/admin/user-overrides?list=all', method: 'GET', headers: {} }));
+      await deletion;
+    });
+    const gone = deleting.latest().profile;
+    assert(gone.profile === null && gone.status === 'idle' && gone.working === null, `after the list answered the person is gone: ${canon({ profile: gone.profile?.id, status: gone.status, working: gone.working })}`);
+    deleting.unmount();
 
     // One action at a time
     reset();
@@ -749,9 +792,9 @@ async function main() {
     const sub = (o: Row) => ({ subscription: { plan: 'FREE', status: 'TRIALING', trialDaysRemaining: null, currentPeriodEnd: null, ...o } }) as never;
     const until = new Date(2026, 10, 3, 12, 0).toISOString();
     const expected: Record<Locale, Record<string, string>> = {
-      en: { none: 'Free', trial1: 'Pro · trial, 1 day left', trial9: 'Pro · trial, 9 days left', until: 'Basic · until 3 Nov 2026', comped: 'Pro · free from an admin', expired: 'Free · expired' },
-      he: { none: 'חינם', trial1: 'Pro · תקופת ניסיון, נשאר יום אחד', trial2: 'Pro · תקופת ניסיון, נשארו יומיים', trial9: 'Pro · תקופת ניסיון, נשארו 9 ימים', until: 'בסיסי · עד 3 בנוב׳ 2026', comped: 'Pro · במתנה מהניהול', expired: 'חינם · פג תוקף' },
-      ru: { none: 'Бесплатный', trial1: 'Pro · пробный период, остался 1 день', trial2: 'Pro · пробный период, осталось 2 дня', trial5: 'Pro · пробный период, осталось 5 дней', trial21: 'Pro · пробный период, остался 21 день', until: 'Базовый · до 3 нояб. 2026', comped: 'Pro · бесплатно от администратора', expired: 'Бесплатный · срок истёк' },
+      en: { none: 'Free', trial1: 'Pro · trial, 1 day left', trial9: 'Pro · trial, 9 days left', until: 'Basic · until 3 Nov 2026', canceled: "Basic · until 3 Nov 2026, won't renew", comped: 'Pro · free from an admin', expired: 'Free · expired' },
+      he: { none: 'חינם', trial1: 'Pro · תקופת ניסיון, נשאר יום אחד', trial2: 'Pro · תקופת ניסיון, נשארו יומיים', trial9: 'Pro · תקופת ניסיון, נשארו 9 ימים', until: 'בסיסי · עד 3 בנוב׳ 2026', canceled: 'בסיסי · עד 3 בנוב׳ 2026, לא יתחדש', comped: 'Pro · במתנה מהניהול', expired: 'חינם · פג תוקף' },
+      ru: { none: 'Бесплатный', trial1: 'Pro · пробный период, остался 1 день', trial2: 'Pro · пробный период, осталось 2 дня', trial5: 'Pro · пробный период, осталось 5 дней', trial21: 'Pro · пробный период, остался 21 день', until: 'Базовый · до 3 нояб. 2026', canceled: 'Базовый · до 3 нояб. 2026, без продления', comped: 'Pro · бесплатно от администратора', expired: 'Бесплатный · срок истёк' },
     };
     for (const locale of LOCALES) {
       const t = createTranslator({ locale, messages: messages[locale], namespace: 'admin' }) as unknown as Parameters<typeof format.planLine>[1];
@@ -761,6 +804,7 @@ async function main() {
         trial1: line({ trialDaysRemaining: 1 }),
         trial9: line({ trialDaysRemaining: 9 }),
         until: line({ plan: 'BASIC', status: 'ACTIVE', currentPeriodEnd: until }),
+        canceled: line({ plan: 'BASIC', status: 'CANCELED', currentPeriodEnd: until }),
         comped: line({ plan: 'PRO', status: 'ACTIVE', comped: true }),
         expired: line({ status: 'EXPIRED' }),
       };
@@ -771,7 +815,8 @@ async function main() {
       assert(line({ trialDaysRemaining: null }) === expected[locale].none, `${locale}: a trial that has run out`);
       assert(line({ plan: 'PRO', status: 'ACTIVE' }) === 'Pro', `${locale}: a paid plan with no end`);
       assert(line({ plan: 'BASIC', status: 'CANCELED', currentPeriodEnd: new Date(2026, 8, 1).toISOString() }) === expected[locale].none, `${locale}: a cancelled plan that ended`);
-      assert(line({ plan: 'BASIC', status: 'CANCELED', currentPeriodEnd: until }) === expected[locale].until, `${locale}: a cancelled plan that still runs`);
+      assert(line({ plan: 'BASIC', status: 'CANCELED', currentPeriodEnd: until }) === expected[locale].canceled, `${locale}: a cancelled plan that still runs says it will not renew: "${line({ plan: 'BASIC', status: 'CANCELED', currentPeriodEnd: until })}"`);
+      assert(line({ plan: 'BASIC', status: 'ACTIVE', currentPeriodEnd: until }) === expected[locale].until && !line({ plan: 'BASIC', status: 'ACTIVE', currentPeriodEnd: until }).includes(expected[locale].canceled.slice(expected[locale].until.length)), `${locale}: an active plan does not`);
     }
   });
 
@@ -810,6 +855,46 @@ async function main() {
       assert(unban.status === 200, `an unban of one's own: ${unban.status}`);
       const empty = await post({ action: 'ban' });
       assert(empty.status === 400 && empty.body.error !== 'SELF_BAN', `no identifier: ${empty.status} ${canon(empty.body)}`);
+    } finally {
+      console.log = quiet.log;
+    }
+  });
+
+  await check('D10 the fake route the render smoke uses (admin-world\'s overrideAfterPost) does what POST /api/admin/user-overrides does, run for real: with none of the five values true the override is deleted (its reason too) and the answer is `override: null`; otherwise the row holds the values (false stays false, absent is null), the early flag and the reason', async () => {
+    const quiet = { log: console.log };
+    console.log = () => undefined;
+    try {
+      const { POST } = await import('../app/api/admin/user-overrides/route');
+      const bodies: Row[] = [
+        { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: false, reason: 'early tester' },
+        { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false, earlyAdopter: false, reason: null },
+        { unlimitedSummaries: true, remindersEnabled: null, voiceEventsEnabled: false, unlimitedCalendars: null, earlyAdopter: false, reason: 'beta' },
+        { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true },
+        { unlimitedSummaries: null, remindersEnabled: true, voiceEventsEnabled: true, unlimitedCalendars: true, earlyAdopter: true, reason: null },
+      ];
+      for (const body of bodies) {
+        seedRoute();
+        // A person who has an override already: the route replaces or removes it
+        DB.userFeatureOverride = [{ id: 1, userId: 42, unlimitedSummaries: true, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'old' }];
+        const res: Response = await POST(
+          new NextRequest('http://localhost/api/admin/user-overrides', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: 42, ...body, initData: initDataFor(ADMIN_TELEGRAM) }),
+          }),
+        );
+        const answer = await res.json();
+        const fake = overrideAfterPost(body, 'now');
+        assert(res.status === 200 && answer.success === true, `${canon(body)}: ${res.status} ${canon(answer)} ${captured.join(' | ')}`);
+        if (fake === null) {
+          assert(answer.override === null && DB.userFeatureOverride.length === 0, `${canon(body)}: the route kept ${canon(DB.userFeatureOverride)}, answered ${canon(answer.override)}`);
+        } else {
+          const kept = DB.userFeatureOverride[0] as Row;
+          for (const key of ['unlimitedSummaries', 'remindersEnabled', 'voiceEventsEnabled', 'unlimitedCalendars', 'earlyAdopter', 'reason']) {
+            assert(canon(kept[key]) === canon(fake[key]) && canon(answer.override[key]) === canon(fake[key]), `${canon(body)}: ${key} is ${canon(kept[key])} in the route, ${canon(fake[key])} in the fake`);
+          }
+        }
+      }
     } finally {
       console.log = quiet.log;
     }

@@ -3,7 +3,8 @@
 // How far the person is with setting up (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > User profile 3): a
 // row per step (location; and, once they have touched Google, the calendars and the connection), each with whether it is done and how
 // many of its reminders were sent and are overdue, as a bar and as words. Under them: send a setup reminder (it sends a REAL message,
-// so it asks first and names the person, with the reminder to pick), and reset the reminders (asks first).
+// so it asks first and names the person, with the reminder to pick among the steps still open; with every step done there is nothing
+// to send), and reset the reminders (asks first).
 
 import { useState } from 'react';
 import { Check, Circle } from 'lucide-react';
@@ -19,6 +20,8 @@ interface Step {
   label: string;
   done: boolean;
   attempts: SetupAttempts;
+  /** The reminder the route sends for this step (send-reminder's reminder_type), offered only while the step is open. */
+  reminder: ReminderType;
 }
 
 /** The reminders a person can be sent, by the message that names each (admin.profile.setup.types.*). */
@@ -38,15 +41,16 @@ export function Setup({ person, profile }: SectionProps) {
   // The Google steps only matter once the person has touched Google: it is optional.
   const google = status.googleState !== 'none';
   const steps: Step[] = [
-    { key: 'location', label: t('profile.setup.location'), done: status.hasLocation, attempts: reminders.location },
+    { key: 'location', label: t('profile.setup.location'), done: status.hasLocation, attempts: reminders.location, reminder: 'location' },
     ...(google
       ? [
-          { key: 'calendars', label: t('profile.setup.calendars'), done: status.hasCalendars, attempts: reminders.calendars },
-          { key: 'google', label: t('profile.setup.google'), done: status.hasOAuth, attempts: reminders.reconnect },
+          { key: 'calendars', label: t('profile.setup.calendars'), done: status.hasCalendars, attempts: reminders.calendars, reminder: 'calendars' as const },
+          { key: 'google', label: t('profile.setup.google'), done: status.hasOAuth, attempts: reminders.reconnect, reminder: 'reconnect' as const },
         ]
       : []),
   ];
-  const offered = REMINDER_TYPES.filter((candidate) => candidate === 'location' || google);
+  // A reminder is for a step still open: never "Reconnect Google" (the message says the token expired) to someone whose connection works
+  const offered = REMINDER_TYPES.filter((type) => steps.some((step) => step.reminder === type && !step.done));
 
   const openSend = () => {
     setMessage(null);
@@ -91,7 +95,7 @@ export function Setup({ person, profile }: SectionProps) {
             </div>
           );
         })}
-        {status.applicableReminder ? (
+        {offered.length > 0 ? (
           <button type="button" className="ch-form-row ch-action-row" aria-haspopup="dialog" onClick={openSend}>
             <span className="ch-form-label">{t('profile.setup.send')}</span>
           </button>

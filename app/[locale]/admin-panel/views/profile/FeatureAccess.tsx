@@ -6,7 +6,8 @@
 // - A feature their paid plan already includes shows on and cannot be switched, with the note "Included in their plan". Early access
 //   is never locked. Reminders are Telegram's, so a person with no Telegram id has no such switch.
 // - The switches are drafts until Save: the request carries the draft's values, a switch left off as null (as the route has always
-//   read it). A failure is said under the button, and the draft stays as it was.
+//   read it). A failure is said under the button, and the draft stays as it was. After a save the draft is rebuilt from the profile
+//   that was reloaded, since the route may keep less than was sent (with nothing on it deletes the override and its reason).
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -60,8 +61,15 @@ export function FeatureAccess({ person, profile }: SectionProps) {
     setJustSaved(false);
     const outcome = await profile.saveOverrides(draft);
     setBusy(false);
-    if (outcome.ok) setJustSaved(true);
-    else if (!isBusy(outcome)) setError(failureText(t as unknown as (key: string) => string, 'saveOverrides', outcome));
+    if (outcome.ok) {
+      // What the route kept is what the profile shows now (a person with nothing switched on has no override at all: no row, no reason),
+      // so the draft is rebuilt from the reloaded profile: Save goes off and says "Saved". A reload that failed leaves the draft as it is.
+      const fresh = profile.current();
+      if (fresh && fresh !== person) setDraft(savedOf(fresh));
+      setJustSaved(true);
+    } else if (!isBusy(outcome)) {
+      setError(failureText(t as unknown as (key: string) => string, 'saveOverrides', outcome));
+    }
   };
 
   return (

@@ -63,7 +63,8 @@ interface PlanSource {
 /**
  * One line for a person's plan, from their subscription row (a list row's or a profile's):
  * "Pro · trial, 9 days left" (a trial counts as Pro, as the app treats it), "Basic · until 3 Nov 2026",
- * "Pro · free from an admin", "Free · expired", or "Free". A paid plan whose period has passed is Free.
+ * "Pro · free from an admin", "Free · expired", or "Free". A paid plan that was cancelled and still runs says it will not renew
+ * ("Basic · until 3 Nov 2026, won't renew": the routes send the status, CANCELED, not cancelAtPeriodEnd). One whose period has passed is Free.
  */
 export function planLine(user: { subscription: PlanSource | null }, t: AdminTranslate, locale: string, now: Date = new Date()): string {
   const sub = user.subscription;
@@ -79,7 +80,7 @@ export function planLine(user: { subscription: PlanSource | null }, t: AdminTran
     return Number.isNaN(periodEnd) ? name(sub.plan) : t('planLine.until', { plan: name(sub.plan), date: dateOnly(sub.currentPeriodEnd as string, locale) });
   }
   if (paidPlan && sub.status === 'CANCELED' && periodEnd > now.getTime()) {
-    return t('planLine.until', { plan: name(sub.plan), date: dateOnly(sub.currentPeriodEnd as string, locale) });
+    return t('planLine.canceled', { plan: name(sub.plan), date: dateOnly(sub.currentPeriodEnd as string, locale) });
   }
   if (sub.status === 'EXPIRED') return t('planLine.expired', { plan: name('FREE') });
   return name('FREE');

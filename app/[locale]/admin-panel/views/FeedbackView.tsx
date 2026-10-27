@@ -44,8 +44,8 @@ export function FeedbackView({ feedback, onBack }: { feedback: ReturnType<typeof
                 title={item.userName}
                 meta={
                   <>
-                    <span className="ch-admin-line ch-admin-clamp" dir="auto">
-                      {firstLine(item.text)}
+                    <span className="ch-admin-line ch-admin-clamp">
+                      <bdi dir="auto">{firstLine(item.text)}</bdi>
                     </span>
                     <span className="ch-admin-line">{relativeTime(item.createdAt, locale)}</span>
                   </>

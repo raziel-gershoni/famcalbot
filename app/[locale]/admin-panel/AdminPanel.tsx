@@ -10,9 +10,13 @@
 //   the view; at the root it returns to the calendar in the page's language, with the VIEWER's Telegram id, which is the one
 //   place that id is used besides telling the viewer's own profile (every request about a person carries that person's database id).
 // - Each view asks for its data when it opens; the root asks for the feedback and blocklist counts.
-// - A person that was deleted is said once, on the people list the panel goes back to: the notice goes with the next move.
+// - A person that was deleted is said once, on the people list: the panel waits for the delete and the reload of the list, then
+//   the stack becomes the Overview and the people list, wherever the profile was opened from (the Users list, or a row of the
+//   activity log). The notice goes with the next move.
+// - The screen scrolls as a document, so a view opens at the top, and Back puts the view it returns to at the offset it was left at
+//   (back to Users, at the row that was opened).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
@@ -49,7 +53,10 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
   /** The name of the person just deleted, until the next move. */
   const [deleted, setDeleted] = useState<string | null>(null);
   const view = stack.current;
-  const { push, pop, depth } = stack;
+  const { push, pop, depth, below, resetTo } = stack;
+  // The document's offset when each view of the stack was left, and where to scroll once the next view has rendered
+  const left = useRef<number[]>([]);
+  const scrollTo = useRef<number | null>(null);
   const { load: loadFeedback } = feedback;
   const { load: loadBlocklist } = blocklist;
   const { load: loadUsers } = users;
@@ -62,14 +69,25 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
     void loadBlocklist();
   }, [atRoot, loadFeedback, loadBlocklist]);
 
+  const offset = () => (typeof window === 'undefined' ? 0 : (window.scrollY ?? window.pageYOffset ?? 0));
+  useLayoutEffect(() => {
+    if (scrollTo.current === null) return;
+    const to = scrollTo.current;
+    scrollTo.current = null;
+    window.scrollTo?.(0, to);
+  }, [view]);
+
   const open = (next: AdminView) => {
     setDeleted(null);
+    left.current[depth - 1] = offset();
+    scrollTo.current = 0;
     push(next);
   };
   const back = () => {
     if (sheets.closeTop()) return;
     if (depth > 1) {
       setDeleted(null);
+      scrollTo.current = left.current[depth - 2] ?? 0;
       pop();
     } else {
       router.push(`/${locale}/dashboard?user_id=${viewerTelegramId}`);
@@ -104,7 +122,9 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
             onUsersChanged={loadUsers}
             onBack={back}
             onDeleted={(name) => {
-              pop();
+              // Whatever the profile was opened from, the way back is the people list over the Overview
+              scrollTo.current = below?.kind === 'users' ? (left.current[depth - 2] ?? 0) : 0;
+              resetTo([{ kind: 'root' }, { kind: 'users' }], current);
               setDeleted(name);
             }}
           />

@@ -1,7 +1,8 @@
 'use client';
 
 // The person's recent activity (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > User profile 6): 20 rows (the
-// action, its detail, how long ago), then "Show more". The list belongs to the profile hook, which asks for it with the profile and
+// action, its detail, how long ago), then "Show more". The lines are plain blocks that read in the page's direction (the action code and
+// the detail are isolated inside them, as in the log's rows), so a Hebrew row starts on the right. The list belongs to the profile hook, which asks for it with the profile and
 // drops a page that comes for another person. The page is as long as it needs to be: nothing clips it, so Account is always reachable.
 
 import { useLocale, useTranslations } from 'next-intl';
@@ -31,10 +32,12 @@ export function ProfileActivity({ profile }: { profile: ProfileHook }) {
             return (
               <div key={item.id} className="ch-form-row">
                 <span className="ch-form-label">
-                  <bdi dir="ltr">{item.action}</bdi>
+                  <span className="ch-admin-line">
+                    <bdi dir="ltr">{item.action}</bdi>
+                  </span>
                   {detail ? (
-                    <span className="ch-form-hint" dir="auto">
-                      {detail}
+                    <span className="ch-form-hint">
+                      <bdi dir="auto">{detail}</bdi>
                     </span>
                   ) : null}
                 </span>

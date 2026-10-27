@@ -72,8 +72,8 @@ export function BlockedView({ blocklist, onBack }: { blocklist: ReturnType<typeo
                 meta={
                   <>
                     <span className="ch-admin-line">{kind(entry)}</span>
-                    <span className="ch-admin-line ch-admin-clamp" dir="auto">
-                      {reasonOf(entry)}
+                    <span className="ch-admin-line ch-admin-clamp">
+                      <bdi dir="auto">{reasonOf(entry)}</bdi>
                     </span>
                   </>
                 }

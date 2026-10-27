@@ -637,7 +637,8 @@
       "trial": "{plan} · trial, {days, plural, one {# day left} other {# days left}}",
       "until": "{plan} · until {date}",
       "comped": "{plan} · free from an admin",
-      "expired": "{plan} · expired"
+      "expired": "{plan} · expired",
+      "canceled": "{plan} · until {date}, won't renew"
     },
     "errors": {
       "generic": "That didn't work. Try again.",

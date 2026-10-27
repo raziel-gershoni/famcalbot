@@ -10,7 +10,8 @@
 // - An action answers an Outcome and, when it worked, reloads the profile (kept on screen meanwhile) and the people list
 //   (`onUsersChanged`) before it returns; `working` names the action until then. A failed action changes nothing and is
 //   not reloaded. The caller words the failure in the page's language; the request helper has logged it.
-// - Deleting the person clears the profile and reloads the list only.
+// - Deleting the person reloads the list only, with the profile and `working` still there until it has answered; then the profile
+//   is cleared, and the caller (which has the answer in the same turn) leaves the screen.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminDelete, adminGet, adminPost, BUSY, outcomeOf, type AdminFailure, type AdminResult, type Outcome } from './admin-api';
@@ -141,8 +142,9 @@ export function useUserProfile(onUsersChanged: () => unknown) {
         const outcome = outcomeOf(await run(id));
         if (!outcome.ok) return outcome;
         if (action === 'hardDelete') {
-          if (target.current === id) clear();
+          // The list first, with the profile (and the sheet's working lock) still on screen; only then is the person gone
           await usersChanged.current();
+          if (target.current === id) clear();
         } else {
           await Promise.all([target.current === id ? fetchProfile(id, ++profileSeq.current) : undefined, usersChanged.current()]);
         }
@@ -186,5 +188,8 @@ export function useUserProfile(onUsersChanged: () => unknown) {
     return act('ban', () => adminPost('users/blocklist', { action: 'ban', telegramId, whatsappPhone, reason: orNull(what.reason) }));
   };
 
-  return { profile, status, activity, working, load, clear, loadMoreActivity, saveOverrides, grantComp, revokeComp, sendReminder, resetReminders, switchToWhatsApp, suspend, unsuspend, hardDelete, ban };
+  /** The profile as it is now (a reload that finished a moment ago, before the next render): what a draft is rebuilt from. */
+  const current = () => profileRef.current;
+
+  return { profile, status, activity, working, current, load, clear, loadMoreActivity, saveOverrides, grantComp, revokeComp, sendReminder, resetReminders, switchToWhatsApp, suspend, unsuspend, hardDelete, ban };
 }

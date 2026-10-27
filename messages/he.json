@@ -467,7 +467,7 @@
     "feedback": {
       "title": "משוב",
       "noFeedback": "עדיין אין משוב",
-      "telegram": "טלגרם",
+      "telegram": "Telegram",
       "dashboard": "באפליקציה",
       "sentAt": "נשלח ב-{date}"
     },
@@ -637,7 +637,8 @@
       "trial": "{plan} · תקופת ניסיון, {days, plural, one {נשאר יום אחד} two {נשארו יומיים} other {נשארו # ימים}}",
       "until": "{plan} · עד {date}",
       "comped": "{plan} · במתנה מהניהול",
-      "expired": "{plan} · פג תוקף"
+      "expired": "{plan} · פג תוקף",
+      "canceled": "{plan} · עד {date}, לא יתחדש"
     },
     "errors": {
       "generic": "הפעולה לא הצליחה. כדאי לנסות שוב.",
