@@ -22,7 +22,12 @@
 //    key, no English in he and ru), and show no BackButton, in Telegram or in a browser; the
 //    gate's card (PageGate's NoCredentialCard) in the app look closes the Mini App or links on;
 //  - an unknown path under a locale calls notFound() (the catch-all), which Next answers with
-//    app/[locale]/not-found.tsx.
+//    app/[locale]/not-found.tsx;
+//  - the dashboard's redirect (the 404's way back, the menu button, a launch with no user_id), in
+//    real React with a fake router and Telegram: no colour call, the app loader, a push for a
+//    Telegram user, and the app-look gate card without one, in a browser and inside Telegram;
+//  - the home's --ch-top-h: published on the root through AppScreen's ref, and on the first commit,
+//    when React has not attached that ref yet, on the wrapper's parent, the same element.
 // React must log no warning. No network, no DB, no Redis.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
@@ -31,6 +36,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
@@ -41,6 +47,8 @@ import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } fr
 import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
 import { NoCredentialCard } from '../app/[locale]/PageGate';
+import TelegramDashboardRedirect from '../app/[locale]/dashboard/TelegramDashboardRedirect';
+import { publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 
@@ -179,8 +187,11 @@ async function main() {
     const physical = CSS.match(/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|float:/g);
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(CSS), 'no hover styles');
-    // A token block's declarations are tokens (the shades live there); the one exemption outside is a Telegram var()'s fallback.
-    const outside = CSS.replace(/^\s*--[\w-]+\s*:[^;]*;/gm, '').replace(/var\(--tg-theme-[\w-]+,\s*#[0-9a-f]{3,8}\)/gi, 'var(--tg-theme-x, FALLBACK)');
+    // A token block's declarations are tokens (the shades live there); the one exemption outside is the dark page paint's
+    // own declaration (html has no tokens above it), whose fallback is checked against the dark --ch-bg's below.
+    const paint = /(html:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*)background-color:\s*var\(--tg-theme-bg-color,\s*#[0-9a-f]{6}\);/i;
+    assert(paint.test(APP_SCREEN_CSS), 'the dark page paint declaration');
+    const outside = CSS.replace(/^\s*--[\w-]+\s*:[^;]*;/gm, '').replace(paint, '$1');
     const literal = outside.match(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi);
     assert(!literal, `colour literals outside the token blocks: ${show(literal)}`);
     const dark = /html:has\(\.ch-screen\[data-theme='dark'\]\) \{[^}]*var\(--tg-theme-bg-color, (#[0-9a-f]{6})\)/i.exec(APP_SCREEN_CSS)?.[1];
@@ -466,6 +477,98 @@ async function main() {
     for (const file of ['app/[locale]/[...rest]/page.tsx', 'app/[locale]/not-found.tsx']) assert(fs.existsSync(path.join(ROOT, file)), `no ${file}`);
     const gone = fs.readFileSync(path.join(ROOT, 'app/[locale]/not-found.tsx'), 'utf8');
     assert(/NotFoundCard/.test(gone), 'the 404 is the card');
+  });
+
+  await check("#9 TelegramDashboardRedirect is in the app look: a Telegram user gets ready, expand and swipes (no setHeaderColor, no setBackgroundColor), the app loader and a push to their dashboard; with no user the gate card is the app's, in a browser (WhatsApp then Telegram link) and in Telegram (close); no purple anywhere", () => {
+    installWindow();
+    const { AppRouterContext } = createRequire(__filename)('next/dist/shared/lib/app-router-context.shared-runtime');
+    const pushes: string[] = [];
+    const router = { push: (href: string) => void pushes.push(href), replace: noop, prefetch: noop, back: noop, forward: noop, refresh: noop };
+    const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
+    const el = () =>
+      createElement(AppRouterContext.Provider, { value: router }, inIntl('he', createElement(TelegramDashboardRedirect as unknown as (props: Row) => ReactElement, { locale: 'he', links })));
+    // AppScreen asks Telegram for the theme's own 'bg_color'; a hex argument is a colour of ours (the old purple was #667eea)
+    const colourCalls = (calls: string[]) => calls.filter((c) => /^set(?:Header|Background)Color\(#/.test(c));
+    const run = (setup: (tg: Row) => void) => {
+      const calls: string[] = [];
+      const tg = fakeTelegram(calls, '7.7');
+      setup(tg);
+      fakeWindow.Telegram = { WebApp: tg };
+      pushes.length = 0;
+      const m = mount(el());
+      const html = elements(m.container);
+      return { m, calls, html };
+    };
+    // A Telegram user: the dashboard's own calls, the loader up while the push goes out
+    const user = run((tg) => {
+      tg.initDataUnsafe = { user: { id: 5550001 } };
+    });
+    try {
+      assert(show(user.calls.filter((c) => /^(?:ready|expand|enableVerticalSwipes|disableVerticalSwipes)\(/.test(c))) === show(['ready()', 'expand()', 'enableVerticalSwipes()']), `the calls: ${show(user.calls)}`);
+      assert(show(colourCalls(user.calls)) === show([]) && user.calls.includes('setHeaderColor(bg_color)'), `a colour of ours: ${show(user.calls)}`);
+      assert(show(pushes) === show(['/he/dashboard?user_id=5550001']), `the push: ${show(pushes)}`);
+      const loader = user.html.find((e) => e.className === 'ch-loader');
+      assert(loader && user.html.some((e) => e.className === 'ch-app ch-screen') && user.html.some((e) => /ch-spin/.test(e.getAttribute('class') ?? '')), 'the app loader');
+      assert(user.html.find((e) => e.className === 'ch-visually-hidden')?.textContent === messages.he.pageGate.loading, 'the loading text');
+    } finally {
+      user.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    // No Telegram user, in a browser (the SDK is there, there is no init data): the browser card
+    const browser = run((tg) => {
+      tg.initData = '';
+    });
+    try {
+      assert(show(colourCalls(browser.calls)) === show([]), `colours: ${show(browser.calls)}`);
+      const anchors = elements(browser.m.container).filter((e) => e.localName === 'a');
+      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([[links.whatsapp, 'ch-btn ch-btn-primary ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card: ${show(anchors.map((a) => a.getAttribute('href')))}`);
+      assert(elements(browser.m.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.browserTitle) && pushes.length === 0, 'the browser title, no push');
+      assert(!elements(browser.m.container).some((e) => e.className === 'ch-loader'), 'the loader is gone');
+    } finally {
+      browser.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    // Inside Telegram with no user: the close card
+    const inside = run(noop);
+    try {
+      assert(show(colourCalls(inside.calls)) === show([]), `colours: ${show(inside.calls)}`);
+      const buttons = elements(inside.m.container).filter((e) => e.localName === 'button');
+      assert(buttons.length === 1 && buttons[0].textContent === messages.he.pageGate.close, `the in-Telegram card: ${show(buttons.map((b) => b.textContent))}`);
+      assert(elements(inside.m.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.telegramTitle), 'the Telegram title');
+    } finally {
+      inside.m.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+  });
+
+  await check("#10 --ch-top-h goes on the home's root: through the ref once it is attached; on the first commit React has not attached it yet (a root's ref comes after its children's layout effects), and the wrapper's parent, the same element, takes it; nothing to set it on, nothing thrown", () => {
+    const fakeRoot = (): Row => {
+      const set: Record<string, string> = {};
+      return { set, style: { getPropertyValue: (k: string) => set[k] ?? '', setProperty: (k: string, v: string) => void (set[k] = v) } };
+    };
+    const topOf = (parent: Row | null, height: number) => ({ parentElement: parent, getBoundingClientRect: () => ({ height }) }) as unknown as HTMLElement;
+    const asRef = (el: Row | null) => ({ current: el }) as unknown as { current: HTMLElement | null };
+    // The first commit: an empty ref, and the parent is the root
+    const parent = fakeRoot();
+    publishTopHeight(topOf(parent, 126.4), asRef(null));
+    assert(parent.set['--ch-top-h'] === '126px', `the first commit: ${show(parent.set)}`);
+    // Later commits: the ref is set and is the one that takes it
+    const attached = fakeRoot();
+    publishTopHeight(topOf(parent, 140), asRef(attached));
+    assert(attached.set['--ch-top-h'] === '140px' && parent.set['--ch-top-h'] === '126px', `through the ref: ${show([attached.set, parent.set])}`);
+    // An unchanged height sets nothing again; no root and no ref is no call and no throw
+    let writes = 0;
+    const counting = fakeRoot();
+    const setProperty = counting.style.setProperty;
+    counting.style.setProperty = (k: string, v: string) => {
+      writes++;
+      setProperty(k, v);
+    };
+    publishTopHeight(topOf(counting, 90), asRef(null));
+    publishTopHeight(topOf(counting, 90), asRef(null));
+    assert(writes === 1, `an unchanged height is written once: ${writes}`);
+    publishTopHeight(topOf(null, 90), asRef(null));
+    publishTopHeight(null, asRef(null));
   });
 
   await check('#99 React logged no warning', () => {

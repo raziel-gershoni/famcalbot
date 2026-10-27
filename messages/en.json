@@ -744,6 +744,10 @@
       "saving": "Saving...",
       "saved": "Calendars Saved!",
       "error": "Failed to save calendars"
+    },
+    "noGoogle": {
+      "title": "Google isn't connected",
+      "body": "Connect your Google account first, then choose your calendars here."
     }
   },
   "oauth": {

@@ -127,6 +127,14 @@ function installStubs() {
     },
   });
   stub('src/utils/redis.ts', { redis: fakeRedis });
+  // next-intl/server is the request-scoped half of next-intl: outside Next its getTranslations refuses to run,
+  // so the server pages' getTranslations reads the same messages through the library's own translator.
+  const { createTranslator } = nodeRequire('next-intl');
+  stub(path.relative(ROOT, nodeRequire.resolve('next-intl/server')), {
+    __esModule: true,
+    getTranslations: async ({ locale, namespace }: { locale: string; namespace: string }) =>
+      createTranslator({ locale, namespace, messages: JSON.parse(readSource(`messages/${locale}.json`)) }),
+  });
   // The magic route's only DB read: is the user suspended?
   stub('src/utils/prisma.ts', { prisma: { user: { findUnique: async () => ({ suspendedAt: null }) } } });
 }
@@ -318,13 +326,18 @@ async function main() {
     assert(!/expand\s*\(/.test(src), 'share-story calls expand()');
   });
 
-  await check('#4 the global menu button path (TelegramDashboardRedirect) expands with ready() and sets the purple header', () => {
+  await check("#4 the global menu button path (TelegramDashboardRedirect) is the dashboard's own, in the app look: it makes startMiniApp('app')'s calls (ready, expand, swipes, and no colour) through PageGate's function, shows PageGate's app loader before its effect runs (no purple), and its gate card is the app's; the user is still pushed on", async () => {
     const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
-    const ready = src.indexOf('tg.ready()');
-    const expand = src.indexOf('tg.expand()');
-    assert(ready >= 0 && expand > ready, `ready() at ${ready}, expand() at ${expand}`);
-    assert(src.includes("tg.setHeaderColor('#667eea')"), 'the header is not set to #667eea');
-    assert(!src.includes("'secondary_bg_color'"), 'the header is still set to the theme colour first');
+    assert(src.includes("startMiniApp('app')"), "it does not call startMiniApp('app')");
+    assert(!/setHeaderColor|setBackgroundColor|#667eea|linear-gradient|Loader2/.test(src), 'a purple header, background or loader is still there');
+    assert(src.includes('<PageLoader look="app"') && src.includes('<NoCredentialCard look="app"') && !src.includes('look="telegram"'), 'the loader and the card are not the app look');
+    // The first render, before any effect: the app loader inside its own AppScreen
+    const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
+    const React = nodeRequire('react');
+    const { default: Redirect } = await load('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
+    const html = renderHtml(React.createElement(AppRouterContext.Provider, { value: {} }, React.createElement(Redirect, { locale: 'he', links: LINKS })), 'he');
+    assert(html.startsWith('<div class="ch-app ch-screen" data-theme="light" dir="rtl" lang="he">') && html.includes('class="ch-loader" role="status"') && html.includes(asHtml(he.pageGate.loading)), `the first render: ${html.slice(0, 160)}`);
+    assert(!html.includes('#667eea') && !html.includes('linear-gradient'), 'the loader is purple');
   });
 
   // ---- Ways back from the "open this from the bot" cards ----
@@ -581,7 +594,7 @@ async function main() {
     assert(!/^import /m.test(leaf), 'reload-guard imports something');
   });
 
-  await check("#20 a missing user_id gives the app's MissingParameterCard on all seven pages that had their own copy (settings, admin-panel, feedback, select-calendars, calendars, pair and refresh-token), in en, he and ru, with its text from messages and none of the old inline cards; subscription still answers notFound; select-calendars' two notices are StateCards in an AppScreen", async () => {
+  await check("#20 a missing user_id gives the app's MissingParameterCard on all seven pages that had their own copy (settings, admin-panel, feedback, select-calendars, calendars, pair and refresh-token), in en, he and ru, with its text from messages and none of the old inline cards; subscription still answers notFound; select-calendars' two notices are StateCards in an AppScreen with their copy from messages in en, he and ru and nothing from the server", async () => {
     const { renderToString } = nodeRequire('react-dom/server');
     const problems: string[] = [];
     const old = (html: string) => /Missing Parameter|user_id parameter is required|Missing user_id|#667eea|linear-gradient|text-rose-600/.test(html);
@@ -610,13 +623,24 @@ async function main() {
       threw = /NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(String((err as Row)?.digest ?? err));
     }
     if (!threw) problems.push('subscription without a user_id no longer calls notFound()');
-    // The notices of select-calendars
-    const gate = await callPage('app/[locale]/select-calendars/page.tsx', 'en', '5550001');
-    const notices = gate.props.notices as Row;
-    const none = renderHtml(notices.noGoogleToken, 'en');
-    if (!none.startsWith('<div class="ch-app ch-screen"') || !none.includes('No Google Token') || !none.includes('Please refresh your token first.') || old(none)) problems.push(`noGoogleToken: ${none.slice(none.indexOf('<h1'), none.indexOf('<h1') + 200)}`);
-    const error = renderHtml(notices.error, 'en');
-    if (!error.startsWith('<div class="ch-app ch-screen"') || !error.includes('Unknown error') || !error.includes('href="/select-calendars?user_id=5550001"') || !error.includes('Try Again') || old(error)) problems.push(`error: ${error.slice(error.indexOf('<h1'), error.indexOf('<h1') + 300)}`);
+    // The notices of select-calendars: their copy from messages in each language, no raw key, nothing from the server
+    for (const locale of ['en', 'he', 'ru']) {
+      const m = JSON.parse(readSource(`messages/${locale}.json`));
+      const gate = await callPage('app/[locale]/select-calendars/page.tsx', locale, '5550001');
+      const notices = gate.props.notices as Row;
+      const root = `<div class="ch-app ch-screen" data-theme="light" dir="${locale === 'he' ? 'rtl' : 'ltr'}" lang="${locale}">`;
+      const none = renderHtml(notices.noGoogleToken, locale);
+      if (!none.startsWith(root) || !none.includes(asHtml(m.calendars.noGoogle.title)) || !none.includes(asHtml(m.calendars.noGoogle.body)) || old(none) || /calendars\.noGoogle|No Google Token/.test(none)) problems.push(`${locale} noGoogleToken: ${none.slice(none.indexOf('<h1'), none.indexOf('<h1') + 220)}`);
+      const error = renderHtml(notices.error, locale);
+      const retry = `<a class="ch-btn ch-btn-primary ch-home-card-action" href="/${locale}/select-calendars?user_id=5550001">${asHtml(m.pageGate.retry)}</a>`;
+      if (!error.startsWith(root) || !error.includes(asHtml(m.pageGate.errorTitle)) || !error.includes(asHtml(m.pageGate.errorBody)) || !error.includes(retry) || old(error)) problems.push(`${locale} error: ${error.slice(error.indexOf('<h1'), error.indexOf('<h1') + 300)}`);
+      // The server's message never reaches the page: no fallback text, and no detail in the wire type or in PageGate
+      if (/Unknown error|Try Again|NoticeDetail/.test(error)) problems.push(`${locale} error notice shows server detail or old copy`);
+    }
+    for (const rel of ['app/[locale]/PageGate.tsx', 'src/lib/page-data.ts']) {
+      const code = readSource(rel).split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+      if (/NoticeDetail|\bdetail\b/.test(code)) problems.push(`${rel} still carries a notice detail`);
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 

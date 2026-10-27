@@ -282,6 +282,8 @@ export function fakeTelegram(calls: string[], version: string): Row {
     offEvent: rec('offEvent'),
     enableVerticalSwipes: rec('enableVerticalSwipes'),
     disableVerticalSwipes: rec('disableVerticalSwipes'),
+    ready: rec('ready'),
+    expand: rec('expand'),
     close: rec('close'),
     backHandlers,
     BackButton: {

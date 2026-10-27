@@ -101,7 +101,7 @@ export interface PagePropsMap {
 export type PageDataResult =
   | { kind: 'props'; props: PagePropsMap[PageName] }
   | { kind: 'redirect'; to: string }
-  | { kind: 'notice'; notice: PageNotice; detail?: string }
+  | { kind: 'notice'; notice: PageNotice }
   | { kind: 'notFound' };
 
 /**
@@ -355,8 +355,8 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
       return { kind: 'redirect', to: `/refresh-token?user_id=${userId}` };
     }
 
-    // Generic error fallback
-    return { kind: 'notice', notice: 'error', detail: error instanceof Error ? error.message : 'Unknown error' };
+    // Generic error fallback: captured above, and the message stays out of the page
+    return { kind: 'notice', notice: 'error' };
   }
 }
 

@@ -2,9 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
-import { Loader2 } from 'lucide-react';
-import { NoCredentialCard } from '../PageGate';
+import { NoCredentialCard, PageLoader, startMiniApp } from '../PageGate';
 import type { GateLinks } from '@/src/lib/gate-links';
 import { readInitData } from '@/src/lib/read-init-data';
 
@@ -16,7 +14,6 @@ interface TelegramDashboardRedirectProps {
 
 export default function TelegramDashboardRedirect({ locale, links }: TelegramDashboardRedirectProps) {
   const router = useRouter();
-  const t = useTranslations('pageGate');
   // No Telegram user to send on: PageGate's card, in a browser or inside Telegram
   const [gate, setGate] = useState<'browser' | 'telegram' | null>(null);
 
@@ -25,17 +22,9 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
     if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
 
-      // MUST call ready() first thing; full height before the dashboard loads
-      tg.ready();
-      tg.expand();
-
-      // Set theme colors (the dashboard's purple header from the first frame)
-      try {
-        tg.setHeaderColor('#667eea');
-        tg.setBackgroundColor('#ffffff');
-      } catch (e) {
-        console.error('Could not set Telegram colors:', e);
-      }
+      // MUST call ready() first thing; full height before the dashboard loads. The dashboard's own look,
+      // the app's: no colour of ours on Telegram's header (its AppScreen takes the theme's bg_color).
+      startMiniApp('app');
 
       // Get user ID from initData
       const userId = tg.initDataUnsafe?.user?.id;
@@ -68,36 +57,9 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
   }, [router, locale]);
 
   if (gate) {
-    return <NoCredentialCard look="telegram" inTelegram={gate === 'telegram'} links={links} />;
+    return <NoCredentialCard look="app" inTelegram={gate === 'telegram'} links={links} />;
   }
 
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      fontFamily: 'Rubik, -apple-system, BlinkMacSystemFont, sans-serif'
-    }}>
-      <div style={{
-        textAlign: 'center',
-        color: 'white'
-      }}>
-        <div style={{
-          marginBottom: '20px',
-          animation: 'spin 1s linear infinite'
-        }}>
-          <Loader2 size={48} />
-        </div>
-        <h2 style={{ fontSize: '24px', fontWeight: '500' }}>{t('loading')}</h2>
-      </div>
-      <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
-    </div>
-  );
+  // The dashboard's own loader, the one PageGate shows while the home loads
+  return <PageLoader look="app" />;
 }

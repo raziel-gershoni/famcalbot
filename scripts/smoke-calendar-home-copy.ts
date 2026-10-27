@@ -707,7 +707,8 @@ async function main() {
     for (const locale of LOCALES) {
       const html = renderHtml(React.createElement(Redirect, { locale, links }), locale);
       const want = messagesOf(locale).pageGate.loading;
-      if (!html.includes(`>${asHtml(want)}</h2>`)) problems.push(`${locale}: no "${want}" heading in ${html.slice(0, 120)}…`);
+      // The app loader (PageGate's, the dashboard's own) says it to a screen reader in its status
+      if (!html.includes(`<div class="ch-loader" role="status">`) || !html.includes(`<span class="ch-visually-hidden">${asHtml(want)}</span>`)) problems.push(`${locale}: no "${want}" in the loader's status in ${html.slice(0, 120)}…`);
       if (html.includes('Loading Dashboard')) problems.push(`${locale}: still "Loading Dashboard..."`);
     }
     assert(problems.length === 0, problems.join('; '));

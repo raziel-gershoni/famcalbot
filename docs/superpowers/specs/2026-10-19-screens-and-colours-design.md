@@ -137,7 +137,7 @@ A coloured mark carries both looks' tones as inline custom properties (`calendar
 - **PageGate and the error screens:**
   - PageGate gets a third look, `'app'`;
   - one "Missing parameter" card replaces the 7 copies, and the 4 page notices use the same card;
-  - `app/[locale]/not-found.tsx` is built on that card, and `app/[locale]/[...rest]/page.tsx` calls `notFound()` so unknown paths reach it. Limit: a bad locale (thrown in the layout) and paths with a dot (outside the proxy matcher) still get Next's plain 404.
+  - `app/[locale]/not-found.tsx` is built on that card, and `app/[locale]/[...rest]/page.tsx` calls `notFound()` so unknown paths reach it. Limit: a bad locale (thrown in the layout) gets Next's plain 404, and a dotted path under a locale prefix (`/he/foo.png`) is outside the proxy matcher, so it gets the app's 404 card in English.
 - **Deletions:** LoadingButton is already deleted (7c0e57e removed all of `components/Feedback/`).
 - **`smoke-app-ui`:**
   - a CSS lint: 11 px and 44 px floors, logical properties, no `:hover`, no hex in screen CSS;

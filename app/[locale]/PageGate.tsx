@@ -10,7 +10,7 @@
 // is the app's own ('app': the home's tokens, no colour of ours on Telegram's chrome), the
 // other pages keep the purple gradient or the light card until W1 and W3 move them.
 
-import { Component, createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { Component, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { notFound, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -48,7 +48,8 @@ function AppLoader({ label }: { label?: string }) {
   );
 }
 
-function PageLoader({ look, label }: { look: Look; label?: string }) {
+/** The loader of a look. Exported for the dashboard's redirect, which shows the dashboard's own. */
+export function PageLoader({ look, label }: { look: Look; label?: string }) {
   if (look === 'app') return <AppLoader label={label} />;
   if (look === 'light') {
     return (
@@ -224,13 +225,6 @@ export class HomeChunkBoundary extends Component<{ children: ReactNode }, { fail
     if (!this.state.failed) return this.props.children;
     return this.state.reloading ? <PageLoader look="app" /> : <HomeLoadFailed />;
   }
-}
-
-const NoticeDetailContext = createContext<string | null>(null);
-
-/** Inside a page's static notice: the server's detail for it (the error message), else `fallback`. */
-export function NoticeDetail({ fallback }: { fallback: string }) {
-  return <>{useContext(NoticeDetailContext) ?? fallback}</>;
 }
 
 function GateCard({ look, title, lines, action }: { look: Look; title: string; lines: string[]; action?: ReactNode }) {
@@ -483,7 +477,7 @@ export default function PageGate({ page, userId, locale, notices = {}, links }: 
     case 'notice': {
       const notice = notices[data.notice];
       if (notice === undefined) return errorCard;
-      return <NoticeDetailContext.Provider value={data.detail ?? null}>{notice}</NoticeDetailContext.Provider>;
+      return <>{notice}</>;
     }
     case 'notFound':
       // As the page's own notFound() did: the app's 404

@@ -271,9 +271,10 @@ export const HOME_TOP_CSS = `
 /**
  * Puts the wrapper's height on the home's root as --ch-top-h: browse's bar sticks under it, and its
  * titles stop under both. React attaches the root's ref after its children's layout effects, so on
- * the first commit the ref is still empty and the wrapper's parent, the root, stands in.
+ * the first commit the ref is still empty and the wrapper's parent, the root, stands in. Exported
+ * for smoke-app-ui, which pins both.
  */
-function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLElement | null>) {
+export function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLElement | null>) {
   try {
     const home = root.current ?? top?.parentElement;
     if (!top || !home || typeof top.getBoundingClientRect !== 'function') return;

@@ -1,6 +1,7 @@
+import { getTranslations } from 'next-intl/server';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { MissingParameterCard, StateCard } from '@/components/app-ui/StateCard';
-import PageGate, { NoticeDetail } from '../PageGate';
+import PageGate from '../PageGate';
 import { gateLinks } from '@/src/lib/gate-links';
 
 interface PageProps {
@@ -17,8 +18,12 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
     return <MissingParameterCard />;
   }
 
+  // The notices are static and say what the user can do; the server's own error message stays in its logs.
+  const noGoogle = await getTranslations({ locale, namespace: 'calendars.noGoogle' });
+  const gate = await getTranslations({ locale, namespace: 'pageGate' });
+
   // No user data in the server HTML: PageGate loads it through /api/page-data
-  // (src/lib/page-data.ts), which proves the user first. The notices are static.
+  // (src/lib/page-data.ts), which proves the user first.
   return (
     <PageGate
       page="select-calendars"
@@ -28,13 +33,13 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
       notices={{
         noGoogleToken: (
           <AppScreen>
-            <StateCard tone="crash" title="No Google Token" body="Please refresh your token first." />
+            <StateCard tone="crash" title={noGoogle('title')} body={noGoogle('body')} />
           </AppScreen>
         ),
-        // Generic error fallback; the message comes from the server
+        // Generic error fallback
         error: (
           <AppScreen>
-            <StateCard tone="crash" title="Error" body={<NoticeDetail fallback="Unknown error" />} action={{ label: 'Try Again', href: `/select-calendars?user_id=${userId}` }} />
+            <StateCard tone="crash" title={gate('errorTitle')} body={gate('errorBody')} action={{ label: gate('retry'), href: `/${locale}/select-calendars?user_id=${userId}` }} />
           </AppScreen>
         ),
       }}
