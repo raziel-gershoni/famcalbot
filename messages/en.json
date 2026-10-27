@@ -561,6 +561,19 @@
       "time": "Time",
       "telegram": "Telegram",
       "dashboard": "Dashboard"
+    },
+    "plan": {
+      "names": {
+        "free": "Free",
+        "basic": "Basic",
+        "pro": "Pro"
+      }
+    },
+    "planLine": {
+      "trial": "{plan} · trial, {days, plural, one {# day left} other {# days left}}",
+      "until": "{plan} · until {date}",
+      "comped": "{plan} · free from an admin",
+      "expired": "{plan} · expired"
     }
   },
   "settings": {

@@ -2,12 +2,15 @@
  * Admin Identifier Blocklist API
  * GET: list all currently blocked identifiers (telegramId / whatsappPhone)
  * POST: { action: 'ban' | 'unban', telegramId?, whatsappPhone?, reason? }
+ *   A ban of the acting admin's own Telegram id or WhatsApp number answers 400 { error: 'SELF_BAN' }, as the
+ *   moderation route refuses an admin's own account.
  *
  * The blocklist persists independently of User rows, so a banned identifier
  * cannot re-register even after a hard-delete.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
@@ -64,6 +67,14 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'ban': {
+        const own = await prisma.user.findUnique({ where: { id: auth.adminId! }, select: { telegramId: true, whatsappPhone: true } });
+        const digits = (value: string) => value.replace(/\D/g, '');
+        const banningSelf =
+          (tgId !== null && own?.telegramId != null && String(own.telegramId) === String(tgId)) ||
+          (phone !== null && own?.whatsappPhone != null && digits(own.whatsappPhone) === digits(phone));
+        if (banningSelf) {
+          return NextResponse.json({ error: 'SELF_BAN' }, { status: 400 });
+        }
         await banIdentifier({ telegramId: tgId, whatsappPhone: phone }, auth.adminId!, reason ?? null);
         return NextResponse.json({ success: true, message: 'Identifier banned' });
       }

@@ -561,6 +561,19 @@
       "time": "זמן",
       "telegram": "טלגרם",
       "dashboard": "לוח בקרה"
+    },
+    "plan": {
+      "names": {
+        "free": "חינם",
+        "basic": "בסיסי",
+        "pro": "Pro"
+      }
+    },
+    "planLine": {
+      "trial": "{plan} · תקופת ניסיון, {days, plural, one {נשאר יום אחד} two {נשארו יומיים} other {נשארו # ימים}}",
+      "until": "{plan} · עד {date}",
+      "comped": "{plan} · במתנה מהניהול",
+      "expired": "{plan} · פג תוקף"
     }
   },
   "settings": {

@@ -561,6 +561,19 @@
       "time": "Время",
       "telegram": "Telegram",
       "dashboard": "Панель"
+    },
+    "plan": {
+      "names": {
+        "free": "Бесплатный",
+        "basic": "Базовый",
+        "pro": "Pro"
+      }
+    },
+    "planLine": {
+      "trial": "{plan} · пробный период, {days, plural, one {остался # день} few {осталось # дня} many {осталось # дней} other {осталось # дня}}",
+      "until": "{plan} · до {date}",
+      "comped": "{plan} · бесплатно от администратора",
+      "expired": "{plan} · срок истёк"
     }
   },
   "settings": {
