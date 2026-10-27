@@ -58,6 +58,13 @@ export function setClock(at: string | number | Date | null): void {
 }
 
 // ---- Module stand-ins ----
+//
+// Two doors lead into a module: require() (what the compiled `import x from` is), which Module._load serves, and import()
+// (the code under test's `await import('./handlers')`). Node 26 serves import() of a CommonJS file through Module._load too,
+// but Node 22 (CI's) compiles the file itself and takes nothing from Module._load, so a stand-in there needs the sync
+// module hooks (module.registerHooks, which see import() and not require() with `import` in the conditions): they send an
+// import() of a stubbed file to a generated CommonJS module that exports the very same stand-in object, with the real
+// module's names listed for the ESM namespace (which Node reads from the source text).
 
 type Stub = object | ((real: Record<string, unknown>) => object);
 const stubs = new Map<string, Stub>();
@@ -67,20 +74,68 @@ const ModuleInternals = Module as unknown as {
   _resolveFilename: (request: string, parent: unknown, isMain: boolean) => string;
 };
 const realLoad = ModuleInternals._load;
-ModuleInternals._load = function (request, parent, isMain) {
+
+function resolvedKey(request: string, parent: unknown, isMain: boolean): string {
   let resolved = request;
   try {
     resolved = ModuleInternals._resolveFilename(request, parent, isMain);
   } catch (_error) {
     // A built-in or an unresolvable name is left to the real loader, which reports it.
   }
-  const key = stubs.has(request) ? request : resolved;
+  return stubs.has(request) ? request : resolved;
+}
+
+/** The stand-in for a stubbed key, made once; a partial one is built over the real module, loaded the ordinary way. */
+function standIn(key: string, load: () => unknown): object | undefined {
   const stub = stubs.get(key);
-  if (!stub) return realLoad.call(this, request, parent, isMain);
-  if (typeof stub !== 'function') return stub;
-  if (!faked.has(key)) faked.set(key, stub(realLoad.call(this, request, parent, isMain) as Record<string, unknown>));
+  if (!stub) return undefined;
+  if (!faked.has(key)) faked.set(key, typeof stub === 'function' ? stub(load() as Record<string, unknown>) : stub);
   return faked.get(key);
+}
+
+const STUB_FILE = /^\/dst-stub\/(.+)\.cjs$/;
+
+ModuleInternals._load = function (request, parent, isMain) {
+  // Node 26 reloads the generated module below through here, by its made-up file name.
+  const generated = STUB_FILE.exec(request);
+  if (generated) {
+    const stubbed = decodeURIComponent(generated[1]);
+    return standIn(stubbed, () => realLoad.call(this, stubbed, undefined, false));
+  }
+  const key = resolvedKey(request, parent, isMain);
+  const loadReal = () => realLoad.call(this, request, parent, isMain);
+  return standIn(key, loadReal) ?? loadReal();
 };
+
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const RESERVED = new Set(['default', 'delete', 'new', 'class', 'function', 'var', 'let', 'const', 'import', 'export', 'return', 'switch', 'typeof', 'void', 'with', 'yield', 'await', 'enum', 'null', 'true', 'false', 'this', 'super', 'in', 'of', 'if', 'else', 'for', 'while', 'do', 'try', 'catch', 'finally', 'throw', 'break', 'continue', 'case', 'debugger', 'extends', 'instanceof']);
+
+type ResolveHook = (specifier: string, context: { conditions?: string[] }, next: (specifier: string, context: unknown) => { url: string }) => { url: string; shortCircuit?: boolean };
+type LoadHook = (url: string, context: unknown, next: (url: string, context: unknown) => unknown) => unknown;
+const registerHooks = (Module as unknown as { registerHooks?: (hooks: { resolve: ResolveHook; load: LoadHook }) => unknown }).registerHooks;
+const STUB_URL = 'file:///dst-stub/';
+(globalThis as unknown as { __dstStub: (key: string) => object | undefined }).__dstStub = (key: string) => standIn(key, () => realLoad.call(Module, key, undefined, false));
+
+if (registerHooks) {
+  registerHooks({
+    resolve: (specifier, context, next) => {
+      const resolved = next(specifier, context);
+      if (!context.conditions?.includes('import')) return resolved; // require() goes through Module._load
+      const file = resolved.url.startsWith('file:') ? decodeURIComponent(new URL(resolved.url).pathname) : '';
+      const key = stubs.has(specifier) ? specifier : file;
+      if (!stubs.has(key)) return resolved;
+      return { ...resolved, url: `${STUB_URL}${encodeURIComponent(key)}.cjs`, shortCircuit: true };
+    },
+    load: (url, context, next) => {
+      if (!url.startsWith(STUB_URL)) return next(url, context);
+      const key = decodeURIComponent(url.slice(STUB_URL.length, -'.cjs'.length));
+      const stand = (globalThis as unknown as { __dstStub: (key: string) => object }).__dstStub(key);
+      const names = Reflect.ownKeys(stand).filter((n): n is string => typeof n === 'string' && IDENTIFIER.test(n) && !RESERVED.has(n));
+      const source = `module.exports = globalThis.__dstStub(${JSON.stringify(key)});\n0 && (module.exports = { ${names.join(', ')} });\n`;
+      return { format: 'commonjs', source, shortCircuit: true };
+    },
+  });
+}
 
 /** Replaces modules, by package name or absolute file path; a function fakes part of the real module. Call before importing the code under test. */
 export function stubModules(map: Record<string, Stub>): void {
@@ -90,9 +145,18 @@ export function stubModules(map: Record<string, Stub>): void {
   }
 }
 
-/** Part of a module faked, the rest read through to the real one. */
+/**
+ * Part of a module faked, the rest read through to the real one. A proxy, not a copy: it reads the real module lazily, so it
+ * survives import cycles. A name the real module lacks is listed too, so an import() sees it.
+ */
 export const fakeOver = (real: Record<string, unknown>, fakes: Record<string, unknown>): object =>
-  new Proxy(real, { get: (target, key) => (typeof key === 'string' && key in fakes ? fakes[key] : Reflect.get(target, key)) });
+  new Proxy(real, {
+    get: (target, key) => (typeof key === 'string' && key in fakes ? fakes[key] : Reflect.get(target, key)),
+    ownKeys: target => [...new Set([...Reflect.ownKeys(target), ...Object.keys(fakes)])],
+    getOwnPropertyDescriptor: (target, key) =>
+      Reflect.getOwnPropertyDescriptor(target, key) ??
+      (typeof key === 'string' && key in fakes ? { value: fakes[key], writable: true, enumerable: true, configurable: true } : undefined),
+  });
 
 // ---- Recording stand-ins ----
 
