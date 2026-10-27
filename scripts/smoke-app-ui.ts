@@ -11,9 +11,8 @@
 //    gets no frame and no page paint;
 //  - AppScreen (in real React on a small fake DOM, with a fake Telegram.WebApp): its root, the
 //    scheme it provides, and Telegram's BackButton, which shows exactly while onBack is set,
-//    calls the latest onBack, and goes with the screen; AppScope takes no BackButton and no
-//    Telegram colours; and no other file calls useTelegramBackButton but the three clients
-//    W1 and W3 still have to move;
+//    calls the latest onBack, and goes with the screen; and no other file calls
+//    useTelegramBackButton but the two clients W3 still has to move;
 //  - the layer's boundary: nothing in components/app-ui/ imports from app/ or a server module,
 //    so every screen can take it into its client bundle;
 //  - the cards (renderToString in en, he and ru): StateCard draws the home's card with the markup
@@ -46,7 +45,7 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
-import { AppScope, AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
+import { AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
 import { BottomSheet } from '../components/app-ui/BottomSheet';
 import { DayChips, type DayChip } from '../components/app-ui/DayChips';
@@ -98,7 +97,6 @@ function inIntl(locale: string, el: ReactElement): ReactElement {
 
 /** The screen and the scope with their children passed as createElement arguments (the lint rule forbids the prop). */
 const ScreenProbe = AppScreen as unknown as (props: Omit<ComponentProps<typeof AppScreen>, 'children'>) => ReactElement;
-const ScopeProbe = AppScope as unknown as () => ReactElement;
 
 const CardProbe = StateCard as unknown as (props: StateCardProps) => ReactElement;
 const LabelProbe = SectionLabel as unknown as (props: Record<string, never>) => ReactElement;
@@ -257,7 +255,7 @@ async function main() {
     assert(low.length === 0, `under the floor: ${show(low)}`);
   });
 
-  await check('#3 the frame hangs on .ch-screen only: its rule (the stable height, the safe areas, overflow-x: clip) exists once and on that class alone; no rule of the theme or the screen hangs on .ch-standalone; every html-level rule is .ch-screen\'s; the theme brings no html-level rule', () => {
+  await check('#3 the frame hangs on .ch-screen only: its rule (the stable height, the safe areas, overflow-x: clip) exists once and on that class alone; no rule of the theme or the screen hangs on .ch-standalone (the scope W1a removed); every html-level rule is .ch-screen\'s; the theme brings no html-level rule', () => {
     const frame = rule(APP_SCREEN_CSS, '.ch-screen');
     assert(frame.includes('min-height: var(--tg-viewport-stable-height, 100dvh)') && /overflow-x:\s*clip/.test(frame) && frame.includes('--tg-safe-area-inset-top') && frame.includes('--tg-content-safe-area-inset-top'), `the frame: ${frame}`);
     assert((CSS.match(/min-height:\s*var\(--tg-viewport-stable-height/g) ?? []).length === 1, 'the stable height is declared once');
@@ -338,30 +336,7 @@ async function main() {
     fakeWindow.Telegram = undefined;
   });
 
-  await check("#4c AppScope (a sheet's scope inside a page that is no screen): .ch-app .ch-standalone with the theme only and the device's scheme; no BackButton call, no Telegram colour call, no frame; the scheme reaches useAppScheme", () => {
-    installWindow();
-    const calls: string[] = [];
-    const tg = fakeTelegram(calls, '7.7');
-    tg.colorScheme = 'dark';
-    fakeWindow.Telegram = { WebApp: tg };
-    const m = mount(inIntl('he', createElement(ScopeProbe, null, createElement(SchemeProbe))));
-    try {
-      const scope = elements(m.container).find((e) => e.className === 'ch-app ch-standalone');
-      assert(scope && scope.getAttribute('data-theme') === 'dark' && scope.getAttribute('dir') === 'rtl' && scope.getAttribute('lang') === 'he', 'the mounted scope');
-      assert(elements(m.container).find((e) => e.getAttribute('data-probe') === 'scheme')?.textContent === 'dark', 'useAppScheme');
-      assert(!calls.some((c) => /^(?:BackButton|setHeaderColor|setBackgroundColor)/.test(c)), `no BackButton or colour call: ${show(calls)}`);
-      const styles = elements(m.container).filter((e) => e.localName === 'style').map((e) => e.textContent);
-      assert(styles.length === 1 && styles[0] === APP_THEME_CSS, 'the theme is its only style sheet');
-      assert(byRole(m.container, 'dialog').length === 0, 'it brings no content of its own');
-    } finally {
-      m.unmount();
-      fakeWindow.Telegram = undefined;
-    }
-    const html = renderToString(inIntl('en', createElement(ScopeProbe, null, createElement('i'))));
-    assert(html.startsWith('<div class="ch-app ch-standalone" data-theme="light" dir="ltr" lang="en"><style>') && !html.includes('ch-screen'), 'rendered on the server: no ch-screen');
-  });
-
-  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Settings, Calendars and Pair clients, which W1 and W3 move onto AppScreen; the list is pinned, so a new caller fails", () => {
+  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Calendars and Pair clients, which W3 moves onto AppScreen; the list is pinned, so a new caller fails", () => {
     const calls: string[] = [];
     const walk = (dir: string) => {
       for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -377,7 +352,6 @@ async function main() {
     const expected = [
       'app/[locale]/calendars/CalendarsClient.tsx',
       'app/[locale]/pair/PairClient.tsx',
-      'app/[locale]/settings/SettingsClient.tsx',
       'components/app-ui/AppScreen.tsx',
       'src/lib/telegram-ui.ts',
     ];

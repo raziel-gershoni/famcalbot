@@ -130,6 +130,55 @@ export class FakeElement extends FakeNode {
   set className(value: string) {
     this.setAttribute('class', value);
   }
+  /** What a form control holds: set by a test (see `change` and `input` of mount) or by React; an option's own, and a select's chosen one, otherwise. */
+  private held: string | undefined;
+  get value(): string {
+    if (this.held !== undefined) return this.held;
+    if (this.localName === 'option') return this.getAttribute('value') ?? this.textContent;
+    if (this.localName === 'select') {
+      const options = this.options;
+      return (options.find((o) => (o as unknown as Row).selected) ?? options[0])?.value ?? '';
+    }
+    return this.getAttribute('value') ?? '';
+  }
+  set value(v: string) {
+    this.held = String(v);
+  }
+  /** What React asks of a text field to tell it from other inputs. */
+  get type(): string {
+    return this.getAttribute('type') ?? (this.localName === 'textarea' ? 'textarea' : this.localName === 'select' ? 'select-one' : 'text');
+  }
+  set type(v: string) {
+    this.setAttribute('type', v);
+  }
+  /** Descendants matching one simple selector: a tag, .class, [attr] or [attr="value"]; any other selector matches nothing. */
+  querySelectorAll(selector: string): FakeElement[] {
+    const attr = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(selector);
+    const matches = (e: FakeElement) => {
+      if (attr) return e.hasAttribute(attr[1]) && (attr[2] === undefined || e.getAttribute(attr[1]) === attr[2]);
+      if (/^\.[\w-]+$/.test(selector)) return e.className.split(' ').includes(selector.slice(1));
+      if (/^[a-z][\w-]*$/i.test(selector)) return e.localName === selector.toLowerCase();
+      return false;
+    };
+    const hits: FakeElement[] = [];
+    const walk = (node: FakeNode) => {
+      for (const c of node.childNodes) {
+        if (c instanceof FakeElement) {
+          if (matches(c)) hits.push(c);
+          walk(c);
+        }
+      }
+    };
+    walk(this);
+    return hits;
+  }
+  querySelector(selector: string): FakeElement | null {
+    return this.querySelectorAll(selector)[0] ?? null;
+  }
+  /** A select's options, as React reads them. */
+  get options(): FakeElement[] {
+    return this.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName === 'option');
+  }
   focus() {
     fakeDocument.activeElement = this;
   }
@@ -148,6 +197,8 @@ export const fakeDocument: Row = {
   addEventListener: noop,
   removeEventListener: noop,
 };
+// React asks whether the document has `oninput` before it trusts the platform's input events for text fields.
+fakeDocument.oninput = null;
 fakeDocument.body = new FakeElement('body', HTML_NS);
 fakeDocument.activeElement = fakeDocument.body;
 
@@ -184,6 +235,10 @@ export type Mounted = {
   click: (el: FakeNode) => void;
   /** A keydown on `el`; returns the event, to see whether it was taken (defaultPrevented). */
   key: (el: FakeNode, key: string) => Row;
+  /** A select's change to `value`, as the platform's picker makes it. */
+  change: (el: FakeNode, value: string) => void;
+  /** Typing `value` into a text field. */
+  input: (el: FakeNode, value: string) => void;
   unmount: () => void;
 };
 
@@ -226,6 +281,15 @@ export function mount(el: ReactElement, rootOptions?: Row): Mounted {
     render: (next) => React.act(() => root.render(next)),
     click: (target) => void dispatch(target, 'click', {}),
     key: (target, key) => dispatch(target, 'keydown', { key }),
+    change: (target, value) => {
+      (target as FakeElement).value = value;
+      dispatch(target, 'change', {});
+    },
+    input: (target, value) => {
+      // Past React's value tracker (it keeps the last value it saw on the element itself): the platform sets the value the way a keystroke does.
+      Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')?.set?.call(target, value);
+      dispatch(target, 'input', {});
+    },
     unmount: () => React.act(() => root.unmount()),
   };
 }

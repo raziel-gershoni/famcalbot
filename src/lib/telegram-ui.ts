@@ -232,14 +232,6 @@ export function useTelegramTheme(ground: 'plain' | 'grouped' = 'plain'): ColorSc
 }
 
 /**
- * Only the scheme useTelegramTheme returns, without touching Telegram's header and background:
- * for a page that brings the home's scope for one sheet (Settings' time picker) and keeps its own colours.
- */
-export function useColorScheme(): ColorScheme {
-  return useSyncExternalStore(subscribeColorScheme, colorSchemeNow, serverColorScheme);
-}
-
-/**
  * Opens an http(s) link outside the Mini App (an event in Google Calendar): Telegram's
  * openLink on a 6.1+ client, else a new tab (a browser's SDK reports 6.0). Any other
  * link is refused. Returns whether it opened something.

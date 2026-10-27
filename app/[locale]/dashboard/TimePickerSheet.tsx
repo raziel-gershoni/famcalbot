@@ -10,7 +10,7 @@ import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { hourOptions, joinTime, minuteOptions, splitTime } from '@/src/lib/calendar-view/picker-model';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
-import { PICKER_CSS, PickerScope, Wheel, WheelPickerWrapper } from './picker-kit';
+import { PICKER_CSS, Wheel, WheelPickerWrapper } from './picker-kit';
 
 export interface TimePickerSheetProps {
   /** The sheet's accessible name ("Start time"). */
@@ -21,14 +21,12 @@ export interface TimePickerSheetProps {
   step: number;
   onPick: (time: string) => void;
   onClose: () => void;
-  /** Shown outside the home (brings the home's scope). */
-  standalone?: boolean;
 }
 
 /** What a sheet opens on when the field holds no time. */
 const FALLBACK_TIME = '09:00';
 
-export function TimePickerSheet({ label, value, step, onPick, onClose, standalone = false }: TimePickerSheetProps) {
+export function TimePickerSheet({ label, value, step, onPick, onClose }: TimePickerSheetProps) {
   const t = useTranslations('calendarHome');
   const start = splitTime(value) ?? (splitTime(FALLBACK_TIME) as { hour: string; minute: string });
   const [hour, setHour] = useState(start.hour);
@@ -40,7 +38,7 @@ export function TimePickerSheet({ label, value, step, onPick, onClose, standalon
   const hourItems = useMemo(() => hours.map((h) => ({ value: h, label: h })), [hours]);
   const minuteItems = useMemo(() => minutes.map((m) => ({ value: m, label: m })), [minutes]);
 
-  const body = (
+  return (
     <>
       <style>{PICKER_CSS}</style>
       <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose}>
@@ -61,5 +59,4 @@ export function TimePickerSheet({ label, value, step, onPick, onClose, standalon
       </BottomSheet>
     </>
   );
-  return standalone ? <PickerScope>{body}</PickerScope> : body;
 }

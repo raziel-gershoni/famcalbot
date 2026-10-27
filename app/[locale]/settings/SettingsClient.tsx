@@ -1,14 +1,37 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+// The Settings screen, in the home's design (spec 2026-10-19 §4, §5; plan W1a): an AppScreen on the
+// grouped ground, a header with its back, five sections of cards (language and place, summaries, when
+// summaries arrive, events and reminders, Google), and a Save bar that stays at the bottom.
+//
+// - Save stays on the page: the bar says "Saved" or what failed, and what was just saved becomes the
+//   baseline the page compares against, so Save is on only while something differs. A save that changes the
+//   language reloads this page in the new one. The request is /api/settings, as it has always been
+//   (settings-body.ts).
+// - The location is a sheet (LocationSheet): a changed place is checked after the sheet closes, and Save
+//   waits for the check and refuses a place that is not one.
+// - What the alerts rows show follows the saved platform, not the one picked in the list: the list
+//   changes the section only once it is saved.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It
+//   closes the sheet that is open, else returns to the calendar in the saved language.
+
+import { useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
-import { TelegramLayout } from '@/components/Layout';
-import { CheckCircle2, MapPin, Loader2, ArrowLeft, Check } from 'lucide-react';
 import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
-import { useTelegramBackButton, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { WEEKDAY_IDS_BY_INDEX } from '@/src/lib/calendar-view/repeat-model';
+import { readInitData } from '@/src/lib/read-init-data';
+import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { DayChips, type DayChip } from '@/components/app-ui/DayChips';
+import { FORM_CSS, FormCard, SaveBar, SwitchRow, ButtonRow, ValueRow } from '@/components/app-ui/form-kit';
+import { Notice } from '@/components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
+import { LocationSheet, type LocationProblem } from './LocationSheet';
+import { validateLocation } from './location-lookup';
+import { buildSettingsBody, daysForCulture, sameSettings, toggleSummaryDay, valuesOf, type SettingsValues } from './settings-body';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -50,1293 +73,261 @@ interface SettingsClientProps {
   subscriptionInfo: SubscriptionInfo;
 }
 
-type FormState = 'idle' | 'saving' | 'success' | 'error';
+/** The language names are each language's own, whatever language the page is in. */
+const LANGUAGES = [
+  { value: 'he', text: 'עברית' },
+  { value: 'en', text: 'English' },
+  { value: 'ru', text: 'Русский' },
+];
+
+const HOURS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour), text: `${String(hour).padStart(2, '0')}:00` }));
+
+const ALERT_LEADS = [5, 10, 15, 30, 60];
+
+/** One summary's days: the chips under its time, and the line that says why the last one cannot go. */
+function SummaryDays({ label, days, onToggle }: { label: string; days: number[]; onToggle: (day: number) => void }) {
+  const t = useTranslations('settings');
+  const names = useTranslations('calendarHome');
+  const hintId = useId();
+  const last = days.length === 1;
+  // Sunday first, as the days are numbered (0 = Sunday): in Hebrew the row starts on the right.
+  const chips: DayChip[] = WEEKDAY_IDS_BY_INDEX.map((weekday, index) => ({
+    id: String(index),
+    short: names('editor.repeat.dayShort', { weekday }),
+    full: names('editor.repeat.dayLong', { weekday }),
+    on: days.includes(index),
+    pinned: last && days.includes(index),
+  }));
+  return (
+    <div className="ch-form-chips">
+      <span className="ch-form-hint">{label}</span>
+      <DayChips label={label} days={chips} describedBy={hintId} onToggle={(id) => onToggle(Number(id))} />
+      {last ? (
+        <p id={hintId} className="ch-form-fixed">
+          {t('oneDayStays')}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
   const t = useTranslations('settings');
+  const ui = useTranslations('ui');
   const router = useRouter();
-  const [formState, setFormState] = useState<FormState>('idle');
-  const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
-  // Stays up after the form unlocks again, until the next save.
+
+  // What the page shows, and what was last saved (the server's values, then each save's).
+  const [form, setForm] = useState<SettingsValues>(() => valuesOf(currentSettings));
+  const [saved, setSaved] = useState<SettingsValues>(() => valuesOf(currentSettings));
+  const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  const [language, setLanguage] = useState(currentSettings.language);
-  const [location, setLocation] = useState(currentSettings.location);
-  const [messagingPlatform, setMessagingPlatform] = useState(currentSettings.messagingPlatform);
-  const [culture, setCulture] = useState(currentSettings.culture);
-  const [textSummaryEnabled, setTextSummaryEnabled] = useState(currentSettings.textSummaryEnabled);
-  const [voiceSummaryEnabled, setVoiceSummaryEnabled] = useState(currentSettings.voiceSummaryEnabled);
-  const [weatherEnabled, setWeatherEnabled] = useState(currentSettings.weatherEnabled);
-  const [includeLookaheadInTomorrow, setIncludeLookaheadInTomorrow] = useState(currentSettings.includeLookaheadInTomorrow);
-  const [lookaheadAlways7Days, setLookaheadAlways7Days] = useState(currentSettings.lookaheadAlways7Days);
-  const [preferredMorningHour, setPreferredMorningHour] = useState(currentSettings.preferredMorningHour);
-  const [preferredEveningHour, setPreferredEveningHour] = useState(currentSettings.preferredEveningHour);
-  const [dailySummaryDays, setDailySummaryDays] = useState<number[]>(currentSettings.dailySummaryDays);
-  const [tomorrowSummaryDays, setTomorrowSummaryDays] = useState<number[]>(currentSettings.tomorrowSummaryDays);
-  const [remindersEnabled, setRemindersEnabled] = useState(currentSettings.remindersEnabled);
-  const [defaultReminderMinutes, setDefaultReminderMinutes] = useState(currentSettings.defaultReminderMinutes ?? 15);
-  const [reminderTime, setReminderTime] = useState(currentSettings.reminderTime);
-  // The reminder-time sheet: Telegram's Back closes it, and a wheel dragged down must not minimize the app.
-  const [timeSheetOpen, setTimeSheetOpen] = useState(false);
-  useTelegramBackButton(timeSheetOpen, () => setTimeSheetOpen(false));
-  useTelegramVerticalSwipes(timeSheetOpen);
-  const [pickupRemindersEnabled, setPickupRemindersEnabled] = useState(currentSettings.pickupRemindersEnabled);
-  const [voiceInputEnabled, setVoiceInputEnabled] = useState(currentSettings.voiceInputEnabled);
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [detectedLocation, setDetectedLocation] = useState<string | null>(null);
-  const [locationError, setLocationError] = useState<string | null>(null);
-  const [locationValidating, setLocationValidating] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
 
-  const isDirty =
-    language !== currentSettings.language ||
-    location !== currentSettings.location ||
-    messagingPlatform !== currentSettings.messagingPlatform ||
-    culture !== currentSettings.culture ||
-    textSummaryEnabled !== currentSettings.textSummaryEnabled ||
-    voiceSummaryEnabled !== currentSettings.voiceSummaryEnabled ||
-    weatherEnabled !== currentSettings.weatherEnabled ||
-    includeLookaheadInTomorrow !== currentSettings.includeLookaheadInTomorrow ||
-    lookaheadAlways7Days !== currentSettings.lookaheadAlways7Days ||
-    preferredMorningHour !== currentSettings.preferredMorningHour ||
-    preferredEveningHour !== currentSettings.preferredEveningHour ||
-    JSON.stringify([...dailySummaryDays].sort()) !== JSON.stringify([...currentSettings.dailySummaryDays].sort()) ||
-    JSON.stringify([...tomorrowSummaryDays].sort()) !== JSON.stringify([...currentSettings.tomorrowSummaryDays].sort()) ||
-    remindersEnabled !== currentSettings.remindersEnabled ||
-    defaultReminderMinutes !== (currentSettings.defaultReminderMinutes ?? 15) ||
-    reminderTime !== currentSettings.reminderTime ||
-    pickupRemindersEnabled !== currentSettings.pickupRemindersEnabled ||
-    voiceInputEnabled !== currentSettings.voiceInputEnabled;
+  // The sheets: one is open at a time, and Back closes it. The Google section reports its own.
+  const [timeOpen, setTimeOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locationDraft, setLocationDraft] = useState('');
+  const [googleClose, setGoogleClose] = useState<(() => void) | null>(null);
+  // A wheel dragged down in a sheet must not minimize the app.
+  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null);
 
-  // Granularity accepted for weather: anything from a country down to a suburb.
-  // Nominatim's place_rank is the reliable dial here (country 4, state 8,
-  // state_district 10, city 16, suburb 19, road 26, building 30) — addresstype is an
-  // open-ended vocabulary, so an allowlist of it alone always leaves gaps.
-  const MAX_LOCATION_PLACE_RANK = 20;
+  // The check of a changed place. Save waits for it; a later edit makes an earlier answer stale.
+  const [locationChecking, setLocationChecking] = useState(false);
+  const [locationProblem, setLocationProblem] = useState<LocationProblem | null>(null);
+  const lastCheck = useRef(0);
 
-  // Kept as an extra accept-path for named types that rank below the cutoff.
-  const VALID_LOCATION_TYPES = [
-    'city', 'town', 'village', 'municipality', 'county', 'state', 'state_district',
-    'country', 'suburb', 'hamlet', 'locality', 'region', 'province',
-    'district', 'neighbourhood', 'borough', 'quarter'
-  ];
+  const set = <K extends keyof SettingsValues>(key: K, value: SettingsValues[K]) => setForm((f) => ({ ...f, [key]: value }));
 
-  // Build a city-level name from a Nominatim `address` object. Shared by the
-  // geolocation button and by save-time normalization so both store the same shape.
-  const buildPlaceName = (addr: Record<string, string> | undefined): string => {
-    const place =
-      addr?.city || addr?.town || addr?.village || addr?.municipality ||
-      addr?.county || addr?.state_district || addr?.state;
-    const country = addr?.country;
-    if (place && country) return `${place}, ${country}`;
-    return place || '';
+  const dirty = !sameSettings(form, saved);
+
+  const openLocation = () => {
+    setLocationDraft(form.location);
+    setLocationOpen(true);
   };
 
-  // Validate a location, and collapse over-specific matches to the city containing
-  // them. Returns the value that should actually be stored — callers must use it
-  // rather than the `location` state, which React has not updated yet.
-  const validateLocation = async (loc: string): Promise<{ valid: boolean; normalized: string }> => {
-    const trimmed = loc.trim();
-
-    if (!trimmed) {
-      setLocationError(null);
-      return { valid: true, normalized: '' }; // Empty is allowed
-    }
-
-    setLocationValidating(true);
-    setLocationError(null);
-
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(trimmed)}&format=json&limit=1&addressdetails=1`,
-        {
-          headers: {
-            'User-Agent': 'FamCalBot/1.0',
-            // Match the reverse-geocode call: names we may store must come back in
-            // English, or a collapsed address lands in the DB in the local script.
-            'Accept-Language': 'en'
-          }
-        }
-      );
-
-      if (!response.ok) {
-        setLocationError(t('locationValidationError'));
-        return { valid: false, normalized: trimmed };
-      }
-
-      const data = await response.json();
-
-      if (Array.isArray(data) && data.length > 0) {
-        const result = data[0];
-        setLocationError(null);
-
-        // Anything geocodeLocation() can resolve is acceptable — this gate must never
-        // be stricter than the weather pipeline that consumes the value. It decides
-        // only whether to keep the string as typed. Deliberately not keyed on
-        // `importance`: that measures fame, not granularity, so it would let a
-        // well-known building ("1600 Pennsylvania Ave NW") through uncollapsed.
-        const isCityLevel =
-          result.place_rank <= MAX_LOCATION_PLACE_RANK ||
-          VALID_LOCATION_TYPES.includes(result.addresstype);
-
-        if (isCityLevel) {
-          return { valid: true, normalized: trimmed };
-        }
-
-        // Over-specific match (a street address or a single building): keep it, but
-        // store the city that contains it. Weather is grid-based, so the precision
-        // buys nothing, and there is no reason to persist a house number.
-        const collapsed = buildPlaceName(result.address);
-        return { valid: true, normalized: collapsed || trimmed };
-      } else {
-        setLocationError(t('locationInvalid'));
-        return { valid: false, normalized: trimmed };
-      }
-    } catch {
-      setLocationError(t('locationValidationError'));
-      return { valid: false, normalized: trimmed };
-    } finally {
-      setLocationValidating(false);
+  /** Closing the sheet: a changed place is shown at once and checked; the check may normalize it. */
+  const closeLocation = async () => {
+    setLocationOpen(false);
+    const place = locationDraft;
+    if (place === form.location) return;
+    set('location', place);
+    const check = ++lastCheck.current;
+    setLocationProblem(null);
+    setLocationChecking(true);
+    const result = await validateLocation(place);
+    if (check !== lastCheck.current) return;
+    setLocationChecking(false);
+    if (result.kind === 'valid') {
+      if (result.normalized !== place) set('location', result.normalized);
+    } else {
+      setLocationProblem(result.kind);
     }
   };
 
-  // Validate on blur, showing the user the value that will actually be saved
-  const handleLocationBlur = async () => {
-    if (!location.trim()) return;
-
-    const { valid, normalized } = await validateLocation(location);
-    if (valid && normalized && normalized !== location) {
-      setLocation(normalized);
-    }
+  const backHandler = () => {
+    if (timeOpen) setTimeOpen(false);
+    else if (locationOpen) void closeLocation();
+    else if (googleClose) googleClose();
+    else router.push(`/${saved.language}/dashboard?user_id=${userId}`);
   };
 
-  // Get current location using browser geolocation + reverse geocoding
-  const handleGetLocation = async () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-
-    setLocationLoading(true);
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: false,
-          timeout: 10000,
-          maximumAge: 300000 // 5 minutes cache
-        });
-      });
-
-      const { latitude, longitude } = position.coords;
-
-      // Reverse geocode using Nominatim (free, no API key needed)
-      // zoom controls the *bottom* of the returned hierarchy, so a higher zoom only
-      // ever adds narrower fields to `address`. zoom=14 is deep enough that city/town
-      // is populated even in sparsely mapped areas (zoom=10 stops at the subdistrict
-      // and omits it entirely), while staying above road level, where `name` ignores
-      // accept-language, and building level, where `name` is often empty.
-      // English output keeps the result forward-geocodable.
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&zoom=14&accept-language=en`
-      );
-      const data = await response.json();
-
-      // Always read `address`, never `name`/`display_name`: those hold whatever object
-      // happened to match the zoom (a suburb, a road, an unnamed building), while
-      // `address` reliably carries the containing city/town on upward.
-      let locationString = buildPlaceName(data.address);
-
-      if (!locationString && data.display_name) {
-        // Fallback to display name, but shorten it
-        const parts = data.display_name.split(',');
-        locationString = parts.slice(0, 2).join(',').trim();
-      }
-
-      if (locationString) {
-        setDetectedLocation(locationString);
-      } else {
-        alert('Could not determine your location. Please enter it manually.');
-      }
-    } catch (error) {
-      console.error('Error getting location:', error);
-      alert('Could not get your location. Please enter it manually.');
-    } finally {
-      setLocationLoading(false);
-    }
-  };
-
-  const handleAcceptLocation = () => {
-    if (detectedLocation) {
-      setLocation(detectedLocation);
-      setLocationError(null); // Clear any previous error - detected location is valid
-    }
-    setDetectedLocation(null);
-  };
-
-  const handleDeclineLocation = () => {
-    setDetectedLocation(null);
-  };
-
-  useEffect(() => {
-    if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.expand();
-      tg.ready();
-      tg.setHeaderColor('#667eea');
-      tg.setBackgroundColor('#ffffff');
-    }
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validate location before saving. setLocation() below will not have taken effect
-    // by the time we POST, so send the returned value rather than the state.
-    let locationToSave = location;
-    if (location.trim()) {
-      const { valid, normalized } = await validateLocation(location);
-      if (!valid) {
-        return; // Don't save if location is invalid
-      }
-      if (normalized !== location) {
-        locationToSave = normalized;
-        setLocation(normalized);
-      }
-    }
-
+  const save = async () => {
+    if (busy || !dirty || locationChecking || locationProblem) return;
+    const posting = form;
+    setBusy(true);
     setSaveFailed(false);
-    setFormState('saving');
-
+    setJustSaved(false);
     try {
-      // Get Telegram Web App initData for authentication
-      const initData = typeof window !== 'undefined' ? window.Telegram?.WebApp?.initData : undefined;
-
       const response = await fetch(`/api/settings?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          language,
-          location: locationToSave,
-          messagingPlatform,
-          culture,
-          textSummaryEnabled,
-          voiceSummaryEnabled,
-          weatherEnabled,
-          includeLookaheadInTomorrow,
-          lookaheadAlways7Days,
-          preferredMorningHour,
-          preferredEveningHour,
-          dailySummaryDays,
-          tomorrowSummaryDays,
-          remindersEnabled,
-          defaultReminderMinutes: remindersEnabled ? defaultReminderMinutes : null,
-          // Only where the picker shows (FamCal reminders allowed): elsewhere it stays as it was.
-          ...(nativeRemindersSupported ? { reminderTime } : {}),
-          pickupRemindersEnabled,
-          voiceInputEnabled,
-          initData
-        })
+        body: JSON.stringify(buildSettingsBody(posting, nativeRemindersSupported, readInitData() || undefined)),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to save settings');
-      }
-
-      setFormState('success');
-
-      // Auto-redirect after 2 seconds (language is already locale code)
-      setTimeout(() => {
-        router.push(`/${language}/dashboard?user_id=${userId}`);
-      }, 2000);
-
+      if (!response.ok) throw new Error(`Failed to save settings (${response.status})`);
+      setSaved(posting);
+      setJustSaved(true);
+      // The page is in the language it was opened in: a new one reloads it.
+      if (posting.language !== saved.language) router.replace(`/${posting.language}/settings?user_id=${userId}`);
     } catch (error) {
-      console.error('Error saving settings:', error);
-      setFormState('error');
+      console.error('[settings] save failed:', error);
       setSaveFailed(true);
-
-      // Reset after 3 seconds
-      setTimeout(() => {
-        setFormState('idle');
-      }, 3000);
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleCancel = () => {
-    // language is already locale code ('he', 'en', 'ru')
-    router.push(`/${language}/dashboard?user_id=${userId}`);
-  };
-
-  if (formState === 'success') {
-    return (
-      <TelegramLayout>
-        <style jsx>{`
-          .success-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-          }
-          .success-box {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            text-align: center;
-            max-width: 400px;
-          }
-          .icon {
-            font-size: 64px;
-            margin-bottom: 20px;
-          }
-          h1 { color: #22c55e; margin: 0 0 10px 0; }
-          p { color: #666; }
-        `}</style>
-        <div className="success-container">
-          <div className="success-box">
-            <div className="icon"><CheckCircle2 size={64} color="#22c55e" /></div>
-            <h1>{t('actions.saved')}</h1>
-            <p>{t('successMessage')}</p>
-          </div>
-        </div>
-      </TelegramLayout>
-    );
-  }
-
-  // FamCal reminders' own setting: shown whenever FamCal reminders can ping this user (their plan, or a
-  // partner's reminders for them), whatever the Google event alerts switch says and on either messaging platform
-  const reminderTimePicker = nativeRemindersSupported ? (
-    <div className="form-group">
-      <label htmlFor="reminderTime">{t('reminderTime')}</label>
-      <button
-        type="button"
-        id="reminderTime"
-        className="time-pill"
-        aria-label={`${t('reminderTime')}, ${reminderTime}`}
-        aria-haspopup="dialog"
-        disabled={formState !== 'idle'}
-        onClick={() => setTimeSheetOpen(true)}
-      >
-        {/* The button keeps the page's direction (so it aligns with the other fields); the time itself reads left to right. */}
-        <bdi dir="ltr">{reminderTime}</bdi>
-      </button>
-      {/* Not lazy here: there is no error boundary on this page, so a chunk that failed to load would take the whole form with it. */}
-      {timeSheetOpen ? (
-        <TimePickerSheet
-          standalone
-          label={t('reminderTime')}
-          value={reminderTime}
-          step={REMINDER_TIME_STEP_MINUTES}
-          onPick={(time) => {
-            setTimeSheetOpen(false);
-            setReminderTime(time);
-          }}
-          onClose={() => setTimeSheetOpen(false)}
-        />
-      ) : null}
-      <p className="help-text">{t('reminderTimeHelp')}</p>
-    </div>
-  ) : null;
+  const alertsAllowed = remindersGloballyEnabled && subscriptionInfo.remindersAllowed;
+  const alertsOn = form.remindersEnabled && alertsAllowed;
+  // The alerts rows follow the saved platform: picking another one changes them once it is saved.
+  const telegramReaches = saved.messagingPlatform !== 'whatsapp';
+  const usage = (used: number, limit: number) => (limit > 0 ? t('usage', { used, limit }) : undefined);
 
   return (
-    <TelegramLayout>
-      <style jsx>{`
-        .container {
-          max-width: 600px;
-          margin: 0 auto;
-          background: white;
-          min-height: 100vh;
-        }
-
-        .settings-header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          padding: 16px 20px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .settings-header h1 {
-          font-size: 20px;
-          font-weight: 600;
-          margin: 0;
-        }
-
-        .header-action-btn {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          border: none;
-          background: rgba(255, 255, 255, 0.2);
-          color: white;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: background 0.2s;
-        }
-
-        .header-action-btn:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.3);
-        }
-
-        .header-action-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .header-action-btn.dirty {
-          background: white;
-          color: #764ba2;
-        }
-
-        .header-action-btn.dirty:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.9);
-        }
-
-        .header-action-btn.muted {
-          opacity: 0.5;
-        }
-
-        .content {
-          padding: 20px;
-        }
-
-        .form-group {
-          margin-bottom: 24px;
-        }
-
-        label {
-          display: block;
-          font-weight: 600;
-          color: #374151;
-          margin-bottom: 8px;
-          font-size: 14px;
-        }
-
-        input,
-        select {
-          width: 100%;
-          padding: 12px;
-          border: 2px solid #e5e7eb;
-          border-radius: 8px;
-          font-size: 16px;
-          transition: border-color 0.2s;
-        }
-
-        input:focus,
-        select:focus {
-          outline: none;
-          border-color: #667eea;
-        }
-
-        .time-pill {
-          display: block;
-          width: 100%;
-          padding: 12px;
-          border: 2px solid #e5e7eb;
-          border-radius: 8px;
-          background: white;
-          font-size: 16px;
-          text-align: start;
-          cursor: pointer;
-        }
-
-        .time-pill:focus-visible {
-          outline: none;
-          border-color: #667eea;
-        }
-
-        .time-pill:disabled {
-          cursor: default;
-        }
-
-        .help-text {
-          font-size: 13px;
-          color: #6b7280;
-          margin-top: 4px;
-        }
-
-        .error-text {
-          font-size: 13px;
-          color: #ef4444;
-          margin-top: 4px;
-        }
-
-        .validating-text {
-          font-size: 13px;
-          color: #6b7280;
-          margin-top: 4px;
-          display: flex;
-          align-items: center;
-        }
-
-        .input-error {
-          border-color: #ef4444 !important;
-        }
-
-        .input-error:focus {
-          border-color: #ef4444 !important;
-        }
-
-
-        .location-row {
-          display: flex;
-          gap: 8px;
-        }
-
-        .location-row input {
-          flex: 1;
-        }
-
-        .location-btn {
-          padding: 12px;
-          background: #f3f4f6;
-          border: 2px solid #e5e7eb;
-          border-radius: 8px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-          flex-shrink: 0;
-        }
-
-        .location-btn:hover:not(:disabled) {
-          background: #e5e7eb;
-          border-color: #667eea;
-        }
-
-        .location-btn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .location-btn svg {
-          color: #667eea;
-        }
-
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .spinning {
-          animation: spin 1s linear infinite;
-        }
-
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-          padding: 20px;
-        }
-
-        .modal {
-          background: white;
-          border-radius: 12px;
-          padding: 24px;
-          max-width: 320px;
-          width: 100%;
-          text-align: center;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-        }
-
-        .modal-icon {
-          margin-bottom: 16px;
-          color: #667eea;
-        }
-
-        .modal-title {
-          font-size: 18px;
-          font-weight: 600;
-          color: #374151;
-          margin: 0 0 8px 0;
-        }
-
-        .modal-location {
-          font-size: 16px;
-          color: #667eea;
-          font-weight: 500;
-          margin: 0 0 20px 0;
-          padding: 12px;
-          background: #f3f4f6;
-          border-radius: 8px;
-        }
-
-        .modal-buttons {
-          display: flex;
-          gap: 12px;
-        }
-
-        .modal-btn {
-          flex: 1;
-          padding: 12px;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-          border: none;
-          transition: all 0.2s;
-        }
-
-        .modal-btn-accept {
-          background: #667eea;
-          color: white;
-        }
-
-        .modal-btn-accept:hover {
-          background: #5a67d8;
-        }
-
-        .modal-btn-decline {
-          background: #f3f4f6;
-          color: #374151;
-        }
-
-        .modal-btn-decline:hover {
-          background: #e5e7eb;
-        }
-
-        .toggle-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 16px 0;
-          border-bottom: 1px solid #e5e7eb;
-        }
-
-        .toggle-row:last-child {
-          border-bottom: none;
-        }
-
-        .toggle-info {
-          flex: 1;
-        }
-
-        .toggle-label {
-          font-weight: 600;
-          color: #374151;
-          font-size: 14px;
-          margin: 0 0 4px 0;
-        }
-
-        .toggle-description {
-          font-size: 13px;
-          color: #6b7280;
-          margin: 0;
-        }
-
-        .usage-badge {
-          display: inline-block;
-          font-size: 12px;
-          color: #6b7280;
-          background: #f3f4f6;
-          padding: 2px 8px;
-          border-radius: 10px;
-          margin-top: 4px;
-        }
-
-        .usage-badge span[dir="ltr"] {
-          unicode-bidi: embed;
-        }
-
-        .pro-badge {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 12px;
-          color: #9333ea;
-          margin-top: 4px;
-        }
-
-        .pro-badge a {
-          color: #667eea;
-          text-decoration: underline;
-          cursor: pointer;
-        }
-
-        .toggle-switch {
-          position: relative;
-          width: 50px;
-          height: 26px;
-          background: #d1d5db;
-          border-radius: 13px;
-          cursor: pointer;
-          transition: background 0.2s;
-          flex-shrink: 0;
-          margin-left: 16px;
-        }
-
-        .toggle-switch.checked {
-          background: #667eea;
-        }
-
-        .toggle-switch.disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-
-        .toggle-slider {
-          position: absolute;
-          top: 3px;
-          left: 3px;
-          width: 20px;
-          height: 20px;
-          background: white;
-          border-radius: 50%;
-          transition: transform 0.2s;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-        }
-
-        .toggle-switch.checked .toggle-slider {
-          transform: translateX(24px);
-        }
-
-        .day-picker {
-          display: flex;
-          gap: 6px;
-          margin-top: 8px;
-          justify-content: space-between;
-        }
-
-        .day-btn {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          border: 2px solid #e5e7eb;
-          background: white;
-          color: #6b7280;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: all 0.2s;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0;
-          -webkit-tap-highlight-color: transparent;
-        }
-
-        .day-btn.active {
-          background: #667eea;
-          border-color: #667eea;
-          color: white;
-        }
-
-        .day-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .section-title {
-          font-size: 16px;
-          font-weight: 600;
-          color: #374151;
-          margin: 24px 0 8px 0;
-          padding-bottom: 8px;
-          border-bottom: 2px solid #667eea;
-        }
-
-        .save-error {
-          margin: 0 0 16px;
-          padding: 12px 14px;
-          border-radius: 12px;
-          background: #fef2f2;
-          color: #b91c1c;
-          font-size: 14px;
-          line-height: 1.4;
-        }
-      `}</style>
-
-      <div className="container">
-        <div className="settings-header">
-          <button
-            type="button"
-            className={`header-action-btn${isDirty ? ' muted' : ''}`}
-            onClick={handleCancel}
-            disabled={formState === 'saving'}
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <h1>{t('title')}</h1>
-          <button
-            type="button"
-            className={`header-action-btn${isDirty ? ' dirty' : ''}`}
-            onClick={() => formRef.current?.requestSubmit()}
-            disabled={formState !== 'idle' || locationValidating || !!locationError}
-          >
-            {formState === 'saving' ? <Loader2 size={20} className="spinning" /> : <Check size={20} />}
-          </button>
-        </div>
-
-        <div className="content">
-          {saveFailed && (
-            <p className="save-error" role="alert">{t('saveFailed')}</p>
-          )}
-          <form ref={formRef} onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label htmlFor="language">{t('preferences.language')}</label>
-              <select
-                name="language"
-                id="language"
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                disabled={formState !== 'idle'}
-              >
-                <option value="he">עברית (Hebrew)</option>
-                <option value="en">English</option>
-                <option value="ru">Русский (Russian)</option>
-              </select>
-              <p className="help-text">{t('languageHelp')}</p>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="location">{t('personal.location')}</label>
-              <div className="location-row">
-                <input
-                  type="text"
-                  name="location"
-                  id="location"
-                  value={location}
-                  onChange={(e) => {
-                    setLocation(e.target.value);
-                    setLocationError(null); // Clear error on change
-                  }}
-                  onBlur={handleLocationBlur}
-                  placeholder={t('personal.locationPlaceholder')}
-                  disabled={formState !== 'idle' || locationLoading}
-                  className={locationError ? 'input-error' : ''}
-                />
-                <button
-                  type="button"
-                  className="location-btn"
-                  onClick={handleGetLocation}
-                  disabled={formState !== 'idle' || locationLoading}
-                  title={t('useCurrentLocation')}
-                >
-                  {locationLoading ? (
-                    <Loader2 size={20} className="spinning" />
-                  ) : (
-                    <MapPin size={20} />
-                  )}
-                </button>
-              </div>
-              {locationValidating && (
-                <p className="validating-text">
-                  <Loader2 size={14} className="spinning" style={{ display: 'inline', marginRight: 4 }} />
-                  {t('locationValidating')}
-                </p>
-              )}
-              {locationError && <p className="error-text">{locationError}</p>}
-              <p className="help-text">{t('locationHelp')}</p>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="messagingPlatform">{t('platformLabel')}</label>
-              <select
-                name="messagingPlatform"
-                id="messagingPlatform"
-                value={messagingPlatform}
-                onChange={(e) => setMessagingPlatform(e.target.value)}
-                disabled={formState !== 'idle'}
-              >
-                <option value="telegram">Telegram</option>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="all">{t('platformBoth')}</option>
-              </select>
-              <p className="help-text">{t('platformHelp')}</p>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="culture">{t('cultureLabel')}</label>
-              <select
-                name="culture"
-                id="culture"
-                value={culture}
-                onChange={(e) => {
-                  const newCulture = e.target.value;
-                  setCulture(newCulture);
-                  if (newCulture === 'jewish') {
-                    setDailySummaryDays([0, 1, 2, 3, 4, 5]);
-                    setTomorrowSummaryDays([0, 1, 2, 3, 4, 6]);
-                  } else {
-                    setDailySummaryDays([0, 1, 2, 3, 4, 5, 6]);
-                    setTomorrowSummaryDays([0, 1, 2, 3, 4, 5, 6]);
-                  }
-                }}
-                disabled={formState !== 'idle'}
-              >
-                <option value="default">{t('cultureDefault')}</option>
-                <option value="jewish">{t('cultureJewish')}</option>
-              </select>
-              <p className="help-text">{t('cultureHelp')}</p>
-            </div>
-
-            <h3 className="section-title">{t('summaryPreferences')}</h3>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('textSummary')}</p>
-                <p className="toggle-description">{t('textSummaryDescription')}</p>
-                {subscriptionInfo.textSummariesLimit > 0 && (
-                  <div className="usage-badge">
-                    <span dir="ltr">{subscriptionInfo.textSummariesUsed} / {subscriptionInfo.textSummariesLimit}</span>{' '}
-                    {t('usageCounterSuffix')}
-                  </div>
-                )}
-              </div>
-              <div
-                className={`toggle-switch ${textSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setTextSummaryEnabled(!textSummaryEnabled)}
-                role="switch"
-                aria-checked={textSummaryEnabled}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setTextSummaryEnabled(!textSummaryEnabled);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('voiceSummary')}</p>
-                <p className="toggle-description">{t('voiceSummaryDescription')}</p>
-                {subscriptionInfo.voiceSummariesLimit > 0 && (
-                  <div className="usage-badge">
-                    <span dir="ltr">{subscriptionInfo.voiceSummariesUsed} / {subscriptionInfo.voiceSummariesLimit}</span>{' '}
-                    {t('usageCounterSuffix')}
-                  </div>
-                )}
-              </div>
-              <div
-                className={`toggle-switch ${voiceSummaryEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setVoiceSummaryEnabled(!voiceSummaryEnabled)}
-                role="switch"
-                aria-checked={voiceSummaryEnabled}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setVoiceSummaryEnabled(!voiceSummaryEnabled);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('weatherSummary')}</p>
-                <p className="toggle-description">{t('weatherSummaryDescription')}</p>
-              </div>
-              <div
-                className={`toggle-switch ${weatherEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setWeatherEnabled(!weatherEnabled)}
-                role="switch"
-                aria-checked={weatherEnabled}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setWeatherEnabled(!weatherEnabled);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('weekLookahead')}</p>
-                <p className="toggle-description">{t('weekLookaheadDescription')}</p>
-              </div>
-              <div
-                className={`toggle-switch ${includeLookaheadInTomorrow ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow)}
-                role="switch"
-                aria-checked={includeLookaheadInTomorrow}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setIncludeLookaheadInTomorrow(!includeLookaheadInTomorrow);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('lookaheadAlways7Days')}</p>
-                <p className="toggle-description">{t('lookaheadAlways7DaysDescription')}</p>
-              </div>
-              <div
-                className={`toggle-switch ${lookaheadAlways7Days ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setLookaheadAlways7Days(!lookaheadAlways7Days)}
-                role="switch"
-                aria-checked={lookaheadAlways7Days}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setLookaheadAlways7Days(!lookaheadAlways7Days);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('voiceInput')}</p>
-                <p className="toggle-description">{t('voiceInputDescription')}</p>
-              </div>
-              <div
-                className={`toggle-switch ${voiceInputEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && setVoiceInputEnabled(!voiceInputEnabled)}
-                role="switch"
-                aria-checked={voiceInputEnabled}
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    if (formState === 'idle') setVoiceInputEnabled(!voiceInputEnabled);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            <h3 className="section-title">{t('summaryDeliveryTime')}</h3>
-
-            <div className="form-group" style={{ marginTop: '16px' }}>
-              <label htmlFor="preferredMorningHour">{t('morningHour')}</label>
-              <select
-                name="preferredMorningHour"
-                id="preferredMorningHour"
-                value={preferredMorningHour}
-                onChange={(e) => setPreferredMorningHour(parseInt(e.target.value))}
-                disabled={formState !== 'idle'}
-              >
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>{String(i).padStart(2, '0')}{t('hourSuffix')}</option>
-                ))}
-              </select>
-              <p className="help-text">{t('morningHourDescription')}</p>
-              <div className="day-picker">
-                {[0, 1, 2, 3, 4, 5, 6].map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    className={`day-btn ${dailySummaryDays.includes(day) ? 'active' : ''}`}
-                    onClick={() => {
-                      if (formState !== 'idle') return;
-                      if (dailySummaryDays.includes(day)) {
-                        if (dailySummaryDays.length <= 1) return;
-                        setDailySummaryDays(dailySummaryDays.filter(d => d !== day));
-                      } else {
-                        setDailySummaryDays([...dailySummaryDays, day].sort());
-                      }
-                    }}
-                    disabled={formState !== 'idle'}
-                    aria-pressed={dailySummaryDays.includes(day)}
-                  >
-                    {t(`days.d${day}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="preferredEveningHour">{t('eveningHour')}</label>
-              <select
-                name="preferredEveningHour"
-                id="preferredEveningHour"
-                value={preferredEveningHour}
-                onChange={(e) => setPreferredEveningHour(parseInt(e.target.value))}
-                disabled={formState !== 'idle'}
-              >
-                {Array.from({ length: 24 }, (_, i) => (
-                  <option key={i} value={i}>{String(i).padStart(2, '0')}{t('hourSuffix')}</option>
-                ))}
-              </select>
-              <p className="help-text">{t('eveningHourDescription')}</p>
-              <div className="day-picker">
-                {[0, 1, 2, 3, 4, 5, 6].map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    className={`day-btn ${tomorrowSummaryDays.includes(day) ? 'active' : ''}`}
-                    onClick={() => {
-                      if (formState !== 'idle') return;
-                      if (tomorrowSummaryDays.includes(day)) {
-                        if (tomorrowSummaryDays.length <= 1) return;
-                        setTomorrowSummaryDays(tomorrowSummaryDays.filter(d => d !== day));
-                      } else {
-                        setTomorrowSummaryDays([...tomorrowSummaryDays, day].sort());
-                      }
-                    }}
-                    disabled={formState !== 'idle'}
-                    aria-pressed={tomorrowSummaryDays.includes(day)}
-                  >
-                    {t(`days.d${day}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {currentSettings.messagingPlatform !== 'whatsapp' && (<>
-            <h3 className="section-title">{t('remindersSection')}</h3>
-
-            <div className="toggle-row">
-              <div className="toggle-info">
-                <p className="toggle-label">{t('remindersEnabled')}</p>
-                <p className="toggle-description">
-                  {!remindersGloballyEnabled
-                    ? t('remindersBetaDescription')
-                    : !subscriptionInfo.remindersAllowed
-                      ? t('remindersEnabledDescription')
-                      : t('remindersEnabledDescription')
-                  }
-                </p>
-                {remindersGloballyEnabled && !subscriptionInfo.remindersAllowed && (
-                  <div className="pro-badge">
-                    <span>{t('remindersProRequired')}</span>
-                    <a href={`/${currentSettings.language}/subscription?user_id=${userId}`}>{t('upgradeLink')}</a>
-                  </div>
-                )}
-              </div>
-              <div
-                className={`toggle-switch ${remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? 'checked' : ''} ${formState !== 'idle' || !remindersGloballyEnabled || !subscriptionInfo.remindersAllowed ? 'disabled' : ''}`}
-                onClick={() => formState === 'idle' && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && setRemindersEnabled(!remindersEnabled)}
-                role="switch"
-                aria-checked={remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed}
-                tabIndex={remindersGloballyEnabled && subscriptionInfo.remindersAllowed ? 0 : -1}
-                onKeyDown={(e) => {
-                  if ((e.key === 'Enter' || e.key === ' ') && remindersGloballyEnabled && subscriptionInfo.remindersAllowed) {
-                    e.preventDefault();
-                    if (formState === 'idle') setRemindersEnabled(!remindersEnabled);
-                  }
-                }}
-              >
-                <div className="toggle-slider" />
-              </div>
-            </div>
-
-            {reminderTimePicker}
-
-            {remindersEnabled && remindersGloballyEnabled && subscriptionInfo.remindersAllowed && (
-              <>
-                <div className="form-group" style={{ marginTop: '16px' }}>
-                  <label htmlFor="defaultReminderMinutes">{t('defaultReminderMinutes')}</label>
-                  <select
-                    name="defaultReminderMinutes"
-                    id="defaultReminderMinutes"
-                    value={defaultReminderMinutes}
-                    onChange={(e) => setDefaultReminderMinutes(parseInt(e.target.value))}
-                    disabled={formState !== 'idle'}
-                  >
-                    <option value="5">5 {t('minutes')}</option>
-                    <option value="10">10 {t('minutes')}</option>
-                    <option value="15">15 {t('minutes')}</option>
-                    <option value="30">30 {t('minutes')}</option>
-                    <option value="60">60 {t('minutes')}</option>
-                  </select>
-                  <p className="help-text">{t('defaultReminderMinutesHelp')}</p>
-                </div>
-
-                <div className="toggle-row">
-                  <div className="toggle-info">
-                    <p className="toggle-label">{t('pickupRemindersEnabled')}</p>
-                    <p className="toggle-description">{t('pickupRemindersDescription')}</p>
-                  </div>
-                  <div
-                    className={`toggle-switch ${pickupRemindersEnabled ? 'checked' : ''} ${formState !== 'idle' ? 'disabled' : ''}`}
-                    onClick={() => formState === 'idle' && setPickupRemindersEnabled(!pickupRemindersEnabled)}
-                    role="switch"
-                    aria-checked={pickupRemindersEnabled}
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        if (formState === 'idle') setPickupRemindersEnabled(!pickupRemindersEnabled);
-                      }
-                    }}
-                  >
-                    <div className="toggle-slider" />
-                  </div>
-                </div>
-              </>
-            )}
-            </>)}
-
-            {currentSettings.messagingPlatform === 'whatsapp' && reminderTimePicker && (<>
-            <h3 className="section-title">{t('remindersSection')}</h3>
-            {reminderTimePicker}
-            </>)}
-
-          </form>
-
-          <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} />
-
-          <p style={{
-            textAlign: 'center',
-            fontSize: '12px',
-            color: '#9ca3af',
-            marginTop: '16px',
-            padding: '0 16px',
-          }}>
-            🔒 {t('privacyNote')}
-          </p>
-        </div>
+    <AppScreen ground="grouped" onBack={backHandler}>
+      <style>{FORM_CSS}</style>
+      <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={backHandler} />
+      <div className="ch-form-page ch-form-page-grouped">
+        <SectionLabel>{t('sections.place')}</SectionLabel>
+        <FormCard>
+          <ValueRow label={t('language.label')} hint={t('language.hint')} value={form.language} options={LANGUAGES} onChange={(value) => set('language', value)} />
+          <ButtonRow
+            label={t('location.label')}
+            hint={locationChecking ? t('location.checking') : t('location.hint')}
+            value={form.location || t('location.notSet')}
+            error={locationProblem ? t(locationProblem === 'notFound' ? 'location.notFound' : 'location.checkFailed') : null}
+            onClick={openLocation}
+          />
+          <ValueRow
+            label={t('culture.label')}
+            hint={t('culture.hint')}
+            value={form.culture}
+            options={[
+              { value: 'default', text: t('culture.general') },
+              { value: 'jewish', text: t('culture.jewish') },
+            ]}
+            onChange={(value) => setForm((f) => ({ ...f, culture: value, ...daysForCulture(value) }))}
+          />
+          <ValueRow
+            label={t('platform.label')}
+            value={form.messagingPlatform}
+            options={[
+              { value: 'telegram', text: 'Telegram' },
+              { value: 'whatsapp', text: 'WhatsApp' },
+              { value: 'all', text: t('platform.both') },
+            ]}
+            onChange={(value) => set('messagingPlatform', value)}
+          />
+        </FormCard>
+
+        <SectionLabel>{t('sections.summaries')}</SectionLabel>
+        <FormCard>
+          <SwitchRow
+            label={t('text.label')}
+            hint={t('text.hint')}
+            note={usage(subscriptionInfo.textSummariesUsed, subscriptionInfo.textSummariesLimit)}
+            checked={form.textSummaryEnabled}
+            onChange={(on) => set('textSummaryEnabled', on)}
+          />
+          <SwitchRow
+            label={t('voice.label')}
+            hint={t('voice.hint')}
+            note={usage(subscriptionInfo.voiceSummariesUsed, subscriptionInfo.voiceSummariesLimit)}
+            checked={form.voiceSummaryEnabled}
+            onChange={(on) => set('voiceSummaryEnabled', on)}
+          />
+          <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
+          <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
+          <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />
+        </FormCard>
+
+        <SectionLabel>{t('sections.timing')}</SectionLabel>
+        <FormCard>
+          <ValueRow label={t('morning.label')} value={String(form.preferredMorningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredMorningHour', Number(value))} />
+          <SummaryDays label={t('morning.days')} days={form.dailySummaryDays} onToggle={(day) => set('dailySummaryDays', toggleSummaryDay(form.dailySummaryDays, day))} />
+          <ValueRow label={t('evening.label')} value={String(form.preferredEveningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredEveningHour', Number(value))} />
+          <SummaryDays label={t('evening.days')} days={form.tomorrowSummaryDays} onToggle={(day) => set('tomorrowSummaryDays', toggleSummaryDay(form.tomorrowSummaryDays, day))} />
+        </FormCard>
+
+        <SectionLabel>{t('sections.events')}</SectionLabel>
+        <FormCard>
+          <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />
+          {telegramReaches ? (
+            <>
+              <SwitchRow
+                label={t('alerts.label')}
+                hint={remindersGloballyEnabled ? t('alerts.hint') : t('alerts.comingSoon')}
+                checked={alertsOn}
+                disabled={!alertsAllowed}
+                onChange={(on) => set('remindersEnabled', on)}
+              />
+              {alertsOn ? (
+                <>
+                  <ValueRow
+                    label={t('defaultAlert.label')}
+                    hint={t('defaultAlert.hint')}
+                    value={String(form.defaultReminderMinutes)}
+                    options={ALERT_LEADS.map((minutes) => ({ value: String(minutes), text: t('defaultAlert.option', { minutes }) }))}
+                    onChange={(value) => set('defaultReminderMinutes', Number(value))}
+                  />
+                  <SwitchRow label={t('pickup.label')} hint={t('pickup.hint')} checked={form.pickupRemindersEnabled} onChange={(on) => set('pickupRemindersEnabled', on)} />
+                </>
+              ) : null}
+            </>
+          ) : null}
+          {nativeRemindersSupported ? <ButtonRow label={t('reminderTime')} hint={t('reminderTimeHelp')} value={form.reminderTime} valueDir="ltr" onClick={() => setTimeOpen(true)} /> : null}
+        </FormCard>
+        {telegramReaches && remindersGloballyEnabled && !subscriptionInfo.remindersAllowed ? (
+          <Notice action={{ label: t('alerts.seePlans'), onClick: () => router.push(`/${saved.language}/subscription?user_id=${userId}`) }}>{t('alerts.proOnly')}</Notice>
+        ) : null}
+
+        <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
       </div>
 
-      {/* Location confirmation modal */}
-      {detectedLocation && (
-        <div className="modal-overlay" onClick={handleDeclineLocation}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-icon">
-              <MapPin size={48} />
-            </div>
-            <h2 className="modal-title">{t('locationDetected')}</h2>
-            <p className="modal-location">{detectedLocation}</p>
-            <div className="modal-buttons">
-              <button
-                type="button"
-                className="modal-btn modal-btn-decline"
-                onClick={handleDeclineLocation}
-              >
-                {t('locationDecline')}
-              </button>
-              <button
-                type="button"
-                className="modal-btn modal-btn-accept"
-                onClick={handleAcceptLocation}
-              >
-                {t('locationAccept')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </TelegramLayout>
+      <SaveBar
+        sticky
+        label={ui('save')}
+        busy={busy}
+        disabled={!dirty || locationChecking || locationProblem !== null}
+        status={justSaved && !dirty ? ui('saved') : null}
+        error={saveFailed ? t('saveFailed') : null}
+        onSave={save}
+      />
+
+      {/* Not lazy: there is no error boundary on this page, so a chunk that failed to load would take the whole screen with it. */}
+      {timeOpen ? (
+        <TimePickerSheet
+          label={t('reminderTime')}
+          value={form.reminderTime}
+          step={REMINDER_TIME_STEP_MINUTES}
+          onPick={(time) => {
+            setTimeOpen(false);
+            set('reminderTime', time);
+          }}
+          onClose={() => setTimeOpen(false)}
+        />
+      ) : null}
+      {locationOpen ? <LocationSheet draft={locationDraft} onDraft={setLocationDraft} checking={locationChecking} problem={locationProblem} onClose={() => void closeLocation()} /> : null}
+    </AppScreen>
   );
 }

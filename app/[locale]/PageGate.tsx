@@ -7,8 +7,8 @@
 // router.replace, a notice renders the page's static notice, and 401/403/404 show the
 // pageGate card instead of anyone's data, with a way back to the chat. The dashboard is
 // the calendar home, inside its own chunk-load boundary. Each page has a look: the dashboard's
-// is the app's own ('app': the home's tokens, no colour of ours on Telegram's chrome), the
-// other pages keep the purple gradient or the light card until W1 and W3 move them.
+// and Settings' are the app's own ('app': the home's tokens, no colour of ours on Telegram's chrome),
+// the other pages keep the purple gradient or the light card until W1b and W3 move them.
 
 import { Component, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
@@ -28,7 +28,7 @@ import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calend
 export type Look = 'app' | 'telegram' | 'light';
 const LOOK: Record<PageName, Look> = {
   dashboard: 'app',
-  settings: 'telegram',
+  settings: 'app',
   'select-calendars': 'telegram',
   subscription: 'telegram',
   calendars: 'light',
@@ -81,7 +81,7 @@ export function PageLoader({ look, label }: { look: Look; label?: string }) {
 
 /**
  * Full height and the page's Telegram chrome at once, not after the data round trip.
- * The page's TelegramLayout repeats these later; ready() and expand() are idempotent.
+ * The old pages' TelegramLayout repeats these later; ready() and expand() are idempotent.
  * Some WebApp versions throw on a hex colour, and a throw here would replace the gate.
  * The purple page sets its purple header and background. The app's look sets no colour of
  * its own: its AppScreen takes the theme's bg_color for Telegram's header and background.
@@ -115,7 +115,7 @@ const lightLoader = () => <PageLoader look="light" />;
 // Each page's existing client component, loaded only once its data has arrived.
 // The calendar home (spec §7.1), behind the dashboard's own loader; it applies its look on mount.
 const CalendarHome = dynamic(() => import('./dashboard/CalendarHome'), { loading: appLoader });
-const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: telegramLoader });
+const Settings = dynamic(() => import('./settings/SettingsClient'), { loading: appLoader });
 const SelectCalendars = dynamic(() => import('./select-calendars/SelectCalendarsClient'), { loading: telegramLoader });
 const Subscription = dynamic(() => import('./subscription/SubscriptionClient'), { loading: telegramLoader });
 const Calendars = dynamic(() => import('./calendars/CalendarsClient'), { loading: lightLoader });

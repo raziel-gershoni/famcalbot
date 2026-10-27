@@ -8,8 +8,7 @@
 // no token for (the hint, surfaces, separators, the danger colour, the whole dark
 // palette) are the approved mockups' and belong to the app's look alone.
 //
-// The theme scope is the .ch-app class, carried by AppScreen (a whole screen) and AppScope
-// (a zero-height scope a sheet brings into another page):
+// The theme scope is the .ch-app class, carried by AppScreen (a whole screen):
 //   <div className="ch-app" data-theme={scheme} dir={…}>
 //     <style>{APP_THEME_CSS}</style>
 //     …
@@ -18,7 +17,7 @@
 // and the fallbacks follow data-theme (prefers-color-scheme).
 //
 // The frame (the height, the safe areas) and the page root's paint belong to .ch-screen
-// (./screen.ts), never to the theme scope: a sheet in another page takes the tokens only.
+// (./screen.ts), never to the theme scope: the tokens are the whole of .ch-app.
 //
 // Rules: nothing smaller than 11 px; every tap target at least 44 px; logical
 // properties only, so RTL needs no overrides; no hover styles (touch only).

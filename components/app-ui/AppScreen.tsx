@@ -1,6 +1,6 @@
 'use client';
 
-// The app's screen root and its theme scope (spec 2026-10-19 §4; plan F1).
+// The app's screen root (spec 2026-10-19 §4; plan F1).
 //
 // - AppScreen is a whole screen: the root carries .ch-app (the tokens, ./theme.ts) and
 //   .ch-screen (the frame and the page paint, ./screen.ts) with data-theme, dir and lang,
@@ -10,16 +10,13 @@
 //   while `onBack` is set, and a tap calls the latest `onBack`. Nothing below a screen calls
 //   useTelegramBackButton. The Telegram header and background take the theme's bg_color
 //   (a grouped screen, ground="grouped": its secondary_bg_color in a light theme).
-// - AppScope is the zero-height scope a sheet brings into a page that is not a screen
-//   (Settings' time picker): the tokens, the scheme the device is in and the page's
-//   direction, with no frame, no page paint, no BackButton and no change to Telegram's colours.
-// - useAppScheme() gives a part of either the scheme the root renders ('light' | 'dark').
+// - useAppScheme() gives a part of a screen the scheme the root renders ('light' | 'dark').
 //
 // Client-safe: nothing here reaches a server module.
 
 import { createContext, useContext, type ReactNode, type Ref } from 'react';
 import { useLocale } from 'next-intl';
-import { useColorScheme, useTelegramBackButton, useTelegramTheme } from '@/src/lib/telegram-ui';
+import { useTelegramBackButton, useTelegramTheme } from '@/src/lib/telegram-ui';
 import { APP_SCREEN_CSS } from './screen';
 import { APP_THEME_CSS } from './theme';
 
@@ -27,7 +24,7 @@ type Scheme = 'light' | 'dark';
 
 const SchemeContext = createContext<Scheme>('light');
 
-/** The scheme of the nearest AppScreen or AppScope ('light' outside one). */
+/** The scheme of the nearest AppScreen ('light' outside one). */
 export function useAppScheme(): Scheme {
   return useContext(SchemeContext);
 }
@@ -59,19 +56,6 @@ export function AppScreen({ className, ground = 'plain', onBack, rootRef, childr
       <div ref={rootRef} className={classes} data-theme={scheme} dir={dirOf(locale)} lang={locale}>
         <style>{APP_THEME_CSS}</style>
         <style>{APP_SCREEN_CSS}</style>
-        {children}
-      </div>
-    </SchemeContext>
-  );
-}
-
-export function AppScope({ children }: { children: ReactNode }) {
-  const locale = useLocale();
-  const scheme = useColorScheme();
-  return (
-    <SchemeContext value={scheme}>
-      <div className="ch-app ch-standalone" data-theme={scheme} dir={dirOf(locale)} lang={locale}>
-        <style>{APP_THEME_CSS}</style>
         {children}
       </div>
     </SchemeContext>

@@ -565,98 +565,91 @@
   },
   "settings": {
     "title": "Settings",
-    "saveFailed": "Couldn't save your settings. Please try again.",
-    "personal": {
-      "title": "Personal Information",
-      "name": "Name",
-      "hebrewName": "Hebrew Name",
-      "gender": "Gender",
-      "male": "Male",
-      "female": "Female",
-      "location": "Location",
-      "locationPlaceholder": "Enter your location (e.g., Tel Aviv)"
+    "saveFailed": "Couldn't save. Try again.",
+    "sections": {
+      "place": "Language and place",
+      "summaries": "Summaries",
+      "timing": "When summaries arrive",
+      "events": "Events and reminders"
     },
-    "spouse": {
-      "title": "Spouse Information",
-      "name": "Spouse Name",
-      "hebrewName": "Spouse Hebrew Name",
-      "gender": "Spouse Gender"
+    "language": {
+      "label": "Language",
+      "hint": "For the app, the bot and your summaries"
     },
-    "preferences": {
-      "title": "Preferences",
-      "language": "Language",
-      "primaryCalendar": "Primary Calendar"
+    "location": {
+      "label": "Location",
+      "hint": "For the weather and your time zone",
+      "notSet": "Not set",
+      "placeholder": "For example, Tel Aviv",
+      "useCurrent": "Use my current location",
+      "checking": "Checking…",
+      "notFound": "We couldn't find this place. Check the spelling.",
+      "checkFailed": "We couldn't check this place right now. Try again.",
+      "noDeviceLocation": "This device doesn't share its location. Type the place instead.",
+      "deviceFailed": "We couldn't tell where you are. Type the place instead."
     },
-    "languageHelp": "Language for summaries and messages",
-    "locationHelp": "Used for weather forecasts",
-    "locationInvalid": "Location not found. Please check the spelling.",
-    "locationValidating": "Validating...",
-    "locationValidationError": "Could not validate location. Please try again.",
-    "useCurrentLocation": "Use current location",
-    "locationDetected": "Is this your location?",
-    "locationAccept": "Yes, use it",
-    "locationDecline": "No",
-    "platformLabel": "Messaging Platform",
-    "platformHelp": "Where to receive messages",
-    "platformBoth": "Both",
-    "cultureLabel": "Culture",
-    "cultureDefault": "Default",
-    "cultureJewish": "Jewish",
-    "cultureHelp": "Jewish culture includes Hebrew dates and holiday context",
-    "summaryPreferences": "Summary Preferences",
-    "textSummary": "Text Summary",
-    "textSummaryDescription": "Receive daily summary as text message",
-    "voiceSummary": "Voice Summary",
-    "voiceSummaryDescription": "Get your daily summary as a short radio show with two hosts",
-    "weatherSummary": "Weather Forecast",
-    "weatherSummaryDescription": "Include weather forecast in your summary",
-    "weekLookahead": "Week Lookahead",
-    "weekLookaheadDescription": "Include upcoming events in tomorrow's summary",
-    "lookaheadAlways7Days": "Always 7 Days",
-    "lookaheadAlways7DaysDescription": "Show next 7 days instead of until end of week",
-    "voiceInput": "Voice Event Creation",
-    "voiceInputDescription": "Create events by sending voice messages to the bot",
-    "privacyNote": "Your calendar data is never stored — fetched, summarized, and discarded. Settings encrypted at rest.",
-    "summaryDeliveryTime": "Summary Delivery Time",
-    "morningHour": "Morning Summary",
-    "morningHourDescription": "When to receive today's summary (your local time)",
-    "eveningHour": "Evening Summary",
-    "eveningHourDescription": "When to receive tomorrow's summary (your local time)",
-    "hourSuffix": ":00",
-    "days": {
-      "d0": "Su",
-      "d1": "Mo",
-      "d2": "Tu",
-      "d3": "We",
-      "d4": "Th",
-      "d5": "Fr",
-      "d6": "Sa"
+    "culture": {
+      "label": "Calendar culture",
+      "hint": "Jewish adds Hebrew dates and holidays to your summaries",
+      "general": "General",
+      "jewish": "Jewish"
     },
-    "remindersSection": "Event alerts",
-    "remindersEnabled": "Enable event alerts",
-    "remindersEnabledDescription": "Get a Telegram alert before an event starts",
-    "remindersBetaDescription": "Event alerts are in beta (coming soon)",
-    "defaultReminderMinutes": "Default alert time",
-    "defaultReminderMinutesHelp": "How long before an event to send the alert (when the event has no alert of its own)",
-    "reminderTime": "Reminder time",
-    "reminderTimeHelp": "When reminders with no time of day arrive, and reminders you snooze to tomorrow",
-    "pickupRemindersEnabled": "Pickup alerts",
-    "pickupRemindersDescription": "For kids' calendars, also get an alert when the event ends (pickup)",
-    "minutes": "min",
-    "globalRulesLabel": "Custom Rules",
-    "globalRulesHelp": "Add rules that apply to all calendars (e.g., early dismissal on certain days)",
-    "globalRulesPlaceholder": "Rule {number}",
-    "successMessage": "Your preferences have been updated successfully",
-    "cancelButton": "Cancel",
-    "usageCounterSuffix": "used this month",
-    "remindersProRequired": "Event alerts need a Pro plan.",
-    "upgradeLink": "Upgrade",
-    "actions": {
-      "save": "Save Settings",
-      "saving": "Saving...",
-      "saved": "Settings Saved!",
-      "error": "Failed to save settings"
+    "platform": {
+      "label": "Send messages to",
+      "both": "Both"
     },
+    "text": {
+      "label": "Text summary",
+      "hint": "Your schedule as a chat message"
+    },
+    "voice": {
+      "label": "Voice summary",
+      "hint": "A short radio show with two hosts"
+    },
+    "weather": {
+      "label": "Weather",
+      "hint": "Add the forecast to your summary"
+    },
+    "weekAhead": {
+      "label": "The week ahead",
+      "hint": "Upcoming events in the evening summary"
+    },
+    "sevenDays": {
+      "label": "Always 7 days ahead",
+      "hint": "Not just until the end of the week"
+    },
+    "usage": "{used} of {limit} used this month",
+    "morning": {
+      "label": "Morning summary",
+      "days": "Morning summary on"
+    },
+    "evening": {
+      "label": "Evening summary",
+      "days": "Evening summary on"
+    },
+    "oneDayStays": "At least one day stays on",
+    "voiceInput": {
+      "label": "Add events by voice",
+      "hint": "Send the bot a voice message and the event is added"
+    },
+    "alerts": {
+      "label": "Event alerts",
+      "hint": "A Telegram message before an event starts",
+      "comingSoon": "Coming soon",
+      "proOnly": "Event alerts come with Pro.",
+      "seePlans": "See plans"
+    },
+    "defaultAlert": {
+      "label": "Default alert",
+      "hint": "For events without an alert of their own",
+      "option": "{minutes} min before"
+    },
+    "pickup": {
+      "label": "Pickup alerts",
+      "hint": "For kids' calendars, an alert when an event ends"
+    },
+    "reminderTime": "Reminders without a time",
+    "reminderTimeHelp": "They arrive at this time, and so do reminders put off to tomorrow",
     "googleDisconnect": {
       "sectionTitle": "Google Calendar",
       "sectionHint": "FamCal keeps working without Google. You can connect it again whenever you like.",
@@ -1684,6 +1677,10 @@
       "title": "Page not found",
       "body": "This page doesn't exist.",
       "home": "Back to the calendar"
-    }
+    },
+    "back": "Back",
+    "save": "Save",
+    "saved": "Saved",
+    "done": "Done"
   }
 }

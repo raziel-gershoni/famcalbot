@@ -565,98 +565,91 @@
   },
   "settings": {
     "title": "הגדרות",
-    "saveFailed": "לא הצלחנו לשמור את ההגדרות. כדאי לנסות שוב.",
-    "personal": {
-      "title": "מידע אישי",
-      "name": "שם",
-      "hebrewName": "שם עברי",
-      "gender": "מין",
-      "male": "זכר",
-      "female": "נקבה",
-      "location": "מיקום",
-      "locationPlaceholder": "הזן את המיקום שלך (לדוגמה, תל אביב)"
+    "saveFailed": "לא הצלחנו לשמור. כדאי לנסות שוב.",
+    "sections": {
+      "place": "שפה ומיקום",
+      "summaries": "סיכומים",
+      "timing": "מתי מגיעים הסיכומים",
+      "events": "אירועים ותזכורות"
     },
-    "spouse": {
-      "title": "מידע על בן/בת זוג",
-      "name": "שם בן/בת זוג",
-      "hebrewName": "שם עברי של בן/בת זוג",
-      "gender": "מין בן/בת זוג"
+    "language": {
+      "label": "שפה",
+      "hint": "לאפליקציה, לבוט ולסיכומים"
     },
-    "preferences": {
-      "title": "העדפות",
-      "language": "שפה",
-      "primaryCalendar": "יומן ראשי"
+    "location": {
+      "label": "מיקום",
+      "hint": "למזג האוויר ולאזור הזמן",
+      "notSet": "לא הוגדר",
+      "placeholder": "למשל, תל אביב",
+      "useCurrent": "להשתמש במיקום הנוכחי",
+      "checking": "בודקים…",
+      "notFound": "לא מצאנו את המקום הזה. כדאי לבדוק את האיות.",
+      "checkFailed": "לא הצלחנו לבדוק את המקום כרגע. אפשר לנסות שוב.",
+      "noDeviceLocation": "המכשיר לא משתף מיקום. אפשר להקליד את המקום.",
+      "deviceFailed": "לא הצלחנו לזהות את המיקום. אפשר להקליד אותו."
     },
-    "languageHelp": "שפה לסיכומים והודעות",
-    "locationHelp": "משמש לתחזיות מזג אוויר",
-    "locationInvalid": "מיקום לא נמצא. אנא בדוק את האיות.",
-    "locationValidating": "מאמת...",
-    "locationValidationError": "לא ניתן לאמת את המיקום. אנא נסה שוב.",
-    "useCurrentLocation": "השתמש במיקום הנוכחי",
-    "locationDetected": "זה המיקום שלך?",
-    "locationAccept": "כן, השתמש",
-    "locationDecline": "לא",
-    "platformLabel": "פלטפורמת הודעות",
-    "platformHelp": "היכן לקבל הודעות",
-    "platformBoth": "שניהם",
-    "cultureLabel": "תרבות",
-    "cultureDefault": "ברירת מחדל",
-    "cultureJewish": "יהודית",
-    "cultureHelp": "תרבות יהודית כוללת תאריכים עבריים והקשר חגים",
-    "summaryPreferences": "העדפות סיכום",
-    "textSummary": "סיכום טקסט",
-    "textSummaryDescription": "קבל סיכום יומי כהודעת טקסט",
-    "voiceSummary": "סיכום קולי",
-    "voiceSummaryDescription": "קבל את הסיכום היומי כתוכנית רדיו קצרה עם שני מגישים",
-    "weatherSummary": "תחזית מזג אוויר",
-    "weatherSummaryDescription": "כלול תחזית מזג אוויר בסיכום",
-    "weekLookahead": "מבט לשבוע הקרוב",
-    "weekLookaheadDescription": "כלול אירועים קרובים בסיכום המחר",
-    "lookaheadAlways7Days": "תמיד 7 ימים",
-    "lookaheadAlways7DaysDescription": "הצג 7 ימים הבאים במקום עד סוף השבוע",
-    "voiceInput": "יצירת אירועים בקול",
-    "voiceInputDescription": "צור אירועים על ידי שליחת הודעות קוליות לבוט",
-    "privacyNote": "נתוני היומן שלכם לא נשמרים — נקראים, מסוכמים ונמחקים. ההגדרות מוצפנות.",
-    "summaryDeliveryTime": "זמן שליחת סיכום",
-    "morningHour": "סיכום בוקר",
-    "morningHourDescription": "מתי לקבל את סיכום היום (שעון מקומי)",
-    "eveningHour": "סיכום ערב",
-    "eveningHourDescription": "מתי לקבל את סיכום המחר (שעון מקומי)",
-    "hourSuffix": ":00",
-    "days": {
-      "d0": "א׳",
-      "d1": "ב׳",
-      "d2": "ג׳",
-      "d3": "ד׳",
-      "d4": "ה׳",
-      "d5": "ו׳",
-      "d6": "ש׳"
+    "culture": {
+      "label": "לוח שנה",
+      "hint": "״יהודי״ מוסיף לסיכומים תאריכים עבריים וחגים",
+      "general": "כללי",
+      "jewish": "יהודי"
     },
-    "remindersSection": "התראות על אירועים",
-    "remindersEnabled": "הפעלת התראות על אירועים",
-    "remindersEnabledDescription": "התראה בטלגרם לפני שאירוע מתחיל",
-    "remindersBetaDescription": "התראות על אירועים עדיין בבטא (בקרוב)",
-    "defaultReminderMinutes": "זמן התראה ברירת מחדל",
-    "defaultReminderMinutesHelp": "כמה זמן לפני האירוע לשלוח התראה (כשלאירוע אין התראה משלו)",
-    "reminderTime": "שעת תזכורות",
-    "reminderTimeHelp": "השעה שבה יגיעו תזכורות שלא נקבעה להן שעה, וגם תזכורות שנדחו למחר",
-    "pickupRemindersEnabled": "התראות איסוף",
-    "pickupRemindersDescription": "ביומני ילדים, גם התראה בשעת סיום האירוע (איסוף)",
-    "minutes": "דק'",
-    "globalRulesLabel": "כללים מותאמים",
-    "globalRulesHelp": "הוסף כללים שחלים על כל היומנים (לדוגמה, יציאה מוקדמת בימים מסוימים)",
-    "globalRulesPlaceholder": "כלל {number}",
-    "successMessage": "ההעדפות שלך עודכנו בהצלחה",
-    "cancelButton": "ביטול",
-    "usageCounterSuffix": "בשימוש החודש",
-    "remindersProRequired": "התראות על אירועים זמינות בתוכנית Pro.",
-    "upgradeLink": "שדרג",
-    "actions": {
-      "save": "שמור הגדרות",
-      "saving": "שומר...",
-      "saved": "הגדרות נשמרו!",
-      "error": "שמירת ההגדרות נכשלה"
+    "platform": {
+      "label": "לאן לשלוח הודעות",
+      "both": "לשניהם"
     },
+    "text": {
+      "label": "סיכום בטקסט",
+      "hint": "הלו״ז בהודעה בצ׳אט"
+    },
+    "voice": {
+      "label": "סיכום קולי",
+      "hint": "תוכנית רדיו קצרה עם שני מגישים"
+    },
+    "weather": {
+      "label": "מזג אוויר",
+      "hint": "התחזית בתוך הסיכום"
+    },
+    "weekAhead": {
+      "label": "השבוע הקרוב",
+      "hint": "אירועים קרובים בסיכום של הערב"
+    },
+    "sevenDays": {
+      "label": "תמיד 7 ימים קדימה",
+      "hint": "לא רק עד סוף השבוע"
+    },
+    "usage": "נוצלו {used} מתוך {limit} החודש",
+    "morning": {
+      "label": "סיכום הבוקר",
+      "days": "סיכום הבוקר בימים"
+    },
+    "evening": {
+      "label": "סיכום הערב",
+      "days": "סיכום הערב בימים"
+    },
+    "oneDayStays": "לפחות יום אחד נשאר מסומן",
+    "voiceInput": {
+      "label": "הוספת אירועים בקול",
+      "hint": "שולחים לבוט הודעה קולית, והאירוע נוסף"
+    },
+    "alerts": {
+      "label": "התראות לפני אירועים",
+      "hint": "הודעה בטלגרם לפני שאירוע מתחיל",
+      "comingSoon": "בקרוב",
+      "proOnly": "התראות לפני אירועים כלולות ב־Pro.",
+      "seePlans": "למסלולים"
+    },
+    "defaultAlert": {
+      "label": "התראה כברירת מחדל",
+      "hint": "לאירועים שאין להם התראה משלהם",
+      "option": "{minutes} דק׳ לפני"
+    },
+    "pickup": {
+      "label": "התראות איסוף",
+      "hint": "ביומנים של הילדים, התראה גם כשאירוע נגמר"
+    },
+    "reminderTime": "תזכורות בלי שעה",
+    "reminderTimeHelp": "הן מגיעות בשעה הזאת, וגם תזכורות שנדחו למחר",
     "googleDisconnect": {
       "sectionTitle": "יומן Google",
       "sectionHint": "FamCal ממשיך לעבוד גם בלי Google, ואפשר לחבר אותו מחדש בכל רגע.",
@@ -1684,6 +1677,10 @@
       "title": "הדף לא נמצא",
       "body": "אין כאן דף כזה.",
       "home": "חזרה ליומן"
-    }
+    },
+    "back": "חזרה",
+    "save": "שמירה",
+    "saved": "נשמר",
+    "done": "סיום"
   }
 }

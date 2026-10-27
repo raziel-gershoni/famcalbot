@@ -563,7 +563,7 @@ async function main() {
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard is app (the loader\'s look); the other pages keep theirs', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard and LOOK.settings are app (the loader\'s look, which Settings\' chunk loads behind); the other pages keep theirs', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -574,8 +574,9 @@ async function main() {
     assert(entry.includes("import('./dashboard/CalendarHome')"), `no CalendarHome chunk in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
     assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
     const look = block('LOOK');
-    assert(/\n\s*dashboard: 'app',/.test(look), `LOOK: ${look}`);
-    for (const [page, kept] of [['settings', 'telegram'], ["'select-calendars'", 'telegram'], ['subscription', 'telegram'], ['calendars', 'light'], ['pair', 'light']]) {
+    for (const page of ['dashboard', 'settings']) assert(new RegExp(`\\n\\s*${page}: 'app',`).test(look), `${page} is app: ${look}`);
+    assert(/const Settings = dynamic\([^\n]*loading: appLoader/.test(src), "Settings' chunk loads behind the app's loader");
+    for (const [page, kept] of [["'select-calendars'", 'telegram'], ['subscription', 'telegram'], ['calendars', 'light'], ['pair', 'light']]) {
       assert(new RegExp(`\\n\\s*${page}: '${kept}',`).test(look), `${page} keeps ${kept}: ${look}`);
     }
   });

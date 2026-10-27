@@ -15,7 +15,7 @@
 //  - the CSS: the home's tokens only (no colour of its own), logical properties, no hover,
 //    nothing under 11 px, 44 px targets, the reduced-motion rule, the page slide;
 //  - Settings: the reminder-time <select> is gone, the time sheet is its picker (15-minute steps,
-//    Telegram's Back and the vertical swipes while it is open).
+//    inside the screen's own scope, the vertical swipes locked while it is open), and its row reads the time left to right.
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
 //   TZ=UTC npx tsx scripts/smoke-date-picker-render.ts
@@ -31,9 +31,9 @@ import { TimePickerSheet } from '../app/[locale]/dashboard/TimePickerSheet';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import SettingsClient from '../app/[locale]/settings/SettingsClient';
 import { preloadPickers } from '../app/[locale]/dashboard/form-kit';
-import { PICKER_CSS, PickerScope, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/dashboard/picker-kit';
+import { PICKER_CSS, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/dashboard/picker-kit';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
-import { APP_SCREEN_CSS } from '../components/app-ui/screen';
+import { AppScreen } from '../components/app-ui/AppScreen';
 import { pageCells, pageOf } from '../src/lib/calendar-view/picker-model';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
@@ -73,11 +73,11 @@ const count = (html: string, re: RegExp) => (html.match(re) ?? []).length;
 const textOf = (html: string) => html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 /** The opening tag of the first element matching `re`. */
 const tagOf = (html: string, re: RegExp) => (re.exec(html) ?? [''])[0];
-/** The reminder-time button's opening tag and what is inside it. */
-function tagAndInner(html: string): { tag: string; inner: string } {
-  const m = /(<button[^>]*id="reminderTime"[^>]*>)([\s\S]*?)<\/button>/.exec(html);
-  assert(m, 'the reminder-time button');
-  return { tag: m[1], inner: m[2] };
+/** The opening tag and the inside of the button that opens a dialog and is named `name` (a row of the Settings card). */
+function rowButton(html: string, name: string): { tag: string; inner: string } {
+  const found = [...html.matchAll(/(<button[^>]*aria-haspopup="dialog"[^>]*>)([\s\S]*?)<\/button>/g)].find((m) => textOf(m[2]).trim().startsWith(name));
+  assert(found, `the row named ${name}`);
+  return { tag: found[1], inner: found[2] };
 }
 
 const TODAY = '2026-10-15';
@@ -225,19 +225,16 @@ async function main() {
     assert(/\.ch-wheel-band \{[^}]*var\(--ch-surface\)/.test(PICKER_CSS), 'the wheel band is --ch-surface');
   });
 
-  await check("Settings: the reminder time is a pill that opens the time sheet in 15-minute steps; the <select> is gone; Telegram's Back and the swipe lock follow the sheet", () => {
+  await check("Settings: the reminder time is a row that opens the time sheet in 15-minute steps; the <select> is gone; the sheet brings no scope of its own inside the screen; the swipe lock follows the sheets and Back is the screen's", () => {
     const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
     assert(!/name="reminderTime"/.test(src) && !/REMINDER_TIME_OPTIONS/.test(src), 'no <select> of times');
-    assert(/<TimePickerSheet[\s\S]*?standalone[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src), "the dashboard's time sheet, standalone, on the 15-minute step");
-    assert(/useTelegramBackButton\(timeSheetOpen,/.test(src) && /useTelegramVerticalSwipes\(timeSheetOpen\)/.test(src), 'Back and the swipe lock follow the sheet');
-    const kit = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/picker-kit.tsx'), 'utf8');
-    assert(/export function PickerScope/.test(kit) && /<AppScope>/.test(kit), 'PickerScope is the app\'s scope');
-    const screen = fs.readFileSync(path.join(ROOT, 'components/app-ui/AppScreen.tsx'), 'utf8');
-    const scope = screen.slice(screen.indexOf('export function AppScope'));
-    assert(/APP_THEME_CSS/.test(scope) && /data-theme=\{scheme\}/.test(scope) && /dir=\{dirOf\(locale\)\}/.test(scope), 'the scope: tokens, data-theme, dir');
-    const html = render('en', 'light', createElement(TimePickerSheet, { label: 'Reminder time', value: '09:15', step: 15, onPick: () => undefined, onClose: () => undefined, standalone: true }), true);
-    assert(count(html, /class="ch-app/g) === 2, 'the standalone sheet brings its own scope');
-    assert(html.includes('--ch-bg') && html.includes('.ch-segmented'), "with the home's tokens and the form kit's CSS");
+    assert(/<TimePickerSheet[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src) && !/standalone/.test(src), "the dashboard's time sheet, on the 15-minute step, with no scope of its own");
+    assert(/useTelegramVerticalSwipes\(timeOpen \|\|/.test(src) && !/useTelegramBackButton\(/.test(src.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')), "the swipe lock follows the sheets, and Back is AppScreen's");
+    const sheet = createElement(TimePickerSheet, { label: 'Reminder time', value: '09:15', step: 15, onPick: () => undefined, onClose: () => undefined });
+    assert(count(render('en', 'light', sheet, true), /class="ch-app/g) === 1, 'the sheet alone brings no scope of its own: only the root it is put in');
+    const html = render('en', 'light', createElement(AppScreen, null, sheet), true);
+    assert(count(html, /class="ch-app/g) === 2, 'the sheet inside a screen shares its scope: the test root and the screen, no third');
+    assert(html.includes('--ch-bg') && html.includes('data-rwp-wrapper'), "with the home's tokens, and the wheels");
   });
 
   await check('Settings has no error boundary, so its time sheet is not a lazy chunk (a failed load would take the page and its unsaved changes down)', () => {
@@ -246,10 +243,10 @@ async function main() {
     assert(/^import \{ TimePickerSheet \} from '\.\.\/dashboard\/TimePickerSheet';/m.test(src), 'a static import');
   });
 
-  await check("Settings: the time button's name carries the time, and in Hebrew the page's direction places it (the time itself reads left to right)", () => {
+  await check("Settings: the reminder-time row's name is its label with the time as its value, and in Hebrew the page's direction places it (the time itself reads left to right)", () => {
     const settings = (locale: Locale) => {
       const quiet = console.error;
-      console.error = () => undefined; // the page's <style jsx> warns on the server
+      console.error = () => undefined;
       try {
         const provider = { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as unknown as ComponentProps<typeof NextIntlClientProvider>;
         const router = { push: () => undefined, replace: () => undefined, back: () => undefined, forward: () => undefined, refresh: () => undefined, prefetch: () => undefined };
@@ -275,27 +272,17 @@ async function main() {
             ),
           ),
         );
-        return tagAndInner(html);
+        return rowButton(html, messages[locale].settings.reminderTime);
       } finally {
         console.error = quiet;
       }
     };
     for (const locale of LOCALES) {
       const { tag, inner } = settings(locale);
-      const name = messages[locale].settings.reminderTime;
-      assert(tag.includes(`aria-label="${name}, 09:15"`), `${locale}: the name: ${tag}`);
-      assert(!/\bdir=/.test(tag), `${locale}: the button leaves its direction to the page: ${tag}`);
+      assert(!/\bdir=/.test(tag), `${locale}: the row leaves its direction to the page: ${tag}`);
       assert(/<bdi dir="ltr">09:15<\/bdi>/.test(inner), `${locale}: the time reads left to right: ${inner}`);
+      assert(textOf(inner).includes(messages[locale].settings.reminderTimeHelp), `${locale}: the row says what the time is for`);
     }
-  });
-
-  await check("Settings' scope stays off the page behind it: the sheet's root is a .ch-app scope with no .ch-screen, and the frame and the html-level rules hang on .ch-screen only", () => {
-    const html = renderToString(createElement(NextIntlClientProvider, { locale: 'en', messages: en, timeZone: 'Asia/Jerusalem' } as never, createElement(PickerScope, null, createElement('i'))));
-    assert(/class="ch-app ch-standalone"/.test(html), 'the scope carries ch-standalone');
-    assert(!html.includes('ch-screen') && !html.includes('html:has'), 'the scope brings no frame and no page-level rule');
-    const selectors = [...APP_SCREEN_CSS.matchAll(/^(html:has\([^{]*)\{/gm)].map((m) => m[1]);
-    assert(selectors.length === 3, `the three page-level rules (plain, grouped, dark): ${selectors}`);
-    assert(selectors.every((x) => x.startsWith('html:has(.ch-screen')), `every page-level rule hangs on a screen: ${selectors}`);
   });
 
   await check('the sheets start loading when the editor opens, a failure is logged', async () => {

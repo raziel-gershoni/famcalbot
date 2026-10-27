@@ -522,21 +522,21 @@ async function main() {
     assert(bad.length === 0, bad.join('\n     '));
   });
 
-  await check('the settings page calls event alerts alerts (R9), with its keys unchanged', () => {
+  await check('the settings page calls event alerts alerts (R9): its alerts row, default alert and pickup alerts say none of the old words, in en, he and ru; the reminder time keeps "reminders" on purpose', () => {
     const want: Record<string, { title: string; old: RegExp }> = {
       en: { title: 'Event alerts', old: /remind/i },
-      he: { title: 'התראות על אירועים', old: /תזכור/ },
+      he: { title: 'התראות לפני אירועים', old: /תזכור/ },
       ru: { title: 'Уведомления о событиях', old: /напомина/i },
     };
-    const keys = ['remindersSection', 'remindersEnabled', 'remindersEnabledDescription', 'remindersBetaDescription', 'defaultReminderMinutes',
-      'defaultReminderMinutesHelp', 'pickupRemindersEnabled', 'pickupRemindersDescription', 'remindersProRequired'];
+    const strings = (node: Record<string, unknown>): string[] => Object.values(node).flatMap((v) => (typeof v === 'string' ? [v] : strings(v as Record<string, unknown>)));
     for (const [locale, { title, old }] of Object.entries(want)) {
       const settings = JSON.parse(readFileSync(path.resolve(__dirname, '../messages', `${locale}.json`), 'utf8')).settings;
-      assert(settings.remindersSection === title, `${locale} section: ${settings.remindersSection}`);
-      for (const key of keys) {
-        assert(typeof settings[key] === 'string', `${locale}: settings.${key} is gone`);
-        assert(!old.test(settings[key]), `${locale}: settings.${key} still says "${settings[key]}"`);
+      assert(settings.alerts.label === title, `${locale} title: ${settings.alerts.label}`);
+      for (const group of ['alerts', 'defaultAlert', 'pickup']) {
+        for (const text of strings(settings[group])) assert(!old.test(text), `${locale}: settings.${group} still says "${text}"`);
       }
+      // About reminders, and says so: the time reminders without one arrive
+      assert(typeof settings.reminderTime === 'string' && typeof settings.reminderTimeHelp === 'string' && old.test(`${settings.reminderTime} ${settings.reminderTimeHelp}`), `${locale}: the reminder time is about reminders`);
     }
   });
 

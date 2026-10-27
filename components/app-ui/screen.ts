@@ -4,9 +4,8 @@
 //
 // - The frame is .ch-screen: document-level scroll, no inner scroller; at least the
 //   viewport's stable height; safe areas from --tg-safe-area-inset-* plus
-//   --tg-content-safe-area-inset-* (Bot API 8.0), 0 without them. It is never on the
-//   theme scope a sheet brings into another page (AppScope), and the page root's paint
-//   (html:has(.ch-screen)) follows it, so that page keeps its own look.
+//   --tg-content-safe-area-inset-* (Bot API 8.0), 0 without them. The page root's paint
+//   (html:has(.ch-screen)) follows it.
 // - overflow-x: clip (never overflow: hidden), and no transform or filter on the frame:
 //   the sheets are position: fixed, and Plan E's Month bar is sticky.
 // - Logical properties only; directional icons flip in RTL (.ch-flip); nothing under
@@ -31,7 +30,7 @@ export const APP_SCREEN_CSS = `
   );
   overflow-x: clip;
 }
-/* Only a screen paints the page root: a scope a sheet brings into another page (AppScope) has no .ch-screen, so that page keeps its own look behind the scrim. */
+/* Only a screen paints the page root. */
 html:has(.ch-screen) {
   background-color: var(--tg-theme-bg-color, var(--bg-white));
 }

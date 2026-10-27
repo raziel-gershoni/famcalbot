@@ -26,6 +26,12 @@ export const FORM_CSS = `
   gap: 14px;
   padding: 4px 16px 20px;
 }
+.ch-form-page-grouped {
+  gap: 6px;
+}
+.ch-form-page-grouped .ch-form-row {
+  padding-block: 8px;
+}
 .ch-form-card {
   display: flex;
   flex-direction: column;
@@ -323,6 +329,16 @@ button.ch-danger-row {
 .ch-radio:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 2px;
+}
+.ch-form-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 12px;
+}
+.ch-form-chips > .ch-form-hint,
+.ch-form-chips > .ch-form-fixed {
+  padding-inline: 4px;
 }
 .ch-daychips {
   display: flex;

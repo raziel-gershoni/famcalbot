@@ -1,7 +1,7 @@
 'use client';
 
-// What the date and time sheets share (editor upgrades spec §1): their CSS, the wheel (the
-// library's, with the ARIA it leaves out) and the scope a page outside the home brings.
+// What the date and time sheets share (editor upgrades spec §1): their CSS and the wheel (the
+// library's, with the ARIA it leaves out).
 //
 // - PICKER_CSS draws the sheets from the home's tokens only: the sheet on --ch-section, the
 //   chosen day --ch-selected / --ch-selected-text, today's number --ch-accent, the second date
@@ -12,15 +12,11 @@
 //   element a spinbutton (aria-label, aria-valuetext, aria-valuenow over the list) and hides the
 //   rotated copies of the options from a screen reader. The library already handles arrows,
 //   Home/End and type-ahead on that element.
-// - PickerScope: Settings is outside the app's `.ch-app` scope, so its picker brings one (APP_THEME_CSS,
-//   data-theme, dir). Inside the home the sheets render in place and inherit it.
+// The sheets render in place and inherit the screen's scope (.ch-app), in the home and in Settings.
 
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { WheelPicker, WheelPickerWrapper, type WheelPickerOption } from '@ncdai/react-wheel-picker';
-import { AppScope } from '@/components/app-ui/AppScreen';
 import { hapticSelection } from '@/src/lib/telegram-ui';
-import { FORM_CSS } from '@/components/app-ui/form-kit';
-import { EDITOR_FORM_CSS } from './form-kit';
 
 /** The wheel's item height, and the number of options on its ring: a ring of 20 at 44 px is about 280 px tall, the grid's six rows. */
 export const WHEEL_ITEM_PX = 44;
@@ -378,19 +374,3 @@ export function Wheel({ label, options, value, onChange, infinite = false }: Whe
 }
 
 export { WheelPickerWrapper };
-
-/**
- * The app's scope for a sheet shown outside the home (Settings): the tokens, the scheme the device
- * is in and the page's direction. Zero height; the sheet in it is position: fixed. It is not a
- * screen: it has no `ch-screen`, so the frame and the page-level rules (the html background and
- * color-scheme) never reach it, and the page behind keeps its look. `ch-standalone` only marks it.
- */
-export function PickerScope({ children }: { children: ReactNode }) {
-  return (
-    <AppScope>
-      <style>{FORM_CSS}</style>
-      <style>{EDITOR_FORM_CSS}</style>
-      {children}
-    </AppScope>
-  );
-}
