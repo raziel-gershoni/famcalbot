@@ -148,6 +148,9 @@ button.ch-form-row:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: -2px;
 }
+button.ch-danger-row {
+  color: var(--ch-danger);
+}
 .ch-switch {
   flex: none;
   position: relative;
@@ -417,6 +420,23 @@ button.ch-form-row:focus-visible {
 .ch-save:disabled {
   opacity: 0.6;
   cursor: default;
+}
+.ch-btn-danger {
+  background: var(--ch-danger);
+  color: var(--ch-bg);
+}
+.ch-sheet:not(.ch-sheet-full) .ch-form-card {
+  background: var(--ch-surface);
+}
+.ch-sheet-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ch-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .ch-app[data-theme='dark'] .ch-save-bar {
   background: var(--ch-bg);

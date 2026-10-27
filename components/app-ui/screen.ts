@@ -148,6 +148,15 @@ html:has(.ch-screen[data-theme='dark']) {
   font-size: 14px;
   color: var(--ch-muted);
 }
+.ch-sheet-list {
+  margin: 0 0 10px;
+  padding-inline-start: 20px;
+  font-size: 14px;
+}
+.ch-sheet-list li {
+  margin-block: 4px;
+  overflow-wrap: anywhere;
+}
 .ch-spin {
   animation: ch-spin 0.9s linear infinite;
 }

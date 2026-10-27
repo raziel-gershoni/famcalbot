@@ -204,6 +204,8 @@ export const TEXT_PAIRS: [string, string][] = [
   ['--ch-danger', '--ch-surface'],
   ['--ch-accent', '--ch-section'],
   ['--ch-text', '--ch-surface'],
+  // W1a: the Disconnect button's text on its danger fill (the page's ground, as the selected day's text is: --ch-button-text on --ch-danger is 2.3:1 in the dark)
+  ['--ch-bg', '--ch-danger'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [
