@@ -215,7 +215,7 @@ function baseUser(o: Row): Row {
     name: 'x', englishName: '', gender: 'male', language: 'he', location: '', latitude: null, longitude: null, elevationM: null, zmanimCommunity: 'sephardi',
     pauseOnShabbat: false, culture: 'jewish', messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null, calendarSource: 'NATIVE',
     pairingId: null, remindersEnabled: false, suspendedAt: null, unreachableSince: null, whatsappPhone: null, whatsappBsuid: null, isAdmin: false,
-    globalRules: [], voiceInputEnabled: true, textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true, locationForced: false,
+    globalRules: [], voiceInputEnabled: true, textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true,
     createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-10-01T00:00:00Z'), ...o,
   };
 }
