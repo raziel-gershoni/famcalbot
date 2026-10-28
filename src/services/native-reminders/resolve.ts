@@ -8,7 +8,7 @@
 import { formatInTimeZone } from 'date-fns-tz';
 import { getCalendarAssignmentsForUser } from '../calendar-provider';
 import type { CreateEventInput } from '../calendar-provider/types';
-import type { ParsedEvent, VoiceIntentResult, ZmanChoice } from '../event-parser';
+import type { ParsedEvent, VoiceIntentResult, ZmanChoice, ZmanPause } from '../event-parser';
 import { encodeCalendarId, getMainNativeCalendar, normalizeReminderTimes } from '../native-calendar/event-store';
 import { prisma } from '../../utils/prisma';
 import { findMatchingEvent } from '../voice/event-resolution';
@@ -58,7 +58,7 @@ export type ResolvedReminder =
       /** A reminder by zman whose opinion the person is to choose (never with zmanSpec). */
       zmanChoices?: ZmanChoice[];
       /** A one-off by zman inside its recipient's paused Shabbat or Yom Tov: it will not be sent. */
-      paused?: true }
+      paused?: ZmanPause }
   | ({ ok: false; error: ReminderError } & ZmanFailureDetail);
 
 /** A reminder that can't be created as asked: the bot asks about it instead of showing a card. */
@@ -216,12 +216,33 @@ export async function zmanTimingFor(
   partner?: PartnerSummary | null
 ): Promise<ZmanTiming> {
   if (event.forUserId == null || event.forBoth) return timingOf(creator, timezone);
-  const recipient: ReminderCreator | null = partner?.id === event.forUserId
-    ? partner
-    : await prisma.user.findUnique({ where: { id: event.forUserId }, select: RECIPIENT_SELECT });
+  const recipient = await recipientOf(event.forUserId, partner);
   if (!recipient) {
     console.warn(`[zman-voice] reminder for user ${event.forUserId} (creator ${creator.id}): no such user, timed at the creator's place`);
     return timingOf(creator, timezone);
+  }
+  return timingOf(recipient, null);
+}
+
+/** The person a reminder is for besides its creator: `partner` when it is them, else read by id (null where there is no such user). */
+async function recipientOf(forUserId: number, partner?: PartnerSummary | null): Promise<ReminderCreator | null> {
+  return partner?.id === forUserId ? partner : await prisma.user.findUnique({ where: { id: forUserId }, select: RECIPIENT_SELECT });
+}
+
+/**
+ * The partner's own timing for a reminder to both (their place, zone and pause), the creator's being zmanTimingFor's;
+ * null for any other reminder. Each is pinged at their own place, so each has their own pause to ask.
+ */
+async function partnerTimingFor(
+  creator: ReminderCreator,
+  event: Pick<ParsedEvent, 'forUserId' | 'forBoth'>,
+  partner?: PartnerSummary | null
+): Promise<ZmanTiming | null> {
+  if (event.forUserId == null || !event.forBoth) return null;
+  const recipient = await recipientOf(event.forUserId, partner);
+  if (!recipient) {
+    console.warn(`[zman-voice] reminder for both, with user ${event.forUserId} (creator ${creator.id}): no such user, their pause is not asked`);
+    return null;
   }
   return timingOf(recipient, null);
 }
@@ -305,6 +326,25 @@ async function pausedAt(timing: ZmanTiming, at: Date | null, recurrence: ParsedE
 }
 
 /**
+ * What the pause says of a one-off on `day` for everyone it pings, each asked at their own time and place: the rule's
+ * time at the creator's (or, for a reminder to the partner alone, the partner's) and, for a reminder to both, also at
+ * the partner's. `true` when every one of them is paused, 'one' when only one of two is, nothing when none is.
+ */
+async function pauseOf(
+  day: string,
+  spec: ZmanSpecValue,
+  timing: ZmanTiming,
+  partnerTiming: ZmanTiming | null,
+  timezone: string,
+  recurrence: ParsedEvent['recurrence']
+): Promise<ZmanPause | undefined> {
+  const mine = await pausedAt(timing, zmanTimeOn(day, spec, timing, timezone), recurrence);
+  if (!partnerTiming) return mine ? true : undefined;
+  const theirs = await pausedAt(partnerTiming, zmanTimeOn(day, spec, partnerTiming, timezone), recurrence);
+  return mine && theirs ? true : mine || theirs ? 'one' : undefined;
+}
+
+/**
  * A reminder by zman, resolved: the rule under the WRITER's community (readZmanFromModel; a rule or choices already
  * resolved are kept), the recipient's clock (the partner's own place for a reminder for them alone), the day per rule
  * or per choice, the notice counted at the rule's time, and the pause note. Refused, with a reason the person is told:
@@ -345,13 +385,11 @@ async function resolveByZman(
     console.warn(`[zman-voice] user ${user.id}: no place to count ${JSON.stringify(specs)} from for user ${timing.person.id}; refused`);
     return { ok: false, error: 'zman_no_place', ...(forPartnerAlone && partner ? { name: partner.name } : {}) };
   }
-  if (target.forBoth && partner) {
-    // Each is pinged at their own place: one with none would never be
-    const theirs = await timingOf(partner, null);
-    if (!theirs.clock) {
-      console.warn(`[zman-voice] user ${user.id}: no place to count ${JSON.stringify(specs)} from for partner ${partner.id}; refused`);
-      return { ok: false, error: 'zman_no_place', name: partner.name };
-    }
+  // Each is pinged at their own place: one with none would never be, and each has their own pause
+  const partnerTiming = target.forBoth && partner ? await timingOf(partner, null) : null;
+  if (partnerTiming && !partnerTiming.clock) {
+    console.warn(`[zman-voice] user ${user.id}: no place to count ${JSON.stringify(specs)} from for partner ${partnerTiming.person.id}; refused`);
+    return { ok: false, error: 'zman_no_place', name: partner!.name };
   }
 
   const picks = await Promise.all(specs.map(async (spec) => ({ spec, ...(await pickZmanDay(spec, timing, event, timezone, now)) })));
@@ -380,14 +418,15 @@ async function resolveByZman(
   if (!choose) {
     const [only] = usable;
     const notice = target.notice ?? noticeOf(only);
-    const paused = await pausedAt(timing, only.at, event.recurrence);
-    console.log(`[zman-voice] user ${user.id}: ${JSON.stringify(only.spec)} on ${only.day} for user ${timing.person.id} (${timing.clock.source})${paused ? ', paused' : ''}`);
-    return { ...common, zmanSpec: only.spec, ...(notice ? { notice } : {}), ...(paused ? { paused: true as const } : {}) };
+    const paused = await pauseOf(only.day, only.spec, timing, partnerTiming, timezone, event.recurrence);
+    console.log(`[zman-voice] user ${user.id}: ${JSON.stringify(only.spec)} on ${only.day} for user ${timing.person.id} (${timing.clock.source})${paused ? `, paused (${paused})` : ''}`);
+    return { ...common, zmanSpec: only.spec, ...(notice ? { notice } : {}), ...(paused ? { paused } : {}) };
   }
 
   const choices: ZmanChoice[] = [];
   for (const p of usable) {
-    choices.push({ spec: p.spec, day: p.day, ...((await pausedAt(timing, p.at, event.recurrence)) ? { paused: true as const } : {}) });
+    const paused = await pauseOf(p.day, p.spec, timing, partnerTiming, timezone, event.recurrence);
+    choices.push({ spec: p.spec, day: p.day, ...(paused ? { paused } : {}) });
   }
   const passed = usable.every((p) => noticeOf(p) === 'time_passed');
   const notice = target.notice ?? (passed ? 'time_passed' : undefined);
@@ -401,19 +440,20 @@ async function resolveByZman(
  */
 async function refreshZmanNotice(event: ParsedEvent, timezone: string, now: Date, creator: ReminderCreator): Promise<ParsedEvent> {
   const timing = await zmanTimingFor(creator, event, timezone);
+  const partnerTiming = await partnerTimingFor(creator, event);
   const keep = event.reminderNotice === 'partner_not_on_telegram' ? event.reminderNotice : undefined;
   const reminderTime = timing.person.reminderTime;
   const noticeOn = (day: string, spec: ZmanSpecValue) =>
     timeNotice(startOfLocalDay(day, timezone), true, event.recurrence, timezone, now, reminderTime, { spec, clock: timing.clock });
   if (event.zmanSpec) {
     const day = localDate(event.startTime, timezone);
-    const paused = await pausedAt(timing, zmanTimeOn(day, event.zmanSpec, timing, timezone), event.recurrence);
-    return { ...event, reminderNotice: keep ?? noticeOn(day, event.zmanSpec), reminderPaused: paused ? true : undefined };
+    const paused = await pauseOf(day, event.zmanSpec, timing, partnerTiming, timezone, event.recurrence);
+    return { ...event, reminderNotice: keep ?? noticeOn(day, event.zmanSpec), reminderPaused: paused };
   }
   const choices: ZmanChoice[] = [];
   for (const c of event.zmanChoices ?? []) {
-    const paused = await pausedAt(timing, zmanTimeOn(c.day, c.spec, timing, timezone), event.recurrence);
-    choices.push({ spec: c.spec, day: c.day, ...(paused ? { paused: true as const } : {}) });
+    const paused = await pauseOf(c.day, c.spec, timing, partnerTiming, timezone, event.recurrence);
+    choices.push({ spec: c.spec, day: c.day, ...(paused ? { paused } : {}) });
   }
   const passed = choices.length > 0 && choices.every((c) => noticeOn(c.day, c.spec) === 'time_passed');
   return { ...event, zmanChoices: choices, reminderNotice: keep ?? (passed ? 'time_passed' : undefined) };

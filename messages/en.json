@@ -1424,6 +1424,9 @@
         "paused": "That time falls on Shabbat or Yom Tov, so I won't send it.",
         "pausedSome": "By {opinions}, that time falls on Shabbat or Yom Tov, so I won't send it.",
         "pausedShort": "falls on Shabbat or Yom Tov, won't be sent",
+        "pausedOne": "For one of you that time falls on Shabbat or Yom Tov, so I won't send it to them.",
+        "pausedOneSome": "By {opinions}, for one of you that time falls on Shabbat or Yom Tov, so I won't send it to them.",
+        "pausedOneShort": "falls on Shabbat or Yom Tov for one of you, won't be sent to them",
         "notOfferedOpinion": "I can't set “{description}” by that opinion. For “{zman}”, your community's list has: {opinions}. Send it again with one of those.",
         "badOffset": "That's out of range: a reminder can be up to 12 hours before or after a zman, or up to 12 halachic hours after sunrise. I didn't set “{description}”. Send it again with a closer time."
       },

@@ -131,16 +131,20 @@ export interface ParsedEvent {
   zmanChoices?: ZmanChoice[];
   /**
    * Reminders by zman, one-off only: its time falls inside a Shabbat or Yom Tov window while its recipient's pause is
-   * on (isPaused), so it will not be sent. The card says so in one line.
+   * on (isPaused), so it will not be sent. `true`: to every person it pings. `'one'`: for a reminder to both, only to
+   * one of the two (each person is asked at their own place). The card says so in one line.
    */
-  reminderPaused?: true;
+  reminderPaused?: ZmanPause;
 }
+
+/** What the pause says of a one-off by zman: held for everyone it pings (true), or, for a reminder to both, for one of the two. */
+export type ZmanPause = true | 'one';
 
 /** One opinion a reminder by zman can be created with (ParsedEvent.zmanChoices). */
 export interface ZmanChoice {
   spec: ZmanSpecValue;
   /** The civil day (yyyy-MM-dd, the creator's zone) this choice is created on: its own next time, or the said day. */
   day: string;
-  /** This choice's time falls inside the recipient's paused Shabbat or Yom Tov (a one-off only). */
-  paused?: true;
+  /** This choice's time falls inside the recipient's paused Shabbat or Yom Tov (a one-off only); 'one': for one of the two of a reminder to both. */
+  paused?: ZmanPause;
 }

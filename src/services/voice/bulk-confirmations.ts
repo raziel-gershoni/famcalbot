@@ -171,7 +171,7 @@ async function showBulkList(
         ? ` · <i>${await getBotMessage(language, `nativeReminders.bulk.${ev.reminderNotice === 'time_passed' ? 'timePassed' : 'noTimeSet'}`)}</i>`
         : '';
       // A one-off by zman inside its recipient's paused Shabbat or Yom Tov is created, and the list says it will not be sent
-      const paused = view && ev.reminderPaused ? ` · <i>${await getBotMessage(language, 'nativeReminders.zman.pausedShort')}</i>` : '';
+      const paused = view && ev.reminderPaused ? ` · <i>${await getBotMessage(language, ev.reminderPaused === 'one' ? 'nativeReminders.zman.pausedOneShort' : 'nativeReminders.zman.pausedShort')}</i>` : '';
       return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhenWithRule(ev, view, language, timezone)}${forPartner}${hebrewLine}${notice}${paused}`;
     }
     const when = formatEventDateTime(ev, language, t.voice?.allDay || 'All day', timezone);

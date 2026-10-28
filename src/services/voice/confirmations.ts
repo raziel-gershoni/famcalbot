@@ -516,11 +516,16 @@ async function zmanNotes(event: ParsedEvent, view: ZmanView | null, language: st
       : await getBotMessage(language, 'nativeReminders.zman.zoneOnly'));
   }
   if (view.choices) {
-    const paused = view.choices.filter((c) => c.paused);
-    if (paused.length === view.choices.length) notes.push(await getBotMessage(language, 'nativeReminders.zman.paused'));
-    else if (paused.length > 0) notes.push(await getBotMessage(language, 'nativeReminders.zman.pausedSome', { opinions: zmanList(paused.map((c) => c.name), language) }));
+    // Held for everyone it pings, and (a reminder to both) held for one of the two: each has its own line
+    const all = view.choices.length;
+    const held = view.choices.filter((c) => c.paused === true);
+    const heldForOne = view.choices.filter((c) => c.paused === 'one');
+    if (held.length === all) notes.push(await getBotMessage(language, 'nativeReminders.zman.paused'));
+    else if (held.length > 0) notes.push(await getBotMessage(language, 'nativeReminders.zman.pausedSome', { opinions: zmanList(held.map((c) => c.name), language) }));
+    if (heldForOne.length === all) notes.push(await getBotMessage(language, 'nativeReminders.zman.pausedOne'));
+    else if (heldForOne.length > 0) notes.push(await getBotMessage(language, 'nativeReminders.zman.pausedOneSome', { opinions: zmanList(heldForOne.map((c) => c.name), language) }));
   } else if (event.reminderPaused) {
-    notes.push(await getBotMessage(language, 'nativeReminders.zman.paused'));
+    notes.push(await getBotMessage(language, event.reminderPaused === 'one' ? 'nativeReminders.zman.pausedOne' : 'nativeReminders.zman.paused'));
   }
   return notes;
 }
@@ -579,7 +584,8 @@ export async function reminderCreatedLine(
 
 /** The note under the reply of a one-off by zman inside its recipient's paused Shabbat or Yom Tov: it is created and will not be sent. Null for any other. */
 export async function reminderPausedNote(event: ParsedEvent, language: string): Promise<string | null> {
-  return showsZman(event) && event.reminderPaused ? getBotMessage(language, 'nativeReminders.zman.paused') : null;
+  if (!showsZman(event) || !event.reminderPaused) return null;
+  return getBotMessage(language, event.reminderPaused === 'one' ? 'nativeReminders.zman.pausedOne' : 'nativeReminders.zman.paused');
 }
 
 /** What a reminder's card says once the reminder is created (confirmed or auto-created). */

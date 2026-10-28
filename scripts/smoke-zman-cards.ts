@@ -559,6 +559,34 @@ async function main() {
     assert(created.includes(await getBotMessage('en', 'nativeReminders.zman.paused')), created);
   });
 
+  await check('"remind us both" with the pause on for only one of the two: the card, the reply and the bulk line say it for one of them (en/he/ru); with it on for both, the plain note; a choice card says it too', async () => {
+    const fridayBoth = (over: Partial<ParsedEvent> = {}) => zmanReminder(SHKIA(0), { startTime: at('2026-10-30 00:00'), endTime: at('2026-10-30 00:00'), zmanDaySaid: true, forPerson: 'both', ...over });
+    partner = { ...raziel, pauseOnShabbat: false };
+    const one = await resolved(fridayBoth());
+    assert(one.reminderPaused === 'one', `the resolver did not note it for one: ${show(one.reminderPaused)}`);
+    for (const language of ['en', 'he', 'ru']) {
+      const noteOne = await getBotMessage(language, 'nativeReminders.zman.pausedOne');
+      const noteAll = await getBotMessage(language, 'nativeReminders.zman.paused');
+      assert(noteOne !== noteAll && !noteOne.includes('nativeReminders.'), `${language}: ${noteOne}`);
+      const card = await formatReminderCard(one, language, IL, 'html', asUser({ language }));
+      assert(card.includes(`<i>${noteOne}</i>`) && !card.includes(`<i>${noteAll}</i>`), `${language}: ${card}`);
+      const created = await formatReminderCreated(one, language, IL, asUser({ language }));
+      assert(created.includes(noteOne) && !created.includes(noteAll), `${language}: ${created}`);
+    }
+    const { showBulkConfirmation } = await import('../src/services/voice/bulk-confirmations');
+    await showBulkConfirmation(555, [intentOf(one), intentOf(plainReminder())], dana, 'two', {}, fakeService as never, IL);
+    assert(serviceCalls[0].text.includes(await getBotMessage('en', 'nativeReminders.zman.pausedOneShort')) && !serviceCalls[0].text.includes(await getBotMessage('en', 'nativeReminders.zman.pausedShort')), serviceCalls[0].text);
+    partner = raziel;
+    const both = await resolved(fridayBoth());
+    assert(both.reminderPaused === true, show(both.reminderPaused));
+    const bothCard = await formatReminderCard(both, 'en', IL, 'html', dana);
+    assert(bothCard.includes(`<i>${await getBotMessage('en', 'nativeReminders.zman.paused')}</i>`) && !bothCard.includes(await getBotMessage('en', 'nativeReminders.zman.pausedOne')), bothCard);
+    partner = { ...raziel, pauseOnShabbat: false };
+    const choices = await resolved(zmanReminder(SHEMA(-10), { startTime: at('2026-10-31 00:00'), endTime: at('2026-10-31 00:00'), zmanDaySaid: true, forPerson: 'both' }));
+    const choiceCard = await formatReminderCard(choices, 'en', IL, 'html', dana);
+    assert(choices.zmanChoices?.every((c) => c.paused === 'one') && choiceCard.includes(`<i>${await getBotMessage('en', 'nativeReminders.zman.pausedOne')}</i>`), choiceCard);
+  });
+
   await check('bulk list: a reminder by zman shows its time and rule, a paused one says so, the zone note once; a plain reminder\'s line is as before', async () => {
     const { showBulkConfirmation } = await import('../src/services/voice/bulk-confirmations');
     const spec = await graReminder();

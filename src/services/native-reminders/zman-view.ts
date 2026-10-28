@@ -7,7 +7,7 @@
 // A plain reminder has no view (null): its card and reply are not touched.
 
 import { createTranslator } from 'next-intl';
-import type { ParsedEvent } from '../event-parser';
+import type { ParsedEvent, ZmanPause } from '../event-parser';
 import { VALID_LOCALES, type Locale } from '../../utils/locale';
 import { localDate } from '../../utils/day-events';
 import { instantToWallTime } from '../../utils/wall-time';
@@ -44,8 +44,8 @@ export interface ZmanChoiceView {
   at: Date | null;
   /** `at` as hh:mm (24 hours) in the recipient's zone. */
   time: string | null;
-  /** Its time falls inside the recipient's paused Shabbat or Yom Tov: it would not be sent. */
-  paused: boolean;
+  /** Its time falls inside the recipient's paused Shabbat or Yom Tov: it would not be sent (to one of the two, for a reminder to both: 'one'). */
+  paused: ZmanPause | false;
 }
 
 /** A reminder by zman as a card or a reply shows it. */
@@ -112,7 +112,7 @@ export async function reminderZman(
       day: choice.day,
       at,
       time: at ? timeIn(at, timing.zone) : null,
-      paused: choice.paused === true,
+      paused: choice.paused ?? false,
     };
   });
   // The rule without its opinion: the choices share the zman and the offset

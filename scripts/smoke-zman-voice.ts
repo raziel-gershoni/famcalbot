@@ -610,6 +610,50 @@ async function main() {
     const unpaused = await refreshReminderNotice(sunsetEvent(), IL, now, user({ pauseOnShabbat: false }));
     assert(unpaused.reminderPaused === undefined, show(unpaused));
   });
+  await check('pause note for "remind us both": each person\'s own pause at their own time: true when both are paused, "one" when only one is, none when neither; a refresh and a choice work it out the same way', async () => {
+    const now = at('2026-10-28 10:00');
+    const friday = { now, day: '2026-10-30', said: true, forPerson: 'both' as const };
+    const sunset = SHKIA();
+    // Their times at their own places, and what isPaused says of each: the expectation comes from the pause itself
+    const danaSunset = await clockTime(dana, IL, '2026-10-30', { zman: 'SHKIA', offsetMin: 0 });
+    const razielSunset = await clockTime(raziel, NY, '2026-10-30', { zman: 'SHKIA', offsetMin: 0 });
+    assert(await isPaused(dana, danaSunset!) && await isPaused(raziel, razielSunset!), 'both sunsets are inside their windows');
+    const bothOn = await resolveOne(zmanReminder(sunset, friday), now);
+    assert(bothOn.event?.forBoth === true && bothOn.event.reminderPaused === true, `both paused: ${show(bothOn.event)}`);
+    // Dana\'s pause on, Raziel\'s off: one of them is paused
+    partner = { ...raziel, pauseOnShabbat: false };
+    const danaOnly = await resolveOne(zmanReminder(sunset, friday), now);
+    assert(danaOnly.event?.reminderPaused === 'one', `Dana only: ${show(danaOnly.event)}`);
+    // The reverse: Dana\'s off, Raziel\'s on. The card used to say nothing, and Raziel was never pinged
+    partner = raziel;
+    const razielOnly = await resolveOne(zmanReminder(sunset, friday), now, user({ pauseOnShabbat: false }));
+    assert(razielOnly.event?.reminderPaused === 'one', `Raziel only: ${show(razielOnly.event)}`);
+    partner = { ...raziel, pauseOnShabbat: false };
+    const neither = await resolveOne(zmanReminder(sunset, friday), now, user({ pauseOnShabbat: false }));
+    assert(neither.event && neither.event.reminderPaused === undefined, `neither: ${show(neither.event)}`);
+    // Not a Shabbat time: nobody is paused
+    partner = raziel;
+    const thursday = await resolveOne(zmanReminder(sunset, { now, day: '2026-10-29', said: true, forPerson: 'both' }), now);
+    assert(thursday.event && thursday.event.reminderPaused === undefined, `Thursday: ${show(thursday.event)}`);
+    // A repeat is never noted
+    const weekly = await resolveOne(zmanReminder(sunset, { ...friday, recurrence: WEEKLY_FRIDAY }), now);
+    assert(weekly.event && weekly.event.reminderPaused === undefined, `weekly: ${show(weekly.event)}`);
+    // The refresh works it out again for both, reading the partner by id
+    partner = { ...raziel, pauseOnShabbat: false };
+    const both = bothOn.event!;
+    const refreshed = await refreshReminderNotice({ ...both, reminderPaused: undefined }, IL, now, dana);
+    assert(refreshed.reminderPaused === 'one', `refresh: ${show(refreshed.reminderPaused)}`);
+    partner = raziel;
+    assert((await refreshReminderNotice({ ...both, reminderPaused: undefined }, IL, now, dana)).reminderPaused === true, 'refresh, both on');
+    // Choices: each has its own, and a tap carries it
+    partner = { ...raziel, pauseOnShabbat: false };
+    const saturday = await resolveOne(zmanReminder(SHEMA(), { now, day: '2026-10-31', said: true, forPerson: 'both' }), now);
+    assert(saturday.event?.zmanChoices?.length === 2 && saturday.event.zmanChoices.every((c) => c.paused === 'one'), show(saturday.event?.zmanChoices));
+    assert(withZmanChoice(saturday.event, 0, IL)?.reminderPaused === 'one', 'the tap carries it');
+    const choicesRefreshed = await refreshReminderNotice(saturday.event, IL, now, dana);
+    assert(choicesRefreshed.zmanChoices?.every((c) => c.paused === 'one'), show(choicesRefreshed.zmanChoices));
+  });
+
   function sunsetEvent(): ParsedEvent {
     const start = at('2026-10-30 00:00');
     return { title: 'Light', startTime: start, endTime: start, allDay: true, confidence: 'high', kind: 'reminder', forUserId: null, forBoth: false, zmanSpec: { zman: 'SHKIA', offsetMin: 0 }, zmanDaySaid: true, reminderPaused: true };
