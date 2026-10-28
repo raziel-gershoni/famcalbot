@@ -526,6 +526,7 @@ ${WEATHER_WEEK_RU}`,
 const SOUND = /<(chuckle|laugh|sigh|gasp|whispers|throat-clearing)>/g;
 // Present-tense ל״ה verbs are spelled alike for a man and a woman ("מחכה": mechake or
 // mechaka), and TTS picks the wrong one (2026-10-28 sample: "יום מחכה" read "mechaka").
+// The writer points them by their subject; a bare one matches here, a pointed one cannot.
 const AMBIGUOUS_HE_VERB = /(?<![\u05D0-\u05EA])(?:[ושהכ]|מה ?ש)?(?:מחכה|מצפה|עולה|נראה|קורה|רואה|עושה|נהנה|מתפנה)(?![\u05D0-\u05EA])/g;
 const JUDGE_SCHEMA = {
   type: 'object',
@@ -610,7 +611,7 @@ async function main() {
       checks.push({ name: 'no digits', ok: !/\d/.test(text), detail: (text.match(/\S*\d\S*/g) ?? []).join(' ') || 'none' });
       if (language === 'he') {
         const ambiguous = text.match(AMBIGUOUS_HE_VERB) ?? [];
-        checks.push({ name: 'no ל״ה present verbs', ok: ambiguous.length === 0, detail: ambiguous.join(' ') || 'none' });
+        checks.push({ name: 'ל״ה present verbs pointed', ok: ambiguous.length === 0, detail: ambiguous.join(' ') || 'none' });
       }
       const sounds = text.match(SOUND) ?? [];
       checks.push({ name: 'sounds <= 2', ok: sounds.length <= 2, detail: sounds.join(' ') || 'none' });

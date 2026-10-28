@@ -1,6 +1,8 @@
 /**
- * Niqqud for the Hebrew words Gemini TTS reads wrong. A fixed table applied in code;
- * the writer LLM never adds niqqud.
+ * Niqqud for the Hebrew words Gemini TTS reads wrong. A fixed table applied in code.
+ * Words whose gender only their subject decides (present-tense ל״ה verbs such as
+ * "מחכה", a possessive ending on a noun, the pronoun "את") the writer points itself
+ * (prompts/voice-show/he.ts); a word that already carries niqqud is left alone here.
  *
  * Clock words: in the 2026-10 trial the hosts misread "עשר ורבע" and, even spelled
  * out, "אחת עשרה" (3 of 24 takes). With niqqud, "עשר ורבע" went 0 of 19 wrong.
