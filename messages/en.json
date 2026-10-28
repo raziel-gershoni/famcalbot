@@ -1379,6 +1379,7 @@
         "noTimeSet": "No time set; it'll be in your summaries.",
         "timePassed": "That time has already passed, so I won't ping. It'll show in your summaries until it's done.",
         "partnerNotOnTelegram": "{name} isn't on Telegram, so I can't ping them. Keep it as yours?",
+        "partnerNotOnTelegramPick": "{name} isn't on Telegram, so I can't ping them. Pick an opinion and it stays yours.",
         "keepAsMine": "Keep as mine"
       },
       "bulk": {

@@ -497,7 +497,9 @@ export async function formatReminderCard(
     lines.push('', m.italic(t.nativeReminders.card.timePassed));
   } else if (event.reminderNotice === 'partner_not_on_telegram') {
     const name = m.text(event.forName || '');
-    lines.push('', m.italic(await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', { name })));
+    // With opinions to choose, a tap on one keeps it as the creator's (there is no "Keep it as yours?" button to answer)
+    const key = view?.choices ? 'nativeReminders.card.partnerNotOnTelegramPick' : 'nativeReminders.card.partnerNotOnTelegram';
+    lines.push('', m.italic(await getBotMessage(language, key, { name })));
   }
   for (const notice of hebrew.notices) lines.push('', m.italic(notice));
   return lines.join('\n');

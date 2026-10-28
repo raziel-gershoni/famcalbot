@@ -772,6 +772,34 @@ async function main() {
     assert(lastBot().text.startsWith(`⏰ I'll remind you tomorrow at ${mgaTomorrow}: 10 min before the latest time for Shema (MGA).`), lastBot().text);
   });
 
+  await check('a partner not on Telegram, with opinions to choose: the card does not ask "Keep it as yours?" (no such button), it says an opinion keeps it as yours, in en/he/ru; the tap creates it as the creator\'s; a single rule still asks', async () => {
+    partner = { ...raziel, telegramId: null };
+    const event = await choosing({ forPerson: 'partner' });
+    assert(event.reminderNotice === 'partner_not_on_telegram' && event.forUserId === null && event.zmanChoices?.length === 2, show(event));
+    for (const language of ['en', 'he', 'ru']) {
+      const user = asUser({ language });
+      const params = { name: 'Raziel' };
+      const asks = await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegram', params);
+      const picks = await getBotMessage(language, 'nativeReminders.card.partnerNotOnTelegramPick', params);
+      assert(asks !== picks && !picks.includes('nativeReminders.') && picks.includes('Raziel'), `${language}: ${picks}`);
+      const card = await formatReminderCard(event, language, IL, 'html', user);
+      assert(card.includes(`<i>${picks}</i>`) && !card.includes(asks), `${language}: ${card}`);
+      const wa = await formatReminderCard(event, language, IL, 'whatsapp', user);
+      assert(wa.includes(`_${picks}_`) && !wa.includes(asks), `${language} WhatsApp: ${wa}`);
+    }
+    await showEventConfirmation(555, undefined, event, 'x', dana);
+    assert(!buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_create:')), 'a Create button on an unchosen reminder');
+    const pick = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:1:'))!.callback_data;
+    await tap(pick);
+    assert(made() === 1 && created[0].input.forUserId === null && created[0].input.forBoth === false && show(created[0].input.zmanSpec) === show(GRA_10), show(created));
+    // A rule with no choices still asks, with its Keep button
+    botCalls = [];
+    const single = await resolved(zmanReminder(SHKIA(-30), { forPerson: 'partner' }));
+    await showEventConfirmation(555, undefined, single, 'x', dana);
+    const asks = await getBotMessage('en', 'nativeReminders.card.partnerNotOnTelegram', { name: 'Raziel' });
+    assert(lastBot().text.includes(asks) && buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_create:')), lastBot().text);
+  });
+
   await check('a repeating reminder gets the same buttons, and a tap creates the series with the rule', async () => {
     const event = await choosing({ recurrence: { frequency: 'daily' } });
     await showEventConfirmation(555, undefined, event, 'every day', dana);
