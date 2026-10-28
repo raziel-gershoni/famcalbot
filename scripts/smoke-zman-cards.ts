@@ -435,6 +435,15 @@ async function main() {
 
   // ---- Task 7: one helper for the rule's words, time and place ----
 
+  await check('copy: "each at your own place" is neutral in Hebrew (no masculine "of you both") and idiomatic in Russian; the partner\'s zone-only note names them first in Russian, undeclined', () => {
+    const copy = (language: string) => JSON.parse(readFileSync(path.join(ROOT, 'messages', `${language}.json`), 'utf8')).bot.nativeReminders.zman as Record<string, string>;
+    const he = copy('he');
+    const ru = copy('ru');
+    assert(he.eachOwnPlace === 'לפי המיקום של כל אחד ואחת', `he eachOwnPlace: ${he.eachOwnPlace}`);
+    assert(ru.eachOwnPlace === 'у каждого — по своему местоположению', `ru eachOwnPlace: ${ru.eachOwnPlace}`);
+    assert(ru.zoneOnlyPartner === '{name}: местоположение не указано, поэтому время рассчитано для главного города часового пояса.', `ru zoneOnlyPartner: ${ru.zoneOnlyPartner}`);
+  });
+
   await check('the words moved to src/lib/calendar-view/zman-words.ts: nothing left under app/, no zmanim import, the screens import it from there', () => {
     const lib = readFileSync(path.join(ROOT, 'src/lib/calendar-view/zman-words.ts'), 'utf8');
     assert(!/services\/zmanim|@hebcal/.test(lib), 'zman-words.ts imports the zmanim module');
