@@ -24,6 +24,7 @@ import { calendarTotal, countCalendars, getSubscriptionWithUsage, getTrialStatus
 import { canReceiveReminderPings, getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
+import { TZ_LOOKUP_MS, timezoneWithin } from '@/src/lib/timezone';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { sourcesFor } from '@/src/services/calendar-read';
@@ -34,10 +35,12 @@ import { getActivePartner, getActiveInvite } from '@/src/services/pairing-servic
 import { getPlanLimits } from '@/src/config/plans';
 import { buildUrl } from '@/src/config/urls';
 import { normalizeLocale } from '@/src/utils/locale';
+import { tzKnownFor, weekStartOfUser } from '@/src/utils/locale-rules';
+import { TIMEZONE } from '@/src/config/constants';
 import { prisma } from '@/src/utils/prisma';
 import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types';
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
-import type { SourceName } from '@/src/lib/calendar-view/types';
+import type { SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { reminderTimeOf } from '@/src/lib/reminder-time';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
 
@@ -199,15 +202,35 @@ async function homeHintsFor(user: UserConfig): Promise<{ hints: HomeHints; looka
   return { hints: { reminders, voiceEvents }, lookahead7: user.lookaheadAlways7Days === true };
 }
 
+/**
+ * Where the person's week starts, for the Settings day chips: the home's rule (weekStartOfUser)
+ * over the home's zone lookup, with the home's 2 s ceiling (TZ_LOOKUP_MS). A late or failed
+ * lookup costs the chips their zone, never the page: the order then follows the language, as the
+ * home's does (tzKnown false), and a failure is captured. The lookup carries on and caches the zone.
+ */
+async function weekStartForSettings(user: UserConfig): Promise<WeekStart> {
+  let resolved: string | null = null;
+  try {
+    resolved = await timezoneWithin(user, TZ_LOOKUP_MS);
+    if (resolved === null) {
+      captureError(new Error(`The timezone lookup took over ${TZ_LOOKUP_MS} ms`), 'settings-timezone', { user_id: user.id }, 'warning');
+    }
+  } catch (error) {
+    captureError(error, 'settings-timezone', { user_id: user.id }, 'warning');
+  }
+  return weekStartOfUser(user, resolved ?? TIMEZONE, resolved !== null && tzKnownFor(user));
+}
+
 async function settings(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {
-  // Fetch admin settings and subscription data in parallel
-  const [nativeRemindersSupported, adminSettings, subWithUsage] = await Promise.all([
+  // Fetch admin settings, subscription data and the week start in parallel
+  const [nativeRemindersSupported, adminSettings, subWithUsage, weekStart] = await Promise.all([
     // quiet: a gate for one control, so a plan without reminders logs nothing
     canReceiveReminderPings(user, { quiet: true }),
     prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }).catch(() => null),
     getSubscriptionWithUsage(user.id).catch(() => null),
+    weekStartForSettings(user),
   ]);
 
   // Build subscription info for the client
@@ -250,6 +273,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       pauseOnShabbat: user.pauseOnShabbat,
       zmanimCommunity: user.zmanimCommunity
     },
+    weekStart,
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
     googleConnected: Boolean(user.googleRefreshToken),
     nativeRemindersSupported,

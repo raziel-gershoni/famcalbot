@@ -49,7 +49,7 @@ import { endFollows, itemKeyOf, isTime, type CreateCommand, type DeleteCommand, 
 import { sourcesFor } from '../calendar-read/index';
 import { defaultCalendarIdFor } from '../calendar-provider/user-calendars';
 import { MAX_SPAN_DAYS, addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween, instantToWall, isDay, localDate, wallToInstant, wallToInstantKeeping } from './walltime';
-import { tzKnownFor, weekStartFor } from '../../utils/locale-rules';
+import { weekStartOfUser } from '../../utils/locale-rules';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { alertChoiceOf } from '../../lib/calendar-view/alert-leads';
 import { readZmanSpec, sameZmanSpec, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
@@ -120,10 +120,6 @@ export async function clearCaches(
   }
 }
 
-/** Where the saving user's weeks start (the home's rule), for the WKST of an every-N-weeks rule on several days. */
-export const weekStartOf = (user: UserConfig, tz: string) =>
-  weekStartFor({ culture: user.culture, language: user.language, tz, tzKnown: tzKnownFor(user) });
-
 /** The wall times of a create as instants: an all-day item from the start of its first day to 23:59 on its last. */
 export function createTimes(cmd: CreateCommand, tz: string): { startsAt: Date; endsAt: Date } {
   if (cmd.allDay) return { startsAt: dayStart(cmd.start, tz), endsAt: dayEnd(cmd.end ?? cmd.start, tz) };
@@ -146,7 +142,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     // One builder for every write (ruleOfSpec): a string choice is its spec. The rule is read on the
     // item's start in the zone the item is stored in (tz).
     const spec = specOfInput(cmd.repeat);
-    const built = spec ? ruleOfSpec(spec, cmd.allDay ? dayStart(cmd.start, tz) : wallToInstant(cmd.start, tz), tz, weekStartOf(user, tz)) : null;
+    const built = spec ? ruleOfSpec(spec, cmd.allDay ? dayStart(cmd.start, tz) : wallToInstant(cmd.start, tz), tz, weekStartOfUser(user, tz)) : null;
     const rrule = built?.rrule ?? null;
     const hebrewRule = built?.hebrewRule ?? null;
     const base = {
@@ -396,7 +392,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   if (repeat !== undefined) {
     try {
       const cut = series.rrule ? { at: key.slot!, first: typeof repeat === 'object' && repeat.count !== undefined && (await isFirstOccurrence(series, key.slot!)) } : null;
-      built = repeat === 'none' ? null : ruleToWrite(repeat, series, tailStart, itemTz, cut, weekStartOf(user, userTz));
+      built = repeat === 'none' ? null : ruleToWrite(repeat, series, tailStart, itemTz, cut, weekStartOfUser(user, userTz));
     } catch (err) {
       if (err instanceof NativeRuleError) return { status: 'invalid', field: 'repeat' };
       throw err;

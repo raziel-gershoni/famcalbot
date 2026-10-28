@@ -11,6 +11,11 @@
 // send), error capture, the Google Calendar list (counted) and fetch (blocked). No
 // network, no DB.
 //
+// The Settings page's week start (#6d): Settings answers with where the person's week starts
+// (the home's rule over the home's zone lookup), so the summary-day chips start there. The
+// real timezone module runs, with its 2 s wait cut to 30 ms, over a place lookup and a Redis
+// the smoke controls.
+//
 // Review fix (#9): the dead /oauth-success route looked a user up by the URL's Telegram
 // id with no credential and showed their name.
 //
@@ -226,7 +231,10 @@ const decode = (raw: string | undefined) => {
 };
 const encode = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 const redisImpl: Row = {
-  get: async (k: string) => decode(redisStore.get(k)),
+  get: async (k: string) => {
+    if (k === redisReadFails) throw new Error('redis read failed in smoke');
+    return decode(redisStore.get(k));
+  },
   set: async (k: string, v: unknown, o?: Row) => {
     if (o?.nx && redisStore.has(k)) return null;
     redisStore.set(k, encode(v));
@@ -270,6 +278,11 @@ const recorder = (platform: string, prefix: string): Row =>
 const googleCalls: string[] = [];
 /** When set, the stubbed Google calendar list throws this message (#10). */
 let googleListError: string | null = null;
+/** What the stubbed place lookup answers (#6d): an IANA zone, or 'hang' until releaseGeocode is called. */
+let geocodeZone = 'Europe/London';
+let releaseGeocode: (() => void) | null = null;
+/** When set, the fake Redis throws on a read of this key (#6d): a timezone lookup that fails. */
+let redisReadFails: string | null = null;
 /** The calendar home's hint gates as called: `<feature>(<user id>)`, and getReminderSupport's user ids (#11-#14). */
 const featureChecks: string[] = [];
 const supportChecks: number[] = [];
@@ -338,6 +351,18 @@ function installStubs() {
       return [{ id: 'CAL-SECRET-google@group.calendar.google.com', name: 'CAL-SECRET-google', description: '', primary: false, accessRole: 'writer', backgroundColor: '#123456' }];
     },
   });
+  // The place lookup behind a person's zone answers the zone the smoke sets, or hangs until it is released (#6d).
+  stub('src/services/weather/geocoding.ts', {
+    ...nodeRequire(path.join(ROOT, 'src/services/weather/geocoding.ts')),
+    geocodeLocation: async () => {
+      const hang = geocodeZone === 'hang';
+      if (hang) await new Promise<void>((resolve) => { releaseGeocode = resolve; });
+      return { latitude: 0, longitude: 0, timezone: hang ? 'Europe/London' : geocodeZone };
+    },
+  });
+  // The real timezone module (its cache, its lookups, its race), with the pages' 2 s wait cut to 30 ms so a lookup that never answers does not hold the smoke.
+  const realTimezone = nodeRequire(path.join(ROOT, 'src/lib/timezone.ts'));
+  stub('src/lib/timezone.ts', { ...realTimezone, timezoneWithin: (user: Row) => realTimezone.timezoneWithin(user, 30) });
   // The calendar home's hint gates run for real inside recorders. The support module loads
   // after the wrapped subscription service, so its own 'reminders' check is recorded too.
   const subscriptionService = nodeRequire(path.join(ROOT, 'src/services/subscription-service.ts'));
@@ -402,6 +427,8 @@ function seed() {
   featureChecks.length = 0;
   supportChecks.length = 0;
   featureError = null;
+  geocodeZone = 'Europe/London';
+  redisReadFails = null;
   sent.length = 0;
   captured.length = 0;
   DB.user = [
@@ -609,6 +636,66 @@ async function main() {
       const res = await pageData({ page: 'settings', user_id: 42, locale: 'ru' }, waCookie);
       assert(res.status === 200 && (await fullBody(res)).includes(`"zmanimCommunity":"${want}"`), `community ${want}: ${await bodyOf(res)}`);
     }
+  });
+
+  await check('#6d page-data settings: the props carry where the person\'s week starts, beside currentSettings and never in it: Jewish culture Sunday; else the zone of their place decides over the language (London Monday even in Hebrew, New York Sunday even in Russian); no place at all follows the language; a lookup that never answers or fails still gives the page at once, by the language, and is captured', async () => {
+    const show = (value: unknown) => JSON.stringify(value);
+    const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
+    /** Row 42 as `row` says, asked for its Settings with the place lookup behaving as `how`. */
+    const ask = async (row: Row, how: { zone?: string; hang?: boolean; readFails?: boolean } = {}) => {
+      seed();
+      Object.assign(DB.user.find((u: Row) => u.id === 42) as Row, row);
+      geocodeZone = how.hang ? 'hang' : how.zone ?? 'Europe/London';
+      redisReadFails = how.readFails ? REDIS_KEYS.userTimezone(42) : null;
+      const started = Date.now();
+      // A page that waits for a lookup that never answers would end this smoke silently (nothing left to run): the guard turns that into a failure
+      let guard: ReturnType<typeof setTimeout> | undefined;
+      const stuck = new Promise<null>((resolve) => { guard = setTimeout(() => resolve(null), 3000); });
+      const answered = await Promise.race([pageData({ page: 'settings', user_id: 42, locale: row.language }, waCookie), stuck]);
+      clearTimeout(guard);
+      const took = Date.now() - started;
+      // Let a hanging lookup finish, so no lookup is left running for the next case to join
+      releaseGeocode?.();
+      releaseGeocode = null;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (answered === null) return { status: 0, props: {} as Row, took, text: 'the page did not answer in 3 s', zoneCaptures: [] as string[] };
+      const res = answered;
+      const text = await fullBody(res);
+      const props = JSON.parse(text).props ?? {};
+      return { status: res.status, props, took, text, zoneCaptures: captured.filter((c) => c.startsWith('settings-timezone')) };
+    };
+    const problems: string[] = [];
+    const expectWeekStart = (label: string, got: Awaited<ReturnType<typeof ask>>, want: number) => {
+      if (got.status !== 200 || got.props.weekStart !== want) problems.push(`${label}: wanted ${want}, got ${got.status} ${show(got.props.weekStart)} ${got.text.slice(0, 120)}`);
+      if ('weekStart' in (got.props.currentSettings ?? {})) problems.push(`${label}: weekStart is inside currentSettings`);
+    };
+
+    expectWeekStart('Jewish culture, London, Russian', await ask({ culture: 'jewish', language: 'ru' }), 0);
+    expectWeekStart('London, English', await ask({ culture: 'default', language: 'en' }), 1);
+    expectWeekStart('London, Hebrew', await ask({ culture: 'default', language: 'he' }), 1);
+    expectWeekStart('New York, Russian', await ask({ culture: 'default', language: 'ru' }, { zone: 'America/New_York' }), 0);
+    expectWeekStart('Cairo, English', await ask({ culture: 'default', language: 'en' }, { zone: 'Africa/Cairo' }), 6);
+    // No place and no Google: the zone is only the fallback, so the language decides, whatever the lookup would say
+    expectWeekStart('no place, Russian', await ask({ culture: 'default', language: 'ru', location: '' }, { zone: 'America/New_York' }), 1);
+    expectWeekStart('no place, Hebrew', await ask({ culture: 'default', language: 'he', location: '' }, { zone: 'Europe/London' }), 0);
+
+    // A lookup that never answers: the page is not held, the language decides, and it is captured
+    for (const [language, want] of [['ru', 1], ['he', 0], ['en', 0]] as const) {
+      const late = await ask({ culture: 'default', language }, { hang: true });
+      expectWeekStart(`no answer, ${language}`, late, want);
+      if (late.took > 1000) problems.push(`no answer, ${language}: the page waited ${late.took} ms`);
+      if (show(late.zoneCaptures) !== show(['settings-timezone: The timezone lookup took over 2000 ms'])) problems.push(`no answer, ${language}: captured ${show(late.zoneCaptures)}`);
+    }
+    // A lookup that fails: the same, and the error is the one captured
+    for (const [language, want] of [['ru', 1], ['he', 0]] as const) {
+      const failed = await ask({ culture: 'default', language }, { readFails: true });
+      expectWeekStart(`failed lookup, ${language}`, failed, want);
+      if (show(failed.zoneCaptures) !== show(['settings-timezone: redis read failed in smoke'])) problems.push(`failed lookup, ${language}: captured ${show(failed.zoneCaptures)}`);
+    }
+    // A quick answer captures nothing
+    const quick = await ask({ culture: 'default', language: 'en' });
+    if (quick.zoneCaptures.length) problems.push(`a quick lookup captured ${show(quick.zoneCaptures)}`);
+    assert(problems.length === 0, problems.join('; '));
   });
 
   await check('#7 page-data settings in the wrong locale: a redirect to /ru/settings?user_id=42, no props', async () => {

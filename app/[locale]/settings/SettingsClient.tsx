@@ -23,7 +23,9 @@ import { useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
+import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import { WEEKDAY_IDS_BY_INDEX } from '@/src/lib/calendar-view/repeat-model';
+import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { readInitData } from '@/src/lib/read-init-data';
 import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { AppScreen } from '@/components/app-ui/AppScreen';
@@ -71,6 +73,11 @@ interface SettingsClientProps {
     pauseOnShabbat: boolean;
     zmanimCommunity: string;
   };
+  /**
+   * Where the person's week starts (0 = Sunday ... 6 = Saturday), worked out on the server: the day chips
+   * start there, as the calendar home does. Display order only; the saved days stay numbered from Sunday.
+   */
+  weekStart: WeekStart;
   remindersGloballyEnabled: boolean;
   /** A Google token is stored: the Google section (Disconnect Google) shows. */
   googleConnected: boolean;
@@ -91,16 +98,17 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => ({ value: String(hour), te
 const ALERT_LEADS = [5, 10, 15, 30, 60];
 
 /** One summary's days: the chips under its time, and the line that says why the last one cannot go. */
-function SummaryDays({ label, days, onToggle }: { label: string; days: number[]; onToggle: (day: number) => void }) {
+function SummaryDays({ label, days, weekStart, onToggle }: { label: string; days: number[]; weekStart: WeekStart; onToggle: (day: number) => void }) {
   const t = useTranslations('settings');
   const names = useTranslations('calendarHome');
   const hintId = useId();
   const last = days.length === 1;
-  // Sunday first, as the days are numbered (0 = Sunday): in Hebrew the row starts on the right.
-  const chips: DayChip[] = WEEKDAY_IDS_BY_INDEX.map((weekday, index) => ({
+  // The row starts on the person's week start, as the home's grid does; in Hebrew it starts on the right. The
+  // days stay numbered from Sunday (0 = Sunday): each chip's id and what is saved are that number.
+  const chips: DayChip[] = weekdayOrder(weekStart).map((index) => ({
     id: String(index),
-    short: names('editor.repeat.dayShort', { weekday }),
-    full: names('editor.repeat.dayLong', { weekday }),
+    short: names('editor.repeat.dayShort', { weekday: WEEKDAY_IDS_BY_INDEX[index] }),
+    full: names('editor.repeat.dayLong', { weekday: WEEKDAY_IDS_BY_INDEX[index] }),
     on: days.includes(index),
     pinned: last && days.includes(index),
   }));
@@ -117,7 +125,7 @@ function SummaryDays({ label, days, onToggle }: { label: string; days: number[];
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
   const t = useTranslations('settings');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -289,9 +297,9 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
         <SectionLabel>{t('sections.timing')}</SectionLabel>
         <FormCard>
           <ValueRow label={t('morning.label')} value={String(form.preferredMorningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredMorningHour', Number(value))} />
-          <SummaryDays label={t('morning.days')} days={form.dailySummaryDays} onToggle={(day) => set('dailySummaryDays', toggleSummaryDay(form.dailySummaryDays, day))} />
+          <SummaryDays label={t('morning.days')} days={form.dailySummaryDays} weekStart={weekStart} onToggle={(day) => set('dailySummaryDays', toggleSummaryDay(form.dailySummaryDays, day))} />
           <ValueRow label={t('evening.label')} value={String(form.preferredEveningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredEveningHour', Number(value))} />
-          <SummaryDays label={t('evening.days')} days={form.tomorrowSummaryDays} onToggle={(day) => set('tomorrowSummaryDays', toggleSummaryDay(form.tomorrowSummaryDays, day))} />
+          <SummaryDays label={t('evening.days')} days={form.tomorrowSummaryDays} weekStart={weekStart} onToggle={(day) => set('tomorrowSummaryDays', toggleSummaryDay(form.tomorrowSummaryDays, day))} />
         </FormCard>
 
         <SectionLabel>{t('sections.events')}</SectionLabel>

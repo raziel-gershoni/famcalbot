@@ -14,6 +14,7 @@
 //  - S6 Back: AppScreen is the only BackButton caller; a sheet's Back closes only that sheet; otherwise the calendar
 //    in the saved language, even after an unsaved language pick;
 //  - S7 the day chips: toggling, the last day pinned and explained, a culture resetting the days;
+//  - S7b the day chips start on the person's week start (Monday, Saturday, Sunday), each chip keeping its own day number;
 //  - S8 the header's own back in a browser, none in Telegram 7.7;
 //  - S9 React logs no warning; S10 every message the screen reads is there, and none is left over.
 //
@@ -145,6 +146,7 @@ const subscription = (over: Row = {}) => ({ effectivePlan: 'pro', textSummariesU
 const propsOf = (over: Row = {}, current: Parameters<typeof settings>[0] = {}) => ({
   userId: 1,
   currentSettings: settings(current),
+  weekStart: 0,
   remindersGloballyEnabled: true,
   googleConnected: false,
   nativeRemindersSupported: true,
@@ -811,6 +813,70 @@ async function main() {
     const he = renderToString(tree('he', propsOf({}, { language: 'he' })));
     const heChips = [...he.matchAll(/<button type="button" class="ch-daychip" data-day="(\d)"[^>]*>([^<]*)<\/button>/g)].map((m) => m[2]);
     assert(show(heChips.slice(0, 7)) === show(['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'שבת']), `Hebrew chips: ${show(heChips)}`);
+  });
+
+  await check('S7b the day chips start on the person\'s week start: a Monday-start person sees Mon..Sun, a Saturday-start person Sat..Fri, a Sunday-start person is unchanged; every chip keeps its own day number (data-day, 0 = Sunday), so what is on, what is pinned and what Save posts follow the day and not the position, in en, he and ru', async () => {
+    const dayIds = (chips: FakeElement[]) => chips.map((c) => c.getAttribute('data-day'));
+    const on = (chips: FakeElement[]) => chips.filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => Number(c.getAttribute('data-day')));
+    const cases: [number, string[], string[], string[]][] = [
+      [0, ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], ['0', '1', '2', '3', '4', '5', '6'], ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']],
+      [1, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], ['1', '2', '3', '4', '5', '6', '0'], ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']],
+      [6, ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri'], ['6', '0', '1', '2', '3', '4', '5'], ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']],
+    ];
+    for (const [weekStart, shorts, ids, fulls] of cases) {
+      reset();
+      const o = open('en', propsOf({ weekStart }, { culture: 'default', dailySummaryDays: [0, 1, 2], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6] }));
+      try {
+        for (const group of [0, 1]) {
+          const chips = chipsOf(o.m, group);
+          assert(show(chips.map(flat)) === show(shorts), `week start ${weekStart}, group ${group}, labels: ${show(chips.map(flat))}`);
+          assert(show(dayIds(chips)) === show(ids), `week start ${weekStart}, group ${group}, data-day: ${show(dayIds(chips))}`);
+          assert(show(chips.map((c) => c.getAttribute('aria-label'))) === show(fulls), `week start ${weekStart}, group ${group}, full names`);
+        }
+        // What is on follows the day, whatever the position
+        assert(show(on(chipsOf(o.m, 0)).sort()) === show([0, 1, 2]) && show(on(chipsOf(o.m, 1)).sort()) === show([0, 1, 2, 3, 4, 5, 6]), `week start ${weekStart}: the days that are on`);
+      } finally {
+        close(o);
+      }
+    }
+
+    // A tap on the first chip of a Monday-start row turns Monday (1) off, and on the last chip Sunday (0): Save posts the day numbers
+    reset();
+    const monday = open('en', propsOf({ weekStart: 1 }, { culture: 'default', dailySummaryDays: [0, 1, 2], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6] }));
+    try {
+      monday.m.click(chipsOf(monday.m, 0)[0]);
+      monday.m.click(chipsOf(monday.m, 1)[6]);
+      assert(show(on(chipsOf(monday.m, 0)).sort()) === show([0, 2]) && show(on(chipsOf(monday.m, 1)).sort()) === show([1, 2, 3, 4, 5, 6]), `after the taps: ${show([on(chipsOf(monday.m, 0)), on(chipsOf(monday.m, 1))])}`);
+      monday.m.click(saveButton(monday.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0]?.init.body));
+      assert(show(body.dailySummaryDays) === show([0, 2]) && show(body.tomorrowSummaryDays) === show([1, 2, 3, 4, 5, 6]), `Save posts the day numbers: ${show([body.dailySummaryDays, body.tomorrowSummaryDays])}`);
+    } finally {
+      close(monday);
+    }
+
+    // The last day left is the pinned one wherever it sits: Sunday is the last chip of a Monday-start row
+    reset();
+    const pinned = open('en', propsOf({ weekStart: 1 }, { culture: 'default', dailySummaryDays: [0], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6] }));
+    try {
+      const chips = chipsOf(pinned.m, 0);
+      const flagged = chips.filter((c) => c.getAttribute('aria-disabled') === 'true');
+      assert(flagged.length === 1 && flagged[0] === chips[6] && flagged[0].getAttribute('data-day') === '0', `the pinned chip: ${show(flagged.map((c) => c.getAttribute('data-day')))}`);
+      pinned.m.click(chips[6]);
+      assert(show(on(chipsOf(pinned.m, 0))) === show([0]), 'a tap on the pinned Sunday does nothing');
+    } finally {
+      close(pinned);
+    }
+
+    // Hebrew and Russian: the same order in the markup (the row mirrors on its own in Hebrew)
+    const orderOf = (locale: Locale, weekStart: number) => {
+      const html = renderToString(tree(locale, propsOf({ weekStart }, { language: locale })));
+      return [...html.matchAll(/<button type="button" class="ch-daychip" data-day="(\d)"[^>]*>([^<]*)<\/button>/g)].slice(0, 7).map((m) => [m[1], m[2]]);
+    };
+    assert(show(orderOf('he', 1).map((m) => m[0])) === show(['1', '2', '3', '4', '5', '6', '0']) && show(orderOf('he', 1).map((m) => m[1])) === show(['ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'שבת', 'א׳']), `Hebrew, Monday first: ${show(orderOf('he', 1))}`);
+    assert(show(orderOf('he', 0).map((m) => m[0])) === show(['0', '1', '2', '3', '4', '5', '6']) && show(orderOf('he', 0).map((m) => m[1])) === show(['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'שבת']), `Hebrew, Sunday first, unchanged: ${show(orderOf('he', 0))}`);
+    assert(show(orderOf('ru', 1).map((m) => m[0])) === show(['1', '2', '3', '4', '5', '6', '0']), `Russian, Monday first: ${show(orderOf('ru', 1))}`);
+    assert(show(orderOf('ru', 6).map((m) => m[0])) === show(['6', '0', '1', '2', '3', '4', '5']), `Russian, Saturday first: ${show(orderOf('ru', 6))}`);
   });
 
   await check('S11 the pause switch (Task 2): in the Language and place card right under the calendar, in en, he and ru, in its language, on as saved; a tap changes it and Save posts it; picking a calendar sets it the way it sets the days (Jewish on, General off) and the person can change it after; saved off it stays off', async () => {

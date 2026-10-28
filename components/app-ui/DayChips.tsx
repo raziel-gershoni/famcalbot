@@ -1,8 +1,8 @@
 'use client';
 
 // A row of day chips (lifted from the Repeat sheet, W1a): toggle buttons in a labelled group, each
-// with the short day shown and the full day as its name. The order is the caller's (a week's
-// start, or Sunday first), so in RTL the row mirrors on its own. The CSS is FORM_CSS's
+// with the short day shown and the full day as its name. The order is the caller's (the
+// person's week start), so in RTL the row mirrors on its own. The CSS is FORM_CSS's
 // (.ch-daychips, .ch-daychip), which the screen renders.
 //
 // A pinned chip is the one that cannot be turned off (the Repeat sheet's start day, the last

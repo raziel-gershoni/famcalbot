@@ -109,7 +109,7 @@ export async function resolveTimezoneForLocation(location: string): Promise<stri
   return (await resolveLocation(location))?.timezone ?? null;
 }
 
-type TimezoneUser = { id: number; location?: string; googleRefreshToken?: string; telegramId?: number | null };
+export type TimezoneUser = { id: number; location?: string; googleRefreshToken?: string; telegramId?: number | null };
 
 /**
  * The lookups in flight, one per user, location and whether a Google token is there:
@@ -151,6 +151,31 @@ export async function resolveUserTimezone(user: TimezoneUser): Promise<string> {
   });
   inflight.set(key, { lookup, startedAt: now });
   return lookup;
+}
+
+/**
+ * How long a screen waits for the user's timezone (the calendar home's range answer, and
+ * Settings, which shows the week start). A tz:user miss (once a day per user) asks
+ * Nominatim and Open-Meteo, or Google's settings, with retries that take about 48 s when
+ * those are slow. Past this the answer goes out in the fallback zone.
+ */
+export const TZ_LOOKUP_MS = 2000;
+
+/**
+ * The user's timezone, or null when resolveUserTimezone takes longer than `ms`. The lookup
+ * carries on and caches its answer for the next open, as it always does; the caller caches
+ * nothing. A lookup that fails within `ms` rejects, as before.
+ */
+export async function timezoneWithin(user: TimezoneUser, ms: number): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  try {
+    return await Promise.race([resolveUserTimezone(user), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** One lookup: Redis cache → Geocoding → Google Calendar → the default (resolveUserTimezone's order). */

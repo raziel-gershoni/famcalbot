@@ -15,7 +15,7 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { calendarRateLimiter } from '@/src/lib/rate-limit';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
-import { resolveUserTimezone } from '@/src/lib/timezone';
+import { TZ_LOOKUP_MS, timezoneWithin } from '@/src/lib/timezone';
 import { TIMEZONE } from '@/src/config/constants';
 import { readRange, sourcesFor } from '@/src/services/calendar-read';
 import { carryOverReadItems } from '@/src/services/calendar-read/famcal';
@@ -24,10 +24,9 @@ import { toCalendarDto, toCarryOverDto, toRangeDays } from '@/src/services/calen
 import type { GoogleRead, RangeRead, ReadItem } from '@/src/services/calendar-read/types';
 import { fetchOpenReminderItems, openRemindersCutoff } from '@/src/services/native-reminders/open-reminders';
 import { zmanClockIfNeeded } from '@/src/services/zmanim/reminder-clock';
-import { hebrewDatesFor, tzKnownFor, weekStartFor } from '@/src/utils/locale-rules';
+import { hebrewDatesFor, tzKnownFor, weekStartOfUser } from '@/src/utils/locale-rules';
 import { addDaysToDate, localDate } from '@/src/utils/day-events';
 import type { DayKey, ItemDTO, RangeResponse, SourceName } from '@/src/lib/calendar-view/types';
-import type { UserConfig } from '@/src/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,34 +39,11 @@ const MAX_DAYS = 42;
 const MAX_YEARS_AWAY = 5;
 /** The whole Google half, cache miss included (spec §2.2 Deadlines). */
 const GOOGLE_DEADLINE_MS = 6000;
-/**
- * How long the answer waits for the user's timezone. A tz:user miss (once a day per user)
- * asks Nominatim and Open-Meteo, or Google's settings, with retries that take about 48 s
- * when those are slow. Past this the answer goes out in the fallback zone.
- */
-const TZ_LOOKUP_MS = 2000;
 const SOURCE_NAMES: readonly SourceName[] = ['famcal', 'google'];
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 type GoogleSource = NonNullable<RangeResponse['sources']['google']>;
 type Query = { from: DayKey; to: DayKey; sources: SourceName[] | null; fresh: boolean };
-
-/**
- * The user's timezone, or null when resolveUserTimezone takes longer than `ms`. The lookup
- * carries on and caches its answer for the next open, as it always does; the route caches
- * nothing. A lookup that fails within `ms` rejects, as before.
- */
-async function timezoneWithin(user: UserConfig, ms: number): Promise<string | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ms);
-  });
-  try {
-    return await Promise.race([resolveUserTimezone(user), late]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function json(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': NO_STORE } });
@@ -159,9 +135,9 @@ export async function GET(request: NextRequest) {
     }
     const tz = resolved ?? TIMEZONE;
     const today = localDate(now, tz);
-    const facts = { culture: user.culture, language: user.language, tz, tzKnown: resolved !== null && tzKnownFor(user) };
-    const weekStart = weekStartFor(facts);
-    const hebrewDates = hebrewDatesFor(facts);
+    const tzKnown = resolved !== null && tzKnownFor(user);
+    const weekStart = weekStartOfUser(user, tz, tzKnown);
+    const hebrewDates = hebrewDatesFor({ culture: user.culture, language: user.language, tz, tzKnown });
 
     const query = parseQuery(params, today);
     if ('error' in query) return json({ error: 'bad_request', detail: query.error }, 400);

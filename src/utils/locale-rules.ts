@@ -81,6 +81,21 @@ export function weekStartFor(f: LocaleFacts): WeekStart {
   return 1;
 }
 
+/**
+ * A person's week start (weekStartFor) from their row and the zone their day is read in:
+ * the one place the facts are put together, so the calendar home, the writes, the bot's
+ * weeks and the Settings chips cannot drift. `tzKnown` is tzKnownFor(u) unless the caller
+ * has a better answer: the range route and Settings pass false when the zone lookup was
+ * late, because the zone they hold is then the fallback, not the person's.
+ */
+export function weekStartOfUser(
+  u: { culture?: string | null; language?: string | null; location?: string | null; googleRefreshToken?: string | null },
+  tz: string,
+  tzKnown: boolean = tzKnownFor(u)
+): WeekStart {
+  return weekStartFor({ culture: u.culture ?? undefined, language: u.language ?? undefined, tz, tzKnown });
+}
+
 /** Hebrew dates for Jewish culture, the Hebrew language, or a known Israel timezone. */
 export function hebrewDatesFor(f: LocaleFacts): boolean {
   return f.culture === 'jewish' || f.language === 'he' || (f.tzKnown && ISRAEL_ZONES.has(f.tz));

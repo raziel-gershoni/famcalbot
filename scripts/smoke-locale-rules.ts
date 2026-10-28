@@ -21,9 +21,12 @@ import {
   nextWeekBoundary,
   tzKnownFor,
   weekStartFor,
+  weekStartOfUser,
   type LocaleFacts,
   type WeekStart,
 } from '../src/utils/locale-rules';
+import fs from 'fs';
+import path from 'path';
 import { NON_MONDAY_ZONES } from '../src/config/week-start-zones';
 import { addDaysToDate } from '../src/utils/day-events';
 import type { UserConfig } from '../src/types';
@@ -190,6 +193,57 @@ async function main() {
     assertEqual(weekStartFor(unknown('Asia/Jerusalem', 'en')), 0, 'en → Sunday');
     assertEqual(weekStartFor(unknown('Asia/Jerusalem', 'ru')), 1, 'ru → Monday, not Israel\'s Sunday');
     assertEqual(weekStartFor(unknown('Africa/Cairo', 'ru')), 1, 'Cairo unknown → Russian Monday');
+  });
+
+  await check('weekStartOfUser: the row\'s own facts put through weekStartFor, with and without a location or a Google token', () => {
+    const rows: [Record<string, string | null | undefined>, string][] = [
+      [{}, 'no location or token fields'],
+      [{ location: 'Haifa, Israel' }, 'a location'],
+      [{ googleRefreshToken: 'refresh-token' }, 'a Google token'],
+      [{ location: 'Haifa, Israel', googleRefreshToken: 'refresh-token' }, 'both'],
+      [{ location: '', googleRefreshToken: '' }, 'both empty'],
+      [{ location: null, googleRefreshToken: null }, 'both null'],
+    ];
+    const cultures = [undefined, 'default', 'jewish'];
+    const languages = [undefined, 'he', 'en', 'ru', 'fr'];
+    const zones = ['Europe/London', 'America/New_York', 'Africa/Cairo', 'Asia/Jerusalem', 'Asia/Tehran', 'UTC'];
+    let compared = 0;
+    for (const [row, rowLabel] of rows) {
+      for (const culture of cultures) {
+        for (const language of languages) {
+          for (const tz of zones) {
+            const want = weekStartFor({ culture, language, tz, tzKnown: tzKnownFor(row) });
+            assertEqual(weekStartOfUser({ culture, language, ...row }, tz), want, `${rowLabel}, ${culture}, ${language}, ${tz}`);
+            compared++;
+          }
+        }
+      }
+    }
+    assert(compared === rows.length * cultures.length * languages.length * zones.length, 'every combination was compared');
+    // The point of the third argument: a late lookup leaves the fallback zone, so the range route and Settings say the zone is not the person's
+    assertEqual(weekStartOfUser({ culture: 'default', language: 'en', location: 'London' }, 'Europe/London'), 1, 'a location makes London count');
+    assertEqual(weekStartOfUser({ culture: 'default', language: 'en', location: 'London' }, 'Europe/London', false), 0, 'tzKnown false: the language (Sunday) decides');
+    assertEqual(weekStartOfUser({ culture: 'default', language: 'ru', location: 'New York' }, 'America/New_York', true), 0, 'tzKnown true: New York decides');
+    assertEqual(weekStartOfUser({ culture: 'default', language: 'ru' }, 'America/New_York'), 1, 'no place, no token: the language decides');
+    assertEqual(weekStartOfUser({ culture: 'jewish', language: 'ru', location: 'London' }, 'Europe/London', true), 0, 'Jewish culture is Sunday whatever else');
+  });
+
+  await check('every place that works out a person\'s week start goes through weekStartOfUser, and none builds the facts for weekStartFor by hand again: the saved repeat rules (both writers), the bot\'s weeks, the calendar home\'s range, and the Settings page', () => {
+    const ROOT = path.resolve(__dirname, '..');
+    const sites = [
+      'src/services/calendar-write/write.ts',
+      'src/services/calendar-write/google-item.ts',
+      'src/services/week-lookahead.ts',
+      'app/api/calendar/range/route.ts',
+      'src/lib/page-data.ts',
+    ];
+    const problems: string[] = [];
+    for (const rel of sites) {
+      const source = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      if (!/\bweekStartOfUser\(/.test(source)) problems.push(`${rel} does not call weekStartOfUser`);
+      if (/\bweekStartFor\(/.test(source)) problems.push(`${rel} calls weekStartFor itself`);
+    }
+    assert(problems.length === 0, problems.join('; '));
   });
 
   await check('hebrewDatesFor: Jewish culture, Hebrew language, or a known Israel timezone', () => {

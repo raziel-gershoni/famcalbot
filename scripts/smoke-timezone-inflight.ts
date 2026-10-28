@@ -135,6 +135,13 @@ function loadTimezone(): Resolve {
   return (nodeRequire(TIMEZONE_TS) as { resolveUserTimezone: Resolve }).resolveUserTimezone;
 }
 
+/** A fresh copy of src/lib/timezone.ts's timezoneWithin (the wait the range route and Settings share) and its ceiling. */
+function loadTimezoneWithin(): { within: (user: { id: number; location?: string }, ms: number) => Promise<string | null>; ceiling: number } {
+  delete nodeRequire.cache[TIMEZONE_TS];
+  const loaded = nodeRequire(TIMEZONE_TS) as { timezoneWithin: (user: { id: number; location?: string }, ms: number) => Promise<string | null>; TZ_LOOKUP_MS: number };
+  return { within: loaded.timezoneWithin, ceiling: loaded.TZ_LOOKUP_MS };
+}
+
 const inflight = () => (globalThis as { __tzInflight?: Map<string, unknown> }).__tzInflight;
 
 async function flush() {
@@ -319,6 +326,64 @@ async function main() {
     const step = captures.filter((c) => (c.extra as Row | undefined)?.step === 'google');
     assert(step.length === 1 && step[0].context === 'timezone-resolution' && (step[0].extra as Row).user_id === 43 && String(step[0].message).includes('the step failed'), `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
     assert(consoleLines.some((l) => l.includes('[timezone] user 43')), 'no console line for the failed step');
+  });
+
+  await check('timezoneWithin (the wait the range route and Settings share, moved here from the range route): an answer inside the wait is returned and its timer cleared; a lookup slower than the wait gives null and carries on, caching its answer for the next open; a lookup that fails inside the wait rejects with its error; the shared ceiling is 2 s', async () => {
+    const { within, ceiling } = loadTimezoneWithin();
+    const inflightCount = (): number | undefined => inflight()?.size;
+    assert(ceiling === 2000, `the ceiling is ${ceiling}`);
+    // The wait's own timer (marked by its length) must not outlive the answer
+    const MARK = 4321;
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    const live = new Set<unknown>();
+    const liveCount = (): number => live.size;
+    globalThis.setTimeout = ((fn: () => void, ms?: number, ...rest: unknown[]) => {
+      const timer = realSet(fn, ms, ...rest);
+      if (ms === MARK) live.add(timer);
+      return timer;
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((timer: Parameters<typeof clearTimeout>[0]) => {
+      live.delete(timer);
+      return realClear(timer);
+    }) as typeof clearTimeout;
+    try {
+      // Inside the wait
+      seed();
+      const quick = within({ id: 7, location: 'London' }, MARK);
+      await flush();
+      assert(liveCount() === 1, `the wait's timer is set: ${liveCount()}`);
+      geocodeFor('London').answer('Europe/London');
+      assert((await quick) === 'Europe/London', 'the answer inside the wait');
+      assert(liveCount() === 0, `the wait's timer is cleared once answered: ${liveCount()} left`);
+      // Too slow: null at once, the lookup goes on and caches its zone
+      seed();
+      const slow = within({ id: 7, location: 'London' }, 20);
+      await flush();
+      // A wait with no ceiling would never settle and end this smoke silently: the guard turns that into a failure
+      let guard: ReturnType<typeof setTimeout> | undefined;
+      const stuck = new Promise<string>((resolve) => { guard = setTimeout(() => resolve('no answer in 1 s'), 1000); });
+      const late = await Promise.race([slow, stuck]);
+      clearTimeout(guard);
+      assert(late === null, `a late lookup gives null: ${show(late)}`);
+      assert(redisStore.get('tz:user:7') === undefined && inflightCount() === 1, `the lookup is still running: cached ${show(redisStore.get('tz:user:7'))}, ${inflightCount()} in flight`);
+      geocodeFor('London').answer('Europe/London');
+      await flush();
+      assert(redisStore.get('tz:user:7') === 'Europe/London' && inflightCount() === 0, `the lookup finished and cached its zone: ${show(redisStore.get('tz:user:7'))}, ${inflightCount()} in flight`);
+      // A failure inside the wait: the error, and the timer cleared
+      seed();
+      const release = holdRedisReads();
+      const failing = within({ id: 7, location: 'London' }, MARK);
+      await flush();
+      const down = new Error('redis down');
+      release(down);
+      const outcome = await Promise.allSettled([failing]);
+      assert(outcome[0].status === 'rejected' && outcome[0].reason === down, `a fast failure rejects: ${show(outcome[0].status)}`);
+      assert(liveCount() === 0, `the wait's timer is cleared after a failure: ${liveCount()} left`);
+    } finally {
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
+    }
   });
 
   await check('the shared lookup prints nothing: no console line names a location', () => {

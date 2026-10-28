@@ -19,7 +19,7 @@ import {
 } from './recurrence-cache';
 import { anniversaryMarker, eventTimeLabel, isAllDayEvent, isBirthdayEvent, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { daySpanOf, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
-import { nextWeekBoundaries, nextWeekBoundary, tzKnownFor, weekStartFor, type WeekStart } from '../utils/locale-rules';
+import { nextWeekBoundaries, nextWeekBoundary, weekStartOfUser } from '../utils/locale-rules';
 import { resolveUserTimezone } from '../lib/timezone';
 
 // Recurrence frequency types
@@ -84,15 +84,6 @@ type SeriesLookups = Map<string, Promise<string[] | null>>;
 /** The last instant of yyyy-MM-dd in `timezone`. */
 function endOfLocalDay(day: string, timezone: string): Date {
   return new Date(startOfLocalDay(nextDate(day), timezone).getTime() - 1);
-}
-
-/**
- * The first day of the user's week (0 = Sunday), which sets This week's last day and Next
- * week's days (spec §6): Sunday for Jewish culture, else the country of the user's own
- * timezone (from their location or Google), else the language.
- */
-function weekStartOf(user: UserConfig, timezone: string): WeekStart {
-  return weekStartFor({ culture: user.culture, language: user.language, tz: timezone, tzKnown: tzKnownFor(user) });
 }
 
 /**
@@ -345,7 +336,7 @@ export async function getWeekLookahead(
   // The week is made of the user's days, from the reference day to the end of the last.
   const timezone = await resolveUserTimezone(user);
   const today = localDate(startDate, timezone);
-  const lastDay = nextWeekBoundary(weekStartOf(user, timezone), user.lookaheadAlways7Days, today);
+  const lastDay = nextWeekBoundary(weekStartOfUser(user, timezone), user.lookaheadAlways7Days, today);
   const endDate = endOfLocalDay(lastDay, timezone);
 
   // Get all calendar IDs (including birthdays)
@@ -421,7 +412,7 @@ export async function getNextWeekLookahead(
   // Next week's days run from the user's midnight to the end of their last day.
   const timezone = await resolveUserTimezone(user);
   const today = localDate(referenceDate || new Date(), timezone);
-  const { first, last } = nextWeekBoundaries(weekStartOf(user, timezone), today);
+  const { first, last } = nextWeekBoundaries(weekStartOfUser(user, timezone), today);
   const start = startOfLocalDay(first, timezone);
   const end = endOfLocalDay(last, timezone);
 

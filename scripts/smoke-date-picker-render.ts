@@ -259,6 +259,7 @@ async function main() {
               { value: router as never },
               createElement(SettingsClient, {
                 userId: 1,
+                weekStart: 0,
                 remindersGloballyEnabled: true,
                 googleConnected: false,
                 nativeRemindersSupported: true,
