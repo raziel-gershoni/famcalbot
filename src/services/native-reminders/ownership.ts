@@ -23,6 +23,16 @@ export interface PartnerSummary {
   language: string;
   /** HH:mm or null (09:00): when their date-only reminders ping. */
   reminderTime?: string | null;
+  /**
+   * Their place, community and pause switch (the fields zmanClockFor and isPaused read): a reminder by zman for them
+   * is timed at their own place, and its card says when their Shabbat pause holds it.
+   */
+  location?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  elevationM?: number | null;
+  zmanimCommunity?: string | null;
+  pauseOnShabbat?: boolean | null;
 }
 
 /** Whoever is reading reminders, and their ACTIVE partner (null when unpaired). */
@@ -46,7 +56,10 @@ export async function getActivePartnerSummary(userId: number, pairingId: string 
   if (partnerId == null) return null;
   return prisma.user.findUnique({
     where: { id: partnerId },
-    select: { id: true, name: true, englishName: true, gender: true, telegramId: true, language: true, reminderTime: true },
+    select: {
+      id: true, name: true, englishName: true, gender: true, telegramId: true, language: true, reminderTime: true,
+      location: true, latitude: true, longitude: true, elevationM: true, zmanimCommunity: true, pauseOnShabbat: true,
+    },
   });
 }
 

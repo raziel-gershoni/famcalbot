@@ -254,6 +254,21 @@ async function main() {
     assert(!!event && event.allDay && at(event.startTime, IL) === '2026-10-30 00:00' && JSON.stringify(event.zman) === JSON.stringify(SHEMA), JSON.stringify(event));
   });
 
+  await check('a said day (or Hebrew date) marks the zman reminder zmanDaySaid; no day said, or no zman, does not', () => {
+    const said = parse({ zman: SHEMA, startDate: '2026-10-30' }).event;
+    assert(said?.zmanDaySaid === true, `said: ${JSON.stringify(said)}`);
+    const hebrew = parse({ zman: SHEMA, startDate: null, hebrewDate: { day: 1, month: 'Kislev' } }).event;
+    assert(hebrew?.zmanDaySaid === true, `Hebrew date: ${JSON.stringify(hebrew)}`);
+    for (const startDate of [null, undefined, '']) {
+      const none = parse({ zman: SHEMA, startDate }).event;
+      assert(!!none && !('zmanDaySaid' in none), `${JSON.stringify(startDate)}: ${JSON.stringify(none)}`);
+    }
+    const daily = parse({ zman: SHEMA, startDate: null, recurrence: { frequency: 'daily' } }).event;
+    assert(!!daily && !('zmanDaySaid' in daily), JSON.stringify(daily));
+    const plain = parse({ startDate: '2026-10-15', startTime: '10:00', allDay: false }).event;
+    assert(!!plain && !('zmanDaySaid' in plain), JSON.stringify(plain));
+  });
+
   await check('the hours form, an opinion, a missing offset and a repeat are read', () => {
     const hours = parse({ zman: { halachicHours: 3, offsetMinutes: 0 } }).event;
     assert(!!hours && JSON.stringify(hours.zman) === '{"halachicHours":3,"offsetMinutes":0}', JSON.stringify(hours?.zman));

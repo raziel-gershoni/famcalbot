@@ -471,7 +471,7 @@ async function main() {
     assert(r.ok && r.forBoth === true && r.notice === 'no_time_set', `creator's 09:00 is past: ${JSON.stringify(r)}`);
     const before = await resolveReminderForCreate({ ...dana, reminderTime: '18:00' }, event, IL, at('2026-10-14 12:00'));
     assert(before.ok && before.notice === undefined, `creator's 18:00 is ahead: ${JSON.stringify(before)}`);
-    const refreshed = await refreshReminderNotice({ ...event, forUserId: 2, forBoth: true }, IL, at('2026-10-14 12:00'), '18:00');
+    const refreshed = await refreshReminderNotice({ ...event, forUserId: 2, forBoth: true }, IL, at('2026-10-14 12:00'), { ...dana, reminderTime: '18:00' });
     assert(refreshed.reminderNotice === undefined, `refresh uses the creator's time: ${refreshed.reminderNotice}`);
   });
 

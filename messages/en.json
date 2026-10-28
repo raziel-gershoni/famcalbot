@@ -1411,6 +1411,12 @@
         "ambiguous": "I found more than one “{description}”. Send it again with a time, like “remind me at 16:00 to …”.",
         "needsTime": "“{description}” is all day. Send it again with a time, like “remind me at 16:00 to …”."
       },
+      "zman": {
+        "notOffered": "I can't set “{description}” by that zman: it isn't one of the zmanim your community's list has. Send it again with another zman or a time.",
+        "noPlace": "To set “{description}” by a zman I need your location. Set it in Settings, then send it again.",
+        "noPlacePartner": "{name} has no location saved, so I can't work out the zman for them. Once it's set in Settings, send “{description}” again.",
+        "noTime": "There's no such zman on that day, so I didn't set “{description}”. Send it again with another day or a time."
+      },
       "permissionDenied": "You can't change this one."
     }
   },

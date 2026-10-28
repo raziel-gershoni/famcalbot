@@ -1298,7 +1298,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       const { setPendingEvent, formatEventDateTime, formatReminderCard, hebrewCardParts } = await import('./voice/confirmations');
 
       const pendingId = `wa:${phone}:${Date.now()}`;
-      const pendingEvent = reminder ? await refreshReminderNotice(intentResult.event, timezone, new Date(), user.reminderTime) : intentResult.event;
+      const pendingEvent = reminder ? await refreshReminderNotice(intentResult.event, timezone, new Date(), user) : intentResult.event;
       // The shared setter, as on Telegram: the user's Google token is stored sealed
       await setPendingEvent(pendingId, { event: pendingEvent, user, transcription });
       let card: string;

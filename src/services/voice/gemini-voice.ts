@@ -742,7 +742,8 @@ function parseReminderCreate(
     kind: 'reminder',
     forPerson: eventData.forPerson === 'partner' || eventData.forPerson === 'both' ? eventData.forPerson : 'self',
     ...(anchor ? { anchor } : {}),
-    ...(zman ? { zman } : {}),
+    // A zman with no day said: resolution picks the next day whose time has not passed (resolve.ts)
+    ...(zman ? { zman, ...(repeat.startDate ? { zmanDaySaid: true as const } : {}) } : {}),
   };
 
   return {

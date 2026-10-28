@@ -4,6 +4,7 @@
  */
 
 import type { ModelZman } from './zmanim/spec';
+import type { ZmanSpecValue } from '../lib/calendar-view/zman-spec';
 
 /**
  * Voice intent types
@@ -111,4 +112,35 @@ export interface ParsedEvent {
    * and has no clock time.
    */
   zman?: ModelZman;
+  /**
+   * Reminders by zman only: the person said the day (or a Hebrew date), so resolution keeps it. Unset, resolution
+   * picks the next day whose zman time has not passed (today, else tomorrow), per opinion when there are choices.
+   */
+  zmanDaySaid?: true;
+  /**
+   * Reminders only, once resolved (resolve.ts): the rule it is created with, mapped from `zman` under the writer's
+   * community. The reminder is date-only; its time is never stored, every reader counts it at its recipient's place.
+   */
+  zmanSpec?: ZmanSpecValue;
+  /**
+   * Reminders only, once resolved: the name has several opinions in the writer's set and none was said, so nothing
+   * is defaulted: the card offers one button per choice, in the set's order, and a tap makes it `zmanSpec`
+   * (withZmanChoice). Each has its own day (yyyy-MM-dd, the creator's zone; plain JSON, so it survives Redis) and its
+   * own pause note. Never together with `zmanSpec`.
+   */
+  zmanChoices?: ZmanChoice[];
+  /**
+   * Reminders by zman, one-off only: its time falls inside a Shabbat or Yom Tov window while its recipient's pause is
+   * on (isPaused), so it will not be sent. The card says so in one line.
+   */
+  reminderPaused?: true;
+}
+
+/** One opinion a reminder by zman can be created with (ParsedEvent.zmanChoices). */
+export interface ZmanChoice {
+  spec: ZmanSpecValue;
+  /** The civil day (yyyy-MM-dd, the creator's zone) this choice is created on: its own next time, or the said day. */
+  day: string;
+  /** This choice's time falls inside the recipient's paused Shabbat or Yom Tov (a one-off only). */
+  paused?: true;
 }

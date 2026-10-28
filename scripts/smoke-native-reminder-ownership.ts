@@ -111,13 +111,14 @@ async function main() {
 
   await check('partner summary: the inviter gets the invitee, with exactly the fields reminders need', async () => {
     assertSame(await getActivePartnerSummary(1, 'pair-1'), {
-      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en',
+      // With the place (a reminder by zman for them is timed there); the fixture has no coordinates or switch
+      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en', location: '',
     });
   });
 
   await check('partner summary: the invitee gets the inviter', async () => {
     assertSame(await getActivePartnerSummary(2, 'pair-1'), {
-      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1001), language: 'he',
+      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1001), language: 'he', location: 'Tel Aviv',
     });
   });
 

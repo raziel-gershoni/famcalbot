@@ -481,12 +481,26 @@ export async function formatReminderCreated(event: ParsedEvent, language: string
     (recurrence ? `\n${recurrence}` : '');
 }
 
-const ANCHOR_QUESTIONS = { anchor_not_found: 'notFound', anchor_ambiguous: 'ambiguous', anchor_needs_time: 'needsTime' } as const;
+const ANCHOR_QUESTIONS = {
+  anchor_not_found: 'anchor.notFound',
+  anchor_ambiguous: 'anchor.ambiguous',
+  anchor_needs_time: 'anchor.needsTime',
+  zman_not_offered: 'zman.notOffered',
+  zman_no_place: 'zman.noPlace',
+  zman_no_time: 'zman.noTime',
+} as const satisfies Record<ReminderFailure['error'], string>;
 
-/** What to ask when a reminder set relative to an event ("an hour before the dentist") can't be placed. */
+/**
+ * What to ask when a reminder can't be placed: one set relative to an event ("an hour before the dentist"), or one
+ * by zman (not a zman the set has, no place to count it from, or no such time that day). A missing place that is
+ * the partner's names them.
+ */
 export function anchorQuestion(failure: ReminderFailure, language: string, html = true): Promise<string> {
-  return getBotMessage(language, `nativeReminders.anchor.${ANCHOR_QUESTIONS[failure.error]}`, {
-    description: html ? escapeHtml(failure.description) : failure.description,
+  const text = (s: string) => (html ? escapeHtml(s) : s);
+  const key = failure.error === 'zman_no_place' && failure.name ? 'zman.noPlacePartner' : ANCHOR_QUESTIONS[failure.error];
+  return getBotMessage(language, `nativeReminders.${key}`, {
+    description: text(failure.description),
+    ...(failure.name ? { name: text(failure.name) } : {}),
   });
 }
 
@@ -523,7 +537,7 @@ export async function showEventConfirmation(
   // A reminder's notice is worked out again on every showing: a quick fix or a reply may
   // have given it a time since it was resolved.
   const reminder = event.kind === 'reminder';
-  const shown = reminder ? await refreshReminderNotice(event, timezone, new Date(), user.reminderTime) : event;
+  const shown = reminder ? await refreshReminderNotice(event, timezone, new Date(), user) : event;
 
   // Store in Redis with TTL (survives serverless cold starts).
   // PR 12: inputModality threads through so callbacks know whether to voice
