@@ -1236,7 +1236,7 @@ async function fix7() {
   const unchanged = (userId: number, before: Row) => assertSame(JSON.stringify(subscriptionOf(userId)), JSON.stringify(before), `the subscription of ${userId} changed`);
   const refundedActivity = () => tracked.filter(t => t.action === 'subscription_refunded');
   /** Telegram refuses the way node-telegram-bot-api reports it: a TelegramError with the Bot API's description. */
-  const refusal = (description: string) => Object.assign(new Error(`ETELEGRAM: 400 Bad Request: ${description}`), { code: 'ETELEGRAM', response: { body: { ok: false, error_code: 400, description: `Bad Request: ${description}` } } });
+  const refusal = (description: string, statusCode = 400) => Object.assign(new Error(`ETELEGRAM: ${statusCode} Bad Request: ${description}`), { code: 'ETELEGRAM', response: { statusCode, body: { ok: false, error_code: statusCode, description: `Bad Request: ${description}` } } });
 
   await check("7: the refund asks Telegram for it with the person's Telegram id and charge id, and only when Telegram agrees ends the plan (FREE / EXPIRED, charge id cleared), clears the access cache, records it and tells the person in their language", async () => {
     seedPayers();
@@ -1263,16 +1263,38 @@ async function fix7() {
     assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]), [[3003, botText('ru', 'subscription.refunded')]], 'the message to the person');
   });
 
-  await check("7: a refusal from Telegram (already refunded, too old) answers 409 REFUND_REFUSED, logs Telegram's description, changes nothing in the database and tells the person nothing", async () => {
+  await check("7: a refusal from Telegram (a charge it can't refund) answers 409 REFUND_REFUSED, logs Telegram's description, changes nothing in the database and tells the person nothing", async () => {
     seedPayers();
     const before = { ...subscriptionOf(2) };
-    telegramRefund = () => { throw refusal('CHARGE_ALREADY_REFUNDED'); };
+    telegramRefund = () => { throw refusal('CHARGE_NOT_FOUND'); };
     const answer = await refund(2);
     assertSame([answer.status, answer.body], [409, { error: 'REFUND_REFUSED' }], 'the answer');
     unchanged(2, before);
     assertSame(refundedActivity(), [], 'an activity row was written');
     assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage'), [], 'the person was told');
-    assert(logs.some(l => l.includes('CHARGE_ALREADY_REFUNDED')), `Telegram's description is not in the log: ${show(logs)}`);
+    assert(logs.some(l => l.includes('CHARGE_NOT_FOUND')), `Telegram's description is not in the log: ${show(logs)}`);
+  });
+
+  await check('7: "already refunded" (a refund whose plan never ended: a lost answer, a failed second step) ends the plan now, as a success, so tapping Refund again finishes it', async () => {
+    seedPayers();
+    telegramRefund = () => { throw refusal('CHARGE_ALREADY_REFUNDED'); };
+    const answer = await refund(2);
+    assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
+    const row = subscriptionOf(2);
+    assertSame([row.plan, row.status, row.telegramPaymentChargeId], ['FREE', 'EXPIRED', null], 'the subscription after');
+    assertSame(refundedActivity().map(t => t.userId), [2], 'the activity row');
+    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => s.text), [botText('he', 'subscription.refunded')], 'the person is told');
+  });
+
+  await check('7: a rate limit or a Telegram server error is a failure to try again (500), not a refusal, and changes nothing', async () => {
+    for (const statusCode of [429, 502]) {
+      seedPayers();
+      const before = { ...subscriptionOf(2) };
+      telegramRefund = () => { throw refusal('Too Many Requests: retry after 5', statusCode); };
+      const answer = await refund(2);
+      assertSame(answer.status, 500, `status for ${statusCode}`);
+      unchanged(2, before);
+    }
   });
 
   await check('7: any other failure (Telegram unreachable) answers 500, changes nothing, is captured, and never logs the bot token', async () => {
