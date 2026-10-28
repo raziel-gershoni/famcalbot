@@ -272,6 +272,8 @@ function outcomeOf(error: ProviderErrorCode | undefined): WriteResult {
       return { status: 'changed' };
     case 'FIXED_DAYS':
       return { status: 'invalid', field: 'start' };
+    case 'HEBREW_REPEAT':
+      return { status: 'invalid', field: 'repeat' };
     default:
       return { status: 'failed' };
   }

@@ -20,7 +20,8 @@ import { escapeHtml, formatEventDateTime, formatReminderWhenWithRule, showEventC
 import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import { reminderZman } from '../native-reminders/zman-view';
 import { trackActivityAsync } from '../analytics-service';
-import { getBotMessage } from '../../lib/bot-messages';
+import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
+import { writeFailureReason } from './write-failure';
 import { trackCreatedEvent } from './event-resolution';
 import { captureError } from '../../lib/error-capture';
 import { openUser, sealUser } from './pending-seal';
@@ -267,6 +268,8 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
   }
   await removePendingBatch(pendingId);
 
+  // A failed event is listed with its reason in the person's language, never the provider's text or code
+  const t = await getBotMessages(pending.user.language || 'en');
   let success = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -275,7 +278,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
     const intent = pending.intents[i];
     if (intent.intent !== 'create' || !intent.event) {
       failed++;
-      errors.push(`#${i + 1}: not a create intent`);
+      errors.push(`#${i + 1}: ${t.voice.unknownError}`);
       continue;
     }
     const ev = intent.event;
@@ -313,7 +316,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
       });
     } else {
       failed++;
-      errors.push(`#${i + 1}: ${escapeHtml(ev.title)} — ${result.error || 'unknown'}`);
+      errors.push(`#${i + 1}: ${escapeHtml(ev.title)} — ${writeFailureReason(result, t, 'create', { userId: pending.user.id, calendarId: calId })}`);
     }
   }
 

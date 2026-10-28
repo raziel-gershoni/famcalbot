@@ -100,7 +100,7 @@ export const googleProvider: CalendarProvider = {
     // the bot's recurrenceFields never sends one, so this is a bug upstream, refused loudly.
     if (data.hebrewRule) {
       console.error(`[GoogleProvider] refusing a Hebrew repeat (${data.hebrewRule}) for user ${user.id}: Google Calendar cannot hold it`);
-      return { success: false, error: 'UNKNOWN_ERROR', errorMessage: 'Google Calendar cannot repeat by the Hebrew date' };
+      return { success: false, error: 'HEBREW_REPEAT', errorMessage: 'Google Calendar cannot repeat by the Hebrew date' };
     }
     if (!user.googleRefreshToken) return notConnected('create event');
     const result = await writeThenStamp(user.id, async () => gcalCreate(user.googleRefreshToken, calendarId, {

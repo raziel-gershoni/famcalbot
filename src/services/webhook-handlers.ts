@@ -20,7 +20,7 @@ import {
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
 import { guessLanguageFromText } from '../utils/locale';
-import { MessagingPlatform, getWhatsAppService } from './messaging';
+import { MessagingPlatform, MessageFormat, getWhatsAppService } from './messaging';
 import type { WhatsAppAdapter } from './messaging/whatsapp-adapter';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
 import { handlePreCheckoutQuery, handleSuccessfulPayment } from './payment-handler';
@@ -28,6 +28,7 @@ import { setUserContext, addBreadcrumb } from './analytics-service';
 import { captureError } from '../lib/error-capture';
 import { isIdentifierBlocked, isUserSuspended } from '../lib/user-moderation';
 import type { ReminderFailure } from './native-reminders/resolve';
+import { writeFailureText, writeFailureReason } from './voice/write-failure';
 
 /**
  * Handle Telegram webhook updates
@@ -1223,7 +1224,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
             captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
           );
         } else {
-          failures.push(`#${i + 1}: ${ev.title} — ${result.error || 'unknown'}`);
+          failures.push(`#${i + 1}: ${ev.title} — ${writeFailureReason(result, t, 'create', { userId: user.id, calendarId: calId })}`);
         }
       }
 
@@ -1321,10 +1322,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
             : `✅ ${t.voice?.created || 'Event created!'}`;
           await waService.sendMessage(phone, `${createdLine}\n\n*${intentResult.event.title}*`);
         } else {
-          await waService.sendMessage(
-            phone,
-            `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`
-          );
+          await waService.sendMessage(phone, writeFailureText(result, t, 'create', { userId: user.id, calendarId: calId }), { format: MessageFormat.HTML });
         }
         await askAboutReminders();
         return;
@@ -1518,7 +1516,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
           });
         }
       } else {
-        await waService.sendMessage(phone, `❌ ${(wa.eventFailed || 'Failed to create event: {error}').replace('{error}', result.error || '')}`);
+        await waService.sendMessage(phone, writeFailureText(result, t, 'create', { userId: pending.user.id, calendarId: calId }), { format: MessageFormat.HTML });
       }
     } else if (action === 'event_cancel') {
       const { removePendingEvent } = await import('./voice/confirmations');
@@ -1540,11 +1538,11 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
         { ...pending.updates, scope: pending.scope, recurringEventId: pending.originalEvent.recurringEventId }
       );
       await removePendingEdit(pendingId);
-      await waService.sendMessage(phone, result.success
-        ? `✅ ${wa.eventUpdated || 'Event updated!'}`
-        : result.error === 'FIXED_DAYS'
-          ? t.voice?.fixedDaysMove || 'To move all of them to another day, delete the series and create it again.'
-          : `❌ ${(wa.editFailed || 'Failed to update: {error}').replace('{error}', result.error || '')}`);
+      if (result.success) {
+        await waService.sendMessage(phone, `✅ ${wa.eventUpdated || 'Event updated!'}`);
+      } else {
+        await waService.sendMessage(phone, writeFailureText(result, t, 'update', { userId: pending.user.id, calendarId: pending.calendarId }), { format: MessageFormat.HTML });
+      }
       // A moved reminder's pings are on Telegram, whichever chat moved it (spec §7)
       if (result.clearedPings?.length) {
         const { stripMovedPings } = await import('./native-reminders/moved-pings');
@@ -1570,9 +1568,11 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
         pending.scope ? { scope: pending.scope, recurringEventId: pending.event.recurringEventId } : { recurringEventId: pending.event.recurringEventId }
       );
       await removePendingDelete(pendingId);
-      await waService.sendMessage(phone, result.success
-        ? `✅ ${wa.eventDeleted || 'Event deleted!'}`
-        : `❌ ${(wa.deleteFailed || 'Failed to delete: {error}').replace('{error}', result.error || '')}`);
+      if (result.success) {
+        await waService.sendMessage(phone, `✅ ${wa.eventDeleted || 'Event deleted!'}`);
+      } else {
+        await waService.sendMessage(phone, writeFailureText(result, t, 'delete', { userId: pending.user.id, calendarId: pending.calendarId }), { format: MessageFormat.HTML });
+      }
     } else if (action === 'delete_cancel') {
       const { removePendingDelete } = await import('./voice/confirmations');
       await removePendingDelete(pendingId);

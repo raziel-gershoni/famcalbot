@@ -993,7 +993,7 @@ async function main() {
       const refused = await googleProvider.createEvent(googleUser('en'), 'dana@example.com', {
         title: 'Yahrzeit', startTime: start, endTime: start, allDay: true, recurrence: ['RRULE:FREQ=YEARLY'], hebrewRule: 'anniversary', hebrewAnchor: '2026-12-20',
       });
-      assert(!refused.success && refused.error === 'UNKNOWN_ERROR', JSON.stringify(refused));
+      assert(!refused.success && refused.error === 'HEBREW_REPEAT', JSON.stringify(refused));
       assert(logs.some(l => l.includes('refusing a Hebrew repeat')), `not logged: ${logs.join(' | ')}`);
     } finally {
       console.error = realError;

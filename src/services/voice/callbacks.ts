@@ -14,6 +14,7 @@ import { trackActivityAsync } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
 import { incrementUsage } from '../subscription-service';
 import { trackCreatedEvent } from './event-resolution';
+import { writeFailureText } from './write-failure';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import {
@@ -221,7 +222,7 @@ export async function handleEventCallback(
       );
     } else {
       await bot.editMessageText(
-        `${t.voice.failedToCreate}\n\n${result.errorMessage || t.voice.unknownError}`,
+        writeFailureText(result, t, 'create', { userId: user.id, calendarId }),
         {
           chat_id: chatId,
           message_id: messageId,
@@ -418,28 +419,11 @@ export async function handleEditCallback(
           }
         }
       );
-    } else if (result.error === 'NOT_FOUND') {
-      await bot.editMessageText(
-        t.voice?.eventNotFound || '❌ Event not found. It may have been deleted.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
-    } else if (result.error === 'FIXED_DAYS') {
-      // A series on set weekdays can't move its days: only one occurrence, or a new series
-      await bot.editMessageText(
-        t.voice?.fixedDaysMove || 'To move all of them to another day, delete the series and create it again.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
     } else {
+      // Not found, a series on set weekdays that can't move its days (only one occurrence, or a new series), and every
+      // other failure: one sentence each, in the person's language
       await bot.editMessageText(
-        `${t.voice?.failedToUpdate || '❌ Failed to update event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,
+        writeFailureText(result, t, 'update', { userId: user.id, calendarId }),
         {
           chat_id: chatId,
           message_id: messageId,
@@ -602,18 +586,9 @@ export async function handleDeleteCallback(
           }
         }
       );
-    } else if (result.error === 'NOT_FOUND') {
-      await bot.editMessageText(
-        t.voice?.eventNotFound || '❌ Event not found. It may have already been deleted.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
     } else {
       await bot.editMessageText(
-        `${t.voice?.failedToDelete || '❌ Failed to delete event'}\n\n${result.errorMessage || t.voice?.unknownError || 'Unknown error'}`,
+        writeFailureText(result, t, 'delete', { userId: user.id, calendarId }),
         {
           chat_id: chatId,
           message_id: messageId,
