@@ -1088,7 +1088,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { checkFeatureAccess } = await import('./subscription-service');
     const voiceEventAccess = await checkFeatureAccess(user.id, 'voice_events');
     if (!voiceEventAccess.allowed) {
-      await waService.sendMessage(phone, t.subscription?.voiceEventsRequired || 'Voice events require a Pro subscription.');
+      await waService.sendMessage(phone, t.subscription.voiceEventsRequired);
       return;
     }
 

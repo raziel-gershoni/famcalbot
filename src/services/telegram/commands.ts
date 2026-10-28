@@ -185,15 +185,14 @@ export async function handleStartCommand(
   if (needsLocationOnly) {
     const settingsUrl = buildUrl(`/${locale}/settings?user_id=${user.telegramId ?? user.id}`);
     const platformName = platform === MessagingPlatform.TELEGRAM ? 'Telegram' : 'WhatsApp';
-    const nativeWelcome = (t.start.nativeWelcome
-      || `${welcome}\n\n👋 Your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.`)
+    const nativeWelcome = t.onboarding.nativeWelcome
       .replace('{platform}', platformName)
       .replace('{name}', name);
     await service.sendMessage(chatId, nativeWelcome, {
       format: MessageFormat.HTML,
       replyMarkup: {
         inline_keyboard: [[
-          { text: t.start.nativeLocationButton || '📍 Set my location', web_app: { url: settingsUrl } }
+          { text: t.onboarding.nativeLocationButton, web_app: { url: settingsUrl } }
         ]]
       }
     });

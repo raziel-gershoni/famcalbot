@@ -662,8 +662,8 @@ async function main() {
       const sub = messages[locale].subscription as Row;
       for (const gone of ['page', 'currentPlan', 'usage', 'textSummaries', 'voiceSummaries', 'voiceEvents', 'usageReminders', 'calendars', 'unlimited', 'of', 'usageDisplay', 'trialBanner', 'trialEndsIn', 'earlyAdopterBanner', 'earlyAdopterDescription', 'planFeatures', 'cancelPlan']) assert(!(gone in sub), `${locale}: subscription.${gone} is still there`);
       for (const id of ['free', 'basic', 'pro']) assert(show(Object.keys(sub.plans[id])) === show(['name']), `${locale}: subscription.plans.${id}: ${show(Object.keys(sub.plans[id]))}`);
-      // The bot's keys (payment-handler, subscription-reminders, text-limit, notifications, voice): all there, in this language
-      for (const key of ['reminders', 'upgradeButton', 'paymentSuccess', 'paymentError', 'viewSubscription', 'invoiceTitle', 'invoiceDescription', 'invoiceLabel', 'textLimitReached', 'voiceLimitReached', 'voiceEventsRequired', 'remindersRequired', 'plans', 'features']) assert(key in sub, `${locale}: the bot's subscription.${key} is missing`);
+      // The bot's keys (payment-handler, subscription-reminders, text-limit, notifications): all there, in this language (the voice-events message lives in bot.subscription, where the voice handlers read it)
+      for (const key of ['reminders', 'upgradeButton', 'paymentSuccess', 'paymentError', 'viewSubscription', 'invoiceTitle', 'invoiceDescription', 'invoiceLabel', 'textLimitReached', 'voiceLimitReached', 'remindersRequired', 'plans', 'features']) assert(key in sub, `${locale}: the bot's subscription.${key} is missing`);
       for (const key of ['textSummaries', 'voiceSummaries', 'calendars', 'reminders', 'voiceEvents']) assert(typeof sub.features[key] === 'string', `${locale}: subscription.features.${key}`);
       for (const key of ['expiringSoon', 'lastDay', 'expired']) assert(typeof sub.reminders[key] === 'object', `${locale}: subscription.reminders.${key}`);
     }

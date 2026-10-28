@@ -231,8 +231,7 @@ export async function handleMediaMessage(
     if (!eventAccess.allowed) {
       const bot = getBot();
       const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${user.telegramId ?? user.id}`);
-      const upgradeMessage = t.subscription?.voiceEventsRequired
-        || '⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!';
+      const upgradeMessage = t.subscription.voiceEventsRequired;
       await bot.sendMessage(chatId, upgradeMessage, {
         parse_mode: 'HTML',
         reply_markup: {
