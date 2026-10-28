@@ -23,7 +23,7 @@ interface KidNamePending {
 
 /** Rule templates by language */
 const RULE_TEMPLATES: Record<string, string> = {
-  he: '{name} הוא ילד/ה שלי',
+  he: '{name} – בין ילדיי',
   ru: '{name} — мой ребёнок',
   en: '{name} is my child',
 };

@@ -924,14 +924,14 @@ export async function showDeleteConfirmation(
   if (scope === 'all' && event.recurringEventId) {
     const scopeLabels: Record<string, string> = {
       en: '🔄 Will delete: ALL events in series',
-      he: '🔄 ימחק: כל האירועים בסדרה',
+      he: '🔄 יימחקו: כל האירועים בסדרה',
       ru: '🔄 Будет удалено: ВСЕ события серии'
     };
     scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;
   } else if (scope === 'following' && event.recurringEventId) {
     const scopeLabels: Record<string, string> = {
       en: '🔄 Will delete: This and all FUTURE events',
-      he: '🔄 ימחק: אירוע זה וכל העתידיים',
+      he: '🔄 יימחקו: אירוע זה וכל העתידיים',
       ru: '🔄 Будет удалено: Это и ВСЕ будущие события'
     };
     scopeInfo = `\n${scopeLabels[user.language || 'en'] || scopeLabels.en}\n`;

@@ -578,7 +578,7 @@ export async function generateWeekLookahead(
   if (lookahead.events.length === 0) {
     const noEventsMsg = {
       en: `<b>Week Ahead</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nNo notable events for the upcoming week. Enjoy the clear schedule!`,
-      he: `<b>מבט לשבוע הקרוב</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הקרוב. תהנה מהשבוע הפנוי!`,
+      he: `<b>מבט לשבוע הקרוב</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הקרוב. תיהנו מהשבוע הפנוי!`,
       ru: `<b>Неделя вперёд</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nНет примечательных событий на ближайшую неделю. Наслаждайтесь свободным расписанием!`,
     };
     return noEventsMsg[language as keyof typeof noEventsMsg] || noEventsMsg.en;
@@ -735,7 +735,7 @@ export async function generateNextWeekSummary(
   if (lookahead.events.length === 0) {
     const noEventsMsg = {
       en: `<b>Next Week</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nNo notable events for next week. Enjoy the clear schedule!`,
-      he: `<b>השבוע הבא</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הבא. תהנה מהשבוע הפנוי!`,
+      he: `<b>השבוע הבא</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nאין אירועים מיוחדים לשבוע הבא. תיהנו מהשבוע הפנוי!`,
       ru: `<b>Следующая неделя</b>\n<b>${promptData.todayGregorian} - ${promptData.weekEndGregorian}</b>${promptData.culture === 'jewish' ? `\n<i>${promptData.todayHebrew} - ${promptData.weekEndHebrew}</i>` : ''}\n\nНет примечательных событий на следующую неделю. Наслаждайтесь свободным расписанием!`,
     };
     return noEventsMsg[language as keyof typeof noEventsMsg] || noEventsMsg.en;

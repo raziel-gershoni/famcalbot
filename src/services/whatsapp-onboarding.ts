@@ -31,7 +31,7 @@ export async function startOnboarding(phone: string, user: UserConfig): Promise<
 
   const waService = getWhatsAppService();
   await waService.sendMessage(phone,
-    'Choose your language / בחר שפה / Выберите язык', {
+    'Choose your language / בחירת שפה / Выберите язык', {
       whatsappButtons: [
         { id: 'lang_en', title: 'English' },
         { id: 'lang_he', title: 'עברית' },
@@ -83,7 +83,7 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
 
     if (!language) {
       await waService.sendMessage(phone,
-        'Choose your language / בחר שפה / Выберите язык', {
+        'Choose your language / בחירת שפה / Выберите язык', {
           whatsappButtons: [
             { id: 'lang_en', title: 'English' },
             { id: 'lang_he', title: 'עברית' },

@@ -4,13 +4,13 @@
  */
 
 export const SHARE_STORY_LABELS: Record<string, string> = {
-  he: 'שתף לסטורי',
+  he: 'שיתוף לסטורי',
   ru: 'В историю',
   en: 'Share to Story',
 };
 
 export const TELEGRAM_CTA_LABELS: Record<string, string> = {
-  he: 'פתח בטלגרם',
+  he: 'פתיחה בטלגרם',
   ru: 'Открыть в Telegram',
   en: 'Open in Telegram',
 };
