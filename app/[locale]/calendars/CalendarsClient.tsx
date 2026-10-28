@@ -574,9 +574,12 @@ function CalendarCard(props: CardProps) {
   const [labels, setLabels] = useState<string[]>(c.labels);
   const [privacy, setPrivacy] = useState(c.privacy);
 
+  const sharedAccess = useTranslations('calendarsPage.sharedAccess');
   const PrivacyIcon = c.privacy === 'PRIVATE' ? Lock : c.privacy === 'SHARED_VIEWER' ? Eye : Edit3;
-  const privacyLabel =
-    c.privacy === 'PRIVATE' ? t.private : c.privacy === 'SHARED_VIEWER' ? t.canView : t.canEdit;
+  // An own calendar says what the partner may do; a partner's calendar says what the viewer may do.
+  const privacyLabel = !c.isOwner
+    ? sharedAccess(c.privacy === 'SHARED_EDITOR' ? 'edit' : 'view')
+    : c.privacy === 'PRIVATE' ? t.private : c.privacy === 'SHARED_VIEWER' ? t.canView : t.canEdit;
 
   if (editing) {
     return (

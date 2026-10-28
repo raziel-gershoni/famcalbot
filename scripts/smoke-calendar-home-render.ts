@@ -9692,9 +9692,9 @@ async function main() {
     }
   });
 
-  await check('#124e calendars page: a card names its categories in the screen\'s language (never the stored "primary", "yours"), leaves out "yours" (the section says it), and a partner\'s calendar shows none of the partner\'s categories; the edit chips are in the screen\'s language too', async () => {
+  await check('#124e calendars page: a card names its categories in the screen\'s language (never the stored "primary", "yours"), leaves out "yours" (the section says it), and a partner\'s calendar shows none of the partner\'s categories and says what the viewer may do ("View only", "You can edit"), not the owner\'s "Partner can edit"; the edit chips are in the screen\'s language too', async () => {
     serveCopies = () => ok200({ shown: false, ownerName: 'Noa', rows: [] });
-    const labelled = [{ ...CALS[0], labels: ['primary', 'yours'] }, { ...CALS[1], labels: ['kids'] }, { ...CALS[2], labels: ['yours', 'spouse'] }];
+    const labelled = [{ ...CALS[0], labels: ['primary', 'yours'] }, { ...CALS[1], labels: ['kids'] }, { ...CALS[2], labels: ['yours', 'spouse'] }, { ...cal('noa-work', 'Noa work', false), privacy: 'SHARED_VIEWER' as const }];
     for (const locale of ['en', 'he', 'ru'] as Locale[]) {
       resetHome();
       fakeWindow.Telegram = { WebApp: fakeTelegram().webApp };
@@ -9709,6 +9709,12 @@ async function main() {
         assertHas(textOf(htmlOf(cardOf(m, 'Work'))), [cat.categories.kids], `${locale}: Work`);
         const noa = textOf(htmlOf(cardOf(m, 'Noa family')));
         assertLacks(noa, [cat.categories.yours, cat.categories.spouse, 'yours', 'spouse'], `${locale}: the partner's calendar`);
+        // A partner's calendar says what the viewer may do with it, never the owner's "Partner can edit".
+        const access = ((messages[locale] as Row).calendarsPage as Row & { sharedAccess: Record<string, string> }).sharedAccess;
+        assertHas(noa, [access.edit], `${locale}: the partner's editable calendar`);
+        assertLacks(noa, [{ en: 'Partner can edit', he: 'פרטנר יכול לערוך', ru: 'Партнёр редактирует' }[locale]], `${locale}: the partner's calendar`);
+        assertHas(textOf(htmlOf(cardOf(m, 'Noa work'))), [access.view], `${locale}: the partner's view-only calendar`);
+        assertHas(textOf(htmlOf(cardOf(m, 'Home'))), [{ en: 'Partner can edit', he: 'פרטנר יכול לערוך', ru: 'Партнёр редактирует' }[locale]], `${locale}: an own calendar keeps the owner's line`);
         m.click(elements(cardOf(m, 'Home')).filter((e) => e.localName === 'button')[0]);
         await settle();
         const chips = elements(m.container).filter((e) => e.localName === 'button' && e.className.includes('rounded-full') && e.className.includes('text-xs')).map((e) => textOf(htmlOf(e)));

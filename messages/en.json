@@ -877,6 +877,12 @@
       "errorBusy": "Too many tries. Wait a minute and try again."
     }
   },
+  "calendarsPage": {
+    "sharedAccess": {
+      "view": "View only",
+      "edit": "You can edit"
+    }
+  },
   "calendars": {
     "title": "Select Your Calendars",
     "subtitle": "Choose which calendars to include in your daily summary",
