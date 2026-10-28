@@ -87,7 +87,7 @@ function readsIn(file: string, code: string): Read[] {
   const roots = new Map<string, string>();
 
   // const t = await getBotMessages(..)   const m = cond ? await getBotMessages(..) : null   const t = (await getBotMessages(..)).googleSync.consent
-  const direct = new RegExp(`(?:const|let)\\s+(${IDENT})\\s*=\\s*(?:[^;=]*?\\?\\s*)?(\\(\\s*)?await\\s+getBotMessages\\(`, 'g');
+  const direct = new RegExp(`(?:const|let)\\s+(${IDENT})\\s*=\\s*(?:[^;=]*?\\?\\s*)?(\\(\\s*)?await\\s+getBotMessages(?:ForTelegramUser)?\\(`, 'g');
   for (const m of code.matchAll(direct)) {
     const after = code.slice(m.index! + m[0].length);
     if (m[2]) {
@@ -107,6 +107,8 @@ function readsIn(file: string, code: string): Read[] {
   // const [subscription, bot] = await Promise.all([getSubscriptionMessages(..), getBotMessages(..)])
   const pair = code.match(new RegExp(`const\\s*\\[\\s*(${IDENT})\\s*,\\s*(${IDENT})\\s*\\]\\s*=\\s*await\\s+Promise\\.all\\(\\[\\s*getSubscriptionMessages\\([^)]*\\)\\s*,\\s*getBotMessages\\(`));
   if (pair) roots.set(pair[2], '');
+  // function f(t: BotMessages, ...)   (f: BotMessages['weatherFallback']) =>   a parameter typed as the bot object or one part of it
+  for (const m of code.matchAll(new RegExp(`[(,]\\s*(${IDENT})\\s*\\??\\s*:\\s*BotMessages(?:\\[\\s*'([\\w$]+)'\\s*\\])?(?![\\w$[])`, 'g'))) roots.set(m[1], m[2] ?? '');
   if (roots.size === 0) return [];
 
   // const wa = t.whatsapp || {}   const kd = t.kidNameDetection;   (aliases of a part, followed to a fixed point)
@@ -138,7 +140,7 @@ function scan(): Read[] {
   const all: Read[] = [];
   for (const full of sourceFiles(path.join(ROOT, 'src'))) {
     const code = withoutComments(fs.readFileSync(full, 'utf8'));
-    if (!code.includes('getBotMessages(')) continue;
+    if (!code.includes('getBotMessages') && !/:\s*BotMessages\b/.test(code)) continue;
     const relative = path.relative(path.join(ROOT, 'src'), full);
     if (relative in SKIPPED_FILES) continue;
     all.push(...readsIn(relative, code));
@@ -168,6 +170,10 @@ check('the scan follows a variable, a parenthesised read, a pair and an alias, a
     'exists() does not tell a bot key from a missing one');
   const parenthesised = readsIn('sample.ts', "const t = (await getBotMessages(l)).googleSync;\nconst x = t.reconnect.title;\n").map(r => r.path);
   assert(parenthesised.includes('googleSync.reconnect.title'), `missed a read below a parenthesised call: ${parenthesised.join(', ')}`);
+  const loader = readsIn('sample.ts', "const t = await getBotMessagesForTelegramUser(chatId);\nconst x = t.voice.nope;\n").map(r => r.path);
+  assert(loader.includes('voice.nope'), `the Telegram-user loader is not followed: ${JSON.stringify(loader)}`);
+  const params = readsIn('sample.ts', "function a(t: BotMessages, n: number) { return t.voice.nope1; }\nfunction b(f: BotMessages['weatherFallback']) { return f.nope2; }\n").map(r => r.path);
+  assert(params.includes('voice.nope1') && params.includes('weatherFallback.nope2'), `a typed parameter is not followed: ${JSON.stringify(params)}`);
   const pair = readsIn('sample.ts', "const [subscription, bot] = await Promise.all([getSubscriptionMessages(l), getBotMessages(l)]);\nconst x = bot.start.nope; const y = subscription.textLimitReached;\n").map(r => r.path);
   assert(pair.includes('start.nope') && !pair.includes('textLimitReached'), `the pair is read wrong: ${pair.join(', ')}`);
 });
