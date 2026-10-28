@@ -155,19 +155,29 @@ function compareStrings(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+/** A reminder by zman is a date-only item with a time of its own that day; the row shows it, so it sorts as timed, at that time. */
+function zmanAt(item: ItemDTO): string | null {
+  return item.allDay ? item.reminder?.zman?.at ?? null : null;
+}
+
 /**
  * The order of a day's items, the same on the server and the client: all-day first,
  * then start instant, then end, FamCal before Google, then title. The key breaks the
  * last ties, so the order is total and two sorts of the same items always agree.
- * Strings compare by code unit, never by locale.
+ * Strings compare by code unit, never by locale. A reminder by zman counts as timed, at
+ * its zman time.
  */
 export function compareItems(a: ItemDTO, b: ItemDTO): number {
-  if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-  const aStart = sortInstant(a.start, 0);
-  const bStart = sortInstant(b.start, 0);
+  const aAt = zmanAt(a);
+  const bAt = zmanAt(b);
+  const aAllDay = a.allDay && !aAt;
+  const bAllDay = b.allDay && !bAt;
+  if (aAllDay !== bAllDay) return aAllDay ? -1 : 1;
+  const aStart = sortInstant(aAt ?? a.start, 0);
+  const bStart = sortInstant(bAt ?? b.start, 0);
   if (aStart !== bStart) return aStart - bStart;
-  const aEnd = sortInstant(a.end, aStart);
-  const bEnd = sortInstant(b.end, bStart);
+  const aEnd = sortInstant(aAt ?? a.end, aStart);
+  const bEnd = sortInstant(bAt ?? b.end, bStart);
   if (aEnd !== bEnd) return aEnd - bEnd;
   if (a.source !== b.source) return a.source === 'famcal' ? -1 : 1;
   const byTitle = compareStrings(a.title ?? '', b.title ?? '');

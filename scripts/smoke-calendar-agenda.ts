@@ -227,6 +227,18 @@ async function main() {
     assertJson(keys(dayItems(s, TODAY)), ['famcal|trip', 'famcal|early', 'famcal|late'], 'today');
   });
 
+  await check('a reminder by zman sorts among the timed items at its zman time, not with the all-day ones', () => {
+    const noon = ev('noon', T(0, '13:00'), T(0, '14:00'));
+    const trip = ev('trip', TODAY, day(1));
+    const reminder = { done: false, doneAt: null, snoozedUntil: null, open: false, openSince: null, ownerIsViewer: true, creatorIsViewer: true };
+    const candles = ev('candles', TODAY, day(1), { kind: 'reminder', reminder: { ...reminder, zman: { spec: { zman: 'CANDLE_LIGHTING', offsetMin: -30 }, at: T(0, '17:25'), opinion: null } } } as Partial<ItemDTO>);
+    const shema = ev('shema', TODAY, day(1), { kind: 'reminder', reminder: { ...reminder, zman: { spec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 }, at: T(0, '09:17'), opinion: 'gra' } } } as Partial<ItemDTO>);
+    // No zman time that day (the sun does not make it, or no place): it stays with the all-day items.
+    const none = ev('none', TODAY, day(1), { kind: 'reminder', reminder: { ...reminder, zman: { spec: { zman: 'SHKIA', offsetMin: 15 }, at: null, opinion: null } } } as Partial<ItemDTO>);
+    const s = run([answer(famcalAnswer({ days: { [TODAY]: [candles, noon, none, shema, trip] } }))]);
+    assertJson(keys(dayItems(s, TODAY)), ['famcal|none', 'famcal|trip', 'famcal|shema', 'famcal|noon', 'famcal|candles'], 'today');
+  });
+
   await check('an ok answer replaces its source\'s items on every day of its window, and only there', () => {
     const a = ev('a', T(0, '09:00'), T(0, '10:00'));
     const b = ev('b', T(2, '09:00'), T(2, '10:00'));
