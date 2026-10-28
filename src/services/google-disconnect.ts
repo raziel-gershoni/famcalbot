@@ -84,11 +84,13 @@ function openToken(stored: string | null | undefined, extra: Record<string, unkn
 }
 
 /**
- * Revoke one token. A 400 invalid_token means Google already has it as dead: that is the
- * outcome wanted, so it counts. Returns whether the token is revoked; a failure is logged and
- * sent to Sentry here.
+ * Revoke one token at Google: the one call behind Disconnect Google and the admin's hard delete of a person. A 400
+ * invalid_token means Google already has it as dead: that is the outcome wanted, so it counts. Returns whether the
+ * token is revoked; a failure is logged and sent to Sentry here, so the caller needs to do neither. `extra` names whose
+ * token it is, for those logs (user_id).
  */
-async function revokeToken(token: string, extra: Record<string, unknown>): Promise<boolean> {
+export async function revokeGoogleToken(refreshToken: string, extra: Record<string, unknown> = {}): Promise<boolean> {
+  const token = refreshToken;
   try {
     const res = await googleFetch(REVOKE_URL, {
       method: 'POST',
@@ -291,7 +293,7 @@ async function disconnectNow(userId: number, options: { deleteCopies: boolean })
   const tokens = [...new Set([userToken, ...linkTokens.values()].filter(Boolean))];
   let revoked = tokens.length > 0;
   for (const token of tokens) {
-    if (!(await revokeToken(token, { user_id: userId }))) revoked = false;
+    if (!(await revokeGoogleToken(token, { user_id: userId }))) revoked = false;
   }
 
   // c. Local state, always.

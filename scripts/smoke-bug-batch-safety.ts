@@ -3,7 +3,9 @@
 //
 //   1. A create, edit or delete that fails says so in the person's language on Telegram, on WhatsApp and in the bulk card:
 //      never Prisma's or Google's English text, never a bare code. The Google provider names a Hebrew repeat by its code.
-//   (the families of fixes 2-7 are added with their fixes)
+//   2. The admin's hard delete of a person revokes their Google token at Google first (Disconnect Google's own call), and
+//      goes on when the revoke fails.
+//   (the families of fixes 3-7 are added with their fixes)
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -198,6 +200,8 @@ let voiceTranscription = '';
 let providerAnswer: Row = { success: true, eventId: 'ev-1' };
 const providerScript: Row[] = [];
 const providerCalls: string[] = [];
+/** The people whose copies to Google the hard delete carried out (the worker is faked). */
+const carried: number[] = [];
 /** The calendar a new card goes to (a FamCal one unless a check says Google). */
 let newCalendarId = 'native:home1';
 
@@ -249,6 +253,8 @@ function reset() {
   failing.clear();
   for (const list of [sent, logs, captured, tracked, edits, providerCalls, providerScript]) list.length = 0;
   newCalendarId = 'native:home1';
+  fetchHandler = async url => { throw new Error(`network blocked in this smoke: ${url}`); };
+  carried.length = 0;
   voiceIntents = [];
   voiceTranscription = '';
   providerAnswer = { success: true, eventId: 'ev-1' };
@@ -326,6 +332,8 @@ Object.assign(stubs, {
     createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? newCalendarId,
     providerForCalendar: () => provider,
   },
+  // The hard delete carries out the copies in Google before it deletes: faked (it has its own smoke)
+  [`${SRC}/services/google-sync/worker.ts`]: (real: Record<string, unknown>) => fakeOver(real, { carryOutCopiesBeforeDelete: async (userId: number) => { carried.push(userId); } }),
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async () => 'Asia/Jerusalem', resolveLocation: async () => null, LOOKUP_TIMEOUT_MS: 3000, TIMEZONE_CACHE_TTL: 86_400 },
   [`${SRC}/services/zmanim/pause.ts`]: (real: Record<string, unknown>) => fakeOver(real, { isPaused: async () => false }),
   // The voice path
@@ -395,7 +403,9 @@ Module.registerHooks({
     return { format: 'module', shortCircuit: true, source: `const fake = globalThis.bugBatchFake(${JSON.stringify(file)});\n${names}\n` };
   },
 });
-globalThis.fetch = (async (input: unknown) => { throw new Error(`network blocked in this smoke: ${String(input)}`); }) as typeof fetch;
+/** Every request the code under test makes goes here; a check sets its own answer. Never the network. */
+let fetchHandler: (url: string, init?: RequestInit) => Promise<Response> = async url => { throw new Error(`network blocked in this smoke: ${url}`); };
+globalThis.fetch = (async (input: unknown, init?: RequestInit) => fetchHandler(String(input), init)) as typeof fetch;
 
 // ---- Driving the webhooks ----
 
@@ -662,12 +672,91 @@ async function fix1() {
   });
 }
 
+// ---- Fix 2 ----
+
+async function fix2() {
+  const { encrypt } = await import('../src/utils/encryption');
+  const REVOKE = 'https://oauth2.googleapis.com/revoke';
+  const GOOGLE_USER = 6;
+  const revokes: { token: string | null; carried: boolean; stillThere: boolean }[] = [];
+  /** Google's answer to a revoke: set by the check. */
+  let answer: () => Response = () => new Response('{}', { status: 200 });
+  const watchGoogle = () => {
+    revokes.length = 0;
+    fetchHandler = async (url, init) => {
+      assert(url === REVOKE, `a request to ${url}`);
+      revokes.push({
+        token: new URLSearchParams(String(init?.body)).get('token'),
+        carried: carried.includes(GOOGLE_USER),
+        stillThere: DB.user.some(u => u.id === GOOGLE_USER),
+      });
+      return answer();
+    };
+  };
+  const addGoogleUser = (token: string) => {
+    DB.user.push(baseUser({ id: GOOGLE_USER, name: 'Tal', telegramId: BigInt(1006), language: 'en', googleRefreshToken: token ? encrypt(token) : '' }));
+  };
+
+  await check('2: the hard delete revokes the person\'s Google token at Google, after carrying out their copies and before the row goes', async () => {
+    addGoogleUser('refresh-token-6');
+    answer = () => new Response('{}', { status: 200 });
+    watchGoogle();
+    const { hardDeleteUser } = await import('../src/lib/user-moderation');
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    assertSame(revokes, [{ token: 'refresh-token-6', carried: true, stillThere: true }], 'the revoke call (the token, the copies carried out first, the row still there)');
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
+    assertSame(captured, [], 'something was captured');
+  });
+
+  await check('2: a revoke Google refuses is logged and captured, and the delete goes on', async () => {
+    addGoogleUser('refresh-token-6');
+    answer = () => new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400 });
+    watchGoogle();
+    const { hardDeleteUser } = await import('../src/lib/user-moderation');
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    assert(revokes.length === 1, `expected one revoke call, got ${revokes.length}`);
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted after the revoke failed');
+    assert(captured.some(c => c.startsWith('google-disconnect-revoke')), `not captured: ${show(captured)}`);
+    assert(logs.some(l => l.includes('revoking a token failed') && l.includes(`user ${GOOGLE_USER}`)), `not logged: ${show(logs)}`);
+    assert(logs.some(l => l.includes('[Moderation]') && l.includes('could not be revoked')), `the delete does not say it went on: ${show(logs)}`);
+  });
+
+  await check('2: a revoke that gets no answer at all is logged and captured, and the delete goes on', async () => {
+    addGoogleUser('refresh-token-6');
+    watchGoogle();
+    const handler = fetchHandler;
+    fetchHandler = async (url, init) => { await handler(url, init); throw new Error('socket hang up'); };
+    const { hardDeleteUser } = await import('../src/lib/user-moderation');
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
+    assert(captured.some(c => c.startsWith('google-disconnect-revoke')), `not captured: ${show(captured)}`);
+  });
+
+  await check('2: a person with no Google token is deleted without any call to Google', async () => {
+    addGoogleUser('');
+    watchGoogle();
+    const { hardDeleteUser } = await import('../src/lib/user-moderation');
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    assertSame(revokes, [], 'a call to Google');
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
+  });
+
+  await check('2: Disconnect Google uses the same exported call (one revoke path)', async () => {
+    const source = fs.readFileSync(path.join(SRC, 'services/google-disconnect.ts'), 'utf8');
+    assert(/export async function revokeGoogleToken\(/.test(source), 'revokeGoogleToken is not exported');
+    assert(!/\brevokeToken\(/.test(source), 'google-disconnect.ts still has its own revokeToken');
+    const moderation = fs.readFileSync(path.join(SRC, 'lib/user-moderation.ts'), 'utf8');
+    assert(/revokeGoogleToken/.test(moderation), 'the hard delete does not use revokeGoogleToken');
+  });
+}
+
 async function main() {
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
   Object.assign(console, { log: keep, warn: keep, error: keep, info: keep });
   try {
     await fix1();
+    await fix2();
   } finally {
     Object.assign(console, original);
   }

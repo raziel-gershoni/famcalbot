@@ -11,6 +11,7 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
 import { captureError } from './error-capture';
+import { readStoredToken } from '../utils/encryption';
 
 const BLOCK_CACHE_TTL = 3600; // 1 hour — primed on ban, cleared on unban
 
@@ -75,7 +76,9 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  * (google-sync spec §2): Remove for a copy that is on, the queued Remove or Keep for one
  * turned off, with the link's unlinkToken or else the user's own token, through the
  * worker's own Remove and Keep (carryOutCopiesBeforeDelete). Best effort: a failure is
- * logged with the link id and sent to Sentry, and the delete goes on.
+ * logged with the link id and sent to Sentry, and the delete goes on. Then the user's
+ * own Google token is revoked at Google (revokeGoogleToken, Disconnect Google's call),
+ * best effort the same way: without it the grant would outlive the row that held it.
  * Admin ids they left in compedBy, grantedBy, suspendedBy and bannedBy stay: they
  * are plain audit columns, and compedBy != null is what marks a comp.
  * Also clears Redis caches keyed by userId.
@@ -90,6 +93,23 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     // Reading the copies failed: the delete goes on, and their Google calendars stay.
     console.error(`[Moderation] Hard delete of user ${userId}: carrying out the copies to Google failed`, error);
     captureError(error, 'google-sync-hard-delete', { user_id: userId });
+  }
+
+  // The Google token goes with the row below, and the grant would stay alive at Google with nothing left that could
+  // ever use or revoke it: revoke it now, with Disconnect Google's own call (after the copies above, which needed it).
+  // revokeGoogleToken logs and reports its own failure; the delete goes on either way.
+  try {
+    const row = await prisma.user.findUnique({ where: { id: userId }, select: { googleRefreshToken: true } });
+    const token = row ? readStoredToken(row.googleRefreshToken, { userId, column: 'googleRefreshToken' }) : '';
+    if (token) {
+      const { revokeGoogleToken } = await import('../services/google-disconnect');
+      if (!(await revokeGoogleToken(token, { user_id: userId }))) {
+        console.warn(`[Moderation] Hard delete of user ${userId}: Google's grant could not be revoked; the delete goes on`);
+      }
+    }
+  } catch (error) {
+    console.error(`[Moderation] Hard delete of user ${userId}: revoking the Google token failed; the delete goes on`, error);
+    captureError(error, 'google-hard-delete-revoke', { user_id: userId });
   }
 
   await prisma.$transaction(async (tx) => {
