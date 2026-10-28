@@ -8,6 +8,8 @@
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
 //   language reloads this page in the new one. The request is /api/settings, as it has always been
 //   (settings-body.ts).
+// - The pause switch ("Pause messages on Shabbat and Yom Tov") sits in the first card under the calendar: choosing a
+//   calendar sets it as it sets the day chips (Jewish on, General off), and it is the person's to change after.
 // - The location is a sheet (LocationSheet): a changed place is checked after the sheet closes, and Save
 //   waits for the check and refuses a place that is not one.
 // - What the alerts rows show follows the saved platform, not the one picked in the list: the list
@@ -31,7 +33,7 @@ import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
 import { LocationSheet, type LocationProblem } from './LocationSheet';
 import { validateLocation } from './location-lookup';
-import { buildSettingsBody, daysForCulture, sameSettings, toggleSummaryDay, valuesOf, type SettingsValues } from './settings-body';
+import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type SettingsValues } from './settings-body';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -64,6 +66,7 @@ interface SettingsClientProps {
     reminderTime: string; // HH:mm
     pickupRemindersEnabled: boolean;
     voiceInputEnabled: boolean;
+    pauseOnShabbat: boolean;
   };
   remindersGloballyEnabled: boolean;
   /** A Google token is stored: the Google section (Disconnect Google) shows. */
@@ -231,8 +234,10 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
               { value: 'default', text: t('culture.general') },
               { value: 'jewish', text: t('culture.jewish') },
             ]}
-            onChange={(value) => setForm((f) => ({ ...f, culture: value, ...daysForCulture(value) }))}
+            onChange={(value) => setForm((f) => ({ ...f, culture: value, ...defaultsForCulture(value) }))}
           />
+          {/* Under the calendar, whose choice sets it, and in the place card: candle lighting is counted at the place. */}
+          <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />
           <ValueRow
             label={t('platform.label')}
             value={form.messagingPlatform}

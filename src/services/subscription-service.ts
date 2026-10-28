@@ -12,6 +12,7 @@ import { getEarlyAdoptionMode } from './reminder-cache';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
 import { liveGoogleChoices } from '../lib/google-state';
+import { isPaused } from './zmanim/pause';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -418,9 +419,15 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
-        select: { telegramId: true, language: true },
+        select: {
+          telegramId: true, language: true,
+          // The Shabbat and Yom Tov pause (isPaused): the switch, and the place and community its windows are counted at
+          location: true, pauseOnShabbat: true, zmanimCommunity: true, latitude: true, longitude: true, elevationM: true,
+        },
       });
-      if (user && user.telegramId) {
+      // Shabbat and Yom Tov (the pause): the trial ends all the same, but the notice is not sent (it is sent once, by
+      // whichever plan check first finds the trial over, so no later check would tell the person).
+      if (user && user.telegramId && !(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) {
         const { sendTrialExpiredNotification } = await import('./telegram');
         await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
       }

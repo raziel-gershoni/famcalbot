@@ -15,6 +15,7 @@ import { captureError } from '../lib/error-capture';
 import { getEarlyAdoptionMode } from './reminder-cache';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
+import { isPaused } from './zmanim/pause';
 
 
 const REMINDER_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days
@@ -97,6 +98,13 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
           messagingPlatform: true,
           language: true,
           name: true,
+          // The Shabbat and Yom Tov pause (isPaused): the switch, and the place and community its windows are counted at
+          location: true,
+          pauseOnShabbat: true,
+          zmanimCommunity: true,
+          latitude: true,
+          longitude: true,
+          elevationM: true,
         },
       },
     },
@@ -129,6 +137,9 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     if (await hasReminderBeenSent(telegramId || String(sub.userId), sub.currentPeriodEnd!, reminderType)) {
       continue;
     }
+
+    // Shabbat and Yom Tov (the pause): not sent and not marked sent, so the next daily run sends it (the period is still open)
+    if (await isPaused({ ...sub.user, id: sub.userId }, new Date(), `${reminderType} subscription reminder`)) continue;
 
     const locale = sub.user.language || 'en';
     const t = await getSubscriptionMessages(locale);
@@ -253,6 +264,13 @@ async function expireSubscriptions(): Promise<void> {
           messagingPlatform: true,
           language: true,
           name: true,
+          // The Shabbat and Yom Tov pause (isPaused): the switch, and the place and community its windows are counted at
+          location: true,
+          pauseOnShabbat: true,
+          zmanimCommunity: true,
+          latitude: true,
+          longitude: true,
+          elevationM: true,
         },
       },
     },
@@ -290,6 +308,10 @@ async function expireSubscriptions(): Promise<void> {
     // The 24h feature-access cache would otherwise keep serving paid access
     // after the downgrade.
     await invalidateFeatureAccessCache(sub.userId);
+
+    // Shabbat and Yom Tov (the pause): the plan is downgraded on time whatever the day, but the notice is not sent
+    // (the subscription is EXPIRED now, so no later run finds it to tell the person).
+    if (await isPaused({ ...sub.user, id: sub.userId }, new Date(), 'subscription expiry notice')) continue;
 
     // Send notification
     const locale = sub.user.language || 'en';

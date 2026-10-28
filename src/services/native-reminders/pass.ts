@@ -14,6 +14,7 @@ import { describeDeliveryError } from '../../lib/delivery-errors';
 import { markUnreachableAfterSendFailure } from '../../lib/user-reachability';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
+import { isPaused } from '../zmanim/pause';
 import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
 import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds, userDoneAt } from './ownership';
@@ -43,6 +44,12 @@ const USER_SELECT = {
   pairingId: true,
   suspendedAt: true,
   unreachableSince: true,
+  // The Shabbat and Yom Tov pause (isPaused): the switch, and the place and community its windows are counted at
+  pauseOnShabbat: true,
+  zmanimCommunity: true,
+  latitude: true,
+  longitude: true,
+  elevationM: true,
 } as const;
 type PassUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
@@ -358,6 +365,15 @@ async function passForRecipient(a: {
   const telegramId = recipient.telegramId;
   const reachable = telegramId != null && !recipient.suspendedAt && !recipient.unreachableSince && (await a.reachable(telegramId));
   if (!reachable) {
+    result.skipped += eligible.length;
+    return 'idle';
+  }
+
+  // Shabbat and Yom Tov (the pause): nothing is sent to this person now. Each eligible occurrence is claimed as if
+  // it had pinged, with no message, so it is not sent after the window ends (a date-only one is eligible all its
+  // day) and stays open: undone, carried by the next summary as any unanswered ping is.
+  if (await isPaused(recipient, now, 'native reminder ping')) {
+    for (const c of eligible) await claimOccurrence(s.id, c.occ.instanceStartsAt, recipient.id, c.due, now);
     result.skipped += eligible.length;
     return 'idle';
   }

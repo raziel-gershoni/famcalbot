@@ -148,6 +148,8 @@ const activities: { type: string; meta: unknown }[] = [];
 
 /** captureError calls: context and severity. */
 const captured: { context: string; severity: unknown; message: string }[] = [];
+/** What the reminder cache was given of the user, one entry per sync: the save's own, then the lookup's. */
+const cacheSyncs: { location: unknown; latitude: unknown; longitude: unknown; elevationM: unknown }[] = [];
 
 /** Next's after(): tasks queued by the route, run by drainAfter(). */
 const afterQueue: (() => unknown)[] = [];
@@ -176,8 +178,17 @@ function installStubs() {
       for (const [key, value] of Object.entries(data)) if (value !== undefined) userRow[key] = value;
       return { ...userRow };
     },
+    // The row as it is when the lookup has finished
+    getUserById: async (id: number) => {
+      assert(id === USER_ID, `getUserById(${id})`);
+      return userGone ? null : { ...userRow };
+    },
   });
-  stub('src/services/reminder-cache.ts', { updateUserInCache: async () => {}, removeUserFromCache: async () => {}, syncReminderCacheEntry: async () => {} });
+  stub('src/services/reminder-cache.ts', {
+    updateUserInCache: async () => {},
+    removeUserFromCache: async () => {},
+    syncReminderCacheEntry: async (user: Row) => { cacheSyncs.push({ location: user.location, latitude: user.latitude, longitude: user.longitude, elevationM: user.elevationM }); },
+  });
   stub('src/services/telegram/index.ts', { setUserMenuButton: async () => {} });
   stub('src/services/analytics-service.ts', {
     trackActivityAsync: (_userId: number, type: string, meta: unknown) => { activities.push({ type, meta }); },
@@ -223,6 +234,7 @@ function seed() {
   cachedPathCalls.length = 0;
   captured.length = 0;
   afterQueue.length = 0;
+  cacheSyncs.length = 0;
   held.clear();
   locationReads.length = 0;
   placeWrites.length = 0;
@@ -283,6 +295,19 @@ async function main() {
     assert(redisStore.get(TZ_KEY) === 'America/New_York', `cached zone ${show(redisStore.get(TZ_KEY))}`);
     assert(show(redisSets) === show([{ key: TZ_KEY, value: 'America/New_York', opts: { ex: 86400 } }]), `redis sets ${show(redisSets)}`);
     assert(captured.length === 0, `captured ${show(captured)}`);
+  });
+
+  await check('(a) the reminder cache gets the looked-up place once the lookup has run (the pause counts Shabbat from it): the save syncs the entry with the old place cleared, the lookup syncs it again with the new coordinates and highest ground; a lookup that finds nothing syncs nothing more', async () => {
+    seed();
+    await save({ location: 'New York' });
+    const syncs = () => cacheSyncs.length;
+    assert(syncs() === 1 && cacheSyncs[0].location === 'New York' && cacheSyncs[0].latitude === null, `the save's own sync: ${show(cacheSyncs)}`);
+    await drainAfter();
+    assert(syncs() === 2 && cacheSyncs[1].location === 'New York' && cacheSyncs[1].latitude === 40.7127281 && cacheSyncs[1].longitude === -74.0060152 && cacheSyncs[1].elevationM === ELEVATION_MAX, `after the lookup: ${show(cacheSyncs)}`);
+    seed();
+    await save({ location: 'Nowhere At All' });
+    await drainAfter();
+    assert(syncs() === 1, `a place not found syncs nothing more: ${show(cacheSyncs)}`);
   });
 
   await check('(a) the lookup: one Nominatim, one Open-Meteo zone and one Open-Meteo elevation request, each with a 3 s timeout and no retries, no geocode cache', async () => {

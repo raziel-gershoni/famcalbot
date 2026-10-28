@@ -27,7 +27,7 @@ import { createRequire } from 'module';
 import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { buildSettingsBody, daysForCulture, toggleSummaryDay, type SettingsValues } from '../app/[locale]/settings/settings-body';
+import { buildSettingsBody, defaultsForCulture, toggleSummaryDay, type SettingsValues } from '../app/[locale]/settings/settings-body';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -137,6 +137,7 @@ const settings = (over: Partial<Omit<SettingsValues, 'defaultReminderMinutes'>> 
   reminderTime: '09:15',
   pickupRemindersEnabled: false,
   voiceInputEnabled: false,
+  pauseOnShabbat: true,
   ...over,
 });
 const subscription = (over: Row = {}) => ({ effectivePlan: 'pro', textSummariesUsed: 3, textSummariesLimit: 10, voiceSummariesUsed: 1, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false, ...over });
@@ -360,6 +361,7 @@ async function main() {
       reminderTime: '08:30',
       pickupRemindersEnabled: true,
       voiceInputEnabled: true,
+      pauseOnShabbat: true,
     };
     const wire = (value: unknown) => JSON.parse(JSON.stringify(value));
     assert(
@@ -383,6 +385,7 @@ async function main() {
           reminderTime: '08:30',
           pickupRemindersEnabled: true,
           voiceInputEnabled: true,
+          pauseOnShabbat: true,
           initData: 'init-data',
         }),
       `alerts on: ${show(wire(buildSettingsBody(values, true, 'init-data')))}`,
@@ -408,6 +411,7 @@ async function main() {
           defaultReminderMinutes: null,
           pickupRemindersEnabled: false,
           voiceInputEnabled: true,
+          pauseOnShabbat: true,
         }),
       `alerts off: ${show(wire(buildSettingsBody(off, false, undefined)))}`,
     );
@@ -442,6 +446,7 @@ async function main() {
             reminderTime: '09:15',
             pickupRemindersEnabled: false,
             voiceInputEnabled: false,
+            pauseOnShabbat: true,
             initData: opened.tg?.initData,
           }),
         `the body: ${String(call.init.body)}`,
@@ -796,11 +801,65 @@ async function main() {
     }
     // The rules themselves: the last day cannot go, a day comes in its place in the week, the Jewish culture skips Shabbat and Friday
     assert(show(toggleSummaryDay([2], 2)) === show([2]) && show(toggleSummaryDay([2, 3], 2)) === show([3]) && show(toggleSummaryDay([4, 1], 3)) === show([1, 3, 4]), 'toggleSummaryDay');
-    assert(show(daysForCulture('jewish')) === show({ dailySummaryDays: [0, 1, 2, 3, 4, 5], tomorrowSummaryDays: [0, 1, 2, 3, 4, 6] }) && show(daysForCulture('default')) === show({ dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6] }), 'daysForCulture');
+    assert(show(defaultsForCulture('jewish')) === show({ dailySummaryDays: [0, 1, 2, 3, 4, 5], tomorrowSummaryDays: [0, 1, 2, 3, 4, 6], pauseOnShabbat: true }) && show(defaultsForCulture('default')) === show({ dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], pauseOnShabbat: false }), 'defaultsForCulture');
     // Hebrew: the same days, named in Hebrew, in the order that mirrors on its own
     const he = renderToString(tree('he', propsOf({}, { language: 'he' })));
     const heChips = [...he.matchAll(/<button type="button" class="ch-daychip" data-day="(\d)"[^>]*>([^<]*)<\/button>/g)].map((m) => m[2]);
     assert(show(heChips.slice(0, 7)) === show(['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'שבת']), `Hebrew chips: ${show(heChips)}`);
+  });
+
+  await check('S11 the pause switch (Task 2): in the Language and place card right under the calendar, in en, he and ru, in its language, on as saved; a tap changes it and Save posts it; picking a calendar sets it the way it sets the days (Jewish on, General off) and the person can change it after; saved off it stays off', async () => {
+    for (const locale of LOCALES) {
+      const html = renderToString(tree(locale, propsOf({}, { language: locale })));
+      const text = textOf(html);
+      const label = word(locale, 'pause.label');
+      const hint = word(locale, 'pause.hint');
+      assert(text.includes(label) && text.includes(hint), `${locale}: the label and the hint`);
+      // In the first card, after the calendar row and before the platform row
+      assert(text.indexOf(word(locale, 'culture.label')) < text.indexOf(label) && text.indexOf(label) < text.indexOf(word(locale, 'platform.label')), `${locale}: the switch sits between the calendar and the platform`);
+      assert(sectionLabels(html)[0] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
+    }
+    assert(word('en', 'pause.label') === 'Pause messages on Shabbat and Yom Tov' && word('he', 'pause.label') === 'השהיית הודעות בשבת ובחג' && word('ru', 'pause.label') === 'Пауза в Шаббат и праздники', 'the owner\'s labels');
+    assert(word('en', 'pause.hint') === 'Nothing is sent from candle lighting until nightfall' && word('he', 'pause.hint') === 'לא נשלחות הודעות מהדלקת נרות ועד צאת השבת או החג' && word('ru', 'pause.hint') === 'С зажигания свечей до выхода звёзд ничего не приходит', 'the owner\'s hints');
+
+    const label = word('en', 'pause.label');
+    const checked = (m: Mounted) => switchOf(m, label)?.getAttribute('aria-checked');
+    // As saved: on for the Jewish calendar, off when saved off
+    reset();
+    const on = open('en', propsOf());
+    try {
+      assert(checked(on.m) === 'true' && saveButton(on.m)?.hasAttribute('disabled'), 'on as saved, Save off');
+      on.m.click(switchOf(on.m, label) as FakeElement);
+      assert(checked(on.m) === 'false' && !saveButton(on.m)?.hasAttribute('disabled'), 'a tap turns it off and Save comes on');
+      on.m.click(saveButton(on.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(posts().length === 1 && body.pauseOnShabbat === false && body.culture === 'jewish', `the request: ${show(body)}`);
+    } finally {
+      close(on);
+    }
+    reset();
+    const off = open('en', propsOf({}, { pauseOnShabbat: false }));
+    try {
+      assert(checked(off.m) === 'false', 'saved off stays off');
+      // Picking the other calendar and back: each sets the switch the way it sets the days
+      const culture = () => selectOf(off.m, word('en', 'culture.label')) as FakeElement;
+      off.m.change(culture(), 'default');
+      assert(checked(off.m) === 'false', 'General: off');
+      off.m.change(culture(), 'jewish');
+      assert(checked(off.m) === 'true', 'Jewish: on');
+      off.m.click(switchOf(off.m, label) as FakeElement);
+      assert(checked(off.m) === 'false', 'and the person can turn it off after');
+      off.m.change(culture(), 'default');
+      off.m.click(switchOf(off.m, label) as FakeElement);
+      assert(checked(off.m) === 'true', 'and on under General');
+      off.m.click(saveButton(off.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(body.pauseOnShabbat === true && body.culture === 'default', `General with the switch on is posted as picked: ${show(body)}`);
+    } finally {
+      close(off);
+    }
   });
 
   await check("S8 the header's own back: in a browser there is a button named Back that goes where Telegram's Back goes; in Telegram 7.7 there is none (the BackButton is Telegram's)", () => {

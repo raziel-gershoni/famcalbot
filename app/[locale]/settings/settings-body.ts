@@ -27,6 +27,8 @@ export interface SettingsValues {
   reminderTime: string;
   pickupRemindersEnabled: boolean;
   voiceInputEnabled: boolean;
+  /** Pause every scheduled message from candle lighting to the end of Shabbat or Yom Tov (src/services/zmanim/pause.ts). */
+  pauseOnShabbat: boolean;
 }
 
 /** The values a page's props carry (the server's saved ones): a user with no alert lead yet starts the list on 15. */
@@ -56,6 +58,7 @@ export function buildSettingsBody(values: SettingsValues, nativeRemindersSupport
     ...(nativeRemindersSupported ? { reminderTime: values.reminderTime } : {}),
     pickupRemindersEnabled: values.pickupRemindersEnabled,
     voiceInputEnabled: values.voiceInputEnabled,
+    pauseOnShabbat: values.pauseOnShabbat,
     initData,
   };
 }
@@ -82,7 +85,8 @@ export function sameSettings(a: SettingsValues, b: SettingsValues): boolean {
     a.defaultReminderMinutes === b.defaultReminderMinutes &&
     a.reminderTime === b.reminderTime &&
     a.pickupRemindersEnabled === b.pickupRemindersEnabled &&
-    a.voiceInputEnabled === b.voiceInputEnabled
+    a.voiceInputEnabled === b.voiceInputEnabled &&
+    a.pauseOnShabbat === b.pauseOnShabbat
   );
 }
 
@@ -92,9 +96,12 @@ export function toggleSummaryDay(days: number[], day: number): number[] {
   return [...days, day].sort((a, b) => a - b);
 }
 
-/** Choosing a culture resets the days: the Jewish one skips Shabbat in the morning and Friday in the evening. */
-export function daysForCulture(culture: string): { dailySummaryDays: number[]; tomorrowSummaryDays: number[] } {
+/**
+ * Choosing a culture resets what it implies, and the person can change each after: the Jewish one skips Shabbat in the
+ * morning and Friday in the evening, and pauses messages on Shabbat and Yom Tov; the other keeps every day and no pause.
+ */
+export function defaultsForCulture(culture: string): { dailySummaryDays: number[]; tomorrowSummaryDays: number[]; pauseOnShabbat: boolean } {
   return culture === 'jewish'
-    ? { dailySummaryDays: [0, 1, 2, 3, 4, 5], tomorrowSummaryDays: [0, 1, 2, 3, 4, 6] }
-    : { dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6] };
+    ? { dailySummaryDays: [0, 1, 2, 3, 4, 5], tomorrowSummaryDays: [0, 1, 2, 3, 4, 6], pauseOnShabbat: true }
+    : { dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], pauseOnShabbat: false };
 }

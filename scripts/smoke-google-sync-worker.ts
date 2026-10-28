@@ -1432,6 +1432,37 @@ async function main() {
     assert(sent.length === 1, `a second message in one outage ${show(sent)}`);
   });
 
+  await check('pause: an outage that would send the reconnect message in Shabbat is told after it: the pass changes nothing and sends nothing on Saturday (logged), and the next pass after Shabbat does both once', async () => {
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754 });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    const saturday = new Date('2026-10-17T07:00:00Z'); // 10:00 in Israel, inside Shabbat (17:50 Friday to 18:39 Saturday)
+    const before = logs.length;
+    await pass(saturday);
+    const messages = () => sent.length;
+    assert(link('L').state === 'ok' && messages() === 0 && DB.user[0].googleSyncNotifiedAt === null && google.calls.length === 0, `Shabbat: link ${link('L').state}, sent ${show(sent)}, notified ${show(DB.user[0].googleSyncNotifiedAt)}, calls ${google.calls.length}`);
+    assert(logs.slice(before).some((l) => l.startsWith('[pause] skipped Google reconnect message for 1')), `logged: ${show(logs.slice(before))}`);
+    await pass(new Date('2026-10-17T16:00:00Z')); // 19:00, after Shabbat
+    assert(link('L').state === 'token' && messages() === 1 && String(sent[0].text).startsWith('<b>Copies to Google are paused</b>'), `after Shabbat: link ${link('L').state}, sent ${show(sent)}`);
+    // A user who was told already is not held back: the state changes in Shabbat as it always did (nothing is sent either way)
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754, googleSyncNotifiedAt: NOW });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass(saturday);
+    assert(link('L').state === 'token' && messages() === 0, `told already: link ${link('L').state}, sent ${show(sent)}`);
+  });
+
+  await check('pause: with the switch off the reconnect message goes out in Shabbat as before', async () => {
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', pauseOnShabbat: false });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass(new Date('2026-10-17T07:00:00Z'));
+    assert(link('L').state === 'token' && sent.length === 1, `link ${link('L').state}, sent ${show(sent)}`);
+  });
+
   await check('token: a token Google refuses (invalid_grant) mid-run is the same outage', async () => {
     seedCopy();
     seriesRow('a', 'home');

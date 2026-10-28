@@ -691,6 +691,10 @@
       "general": "General",
       "jewish": "Jewish"
     },
+    "pause": {
+      "label": "Pause messages on Shabbat and Yom Tov",
+      "hint": "Nothing is sent from candle lighting until nightfall"
+    },
     "platform": {
       "label": "Send messages to",
       "both": "Both"

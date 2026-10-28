@@ -15,6 +15,7 @@ import { trackActivityAsync } from './analytics-service';
 import { checkFeatureAccess, incrementUsage } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { resolveUserTimezone } from '../lib/timezone';
+import { isPaused } from './zmanim/pause';
 import { getBotMessages } from '../lib/bot-messages';
 import { captureError } from '../lib/error-capture';
 import { markUnreachableAfterSendFailure } from '../lib/user-reachability';
@@ -408,7 +409,8 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
     // If user had reminders enabled, send one-time downgrade notification
-    if (user.remindersEnabled && user.telegramId) {
+    // Shabbat and Yom Tov (the pause): the notice waits; it is not marked sent, so the next run after the window sends it.
+    if (user.remindersEnabled && user.telegramId && !(await isPaused(user, new Date(), 'reminders downgrade notice'))) {
       const redisKey = REDIS_KEYS.reminderDowngradeNotified(user.id);
       try {
         const alreadyNotified = await redis.get(redisKey);
@@ -431,6 +433,10 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   let sentCount = 0;
 
   for (const reminder of dueReminders) {
+    // Shabbat and Yom Tov (the pause): the alert is not sent, and not sent later either: the 5-minute run only
+    // covers the alerts due in its own window, so a skipped one is gone. The pause is read at the instant the
+    // alert would go out (this run), so a run that starts inside the window sends nothing, whatever it covers.
+    if (await isPaused(user, new Date(), 'event alert')) continue;
     const success = await sendReminder(user, reminder, timezone);
     if (success) sentCount++;
   }

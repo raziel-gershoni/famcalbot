@@ -52,6 +52,15 @@ export interface CachedReminderUser {
   // without it a NATIVE user fell back to Israel, and that fallback was cached for
   // the summaries too. Optional for entries written before it existed.
   location?: string;
+  // The Shabbat and Yom Tov pause (src/services/zmanim/pause.ts) reads these, so the 5-minute run needs no
+  // database read to know whether to send: the switch, the community, and the place the windows are counted at.
+  // Optional for entries written before they existed (the hourly sync and the boot step rebuild every entry,
+  // and a missing switch reads as off).
+  pauseOnShabbat?: boolean;
+  zmanimCommunity?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  elevationM?: number | null;
 }
 
 /**
@@ -124,7 +133,7 @@ export async function updateUserInCache(user: ReminderCacheSource): Promise<void
  * the row as convertPrismaUserToConfig returns it (the token already decrypted).
  */
 export async function syncReminderCacheEntry(
-  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location'>,
+  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location' | 'pauseOnShabbat' | 'zmanimCommunity' | 'latitude' | 'longitude' | 'elevationM'>,
   /** Values newer than the row in hand: the token just stored (plain), the calendar choices just saved. */
   fresh: { googleRefreshToken?: string; calendarAssignments?: unknown } = {}
 ): Promise<void> {
@@ -142,6 +151,11 @@ export async function syncReminderCacheEntry(
     name: user.name,
     pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
     location: user.location,
+    pauseOnShabbat: user.pauseOnShabbat,
+    zmanimCommunity: user.zmanimCommunity,
+    latitude: user.latitude,
+    longitude: user.longitude,
+    elevationM: user.elevationM,
   });
 }
 

@@ -405,6 +405,12 @@ const ModuleInternals = Module as unknown as {
   _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   _resolveFilename: (request: string, parent: unknown, isMain: boolean) => string;
 };
+// @hebcal/core is ESM-only and tsx loads src/ as CommonJS: the pause (src/services/zmanim) reads its ESM build.
+const resolveFilename = ModuleInternals._resolveFilename;
+ModuleInternals._resolveFilename = function (request, parent, isMain) {
+  if (request === '@hebcal/core') return path.resolve(__dirname, '../node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, parent, isMain);
+};
 const realLoad = ModuleInternals._load;
 ModuleInternals._load = function (request, parent, isMain) {
   let resolved = request;
@@ -451,6 +457,7 @@ function reset() {
   db.states = [];
   db.pings = [];
   queries.length = 0;
+  pauseLines = [];
   sent = [];
   sendFailures = [];
   sendCalls = 0;
@@ -538,9 +545,15 @@ const stateOf = (seriesEventId: unknown, originalStartsAt: Date, userId?: number
   return row ? viewOf(row, userId) : undefined;
 };
 
+/** The "[pause] skipped ..." lines the passes logged since reset(). */
+let pauseLines: string[] = [];
+
 async function quiet<T>(fn: () => Promise<T>): Promise<T> {
   const { log, warn } = console;
-  console.log = () => {};
+  console.log = (...args: unknown[]) => {
+    const line = args.map(String).join(' ');
+    if (line.startsWith('[pause]')) pauseLines.push(line);
+  };
   console.warn = () => {};
   try {
     return await fn();
@@ -1596,6 +1609,87 @@ async function main() {
     failNextFind = new Error('Connection terminated unexpectedly');
     await tick(today('11:00'));
     assert(adminNotices.length === 2 && adminNotices[1] === 'Job: Native Reminders', show(adminNotices));
+  });
+
+  // ---- The Shabbat and Yom Tov pause (plan 2026-10-28-zmanim-reminders, Task 2) ----
+  // Raziel (1) is in Jerusalem, Sephardi: Shabbat runs from Friday 17:50 to Saturday 18:39 (Israel time, 2026-10-16/17).
+
+  /** Raziel with the switch on, in Jerusalem. */
+  const pauseRaziel = (over: Row = {}) => Object.assign(db.users[0], { pauseOnShabbat: true, latitude: 31.778, longitude: 35.235, elevationM: 754, zmanimCommunity: 'sephardi', ...over });
+  const FRI = '2026-10-16';
+  const SAT = '2026-10-17';
+
+  await check('pause: a ping due in Shabbat is not sent; its occurrence is claimed without a message, stays open (not done), and is logged "[pause] skipped"', async () => {
+    reset();
+    pauseRaziel();
+    const r = reminder({ startsAt: at(`${SAT} 10:00`) });
+    const result = await pass(at(`${SAT} 10:00`));
+    assert(sent.length === 0 && result.sent === 0 && result.skipped === 1, `${sentLines()} ${show(result)}`);
+    const row = stateOf(r.id, at(`${SAT} 10:00`));
+    assert(!!row && row.doneAt === null && row.pingMessageId === null, `the occurrence is open, with no message: ${show(row)}`);
+    assertTime(row!.lastPingedAt as Date, at(`${SAT} 10:00`), 'claimed at the pass');
+    assertSame(pauseLines, ['[pause] skipped native reminder ping for 1']);
+    assert(!tracked.some((t) => t.action === 'native_reminder_pinged'), 'no ping was counted');
+  });
+
+  await check('pause: it is not sent after the window either: a date-only reminder for Shabbat (due 09:00, so otherwise ping-able all day) stays quiet when the pass runs again after Shabbat ends', async () => {
+    reset();
+    pauseRaziel();
+    dateOnly(SAT);
+    await pass(at(`${SAT} 09:00`));
+    await pass(at(`${SAT} 12:00`));
+    await pass(at(`${SAT} 18:45`));
+    assert(sent.length === 0, `sent after the window: ${sentLines()}`);
+    // The control: the same reminder with the switch off pings at 09:00.
+    reset();
+    pauseRaziel({ pauseOnShabbat: false });
+    dateOnly(SAT);
+    await pass(at(`${SAT} 09:00`));
+    assert(sent.length === 1 && sent[0].chatId === '1001', `switch off: ${sentLines()}`);
+  });
+
+  await check('pause: the minute either side of the window: Friday 17:49 pings, 17:50 (candle lighting) does not; Saturday 18:38 does not, 18:39 (Shabbat ends) pings', async () => {
+    for (const [when, want] of [[`${FRI} 17:49`, true], [`${FRI} 17:50`, false], [`${SAT} 18:38`, false], [`${SAT} 18:39`, true], [`${FRI} 10:00`, true], [`${SAT} 20:00`, true]] as Array<[string, boolean]>) {
+      reset();
+      pauseRaziel();
+      reminder({ startsAt: at(when) });
+      await pass(at(when));
+      assert((sent.length === 1) === want, `${when}: ${want ? 'should have pinged' : 'should have been paused'}: ${sentLines()}`);
+      assert(pauseLines.length === (want ? 0 : 1), `${when}: ${show(pauseLines)}`);
+    }
+  });
+
+  await check('pause: a snooze that wakes in Shabbat is not sent either (its ping row is claimed at the wake time)', async () => {
+    reset();
+    pauseRaziel();
+    const r = reminder({ startsAt: at(`${FRI} 10:00`) });
+    await pass(at(`${FRI} 10:00`));
+    assert(sent.length === 1, `the Friday ping: ${sentLines()}`);
+    stateOf(r.id, at(`${FRI} 10:00`))!.snoozedUntil = at(`${SAT} 10:00`);
+    await pass(at(`${SAT} 10:00`));
+    assert(sent.length === 1, `the woken snooze went out in Shabbat: ${sentLines()}`);
+    assertSame(pauseLines, ['[pause] skipped native reminder ping for 1']);
+    await pass(at(`${SAT} 18:45`));
+    assert(sent.length === 1, `and not after it: ${sentLines()}`);
+  });
+
+  await check('pause: each recipient by their own switch: a reminder for both partners goes to Dana while Raziel, whose switch is on, is paused', async () => {
+    reset();
+    pauseRaziel();
+    const r = reminder({ startsAt: at(`${SAT} 10:00`), forUserId: 2, forBoth: true });
+    await pass(at(`${SAT} 10:00`));
+    assert(sent.length === 1 && sent[0].chatId === '1002', `only Dana: ${sentLines()}`);
+    const raziel = stateOf(r.id, at(`${SAT} 10:00`), 1)!;
+    assert(raziel.pingMessageId === null && raziel.doneAt === null, `Raziel's is claimed, unsent, open: ${show(raziel)}`);
+    assertSame(pauseLines, ['[pause] skipped native reminder ping for 1']);
+  });
+
+  await check('pause: a person without the switch (or with no pause columns at all) is never paused, and does no pause work: Noa pings on Shabbat', async () => {
+    reset();
+    reminder({ startsAt: at(`${SAT} 10:00`, MSK), creatorUserId: 3, calendarId: 'cal-3', timeZone: MSK });
+    queries.length = 0;
+    await pass(at(`${SAT} 10:00`, MSK));
+    assert(sent.length === 1 && sent[0].chatId === '1003' && pauseLines.length === 0, `${sentLines()} ${show(pauseLines)}`);
   });
 
   let failed = 0;

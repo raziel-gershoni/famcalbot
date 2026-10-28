@@ -76,7 +76,7 @@ export function startScheduler(): void {
     try {
       const { handleDailySummary } = await import('./handlers');
       const result = await handleDailySummary();
-      console.log(`[Scheduler] Daily summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDay} skipped (day), ${result.skippedDedup} skipped (dedup)`);
+      console.log(`[Scheduler] Daily summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDay} skipped (day), ${result.skippedDedup} skipped (dedup), ${result.skippedPause} skipped (pause)`);
     } catch (error) {
       console.error('[Scheduler] Daily summary failed:', error);
       captureError(error, 'cron-daily-summary');
@@ -89,7 +89,7 @@ export function startScheduler(): void {
     try {
       const { handleTomorrowSummary } = await import('./handlers');
       const result = await handleTomorrowSummary();
-      console.log(`[Scheduler] Tomorrow summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDay} skipped (day), ${result.skippedDedup} skipped (dedup)`);
+      console.log(`[Scheduler] Tomorrow summary: ${result.processed} processed, ${result.skippedHour} skipped (hour), ${result.skippedDay} skipped (day), ${result.skippedDedup} skipped (dedup), ${result.skippedPause} skipped (pause)`);
     } catch (error) {
       console.error('[Scheduler] Tomorrow summary failed:', error);
       captureError(error, 'cron-tomorrow-summary');

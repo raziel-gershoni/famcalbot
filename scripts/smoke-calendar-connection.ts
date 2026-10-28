@@ -817,6 +817,50 @@ async function main() {
     assert(omri.length === 1 && String(omri[0].options?.replyMarkup?.inline_keyboard?.[0]?.[0]?.web_app?.url).includes('/settings'), show(omri));
   });
 
+  await check('G4b pause: the setup nudge is not sent in Shabbat (and not marked sent), the next run sends it; with the switch off it is sent in Shabbat', async () => {
+    const RealDate = Date;
+    let fakeNow = 0;
+    class FakeDate extends RealDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) super(fakeNow);
+        else super(...(args as [number]));
+      }
+      static now() { return fakeNow; }
+    }
+    const log = console.log;
+    const pauseLines: string[] = [];
+    const omriSends = () => sent.filter(s => String(s.chatId) === '5550005');
+    const run = async (isoUtc: string) => {
+      fakeNow = RealDate.parse(isoUtc);
+      globalThis.Date = FakeDate as unknown as DateConstructor;
+      console.log = (...args: unknown[]) => { const line = args.map(String).join(' '); if (line.startsWith('[pause]')) pauseLines.push(line); };
+      try {
+        const { handleSetupReminders } = await load('src/cron/handlers.ts');
+        await handleSetupReminders();
+      } finally {
+        globalThis.Date = RealDate;
+        console.log = log;
+      }
+    };
+    const setUp = (over: Row) => {
+      seed();
+      for (const id of [1, 2, 3, 4, 6]) Object.assign(userRow(id), { location: 'Tel Aviv', createdAt: new RealDate(RealDate.parse('2026-01-01T00:00:00Z')) });
+      Object.assign(userRow(5), { location: '', createdAt: new RealDate(RealDate.parse('2026-10-11T07:00:00Z')), calendarAssignments: null, pauseOnShabbat: true, zmanimCommunity: 'sephardi', ...over });
+    };
+    // Saturday 17 October 2026, 10:00 in Israel (07:00 UTC): Shabbat. Omri has no place: Jerusalem's Shabbat stands in.
+    setUp({});
+    await run('2026-10-17T07:00:00Z');
+    assert(omriSends().length === 0 && ![...redisStore.keys()].some(k => k.startsWith('setup:reminder:5:')), `sent in Shabbat: ${show(omriSends())} ${[...redisStore.keys()]}`);
+    assert(pauseLines.join('|') === '[pause] skipped location setup nudge for 5', `logged: ${pauseLines.join('|') || '(nothing)'}`);
+    // Sunday 10:00: the same attempt is still the one due, and it goes out
+    await run('2026-10-18T07:00:00Z');
+    assert(omriSends().length === 1 && redisStore.has('setup:reminder:5:location:0'), `after Shabbat: ${show(omriSends())}`);
+    // The switch off: sent on Saturday
+    setUp({ pauseOnShabbat: false });
+    await run('2026-10-17T07:00:00Z');
+    assert(omriSends().length === 1, `switch off: ${show(omriSends())}`);
+  });
+
   await check('G5 the bot\'s command nudge never asks a Google user to connect or choose calendars; a missing location still nudges', async () => {
     seed();
     const { sendSetupNudgeIfNeeded } = await load('src/services/telegram/commands.ts');

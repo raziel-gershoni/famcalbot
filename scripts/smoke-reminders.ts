@@ -165,6 +165,10 @@ const recorder = {
     sent.push({ at: clock, chatId, text });
   },
 };
+/** How many "your reminders are paused, upgrade" notices were sent (the plan downgrade). */
+let downgradeNotices = 0;
+/** The "[pause] skipped ..." lines the runs logged. */
+let pauseLines: string[] = [];
 /** The contexts captureError was called with. */
 let captured: string[] = [];
 /** The message and extra of each capture, to prove no token or ciphertext reaches Sentry. */
@@ -224,7 +228,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/telegram/index.ts`]: {
     getBot: () => ({}),
     sendDailySummaryToAll: async () => ({ processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 }),
-    sendReminderDowngradeNotification: async () => {},
+    sendReminderDowngradeNotification: async () => { downgradeNotices++; },
     setUserMenuButton: async () => {},
   },
   [`${SRC}/services/messaging/factory.ts`]: {
@@ -261,6 +265,12 @@ const ModuleInternals = Module as unknown as {
   _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   _resolveFilename: (request: string, parent: unknown, isMain: boolean) => string;
 };
+// @hebcal/core is ESM-only and tsx loads src/ as CommonJS: the pause (src/services/zmanim) reads its ESM build.
+const resolveFilename = ModuleInternals._resolveFilename;
+ModuleInternals._resolveFilename = function (request, parent, isMain) {
+  if (request === '@hebcal/core') return path.resolve(__dirname, '../node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, parent, isMain);
+};
 const realLoad = ModuleInternals._load;
 const partialFakes = new Map<string, object>();
 ModuleInternals._load = function (request, parent, isMain) {
@@ -296,6 +306,8 @@ const at = (local: string, tz: string) => fromZonedTime(local, tz);
 function reset(row: Partial<UserRow> & { id: number }) {
   remindersAllowedByPlan = true;
   store.clear();
+  downgradeNotices = 0;
+  pauseLines = [];
   sent = [];
   sendError = null;
   sendAttempts = 0;
@@ -324,7 +336,10 @@ function reset(row: Partial<UserRow> & { id: number }) {
 async function runTicks(handlers: typeof import('../src/cron/handlers'), from: Date, to: Date) {
   const log = console.log;
   const warn = console.warn;
-  console.log = () => {};
+  console.log = (...args: unknown[]) => {
+    const line = args.map(String).join(' ');
+    if (line.startsWith('[pause]')) pauseLines.push(line);
+  };
   console.warn = () => {};
   try {
     for (let t = from.getTime(); t < to.getTime(); t += 5 * 60_000) {
@@ -1065,6 +1080,77 @@ async function main() {
     assert(!store.has('reminders:users'), 'the legacy key is still there');
     const entry = cacheV2().entries.find(u => u.id === 26);
     assert(!!entry && entry.googleToken !== 'refresh-token', `v2 ${cacheV2().raw || '(missing)'}`);
+  });
+
+  // ---- The Shabbat and Yom Tov pause (plan 2026-10-28-zmanim-reminders, Task 2) ----
+  // Jerusalem, Sephardi: Shabbat runs from Friday 17:50 to Saturday 18:39 (Israel time, 2026-10-16/17).
+  // The 5-minute run starts at :00, :05, ...; what it sends goes out at its start, so the pause is read at the run's start.
+  const JERUSALEM_ON = { pauseOnShabbat: true, latitude: 31.778, longitude: 35.235, elevationM: 754, zmanimCommunity: 'sephardi' };
+  const shabbatEvent = (id: string, summary: string, start: string, end: string) => ({ calendarId: kidsCal, id, summary, start: at(start, IL), end: at(end, IL) });
+
+  await check('pause: an event alert due in Shabbat is not sent, start or pickup, and each skipped alert is logged; the same event with the switch off is sent', async () => {
+    reset({ id: 40, ...JERUSALEM_ON });
+    googleEvents = [shabbatEvent('s40', 'Kiddush', '2026-10-17 10:00', '2026-10-17 11:00')];
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 11:00', IL));
+    assert(sent.length === 0, `sent in Shabbat: ${sentLines(IL).join(' | ')}`);
+    assert(pauseLines.join('|') === '[pause] skipped event alert for 40|[pause] skipped event alert for 40', `logged: ${pauseLines.join('|') || '(nothing)'}`);
+
+    reset({ id: 41, ...JERUSALEM_ON, pauseOnShabbat: false });
+    googleEvents = [shabbatEvent('s41', 'Kiddush', '2026-10-17 10:00', '2026-10-17 11:00')];
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 11:00', IL));
+    assert(sentLines(IL).join(' | ') === '09:45 🤖 Auto-Reminder: Kiddush | 10:45 🤖🚗 Auto-Pickup Reminder: Noa' && pauseLines.length === 0, `switch off: ${sentLines(IL).join(' | ') || '(nothing)'} ${pauseLines.join('|')}`);
+  });
+
+  await check('pause: the run either side of the window: Friday 17:45 sends and 17:50 (candle lighting) does not; Saturday 18:35 does not and 18:40 (after Shabbat ends at 18:39) does; an alert due in the last minutes of Shabbat goes with a run that starts inside it, so it is not sent', async () => {
+    reset({ id: 42, ...JERUSALEM_ON, pickupRemindersEnabled: false });
+    googleEvents = [
+      shabbatEvent('f1', 'Friday 18:00', '2026-10-16 18:00', '2026-10-16 19:00'),
+      shabbatEvent('f2', 'Friday 18:05', '2026-10-16 18:05', '2026-10-16 19:00'),
+      shabbatEvent('s1', 'Saturday 18:50', '2026-10-17 18:50', '2026-10-17 19:30'),
+      shabbatEvent('s2', 'Saturday 18:54', '2026-10-17 18:54', '2026-10-17 19:30'),
+      shabbatEvent('s3', 'Saturday 18:55', '2026-10-17 18:55', '2026-10-17 19:30'),
+    ];
+    await syncCache(handlers, at('2026-10-16 07:00', IL));
+    await runTicks(handlers, at('2026-10-16 17:40', IL), at('2026-10-16 18:10', IL));
+    await runTicks(handlers, at('2026-10-17 18:30', IL), at('2026-10-17 18:50', IL));
+    assert(sentLines(IL).join(' | ') === '17:45 🤖 Auto-Reminder: Friday 18:00 | 18:40 🤖 Auto-Reminder: Saturday 18:55', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(pauseLines.length === 3, `three skipped (17:50, 18:35, and 18:39's run at 18:35): ${pauseLines.join('|')}`);
+  });
+
+  await check('pause: the switch in a settings save reaches the cache at once, both ways: off sends the next run, on pauses it', async () => {
+    reset({ id: 43, ...JERUSALEM_ON });
+    googleEvents = [shabbatEvent('s43', 'Kiddush', '2026-10-17 10:00', '2026-10-17 11:00')];
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    assert(cacheV2().entries.find(u => u.id === 43)?.pauseOnShabbat === true, `cached ${cacheV2().raw}`);
+    await saveSettings(at('2026-10-17 08:00', IL), 1043, { pauseOnShabbat: false });
+    const storedSwitch = () => userRows[0].pauseOnShabbat;
+    assert(storedSwitch() === false && cacheV2().entries.find(u => u.id === 43)?.pauseOnShabbat === false, `saved ${storedSwitch()}, cached ${cacheV2().raw}`);
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 10:00', IL));
+    assert(sentLines(IL).join(' | ') === '09:45 🤖 Auto-Reminder: Kiddush', `switched off: ${sentLines(IL).join(' | ') || '(nothing)'}`);
+
+    reset({ id: 44, ...JERUSALEM_ON, pauseOnShabbat: false });
+    googleEvents = [shabbatEvent('s44', 'Kiddush', '2026-10-17 10:00', '2026-10-17 11:00')];
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    await saveSettings(at('2026-10-17 08:00', IL), 1044, { pauseOnShabbat: true });
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 10:00', IL));
+    assert(sent.length === 0, `switched on: ${sentLines(IL).join(' | ')}`);
+    // Only a boolean is a setting: anything else leaves it as it was.
+    await saveSettings(at('2026-10-17 08:30', IL), 1044, { pauseOnShabbat: 'no' });
+    assert(storedSwitch() === true, `kept ${String(storedSwitch())}`);
+  });
+
+  await check('pause: the "reminders paused, upgrade" notice (a plan that lost reminders) waits for after Shabbat, and is not marked sent meanwhile', async () => {
+    reset({ id: 45, ...JERUSALEM_ON });
+    remindersAllowedByPlan = false;
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 09:10', IL));
+    const notices = () => downgradeNotices;
+    assert(notices() === 0 && pauseLines.length > 0, `in Shabbat: ${notices()} notices, ${pauseLines.join('|')}`);
+    assert(!store.has(REDIS_KEYS.reminderDowngradeNotified(45)), 'marked sent while paused');
+    await runTicks(handlers, at('2026-10-18 09:00', IL), at('2026-10-18 09:05', IL));
+    assert(notices() === 1 && store.has(REDIS_KEYS.reminderDowngradeNotified(45)), `after Shabbat: ${notices()} notices`);
   });
 
   let failed = 0;

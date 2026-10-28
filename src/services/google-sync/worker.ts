@@ -17,7 +17,8 @@
 // a lapsed plan sets 'plan' and pauses them (and they come back when it returns); no token
 // or no calendar.app.created sets 'token' or 'scopes' on every link of the user, with the
 // reconnect message once per outage (User.googleSyncNotifiedAt; a commit clears it and puts
-// the links back); a token of another Google account than the copy's sets 'otherAccount'
+// the links back; in Shabbat or Yom Tov, for a person whose pause is on, the outage is left for
+// the first pass after it: outage()); a token of another Google account than the copy's sets 'otherAccount'
 // (a copy with no account yet adopts the token's; a commit puts it back to be checked again). Each copy: its Google calendar created or
 // adopted ('creating' or no googleCalendarId), renamed when FamCal's name moved on, backfilled
 // when backfilledAt is null, and its dirty items pushed (push.ts).
@@ -49,6 +50,7 @@ import { redis } from '../../utils/redis';
 import { scrubbedGoogleError } from '../calendar';
 import { classifyGoogleError, googleErrorFacts, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
+import { isPaused } from '../zmanim/pause';
 import { copyName, ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
 import { hasSinglesFlag, hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
@@ -87,6 +89,8 @@ type LinkRow = Prisma.GoogleSyncLinkGetPayload<{ select: typeof LINK_SELECT }>;
 const USER_SELECT = {
   id: true, name: true, language: true, location: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true,
   suspendedAt: true, unreachableSince: true, googleRefreshToken: true, googleScopes: true, googleSyncNotifiedAt: true,
+  // The pause (isPaused): the switch, and the place and community its windows are counted at (location is above)
+  pauseOnShabbat: true, zmanimCommunity: true, latitude: true, longitude: true, elevationM: true,
 } as const;
 type UserRow = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
@@ -342,6 +346,14 @@ async function outage(run: UserRun, reason: 'token' | 'scopes', cause: string): 
   const { user } = run;
   // A token a disconnect just revoked is no outage: nothing written, nobody told.
   await assertConnected(run);
+  // Shabbat and Yom Tov (the pause): an outage that would send the reconnect message is left for after it. Nothing
+  // is changed now (the copies stay as they are, so the message is not lost with their state): the first pass after
+  // the window finds the outage again, changes the copies and sends the message once. Someone already told has
+  // nothing to send, so the state change is made as always.
+  if (!user.googleSyncNotifiedAt && (await isPaused({ ...user, googleRefreshToken: tokenOf(user.googleRefreshToken) }, run.now, 'Google reconnect message'))) {
+    console.log(`[google-sync] user ${user.id}: Google ${reason} (${cause}); told after Shabbat or Yom Tov, the copies stay as they are until then`);
+    return;
+  }
   const { count } = await prisma.googleSyncLink.updateMany({
     where: { userId: user.id, state: { in: [...WORKING, reason === 'token' ? 'scopes' : 'token'] } },
     data: { state: reason },

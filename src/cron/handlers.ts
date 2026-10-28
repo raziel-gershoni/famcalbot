@@ -5,6 +5,7 @@
 
 import { prisma } from '../utils/prisma';
 import { captureError } from '../lib/error-capture';
+import { isPaused, type PauseUser } from '../services/zmanim/pause';
 import type { SetupTrack } from '../services/setup-tracks';
 
 export interface CronResult {
@@ -33,6 +34,7 @@ export async function handleDailySummary(): Promise<CronResult> {
     skippedHour: summaryResult.skippedHour,
     skippedDay: summaryResult.skippedDay,
     skippedDedup: summaryResult.skippedDedup,
+    skippedPause: summaryResult.skippedPause,
   };
 }
 
@@ -69,6 +71,11 @@ export async function rebuildReminderCache(): Promise<number> {
       language: true,
       name: true,
       location: true,
+      pauseOnShabbat: true,
+      zmanimCommunity: true,
+      latitude: true,
+      longitude: true,
+      elevationM: true,
     }
   });
 
@@ -84,6 +91,11 @@ export async function rebuildReminderCache(): Promise<number> {
     name: u.name,
     pickupRemindersEnabled: u.pickupRemindersEnabled ?? true,
     location: u.location,
+    pauseOnShabbat: u.pauseOnShabbat,
+    zmanimCommunity: u.zmanimCommunity,
+    latitude: u.latitude,
+    longitude: u.longitude,
+    elevationM: u.elevationM,
   }));
 
   await syncReminderCache(entries);
@@ -158,6 +170,7 @@ export async function handleTomorrowSummary(): Promise<CronResult> {
     skippedHour: summaryResult.skippedHour,
     skippedDay: summaryResult.skippedDay,
     skippedDedup: summaryResult.skippedDedup,
+    skippedPause: summaryResult.skippedPause,
   };
 }
 
@@ -227,6 +240,12 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         pickupRemindersEnabled: cachedUser.pickupRemindersEnabled,
         // resolveUserTimezone geocodes this before falling back to Israel.
         location: cachedUser.location ?? '',
+        // The pause reads these; an entry from before they existed has none, which reads as off.
+        pauseOnShabbat: cachedUser.pauseOnShabbat,
+        zmanimCommunity: cachedUser.zmanimCommunity,
+        latitude: cachedUser.latitude,
+        longitude: cachedUser.longitude,
+        elevationM: cachedUser.elevationM,
         remindersEnabled: true,
         // No messagingPlatform on purpose: reminders go to Telegram only.
       } as import('../types').UserConfig;
@@ -411,10 +430,13 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   // Helper: send setup reminder to correct platform
   async function sendSetupReminder(
-    user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; whatsappBsuid: string | null; language: string; name: string },
+    user: { id: number; telegramId: bigint | null; whatsappPhone: string | null; whatsappBsuid: string | null; language: string; name: string } & PauseUser,
     title: string, body: string, buttonText: string, url: string,
     type: ReminderResult['type'], attempt: number, ttlSeconds: number
   ): Promise<void> {
+    // Shabbat and Yom Tov (the pause): no nudge now, and none marked sent, so the next run sends the attempt that is
+    // still due. The stored Google token is ciphertext here; the pause is not given it (a zone from the place only).
+    if (await isPaused({ ...user, googleRefreshToken: undefined }, new Date(), `${type} setup nudge`)) return;
     const message = `${title}\n\n${body}`;
 
     // Send to Telegram
@@ -441,6 +463,8 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
   const userSelect = {
     id: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, name: true,
+    // The pause (isPaused): the switch, and the place and community its windows are counted at
+    location: true, pauseOnShabbat: true, zmanimCommunity: true, latitude: true, longitude: true, elevationM: true,
   } as const;
   const dateSelect = { ...userSelect, createdAt: true, reminderStartAt: true } as const;
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { updateUserById } from '@/src/services/user-service';
+import { getUserById, updateUserById } from '@/src/services/user-service';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -91,7 +91,9 @@ export async function POST(request: NextRequest) {
       defaultReminderMinutes: typeof defaultReminderMinutes === 'number' ? defaultReminderMinutes : undefined,
       reminderTime: acceptedReminderTime,
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
-      voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
+      voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined,
+      // The Shabbat and Yom Tov pause (src/services/zmanim/pause.ts); the reminder cache below carries it to the 5-minute run
+      pauseOnShabbat: typeof pauseOnShabbat === 'boolean' ? pauseOnShabbat : undefined
     };
     // The old place's coordinates must never sit beside the new name, so a changed location clears them
     // in the same write; the lookup below fills them again (and the lazy fill does, if it fails).
@@ -107,14 +109,21 @@ export async function POST(request: NextRequest) {
     if (acceptedReminderTime !== undefined && acceptedReminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
 
     // The lookup runs after the response, so the save answers at once. saveUserPlace is the one writer of
-    // the coordinates and the highest ground, and it moves the cached zone with them.
+    // the coordinates and the highest ground, and it moves the cached zone with them. The reminder cache holds
+    // the place the Shabbat and Yom Tov pause counts from (the 5-minute alert run reads no database), so the
+    // lookup's place goes into the cache entry now, not at the next hourly sync.
     if (locationChanged) {
       const id = auth.user.id;
-      after(() =>
-        saveUserPlace(id, newLocation).catch(error =>
-          captureError(error, 'settings-timezone', { api_route: '/api/settings', user_id: id }, 'warning')
-        )
-      );
+      after(async () => {
+        try {
+          const saved = await saveUserPlace(id, newLocation);
+          // The row as it is now (a later save may have changed other settings since this one)
+          const fresh = saved ? await getUserById(id) : null;
+          if (fresh) await syncReminderCacheEntry(fresh);
+        } catch (error) {
+          captureError(error, 'settings-timezone', { api_route: '/api/settings', user_id: id }, 'warning');
+        }
+      });
     }
 
     // Update reminder cache (no extra DB query - uses data from updateUserById): who belongs in it

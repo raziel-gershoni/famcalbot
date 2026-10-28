@@ -50,6 +50,7 @@ import { SCHEDULED_READ, SCHEDULED_RETRY_READ } from '../calendar-read/digest';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { getMessagingService } from './bot';
 import { sendVoiceMessage } from './voice';
+import { isPaused } from '../zmanim/pause';
 import { denyOverTextLimit } from './text-limit';
 import { liveGoogleChoices } from '../../lib/google-state';
 
@@ -415,6 +416,8 @@ export interface SummaryBatchResult {
   skippedHour: number;
   skippedDay: number;
   skippedDedup: number;
+  /** Left out because the person's Shabbat and Yom Tov pause holds now (zmanim/pause.ts). */
+  skippedPause: number;
 }
 
 /**
@@ -472,7 +475,7 @@ async function sendSummaryToAll(
   summaryDate: Date | undefined,
   options?: { filterByHour?: boolean }
 ): Promise<SummaryBatchResult> {
-  const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 };
+  const result: SummaryBatchResult = { processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0, skippedPause: 0 };
   // When the batch chose its users. The scheduled retry's summaries are marked sent under
   // this local date, the date the batch chose them for, also when they go out past midnight.
   const batchStartedAt = new Date();
@@ -576,8 +579,17 @@ async function sendSummaryToAll(
       }
     };
 
+    // Shabbat and Yom Tov (the pause): nothing is made or sent to this person now, in text, voice or weather. No
+    // dedup mark is written, and the summary is not sent later: the next hourly run is for the next preferred hour.
+    const paused = async (user: UserConfig): Promise<boolean> => {
+      if (!(await isPaused(user, new Date(), `${summaryDate ? 'tomorrow' : 'daily'} summary`))) return false;
+      result.skippedPause++;
+      return true;
+    };
+
     // One user's pass: skipped, weather-only, or delivered; a Google outage sets them aside.
     const processUser = async (user: UserConfig) => {
+      if (await paused(user)) return;
       const platform = user.messagingPlatform || 'telegram';
 
       // Diagnostic: log WA delivery details for dual-platform users
@@ -647,6 +659,8 @@ async function sendSummaryToAll(
       const waitMs = firstGoogleFailureAt + SCHEDULED_RETRY_AFTER_MS - Date.now();
       if (waitMs > 0) await scheduledRetrySleep(waitMs);
       await runPool(googleRetries, summaryConcurrency, async ({ user, platform, day }) => {
+        // The wait may have carried the retry into a window
+        if (await paused(user)) return;
         try {
           await retryOnce(user, platform, day);
         } catch (error) {

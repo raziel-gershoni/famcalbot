@@ -101,6 +101,8 @@ let captured: { context: string; severity: string; message: string }[] = [];
 let tokensCleared: number[] = [];
 /** The batch's own "[Batch Summary] … done:" log lines. */
 let batchLines: string[] = [];
+/** The "[pause] skipped ..." lines the batch logged. */
+let pauseLines: string[] = [];
 /** What the next retry wait does besides moving the clock: wait for the housekeeping. */
 let onSleep: () => void | Promise<void> = () => {};
 
@@ -129,7 +131,9 @@ const ITAI = google(15, 'Itai');
 const LIOR = google(16, 'Lior', { preferredEveningHour: 23 });
 /** A FamCal user who connected Google ("Google as a connection"): FamCal and Google in one read. */
 const ZOE = person(17, 'Zoe', { calendarSource: 'NATIVE', googleRefreshToken: 'refresh-token', calendarAssignments: [cal('zoe@gmail.com', 'Zoe G')] });
-const EVERYONE = [NOA, YAEL, DANA, OMER, ITAI, LIOR, ZOE];
+/** The Shabbat and Yom Tov pause is on for her, in Jerusalem (Sephardi): Shabbat runs from Friday 17:50 to Saturday 18:39, 2026-10-16/17. */
+const PIA = google(18, 'Pia', { pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754 });
+const EVERYONE = [NOA, YAEL, DANA, OMER, ITAI, LIOR, ZOE, PIA];
 const nameOf = (chatId: unknown) => EVERYONE.find(u => u.telegramId === Number(chatId))?.name ?? `chat ${String(chatId)}`;
 
 let batch: UserConfig[] = [];
@@ -415,6 +419,7 @@ function reset(users: UserConfig[], userPlans: [UserConfig, Outcome[]][], startA
   captured = [];
   tokensCleared = [];
   batchLines = [];
+  pauseLines = [];
   onSleep = () => {};
   store.clear();
 }
@@ -457,6 +462,7 @@ async function main() {
   console.log = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
     if (line.startsWith('[Batch Summary]') && line.includes(' done: ')) batchLines.push(line);
+    else if (line.startsWith('[pause]')) pauseLines.push(line);
     else realLog(...args);
   };
 
@@ -808,6 +814,81 @@ async function main() {
     assert(promptsOf('Zoe').length === 1 && promptsOf('Zoe')[0].includes('Dentist (Zoe)'), 'the FamCal event is not in the outage prompt');
     assert(textOf('Zoe').length === 1 && textOf('Zoe')[0].includes(OUTAGE_EN), `texts ${JSON.stringify(textOf('Zoe'))}`);
     assert(log.includes('mark Zoe daily 2026-10-16'), 'not marked sent');
+  });
+
+  // ---- The Shabbat and Yom Tov pause: the scheduled summaries, text and voice ----
+
+  reset([PIA, NOA], [[PIA, ['ok']], [NOA, ['ok']]], il('2026-10-17 07:00:00'));
+  const shabbatMorning = await summary.sendDailySummaryToAll({ filterByHour: true });
+  const shabbatMorningLog = [...log];
+
+  await check('pause: the Saturday morning summary is not made, sent or voiced for a paused person, while the next person gets theirs; no read, no AI call, no dedup mark, and the skip is logged and counted', () => {
+    assertList(shabbatMorningLog, [
+      'read Noa 2026-10-17..2026-10-18 30000',
+      'send Noa summary',
+      'mark Noa daily 2026-10-17',
+    ], 'the run');
+    assert(readsOf('Pia').length === 0 && textOf('Pia').length === 0 && voiceOf('Pia').length === 0 && promptsOf('Pia').length === 0, `Pia: ${readsOf('Pia').length} reads, ${textOf('Pia').length} texts, ${voiceOf('Pia').length} voices, ${promptsOf('Pia').length} prompts`);
+    assert(voiceOf('Noa').length === 1, 'the control has her voice note');
+    assert(!store.has('summary:dedup:daily:18:2026-10-17'), 'no dedup mark for the paused summary');
+    assertList(pauseLines, ['[pause] skipped daily summary for 18'], 'logged');
+    assert(shabbatMorning.processed === 1 && shabbatMorning.skippedPause === 1, `counts ${JSON.stringify(shabbatMorning)}`);
+  });
+
+  await check('pause: Friday 19:00 (tomorrow summary) is inside Shabbat and Saturday 19:00 is after it: the first is skipped, the second is sent; and the switch off sends on Friday too', async () => {
+    reset([PIA], [[PIA, ['ok']]], il('2026-10-16 19:00:00'));
+    await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    const skipped = () => pauseLines.length;
+    assert(sent.length === 0 && voices.length === 0 && skipped() === 1, `Friday: ${sent.length} sent, ${skipped()} skipped`);
+    reset([PIA], [[PIA, ['ok']]], il('2026-10-17 19:00:00'));
+    await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    assert(textOf('Pia').length === 1 && voiceOf('Pia').length === 1 && skipped() === 0, `Saturday evening: ${textOf('Pia').length} texts, ${voiceOf('Pia').length} voices, ${skipped()} skipped`);
+    const off = { ...PIA, pauseOnShabbat: false } as UserConfig;
+    reset([off], [[off, ['ok']]], il('2026-10-16 19:00:00'));
+    await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    assert(textOf('Pia').length === 1 && skipped() === 0, `switch off on Friday: ${textOf('Pia').length} texts`);
+  });
+
+  await check('pause: Yom Tov pauses a weekday summary (the second day of Rosh Hashana, Sunday 13 September 2026, 07:00) and the day after sends', async () => {
+    reset([PIA], [[PIA, ['ok']]], il('2026-09-13 07:00:00'));
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    const skippedOnYomTov = () => pauseLines.length;
+    assert(sent.length === 0 && skippedOnYomTov() === 1, `Rosh Hashana: ${sent.length} sent, ${skippedOnYomTov()} skipped`);
+    reset([PIA], [[PIA, ['ok']]], il('2026-09-14 07:00:00'));
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    assert(textOf('Pia').length === 1 && skippedOnYomTov() === 0, `the day after: ${textOf('Pia').length} texts`);
+  });
+
+  await check('pause: a summary set aside for the Google retry is paused too when the wait carries the retry into Shabbat (Friday 12 February 2027: candle lighting 17:07; first attempt 17:00, the failed read ends at 17:07, the retry at 17:07:30): nothing is sent or marked, and it is counted', async () => {
+    const early = { ...PIA, preferredEveningHour: 17 } as UserConfig;
+    reset([early], [[early, ['fail', 'ok']]], il('2027-02-12 17:00:00'));
+    readMs = 7 * 60_000;
+    const result = await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    assert(sleeps.length === 1 && readsOf('Pia').length === 1, `the first read failed and the retry waited: ${sleeps.length} sleeps, ${readsOf('Pia').length} reads`);
+    assert(sent.length === 0 && voices.length === 0 && store.size === 0, `sent ${sent.length}, voices ${voices.length}, marks ${[...store.keys()]}`);
+    assert(result.processed === 0 && result.skippedPause === 1 && pauseLines.join('|') === '[pause] skipped tomorrow summary for 18', `counts ${JSON.stringify(result)} ${pauseLines.join('|')}`);
+    // The same retry with the switch off sends
+    const off = { ...early, pauseOnShabbat: false } as UserConfig;
+    reset([off], [[off, ['fail', 'ok']]], il('2027-02-12 17:00:00'));
+    readMs = 7 * 60_000;
+    await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    assert(textOf('Pia').length === 1, `switch off: ${textOf('Pia').length} texts`);
+  });
+
+  await check('pause: a person with no calendars who gets the weather alone is paused before anything is fetched (the weather-only path is inside the same check)', async () => {
+    const weatherOnly = (over: Record<string, unknown>) => google(19, 'Wren', { calendarAssignments: [], weatherEnabled: true, location: 'Haifa', ...over });
+    const paused = weatherOnly({ pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754 });
+    reset([paused], [], il('2026-10-17 07:00:00'));
+    networkAttempts.length = 0;
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    assert(networkAttempts.length === 0 && pauseLines.length === 1 && !captured.some(c => c.context === 'summary-weather-only'), `paused: ${networkAttempts.length} requests, ${pauseLines.join('|')}`);
+    // The control: the same person with the switch off is taken to the weather, which the smoke blocks
+    const free = weatherOnly({ pauseOnShabbat: false });
+    reset([free], [], il('2026-10-17 07:00:00'));
+    networkAttempts.length = 0;
+    await summary.sendDailySummaryToAll({ filterByHour: true });
+    assert(networkAttempts.length > 0 && captured.some(c => c.context === 'summary-weather-only'), `switch off: ${networkAttempts.length} requests, ${captured.map(c => c.context).join()}`);
+    networkAttempts.length = 0;
   });
 
   await check('nothing above reached the network or sent an admin error notice', () => {
