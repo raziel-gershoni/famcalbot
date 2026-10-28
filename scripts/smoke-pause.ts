@@ -214,6 +214,7 @@ installStubs();
 const pause = require('../src/services/zmanim/pause') as Pause;
 const windows = require('../src/services/zmanim/pause-windows') as Windows;
 const hebcal = require('@hebcal/core') as Hebcal;
+const compute = require('../src/services/zmanim/compute') as { shabbatYomTovWindows: (range: { from: Date; to: Date }, place: { latitude: number; longitude: number; elevationM: number | null; timeZone: string }, community: string) => Array<[Date, Date]> };
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // ---- The audit of every send ----
@@ -394,6 +395,26 @@ async function runChecks(): Promise<void> {
     assert(requestsFor() === 1 && dbUsers.get(10)!.latitude === 32.46182 && dbUsers.get(10)!.elevationM === 290, `filled once: ${requestsFor()} lookups, row ${show(dbUsers.get(10))}`);
     windows.__resetPauseForTests();
     assert(await pause.isPaused(user, at('2026-10-17T09:00:00.000Z')) === true && requestsFor() === 1, 'the next computation does not look the place up again');
+  });
+
+  await check('a place in Israel saved without a height: the windows are counted at sea level for at most an hour, the height is looked up in the background, and once it is found the next count uses it (a Saturday-evening minute that the sea-level end let out is paused again, though the first count was the same UTC day)', async () => {
+    resetWorld();
+    const harish = { latitude: 32.46182, longitude: 35.04555 };
+    const SATURDAY_NOON = '2026-10-31T10:00:00.000Z';
+    const endOf = (elevationM: number | null) => compute.shabbatYomTovWindows({ from: at('2026-10-30T00:00:00.000Z'), to: at('2026-10-31T23:59:00.000Z') }, { ...harish, elevationM, timeZone: 'Asia/Jerusalem' }, 'sephardi')[0][1];
+    const endSea = endOf(null), endHigh = endOf(290);
+    assert(endHigh.getTime() - endSea.getTime() >= 90_000, `the height should move the end: ${endSea.toISOString()} ${endHigh.toISOString()}`);
+    dbUsers.set(41, { id: 41, location: 'Harish, Israel', ...harish, elevationM: null });
+    const user = person(41, 'Asia/Jerusalem', { ...harish, elevationM: null }, { location: 'Harish, Israel' });
+    assert(await pause.isPaused(user, at(SATURDAY_NOON)) === true, 'paused at noon');
+    // The first count (above) was at sea level, and started the lookup of the height.
+    const minuteAfterSeaEnd = new Date(endSea.getTime() + 60_000);
+    const state = (globalThis as unknown as { __zmanimPlaceFill: { running: Map<string, Promise<unknown>> } }).__zmanimPlaceFill;
+    await state.running.get('41|Harish, Israel');
+    assert(dbUsers.get(41)!.elevationM === 290 && requests.filter(r => r.includes('/v1/elevation')).length === 1, `the height was looked up once and saved: ${show(dbUsers.get(41))}`);
+    // The same stale row, an hour and a minute after the first count (the same UTC day): counted again, with the height.
+    assert(Date.parse(SATURDAY_NOON) + 60 * 60_000 < minuteAfterSeaEnd.getTime() && minuteAfterSeaEnd.getTime() < endHigh.getTime(), 'the minutes are in order, more than an hour after the first count');
+    assert(await pause.isPaused(user, minuteAfterSeaEnd) === true, 'with the height found, the minute the sea-level end let out is paused again');
   });
 
   await check('no usable location: a person with no place at all, or a place the lookup does not find, is paused by the main city of their timezone (Asia/Jerusalem gives Jerusalem), and the fallback is logged once a day per person', async () => {

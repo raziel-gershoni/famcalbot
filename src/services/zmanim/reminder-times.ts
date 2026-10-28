@@ -19,7 +19,7 @@
  * not count the same zman again, and a zman that does not exist that day is logged once, not once a tick.
  */
 
-import { ensureUserCoordinates, placeOf, type PlaceUser } from './place';
+import { ensureUserCoordinates, placeWithHeightRetry, type PlaceUser } from './place';
 import { mainCityPlace } from './pause-windows';
 import { zmanInstant, type Place } from './compute';
 import { communityCounting, isZmanKey, zmanimSet, type ZmanimCommunity } from './sets';
@@ -50,10 +50,15 @@ function placeUserOf(user: ZmanUser): PlaceUser {
   };
 }
 
-/** Where to count the person's zmanim, and whether that is their own place; null where there is no place at all. */
-async function placeFor(user: ZmanUser, zone: string): Promise<{ place: Place; source: 'saved' | 'zone' } | null> {
-  const coordinates = await ensureUserCoordinates(placeUserOf(user));
-  const own = coordinates ? placeOf(coordinates, zone) : null;
+/**
+ * Where to count the person's zmanim, and whether that is their own place; null where there is no place at all.
+ * `background`: a place name with no coordinates is looked up without being waited for, and the zone's main city
+ * stands in for this one call (the editor's info, which must not be held up by it).
+ */
+async function placeFor(user: ZmanUser, zone: string, background = false): Promise<{ place: Place; source: 'saved' | 'zone' } | null> {
+  const placeUser = placeUserOf(user);
+  const coordinates = await ensureUserCoordinates(placeUser, { background });
+  const own = coordinates ? placeWithHeightRetry(placeUser, coordinates, zone) : null;
   if (own) return { place: own, source: 'saved' };
   const city = mainCityPlace(zone);
   if (!city) {
@@ -107,7 +112,8 @@ export async function buildZmanClock(user: ZmanUser, zone: string): Promise<Zman
 export async function zmanEditorInfo(user: ZmanUser, zone: string, today: string): Promise<ZmanimInfo> {
   const community = communityOfUser(user);
   const set = zmanimSet(community);
-  const found = await placeFor(user, zone);
+  // Not waited for: a person whose place is still to be looked up gets the zone's main city for this load (the next one has theirs).
+  const found = await placeFor(user, zone, true);
   const at = (spec: ZmanSpecValue) => (found ? (instantAt(found.place, community, today, spec)?.toISOString() ?? null) : null);
   return {
     community,

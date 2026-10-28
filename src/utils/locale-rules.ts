@@ -29,6 +29,11 @@ export type LocaleFacts = { culture?: string; language?: string; tz: string; tzK
 /** Israel's zone and its old spellings, compared as given. */
 export const ISRAEL_ZONES: ReadonlySet<string> = new Set(['Asia/Jerusalem', 'Asia/Tel_Aviv', 'Israel']);
 
+/** Whether the person is in Israel, by their zone: the same list the week start and Hebrew dates use. */
+export function inIsrael(timeZone: string): boolean {
+  return ISRAEL_ZONES.has(timeZone);
+}
+
 /**
  * Whether the user's timezone comes from them (a location, or Google's settings) rather
  * than the Asia/Jerusalem fallback. resolveUserTimezone caches the fallback like a real

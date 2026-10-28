@@ -4,8 +4,11 @@
  * Plan: docs/superpowers/plans/2026-10-28-zmanim-reminders.md (Task 1).
  *
  *   saveUserPlace          the one writer of User.latitude / longitude / elevationM (a saved location,
- *                          and the lazy fill, both go through it)
- *   ensureUserCoordinates  the lazy fill: once per person and place, logged
+ *                          the lazy fill and the height's retry all go through it); a saved place wakes the
+ *                          native reminders' due gate, because every time counted from it has moved
+ *   ensureUserCoordinates  the lazy fill: once per person and place, logged (`background`: started, not waited for)
+ *   retryMissingElevation  a place in Israel saved without a height (its request failed) is looked up again in
+ *                          the background, at most once an hour
  *   getUserPlace           a Place for compute.ts: coordinates (filled if need be) + the person's zone
  *
  * The elevation is the highest point in the place (Rav Ovadia's rule): a 5 x 5 grid over the
@@ -22,6 +25,8 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { LOOKUP_TIMEOUT_MS, TIMEZONE_CACHE_TTL, resolveLocation, resolveUserTimezone, type BoundingBox } from '../../lib/timezone';
 import { fetchWithTimeout } from '../weather/geocoding';
+import { invalidateDueGate } from '../native-reminders/due-gate';
+import { inIsrael } from '../../utils/locale-rules';
 import type { Place } from './compute';
 
 /** The grid is this many points on a side: 5 x 5 = 25, well under Open-Meteo's 100 per request. */
@@ -141,6 +146,9 @@ export async function saveUserPlace(userId: number, location: string): Promise<S
     return null;
   }
   console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)`);
+  // Every zman time counted from this place has moved: the due gate holds the earliest due time of the old one for up to
+  // an hour, so a reminder whose new time is earlier would wait for it.
+  invalidateDueGate();
 
   if (resolved.timezone) await redis.set(REDIS_KEYS.userTimezone(userId), resolved.timezone, { ex: TIMEZONE_CACHE_TTL });
   return { latitude: resolved.latitude, longitude: resolved.longitude, elevationM, timeZone: resolved.timezone };
@@ -165,30 +173,19 @@ interface FillState {
 const shared = globalThis as { __zmanimPlaceFill?: FillState };
 const fills: FillState = (shared.__zmanimPlaceFill ??= { running: new Map(), filled: new Map(), failedAt: new Map() });
 
+/** What the lookups give a place: its coordinates and highest ground (null where that request failed). */
+type FilledPlace = Coordinates & { elevationM: number | null };
+
+/** The key of a person and their place name in the lazy fills (a row from a cache that predates the columns may lack the name). */
+const fillKey = (user: Pick<PlaceUser, 'id' | 'location'>): string => `${user.id}|${(user.location ?? '').trim()}`;
+
 /**
- * The user's coordinates and highest ground: the saved ones, else (a place name and none of
- * these) filled now, once: the lookup is saved in the database, remembered for the process, and
- * logged. Null for a user with no place name, or whose place the lookup does not find (tried
- * again after an hour). Never throws: a failure is logged and reads as no place.
+ * Starts the lookup that saves `location` on the user (saveUserPlace), shared by every caller that needs it: one at a
+ * time per person and place, its outcome remembered for the process. A place saved without a height is also marked as
+ * tried, so the height's retry (retryMissingElevation) waits an hour after a lookup that has just failed to find it.
  */
-export async function ensureUserCoordinates(user: PlaceUser): Promise<(Coordinates & { elevationM: number | null }) | null> {
-  // typeof, not !== null: a user read from a cache that predates these columns has them undefined.
-  if (hasCoordinates(user)) {
-    return { latitude: user.latitude, longitude: user.longitude, elevationM: typeof user.elevationM === 'number' ? user.elevationM : null };
-  }
-  const location = user.location.trim();
-  if (location === '') return null;
-
-  const key = `${user.id}|${location}`;
-  const known = fills.filled.get(key);
-  if (known) return known;
-  const failedAt = fills.failedAt.get(key);
-  if (failedAt !== undefined && performance.now() - failedAt < RETRY_AFTER_MS) return null;
-  const running = fills.running.get(key);
-  if (running) return running;
-
-  console.log(`[zmanim] user ${user.id} has a place name and no coordinates: filling them in, once`);
-  const fill = saveUserPlace(user.id, location)
+function startFill(userId: number, location: string, key: string): Promise<FilledPlace | null> {
+  const fill = saveUserPlace(userId, location)
     .then(saved => {
       if (!saved) {
         fills.failedAt.set(key, performance.now());
@@ -196,10 +193,11 @@ export async function ensureUserCoordinates(user: PlaceUser): Promise<(Coordinat
       }
       const place = { latitude: saved.latitude, longitude: saved.longitude, elevationM: saved.elevationM };
       fills.filled.set(key, place);
+      if (place.elevationM === null) fills.failedAt.set(key, performance.now());
       return place;
     })
     .catch(error => {
-      captureError(error, 'zmanim-place-fill', { service: 'zmanim', user_id: user.id }, 'warning');
+      captureError(error, 'zmanim-place-fill', { service: 'zmanim', user_id: userId }, 'warning');
       fills.failedAt.set(key, performance.now());
       return null;
     })
@@ -210,10 +208,71 @@ export async function ensureUserCoordinates(user: PlaceUser): Promise<(Coordinat
   return fill;
 }
 
+/**
+ * The user's coordinates and highest ground: the saved ones, else (a place name and none of
+ * these) filled now, once: the lookup is saved in the database, remembered for the process, and
+ * logged. Null for a user with no place name, or whose place the lookup does not find (tried
+ * again after an hour). Never throws: a failure is logged and reads as no place.
+ *
+ * `background`: a lookup this call would have to wait for is started (or joined) and the answer is null at once, for a
+ * caller that has a stand-in for this one time and must not be held up for up to three 3 s requests (the editor's info).
+ */
+export async function ensureUserCoordinates(user: PlaceUser, options: { background?: boolean } = {}): Promise<FilledPlace | null> {
+  const key = fillKey(user);
+  // typeof, not !== null: a user read from a cache that predates these columns has them undefined.
+  if (hasCoordinates(user)) {
+    const own = { latitude: user.latitude, longitude: user.longitude, elevationM: typeof user.elevationM === 'number' ? user.elevationM : null };
+    // A height the row lacks may have been found since the caller read it (retryMissingElevation).
+    return own.elevationM === null ? (fills.filled.get(key) ?? own) : own;
+  }
+  const location = (user.location ?? '').trim();
+  if (location === '') return null;
+
+  const known = fills.filled.get(key);
+  if (known) return known;
+  const failedAt = fills.failedAt.get(key);
+  if (failedAt !== undefined && performance.now() - failedAt < RETRY_AFTER_MS) return null;
+  const running = fills.running.get(key);
+  if (running) return options.background ? null : running;
+
+  console.log(`[zmanim] user ${user.id} has a place name and no coordinates: filling them in, once`);
+  const fill = startFill(user.id, location, key);
+  return options.background ? null : fill;
+}
+
+/**
+ * A place saved in Israel without a height (the elevation request failed when it was saved) is looked up again, in the
+ * background and at most once an hour per person and place: the Sephardi times and the pause's windows there are cut at
+ * the elevation, so a missing height is a few minutes off for good otherwise. Nothing waits for it, and nothing is asked
+ * where the height is not used (abroad, sea level), where the row has it, or for a person with no place name. The height
+ * found is saved (saveUserPlace) and read by callers still holding the row as they read it (ensureUserCoordinates).
+ */
+export function retryMissingElevation(user: PlaceUser, zone: string): void {
+  if (!inIsrael(zone) || !hasCoordinates(user) || typeof user.elevationM === 'number') return;
+  const location = (user.location ?? '').trim();
+  if (location === '') return;
+  const key = fillKey(user);
+  if (typeof fills.filled.get(key)?.elevationM === 'number' || fills.running.has(key)) return;
+  const failedAt = fills.failedAt.get(key);
+  if (failedAt !== undefined && performance.now() - failedAt < RETRY_AFTER_MS) return;
+  console.log(`[zmanim] user ${user.id} has a place in Israel and no height: looking it up again, in the background`);
+  void startFill(user.id, location, key);
+}
+
 /** A Place from a user's saved coordinates and a zone, or null where the user has no coordinates. */
 export function placeOf(user: Pick<PlaceUser, 'latitude' | 'longitude' | 'elevationM'>, timeZone: string): Place | null {
   if (!hasCoordinates(user)) return null;
   return { latitude: user.latitude, longitude: user.longitude, elevationM: typeof user.elevationM === 'number' ? user.elevationM : null, timeZone };
+}
+
+/**
+ * The Place of a user whose coordinates `ensureUserCoordinates` found, in their zone: with no height in Israel the place
+ * is used as it is now and the height is looked up again in the background (retryMissingElevation). The one way a caller
+ * turns those coordinates into a Place.
+ */
+export function placeWithHeightRetry(user: PlaceUser, coordinates: FilledPlace, timeZone: string): Place | null {
+  if (coordinates.elevationM === null) retryMissingElevation(user, timeZone);
+  return placeOf(coordinates, timeZone);
 }
 
 /**
@@ -225,5 +284,5 @@ export function placeOf(user: Pick<PlaceUser, 'latitude' | 'longitude' | 'elevat
 export async function getUserPlace(user: PlaceUser): Promise<Place | null> {
   const coordinates = await ensureUserCoordinates(user);
   if (!coordinates) return null;
-  return placeOf(coordinates, await resolveUserTimezone(user));
+  return placeWithHeightRetry(user, coordinates, await resolveUserTimezone(user));
 }

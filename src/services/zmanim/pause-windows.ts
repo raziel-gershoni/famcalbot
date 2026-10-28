@@ -19,6 +19,7 @@ import { Location } from '@hebcal/core';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { DEFAULT_COMMUNITY, isCommunity, type ZmanimCommunity } from './sets';
 import { shabbatYomTovWindows, type Place } from './compute';
+import { inIsrael } from '../../utils/locale-rules';
 import { getUserPlace, type PlaceUser } from './place';
 import type { PauseUser } from './pause';
 
@@ -110,6 +111,9 @@ async function compute(user: PauseUser, at: Date, community: ZmanimCommunity, da
   const endOfDay = (day + 1) * DAY_MS;
   let place = await getUserPlace(placeUser);
   let until = endOfDay;
+  // A place in Israel with no height is being looked up again (getUserPlace): the windows are counted again within the
+  // hour, with the height if it was found, instead of holding the sea-level ones for the day.
+  if (place && place.elevationM === null && inIsrael(place.timeZone)) until = Math.min(endOfDay, at.getTime() + HOUR_MS);
   if (!place) {
     const zone = await resolveUserTimezone(placeUser);
     place = mainCityPlace(zone);

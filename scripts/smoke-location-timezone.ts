@@ -310,6 +310,32 @@ async function main() {
     assert(syncs() === 1, `a place not found syncs nothing more: ${show(cacheSyncs)}`);
   });
 
+  await check('(a) a changed location wakes the native reminders\' due gate once the lookup has saved the place (the gate holds the old place\'s earliest due time for up to an hour), not before, and not when the lookup finds nothing', async () => {
+    const gate = nodeRequire(path.join(ROOT, 'src/services/native-reminders/due-gate.ts')) as {
+      setNextDue: (next: Date | null, now: Date) => void; shouldRunPass: (now: Date) => boolean; __resetDueGateForTests: () => void;
+    };
+    const now = new Date();
+    const closeGate = () => { gate.__resetDueGateForTests(); gate.setNextDue(new Date(now.getTime() + 60 * 60 * 1000), now); assert(!gate.shouldRunPass(now), 'the gate is closed'); };
+    seed();
+    closeGate();
+    await save({ location: 'New York' });
+    assert(!gate.shouldRunPass(now), 'woken by the save itself, before the place is known');
+    closeGate();
+    await save({ location: 'New York ' });
+    assert(!gate.shouldRunPass(now), 'woken by a save that changed nothing');
+    seed();
+    closeGate();
+    await save({ location: 'New York' });
+    await drainAfter();
+    assert(gate.shouldRunPass(now), 'the gate stayed closed after the place was saved');
+    seed();
+    closeGate();
+    await save({ location: 'Nowhere At All' });
+    await drainAfter();
+    assert(!gate.shouldRunPass(now), 'a place that was not found moved nothing, yet the gate was woken');
+    gate.__resetDueGateForTests();
+  });
+
   await check('(a) the lookup: one Nominatim, one Open-Meteo zone and one Open-Meteo elevation request, each with a 3 s timeout and no retries, no geocode cache', async () => {
     seed();
     await save({ location: 'New York' });

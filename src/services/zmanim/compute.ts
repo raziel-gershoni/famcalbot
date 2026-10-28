@@ -18,7 +18,7 @@
 
 import { GeoLocation, HDate, HebrewCalendar, Zmanim, flags } from '@hebcal/core';
 import { addDaysToDate, localDate } from '../../utils/day-events';
-import { ISRAEL_ZONES } from '../../utils/locale-rules';
+import { inIsrael } from '../../utils/locale-rules';
 import { zmanimOfSet, zmanimSet, type Frame, type Round, type Rule, type ZmanKey, type ZmanimCommunity, type ZmanimSet } from './sets';
 
 /** Where a person is. `elevationM` null = not known: read as sea level. `timeZone` is their IANA zone. */
@@ -41,10 +41,8 @@ const DAY_KEY = /^(\d{4})-(\d{2})-(\d{2})$/;
 /** Rata Die (hebcal's absolute day number) of 1970-01-01. */
 const RD_OF_UNIX_EPOCH = 719_163;
 
-/** Whether the person is in Israel: the same zone list the week start and Hebrew dates use. */
-export function inIsrael(timeZone: string): boolean {
-  return ISRAEL_ZONES.has(timeZone);
-}
+// Whether the person is in Israel (utils/locale-rules.ts, light: place.ts asks it too, without loading hebcal).
+export { inIsrael };
 
 /** hebcal's day for a civil date, built from its day number so no local-field Date is involved. */
 function hdateOf(day: string): HDate {

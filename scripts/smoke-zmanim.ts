@@ -777,9 +777,18 @@ async function runChecks(): Promise<void> {
   const place = require('../src/services/zmanim/place') as { // eslint-disable-line @typescript-eslint/no-require-imports
     elevationGrid: (centre: { latitude: number; longitude: number }, box: [number, number, number, number] | null) => Array<{ latitude: number; longitude: number }>;
     saveUserPlace: (userId: number, location: string) => Promise<{ latitude: number; longitude: number; elevationM: number | null; timeZone: string | null } | null>;
-    ensureUserCoordinates: (user: PlaceUserRow) => Promise<{ latitude: number; longitude: number; elevationM: number | null } | null>;
+    ensureUserCoordinates: (user: PlaceUserRow, options?: { background?: boolean }) => Promise<{ latitude: number; longitude: number; elevationM: number | null } | null>;
+    retryMissingElevation: (user: PlaceUserRow, zone: string) => void;
     getUserPlace: (user: PlaceUserRow) => Promise<Place | null>;
     placeOf: (user: { latitude: number | null; longitude: number | null; elevationM: number | null }, zone: string) => Place | null;
+  };
+  const gate = require('../src/services/native-reminders/due-gate') as { // eslint-disable-line @typescript-eslint/no-require-imports
+    setNextDue: (next: Date | null, now: Date) => void;
+    shouldRunPass: (now: Date) => boolean;
+    __resetDueGateForTests: () => void;
+  };
+  const reminderTimes = require('../src/services/zmanim/reminder-times') as { // eslint-disable-line @typescript-eslint/no-require-imports
+    zmanEditorInfo: (user: never, zone: string, today: string) => Promise<{ place: string; zmanim: Array<{ key: string; at: string | null }> }>;
   };
   type PlaceUserRow = { id: number; location: string; latitude: number | null; longitude: number | null; elevationM: number | null };
   const userRow = (id: number, location: string, extra: Row = {}): PlaceUserRow => {
@@ -919,6 +928,131 @@ async function runChecks(): Promise<void> {
     state.failedAt.set('22|Atlantis', performance.now() - 61 * 60 * 1000);
     answers.nominatim = () => json([{ lat: '32.46182', lon: '35.04555', boundingbox: HARISH_BOX }]);
     assert(await place.ensureUserCoordinates({ ...lost }) !== null, 'looked up again after an hour');
+  });
+
+  // ---- The due gate, the height that failed once, and a lookup nobody waits for (review of the zmanim branch, findings 3, 4 and 5) ----
+
+  const fillState = () => (globalThis as unknown as { __zmanimPlaceFill: { running: Map<string, Promise<unknown>>; filled: Map<string, unknown>; failedAt: Map<string, number> } }).__zmanimPlaceFill;
+  /** Lets every pending microtask run: what is still waiting after this is waiting on something else (a held lookup). */
+  const settleMicrotasks = () => new Promise<void>(resolve => setImmediate(resolve));
+  /** The background lookup of `id|location` has finished (nothing to wait for when none is running). */
+  const backgroundDone = async (id: number, location: string) => { await fillState().running.get(`${id}|${location}`); await settleMicrotasks(); };
+
+  await check('a saved place wakes the native reminders\' due gate, so a time that moved is not kept waiting on the memo of the old place (up to an hour); a lookup that finds nothing does not', async () => {
+    resetWorld();
+    const now = new Date();
+    const closeGate = () => { gate.__resetDueGateForTests(); gate.setNextDue(new Date(now.getTime() + 60 * 60 * 1000), now); assert(!gate.shouldRunPass(now), 'the gate is closed'); };
+    closeGate();
+    userRow(7, 'Harish, Israel');
+    await place.saveUserPlace(7, 'Harish, Israel');
+    assert(gate.shouldRunPass(now), 'the pass runs on the next tick after the place was saved');
+    closeGate();
+    answers.nominatim = () => json([]);
+    userRow(8, 'Atlantis');
+    await logged(() => place.saveUserPlace(8, 'Atlantis'));
+    assert(!gate.shouldRunPass(now), 'a place that was not found moved nothing');
+    gate.__resetDueGateForTests();
+  });
+
+  await check('a place saved in Israel without a height (the elevation request failed) is looked up again in the background, at most once an hour: nobody waits for it, a second need while it runs or after a second failure within the hour asks nothing, and once it has the height the stale row reads it', async () => {
+    resetWorld();
+    answers.elevation = () => json({ error: true }, 503);
+    const stale = { ...userRow(41, 'Harish, Israel', { latitude: 32.46182, longitude: 35.04555 }) };
+    // The first need: the row has coordinates and no height, so it is answered at once as it is, and a lookup starts.
+    const first = await logged(async () => {
+      const got = await place.ensureUserCoordinates({ ...stale });
+      place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
+      return got;
+    });
+    assertSame(first.value, { latitude: 32.46182, longitude: 35.04555, elevationM: null }, 'answered at once, as the row is');
+    assert(first.lines.some(l => l.startsWith('[zmanim]') && l.includes('user 41') && l.includes('no height')), `logged: ${show(first.lines)}`);
+    place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem'); // while it runs
+    await backgroundDone(41, 'Harish, Israel');
+    assert(nRequests() === 3 && nWrites() === 1, `one lookup: ${nRequests()} requests, ${nWrites()} writes`);
+    // It failed again (503): nothing is asked again within the hour.
+    place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
+    await backgroundDone(41, 'Harish, Israel');
+    assert(nRequests() === 3, `asked again within the hour: ${nRequests()} requests`);
+    // An hour later, with the elevation answering: the height is found, saved, and read by a caller still holding the stale row.
+    fillState().failedAt.set('41|Harish, Israel', performance.now() - 61 * 60 * 1000);
+    seedAnswers();
+    place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
+    await backgroundDone(41, 'Harish, Israel');
+    assert(nRequests() === 6 && users.get(41)!.elevationM === 290, `retried after the hour: ${nRequests()} requests, stored ${show(users.get(41)!.elevationM)}`);
+    assertSame(await place.ensureUserCoordinates({ ...stale }), { latitude: 32.46182, longitude: 35.04555, elevationM: 290 }, 'the stale row reads the height');
+    place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
+    await backgroundDone(41, 'Harish, Israel');
+    assert(nRequests() === 6, 'with the height found it is never looked up again');
+  });
+
+  await check('the missing height is looked up again only where the height is used: not abroad (sea level there), not for a row that has it, not for a person with no place name', async () => {
+    resetWorld();
+    const abroad = userRow(51, 'New York', { latitude: 40.7, longitude: -74, elevationM: null });
+    place.retryMissingElevation({ ...abroad }, 'America/New_York');
+    const known = userRow(52, 'Harish, Israel', { latitude: 32.46182, longitude: 35.04555, elevationM: 290 });
+    place.retryMissingElevation({ ...known }, 'Asia/Jerusalem');
+    const nameless = userRow(53, '  ', { latitude: 32.46182, longitude: 35.04555, elevationM: null });
+    place.retryMissingElevation({ ...nameless }, 'Asia/Jerusalem');
+    const none = userRow(54, 'Harish, Israel');
+    place.retryMissingElevation({ ...none }, 'Asia/Jerusalem'); // no coordinates at all: the lazy fill's, not this one's
+    await settleMicrotasks();
+    assert(nRequests() === 0 && fillState().running.size === 0, `looked up: ${show(shape())}`);
+  });
+
+  await check('getUserPlace gives a Place with no height at once for a row in Israel that lacks it and looks the height up in the background; the pause\'s windows and the clock then read it', async () => {
+    resetWorld();
+    stubbed.redis.set('tz:user:61', 'Asia/Jerusalem');
+    const row = { ...userRow(61, 'Harish, Israel', { latitude: 32.46182, longitude: 35.04555 }) };
+    const got = await place.getUserPlace({ ...row });
+    assertSame(got, { latitude: 32.46182, longitude: 35.04555, elevationM: null, timeZone: 'Asia/Jerusalem' }, 'at once, with no height');
+    await backgroundDone(61, 'Harish, Israel');
+    assert(users.get(61)!.elevationM === 290, `looked up: ${show(users.get(61)!.elevationM)}`);
+    assert((await place.getUserPlace({ ...row }))?.elevationM === 290, 'then the same stale row reads 290 m');
+  });
+
+  await check('a lazy fill that a caller does not wait for (background): the caller is answered null at once and the lookup still runs and saves, once; the next need has the place', async () => {
+    resetWorld();
+    let release = () => {};
+    heldNominatim = new Promise<void>(resolve => { release = resolve; });
+    const row = { ...userRow(71, 'Harish, Israel') };
+    try {
+      const asked = place.ensureUserCoordinates({ ...row }, { background: true });
+      let answered = false;
+      void asked.then(() => { answered = true; });
+      await settleMicrotasks();
+      assert(answered, 'the caller was left waiting for the lookup');
+      assert((await asked) === null, 'null while it runs');
+      assert(nRequests() === 1 && fillState().running.size === 1, `the lookup started: ${nRequests()} request(s)`);
+      assert((await place.ensureUserCoordinates({ ...row }, { background: true })) === null && nRequests() === 1, 'a second need while it runs joins it');
+    } finally {
+      release();
+    }
+    await backgroundDone(71, 'Harish, Israel');
+    assert(nRequests() === 3 && nWrites() === 1 && users.get(71)!.latitude === 32.46182, `saved once: ${nRequests()} requests, ${nWrites()} writes`);
+    assertSame(await place.ensureUserCoordinates({ ...row }, { background: true }), { latitude: 32.46182, longitude: 35.04555, elevationM: 290 }, 'the next need has it');
+  });
+
+  await check('the editor\'s zmanim block does not wait for the lazy fill: for a person with a place name and no coordinates it answers at once with the zone\'s main city (place "zone"), and the fill still runs in the background; the next editor has their place', async () => {
+    resetWorld();
+    stubbed.redis.set('tz:user:81', 'Asia/Jerusalem');
+    let release = () => {};
+    heldNominatim = new Promise<void>(resolve => { release = resolve; });
+    const row = { ...userRow(81, 'Harish, Israel'), zmanimCommunity: 'sephardi', pauseOnShabbat: false };
+    try {
+      const asked = reminderTimes.zmanEditorInfo({ ...row } as never, 'Asia/Jerusalem', '2026-10-28');
+      let answered = false;
+      void asked.then(() => { answered = true; });
+      await settleMicrotasks();
+      assert(answered, 'the editor\'s info waited for the lookup');
+      const info = await asked;
+      assert(info.place === 'zone' && info.zmanim.every(z => z.at !== null), `answered from the main city: ${info.place}`);
+      assert(nRequests() === 1, 'and the fill has started');
+    } finally {
+      release();
+    }
+    await backgroundDone(81, 'Harish, Israel');
+    const next = await reminderTimes.zmanEditorInfo({ ...row } as never, 'Asia/Jerusalem', '2026-10-28');
+    assert(next.place === 'saved' && hm(new Date(next.zmanim.find(z => z.key === 'SOF_SHMA_GRA')!.at!)) === '08:37', `the next editor: ${next.place}`);
   });
 
   await check('getUserPlace: the user\'s coordinates (filled once if need be) with their zone from resolveUserTimezone, null with none to be had; placeOf builds a Place from saved ones', async () => {
