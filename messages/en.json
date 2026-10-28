@@ -1336,6 +1336,7 @@
       "createEvent": "Create event?",
       "createButton": "✅ Create",
       "cancelButton": "❌ Cancel",
+      "zmanChoose": "Choose a time",
       "voiceError": "Sorry, could not process your voice message. Please try again.",
       "voiceLowConf": "🤔 I'm not confident I understood. Could you try again?",
       "bulkUseTelegram": "📋 I heard multiple events but I'm not fully confident on all of them. For mixed batches please dictate them on Telegram, or one at a time here.",

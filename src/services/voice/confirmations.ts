@@ -564,18 +564,27 @@ async function zmanNotes(event: ParsedEvent, view: ZmanView | null, language: st
 }
 
 /**
- * The buttons of a reminder whose opinion is still to choose, in the set's order: "<opinion> · <hh:mm>", with the day
- * word (today, tomorrow or the date) before the time when that choice's day is not the card's.
+ * When each opinion of a reminder whose opinion is still to choose is due, in the set's order: the time, with the day
+ * word (today, tomorrow or the date) before it when that choice's day is not the card's ("tomorrow 08:27"). Empty
+ * where that opinion has no time at the recipient's place.
  */
-export async function zmanChoiceLabels(event: ParsedEvent, view: ZmanView, language: string, timezone: string): Promise<string[]> {
+export async function zmanChoiceWhens(event: ParsedEvent, view: ZmanView, language: string, timezone: string): Promise<string[]> {
   const cardDay = localDate(event.startTime, timezone);
   return Promise.all((view.choices ?? []).map(async (choice) => {
     const dayWord = choice.day === cardDay
       ? null
       : await formatReminderRelativeWhen({ startTime: startOfLocalDay(choice.day, timezone), allDay: true }, language, timezone);
-    const tail = [dayWord, choice.time].filter(Boolean).join(' ');
-    return tail ? `${choice.name} · ${tail}` : choice.name;
+    return [dayWord, choice.time].filter(Boolean).join(' ');
   }));
+}
+
+/**
+ * The buttons of a reminder whose opinion is still to choose, in the set's order: "<opinion> · <hh:mm>", with the day
+ * word (today, tomorrow or the date) before the time when that choice's day is not the card's.
+ */
+export async function zmanChoiceLabels(event: ParsedEvent, view: ZmanView, language: string, timezone: string): Promise<string[]> {
+  const whens = await zmanChoiceWhens(event, view, language, timezone);
+  return (view.choices ?? []).map((choice, i) => (whens[i] ? `${choice.name} · ${whens[i]}` : choice.name));
 }
 
 /**

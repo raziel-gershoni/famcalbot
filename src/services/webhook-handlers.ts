@@ -1053,6 +1053,16 @@ export async function handleWhatsAppWebhook(
   res.status(200).json({ ok: true });
 }
 
+/** WhatsApp's limits on a list row: its title and its description, in characters. */
+const WHATSAPP_ROW_TITLE_MAX = 24;
+const WHATSAPP_ROW_DESCRIPTION_MAX = 72;
+
+/** Text cut to fit WhatsApp's limit, ending in "…" where it was cut. */
+function clipForWhatsApp(text: string, max: number): string {
+  const characters = [...text];
+  return characters.length <= max ? text : `${characters.slice(0, max - 1).join('')}…`;
+}
+
 /**
  * Handle WhatsApp voice message for event creation
  */
@@ -1344,28 +1354,41 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         : wa.createButton || '✅ Create';
 
       // A reminder by zman whose opinion was unsaid: one reply button per opinion (named alone, WhatsApp's 20
-      // characters; the card body has each one's time) in place of Create. At most 3 buttons: 2 opinions and Cancel.
+      // characters; the card body has each one's time) in place of Create. WhatsApp has at most 3 reply buttons, so with
+      // 3 or more opinions the same card goes as a list: a row per opinion (its name, and its time as the description),
+      // then Cancel. A tap on a row arrives as its id, like a button's.
       const { reminderZman } = await import('./native-reminders/zman-view');
       const choiceView = reminder && pendingEvent.allDay && pendingEvent.zmanChoices?.length
         ? await reminderZman(pendingEvent, user, user.language || 'en', timezone)
         : null;
-      if (choiceView?.choices && choiceView.choices.length > 2) {
-        throw new Error(`[zman-voice] ${choiceView.choices.length} opinions do not fit WhatsApp's three reply buttons`);
-      }
-      const buttons = choiceView?.choices
-        ? [
-            ...choiceView.choices.map((c) => ({ id: `event_pick:${c.index}:${pendingId}`, title: c.name })),
-            { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
-          ]
-        : [
-            { id: `event_create:${pendingId}`, title: createTitle },
-            { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
-          ];
+      const cancel = { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' };
+      const cardText = `${card}\n\n_"${transcription}"_`;
 
-      await waService.sendMessage(phone,
-        `${card}\n\n_"${transcription}"_`,
-        { whatsappButtons: buttons }
-      );
+      if (choiceView?.choices && choiceView.choices.length > 2) {
+        const { zmanChoiceWhens } = await import('./voice/confirmations');
+        const whens = await zmanChoiceWhens(pendingEvent, choiceView, user.language || 'en', timezone);
+        await waService.sendMessage(phone, cardText, {
+          whatsappList: {
+            buttonText: wa.zmanChoose,
+            sections: [{
+              title: t.nativeReminders.zman.whichOpinion,
+              rows: [
+                ...choiceView.choices.map((c, i) => ({
+                  id: `event_pick:${c.index}:${pendingId}`,
+                  title: clipForWhatsApp(c.name, WHATSAPP_ROW_TITLE_MAX),
+                  ...(whens[i] ? { description: clipForWhatsApp(whens[i], WHATSAPP_ROW_DESCRIPTION_MAX) } : {}),
+                })),
+                { id: cancel.id, title: clipForWhatsApp(cancel.title, WHATSAPP_ROW_TITLE_MAX) },
+              ],
+            }],
+          },
+        });
+      } else {
+        const buttons = choiceView?.choices
+          ? [...choiceView.choices.map((c) => ({ id: `event_pick:${c.index}:${pendingId}`, title: c.name })), cancel]
+          : [{ id: `event_create:${pendingId}`, title: createTitle }, cancel];
+        await waService.sendMessage(phone, cardText, { whatsappButtons: buttons });
+      }
       await askAboutReminders();
     } else if (reminderFailures.length > 0) {
       // A reminder anchored to an event that couldn't be found asks for a time instead
