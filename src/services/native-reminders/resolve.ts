@@ -21,7 +21,9 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { sameZmanSpec, type ZmanOpinion, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
 import { communityOfUser, readZmanFromModel, zmanKeyOpinion, zmanNameOfKey, type ModelZman, type ZmanRefusal } from '../zmanim/spec';
 import { zmanimSet, type ZmanKey } from '../zmanim/sets';
-import { zmanClockFor, type ZmanClock, type ZmanUser } from '../zmanim/reminder-clock';
+import { candleLightingDaysFor, zmanClockFor, type ZmanClock, type ZmanUser } from '../zmanim/reminder-clock';
+import { buildRecurrenceRule } from '../calendar';
+import { occurrenceDays } from '../native-calendar/recurrence';
 import { isPaused } from '../zmanim/pause';
 import { ARMED_GRACE_MS, dueAtForOccurrence, zmanDueForOccurrence, type ZmanRule } from './due';
 import { getActivePartnerSummary } from './ownership';
@@ -233,21 +235,53 @@ export function zmanTimeOn(day: string, spec: ZmanSpecValue, timing: ZmanTiming,
   return zmanDueForOccurrence({ startsAt: startOfLocalDay(day, timezone), allDay: true, timeZone: timezone }, { spec, clock: timing.clock }) ?? null;
 }
 
+/** How far ahead the days a reminder can start on are looked for: past any gap between two eves, or two occurrences of a rule that skips weeks. */
+const START_SPAN_DAYS = 400;
+/** The days after the first one a repeat is tried on for a time still ahead (a rule whose time does not exist on some days). */
+const START_TRIES = 10;
+/** The days from today a candle lighting is looked for (an eve is never more than a week away). */
+const EVE_SPAN_DAYS = 15;
+
 /**
- * The day a rule is created on, and its time that day. A said day is kept. Otherwise the next time that has not
- * passed: today if the time is still ahead, else tomorrow. With neither (the sun does not make it), today with no time.
+ * The days a reminder by zman can start on, in order, from `from` (a civil day in the creator's zone): the days its
+ * repeat has an occurrence on (the store's own rrule expansion), else the days that have the zman (candle lighting:
+ * the eves, from the pause's own windows), else every day. Never a day the series would not fire on, so the card and
+ * the reply name the first time that will ping.
  */
-function pickZmanDay(spec: ZmanSpecValue, timing: ZmanTiming, event: ParsedEvent, timezone: string, now: Date): { day: string; at: Date | null } {
+async function startDays(spec: ZmanSpecValue, timing: ZmanTiming, event: ParsedEvent, timezone: string, from: string): Promise<string[]> {
+  if (event.recurrence && event.recurrence.calendar !== 'hebrew') {
+    const [rule] = buildRecurrenceRule(event.recurrence);
+    const days = rule ? occurrenceDays(rule, from, timezone, START_SPAN_DAYS, START_TRIES) : [];
+    if (days.length > 0) return days;
+    console.warn(`[zman-voice] the repeat ${JSON.stringify(event.recurrence)} has no occurrence from ${from}; started on that day`);
+  } else if (!event.recurrence && 'zman' in spec && spec.zman === 'CANDLE_LIGHTING') {
+    const days = await candleLightingDaysFor(timing.person, timing.zone, from, EVE_SPAN_DAYS);
+    if (days.length > 0) return days;
+    console.warn(`[zman-voice] user ${timing.person.id}: no candle lighting day from ${from}; started on that day`);
+  }
+  return [from, nextDate(from)];
+}
+
+/**
+ * The day a rule is created on, and its time that day. A said day is kept (a repeat starts on its first occurrence
+ * from it). Otherwise the next time that has not passed: the first day the reminder can start on whose time is still
+ * ahead (today or tomorrow; for a repeat its first occurrence, for candle lighting the next eve). With no such time
+ * (the sun does not make it), the first day with no time.
+ */
+async function pickZmanDay(spec: ZmanSpecValue, timing: ZmanTiming, event: ParsedEvent, timezone: string, now: Date): Promise<{ day: string; at: Date | null }> {
   if (event.zmanDaySaid) {
-    const day = localDate(event.startTime, timezone);
+    const said = localDate(event.startTime, timezone);
+    // A said day that a repeat does not fire on starts the series on its first occurrence after it
+    const day = event.recurrence ? ((await startDays(spec, timing, event, timezone, said))[0] ?? said) : said;
     return { day, at: zmanTimeOn(day, spec, timing, timezone) };
   }
   const today = localDate(now, timezone);
-  for (const day of [today, nextDate(today)]) {
+  const days = await startDays(spec, timing, event, timezone, today);
+  for (const day of days) {
     const at = zmanTimeOn(day, spec, timing, timezone);
     if (at && at.getTime() > now.getTime()) return { day, at };
   }
-  return { day: today, at: null };
+  return { day: days[0] ?? today, at: null };
 }
 
 /**
@@ -320,7 +354,7 @@ async function resolveByZman(
     }
   }
 
-  const picks = specs.map((spec) => ({ spec, ...pickZmanDay(spec, timing, event, timezone, now) }));
+  const picks = await Promise.all(specs.map(async (spec) => ({ spec, ...(await pickZmanDay(spec, timing, event, timezone, now)) })));
   // A one-off is created only on a day with its time; a choice with none that day is not offered
   const usable = event.recurrence ? picks : picks.filter((p) => p.at !== null);
   if (usable.length === 0) {

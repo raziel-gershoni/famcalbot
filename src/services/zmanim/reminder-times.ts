@@ -4,6 +4,7 @@
  *
  *   buildZmanClock    the clock the pass, the home and the digests read a reminder's due time from
  *   zmanEditorInfo    what the editor offers: the community's zmanim and today's time of each
+ *   candleLightingDays  the days a person lights candles, from the pause's own windows
  *   zmanDayList       the home's sun sheet: a day's zmanim at the person's place, the candle lighting and the end of
  *                     Shabbat or Yom Tov the day earns (the pause's windows), and the length of the halachic hour
  *
@@ -124,6 +125,30 @@ function zmanRows(place: Place | null, community: ZmanimCommunity, day: string, 
     opinion: set.zmanim[key]?.opinion ?? null,
     at: place ? (instantAt(place, community, day, { zman: key, offsetMin: 0 })?.toISOString() ?? null) : null,
   }));
+}
+
+/**
+ * The civil days (yyyy-MM-dd in `zone`) from `fromDay` for `spanDays` days on which the person lights candles: the day a
+ * Shabbat or Yom Tov window begins and, inside a longer window, each Friday (the Shabbat's candles). The windows are the
+ * pause's own (shabbatYomTovWindows) and the rule for a day is the sun sheet's (zmanDayList), so a reminder "at candle
+ * lighting" made with no day said lands on a day that has candles. Empty where there is no place at all.
+ */
+export async function candleLightingDays(user: ZmanUser, zone: string, fromDay: string, spanDays: number): Promise<string[]> {
+  const found = await placeFor(user, zone);
+  if (!found) return [];
+  const community = communityOfUser(user);
+  const end = addDaysToDate(fromDay, spanDays);
+  const windows = shabbatYomTovWindows({ from: startOfLocalDay(fromDay, zone), to: startOfLocalDay(end, zone) }, found.place, community);
+  const days: string[] = [];
+  for (let day = fromDay; day < end; day = addDaysToDate(day, 1)) {
+    const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+    const lit = windows.some(([start, stop]) => {
+      const eve = localDate(start, zone);
+      return eve === day || (eve < day && day < localDate(stop, zone) && weekday === 5);
+    });
+    if (lit) days.push(day);
+  }
+  return days;
 }
 
 /** The editor's zmanim block: the community's zmanim a reminder may be set to, and today's time of each. */

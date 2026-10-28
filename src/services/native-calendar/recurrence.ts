@@ -91,6 +91,21 @@ function fromFloating(floating: Date, tz: string): Date {
 }
 
 /**
+ * The civil days (yyyy-MM-dd in `tz`) a rule has an occurrence on, in order, from `fromDay` (the day a series made
+ * then would start, as the store anchors it) for `spanDays` days, at most `limit` of them. The days a bare rule keeps:
+ * a weekly rule on Fridays starts on the first Friday, not on the day it is made. Empty where it has none in the span
+ * (a rule that has ended). The same rrule expansion as expandSeries, never a second weekday rule.
+ */
+export function occurrenceDays(rrule: string, fromDay: string, tz: string, spanDays: number, limit: number): string[] {
+  const from = toFloating(startOfLocalDay(fromDay, tz), tz);
+  const to = new Date(`${addDaysToDate(fromDay, spanDays)}T00:00:00Z`);
+  return buildRuleSet(rrule, from)
+    .between(from, to, true)
+    .slice(0, limit)
+    .map((floating) => floating.toISOString().slice(0, 10));
+}
+
+/**
  * Where an occurrence lands when its series moves as `from` (an occurrence's slot) moved
  * to `to`: the same shift on the wall clock in `tz`, so 10:00 moved to 09:00 is 09:00 on
  * every later day too, across a DST change. A "this one and the ones after" split keys

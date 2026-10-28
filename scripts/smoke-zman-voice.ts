@@ -341,7 +341,7 @@ async function main() {
   const { isPaused } = await import('../src/services/zmanim/pause');
   const { zmanClockFor } = await import('../src/services/zmanim/reminder-clock');
   const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
-  const { anchorQuestion } = await import('../src/services/voice/confirmations');
+  const { anchorQuestion, formatReminderCard, reminderCreatedLine } = await import('../src/services/voice/confirmations');
 
   /** One reminder through resolveReminderIntents, as every handler resolves it. Console lines are kept in `logs`. */
   async function resolveOne(event: ParsedEvent, now: Date, who: UserConfig = dana, tz = IL) {
@@ -436,6 +436,67 @@ async function main() {
     assert(dayOf(daily.event!.startTime) === '2026-10-29' && daily.event!.reminderNotice === undefined && daily.event!.recurrence?.frequency === 'daily', show(daily.event));
     const said = await resolveOne(zmanReminder(SHKIA(-10), { now: evening, said: true, recurrence: { frequency: 'daily' } }), evening);
     assert(dayOf(said.event!.startTime) === '2026-10-28' && said.event!.reminderNotice === undefined, show(said.event));
+  });
+
+  // ---- The first day: the first time that will ping, not a day the series skips ----
+
+  const CANDLES = (offsetMinutes = 0) => ({ name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes });
+  const WEEKLY_FRIDAY = { frequency: 'weekly' as const, daysOfWeek: ['FR'] };
+
+  await check('a weekly repeat by zman starts on its first occurrence: "every Friday, an hour before candle lighting" said on a Wednesday is Friday, and the card and the reply give Friday\'s time', async () => {
+    const wed = at('2026-10-28 10:00');
+    const { event, failure } = await resolveOne(zmanReminder(CANDLES(-60), { now: wed, recurrence: WEEKLY_FRIDAY }), wed);
+    assert(event && !failure, show(failure));
+    assert(dayOf(event.startTime) === '2026-10-30' && event.reminderNotice === undefined, `${dayOf(event.startTime)} ${event.reminderNotice}`);
+    const friday = hm(await clockTime(dana, IL, '2026-10-30', { zman: 'CANDLE_LIGHTING', offsetMin: -60 }));
+    const card = await formatReminderCard(event, 'en', IL, 'html', dana);
+    assert(card.includes('Fri, Oct 30') && card.includes(friday) && !card.includes('Oct 28'), card);
+    const reply = await reminderCreatedLine(event, 'en', IL, true, dana);
+    assert(reply.includes('Oct 30') && reply.includes(friday) && !reply.includes('today') && !reply.includes('Oct 28'), reply);
+    // The same at the pass: the series fires on that Friday and not on the Wednesday
+    const { occurrenceDays } = await import('../src/services/native-calendar/recurrence');
+    assert(show(occurrenceDays('FREQ=WEEKLY;BYDAY=FR', '2026-10-28', IL, 20, 3)) === show(['2026-10-30', '2026-11-06', '2026-11-13']), 'the rule\'s own days');
+  });
+
+  await check('a weekly repeat whose first Friday time has passed starts on the next Friday; a said day the repeat does not fire on starts on its first occurrence after it', async () => {
+    const lateFriday = at('2026-10-30 17:30');
+    const next = await resolveOne(zmanReminder(CANDLES(-60), { now: lateFriday, recurrence: WEEKLY_FRIDAY }), lateFriday);
+    assert(next.event && dayOf(next.event.startTime) === '2026-11-06' && next.event.reminderNotice === undefined, show(next.event));
+    const earlyFriday = at('2026-10-30 08:00');
+    const same = await resolveOne(zmanReminder(CANDLES(-60), { now: earlyFriday, recurrence: WEEKLY_FRIDAY }), earlyFriday);
+    assert(same.event && dayOf(same.event.startTime) === '2026-10-30', show(same.event));
+    const wed = at('2026-10-28 10:00');
+    const said = await resolveOne(zmanReminder(SHKIA(-30), { now: wed, day: '2026-10-28', said: true, recurrence: WEEKLY_FRIDAY }), wed);
+    assert(said.event && dayOf(said.event.startTime) === '2026-10-30', show(said.event));
+    const onDay = await resolveOne(zmanReminder(SHKIA(-30), { now: wed, day: '2026-11-06', said: true, recurrence: WEEKLY_FRIDAY }), wed);
+    assert(onDay.event && dayOf(onDay.event.startTime) === '2026-11-06', show(onDay.event));
+  });
+
+  await check('a weekly repeat with choices: every choice starts on the repeat\'s first occurrence, so no button names a day the series skips', async () => {
+    const wed = at('2026-10-28 10:00');
+    const { event } = await resolveOne(zmanReminder(SHEMA(-10), { now: wed, recurrence: WEEKLY_FRIDAY }), wed);
+    assert(event?.zmanChoices?.length === 2 && event.zmanChoices.every((c) => c.day === '2026-10-30') && dayOf(event.startTime) === '2026-10-30', show(event?.zmanChoices));
+    const card = await formatReminderCard(event, 'en', IL, 'html', dana);
+    assert(card.includes('Fri, Oct 30') && !card.includes('Oct 28') && !card.includes('Oct 29'), card);
+  });
+
+  await check('candle lighting with no day said is the next eve, not today: a Wednesday goes to Friday, after Friday\'s candles to the next Friday, and the eve of a Yom Tov on a Sunday is an eve', async () => {
+    const wed = at('2026-10-28 06:00');
+    const eve = await resolveOne(zmanReminder(CANDLES(-60), { now: wed }), wed);
+    assert(eve.event && dayOf(eve.event.startTime) === '2026-10-30' && eve.event.reminderNotice === undefined, show(eve.event));
+    const after = at('2026-10-30 17:30');
+    const next = await resolveOne(zmanReminder(CANDLES(), { now: after }), after);
+    assert(next.event && dayOf(next.event.startTime) === '2026-11-06', show(next.event));
+    // 2026-09-20 is a Sunday, the eve of Yom Kippur: the candles of a Saturday morning are lit then, not on Friday the 25th (Sukkot)
+    const saturday = at('2026-09-19 10:00');
+    const kippur = await resolveOne(zmanReminder(CANDLES(), { now: saturday }), saturday);
+    assert(kippur.event && dayOf(kippur.event.startTime) === '2026-09-20', show(kippur.event));
+    // A day the person said is theirs
+    const said = await resolveOne(zmanReminder(CANDLES(), { now: wed, day: '2026-10-29', said: true }), wed);
+    assert(said.event && dayOf(said.event.startTime) === '2026-10-29', show(said.event));
+    // The other zmanim keep today / tomorrow
+    const sunset = await resolveOne(zmanReminder(SHKIA(), { now: wed }), wed);
+    assert(sunset.event && dayOf(sunset.event.startTime) === '2026-10-28', show(sunset.event));
   });
 
   // ---- Whose place ----

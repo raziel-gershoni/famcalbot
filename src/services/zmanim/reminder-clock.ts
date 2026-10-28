@@ -7,6 +7,7 @@
  *
  *   zmanClockFor(user, zone)   the person's clock, or null where no place can be had at all
  *   zmanClockIfNeeded(...)     the same, only when something read has a zman rule (the caller's yes/no)
+ *   candleLightingDaysFor(...) the days from a day on that the person lights candles (the pause's windows)
  *
  * Never throws: a failure is logged and captured, and read as no clock (the reminder is then shown at the
  * person's reminder time and the pass skips it, both logged).
@@ -36,6 +37,21 @@ export async function zmanClockFor(user: ZmanUser, zone: string): Promise<ZmanCl
 /** zmanClockFor, but only when `needed` (something being read holds a reminder by zman); null otherwise. */
 export function zmanClockIfNeeded(needed: boolean, user: ZmanUser, zone: string): Promise<ZmanClock | null> {
   return needed ? zmanClockFor(user, zone) : Promise.resolve(null);
+}
+
+/**
+ * The days (yyyy-MM-dd in `zone`) from `fromDay` for `spanDays` days on which the person lights candles: the day a
+ * Shabbat or Yom Tov window begins, and each Friday inside a longer one. Empty where it cannot be had (logged).
+ */
+export async function candleLightingDaysFor(user: ZmanUser, zone: string, fromDay: string, spanDays: number): Promise<string[]> {
+  try {
+    const { candleLightingDays } = await import('./reminder-times');
+    return await candleLightingDays(user, zone, fromDay, spanDays);
+  } catch (error) {
+    console.error(`[zmanim] could not find the candle lighting days of user ${user.id}:`, error);
+    captureError(error, 'zmanim-candle-days', { user_id: user.id });
+    return [];
+  }
 }
 
 /** The editor's zmanim block (the community's zmanim and today's time of each) for `today`, or undefined where it cannot be had (logged). */

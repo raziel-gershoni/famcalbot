@@ -401,9 +401,9 @@ async function extractionChecks() {
     for (const mode of ['voice', 'text'] as const) {
       const section = zmanSection(rulesFor(mode));
       const midnight = section.split('\n').find((line) => line.includes('CHATZOT_HALAYLA') && line.includes('Only "halachic midnight"'));
-      assert(midnight, `${mode}: no sentence for CHATZOT_HALAYLA`);
+      assert(!!midnight, `${mode}: no sentence for CHATZOT_HALAYLA`);
       const [halayla, chatzot] = midnight.split(', and only ');
-      assert(halayla && chatzot, `${mode}: the sentence is not "Only ... are CHATZOT_HALAYLA, and only ... are CHATZOT": ${midnight}`);
+      assert(!!halayla && !!chatzot, `${mode}: the sentence is not "Only ... are CHATZOT_HALAYLA, and only ... are CHATZOT": ${midnight}`);
       assert(!halayla.includes('"chatzot"'), `${mode}: "chatzot" is listed under CHATZOT_HALAYLA: ${halayla}`);
       assert(chatzot.includes('"chatzot"'), `${mode}: "chatzot" is not listed under CHATZOT: ${chatzot}`);
       // The alias list names it for CHATZOT, and nowhere for CHATZOT_HALAYLA
