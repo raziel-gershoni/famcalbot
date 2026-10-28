@@ -12,11 +12,12 @@ import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
 import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { formatInTimeZone } from 'date-fns-tz';
-import { addDaysToDate, localDate } from '../../utils/day-events';
+import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { MessageFormat } from '../messaging/types';
 import type { IMessagingService } from '../messaging/types';
-import { refreshReminderNotice } from '../native-reminders/resolve';
-import type { ReminderFailure } from '../native-reminders/resolve';
+import { refreshReminderNotice, withZmanChoice } from '../native-reminders/resolve';
+import type { ReminderCreator, ReminderFailure } from '../native-reminders/resolve';
+import { offeredWords, reminderZman, showsZman, zmanList, type ZmanView } from '../native-reminders/zman-view';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { daysBetween, describeEdit, EditSpan } from './event-resolution';
@@ -92,6 +93,30 @@ export async function removePendingEvent(pendingId: string) {
     console.error('[Voice] Error removing pending event from Redis:', error);
     captureError(error, 'voice-confirmations', {}, 'warning');
   }
+}
+
+/**
+ * A tap on one of a reminder's opinion buttons (Telegram's event_pick, WhatsApp's reply button): the pending reminder
+ * becomes the reminder with that opinion's rule, on that choice's day, its notice and pause note worked out again,
+ * and is stored back under the same id. The caller then creates it like any confirmed reminder. `expired` is a
+ * pending event that is gone; `no_such_choice` is a button the reminder has no choice for (logged).
+ */
+export async function chooseZmanOpinion(
+  pendingId: string,
+  index: number
+): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' | 'no_such_choice' }> {
+  const pending = await getPendingEvent(pendingId);
+  if (!pending) return { ok: false, reason: 'expired' };
+  const timezone = await resolveUserTimezone(pending.user);
+  const chosen = withZmanChoice(pending.event, index, timezone);
+  if (!chosen) {
+    console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} has no choice (${pending.event.zmanChoices?.length ?? 0} choices)`);
+    return { ok: false, reason: 'no_such_choice' };
+  }
+  const event = await refreshReminderNotice(chosen, timezone, new Date(), pending.user);
+  const next: PendingEventData = { ...pending, event };
+  await setPendingEvent(pendingId, next);
+  return { ok: true, pending: next };
 }
 
 /**
@@ -376,6 +401,31 @@ export function formatReminderWhen(
 }
 
 /**
+ * A reminder by zman's date and time, as formatReminderWhen says a timed one, but on the 24-hour clock all night (en-US
+ * writes midnight "24:03" with hour12: false): the zman's own time, in the zone it is counted in.
+ */
+function formatZmanTime(at: Date, language: string, zone: string): string {
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  return at.toLocaleString(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: zone });
+}
+
+/**
+ * When a reminder fires as a card or the bulk list says it. A plain one: formatReminderWhen. One by zman: its first
+ * time at the recipient's place and the rule ("Wed, Oct 28, 08:27 · 10 min before the latest time for Shema (GRA)");
+ * with the opinion still to choose, the day and the rule (the times are the buttons').
+ */
+export function formatReminderWhenWithRule(
+  event: Pick<ParsedEvent, 'startTime' | 'allDay'>,
+  view: ZmanView | null,
+  language: string,
+  timezone: string
+): string {
+  if (!view) return formatReminderWhen(event, language, timezone);
+  const when = view.at ? formatZmanTime(view.at, language, view.zone) : formatReminderWhen(event, language, timezone);
+  return `${when} · ${view.words}`;
+}
+
+/**
  * When a reminder fires, as the created reply says it (plan ruling 6): "today at 17:00",
  * "tomorrow at 10:00" or "on Fri, Oct 16 at 10:00", and "today", "tomorrow" or "Fri,
  * Oct 16" for a date-only one, from the when.* copy (Russian says the day plus the long
@@ -414,24 +464,33 @@ export async function formatReminderCard(
   event: ParsedEvent,
   language: string,
   timezone: string,
-  markup: keyof typeof MARKUP = 'html'
+  markup: keyof typeof MARKUP = 'html',
+  creator?: ReminderCreator
 ): Promise<string> {
   const m = MARKUP[markup];
   const t = await getBotMessages(language);
+  // A reminder by zman: its rule, its time at the recipient's place and where that is from (null for a plain one)
+  const view = await reminderZman(event, creator, language, timezone);
   const forPartner = event.forUserId != null && event.forBoth
-    ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}`
+    ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}${view ? ` · ${await getBotMessage(language, 'nativeReminders.zman.eachOwnPlace')}` : ''}`
     : event.forUserId != null && event.forName
       ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: m.text(event.forName) })}`
       : '';
   const lines = [
     await getBotMessage(language, 'nativeReminders.card.title', { title: m.bold(m.text(event.title)) }),
-    `📆 ${formatReminderWhen(event, language, timezone)}${forPartner}`,
+    `📆 ${formatReminderWhenWithRule(event, view, language, timezone)}${forPartner}`,
   ];
   // A reminder is always the creator's own, on the built-in calendar
   const hebrew = await hebrewRepeatCard(event, 'native', language, timezone);
   const recurrence = hebrew.line ?? formatRecurrence(event.recurrence, language);
   if (recurrence) lines.push(recurrence);
   if (event.location) lines.push(`📍 ${m.text(event.location)}`);
+  if (view?.choices) {
+    lines.push('', await getBotMessage(language, 'nativeReminders.zman.whichOpinion'));
+    // WhatsApp's buttons name the opinion alone, so its body carries each one's time; Telegram's buttons carry it
+    if (markup === 'whatsapp') for (const label of await zmanChoiceLabels(event, view, language, timezone)) lines.push(`• ${label}`);
+  }
+  for (const note of await zmanNotes(event, view, language)) lines.push('', m.italic(note));
   if (event.reminderNotice === 'no_time_set') {
     lines.push('', m.italic(t.nativeReminders.card.noTimeSet));
   } else if (event.reminderNotice === 'time_passed') {
@@ -445,6 +504,43 @@ export async function formatReminderCard(
 }
 
 /**
+ * The one-line notes under a reminder by zman: its time is counted from the time zone's main city (no place saved), and
+ * a one-off inside its recipient's paused Shabbat or Yom Tov will not be sent. Plain text; the caller marks it up.
+ */
+async function zmanNotes(event: ParsedEvent, view: ZmanView | null, language: string): Promise<string[]> {
+  if (!view) return [];
+  const notes: string[] = [];
+  if (view.source === 'zone') {
+    notes.push(view.forPartner
+      ? await getBotMessage(language, 'nativeReminders.zman.zoneOnlyPartner', { name: event.forName || '' })
+      : await getBotMessage(language, 'nativeReminders.zman.zoneOnly'));
+  }
+  if (view.choices) {
+    const paused = view.choices.filter((c) => c.paused);
+    if (paused.length === view.choices.length) notes.push(await getBotMessage(language, 'nativeReminders.zman.paused'));
+    else if (paused.length > 0) notes.push(await getBotMessage(language, 'nativeReminders.zman.pausedSome', { opinions: zmanList(paused.map((c) => c.name), language) }));
+  } else if (event.reminderPaused) {
+    notes.push(await getBotMessage(language, 'nativeReminders.zman.paused'));
+  }
+  return notes;
+}
+
+/**
+ * The buttons of a reminder whose opinion is still to choose, in the set's order: "<opinion> · <hh:mm>", with the day
+ * word (today, tomorrow or the date) before the time when that choice's day is not the card's.
+ */
+export async function zmanChoiceLabels(event: ParsedEvent, view: ZmanView, language: string, timezone: string): Promise<string[]> {
+  const cardDay = localDate(event.startTime, timezone);
+  return Promise.all((view.choices ?? []).map(async (choice) => {
+    const dayWord = choice.day === cardDay
+      ? null
+      : await formatReminderRelativeWhen({ startTime: startOfLocalDay(choice.day, timezone), allDay: true }, language, timezone);
+    const tail = [dayWord, choice.time].filter(Boolean).join(' ');
+    return tail ? `${choice.name} · ${tail}` : choice.name;
+  }));
+}
+
+/**
  * The line saying a reminder is set: for whom and when ("tomorrow at 10:00"), or just the
  * day for a date-only one. One whose time had already passed promises no ping, whoever
  * it is for. `html` escapes the partner's name for Telegram; WhatsApp and speech take it
@@ -454,16 +550,23 @@ export async function reminderCreatedLine(
   event: ParsedEvent,
   language: string,
   timezone: string,
-  html = true
+  html = true,
+  creator?: ReminderCreator
 ): Promise<string> {
   if (event.reminderNotice === 'time_passed') return getBotMessage(language, 'nativeReminders.created.passed');
-  const when = await formatReminderRelativeWhen(event, language, timezone);
+  // A reminder by zman is told at its time ("today at 08:27: 10 min before ..."), with no time where there is none that day
+  const view = await reminderZman(event, creator, language, timezone);
+  let when = view?.at
+    ? await formatReminderRelativeWhen({ startTime: view.at, allDay: false }, language, view.zone)
+    : await formatReminderRelativeWhen(event, language, timezone);
+  if (view) when = await getBotMessage(language, 'nativeReminders.when.byZman', { when, rule: view.words });
+  const dateOnly = view ? view.at === null : event.allDay;
   if (event.forUserId != null && event.forBoth) {
-    return getBotMessage(language, event.allDay ? 'nativeReminders.created.bothDateOnly' : 'nativeReminders.created.both', { when });
+    return getBotMessage(language, dateOnly ? 'nativeReminders.created.bothDateOnly' : 'nativeReminders.created.both', { when });
   }
   const forPartner = event.forUserId != null && !!event.forName;
   const name = forPartner ? (html ? escapeHtml(event.forName!) : event.forName!) : '';
-  if (event.allDay) {
+  if (dateOnly) {
     return forPartner
       ? getBotMessage(language, 'nativeReminders.created.partnerDateOnly', { name, when })
       : getBotMessage(language, 'nativeReminders.created.dateOnly', { when });
@@ -474,11 +577,19 @@ export async function reminderCreatedLine(
   return getBotMessage(language, 'nativeReminders.created.self', { when });
 }
 
+/** The note under the reply of a one-off by zman inside its recipient's paused Shabbat or Yom Tov: it is created and will not be sent. Null for any other. */
+export async function reminderPausedNote(event: ParsedEvent, language: string): Promise<string | null> {
+  return showsZman(event) && event.reminderPaused ? getBotMessage(language, 'nativeReminders.zman.paused') : null;
+}
+
 /** What a reminder's card says once the reminder is created (confirmed or auto-created). */
-export async function formatReminderCreated(event: ParsedEvent, language: string, timezone: string): Promise<string> {
+export async function formatReminderCreated(event: ParsedEvent, language: string, timezone: string, creator?: ReminderCreator): Promise<string> {
   const recurrence = (await hebrewRepeatCard(event, 'native', language, timezone)).line ?? formatRecurrence(event.recurrence, language);
-  return `${await reminderCreatedLine(event, language, timezone)}\n\n<b>${escapeHtml(event.title)}</b>` +
-    (recurrence ? `\n${recurrence}` : '');
+  // A one-off by zman inside Shabbat or Yom Tov is created, and the reply says it will not be sent
+  const pausedNote = await reminderPausedNote(event, language);
+  const paused = pausedNote ? `\n\n<i>${pausedNote}</i>` : '';
+  return `${await reminderCreatedLine(event, language, timezone, true, creator)}\n\n<b>${escapeHtml(event.title)}</b>` +
+    (recurrence ? `\n${recurrence}` : '') + paused;
 }
 
 const ANCHOR_QUESTIONS = {
@@ -495,13 +606,25 @@ const ANCHOR_QUESTIONS = {
  * by zman (not a zman the set has, no place to count it from, or no such time that day). A missing place that is
  * the partner's names them.
  */
-export function anchorQuestion(failure: ReminderFailure, language: string, html = true): Promise<string> {
+export async function anchorQuestion(failure: ReminderFailure, language: string, html = true): Promise<string> {
   const text = (s: string) => (html ? escapeHtml(s) : s);
-  const key = failure.error === 'zman_no_place' && failure.name ? 'zman.noPlacePartner' : ANCHOR_QUESTIONS[failure.error];
-  return getBotMessage(language, `nativeReminders.${key}`, {
-    description: text(failure.description),
-    ...(failure.name ? { name: text(failure.name) } : {}),
-  });
+  let key: string = ANCHOR_QUESTIONS[failure.error];
+  const params: Record<string, string> = { description: text(failure.description), ...(failure.name ? { name: text(failure.name) } : {}) };
+  if (failure.error === 'zman_no_place' && failure.name) key = 'zman.noPlacePartner';
+  if (failure.error === 'zman_not_offered') {
+    if (failure.zmanRefusal === 'bad_offset') {
+      key = 'zman.badOffset';
+    } else if (failure.zmanRefusal === 'not_offered' && failure.offered?.length) {
+      // An opinion the set lacks: name what it has for that zman
+      const words = await offeredWords(failure.offered, failure.offeredOpinions ?? [], language);
+      if (words) {
+        key = 'zman.notOfferedOpinion';
+        params.zman = words.zman;
+        params.opinions = words.opinions;
+      }
+    }
+  }
+  return getBotMessage(language, `nativeReminders.${key}`, params);
 }
 
 /** Ask about each reminder in a message that couldn't be placed (Telegram). */
@@ -546,7 +669,7 @@ export async function showEventConfirmation(
 
   let body: string;
   if (reminder) {
-    body = await formatReminderCard(shown, user.language || 'en', timezone);
+    body = await formatReminderCard(shown, user.language || 'en', timezone, 'html', user);
   } else {
     const hebrew = await hebrewCardParts(event, user, user.language || 'en', timezone);
     const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice.allDay, timezone) + (hebrew.line ? `\n${hebrew.line}` : '');
@@ -579,14 +702,25 @@ export async function showEventConfirmation(
     ? t.nativeReminders.card.keepAsMine
     : t.voice.createButton;
 
+  // A reminder by zman whose opinion is unsaid: one button per opinion with its time, in place of Create. A tap
+  // creates it (event_pick), through the same path as Create.
+  const choiceView = reminder && shown.allDay && shown.zmanChoices?.length
+    ? await reminderZman(shown, user, user.language || 'en', timezone)
+    : null;
+  const choiceRows = choiceView?.choices
+    ? (await zmanChoiceLabels(shown, choiceView, user.language || 'en', timezone)).map((text, i) => [{ text, callback_data: `event_pick:${i}:${pendingId}` }])
+    : null;
+
   const replyMarkup = {
-    inline_keyboard: [
-      [
-        { text: createLabel, callback_data: `event_create:${pendingId}` },
-        { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
-      ],
-      quickRow,
-    ]
+    inline_keyboard: choiceRows
+      ? [...choiceRows, [{ text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }], quickRow]
+      : [
+        [
+          { text: createLabel, callback_data: `event_create:${pendingId}` },
+          { text: t.voice.cancelButton, callback_data: `event_cancel:${pendingId}` }
+        ],
+        quickRow,
+      ]
   };
 
   if (messageId) {

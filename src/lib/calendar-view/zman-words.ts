@@ -7,7 +7,7 @@
 // Client-safe and pure apart from the translation function it is given.
 
 import type { useTranslations } from 'next-intl';
-import type { ZmanOpinion, ZmanSpecValue } from '@/src/lib/calendar-view/zman-spec';
+import type { ZmanOpinion, ZmanSpecValue } from './zman-spec';
 
 type CalendarHomeT = ReturnType<typeof useTranslations<'calendarHome'>>;
 

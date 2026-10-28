@@ -33,7 +33,7 @@ import { WINDOW_ROW_KEYS, formatHalachicHour, type ZmanimApi, type ZmanimListRes
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Notice } from '@/components/app-ui/Notice';
 import { StateCard } from '@/components/app-ui/StateCard';
-import { zmanName } from './zman-words';
+import { zmanName } from '@/src/lib/calendar-view/zman-words';
 
 export interface ZmanimSheetProps {
   /** The page's own user_id, as CalendarHomeProps carries it (never swapped). */

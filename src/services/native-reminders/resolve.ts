@@ -18,8 +18,9 @@ import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils
 import { wallTimeToInstant } from '../../utils/wall-time';
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
 import { resolveUserTimezone } from '../../lib/timezone';
-import type { ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
-import { communityOfUser, readZmanFromModel, type ModelZman, type ZmanRefusal } from '../zmanim/spec';
+import type { ZmanOpinion, ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
+import { communityOfUser, readZmanFromModel, zmanKeyOpinion, type ModelZman, type ZmanRefusal } from '../zmanim/spec';
+import { zmanimSet, type ZmanKey } from '../zmanim/sets';
 import { zmanClockFor, type ZmanClock, type ZmanUser } from '../zmanim/reminder-clock';
 import { isPaused } from '../zmanim/pause';
 import { ARMED_GRACE_MS, dueAtForOccurrence, zmanDueForOccurrence, type ZmanRule } from './due';
@@ -43,6 +44,8 @@ export interface ZmanFailureDetail {
   zmanRefusal?: ZmanRefusal;
   /** zman_not_offered: the rules the writer's set has for the zman named (offset 0), in its order; empty when none. */
   offered?: ZmanSpecValue[];
+  /** zman_not_offered: the opinion the writer's set names each of `offered` with, in the same order (null for none). */
+  offeredOpinions?: Array<ZmanOpinion | null>;
 }
 
 export type ResolvedReminder =
@@ -176,7 +179,7 @@ export async function refreshReminderNotice(event: ParsedEvent, timezone: string
 // ---- Reminders by zman (zman reminders by voice and text plan, Task 5) ----
 
 /** Whether a reminder is set by zman: the model's words not yet mapped, or the rule or the choices already resolved. */
-const isByZman = (event: ParsedEvent) => event.zman !== undefined || !!event.zmanSpec || !!event.zmanChoices?.length;
+export const isByZman = (event: ParsedEvent) => event.zman !== undefined || !!event.zmanSpec || !!event.zmanChoices?.length;
 
 /** Whose zman time a reminder's card shows: that person, their zone and their clock (null where no place can be had). */
 export interface ZmanTiming {
@@ -247,11 +250,19 @@ function pickZmanDay(spec: ZmanSpecValue, timing: ZmanTiming, event: ParsedEvent
   return { day: today, at: null };
 }
 
-/** The rules a writer's set has for a model zman's name (offset 0), for the refusal to name. Empty for hours or a name it lacks. */
-function offeredFor(modelZman: ModelZman | undefined, community: ReturnType<typeof communityOfUser>): ZmanSpecValue[] {
-  if (!modelZman || !('name' in modelZman)) return [];
+/**
+ * The rules a writer's set has for a model zman's name (offset 0), for the refusal to name, with the opinion the set
+ * names each by. Empty for hours or a name it lacks.
+ */
+function offeredFor(modelZman: ModelZman | undefined, community: ReturnType<typeof communityOfUser>): { offered: ZmanSpecValue[]; offeredOpinions: Array<ZmanOpinion | null> } {
+  if (!modelZman || !('name' in modelZman)) return { offered: [], offeredOpinions: [] };
   const all = readZmanFromModel({ name: modelZman.name, opinion: null, offsetMinutes: 0 }, community);
-  return all.kind === 'spec' ? [all.spec] : all.kind === 'choose' ? all.specs : [];
+  const offered = all.kind === 'spec' ? [all.spec] : all.kind === 'choose' ? all.specs : [];
+  const set = zmanimSet(community);
+  return {
+    offered,
+    offeredOpinions: offered.map((spec) => ('zman' in spec ? (set.zmanim[spec.zman as ZmanKey]?.opinion ?? zmanKeyOpinion(spec.zman)) : null)),
+  };
 }
 
 /** A one-off's time inside its recipient's paused Shabbat or Yom Tov: read through the pause's own function, never logged as a skip. */
@@ -280,7 +291,7 @@ async function resolveByZman(
     const mapped = readZmanFromModel(event.zman, community);
     if (mapped.kind === 'refuse') {
       console.warn(`[zman-voice] user ${user.id} (${community}): ${JSON.stringify(event.zman)} refused, ${mapped.reason}`);
-      return { ok: false, error: 'zman_not_offered', zmanRefusal: mapped.reason, offered: offeredFor(event.zman, community) };
+      return { ok: false, error: 'zman_not_offered', zmanRefusal: mapped.reason, ...offeredFor(event.zman, community) };
     }
     specs = mapped.kind === 'spec' ? [mapped.spec] : mapped.specs;
     choose = mapped.kind === 'choose';

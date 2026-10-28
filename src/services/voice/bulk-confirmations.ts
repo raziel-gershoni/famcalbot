@@ -16,8 +16,9 @@ import { createCalendarFor, providerForCalendar } from '../calendar-provider';
 import { recurrenceFields, recurrenceNotice, repeatInput, targetOf } from '../recurrence-fields';
 import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { pushRecentEvent } from './recent-events-store';
-import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmations';
+import { escapeHtml, formatEventDateTime, formatReminderWhenWithRule, showEventConfirmation } from './confirmations';
 import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
+import { reminderZman } from '../native-reminders/zman-view';
 import { trackActivityAsync } from '../analytics-service';
 import { getBotMessage } from '../../lib/bot-messages';
 import { trackCreatedEvent } from './event-resolution';
@@ -77,11 +78,50 @@ export async function removePendingBatch(pendingId: string): Promise<void> {
 
 /**
  * Render and send the bulk confirmation message. Returns the pendingId that
- * the bulk callback handler will receive on confirm/cancel.
+ * the bulk callback handler will receive on confirm/cancel, or null when the
+ * list is left with fewer than two once the opinions to choose are out (each is then its own card).
+ *
+ * A reminder by zman whose opinion is still to be chosen (zmanChoices) never goes in the list: "Confirm all" cannot
+ * choose for the person. It is sent as its own card, with its opinion buttons, right after the list.
  */
 export async function showBulkConfirmation(
-  chatId: number | string,
+  chatId: number,
   intents: VoiceIntentResult[],
+  user: UserConfig,
+  transcription: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  t: any,
+  service: IMessagingService,
+  timezone: string,
+  inputModality: 'voice' | 'text' | 'image' = 'voice'
+): Promise<string | null> {
+  // Filter to CREATE intents with valid event payloads. Edit/Delete in batches
+  // is far rarer and harder to render compactly; we drop those (the user can
+  // re-dictate them as separate utterances). Cap at MAX_BATCH_SIZE.
+  const all = intents
+    .filter((i) => i.intent === 'create' && i.event)
+    .slice(0, MAX_BATCH_SIZE);
+  const choosing = all.filter((i) => i.event!.kind === 'reminder' && !!i.event!.zmanChoices?.length);
+  const creates = all.filter((i) => !choosing.includes(i));
+
+  let pendingId: string | null = null;
+  if (creates.length >= 2 || choosing.length === 0) {
+    pendingId = await showBulkList(chatId, creates, user, transcription, t, service, timezone);
+  } else {
+    // What is left once the opinions to choose are out is one or none: not a batch any more, so a card of its own
+    for (const it of creates) await showEventConfirmation(chatId, undefined, it.event!, transcription, user, undefined, inputModality);
+  }
+  for (const it of choosing) {
+    console.log(`[zman-voice] user ${user.id}: a reminder with ${it.event!.zmanChoices!.length} opinions to choose from is sent as its own card, not in the bulk list`);
+    await showEventConfirmation(chatId, undefined, it.event!, transcription, user, undefined, inputModality);
+  }
+  return pendingId;
+}
+
+/** The numbered list with Confirm all / Cancel all, for two or more intents that can be created as they are. */
+async function showBulkList(
+  chatId: number,
+  creates: VoiceIntentResult[],
   user: UserConfig,
   transcription: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,13 +129,6 @@ export async function showBulkConfirmation(
   service: IMessagingService,
   timezone: string
 ): Promise<string> {
-  // Filter to CREATE intents with valid event payloads. Edit/Delete in batches
-  // is far rarer and harder to render compactly; we drop those (the user can
-  // re-dictate them as separate utterances). Cap at MAX_BATCH_SIZE.
-  const creates = intents
-    .filter((i) => i.intent === 'create' && i.event)
-    .slice(0, MAX_BATCH_SIZE);
-
   const pendingId = `bulk:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 
   // Persist the *full* original intent shape so we can iterate uniformly on
@@ -114,8 +147,11 @@ export async function showBulkConfirmation(
   });
 
   const language = user.language || 'en';
+  // A reminder by zman: its time at its recipient's place and its rule (null for the rest)
+  const views = await Promise.all(creates.map((it) => (it.event?.kind === 'reminder' ? reminderZman(it.event, user, language, timezone) : null)));
   const lines = await Promise.all(creates.map(async (it, i) => {
     const ev = it.event as ParsedEvent;
+    const view = views[i];
     // A Hebrew repeat names its Hebrew date, as the single card does (spec §5), worded for
     // the calendar "Confirm all" creates it on; the bare mark stays for the rest
     const hebrew = ev.recurrence?.calendar === 'hebrew'
@@ -126,7 +162,7 @@ export async function showBulkConfirmation(
     if (ev.kind === 'reminder') {
       const title = await getBotMessage(language, 'nativeReminders.card.title', { title: `<b>${escapeHtml(ev.title)}</b>` });
       const forPartner = ev.forUserId != null && ev.forBoth
-        ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}`
+        ? ` · ${await getBotMessage(language, 'nativeReminders.card.forBoth')}${view ? ` · ${await getBotMessage(language, 'nativeReminders.zman.eachOwnPlace')}` : ''}`
         : ev.forUserId != null && ev.forName
         ? ` · ${await getBotMessage(language, 'nativeReminders.card.forPartner', { name: escapeHtml(ev.forName) })}`
         : '';
@@ -134,7 +170,9 @@ export async function showBulkConfirmation(
       const notice = ev.reminderNotice === 'time_passed' || ev.reminderNotice === 'no_time_set'
         ? ` · <i>${await getBotMessage(language, `nativeReminders.bulk.${ev.reminderNotice === 'time_passed' ? 'timePassed' : 'noTimeSet'}`)}</i>`
         : '';
-      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhen(ev, language, timezone)}${forPartner}${hebrewLine}${notice}`;
+      // A one-off by zman inside its recipient's paused Shabbat or Yom Tov is created, and the list says it will not be sent
+      const paused = view && ev.reminderPaused ? ` · <i>${await getBotMessage(language, 'nativeReminders.zman.pausedShort')}</i>` : '';
+      return `${i + 1}. ${title}${recurringMark} — ${formatReminderWhenWithRule(ev, view, language, timezone)}${forPartner}${hebrewLine}${notice}${paused}`;
     }
     const when = formatEventDateTime(ev, language, t.voice?.allDay || 'All day', timezone);
     return `${i + 1}. <b>${escapeHtml(ev.title)}</b>${recurringMark} — ${when}${hebrewLine}`;
@@ -149,7 +187,15 @@ export async function showBulkConfirmation(
     it.event?.recurrence?.calendar === 'hebrew' && !!recurrenceNotice(await targetOf(user, it.event), it.event.recurrence)));
   const googleOnce = onceFlags.some(Boolean);
   const hebrewNotice = googleOnce ? [await getBotMessage(language, 'hebrewRepeat.notice.google')] : [];
-  const notices = [...new Set([...unreachable, ...hebrewNotice])].map((notice) => `<i>${notice}</i>`);
+  // A time counted from the time zone's main city (no place saved) is said once, not per line
+  const zoneNotes = await Promise.all(creates.map(async (it, i) => {
+    const view = views[i];
+    if (view?.source !== 'zone') return null;
+    return view.forPartner
+      ? getBotMessage(language, 'nativeReminders.zman.zoneOnlyPartner', { name: escapeHtml(it.event?.forName || '') })
+      : getBotMessage(language, 'nativeReminders.zman.zoneOnly');
+  }));
+  const notices = [...new Set([...unreachable, ...hebrewNotice, ...zoneNotes.filter((n): n is string => n !== null)])].map((notice) => `<i>${notice}</i>`);
 
   const heading = (t.voice?.bulkFound || '📋 Found {count} events. Confirm all?').replace('{count}', String(creates.length));
   const body = `${heading}\n\n${lines.join('\n')}${notices.length > 0 ? `\n\n${notices.join('\n')}` : ''}`;

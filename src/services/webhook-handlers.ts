@@ -1281,7 +1281,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           );
           const { reminderCreatedLine } = await import('./voice/confirmations');
           const createdLine = reminder
-            ? await reminderCreatedLine(intentResult.event, user.language || 'en', timezone, false)
+            ? await reminderCreatedLine(intentResult.event, user.language || 'en', timezone, false, user)
             : `✅ ${t.voice?.created || 'Event created!'}`;
           await waService.sendMessage(phone, `${createdLine}\n\n*${intentResult.event.title}*`);
         } else {
@@ -1303,7 +1303,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       await setPendingEvent(pendingId, { event: pendingEvent, user, transcription });
       let card: string;
       if (reminder) {
-        card = await formatReminderCard(pendingEvent, user.language || 'en', timezone, 'whatsapp');
+        card = await formatReminderCard(pendingEvent, user.language || 'en', timezone, 'whatsapp', user);
       } else {
         const hebrew = await hebrewCardParts(intentResult.event, user, user.language || 'en', timezone);
         const dateTimeStr = formatEventDateTime(intentResult.event, user.language || 'en', t.voice?.allDay || 'All day', timezone)
@@ -1396,13 +1396,16 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
       if (result.success) {
         const reminder = pending.event.kind === 'reminder';
         let createdLine = `✅ ${t.voice?.created || 'Event created!'}`;
+        let pausedLine = '';
         if (reminder) {
-          const { reminderCreatedLine } = await import('./voice/confirmations');
+          const { reminderCreatedLine, reminderPausedNote } = await import('./voice/confirmations');
           const { resolveUserTimezone } = await import('../lib/timezone');
           const timezone = await resolveUserTimezone(pending.user);
-          createdLine = await reminderCreatedLine(pending.event, pending.user.language || 'en', timezone, false);
+          createdLine = await reminderCreatedLine(pending.event, pending.user.language || 'en', timezone, false, pending.user);
+          const pausedNote = await reminderPausedNote(pending.event, pending.user.language || 'en');
+          if (pausedNote) pausedLine = `\n\n_${pausedNote}_`;
         }
-        await waService.sendMessage(phone, `${createdLine}\n\n*${pending.event.title}*`);
+        await waService.sendMessage(phone, `${createdLine}\n\n*${pending.event.title}*${pausedLine}`);
 
         const { incrementUsage } = await import('./subscription-service');
         const { trackActivityAsync } = await import('./analytics-service');

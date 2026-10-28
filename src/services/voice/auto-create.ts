@@ -139,7 +139,7 @@ export async function autoCreateEvent(
   const reminder = event.kind === 'reminder';
   let summary: string;
   if (reminder) {
-    summary = await formatReminderCreated(event, user.language || 'en', timezone);
+    summary = await formatReminderCreated(event, user.language || 'en', timezone, user);
   } else {
     const dateTimeStr = formatEventDateTime(event, user.language || 'en', t.voice?.allDay || 'All day', timezone);
     const locationStr = event.location ? `\n📍 ${escapeHtml(event.location)}` : '';

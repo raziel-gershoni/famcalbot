@@ -80,7 +80,7 @@ import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Notice } from '@/components/app-ui/Notice';
 import { RepeatSheet } from './RepeatSheet';
-import { zmanName } from './zman-words';
+import { zmanName } from '@/src/lib/calendar-view/zman-words';
 import { endOfInfo, infoText, repeatFormText, withEndText, type WordsContext } from './repeat-words';
 import { ButtonRow, FORM_CSS, FormCard, FormRow, RadioPair, SaveBar, Segmented, StepperRow, SwitchRow, TextField, ValueRow, type SelectOption } from '@/components/app-ui/form-kit';
 import { EDITOR_FORM_CSS, PillRow, preloadPickers } from './form-kit';

@@ -72,12 +72,12 @@ const SUFFIX_OPINIONS: ReadonlyArray<[suffix: string, opinion: ZmanOpinion]> = [
 ];
 
 /** The opinion a key's own name carries, or null for a key with none. */
-function opinionOfKey(key: ZmanKey): ZmanOpinion | null {
+export function zmanKeyOpinion(key: string): ZmanOpinion | null {
   return SUFFIX_OPINIONS.find(([suffix]) => key.endsWith(suffix))?.[1] ?? null;
 }
 
 /** The name a person says for a key: the key without the opinion it carries (SOF_SHMA_GRA and SOF_SHMA_MGA are both "SOF_SHMA"). */
-function nameOfKey(key: ZmanKey): string {
+export function zmanNameOfKey(key: string): string {
   const suffix = SUFFIX_OPINIONS.find(([s]) => key.endsWith(s))?.[0];
   return suffix ? key.slice(0, -suffix.length) : key;
 }
@@ -113,7 +113,7 @@ export function readZmanFromModel(modelZman: unknown, community: ZmanimCommunity
 
   if (typeof o.name !== 'string') return refuse('unknown');
   const name = o.name.trim().toUpperCase();
-  if (!ZMAN_KEYS.some((key) => nameOfKey(key) === name)) return refuse('unknown');
+  if (!ZMAN_KEYS.some((key) => zmanNameOfKey(key) === name)) return refuse('unknown');
   let opinion: ZmanOpinion | null = null;
   if (o.opinion !== undefined && o.opinion !== null && !(typeof o.opinion === 'string' && o.opinion.trim() === '')) {
     const said = typeof o.opinion === 'string' ? OPINIONS.find((known) => known.toLowerCase() === (o.opinion as string).trim().toLowerCase()) : undefined;
@@ -123,8 +123,8 @@ export function readZmanFromModel(modelZman: unknown, community: ZmanimCommunity
   if (!offsetOk) return refuse('bad_offset');
 
   const set = zmanimSet(community);
-  const offered = reminderZmanim(community).filter((key) => nameOfKey(key) === name);
-  const keys = opinion ? offered.filter((key) => set.zmanim[key]?.opinion === opinion || opinionOfKey(key) === opinion) : offered;
+  const offered = reminderZmanim(community).filter((key) => zmanNameOfKey(key) === name);
+  const keys = opinion ? offered.filter((key) => set.zmanim[key]?.opinion === opinion || zmanKeyOpinion(key) === opinion) : offered;
   const specs: ZmanSpecValue[] = keys.map((key) => ({ zman: key, offsetMin: offset as number }));
   if (specs.length === 0) return refuse('not_offered');
   return specs.length === 1 ? { kind: 'spec', spec: specs[0] } : { kind: 'choose', specs };

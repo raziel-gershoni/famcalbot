@@ -2,7 +2,7 @@
 // (src/lib/calendar-view/zman-spec.ts, src/services/zmanim/spec.ts), the person's clock that turns it into the
 // instant it is due (reminder-clock.ts, reminder-times.ts), the leaf due.ts that every reader asks, the
 // bodies the editor sends and the server accepts (editor-model.ts, validate.ts), the words of a rule in en/he/ru
-// (app/[locale]/dashboard/zman-words.ts), and the migration. The store, the pass, the home and the digests
+// (src/lib/calendar-view/zman-words.ts), and the migration. The store, the pass, the home and the digests
 // each have their checks in their own smokes (smoke-native-reminder-store, smoke-native-reminders,
 // smoke-calendar-dto, smoke-native-reminder-digest, smoke-calendar-editor-api, smoke-calendar-home-render,
 // smoke-settings-render).
@@ -147,7 +147,7 @@ const times = require('../src/services/zmanim/reminder-times') as typeof import(
 const compute = require('../src/services/zmanim/compute') as typeof import('../src/services/zmanim/compute');
 const model = require('../src/lib/calendar-view/editor-model') as typeof import('../src/lib/calendar-view/editor-model');
 const validate = require('../src/services/calendar-write/validate') as typeof import('../src/services/calendar-write/validate');
-const words = require('../app/[locale]/dashboard/zman-words') as typeof import('../app/[locale]/dashboard/zman-words');
+const words = require('../src/lib/calendar-view/zman-words') as typeof import('../src/lib/calendar-view/zman-words');
 const wall = require('../src/utils/wall-time') as { instantToWallTime: (instant: Date, zone: string) => string };
 const { createTranslator } = nodeRequire('next-intl') as { createTranslator: (o: Row) => (key: string, values?: Row) => string };
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -613,7 +613,7 @@ async function main() {
   });
 
   await check('server only: no file the Mini App bundles imports the zmanim module (the client gets computed times in the DTO)', () => {
-    const files = ['app/[locale]/dashboard/EditorSheet.tsx', 'app/[locale]/dashboard/ItemRow.tsx', 'app/[locale]/dashboard/ItemSheet.tsx', 'app/[locale]/dashboard/zman-words.ts', 'app/[locale]/dashboard/CalendarHome.tsx',
+    const files = ['app/[locale]/dashboard/EditorSheet.tsx', 'app/[locale]/dashboard/ItemRow.tsx', 'app/[locale]/dashboard/ItemSheet.tsx', 'src/lib/calendar-view/zman-words.ts', 'app/[locale]/dashboard/CalendarHome.tsx',
       'src/lib/calendar-view/editor-model.ts', 'src/lib/calendar-view/editor-types.ts', 'src/lib/calendar-view/editor-client.ts', 'src/lib/calendar-view/types.ts', 'src/lib/calendar-view/zman-spec.ts'];
     for (const file of files) {
       const text = readFileSync(path.join(ROOT, file), 'utf8');

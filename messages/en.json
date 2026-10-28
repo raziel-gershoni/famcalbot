@@ -1400,7 +1400,8 @@
         "dateAt": "on {date} at {time}",
         "today": "today",
         "tomorrow": "tomorrow",
-        "date": "{date}"
+        "date": "{date}",
+        "byZman": "{when}: {rule}"
       },
       "typed": {
         "processing": "⏰ On it…",
@@ -1415,7 +1416,16 @@
         "notOffered": "I can't set “{description}” by that zman: it isn't one of the zmanim your community's list has. Send it again with another zman or a time.",
         "noPlace": "To set “{description}” by a zman I need your location. Set it in Settings, then send it again.",
         "noPlacePartner": "{name} has no location saved, so I can't work out the zman for them. Once it's set in Settings, send “{description}” again.",
-        "noTime": "There's no such zman on that day, so I didn't set “{description}”. Send it again with another day or a time."
+        "noTime": "There's no such zman on that day, so I didn't set “{description}”. Send it again with another day or a time.",
+        "whichOpinion": "Which opinion?",
+        "zoneOnly": "Counted for the main city of your time zone. Set your location in Settings for exact times.",
+        "zoneOnlyPartner": "Counted for the main city of {name}'s time zone, since no location is saved for them.",
+        "eachOwnPlace": "each at your own place",
+        "paused": "That time falls on Shabbat or Yom Tov, so I won't send it.",
+        "pausedSome": "By {opinions}, that time falls on Shabbat or Yom Tov, so I won't send it.",
+        "pausedShort": "falls on Shabbat or Yom Tov, won't be sent",
+        "notOfferedOpinion": "I can't set “{description}” by that opinion. For “{zman}”, your community's list has: {opinions}. Send it again with one of those.",
+        "badOffset": "That's out of range: a reminder can be up to 12 hours before or after a zman, or up to 12 halachic hours after sunrise. I didn't set “{description}”. Send it again with a closer time."
       },
       "permissionDenied": "You can't change this one."
     }

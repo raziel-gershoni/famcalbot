@@ -12,6 +12,7 @@
 import { UserConfig } from '../../types';
 import type { IMessagingService } from '../messaging/types';
 import type { ParsedEvent } from '../event-parser';
+import type { ReminderCreator } from '../native-reminders/resolve';
 import { captureError } from '../../lib/error-capture';
 import { reminderCreatedLine } from './confirmations';
 
@@ -96,7 +97,7 @@ export function formatOutcomeLine(
  * The spoken outcome for a created reminder: the reply's own line ("I'll remind Dana
  * tomorrow at 10:00"), read without its emoji, then what it is about.
  */
-export async function formatReminderOutcomeLine(event: ParsedEvent, language: string, timezone: string): Promise<string> {
-  const line = await reminderCreatedLine(event, language, timezone, false);
+export async function formatReminderOutcomeLine(event: ParsedEvent, language: string, timezone: string, creator?: ReminderCreator): Promise<string> {
+  const line = await reminderCreatedLine(event, language, timezone, false, creator);
   return `${line.replace(/^⏰\s*/u, '')} ${event.title}.`;
 }

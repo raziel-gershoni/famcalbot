@@ -135,7 +135,7 @@ export async function handleEventCallback(
         const { speakOutcome, formatOutcomeLine, formatReminderOutcomeLine } = await import('./tts-outcome');
         const { getMessagingService } = await import('../telegram/bot');
         const line = reminder
-          ? await formatReminderOutcomeLine(event, user.language || 'en', timezone)
+          ? await formatReminderOutcomeLine(event, user.language || 'en', timezone, user)
           : formatOutcomeLine('created', event.title, user.language || 'en');
         speakOutcome(chatId, line, user, getMessagingService()).catch(() => {});
       }
@@ -166,7 +166,7 @@ export async function handleEventCallback(
 
       await bot.editMessageText(
         reminder
-          ? await formatReminderCreated(event, user.language || 'en', timezone)
+          ? await formatReminderCreated(event, user.language || 'en', timezone, user)
           : `${t.voice.created}\n\n` +
             `<b>${escapeHtml(event.title)}</b>\n` +
             `${dateTimeStr}${linkButton}`,

@@ -41,7 +41,7 @@ import { openExternalLink } from '@/src/lib/telegram-ui';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
 import { AnniversaryCount, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
-import { zmanRuleWords } from './zman-words';
+import { zmanRuleWords } from '@/src/lib/calendar-view/zman-words';
 
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
 const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;

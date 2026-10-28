@@ -27,7 +27,7 @@ import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import { calendarVars } from '@/src/lib/calendar-view/colours';
 import type { ItemDrag } from './DragSurface';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
-import { zmanRuleWords } from './zman-words';
+import { zmanRuleWords } from '@/src/lib/calendar-view/zman-words';
 
 export interface ItemRowProps {
   row: AgendaRow;
