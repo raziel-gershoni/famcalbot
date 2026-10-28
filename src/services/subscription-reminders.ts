@@ -138,7 +138,11 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
       continue;
     }
 
-    // Shabbat and Yom Tov (the pause): not sent and not marked sent, so the next daily run sends it (the period is still open)
+    // Shabbat and Yom Tov (the pause): not sent and not marked sent. The 3-day reminder is sent by the next daily run after
+    // the window (its search reaches four days ahead, so the period is still open). The last-day reminder has one run only,
+    // the one in the 24 hours before the period ends: paused, it is dropped, and a "tomorrow you switch to the Free plan"
+    // sent after the period has ended would be false, so it is not sent late. The person hears of it from the expiry notice
+    // below, when that run is outside the window.
     if (await isPaused({ ...sub.user, id: sub.userId }, new Date(), `${reminderType} subscription reminder`)) continue;
 
     const locale = sub.user.language || 'en';

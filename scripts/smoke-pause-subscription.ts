@@ -4,7 +4,10 @@
 // the first plan check after a trial finds it over sends (src/services/subscription-service.ts).
 //
 // In Shabbat or Yom Tov a person whose switch is on gets none of them:
-//   - a renewal reminder is not sent and not marked sent, so the next daily run sends it (the period is still open);
+//   - the 3-day renewal reminder is not sent and not marked sent, so the next daily run sends it (the period is still open);
+//   - the last-day reminder has one run only (the 24 hours before the period ends), so paused it is dropped, and it is not
+//     sent late (the period has ended by the next run, and "tomorrow you switch to Free" would be false): the expiry notice
+//     of that run tells the person instead;
 //   - the expiry notice is skipped, but the downgrade itself is made on time (the plan is the plan, whatever the
 //     day), so the notice is not sent afterwards either;
 //   - the trial-expired notice is skipped; the trial is over all the same.
@@ -234,11 +237,21 @@ async function main(): Promise<void> {
     assert(logs.length === 0, `Sunday logged: ${logs.join('|')}`);
   });
 
-  await check('pause: the last-day reminder waits for after Shabbat in the same way', async () => {
+  await check('pause: the last-day reminder has one run (the 24 hours before the period ends): paused in Shabbat it is dropped, never sent late and never marked sent, and the next run tells the person by the expiry notice, not by a stale "last day" message; a period that ends a day earlier is reminded on Friday', async () => {
     reset();
-    subscriptions = [paid(1, at('2026-10-17T20:00:00Z'))]; // ends Saturday evening, 23:00 in Israel: due the same day
+    subscriptions = [paid(1, at('2026-10-17T20:00:00Z'))]; // ends Saturday evening, 23:00 in Israel: its last-day run is Saturday's, in Shabbat
     await run(SATURDAY);
     assert(to(1).length === 0 && logs.join('|') === '[pause] skipped 3day subscription reminder for 1|[pause] skipped lastday subscription reminder for 1', `Saturday: ${show(sent)} ${logs.join('|')}`);
+    assert(!redisStore.has(REDIS_KEYS.subscriptionReminder(BigInt(1001), '2026-10-17', 'lastday')), 'marked sent while paused');
+    logs.length = 0;
+    await run(SUNDAY); // the period has ended: the sweep finds nothing to remind, and the expiry notice goes out (Sunday is outside Shabbat)
+    assert(to(1).length === 1 && to(1)[0].text.includes('has ended') && !to(1)[0].text.includes('Last day'), `Sunday: ${show(to(1).map(m => m.text.split('\n')[0]))}`);
+    assert(!redisStore.has(REDIS_KEYS.subscriptionReminder(BigInt(1001), '2026-10-17', 'lastday')), 'a last-day reminder was sent after the period had ended');
+    // The control: the same person, the period ending on Saturday 02:00 UTC, is reminded by Friday morning's run (outside the window).
+    reset();
+    subscriptions = [paid(1, at('2026-10-17T02:00:00Z'))];
+    await run('2026-10-16T07:00:00Z'); // Friday 10:00 in Israel, before candle lighting at 17:50
+    assert(to(1).some(m => m.text.includes('Last day')) && logs.length === 0, `Friday: ${show(to(1).map(m => m.text.split('\n')[0]))} ${logs.join('|')}`); // (the 3-day one goes too: it reaches four days ahead)
   });
 
   await check('pause: an expired subscription is downgraded on time, whatever the day; only the expiry notice is skipped (logged) for the person whose switch is on, and it is not sent later', async () => {
