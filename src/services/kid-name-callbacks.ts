@@ -157,8 +157,11 @@ async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText
     ? await prisma.nativeCalendar.findFirst({ where: { id: cuid, ownerUserId: userId, isDeleted: false } })
     : null;
   if (!calendar) {
-    console.warn(`[KidName] user ${userId}: ${pending.calendarId} is not a FamCal calendar of theirs; nothing written`);
-    return { text: kd.declined || 'Got it, thanks!', written: false };
+    // A partner's calendar is theirs to set, so a plain thanks; a calendar that is gone (deleted since the question)
+    // says nothing was added, as a Google one no longer chosen does
+    const partners = cuid ? await prisma.nativeCalendar.count({ where: { id: cuid, isDeleted: false } }) : 0;
+    console.warn(`[KidName] user ${userId}: ${pending.calendarId} is not a FamCal calendar of theirs (${partners ? 'a partner\'s' : 'gone'}); nothing written`);
+    return { text: partners ? (kd.declined || 'Got it, thanks!') : kd.calendarGone, written: false };
   }
   if (calendar.labels.includes('kids') && !calendar.personName?.trim()) {
     await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { personName: pending.name } });

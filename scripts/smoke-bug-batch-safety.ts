@@ -1058,6 +1058,28 @@ async function fix4() {
     });
   }
 
+  await check('4: a "Yes" for a FamCal calendar deleted since the question says nothing was added; one that is a partner\'s gets a plain thanks', async () => {
+    const { encodeCalendarId } = await import('../src/services/native-calendar/event-store');
+    const row = DB.user.find(u => u.id === 1)!;
+    Object.assign(row, { language: 'en' });
+    const kept = DB.nativeCalendar;
+    DB.nativeCalendar = [
+      { id: 'cal-deleted', ownerUserId: 1, isDeleted: true, labels: ['kids'], personName: null, name: 'Kids', rules: [] },
+      { id: 'cal-partner', ownerUserId: 42, isDeleted: false, labels: ['kids'], personName: null, name: 'Their kids', rules: [] },
+    ];
+    try {
+      const { handleKidNameCallback } = await import('../src/services/kid-name-callbacks');
+      for (const [cuid, want] of [['cal-deleted', 'kidNameDetection.calendarGone'], ['cal-partner', 'kidNameDetection.declined']] as const) {
+        await redisImpl.set(REDIS_KEYS.kidNamePending('k1'), { name: 'Noam', calendarId: encodeCalendarId(cuid), userId: 1 });
+        await withLogs(() => handleKidNameCallback(Number(row.telegramId), 10, 'q', 'kidname_yes', 'k1'));
+        assertSame(lastEdit(), botText('en', want), cuid);
+      }
+      assert(DB.nativeCalendar.every(c => (c.rules as unknown[]).length === 0 && !c.personName), 'a calendar was written');
+    } finally {
+      DB.nativeCalendar = kept;
+    }
+  });
+
   await check('4: a "Yes" for a calendar that is still chosen adds the rule and names the calendar by its name, never its id', async () => {
     const kids: Row = { calendarId: GOOGLE_KIDS, labels: ['kids'], name: 'Kids', color: '#33B679' };
     const { card, assignments } = await yes(1, 'en', [other, kids]);
