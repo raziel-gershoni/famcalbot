@@ -42,6 +42,19 @@ Shipped 2026-10-28. This file holds the owner's decisions and the rules the code
   - with no usable place, the pause falls back to the timezone's main city, and this is logged.
 - **Israel or abroad** (for Yom Tov days and the Sephardi rules) is read from the timezone.
 
+## Today's zmanim sheet (owner decisions, 2026-10-28)
+A sun button in the home's header, next to + and Send, opens a bottom sheet with the day's zmanim, like the list in the Zmanei Yosef app.
+- **Who:** only the Jewish calendar setting (`culture === 'jewish'`). The home gets it as the `jewish` prop; Hebrew language or an Israeli zone alone do not show it.
+- **The sheet:**
+  - the Gregorian and the Hebrew date between two arrows (the previous day and the next; it opens on today in the person's zone), the place and the community ("חריש · ספרדי"), and the set's zmanim in the order of the day, each named with its opinion;
+  - the title is "Today's zmanim" on today and "Zmanim" on another day;
+  - times are 24-hour in the person's zone. A zman the sun does not make that day shows a dash;
+  - at the bottom, the halachic hour as mm:ss under each opinion the set counts by (GRA and Magen Avraham; the Baal HaTanya's for Chabad);
+  - it is a plain list: no row creates anything.
+- **Candle lighting and the end:** the candle lighting appears on the day a Shabbat or Yom Tov window begins (a Friday, the eve of a Yom Tov) and the end of Shabbat (a Saturday) or of Yom Tov (any other day) on the day one ends. Both are the pause's own windows (`shabbatYomTovWindows`), so the list and the pause cannot disagree. A Friday inside a longer window (a Yom Tov on Thursday and Friday) therefore has no candle row: the window began earlier. The set's other days carry no candle lighting or end.
+- **No saved place:** the zone's main city, with the editor's own note and its link to Settings. The place is never waited for (the editor info's background fill).
+- **Server:** `GET /api/zmanim?date=yyyy-MM-dd` (the editor's auth), answered by `zmanDayList`; the client words everything.
+
 ## Known limits
 - An event alert due in the last 5 minutes of a window is dropped. The pass reads the pause at its run time.
 - A last-day renewal reminder that falls on Shabbat is dropped. The expiry notice still goes out after the window.

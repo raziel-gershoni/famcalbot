@@ -42,6 +42,7 @@
       "send": "שליחה לצ׳אט",
       "menu": "תפריט",
       "add": "הוספה",
+      "zmanim": "זמני היום",
       "nextHoliday": "{name} בעוד {count, plural, =2 {יומיים} one {# יום} other {# ימים}}",
       "nextHolidayTomorrow": "{name} מחר"
     },
@@ -263,6 +264,24 @@
       "hoursAfter": "{count, plural, one {שעה זמנית אחת} two {שעתיים זמניות} other {# שעות זמניות}} אחרי הנץ החמה",
       "before": "{minutes} דק׳ לפני {name}",
       "after": "{minutes} דק׳ אחרי {name}"
+    },
+    "zmanimList": {
+      "title": "זמני היום",
+      "titleOther": "זמני היום",
+      "previousDay": "היום הקודם",
+      "nextDay": "היום הבא",
+      "community": {
+        "sephardi": "ספרדי",
+        "ashkenazi": "אשכנזי",
+        "chabad": "חב״ד"
+      },
+      "shabbatEnds": "צאת השבת",
+      "yomTovEnds": "צאת החג",
+      "noTime": "אין זמן כזה ביום הזה",
+      "hourLabel": "שעה זמנית:",
+      "loading": "הזמנים נטענים…",
+      "failedTitle": "לא הצלחנו לטעון את הזמנים",
+      "failedBody": "כדאי לבדוק את החיבור ולנסות שוב."
     },
     "editor": {
       "titleNew": "חדש",

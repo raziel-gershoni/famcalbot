@@ -42,6 +42,7 @@
       "send": "Отправить в чат",
       "menu": "Меню",
       "add": "Добавить",
+      "zmanim": "Зманим",
       "nextHoliday": "{name} через {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
       "nextHolidayTomorrow": "{name} завтра"
     },
@@ -263,6 +264,24 @@
       "hoursAfter": "{count, plural, one {# галахического часа} few {# галахических часов} many {# галахических часов} other {# галахических часов}} после восхода",
       "before": "за {minutes} мин до {name}",
       "after": "через {minutes} мин после {name}"
+    },
+    "zmanimList": {
+      "title": "Зманим на сегодня",
+      "titleOther": "Зманим",
+      "previousDay": "Предыдущий день",
+      "nextDay": "Следующий день",
+      "community": {
+        "sephardi": "Сефардский",
+        "ashkenazi": "Ашкеназский",
+        "chabad": "Хабад"
+      },
+      "shabbatEnds": "Исход Шаббата",
+      "yomTovEnds": "Исход праздника",
+      "noTime": "В этот день такого времени нет",
+      "hourLabel": "Галахический час:",
+      "loading": "Загружаем зманим…",
+      "failedTitle": "Не удалось загрузить зманим",
+      "failedBody": "Проверьте подключение и попробуйте ещё раз."
     },
     "editor": {
       "titleNew": "Новое",

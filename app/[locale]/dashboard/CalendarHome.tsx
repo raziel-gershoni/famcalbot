@@ -100,6 +100,7 @@ import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type M
 import { dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
+import { REAL_ZMANIM, type ZmanimApi } from '@/src/lib/calendar-view/zmanim-list';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
@@ -122,6 +123,7 @@ import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
 import { ConfirmSheet, ScopeSheet, type SubmitError } from './ScopeSheet';
 import { SendSheet } from './SendSheet';
+import { ZmanimSheet } from './ZmanimSheet';
 
 /**
  * The Month's views, in a chunk of their own: PageGate preloads this file's chunk on
@@ -150,6 +152,8 @@ export interface HomeDeps {
   reminderAction: ReminderActionFn;
   /** The editing requests: the editor info, an item's edit info, create, edit and delete. */
   editing: EditingApi;
+  /** The zmanim sheet's request for a day's list. */
+  zmanim: ZmanimApi;
   /** A failure worth a report (a drop that could not be saved): to the console and to Sentry, with this context (no titles). */
   report: (error: unknown, context: string, extra: Record<string, unknown>) => void;
 }
@@ -173,6 +177,7 @@ const REAL_DEPS: HomeDeps = {
   deviceTimeZone,
   reminderAction: postReminderAction,
   editing: REAL_EDITING,
+  zmanim: REAL_ZMANIM,
   report: reportToSentry,
 };
 
@@ -345,14 +350,14 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, trialDaysLeft, hasLocation, lookahead7 } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
   const [deps] = useState<HomeDeps>(() => ({ ...REAL_DEPS, ...depsIn }));
   const [store, dispatch] = useReducer(reduceStore, undefined, () => emptyStore());
   const [weeks, setWeeks] = useState(1);
-  const [sheet, setSheet] = useState<'send' | 'menu' | null>(null);
+  const [sheet, setSheet] = useState<'send' | 'menu' | 'zmanim' | null>(null);
   /** The row whose item sheet is open (AgendaView or the Month's picked renders it; the BackButton here closes it). */
   const [selected, setSelected] = useState<AgendaRow | null>(null);
   /** The sheet's reminder action in flight (one at a time), and the note after a tap that changed nothing. */
@@ -610,6 +615,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     reminder: !!editorInfo?.kinds.reminder && hints.reminders,
   };
   const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null;
+  // The sun (today's zmanim) is for the Jewish calendar setting, once the first answer has pinned the day.
+  const canZmanim = jewish === true && facts !== null && card === null && blocked === null;
 
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
   // after an edit of it). An item of either source is one the user may be able to change:
@@ -1103,6 +1110,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           onMenu={() => setSheet('menu')}
           onAdd={canAdd ? openAdd : undefined}
           addOpen={editor?.mode === 'create'}
+          onZmanim={canZmanim ? () => setSheet('zmanim') : undefined}
+          zmanimOpen={sheet === 'zmanim'}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>
@@ -1132,6 +1141,16 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         agendaView
       )}
       {sheet === 'send' ? <SendSheet userId={userId} locale={locale} today={facts?.today ?? null} weekStart={facts?.weekStart ?? null} lookahead7={lookahead7} onClose={closeSheet} /> : null}
+      {sheet === 'zmanim' && facts ? (
+        <ZmanimSheet
+          userId={userId}
+          locale={locale}
+          today={facts.today}
+          load={deps.zmanim.list}
+          onOpenSettings={() => navigate(`/${locale}/settings?user_id=${userId}`)}
+          onClose={closeSheet}
+        />
+      ) : null}
       {sheet === 'menu' ? (
         <MenuSheet
           googleState={googleState}

@@ -31,7 +31,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Multilingual** — Hebrew, English, and Russian throughout, including a right-to-left dashboard, Hebrew dates/holidays (Hebcal), and localized voice.
 - **Weather in context** — Open-Meteo forecasts woven into the daily briefing, with air-quality and regional dust-storm (Sharav) awareness.
 - **Event reminders** — pre-event nudges that respect each event's own reminder settings, including separate start and pickup reminders for kids' events.
-- **Zmanim** — a reminder's time can be a zman plus an offset ("10 min before sof zman Shema (GRA)"), worked out daily at each person's own place, in the Sephardi (Zmanei Yosef), Ashkenazi or Chabad set; one switch pauses every scheduled message on Shabbat and Yom Tov.
+- **Zmanim** — a reminder's time can be a zman plus an offset ("10 min before sof zman Shema (GRA)"), worked out daily at each person's own place, in the Sephardi (Zmanei Yosef), Ashkenazi or Chabad set; one switch pauses every scheduled message on Shabbat and Yom Tov. For the Jewish calendar, a sun button in the home's header opens the day's zmanim at the person's place (with candle lighting and the end of Shabbat or Yom Tov on their days, and the halachic hour), a day at a time.
 - **Subscriptions and usage limits** — trials, plans, and usage counters billed in-app through Telegram Stars.
 - **Web dashboard** — Next.js app for settings, calendar selection, pairing, a blog, and an admin panel with moderation, a persistent blocklist, and analytics.
 

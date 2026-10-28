@@ -6,6 +6,9 @@
 //
 // - Logical properties only; nothing under 11 px; every tap at least 44 px; no hover
 //   styles (touch only). The header sits in the frame's document-level scroll.
+// - The header's day keeps at least 140 px beside the buttons: with four of them (the sun for the Jewish calendar)
+//   on a 360 px phone it would be left 116 px and wrap in three lines, so the buttons drop to a row of their own
+//   under the day, at the end, and on a 390 px phone and wider they stay beside it.
 // - The header's Hebrew date, this week's parasha (and special Shabbat) and the countdown share a
 //   line, joined by dots (.ch-head-line, each part after the date is a .ch-head-next). When
 //   they don't fit, a part starts the next line and its dot falls before the line's
@@ -23,13 +26,14 @@ export const HOME_SHELL_CSS = `
 }
 .ch-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding: 16px 16px 12px;
 }
 .ch-head-text {
-  flex: 1;
+  flex: 1 1 140px;
   min-width: 0;
 }
 .ch-head-title {
@@ -95,6 +99,7 @@ export const HOME_SHELL_CSS = `
   display: flex;
   flex: none;
   gap: 8px;
+  margin-inline-start: auto;
 }
 .ch-banners {
   display: flex;

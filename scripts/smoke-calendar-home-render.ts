@@ -122,6 +122,7 @@ import { addDaysToKey, daysInWindow, emptyStore, reduceStore, type CalendarStore
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type WeekStart } from '../src/lib/calendar-view/types';
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
+import { hebrewFullDate } from '../src/lib/calendar-view/hebrew-date';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
 import { HomeChunkBoundary } from '../app/[locale]/PageGate';
 import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBanners';
@@ -138,6 +139,7 @@ import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
+import { REAL_ZMANIM } from '../src/lib/calendar-view/zmanim-list';
 import { liftVerdict } from '../src/lib/calendar-view/drag-model';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
@@ -202,7 +204,7 @@ for (const level of ['error', 'warn'] as const) {
     if (text.startsWith('[telegram-ui]')) return original(...args);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
-    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]')) {
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]')) {
       appLogs.push(text.slice(0, 300));
       return;
     }
@@ -935,6 +937,12 @@ let serveEditing: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () =
  * answers no holidays. The holiday checks (#88 on) set serveHolidays.
  */
 const holidayCalls: FetchCall[] = [];
+/**
+ * The zmanim route (GET /api/zmanim, the sun sheet): its calls are kept apart too, and by default it is not served
+ * (500). The sun checks (#126 on) set serveZmanim.
+ */
+const zmanimCalls: FetchCall[] = [];
+let serveZmanim: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'not served' } });
 let serveHolidays: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
 
 async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
@@ -952,8 +960,9 @@ async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
     signal: init.signal,
   };
   const holidays = call.path === '/api/calendar/holidays';
-  (holidays ? holidayCalls : fetchCalls).push(call);
-  const reply = await (holidays ? serveHolidays(call) : EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
+  const zmanim = call.path === '/api/zmanim';
+  (holidays ? holidayCalls : zmanim ? zmanimCalls : fetchCalls).push(call);
+  const reply = await (holidays ? serveHolidays(call) : zmanim ? serveZmanim(call) : EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
   if (reply === 'throw') throw new TypeError('Failed to fetch (smoke)');
   return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, json: async () => reply.body };
 }
@@ -996,6 +1005,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
     deviceTimeZone: () => deviceZone,
     reminderAction: postReminderAction,
     editing: REAL_EDITING,
+    zmanim: REAL_ZMANIM,
     report: (error, context, extra) => void reports.push({ error, context, extra }),
   };
   return {
@@ -1175,6 +1185,8 @@ function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
   fetchCalls.length = 0;
   holidayCalls.length = 0;
+  zmanimCalls.length = 0;
+  serveZmanim = () => ({ status: 500, body: { error: 'not served' } });
   serveHolidays = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
   resetHolidaysCache();
   serveEditing = () => ({ status: 500, body: { error: 'not served' } });
@@ -9686,6 +9698,158 @@ async function main() {
     assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);
     const loadFailed = '[calendars] loading the Google copies failed: Error: google-sync GET answered 500';
     assert(show(own) === show([loadFailed, '[google-copy] DELETE off answered 500', loadFailed, loadFailed, '[calendars] loading the Google copies before a delete failed: Error: google-sync GET answered 500']), `logs ${show(own)}`);
+  });
+
+  // ============ The sun (today's zmanim) ============
+
+  const warnedBeforeSun = reactWarnings.length;
+  /** The list the fake server sends for a day: Harish's morning and evening, in winter time (UTC+2 on 28 Oct; 15 Oct is IDT, UTC+3). */
+  const sunList = (date: string, o: Record<string, unknown> = {}) => ({
+    day: date,
+    tz: TZ,
+    community: 'sephardi',
+    place: { source: 'saved', name: 'Harish' },
+    rows: [
+      { key: 'NETZ', opinion: null, at: `${date}T03:54:00.000Z` },
+      { key: 'SOF_SHMA_GRA', opinion: 'gra', at: `${date}T05:37:00.000Z` },
+      { key: 'SHKIA', opinion: null, at: `${date}T14:55:00.000Z` },
+    ],
+    hours: [{ opinion: 'gra', ms: 3_325_000 }, { opinion: 'mga', ms: 3_990_000 }],
+    ...o,
+  });
+  const serveSun = (o: Record<string, unknown> = {}) => (c: FetchCall) => ok200(sunList(c.query.get('date') ?? '', o));
+  const sunCalls = () => zmanimCalls.length;
+  const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
+
+  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and it asks nothing until tapped', async () => {
+    for (const jewish of [undefined, false]) {
+      const a = await editingHome('en', {}, jewish === undefined ? {} : { jewish });
+      try {
+        assert(sunButton(a.m).length === 0, `jewish ${String(jewish)}: a sun button`);
+        assert(byLabel(a.m.container, 'Send to chat') && byLabel(a.m.container, 'Menu'), 'the other buttons');
+      } finally {
+        a.m.unmount();
+      }
+    }
+    for (const [locale, label] of [['en', 'Zmanim'], ['he', 'זמני היום'], ['ru', 'Зманим']] as const) {
+      const a = await editingHome(locale, {}, { jewish: true });
+      try {
+        const sun = sunButton(a.m, label);
+        assert(sun.length === 1, `${locale}: ${sun.length} sun buttons`);
+        assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn', `${locale}: ${show([...sun[0].attributes])}`);
+        const row = sun[0].parentNode as FakeElement;
+        const header = messages[locale].calendarHome.header;
+        assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, label, header.menu]), `${locale}: the "+", Send, the sun, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
+        assert(zmanimCalls.length === 0, `${locale}: a request before the tap`);
+      } finally {
+        a.m.unmount();
+      }
+    }
+    // Before the first answer there is no day to open on: no button; a first load that failed leaves the card, not the sun
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = () => new Promise<FetchAnswer>(() => undefined);
+    const pending = await mountHome('en', { jewish: true });
+    try {
+      assert(sunButton(pending).length === 0, 'a sun before the first answer');
+    } finally {
+      pending.unmount();
+    }
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = () => ({ status: 500, body: { error: 'internal_error' } });
+    const failed = await mountHome('en', { jewish: true });
+    try {
+      assertHas(failed.text(), ['Something went wrong'], 'the retry card');
+      assert(sunButton(failed).length === 0, 'a sun on the retry card');
+    } finally {
+      failed.unmount();
+    }
+  });
+
+  await check('#127 the sun opens today\'s zmanim: one request for the home\'s today (user_id and date in the query, the init data in the header only), the sheet over the home with the rows and the hour line, aria-expanded true while it is open; Telegram\'s BackButton, Close and Escape close it; the arrows ask the next and the previous day', async () => {
+    const a = await editingHome('en', {}, { jewish: true });
+    try {
+      serveZmanim = serveSun();
+      const sun = sunButton(a.m)[0];
+      sun.focus();
+      a.tg.calls.length = 0;
+      a.m.click(sun);
+      await settle();
+      assert(sunCalls() === 1, `${sunCalls()} requests`);
+      const first = zmanimCalls[0];
+      assert(first.method === 'GET' && first.path === '/api/zmanim' && first.query.get('user_id') === '5550001' && first.query.get('date') === TODAY, `${first.url}`);
+      assert(first.headers['X-Telegram-Init-Data'] === a.tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url) && first.body === null, 'the init data in the header, never in the URL or a body');
+      const dialog = byRole(a.m.container, 'dialog');
+      assert(dialog.length === 1 && dialog[0].getAttribute('aria-label') === 'Today’s zmanim', `dialog ${show(dialog.map((d) => d.getAttribute('aria-label')))}`);
+      const text = dialogText(a.m.container);
+      assertHas(text, ['Today’s zmanim', 'Harish · Sephardi', 'Thursday, 15 October', 'Sunrise', '06:54', 'Latest time for Shema (GRA)', '08:37', 'Sunset', '17:55', 'Halachic hour: 55:25 (GRA) · 66:30 (MGA)'], 'the sheet');
+      assert(sunButton(a.m)[0].getAttribute('aria-expanded') === 'true', 'aria-expanded while open');
+      assert(show(a.tg.calls.filter((c) => c.startsWith('BackButton'))) === show(['BackButton.onClick', 'BackButton.show()']), `BackButton ${show(a.tg.calls)}`);
+      // The arrows ask the next and the previous day
+      a.m.click(byLabel(a.m.container, 'Next day'));
+      await settle();
+      assert(sunCalls() === 2 && zmanimCalls[1].query.get('date') === day(1), `next: ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
+      assertHas(dialogText(a.m.container), ['Zmanim', 'Friday, 16 October'], 'tomorrow');
+      a.m.click(byLabel(a.m.container, 'Previous day'));
+      a.m.click(byLabel(a.m.container, 'Previous day'));
+      await settle();
+      assert(zmanimCalls[zmanimCalls.length - 1].query.get('date') === day(-1), `previous: ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
+      // The BackButton closes it, and focus goes back to the sun
+      a.tg.calls.length = 0;
+      React.act(() => a.tg.fire('backButtonClicked'));
+      assert(byRole(a.m.container, 'dialog').length === 0 && sunButton(a.m)[0].getAttribute('aria-expanded') === 'false', 'the BackButton closed the sheet');
+      assert(show(a.tg.calls.filter((c) => c.startsWith('BackButton'))) === show(['BackButton.offClick', 'BackButton.hide()']), `BackButton after ${show(a.tg.calls)}`);
+      assert(fakeDocument.activeElement === sun, 'focus is back on the sun');
+      // Close and Escape do too; reopening asks again for today
+      a.m.click(sunButton(a.m)[0]);
+      await settle();
+      assert(zmanimCalls[zmanimCalls.length - 1].query.get('date') === TODAY, 'reopened on today');
+      a.m.click(button(topDialog(a.m), 'Close'));
+      assert(byRole(a.m.container, 'dialog').length === 0, 'Close');
+      a.m.click(sunButton(a.m)[0]);
+      await settle();
+      a.m.key(topDialog(a.m), 'Escape');
+      assert(byRole(a.m.container, 'dialog').length === 0, 'Escape');
+    } finally {
+      a.m.unmount();
+    }
+  });
+
+  await check('#127a the sheet in Hebrew (RTL) over the home: the title, the place and the set, the Hebrew date, the hour line; and the states through the home: a failed request says so with Retry, no saved place shows the note whose link opens Settings and closes the sheet', async () => {
+    const a = await editingHome('he', {}, { jewish: true });
+    try {
+      serveZmanim = serveSun();
+      a.m.click(sunButton(a.m, 'זמני היום')[0]);
+      await settle();
+      const hebrewToday = hebrewFullDate(TODAY, 'he');
+      assertHas(dialogText(a.m.container), ['זמני היום', 'Harish · ספרדי', hebrewToday, 'שעה זמנית: 55:25 (גר״א) · 66:30 (מג״א)', 'הנץ החמה', '06:54'], 'the Hebrew sheet');
+      assert(topDialog(a.m).getAttribute('aria-label') === 'זמני היום' && elements(a.m.container).find((e) => e.className === 'ch-app ch-screen ch-home')?.getAttribute('dir') === 'rtl', 'a dialog in an RTL screen');
+      // A failure
+      serveZmanim = () => ({ status: 500, body: { error: 'internal_error' } });
+      a.m.click(byLabel(a.m.container, 'היום הבא'));
+      await settle();
+      assertHas(dialogText(a.m.container), ['לא הצלחנו לטעון את הזמנים', 'לנסות שוב'], 'the failure');
+      assert(dialogText(a.m.container).includes(hebrewFullDate(day(1), 'he')), 'the date stays on the failed day');
+      serveZmanim = serveSun();
+      a.m.click(button(topDialog(a.m), 'לנסות שוב'));
+      await settle();
+      assertHas(dialogText(a.m.container), ['06:54'], 'Retry shows it');
+      assert(zmanimCalls.filter((c) => c.query.get('date') === day(1)).length === 2, 'Retry asked for the same day again');
+      // No saved place: the zone stands in, with the note and the way to Settings
+      serveZmanim = serveSun({ place: { source: 'zone' } });
+      a.m.click(byLabel(a.m.container, 'היום הקודם'));
+      await settle();
+      assertHas(dialogText(a.m.container), ['לא נשמר מיקום, ולכן הזמנים מחושבים לפי העיר המרכזית', 'לפתיחת ההגדרות'], 'the note');
+      a.m.click(button(topDialog(a.m), 'לפתיחת ההגדרות'));
+      assert(show(pushes) === show(['/he/settings?user_id=5550001']) && byRole(a.m.container, 'dialog').length === 0, `Settings: ${show(pushes)}`);
+    } finally {
+      a.m.unmount();
+    }
+  });
+
+  await check('#128 React logged no warning in #126-#127a (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
+    assert(reactWarnings.length === warnedBeforeSun, `React warned: ${show(reactWarnings.slice(warnedBeforeSun, warnedBeforeSun + 3))}`);
   });
 
   let failed = 0;

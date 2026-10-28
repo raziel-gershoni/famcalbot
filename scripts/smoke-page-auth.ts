@@ -658,7 +658,7 @@ async function main() {
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
   /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
-  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7'];
+  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7', 'jewish'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
@@ -688,6 +688,8 @@ async function main() {
     if (keysOf(gina.user ?? {}) !== 'id,isAdmin,location,name') problems.push(`user keys ${keysOf(gina.user ?? {})}`);
     // The always-7-days setting rides along for the Send sheet's week dates (false for a user who never set it)
     if (gina.lookahead7 !== false) problems.push(`lookahead7 ${show(gina.lookahead7)}`);
+    // The calendar setting rides along for the header's sun button: false for the default calendar
+    if (gina.jewish !== false) problems.push(`jewish ${show(gina.jewish)}`);
     // A Google user gets reminders too (they live in FamCal): the same feature checks as anyone
     if (hintsOf(gina) !== 'reminders=true voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
     if (show([...featureChecks].sort()) !== show(['reminders(4)', 'voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
@@ -695,6 +697,21 @@ async function main() {
     if (show(opened) !== show([4])) problems.push(`webapp_opened for ${show(opened)} (want [4]: the DB id, once)`);
     // Google is a connection beside FamCal: the facts, not a source (spec "Google as a connection" §2, §4)
     if (show(gina.sources) !== show(['famcal', 'google']) || gina.googleConnected !== true || gina.googleState !== 'connected') problems.push(`google facts ${show({ s: gina.sources, c: gina.googleConnected, st: gina.googleState })}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#11c the dashboard says whether the calendar setting is Jewish (the header\'s sun button): true for culture jewish, false for the default calendar, and the Hebrew language alone does not make it so', async () => {
+    seed();
+    const problems: string[] = [];
+    const tal = DB.user.find((u: Row) => u.id === 9);
+    const dana = DB.user.find((u: Row) => u.id === 1);
+    assert(tal && dana, 'the seeded users');
+    tal.culture = 'jewish';
+    if ((await dashboardFor(111111111, 'en')).jewish !== true) problems.push('culture jewish did not say jewish');
+    // Dana reads Hebrew (language he) on the default calendar: Hebrew dates, but no sun
+    if ((await dashboardFor(5550001, 'he')).jewish !== false) problems.push('the Hebrew language alone said jewish');
+    tal.culture = 'default';
+    if ((await dashboardFor(111111111, 'en')).jewish !== false) problems.push('switching the calendar back did not clear it');
     assert(problems.length === 0, problems.join('; '));
   });
 

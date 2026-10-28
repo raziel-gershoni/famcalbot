@@ -164,6 +164,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
     trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
     hasLocation: Boolean(p.user.location),
     lookahead7: p.lookahead7,
+    jewish: p.jewish === true,
   };
 }
 

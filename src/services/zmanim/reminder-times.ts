@@ -4,6 +4,8 @@
  *
  *   buildZmanClock    the clock the pass, the home and the digests read a reminder's due time from
  *   zmanEditorInfo    what the editor offers: the community's zmanim and today's time of each
+ *   zmanDayList       the home's sun sheet: a day's zmanim at the person's place, the candle lighting and the end of
+ *                     Shabbat or Yom Tov the day earns, and the length of the halachic hour
  *
  * The one function that turns a zman rule into an instant is compute.ts zmanInstant; everything here only finds the
  * place to count it at: the person's own (saved coordinates, filled once from a place name), else their zone's main
@@ -21,10 +23,12 @@
 
 import { ensureUserCoordinates, placeWithHeightRetry, type PlaceUser } from './place';
 import { mainCityPlace } from './pause-windows';
-import { zmanInstant, type Place } from './compute';
-import { communityCounting, isZmanKey, zmanimSet, type ZmanimCommunity } from './sets';
+import { halachicHourMs, shabbatYomTovWindows, zmanInstant, type Place } from './compute';
+import { ZMAN_KEYS, communityCounting, isZmanKey, zmanimOfSet, zmanimSet, type ZmanKey, type ZmanimCommunity } from './sets';
 import { asZmanSpec, communityOfUser, reminderZmanim } from './spec';
 import type { ZmanClock, ZmanSpecValue, ZmanimInfo } from '../../lib/calendar-view/zman-spec';
+import type { ZmanimListResponse, ZmanimListRow } from '../../lib/calendar-view/zmanim-list';
+import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import type { ZmanUser } from './reminder-clock';
 import { warnOnceADay } from './once';
 
@@ -108,10 +112,23 @@ export async function buildZmanClock(user: ZmanUser, zone: string): Promise<Zman
   };
 }
 
+/**
+ * The zmanim of a community's set on a day, as a list reads them: each key, the opinion the set names it with, and its
+ * instant as an ISO string (null where the sun does not make it that day, or where there is no place). The editor's
+ * block and the sun sheet both read this one list, so the instants come from instantAt and nothing else.
+ */
+function zmanRows(place: Place | null, community: ZmanimCommunity, day: string, keys: readonly ZmanKey[]): ZmanimListRow[] {
+  const set = zmanimSet(community);
+  return keys.map((key) => ({
+    key,
+    opinion: set.zmanim[key]?.opinion ?? null,
+    at: place ? (instantAt(place, community, day, { zman: key, offsetMin: 0 })?.toISOString() ?? null) : null,
+  }));
+}
+
 /** The editor's zmanim block: the community's zmanim a reminder may be set to, and today's time of each. */
 export async function zmanEditorInfo(user: ZmanUser, zone: string, today: string): Promise<ZmanimInfo> {
   const community = communityOfUser(user);
-  const set = zmanimSet(community);
   // Not waited for: a person whose place is still to be looked up gets the zone's main city for this load (the next one has theirs).
   const found = await placeFor(user, zone, true);
   const at = (spec: ZmanSpecValue) => (found ? (instantAt(found.place, community, today, spec)?.toISOString() ?? null) : null);
@@ -119,7 +136,52 @@ export async function zmanEditorInfo(user: ZmanUser, zone: string, today: string
     community,
     place: found ? found.source : 'none',
     day: today,
-    zmanim: reminderZmanim(community).map((key) => ({ key, opinion: set.zmanim[key]?.opinion ?? null, at: at({ zman: key, offsetMin: 0 }) })),
+    zmanim: zmanRows(found?.place ?? null, community, today, reminderZmanim(community)),
     hours: Array.from({ length: 12 }, (_, i) => at({ halachicHours: i + 1, offsetMin: 0 })),
+  };
+}
+
+/** The zmanim a day's list does not take from the set's own order: the Shabbat and Yom Tov windows give them (zmanDayList). */
+const FROM_WINDOWS: readonly ZmanKey[] = ['CANDLE_LIGHTING', 'SHABBAT_ENDS'];
+
+/** Where a row stands in the day: its key's place in the order of the day, a Yom Tov's end where the end of Shabbat is. */
+const orderOf = (key: string): number => ZMAN_KEYS.indexOf((key === 'YOM_TOV_ENDS' ? 'SHABBAT_ENDS' : key) as ZmanKey);
+
+/**
+ * The home's sun sheet: `day` (a civil date in `zone`) at the person's place under their community's set.
+ *   rows   the set's zmanim in the order of the day, and among them the candle lighting on the day a Shabbat or Yom Tov
+ *          window begins and the end of Shabbat (a Saturday) or Yom Tov (any other day) on the day one ends. Those two
+ *          come from shabbatYomTovWindows, the windows the pause reads, so the list and the pause never disagree.
+ *   hours  the halachic hour: the GRA's and the Magen Avraham's, or the Baal HaTanya's for Chabad.
+ * The place is the editor info's (placeFor in the background): the sheet never waits on a lookup. A person with no place
+ * at all (a zone with no main city and no saved location) gets `place: null` and no rows. Server only; the client words it.
+ */
+export async function zmanDayList(user: ZmanUser, zone: string, day: string): Promise<ZmanimListResponse> {
+  const community = communityOfUser(user);
+  const found = await placeFor(user, zone, true);
+  if (!found) return { day, tz: zone, community, place: null, rows: [], hours: [] };
+  const { place } = found;
+  const set = zmanimSet(community);
+
+  const rows = zmanRows(place, community, day, zmanimOfSet(community).filter((key) => !FROM_WINDOWS.includes(key)));
+  const windows = shabbatYomTovWindows({ from: startOfLocalDay(day, zone), to: startOfLocalDay(addDaysToDate(day, 1), zone) }, place, community);
+  for (const [start, end] of windows) {
+    if (localDate(start, zone) === day) rows.push({ key: 'CANDLE_LIGHTING', opinion: null, at: start.toISOString() });
+    const endDay = localDate(end, zone);
+    if (endDay === day) rows.push({ key: new Date(`${day}T00:00:00Z`).getUTCDay() === 6 ? 'SHABBAT_ENDS' : 'YOM_TOV_ENDS', opinion: null, at: end.toISOString() });
+  }
+  rows.sort((a, b) => orderOf(a.key) - orderOf(b.key));
+
+  const hour = halachicHourMs(day, place, community);
+  const hours: ZmanimListResponse['hours'] = [{ opinion: set.zmanim.SOF_SHMA_GRA?.opinion ?? 'gra', ms: hour.day }];
+  if (set.mgaDay) hours.push({ opinion: 'mga', ms: hour.mga });
+
+  return {
+    community,
+    day,
+    tz: zone,
+    place: found.source === 'saved' ? { source: 'saved', name: (user.location ?? '').trim() } : { source: 'zone' },
+    rows,
+    hours,
   };
 }

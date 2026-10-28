@@ -505,6 +505,7 @@ async function main() {
     isEarlyAdopter: false,
     hints: { reminders: true, voiceEvents: false },
     lookahead7: false,
+    jewish: false,
   };
   /** JSON with sorted keys, so a comparison ignores key order. */
   const canon = (value: unknown): string => JSON.stringify(value, (_k, v: unknown) =>
@@ -546,8 +547,17 @@ async function main() {
       trialDaysLeft: 5,
       hasLocation: true,
       lookahead7: false,
+      jewish: false,
     };
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);
+  });
+
+  await check('#16a the calendar setting reaches the home: jewish true from the page\'s props is true on CalendarHome, and a page without it (an older server) reads as false', async () => {
+    const yes = await renderDashboard({ ...DASHBOARD, jewish: true });
+    assert(yes.html.includes('smoke:CalendarHome') && rendered[0]?.props.jewish === true, `jewish true: ${canon(rendered[0]?.props)}`);
+    const { jewish: _gone, ...older } = DASHBOARD;
+    const no = await renderDashboard(older);
+    assert(no.html.includes('smoke:CalendarHome') && rendered[0]?.props.jewish === false, `no jewish: ${canon(rendered[0]?.props)}`);
   });
 
   await check('#17 a user with Google connected: the sources and the Google facts pass through, the hints are the page\'s, and an early adopter with no location gets no trial days and hasLocation false', async () => {

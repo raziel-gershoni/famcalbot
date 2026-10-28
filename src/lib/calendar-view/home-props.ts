@@ -39,4 +39,10 @@ export type CalendarHomeProps = {
    * no dates for This week.
    */
   lookahead7?: boolean;
+  /**
+   * The calendar setting is Jewish (culture 'jewish'): the header shows the sun button for today's zmanim. Absent or
+   * false means no button. It is the setting itself, not hebrewDates (the Hebrew language or an Israeli zone also show
+   * Hebrew dates).
+   */
+  jewish?: boolean;
 };

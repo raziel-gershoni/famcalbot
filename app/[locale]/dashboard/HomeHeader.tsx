@@ -4,8 +4,8 @@
 // route says so, its Hebrew date ("Thursday, 15 October" over "4 Cheshvan 5787"), both
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
-// when the user can add one, home editing spec §2), Send to chat, and the ⋯ menu.
-// Until the first answer the day is a placeholder bar.
+// when the user can add one, home editing spec §2), Send to chat, the sun (today's zmanim, only for the Jewish
+// calendar) and the ⋯ menu. Until the first answer the day is a placeholder bar.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { daysBetween, formatDayLong, shabbatOf } from '@/src/lib/calendar-view/format';
@@ -27,6 +27,9 @@ export interface HomeHeaderProps {
   /** Opens the editor for a new item; absent when the user can add neither kind, and there is no "+". */
   onAdd?: () => void;
   addOpen?: boolean;
+  /** Opens the zmanim sheet; absent for anyone but the Jewish calendar (and before the first answer), and there is no sun. */
+  onZmanim?: () => void;
+  zmanimOpen?: boolean;
 }
 
 export function SendIcon() {
@@ -48,6 +51,15 @@ function MoreIcon() {
   );
 }
 
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" focusable="false">
@@ -56,7 +68,7 @@ function PlusIcon() {
   );
 }
 
-export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen }: HomeHeaderProps) {
+export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: only Russian reads it (Ruling R9).
@@ -122,6 +134,11 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
         >
           <SendIcon />
         </button>
+        {onZmanim ? (
+          <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
+            <SunIcon />
+          </button>
+        ) : null}
         <button
           type="button"
           className="ch-icon-btn"

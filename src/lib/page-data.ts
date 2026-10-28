@@ -71,6 +71,8 @@ export interface DashboardPageProps {
   isEarlyAdopter: boolean;
   hints: HomeHints;
   lookahead7: boolean;
+  /** The calendar setting is Jewish: the home shows the zmanim button. */
+  jewish: boolean;
 }
 
 /**
@@ -168,6 +170,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
     googleState: googleStateOf(user),
     trial: { ...trialStatus, trialEndsAt: trialStatus.trialEndsAt?.toISOString() ?? null },
     isEarlyAdopter,
+    jewish: user.culture === 'jewish',
     ...home,
   };
   // One open of the calendar home (spec §7.1), under the DB id like every activity

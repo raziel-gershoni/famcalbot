@@ -42,6 +42,7 @@
       "send": "Send to chat",
       "menu": "Menu",
       "add": "Add",
+      "zmanim": "Zmanim",
       "nextHoliday": "{name} in {count, plural, one {# day} other {# days}}",
       "nextHolidayTomorrow": "{name} tomorrow"
     },
@@ -263,6 +264,24 @@
       "hoursAfter": "{count, plural, one {# halachic hour} other {# halachic hours}} after sunrise",
       "before": "{minutes} min before {name}",
       "after": "{minutes} min after {name}"
+    },
+    "zmanimList": {
+      "title": "Today’s zmanim",
+      "titleOther": "Zmanim",
+      "previousDay": "Previous day",
+      "nextDay": "Next day",
+      "community": {
+        "sephardi": "Sephardi",
+        "ashkenazi": "Ashkenazi",
+        "chabad": "Chabad"
+      },
+      "shabbatEnds": "Shabbat ends",
+      "yomTovEnds": "Yom Tov ends",
+      "noTime": "No time this day",
+      "hourLabel": "Halachic hour:",
+      "loading": "Loading zmanim…",
+      "failedTitle": "Couldn’t load the zmanim",
+      "failedBody": "Check your connection and try again."
     },
     "editor": {
       "titleNew": "New",
