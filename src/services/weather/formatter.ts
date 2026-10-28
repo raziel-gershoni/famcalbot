@@ -4,6 +4,7 @@
  */
 
 import { HDate, Locale } from '@hebcal/core';
+import { instantToWallTime } from '../../utils/wall-time';
 import { gematriya } from '@hebcal/hdate';
 import { formatInTimeZone } from 'date-fns-tz';
 import '@hebcal/locales';
@@ -55,7 +56,7 @@ function extractRainHours(
 
     // Consider it "rain" if probability >= 40% or actual precipitation > 0
     if (probability >= 40 || precipitation > 0) {
-      const hour = new Date(timeStr).getHours();
+      const hour = Number(timeStr.slice(11, 13)); // the place's wall hour, whatever zone the server runs in
       const timeDisplay = `${hour.toString().padStart(2, '0')}:00`;
 
       if (!currentPeriod) {
@@ -115,13 +116,11 @@ function getUVDescription(uvIndex: number, f: BotMessages['weatherFallback']): s
 }
 
 /**
- * Format time from ISO string to HH:MM
+ * HH:MM of an Open-Meteo time, a wall time at the place ('yyyy-MM-ddTHH:mm'): read from the text, never through a Date
+ * parsed in the server's zone.
  */
 function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  return `${hours}:${minutes}`;
+  return isoString.slice(11, 16);
 }
 
 /**
@@ -356,7 +355,7 @@ ${JSON.stringify(payload, null, 2)}`;
     return { brief: text + modelFooter, detailed: text, infographicConfig };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
-    const fallback = await formatWeatherDetailed(weather, language);
+    const fallback = await formatWeatherDetailed(weather, language, timezone, now);
     return { brief: fallback, detailed: fallback };
   }
 }
@@ -365,7 +364,7 @@ ${JSON.stringify(payload, null, 2)}`;
  * Format weather data in detailed format (fallback when AI is unavailable), in the person's language.
  * It is sent as Telegram HTML (and read out as the voice text), so bold is <b> and the place name is escaped.
  */
-async function formatWeatherDetailed(weather: WeatherData, language: string): Promise<string> {
+async function formatWeatherDetailed(weather: WeatherData, language: string, timezone: string, now: Date): Promise<string> {
   const t = await getBotMessages(language);
   const w = t.weatherOnly;
   const f = t.weatherFallback;
@@ -409,7 +408,7 @@ async function formatWeatherDetailed(weather: WeatherData, language: string): Pr
 
   // Rain hours for today
   if (weather.today.precipitationProbability >= 40 && weather.hourly) {
-    const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
+    const todayDate = weather.daily?.[0]?.date || instantToWallTime(now, timezone).slice(0, 10);
     const rainHours = extractRainHours(weather.hourly, todayDate);
     if (rainHours.length > 0) {
       output += `⏰ ${f.rainExpected}: ${formatRainHours(rainHours)}\n`;
@@ -419,16 +418,18 @@ async function formatWeatherDetailed(weather: WeatherData, language: string): Pr
   // ========== 12-HOUR HOURLY BREAKDOWN ==========
   if (weather.hourly) {
     output += `\n${section(f.next12Hours)}`;
-    const now = new Date();
+    // Open-Meteo's hourly times are wall times at the place ('yyyy-MM-ddTHH:mm', asked in the person's zone), so they
+    // compare with the place's own clock, never with a Date parsed in the server's zone
+    const nowAtPlace = instantToWallTime(now, timezone).slice(0, 16);
 
     let hoursShown = 0;
     for (let i = 0; i < weather.hourly.time.length && hoursShown < 12; i++) {
-      const hourTime = new Date(weather.hourly.time[i]);
+      const wallTime = weather.hourly.time[i];
 
       // Only show future hours
-      if (hourTime <= now) continue;
+      if (wallTime <= nowAtPlace) continue;
 
-      const hour = hourTime.getHours();
+      const hour = Number(wallTime.slice(11, 13));
       const temp = Math.round(weather.hourly.temperature[i]);
       const weatherCode = weather.hourly.weatherCode[i];
       const wind = Math.round(weather.hourly.windSpeed[i]);

@@ -16,6 +16,7 @@ import { getEarlyAdoptionMode } from './reminder-cache';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { isPaused } from './zmanim/pause';
+import { createTranslator } from 'next-intl';
 
 
 const REMINDER_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days
@@ -164,17 +165,17 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
     let message: string;
 
     if (daysLeft > 0) {
-      // 3-day reminder with usage stats
+      // 3-day reminder with usage stats. The day count and the usage counts take their language's plural forms (ICU,
+      // through next-intl's translator, as zman-view does), so there is no "1 days" or "через 1 дня".
+      const soon = createTranslator({ locale: locale === 'he' || locale === 'ru' ? locale : 'en', messages: { reminders: t.reminders }, namespace: 'reminders.expiringSoon' });
       const usageStats = [
-        t.reminders?.expiringSoon?.textUsage?.replace('{count}', String(usage?.textSummariesUsed ?? 0)) || `${usage?.textSummariesUsed ?? 0} text summaries`,
-        t.reminders?.expiringSoon?.voiceUsage?.replace('{count}', String(usage?.voiceSummariesUsed ?? 0)) || `${usage?.voiceSummariesUsed ?? 0} voice messages`,
-        t.reminders?.expiringSoon?.eventUsage?.replace('{count}', String(usage?.voiceEventsCreated ?? 0)) || `${usage?.voiceEventsCreated ?? 0} voice-created events`,
+        soon('textUsage', { count: usage?.textSummariesUsed ?? 0 }),
+        soon('voiceUsage', { count: usage?.voiceSummariesUsed ?? 0 }),
+        soon('eventUsage', { count: usage?.voiceEventsCreated ?? 0 }),
       ].map(s => `  \u2022 ${s}`).join('\n');
 
       message = [
-        (t.reminders?.expiringSoon?.title || '\uD83C\uDF1F Heads up! Your FamCal {plan} renews in {days} days')
-          .replace('{plan}', localizedPlanName(t, sub.plan, planConfig.name))
-          .replace('{days}', String(userDaysLeft)),
+        soon('title', { plan: localizedPlanName(t, sub.plan, planConfig.name), days: userDaysLeft }),
         '',
         t.reminders?.expiringSoon?.usage || 'Your family has used:',
         usageStats,

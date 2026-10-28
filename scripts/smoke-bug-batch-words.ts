@@ -664,6 +664,26 @@ async function fix3() {
       if (lang !== 'en') assert(!out[0].text.includes('Basic'), `${lang}: "Basic" in:\n${out[0].text}`);
     });
 
+    await check(`3: the reminder before a plan ends says it ends (plans never renew by themselves) and counts in ${lang}'s plural forms`, async () => {
+      DB.subscription = [subscription(new Date(Date.now() + 1.5 * DAY))];
+      DB.usageCounter = [{ id: `uc-${uid}`, userId: uid, textSummariesUsed: 1, voiceSummariesUsed: 1, voiceEventsCreated: 2 }];
+      try {
+        const { processSubscriptionReminders } = await import('../src/services/subscription-reminders');
+        await withLogs(() => processSubscriptionReminders());
+        const out = sentTo('telegram').filter(s => s.chatId === String(tg));
+        assert(out.length === 1, `expected one reminder, got ${out.length}`);
+        const want = {
+          en: ['ends in 2 days', '1 text summary', '1 voice message', '2 voice-created events'],
+          he: ['מסתיים בעוד יומיים', 'סיכום טקסט אחד', 'הודעה קולית אחת', 'שני אירועים שנוצרו בקול'],
+          ru: ['закончится через 2 дня', '1 текстовую сводку', '1 голосовое сообщение', '2 события, созданных голосом'],
+        }[lang];
+        for (const w of want) assert(out[0].text.includes(w), `${lang}: "${w}" is not in:\n${out[0].text}`);
+        assert(!/renews|מתחדש|продлевается|\{/.test(out[0].text), `${lang}: a renewal claim or a raw placeholder in:\n${out[0].text}`);
+      } finally {
+        DB.usageCounter = [];
+      }
+    });
+
     await check(`3: the subscription-ended notice names the plan on its button in ${lang}`, async () => {
       DB.subscription = [subscription(new Date(Date.now() - 3_600_000))];
       const { processSubscriptionReminders } = await import('../src/services/subscription-reminders');
@@ -727,6 +747,19 @@ async function fix4() {
       if (lang !== 'en') assert(!ENGLISH_WORDS.test(text), `${lang}: English in the fallback (${ENGLISH_WORDS.exec(text)?.[0]}):\n${text}`);
     });
   }
+
+  await check('4: the fallback\'s next 12 hours start at the place\'s next hour, whatever zone the server runs in', async () => {
+    // A person in New York at 06:30 their time (10:30 UTC); the smoke's process runs in Jerusalem. Open-Meteo's hours are
+    // New York wall times, so the list starts at 07:00. Parsing them in the server's zone would start it hours off.
+    const weather = forecast();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    weather.hourly.time = (weather.hourly.time as string[]).map((_t, i) => `2026-10-${pad(29 + Math.floor(i / 24))}T${pad(i % 24)}:00`);
+    const { formatWeatherAI } = await import('../src/services/weather/formatter');
+    const result = await withLogs(() => formatWeatherAI(weather as never, 'en', 'Dana', 'America/New_York', 'default', false, false, null, new Date('2026-10-29T10:30:00Z')));
+    const after = result.brief.split(botText('en', 'weatherFallback.next12Hours'))[1] ?? '';
+    const firstHour = after.split('\n').find((l) => /^\d\d:00/.test(l));
+    assert(firstHour?.startsWith('07:00'), `the first hour is not 07:00: ${firstHour}\n${result.brief}`);
+  });
 
   await check('4: the infographic reads the conditions from the messages, not from a table of its own', () => {
     const code = fs.readFileSync(path.join(SRC, 'services/weather/infographic.tsx'), 'utf8');

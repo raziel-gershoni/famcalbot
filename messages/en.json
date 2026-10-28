@@ -1551,11 +1551,11 @@
     },
     "reminders": {
       "expiringSoon": {
-        "title": "🌟 Heads up! Your FamCal {plan} renews in {days} days",
+        "title": "🌟 Heads up! Your FamCal {plan} plan ends {days, plural, one {in # day} other {in # days}}",
         "usage": "Your family has used:",
-        "textUsage": "{count} text summaries",
-        "voiceUsage": "{count} voice messages",
-        "eventUsage": "{count} voice-created events",
+        "textUsage": "{count, plural, one {# text summary} other {# text summaries}}",
+        "voiceUsage": "{count, plural, one {# voice message} other {# voice messages}}",
+        "eventUsage": "{count, plural, one {# voice-created event} other {# voice-created events}}",
         "cta": "Keep the magic going for just ⭐{price}/month",
         "button": "💫 Renew Subscription"
       },
@@ -1584,7 +1584,7 @@
     "invoiceLabel": "{plan} (1 month)",
     "textLimitReached": "📊 <b>Monthly limit reached</b>\n\nYou've used all {limit} text summaries this month.\n\nUpgrade to get unlimited summaries!",
     "voiceLimitReached": "🎤 <b>Monthly limit reached</b>\n\nYou've used all {limit} voice summaries this month.\n\nUpgrade to get unlimited voice!",
-    "remindersRequired": "⭐ <b>Event reminders is a Pro feature</b>\n\nUpgrade to Pro to receive event reminders!",
+    "remindersRequired": "⭐ <b>Event reminders are a Pro feature</b>\n\nUpgrade to Pro to receive event reminders!",
     "plans": {
       "free": {
         "name": "Free"
