@@ -334,7 +334,7 @@ function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContex
     : `2. WHO IT IS FOR - "forPerson" is always "self". Keep anyone else's name in the title: "Remind Noa to take her medicine" → title "Noa: take her medicine".`;
 
   const forwardedRule = mode === 'text'
-    ? `\n\n8. FORWARDED MESSAGES - in a message the user forwarded, "me", "I", "לי" and "мне" mean the user who forwarded it, never whoever wrote it.`
+    ? `\n\n9. FORWARDED MESSAGES - in a message the user forwarded, "me", "I", "לי" and "мне" mean the user who forwarded it, never whoever wrote it.`
     : '';
 
   const examples = [
@@ -365,6 +365,12 @@ function buildReminderRules(mode: 'voice' | 'text', people: ReminderPromptContex
       reminder('"forPerson": "self", "title": "Выключить духовку", "startDate": "YYYY-MM-DD", "startTime": "19:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": null')),
     example('Remind me every Sunday at 8 to take out the trash', '',
       reminder('"forPerson": "self", "title": "Take out the trash", "startDate": "YYYY-MM-DD", "startTime": "08:00", "endDate": null, "endTime": null, "allDay": false, "recurrence": {"frequency": "weekly", "daysOfWeek": ["SU"]}, "anchor": null')),
+    example('On Friday, remind me an hour before candle lighting to take the challah out of the freezer', '',
+      reminder('"forPerson": "self", "title": "Take the challah out of the freezer", "startDate": "YYYY-MM-DD", "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null, "zman": {"name": "CANDLE_LIGHTING", "opinion": null, "offsetMinutes": -60}')),
+    example('תזכיר לי חצי שעה לפני סוף זמן קריאת שמע לפי המגן אברהם להעיר את הילדים', 'Hebrew: Remind me half an hour before the latest time for Shema, by the Magen Avraham, to wake the kids',
+      reminder('"forPerson": "self", "title": "להעיר את הילדים", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": null, "anchor": null, "zman": {"name": "SOF_SHMA", "opinion": "mga", "offsetMinutes": -30}')),
+    example('напоминай каждый день, когда пройдут три галахических часа после восхода, принимать лекарство', 'Russian: Remind me every day, when three halachic hours have passed since sunrise, to take the medicine',
+      reminder('"forPerson": "self", "title": "Принять лекарство", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": true, "recurrence": {"frequency": "daily"}, "anchor": null, "zman": {"halachicHours": 3, "offsetMinutes": 0}')),
     example('Remind me an hour before the dentist to bring the forms', '',
       reminder('"forPerson": "self", "title": "Bring the forms", "startDate": null, "startTime": null, "endDate": null, "endTime": null, "allDay": false, "recurrence": null, "anchor": {"description": "dentist", "offsetMinutes": -60}')),
     example('אל תשכח לשלם את חשבון החשמל', "Hebrew: Don't forget to pay the electricity bill",
@@ -420,12 +426,29 @@ ${whoRules}
    - "Stop reminding me to...", "תפסיק להזכיר לי...", "хватит напоминать..." → intent "delete", "scope": "all".
    - "Skip today's reminder", "תדלג על התזכורת של היום", "пропусти сегодняшнее напоминание" → intent "delete", "scope": "single", "eventReference": {"type": "by_description", "description": <the reminder's title>, "timeHint": "today"}.
 
-7. DONE - "I did it", "done", "I already called", "סיימתי", "עשיתי את זה", "כבר התקשרתי", "сделал", "сделала", "готово" report a finished task: intent "none", with nothing to create, edit or delete. "none" is allowed here in every mode.${forwardedRule}
+7. DONE - "I did it", "done", "I already called", "סיימתי", "עשיתי את זה", "כבר התקשרתי", "сделал", "сделала", "готово" report a finished task: intent "none", with nothing to create, edit or delete. "none" is allowed here in every mode.
+
+8. HALACHIC TIMES (ZMANIM) - a reminder can be timed by a halachic time of day instead of a clock time: "10 minutes before sof zman Shema", "חצי שעה לפני השקיעה", "за 10 минут до конца времени Шма".
+   - Give "zman" as the reminder's time: "startTime" null, "allDay": true, "anchor" null, never a clock time. "startDate" is the day the user said and null when they said none (this replaces the "today's date" of rule 4): FamCal finds the next time that has not passed, at the person's own place. A repeat ("every day", "every Friday") uses "recurrence" as above, with "startDate" null.
+   - "name" is one of ALOT, MISHEYAKIR, NETZ, SOF_SHMA, SOF_TFILA, CHATZOT, MINCHA_GEDOLA, MINCHA_KETANA, PLAG, CANDLE_LIGHTING, SHKIA, TZEIT, TZEIT_LECHUMRA, CHATZOT_HALAYLA.
+     * ALOT: "alot hashachar", "dawn", "עלות השחר", "алот ха-шахар". MISHEYAKIR: "misheyakir", "משיכיר", "זמן טלית ותפילין", "мишеякир".
+     * NETZ: "sunrise", "netz", "הנץ החמה", "הנץ", "זריחה", "восход", "нец". SHKIA: "sunset", "shkia", "שקיעה", "שקיעת החמה", "закат", "шкия".
+     * SOF_SHMA: "sof zman Shema", "latest time for Shema", "סוף זמן קריאת שמע", "סזק"ש", "конец времени Шма". SOF_TFILA: "latest time for morning prayer", "סוף זמן תפילה", "конец времени молитвы".
+     * CHATZOT: "halachic noon", "chatzot", "חצות היום", "хацот". CHATZOT_HALAYLA: "halachic midnight", "חצות הלילה", "халахическая полночь".
+     * MINCHA_GEDOLA: "mincha gedola", "מנחה גדולה", "минха гдола". MINCHA_KETANA: "mincha ketana", "מנחה קטנה", "минха ктана". PLAG: "plag", "פלג המנחה", "פלג", "плаг".
+     * CANDLE_LIGHTING: "candle lighting", "הדלקת נרות", "зажигание свечей". TZEIT: "nightfall", "tzeit", "צאת הכוכבים", "צאת", "выход звёзд". TZEIT_LECHUMRA: "the stricter nightfall", "צאת הכוכבים לחומרא".
+   - "opinion" is null unless the user said whose opinion to follow: "gra" ("GRA", "the Vilna Gaon", "הגר"א", "ГРА"), "mga" ("MGA", "Magen Avraham", "מג"א", "מגן אברהם", "Маген Авраам"), "halachaBerura" ("Halacha Berura", "הלכה ברורה", "Алаха Бруря"), "yalkutYosef" ("Yalkut Yosef", "ילקוט יוסף", "Ялкут Йосеф"), "baalHatanya" ("Baal HaTanya", "בעל התניא", "Баал а-Тания"). Never choose one for the user who said none: FamCal asks them.
+   - "offsetMinutes" is whole clock minutes, negative for before and positive for after, 0 for "at": "10 minutes before" → -10, "חצי שעה לפני" → -30, "שעה אחרי" → 60, "за 10 минут до" → -10.
+   - "N halachic hours after sunrise" ("שעות זמניות אחרי הנץ", "галахических часов после восхода") is {"halachicHours": N, "offsetMinutes": 0} instead of a name. A halachic hour is a twelfth of the daytime, not a clock hour.
+   - A bare "midnight" ("בחצות", "в полночь") is the clock's 00:00, a time of rule 4, not a zman. Only "halachic midnight", "chatzot" and "חצות הלילה" are CHATZOT_HALAYLA, and only "halachic noon", "chatzot" and "חצות היום" are CHATZOT.
+   - A clock time printed beside the name, as in a forwarded message that says "candle lighting 18:12", is a plain clock time: give "startTime" and no "zman".
+   - A halachic time that is not in the list ("Rabbeinu Tam", "רבנו תם", "72 minutes after sunset", "end of Shabbat", "צאת השבת", "havdalah") is never the nearest one in the list: return intent "none" with an "error" naming what was asked.${forwardedRule}
 
 REMINDER FIELDS (inside "event", and inside the "event" of each "intents" entry):
   "kind": "event" | "reminder",
   "forPerson": "self" | "partner" | "both" (reminders only),
-  "anchor": {"description": "dentist", "offsetMinutes": -60} or null (reminders only)
+  "anchor": {"description": "dentist", "offsetMinutes": -60} or null (reminders only),
+  "zman": {"name": "SOF_SHMA", "opinion": "gra" | "mga" | "halachaBerura" | "yalkutYosef" | "baalHatanya" | null, "offsetMinutes": -10} or {"halachicHours": 3, "offsetMinutes": 0} or null (reminders only)
 
 REMINDER EXAMPLES:
 

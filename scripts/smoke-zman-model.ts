@@ -63,7 +63,7 @@ const CALENDARS: CalendarAssignment[] = [
 async function main() {
   const { readZmanFromModel, asZmanSpec, offeredIn, reminderZmanim } = await import('../src/services/zmanim/spec');
   const { COMMUNITIES, ZMAN_KEYS, zmanimSet } = await import('../src/services/zmanim/sets');
-  const { parseGeminiEventResponse } = await import('../src/services/voice/gemini-voice');
+  const { parseGeminiEventResponse, buildEventExtractionPrompt } = await import('../src/services/voice/gemini-voice');
   type Community = (typeof COMMUNITIES)[number];
 
   const read = (name: string, opinion: string | null, offsetMinutes: number | undefined, community: Community) =>
@@ -307,6 +307,46 @@ async function main() {
   await check('an event without a zman is read exactly as before', () => {
     const { event, error } = parse({ kind: 'event', startDate: '2026-10-30', startTime: '09:00', endTime: '10:00' });
     assert(!!event && !error && !('zman' in event), JSON.stringify(event));
+  });
+
+  // ---- The prompt teaches what the mapper reads (zman reminders by voice plan, Task 4) ----
+
+  const PEOPLE = { userName: 'Raziel', userEnglishName: null, partnerName: null, partnerEnglishName: null };
+  const rulesOf = (mode: 'voice' | 'text') => buildEventExtractionPrompt('en', CALENDARS, IL, mode, undefined, PEOPLE);
+
+  await check('the names the prompt lists are exactly the zman names the mapper knows (no end of Shabbat), and the opinions are its closed list', () => {
+    const known = new Set(ZMAN_KEYS.filter((key) => key !== 'SHABBAT_ENDS').map(nameOf));
+    for (const mode of ['voice', 'text'] as const) {
+      const prompt = rulesOf(mode);
+      const listed = prompt.match(/"name" is one of ([A-Z_, ]+)\./)?.[1];
+      assert(!!listed, `${mode}: no list of names`);
+      const names = listed.split(',').map((n) => n.trim());
+      assert(new Set(names).size === names.length && names.length === known.size && names.every((n) => known.has(n)), `${mode}: ${names.join(',')} vs ${[...known].join(',')}`);
+      assert(!names.includes('SHABBAT_ENDS'), `${mode}: SHABBAT_ENDS is listed`);
+      for (const opinion of ['gra', 'mga', 'halachaBerura', 'yalkutYosef', 'baalHatanya']) assert(prompt.includes(`"${opinion}"`), `${mode}: no opinion ${opinion}`);
+    }
+  });
+
+  await check('each zman example of the prompt reads back through the parser and the mapper as the rule it teaches, in both modes', () => {
+    const want = [
+      { zman: 'CANDLE_LIGHTING', offsetMin: -60 },
+      { zman: 'SOF_SHMA_MGA', offsetMin: -30 },
+      { halachicHours: 3, offsetMin: 0 },
+    ];
+    for (const mode of ['voice', 'text'] as const) {
+      const outputs = rulesOf(mode).split('\n').filter((line) => line.startsWith('Output: ') && line.includes('"zman": {'));
+      assert(outputs.length === 3, `${mode}: ${outputs.length} examples`);
+      const got = outputs.map((line) => {
+        const json = JSON.parse(line.slice('Output: '.length).replace(/YYYY-MM-DD/g, '2026-10-30'));
+        const { event, error } = parseGeminiEventResponse(json, CALENDARS, IL, true, NOW);
+        assert(!!event && !error && event.allDay && !!event.zman, `${mode}: ${line.slice(0, 80)} -> ${error}`);
+        assert(event.startTime.getTime() === event.endTime.getTime(), `${mode}: an example has a length`);
+        const mapped = readZmanFromModel(event.zman, 'sephardi');
+        assert(mapped.kind === 'spec', `${mode}: ${JSON.stringify(mapped)}`);
+        return mapped.spec;
+      });
+      assert(JSON.stringify(got) === JSON.stringify(want), `${mode}: ${JSON.stringify(got)}`);
+    }
   });
 
   let failed = 0;

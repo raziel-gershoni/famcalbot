@@ -348,6 +348,80 @@ async function extractionChecks() {
     for (const phrase of phrases) assert(rules.includes(phrase), `no "${phrase}"`);
   });
 
+  // The zman rule (zman reminders by voice plan, Task 4). Its structure is checked here; that its names are the mapper's
+  // and its examples read back through the parser and the mapper is checked in smoke-zman-model.ts.
+  const zmanSection = (rules: string) => {
+    const from = rules.indexOf('8. HALACHIC TIMES');
+    const to = rules.indexOf('REMINDER FIELDS');
+    assert(from > 0 && to > from, 'the rules have no "8. HALACHIC TIMES" before the REMINDER FIELDS');
+    return rules.slice(from, to);
+  };
+
+  await check('the rules teach a halachic time as the reminder\'s time: a name, an opinion that is null unless said, an offset, or halachic hours', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      for (const people of [PAIR, SOLO]) {
+        const rules = rulesFor(mode, people);
+        const section = zmanSection(rules);
+        for (const needle of ['"zman"', '"name"', '"opinion"', '"offsetMinutes"', '"halachicHours"', 'null unless the user said', 'negative for before', '"allDay": true', 'never a clock time']) {
+          assert(section.includes(needle), `${mode}: the zman rule lacks ${needle}`);
+        }
+        const fields = rules.slice(rules.indexOf('REMINDER FIELDS'), rules.indexOf('REMINDER EXAMPLES'));
+        assert(fields.includes('  "zman": {"name": "SOF_SHMA", "opinion": "gra" | "mga" | "halachaBerura" | "yalkutYosef" | "baalHatanya" | null, "offsetMinutes": -10} or {"halachicHours": 3, "offsetMinutes": 0} or null (reminders only)'), `${mode}: the schema line has no zman, hours form or null`);
+      }
+    }
+  });
+
+  await check('the zman rule names the halachic times in English, Hebrew and Russian, and tells a clock midnight from halachic midnight', () => {
+    const section = zmanSection(rulesFor('text'));
+    const words = [
+      'sof zman Shema', 'סוף זמן קריאת שמע', 'конец времени Шма', 'sunrise', 'הנץ החמה', 'восход', 'sunset', 'שקיעה', 'закат',
+      'candle lighting', 'הדלקת נרות', 'зажигание свечей', 'nightfall', 'צאת הכוכבים', 'halachic noon', 'חצות היום', 'halachic midnight', 'חצות הלילה',
+      'plag', 'פלג', 'מנחה גדולה', 'halachic hours', 'שעות זמניות', 'галахических часов',
+      'הגר"א', 'מג"א', 'ГРА', 'Magen Avraham', 'Halacha Berura', 'Yalkut Yosef', 'Baal HaTanya',
+      'חצי שעה לפני', 'за 10 минут до', '10 minutes before',
+    ];
+    for (const word of words) assert(section.includes(word), `no "${word}"`);
+    // A bare midnight is the clock's 00:00; only the halachic ones are zmanim
+    assert(/bare "midnight"[^\n]*"בחצות"[^\n]*"в полночь"[^\n]*00:00/.test(section), 'no rule for a bare midnight');
+  });
+
+  await check('the zman rule refuses what is not in its list (Rabbeinu Tam, the end of Shabbat) instead of mapping it to the nearest time, and leaves a printed clock time a clock time', () => {
+    const section = zmanSection(rulesFor('text'));
+    for (const word of ['Rabbeinu Tam', 'רבנו תם', 'end of Shabbat', 'צאת השבת', 'intent "none"', 'never the nearest', 'printed']) assert(section.includes(word), `no "${word}"`);
+    assert(/printed[^\n]*"candle lighting 18:12"|"candle lighting 18:12"[^\n]*printed/.test(section), 'no printed-time example');
+  });
+
+  await check('the zman rule has no user fact: no name, place, community or opinion the prompt picks for anyone', () => {
+    for (const people of [PAIR, SOLO]) {
+      const section = zmanSection(rulesFor('voice', people));
+      for (const fact of ['רזיאל', 'Raziel', 'דנה', 'Dana', 'Jerusalem', 'Harish', 'Sephardi', 'Ashkenaz', 'Chabad', 'community', 'default']) {
+        assert(!section.includes(fact), `the zman rule mentions "${fact}"`);
+      }
+    }
+  });
+
+  await check('three zman examples, one each in English, Hebrew and Russian, all for the user (so a user with no partner sees them too); an opinion only where the words say one', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      for (const people of [PAIR, SOLO]) {
+        const lines = rulesFor(mode, people).split('\n').filter((line) => line.startsWith('Output:') && line.includes('"zman": {'));
+        assert(lines.length === 3, `${mode}: ${lines.length} zman examples`);
+        const hebrew = lines.filter((line) => /[\u0590-\u05FF]/.test(line)).length;
+        const russian = lines.filter((line) => /[\u0400-\u04FF]/.test(line)).length;
+        assert(hebrew === 1 && russian === 1, `${mode}: ${hebrew} Hebrew and ${russian} Russian examples of 3 (the third is English)`);
+        assert(lines.every((line) => line.includes('"forPerson": "self"') && line.includes('"kind": "reminder"') && line.includes('"startTime": null') && line.includes('"allDay": true') && line.includes('"anchor": null')), `${mode}: an example is not a date-only reminder for the user`);
+        assert(lines.filter((line) => /"opinion": null/.test(line)).length === 1 && lines.filter((line) => /"opinion": "mga"/.test(line)).length === 1 && lines.filter((line) => /"zman": \{"halachicHours": 3/.test(line)).length === 1, `${mode}: opinions ${lines.join(' | ')}`);
+      }
+    }
+  });
+
+  await check('the zman rule is rule 8 and the forwarded-message rule is renumbered to 9 (text mode only)', () => {
+    const text = rulesFor('text');
+    assert(text.includes('\n\n9. FORWARDED MESSAGES - ') && !text.includes('8. FORWARDED'), 'text: the forwarded rule is not 9');
+    assert(text.indexOf('7. DONE') < text.indexOf('8. HALACHIC TIMES') && text.indexOf('8. HALACHIC TIMES') < text.indexOf('9. FORWARDED MESSAGES'), 'text: the order of 7, 8, 9');
+    const voice = rulesFor('voice');
+    assert(!voice.includes('FORWARDED MESSAGES') && voice.includes('8. HALACHIC TIMES'), 'voice: no forwarded rule, with the zman rule');
+  });
+
   await check('voice examples carry a transcription, text examples do not', () => {
     assert(rulesFor('voice').includes('"transcription": "Remind me to call the plumber'), 'voice');
     assert(!rulesFor('text').includes('"transcription"'), 'text');
