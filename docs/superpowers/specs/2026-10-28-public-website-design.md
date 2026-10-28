@@ -281,12 +281,13 @@ The full facts with file references are in the session notes (`web/data.md`, che
 - **Contrast:** every text and button pair of the site's tokens in both themes, with the kit's existing contrast helper.
 - **Existing:** `smoke-miniapp-gate` still finds the landing's WhatsApp number.
 
-## 10. Questions for the owner (with the default)
+## 10. Questions for the owner (answers 2026-10-28)
 
-1. **Contact for privacy and legal requests.** The repo has no email. Default: `privacy@famcal.bot` through Cloudflare Email Routing (free), forwarding to your inbox. I give you the steps. Until then, the pages name the bot's `/feedback`.
-2. **Gemini billing.** Is billing on for the Gemini API key? On the paid tier Google does not use the content to improve its products, and the policy can say so. On the free tier it must say Google may. This isn't in the repo; please check AI Studio.
-3. **Refunds for Stars.** Telegram requires `/paysupport` (bug list). Default: a refund on request within 14 days of a payment, through `/paysupport`, using Telegram's refund call.
-4. **Minimum age.** Default 18 (the service is for parents). Today's page says 13.
+1. **Contact for privacy and legal requests:** the default, set up on Nov 1. `privacy@famcal.bot` through Cloudflare Email Routing (free), forwarding to the owner's inbox; I give the steps that day. Until it receives mail, the pages name the bot's `/feedback`.
+2. **Gemini billing:** paid tier. The policy says Google does not use the content to improve its products.
+3. **Refunds for Stars:** a refund on request within 14 days of a payment, through `/paysupport`, using Telegram's refund call. This holds while Stars is the way to pay.
+4. **Minimum age:** open. The owner asked whether it must be restricted. My recommendation is no FamCal age of its own: the terms say a person must meet the age rule of the app they use FamCal through, since Telegram and WhatsApp set their own by country. Children's details are added by their parents.
+5. **Early access and payments (new):** open. The owner said to drop early access and think about payment options later, because Telegram Stars can sound unreliable to most people. The reading waits on the owner (see the chat).
 
 ## 11. Risks
 
