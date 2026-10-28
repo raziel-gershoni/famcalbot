@@ -6,7 +6,10 @@
 //     and the tap that makes one of them the rule;
 //   - the create path: reminderCreateFields carries the rule (never unchosen choices), the native provider passes it
 //     to the store and refuses a zman the writer's set does not offer, and every native_reminder_created says by_zman;
-//   - the questions a refused zman reminder gets, in en/he/ru.
+//   - the questions a refused zman reminder gets, in en/he/ru;
+//   - the whole flow (Task 9), in en/he/ru: the model's JSON -> the parser -> the voice handler (map, resolve with the
+//     real clock) -> the card and its buttons on Telegram -> the tap through the webhook -> the real native provider's
+//     create fields -> the reply; plus the plain-reminder control and the refusals' questions.
 //
 // The zman clock and the pause are the real ones (hebcal, places from the fixtures' coordinates). Prisma, Redis, the
 // timezone lookups, Telegram, the AI and the store's writes are faked. No network: a fetch throws.
@@ -19,10 +22,13 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTranslator } from 'next-intl';
 import { instantToWallTime, wallTimeToInstant } from '../src/utils/wall-time';
+import { zmanRuleWords } from '../src/lib/calendar-view/zman-words';
+import type { ZmanSpecValue } from '../src/lib/calendar-view/zman-spec';
 import type { ParsedEvent, VoiceIntentResult } from '../src/services/event-parser';
 import type { PartnerSummary } from '../src/services/native-reminders/ownership';
-import type { UserConfig } from '../src/types';
+import type { CalendarAssignment, UserConfig } from '../src/types';
 
 const ROOT = path.resolve(__dirname, '..');
 const ZONES = ['UTC', 'Asia/Jerusalem', 'America/New_York'] as const;
@@ -74,6 +80,21 @@ function assert(cond: unknown, message: string): asserts cond {
 
 const show = (v: unknown) => JSON.stringify(v);
 
+// ---- Clock: argument-less new Date() and Date.now() read `clock` once a check sets it (null: the real one) ----
+
+let clock: number | null = null;
+const RealDate = Date;
+class ClockDate extends RealDate {
+  constructor(...args: unknown[]) {
+    if (args.length === 0) super(clock ?? RealDate.now());
+    else super(...(args as [number, number, number, number, number, number, number]));
+  }
+  static now() {
+    return clock ?? RealDate.now();
+  }
+}
+globalThis.Date = ClockDate as unknown as DateConstructor;
+
 // ---- Places, people, zones ----
 
 const IL = 'Asia/Jerusalem';
@@ -87,7 +108,7 @@ const NOWHERE = { location: '', latitude: null, longitude: null, elevationM: nul
 
 const dana = {
   id: 1, name: 'Dana', englishName: 'Dana', language: 'en', telegramId: 1001, calendarSource: 'NATIVE', pairingId: 'pair-1',
-  isAdmin: false, googleRefreshToken: '', reminderTime: null, ...HARISH, zmanimCommunity: 'sephardi', pauseOnShabbat: true,
+  isAdmin: false, voiceInputEnabled: true, googleRefreshToken: '', reminderTime: null, ...HARISH, zmanimCommunity: 'sephardi', pauseOnShabbat: true,
 } as unknown as UserConfig;
 const raziel: PartnerSummary = {
   id: 2, name: 'Raziel', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1002), language: 'he', reminderTime: null,
@@ -105,22 +126,83 @@ const created: Array<Record<string, unknown>> = [];
 const logs: string[] = [];
 /** What the user lookups asked for (the select of each findUnique). */
 const selects: Array<Record<string, unknown> | undefined> = [];
+
+/** Redis as Upstash behaves: values round-trip through JSON, so Dates come back as strings. */
+const store = new Map<string, string>();
+const fakeRedis = {
+  get: async (key: string) => (store.has(key) ? JSON.parse(store.get(key)!) : null),
+  set: async (key: string, value: unknown) => {
+    store.set(key, JSON.stringify(value));
+    return 'OK';
+  },
+  exists: async (key: string) => (store.has(key) ? 1 : 0),
+  del: async (key: string) => (store.delete(key) ? 1 : 0),
+};
+type Sent = { method: string; text: string; opts?: Record<string, unknown> };
+let botCalls: Sent[] = [];
+const fakeBot = {
+  sendMessage: async (_chatId: number, text: string, opts?: Record<string, unknown>) => {
+    botCalls.push({ method: 'sendMessage', text, opts });
+    return { message_id: 700 + botCalls.length };
+  },
+  editMessageText: async (text: string, opts?: Record<string, unknown>) => {
+    botCalls.push({ method: 'editMessageText', text, opts });
+    return true;
+  },
+  answerCallbackQuery: async (_id: string, opts?: Record<string, unknown>) => {
+    botCalls.push({ method: 'answerCallbackQuery', text: String(opts?.text ?? ''), opts });
+    return true;
+  },
+};
+const fakeService = {
+  sendMessage: async (_chatId: number | string, text: string, opts?: Record<string, unknown>) => {
+    botCalls.push({ method: 'sendMessage', text, opts });
+    return { messageId: String(900 + botCalls.length) };
+  },
+  sendTypingIndicator: async () => {},
+  deleteMessage: async () => {},
+  sendVoice: async () => {},
+};
+const tracked: Array<{ userId: number; action: string; metadata?: Record<string, unknown> }> = [];
+/** The voice extraction: answers the intents the parser made from the model's JSON. */
+let extracted: VoiceIntentResult[] = [];
+/** The model for typed text: answers `geminiText` and keeps each prompt it was sent. */
+let geminiText = '{}';
+let geminiPrompts: string[] = [];
+const fakeGemini = {
+  models: {
+    generateContent: async ({ contents }: { contents: Array<{ parts: Array<{ text?: string }> }> }) => {
+      geminiPrompts.push(contents[0].parts.map((p) => p.text ?? '').join(''));
+      return { text: geminiText, usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 } };
+    },
+  },
+};
+let currentUser: UserConfig = dana;
 function reset() {
   partner = raziel;
   zones = { 1: IL, 2: NY };
   created.length = 0;
   logs.length = 0;
   selects.length = 0;
+  store.clear();
+  botCalls = [];
+  tracked.length = 0;
+  extracted = [];
+  geminiText = '{}';
+  geminiPrompts = [];
+  currentUser = dana;
+  clock = null;
 }
 
 const fakeOver = (real: Record<string, unknown>, fakes: Record<string, unknown>) =>
   new Proxy(real, { get: (target, key) => (typeof key === 'string' && key in fakes ? fakes[key] : Reflect.get(target, key)) });
 
 const SRC = path.resolve(ROOT, 'src');
-const fakeBot = { sendMessage: async () => ({ message_id: 1 }), editMessageText: async () => true, answerCallbackQuery: async () => true };
+/** The calendars the flow's person has: the main built-in one, as the store's id form. */
+const FLOW_CALENDARS: CalendarAssignment[] = [{ calendarId: 'native:main-1', labels: ['primary', 'yours'], name: 'Dana', color: '#000000' }];
 const stubs: Record<string, object | ((real: Record<string, unknown>) => object)> = {
   '@googleapis/calendar': { calendar: () => ({}), auth: { OAuth2: class {} } },
-  [`${SRC}/utils/redis.ts`]: { redis: { get: async () => null, set: async () => 'OK', del: async () => 0, exists: async () => 0 } },
+  [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/utils/prisma.ts`]: {
     prisma: {
       user: {
@@ -142,10 +224,38 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     TIMEZONE_CACHE_TTL: 86_400,
   },
   [`${SRC}/services/weather/geocoding.ts`]: { fetchWithTimeout: async () => { throw new Error('the smoke reached the network'); } },
-  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async () => ({ text: '{}' }), getGemini: () => ({}), extractionConfig: () => ({}) },
-  [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot, getMessagingService: () => ({}) },
-  [`${SRC}/services/telegram/bot.ts`]: { getBot: () => fakeBot, getMessagingService: () => ({}) },
-  [`${SRC}/services/calendar-provider/index.ts`]: { getCalendarAssignmentsForUser: async () => [] },
+  [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: async () => ({ text: '{}' }), getGemini: () => fakeGemini, extractionConfig: () => ({}) },
+  [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
+  [`${SRC}/services/telegram/bot.ts`]: { getBot: () => fakeBot, getMessagingService: () => fakeService },
+  [`${SRC}/services/analytics-service.ts`]: {
+    trackActivityAsync: (userId: number, action: string, metadata?: Record<string, unknown>) => tracked.push({ userId, action, metadata }),
+    addBreadcrumb: () => {},
+    setUserContext: () => {},
+  },
+  [`${SRC}/services/subscription-service.ts`]: { checkFeatureAccess: async () => ({ allowed: true }), incrementUsage: async () => {} },
+  [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async () => currentUser },
+  [`${SRC}/services/reminder-cache.ts`]: { getVoiceAutoCreateHighConf: async () => false, getVoiceTtsOutcome: async () => false },
+  [`${SRC}/services/voice/recent-events-store.ts`]: {
+    pushRecentEvent: async () => {}, removeRecentEvent: async () => {}, getRecentEvents: async () => [], formatRecentEventsBlock: () => '',
+  },
+  [`${SRC}/services/voice/audio-retry.ts`]: {
+    isInRetryMode: async () => false, readRetryAudio: async () => null, clearRetryMode: async () => {}, stashFailedAudio: async () => {},
+  },
+  [`${SRC}/lib/user-moderation.ts`]: (real) => fakeOver(real, { isIdentifierBlocked: async () => false }),
+  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }) },
+  // The real native provider is the one that creates, so its checks and the store's fields are the ones the tap reaches
+  [`${SRC}/services/calendar-provider/index.ts`]: {
+    providerForCalendar: () => require(`${SRC}/services/calendar-provider/native-provider.ts`).nativeProvider, // eslint-disable-line @typescript-eslint/no-require-imports
+    fetchEventsInRange: async () => ({ events: [], failed: [] }),
+    createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? FLOW_CALENDARS[0].calendarId,
+    hasUsableCalendar: async () => true,
+    getCalendarAssignmentsForUser: async () => FLOW_CALENDARS,
+  },
+  [`${SRC}/services/voice/gemini-voice.ts`]: (real) => fakeOver(real, { processVoiceWithGemini: async () => ({
+    intentResult: extracted[0], intentResults: extracted, transcription: 'remind me before the latest time for Shema',
+    metrics: { model: 'fake', inputTokens: 0, outputTokens: 0, durationMs: 0 },
+  }) }),
+  [`${SRC}/services/voice/event-resolution.ts`]: (real) => fakeOver(real, { downloadVoiceFile: async () => Buffer.from('OggS') }),
   [`${SRC}/services/native-calendar/event-store.ts`]: (real) => fakeOver(real, {
     getMainNativeCalendar: async (userId: number) => ({ id: `main${userId}` }),
     createNativeEvent: async (input: Record<string, unknown>) => {
@@ -558,6 +668,241 @@ async function main() {
     const anchor = await anchorQuestion({ error: 'anchor_not_found', description: 'the dentist' }, 'en');
     assert(anchor === 'I couldn\'t find “the dentist” in your calendar. Send it again with a time, like “remind me at 16:00 to …”.', anchor);
   });
+
+  // ---- The whole flow (Task 9): the model's JSON -> parser -> voice handler -> card -> tap -> store -> reply ----
+
+  const { parseGeminiEventResponse } = await import('../src/services/voice/gemini-voice');
+  const { handleTelegramWebhook } = await import('../src/services/webhook-handlers');
+  const { handleVoiceMessage } = await import('../src/services/voice/handler');
+  const { getBotMessage } = await import('../src/lib/bot-messages');
+  const MESSAGES: Record<string, Record<string, unknown>> = Object.fromEntries(
+    ['en', 'he', 'ru'].map((l) => [l, JSON.parse(readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8'))]),
+  );
+  const homeT = (language: string) =>
+    (createTranslator as unknown as (o: Record<string, unknown>) => unknown)({ locale: language, messages: MESSAGES[language], namespace: 'calendarHome' }) as Parameters<typeof zmanRuleWords>[0];
+  const opinionName = (language: string, key: string) => (MESSAGES[language].calendarHome as { zmanim: { opinions: Record<string, string> } }).zmanim.opinions[key];
+  const LANGUAGES = ['en', 'he', 'ru'] as const;
+
+  const from = { id: 1001, first_name: 'Dana' };
+  const noop = () => {};
+  const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const kept = { log: console.log, warn: console.warn };
+    console.log = noop; console.warn = noop;
+    try { return await fn(); } finally { Object.assign(console, kept); }
+  };
+  const tap = (data: string, chatId = 555, messageId = 701) => quiet(() => handleTelegramWebhook(
+    { body: { update_id: 1, callback_query: { id: 'q1', from, message: { chat: { id: chatId }, message_id: messageId }, data } } } as never,
+    { status: () => ({ json: noop }) } as never,
+  ));
+  type Button = { text: string; callback_data: string };
+  const lastBot = () => botCalls.filter((c) => c.method !== 'answerCallbackQuery').slice(-1)[0];
+  const buttonsOf = (call: Sent) => ((call.opts?.reply_markup as { inline_keyboard: Button[][] } | undefined)?.inline_keyboard ?? []).flat();
+  const pendingIdOf = (call: Sent) => buttonsOf(call).find((b) => b.callback_data.startsWith('event_cancel:'))!.callback_data.slice('event_cancel:'.length);
+
+  /**
+   * What the person said, as the model answers it (title, kind, the zman or the plain time), parsed by the real parser
+   * and handed to the real voice handler as a voice note. The person is Dana in `language`.
+   */
+  async function say(language: string, event: Record<string, unknown>, now = at('2026-10-28 06:00')) {
+    clock = now.getTime();
+    currentUser = user({ language });
+    const json = { intent: 'create', confidence: 'high', event: { title: 'Say Shema', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'reminder', forPerson: 'self', ...event } };
+    const parsed = parseGeminiEventResponse(json, FLOW_CALENDARS, IL, true, now);
+    assert(!!parsed.event && !parsed.error, `the parser refused: ${show(parsed)}`);
+    extracted = [parsed];
+    await quiet(() => handleVoiceMessage(555, 1001, { file_id: 'f1', file_unique_id: 'u1', duration: 4 }, from));
+    return parsed;
+  }
+  /** How many were stored (a function, so a check after `=== 0` is not narrowed). */
+  const made = () => created.length;
+  const GRA_10: ZmanSpecValue = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  const MGA_10: ZmanSpecValue = { zman: 'SOF_SHMA_MGA', offsetMin: -10 };
+
+  await check('flow, no opinion said: the parser keeps the model\'s words, the card has one button per opinion with its time, a tap on GRA stores SOF_SHMA_GRA -10 and the reply names it (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      const parsed = await say(language, { zman: SHEMA() });
+      assert(parsed.event!.allDay && show(parsed.event!.zman) === show(SHEMA()) && !parsed.event!.zmanSpec, `${language}: ${show(parsed.event)}`);
+      assert(made() === 0, `${language}: created before the tap`);
+      const card = lastBot();
+      const mga = hm(await clockTime(dana, IL, '2026-10-28', MGA_10));
+      const gra = hm(await clockTime(dana, IL, '2026-10-28', GRA_10));
+      assert(mga === '07:53' && gra === '08:27', `${language}: the plan's times ${mga} ${gra}`);
+      const buttons = buttonsOf(card);
+      const id = pendingIdOf(card);
+      assert(show(buttons.slice(0, 2)) === show([
+        { text: `${opinionName(language, 'mga')} · ${mga}`, callback_data: `event_pick:0:${id}` },
+        { text: `${opinionName(language, 'gra')} · ${gra}`, callback_data: `event_pick:1:${id}` },
+      ]), `${language}: ${show(buttons)}`);
+      assert(!buttons.some((b) => b.callback_data.startsWith('event_create:')), `${language}: a Create button on an unchosen reminder`);
+      assert(card.text.includes(await getBotMessage(language, 'nativeReminders.zman.whichOpinion')) && !card.text.includes('nativeReminders.'), `${language}: ${card.text}`);
+      for (const b of buttons) assert(Buffer.byteLength(b.callback_data) <= 64, `${language}: ${b.callback_data}`);
+      await tap(`event_pick:1:${id}`);
+      assert(made() === 1, `${language}: created ${made()}`);
+      const row = created[0];
+      assert(show(row.zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }) && row.kind === 'REMINDER' && row.allDay === true, `${language}: ${show(row)}`);
+      assert((row.startsAt as Date).getTime() === at('2026-10-28 00:00').getTime(), `${language}: stored the day's midnight, not the zman's time: ${(row.startsAt as Date).toISOString()}`);
+      const reply = lastBot();
+      assert(reply.method === 'editMessageText' && reply.text.includes(opinionName(language, 'gra')) && reply.text.includes(gra) && !reply.text.includes('nativeReminders.'), `${language}: ${reply.text}`);
+      assert(reply.text.includes(zmanRuleWords(homeT(language), GRA_10, 'gra')), `${language}: the rule's words are the Mini App's: ${reply.text}`);
+      assert(tracked.some((e) => e.action === 'native_reminder_created' && e.metadata?.by_zman === true), `${language}: ${show(tracked)}`);
+    }
+  });
+
+  await check('flow, an opinion said ("according to the GRA"): no buttons, a Create button, and a tap stores it (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      await say(language, { zman: SHEMA(-10, 'gra') });
+      const card = lastBot();
+      const buttons = buttonsOf(card);
+      assert(!buttons.some((b) => b.callback_data.startsWith('event_pick:')) && buttons.some((b) => b.callback_data.startsWith('event_create:')), `${language}: ${show(buttons)}`);
+      assert(card.text.includes('08:27') && card.text.includes(zmanRuleWords(homeT(language), GRA_10, 'gra')), `${language}: ${card.text}`);
+      assert(made() === 0, `${language}: a zman reminder is never created without its card`);
+      await tap(buttons.find((b) => b.callback_data.startsWith('event_create:'))!.callback_data);
+      assert(made() === 1 && show(created[0].zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }), `${language}: ${show(created)}`);
+    }
+  });
+
+  await check('flow, a Chabad person: one Shema key, so no buttons and a plain rule on the card', async () => {
+    reset();
+    await say('en', { zman: SHEMA() });
+    assert(buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_pick:')), 'Sephardi has buttons');
+    reset();
+    clock = at('2026-10-28 06:00').getTime();
+    const chabad = user({ zmanimCommunity: 'chabad' });
+    currentUser = chabad;
+    const parsed = parseGeminiEventResponse({ intent: 'create', confidence: 'high', event: { title: 'Say Shema', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'reminder', forPerson: 'self', zman: SHEMA() } }, FLOW_CALENDARS, IL, true, new Date());
+    extracted = [parsed];
+    await quiet(() => handleVoiceMessage(555, 1001, { file_id: 'f1', file_unique_id: 'u1', duration: 4 }, from));
+    const buttons = buttonsOf(lastBot());
+    assert(!buttons.some((b) => b.callback_data.startsWith('event_pick:')) && buttons.some((b) => b.callback_data.startsWith('event_create:')), show(buttons));
+    await tap(buttons.find((b) => b.callback_data.startsWith('event_create:'))!.callback_data);
+    assert(made() === 1 && 'zman' in (created[0].zmanSpec as object) && (created[0].zmanSpec as { zman: string }).zman === 'SOF_SHMA_GRA', show(created));
+  });
+
+  await check('flow, a daily repeat at sunset, 30 min before: the Friday occurrence is a normal one (no pause note), the rule is stored with the repeat (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      await say(language, { title: 'Light', zman: SHKIA(-30), recurrence: { frequency: 'daily' } });
+      const card = lastBot();
+      const sunset = hm(await clockTime(dana, IL, '2026-10-28', { zman: 'SHKIA', offsetMin: -30 }));
+      assert(card.text.includes(sunset) && card.text.includes(zmanRuleWords(homeT(language), { zman: 'SHKIA', offsetMin: -30 }, null)), `${language}: ${card.text}`);
+      const pausedNote = await getBotMessage(language, 'nativeReminders.zman.paused');
+      assert(!card.text.includes(pausedNote), `${language}: a repeat carries no pause note: ${card.text}`);
+      await tap(buttonsOf(card).find((b) => b.callback_data.startsWith('event_create:'))!.callback_data);
+      assert(made() === 1 && show(created[0].zmanSpec) === show({ zman: 'SHKIA', offsetMin: -30 }) && typeof created[0].rrule === 'string' && /FREQ=DAILY/.test(created[0].rrule as string), `${language}: ${show(created)}`);
+    }
+    // Friday's occurrence is before the window by whatever isPaused says: sent
+    const friday = await clockTime(dana, IL, '2026-10-30', { zman: 'SHKIA', offsetMin: -30 });
+    const sunsetFriday = await clockTime(dana, IL, '2026-10-30', { zman: 'SHKIA', offsetMin: 0 });
+    assert(!(await isPaused(dana, friday!)) && (await isPaused(dana, sunsetFriday!)), 'the pause starts at the eve\'s sunset');
+  });
+
+  await check('flow, a one-off at sunset on Friday: the card carries the "won\'t be sent" note exactly when isPaused says so (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      await say(language, { title: 'Light', zman: SHKIA(0), startDate: '2026-10-30' }, at('2026-10-28 10:00'));
+      const at0 = await clockTime(dana, IL, '2026-10-30', { zman: 'SHKIA', offsetMin: 0 });
+      const note = await getBotMessage(language, 'nativeReminders.zman.paused');
+      assert(lastBot().text.includes(note) === (await isPaused(dana, at0!)), `${language}: expects ${await isPaused(dana, at0!)}: ${lastBot().text}`);
+      assert(lastBot().text.includes(note), `${language}: sunset on a Friday is inside the pause: ${lastBot().text}`);
+      // 30 minutes before sunset the same Friday is not
+      reset();
+      await say(language, { title: 'Light', zman: SHKIA(-30), startDate: '2026-10-30' }, at('2026-10-28 10:00'));
+      assert(!lastBot().text.includes(note), `${language}: 30 min before sunset is sent: ${lastBot().text}`);
+    }
+  });
+
+  await check('flow, a reminder for the partner: timed at his own place (New York) on the card and in the stored rule, and the reply says his time (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      await say(language, { title: 'Light', zman: SHKIA(-30), forPerson: 'partner' }, at('2026-10-28 06:00'));
+      const card = lastBot();
+      const theirs = await clockTime(raziel, NY, '2026-10-28', { zman: 'SHKIA', offsetMin: -30 });
+      assert(card.text.includes(hm(theirs, NY)), `${language}: ${hm(theirs, NY)} not in ${card.text}`);
+      await tap(buttonsOf(card).find((b) => b.callback_data.startsWith('event_create:'))!.callback_data);
+      assert(made() === 1 && created[0].forUserId === 2 && show(created[0].zmanSpec) === show({ zman: 'SHKIA', offsetMin: -30 }), `${language}: ${show(created)}`);
+      assert(lastBot().text.includes(hm(theirs, NY)), `${language}: ${lastBot().text}`);
+    }
+  });
+
+  await check('flow, refusals: an opinion the set lacks, a name unknown, an hour out of range: nothing stored, the question in the person\'s language (en/he/ru)', async () => {
+    const now = at('2026-10-28 06:00');
+    for (const language of LANGUAGES) {
+      for (const zman of [SHEMA(-10, 'mga'), { name: 'RABBEINU_TAM', opinion: null, offsetMinutes: 0 }, SHKIA(-800)]) {
+        reset();
+        clock = now.getTime();
+        currentUser = user({ language, zmanimCommunity: 'chabad' });
+        const parsed = parseGeminiEventResponse({ intent: 'create', confidence: 'high', event: { title: 'Say Shema', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'reminder', forPerson: 'self', zman } }, FLOW_CALENDARS, IL, true, now);
+        extracted = [parsed];
+        await quiet(() => handleVoiceMessage(555, 1001, { file_id: 'f1', file_unique_id: 'u1', duration: 4 }, from));
+        assert(made() === 0, `${language} ${show(zman)}: created ${show(created)}`);
+        const text = lastBot().text;
+        assert(text.includes('Say Shema') && !text.includes('nativeReminders.') && buttonsOf(lastBot()).length === 0, `${language} ${show(zman)}: ${text}`);
+        assert(!/[a-z]/i.test(text.replace(/Say Shema|GRA|<\/?[a-z]+>/g, '')) || language === 'en', `${language}: the question is in ${language}: ${text}`);
+      }
+    }
+  });
+
+  await check('flow, a plain reminder (control): a clock time stays a plain time: no rule on the card, no zmanSpec stored, the same tap path (en/he/ru)', async () => {
+    for (const language of LANGUAGES) {
+      reset();
+      await say(language, { title: 'Call the plumber', startDate: '2026-10-29', startTime: '10:00', endDate: '2026-10-29', endTime: '10:00', allDay: false });
+      const card = lastBot();
+      assert(!card.text.includes(await getBotMessage(language, 'nativeReminders.zman.whichOpinion')) && !card.text.includes('·'), `${language}: ${card.text}`);
+      await tap(buttonsOf(card).find((b) => b.callback_data.startsWith('event_create:'))!.callback_data);
+      assert(made() === 1 && !('zmanSpec' in created[0]) && created[0].zmanSpec === undefined && created[0].allDay === false && created[0].kind === 'REMINDER', `${language}: ${show(created)}`);
+      assert(!tracked.some((e) => e.metadata?.by_zman), `${language}: by_zman on a plain reminder`);
+    }
+  });
+
+  await check('flow, typed text: "remind me 10 minutes before sof zman Shema" in en/he/ru goes through the typed route and the real text parser to the same card and the same stored rule', async () => {
+    const typed = {
+      en: 'Remind me 10 minutes before sof zman Shema',
+      he: 'תזכיר לי 10 דקות לפני סוף זמן קריאת שמע',
+      ru: 'Напомни за 10 минут до конца времени Шма',
+    };
+    let message = 100;
+    for (const language of LANGUAGES) {
+      reset();
+      clock = at('2026-10-28 06:00').getTime();
+      currentUser = user({ language });
+      geminiText = JSON.stringify({ intent: 'create', confidence: 'high', event: { title: 'Say Shema', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'reminder', forPerson: 'self', zman: SHEMA() } });
+      await quiet(() => handleTelegramWebhook(
+        { body: { update_id: 2, message: { message_id: ++message, from, chat: { id: 555 }, text: typed[language] } } } as never,
+        { status: () => ({ json: noop }) } as never,
+      ));
+      assert(geminiPrompts.length === 1 && geminiPrompts[0].includes(typed[language]) && geminiPrompts[0].includes('"zman"'), `${language}: the model was not asked with the zman rules`);
+      assert(made() === 0, `${language}: typed text never creates without its card`);
+      const card = lastBot();
+      const buttons = buttonsOf(card);
+      const id = pendingIdOf(card);
+      assert(show(buttons.slice(0, 2).map((b) => b.callback_data)) === show([`event_pick:0:${id}`, `event_pick:1:${id}`]), `${language}: ${show(buttons)}`);
+      assert(buttons[1].text === `${opinionName(language, 'gra')} · 08:27`, `${language}: ${buttons[1].text}`);
+      await tap(`event_pick:1:${id}`);
+      assert(made() === 1 && show(created[0].zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }) && created[0].kind === 'REMINDER', `${language}: ${show(created)}`);
+      assert(lastBot().text.includes(opinionName(language, 'gra')) && lastBot().text.includes('08:27'), `${language}: ${lastBot().text}`);
+    }
+  });
+
+  await check('flow, the model\'s zman together with a clock time, or on an event, is refused by the parser: nothing reaches a card', () => {
+    const kept = console.warn;
+    const warned: string[] = [];
+    console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(' ')); };
+    try {
+      parserRefuses();
+    } finally {
+      console.warn = kept;
+    }
+    assert(warned.length === 2 && warned.every((w) => w.startsWith('[zman-voice]')), show(warned));
+  });
+  function parserRefuses() {
+    const now = at('2026-10-28 06:00');
+    const clash = parseGeminiEventResponse({ intent: 'create', confidence: 'high', event: { title: 'x', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'reminder', zman: SHEMA(), startDate: '2026-10-30', startTime: '17:00', allDay: false } }, FLOW_CALENDARS, IL, true, now);
+    assert(!clash.event && !!clash.error, show(clash));
+    const event = parseGeminiEventResponse({ intent: 'create', confidence: 'high', event: { title: 'x', calendarId: FLOW_CALENDARS[0].calendarId, kind: 'event', zman: SHEMA(), startDate: '2026-10-30', startTime: '17:00', endDate: '2026-10-30', endTime: '18:00' } }, FLOW_CALENDARS, IL, true, now);
+    assert(!event.event && !!event.error, show(event));
+  }
 
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'OK ' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     ${r.reason}`}`);
