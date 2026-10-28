@@ -442,6 +442,7 @@ ${whoRules}
    - "N halachic hours after sunrise" ("שעות זמניות אחרי הנץ", "галахических часов после восхода") is {"halachicHours": N, "offsetMinutes": 0} instead of a name. A halachic hour is a twelfth of the daytime, not a clock hour.
    - A bare "midnight" ("בחצות", "в полночь") is the clock's 00:00, a time of rule 4, not a zman. Only "halachic midnight" and "חצות הלילה" are CHATZOT_HALAYLA, and only "halachic noon", "chatzot" and "חצות היום" are CHATZOT.
    - A clock time printed beside the name, as in a forwarded message that says "candle lighting 18:12", is a plain clock time: give "startTime" and no "zman".
+   - Only a reminder (rule 1) takes "zman". An event at a halachic time ("Shabbat meal with the grandparents at sunset", "סעודה אצל סבתא בשקיעה") stays an event with no "zman": FamCal does not time events by a zman, so it is an all-day event on that day unless a clock time is said.
    - A halachic time that is not in the list ("Rabbeinu Tam", "רבנו תם", "72 minutes after sunset", "end of Shabbat", "צאת השבת", "havdalah") is never the nearest one in the list: return intent "none" with an "error" naming what was asked.${forwardedRule}
 
 REMINDER FIELDS (inside "event", and inside the "event" of each "intents" entry):

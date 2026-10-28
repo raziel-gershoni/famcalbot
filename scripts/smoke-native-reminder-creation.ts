@@ -417,6 +417,14 @@ async function extractionChecks() {
     assert(/printed[^\n]*"candle lighting 18:12"|"candle lighting 18:12"[^\n]*printed/.test(section), 'no printed-time example');
   });
 
+  await check('only a reminder takes a zman: an event at a halachic time stays an event with no zman (all day unless a clock time is said), in voice and text', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      const line = zmanSection(rulesFor(mode)).split('\n').find((l) => l.includes('Only a reminder'));
+      assert(!!line, `${mode}: no rule that only a reminder takes "zman"`);
+      for (const word of ['stays an event', 'no "zman"', 'all-day event', 'unless a clock time']) assert(line.includes(word), `${mode}: the rule lacks "${word}": ${line}`);
+    }
+  });
+
   await check('the zman rule has no user fact: no name, place, community or opinion the prompt picks for anyone', () => {
     for (const people of [PAIR, SOLO]) {
       const section = zmanSection(rulesFor('voice', people));
