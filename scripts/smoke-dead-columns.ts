@@ -1,5 +1,5 @@
 // Guard smoke: the code no longer knows the dead columns (step 1 of 2 of their removal; the
-// DROP COLUMN migration ships in a later push, once this build is live).
+// DROP COLUMN migration, step 2, is prisma/migrations/20261029000000_drop_unused_columns, pinned at the end).
 //
 // The names below are columns the database may still hold, but nothing reads or writes them. A name that comes back
 // into prisma/schema.prisma, src/, app/, components/, messages/ or a smoke fixture means someone
@@ -143,6 +143,21 @@ check('the allow-list is still needed (the smoke that asserts the rollout switch
     const found = namesIn(read(rel), names);
     assert(found.length === names.length, `${rel} no longer names ${names.join(', ')}: drop it from ALLOWED`);
   }
+});
+
+/** Step 2 of 2: the migration that drops the columns, once the build that stopped knowing them was live. */
+const DROP_MIGRATION = 'prisma/migrations/20261029000000_drop_unused_columns/migration.sql';
+
+check('the drop migration drops every dead column with IF EXISTS, and the enum only after its column', () => {
+  const sql = read(DROP_MIGRATION);
+  const statements = sql.split('\n').filter(line => line.trim() && !line.trim().startsWith('--'));
+  const dropOf = (table: string, column: string) => `ALTER TABLE "${table}" DROP COLUMN IF EXISTS "${column}";`;
+  for (const column of ADMIN_SETTINGS) assert(statements.includes(dropOf('AdminSettings', column)), `no drop of AdminSettings.${column}`);
+  for (const column of USER) assert(statements.includes(dropOf('User', column)), `no drop of User.${column}`);
+  const dropType = `DROP TYPE IF EXISTS "${ENUM}";`;
+  assert(statements.includes(dropType), `no drop of the enum ${ENUM}`);
+  assert(statements.indexOf(dropType) > statements.indexOf(dropOf('AdminSettings', 'calendarHomeRollout')), 'the enum is dropped before the column that uses it');
+  assert(statements.length === ADMIN_SETTINGS.length + USER.length + 1, `the migration does something else too: ${statements.length} statements`);
 });
 
 let failed = 0;
