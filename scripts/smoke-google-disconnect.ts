@@ -207,7 +207,8 @@ const revokes: { url: string; body: string; contentType: string | null }[] = [];
 const retryWaits: number[] = [];
 /** A list's length read afresh: an assert on `.length` narrows it for the checks after it. */
 const count = (list: readonly unknown[]): number => list.length;
-let revokeAnswer: { status: number; body: Row; headers?: Record<string, string> } | 'throw' = { status: 200, body: {} };
+/** raw: a body that is sent as it is, in place of the JSON of `body` (a proxy's page, an empty answer). */
+let revokeAnswer: { status: number; body: Row; headers?: Record<string, string>; raw?: string } | 'throw' = { status: 200, body: {} };
 /** Answers served first, one per revoke, before revokeAnswer repeats. */
 let revokeQueue: Array<NonNullable<typeof revokeAnswer>> = [];
 globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
@@ -219,7 +220,7 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   events.push(`revoke ${new URLSearchParams(body).get('token')}`);
   const answer = revokeQueue.shift() ?? revokeAnswer;
   if (answer === 'throw') throw new TypeError('fetch failed');
-  return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', ...answer.headers } });
+  return new Response(answer.raw ?? JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', ...answer.headers } });
 }) as typeof fetch;
 
 // ---- Stubs served to import() ----
@@ -520,6 +521,30 @@ async function main() {
     revokeAnswer = { status: 400, body: { error: 'invalid_token', error_description: 'Token expired or revoked' } };
     res = await run(true);
     assert(res.revoked === true && !captured.some((c) => c.ctx === 'google-disconnect-revoke'), `400: ${show(res)} ${show(captured)}`);
+  });
+
+  await check('a revoke answer that is not JSON is logged with its status and still read as a failed revoke: a console line names the status, revoked is false, the failure is captured once with the status, and a 400 with an unreadable body is not taken as "already revoked"', async () => {
+    seed();
+    revokeAnswer = { status: 400, body: {}, raw: '<html><body>Bad Request</body></html>' };
+    logs.length = 0;
+    let res = await run(true);
+    const note = logs.filter((l) => l.includes('[google-disconnect] user 7') && l.includes('answered 400') && l.includes('not JSON'));
+    assert(note.length === 1, `${note.length} lines say the body was not JSON: ${show(logs.filter((l) => l.includes('revoke')))}`);
+    assert(res.revoked === false && count(revokes) === 1, `400, not JSON: ${show(res)} revokes ${revokes.length}`);
+    const failures = captured.filter((c) => c.ctx === 'google-disconnect-revoke');
+    assert(failures.length === 1 && failures[0].message.includes('answered 400'), `captured ${show(captured)}`);
+    assert(row('user', ME)!.googleRefreshToken === '', 'the clear did not run');
+    // An empty body is the same; a 200 needs no body at all.
+    seed();
+    revokeAnswer = { status: 403, body: {}, raw: '' };
+    logs.length = 0;
+    res = await run(true);
+    assert(res.revoked === false && logs.some((l) => l.includes('answered 403') && l.includes('not JSON')), `empty 403: ${show(res)} ${show(logs.filter((l) => l.includes('revoke')))}`);
+    seed();
+    revokeAnswer = { status: 200, body: {}, raw: 'ok' };
+    logs.length = 0;
+    res = await run(true);
+    assert(res.revoked === true && !logs.some((l) => l.includes('not JSON')), `200: ${show(res)}`);
   });
 
   await check('a revoke Google rate-limits is tried again after the wait Google asked (Retry-After) and then counts as revoked, not captured; one told to wait over 10 s is not slept on: captured, revoked false', async () => {

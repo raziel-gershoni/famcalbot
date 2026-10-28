@@ -85,7 +85,7 @@ const fakeRedis = {
 };
 
 /** geocodeLocation's calls, each waiting until the check answers it. */
-type Geocode = { location: string; answer: (timezone: string) => void; fail: () => void };
+type Geocode = { location: string; answer: (timezone: string) => void; fail: (message?: string) => void };
 const geocodes: Geocode[] = [];
 const fakeGeocoding = {
   geocodeLocation: (location: string) =>
@@ -93,7 +93,7 @@ const fakeGeocoding = {
       geocodes.push({
         location,
         answer: (timezone) => resolve({ latitude: 0, longitude: 0, timezone }),
-        fail: () => reject(new Error('geocoding is down')),
+        fail: (message = 'geocoding is down') => reject(new Error(message)),
       });
     }),
   fetchWithTimeout: async () => {
@@ -126,8 +126,9 @@ function installStubs() {
       return googleZone();
     },
   });
-  const record = (level: string) => (message: string, context: unknown, extra: unknown) => {
-    captures.push({ level, message, context, extra });
+  // captureError's fourth argument is its severity; captureWarning and captureInfo are their own level.
+  const record = (level: string) => (message: string, context: unknown, extra: unknown, severity?: string) => {
+    captures.push({ level: severity ?? level, message, context, extra });
   };
   stub('src/lib/error-capture.ts', { captureError: record('error'), captureWarning: record('warning'), captureInfo: record('info') });
   for (const level of ['log', 'info', 'warn', 'error'] as const) {
@@ -286,28 +287,88 @@ async function main() {
     }
   });
 
-  await check('the default-zone warning and info carry no location: the user_id and hasToken stay, the free text never reaches error capture', async () => {
+  await check('the default-zone warning and info carry no location: the user_id and hasToken stay, the free text never reaches error capture or the console, even in a geocoding error that names the place', async () => {
     seed();
     captures.length = 0;
+    consoleLines.length = 0;
     const SECRET = 'Springfield, Secret Street 5';
     // A location whose geocoding fails twice (the retry waits 2 s), then no source at all.
+    // geocodeLocation's own error names the place ("Could not geocode location: <place>"), plain here and URL-encoded in the second.
     const failing = resolveUserTimezone({ id: 31, location: SECRET });
     await flush();
-    geocodeFor(SECRET).fail();
+    geocodeFor(SECRET).fail(`Could not geocode location: ${SECRET}`);
     await new Promise((resolve) => setTimeout(resolve, 2100));
     assert(geocodes.length === 2, `${geocodes.length} geocode calls`);
-    geocodes[1].fail();
+    geocodes[1].fail(`fetch failed for q=${encodeURIComponent(SECRET)}`);
     const none = resolveUserTimezone({ id: 32 });
     const zones = [await failing, await none];
     assert(zones.every((z) => z === 'UTC' || typeof z === 'string'), `zones ${show(zones)}`);
-    const levels = captures.map((c) => c.level).join();
+    // The two defaults (the lookups' own failures are the next check's): one warning for the place that failed, one info for none configured.
+    const defaults = captures.filter((c) => (c.extra as Row | undefined)?.step === undefined);
+    const levels = defaults.map((c) => c.level).join();
     assert(levels === 'warning,info' || levels === 'info,warning', `captures ${levels}`);
-    for (const c of captures) {
+    for (const c of defaults) {
       const ctx = c.extra as Row;
       assert(!('location' in ctx), `a location key in ${show(ctx)}`);
       assert(typeof ctx.user_id === 'number' && 'hasToken' in ctx, `context ${show(ctx)}`);
     }
     assert(!JSON.stringify(captures).includes('Secret Street') && !JSON.stringify(captures).includes('Springfield'), 'the location reached error capture');
+    assert(!JSON.stringify(captures).includes(encodeURIComponent(SECRET)), 'the encoded location reached error capture');
+    assert(!consoleLines.some((l) => l.includes('Secret Street') || l.includes('Springfield') || l.includes(encodeURIComponent(SECRET))), 'the location reached the console');
+  });
+
+  await check('a place lookup that fails is logged each time (a console line and a warning with the user id, the step and the attempt; the place cut out of the error), after the one retry waits about 2 s; a lookup that fails and then answers returns the answer and caches it', async () => {
+    seed();
+    captures.length = 0;
+    consoleLines.length = 0;
+    const PLACE = 'Atlantis';
+    const started = Date.now();
+    const lookup = resolveUserTimezone({ id: 61, location: PLACE });
+    await flush();
+    geocodeFor(PLACE).fail(`Could not geocode location: ${PLACE}`);
+    await flush();
+    const mine = () => captures.filter((c) => (c.extra as Row | undefined)?.step === 'geocode');
+    const geocodeCalls = (): number => geocodes.length; // read afresh: an assert on `.length` narrows it for the checks after it
+    assert(mine().length === 1 && geocodeCalls() === 1, `after the first failure: ${mine().length} logged, ${geocodeCalls()} geocode calls (the retry waits)`);
+    // The retry's wait is the file's own: about 2 s.
+    for (let i = 0; i < 60 && geocodeCalls() < 2; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    const waited = Date.now() - started;
+    assert(geocodeCalls() === 2 && waited >= 1900 && waited < 3500, `${geocodeCalls()} geocode calls after ${waited} ms`);
+    geocodes[1].answer('Asia/Tokyo');
+    assert((await lookup) === 'Asia/Tokyo' && redisStore.get('tz:user:61') === 'Asia/Tokyo', `the retry's answer: cached ${show(redisStore.get('tz:user:61'))}`);
+    const first = mine()[0];
+    assert(mine().length === 1 && first.level === 'warning' && first.context === 'timezone-resolution' && (first.extra as Row).user_id === 61 && (first.extra as Row).attempt === 1, `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
+    const logged: unknown = first.message; // captureError's first argument: the error itself
+    assert(logged instanceof Error && logged.message.includes('Could not geocode location') && !logged.message.includes(PLACE) && !String(logged.stack).includes(PLACE), `the logged error: ${show(String(logged))}`);
+    assert(consoleLines.some((l) => l.includes('[timezone] user 61') && l.includes('attempt 1 of 2')), `console ${show(consoleLines)}`);
+    assert(!consoleLines.some((l) => l.includes(PLACE)), 'the place reached the console');
+    assert(!captures.some((c) => String(c.message).includes('using default')), 'the default-zone warning fired for a zone that was found');
+  });
+
+  await check('a zone the place lookup found is still the answer when caching it fails: returned at once, the failed write logged (warning, user id), no second lookup, no fall-through to the default; the next lookup caches it', async () => {
+    seed();
+    captures.length = 0;
+    consoleLines.length = 0;
+    failSets = 1;
+    const lookup = resolveUserTimezone({ id: 62, location: 'Reykjavik' });
+    await flush();
+    geocodeFor('Reykjavik').answer('Atlantic/Reykjavik');
+    // A lookup that retried (the old catch around the write) would wait 2 s for a second geocode call: the guard turns that into a failure.
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    const stuck = new Promise<string>((resolve) => { guard = setTimeout(() => resolve('no answer in 1 s'), 1000); });
+    const zone = await Promise.race([lookup, stuck]);
+    clearTimeout(guard);
+    assert(zone === 'Atlantic/Reykjavik', `the zone is ${show(zone)}, the place lookup said Atlantic/Reykjavik`);
+    assert(geocodes.length === 1 && redisStore.get('tz:user:62') === undefined, `${geocodes.length} geocode calls, cached ${show(redisStore.get('tz:user:62'))} (the default must not be cached over the zone)`);
+    const write = captures.filter((c) => (c.extra as Row | undefined)?.step === 'geocode-cache');
+    assert(write.length === 1 && write[0].level === 'warning' && write[0].context === 'timezone-resolution' && (write[0].extra as Row).user_id === 62 && String(write[0].message).includes('redis write failed'), `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
+    assert(!captures.some((c) => (c.extra as Row | undefined)?.step === 'geocode'), 'the failed write was logged as a failed lookup');
+    assert(!captures.some((c) => String(c.message).includes('using default')), 'the default-zone warning fired for a zone that was found');
+    assert(consoleLines.some((l) => l.includes('[timezone] user 62') && l.includes('used uncached')), `console ${show(consoleLines)}`);
+    const again = resolveUserTimezone({ id: 62, location: 'Reykjavik' });
+    await flush();
+    geocodes[geocodes.length - 1].answer('Atlantic/Reykjavik');
+    assert((await again) === 'Atlantic/Reykjavik' && redisStore.get('tz:user:62') === 'Atlantic/Reykjavik', `next lookup: cached ${show(redisStore.get('tz:user:62'))}`);
   });
 
   await check('the Google Calendar step is one call: it finds the zone and caches it, or finds none and the default is used; a failure in the step is logged (warning, with the user id) and never waited out or tried twice', async () => {

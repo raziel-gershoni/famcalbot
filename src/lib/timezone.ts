@@ -178,6 +178,21 @@ export async function timezoneWithin(user: TimezoneUser, ms: number): Promise<st
   }
 }
 
+/**
+ * An error for the log with the place cut out. geocodeLocation's own error names the place it
+ * could not find ("Could not geocode location: <place>"), and a place is the user's free text:
+ * it reaches neither the console lines written here nor Sentry. The place goes out of the
+ * message and the stack, in its plain and its URL-encoded form.
+ */
+function withoutPlace(error: unknown, place: string): Error {
+  const cut = (text: string): string => text.split(place).join('[place]').split(encodeURIComponent(place)).join('[place]');
+  if (!(error instanceof Error)) return new Error(cut(String(error)));
+  const safe = new Error(cut(error.message));
+  safe.name = error.name;
+  if (error.stack) safe.stack = cut(error.stack);
+  return safe;
+}
+
 /** One lookup: Redis cache → Geocoding → Google Calendar → the default (resolveUserTimezone's order). */
 async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
   const cacheKey = REDIS_KEYS.userTimezone(user.id);
@@ -186,19 +201,31 @@ async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
   const cached = await redis.get<string>(cacheKey);
   if (cached) return cached;
 
-  // 2. Try geocoding from location (with 1 retry)
+  // 2. Try geocoding from location (with 1 retry). A failed lookup is logged and waited out once;
+  // a zone it found stands even when caching it fails (as in step 3), and a place that was
+  // found without a zone is not asked again.
   if (user.location) {
     for (let attempt = 0; attempt < 2; attempt++) {
+      let zone: string | null;
       try {
-        const geo = await geocodeLocation(user.location);
-        if (geo.timezone) {
-          await redis.set(cacheKey, geo.timezone, { ex: TIMEZONE_CACHE_TTL });
-          return geo.timezone;
-        }
-        break; // got result but no timezone, don't retry
-      } catch {
-        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+        zone = (await geocodeLocation(user.location)).timezone || null;
+      } catch (error) {
+        const retrying = attempt === 0;
+        const safe = withoutPlace(error, user.location);
+        console.warn(`[timezone] user ${user.id}: the place lookup failed (attempt ${attempt + 1} of 2; ${retrying ? 'retrying' : 'giving up'})`, safe);
+        captureError(safe, 'timezone-resolution', { user_id: user.id, service: 'timezone', step: 'geocode', attempt: attempt + 1 }, 'warning');
+        if (retrying) await new Promise(r => setTimeout(r, 2000));
+        continue;
       }
+      if (!zone) break; // got result but no timezone, don't retry
+      try {
+        await redis.set(cacheKey, zone, { ex: TIMEZONE_CACHE_TTL });
+      } catch (error) {
+        // The place answered: the zone stands, and the next lookup caches it. Retrying would ask Nominatim again and then fall through to the default.
+        console.warn(`[timezone] user ${user.id}: caching the place's zone failed; used uncached`, error);
+        captureError(error, 'timezone-resolution', { user_id: user.id, service: 'timezone', step: 'geocode-cache' }, 'warning');
+      }
+      return zone;
     }
   }
 

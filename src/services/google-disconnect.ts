@@ -96,7 +96,12 @@ async function revokeToken(token: string, extra: Record<string, unknown>): Promi
       body: new URLSearchParams({ token }).toString(),
     });
     if (res.ok) return true;
-    const body = await res.json().catch(() => ({})) as { error?: unknown };
+    // An answer that is not JSON (a proxy's page, an empty body) is logged with its status and read as having no error code.
+    // No Sentry event of its own: such an answer is never the 400 invalid_token that counts, so it ends in the throw below, which the catch sends with the status.
+    const body = await res.json().catch((error: unknown) => {
+      console.warn(`[google-disconnect] user ${String(extra.user_id)}: Google's revoke answered ${res.status} with a body that is not JSON`, error);
+      return {};
+    }) as { error?: unknown };
     if (res.status === 400 && body.error === 'invalid_token') {
       console.log(`[google-disconnect] user ${String(extra.user_id)}: Google already had the token as revoked`);
       return true;
