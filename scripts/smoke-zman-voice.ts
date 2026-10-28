@@ -445,6 +445,7 @@ async function main() {
 
   await check('a weekly repeat by zman starts on its first occurrence: "every Friday, an hour before candle lighting" said on a Wednesday is Friday, and the card and the reply give Friday\'s time', async () => {
     const wed = at('2026-10-28 10:00');
+    clock = wed.getTime(); // the reply's "today" / "tomorrow" reads the clock, so it is that Wednesday's
     const { event, failure } = await resolveOne(zmanReminder(CANDLES(-60), { now: wed, recurrence: WEEKLY_FRIDAY }), wed);
     assert(event && !failure, show(failure));
     assert(dayOf(event.startTime) === '2026-10-30' && event.reminderNotice === undefined, `${dayOf(event.startTime)} ${event.reminderNotice}`);
