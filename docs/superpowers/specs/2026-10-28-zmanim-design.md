@@ -20,7 +20,10 @@ Shipped 2026-10-28. This file holds the owner's decisions and the rules the code
 5. **Reminders only.** Events by zman are left out for now, and nothing is copied to Google.
 6. **The offset is in clock minutes.**
 7. **The pause switch** covers reminders and summaries as described above.
-8. **Creating these by voice or text is for later.** The Gemini prompt is unchanged.
+8. **Creating these by voice or text** (superseded 2026-10-28 by `docs/superpowers/plans/2026-10-28-zman-reminders-by-voice.md`; it was "for later, the Gemini prompt is unchanged"). The bot now makes a reminder by zman from a voice note or typed text, the same reminder the Mini App editor makes.
+   - The model returns a zman name with an optional opinion and an offset, or a number of halachic hours and an offset. The server maps it to the stored rule under the writer's community.
+   - When the person names a zman that has more than one opinion in their set and says no opinion, nothing is defaulted: the card offers one button per opinion, each with its time. Today that is the latest time for Shema (GRA, MGA) in the Sephardi and Ashkenazi sets, and the plag in the Sephardi set (Halacha Berura, Yalkut Yosef). A named opinion is used as said, and one the set lacks is refused.
+   - A zman reminder always gets a card and is never created without one. With no day said, it is the next time that has not passed.
 9. **The pause starts at sunset on the eve (owner 2026-10-28, replacing candle lighting); candle lighting stays 20 minutes before sunset.** The window is `[the eve's sunset, the end of the last rest day)`, at the person's place in their community's set: the set's own `SHKIA`, the sunset the list's plain sunset row shows (the elevation sunset in Israel for the Sephardi set, sea level abroad and for the Chabad set). The end does not change. So a reminder, summary or nudge between candle lighting and sunset on a Friday or a Yom Tov eve is sent.
 
 ## How it is computed
