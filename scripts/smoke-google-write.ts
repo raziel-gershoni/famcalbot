@@ -1178,6 +1178,9 @@ async function main() {
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { forWho: 'partner' } }), IL), { status: 'invalid', field: 'forWho' }, 'recipient');
     // A Google event has no reminder to mark done: "each marks their own Done" is refused, not dropped.
     assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { eachMarksDone: false } }), IL), { status: 'invalid', field: 'eachMarksDone' }, 'each marks their own Done');
+    // Nor has it a zman: a reminder's time by zman is refused, not dropped.
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { timeMode: 'zman', zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: 0 } } }), IL), { status: 'invalid', field: 'timeMode' }, 'by zman');
+    assertSame(await write.updateItem(NOA, patchCmd({ key, scope: 'all', changes: { timeMode: 'time' } }), IL), { status: 'invalid', field: 'timeMode' }, 'mode time');
     assertSame(writes().length, 0, 'wrote');
   });
 

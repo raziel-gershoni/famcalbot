@@ -52,6 +52,8 @@ import { MAX_SPAN_DAYS, addDaysToDate, dayEnd, dayOfWall, dayStart, daysBetween,
 import { tzKnownFor, weekStartFor } from '../../utils/locale-rules';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
 import { alertChoiceOf } from '../../lib/calendar-view/alert-leads';
+import { readZmanSpec, sameZmanSpec, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
+import { communityOfUser, offeredIn } from '../zmanim/spec';
 
 export type WriteResult =
   // leftIn: a cross-source move made its copy, but the original is still in that calendar
@@ -173,6 +175,8 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
     // only for a partner who can be pinged, and a date-only one at the start of its day.
     // The bot's gate is the one the home's "+" hint mirrors.
     if (!(await getReminderSupport(user)).supported) return NOT_ALLOWED;
+    // A reminder by zman: only a zman the writer's own set offers (the editor lists no other).
+    if (cmd.zmanSpec && !offeredIn(cmd.zmanSpec, communityOfUser(user))) return { status: 'invalid', field: 'zmanSpec' };
     const startTime = cmd.allDay ? dayStart(cmd.start, tz) : wallToInstant(cmd.start, tz);
     const parsed: ParsedEvent = {
       title: cmd.title,
@@ -199,6 +203,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       forBoth: resolved.forBoth,
       // The voice and text flow never sets it (resolve.ts leaves it off); only the editor's body does.
       eachMarksDone: cmd.eachMarksDone === true && resolved.forBoth,
+      ...(cmd.zmanSpec ? { zmanSpec: cmd.zmanSpec } : {}),
     });
     const calendar = await prisma.nativeCalendar.findUnique({ where: { id: reminder.calendarId } });
     if (calendar) await clearCaches(user, [calendar], [resolved.forUserId]);
@@ -207,6 +212,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       for_partner: resolved.forUserId !== null,
       ...(resolved.forBoth ? { for_both: true } : {}),
       ...(cmd.eachMarksDone === true && resolved.forBoth ? { each_marks_done: true } : {}),
+      ...(cmd.zmanSpec ? { by_zman: true } : {}),
       all_day: resolved.allDay,
       recurring: rrule !== null,
       source: 'app',
@@ -317,7 +323,10 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const { series, occurrence: occ } = item;
   const reminder = series.kind === 'REMINDER';
   const itemTz = itemZone(series);
-  const c = cmd.changes;
+  // A reminder's time by zman (timeMode): 'zman' makes it date-only and brings the rule, 'time' takes the rule away.
+  if (cmd.changes.timeMode !== undefined && !reminder) return { status: 'invalid', field: 'timeMode' };
+  if (cmd.changes.zmanSpec && !offeredIn(cmd.changes.zmanSpec, communityOfUser(user))) return { status: 'invalid', field: 'zmanSpec' };
+  const c = cmd.changes.timeMode === 'zman' ? { ...cmd.changes, allDay: true } : cmd.changes;
   // The repeat the item will have sets the earliest year it may start in: the one picked, else the stored one.
   // Classified once: the floor and "does the repeat change" both read it (an UNTIL or COUNT rule is walked to its last slot).
   const stored = classifyRule(series.rrule, series.startsAt, itemTz, series).choice;
@@ -326,6 +335,11 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   const times = resolveWallTimes(c, occ, reminder, userTz, itemTz, floor);
   if (!times.ok) return { status: 'invalid', field: times.field };
   const { start, end, allDay, timeChanged, derivedEnd } = times;
+  // The rule by zman the save asks for (undefined: none asked, or the reminder has it already; null: take it away).
+  const askedZman: ZmanSpecValue | null | undefined = c.timeMode === 'zman' ? c.zmanSpec : c.timeMode === 'time' ? null : undefined;
+  let zmanChange = askedZman !== undefined && !sameZmanSpec(askedZman, readZmanSpec(series.zmanSpec)) ? askedZman : undefined;
+  // One occurrence of a series given a time of its own is a fixed time (an override with allDay false): nothing series-level changes.
+  if (zmanChange === null && series.rrule && effectiveScope(item, cmd.scope) === 'single' && !allDay) zmanChange = undefined;
   // A time the save leaves alone keeps its instant: on the repeated hour of a clock change one wall time is two instants.
   const startsAt = allDay ? dayStart(start, itemTz) : wallToInstantKeeping(start, userTz, occ.startsAt);
   // The start the new part of a repeat change has: the opened slot unless this save moves it (the store's newStarts).
@@ -365,7 +379,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // An event's alert is series-level like its calendar (editor upgrades spec §2). A reminder has none.
   if (c.alert !== undefined && reminder) return { status: 'invalid', field: 'alert' };
   const alert = c.alert !== undefined && c.alert !== alertChoiceOf(series) ? c.alert : undefined;
-  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined || eachMarksDone !== undefined;
+  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined || eachMarksDone !== undefined || zmanChange !== undefined;
   const sameKey = itemKeyOf(series.id, key.slot);
   if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
 
@@ -400,6 +414,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     ...(alert !== undefined ? { alert } : {}),
     ...(forUserId !== undefined ? { forUserId, forBoth: forWho === 'both' } : {}),
     ...(eachMarksDone !== undefined ? { eachMarksDone } : {}),
+    ...(zmanChange !== undefined ? { zmanSpec: zmanChange } : {}),
   };
   if (stop) {
     // The one-off is the opened occurrence as it stands with the form's edits on top: its
@@ -470,6 +485,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       ...(alert !== undefined ? ['alert'] : []),
       ...(forUserId !== undefined ? ['recipient'] : []),
       ...(eachMarksDone !== undefined ? ['each_marks_done'] : []),
+      ...(zmanChange !== undefined ? ['zman'] : []),
     ];
     trackActivityAsync(user.id, 'calendar_item_edited', { kind: reminder ? 'reminder' : 'event', scope, source: 'app', provider: 'famcal', changed_fields: changedFields });
     return { status: 'ok', key };

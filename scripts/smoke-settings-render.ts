@@ -138,6 +138,7 @@ const settings = (over: Partial<Omit<SettingsValues, 'defaultReminderMinutes'>> 
   pickupRemindersEnabled: false,
   voiceInputEnabled: false,
   pauseOnShabbat: true,
+  zmanimCommunity: 'sephardi',
   ...over,
 });
 const subscription = (over: Row = {}) => ({ effectivePlan: 'pro', textSummariesUsed: 3, textSummariesLimit: 10, voiceSummariesUsed: 1, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false, ...over });
@@ -362,6 +363,7 @@ async function main() {
       pickupRemindersEnabled: true,
       voiceInputEnabled: true,
       pauseOnShabbat: true,
+      zmanimCommunity: 'ashkenazi',
     };
     const wire = (value: unknown) => JSON.parse(JSON.stringify(value));
     assert(
@@ -386,6 +388,7 @@ async function main() {
           pickupRemindersEnabled: true,
           voiceInputEnabled: true,
           pauseOnShabbat: true,
+          zmanimCommunity: 'ashkenazi',
           initData: 'init-data',
         }),
       `alerts on: ${show(wire(buildSettingsBody(values, true, 'init-data')))}`,
@@ -412,6 +415,7 @@ async function main() {
           pickupRemindersEnabled: false,
           voiceInputEnabled: true,
           pauseOnShabbat: true,
+          zmanimCommunity: 'ashkenazi',
         }),
       `alerts off: ${show(wire(buildSettingsBody(off, false, undefined)))}`,
     );
@@ -447,6 +451,7 @@ async function main() {
             pickupRemindersEnabled: false,
             voiceInputEnabled: false,
             pauseOnShabbat: true,
+            zmanimCommunity: 'sephardi',
             initData: opened.tg?.initData,
           }),
         `the body: ${String(call.init.body)}`,
@@ -859,6 +864,48 @@ async function main() {
       assert(body.pauseOnShabbat === true && body.culture === 'default', `General with the switch on is posted as picked: ${show(body)}`);
     } finally {
       close(off);
+    }
+  });
+
+  await check('S12 the zmanim community (Task 3): a "Zmanim" row in the Language and place card right under Location, with Sephardi (as in Zmanei Yosef), Ashkenazi and Chabad in the person\'s language, the saved one selected; a pick enables Save and is posted; it does not touch the pause switch or the days', async () => {
+    const options: Record<string, string[]> = {
+      en: ['Sephardi (as in Zmanei Yosef)', 'Ashkenazi (Israel)', 'Chabad'],
+      he: ['ספרדי (כמו בזמני יוסף)', 'אשכנזי (ישראל)', 'חב״ד'],
+      ru: ['Сефардский (как в «Зманей Йосеф»)', 'Ашкеназский (Израиль)', 'Хабад'],
+    };
+    for (const locale of LOCALES) {
+      const html = renderToString(tree(locale, propsOf({}, { language: locale })));
+      const text = textOf(html);
+      const label = word(locale, 'zmanim.label');
+      assert(text.includes(label) && text.includes(word(locale, 'zmanim.hint')), `${locale}: the label and the hint`);
+      assert(text.indexOf(word(locale, 'location.label')) < text.indexOf(label) && text.indexOf(label) < text.indexOf(word(locale, 'culture.label')), `${locale}: the row sits between the location and the calendar`);
+      assert(sectionLabels(html)[0] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
+      assert(show(['sephardi', 'ashkenazi', 'chabad'].map((c) => word(locale, `zmanim.${c}`))) === show(options[locale]), `${locale}: ${show(['sephardi', 'ashkenazi', 'chabad'].map((c) => word(locale, `zmanim.${c}`)))}`);
+    }
+    reset();
+    const a = open('en', propsOf({}, { zmanimCommunity: 'ashkenazi' }));
+    try {
+      const select = () => selectOf(a.m, 'Zmanim') as FakeElement;
+      const optionTexts = elements(select()).filter((e) => e.localName === 'option').map((o) => o.textContent);
+      assert(show(optionTexts) === show(options.en), `the options: ${show(optionTexts)}`);
+      assert((rowOf(a.m, 'Zmanim')?.textContent ?? '').includes(options.en[1]), 'the saved community is shown');
+      assert(saveButton(a.m)?.hasAttribute('disabled'), 'Save off while nothing differs');
+      a.m.change(select(), 'chabad');
+      assert((rowOf(a.m, 'Zmanim')?.textContent ?? '').includes('Chabad') && !saveButton(a.m)?.hasAttribute('disabled'), 'a pick shows and enables Save');
+      a.m.click(saveButton(a.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(posts().length === 1 && body.zmanimCommunity === 'chabad' && body.pauseOnShabbat === true && show(body.dailySummaryDays) === show([0, 1, 2, 3, 4, 5]), `the request: ${show(body)}`);
+    } finally {
+      close(a);
+    }
+    // The default for a person who never chose is Sephardi, and the page posts it as it is.
+    reset();
+    const b = open('en', propsOf({}, {}));
+    try {
+      assert((rowOf(b.m, 'Zmanim')?.textContent ?? '').includes(options.en[0]), 'Sephardi by default');
+    } finally {
+      close(b);
     }
   });
 

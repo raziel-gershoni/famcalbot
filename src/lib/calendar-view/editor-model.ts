@@ -37,6 +37,7 @@ import {
   type RepeatForm,
 } from './repeat-model';
 import { type AlertChoice } from './alert-leads';
+import { HOURS_PICK, ZMAN_HOURS_MAX, ZMAN_HOURS_MIN, readZmanSpec, sameZmanSpec, type TimeMode, type ZmanSpecValue, type ZmanimInfo } from './zman-spec';
 import { MAX_YEAR, MIN_YEAR_BIRTH, MIN_YEAR_SERIES, minYearFor } from './year-limits';
 
 /** What a new event lasts, and the time a new one on another day starts at. */
@@ -84,6 +85,18 @@ export interface EditorForm {
    * lead off the list is kept as it is until another is picked. A Google item's is its own, read-only.
    */
   alert: AlertChoice;
+  /**
+   * A reminder's time: 'time' (a time of day, or the reminder time when all-day), or 'zman': date-only, due each day at a
+   * zman plus an offset at the person's place. Only a reminder has it; the zman* fields mean something only in 'zman'.
+   */
+  timeMode: TimeMode;
+  /** The zman picked: a ZmanKey, or HOURS_PICK for "N halachic hours after sunrise". '' = none yet (the default is chosen when the mode is turned on). */
+  zmanPick: string;
+  /** The N of HOURS_PICK, ZMAN_HOURS_MIN..ZMAN_HOURS_MAX. */
+  zmanHours: number;
+  /** The offset's size in clock minutes (0..ZMAN_OFFSET_MAX_MIN) and whether it is before the zman (after otherwise). */
+  zmanMinutes: number;
+  zmanBefore: boolean;
 }
 
 export type FieldName = 'title' | 'location' | 'notes' | 'start' | 'end' | 'alert' | 'repeat';
@@ -274,8 +287,12 @@ export function newItemForm(ctx: NewItemContext): EditorForm {
     forWho: 'me',
     eachMarksDone: false,
     alert: 'default',
+    ...ZMAN_DEFAULTS,
   };
 }
+
+/** A reminder's time by zman before anything is picked: the latest time for Shema, no offset. */
+const ZMAN_DEFAULTS = { timeMode: 'time' as TimeMode, zmanPick: '', zmanHours: 3, zmanMinutes: 0, zmanBefore: true };
 
 /** A day and time moved by `minutes`. */
 export function shiftWall(day: string, time: string, minutes: number): { day: string; time: string } {
@@ -309,7 +326,72 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     forWho: info.forWho ?? 'me',
     eachMarksDone: info.eachMarksDone === true,
     alert: info.alert ?? 'default',
+    ...zmanFields(info),
   };
+}
+
+/** The zman fields of an edit: the series' rule when it has one (even for an occurrence moved to a time of its own), else the defaults. */
+function zmanFields(info: ItemEditInfoResponse): Pick<EditorForm, 'timeMode' | 'zmanPick' | 'zmanHours' | 'zmanMinutes' | 'zmanBefore'> {
+  const spec = readZmanSpec(info.zmanSpec);
+  if (!spec) return { ...ZMAN_DEFAULTS };
+  return {
+    timeMode: info.timeMode === 'zman' ? 'zman' : 'time',
+    zmanPick: 'zman' in spec ? spec.zman : HOURS_PICK,
+    zmanHours: 'halachicHours' in spec ? Math.min(ZMAN_HOURS_MAX, Math.max(ZMAN_HOURS_MIN, spec.halachicHours)) : ZMAN_DEFAULTS.zmanHours,
+    zmanMinutes: Math.abs(spec.offsetMin),
+    zmanBefore: spec.offsetMin <= 0,
+  };
+}
+
+// ---- A reminder by zman ----
+
+/** Whether the form is a reminder by zman: it is date-only, whatever its all-day switch says. */
+export const isByZman = (form: Pick<EditorForm, 'kind' | 'timeMode'>): boolean => form.kind === 'reminder' && form.timeMode === 'zman';
+
+/** The all-day state the request carries: a reminder by zman is always date-only. */
+export const effectiveAllDay = (form: Pick<EditorForm, 'kind' | 'timeMode' | 'allDay'>): boolean => isByZman(form) || form.allDay;
+
+/** The rule the form holds, as a request carries it. */
+export function zmanSpecOf(form: Pick<EditorForm, 'zmanPick' | 'zmanHours' | 'zmanMinutes' | 'zmanBefore'>): ZmanSpecValue {
+  const offsetMin = form.zmanMinutes === 0 ? 0 : (form.zmanBefore ? -1 : 1) * form.zmanMinutes;
+  return form.zmanPick === HOURS_PICK ? { halachicHours: form.zmanHours, offsetMin } : { zman: form.zmanPick, offsetMin };
+}
+
+/** The default pick when the mode is turned on: the latest time for Shema (GRA) where the set offers it, else its first zman. */
+export function defaultZmanPick(zmanim: ZmanimInfo | undefined): string {
+  return zmanim?.zmanim.find((z) => z.key === 'SOF_SHMA_GRA')?.key ?? zmanim?.zmanim[0]?.key ?? HOURS_PICK;
+}
+
+/** The By zman switch: turning it on picks the default zman until one is chosen; turning it off keeps the pick for turning it on again. */
+export function setTimeMode(form: EditorForm, timeMode: TimeMode, zmanim: ZmanimInfo | undefined): EditorForm {
+  if (timeMode === form.timeMode) return form;
+  return { ...form, timeMode, ...(timeMode === 'zman' && form.zmanPick === '' ? { zmanPick: defaultZmanPick(zmanim) } : {}) };
+}
+
+/**
+ * Today's time of the form's rule at the person's place, as an instant (epoch ms), or null where there is none (the
+ * zman does not exist today, or the editor info has none). It only adds the offset to a time the server worked out.
+ */
+export function zmanPreviewMs(form: EditorForm, zmanim: ZmanimInfo | undefined): number | null {
+  if (!zmanim) return null;
+  const spec = zmanSpecOf(form);
+  const base = 'zman' in spec ? zmanim.zmanim.find((z) => z.key === spec.zman)?.at : zmanim.hours[spec.halachicHours - 1];
+  const ms = base ? Date.parse(base) : NaN;
+  return Number.isNaN(ms) ? null : ms + spec.offsetMin * MINUTE_MS;
+}
+
+/** Whether the rule of the form differs from the one the edit started with (only meaningful while both are by zman). */
+const zmanRuleChanged = (form: EditorForm, initial: EditorForm): boolean => !sameZmanSpec(zmanSpecOf(form), zmanSpecOf(initial));
+
+/**
+ * The change to a reminder's time mode the person made, as the request carries it, or null while it is as it was:
+ * turning zman on (or changing its rule) sends the mode with the rule; turning it off sends 'time' alone.
+ */
+function timeModeChange(form: EditorForm, initial: EditorForm): Pick<UpdateItemBody['changes'], 'timeMode' | 'zmanSpec'> | null {
+  if (form.kind !== 'reminder') return null;
+  if (form.timeMode === 'zman' && (initial.timeMode !== 'zman' || zmanRuleChanged(form, initial))) return { timeMode: 'zman', zmanSpec: zmanSpecOf(form) };
+  if (form.timeMode === 'time' && initial.timeMode === 'zman') return { timeMode: 'time' };
+  return null;
 }
 
 /** The Repeat row's current choice: the stored rule's (3b spec §2.1), 'none' for a one-off, 'custom' for a rule the server did not classify. */
@@ -424,7 +506,9 @@ export function isDirty(form: EditorForm, initial: EditorForm, info?: ItemEditIn
   return keys.some((k) => {
     // A reminder has no end, and a switch-off time is not an edit.
     if (form.kind === 'reminder' && (k === 'endDay' || k === 'endTime')) return false;
-    if (form.allDay && initial.allDay && (k === 'startTime' || k === 'endTime')) return false;
+    if (effectiveAllDay(form) && effectiveAllDay(initial) && (k === 'startTime' || k === 'endTime')) return false;
+    // The zman fields mean something only while the reminder is by zman; a pick left behind in 'time' mode is no edit.
+    if (k.startsWith('zman') && form.timeMode === 'time' && initial.timeMode === 'time') return false;
     if (k === 'repeat') return !sameRepeat(form.repeat, initial.repeat, repeatDayOf(form, info));
     return form[k] !== initial[k];
   });
@@ -482,8 +566,8 @@ const wallOf = (day: string, time: string, allDay: boolean) => (allDay ? day : `
 /** The POST body for a new item (user_id and the init data are added by the client). */
 export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | 'initData'> {
   const reminder = form.kind === 'reminder';
-  // A reminder with no time is a date-only one, which arrives at 09:00.
-  const allDay = form.allDay;
+  // A reminder with no time is a date-only one, which arrives at the reminder time; one by zman is date-only too.
+  const allDay = effectiveAllDay(form);
   const body: Omit<CreateItemBody, 'user_id' | 'initData'> = {
     kind: form.kind,
     title: form.title.trim(),
@@ -505,6 +589,11 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     body.forWho = form.forWho;
     // The switch goes only for a reminder for both of us, and only when it is on (the default is one shared Done).
     if (form.forWho === 'both' && form.eachMarksDone) body.eachMarksDone = true;
+  }
+  // A reminder by zman carries its rule (the default, a plain time, is nothing).
+  if (isByZman(form)) {
+    body.timeMode = 'zman';
+    body.zmanSpec = zmanSpecOf(form);
   }
   return body;
 }
@@ -529,16 +618,22 @@ export function updateBody(
     if (form.location.trim() !== initial.location.trim()) changes.location = form.location.trim();
     if (form.notes.trim() !== initial.notes.trim()) changes.description = form.notes.trim();
   }
-  const was = wallOf(initial.startDay, initial.startTime, initial.allDay);
-  const now = wallOf(form.startDay, form.startTime, form.allDay);
-  const wasEnd = wallOf(initial.endDay, initial.endTime, initial.allDay);
-  const nowEnd = wallOf(form.endDay, form.endTime, form.allDay);
-  const timeMoved = form.allDay !== initial.allDay || now !== was || (!reminder && nowEnd !== wasEnd);
+  // A reminder by zman is date-only whatever its all-day switch says.
+  const allDayNow = effectiveAllDay(form);
+  const allDayWas = effectiveAllDay(initial);
+  const was = wallOf(initial.startDay, initial.startTime, allDayWas);
+  const now = wallOf(form.startDay, form.startTime, allDayNow);
+  const wasEnd = wallOf(initial.endDay, initial.endTime, allDayWas);
+  const nowEnd = wallOf(form.endDay, form.endTime, allDayNow);
+  const timeMoved = allDayNow !== allDayWas || now !== was || (!reminder && nowEnd !== wasEnd);
   if (timeMoved) {
-    if (form.allDay !== initial.allDay) changes.allDay = form.allDay;
+    if (allDayNow !== allDayWas) changes.allDay = allDayNow;
     changes.start = now;
     if (!reminder) changes.end = nowEnd;
   }
+  // A reminder's time mode: by zman (with its rule) or back to a plain time, from this occurrence on or for all of them (a series change).
+  const mode = timeModeChange(form, initial);
+  if (mode !== null) Object.assign(changes, mode);
   // The series-level fields go only when the person changed them (3b spec §4). A rule kept
   // as it is ('custom' untouched, or the stored choice) is never sent: the server would read
   // a stored bot rule that classifies as one of the five as a repeat change.
@@ -650,13 +745,20 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   if (!info.series.recurring) return { kind: 'none' };
   if (pickedRepeat(form, initial, info) !== null) return { kind: 'following' };
   const reminder = form.kind === 'reminder';
-  const seriesLevel =
+  // A reminder given a time of its own on one occurrence of a series is just a move of that occurrence to a fixed time;
+  // any other change of its zman rule or mode is a series change, like the recipient's.
+  const zmanOffTimed = reminder && form.timeMode === 'time' && initial.timeMode === 'zman' && !effectiveAllDay(form);
+  const otherSeriesLevel =
     (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||
     alertChange(form, initial) !== null ||
     eachMarksDoneChange(form, initial) !== null ||
     (reminder && form.forWho !== initial.forWho);
+  const zmanSeriesLevel = timeModeChange(form, initial) !== null && !zmanOffTimed;
   const dayMove = info.series.fixedDays && movesDay(form, initial, info.tz, info.series.zone);
-  if (seriesLevel) return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], note: 'series' };
+  // The note under the choices speaks of a calendar, alert or recipient change: a change of the zman alone asks without it.
+  if (otherSeriesLevel || zmanSeriesLevel) {
+    return dayMove ? { kind: 'refuse', note: 'dayMoveAlone' } : { kind: 'sheet', choices: ['following', 'all'], ...(otherSeriesLevel ? { note: 'series' as const } : {}) };
+  }
   if (info.scopes.length <= 1) return { kind: 'none' };
   if (!dayMove) return { kind: 'sheet', choices: ['single', 'following', 'all'] };
   if (restatedRepeat(form, initial, info) === null) return { kind: 'sheet', choices: ['single'], note: 'dayMove' };

@@ -20,7 +20,9 @@ import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-pro
 import type { ReminderStateRow } from '../native-calendar/event-store';
 import type { UnifiedEvent } from '../calendar-provider/types';
 import { loadViewerContext, recipientIdsForViewer, userDoneAt, type ViewerContext } from './ownership';
-import { ARMED_GRACE_MS, reminderDueAt } from './due';
+import { ARMED_GRACE_MS, reminderDueAt, zmanDueAt, zmanRuleOf } from './due';
+import { zmanClockIfNeeded } from '../zmanim/reminder-clock';
+import { readZmanSpec, type ZmanClock } from '../../lib/calendar-view/zman-spec';
 
 // reminderDueAt moved to the leaf due.ts (the calendar home's DTO code reads it); its
 // callers keep importing it from here.
@@ -46,7 +48,7 @@ export function openRemindersCutoff(summaryDay: string, timezone: string, now: D
  * time has passed is marked open (a snoozed one too: it is not done). Everything
  * else passes through untouched.
  */
-export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: string, reminderTime?: string | null): CalendarEvent[] {
+export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: string, reminderTime?: string | null, clock?: ZmanClock | null): CalendarEvent[] {
   const shaped: CalendarEvent[] = [];
   for (const event of events) {
     if (!isReminderEvent(event)) {
@@ -54,8 +56,12 @@ export function shapeDayReminders(events: CalendarEvent[], now: Date, timezone: 
       continue;
     }
     if (event.reminder?.done) continue;
-    const open = reminderDueAt(event, timezone, reminderTime) < now;
-    shaped.push(open ? { ...event, reminder: { ...(event.reminder ?? OWN_REMINDER), open: true } } : event);
+    // A reminder by zman is due at its zman time at the reader's place, and its line says when that is.
+    const zman = zmanRuleOf(event.reminder?.zmanSpec, clock);
+    const due = reminderDueAt(event, timezone, reminderTime, zman);
+    const zmanAt = zman && !event.start.includes('T') ? zmanDueAt(event.start, zman) : null;
+    const open = due < now;
+    shaped.push(open || zmanAt ? { ...event, reminder: { ...(event.reminder ?? OWN_REMINDER), ...(open ? { open: true } : {}), ...(zmanAt ? { zmanAt: zmanAt.toISOString() } : {}) } } : event);
   }
   return shaped;
 }
@@ -104,9 +110,10 @@ export function selectOpenReminders(
   timezone: string,
   now: Date,
   cap: number = OPEN_REMINDERS_DIGEST_CAP,
-  reminderTime?: string | null
+  reminderTime?: string | null,
+  clock?: ZmanClock | null
 ): { events: CalendarEvent[]; moreCount: number } {
-  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap, reminderTime);
+  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap, reminderTime, clock);
   return { events: items.map(i => i.event), moreCount };
 }
 
@@ -119,7 +126,8 @@ function selectOpenReminderItems(
   timezone: string,
   now: Date,
   cap: number,
-  reminderTime?: string | null
+  reminderTime?: string | null,
+  clock?: ZmanClock | null
 ): { items: OpenReminderItem[]; moreCount: number } {
   const summaryRange = { from: startOfLocalDay(summaryDay, timezone), to: startOfLocalDay(nextDate(summaryDay), timezone) };
   const open: Array<{ due: Date; item: OpenReminderItem }> = [];
@@ -139,7 +147,8 @@ function selectOpenReminderItems(
     if (!occurrence) continue;
     if (onSummaryDay) continue;
     const event = toUnifiedEvent(calendar, occurrence);
-    const due = reminderDueAt(event, timezone, reminderTime);
+    // A reminder by zman is due at its zman time at the viewer's place (a timed occurrence of it is a fixed time).
+    const due = reminderDueAt(event, timezone, reminderTime, zmanRuleOf(series.zmanSpec, clock));
     if (due >= cutoff) continue; // a date-only one whose morning has not come yet
     // Never armed: due before the series was created or re-timed, so never pinged and
     // with no state. Showing it as open would be a phantom.
@@ -181,7 +190,8 @@ export async function fetchOpenReminders(
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
-  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime);
+  const clock = await zmanClockIfNeeded(candidates.some((c) => readZmanSpec(c.series.zmanSpec) !== null), user, timezone);
+  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime, clock);
 }
 
 /**
@@ -198,7 +208,8 @@ export async function fetchOpenReminderItems(
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
-  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime);
+  const clock = await zmanClockIfNeeded(candidates.some((c) => readZmanSpec(c.series.zmanSpec) !== null), user, timezone);
+  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime, clock);
 }
 
 /** The one read behind fetchOpenReminders and fetchOpenReminderItems: each series with its calendar, overrides and state rows. */
@@ -244,7 +255,8 @@ export async function addDigestReminders(
   timezone: string,
   now: Date = new Date()
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
-  const events = shapeDayReminders(dayEvents, now, timezone, user.reminderTime);
+  const clock = await zmanClockIfNeeded(dayEvents.some((e) => !!e.reminder?.zmanSpec), user, timezone);
+  const events = shapeDayReminders(dayEvents, now, timezone, user.reminderTime, clock);
   try {
     const ctx = await loadViewerContext(user);
     const open = await fetchOpenReminders(user, ctx, openRemindersCutoff(summaryDay, timezone, now), summaryDay, timezone);

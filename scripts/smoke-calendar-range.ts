@@ -143,9 +143,11 @@ const captured: { ctx: string; severity: string; extra: Row | undefined; message
 const famcalCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
 const googleCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
 const carryCalls: { userId: number; ctx: Row; cutoff: Date; summaryDay: string; tz: string; cap: number }[] = [];
-let famcalMode: 'ok' | 'error' | 'reject' | 'broken' = 'ok';
+let famcalMode: 'ok' | 'error' | 'reject' | 'broken' | 'zman' = 'ok';
 let googleMode: 'ok' | 'partialStale' | 'gone' | 'unsorted' | 'reject' = 'ok';
-let carryMode: 'ok' | 'throw' = 'ok';
+let carryMode: 'ok' | 'throw' | 'zman' = 'ok';
+/** The zman clock the route asked for: whether anything read needed one, whose, and in which zone. */
+const clockCalls: { needed: boolean; userId: number; zone: string }[] = [];
 /** What readRange's caller handed after(). */
 const afterQueue: (() => unknown)[] = [];
 const fetched: string[] = [];
@@ -242,6 +244,18 @@ function talFamcal(): Row[] {
   ];
 }
 
+/** A date-only reminder by zman on the 16th (Tal's own), as the reader hands it on: the rule rides in its ReminderInfo. */
+const ZMAN_SPEC = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+const ZMAN_REMINDER = famcalItem('rem-pill', 'Take the pill', '2026-10-16', '2026-10-17', OWN, {
+  kind: 'reminder', reminder: { ownerIsViewer: true, creatorIsViewer: true, zmanSpec: ZMAN_SPEC },
+});
+/** A stand-in for the person's zman clock (reminder-clock.ts): 08:27 on the 16th, 23:50 the evening before, nothing else. */
+const FAKE_CLOCK = {
+  source: 'saved',
+  instant: (day: string) => (day === '2026-10-16' ? new RealDate('2026-10-16T05:27:00.000Z') : day === '2026-10-15' ? new RealDate('2026-10-15T20:50:00.000Z') : null),
+  opinion: () => 'gra',
+};
+
 /** Tal's carry-overs as fetchOpenReminderItems answers them: newest first. */
 function talCarryOvers(): Row[] {
   return [
@@ -270,6 +284,20 @@ function talCarryOvers(): Row[] {
   ];
 }
 
+/** An older open reminder by zman: due the 15th at its zman time (the clock says 23:50), carried over. */
+function zmanCarryOver(): Row {
+  return {
+    event: {
+      summary: 'Light the heater', start: '2026-10-15', end: '2026-10-16', calendarName: 'Tal', calendarId: 'native:cal-own', eventType: 'reminder',
+      eventId: 'ser-heater', provider: 'native', timeZone: IL,
+      reminder: { ownerIsViewer: true, creatorIsViewer: true, openSince: '2026-10-15', zmanSpec: { zman: 'SHKIA', offsetMin: 0 } },
+    },
+    series: { id: 'ser-heater', kind: 'REMINDER', rrule: null, creatorUserId: 9, forUserId: null, forBoth: false },
+    calendar: { id: 'cal-own', name: 'Tal' },
+    instanceStartsAt: new RealDate('2026-10-14T21:00:00.000Z'),
+  };
+}
+
 function googleItem(calendar: Row, id: string, title: string, start: string, end: string): Row {
   return {
     source: 'google', key: `google|${calendar.id}|${id}`,
@@ -282,7 +310,7 @@ function googleItem(calendar: Row, id: string, title: string, start: string, end
 function seed() {
   for (const k of Object.keys(DB)) delete DB[k];
   redisStore.clear();
-  for (const list of [prismaCalls, rateChecks, captured, famcalCalls, googleCalls, carryCalls, afterQueue, fetched] as unknown[][]) list.length = 0;
+  for (const list of [prismaCalls, rateChecks, captured, famcalCalls, googleCalls, carryCalls, afterQueue, fetched, clockCalls] as unknown[][]) list.length = 0;
   clock = RealDate.parse('2026-10-16T06:00:00Z');
   rateAllow = true;
   famcalMode = 'ok';
@@ -363,7 +391,7 @@ function installStubs() {
           calendars: tal ? [OWN, NOA_SHARED] : [{ ...OWN, name: user.name }],
           partner: tal ? { name: 'Noa' } : null,
         },
-        items: tal ? talFamcal() : [famcalItem('ev-solo', 'Dentist', '2026-10-16T07:00:00.000Z', '2026-10-16T08:00:00.000Z', OWN), { ...famcalItem('ev-nostart', 'Dentist', '', '', OWN) }],
+        items: tal ? (famcalMode === 'zman' ? [...talFamcal(), ZMAN_REMINDER] : talFamcal()) : [famcalItem('ev-solo', 'Dentist', '2026-10-16T07:00:00.000Z', '2026-10-16T08:00:00.000Z', OWN), { ...famcalItem('ev-nostart', 'Dentist', '', '', OWN) }],
       };
     },
   });
@@ -404,8 +432,18 @@ function installStubs() {
     fetchOpenReminderItems: async (user: Row, ctx: Row, cutoff: Date, summaryDay: string, tz: string, cap: number) => {
       carryCalls.push({ userId: user.id, ctx, cutoff, summaryDay, tz, cap });
       if (carryMode === 'throw') throw new Error('carry-over query failed');
+      if (carryMode === 'zman' && user.id === 9) return { items: [...talCarryOvers(), zmanCarryOver()], moreCount: 0 };
       return user.id === 9 ? { items: talCarryOvers(), moreCount: 0 } : { items: [], moreCount: 0 };
     },
+  });
+
+  // The person's zman clock is a stand-in (its own smokes hold the calculator); it records what the route asked.
+  stub('src/services/zmanim/reminder-clock.ts', {
+    zmanClockIfNeeded: async (needed: boolean, user: Row, zone: string) => {
+      clockCalls.push({ needed, userId: user.id, zone });
+      return needed ? FAKE_CLOCK : null;
+    },
+    zmanClockFor: async () => FAKE_CLOCK,
   });
 
   // Next's after() needs a live request scope; queue the task instead.
@@ -822,6 +860,24 @@ async function main() {
   });
 
   Object.assign(console, quiet);
+  await check('#zman a reminder by zman on the home: the day lists it with its rule, its time at the viewer\'s place (the person\'s clock, built only when something read has a rule) and dueAt; a carry-over is due at ITS day\'s zman time; a window with none builds no clock', async () => {
+    seed();
+    famcalMode = 'zman';
+    carryMode = 'zman';
+    const r = await get('from=2026-10-16&to=2026-10-17');
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    assertSame(clockCalls, [{ needed: true, userId: 9, zone: IL }], 'one clock, the viewer\'s, in their zone');
+    const pill = (r.body.days[0].items as Row[]).find((i) => i.id === 'rem-pill')!;
+    assertSame(pill.reminder.zman, { spec: ZMAN_SPEC, at: '2026-10-16T05:27:00.000Z', opinion: 'gra' }, 'the rule and its time');
+    assert(pill.reminder.dueAt === '2026-10-16T05:27:00.000Z' && pill.allDay === true, `dueAt ${pill.reminder.dueAt}`);
+    const heater = (r.body.carryOvers as Row[]).find((i) => i.id === 'ser-heater')!;
+    assert(heater.reminder.dueAt === '2026-10-15T20:50:00.000Z' && heater.reminder.openSince === '2026-10-15' && heater.reminder.zman.at === '2026-10-15T20:50:00.000Z', `carry-over ${show(heater.reminder)}`);
+    seed();
+    const plain = await get('from=2026-10-16&to=2026-10-17');
+    assert(plain.status === 200 && show(clockCalls) === show([{ needed: false, userId: 9, zone: IL }]), `no rule read: ${show(clockCalls)}`);
+    assert(!show(plain.body).includes('"zman"'), 'no zman field when there is none');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

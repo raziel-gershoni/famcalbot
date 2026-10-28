@@ -1159,6 +1159,167 @@ async function main() {
     assert(main.id === 'raziel', `got ${main.id}`);
   });
 
+  // ---- Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) ----
+  // NativeEvent.zmanSpec: { zman, offsetMin } or { halachicHours, offsetMin }, only on a date-only reminder; a series-level
+  // field (so 'this one' on a series is refused), cleared when the reminder is given a time of day, and a move of one
+  // occurrence to a time of its own is a fixed-time override.
+
+  const SHEMA = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  const ALOT_IN_5 = { zman: 'ALOT', offsetMin: 5 };
+  const { Prisma } = await import('@prisma/client');
+  const specOf = (id: string) => {
+    const v = eventRow(id).zmanSpec;
+    return v === undefined || v === null || v === Prisma.DbNull ? null : v;
+  };
+  const dayStart = (day: string) => at(`${day} 00:00`);
+
+  /** A daily date-only reminder by zman from Oct 10, with two pinged occurrences (Oct 13 done, Oct 14 open with a live ping). */
+  function zmanSeries(rrule: string | null = 'FREQ=DAILY') {
+    reset();
+    seedEvent('zrem', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, title: 'Take the pill', startsAt: dayStart('2026-10-10'), allDay: true, rrule, zmanSpec: SHEMA });
+    if (!rrule) return;
+    seedState('zrem', dayStart('2026-10-13'), 31, { doneAt: at('2026-10-13 09:40') });
+    seedState('zrem', dayStart('2026-10-14'), 32, {});
+  }
+
+  await check('zman create: a date-only reminder stores the rule (and re-arms like any reminder); a timed one, an event, an unknown zman are refused with NativeScopeError and write nothing; a plain reminder stores none', async () => {
+    reset();
+    closeGate();
+    const base = { calendarCuid: 'raziel', creatorUserId: 1, title: 'Take the pill', timeZone: IL };
+    const made = await createNativeEvent({ ...base, kind: 'REMINDER', allDay: true, startsAt: dayStart('2026-10-15'), endsAt: dayStart('2026-10-15'), zmanSpec: SHEMA });
+    assert(JSON.stringify(specOf(made.id)) === JSON.stringify(SHEMA), `stored ${JSON.stringify(specOf(made.id))}`);
+    assert(fresh(eventRow(made.id).armedAt) && gateCleared(), 'armed, and the gate is woken');
+    const plain = await createNativeEvent({ ...base, kind: 'REMINDER', allDay: true, startsAt: dayStart('2026-10-15'), endsAt: dayStart('2026-10-15') });
+    assert(specOf(plain.id) === null, 'a plain reminder has none');
+    const rows = tables.nativeEvent.length;
+    const refusals: Array<[string, Row]> = [
+      ['a timed reminder', { kind: 'REMINDER', allDay: false, startsAt: at('2026-10-15 10:00'), endsAt: at('2026-10-15 10:00'), zmanSpec: SHEMA }],
+      ['an event', { allDay: true, startsAt: dayStart('2026-10-15'), endsAt: dayStart('2026-10-16'), zmanSpec: SHEMA }],
+      ['an unknown zman', { kind: 'REMINDER', allDay: true, startsAt: dayStart('2026-10-15'), endsAt: dayStart('2026-10-15'), zmanSpec: { zman: 'NOT_A_ZMAN', offsetMin: 0 } }],
+      ['a rule that is not one', { kind: 'REMINDER', allDay: true, startsAt: dayStart('2026-10-15'), endsAt: dayStart('2026-10-15'), zmanSpec: { zman: 'ALOT' } }],
+    ];
+    for (const [what, input] of refusals) {
+      const outcome = await createNativeEvent({ ...base, ...input } as Parameters<typeof createNativeEvent>[0]).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+      assert(outcome === 'NativeScopeError/zmanSpec', `${what}: ${outcome}`);
+    }
+    assert(tables.nativeEvent.length === rows, 'a refusal wrote a row');
+  });
+
+  await check('zman update (a one-off): setting or changing the rule re-arms it and starts the occurrence afresh, its live ping reads "changed" (not "moved to <day>": nothing moved); the same rule is no change at all', async () => {
+    zmanSeries(null);
+    eventRow('zrem').zmanSpec = undefined;
+    seedState('zrem', dayStart('2026-10-10'), 41, {});
+    closeGate();
+    const r = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', actingUserId: 1, zmanSpec: SHEMA });
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(SHEMA), `stored ${JSON.stringify(specOf('zrem'))}`);
+    assert(fresh(eventRow('zrem').armedAt), 'armed');
+    assert(tables.nativeReminderState.length === 0, 'the occurrence starts afresh');
+    assert(r.clearedPings.length === 0 && pings(r.changedPings) === '5001/41', `moved ${pings(r.clearedPings)} changed ${pings(r.changedPings)}`);
+    assert(gateCleared(), 'the gate is woken');
+    // The same rule again changes nothing.
+    seedState('zrem', dayStart('2026-10-10'), 42, {});
+    const armed = eventRow('zrem').armedAt;
+    closeGate();
+    const same = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', actingUserId: 1, zmanSpec: { ...SHEMA } });
+    assert(eventRow('zrem').armedAt === armed && stateKeys('zrem').length === 1 && same.changedPings.length === 0, 'a no-op write re-armed or cleared');
+    // A new offset is a change.
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', actingUserId: 1, zmanSpec: ALOT_IN_5 });
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(ALOT_IN_5) && stateKeys('zrem').length === 0, 'changed');
+    // null takes it away (the reminder is then a plain date-only one at the reminder time).
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', actingUserId: 1, zmanSpec: null });
+    assert(specOf('zrem') === null, 'taken away');
+  });
+
+  await check('zman update: a rule equal to the series\' own is no change at all, even with "only this one" on a series (nothing is refused or written); the rule written another way (a key, an offset) is a change', async () => {
+    zmanSeries();
+    const armed = eventRow('zrem').armedAt;
+    const r = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, zmanSpec: { ...SHEMA }, title: 'Take the pill (blue box)' });
+    assert(r.clearedPings.length + r.changedPings.length === 0 && eventRow('zrem').armedAt === armed && stateKeys('zrem').length === 2, 'the same rule re-armed or cleared');
+    assert(tables.nativeEventInstance.some((o) => o.title === 'Take the pill (blue box)'), 'the rename went through as this occurrence\'s');
+    for (const other of [ALOT_IN_5, { zman: 'SOF_SHMA_GRA', offsetMin: -15 }, { halachicHours: 3, offsetMin: -10 }]) {
+      const outcome = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, zmanSpec: other }).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+      assert(outcome === 'NativeScopeError/scope', `${JSON.stringify(other)}: ${outcome}`);
+    }
+  });
+
+  await check('zman update (a series, "all"): a new rule starts every occurrence afresh and the overrides stay (a fixed-time override is unaffected); the pings read "changed"', async () => {
+    zmanSeries();
+    tables.nativeEventInstance.push({ ...DEFAULTS.nativeEventInstance(), id: 'ov1', seriesEventId: 'zrem', originalStartsAt: dayStart('2026-10-15'), status: 'OVERRIDE', startsAt: at('2026-10-15 14:00'), endsAt: at('2026-10-15 14:00'), allDay: false });
+    const r = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'all', actingUserId: 1, zmanSpec: ALOT_IN_5 });
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(ALOT_IN_5), 'the new rule');
+    assert(stateKeys('zrem').length === 0, 'every state is gone');
+    assert(tables.nativeEventInstance.length === 1, 'the override stays');
+    assert(r.clearedPings.length === 0 && pings(r.changedPings) === '5001/31, 5001/32', `changed ${pings(r.changedPings)}`);
+    assert(fresh(eventRow('zrem').armedAt), 'armed from now, so a past occurrence does not ping');
+  });
+
+  await check('zman update: it is a series-level field: "this one" of a series is refused (NativeScopeError, nothing written); "this one" with a start and allDay false is a fixed-time override that leaves the series\' rule alone', async () => {
+    zmanSeries();
+    const outcome = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, zmanSpec: ALOT_IN_5 }).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+    assert(outcome === 'NativeScopeError/scope', outcome);
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(SHEMA) && tables.nativeEventInstance.length === 0, 'nothing written');
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'single', instanceStartsAt: dayStart('2026-10-15'), actingUserId: 1, startsAt: at('2026-10-15 14:00'), endsAt: at('2026-10-15 14:00'), allDay: false });
+    const override = tables.nativeEventInstance.find((o) => same(o.originalStartsAt, dayStart('2026-10-15')))!;
+    assert(override && override.allDay === false && iso(override.startsAt) === iso(at('2026-10-15 14:00')), `the override ${JSON.stringify(override)}`);
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(SHEMA), 'the series keeps its rule');
+  });
+
+  await check('zman update: "this one and the ones after" gives the new part the new rule and leaves the earlier ones theirs (and their states); from the first occurrence it is the series itself', async () => {
+    zmanSeries();
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'following', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, zmanSpec: ALOT_IN_5 });
+    const tail = tables.nativeEvent.find((e) => e.id !== 'zrem' && e.kind === 'REMINDER')!;
+    assert(JSON.stringify(specOf(tail.id as string)) === JSON.stringify(ALOT_IN_5) && fresh(tail.armedAt), 'the new part');
+    assert(JSON.stringify(specOf('zrem')) === JSON.stringify(SHEMA), 'the earlier part keeps its own');
+    assert(stateKeys('zrem').length === 1 && stateKeys(tail.id as string).length === 0, `earlier states stay, the new part starts afresh: ${stateKeys('zrem')} / ${stateKeys(tail.id as string)}`);
+    zmanSeries();
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'following', instanceStartsAt: dayStart('2026-10-10'), actingUserId: 1, zmanSpec: ALOT_IN_5 });
+    assert(tables.nativeEvent.length === 1 && JSON.stringify(specOf('zrem')) === JSON.stringify(ALOT_IN_5), 'from the first occurrence: in place');
+  });
+
+  await check('zman update: giving the reminder a time of day takes the rule away (a timed reminder is a fixed time), "all" or "following"; a rule asked for beside a time of day, or on a timed reminder, is refused', async () => {
+    zmanSeries();
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'all', actingUserId: 1, startsAt: at('2026-10-10 11:00'), endsAt: at('2026-10-10 11:00'), allDay: false, occurrenceTimes: false });
+    assert(specOf('zrem') === null && eventRow('zrem').allDay === false, `rule ${JSON.stringify(specOf('zrem'))} allDay ${eventRow('zrem').allDay}`);
+    zmanSeries();
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'following', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, startsAt: at('2026-10-14 11:00'), endsAt: at('2026-10-14 11:00'), allDay: false });
+    const tail = tables.nativeEvent.find((e) => e.id !== 'zrem' && e.kind === 'REMINDER')!;
+    assert(specOf(tail.id as string) === null && JSON.stringify(specOf('zrem')) === JSON.stringify(SHEMA), 'the new part is timed, the earlier keeps its rule');
+    zmanSeries();
+    const both = await updateNativeEvent({ seriesCuid: 'zrem', scope: 'all', actingUserId: 1, startsAt: at('2026-10-10 11:00'), endsAt: at('2026-10-10 11:00'), allDay: false, zmanSpec: ALOT_IN_5 }).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+    assert(both === 'NativeScopeError/zmanSpec', `a rule beside a time of day: ${both}`);
+    reset();
+    seedEvent('timed', { kind: 'REMINDER', calendarId: 'raziel', creatorUserId: 1, startsAt: at('2026-10-15 10:00'), allDay: false });
+    const onTimed = await updateNativeEvent({ seriesCuid: 'timed', scope: 'single', actingUserId: 1, zmanSpec: SHEMA }).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+    assert(onTimed === 'NativeScopeError/zmanSpec' && specOf('timed') === null, `on a timed reminder: ${onTimed}`);
+  });
+
+  await check('zman update: an event has no rule: refused; "stop repeating" keeps the rule on a date-only one-off and drops it on a timed one', async () => {
+    reset();
+    seedEvent('ev', { kind: 'EVENT', calendarId: 'raziel', creatorUserId: 1, startsAt: at('2026-10-15 10:00') });
+    const onEvent = await updateNativeEvent({ seriesCuid: 'ev', scope: 'single', actingUserId: 1, zmanSpec: SHEMA }).then(() => 'allowed', (err: Error) => `${err.name}/${(err as { field?: string }).field}`);
+    assert(onEvent === 'NativeScopeError/zmanSpec', onEvent);
+    zmanSeries();
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'following', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, rrule: null });
+    const oneOff = tables.nativeEvent.find((e) => e.id !== 'zrem' && e.kind === 'REMINDER')!;
+    assert(JSON.stringify(specOf(oneOff.id as string)) === JSON.stringify(SHEMA) && oneOff.rrule === null, 'the one-off keeps the rule');
+    zmanSeries();
+    tables.nativeEventInstance.push({ ...DEFAULTS.nativeEventInstance(), id: 'ov2', seriesEventId: 'zrem', originalStartsAt: dayStart('2026-10-14'), status: 'OVERRIDE', startsAt: at('2026-10-14 14:00'), endsAt: at('2026-10-14 14:00'), allDay: false });
+    await updateNativeEvent({ seriesCuid: 'zrem', scope: 'following', instanceStartsAt: dayStart('2026-10-14'), actingUserId: 1, rrule: null });
+    const timedOneOff = tables.nativeEvent.find((e) => e.id !== 'zrem' && e.kind === 'REMINDER')!;
+    assert(specOf(timedOneOff.id as string) === null && timedOneOff.allDay === false, `the occurrence moved to 14:00 is a fixed time: ${JSON.stringify(specOf(timedOneOff.id as string))} allDay ${timedOneOff.allDay}`);
+  });
+
+  await check('zman read: the provider hands the rule on with the reminder (ReminderInfo.zmanSpec) only when there is one', async () => {
+    zmanSeries(null);
+    const { reminderInfoFor } = await import('../src/services/calendar-provider/native-provider');
+    const ctx = { viewerId: 1, partner: null };
+    const withRule = reminderInfoFor(eventRow('zrem') as never, undefined, ctx, new Date());
+    assert(JSON.stringify(withRule.zmanSpec) === JSON.stringify(SHEMA), `info ${JSON.stringify(withRule)}`);
+    eventRow('zrem').zmanSpec = Prisma.DbNull;
+    assert(!('zmanSpec' in reminderInfoFor(eventRow('zrem') as never, undefined, ctx, new Date())), 'a plain one carries none');
+  });
+
+
   await check('main calendar: no primary → the oldest own calendar, skipping a deleted one', async () => {
     reset();
     tables.nativeCalendar = [

@@ -452,6 +452,12 @@ const captured: { ctx: string; extra?: Row; message: string; severity?: string }
 const timezoneTokens: (string | undefined)[] = [];
 const activity: { userId: number; action: string; meta?: Row }[] = [];
 
+const ZMAN_CLOCK = {
+  source: 'saved' as const,
+  instant: (day: string) => (day === '2026-10-19' ? new RealDate('2026-10-19T05:27:00.000Z') : null),
+  opinion: () => 'gra' as const,
+};
+
 type AuthMode = 'ok' | 'missing' | 'unauthorized' | 'suspended' | 'limited';
 let authMode: AuthMode = 'ok';
 let authAs = DANA;
@@ -478,6 +484,11 @@ async function main() {
       timezoneTokens.push(u.googleRefreshToken);
       return TIMEZONES[u.id] ?? IL;
     },
+  });
+  // The person's zman clock is a stand-in (its own smokes hold the calculator): 08:27 on the 19th, nothing else.
+  stub('src/services/zmanim/reminder-clock.ts', {
+    zmanClockIfNeeded: async (needed: boolean) => (needed ? ZMAN_CLOCK : null),
+    zmanClockFor: async () => ZMAN_CLOCK,
   });
   stub('src/lib/error-capture.ts', {
     captureError: (e: unknown, ctx: string, extra?: Row, severity?: string) => {
@@ -1402,6 +1413,33 @@ async function main() {
     // A daily's moved occurrence from yesterday is listed on its day, not in the card (today has its own).
     const moved = await call(good({ seriesId: DAILY, originalStart: at('2026-10-18 08:00').toISOString(), action: 'done' }));
     assert(moved.body.reminder?.done === true && moved.body.reminder.open === false, moved.text);
+  });
+
+  await check('route: a reminder by zman: the answer is the range DTO for the same occurrence, with the rule, its time at the person\'s place (08:27) and dueAt; open from that time, not from 09:00; done and undo read the same', async () => {
+    reset();
+    const ZMAN = sid('zman');
+    const start = at('2026-10-19 00:00');
+    db.events.push({
+      id: ZMAN, calendarId: 'cal-dana', creatorUserId: DANA, title: 'Take the pill', startsAt: start, endsAt: start, description: null, location: null, allDay: true, timeZone: IL,
+      rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED, kind: 'REMINDER', forUserId: null, armedAt: CREATED,
+      zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 },
+    });
+    const dtoFor = async () => {
+      const { read, items } = await readFamcal(actor(DANA), { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
+      if (read.status !== 'ok') throw new Error('read failed');
+      const days = toRangeDays(items, '2026-10-19', '2026-10-20', IL, NOW, '2026-10-19', undefined, ZMAN_CLOCK);
+      return days.flatMap((d) => d.items).find((i) => i.key === `famcal|${ZMAN}`)?.reminder;
+    };
+    const snoozed = await call(good({ seriesId: ZMAN, originalStart: start.toISOString(), action: 'snooze15' }));
+    assert(snoozed.status === 200 && snoozed.body.reminder?.zman?.at === '2026-10-19T05:27:00.000Z' && snoozed.body.reminder.dueAt === '2026-10-19T05:27:00.000Z', snoozed.text);
+    assertJson(snoozed.body.reminder.zman, { spec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 }, at: '2026-10-19T05:27:00.000Z', opinion: 'gra' }, 'the rule and its time');
+    assertJson(snoozed.body.reminder, await dtoFor(), 'the route\'s DTO is the range\'s');
+    const done = await call(good({ seriesId: ZMAN, originalStart: start.toISOString(), action: 'done' }));
+    assert(done.body.reminder?.done === true && done.body.reminder.dueAt === '2026-10-19T05:27:00.000Z', done.text);
+    assertJson(done.body.reminder, await dtoFor(), 'done, the same');
+    const undone = await call(good({ seriesId: ZMAN, originalStart: start.toISOString(), action: 'undo' }));
+    assert(undone.body.reminder?.open === true && undone.body.reminder.done === false, `open since 08:27 (it is 10:00): ${undone.text}`);
+    assertJson(undone.body.reminder, await dtoFor(), 'reopened, the same');
   });
 
   await check('each: a Done in flight while the switch is turned off writes no per-person Done: it is the one shared Done of a reminder with one Done', async () => {

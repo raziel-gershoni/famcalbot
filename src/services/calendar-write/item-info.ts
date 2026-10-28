@@ -12,6 +12,7 @@ import type {
   ItemEditInfoResponse,
   RepeatInfo,
 } from '../../lib/calendar-view/editor-types';
+import type { ZmanimInfo } from '../../lib/calendar-view/zman-spec';
 import type { UserConfig } from '../../types';
 import { TIMEZONE } from '../../config/constants';
 import { prisma } from '../../utils/prisma';
@@ -30,6 +31,8 @@ import { classifyRule, endOfRule, fixesDays, isHebrewRule, specOfRule, type Hebr
 import { loadViewerContext, recipientIdsForViewer, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
 import { reminderTimeOf } from '../../lib/reminder-time';
+import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
+import { zmanEditorInfoFor } from '../zmanim/reminder-clock';
 import { alertChoiceOf, defaultLeadOf } from '../../lib/calendar-view/alert-leads';
 import { getGlobalRemindersEnabled } from '../reminder-cache';
 import { peekFeatureAccess } from '../subscription-service';
@@ -141,7 +144,15 @@ export async function editorInfo(user: UserConfig, tz: string): Promise<EditorIn
     reminderTime: reminderTimeOf(user),
     alertsOn: await alertsOnFor(user),
     defaultLead: defaultLeadOf(user),
+    // The zmanim a reminder can be set to, and today's time of each at the person's place (a failure leaves it out, logged).
+    ...(reminders.supported ? await zmanimBlock(user, tz) : {}),
   };
+}
+
+/** The editor info's zmanim block, or nothing where it cannot be had. */
+async function zmanimBlock(user: UserConfig, tz: string): Promise<{ zmanim?: ZmanimInfo }> {
+  const zmanim = await zmanEditorInfoFor(user, tz, localDate(new Date(), tz));
+  return zmanim ? { zmanim } : {};
 }
 
 /**
@@ -299,6 +310,12 @@ export function forWhoOf(series: Pick<NativeEvent, 'kind' | 'creatorUserId' | 'f
   return series.forBoth ? 'both' : 'partner';
 }
 
+/** A reminder's time mode and the series' rule by zman, for the edit info. */
+function zmanFields(series: Pick<NativeEvent, 'zmanSpec'>, occurrence: Pick<VirtualInstance, 'allDay'>): Pick<ItemEditInfoResponse, 'timeMode' | 'zmanSpec'> {
+  const zmanSpec = readZmanSpec(series.zmanSpec);
+  return { timeMode: zmanSpec && occurrence.allDay ? 'zman' : 'time', ...(zmanSpec ? { zmanSpec } : {}) };
+}
+
 /** Whether the viewer's partner can be pinged, so a reminder can be for them (resolve.ts targetFor). */
 export const partnerCanRemind = (ctx: ViewerContext): boolean =>
   ctx.partner !== null && ctx.partner.telegramId !== null;
@@ -393,6 +410,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     forWho,
     // Each marks their own Done, for a reminder for both of us (the stored switch is off whenever it is not for both).
     ...(isReminder ? { eachMarksDone: series.eachMarksDone && forWho === 'both' } : {}),
+    // A reminder's time: by zman while this occurrence is date-only and the series has a rule (a moved occurrence with a time of its own is a fixed time); the rule is the series'.
+    ...(isReminder ? zmanFields(series, occurrence) : {}),
     source: 'famcal',
     ...(cross.reason ? { moveReason: cross.reason } : {}),
   };

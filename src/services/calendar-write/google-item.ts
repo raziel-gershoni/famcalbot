@@ -377,6 +377,8 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   }
   if (c.forWho !== undefined && c.forWho !== 'me') return { status: 'invalid', field: 'forWho' };
   if (c.eachMarksDone !== undefined) return { status: 'invalid', field: 'eachMarksDone' };
+  // A zman is for a FamCal reminder; a Google item has none.
+  if (c.timeMode !== undefined || c.zmanSpec !== undefined) return { status: 'invalid', field: 'timeMode' };
   const moveTo = c.calendarId !== undefined && c.calendarId !== key.calendarId ? c.calendarId : undefined;
   if (moveTo !== undefined) {
     const { calendars, failure } = await googleEditorCalendars(user);

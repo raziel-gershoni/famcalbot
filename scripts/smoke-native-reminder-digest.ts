@@ -14,7 +14,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-native-reminder-digest.ts
 
 import path from 'path';
-import { fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import { startOfLocalDay } from '../src/utils/day-events';
 import { formatEventForPrompt } from '../src/utils/event-formatter';
@@ -93,6 +93,7 @@ function series(title: string, startsAt: Date, over: Partial<NativeEvent> = {}):
     forUserId: null,
     forBoth: false,
     eachMarksDone: false,
+    zmanSpec: null,
     armedAt: startsAt,
     isDeleted: false,
     createdAt: startsAt,
@@ -529,12 +530,73 @@ async function main() {
     assert(linesOf([after], WEDNESDAY)[0] === 'Buy stamps (Reminder (all day, open)) [Calendar: Raziel]', linesOf([after], WEDNESDAY)[0]);
   });
 
+  // ---- Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) ----
+  // The digest reads a reminder by zman at the READER's place: it is open from its zman time, and its line says that time.
+
+  const SHEMA_10 = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  /** A person's clock that knows one day: Wednesday 14 Oct, 08:27 (a fake: the calculator has its own smoke). */
+  const zmanClock = (day: string, at: Date | null) => ({ source: 'saved' as const, instant: (d: string) => (d === day ? at : null), opinion: () => null });
+  const shemaToday = (info: ReminderInfo = OWN) => dayReminder('Take the pill', WEDNESDAY, '2026-10-15', { ...info, zmanSpec: SHEMA_10 });
+
+  await check('zman day: a date-only reminder by zman is open from its zman time (08:27), not from 09:00, and its line says that time', () => {
+    const clock = zmanClock(WEDNESDAY, il('2026-10-14 08:27:00'));
+    const [before] = shapeDayReminders([shemaToday()], il('2026-10-14 08:26:00'), IL, undefined, clock);
+    const [after] = shapeDayReminders([shemaToday()], il('2026-10-14 08:28:00'), IL, undefined, clock);
+    assert(!before.reminder?.open && after.reminder?.open === true, `${before.reminder?.open} ${after.reminder?.open}`);
+    assert(linesOf([before], WEDNESDAY)[0] === 'Take the pill (Reminder 08:27) [Calendar: Raziel]', linesOf([before], WEDNESDAY)[0]);
+    assert(linesOf([after], WEDNESDAY)[0] === 'Take the pill (Reminder 08:27 (open)) [Calendar: Raziel]', linesOf([after], WEDNESDAY)[0]);
+  });
+
+  await check('zman day: with no clock, or no time that day, it reads as a plain date-only reminder (all day, open from the reminder time)', () => {
+    for (const clock of [null, undefined, zmanClock(WEDNESDAY, null)]) {
+      const [early] = shapeDayReminders([shemaToday()], il('2026-10-14 08:59:00'), IL, undefined, clock);
+      const [late] = shapeDayReminders([shemaToday()], il('2026-10-14 09:01:00'), IL, undefined, clock);
+      assert(!early.reminder?.open && late.reminder?.open === true, 'open from 09:00');
+      assert(linesOf([early], WEDNESDAY)[0] === 'Take the pill (Reminder (all day)) [Calendar: Raziel]', linesOf([early], WEDNESDAY)[0]);
+    }
+  });
+
+  await check('zman day: a plain reminder and a done one are untouched by a clock', () => {
+    const clock = zmanClock(WEDNESDAY, il('2026-10-14 08:27:00'));
+    const shaped = shapeDayReminders([dateOnlyToday, dayReminder('Done one', WEDNESDAY, '2026-10-15', { ...OWN, done: true, zmanSpec: SHEMA_10 })], il('2026-10-14 10:00:00'), IL, undefined, clock);
+    assert(shaped.length === 1 && linesOf(shaped, WEDNESDAY)[0] === 'Buy stamps (Reminder (all day, open)) [Calendar: Raziel]', linesOf(shaped, WEDNESDAY).join('|'));
+  });
+
+  await check('zman carry-over: an older undone reminder by zman is due at ITS day\'s zman time at the reader\'s place: open since that day only once that time has passed', () => {
+    const monday = '2026-10-12';
+    const oneOff = candidate(dateOnly('Take the pill', monday, { zmanSpec: SHEMA_10 }));
+    const clock = zmanClock(monday, il('2026-10-12 23:50:00'));
+    const open = (cutoffAt: Date, c: ReturnType<typeof zmanClock> | null) => selectOpenReminders([oneOff], razielCtx, cutoffAt, WEDNESDAY, IL, MORNING, 5, undefined, c);
+    assert(open(il('2026-10-12 23:51:00'), clock).events.length === 1, 'past its zman time: carried');
+    assert(open(il('2026-10-12 23:49:00'), clock).events.length === 0, 'its zman time (23:50) has not come by the cutoff: not carried');
+    assert(open(il('2026-10-12 23:49:00'), null).events.length === 1, 'without the clock it was due at 09:00 and is carried');
+    const carried = open(il('2026-10-14 00:00:00'), clock).events[0];
+    assert(carried.reminder?.openSince === monday && JSON.stringify(carried.reminder?.zmanSpec) === JSON.stringify(SHEMA_10), `${carried.reminder?.openSince} ${JSON.stringify(carried.reminder?.zmanSpec)}`);
+  });
+
   await check('digest: a Google user\'s digest gets its reminders read as anyone\'s; with none, the events come back as they were', async () => {
     findManyCalls.length = 0;
     reminderRows = [];
     const events = [meeting];
     const result = await addDigestReminders(googleUser, events, WEDNESDAY, IL, MORNING);
     assert(JSON.stringify(result.events) === JSON.stringify(events) && result.moreCount === 0 && findManyCalls.length === 1, `a Google digest ${JSON.stringify(result)} reads ${findManyCalls.length}`);
+  });
+
+  await check('zman digest: the real path (addDigestReminders) builds the person\'s clock only for a day that has a reminder by zman, at their own place, and the line says that time; open from it', async () => {
+    reminderRows = [];
+    const harish = { ...raziel, location: 'Harish', latitude: 32.46182, longitude: 35.04555, elevationM: 270, zmanimCommunity: 'sephardi' } as typeof raziel;
+    const { zmanInstant } = await import('../src/services/zmanim/compute');
+    const want = zmanInstant(WEDNESDAY, SHEMA_10 as never, { latitude: 32.46182, longitude: 35.04555, elevationM: 270, timeZone: IL }, 'sephardi');
+    assert(want !== null, 'a zman that day');
+    const hhmm = (d: Date) => formatInTimeZone(d, IL, 'HH:mm');
+    const before = await addDigestReminders(harish, [shemaToday()], WEDNESDAY, IL, new Date(want.getTime() - 60_000));
+    assert(linesOf(before.events, WEDNESDAY)[0] === `Take the pill (Reminder ${hhmm(want)}) [Calendar: Raziel]`, linesOf(before.events, WEDNESDAY)[0]);
+    const after = await addDigestReminders(harish, [shemaToday()], WEDNESDAY, IL, new Date(want.getTime() + 60_000));
+    assert(linesOf(after.events, WEDNESDAY)[0] === `Take the pill (Reminder ${hhmm(want)} (open)) [Calendar: Raziel]`, linesOf(after.events, WEDNESDAY)[0]);
+    // A day with none builds nothing: the user need not even have a place.
+    const placeless = { ...raziel, location: '', latitude: null, longitude: null, elevationM: null } as typeof raziel;
+    const plain = await addDigestReminders(placeless, [dateOnlyToday], WEDNESDAY, IL, MORNING);
+    assert(linesOf(plain.events, WEDNESDAY)[0] === 'Buy stamps (Reminder (all day)) [Calendar: Raziel]', 'a plain one is untouched');
   });
 
   await check('digest: the day\'s reminders shaped, then the open ones after them, with the count past the cap', async () => {

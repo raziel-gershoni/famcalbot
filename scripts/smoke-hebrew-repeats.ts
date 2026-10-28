@@ -72,6 +72,7 @@ function hebrew(start: Date, o: Partial<NativeEvent> = {}): NativeEvent {
     forUserId: null,
     forBoth: false,
     eachMarksDone: false,
+    zmanSpec: null,
     armedAt: null,
     isDeleted: false,
     createdAt: start,

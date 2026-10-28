@@ -244,7 +244,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       reminderTime: reminderTimeOf(user),
       pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
       voiceInputEnabled: user.voiceInputEnabled,
-      pauseOnShabbat: user.pauseOnShabbat
+      pauseOnShabbat: user.pauseOnShabbat,
+      zmanimCommunity: user.zmanimCommunity
     },
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
     googleConnected: Boolean(user.googleRefreshToken),

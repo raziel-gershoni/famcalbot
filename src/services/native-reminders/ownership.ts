@@ -66,7 +66,7 @@ export function effectiveOwnerId(
 }
 
 /** The reminder columns that say who it is for. */
-export type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean; eachMarksDone?: boolean };
+export type ReminderSeriesColumns = { creatorUserId: number; forUserId: number | null; forBoth?: boolean; eachMarksDone?: boolean; zmanSpec?: unknown };
 type RecipientColumns = ReminderSeriesColumns;
 
 /**

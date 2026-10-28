@@ -8,6 +8,8 @@
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
 //   language reloads this page in the new one. The request is /api/settings, as it has always been
 //   (settings-body.ts).
+// - The community row ("Zmanim": Sephardi, Ashkenazi or Chabad) sits under the location: the zmanim a reminder can be set
+//   to and the Shabbat and Yom Tov windows are counted at that place, by that community's set.
 // - The pause switch ("Pause messages on Shabbat and Yom Tov") sits in the first card under the calendar: choosing a
 //   calendar sets it as it sets the day chips (Jewish on, General off), and it is the person's to change after.
 // - The location is a sheet (LocationSheet): a changed place is checked after the sheet closes, and Save
@@ -67,6 +69,7 @@ interface SettingsClientProps {
     pickupRemindersEnabled: boolean;
     voiceInputEnabled: boolean;
     pauseOnShabbat: boolean;
+    zmanimCommunity: string;
   };
   remindersGloballyEnabled: boolean;
   /** A Google token is stored: the Google section (Disconnect Google) shows. */
@@ -225,6 +228,18 @@ export default function SettingsClient({ userId, currentSettings, remindersGloba
             value={form.location || t('location.notSet')}
             error={locationProblem ? t(locationProblem === 'notFound' ? 'location.notFound' : 'location.checkFailed') : null}
             onClick={openLocation}
+          />
+          {/* Whose zmanim: they are counted at the place above (a reminder by zman, the Shabbat and Yom Tov pause). */}
+          <ValueRow
+            label={t('zmanim.label')}
+            hint={t('zmanim.hint')}
+            value={form.zmanimCommunity}
+            options={[
+              { value: 'sephardi', text: t('zmanim.sephardi') },
+              { value: 'ashkenazi', text: t('zmanim.ashkenazi') },
+              { value: 'chabad', text: t('zmanim.chabad') },
+            ]}
+            onChange={(value) => set('zmanimCommunity', value)}
           />
           <ValueRow
             label={t('culture.label')}

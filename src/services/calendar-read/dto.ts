@@ -9,7 +9,8 @@
 
 import type { DaySpan } from '../../types';
 import { addDaysToDate, daySpanOf, localDate, nextDate } from '../../utils/day-events';
-import { reminderDueAt } from '../native-reminders/due';
+import { reminderDueAt, zmanDueAt, zmanRuleOf, type ZmanRule } from '../native-reminders/due';
+import type { ZmanClock } from '../../lib/calendar-view/zman-spec';
 import {
   compareItems,
   type CalendarDTO,
@@ -28,6 +29,8 @@ export interface ItemDtoOptions {
   openSince: DayKey | null;
   /** A reminder's due instant for the viewer (reminderDueAt); the sheet reads its state against it. */
   dueAt?: Date;
+  /** A reminder by zman: its rule with the viewer's clock, for the zman time the row shows beside the rule. */
+  zman?: ZmanRule;
 }
 
 function isDone(item: ReadItem): boolean {
@@ -60,6 +63,16 @@ function reminderDto(item: ReadItem, opts: ItemDtoOptions): ItemReminderDTO {
     open: opts.open,
     openSince: opts.openSince,
     ...(opts.dueAt ? { dueAt: opts.dueAt.toISOString() } : {}),
+    // A reminder by zman (a date-only occurrence of it): its rule, and its time at the viewer's place (null where there is none).
+    ...(info?.zmanSpec && !item.event.start.includes('T')
+      ? {
+          zman: {
+            spec: info.zmanSpec,
+            at: opts.zman ? (zmanDueAt(item.event.start, opts.zman)?.toISOString() ?? null) : null,
+            opinion: 'zman' in info.zmanSpec ? (opts.zman?.clock?.opinion(info.zmanSpec.zman) ?? null) : null,
+          },
+        }
+      : {}),
     ownerIsViewer: info?.ownerIsViewer ?? true,
     creatorIsViewer: info?.creatorIsViewer ?? true,
     ...(info?.ownerName ? { ownerName: info.ownerName } : {}),
@@ -126,9 +139,9 @@ export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOpt
  * Whether a reminder listed on `day` shows as open: only on today, not done, and due
  * before now. A snoozed one is still open; past days are never open.
  */
-export function isOpenOnDay(item: ReadItem, day: DayKey, today: DayKey, tz: string, now: Date, reminderTime?: string | null): boolean {
+export function isOpenOnDay(item: ReadItem, day: DayKey, today: DayKey, tz: string, now: Date, reminderTime?: string | null, zman?: ZmanRule): boolean {
   if (day !== today || item.kind !== 'reminder' || isDone(item)) return false;
-  return reminderDueAt(item.event, tz, reminderTime) < now;
+  return reminderDueAt(item.event, tz, reminderTime, zman) < now;
 }
 
 /**
@@ -165,7 +178,8 @@ export function toRangeDays(
   tz: string,
   now: Date,
   today: DayKey,
-  reminderTime?: string | null
+  reminderTime?: string | null,
+  clock?: ZmanClock | null
 ): { date: DayKey; items: ItemDTO[] }[] {
   const days: { date: DayKey; items: ItemDTO[] }[] = [];
   const byDate = new Map<DayKey, ItemDTO[]>();
@@ -176,13 +190,15 @@ export function toRangeDays(
   }
   for (const item of items) {
     if (!hasReadableStart(item.event)) continue;
+    // A reminder by zman is due at its zman time at the viewer's place, not at the reminder time.
+    const zman = item.kind === 'reminder' ? zmanRuleOf(item.event.reminder?.zmanSpec, clock) : undefined;
     const [lo, hi] = candidateDays(item.event, tz);
     for (let d = lo < fromKey ? fromKey : lo; d < hi && d < toKey; d = nextDate(d)) {
       const span = daySpanOf(item.event, d, tz);
       if (span === null) continue;
       const list = byDate.get(d);
       if (!list) continue;
-      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now, reminderTime), openSince: null, ...(item.kind === 'reminder' ? { dueAt: reminderDueAt(item.event, tz, reminderTime) } : {}) }));
+      list.push(toItemDto(item, span ?? null, { now, open: isOpenOnDay(item, d, today, tz, now, reminderTime, zman), openSince: null, ...(item.kind === 'reminder' ? { dueAt: reminderDueAt(item.event, tz, reminderTime, zman), ...(zman ? { zman } : {}) } : {}) }));
     }
   }
   for (const day of days) day.items.sort(compareItems);
@@ -196,9 +212,11 @@ export function toRangeDays(
  * caller builds the ReadItem with the occurrence's instanceStartsAt as originalStart
  * and a CalendarRef masked by the legend rule.
  */
-export function toCarryOverDto(item: ReadItem, tz: string, now: Date, reminderTime?: string | null): ItemDTO {
-  const openSince = item.event.reminder?.openSince ?? localDate(reminderDueAt(item.event, tz, reminderTime), tz);
-  return toItemDto(item, null, { now, open: true, openSince, dueAt: reminderDueAt(item.event, tz, reminderTime) });
+export function toCarryOverDto(item: ReadItem, tz: string, now: Date, reminderTime?: string | null, clock?: ZmanClock | null): ItemDTO {
+  const zman = zmanRuleOf(item.event.reminder?.zmanSpec, clock);
+  const dueAt = reminderDueAt(item.event, tz, reminderTime, zman);
+  const openSince = item.event.reminder?.openSince ?? localDate(dueAt, tz);
+  return toItemDto(item, null, { now, open: true, openSince, dueAt, ...(zman ? { zman } : {}) });
 }
 
 /**

@@ -211,6 +211,59 @@
         "movedLeft": "הועבר, אבל הישן עדיין ביומן {calendar}"
       }
     },
+    "zmanim": {
+      "names": {
+        "ALOT": "עלות השחר",
+        "MISHEYAKIR": "זמן טלית ותפילין",
+        "NETZ": "הנץ החמה",
+        "SOF_SHMA_MGA": "סוף זמן קריאת שמע",
+        "SOF_SHMA_GRA": "סוף זמן קריאת שמע",
+        "SOF_TFILA": "סוף זמן תפילה",
+        "CHATZOT": "חצות היום",
+        "MINCHA_GEDOLA": "מנחה גדולה",
+        "MINCHA_KETANA": "מנחה קטנה",
+        "PLAG_HALACHA_BERURA": "פלג המנחה",
+        "PLAG_YALKUT_YOSEF": "פלג המנחה",
+        "PLAG_GRA": "פלג המנחה",
+        "CANDLE_LIGHTING": "הדלקת נרות",
+        "SHKIA": "שקיעה",
+        "TZEIT": "צאת הכוכבים",
+        "TZEIT_LECHUMRA": "צאת הכוכבים לחומרא",
+        "CHATZOT_HALAYLA": "חצות הלילה"
+      },
+      "namesAfter": {
+        "ALOT": "עלות השחר",
+        "MISHEYAKIR": "זמן טלית ותפילין",
+        "NETZ": "הנץ החמה",
+        "SOF_SHMA_MGA": "סוף זמן קריאת שמע",
+        "SOF_SHMA_GRA": "סוף זמן קריאת שמע",
+        "SOF_TFILA": "סוף זמן תפילה",
+        "CHATZOT": "חצות היום",
+        "MINCHA_GEDOLA": "מנחה גדולה",
+        "MINCHA_KETANA": "מנחה קטנה",
+        "PLAG_HALACHA_BERURA": "פלג המנחה",
+        "PLAG_YALKUT_YOSEF": "פלג המנחה",
+        "PLAG_GRA": "פלג המנחה",
+        "CANDLE_LIGHTING": "הדלקת נרות",
+        "SHKIA": "שקיעה",
+        "TZEIT": "צאת הכוכבים",
+        "TZEIT_LECHUMRA": "צאת הכוכבים לחומרא",
+        "CHATZOT_HALAYLA": "חצות הלילה"
+      },
+      "opinions": {
+        "gra": "גר״א",
+        "mga": "מג״א",
+        "halachaBerura": "הלכה ברורה",
+        "yalkutYosef": "ילקוט יוסף",
+        "baalHatanya": "אדמו״ר הזקן"
+      },
+      "withOpinion": "{name} ({opinion})",
+      "hoursName": "שעות זמניות אחרי הנץ החמה",
+      "hours": "{count, plural, one {שעה זמנית אחת} two {שעתיים זמניות} other {# שעות זמניות}} אחרי הנץ החמה",
+      "hoursAfter": "{count, plural, one {שעה זמנית אחת} two {שעתיים זמניות} other {# שעות זמניות}} אחרי הנץ החמה",
+      "before": "{minutes} דק׳ לפני {name}",
+      "after": "{minutes} דק׳ אחרי {name}"
+    },
     "editor": {
       "titleNew": "חדש",
       "titleEdit": "עריכה",
@@ -329,6 +382,25 @@
       "forBoth": "שנינו",
       "eachMarksDone": "כל אחד מסמן בוצע בעצמו",
       "eachMarksDoneHint": "התזכורת נשארת פתוחה למי שעוד לא סימן בוצע",
+      "byZman": "לפי זמן",
+      "byZmanHint": "זמן הלכתי שמחושב בכל יום לפי המיקום",
+      "zmanLabel": "זמן",
+      "zmanHoursLabel": "אחרי הנץ החמה",
+      "zmanHoursUnit": "{count, plural, one {שעה זמנית} two {שעות זמניות} other {שעות זמניות}}",
+      "zmanHoursLess": "פחות שעות זמניות",
+      "zmanHoursMore": "יותר שעות זמניות",
+      "zmanOffsetLabel": "הפרש",
+      "zmanOffsetUnit": "{count, plural, one {דקה} two {דקות} other {דקות}}",
+      "zmanOffsetLess": "פחות דקות",
+      "zmanOffsetMore": "יותר דקות",
+      "zmanDirection": "ביחס לזמן",
+      "zmanBefore": "לפני",
+      "zmanAfter": "אחרי",
+      "zmanToday": "היום",
+      "zmanNoneToday": "אין זמן כזה היום",
+      "zmanNoPlace": "כדי להשתמש בזמנים צריך להגדיר מיקום בהגדרות",
+      "zmanZoneOnly": "לא נשמר מיקום, ולכן הזמנים מחושבים לפי העיר המרכזית באזור הזמן. כדי לקבל זמנים מדויקים אפשר להגדיר מיקום בהגדרות.",
+      "zmanOpenSettings": "לפתיחת ההגדרות",
       "errors": {
         "errTitle": "צריך להוסיף כותרת",
         "errTitleLong": "הכותרת ארוכה מדי, עד {max} תווים",
@@ -694,6 +766,13 @@
     "pause": {
       "label": "השהיית הודעות בשבת ובחג",
       "hint": "לא נשלחות הודעות מהדלקת נרות ועד צאת השבת או החג"
+    },
+    "zmanim": {
+      "label": "זמנים",
+      "hint": "איך מחשבים את הזמנים ההלכתיים",
+      "sephardi": "ספרדי (כמו בזמני יוסף)",
+      "ashkenazi": "אשכנזי (ישראל)",
+      "chabad": "חב״ד"
     },
     "platform": {
       "label": "לאן לשלוח הודעות",

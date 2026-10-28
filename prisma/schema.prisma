@@ -240,6 +240,7 @@ model NativeEvent {
   forUser         User?           @relation("NativeRemindersFor", fields: [forUserId], references: [id], onDelete: SetNull)
   forBoth         Boolean         @default(false) // REMINDER for both partners: forUserId is then the partner, and the recipients are the creator and that partner
   eachMarksDone   Boolean         @default(false) // REMINDER for both partners: each marks their own Done (NativeReminderPing.doneAt) instead of one Done covering both. False whenever forBoth is off
+  zmanSpec        Json? // REMINDER by zman: { zman, offsetMin } or { halachicHours, offsetMin }; the due time is worked out per recipient and day (src/services/zmanim). Only on a date-only (allDay) reminder; null = a plain one
   armedAt         DateTime? // REMINDER: when its time was last set (create or time change); bounds the ping lookback
   isDeleted       Boolean         @default(false)
   createdAt       DateTime        @default(now())

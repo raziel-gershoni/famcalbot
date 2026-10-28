@@ -347,6 +347,11 @@ async function main() {
       forWho: 'me',
       eachMarksDone: false,
       alert: 'default',
+      timeMode: 'time',
+      zmanPick: '',
+      zmanHours: 3,
+      zmanMinutes: 0,
+      zmanBefore: true,
       ...over,
     });
     // The form's repeat is a spec, or 'none' / 'custom' (repeat-model.ts).

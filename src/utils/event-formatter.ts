@@ -81,6 +81,11 @@ function previousDate(day: string): string {
 function reminderTimeLabel(event: CalendarEvent, timezone: string): string {
   const info = event.reminder;
   if (info?.openSince) return `Reminder (open since ${fullDateOf(info.openSince)})`;
+  // A reminder by zman has a time of day at the reader's place, worked out for this day.
+  if (isAllDayEvent(event) && info?.zmanAt) {
+    const label = `Reminder ${clock(info.zmanAt, timezone)}`;
+    return info.open ? `${label} (open)` : label;
+  }
   if (isAllDayEvent(event)) return info?.open ? 'Reminder (all day, open)' : 'Reminder (all day)';
   const label = `Reminder ${clock(event.start, timezone)}`;
   return info?.open ? `${label} (open)` : label;

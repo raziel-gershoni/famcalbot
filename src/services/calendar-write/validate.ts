@@ -18,6 +18,9 @@ import {
   WEEKDAY_CODES,
 } from '../../lib/calendar-view/editor-types';
 import { minYearFor } from '../../lib/calendar-view/year-limits';
+import type { TimeMode } from '../../lib/calendar-view/zman-spec';
+import { asZmanSpec } from '../zmanim/spec';
+import type { ZmanSpec } from '../zmanim/compute';
 import { parseAlertChoice, type AlertChoice } from '../../lib/calendar-view/alert-leads';
 import { MAX_SPAN_DAYS, daysBetween, dayOfWall, isDay, isWall } from './walltime';
 
@@ -26,6 +29,7 @@ export type Parsed<T> = { ok: true; value: T } | { ok: false; field: string };
 const KINDS: readonly ItemKind[] = ['event', 'reminder'];
 const SCOPES: readonly EditScope[] = ['single', 'following', 'all'];
 const REPEATS: readonly RepeatChoice[] = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'hebrew'];
+const TIME_MODES: readonly TimeMode[] = ['time', 'zman'];
 /** The repeat a Google calendar can't hold (hebrew-repeats spec §4): the Google writes refuse it with 400 repeat. A choice or a spec. */
 export const isHebrewChoice = (repeat: RepeatInput | undefined): boolean => (typeof repeat === 'object' ? repeat.freq === 'hebrew' : repeat === 'hebrew');
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -122,11 +126,13 @@ export interface CreateCommand {
   alert?: AlertChoice;
   /** A reminder for both of us only, where each marks their own Done; present only when true (the default is the shared Done). */
   eachMarksDone?: true;
+  /** A reminder by zman (timeMode 'zman'): its rule. Only on a date-only reminder; absent for a plain time. Whether the writer's set offers the zman is the write's to check. */
+  zmanSpec?: ZmanSpec;
 }
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -172,7 +178,19 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
     if (kind !== 'event' || parsed === null) return fail('alert');
     alert = parsed;
   }
-  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}), ...(raw.eachMarksDone === true ? { eachMarksDone: true as const } : {}) } };
+  // The time of a reminder: a plain one (the default), or by zman, which is date-only and carries its rule.
+  if (raw.timeMode !== undefined && !(TIME_MODES as readonly unknown[]).includes(raw.timeMode)) return fail('timeMode');
+  let zmanSpec: ZmanSpec | undefined;
+  if (raw.timeMode === 'zman') {
+    if (kind !== 'reminder') return fail('timeMode');
+    if (!allDay) return fail('allDay');
+    const spec = asZmanSpec(raw.zmanSpec);
+    if (!spec) return fail('zmanSpec');
+    zmanSpec = spec;
+  } else if (raw.zmanSpec !== undefined) {
+    return fail('zmanSpec');
+  }
+  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}), ...(raw.eachMarksDone === true ? { eachMarksDone: true as const } : {}), ...(zmanSpec ? { zmanSpec } : {}) } };
 }
 
 /** A FamCal item's key: the series, and the occurrence's original start for a repeating one. */
@@ -253,6 +271,9 @@ export interface UpdateCommand {
     alert?: AlertChoice;
     /** A reminder for both of us: whether each marks their own Done (series-level, creator only). */
     eachMarksDone?: boolean;
+    /** A reminder's time: 'zman' (with `zmanSpec`) or 'time' (a plain time; takes the zman rule away). Series-level unless it is one occurrence moved to a time of its own. */
+    timeMode?: TimeMode;
+    zmanSpec?: ZmanSpec;
   };
 }
 
@@ -272,7 +293,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -326,6 +347,19 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (c.eachMarksDone !== undefined) {
     if (typeof c.eachMarksDone !== 'boolean') return fail('eachMarksDone');
     changes.eachMarksDone = c.eachMarksDone;
+  }
+  // A reminder's time by zman: 'zman' brings its rule, 'time' takes any away; a rule alone is no change a body can make.
+  if (c.timeMode !== undefined) {
+    if (!(TIME_MODES as readonly unknown[]).includes(c.timeMode)) return fail('timeMode');
+    changes.timeMode = c.timeMode as TimeMode;
+  }
+  if (c.zmanSpec !== undefined) {
+    if (changes.timeMode !== 'zman') return fail(changes.timeMode === undefined ? 'timeMode' : 'zmanSpec');
+    const spec = asZmanSpec(c.zmanSpec);
+    if (!spec) return fail('zmanSpec');
+    changes.zmanSpec = spec;
+  } else if (changes.timeMode === 'zman') {
+    return fail('zmanSpec');
   }
   return { ok: true, value: { key, scope: raw.scope as EditScope, changes } };
 }

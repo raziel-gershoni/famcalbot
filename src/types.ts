@@ -1,5 +1,6 @@
 import { User as PrismaUser } from '@prisma/client';
 import { readStoredToken } from './utils/encryption';
+import type { ZmanSpecValue } from './lib/calendar-view/zman-spec';
 
 // Calendar category labels
 export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
@@ -121,6 +122,8 @@ export interface ReminderInfo {
   snoozed?: boolean;        // this occurrence has snoozedUntil in the future
   open?: boolean;           // set by the summary: due earlier on the summary day, still undone
   openSince?: string;       // 'yyyy-MM-dd' in the viewer's tz, set only on carried-over items
+  zmanSpec?: ZmanSpecValue; // a reminder by zman: its rule (the series'); its time is worked out for the viewer's place (reminderDueAt)
+  zmanAt?: string;          // the digest: that rule's time today at the viewer's place, an ISO instant, set by shapeDayReminders
 }
 
 /**

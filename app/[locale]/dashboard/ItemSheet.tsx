@@ -41,6 +41,7 @@ import { openExternalLink } from '@/src/lib/telegram-ui';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
 import { AnniversaryCount, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
+import { zmanRuleWords } from './zman-words';
 
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
 const HEX_COLOUR = /^#[0-9a-f]{3,8}$/i;
@@ -160,6 +161,24 @@ function ReminderActions({ mark, actions }: { mark: AgendaRow['mark']; actions: 
 function When({ item, tz }: { item: ItemDTO; tz: string }) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
+  const zman = item.reminder?.zman;
+  if (item.allDay && zman) {
+    // A reminder by zman: its rule, and its time today at the viewer's place (LTR) when it has one.
+    return (
+      <p className="ch-when">
+        <span className="ch-when-date">{formatDayRange(item.start, allDayLastDay(item), locale)}</span>
+        <span className="ch-when-time" dir="auto">
+          {zmanRuleWords(t, zman.spec, zman.opinion)}
+          {zman.at ? (
+            <>
+              {' · '}
+              <bdi dir="ltr">{formatTime(zman.at, tz, locale)}</bdi>
+            </>
+          ) : null}
+        </span>
+      </p>
+    );
+  }
   if (item.allDay) {
     return (
       <p className="ch-when">

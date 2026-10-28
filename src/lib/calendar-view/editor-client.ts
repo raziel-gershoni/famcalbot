@@ -20,6 +20,7 @@ import {
   type ItemEditInfoResponse,
   type UpdateItemBody,
 } from './editor-types';
+import { readZmanSpec } from './zman-spec';
 
 /** A read that has not answered by then reads as failed. Writes have none (see above). */
 const READ_TIME_LIMIT_MS = 15_000;
@@ -54,7 +55,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isEditorInfo(value: unknown): value is EditorInfoResponse {
   if (!isObject(value) || !isObject(value.kinds)) return false;
-  return typeof value.kinds.event === 'boolean' && typeof value.kinds.reminder === 'boolean' && Array.isArray(value.calendars) && typeof value.tz === 'string' && optional(value.alertsOn, 'boolean') && optional(value.defaultLead, 'number');
+  return typeof value.kinds.event === 'boolean' && typeof value.kinds.reminder === 'boolean' && Array.isArray(value.calendars) && typeof value.tz === 'string' && optional(value.alertsOn, 'boolean') && optional(value.defaultLead, 'number') && (value.zmanim === undefined || isZmanimInfo(value.zmanim));
+}
+
+/** The zmanim block: a known community and place, the day, and the zmanim and hours with their instants (or null). Optional: an older server omits it. */
+function isZmanimInfo(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  const instant = (v: unknown) => v === null || typeof v === 'string';
+  return (
+    (value.community === 'sephardi' || value.community === 'ashkenazi' || value.community === 'chabad') &&
+    (value.place === 'saved' || value.place === 'zone' || value.place === 'none') &&
+    typeof value.day === 'string' &&
+    Array.isArray(value.zmanim) &&
+    value.zmanim.every((z) => isObject(z) && typeof z.key === 'string' && (z.opinion === null || typeof z.opinion === 'string') && instant(z.at)) &&
+    Array.isArray(value.hours) &&
+    value.hours.every(instant)
+  );
 }
 
 function isItemInfo(value: unknown): value is ItemEditInfoResponse {
@@ -100,6 +116,8 @@ function isItemInfoExtras(value: Record<string, unknown>): boolean {
     optional(value.canChangeRecipient, 'boolean') &&
     (value.forWho === undefined || (FOR_WHO as readonly unknown[]).includes(value.forWho)) &&
     optional(value.eachMarksDone, 'boolean') &&
+    (value.timeMode === undefined || value.timeMode === 'time' || value.timeMode === 'zman') &&
+    (value.zmanSpec === undefined || readZmanSpec(value.zmanSpec) !== null) &&
     optional(value.editableInGoogleOnly, 'boolean') &&
     (value.source === undefined || value.source === 'famcal' || value.source === 'google') &&
     (value.moveReason === undefined || value.moveReason === 'meet' || value.moveReason === 'hebrew' || value.moveReason === 'repeat') &&

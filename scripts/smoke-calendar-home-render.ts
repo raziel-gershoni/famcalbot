@@ -141,6 +141,7 @@ import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
 import { liftVerdict } from '../src/lib/calendar-view/drag-model';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
 import type { EditorInfoResponse, ItemEditInfoResponse, RepeatInfo } from '../src/lib/calendar-view/editor-types';
+import type { ZmanimInfo } from '../src/lib/calendar-view/zman-spec';
 import { checkForm, editItemForm, moveStart, movesDay, newItemForm, scopePlan, setAllDay, setKind, spanOf, updateBody, type EditorForm, type NewItemContext } from '../src/lib/calendar-view/editor-model';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -7218,6 +7219,321 @@ async function main() {
     for (const locale of LOCALES) {
       assert(textOf(renderAgenda(locale, week(withPartner))) === textOf(renderAgenda(locale, week(without))), `${locale}: the row reads the viewer's own state only`);
     }
+  });
+
+  // ---- Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) ----
+  // The editor's When card gains "By zman"; the row and the sheet word the rule and show today's time at the viewer's place.
+
+  const ZMANIM: ZmanimInfo = {
+    community: 'sephardi',
+    place: 'saved',
+    day: TODAY,
+    zmanim: [
+      { key: 'ALOT', opinion: null, at: '2026-10-15T03:21:00.000Z' },
+      { key: 'SOF_SHMA_MGA', opinion: 'mga', at: '2026-10-15T05:56:00.000Z' },
+      { key: 'SOF_SHMA_GRA', opinion: 'gra', at: '2026-10-15T06:27:00.000Z' }, // 09:27 in Jerusalem
+      { key: 'SHKIA', opinion: null, at: null },
+    ],
+    hours: Array.from({ length: 12 }, (_, i) => `2026-10-15T${String(3 + i).padStart(2, '0')}:30:00.000Z`),
+  };
+  const assertSame = (got: unknown, want: unknown, label: string) => assert(show(got) === show(want), `${label}\n     got  ${show(got)}\n     want ${show(want)}`);
+  const zmanEditor = (o: Partial<ZmanimInfo> = {}) => ok200(editorWith({ zmanim: { ...ZMANIM, ...o } }));
+  const zmanSteps = (m: Home, label: string) => byRole(topDialog(m), 'group').filter((e) => (e.getAttribute('aria-label') ?? '').startsWith(`${label} `));
+  /** The "Today" line of the zman rows: a plain row (not a select), so its value is read from the row itself. */
+  const todayShown = (m: Home, label = 'Today') => {
+    const found = elements(topDialog(m)).filter((e) => e.className.includes('ch-form-row') && e.localName === 'div' && e.textContent.startsWith(label));
+    assert(found.length === 1, `${found.length} plain rows start with ${show(label)}: ${show(topText(m).slice(0, 300))}`);
+    return byClass(found[0], 'ch-form-value-text')[0].textContent;
+  };
+  const tapLabel = (m: Home, label: string) => m.click(byLabel(topDialog(m), label));
+  const hasSwitch = (m: Home, text: string) => byRole(topDialog(m), 'switch').some((e) => e.textContent.includes(text));
+  const newReminderForm = async (m: Home, title = 'Take the pill') => {
+    tapPlus(m);
+    await settle();
+    tapIn(m, 'Reminder');
+    await typeInto(inDialog(m, 'Title'), title);
+    await typeInto(inDialog(m, 'Date'), '2026-10-21');
+  };
+
+  await check('zman editor (new, en): By zman sits under "At a set time" with its hint; turning it on hides the time pill and "At a set time" and shows the zman, the offset and today\'s time; every change reaches the preview and the body', async () => {
+    const { m } = await editingHome('en', { editor: zmanEditor() });
+    try {
+      await newReminderForm(m);
+      assert(hasSwitch(m, 'At a set time') && hasSwitch(m, 'By zman'), 'both switches');
+      assertHas(topText(m), ['A halachic time, worked out each day for your place'], 'the hint');
+      assert(!hasRow(m, 'Zman') && !hasRow(m, 'Offset'), 'no zman rows yet');
+      assert(hasField(m, 'Time'), 'the time pill shows while it is a time');
+      m.click(switchOf(m, 'By zman'));
+      assert(switchOf(m, 'By zman').getAttribute('aria-checked') === 'true' && !hasSwitch(m, 'At a set time') && !hasField(m, 'Time'), 'the time goes: date-only');
+      assert(shownIn(m, 'Zman') === 'Latest time for Shema (GRA)', `the default zman: ${shownIn(m, 'Zman')}`);
+      assertSame(optionsIn(m, 'Zman'), [['ALOT', 'Dawn (alot hashachar)'], ['SOF_SHMA_MGA', 'Latest time for Shema (MGA)'], ['SOF_SHMA_GRA', 'Latest time for Shema (GRA)'], ['SHKIA', 'Sunset'], ['hours', 'Halachic hours after sunrise']], 'the options');
+      assert(todayShown(m) === '09:27', `today: ${todayShown(m)}`);
+      assert(!hasRow(m, 'Relative to the zman'), 'no direction at 0 minutes');
+      // 10 minutes before: two taps of +5.
+      tapLabel(m, 'More minutes');
+      tapLabel(m, 'More minutes');
+      assert(zmanSteps(m, 'Offset')[0].getAttribute('aria-label') === 'Offset 10 minutes', `${zmanSteps(m, 'Offset')[0]?.getAttribute('aria-label')}`);
+      assert(hasRow(m, 'Relative to the zman') && shownIn(m, 'Relative to the zman') === 'Before' && todayShown(m) === '09:17', `before: ${todayShown(m)}`);
+      await pick(m, 'Relative to the zman', 'after');
+      assert(todayShown(m) === '09:37', `after: ${todayShown(m)}`);
+      await pick(m, 'Relative to the zman', 'before');
+      await pick(m, 'Zman', 'SHKIA');
+      assert(todayShown(m) === 'No time today', `a zman with no time today: ${todayShown(m)}`);
+      await pick(m, 'Zman', 'SOF_SHMA_GRA');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Take the pill', allDay: true, start: '2026-10-21', repeat: 'none', timeMode: 'zman', zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 } }), `the body: ${show(writes()[0].body)}`);
+      // Halachic hours: its own stepper, the hours table for the preview.
+      tapPlus(m);
+      await settle();
+      tapIn(m, 'Reminder');
+      await typeInto(inDialog(m, 'Title'), 'Walk');
+      await typeInto(inDialog(m, 'Date'), '2026-10-21');
+      m.click(switchOf(m, 'By zman'));
+      await pick(m, 'Zman', 'hours');
+      assert(zmanSteps(m, 'After sunrise')[0].getAttribute('aria-label') === 'After sunrise 3 halachic hours' && todayShown(m) === '08:30', `hours: ${todayShown(m)}`);
+      tapLabel(m, 'More halachic hours');
+      assert(zmanSteps(m, 'After sunrise')[0].getAttribute('aria-label') === 'After sunrise 4 halachic hours' && todayShown(m) === '09:30', 'one more hour');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Walk', allDay: true, start: '2026-10-21', repeat: 'none', timeMode: 'zman', zmanSpec: { halachicHours: 4, offsetMin: 0 } }), `hours: ${show(writes()[1].body)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('zman editor (new): off again sends a plain reminder with no zman field, whatever was picked meanwhile; an event has no By zman; the offset stops at 0 and at 12 hours', async () => {
+    const { m } = await editingHome('en', { editor: zmanEditor() });
+    try {
+      await newReminderForm(m);
+      await typeInto(inDialog(m, 'Time'), '18:00');
+      m.click(switchOf(m, 'By zman'));
+      await pick(m, 'Zman', 'ALOT');
+      tapLabel(m, 'Fewer minutes');
+      assert(zmanSteps(m, 'Offset')[0].getAttribute('aria-label') === 'Offset 0 minutes', 'stops at 0');
+      for (let i = 0; i < 160; i++) tapLabel(m, 'More minutes');
+      assert(zmanSteps(m, 'Offset')[0].getAttribute('aria-label') === 'Offset 720 minutes', 'stops at 12 hours');
+      m.click(switchOf(m, 'By zman'));
+      assert(hasSwitch(m, 'At a set time') && hasField(m, 'Time') && !hasRow(m, 'Zman'), 'back to a time');
+      m.click(saveButton(m));
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, kind: 'reminder', title: 'Take the pill', allDay: false, start: '2026-10-21T18:00', repeat: 'none' }), `plain: ${show(writes()[0].body)}`);
+      tapPlus(m);
+      await settle();
+      assert(!hasSwitch(m, 'By zman'), 'an event has none');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('zman editor (new): no saved location: with no place at all the Notice says to set it in Settings (with its link to Settings) and By zman cannot be turned on; with the zone\'s main city standing in it can, and the Notice says so once it is on', async () => {
+    const none = await editingHome('en', { editor: zmanEditor({ place: 'none', zmanim: ZMANIM.zmanim.map((z) => ({ ...z, at: null })), hours: ZMANIM.hours.map(() => null) }) });
+    try {
+      await newReminderForm(none.m);
+      assertHas(topText(none.m), ['Set your location in Settings to use zmanim', 'Open Settings'], 'the Notice');
+      assert(switchOf(none.m, 'By zman').getAttribute('aria-disabled') === 'true', 'the switch is off limits');
+      none.m.click(switchOf(none.m, 'By zman'));
+      assert(switchOf(none.m, 'By zman').getAttribute('aria-checked') === 'false' && !hasRow(none.m, 'Zman'), 'a tap does nothing');
+      pushes.length = 0;
+      none.m.click(button(topDialog(none.m), 'Open Settings'));
+      await settle();
+      assert(pushes.length === 1 && pushes[0] === '/en/settings?user_id=5550001', `the link: ${show(pushes)}`);
+    } finally {
+      none.m.unmount();
+    }
+    const zone = await editingHome('en', { editor: zmanEditor({ place: 'zone' }) });
+    try {
+      await newReminderForm(zone.m);
+      assertLacks(topText(zone.m), ['Set your location in Settings'], 'no Notice before it is on');
+      zone.m.click(switchOf(zone.m, 'By zman'));
+      assertHas(topText(zone.m), ['No location is saved, so zmanim are counted for the main city of your time zone.'], 'the Notice once on');
+      assert(todayShown(zone.m) === '09:27', 'the times are still shown');
+    } finally {
+      zone.m.unmount();
+    }
+    const saved = await editingHome('en', { editor: zmanEditor() });
+    try {
+      await newReminderForm(saved.m);
+      saved.m.click(switchOf(saved.m, 'By zman'));
+      assertLacks(topText(saved.m), ['Set your location', 'No location is saved'], 'a saved place needs no Notice');
+    } finally {
+      saved.m.unmount();
+    }
+    // A server that sent no zmanim (an older one, or the block failed): no switch.
+    const missing = await editingHome('en', { editor: ok200(editorWith()) });
+    try {
+      await newReminderForm(missing.m);
+      assert(!hasSwitch(missing.m, 'By zman'), 'no zmanim: no switch');
+    } finally {
+      missing.m.unmount();
+    }
+  });
+
+  await check('zman editor (new, he): RTL copy in the owner\'s luach terms (the zman with its opinion), the time left to right; no English in the zman rows', async () => {
+    const { m } = await editingHome('he', { editor: zmanEditor() });
+    try {
+      tapPlus(m, messages.he.calendarHome.header.add);
+      await settle();
+      tapIn(m, 'תזכורת');
+      m.click(switchOf(m, 'לפי זמן'));
+      assert(shownIn(m, 'זמן') === 'סוף זמן קריאת שמע (גר״א)', `the zman: ${shownIn(m, 'זמן')}`);
+      assertSame(optionsIn(m, 'זמן').map(([v]) => v), ['ALOT', 'SOF_SHMA_MGA', 'SOF_SHMA_GRA', 'SHKIA', 'hours'], 'the options');
+      assert(optionsIn(m, 'זמן')[1][1] === 'סוף זמן קריאת שמע (מג״א)' && optionsIn(m, 'זמן')[0][1] === 'עלות השחר' && optionsIn(m, 'זמן')[4][1] === 'שעות זמניות אחרי הנץ החמה', 'luach terms');
+      m.click(byLabel(topDialog(m), 'יותר דקות'));
+      const today = elements(topDialog(m)).filter((e) => e.className.includes('ch-form-row') && e.localName === 'div' && e.textContent.startsWith('היום'))[0];
+      const ltr = elements(today).filter((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr');
+      assert(ltr.length === 1 && ltr[0].textContent === '09:22', `the time is isolated LTR: ${ltr.map((e) => e.textContent)} in ${today.textContent}`);
+      assertSame(zmanSteps(m, 'הפרש')[0]?.getAttribute('aria-label'), 'הפרש 5 דקות', 'the offset');
+      assertLacks(topText(m), ['Offset', 'Today', 'Relative', 'halachic', 'Zman'], 'no English');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('zman editor (edit): an existing reminder by zman opens in By zman with its rule; a new offset asks "this one and the ones after" or "all" (no "only this one", no calendar note) and sends the mode with the whole rule', async () => {
+    const info = (o: Partial<ItemEditInfoResponse> = {}) =>
+      infoFor({
+        kind: 'reminder',
+        occurrence: { start: `${day(0)}`, end: `${day(0)}`, allDay: true, title: 'Dentist', location: '', description: '' },
+        series: { recurring: true, start: `${day(0)}`, repeat: { freq: 'daily', interval: 1, byDay: [], ends: false }, fixedDays: false, zone: 'UTC', rule: { choice: 'daily' }, first: true },
+        scopes: ['single', 'following', 'all'],
+        forWho: 'me',
+        tz: TZ,
+        timeMode: 'zman',
+        zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 },
+        ...o,
+      });
+    const a = await editingHome('en', { editor: zmanEditor(), item: serveDentist(info()), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openEditor(a.m, 'Dentist');
+      assert(switchOf(a.m, 'By zman').getAttribute('aria-checked') === 'true' && shownIn(a.m, 'Zman') === 'Latest time for Shema (GRA)' && !hasSwitch(a.m, 'At a set time'), 'opens by zman');
+      assert(zmanSteps(a.m, 'Offset')[0].getAttribute('aria-label') === 'Offset 10 minutes' && shownIn(a.m, 'Relative to the zman') === 'Before' && todayShown(a.m) === '09:17', `the rule: ${todayShown(a.m)}`);
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(writes().length === 0, 'nothing changed: nothing sent');
+      await openEditorAgain(a.m);
+      tapLabel(a.m, 'More minutes');
+      a.m.click(saveButton(a.m));
+      await settle();
+      assert(show(choiceTexts(a.m)) === show(['This one and the ones after', 'Every day', 'Cancel']), `the choices: ${show(choiceTexts(a.m))}`);
+      assertLacks(topText(a.m), [PICK_NOTE], 'no calendar/alert/recipient note');
+      tapIn(a.m, 'Every day');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'all', changes: { timeMode: 'zman', zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -15 } } }), `${show(writes()[0].body)}`);
+    } finally {
+      a.m.unmount();
+    }
+    // Off, with a time of day: "only this one" is allowed (a fixed time for this occurrence).
+    const b = await editingHome('en', { editor: zmanEditor(), item: serveDentist(info()), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openEditor(b.m, 'Dentist');
+      b.m.click(switchOf(b.m, 'By zman'));
+      assert(!hasRow(b.m, 'Zman') && hasSwitch(b.m, 'At a set time'), 'back to a plain time');
+      b.m.click(switchOf(b.m, 'At a set time'));
+      await typeInto(inDialog(b.m, 'Time'), '11:00');
+      b.m.click(saveButton(b.m));
+      await settle();
+      assert(show(choiceTexts(b.m)) === show(['Only this one (Thu 15 Oct)', 'This one and the ones after', 'Every day', 'Cancel']), `the choices: ${show(choiceTexts(b.m))}`);
+      tapIn(b.m, 'Only this one (Thu 15 Oct)');
+      await settle();
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { allDay: false, start: `${day(0)}T11:00`, timeMode: 'time' } }), `${show(writes()[0].body)}`);
+    } finally {
+      b.m.unmount();
+    }
+    // Off while still date-only: a series change, so "only this one" is not offered.
+    const c = await editingHome('en', { editor: zmanEditor(), item: serveDentist(info()), write: () => ok200({ status: 'ok', key: 'famcal|dentist' }) });
+    try {
+      await openEditor(c.m, 'Dentist');
+      c.m.click(switchOf(c.m, 'By zman'));
+      c.m.click(saveButton(c.m));
+      await settle();
+      assert(show(choiceTexts(c.m)) === show(['This one and the ones after', 'Every day', 'Cancel']), `the choices: ${show(choiceTexts(c.m))}`);
+    } finally {
+      c.m.unmount();
+    }
+    // An occurrence moved to a time of its own opens as a plain time; its By zman switch turns the series\' rule back on.
+    const d = await editingHome('en', { editor: zmanEditor(), item: serveDentist(info({ timeMode: 'time', occurrence: { start: `${day(0)}T14:00`, end: `${day(0)}T14:00`, allDay: false, title: 'Dentist', location: '', description: '' } })) });
+    try {
+      await openEditor(d.m, 'Dentist');
+      assert(switchOf(d.m, 'By zman').getAttribute('aria-checked') === 'false' && hasSwitch(d.m, 'At a set time'), 'a fixed time');
+      d.m.click(switchOf(d.m, 'By zman'));
+      assert(shownIn(d.m, 'Zman') === 'Latest time for Shema (GRA)' && zmanSteps(d.m, 'Offset')[0].getAttribute('aria-label') === 'Offset 10 minutes', 'the series\' rule is back');
+    } finally {
+      d.m.unmount();
+    }
+  });
+
+  await check('zman client: an edit info with a time mode or a rule the editor does not know is read as no answer (no pencil), and so is an editor info with a zmanim block it cannot read (no "+" for a reminder)', async () => {
+    const reminderInfo = (o: Partial<ItemEditInfoResponse>) => infoFor({ kind: 'reminder', occurrence: { start: day(0), end: day(0), allDay: true, title: 'Dentist', location: '', description: '' }, ...o });
+    for (const [what, info] of [
+      ['a mode that is not one', reminderInfo({ timeMode: 'sometimes' as never })],
+      ['a rule that is not one', reminderInfo({ timeMode: 'zman', zmanSpec: { zman: '', offsetMin: 0 } })],
+      ['an offset past 12 hours', reminderInfo({ timeMode: 'zman', zmanSpec: { zman: 'CHATZOT', offsetMin: 5000 } })],
+    ] as [string, ItemEditInfoResponse][]) {
+      const { m } = await editingHome('en', { editor: zmanEditor(), item: serveDentist(info) });
+      try {
+        await openItem(m, 'Dentist');
+        assert(!sheetButtons(m).includes('Edit'), `${what}: the pencil`);
+      } finally {
+        m.unmount();
+      }
+    }
+    const good = await editingHome('en', { editor: zmanEditor(), item: serveDentist(reminderInfo({ timeMode: 'zman', zmanSpec: { zman: 'CHATZOT', offsetMin: 0 } })) });
+    try {
+      await openItem(good.m, 'Dentist');
+      assert(sheetButtons(good.m).includes('Edit'), 'a good one has the pencil');
+    } finally {
+      good.m.unmount();
+    }
+    for (const [what, zmanim] of [
+      ['a place that is not one', { ...ZMANIM, place: 'mars' }],
+      ['a community that is not one', { ...ZMANIM, community: 'karaite' }],
+      ['an instant that is not text', { ...ZMANIM, hours: [5] }],
+    ] as [string, unknown][]) {
+      const { m } = await editingHome('en', { editor: ok200({ ...EDITOR_INFO, zmanim }) });
+      try {
+        assert(!hasPlus(m), `${what}: the editor info is refused`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('zman row (en, he, ru): a reminder by zman shows its time in the time column, left to right, and its rule in the meta line in the language\'s own words; "All day" only where it has no time today', () => {
+    const zmanRem = (zman: ItemReminderDTO['zman']) => item('zpill', { kind: 'reminder', title: 'Take the pill', start: day(0), end: day(1), allDay: true, tz: TZ, reminder: rem({ zman, dueAt: '2026-10-15T05:27:00.000Z' }) });
+    const spec = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+    const withTime = zmanRem({ spec, at: '2026-10-15T05:27:00.000Z', opinion: 'gra' });
+    const agenda = (it: ItemDTO) => model([ok(answer({ items: { ...WEEK, [day(0)]: [...(WEEK[day(0)] ?? []), it] }, carryOvers: [] }))]);
+    const wanted: Record<string, string> = { en: '10 min before the latest time for Shema (GRA)', he: '10 דק׳ לפני סוף זמן קריאת שמע (גר״א)', ru: 'за 10 мин до конца времени Шма (ГРА)' };
+    for (const locale of LOCALES) {
+      const html = renderAgenda(locale, agenda(withTime));
+      const row = html.slice(html.indexOf('zpill') > -1 ? 0 : 0);
+      assertHas(textOf(row), [wanted[locale]], `${locale} the rule in the row`);
+      assert(/<span class="ch-time-main" dir="ltr">08:27<\/span>/.test(row), `${locale}: the time column reads 08:27 left to right: ${show(row.slice(row.indexOf('Take the pill') - 200, row.indexOf('Take the pill')))}`);
+    }
+    const noTime = renderAgenda('en', agenda(zmanRem({ spec, at: null, opinion: 'gra' })));
+    assertHas(textOf(noTime), ['10 min before the latest time for Shema (GRA)'], 'the rule with no time');
+    assert(!/Take the pill[\s\S]{0,400}08:27/.test(markup(noTime)), 'no time shown when there is none today');
+    const rowOf = (html: string) => (markup(html).match(/<li class="ch-row-li">(?:(?!<\/li>)[\s\S])*Take the pill[\s\S]*?<\/li>/) ?? [''])[0];
+    assert(rowOf(noTime).includes('<span class="ch-time-main">All day</span>'), `All day where it has no time: ${show(rowOf(noTime).slice(0, 400))}`);
+    assert(!rowOf(renderAgenda('en', agenda(withTime))).includes('All day'), 'and not where it has one');
+  });
+
+  await check('zman sheet (en, he, ru): the item sheet\'s When line is "<rule> · <time>" with the time isolated left to right; with no time that day, the rule alone; a plain all-day reminder still says "All day"', () => {
+    const spec = { zman: 'SHKIA', offsetMin: 15 };
+    const at = '2026-10-15T14:00:00.000Z'; // 17:00 in Jerusalem
+    const sheet = (locale: Locale, zman: ItemReminderDTO['zman']) => sheetWith(locale, item('zsheet', { kind: 'reminder', title: 'Light the grill', start: day(0), end: day(1), allDay: true, tz: TZ, reminder: rem({ zman }) }), IDLE);
+    const rules: Record<string, string> = { en: '15 min after sunset', he: '15 דק׳ אחרי שקיעה', ru: 'через 15 мин после заката (шкия)' };
+    for (const locale of LOCALES) {
+      const html = markup(sheet(locale, { spec, at, opinion: null }));
+      assertHas(textOf(html), [rules[locale]], `${locale} the rule`);
+      assert(html.includes('<bdi dir="ltr">17:00</bdi>'), `${locale}: the time is isolated left to right: ${show(html.slice(html.indexOf('ch-when'), html.indexOf('ch-when') + 400))}`);
+      assertLacks(textOf(html), [messages[locale].calendarHome.row.allDay as string], `${locale} not "All day"`);
+      const none = markup(sheet(locale, { spec, at: null, opinion: null }));
+      assertHas(textOf(none), [rules[locale]], `${locale} the rule, no time`);
+      assert(!none.includes('<bdi dir="ltr">'), `${locale}: no time to show`);
+    }
+    assertHas(textOf(sheetWith('en', item('plain', { kind: 'reminder', title: 'Plain', start: day(0), end: day(1), allDay: true, tz: TZ, reminder: rem() }), IDLE)), ['All day'], 'a plain all-day reminder');
   });
 
   await check('#97a a day move on a set-weekdays series together with a calendar or recipient change can\'t be saved: "Save the day change on its own first." and nothing is written; without the day move, or with a repeat pick, it goes through', async () => {

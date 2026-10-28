@@ -1151,6 +1151,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           reminderTime={editorInfo?.reminderTime}
           alertsOn={editorInfo?.alertsOn === true}
           defaultLead={editorInfo?.defaultLead}
+          zmanim={editorInfo?.zmanim}
+          tz={editorInfo?.tz}
+          onOpenSettings={() => navigate(`/${locale}/settings?user_id=${userId}`)}
           today={facts?.today}
           weekStart={facts?.weekStart}
           onPickerChange={setPickerOpen}

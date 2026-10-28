@@ -391,6 +391,11 @@ export const AGENDA_CSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ch-meta-rule {
+  min-width: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
 .ch-open {
   color: var(--ch-accent);
   font-weight: 600;

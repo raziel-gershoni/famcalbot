@@ -21,8 +21,9 @@ import { readRange, sourcesFor } from '@/src/services/calendar-read';
 import { carryOverReadItems } from '@/src/services/calendar-read/famcal';
 import { displayColourFor, displayColourMap, rememberLiveColours } from '@/src/services/native-calendar/colour';
 import { toCalendarDto, toCarryOverDto, toRangeDays } from '@/src/services/calendar-read/dto';
-import type { GoogleRead, RangeRead } from '@/src/services/calendar-read/types';
+import type { GoogleRead, RangeRead, ReadItem } from '@/src/services/calendar-read/types';
 import { fetchOpenReminderItems, openRemindersCutoff } from '@/src/services/native-reminders/open-reminders';
+import { zmanClockIfNeeded } from '@/src/services/zmanim/reminder-clock';
 import { hebrewDatesFor, tzKnownFor, weekStartFor } from '@/src/utils/locale-rules';
 import { addDaysToDate, localDate } from '@/src/utils/day-events';
 import type { DayKey, ItemDTO, RangeResponse, SourceName } from '@/src/lib/calendar-view/types';
@@ -183,15 +184,19 @@ export async function GET(request: NextRequest) {
     // first. carryOverReadItems masks them by the rows' legend rule: a calendar outside
     // the legend shows only the partner's name. A failed read costs the home its "Still
     // open" card, never the answer.
-    let carryOvers: ItemDTO[] | undefined;
+    let carryRead: ReadItem[] | undefined;
     if (famcal?.status === 'ok' && from <= today && today < to) {
       try {
         const open = await fetchOpenReminderItems(user, famcal.ctx, openRemindersCutoff(today, tz, now), today, tz, Infinity);
-        carryOvers = carryOverReadItems(famcal, open.items).map((item) => toCarryOverDto(item, tz, now, user.reminderTime));
+        carryRead = carryOverReadItems(famcal, open.items);
       } catch (err) {
         captureError(err, 'calendar-range-carryovers', { user_id: user.id }, 'warning');
       }
     }
+    // A reminder by zman is due at its zman time at the viewer's place: the clock is built only when one is listed.
+    const hasZman = (items: ReadItem[]) => items.some((i) => i.kind === 'reminder' && i.event.reminder?.zmanSpec);
+    const clock = await zmanClockIfNeeded(hasZman(read.items) || hasZman(carryRead ?? []), user, tz);
+    const carryOvers: ItemDTO[] | undefined = carryRead?.map((item) => toCarryOverDto(item, tz, now, user.reminderTime, clock));
 
     const legend = [
       ...(famcal?.status === 'ok' ? famcal.calendars : []),
@@ -207,7 +212,7 @@ export async function GET(request: NextRequest) {
       sources: sourcesDto(applicable, read),
       partner: famcal?.status === 'ok' && famcal.partner ? { name: famcal.partner.name } : null,
       calendars: legend.map(toCalendarDto),
-      days: toRangeDays(read.items, from, to, tz, now, today, user.reminderTime),
+      days: toRangeDays(read.items, from, to, tz, now, today, user.reminderTime, clock),
       ...(carryOvers ? { carryOvers } : {}),
     };
     // The colours as drawn: a FamCal calendar too close to another is shifted on screen only.

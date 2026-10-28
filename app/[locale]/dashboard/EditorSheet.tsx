@@ -24,6 +24,11 @@
 //   (and that the partner will see it there), Save refuses it beside any other change ("Save
 //   the move on its own first."), and a series asks only "All of them". An item that can't
 //   cross says why under the row.
+// - A reminder's When card offers "By zman" under "At a set time" (a Notice says when no location is saved, and the
+//   switch is off then): the card gains the zman (a ValueRow of the community's zmanim, named with their opinion, and
+//   "halachic hours after sunrise"), its hours (a StepperRow), the offset (a StepperRow in steps of 5, with Before | After
+//   once it is not 0) and a line with today's time at the person's place (LTR). The times come in the editor info: the
+//   client only adds the offset. A reminder by zman is date-only, so the time pill and "At a set time" go while it is on.
 // - Cancel asks "Discard your changes?" only when something changed. The container's
 //   BackButton calls the same thing through `cancelRef`: it closes a sheet on top first,
 //   then cancels.
@@ -36,9 +41,15 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { DEFAULT_REMINDER_TIME } from '@/src/lib/reminder-time';
+import { HOURS_PICK, ZMAN_HOURS_MAX, ZMAN_HOURS_MIN, ZMAN_OFFSET_MAX_MIN, ZMAN_OFFSET_STEP_MIN, type ZmanimInfo } from '@/src/lib/calendar-view/zman-spec';
 import {
   allOfThem,
   checkForm,
+  clockIn,
+  effectiveAllDay,
+  isByZman,
+  setTimeMode,
+  zmanPreviewMs,
   crossesKinds,
   repeatDayOf,
   hebrewAnchorOf,
@@ -67,9 +78,11 @@ import type { EditScope, EditorCalendar, ForWho, ItemEditInfoResponse, ItemKind,
 import { formatDayMonth } from '@/src/lib/calendar-view/format';
 import { ALERT_LEADS, leadParts } from '@/src/lib/calendar-view/alert-leads';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { Notice } from '@/components/app-ui/Notice';
 import { RepeatSheet } from './RepeatSheet';
+import { zmanName } from './zman-words';
 import { endOfInfo, infoText, repeatFormText, withEndText, type WordsContext } from './repeat-words';
-import { ButtonRow, FORM_CSS, FormCard, FormRow, RadioPair, SaveBar, Segmented, SwitchRow, TextField, ValueRow, type SelectOption } from '@/components/app-ui/form-kit';
+import { ButtonRow, FORM_CSS, FormCard, FormRow, RadioPair, SaveBar, Segmented, StepperRow, SwitchRow, TextField, ValueRow, type SelectOption } from '@/components/app-ui/form-kit';
 import { EDITOR_FORM_CSS, PillRow, preloadPickers } from './form-kit';
 import { ConfirmSheet, ScopeSheet, useErrorText, type SubmitError } from './ScopeSheet';
 
@@ -96,6 +109,12 @@ export interface EditorSheetProps {
   alertsOn?: boolean;
   /** The user's default lead in minutes, which the Alert row's "Default" names. */
   defaultLead?: number;
+  /** What a reminder by zman needs (EditorInfoResponse.zmanim): the community's zmanim, and today's time of each at the person's place. */
+  zmanim?: ZmanimInfo;
+  /** The user's zone, in which the zman preview's time is read (an edit's info carries its own). */
+  tz?: string;
+  /** The Notice about the location links to Settings. */
+  onOpenSettings?: () => void;
   /** The server's today and the week's first day, for the date sheet. */
   today?: string;
   weekStart?: WeekStart;
@@ -122,7 +141,7 @@ const INLINE_NOTE_KEY = {
 } as const;
 type InlineNote = keyof typeof INLINE_NOTE_KEY;
 
-export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, alertsOn = false, defaultLead = 0, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
+export function EditorSheet({ mode, initial, kinds, calendars = [], partner, hebrewDates = false, reminderTime = DEFAULT_REMINDER_TIME, alertsOn = false, defaultLead = 0, zmanim, tz: userTz, onOpenSettings, today = '', weekStart = 0, onPickerChange, info, itemKey, onSave, onClose, cancelRef }: EditorSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const [start] = useState(initial);
@@ -343,6 +362,69 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     />
   );
   const repeatRow = <ButtonRow label={t('editor.repeat.label')} hint={repeatHint} value={repeatValue} error={errorOf('repeat')} onClick={() => setRepeatOpen(true)} />;
+
+  // A reminder by zman: the switch (where the editor info offers zmanim, and on an item already by zman, so it can go
+  // off), the rows under it, and the Notice about the location.
+  const byZman = isByZman(form);
+  const zmanOffered = reminder && (!!zmanim || byZman);
+  const noPlace = zmanim?.place === 'none';
+  const zmanOptions: SelectOption[] = [
+    ...(zmanim?.zmanim ?? []).map((z) => ({ value: z.key, text: zmanName(t, z.key, z.opinion) })),
+    { value: HOURS_PICK, text: t('zmanim.hoursName') },
+  ];
+  // A zman the person's set does not offer (a reminder set under another community) keeps its place in the list.
+  if (form.zmanPick !== '' && !zmanOptions.some((o) => o.value === form.zmanPick)) zmanOptions.unshift({ value: form.zmanPick, text: zmanName(t, form.zmanPick, null) });
+  const previewMs = byZman ? zmanPreviewMs(form, zmanim) : null;
+  const zmanRows = byZman ? (
+    <>
+      <ValueRow label={t('editor.zmanLabel')} value={form.zmanPick} options={zmanOptions} onChange={(zmanPick) => change({ ...form, zmanPick })} />
+      {form.zmanPick === HOURS_PICK ? (
+        <StepperRow
+          label={t('editor.zmanHoursLabel')}
+          unit={t('editor.zmanHoursUnit', { count: form.zmanHours })}
+          value={form.zmanHours}
+          min={ZMAN_HOURS_MIN}
+          max={ZMAN_HOURS_MAX}
+          decLabel={t('editor.zmanHoursLess')}
+          incLabel={t('editor.zmanHoursMore')}
+          onChange={(zmanHours) => change({ ...form, zmanHours })}
+        />
+      ) : null}
+      <StepperRow
+        label={t('editor.zmanOffsetLabel')}
+        unit={t('editor.zmanOffsetUnit', { count: form.zmanMinutes })}
+        value={form.zmanMinutes}
+        min={0}
+        max={ZMAN_OFFSET_MAX_MIN}
+        step={ZMAN_OFFSET_STEP_MIN}
+        decLabel={t('editor.zmanOffsetLess')}
+        incLabel={t('editor.zmanOffsetMore')}
+        onChange={(zmanMinutes) => change({ ...form, zmanMinutes })}
+      />
+      {/* Before or after means something only with an offset. */}
+      {form.zmanMinutes > 0 ? (
+        <ValueRow
+          label={t('editor.zmanDirection')}
+          value={form.zmanBefore ? 'before' : 'after'}
+          options={[
+            { value: 'before', text: t('editor.zmanBefore') },
+            { value: 'after', text: t('editor.zmanAfter') },
+          ]}
+          onChange={(value) => change({ ...form, zmanBefore: value === 'before' })}
+        />
+      ) : null}
+      <FormRow label={t('editor.zmanToday')}>
+        <span className="ch-form-value">
+          <span className="ch-form-value-text">{previewMs === null ? t('editor.zmanNoneToday') : <bdi dir="ltr">{clockIn(previewMs, info?.tz ?? userTz ?? 'UTC').time}</bdi>}</span>
+        </span>
+      </FormRow>
+    </>
+  ) : null;
+  // No saved location: the Notice says so (with the way to Settings) once by zman is on, or at once when nothing can be counted at all.
+  const zmanNotice =
+    reminder && zmanim && zmanim.place !== 'saved' && (byZman || noPlace) ? (
+      <Notice action={onOpenSettings ? { label: t('editor.zmanOpenSettings'), onClick: onOpenSettings } : undefined}>{t(noPlace ? 'editor.zmanNoPlace' : 'editor.zmanZoneOnly')}</Notice>
+    ) : null;
   const heading = edit ? t('editor.titleEdit') : t('editor.titleNew');
   /** What a PillRow needs of the date sheet; a Hebrew yearly repeat opens it in Hebrew. */
   const pickerProps = {
@@ -379,6 +461,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
             </FormCard>
 
             {reminder ? (
+              <>
               <FormCard>
                 <PillRow
                   label={t('editor.when')}
@@ -386,16 +469,22 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   timeLabel={t('editor.whenTime')}
                   day={form.startDay}
                   time={form.startTime}
-                  showTime={!form.allDay}
+                  showTime={!effectiveAllDay(form)}
                   onDay={(startDay) => change(moveStart(form, { startDay }, heldSpan))}
                   onTime={(startTime) => change(moveStart(form, { startTime }, heldSpan))}
                   error={errorOf('start')}
                   {...pickerProps}
                   {...rowPicker('start')}
                 />
-                <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: reminderTime })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />
+                {byZman ? null : <SwitchRow label={t('editor.atTime')} hint={t('editor.atTimeHint', { time: reminderTime })} checked={!form.allDay} onChange={(on) => change(setAllDay(form, !on))} />}
+                {zmanOffered ? (
+                  <SwitchRow label={t('editor.byZman')} hint={t('editor.byZmanHint')} checked={byZman} disabled={noPlace && !byZman} onChange={(on) => change(setTimeMode(form, on ? 'zman' : 'time', zmanim))} />
+                ) : null}
+                {zmanRows}
                 {repeatRow}
               </FormCard>
+              {zmanNotice}
+              </>
             ) : (
               <FormCard>
                 <SwitchRow label={t('editor.allDay')} checked={form.allDay} onChange={(on) => change(setAllDay(form, on))} />

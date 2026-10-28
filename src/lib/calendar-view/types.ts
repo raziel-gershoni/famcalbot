@@ -1,7 +1,9 @@
 // The calendar home's wire format (spec §4): what GET /api/calendar/range answers and
-// what the client keeps in its store. Client-safe: no imports, so the home's bundle
-// never pulls in server code. The server builds these in
-// src/services/calendar-read/dto.ts.
+// what the client keeps in its store. Client-safe: its one import is a type from another
+// client-safe file (zman-spec.ts), so the home's bundle never pulls in server code. The server
+// builds these in src/services/calendar-read/dto.ts.
+
+import type { ZmanOpinion, ZmanSpecValue } from './zman-spec';
 
 /** A calendar day, 'yyyy-MM-dd', in the viewer's timezone. */
 export type DayKey = string;
@@ -74,8 +76,14 @@ export interface ItemReminderDTO {
   open: boolean;
   /** 'yyyy-MM-dd'; carry-overs only. */
   openSince: string | null;
-  /** When it is due for the viewer: an instant (a date-only one is at the viewer's reminder time on its date). */
+  /** When it is due for the viewer: an instant (a date-only one is at the viewer's reminder time on its date, or at its zman time at the viewer's place). */
   dueAt?: string;
+  /**
+   * A reminder by zman (a date-only occurrence of it): its rule, and its time on that date at the viewer's place as an
+   * instant, null where there is none (the sun does not make it that day, or no place can be had). The row words the
+   * rule (with the opinion the viewer's set names its zman with) and shows the time beside it.
+   */
+  zman?: { spec: ZmanSpecValue; at: string | null; opinion: ZmanOpinion | null };
   ownerIsViewer: boolean;
   creatorIsViewer: boolean;
   ownerName?: string;

@@ -15,11 +15,14 @@ import { markUnreachableAfterSendFailure } from '../../lib/user-reachability';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { isPaused } from '../zmanim/pause';
+import { zmanClockFor } from '../zmanim/reminder-clock';
+import { warnOnceADay } from '../zmanim/once';
+import { readZmanSpec, type ZmanClock } from '../../lib/calendar-view/zman-spec';
 import { trackActivityAsync } from '../analytics-service';
 import { expandSeries, VirtualInstance } from '../native-calendar/recurrence';
 import { getActivePartnerSummary, isForBothReachable, isPingable, recipientIds, userDoneAt } from './ownership';
 import { getReminderSupport, isNativeRemindersEnabled } from './support';
-import { dueAtForOccurrence, isEligible, pingDayOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
+import { dueAtForOccurrence, isEligible, pingDayOf, zmanDueForOccurrence, zmanRuleOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
 import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, sendPing, stripPingButtons } from './ping';
 
@@ -335,8 +338,13 @@ async function passForRecipient(a: {
   result: NativeReminderPassResult;
   tz: string;
   reachable: (telegramId: bigint) => Promise<boolean>;
+  /** This recipient's zman clock (their own place), built when a reminder by zman needs it. */
+  zmanClock: () => Promise<ZmanClock | null>;
 }): Promise<SendOutcome | 'idle'> {
   const { series: s, recipient, now, result, tz } = a;
+  // A reminder by zman: its date-only occurrences are due at the zman time at THIS recipient's place (a partner in
+  // another city gets their own time). A snooze, and an occurrence moved to a time of its own, are fixed times.
+  const rule = readZmanSpec(s.zmanSpec) && a.occurrences.some((o) => o.allDay) ? zmanRuleOf(s.zmanSpec, await a.zmanClock()) : undefined;
   const candidates: Candidate[] = [];
   for (const occ of a.occurrences) {
     const state = a.states.get(occurrenceKey(s.id, occ.instanceStartsAt));
@@ -344,7 +352,14 @@ async function passForRecipient(a: {
     if (userDoneAt(s, state, recipient.id)) continue;
     const ping = state?.pings.find((p) => p.userId === recipient.id);
     const snoozed = !!ping?.snoozedUntil;
-    const due = ping?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime);
+    if (rule && !snoozed && zmanDueForOccurrence(occ, rule) === null) {
+      // The zman does not exist that day (the sun never gets there), or no place can be had: this day's occurrence is skipped.
+      warnOnceADay(`pass|${s.id}|${recipient.id}|${occ.instanceStartsAt.toISOString()}`, `[zmanim] reminder ${s.id} skipped for user ${recipient.id} on ${occ.instanceStartsAt.toISOString().slice(0, 10)}: no zman time`);
+      result.skipped++;
+      continue;
+    }
+    // The one due-time function (due.ts): a snooze is a fixed time, else the rule's time at this recipient's place, else the reminder time.
+    const due = ping?.snoozedUntil ?? dueAtForOccurrence(occ, tz, recipient.reminderTime, rule);
     if (due > now && (!result.nextDue || due < result.nextDue)) result.nextDue = due;
     candidates.push({ occ, due, snoozed, state, ping });
   }
@@ -441,6 +456,10 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
     return resolveUserTimezone({ id: userId, location: user?.location ?? '' });
   });
   const isBlocked = perPass((telegramId: bigint) => isIdentifierBlocked({ telegramId }));
+  const zmanClockOf = perPass(async (userId: number) => {
+    const user = await users(userId);
+    return user ? zmanClockFor(user, await timezoneOf(userId)) : null;
+  });
   const creatorSupported = perPass(async (creatorId: number) => {
     const creator = await users(creatorId);
     return !!creator && (await getReminderSupport(creator)).supported;
@@ -471,6 +490,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
           const outcome = await passForRecipient({
             series: s, occurrences, overrideAt, states, creator, recipient, peers, forBoth, now, result,
             tz: await timezoneOf(recipient.id),
+            zmanClock: () => zmanClockOf(recipient.id),
             reachable: async (telegramId) => !(await isBlocked(telegramId)) && (await creatorSupported(creator.id)),
           });
           if (outcome === 'retry') retrySoon = true;

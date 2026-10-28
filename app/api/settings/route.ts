@@ -11,13 +11,14 @@ import { changedSettingFields } from '@/src/lib/settings-changes';
 import { canReceiveReminderPings } from '@/src/services/native-reminders/support';
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
+import { isCommunity } from '@/src/services/zmanim/sets';
 
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, initData } = body;
+    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -41,6 +42,10 @@ export async function POST(request: NextRequest) {
     }
     if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
       return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
+    }
+    // A closed set: sephardi, ashkenazi or chabad (src/services/zmanim/sets.ts).
+    if (zmanimCommunity !== undefined && !isCommunity(zmanimCommunity)) {
+      return NextResponse.json({ error: 'Invalid zmanimCommunity' }, { status: 400 });
     }
     // The reminder time is for whoever FamCal reminders can ping (their own plan, or a partner's
     // reminders for them). When it isn't allowed, only that field is dropped: it must never
@@ -93,7 +98,9 @@ export async function POST(request: NextRequest) {
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined,
       // The Shabbat and Yom Tov pause (src/services/zmanim/pause.ts); the reminder cache below carries it to the 5-minute run
-      pauseOnShabbat: typeof pauseOnShabbat === 'boolean' ? pauseOnShabbat : undefined
+      pauseOnShabbat: typeof pauseOnShabbat === 'boolean' ? pauseOnShabbat : undefined,
+      // Whose zmanim: a reminder by zman and the pause windows are counted by this community's set
+      zmanimCommunity: isCommunity(zmanimCommunity) ? zmanimCommunity : undefined
     };
     // The old place's coordinates must never sit beside the new name, so a changed location clears them
     // in the same write; the lookup below fills them again (and the lazy fill does, if it fails).
@@ -107,6 +114,8 @@ export async function POST(request: NextRequest) {
 
     // A new reminder time moves the date-only pings the due gate has memoed: wake the pass.
     if (acceptedReminderTime !== undefined && acceptedReminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
+    // Another community's set moves every reminder by zman to other times: the same wake.
+    if (isCommunity(zmanimCommunity) && zmanimCommunity !== auth.user.zmanimCommunity) invalidateDueGate();
 
     // The lookup runs after the response, so the save answers at once. saveUserPlace is the one writer of
     // the coordinates and the highest ground, and it moves the cached zone with them. The reminder cache holds

@@ -239,6 +239,13 @@ const consoleLines: string[] = [];
 // ---- Boundaries: stubs served to import() by a load hook ----
 
 const Module = nodeRequire('module');
+// @hebcal/core is ESM-only and tsx loads src/ as CommonJS: the editor info's zmanim (src/services/zmanim) read its ESM build.
+const resolveFilename = Module._resolveFilename;
+Module._resolveFilename = function (request: string, ...rest: unknown[]) {
+  if (request === '@hebcal/core') return path.resolve(ROOT, 'node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, ...rest);
+};
+// The people below carry coordinates, so no place is ever looked up (a lookup would be the live network).
 const stubs: Record<string, Row> = {};
 (globalThis as Row).__smokeStubs = stubs;
 if (typeof Module.registerHooks !== 'function') throw new Error('This smoke needs Node 22.15+ (module.registerHooks)');
@@ -323,7 +330,7 @@ const iso = (d: unknown) => (d instanceof Date ? d.toISOString() : String(d));
 
 function baseUser(o: Row): Row {
   return {
-    name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', culture: 'default',
+    name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', latitude: 32.0853, longitude: 34.7818, elevationM: 20, zmanimCommunity: 'sephardi', pauseOnShabbat: false, culture: 'default',
     messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null, calendarSource: 'NATIVE',
     pairingId: null, remindersEnabled: false, suspendedAt: null, unreachableSince: null, whatsappPhone: null,
     whatsappBsuid: null, telegramId: null, isAdmin: false, globalRules: [], voiceInputEnabled: true,
@@ -3267,6 +3274,155 @@ async function main() {
     assert(made !== null && (made as Row).field === 'alert', `the store created a reminder with an alert: ${made}`);
     const plain = await thrownBy(() => store.createNativeEvent({ calendarCuid: 'cal-tal', creatorUserId: TAL, title: 'r', startsAt: at('2026-10-21 09:00'), endsAt: at('2026-10-21 09:00'), timeZone: IL, kind: 'REMINDER', alert: 'default' }));
     assert(plain === null, `the default is fine for a reminder: ${plain}`);
+  });
+
+  // ================= Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) =================
+  // The editor body gains timeMode ('time' | 'zman') and zmanSpec. A reminder by zman is date-only and holds its rule on the series:
+  // the due time is worked out for each recipient and day, never stored.
+
+  const SHEMA_10 = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  const zmanBody = (o: Row = {}) => reminderBody({ allDay: true, start: '2026-10-21', timeMode: 'zman', zmanSpec: SHEMA_10, title: 'Take the pill', ...o });
+  const specOf = (id: string) => {
+    const v = eventRow(id).zmanSpec;
+    return v === undefined || v === null || typeof v !== 'object' || Object.keys(v).length === 0 ? null : v;
+  };
+  const armedNow = (d: unknown) => d instanceof Date && d.getTime() > Date.now() - 60_000;
+  const dayKey = (id: string, d: string) => `famcal|${id}#${iso(at(`${d} 00:00`))}`;
+
+  await check('zman editor info: a user who can have reminders gets the community\'s zmanim and today\'s time of each at their place; one who cannot, none', async () => {
+    seed();
+    const info = (await editorOf()).body;
+    const z = info.zmanim as Row;
+    assert(z && z.community === 'sephardi' && z.place === 'saved' && /^\d{4}-\d{2}-\d{2}$/.test(z.day), `zmanim ${show(z)}`);
+    const keys = z.zmanim.map((x: Row) => x.key);
+    assert(keys.includes('SOF_SHMA_GRA') && keys.includes('PLAG_YALKUT_YOSEF') && !keys.includes('SHABBAT_ENDS') && !keys.includes('PLAG_GRA'), `keys ${keys}`);
+    assert(z.zmanim.every((x: Row) => typeof x.at === 'string') && z.hours.length === 12, 'times today, 12 hours');
+    assert(z.zmanim.find((x: Row) => x.key === 'SOF_SHMA_GRA').opinion === 'gra', 'the opinion rides along');
+    tables.user.find((u) => u.id === TAL)!.zmanimCommunity = 'chabad';
+    const chabad = (await editorOf()).body.zmanim as Row;
+    assert(chabad.community === 'chabad' && !chabad.zmanim.some((x: Row) => x.key === 'SOF_SHMA_MGA') && chabad.zmanim.find((x: Row) => x.key === 'SOF_SHMA_GRA').opinion === 'baalHatanya', 'Chabad\'s own list');
+    seed();
+    noReminderPlan.add(TAL);
+    const noPlan = await editorOf();
+    assert(noPlan.status === 200 && noPlan.body.kinds.reminder === false && !('zmanim' in noPlan.body), `a plan without reminders: ${show(noPlan.body.zmanim)}`);
+  });
+
+  await check('zman create: a date-only reminder by zman is stored with its rule (nothing else changes), analytics say by_zman, the item info reads it back as timeMode zman', async () => {
+    seed();
+    const r = await post(zmanBody());
+    assert(r.status === 200, `${r.status} ${r.text}`);
+    const id = idOf(r.body.key);
+    assertSame([eventRow(id).allDay, eventRow(id).kind, specOf(id)], [true, 'REMINDER', SHEMA_10], 'stored');
+    assert(tracked[tracked.length - 1].meta.by_zman === true, `analytics ${show(tracked[tracked.length - 1])}`);
+    const info = (await itemOf(r.body.key)).body;
+    assertSame([info.timeMode, info.zmanSpec, info.occurrence.allDay], ['zman', SHEMA_10, true], 'read back');
+    const hours = await post(zmanBody({ zmanSpec: { halachicHours: 4, offsetMin: 15 } }));
+    assertSame([hours.status, specOf(idOf(hours.body.key))], [200, { halachicHours: 4, offsetMin: 15 }], 'hours');
+    const plain = await post(reminderBody({ allDay: true, start: '2026-10-21' }));
+    assert(specOf(idOf(plain.body.key)) === null && !('by_zman' in tracked[tracked.length - 1].meta), 'a plain reminder has none');
+    const plainInfo = (await itemOf(plain.body.key)).body;
+    assert(plainInfo.timeMode === 'time' && !('zmanSpec' in plainInfo), `a plain reminder's info: ${show(plainInfo.timeMode)}`);
+    const event = (await itemOf((await post(eventBody())).body.key)).body;
+    assert(!('timeMode' in event) && !('zmanSpec' in event), 'an event has neither');
+  });
+
+  await check('zman create: refused with the field named and nothing written: a timed start, an event, an unknown zman, a rule beside mode time, a rule without the mode, a zman the writer\'s set does not offer', async () => {
+    seed();
+    const refusals: Array<[string, Row, string]> = [
+      ['timed', zmanBody({ allDay: false, start: '2026-10-21T10:00' }), 'allDay'],
+      ['an event', eventBody({ timeMode: 'zman', zmanSpec: SHEMA_10 }), 'timeMode'],
+      ['an unknown zman', zmanBody({ zmanSpec: { zman: 'NOPE', offsetMin: 0 } }), 'zmanSpec'],
+      ['a rule beside mode time', zmanBody({ timeMode: 'time' }), 'zmanSpec'],
+      ['a rule without the mode', zmanBody({ timeMode: undefined }), 'zmanSpec'],
+      ['an offset past 12 hours', zmanBody({ zmanSpec: { zman: 'CHATZOT', offsetMin: 721 } }), 'zmanSpec'],
+    ];
+    for (const [what, body, field] of refusals) {
+      const before = count(eventsAll());
+      const r = await post(body);
+      assertSame([r.status, r.body, count(eventsAll())], [400, { error: 'invalid', field }, before], what);
+    }
+    tables.user.find((u) => u.id === TAL)!.zmanimCommunity = 'chabad';
+    const mga = await post(zmanBody({ zmanSpec: { zman: 'SOF_SHMA_MGA', offsetMin: 0 } }));
+    assertSame([mga.status, mga.body, count(eventsAll())], [400, { error: 'invalid', field: 'zmanSpec' }, 0], 'Magen Avraham is not Chabad\'s');
+    const grA = await post(zmanBody());
+    assert(grA.status === 200, 'but the Baal HaTanya\'s Shema is');
+  });
+
+  /** A daily reminder by zman from Oct 20, with the 21st done (live ping 61) and the 22nd open (ping 62). */
+  async function zmanSeries() {
+    const created = await post(zmanBody({ repeat: 'daily', start: '2026-10-20' }));
+    assert(created.status === 200, `create ${created.status} ${created.text}`);
+    const id = idOf(created.body.key);
+    seedState(id, at('2026-10-21 00:00'), 61, { doneAt: at('2026-10-21 09:00') });
+    seedState(id, at('2026-10-22 00:00'), 62, { lastPingedAt: at('2026-10-22 09:30') });
+    eventRow(id).armedAt = OLD;
+    stripped.length = 0;
+    return { id, day: (d: string) => dayKey(id, d) };
+  }
+
+  await check('zman update: a new offset on a series ("all" or "following") is a series change: the rule is replaced, every occurrence starts afresh, the live pings read "changed" (not "moved to"), analytics say zman', async () => {
+    seed();
+    const { id, day } = await zmanSeries();
+    const r = await patch({ key: day('2026-10-22'), scope: 'all', changes: { timeMode: 'zman', zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -20 } } });
+    assertSame([r.status, specOf(id), statesOf(id).length], [200, { zman: 'SOF_SHMA_GRA', offsetMin: -20 }, 0], 'replaced, states gone');
+    assertSame([strips().moved, strips().changed.sort()], [[], [61, 62]], 'the pings read "changed"');
+    assertSame(tracked[tracked.length - 1].meta.changed_fields, ['zman'], 'analytics');
+    assert(armedNow(eventRow(id).armedAt), 'armed from now');
+    const same = await patch({ key: day('2026-10-22'), scope: 'all', changes: { timeMode: 'zman', zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -20 }, title: 'Pill' } });
+    assertSame([same.status, tracked[tracked.length - 1].meta.changed_fields], [200, ['title']], 'the same rule is no change');
+    const { id: id2, day: day2 } = await zmanSeries();
+    const tail = await patch({ key: day2('2026-10-22'), scope: 'following', changes: { timeMode: 'zman', zmanSpec: { halachicHours: 2, offsetMin: 0 } } });
+    assert(tail.status === 200 && lastEvent().id !== id2, `following ${tail.status}`);
+    assertSame([specOf(id2), specOf(lastEvent().id)], [SHEMA_10, { halachicHours: 2, offsetMin: 0 }], 'the earlier part keeps its rule, the new part has the new one');
+  });
+
+  await check('zman update: "only this one" cannot change the rule or switch the mode off for a date-only occurrence (400 scope, nothing written); it can move that occurrence to a time of its own: a fixed-time override that leaves the series by zman', async () => {
+    seed();
+    const { id, day } = await zmanSeries();
+    const rule = await patch({ key: day('2026-10-22'), scope: 'single', changes: { timeMode: 'zman', zmanSpec: { zman: 'CHATZOT', offsetMin: 0 } } });
+    assertSame([rule.status, rule.body, specOf(id)], [400, { error: 'invalid', field: 'scope' }, SHEMA_10], 'a new rule for one');
+    const off = await patch({ key: day('2026-10-22'), scope: 'single', changes: { timeMode: 'time' } });
+    assertSame([off.status, off.body, specOf(id)], [400, { error: 'invalid', field: 'scope' }, SHEMA_10], 'mode time for one, still date-only');
+    assert(tables.nativeEventInstance.length === 0, 'nothing written');
+    const fixed = await patch({ key: day('2026-10-23'), scope: 'single', changes: { timeMode: 'time', allDay: false, start: '2026-10-23T14:00' } });
+    assert(fixed.status === 200, `fixed ${fixed.status} ${fixed.text}`);
+    const override = tables.nativeEventInstance.find((o) => iso(o.originalStartsAt) === iso(at('2026-10-23 00:00')))!;
+    assertSame([override.allDay, iso(override.startsAt), specOf(id)], [false, iso(at('2026-10-23 14:00')), SHEMA_10], 'a timed override, the series keeps its rule');
+    // That occurrence opens as a plain time (the series\' rule kept for switching back); its neighbour is still by zman.
+    const moved = (await itemOf(fixed.body.key)).body;
+    assertSame([moved.timeMode, moved.zmanSpec, moved.occurrence.allDay], ['time', SHEMA_10, false], 'the moved one');
+    assertSame((await itemOf(day('2026-10-22'))).body.timeMode, 'zman', 'its neighbour');
+  });
+
+  await check('zman update: By zman off for all of them takes the rule away and leaves the reminders date-only (the reminder time); a time of day with "all" takes it away too', async () => {
+    seed();
+    const { id, day } = await zmanSeries();
+    const off = await patch({ key: day('2026-10-22'), scope: 'all', changes: { timeMode: 'time' } });
+    assertSame([off.status, specOf(id), eventRow(id).allDay], [200, null, true], 'off');
+    assertSame((await itemOf(day('2026-10-22'))).body.timeMode, 'time', 'read back');
+    const writes = tracked.length;
+    const again = await patch({ key: day('2026-10-22'), scope: 'all', changes: { timeMode: 'time' } });
+    assertSame([again.status, tracked.length], [200, writes], 'off again is no change: nothing written, nothing tracked');
+    seed();
+    const second = await zmanSeries();
+    const timed = await patch({ key: second.day('2026-10-22'), scope: 'all', changes: { timeMode: 'time', allDay: false, start: '2026-10-22T11:00' } });
+    assertSame([timed.status, specOf(second.id), eventRow(second.id).allDay], [200, null, false], 'a time of day');
+  });
+
+  await check('zman update: a plain reminder switched to zman becomes date-only with the rule (one-off, any scope); an event is refused (timeMode); the editor cannot name a rule alone', async () => {
+    seed();
+    const once = await post(reminderBody());
+    const id = idOf(once.body.key);
+    const on = await patch({ key: once.body.key, scope: 'single', changes: { timeMode: 'zman', zmanSpec: SHEMA_10 } });
+    assertSame([on.status, eventRow(id).allDay, specOf(id)], [200, true, SHEMA_10], 'on');
+    assert(iso(eventRow(id).startsAt) === iso(at('2026-10-20 00:00')), `at the start of its day: ${iso(eventRow(id).startsAt)}`);
+    const event = await post(eventBody());
+    const r = await patch({ key: event.body.key, scope: 'single', changes: { timeMode: 'zman', zmanSpec: SHEMA_10 } });
+    assertSame([r.status, r.body], [400, { error: 'invalid', field: 'timeMode' }], 'an event');
+    const alone = await patch({ key: once.body.key, scope: 'single', changes: { zmanSpec: SHEMA_10 } });
+    assertSame([alone.status, alone.body], [400, { error: 'invalid', field: 'timeMode' }], 'a rule alone');
+    const notOffered = await patch({ key: once.body.key, scope: 'single', changes: { timeMode: 'zman', zmanSpec: { zman: 'SHABBAT_ENDS', offsetMin: 0 } } });
+    assertSame([notOffered.status, notOffered.body], [400, { error: 'invalid', field: 'zmanSpec' }], 'the end of Shabbat is not a reminder\'s zman');
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

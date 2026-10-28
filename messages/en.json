@@ -211,6 +211,59 @@
         "movedLeft": "Moved, but the old one is still in {calendar}"
       }
     },
+    "zmanim": {
+      "names": {
+        "ALOT": "Dawn (alot hashachar)",
+        "MISHEYAKIR": "Tallit and tefillin",
+        "NETZ": "Sunrise",
+        "SOF_SHMA_MGA": "Latest time for Shema",
+        "SOF_SHMA_GRA": "Latest time for Shema",
+        "SOF_TFILA": "Latest time for morning prayer",
+        "CHATZOT": "Midday (chatzot)",
+        "MINCHA_GEDOLA": "Mincha gedola",
+        "MINCHA_KETANA": "Mincha ketana",
+        "PLAG_HALACHA_BERURA": "Plag hamincha",
+        "PLAG_YALKUT_YOSEF": "Plag hamincha",
+        "PLAG_GRA": "Plag hamincha",
+        "CANDLE_LIGHTING": "Candle lighting",
+        "SHKIA": "Sunset",
+        "TZEIT": "Nightfall (tzeit hakochavim)",
+        "TZEIT_LECHUMRA": "Nightfall, stricter",
+        "CHATZOT_HALAYLA": "Midnight (chatzot halayla)"
+      },
+      "namesAfter": {
+        "ALOT": "dawn (alot hashachar)",
+        "MISHEYAKIR": "tallit and tefillin",
+        "NETZ": "sunrise",
+        "SOF_SHMA_MGA": "the latest time for Shema",
+        "SOF_SHMA_GRA": "the latest time for Shema",
+        "SOF_TFILA": "the latest time for morning prayer",
+        "CHATZOT": "midday (chatzot)",
+        "MINCHA_GEDOLA": "mincha gedola",
+        "MINCHA_KETANA": "mincha ketana",
+        "PLAG_HALACHA_BERURA": "plag hamincha",
+        "PLAG_YALKUT_YOSEF": "plag hamincha",
+        "PLAG_GRA": "plag hamincha",
+        "CANDLE_LIGHTING": "candle lighting",
+        "SHKIA": "sunset",
+        "TZEIT": "nightfall (tzeit hakochavim)",
+        "TZEIT_LECHUMRA": "nightfall, stricter",
+        "CHATZOT_HALAYLA": "midnight (chatzot halayla)"
+      },
+      "opinions": {
+        "gra": "GRA",
+        "mga": "MGA",
+        "halachaBerura": "Halacha Berura",
+        "yalkutYosef": "Yalkut Yosef",
+        "baalHatanya": "Baal HaTanya"
+      },
+      "withOpinion": "{name} ({opinion})",
+      "hoursName": "Halachic hours after sunrise",
+      "hours": "{count, plural, one {# halachic hour} other {# halachic hours}} after sunrise",
+      "hoursAfter": "{count, plural, one {# halachic hour} other {# halachic hours}} after sunrise",
+      "before": "{minutes} min before {name}",
+      "after": "{minutes} min after {name}"
+    },
     "editor": {
       "titleNew": "New",
       "titleEdit": "Edit",
@@ -329,6 +382,25 @@
       "forBoth": "Both of us",
       "eachMarksDone": "Each of us marks it done",
       "eachMarksDoneHint": "It stays open for whoever hasn't tapped Done yet",
+      "byZman": "By zman",
+      "byZmanHint": "A halachic time, worked out each day for your place",
+      "zmanLabel": "Zman",
+      "zmanHoursLabel": "After sunrise",
+      "zmanHoursUnit": "{count, plural, one {halachic hour} other {halachic hours}}",
+      "zmanHoursLess": "Fewer halachic hours",
+      "zmanHoursMore": "More halachic hours",
+      "zmanOffsetLabel": "Offset",
+      "zmanOffsetUnit": "{count, plural, one {minute} other {minutes}}",
+      "zmanOffsetLess": "Fewer minutes",
+      "zmanOffsetMore": "More minutes",
+      "zmanDirection": "Relative to the zman",
+      "zmanBefore": "Before",
+      "zmanAfter": "After",
+      "zmanToday": "Today",
+      "zmanNoneToday": "No time today",
+      "zmanNoPlace": "Set your location in Settings to use zmanim",
+      "zmanZoneOnly": "No location is saved, so zmanim are counted for the main city of your time zone. Set your location in Settings for exact times.",
+      "zmanOpenSettings": "Open Settings",
       "errors": {
         "errTitle": "Add a title",
         "errTitleLong": "Keep the title to {max} characters or fewer",
@@ -694,6 +766,13 @@
     "pause": {
       "label": "Pause messages on Shabbat and Yom Tov",
       "hint": "Nothing is sent from candle lighting until nightfall"
+    },
+    "zmanim": {
+      "label": "Zmanim",
+      "hint": "How halachic times are counted",
+      "sephardi": "Sephardi (as in Zmanei Yosef)",
+      "ashkenazi": "Ashkenazi (Israel)",
+      "chabad": "Chabad"
     },
     "platform": {
       "label": "Send messages to",

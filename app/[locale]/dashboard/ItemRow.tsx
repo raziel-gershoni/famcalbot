@@ -6,6 +6,9 @@
 //
 // - Times are in the route's tz, 24-hour, and set dir="ltr"; titles and names are
 //   isolated (dir="auto" / <bdi>), so Hebrew and English mix cleanly.
+// - A reminder by zman (a date-only reminder due at a halachic time) shows that time in the time column, LTR, and its
+//   rule in the meta line ("10 min before the latest time for Shema (GRA)"), which wraps rather than cuts the opinion
+//   off; with no time that day it reads "All day".
 // - Reminder state is an icon plus text, never colour alone: an open circle and "Open";
 //   a check, the title struck through and "done"; an open circle and an "until <time>"
 //   badge while snoozed; a bell for later ones.
@@ -24,6 +27,7 @@ import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
 import { calendarVars } from '@/src/lib/calendar-view/colours';
 import type { ItemDrag } from './DragSurface';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
+import { zmanRuleWords } from './zman-words';
 
 export interface ItemRowProps {
   row: AgendaRow;
@@ -154,7 +158,12 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
   let main: string;
   let mainIsTime = false;
   let sub: string | null = null;
-  if (item.allDay || item.span === 'spansDay') {
+  const zman = item.reminder?.zman;
+  if (item.allDay && zman?.at) {
+    // Due at a zman: its time at the viewer's place, where an all-day row says "All day".
+    main = formatTime(zman.at, tz, locale);
+    mainIsTime = true;
+  } else if (item.allDay || item.span === 'spansDay') {
     main = t('row.allDay');
   } else if (item.span === 'continues') {
     main = t('row.until', { when: formatTime(item.end, tz, locale) });
@@ -225,6 +234,11 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
                       {s.user ? <bdi>{s.text}</bdi> : s.text}
                     </Fragment>
                   ))}
+                </span>
+              ) : null}
+              {zman ? (
+                <span className="ch-meta-rule" dir="auto">
+                  {zmanRuleWords(t, zman.spec, zman.opinion)}
                 </span>
               ) : null}
               {snoozeTime ? (

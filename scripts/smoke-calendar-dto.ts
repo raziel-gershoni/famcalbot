@@ -600,6 +600,59 @@ async function main() {
     assert(threw, 'a masked ref became a legend entry');
   });
 
+  // ---- Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) ----
+  // A date-only reminder carrying a zmanSpec is due at the VIEWER's zman time: the row says the rule, the time rides in
+  // dueAt and zman.at, and it opens at that time rather than at the reminder time. The clock is the person's (a fake here).
+
+  const SHEMA_RULE = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  const zmanItem = (id: string, start: string, over: FamcalExtra = {}) =>
+    reminder(id, 'Take the pill', start, { reminder: { ownerIsViewer: true, creatorIsViewer: true, zmanSpec: SHEMA_RULE }, ...over });
+  const clockAt = (iso: string | null, opinion: 'gra' | null = 'gra') => ({
+    source: 'saved' as const,
+    instant: (day: string) => (iso !== null && day === TODAY ? new Date(iso) : null),
+    opinion: () => opinion,
+  });
+  const zmanAt = fromZonedTime('2026-10-16 08:27:00', IL).toISOString();
+
+  await check('zman: the day lists the reminder with its rule, its time at the viewer\'s place and the opinion; dueAt is that time, not the reminder time', () => {
+    const days = toRangeDays([zmanItem('z1', '2026-10-16')], TODAY, '2026-10-17', IL, NOW, TODAY, '07:30', clockAt(zmanAt));
+    const r = days[0].items[0].reminder;
+    assert(r?.dueAt === zmanAt, `dueAt ${r?.dueAt}`);
+    assert(JSON.stringify(r?.zman) === JSON.stringify({ spec: SHEMA_RULE, at: zmanAt, opinion: 'gra' }), `zman ${JSON.stringify(r?.zman)}`);
+    const hours = toRangeDays([reminder('z2', 'Walk', '2026-10-16', { reminder: { ownerIsViewer: true, creatorIsViewer: true, zmanSpec: { halachicHours: 3, offsetMin: 0 } } })], TODAY, '2026-10-17', IL, NOW, TODAY, undefined, clockAt(zmanAt, null));
+    assert(JSON.stringify(hours[0].items[0].reminder?.zman) === JSON.stringify({ spec: { halachicHours: 3, offsetMin: 0 }, at: zmanAt, opinion: null }), 'halachic hours carry no opinion');
+  });
+
+  await check('zman: it opens at the zman time (08:27), not at the reminder time (09:00 default or 07:30)', () => {
+    const item = zmanItem('z3', '2026-10-16');
+    const clock = clockAt(zmanAt);
+    const rule = { spec: SHEMA_RULE, clock };
+    assert(isOpenOnDay(item, TODAY, TODAY, IL, fromZonedTime('2026-10-16 08:26:00', IL), '07:30', rule) === false, 'not open at 08:26');
+    assert(isOpenOnDay(item, TODAY, TODAY, IL, fromZonedTime('2026-10-16 08:28:00', IL), '09:30', rule) === true, 'open at 08:28, though the reminder time is 09:30');
+    assert(isOpenOnDay(item, TODAY, TODAY, IL, fromZonedTime('2026-10-16 08:28:00', IL), '09:30') === false, 'without the rule it would still wait for 09:30');
+  });
+
+  await check('zman: with no clock, or no time that day, the row has the rule and no time (zman.at null) and falls back to the reminder time; a timed override of it is a fixed time and carries no rule', () => {
+    for (const clock of [null, undefined, clockAt(null)]) {
+      const r = toRangeDays([zmanItem('z4', '2026-10-16')], TODAY, '2026-10-17', IL, NOW, TODAY, '07:30', clock)[0].items[0].reminder;
+      assert(r?.zman?.at === null && JSON.stringify(r?.zman?.spec) === JSON.stringify(SHEMA_RULE), `zman ${JSON.stringify(r?.zman)}`);
+      assert(r?.dueAt === fromZonedTime('2026-10-16 07:30:00', IL).toISOString(), `dueAt ${r?.dueAt}`);
+    }
+    const timed = toRangeDays([zmanItem('z5', utc('2026-10-16 14:00', IL))], TODAY, '2026-10-17', IL, NOW, TODAY, undefined, clockAt(zmanAt))[0].items[0];
+    assert(timed.reminder?.zman === undefined && timed.reminder?.dueAt === utc('2026-10-16 14:00', IL), `timed ${JSON.stringify(timed.reminder)}`);
+    const plain = toRangeDays([reminder('z6', 'Plain', '2026-10-16')], TODAY, '2026-10-17', IL, NOW, TODAY, undefined, clockAt(zmanAt))[0].items[0];
+    assert(plain.reminder?.zman === undefined && plain.reminder?.dueAt === '2026-10-16T06:00:00.000Z', 'a plain reminder is untouched');
+  });
+
+  await check('zman: a carry-over (an older open one) is due at ITS day\'s zman time; its "open since" is that day', () => {
+    const yesterday = '2026-10-15';
+    const clock = { source: 'saved' as const, instant: (day: string) => (day === yesterday ? new Date(fromZonedTime('2026-10-15 23:50:00', IL)) : null), opinion: () => null };
+    const item = zmanItem('z7', yesterday);
+    const dto = toCarryOverDto(item, IL, NOW, '07:30', clock);
+    assert(dto.reminder?.dueAt === fromZonedTime('2026-10-15 23:50:00', IL).toISOString() && dto.reminder?.openSince === yesterday, `${dto.reminder?.dueAt} ${dto.reminder?.openSince}`);
+    assert(dto.reminder?.zman?.at === dto.reminder?.dueAt, 'zman.at is that time');
+  });
+
   // ---- compareItems ----
 
   await check('compareItems: all-day first, then start instant, end, FamCal before Google, title, key', () => {

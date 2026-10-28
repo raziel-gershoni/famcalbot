@@ -19,6 +19,8 @@ import { TIMEZONE } from '../../config/constants';
 import { alertChoiceOf, alertColumns, type AlertChoice } from '../../lib/calendar-view/alert-leads';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
+import { readZmanSpec, sameZmanSpec, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
+import { asZmanSpec } from '../zmanim/spec';
 import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
 import { getActivePartnerSummary, recipientIds } from '../native-reminders/ownership';
 import { ensurePrimaryNativeCalendar } from './onboarding';
@@ -365,6 +367,8 @@ export interface CreateNativeEventInput {
   forBoth?: boolean;
   /** With forBoth: each of them marks their own Done (kept false otherwise). */
   eachMarksDone?: boolean;
+  /** A reminder by zman: its rule. Only on a date-only reminder (allDay); refused on anything else. */
+  zmanSpec?: ZmanSpecValue | null;
 }
 
 /**
@@ -414,17 +418,48 @@ export class NativeFixedDaysError extends Error {
 /**
  * A series-level change (a new rule, calendar, alert or recipient) asked for a scope that can't
  * carry it (3b spec §3.1): 'single' on a series, a new rule for 'all', or a calendar move
- * of a reminder, an alert for a reminder, or the "each marks their own Done" switch where the reminder is not
- * for both partners. `field` names what the home answers 400 for.
+ * of a reminder, an alert for a reminder, the "each marks their own Done" switch where the reminder is not
+ * for both partners, or a zman rule that is not one, on an event, or on a reminder with a time of day.
+ * `field` names what the home answers 400 for.
  */
 export class NativeScopeError extends Error {
   constructor(
-    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone',
+    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone' | 'zmanSpec',
     message = 'This change cannot apply to that scope'
   ) {
     super(message);
     this.name = 'NativeScopeError';
   }
+}
+
+/**
+ * The Json column a zman rule is written as: the rule, or a database NULL (Prisma writes a null Json with
+ * Prisma.DbNull, never a plain null).
+ */
+function zmanColumn(spec: ZmanSpecValue | null): Prisma.InputJsonObject | typeof Prisma.DbNull {
+  return spec ? { ...spec } : Prisma.DbNull;
+}
+
+/**
+ * A zman rule as the store keeps it: one this build knows (a known zman or halachic hours), and only on a
+ * date-only reminder, the reminder having no time of its own then. Throws NativeScopeError('zmanSpec') for a rule
+ * that is not one, or on a timed reminder.
+ */
+function storableZmanSpec(spec: ZmanSpecValue | null | undefined, allDay: boolean): ZmanSpecValue | null {
+  if (spec === null || spec === undefined) return null;
+  const known = asZmanSpec(spec);
+  if (!known) throw new NativeScopeError('zmanSpec', 'Not a zman rule');
+  if (!allDay) throw new NativeScopeError('zmanSpec', 'A reminder by zman has no time of its own: it is date-only');
+  return known;
+}
+
+/**
+ * The rule a reminder has once an edit is applied: the edit's (null clears it), else the stored one, and none at all
+ * when the reminder is given a time of day (`allDayAfter` false): a timed reminder is a fixed time.
+ */
+function zmanAfter(series: Pick<NativeEvent, 'zmanSpec'>, input: Pick<UpdateNativeEventInput, 'zmanSpec'>, allDayAfter: boolean): ZmanSpecValue | null {
+  if (!allDayAfter) return null;
+  return input.zmanSpec !== undefined ? input.zmanSpec : readZmanSpec(series.zmanSpec);
 }
 
 /** A recipient other than the creator or their ACTIVE partner on the built-in calendar and Telegram. */
@@ -495,6 +530,9 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
 
   // A reminder pings through its own pass: it has no alert (as an update refuses one).
   if (isReminder && input.alert !== undefined && input.alert !== 'default') throw new NativeScopeError('alert');
+  // A rule by zman is for a date-only reminder; an event has none.
+  if (!isReminder && input.zmanSpec != null) throw new NativeScopeError('zmanSpec', 'Only a reminder is set by zman');
+  const zmanSpec = isReminder ? storableZmanSpec(input.zmanSpec, input.allDay ?? false) : null;
   const event = await eventWrite(isReminder ? 'REMINDER' : 'EVENT', async (db) => {
     const created = await db.nativeEvent.create({
       data: {
@@ -520,6 +558,7 @@ export async function createNativeEvent(input: CreateNativeEventInput): Promise<
             forBoth: input.forUserId != null && input.forBoth === true,
             // Each marks their own Done means something only for both partners.
             eachMarksDone: input.forUserId != null && input.forBoth === true && input.eachMarksDone === true,
+            ...(zmanSpec ? { zmanSpec: zmanColumn(zmanSpec) } : {}),
             armedAt: new Date(),
           }
           : {}),
@@ -679,6 +718,13 @@ export interface UpdateNativeEventInput {
    * changes it. A change of it clears every open occurrence's partial per-person Done, in place.
    */
   eachMarksDone?: boolean;
+  /**
+   * A reminder's rule by zman: a rule sets it, null takes it away (the reminder is then date-only at the reminder
+   * time, or has the time this edit gives it). Series-level, so with 'single' on a series it is refused. A reminder
+   * given a time of day (allDay false) loses it whatever this says. An occurrence moved on its own to a time of
+   * its own (scope 'single' with a start and allDay false) is a fixed-time override: it needs no change here.
+   */
+  zmanSpec?: ZmanSpecValue | null;
 }
 
 /** A ping message whose buttons a reminder's time change made stale. */
@@ -1016,6 +1062,8 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
   }
   // The switch alone: no change when it is what the series has (with a recipient change it is recomputed from the pair).
   if (out.eachMarksDone !== undefined && out.forUserId === undefined && out.eachMarksDone === series.eachMarksDone) delete out.eachMarksDone;
+  // The same rule (or none, for one that has none) is no change.
+  if (out.zmanSpec !== undefined && sameZmanSpec(out.zmanSpec, readZmanSpec(series.zmanSpec))) delete out.zmanSpec;
   return out;
 }
 
@@ -1032,7 +1080,7 @@ async function checkSeriesFields(
   actor: Pick<User, 'id' | 'pairingId'>,
   input: UpdateNativeEventInput
 ): Promise<void> {
-  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined || input.eachMarksDone !== undefined;
+  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined || input.eachMarksDone !== undefined || input.zmanSpec !== undefined;
   if (!seriesLevel) return;
   if (series.rrule) {
     // An occurrence has no rule, calendar, alert or recipient of its own.
@@ -1074,6 +1122,11 @@ async function checkSeriesFields(
     // It means something only for a reminder for both partners: the one the save leaves, or the stored one.
     const bothAfter = input.forUserId !== undefined ? input.forBoth === true && input.forUserId !== null : series.forBoth;
     if (input.eachMarksDone && !bothAfter) throw new NativeScopeError('eachMarksDone', 'Each marks their own Done only on a reminder for both partners');
+  }
+  if (input.zmanSpec !== undefined) {
+    if (!isReminder) throw new NativeScopeError('zmanSpec', 'Only a reminder is set by zman');
+    // A rule needs a date-only reminder after this save: the edit's allDay, else the series' own.
+    storableZmanSpec(input.zmanSpec, input.allDay ?? series.allDay);
   }
 }
 
@@ -1119,7 +1172,11 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
   const start = input.startsAt ?? occ.startsAt;
   const end = input.endsAt ?? (input.startsAt ? new Date(start.getTime() + (occ.endsAt.getTime() - occ.startsAt.getTime())) : occ.endsAt);
   const times = isReminder ? normalizeReminderTimes(start, allDay, tz) : { startsAt: start, endsAt: end };
-  const moved = times.startsAt.getTime() !== occ.startsAt.getTime() || allDay !== occ.allDay;
+  // A reminder by zman keeps its rule only while the one-off is date-only; a new rule (or none) is the edit's.
+  const zmanSpec = isReminder ? zmanAfter(series, input, allDay) : null;
+  // (An occurrence moved on its own to a time of its own is a fixed time: it had no rule to lose.)
+  const zmanChanged = isReminder && !sameZmanSpec(zmanSpec, occ.allDay ? readZmanSpec(series.zmanSpec) : null);
+  const moved = times.startsAt.getTime() !== occ.startsAt.getTime() || allDay !== occ.allDay || zmanChanged;
   const reassign = isReminder && input.forUserId !== undefined;
   const eachMarksDone = isReminder && (reassign ? input.forBoth === true && input.eachMarksDone === true : (input.eachMarksDone ?? series.eachMarksDone));
   // The alert the one-off ends up with: the edit's, else the series' own.
@@ -1133,7 +1190,7 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
     allDay,
     calendarId: input.calendarId ?? series.calendarId,
     ...(isReminder
-      ? { forUserId: reassign ? input.forUserId! : series.forUserId, forBoth: reassign ? input.forBoth === true : series.forBoth, eachMarksDone, armedAt: moved ? new Date() : series.armedAt }
+      ? { forUserId: reassign ? input.forUserId! : series.forUserId, forBoth: reassign ? input.forBoth === true : series.forBoth, eachMarksDone, zmanSpec: zmanColumn(zmanSpec), armedAt: moved ? new Date() : series.armedAt }
       : {}),
   };
   const pings = { clearedPings: [] as ClearedPing[], changedPings: [] as ClearedPing[], reassignedPings: [] as ClearedPing[] };
@@ -1538,6 +1595,9 @@ async function updateNativeReminder(
     const cut = input.instanceStartsAt;
     const edit = reminderTimeEdit({ startsAt: cut, allDay: series.allDay }, input, series.timeZone);
     const target = edit ?? { startsAt: cut, endsAt: cut, allDay: series.allDay, changed: false };
+    // A reminder by zman: the rule the new part has (none once it is given a time of day), and whether that is a change.
+    const specNow = zmanAfter(series, input, target.allDay);
+    const specChanged = !sameZmanSpec(specNow, readZmanSpec(series.zmanSpec));
     const pair = tailPair(series, input, cut, target.startsAt);
     const rrule = tailRule(series, cut, target.startsAt, newRule, pair, input.endGiven);
     const shape: NativeEvent = { ...series, ...pair, rrule, startsAt: target.startsAt, endsAt: target.endsAt, allDay: target.allDay };
@@ -1549,7 +1609,7 @@ async function updateNativeReminder(
     };
     // A new time starts the occurrences afresh; so does a new rule, which may make some in
     // the past: armed from now, those don't ping (3b spec §3.1, Re-arm).
-    const armedAt = target.changed || newRule !== undefined ? new Date() : series.armedAt;
+    const armedAt = target.changed || specChanged || newRule !== undefined ? new Date() : series.armedAt;
     const key = (seriesId: string) => ({ seriesId, slot: target.startsAt });
     /**
      * The state of the occurrences from the cut, once they belong to `seriesId`: all gone
@@ -1558,7 +1618,11 @@ async function updateNativeReminder(
      */
     const settleStates = async (tx: Prisma.TransactionClient, seriesId: string, since?: Date) => {
       const where = { seriesEventId: series.id, ...(since ? { originalStartsAt: { gte: since } } : {}) };
-      if (target.changed) return takeStates(tx, where, reassign, newRule !== undefined ? { slotOf, shape } : undefined);
+      // A new rule by zman moves no occurrence: their pings read "changed", not "moved to <day>".
+      if (target.changed || specChanged) {
+        const taken = await takeStates(tx, where, reassign, newRule !== undefined ? { slotOf, shape } : undefined);
+        return target.changed ? taken : readAsChanged(taken);
+      }
       const changedPings = newRule !== undefined || seriesId === series.id
         ? await keepYieldedStates(tx, { fromSeries: series.id, toSeries: seriesId, since, shape })
         : (await tx.nativeReminderState.updateMany({ where, data: { seriesEventId: seriesId } }), []);
@@ -1585,6 +1649,7 @@ async function updateNativeReminder(
             forUserId,
             forBoth,
             eachMarksDone,
+            zmanSpec: zmanColumn(specNow),
           },
         });
         await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf, shape, dropOverrides: target.changed, clear: target.changed ? {} : cleared });
@@ -1616,6 +1681,7 @@ async function updateNativeReminder(
           forUserId,
           forBoth,
           eachMarksDone,
+          zmanSpec: zmanColumn(specNow),
           armedAt,
           // The occurrences skipped after the cut stay skipped, keyed where they went.
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),
@@ -1651,8 +1717,13 @@ async function updateNativeReminder(
   const edit = reminderTimeEdit({ startsAt: series.startsAt, allDay: series.allDay }, input, series.timeZone);
   // A one-off that starts repeating keeps its row, and its state at its start.
   const startsRepeating = !!input.rrule && !series.rrule;
+  // A reminder by zman: the rule once this is applied (none once the reminder is given a time of day).
+  const specNow = zmanAfter(series, input, edit?.allDay ?? series.allDay);
+  const specChanged = !sameZmanSpec(specNow, readZmanSpec(series.zmanSpec));
   // The occurrences move when the start does, or when a Hebrew series' anchor does with its start staying (movesAnchor).
-  const changed = Boolean(edit?.changed) || movesAnchor(series, input);
+  const moves = Boolean(edit?.changed) || movesAnchor(series, input);
+  // They start afresh also when the rule by zman changed: each is due at another time.
+  const changed = moves || specChanged;
   // Where every occurrence goes then (seriesMoved).
   const moved = edit && changed && series.rrule ? seriesMoved(series, input, edit) : undefined;
   const pings = await prisma.$transaction(async (tx) => {
@@ -1667,6 +1738,7 @@ async function updateNativeReminder(
         ...(startsRepeating ? { rrule: input.rrule, ...startingPair(input, edit?.startsAt ?? series.startsAt, series.timeZone) } : {}),
         ...(reassign ? { forUserId, forBoth } : {}),
         ...(reassign || eachChanged ? { eachMarksDone } : {}),
+        ...(specChanged ? { zmanSpec: zmanColumn(specNow) } : {}),
       },
     });
     if (!changed) {
@@ -1686,13 +1758,23 @@ async function updateNativeReminder(
       });
       await moveInstances(tx, { fromSeries: series.id, toSeries: series.id, slotOf: moved.slotOf, shape: moved.shape, dropOverrides: true, clear: {} });
     }
-    return takeStates(tx, { seriesEventId: series.id }, reassign);
+    const taken = await takeStates(tx, { seriesEventId: series.id }, reassign);
+    // Only the rule by zman changed: nothing moved to another day, the pings read "changed".
+    return moves ? taken : readAsChanged(taken);
   });
   // The opened occurrence is where its slot went (the series' first, when none was given).
   const opened = input.instanceStartsAt ?? series.startsAt;
   const start = edit?.startsAt ?? series.startsAt;
   const slot = startsRepeating ? start : !series.rrule ? null : moved ? moved.opened : opened;
   return resultOf(encodeEventId(series.id), { seriesId: series.id, slot }, pings);
+}
+
+/**
+ * The pings of occurrences a change of the rule by zman cleared, worded as a change: they were not moved to another
+ * day or time ("moved to <when>" would be wrong), their time is worked out again.
+ */
+function readAsChanged<T extends { clearedPings: ClearedPing[]; changedPings: ClearedPing[] }>(taken: T): T {
+  return { ...taken, clearedPings: [], changedPings: [...taken.changedPings, ...taken.clearedPings] };
 }
 
 /**

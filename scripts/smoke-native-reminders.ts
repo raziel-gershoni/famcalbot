@@ -458,6 +458,7 @@ function reset() {
   db.pings = [];
   queries.length = 0;
   pauseLines = [];
+  zmanLines = [];
   sent = [];
   sendFailures = [];
   sendCalls = 0;
@@ -547,6 +548,8 @@ const stateOf = (seriesEventId: unknown, originalStartsAt: Date, userId?: number
 
 /** The "[pause] skipped ..." lines the passes logged since reset(). */
 let pauseLines: string[] = [];
+/** The "[zmanim] ..." warnings the passes logged since reset(). */
+let zmanLines: string[] = [];
 
 async function quiet<T>(fn: () => Promise<T>): Promise<T> {
   const { log, warn } = console;
@@ -554,7 +557,10 @@ async function quiet<T>(fn: () => Promise<T>): Promise<T> {
     const line = args.map(String).join(' ');
     if (line.startsWith('[pause]')) pauseLines.push(line);
   };
-  console.warn = () => {};
+  console.warn = (...args: unknown[]) => {
+    const line = args.map(String).join(' ');
+    if (line.startsWith('[zmanim]')) zmanLines.push(line);
+  };
   try {
     return await fn();
   } finally {
@@ -1690,6 +1696,170 @@ async function main() {
     queries.length = 0;
     await pass(at(`${SAT} 10:00`, MSK));
     assert(sent.length === 1 && sent[0].chatId === '1003' && pauseLines.length === 0, `${sentLines()} ${show(pauseLines)}`);
+  });
+
+
+  // ---- Reminders by zman (plan 2026-10-28-zmanim-reminders, Task 3) ----
+  // A date-only reminder carrying a zmanSpec is due at the zman at each RECIPIENT's place, on its date; a timed occurrence
+  // of it (moved on its own to a time) is a fixed time; a zman that does not exist that day is skipped and logged once.
+
+  const { zmanInstant } = await import('../src/services/zmanim/compute');
+  const { __resetZmanClockForTests } = await import('../src/services/zmanim/reminder-times');
+  const { __resetWarnOnceForTests } = await import('../src/services/zmanim/once');
+  type SpecT = { zman: string; offsetMin: number } | { halachicHours: number; offsetMin: number };
+  const TEL_AVIV = { latitude: 32.0853, longitude: 34.7818, elevationM: 20 };
+  const EILAT = { latitude: 29.5577, longitude: 34.9519, elevationM: 10 };
+  const SHEMA_10: SpecT = { zman: 'SOF_SHMA_GRA', offsetMin: -10 };
+  const where = (userId: number, place: { latitude: number; longitude: number; elevationM: number }, community = 'sephardi') =>
+    Object.assign(db.users.find((u) => u.id === userId)!, { ...place, zmanimCommunity: community });
+  /** The instant the rule is due at a place, from the calculator itself. */
+  const dueAtPlace = (day: string, spec: SpecT, place: { latitude: number; longitude: number; elevationM: number }, zone = IL, community: 'sephardi' | 'ashkenazi' | 'chabad' = 'sephardi') => {
+    const at = zmanInstant(day, spec as never, { ...place, timeZone: zone }, community);
+    assert(at !== null, `no ${show(spec)} on ${day}`);
+    return at as Date;
+  };
+  const DAY = '2026-10-15';
+
+  await check('zman: a date-only reminder by zman pings at its zman time at the person\'s place (not at 09:00): nothing a minute before, one ping at the minute, none again; the gate\'s nextDue is that time', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV);
+    const r = dateOnly(DAY, { zmanSpec: SHEMA_10 });
+    const instant = dueAtPlace(DAY, SHEMA_10, TEL_AVIV);
+    assert(instant.getTime() > today('09:00').getTime() + 10 * MIN, `Shema is well after 09:00 here: ${instant.toISOString()}`);
+    await pass(today('09:00'));
+    assert(sent.length === 0, `a plain reminder would have pinged at 09:00: ${sentLines()}`);
+    const before = await pass(new RealDate(instant.getTime() - MIN));
+    assert(sent.length === 0, `a minute early: ${sentLines()}`);
+    assertTime(before.nextDue, instant, 'nextDue');
+    await pass(instant);
+    assert(sent.length === 1 && sent[0].chatId === '1001' && sent[0].text.includes('Call the plumber'), `at the minute: ${sentLines()}`);
+    await pass(new RealDate(instant.getTime() + 30 * MIN));
+    assert(sent.length === 1, `not again: ${sentLines()}`);
+    assert(!!stateOf(r.id, startOfLocalDay(DAY, IL)), 'its state is keyed by the occurrence, not by the zman time');
+  });
+
+  await check('zman: a reminder for both partners in two cities gets each their own time: Raziel (Tel Aviv) and Dana (Eilat) are pinged at their own latest time for Shema', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV); where(2, EILAT);
+    dateOnly(DAY, { zmanSpec: SHEMA_10, forUserId: 2, forBoth: true });
+    const raziel = dueAtPlace(DAY, SHEMA_10, TEL_AVIV);
+    const dana = dueAtPlace(DAY, SHEMA_10, EILAT);
+    assert(raziel.getTime() !== dana.getTime(), `the two cities should differ: ${raziel.toISOString()} ${dana.toISOString()}`);
+    const [first, second] = raziel < dana ? [raziel, dana] : [dana, raziel];
+    const firstChat = raziel < dana ? '1001' : '1002';
+    const secondChat = raziel < dana ? '1002' : '1001';
+    await pass(first);
+    assert(sent.length === 1 && sent[0].chatId === firstChat, `the earlier city first: ${sentLines()}`);
+    await pass(new RealDate(second.getTime() - MIN));
+    assert(sent.length === 1, `the other not yet: ${sentLines()}`);
+    await pass(second);
+    assert(sent.length === 2 && sent[1].chatId === secondChat, `then the other: ${sentLines()}`);
+  });
+
+  await check('zman: the DST day through the resolver: on Oct 25 (clocks back) the reminder is due at the calculator\'s instant, in the winter offset', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV);
+    dateOnly('2026-10-25', { zmanSpec: { zman: 'MISHEYAKIR', offsetMin: 0 } });
+    const instant = dueAtPlace('2026-10-25', { zman: 'MISHEYAKIR', offsetMin: 0 }, TEL_AVIV);
+    assert(instant.toISOString().endsWith('Z') && instant.getTime() > new RealDate('2026-10-25T02:00:00Z').getTime() && instant.getTime() < new RealDate('2026-10-25T05:00:00Z').getTime(), `${instant.toISOString()}`);
+    await pass(new RealDate(instant.getTime() - MIN));
+    assert(sent.length === 0, 'early');
+    await pass(instant);
+    assert(sent.length === 1, `due: ${sentLines()}`);
+  });
+
+  await check('zman: an occurrence moved on its own to a time (a fixed-time override) pings at that time, not at the zman; the other days of the series stay by zman', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV);
+    const daily = dateOnly('2026-10-14', { zmanSpec: SHEMA_10, rrule: 'FREQ=DAILY', armedAt: at('2026-10-13 12:00') });
+    db.instances.push({
+      id: 'ov-zman', seriesEventId: daily.id, originalStartsAt: startOfLocalDay(DAY, IL), status: 'OVERRIDE', title: null, description: null,
+      location: null, startsAt: today('14:00'), endsAt: today('14:00'), allDay: false, createdAt: at('2026-10-14 12:00'), updatedAt: at('2026-10-14 12:00'),
+    });
+    const zman14 = dueAtPlace('2026-10-14', SHEMA_10, TEL_AVIV);
+    const zman15 = dueAtPlace(DAY, SHEMA_10, TEL_AVIV);
+    await pass(zman14);
+    assert(sent.length === 1, `the 14th by zman: ${sentLines()}`);
+    await pass(zman15);
+    assert(sent.length === 1, `the 15th is a fixed 14:00, not the zman: ${sentLines()}`);
+    await pass(today('14:00'));
+    assert(sent.length === 2, `the 15th at 14:00: ${sentLines()}`);
+  });
+
+  await check('zman: a snooze is a fixed time: snoozed 15 minutes it wakes at snoozedUntil, not at the zman', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV);
+    const r = dateOnly(DAY, { zmanSpec: SHEMA_10 });
+    const instant = dueAtPlace(DAY, SHEMA_10, TEL_AVIV);
+    await pass(instant);
+    assert(sent.length === 1, 'pinged');
+    const wake = new RealDate(instant.getTime() + 15 * MIN);
+    stateOf(r.id, startOfLocalDay(DAY, IL))!.snoozedUntil = wake;
+    await pass(new RealDate(wake.getTime() - MIN));
+    assert(sent.length === 1, 'not yet');
+    await pass(wake);
+    assert(sent.length === 2, `woke at the snooze: ${sentLines()}`);
+  });
+
+  await check('zman: no place at all (a zone with no main city): the occurrence is skipped, not pinged at 09:00, logged ONCE however many ticks; the rest of the pass is unharmed', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    timezones[1] = 'Pacific/Auckland';
+    Object.assign(db.users[0], { location: '', latitude: null, longitude: null, elevationM: null });
+    dateOnly(DAY, { zmanSpec: SHEMA_10 }, 'Pacific/Auckland');
+    reminder({ startsAt: today('10:00'), creatorUserId: 2, calendarId: 'cal-1', title: 'Other' });
+    const r = await pass(today('10:00'));
+    await pass(today('10:05'));
+    await pass(today('10:10'));
+    assert(sent.length === 1 && sent[0].chatId === '1002' && sent[0].text.includes('Other'), `only the other: ${sentLines()}`);
+    assert(r.skipped >= 1, `skipped ${r.skipped}`);
+    assert(zmanLines.filter((l) => l.includes('skipped for user 1')).length === 1, `logged once: ${show(zmanLines)}`);
+    assert(zmanLines.some((l) => l.includes('has no main city')), `and why: ${show(zmanLines)}`);
+  });
+
+  await check('zman: no saved place but a zone with a main city: counted at Jerusalem for Israel (logged), and a place the sun cannot make the zman at (Svalbard in June, Ashkenazi) skips that day, logged once', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    Object.assign(db.users[0], { location: '', latitude: null, longitude: null, elevationM: null });
+    dateOnly(DAY, { zmanSpec: SHEMA_10 });
+    const jerusalem = dueAtPlace(DAY, SHEMA_10, { latitude: 31.778, longitude: 35.235, elevationM: 786 });
+    await pass(jerusalem);
+    assert(sent.length === 1 && zmanLines.some((l) => l.includes('main city of Asia/Jerusalem')), `${sentLines()} ${show(zmanLines)}`);
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    timezones[1] = 'Arctic/Longyearbyen';
+    where(1, { latitude: 78.22, longitude: 15.65, elevationM: 0 }, 'ashkenazi');
+    dateOnly('2026-06-21', { zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: 0 }, armedAt: at('2026-06-20 12:00', 'Arctic/Longyearbyen') }, 'Arctic/Longyearbyen');
+    await pass(at('2026-06-21 12:00', 'Arctic/Longyearbyen'));
+    await pass(at('2026-06-21 12:01', 'Arctic/Longyearbyen'));
+    assert(sent.length === 0, `the midnight sun: ${sentLines()}`);
+    assert(zmanLines.filter((l) => l.includes('skipped for user 1')).length === 1, `logged once: ${show(zmanLines)}`);
+  });
+
+  await check('zman: a snooze wakes at its own time even where the zman has no time that day (the midnight sun): a snoozed occurrence is a fixed time, never skipped for want of a zman', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    const SV = 'Arctic/Longyearbyen';
+    timezones[1] = SV;
+    where(1, { latitude: 78.22, longitude: 15.65, elevationM: 0 }, 'ashkenazi');
+    const r = dateOnly('2026-06-21', { zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: 0 }, armedAt: at('2026-06-20 12:00', SV) }, SV);
+    state({ seriesEventId: r.id, originalStartsAt: startOfLocalDay('2026-06-21', SV), snoozedUntil: at('2026-06-21 12:00', SV), lastPingedAt: at('2026-06-21 11:00', SV), pingAttempts: 1 });
+    await pass(at('2026-06-21 11:59', SV));
+    assert(sent.length === 0, 'not yet');
+    await pass(at('2026-06-21 12:00', SV));
+    assert(sent.length === 1, `the snooze woke: ${sentLines()}`);
+    assert(zmanLines.length === 0, `and was not logged as a missing zman: ${show(zmanLines)}`);
+  });
+
+  await check('zman: a plain reminder is untouched by all this: still due at 09:00; a reminder made timed (the rule dropped by the store) is a fixed time', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV);
+    dateOnly(DAY);
+    await pass(today('08:59'));
+    assert(sent.length === 0, 'not before 09:00');
+    await pass(today('09:00'));
+    assert(sent.length === 1, `at 09:00: ${sentLines()}`);
+    reset();
+    where(1, TEL_AVIV);
+    reminder({ startsAt: today('16:00') });
+    await pass(today('16:00'));
+    assert(sent.length === 1, 'a timed one');
   });
 
   let failed = 0;

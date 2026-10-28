@@ -7,6 +7,7 @@
 // start, and a date-only reminder is an all-day one.
 
 import type { AlertChoice } from './alert-leads';
+import type { TimeMode, ZmanSpecValue, ZmanimInfo } from './zman-spec';
 
 export const TITLE_MAX = 200;
 export const LOCATION_MAX = 200;
@@ -91,6 +92,11 @@ export interface EditorInfoResponse {
   alertsOn: boolean;
   /** The user's default lead in minutes (0 = at start): what "Default" means in the Alert row. */
   defaultLead: number;
+  /**
+   * What a reminder by zman needs: the person's community, where their times are counted from, and today's time of each
+   * zman their set offers. Absent when reminders are not available, or when it could not be worked out.
+   */
+  zmanim?: ZmanimInfo;
 }
 
 /** How a series repeats, as its rule says; the client words it ("Every Tuesday"). */
@@ -192,6 +198,12 @@ export interface ItemEditInfoResponse {
   /** A reminder: each of the two partners marks their own Done (only ever on for a reminder for both). Absent for an event. */
   eachMarksDone?: boolean;
   /**
+   * A reminder: 'zman' while this occurrence is date-only and the series has a rule by zman, else 'time'. `zmanSpec` is the
+   * series' rule whenever it has one (even for an occurrence moved to a time of its own, so switching back finds it). Absent for an event.
+   */
+  timeMode?: TimeMode;
+  zmanSpec?: ZmanSpecValue;
+  /**
    * An event's alert (editor upgrades spec §2): 'default', 'none' or its lead in minutes (a
    * migrated one may be off the list). Absent for a reminder. A Google item's is its own
    * reminders' nearest lead, or 'default' when it has none, read-only (`alertReadOnly`).
@@ -231,6 +243,9 @@ export interface CreateItemBody {
   forWho?: ForWho;
   /** A reminder for both partners only: each marks their own Done; omitted = one Done covers both. */
   eachMarksDone?: boolean;
+  /** A reminder only: 'zman' makes its time a zman plus an offset (with `zmanSpec`; allDay is then true); omitted = 'time'. */
+  timeMode?: TimeMode;
+  zmanSpec?: ZmanSpecValue;
   /** Timed FamCal events only; omitted = the default (editor upgrades spec §2). */
   alert?: AlertChoice;
 }
@@ -260,6 +275,12 @@ export interface UpdateItemBody {
     forWho?: ForWho;
     /** A reminder for both partners: whether each marks their own Done (series-level, so a scope plan). */
     eachMarksDone?: boolean;
+    /**
+     * A reminder's time: 'zman' (with `zmanSpec`, and allDay true) or 'time' (takes the rule away). Series-level, so a scope plan,
+     * except 'time' with a time of day on one occurrence of a series, which moves that occurrence to a fixed time.
+     */
+    timeMode?: TimeMode;
+    zmanSpec?: ZmanSpecValue;
     /** An event's alert, from this occurrence on like the calendar (series-level); a FamCal event only. */
     alert?: AlertChoice;
   };

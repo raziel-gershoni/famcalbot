@@ -542,6 +542,34 @@ async function main() {
     }
   });
 
+  await check('(q) the zmanim community (Task 3): a known one is saved and named in settings_changed (never its value) and wakes the reminder gate (every reminder by zman is due at other times); the same one changes nothing; anything else is 400 and writes nothing', async () => {
+    const gate = nodeRequire(path.join(ROOT, 'src/services/native-reminders/due-gate.ts')) as { shouldRunPass: (now: Date) => boolean; setNextDue: (next: Date | null, now: Date) => void; __resetDueGateForTests: () => void };
+    const closeGate = () => {
+      gate.__resetDueGateForTests();
+      gate.setNextDue(new Date(Date.now() + 30 * 60_000), new Date());
+      assert(!gate.shouldRunPass(new Date()), 'the gate did not close');
+    };
+    seed();
+    userRow.zmanimCommunity = 'sephardi';
+    closeGate();
+    const res = await save({ zmanimCommunity: 'chabad' });
+    assert(res.status === 200 && userRow.zmanimCommunity === 'chabad', `saved: ${res.status} ${show(userRow.zmanimCommunity)}`);
+    const changed = activities.filter(a => a.type === 'settings_changed');
+    assert(changed.length === 1 && show(changed[0].meta) === show({ changed_fields: ['zmanimCommunity'] }) && !show(activities).includes('chabad'), `analytics ${show(activities)}`);
+    assert(gate.shouldRunPass(new Date()), 'the gate was not woken');
+    closeGate();
+    activities.length = 0;
+    const same = await save({ zmanimCommunity: 'chabad' });
+    assert(same.status === 200 && activities.length === 0 && !gate.shouldRunPass(new Date()), `the same community: ${same.status} ${show(activities)}`);
+    for (const bad of ['karaite', 'SEPHARDI', '', 5, null, ['chabad']]) {
+      const before = show(userRow);
+      const r = await save({ zmanimCommunity: bad });
+      assert(r.status === 400 && show(userRow) === before, `${show(bad)}: ${r.status}`);
+    }
+    const untouched = await save({ language: 'he' });
+    assert(untouched.status === 200 && userRow.zmanimCommunity === 'chabad', 'a save without the field leaves it');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

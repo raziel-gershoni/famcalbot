@@ -29,6 +29,8 @@ export interface SettingsValues {
   voiceInputEnabled: boolean;
   /** Pause every scheduled message from candle lighting to the end of Shabbat or Yom Tov (src/services/zmanim/pause.ts). */
   pauseOnShabbat: boolean;
+  /** Whose zmanim the person follows: 'sephardi' | 'ashkenazi' | 'chabad' (src/services/zmanim/sets.ts COMMUNITIES). */
+  zmanimCommunity: string;
 }
 
 /** The values a page's props carry (the server's saved ones): a user with no alert lead yet starts the list on 15. */
@@ -59,6 +61,7 @@ export function buildSettingsBody(values: SettingsValues, nativeRemindersSupport
     pickupRemindersEnabled: values.pickupRemindersEnabled,
     voiceInputEnabled: values.voiceInputEnabled,
     pauseOnShabbat: values.pauseOnShabbat,
+    zmanimCommunity: values.zmanimCommunity,
     initData,
   };
 }
@@ -86,7 +89,8 @@ export function sameSettings(a: SettingsValues, b: SettingsValues): boolean {
     a.reminderTime === b.reminderTime &&
     a.pickupRemindersEnabled === b.pickupRemindersEnabled &&
     a.voiceInputEnabled === b.voiceInputEnabled &&
-    a.pauseOnShabbat === b.pauseOnShabbat
+    a.pauseOnShabbat === b.pauseOnShabbat &&
+    a.zmanimCommunity === b.zmanimCommunity
   );
 }
 

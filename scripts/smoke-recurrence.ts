@@ -60,6 +60,7 @@ function makeSeries(overrides: Partial<NativeEvent> = {}): NativeEvent {
     forUserId: null,
     forBoth: false,
     eachMarksDone: false,
+    zmanSpec: null,
     armedAt: null,
     isDeleted: false,
     createdAt: now,

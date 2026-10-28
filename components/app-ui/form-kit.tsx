@@ -684,13 +684,17 @@ export function RadioCard({ label, value, options, onChange }: { label: string; 
   );
 }
 
-/** "Every [-] 2 [+] weeks": a number with 44 px buttons at both ends, clamped to min..max; the label before, the unit after. */
+/**
+ * "Every [-] 2 [+] weeks": a number with 44 px buttons at both ends, clamped to min..max; the label before, the unit after.
+ * `step` (1 unless given) is how much a tap moves it: an offset of minutes goes by 5.
+ */
 export function StepperRow({
   label,
   unit,
   value,
   min,
   max,
+  step = 1,
   onChange,
   decLabel,
   incLabel,
@@ -700,6 +704,7 @@ export function StepperRow({
   value: number;
   min: number;
   max: number;
+  step?: number;
   onChange: (value: number) => void;
   decLabel: string;
   incLabel: string;
@@ -710,7 +715,7 @@ export function StepperRow({
         <span>{label}</span>
       </span>
       <span className="ch-stepper" dir="ltr">
-        <button type="button" className="ch-step" aria-label={decLabel} aria-disabled={value <= min || undefined} onClick={() => value > min && onChange(value - 1)}>
+        <button type="button" className="ch-step" aria-label={decLabel} aria-disabled={value <= min || undefined} onClick={() => value > min && onChange(Math.max(min, value - step))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
             <path d="M5 12h14" />
           </svg>
@@ -718,7 +723,7 @@ export function StepperRow({
         <output className="ch-step-value" aria-live="polite">
           {value}
         </output>
-        <button type="button" className="ch-step" aria-label={incLabel} aria-disabled={value >= max || undefined} onClick={() => value < max && onChange(value + 1)}>
+        <button type="button" className="ch-step" aria-label={incLabel} aria-disabled={value >= max || undefined} onClick={() => value < max && onChange(Math.min(max, value + step))}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true" focusable="false">
             <path d="M5 12h14M12 5v14" />
           </svg>

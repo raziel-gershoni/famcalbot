@@ -602,6 +602,15 @@ async function main() {
     }
   });
 
+  await check('#6c page-data settings: the props carry the zmanim community as the row has it', async () => {
+    for (const want of ['sephardi', 'ashkenazi', 'chabad']) {
+      seed();
+      Object.assign(DB.user.find((u: Row) => u.id === 42) as Row, { zmanimCommunity: want });
+      const res = await pageData({ page: 'settings', user_id: 42, locale: 'ru' }, waCookie);
+      assert(res.status === 200 && (await fullBody(res)).includes(`"zmanimCommunity":"${want}"`), `community ${want}: ${await bodyOf(res)}`);
+    }
+  });
+
   await check('#7 page-data settings in the wrong locale: a redirect to /ru/settings?user_id=42, no props', async () => {
     seed();
     const res = await pageData({ page: 'settings', user_id: 42, locale: 'he' }, waCookie);

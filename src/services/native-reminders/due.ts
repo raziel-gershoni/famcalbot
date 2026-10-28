@@ -7,6 +7,7 @@ import { TIMEZONE } from '../../config/constants';
 import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
 import { wallTimeToInstant } from '../../utils/wall-time';
 import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-time';
+import { readZmanSpec, type ZmanClock, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
 
 // Date-only reminders ping at the recipient's reminder time (src/lib/reminder-time.ts,
 // 09:00 unless they chose another), and 💤 Tomorrow wakes at it. Every function here that
@@ -31,28 +32,66 @@ function morningOf(day: string, tz: string, reminderTime?: string | null): Date 
 }
 
 /**
+ * A reminder by zman (NativeEvent.zmanSpec): its rule, and the clock of the person it is counted for. A null clock
+ * (no place can be had) leaves every occurrence without a zman time; the readers then fall back to the reminder
+ * time and the pass skips it. Never stored: the time is worked out here, for the recipient and the day.
+ */
+export interface ZmanRule {
+  spec: ZmanSpecValue;
+  clock: ZmanClock | null;
+}
+
+/** A reminder's rule from its stored spec (a series column, ReminderInfo.zmanSpec), or undefined for a plain reminder. */
+export function zmanRuleOf(rawSpec: unknown, clock: ZmanClock | null | undefined): ZmanRule | undefined {
+  const spec = readZmanSpec(rawSpec);
+  return spec ? { spec, clock: clock ?? null } : undefined;
+}
+
+/**
+ * The one place a zman rule becomes a due time: the person's clock on the occurrence's civil date. Null where the
+ * clock has no time (no place, or the sun does not make that zman that day: the clock has logged it).
+ */
+export function zmanDueAt(day: string, rule: ZmanRule): Date | null {
+  return rule.clock ? rule.clock.instant(day, rule.spec) : null;
+}
+
+/**
+ * An occurrence's zman time: undefined when the rule does not apply to it (a timed occurrence, a moved one given a
+ * time of its own, is a fixed time), the Date when it has one, null when it applies and there is none.
+ */
+export function zmanDueForOccurrence(occ: { startsAt: Date; allDay: boolean; timeZone: string }, rule: ZmanRule): Date | null | undefined {
+  if (!occ.allDay) return undefined;
+  return zmanDueAt(localDate(occ.startsAt, occ.timeZone || TIMEZONE), rule);
+}
+
+/**
  * When an occurrence pings. A timed one at its start. A date-only one at
  * the recipient's reminder time in the recipient's timezone, on the date it has in the
- * event's own timezone, so a partner abroad gets it at their own time of that date.
+ * event's own timezone, so a partner abroad gets it at their own time of that date. A date-only
+ * one of a reminder by zman (`zman`) at its zman time for the recipient's place, on that date; with
+ * no zman time it reads at the reminder time (the pass skips it instead: zmanDueForOccurrence).
  */
 export function dueAtForOccurrence(
   occ: { startsAt: Date; allDay: boolean; timeZone: string },
   recipientTz: string,
-  recipientReminderTime?: string | null
+  recipientReminderTime?: string | null,
+  zman?: ZmanRule
 ): Date {
   if (!occ.allDay) return occ.startsAt;
-  return morningOf(localDate(occ.startsAt, occ.timeZone || TIMEZONE), recipientTz, recipientReminderTime);
+  const day = localDate(occ.startsAt, occ.timeZone || TIMEZONE);
+  return (zman ? zmanDueAt(day, zman) : null) ?? morningOf(day, recipientTz, recipientReminderTime);
 }
 
 /**
  * When a reminder on a digest or the calendar home is due, in the viewer's timezone:
  * its time, or the viewer's reminder time (the ping's) on its date (an all-day start is
- * already the event's own date). Lives here, in this leaf, so the calendar home's pure
+ * already the event's own date), or, for a reminder by zman (`zman`), its zman time on that date
+ * at the viewer's place. Lives here, in this leaf, so the calendar home's pure
  * DTO code can use it without loading Prisma; open-reminders.ts re-exports it.
  */
-export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string, reminderTime?: string | null): Date {
+export function reminderDueAt(event: Pick<CalendarEvent, 'start'>, timezone: string, reminderTime?: string | null, zman?: ZmanRule): Date {
   if (event.start.includes('T')) return new Date(event.start);
-  return morningOf(event.start, timezone, reminderTime);
+  return (zman ? zmanDueAt(event.start, zman) : null) ?? morningOf(event.start, timezone, reminderTime);
 }
 
 /**

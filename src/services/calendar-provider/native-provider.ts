@@ -45,6 +45,7 @@ import { loadViewerContext, recipientIdsForViewer, userDoneAt, viewerSnoozedUnti
 import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
+import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
 import { anniversaryOf } from '../../lib/hebrew-anniversary';
 
 const PROVIDER_NAME = 'native' as const;
@@ -142,6 +143,9 @@ export function reminderInfoFor(
     partnerDone: partnerId !== undefined ? userDoneAt(series, state, partnerId) !== null : null,
     ...(partnerId !== undefined && partnerName(partnerId) ? { partnerName: partnerName(partnerId) } : {}),
   };
+  // A reminder by zman: its rule rides along, and each reader works its time out for the viewer's place (reminderDueAt).
+  const zmanSpec = readZmanSpec(series.zmanSpec);
+  if (zmanSpec) info.zmanSpec = zmanSpec;
   const ownerName = info.ownerIsViewer ? undefined : partnerName(ownerId);
   const creatorName = info.creatorIsViewer ? undefined : partnerName(series.creatorUserId);
   if (ownerName) info.ownerName = ownerName;

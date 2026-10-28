@@ -18,7 +18,8 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { resolveUserTimezone } from '@/src/lib/timezone';
 import { applyReminderAction, type ReminderAction } from '@/src/services/native-reminders/actions';
-import { reminderDueAt } from '@/src/services/native-reminders/due';
+import { reminderDueAt, zmanRuleOf } from '@/src/services/native-reminders/due';
+import { zmanClockIfNeeded } from '@/src/services/zmanim/reminder-clock';
 import { readFamcal } from '@/src/services/calendar-read/famcal';
 import { toItemDto } from '@/src/services/calendar-read/dto';
 import { prisma } from '@/src/utils/prisma';
@@ -82,12 +83,14 @@ async function reminderOf(user: UserConfig, seriesId: string, originalStart: Dat
   const item = items.find((i) => i.seriesId === seriesId && i.originalStart === originalStart.toISOString());
   if (!item) return undefined;
   const tz = await resolveUserTimezone(user);
-  const due = reminderDueAt(item.event, tz, user.reminderTime);
+  // A reminder by zman is due at its zman time at the user's place, as the range route reads it.
+  const zman = zmanRuleOf(item.event.reminder?.zmanSpec, await zmanClockIfNeeded(!!item.event.reminder?.zmanSpec, user, tz));
+  const due = reminderDueAt(item.event, tz, user.reminderTime, zman);
   const done = (item.state?.doneAt ?? null) !== null;
   const open = !done && due < now;
   // Only an older open reminder (a carry-over) has an openSince; today's has none.
   const day = localDate(due, tz);
-  return toItemDto(item, null, { now, open, openSince: open && day < localDate(now, tz) ? day : null, dueAt: due }).reminder;
+  return toItemDto(item, null, { now, open, openSince: open && day < localDate(now, tz) ? day : null, dueAt: due, ...(zman ? { zman } : {}) }).reminder;
 }
 
 export async function POST(request: NextRequest) {
