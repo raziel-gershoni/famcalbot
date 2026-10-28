@@ -13,7 +13,7 @@ import { buildUrl } from '../config/urls';
 import { CalendarAssignment } from '../types';
 import { isFamcalId } from '../utils/calendar-helpers';
 import { decodeCalendarId } from './native-calendar/event-store';
-import { escapeHtml } from '../utils/html';
+import { fillHtml } from '../utils/html';
 import { liveGoogleChoices } from '../lib/google-state';
 
 interface KidNamePending {
@@ -68,7 +68,7 @@ export async function handleKidNameCallback(
 
   if (action === 'kidname_yes') {
     const ruleTemplate = RULE_TEMPLATES[lang] || RULE_TEMPLATES.en;
-    const ruleText = ruleTemplate.replace('{name}', pending.name);
+    const ruleText = ruleTemplate.replace('{name}', () => pending.name);
     const { text: answer, written } = isFamcalId(pending.calendarId)
       ? await confirmOnFamcal(user.id, pending, ruleText, kd)
       : await confirmOnGoogle(user.id, liveGoogleChoices(user), pending, ruleText, kd);
@@ -140,7 +140,7 @@ async function confirmOnGoogle(
     data: { calendarAssignments: assignments as unknown as object[] },
   });
   return {
-    text: kd.confirmed.replace('{calendar}', escapeHtml(assignments[assignmentIndex].name)).replace('{name}', escapeHtml(pending.name)),
+    text: fillHtml(kd.confirmed, { calendar: assignments[assignmentIndex].name, name: pending.name }),
     written: true,
   };
 }
@@ -167,13 +167,13 @@ async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText
   if (calendar.labels.includes('kids') && !calendar.personName?.trim()) {
     await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { personName: pending.name } });
     return {
-      text: (kd.confirmedFamcal || '{calendar} is now {name}\'s calendar').replace('{calendar}', escapeHtml(calendar.name)).replace('{name}', escapeHtml(pending.name)),
+      text: fillHtml(kd.confirmedFamcal || '{calendar} is now {name}\'s calendar', { calendar: calendar.name, name: pending.name }),
       written: true,
     };
   }
   await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { rules: [ruleText] } });
   return {
-    text: (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"').replace('{calendar}', escapeHtml(calendar.name)).replace('{name}', escapeHtml(pending.name)),
+    text: fillHtml(kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"', { calendar: calendar.name, name: pending.name }),
     written: true,
   };
 }

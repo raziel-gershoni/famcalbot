@@ -12,6 +12,15 @@ export function escapeHtml(text: string | null | undefined): string {
   return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * A message template with its {placeholders} filled in one pass, each value escaped for parse_mode 'HTML'. One pass, so a
+ * value that contains "{name}" is never filled again, and a function replacement, so "$&" or "$'" in a value stays text.
+ * A placeholder with no value is left as written.
+ */
+export function fillHtml(template: string, values: Record<string, string | null | undefined>): string {
+  return template.replace(/\{(\w+)\}/g, (whole, key: string) => (key in values ? escapeHtml(values[key]) : whole));
+}
+
 /** The named entities Google descriptions use; anything else is left as written. */
 const NAMED_ENTITIES = new Map<string, string>([
   ['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"], ['nbsp', ' '],

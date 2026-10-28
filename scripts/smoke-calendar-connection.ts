@@ -1196,6 +1196,30 @@ async function main() {
     eq((table('nativeCalendar').find(c => c.id === 'cal-2') as Row).personName, null, 'the partner\'s calendar');
   });
 
+  await check('I10b kid-name: names, event titles and calendar names are escaped for Telegram HTML in the question and in both FamCal answers, and "$&" or "{name}" in one is text', async () => {
+    seed();
+    table('nativeCalendar').push(cal('cal-11', 1, 'Art & <Music>'), cal('cal-12', 1, 'Kids & Co', { labels: ['kids'] }));
+    const { handleKidNameCallback } = await load('src/services/kid-name-callbacks.ts');
+    const { getBotMessages } = await load('src/lib/bot-messages.ts');
+    const t = await getBotMessages('en');
+    for (const [id, template, name] of [['cal-11', t.kidNameDetection.confirmed, 'Art &amp; &lt;Music&gt;'], ['cal-12', t.kidNameDetection.confirmedFamcal, 'Kids &amp; Co']] as const) {
+      botSent.length = 0;
+      redisStore.set(`kidname:pending:kn:${id}`, JSON.stringify({ name: 'Noa $& {name}', calendarId: `native:${id}`, userId: 1 }));
+      await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', `kn:${id}`);
+      const edit = botSent.find(b => b.method === 'editMessageText');
+      const want = String(template).split('{calendar}').join(name).split('{name}').join('Noa $&amp; {name}');
+      assert(edit && edit.args[0] === want, `${id}: edit ${show(edit?.args[0])} (want ${show(want)})`);
+    }
+    // The question, through the real follow-up: the name, the event title and the calendar name are escaped
+    botSent.length = 0;
+    const { sendKidNameFollowUp } = await load('src/services/kid-name-detection.ts');
+    await sendKidNameFollowUp(5550001, await configOf(1), [{ summary: 'Swim & <Art> - Tom', start: '2026-10-21', end: '2026-10-22', calendarId: 'native:cal-11', calendarName: 'Art & <Music>' }]);
+    const question = botSent.find(b => b.method === 'sendMessage');
+    assert(question, `no question was sent: ${show(botSent)}`);
+    const text = String(question.args[1]);
+    assert(text.includes('Swim &amp; &lt;Art&gt; - Tom') && text.includes('Art &amp; &lt;Music&gt;') && !/<Art>|<Music>/.test(text), `not escaped: ${text}`);
+  });
+
   await check('I11 kid-name "yes" on an own FamCal calendar not labelled kids (unlabelled, birthdays) writes the rule with the plain copy, never personName', async () => {
     seed();
     table('nativeCalendar').push(cal('cal-9', 1, 'Family'), cal('cal-10', 1, 'Birthdays', { labels: ['birthdays'] }));
