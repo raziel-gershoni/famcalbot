@@ -566,6 +566,7 @@
       "noFeedback": "No feedback yet",
       "telegram": "Telegram",
       "dashboard": "In the app",
+      "whatsapp": "WhatsApp",
       "paysupport": "Payments",
       "sentAt": "Sent {date}"
     },

@@ -652,7 +652,7 @@ export async function handleNextWeekCommand(
 }
 
 /** Where a feedback message came from: its own column on UserFeedback, and the admin note's "Source". */
-type FeedbackSource = 'telegram' | 'paysupport';
+type FeedbackSource = 'telegram' | 'whatsapp' | 'paysupport';
 
 /**
  * The subscription facts a payment question carries to the admins, so a refund can be made by hand: the person's
@@ -681,29 +681,31 @@ async function paymentFacts(userId: number): Promise<Record<string, string>> {
 
 /**
  * Handle /feedback command (and /paysupport with words, which is the same message under its own source)
- * Allows users to submit feedback via Telegram
+ * Allows users to submit feedback via Telegram or WhatsApp
  * Usage: /feedback <text> (10-1000 characters)
  * Rate limited to 3 submissions per 24 hours, payment questions counted apart from feedback so one never blocks the other
+ * `userId` is the Telegram id (a number) or the WhatsApp phone/BSUID (a string), as getUserByIdentifier reads it.
  */
 export async function handleFeedbackCommand(
-  chatId: number,
-  userId: number,
+  chatId: number | string,
+  userId: number | string,
   feedbackText: string | undefined,
-  options: { source?: FeedbackSource } = {}
+  options: { platform?: MessagingPlatform; source?: FeedbackSource } = {}
 ): Promise<void> {
-  const source = options.source ?? 'telegram';
+  const platform = options.platform ?? MessagingPlatform.TELEGRAM;
+  const source: FeedbackSource = options.source ?? (platform === MessagingPlatform.WHATSAPP ? 'whatsapp' : 'telegram');
 
-  const user = await getUserByTelegramId(userId);
+  const user = await getUserByIdentifier(userId);
   if (!user) {
-    console.error(`[Feedback] User with Telegram ID ${userId} not found`);
+    console.error(`[Feedback] User ${userId} (${platform}) not found`);
     return;
   }
 
-  const messagingService = getMessagingService();
+  const messagingService = platform === MessagingPlatform.TELEGRAM ? getMessagingService() : getMessagingServiceByPlatform(platform);
   const userLanguage = user.language || 'en';
   const t = await getBotMessages(userLanguage);
 
-  // The form is a button for /feedback alone: a payment question with no words is answered before it gets here
+  // The form is a Mini App button: only /feedback on Telegram offers it (a payment question with no words is answered before it gets here)
   if ((!feedbackText || feedbackText.trim().length === 0) && source === 'telegram') {
     const feedbackUrl = buildUrl(`/${userLanguage}/feedback?user_id=${user.telegramId ?? user.id}`);
     const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';

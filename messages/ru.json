@@ -566,6 +566,7 @@
       "noFeedback": "Отзывов пока нет",
       "telegram": "Telegram",
       "dashboard": "В приложении",
+      "whatsapp": "WhatsApp",
       "paysupport": "Оплата",
       "sentAt": "Отправлено: {date}"
     },

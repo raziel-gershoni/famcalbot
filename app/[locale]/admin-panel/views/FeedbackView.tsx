@@ -30,6 +30,7 @@ export function FeedbackView({ feedback, onBack }: { feedback: ReturnType<typeof
   // Where a message came from: the chat commands, the payment command, or (anything else) the form in the app
   const source = (item: FeedbackItem) => {
     if (item.source === 'telegram') return t('feedback.telegram');
+    if (item.source === 'whatsapp') return t('feedback.whatsapp');
     if (item.source === 'paysupport') return t('feedback.paysupport');
     return t('feedback.dashboard');
   };

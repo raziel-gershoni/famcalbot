@@ -152,8 +152,11 @@ async function runChecks(): Promise<void> {
     [`${SRC}/lib/rate-limit.ts`]: { generalRateLimiter: {} },
     [`${SRC}/lib/bot-messages.ts`]: { getBotMessages: async () => ({}) },
     [`${SRC}/utils/error-notifier.ts`]: { notifyAdminFeedback: quiet, notifyAdminError: quiet, notifyAdminWarning: quiet, getAdminUserIds: async () => [] },
-    [`${SRC}/services/user-service.ts`]: (real: Record<string, unknown>) =>
-      fakeOver(real, { getUserByTelegramId: async () => ({ id: 1, name: 'U', telegramId: 1, language: 'en' }), getWhatsAppChatId: () => null }),
+    [`${SRC}/services/user-service.ts`]: (real: Record<string, unknown>) => {
+      const person = async () => ({ id: 1, name: 'U', telegramId: 1, language: 'en' });
+      // The feedback command finds the person with getUserByIdentifier (a Telegram id or a WhatsApp phone), which reads the real getUserByTelegramId
+      return fakeOver(real, { getUserByTelegramId: person, getUserByIdentifier: person, getWhatsAppChatId: () => null });
+    },
     [`${SRC}/services/telegram/bot.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getMessagingService: () => ({ sendMessage: quiet }) }),
     // A module the code under test loads with import() keeps only the names of its real file, so those are faked over the real module, not replaced.
     [`${SRC}/cron/handlers.ts`]: (real: Record<string, unknown>) => {

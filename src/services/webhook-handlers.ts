@@ -1012,7 +1012,7 @@ export async function handleWhatsAppWebhook(
       return;
     } else if (lowerText.startsWith('feedback ')) {
       const feedbackText = text.replace(/^feedback\s+/i, '').trim();
-      runAsync(() => handleFeedbackCommand(from, commandUserId, feedbackText), 'feedback');
+      runAsync(() => handleFeedbackCommand(from, commandUserId, feedbackText, { platform: MessagingPlatform.WHATSAPP }), 'feedback');
       return;
     } else if (lowerText.startsWith('event_create:') || lowerText.startsWith('event_cancel:') || lowerText.startsWith('event_pick:') ||
                lowerText.startsWith('edit_confirm:') || lowerText.startsWith('edit_cancel:') ||

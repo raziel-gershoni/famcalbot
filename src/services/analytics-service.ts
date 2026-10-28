@@ -119,7 +119,7 @@ export interface ActivityMetadata {
   limit?: number;
 
   // Feedback
-  source?: 'telegram' | 'dashboard' | 'ping' | 'app' | 'paysupport';
+  source?: 'telegram' | 'dashboard' | 'ping' | 'app' | 'whatsapp' | 'paysupport';
   text_length?: number;
 
   // Admin actions
