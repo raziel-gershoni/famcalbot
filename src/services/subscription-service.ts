@@ -13,6 +13,7 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
 import { liveGoogleChoices } from '../lib/google-state';
 import { isPaused } from './zmanim/pause';
+import { holdsPaidPlan } from '../lib/comp-eligibility';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -233,19 +234,12 @@ export type CompRevokeResult =
   | { ok: false; code: 'NOT_COMPED' };
 
 /**
- * Does this subscription currently confer paid access?
- *
- * TRIALING and ACTIVE obviously do. CANCELED still does until the period ends -
- * the user paid for that time and an admin grant must not quietly overwrite it.
- */
-function hasPaidAccess(sub: Subscription, now: Date): boolean {
-  if (sub.status === 'TRIALING' || sub.status === 'ACTIVE') return true;
-  if (sub.status === 'CANCELED' && sub.currentPeriodEnd && sub.currentPeriodEnd > now) return true;
-  return false;
-}
-
-/**
  * Give a user PRO at no charge.
+ *
+ * Refused for a paid plan, or a cancelled one that still runs (holdsPaidPlan: they paid for that
+ * time). A free trial is not paid: the gift replaces it. The row becomes PRO / ACTIVE and the
+ * trial's own dates stay, so that stopping the gift can give back the trial days that are left.
+ * The gift is silent, and so is stopping it.
  *
  * Deliberately does NOT reuse upgradeSubscription(): that stamps a one-month
  * currentPeriodEnd and is the payment path. A comp has no period end at all,
@@ -260,14 +254,14 @@ export async function grantCompedSubscription(
   const now = new Date();
 
   // Read directly rather than through getOrCreateSubscription(), which would
-  // write a TRIALING row for a brand-new user and then trip the check below
-  // against itself.
+  // write a 14-day TRIALING row for a brand-new user that this grant replaces
+  // at once (and that revoke would then give back as trial days).
   const existing = await prisma.subscription.findUnique({ where: { userId } });
 
   if (existing?.compedBy != null) {
     return { ok: false, code: 'ALREADY_COMPED' };
   }
-  if (existing && hasPaidAccess(existing, now)) {
+  if (existing && holdsPaidPlan(existing, now)) {
     return { ok: false, code: 'ALREADY_ACTIVE', plan: existing.plan, status: existing.status };
   }
 
@@ -320,7 +314,10 @@ export async function grantCompedSubscription(
  * Take a comped PRO back.
  *
  * Refuses anything that is not a comp, so a real paying customer can never be
- * downgraded through this path.
+ * downgraded through this path. A person whose trial the gift replaced gets the trial days that
+ * are left back (TRIALING, trialEndsAt ahead); otherwise FREE / EXPIRED. A gift made from no row
+ * or over an expired person has a trial end at or before the grant (the create sets it to the
+ * moment of the grant), so it ends as EXPIRED.
  */
 export async function revokeCompedSubscription(
   userId: number,
@@ -332,11 +329,14 @@ export async function revokeCompedSubscription(
     return { ok: false, code: 'NOT_COMPED' };
   }
 
+  const now = new Date();
+  const trialDaysLeft = existing.trialEndsAt > now;
+
   await prisma.subscription.update({
     where: { userId },
     data: {
       plan: 'FREE',
-      status: 'EXPIRED',
+      status: trialDaysLeft ? 'TRIALING' : 'EXPIRED',
       currentPeriodStart: null,
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,

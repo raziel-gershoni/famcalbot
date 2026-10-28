@@ -1051,6 +1051,9 @@ async function main() {
           }
           // Plan actions, messaging, the account
           assert(!!btn(o.m, w('profile.comp.stop')) === (id === COMPED), `${where}: Stop free Pro`);
+          // Free Pro can be given to everyone but a paid plan (a person on a trial included: the gift replaces the trial); the paid one is told why not
+          assert(!!btn(o.m, w('profile.comp.give')) === (id !== PAID && id !== COMPED), `${where}: Give Pro for free`);
+          assert(text.includes(w('profile.comp.blocked')) === (id === PAID), `${where}: the "nothing to give" hint`);
           assert(!!btn(o.m, w('profile.messaging.move')) === (person.whatsappPhone === null), `${where}: the Move to WhatsApp row`);
           assert(!!btn(o.m, w('profile.account.suspend')) === (id !== SUSPENDED) && !!btn(o.m, w('profile.account.unsuspend')) === (id === SUSPENDED), `${where}: suspend / unsuspend`);
           assert(elements(o.m.container).some((e) => classes(e).includes('ch-tag-danger') && flat(e) === w('users.suspended')) === (id === SUSPENDED), `${where}: the Suspended tag`);
@@ -1189,6 +1192,40 @@ async function main() {
       assert(show(statusesIn(o.m.container)).includes(w('profile.comp.stopped')) && !!btn(o.m, w('profile.comp.give')), `stopped: ${show(statusesIn(o.m.container))}`);
     } finally {
       close(o);
+    }
+
+    // Give Pro for free to a person on a trial (the gift replaces the trial): the Give row is there and the hint is not, giving reloads the
+    // profile and shows Stop and the free-Pro tag in place of the trial's
+    o = await profileOf(0);
+    try {
+      const planTags = () => elements(o.m.container).filter((e) => e.localName === 'span' && e.className === 'ch-tag' && [w('profile.plan.tagTrial'), w('profile.plan.tagComped')].includes(flat(e))).map(flat);
+      assert(!!btn(o.m, w('profile.comp.give')) && !btn(o.m, w('profile.comp.stop')) && !page(o.m).includes(w('profile.comp.blocked')) && show(planTags()) === show([w('profile.plan.tagTrial')]), `a person on a trial can be given Pro: ${show(planTags())}`);
+      askAndCancel(o, w('profile.comp.give'), w('profile.comp.giveTitle', { name: names[0] }));
+      o.m.input(sheetField(o.m), 'pilot');
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const at = expectPost('subscription', { user_id: TRIAL, reason: 'pilot' }, 'give over a trial');
+      assert(dialogs(o.m).length === 0 && reloadedAfter(at, TRIAL) && show(statusesIn(o.m.container)).includes(w('profile.comp.given', { name: names[0] })), `give over a trial: ${show(statusesIn(o.m.container))}`);
+      assert(!!btn(o.m, w('profile.comp.stop')) && !btn(o.m, w('profile.comp.give')) && !page(o.m).includes(w('profile.comp.blocked')) && show(planTags()) === show([w('profile.plan.tagComped')]), `after the gift: ${show(planTags())}`);
+    } finally {
+      close(o);
+    }
+
+    // A paid plan, and a cancelled one that still runs, are told there is nothing to give (the route refuses them); a cancelled one past its end is not
+    for (const [label, sub, blocked] of [
+      ['a paid plan', SUBS.paid, true],
+      ['a cancelled plan that still runs', { ...SUBS.paid, status: 'CANCELED', currentPeriodEnd: inDays(5) }, true],
+      ['a cancelled plan past its end', { ...SUBS.paid, status: 'CANCELED', currentPeriodEnd: inDays(-5) }, false],
+    ] as const) {
+      reset();
+      o = open('en', propsOf('en'), { version: '7.7' }); // (it makes the people afresh, so the plan is set after it)
+      (scenario.people.get(PAID) as Row).subscription = sub;
+      try {
+        await openPerson(o, 'en', 2);
+        assert(!!btn(o.m, w('profile.comp.give')) === !blocked && page(o.m).includes(w('profile.comp.blocked')) === blocked && !btn(o.m, w('profile.comp.stop')), `${label}: Give ${!!btn(o.m, w('profile.comp.give'))}, hint ${page(o.m).includes(w('profile.comp.blocked'))}`);
+      } finally {
+        close(o);
+      }
     }
 
     // Send a setup reminder (it sends a real message): pick the reminder, name the person; a failure stays in the sheet

@@ -11,6 +11,7 @@ import { Meter } from '@/components/app-ui/Meter';
 import { Notice } from '@/components/app-ui/Notice';
 import { SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { Tag } from '@/components/app-ui/Tag';
+import { holdsPaidPlan } from '@/src/lib/comp-eligibility';
 import { dateOnly, planLine, type AdminTranslate } from '../../data/format';
 import type { UserOverrideDetails } from '../../data/types';
 import { ActionSheet, type Message, type SectionProps } from './shared';
@@ -26,12 +27,9 @@ function kindOf(sub: UserOverrideDetails['subscription'], now: Date): Kind {
   return 'free';
 }
 
-/** Whether Pro can be given for free: not while they have a trial or a paid plan (the route refuses it too). */
+/** Whether Pro can be given for free: not while they hold a paid plan, the one rule the route enforces too (a free trial is replaced by the gift). */
 function canGive(sub: UserOverrideDetails['subscription'], now: Date): boolean {
-  if (!sub || sub.comped) return false;
-  const periodEnd = sub.currentPeriodEnd ? Date.parse(sub.currentPeriodEnd) : NaN;
-  const running = sub.status === 'TRIALING' || sub.status === 'ACTIVE' || (sub.status === 'CANCELED' && periodEnd > now.getTime());
-  return !running;
+  return !!sub && !sub.comped && !holdsPaidPlan(sub, now);
 }
 
 export function Plan({ person, profile, earlyAccessOn }: SectionProps & { earlyAccessOn: boolean }) {

@@ -1,7 +1,7 @@
 # Admin: comped premium grants and per-user activity
 
 **Date:** 2026-09-17
-**Status:** Approved
+**Status:** Approved. Amended 2026-10-28: a free trial can be comped (the gift replaces the trial, stopping it gives back the trial days that are left).
 
 Two admin-panel capabilities, both landing in the per-user detail card that
 already exists inside the "User Feature Overrides" section:
@@ -31,7 +31,7 @@ FREE on their own dashboard.
 |---|---|
 | What does "premium" change? | A real `Subscription` row (`plan=PRO, status=ACTIVE`) plus a comp marker |
 | How does a comp end? | Never, except manual revoke. The billing cron skips comps. |
-| Who can be comped? | Only users without current paid access. Refuse `TRIALING`/`ACTIVE`. |
+| Who can be comped? | Only users without a paid plan. Refuse `ACTIVE` and `CANCELED` with the period still running. A free trial is not paid: the comp replaces it. |
 | Is the user notified? | No. Silent on both grant and revoke. |
 
 ## 1. Schema
@@ -85,22 +85,34 @@ PRO/ACTIVE + comp fields, resets usage counters (matching
 `upgradeSubscription`'s behaviour), writes a `UserActivity` row, and
 invalidates the feature-access cache.
 
-**Refusal rule.** Reject when status is `TRIALING` or `ACTIVE`, and also when
-status is `CANCELED` with `currentPeriodEnd` still in the future — a canceled
-subscriber keeps paid access until period end, and overwriting it would take
-away something they paid for.
+**Refusal rule.** One function, `holdsPaidPlan` (`src/lib/comp-eligibility.ts`,
+no imports, so the Mini App's Give button asks the same rule as the server).
+Reject when status is `ACTIVE`, and also when status is `CANCELED` with
+`currentPeriodEnd` still in the future — a canceled subscriber keeps paid
+access until period end, and overwriting it would take away something they paid
+for. `TRIALING` is not refused: a free trial is not paid, so the grant replaces
+it (the row becomes PRO/ACTIVE; `trialStartedAt` and `trialEndsAt` are left
+alone), whether the trial is running or over but not yet flipped to `EXPIRED`.
+A comp is `ACTIVE`, so the lazy trial expiry never touches it and the "trial
+ended" notice is never sent. Amended 2026-10-28; until then `TRIALING` was
+refused too, which kept anyone from being comped in their first 14 days.
 
 **Revoke** refuses when `compedBy IS NULL`, so a real paying customer can never
-be downgraded through this path. Otherwise FREE/EXPIRED, comp fields cleared,
-activity logged, cache invalidated. Revoke does **not** reset usage counters —
+be downgraded through this path. Otherwise the plan goes to FREE with the comp
+fields cleared, activity logged, cache invalidated; the status is `TRIALING`
+when `trialEndsAt` is still ahead (the comp replaced a trial, and the trial days
+that are left come back, with the same `trialEndsAt`), and `EXPIRED` otherwise
+(the trial was over, or the comp was made from no row or over an expired
+person, where `trialEndsAt` is at or before the grant). A trial that then runs
+out is expired by the usual lazy check and gets the usual notice; the grant and
+the revoke themselves send nothing. Revoke does **not** reset usage counters —
 the counters were already zeroed at grant time, and zeroing them again would
 hand a revoked user a fresh free quota.
 
 **Users with no subscription row.** A user who has never had a subscription
 has no `Subscription` record. Grant must `create` one directly in the comped
 state; it must not call `getOrCreateSubscription()`, which would first write a
-`TRIALING` row with a 14-day trial and thereby trip the refusal rule against
-itself.
+`TRIALING` row with a 14-day trial that the grant would replace at once.
 
 ## 3. New route
 
