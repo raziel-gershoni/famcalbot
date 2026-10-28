@@ -152,6 +152,7 @@ const propsOf = (over: Row = {}, current: Parameters<typeof settings>[0] = {}) =
   googleConnected: false,
   nativeRemindersSupported: true,
   subscriptionInfo: subscription(),
+  bothChannels: true,
   ...over,
 });
 
@@ -342,6 +343,19 @@ async function main() {
       assert(page(toTelegram.m).includes(word('en', 'alerts.label')), 'saved: the alerts rows come');
     } finally {
       close(toTelegram);
+    }
+  });
+
+  await check('S2b the platform list shows only for a person with both Telegram and WhatsApp: with one channel there is nothing to choose', async () => {
+    for (const locale of LOCALES) {
+      const label = word(locale, 'platform.label');
+      const both = textOf(renderToString(tree(locale, propsOf({ bothChannels: true }, { language: locale }))));
+      assert(both.includes(label), `${locale}: both channels: the platform list is missing`);
+      for (const platform of ['telegram', 'whatsapp']) {
+        const one = textOf(renderToString(tree(locale, propsOf({ bothChannels: false }, { language: locale, messagingPlatform: platform }))));
+        assert(!one.includes(label), `${locale}: one channel (${platform}): the platform list shows`);
+        assert(one.includes(word(locale, 'language.label')) && one.includes(word(locale, 'culture.label')), `${locale}: one channel: the rest of the card went with it`);
+      }
     }
   });
 

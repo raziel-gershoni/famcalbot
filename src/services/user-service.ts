@@ -93,7 +93,7 @@ export async function updateWhatsAppBsuid(userId: number, bsuid: string): Promis
  * BSUID remains the fallback so username-only WA users (who don't expose a
  * phone) can still receive messages.
  */
-export function getWhatsAppChatId(user: UserConfig): string | null {
+export function getWhatsAppChatId(user: { whatsappPhone?: string | null; whatsappBsuid?: string | null }): string | null {
   return user.whatsappPhone || user.whatsappBsuid || null;
 }
 

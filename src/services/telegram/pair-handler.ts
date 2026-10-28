@@ -16,6 +16,7 @@ import { normalizeLocale, type Locale } from '../../utils/locale';
 import { captureError } from '../../lib/error-capture';
 import { escapeHtml } from '../../utils/html';
 import { inviteTokenFromStart } from '../../lib/invite-link';
+import { deliveryPlatformFor } from '../../lib/delivery-platform';
 
 /** The factory needs the bot instance for Telegram; ./bot supplies it. */
 function messagingFor(platform: MessagingPlatform): IMessagingService {
@@ -113,8 +114,10 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true },
     });
     if (!inviter) return;
+    // WhatsApp when that is where they are: the saved choice narrowed to the channels they have (an inviter saved as
+    // "telegram" who never linked Telegram, but has WhatsApp, is told there)
     const platform =
-      inviter.messagingPlatform === 'whatsapp' && (inviter.whatsappPhone || inviter.whatsappBsuid)
+      deliveryPlatformFor(inviter) === 'whatsapp'
         ? MessagingPlatform.WHATSAPP
         : MessagingPlatform.TELEGRAM;
     const service = messagingFor(platform);

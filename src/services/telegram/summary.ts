@@ -53,6 +53,7 @@ import { sendVoiceMessage } from './voice';
 import { isPaused } from '../zmanim/pause';
 import { denyOverTextLimit } from './text-limit';
 import { liveGoogleChoices } from '../../lib/google-state';
+import { deliveryPlatformFor, type DeliveryPlatform } from '../../lib/delivery-platform';
 
 /**
  * Categorize events by ownership for a specific user
@@ -492,10 +493,10 @@ async function sendSummaryToAll(
     // One-line WA cohort visibility — useful when only some users seem to receive WA.
     // Lists every user whose platform is whatsapp/all and what identifier they'd be sent to.
     const waCohort = allUsers.filter(u => {
-      const p = u.messagingPlatform || 'telegram';
+      const p = deliveryPlatformFor(u);
       return p === 'whatsapp' || p === 'all';
     });
-    const waCohortSummary = waCohort.map(u => `${u.id}:${u.messagingPlatform}:${getWhatsAppChatId(u) ?? 'NONE'}`).join(', ');
+    const waCohortSummary = waCohort.map(u => `${u.id}:${deliveryPlatformFor(u)}:${getWhatsAppChatId(u) ?? 'NONE'}`).join(', ');
     console.log(`[Summary] WA cohort (${waCohort.length}/${allUsers.length} users): ${waCohortSummary || '<empty>'}`);
 
     // Filter by preferred hour if requested (hourly cron mode)
@@ -597,7 +598,12 @@ async function sendSummaryToAll(
     // One user's pass: skipped, weather-only, or delivered; a Google outage sets them aside.
     const processUser = async (user: UserConfig) => {
       if (await paused(user)) return;
-      const platform = user.messagingPlatform || 'telegram';
+      // The saved choice narrowed to the channels the person has (a saved platform that names one they lack still delivers)
+      const platform = deliveryPlatformFor(user);
+      if (!platform) {
+        console.log(`[Summary] Skipping user ${user.id}: no Telegram and no WhatsApp to deliver to`);
+        return;
+      }
 
       // Diagnostic: log WA delivery details for dual-platform users
       if (platform === 'whatsapp' || platform === 'all') {
@@ -864,17 +870,13 @@ export async function sendTomorrowSummaryToAll(options?: { filterByHour?: boolea
   return sendSummaryToAll(readSummaryDay, tomorrowMarker(), options);
 }
 
-/** Platform options for message delivery */
-type DeliveryPlatform = 'telegram' | 'whatsapp' | 'all';
-
 /**
  * A scheduled delivery that carries no Telegram text: the person is on WhatsApp (alone, or Telegram is not set up for
- * them). All it sends is the template, so deliverToUser makes no summary for it.
+ * them). All it sends is the template, so deliverToUser makes no summary for it. Read through the one rule that narrows
+ * a platform to the channels the person has (deliveryPlatformFor), so it agrees with where routeTextMessage sends.
  */
 function isWhatsAppOnlyDelivery(user: UserConfig, platform: DeliveryPlatform): boolean {
-  const toTelegram = (platform === 'telegram' || platform === 'all') && !!user.telegramId;
-  const toWhatsApp = (platform === 'whatsapp' || platform === 'all') && !!getWhatsAppChatId(user);
-  return toWhatsApp && !toTelegram;
+  return deliveryPlatformFor({ ...user, messagingPlatform: platform }) === 'whatsapp';
 }
 
 /**
@@ -944,7 +946,7 @@ export async function routeTextMessage(
     return;
   }
 
-  const targetPlatform = platform || user.messagingPlatform || 'telegram';
+  const targetPlatform = platform || deliveryPlatformFor(user) || 'telegram';
   const msgService = getMessagingService();
 
   if ((targetPlatform === 'telegram' || targetPlatform === 'all') && user.telegramId) {
@@ -1047,7 +1049,7 @@ async function deliverSummary(options: DeliveryOptions): Promise<boolean> {
   } = options;
 
   // Use correct messaging service based on delivery platform
-  const targetPlatform = platform || user.messagingPlatform || 'telegram';
+  const targetPlatform = platform || deliveryPlatformFor(user) || 'telegram';
   const msgService = (targetPlatform === 'whatsapp' && getWhatsAppChatId(user))
     ? getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP)
     : getMessagingService();

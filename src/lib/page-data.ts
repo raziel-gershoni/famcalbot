@@ -42,6 +42,7 @@ import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types'
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { reminderTimeOf } from '@/src/lib/reminder-time';
+import { channelsOf, deliveryPlatformFor } from '@/src/lib/delivery-platform';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
@@ -239,6 +240,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
   const isTrialing = subWithUsage?.subscription.status === 'TRIALING'
     && new Date() < subWithUsage.subscription.trialEndsAt;
 
+  const channels = channelsOf(user);
   const subscriptionInfo = {
     effectivePlan,
     textSummariesUsed: subWithUsage?.usage.textSummariesUsed ?? 0,
@@ -256,7 +258,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
       // "Address me as": a row that holds anything but the two values reads as male, as the voice show reads it
       gender: user.gender === 'female' ? 'female' : 'male',
       location: user.location,
-      messagingPlatform: user.messagingPlatform,
+      // Where the summaries really go: the saved choice narrowed to the channels the person has (delivery-platform.ts)
+      messagingPlatform: deliveryPlatformFor(user) ?? user.messagingPlatform,
       culture: user.culture || 'default',
       textSummaryEnabled: user.textSummaryEnabled,
       voiceSummaryEnabled: user.voiceSummaryEnabled,
@@ -280,6 +283,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     googleConnected: Boolean(user.googleRefreshToken),
     nativeRemindersSupported,
     subscriptionInfo,
+    bothChannels: channels.telegram && channels.whatsapp,
   };
   // One open of the Settings screen
   trackActivityAsync(user.id, 'settings_viewed');

@@ -12,6 +12,7 @@ import { canReceiveReminderPings } from '@/src/services/native-reminders/support
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 import { isCommunity } from '@/src/services/zmanim/sets';
+import { channelsOf, platformAvailable } from '@/src/lib/delivery-platform';
 
 const isGender = (value: unknown): value is 'male' | 'female' => value === 'male' || value === 'female';
 
@@ -52,6 +53,13 @@ export async function POST(request: NextRequest) {
     // A closed set: sephardi, ashkenazi or chabad (src/services/zmanim/sets.ts).
     if (zmanimCommunity !== undefined && !isCommunity(zmanimCommunity)) {
       return NextResponse.json({ error: 'Invalid zmanimCommunity' }, { status: 400 });
+    }
+    // Where the summaries go can only be a channel the person has: a platform that names one they lack would leave
+    // nothing to deliver to. Refused and never stored (the page offers the choice only to a person with both).
+    const channels = channelsOf(auth.user);
+    if (messagingPlatform && (channels.telegram || channels.whatsapp) && !platformAvailable(messagingPlatform, auth.user)) {
+      console.warn(`[settings] user ${auth.user.id} asked for platform ${JSON.stringify(messagingPlatform).slice(0, 40)} but has telegram=${channels.telegram} whatsapp=${channels.whatsapp}; refused`);
+      return NextResponse.json({ error: 'platform_unavailable' }, { status: 400 });
     }
     // The reminder time is for whoever FamCal reminders can ping (their own plan, or a partner's
     // reminders for them). When it isn't allowed, only that field is dropped: it must never

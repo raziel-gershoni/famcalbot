@@ -5,7 +5,9 @@
 //      never Prisma's or Google's English text, never a bare code. The Google provider names a Hebrew repeat by its code.
 //   2. The admin's hard delete of a person revokes their Google token at Google first (Disconnect Google's own call), and
 //      goes on when the revoke fails.
-//   (the families of fixes 3-7 are added with their fixes)
+//   3. A saved platform that names a channel the person lacks no longer stops their summaries (deliveryPlatformFor narrows it
+//      to the channels they have), Settings refuses such a platform, and shows the choice only to a person with both.
+//   (the families of fixes 4-7 are added with their fixes)
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -202,6 +204,12 @@ const providerScript: Row[] = [];
 const providerCalls: string[] = [];
 /** The people whose copies to Google the hard delete carried out (the worker is faked). */
 const carried: number[] = [];
+/** The summary pass: who it is asked about, and what it did (generated, counted, marked sent, flagged unreachable). */
+let scheduled: number[] = [];
+const generated: string[] = [];
+const usage: string[] = [];
+const marks: { userId: number; type: string }[] = [];
+const unreachable: number[] = [];
 /** The calendar a new card goes to (a FamCal one unless a check says Google). */
 let newCalendarId = 'native:home1';
 
@@ -255,6 +263,8 @@ function reset() {
   newCalendarId = 'native:home1';
   fetchHandler = async url => { throw new Error(`network blocked in this smoke: ${url}`); };
   carried.length = 0;
+  scheduled = [];
+  for (const list of [generated, usage, marks, unreachable]) list.length = 0;
   voiceIntents = [];
   voiceTranscription = '';
   providerAnswer = { success: true, eventId: 'ev-1' };
@@ -315,15 +325,31 @@ Object.assign(stubs, {
   [`${SRC}/lib/user-moderation.ts`]: (real: Record<string, unknown>) => fakeOver(real, { isIdentifierBlocked: async () => false }),
   [`${SRC}/services/subscription-service.ts`]: {
     checkFeatureAccess: async () => ({ allowed: true }),
-    incrementUsage: async () => undefined,
+    incrementUsage: async (userId: number, kind: string) => { usage.push(`${userId}:${kind}`); },
     invalidateFeatureAccessCache: async () => undefined,
+    getSubscriptionWithUsage: async () => null,
   },
-  [`${SRC}/services/reminder-cache.ts`]: { removeUserFromCache: async () => undefined, getVoiceAutoCreateHighConf: async () => false, getVoiceTtsOutcome: async () => false },
+  [`${SRC}/services/reminder-cache.ts`]: {
+    removeUserFromCache: async () => undefined, syncReminderCacheEntry: async () => undefined, getVoiceAutoCreateHighConf: async () => false, getVoiceTtsOutcome: async () => false,
+  },
+  // The proved user is the one the URL names (the credential check has its own smokes)
+  [`${SRC}/lib/rate-limit.ts`]: {
+    settingsRateLimiter: {}, commandRateLimiter: {}, generalRateLimiter: {}, tokenPollRateLimiter: {},
+    checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
+    getRateLimitHeaders: () => ({}),
+  },
+  [`${SRC}/lib/api-auth.ts`]: {
+    verifyUserAuth: async (_req: unknown, userId: string | null) => {
+      const { getUserById } = await import('../src/services/user-service');
+      const user = await getUserById(Number(userId));
+      return user ? { success: true, user } : { success: false, response: new Response('{}', { status: 404 }) };
+    },
+  },
   [`${SRC}/services/magic-link.ts`]: { generateMagicLink: async () => 'https://famcal.test/magic' },
   [`${SRC}/services/native-calendar/onboarding.ts`]: { ensurePrimaryNativeCalendar: async () => undefined, hasGoogleChoices: () => false },
   [`${SRC}/lib/user-reachability.ts`]: {
     clearUserUnreachable: async () => undefined,
-    markUnreachableAfterSendFailure: async () => undefined,
+    markUnreachableAfterSendFailure: async (user: { id: number }) => { unreachable.push(user.id); },
     markUnreachableAfterWhatsAppFailure: async () => false,
   },
   [`${SRC}/services/calendar-provider/index.ts`]: {
@@ -332,12 +358,33 @@ Object.assign(stubs, {
     createCalendarFor: async (_user: unknown, event: { calendarId?: string }) => event.calendarId ?? newCalendarId,
     providerForCalendar: () => provider,
   },
+  // The summary pass: the people it is asked about, and what it reads
+  [`${SRC}/services/user-service.ts`]: (real: Record<string, unknown>) =>
+    fakeOver(real, {
+      getAllUsers: async () => {
+        const { getUserById } = real as { getUserById: (id: number) => Promise<unknown> };
+        return Promise.all(scheduled.map(id => getUserById(id)));
+      },
+    }),
+  [`${SRC}/services/calendar-read/digest.ts`]: (real: Record<string, unknown>) => fakeOver(real, { readDigestDay: async () => [] }),
+  [`${SRC}/services/native-reminders/open-reminders.ts`]: { addDigestReminders: async (_u: unknown, events: unknown[]) => ({ events, moreCount: 0 }) },
+  [`${SRC}/services/week-lookahead.ts`]: { getWeekLookahead: async () => ({ events: [] }), formatTomorrowLookahead: () => '' },
+  [`${SRC}/services/claude.ts`]: {
+    generateSummary: async (...args: unknown[]) => { generated.push(String(args[3])); return 'AI summary'; },
+    formatDateHeader: () => 'Date header',
+  },
+  [`${SRC}/services/telegram/voice.ts`]: { sendVoiceMessage: async () => undefined, sendWeeklyVoiceMessage: async () => undefined },
+  [`${SRC}/services/kid-name-detection.ts`]: { sendKidNameFollowUp: async () => undefined },
+  [`${SRC}/lib/summary-scheduling.ts`]: {
+    filterUsersForSummary: async (users: unknown[]) => ({ eligible: users, skippedHour: 0, skippedDay: 0, skippedDedup: 0 }),
+    markSummarySent: async (userId: number, type: string) => { marks.push({ userId, type }); },
+  },
   // The hard delete carries out the copies in Google before it deletes: faked (it has its own smoke)
   [`${SRC}/services/google-sync/worker.ts`]: (real: Record<string, unknown>) => fakeOver(real, { carryOutCopiesBeforeDelete: async (userId: number) => { carried.push(userId); } }),
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async () => 'Asia/Jerusalem', resolveLocation: async () => null, LOOKUP_TIMEOUT_MS: 3000, TIMEZONE_CACHE_TTL: 86_400 },
   [`${SRC}/services/zmanim/pause.ts`]: (real: Record<string, unknown>) => fakeOver(real, { isPaused: async () => false }),
   // The voice path
-  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }) },
+  [`${SRC}/services/native-reminders/support.ts`]: { getReminderSupport: async () => ({ supported: true }), canReceiveReminderPings: async () => false },
   [`${SRC}/services/voice/recent-events-store.ts`]: {
     pushRecentEvent: async () => undefined, removeRecentEvent: async () => undefined, getRecentEvents: async () => [], formatRecentEventsBlock: () => '',
   },
@@ -750,6 +797,183 @@ async function fix2() {
   });
 }
 
+// ---- Fix 3 ----
+
+const WA_PHONE = (id: number) => `+9725000010${String(id).padStart(2, '0')}`;
+const TG_OF = (id: number) => 2000 + id;
+
+/** A person with the channels asked for and the platform they saved. */
+function addDelivery(id: number, saved: string, channels: { telegram: boolean; whatsapp: boolean }, o: Row = {}): void {
+  DB.user.push(baseUser({
+    id, name: `Person ${id}`, language: 'en', messagingPlatform: saved,
+    telegramId: channels.telegram ? BigInt(TG_OF(id)) : null,
+    whatsappPhone: channels.whatsapp ? WA_PHONE(id) : null,
+    ...o,
+  }));
+}
+
+async function runBatch(tomorrow = false) {
+  const summary = await import('../src/services/telegram/summary');
+  return withLogs(() => (tomorrow ? summary.sendTomorrowSummaryToAll({ filterByHour: true }) : summary.sendDailySummaryToAll({ filterByHour: true })));
+}
+const templatesTo = (chatId: string) => sentTo('whatsapp').filter(s => s.options?.whatsappTemplate && s.chatId === chatId);
+
+async function fix3() {
+  await check('3: deliveryPlatformFor narrows the saved platform to the channels the person has', async () => {
+    const { deliveryPlatformFor } = await import('../src/lib/delivery-platform');
+    const TG = { telegramId: 1n };
+    const WA = { whatsappPhone: '+972500000001' };
+    const BSUID = { whatsappBsuid: 'IL.abc' };
+    const cases: [string, Row, string | null][] = [
+      ['telegram', { ...TG }, 'telegram'], ['telegram', { ...TG, ...WA }, 'telegram'], ['telegram', { ...WA }, 'whatsapp'], ['telegram', { ...BSUID }, 'whatsapp'],
+      ['whatsapp', { ...WA }, 'whatsapp'], ['whatsapp', { ...BSUID, ...TG }, 'whatsapp'], ['whatsapp', { ...TG }, 'telegram'], ['whatsapp', { ...TG, ...WA }, 'whatsapp'],
+      ['all', { ...TG, ...WA }, 'all'], ['all', { ...TG, ...BSUID }, 'all'], ['all', { ...TG }, 'telegram'], ['all', { ...WA }, 'whatsapp'],
+      ['telegram', {}, null], ['whatsapp', {}, null], ['all', {}, null],
+      ['', { ...TG }, 'telegram'], ['', { ...WA }, 'whatsapp'], ['', { ...TG, ...WA }, 'telegram'],
+      ['whatsapp', { telegramId: 0n, whatsappPhone: '', whatsappBsuid: null }, null],
+    ];
+    for (const [saved, channels, want] of cases) {
+      assertSame(deliveryPlatformFor({ messagingPlatform: saved, ...channels }), want, `saved ${show(saved)} with ${show(channels)}`);
+    }
+    assertSame(deliveryPlatformFor({ telegramId: 5 }), 'telegram', 'no platform saved at all');
+    assertSame(deliveryPlatformFor({ messagingPlatform: null, whatsappPhone: '+1' }), 'whatsapp', 'null platform, WhatsApp only');
+  });
+
+  await check('3: platformAvailable accepts only a platform whose every channel the person has', async () => {
+    const { platformAvailable } = await import('../src/lib/delivery-platform');
+    const both = { telegramId: 1n, whatsappPhone: '+1' };
+    const tgOnly = { telegramId: 1n };
+    const waOnly = { whatsappBsuid: 'IL.x' };
+    const cases: [unknown, Row, boolean][] = [
+      ['telegram', both, true], ['whatsapp', both, true], ['all', both, true],
+      ['telegram', tgOnly, true], ['whatsapp', tgOnly, false], ['all', tgOnly, false],
+      ['telegram', waOnly, false], ['whatsapp', waOnly, true], ['all', waOnly, false],
+      ['sms', both, false], ['', both, false], [undefined, both, false], [7, both, false],
+    ];
+    for (const [platform, user, want] of cases) assertSame(platformAvailable(platform, user), want, `${show(platform)} for ${show(user)}`);
+  });
+
+  await check('3: a scheduled summary reaches a Telegram person whose saved platform is whatsapp (generated once, counted once, marked sent)', async () => {
+    addDelivery(11, 'whatsapp', { telegram: true, whatsapp: false });
+    scheduled = [11];
+    const result = await runBatch();
+    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]), [[TG_OF(11), 'AI summary']], 'the Telegram text');
+    assertSame(sentTo('whatsapp'), [], 'a WhatsApp send to a person with no WhatsApp');
+    assertSame(generated.length, 1, 'summaries generated');
+    assertSame(usage, ['11:textSummaries'], 'usage counted');
+    assertSame(marks, [{ userId: 11, type: 'daily' }], 'the dedup mark');
+    assert(result.processed === 1, `processed ${result.processed}`);
+  });
+
+  await check('3: a scheduled summary reaches a WhatsApp person whose saved platform is telegram, as the tap-to-open template alone (not generated, not counted)', async () => {
+    addDelivery(12, 'telegram', { telegram: false, whatsapp: true });
+    scheduled = [12];
+    const result = await runBatch();
+    assertSame(templatesTo(WA_PHONE(12)).map(s => (s.options?.whatsappTemplate as Row).buttonPayload), ['summary'], 'the template');
+    assertSame(generated, [], 'the summary was generated');
+    assertSame(usage, [], 'a summary was counted');
+    assertSame(sentTo('telegram'), [], 'a Telegram send to a person with no Telegram');
+    assertSame(marks, [{ userId: 12, type: 'daily' }], 'the dedup mark');
+    assert(result.processed === 1, `processed ${result.processed}`);
+  });
+
+  await check('3: "all" with one channel delivers on that channel; with both it is unchanged (Telegram text and the WhatsApp template); a saved "telegram" with both stays Telegram only', async () => {
+    addDelivery(13, 'all', { telegram: true, whatsapp: false });
+    addDelivery(14, 'all', { telegram: false, whatsapp: true });
+    addDelivery(15, 'telegram', { telegram: true, whatsapp: true });
+    addDelivery(16, 'all', { telegram: true, whatsapp: true });
+    scheduled = [13, 14, 15, 16];
+    const result = await runBatch();
+    const texts = sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => s.chatId).sort();
+    assertSame(texts, [TG_OF(13), TG_OF(15), TG_OF(16)].sort(), 'who got a Telegram text');
+    const templates = sentTo('whatsapp').filter(s => s.options?.whatsappTemplate).map(s => s.chatId).sort();
+    assertSame(templates, [WA_PHONE(14), WA_PHONE(16)].sort(), 'who got the WhatsApp template');
+    assertSame(generated.length, 3, 'summaries generated (not for the WhatsApp-only person)');
+    assertSame(usage.sort(), ['13:textSummaries', '15:textSummaries', '16:textSummaries'], 'usage counted');
+    assert(result.processed === 4, `processed ${result.processed}`);
+  });
+
+  await check('3: a person with neither Telegram nor WhatsApp gets nothing, costs no generation, and is skipped with a log line', async () => {
+    addDelivery(17, 'whatsapp', { telegram: false, whatsapp: false });
+    scheduled = [17];
+    const result = await runBatch();
+    assertSame(sent.length, 0, 'sends');
+    assertSame(generated, [], 'generated');
+    assertSame(marks, [], 'marked');
+    assert(result.processed === 0, `processed ${result.processed}`);
+    assert(logs.some(l => l.includes('Skipping user 17') && l.includes('no Telegram and no WhatsApp')), `no log line: ${show(logs.slice(-6))}`);
+  });
+
+  await check('3: routeTextMessage with no platform given follows the narrowed platform (a saved whatsapp with only Telegram still gets the text)', async () => {
+    addDelivery(18, 'whatsapp', { telegram: true, whatsapp: false });
+    const { routeTextMessage } = await import('../src/services/telegram/summary');
+    const { getUserById } = await import('../src/services/user-service');
+    const user = (await getUserById(18))!;
+    await withLogs(() => routeTextMessage(user.telegramId!, 'hello', user));
+    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]), [[TG_OF(18), 'hello']], 'the Telegram send');
+    addDelivery(19, 'telegram', { telegram: false, whatsapp: true });
+    sent.length = 0;
+    const waUser = (await getUserById(19))!;
+    await withLogs(() => routeTextMessage(WA_PHONE(19), 'hello', waUser));
+    assertSame(sentTo('whatsapp').map(s => [s.chatId, s.text]), [[WA_PHONE(19), 'hello']], 'the WhatsApp send');
+  });
+
+  await check('3: the inviter is told of an accepted invitation on the channel they have (a saved telegram with only WhatsApp)', async () => {
+    addDelivery(20, 'telegram', { telegram: false, whatsapp: true });
+    const { notifyInviterOfAccept } = await import('../src/services/telegram/pair-handler');
+    await withLogs(() => notifyInviterOfAccept(20, 'Dana'));
+    assertSame(templatesTo(WA_PHONE(20)).length, 1, 'the WhatsApp template to the inviter');
+    assertSame(sentTo('telegram'), [], 'a Telegram send');
+  });
+
+  await check('3: /api/settings refuses a platform the person does not have with 400 platform_unavailable, writes nothing and logs it; a platform they have is saved', async () => {
+    const { POST } = await import('../app/api/settings/route');
+    const post = async (userId: number, body: Row) => {
+      const request = new Request(`https://famcal.test/api/settings?user_id=${userId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const response = await withLogs(() => POST(request as never));
+      return { status: response.status, body: (await response.json()) as Row };
+    };
+    addDelivery(21, 'telegram', { telegram: true, whatsapp: false });
+    addDelivery(22, 'whatsapp', { telegram: false, whatsapp: true });
+    addDelivery(23, 'all', { telegram: true, whatsapp: true });
+    const refused: [number, string][] = [[21, 'whatsapp'], [21, 'all'], [22, 'telegram'], [22, 'all'], [21, 'sms']];
+    for (const [id, platform] of refused) {
+      logs.length = 0;
+      const answer = await post(id, { messagingPlatform: platform, weatherEnabled: true });
+      assertSame([answer.status, answer.body], [400, { error: 'platform_unavailable' }], `${id} asking for ${platform}`);
+      assert(DB.user.find(u => u.id === id)!.weatherEnabled === false, `${id} asking for ${platform}: the rest of the request was saved`);
+      assert(logs.some(l => l.includes(`user ${id} asked for platform`) && l.includes('refused')), `${id} asking for ${platform}: no log line: ${show(logs)}`);
+    }
+    for (const [id, platform] of [[21, 'telegram'], [22, 'whatsapp'], [23, 'all'], [23, 'whatsapp'], [23, 'telegram']] as [number, string][]) {
+      const answer = await post(id, { messagingPlatform: platform });
+      assertSame([answer.status, answer.body], [200, { success: true }], `${id} asking for ${platform}`);
+      assertSame(DB.user.find(u => u.id === id)!.messagingPlatform, platform, `${id}: the saved platform`);
+    }
+    // A save that sends no platform leaves the saved one alone, whatever it is
+    const quiet = await post(21, { weatherEnabled: true });
+    assertSame(quiet.status, 200, 'a save with no platform');
+  });
+
+  await check('3: the Settings page gets the platform the summaries really go to, and the choice only for a person with both channels', async () => {
+    const { loadPageData } = await import('../src/lib/page-data');
+    const open = async (id: number) => {
+      const user = (await (await import('../src/services/user-service')).getUserById(id))!;
+      const page = await withLogs(() => loadPageData('settings', user, id, 'en'));
+      assert(page.kind === 'props', `the page: ${show(page)}`);
+      const props = page.props as { currentSettings: { messagingPlatform: string }; bothChannels: boolean };
+      return { platform: props.currentSettings.messagingPlatform, both: props.bothChannels };
+    };
+    addDelivery(24, 'whatsapp', { telegram: true, whatsapp: false });
+    addDelivery(25, 'telegram', { telegram: false, whatsapp: true });
+    addDelivery(26, 'all', { telegram: true, whatsapp: true });
+    addDelivery(27, 'whatsapp', { telegram: true, whatsapp: true });
+    assertSame(await open(24), { platform: 'telegram', both: false }, 'saved whatsapp, only Telegram');
+    assertSame(await open(25), { platform: 'whatsapp', both: false }, 'saved telegram, only WhatsApp');
+    assertSame(await open(26), { platform: 'all', both: true }, 'both channels, saved all');
+    assertSame(await open(27), { platform: 'whatsapp', both: true }, 'both channels, saved whatsapp');
+  });
+}
+
 async function main() {
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
@@ -757,6 +981,7 @@ async function main() {
   try {
     await fix1();
     await fix2();
+    await fix3();
   } finally {
     Object.assign(console, original);
   }

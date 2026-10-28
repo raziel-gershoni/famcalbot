@@ -173,6 +173,8 @@ function installStubs() {
     verifyUserAuth: async () => ({ success: true, via: 'telegram', user: { ...userRow } }),
   });
   stub('src/services/user-service.ts', {
+    // The settings route asks which channels the person has (delivery-platform.ts); the row has a Telegram id and no WhatsApp
+    getWhatsAppChatId: (user: { whatsappPhone?: string | null; whatsappBsuid?: string | null }) => user.whatsappPhone || user.whatsappBsuid || null,
     updateUserById: async (id: number, data: Row) => {
       assert(id === USER_ID, `updateUserById(${id})`);
       for (const [key, value] of Object.entries(data)) if (value !== undefined) userRow[key] = value;

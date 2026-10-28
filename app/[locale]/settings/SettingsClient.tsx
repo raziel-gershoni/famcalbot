@@ -87,6 +87,8 @@ interface SettingsClientProps {
   /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
   nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
+  /** The person has Telegram and WhatsApp both: the platform choice shows only then (with one channel there is nothing to choose). */
+  bothChannels: boolean;
 }
 
 /** The language names are each language's own, whatever language the page is in. */
@@ -128,7 +130,7 @@ function SummaryDays({ label, days, weekStart, onToggle }: { label: string; days
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels }: SettingsClientProps) {
   const t = useTranslations('settings');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -274,16 +276,18 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           />
           {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). */}
           <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />
-          <ValueRow
-            label={t('platform.label')}
-            value={form.messagingPlatform}
-            options={[
-              { value: 'telegram', text: 'Telegram' },
-              { value: 'whatsapp', text: 'WhatsApp' },
-              { value: 'all', text: t('platform.both') },
-            ]}
-            onChange={(value) => set('messagingPlatform', value)}
-          />
+          {bothChannels ? (
+            <ValueRow
+              label={t('platform.label')}
+              value={form.messagingPlatform}
+              options={[
+                { value: 'telegram', text: 'Telegram' },
+                { value: 'whatsapp', text: 'WhatsApp' },
+                { value: 'all', text: t('platform.both') },
+              ]}
+              onChange={(value) => set('messagingPlatform', value)}
+            />
+          ) : null}
         </FormCard>
 
         <SectionLabel>{t('sections.summaries')}</SectionLabel>
