@@ -1292,6 +1292,19 @@ async function fix7() {
     assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => s.text), [botText('he', 'subscription.refunded')], 'the person is told');
   });
 
+  await check('7: two admins refunding the same payment at once: the second finds it refunded and the plan ended, and answers success without telling the person again', async () => {
+    seedPayers();
+    telegramRefund = () => {
+      // The other admin's refund finishes in between: Telegram refunded once, the plan ended
+      Object.assign(subscriptionOf(2), { plan: 'FREE', status: 'EXPIRED', telegramPaymentChargeId: null });
+      throw refusal('CHARGE_ALREADY_REFUNDED');
+    };
+    const answer = await refund(2);
+    assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
+    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage'), [], 'the person was told twice');
+    assertSame(captured, [], 'a false alarm went to Sentry');
+  });
+
   await check('7: a rate limit or a Telegram server error is a failure to try again (500), not a refusal, and changes nothing', async () => {
     for (const statusCode of [429, 502]) {
       seedPayers();

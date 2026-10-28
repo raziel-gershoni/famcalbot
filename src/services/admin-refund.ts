@@ -70,11 +70,13 @@ export async function refundLastPayment(user: RefundTarget, adminId: number): Pr
     return { ok: false, code: 'NO_PAYMENT' };
   }
 
+  let refundedBefore = false;
   try {
     await refundStarPayment(Number(user.telegramId), sub.telegramPaymentChargeId);
   } catch (error) {
     const refusal = telegramRefusal(error);
     if (refusal !== null && alreadyRefunded(refusal)) {
+      refundedBefore = true;
       // A refund that went through before but whose plan never ended (the answer was lost, or ending it failed): end it now
       console.warn(`[admin-refund] Admin ${adminId}: user ${user.id}'s charge was already refunded at Telegram; ending the plan`);
     } else if (refusal !== null) {
@@ -89,6 +91,11 @@ export async function refundLastPayment(user: RefundTarget, adminId: number): Pr
 
   try {
     const ended = await refundSubscription(user.id, adminId);
+    if (!ended.ok && refundedBefore) {
+      // Another admin's refund of the same payment finished first (Telegram refunded once, the plan is already ended)
+      console.warn(`[admin-refund] Admin ${adminId}: user ${user.id}'s payment was refunded and their plan ended already; nothing left to do`);
+      return { ok: true };
+    }
     if (!ended.ok) throw new Error('the subscription no longer holds a payment');
   } catch (error) {
     console.error(`[admin-refund] Admin ${adminId}: user ${user.id} was refunded at Telegram but their plan was not ended (${safeText(error)}); end it by hand`);

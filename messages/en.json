@@ -645,7 +645,7 @@
         "confirmTitle": "Refund {plan} paid on {date}?",
         "confirm": "Refund",
         "done": "Refunded",
-        "failed": "Telegram refused the refund. It may be refunded already or too old."
+        "failed": "Telegram refused the refund. The payment may be too old."
       },
       "setup": {
         "title": "Setup",
