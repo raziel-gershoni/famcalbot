@@ -52,6 +52,8 @@ const show = (v: unknown) => JSON.stringify(v);
 const redisStore = new Map<string, unknown>();
 let redisReads = 0;
 let redisSets = 0;
+/** The next this-many writes throw (Redis failing to store a zone). */
+let failSets = 0;
 let holdReads: { release: (error?: Error) => void; wait: Promise<void> } | null = null;
 function holdRedisReads() {
   let release: (error?: Error) => void = () => {};
@@ -73,6 +75,10 @@ const fakeRedis = {
   },
   set: async (key: string, value: unknown) => {
     redisSets++;
+    if (failSets > 0) {
+      failSets--;
+      throw new Error('redis write failed');
+    }
     redisStore.set(key, value);
     return 'OK';
   },
@@ -152,6 +158,7 @@ function seed() {
   redisStore.clear();
   redisReads = 0;
   redisSets = 0;
+  failSets = 0;
   holdReads = null;
   geocodes.length = 0;
   googleZoneCalls.length = 0;
@@ -311,7 +318,7 @@ async function main() {
     captures.length = 0;
     const fallback = await resolveUserTimezone({ id: 42, googleRefreshToken: 'tok-42' });
     assert(googleZoneCalls.length === 1 && typeof fallback === 'string' && redisStore.get('tz:user:42') === fallback, `none found: ${googleZoneCalls.length} calls, zone ${show(fallback)}`);
-    // A step that throws (getUserCalendarTimezone catches everything itself, so only the cache write can): logged once, one call, no 2 s wait.
+    // A step that throws (not expected: getUserCalendarTimezone catches everything itself and answers null; a failed cache write has its own check below): logged once, one call, no 2 s wait.
     seed();
     captures.length = 0;
     googleZone = async () => {
@@ -326,6 +333,25 @@ async function main() {
     const step = captures.filter((c) => (c.extra as Row | undefined)?.step === 'google');
     assert(step.length === 1 && step[0].context === 'timezone-resolution' && (step[0].extra as Row).user_id === 43 && String(step[0].message).includes('the step failed'), `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
     assert(consoleLines.some((l) => l.includes('[timezone] user 43')), 'no console line for the failed step');
+  });
+
+  await check('a Google zone whose cache write fails is still the answer: returned, the failed write logged (warning, user id), the default never cached over it; the next lookup asks Google again and caches it', async () => {
+    seed();
+    captures.length = 0;
+    googleZone = async () => 'America/New_York';
+    failSets = 1;
+    const started = Date.now();
+    const zone = await resolveUserTimezone({ id: 51, googleRefreshToken: 'tok-51' });
+    assert(zone === 'America/New_York', `the zone is ${show(zone)}, Google said America/New_York`);
+    const zoneCalls = () => googleZoneCalls.length; // read afresh: the first assert would narrow the length to 1
+    assert(zoneCalls() === 1 && Date.now() - started < 1000, `${zoneCalls()} Google calls, ${Date.now() - started} ms`);
+    assert(redisStore.get('tz:user:51') === undefined, `the default was cached over Google's answer: ${show(redisStore.get('tz:user:51'))}`);
+    const write = captures.filter((c) => (c.extra as Row | undefined)?.step === 'google-cache');
+    assert(write.length === 1 && write[0].context === 'timezone-resolution' && (write[0].extra as Row).user_id === 51 && String(write[0].message).includes('redis write failed'), `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
+    assert(!captures.some((c) => String(c.message).includes('using default')), 'the default-zone warning fired for a zone that was found');
+    assert(consoleLines.some((l) => l.includes('[timezone] user 51')), 'no console line for the failed write');
+    const again = await resolveUserTimezone({ id: 51, googleRefreshToken: 'tok-51' });
+    assert(again === 'America/New_York' && redisStore.get('tz:user:51') === 'America/New_York' && zoneCalls() === 2, `next lookup: ${show(again)}, cached ${show(redisStore.get('tz:user:51'))}, ${zoneCalls()} Google calls`);
   });
 
   await check('timezoneWithin (the wait the range route and Settings share, moved here from the range route): an answer inside the wait is returned and its timer cleared; a lookup slower than the wait gives null and carries on, caching its answer for the next open; a lookup that fails inside the wait rejects with its error; the shared ceiling is 2 s', async () => {

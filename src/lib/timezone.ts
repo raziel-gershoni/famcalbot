@@ -206,16 +206,23 @@ async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
   // failure itself (it logs it and answers null), and its requests carry the one Google retry
   // policy (google-retry.ts), so a retry loop here never had an error to retry.
   if (user.googleRefreshToken) {
+    let gcalTz: string | null = null;
     try {
-      const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
-      if (gcalTz) {
-        await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
-        return gcalTz;
-      }
+      gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
     } catch (error) {
-      // Only the cache write can land here; the zone is still unresolved, so step 4 decides.
-      console.warn(`[timezone] user ${user.id}: caching the Google Calendar zone failed`, error);
+      // Not expected (it answers null instead); logged all the same, and step 4 decides.
+      console.warn(`[timezone] user ${user.id}: the Google Calendar zone lookup threw`, error);
       captureError(error, 'timezone-resolution', { user_id: user.id, service: 'timezone', step: 'google' }, 'warning');
+    }
+    if (gcalTz) {
+      try {
+        await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
+      } catch (error) {
+        // Google answered: the zone stands, and the next lookup caches it. Falling through would cache the default for a day over it.
+        console.warn(`[timezone] user ${user.id}: caching the Google Calendar zone failed; used uncached`, error);
+        captureError(error, 'timezone-resolution', { user_id: user.id, service: 'timezone', step: 'google-cache' }, 'warning');
+      }
+      return gcalTz;
     }
   }
 
