@@ -727,7 +727,7 @@
         "blockedDone": "Blocked",
         "delete": "Delete for good",
         "deleteTitle": "Delete {name} for good?",
-        "deleteBody": "This deletes the account and everything about it: plan, usage, activity, feedback and overrides. It can't be undone.",
+        "deleteBody": "This deletes the account and everything about it: plan, usage, activity, feedback and overrides. It can't be undone. Their Google access is revoked too: anyone else who connected the same Google account will need to connect it again.",
         "deleteType": "Type DELETE to confirm",
         "deleteConfirm": "Delete for good"
       }
