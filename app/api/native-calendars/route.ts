@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
-import { listVisibleCalendars, encodeCalendarId } from '@/src/services/native-calendar/event-store';
+import { listVisibleCalendars, encodeCalendarId, sortingForViewer } from '@/src/services/native-calendar/event-store';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
 import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
@@ -37,14 +37,11 @@ export async function GET(request: NextRequest) {
         rawId: c.id,
         name: c.name,
         color: c.color,
-        labels: c.labels,
         privacy: c.privacy,
         ownerUserId: c.ownerUserId,
         isOwner: c.ownerUserId === user.id,
-        personName: c.personName,
-        personEnglishName: c.personEnglishName,
-        personGender: c.personGender,
-        rules: c.rules,
+        // The owner's labels, rules and person: a partner's calendar carries none of them
+        ...sortingForViewer(c, user.id),
         createdAt: c.createdAt,
       })),
     });

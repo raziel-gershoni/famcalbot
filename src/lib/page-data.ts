@@ -29,7 +29,7 @@ import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar'
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { sourcesFor } from '@/src/services/calendar-read';
 import { googleStateOf, liveGoogleChoices, type GoogleState } from '@/src/lib/google-state';
-import { listVisibleCalendars } from '@/src/services/native-calendar/event-store';
+import { listVisibleCalendars, sortingForViewer } from '@/src/services/native-calendar/event-store';
 import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
 import { getPlanLimits } from '@/src/config/plans';
@@ -410,14 +410,11 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
     rawId: c.id,
     name: c.name,
     color: c.color,
-    labels: c.labels,
     privacy: c.privacy,
     ownerUserId: c.ownerUserId,
     isOwner: c.ownerUserId === user.id,
-    personName: c.personName,
-    personEnglishName: c.personEnglishName,
-    personGender: c.personGender,
-    rules: c.rules,
+    // The owner's labels, rules and person: a partner's calendar carries none of them
+    ...sortingForViewer(c, user.id),
     createdAt: c.createdAt.toISOString(),
   }));
 

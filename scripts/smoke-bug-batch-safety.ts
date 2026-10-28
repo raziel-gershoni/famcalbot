@@ -11,7 +11,9 @@
 //      added to the calendar's id), and a rule that was added names the calendar, never its id.
 //   5. /api/set-menu-button, which resets the bot's default menu button for everyone, needs the operator's secret
 //      (Authorization: Bearer <CRON_SECRET>); a failure does not echo the error.
-//   (the families of fixes 6-7 are added with their fixes)
+//   6. A partner's calendar reaches the viewer's browser without the partner's private sorting (labels, rules, the person's
+//      name, English name and gender), by the API and by the Calendars page's own data; its name, colour and access stay.
+//   (the family of fix 7 is added with its fix)
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -1077,6 +1079,77 @@ async function fix5() {
   });
 }
 
+// ---- Fix 6 ----
+
+async function fix6() {
+  const seedCalendars = () => {
+    DB.user.find(u => u.id === 1)!.pairingId = 'pair1';
+    DB.user.find(u => u.id === 2)!.pairingId = 'pair1';
+    DB.pairing = [{ id: 'pair1', status: 'ACTIVE', inviterUserId: 1, inviteeUserId: 2 }];
+    const base = { isDeleted: false, createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z') };
+    DB.nativeCalendar = [
+      { id: 'cA', ownerUserId: 1, name: 'Noa', color: '#E67C73', labels: ['primary', 'yours'], rules: ['Dentist is always Tuesday'], personName: null, personEnglishName: null, personGender: null, privacy: 'SHARED_EDITOR', ...base },
+      { id: 'cB', ownerUserId: 2, name: "Dana's kids", color: '#33B679', labels: ['kids', 'spouse'], rules: ['Noam is my child'], personName: 'נועם', personEnglishName: 'Noam', personGender: 'male', privacy: 'SHARED_VIEWER', ...base },
+      { id: 'cC', ownerUserId: 2, name: 'Dana private', color: '#8E24AA', labels: ['birthdays'], rules: ['secret'], personName: 'Secret', personEnglishName: 'Secret', personGender: 'female', privacy: 'PRIVATE', ...base },
+    ];
+  };
+  const TRIMMED = { labels: [], rules: [], personName: null, personEnglishName: null, personGender: null };
+  const PRIVATE_FIELDS = ['labels', 'rules', 'personName', 'personEnglishName', 'personGender'] as const;
+  const pick = (row: Row, keys: readonly string[]) => Object.fromEntries(keys.map(k => [k, row[k] ?? null]));
+
+  /** The same calendars as two readers see them: the API's list and the Calendars page's own data. */
+  const views = async (viewerId: number) => {
+    const { GET } = await import('../app/api/native-calendars/route');
+    const response = await withLogs(() => GET(new Request(`https://famcal.test/api/native-calendars?user_id=${viewerId}`) as never));
+    assert(response.status === 200, `the API answered ${response.status}`);
+    const api = ((await response.json()) as { calendars: Row[] }).calendars;
+    const { loadPageData } = await import('../src/lib/page-data');
+    const user = (await (await import('../src/services/user-service')).getUserById(viewerId))!;
+    const page = await withLogs(() => loadPageData('calendars', user, viewerId, user.language ?? 'en'));
+    assert(page.kind === 'props', `the page: ${show(page)}`);
+    return { api, page: (page.props as unknown as { initialCalendars: Row[] }).initialCalendars };
+  };
+
+  await check("6: a partner's calendar reaches the viewer without labels, rules or the person's name, English name and gender, in the API and on the page", async () => {
+    seedCalendars();
+    for (const [name, rows] of Object.entries(await views(1))) {
+      const partner = rows.find(r => r.rawId === 'cB');
+      assert(partner, `${name}: the partner's calendar is missing from ${show(rows.map(r => r.rawId))}`);
+      assertSame(pick(partner, PRIVATE_FIELDS), TRIMMED, `${name}: the partner's private fields`);
+      assert(!JSON.stringify(partner).includes('Noam') && !JSON.stringify(partner).includes('נועם'), `${name}: the child's name is in the payload: ${show(partner)}`);
+      assertSame(
+        { rawId: partner.rawId, name: partner.name, color: partner.color, privacy: partner.privacy, ownerUserId: partner.ownerUserId, isOwner: partner.isOwner },
+        { rawId: 'cB', name: "Dana's kids", color: '#33B679', privacy: 'SHARED_VIEWER', ownerUserId: 2, isOwner: false },
+        `${name}: the partner's calendar keeps its name, colour, access and owner`
+      );
+      assert(!rows.some(r => r.rawId === 'cC'), `${name}: the partner's PRIVATE calendar is listed`);
+    }
+  });
+
+  await check("6: the viewer's own calendar keeps everything, and each partner sees the other trimmed", async () => {
+    seedCalendars();
+    const noa = await views(1);
+    for (const [name, rows] of Object.entries(noa)) {
+      const own = rows.find(r => r.rawId === 'cA')!;
+      assertSame(pick(own, PRIVATE_FIELDS), { labels: ['primary', 'yours'], rules: ['Dentist is always Tuesday'], personName: null, personEnglishName: null, personGender: null }, `${name}: Noa's own calendar`);
+      assert(own.isOwner === true, `${name}: not marked as hers`);
+    }
+    const dana = await views(2);
+    for (const [name, rows] of Object.entries(dana)) {
+      assertSame(pick(rows.find(r => r.rawId === 'cB')!, PRIVATE_FIELDS), { labels: ['kids', 'spouse'], rules: ['Noam is my child'], personName: 'נועם', personEnglishName: 'Noam', personGender: 'male' }, `${name}: Dana's own calendar`);
+      assertSame(pick(rows.find(r => r.rawId === 'cA')!, PRIVATE_FIELDS), TRIMMED, `${name}: Noa's calendar as Dana sees it`);
+      assert(rows.some(r => r.rawId === 'cC' && r.isOwner === true), `${name}: Dana's own private calendar is missing`);
+    }
+  });
+
+  await check("6: the API still names a partner's calendar for the screens that read it (id, rawId, createdAt)", async () => {
+    seedCalendars();
+    const partner = (await views(1)).api.find(r => r.rawId === 'cB')!;
+    assert(typeof partner.id === 'string' && partner.id.includes('cB'), `id ${show(partner.id)}`);
+    assert(typeof partner.createdAt === 'string', `createdAt ${show(partner.createdAt)}`);
+  });
+}
+
 async function main() {
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
@@ -1087,6 +1160,7 @@ async function main() {
     await fix3();
     await fix4();
     await fix5();
+    await fix6();
   } finally {
     Object.assign(console, original);
   }

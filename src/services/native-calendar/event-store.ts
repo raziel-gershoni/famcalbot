@@ -156,6 +156,23 @@ export async function listVisibleCalendars(userId: number, pairingId: string | n
 }
 
 /**
+ * A calendar's private sorting as the viewer's screens may carry it: its labels, its rules and the person it is for (name,
+ * English name, gender). They are the owner's own settings, so a partner's calendar, which the viewer can see by its name,
+ * colour and access, reaches the viewer's browser without them (empty and null). The viewer's own calendar keeps all five.
+ * The one place both lists that send calendars to the browser (the API and the Calendars page's data) take them from.
+ */
+export function sortingForViewer(
+  calendar: Pick<NativeCalendar, 'ownerUserId' | 'labels' | 'rules' | 'personName' | 'personEnglishName' | 'personGender'>,
+  viewerUserId: number
+): Pick<NativeCalendar, 'labels' | 'rules' | 'personName' | 'personEnglishName' | 'personGender'> {
+  if (calendar.ownerUserId !== viewerUserId) {
+    return { labels: [], rules: [], personName: null, personEnglishName: null, personGender: null };
+  }
+  const { labels, rules, personName, personEnglishName, personGender } = calendar;
+  return { labels, rules, personName, personEnglishName, personGender };
+}
+
+/**
  * The calendar a user's reminders go on: their own calendar labelled primary, else
  * their oldest own calendar, else the one onboarding creates. Never the partner's:
  * a partner's calendar keeps its owner's 'primary' label and listVisibleCalendars
