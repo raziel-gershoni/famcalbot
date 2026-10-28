@@ -1405,7 +1405,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       } else {
         const safeTranscription = transcription || '';
         await waService.sendMessage(phone,
-          `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_I heard: "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
+          `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_${t.voice.iHeard} "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
         );
       }
     }
