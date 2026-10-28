@@ -199,7 +199,8 @@ function sephardiByHand(place: Place, day: string): Record<string, number> {
     CHATZOT: midday, MINCHA_GEDOLA: midday + Math.max(30 * MINUTE, hour / 2), MINCHA_KETANA: rise + 9.5 * hour,
     PLAG_HALACHA_BERURA: set - 1.25 * hour, PLAG_YALKUT_YOSEF: tzeit - 1.25 * hour,
     CANDLE_LIGHTING: set - 20 * MINUTE, SHKIA: set, TZEIT: tzeit, TZEIT_LECHUMRA: set + 20 * zm,
-    SHABBAT_ENDS: set + 30 * MINUTE, CHATZOT_HALAYLA: (set + nextRise) / 2,
+    // Zmanei Yosef's melakha: 30 clock minutes after the elevation sunset in Israel, the sun 7.165 degrees below the horizon abroad
+    SHABBAT_ENDS: elevated ? set + 30 * MINUTE : ms(z.timeAtAngle(7.165, false)), CHATZOT_HALAYLA: (set + nextRise) / 2,
   };
 }
 
@@ -503,12 +504,31 @@ async function runChecks(): Promise<void> {
 
   // ============ Each set's formula on one day ============
 
-  await check('the Sephardi set on Jerusalem 2026-03-27, 754 m: every zman equals the independent derivation to the second (dawn 72, tallit 60, nightfall 13.5 and 20 halachic minutes; Magen Avraham 72 to 72; two plags; Shabbat ends 30 minutes after sunset)', () => {
+  await check('the Sephardi set on Jerusalem 2026-03-27, 754 m: every zman equals the independent derivation to the second (dawn 72, tallit 60, nightfall 13.5 and 20 halachic minutes; Magen Avraham 72 to 72; two plags; Shabbat ends 30 minutes after sunset in Israel)', () => {
     const exact = compute.exactZmanimForDay('2026-03-27', JERUSALEM, 'sephardi');
     const byHand = sephardiByHand(JERUSALEM, '2026-03-27');
     for (const key of sets.zmanimOfSet('sephardi')) {
       assert(Math.abs(ms(exact[key]!) - byHand[key]) <= 1000, `${key}: ${clock(exact[key])} vs ${new Date(byHand[key]).toISOString()}`);
     }
+  });
+
+  await check('the Sephardi end of Shabbat follows Zmanei Yosef\'s melakha: 30 clock minutes after the elevation sunset in Israel, the sun 7.165 degrees below the horizon abroad (New York in winter, spring and summer, against hebcal\'s own timeAtAngle); 30 minutes after sunset would let a message out up to ten minutes early', () => {
+    const israel = compute.exactZmanimForDay('2026-03-27', JERUSALEM, 'sephardi');
+    assert(ms(israel.SHABBAT_ENDS!) - ms(israel.SHKIA!) === 30 * MINUTE, 'Israel: 30 minutes after sunset');
+    for (const day of ['2026-12-19', '2027-03-20', '2027-06-19']) {
+      const z = hz(NEW_YORK, day, false);
+      const exact = compute.exactZmanimForDay(day, NEW_YORK, 'sephardi').SHABBAT_ENDS!;
+      assert(Math.abs(ms(exact) - ms(z.timeAtAngle(7.165, false))) <= 1000, `${day}: ${clock(exact, 'America/New_York')} vs 7.165 degrees ${clock(z.timeAtAngle(7.165, false), 'America/New_York')}`);
+      const shown = compute.zmanimForDay(day, NEW_YORK, 'sephardi').SHABBAT_ENDS!;
+      assert(ms(shown) === roundMinute(secondFloor(ms(z.timeAtAngle(7.165, false))), 'later'), `${day}: shown ${hm(shown, 'America/New_York')}`);
+      // 7, 3 and 10 minutes later than 30 minutes after the sea-level sunset (what a message would have been sent in).
+      assert(ms(shown) - roundMinute(ms(z.sunset()) + 30 * MINUTE, 'later') >= 3 * MINUTE, `${day}: ${hm(shown, 'America/New_York')} is not 3 minutes or more after sunset plus 30`);
+    }
+    assert(hm(compute.zmanimForDay('2026-12-19', NEW_YORK, 'sephardi').SHABBAT_ENDS, 'America/New_York') === '17:09', 'New York, 19 December 2026');
+    // Only the end of Shabbat changes abroad: the rest of the Sephardi set there still equals the hand derivation.
+    const abroad = compute.exactZmanimForDay('2026-12-19', NEW_YORK, 'sephardi');
+    const byHand = sephardiByHand(NEW_YORK, '2026-12-19');
+    for (const key of sets.zmanimOfSet('sephardi')) assert(Math.abs(ms(abroad[key]!) - byHand[key]) <= 1000, `${key} abroad: ${clock(abroad[key], 'America/New_York')} vs ${new Date(byHand[key]).toISOString()}`);
   });
 
   await check('the Ashkenazi set on Bnei Brak 2026-06-21 and the Chabad set on Jerusalem 2026-03-27: every zman equals the independent derivation to the second', () => {
@@ -688,9 +708,11 @@ async function runChecks(): Promise<void> {
       assert(start.getTime() === shown.CANDLE_LIGHTING!.getTime(), `${community} start`);
       assert(end.getTime() === compute.zmanimForDay('2026-10-31', NEW_YORK, community).SHABBAT_ENDS!.getTime(), `${community} end`);
     }
+    const end = (window: [Date, Date]) => window[1].getTime();
     const sephardi = windowsAround('2026-10-29', '2026-11-02', NEW_YORK, 'sephardi')[0];
     const ashkenazi = windowsAround('2026-10-29', '2026-11-02', NEW_YORK, 'ashkenazi')[0];
-    assert(sephardi[1].getTime() < ashkenazi[1].getTime(), 'Sephardi Shabbat ends 30 minutes after sunset, earlier than 8.5 degrees in New York in autumn');
+    assert(sephardi[1].getTime() < ashkenazi[1].getTime(), 'Sephardi Shabbat ends at 7.165 degrees abroad, earlier than 8.5 degrees in New York in autumn');
+    assert(end(sephardi) === compute.zmanimForDay('2026-10-31', NEW_YORK, 'sephardi').SHABBAT_ENDS!.getTime(), 'and the window ends at the set\'s end of Shabbat');
   });
 
   await check('the windows on a change-of-clock Friday (Israel 2026-03-27) read on the person\'s clock: candle lighting is after the jump (UTC+3), and the window still ends the next night', () => {

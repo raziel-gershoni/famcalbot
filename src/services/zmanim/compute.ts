@@ -180,6 +180,8 @@ class Day {
         const mga = this.mgaDay();
         return mga === null ? null : mga.begin + Math.floor(mga.hour * rule.hours);
       }
+      case 'byPlace':
+        return this.evaluate(inIsrael(this.place.timeZone) ? rule.israel : rule.abroad);
     }
   }
 

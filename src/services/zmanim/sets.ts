@@ -107,7 +107,9 @@ export type Rule =
   /** The middle of the night: from the frame's sunset to the next morning's sunrise. */
   | { op: 'midnight' }
   /** The start of the Magen Avraham's day plus `hours` of its hours (see ZmanimSet.mgaDay). */
-  | { op: 'mgaHours'; hours: number };
+  | { op: 'mgaHours'; hours: number }
+  /** `israel` where the person is in Israel (by their zone), `abroad` elsewhere: a zman Zmanei Yosef counts differently in each. */
+  | { op: 'byPlace'; israel: Rule; abroad: Rule };
 
 export interface ZmanEntry {
   rule: Rule;
@@ -164,12 +166,16 @@ function entry(zman: ZmanKey, rule: Rule, opinion?: Opinion): ZmanEntry {
 /** Candle lighting is 20 clock minutes before sunset in every set (owner decision 4). */
 const CANDLES_MIN = -20;
 
+/** How far below the horizon the sun is when Zmanei Yosef ends Shabbat abroad (its melakha default there; 30 minutes after sunset in Israel). */
+const SEPHARDI_SHABBAT_ENDS_ABROAD_DEGREES = 7.165;
+
 /**
  * Sephardi: Zmanei Yosef / the Ohr HaChaim calendar. Hours from the elevation sunrise to the elevation
  * sunset; dawn 72 and nightfall 13.5 halachic minutes (20 for the stricter nightfall); the Magen
  * Avraham's day from 72 halachic minutes before sunrise to 72 after sunset; the end of Shabbat 30
- * clock minutes after sunset. The sunrise shown (NETZ) is the sea-level one (Zmanei Yosef's
- * "mishor"). Two plags are two zmanim (owner decision 2).
+ * clock minutes after sunset in Israel and, as Zmanei Yosef has its melakha abroad, the sun 7.165
+ * degrees below the horizon (up to ten minutes later than 30 minutes after sunset). The sunrise shown
+ * (NETZ) is the sea-level one (Zmanei Yosef's "mishor"). Two plags are two zmanim (owner decision 2).
  */
 const SEPHARDI: ZmanimSet = {
   id: 'sephardi',
@@ -191,7 +197,11 @@ const SEPHARDI: ZmanimSet = {
     SHKIA: entry('SHKIA', { op: 'frameSunset' }),
     TZEIT: entry('TZEIT', { op: 'zmFromSunset', zm: 13.5 }),
     TZEIT_LECHUMRA: entry('TZEIT_LECHUMRA', { op: 'zmFromSunset', zm: 20 }),
-    SHABBAT_ENDS: entry('SHABBAT_ENDS', { op: 'clockFromSunset', from: 'frameSunset', minutes: 30 }),
+    SHABBAT_ENDS: entry('SHABBAT_ENDS', {
+      op: 'byPlace',
+      israel: { op: 'clockFromSunset', from: 'frameSunset', minutes: 30 },
+      abroad: { op: 'angle', degrees: SEPHARDI_SHABBAT_ENDS_ABROAD_DEGREES, rising: false },
+    }),
     CHATZOT_HALAYLA: entry('CHATZOT_HALAYLA', { op: 'midnight' }),
   },
 };
