@@ -9692,7 +9692,34 @@ async function main() {
     }
   });
 
-  await check('#125 React logged no warning on the calendars page (#119-#124d); the page\'s own logs are only the failures #120, #122 and #124c caused', () => {
+  await check('#124e calendars page: a card names its categories in the screen\'s language (never the stored "primary", "yours"), leaves out "yours" (the section says it), and a partner\'s calendar shows none of the partner\'s categories; the edit chips are in the screen\'s language too', async () => {
+    serveCopies = () => ok200({ shown: false, ownerName: 'Noa', rows: [] });
+    const labelled = [{ ...CALS[0], labels: ['primary', 'yours'] }, { ...CALS[1], labels: ['kids'] }, { ...CALS[2], labels: ['yours', 'spouse'] }];
+    for (const locale of ['en', 'he', 'ru'] as Locale[]) {
+      resetHome();
+      fakeWindow.Telegram = { WebApp: fakeTelegram().webApp };
+      answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : ok200({ success: true }));
+      const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: labelled, googleColors: [] })));
+      await settle();
+      try {
+        const cat = (messages[locale] as Row).calendars as Row & { categories: Record<string, string> };
+        const home = textOf(htmlOf(cardOf(m, 'Home')));
+        assertHas(home, [cat.categories.primary], `${locale}: Home`);
+        assertLacks(home, [cat.categories.yours, ...(locale === 'en' ? [] : ['primary', 'yours'])], `${locale}: Home`);
+        assertHas(textOf(htmlOf(cardOf(m, 'Work'))), [cat.categories.kids], `${locale}: Work`);
+        const noa = textOf(htmlOf(cardOf(m, 'Noa family')));
+        assertLacks(noa, [cat.categories.yours, cat.categories.spouse, 'yours', 'spouse'], `${locale}: the partner's calendar`);
+        m.click(elements(cardOf(m, 'Home')).filter((e) => e.localName === 'button')[0]);
+        await settle();
+        const chips = elements(m.container).filter((e) => e.localName === 'button' && e.className.includes('rounded-full') && e.className.includes('text-xs')).map((e) => textOf(htmlOf(e)));
+        assert(show(chips) === show(['primary', 'yours', 'spouse', 'kids', 'birthdays'].map((k) => cat.categories[k])), `${locale}: chips ${show(chips)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#125 React logged no warning on the calendars page (#119-#124e); the page\'s own logs are only the failures #120, #122 and #124c caused', () => {
     const lines = reactWarnings.slice(warnedBeforeCopies);
     const own = lines.filter((w) => /^\[(calendars|google-copy)\]/.test(w));
     assert(lines.length === own.length, `React warned: ${show(lines.filter((w) => !own.includes(w)).slice(0, 3))}`);

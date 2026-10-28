@@ -565,6 +565,10 @@ interface CardProps {
 
 function CalendarCard(props: CardProps) {
   const { calendar: c, drawnColor, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete, extra } = props;
+  const categories = useTranslations('calendars.categories');
+  // The row names the calendar's categories in the screen's language. "Yours" goes unsaid (the
+  // section above says it), and a partner's calendar shows none: they are the partner's own sorting.
+  const shownLabels = c.isOwner ? c.labels.filter((l) => l !== 'yours' && (VALID_LABELS as readonly string[]).includes(l)) : [];
   const [name, setName] = useState(c.name);
   const [color, setColor] = useState(c.color);
   const [labels, setLabels] = useState<string[]>(c.labels);
@@ -613,7 +617,7 @@ function CalendarCard(props: CardProps) {
                   }
                   className={`text-xs px-2.5 py-1 rounded-full ${active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                 >
-                  {label}
+                  {categories(label)}
                 </button>
               );
             })}
@@ -659,7 +663,7 @@ function CalendarCard(props: CardProps) {
           </div>
           <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
             <PrivacyIcon size={12} /> {privacyLabel}
-            {c.labels.length > 0 && <span className="ml-1">· {c.labels.join(' · ')}</span>}
+            {shownLabels.length > 0 && <span className="ml-1">· {shownLabels.map((l) => categories(l)).join(' · ')}</span>}
           </div>
         </div>
         {!readOnly && (
