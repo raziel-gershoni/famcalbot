@@ -800,6 +800,46 @@ async function main() {
     assert(lastBot().text.includes(asks) && buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_create:')), lastBot().text);
   });
 
+  /** Several taps delivered at once (Telegram may run updates of one chat in parallel): one console silence around all of them. */
+  const tapsTogether = (taps: string[], chatId = 555, messageId = 701) => quiet(() => Promise.all(taps.map((data, i) => handleTelegramWebhook(
+    { body: { update_id: 10 + i, callback_query: { id: `q${i}`, from, message: { chat: { id: chatId }, message_id: messageId }, data } } } as never,
+    { status: () => ({ json: noop }) } as never,
+  ))));
+  const answers = () => botCalls.filter((c) => c.method === 'answerCallbackQuery').map((c) => c.text);
+
+  await check('two opinion taps at once create one reminder: the first claims the card, the other is answered as expired (Telegram)', async () => {
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const id = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:0:'))!.callback_data.slice('event_pick:0:'.length);
+    botCalls = [];
+    await tapsTogether([`event_pick:0:${id}`, `event_pick:1:${id}`]);
+    assert(made() === 1, `created ${made()}: ${show(created.map((c) => c.input.zmanSpec))}`);
+    const expired = await getBotMessage('en', 'voice.expired');
+    assert(answers().filter((text) => text === expired).length === 1, `answers ${show(answers())}`);
+    assert(!(await getPendingEvent(id)), 'the pending event is still there');
+  });
+
+  await check('two Create taps at once create one reminder (Telegram)', async () => {
+    const rule = await resolved(zmanReminder(SHKIA(-30)));
+    await showEventConfirmation(555, undefined, rule, 'x', dana);
+    const id = pendingIdOf(lastBot(), 'event_create:');
+    botCalls = [];
+    await tapsTogether([`event_create:${id}`, `event_create:${id}`]);
+    assert(made() === 1, `created ${made()}`);
+  });
+
+  await check('two opinion taps at once create one reminder (WhatsApp)', async () => {
+    extracted = [intentOf(zmanReminder(SHEMA(-10)), 'high')];
+    await whatsappVoice();
+    const buttons = waButtonsOf(lastWa());
+    await quiet(() => Promise.all([waTap(buttons[0].id), waTap(buttons[1].id)]));
+    assert(made() === 1, `created ${made()}: ${show(created.map((c) => c.input.zmanSpec))}`);
+    extracted = [intentOf(zmanReminder(SHKIA(-30)), 'high')];
+    await whatsappVoice();
+    const create = waButtonsOf(lastWa())[0].id;
+    await quiet(() => Promise.all([waTap(create), waTap(create)]));
+    assert(made() === 2, `created ${made()}`);
+  });
+
   await check('a repeating reminder gets the same buttons, and a tap creates the series with the rule', async () => {
     const event = await choosing({ recurrence: { frequency: 'daily' } });
     await showEventConfirmation(555, undefined, event, 'every day', dana);

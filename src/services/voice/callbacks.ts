@@ -19,7 +19,7 @@ import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve
 import {
   chooseZmanOpinion,
   getPendingEvent,
-  removePendingEvent,
+  takePendingEvent,
   getPendingEdit,
   removePendingEdit,
   getPendingDelete,
@@ -28,6 +28,7 @@ import {
   formatEventDateTime,
   formatReminderCreated,
   hebrewCardParts,
+  type PendingEventData,
 } from './confirmations';
 
 /**
@@ -38,11 +39,13 @@ export async function handleEventCallback(
   messageId: number,
   queryId: string,
   action: string,
-  pendingId: string
+  pendingId: string,
+  claimed?: PendingEventData
 ): Promise<void> {
   const bot = getBot();
 
-  const pending = await getPendingEvent(pendingId);
+  // The tap claims the pending event (a second tap at the same moment finds it gone); an opinion tap already did
+  const pending = claimed ?? await takePendingEvent(pendingId);
 
   if (!pending) {
     const t = await getBotMessages('en');
@@ -57,8 +60,6 @@ export async function handleEventCallback(
 
   const { event, user } = pending;
   const t = await getBotMessages(user.language || 'en');
-
-  await removePendingEvent(pendingId);
 
   if (action === 'cancel') {
     await bot.answerCallbackQuery(queryId, { text: t.voice.cancelled });
@@ -249,7 +250,8 @@ export async function handleEventChoiceCallback(
     await getBot().answerCallbackQuery(queryId, { text: t.voice.unknownError });
     return;
   }
-  await handleEventCallback(chatId, messageId, queryId, 'create', pendingId);
+  // Created from the claimed reminder; an expired card (or one another tap took) gets the expired answer
+  await handleEventCallback(chatId, messageId, queryId, 'create', pendingId, chosen.ok ? chosen.pending : undefined);
 }
 
 /**

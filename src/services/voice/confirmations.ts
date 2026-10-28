@@ -96,27 +96,49 @@ export async function removePendingEvent(pendingId: string) {
 }
 
 /**
- * A tap on one of a reminder's opinion buttons (Telegram's event_pick, WhatsApp's reply button): the pending reminder
- * becomes the reminder with that opinion's rule, on that choice's day, its notice and pause note worked out again,
- * and is stored back under the same id. The caller then creates it like any confirmed reminder. `expired` is a
- * pending event that is gone; `no_such_choice` is a button the reminder has no choice for (logged).
+ * Claim a pending event for the tap that creates (or cancels) it: read it and remove it, so that of several taps
+ * delivered at once (Telegram may run the updates of one chat in parallel) exactly one gets it. Redis DEL answers how
+ * many keys it removed, and only one of the callers that read the event removes it. The others get undefined, like an
+ * expired card. Where Redis cannot be asked, the event is returned as before (logged), so a failure never blocks a tap.
+ */
+export async function takePendingEvent(pendingId: string): Promise<PendingEventData | undefined> {
+  const pending = await getPendingEvent(pendingId);
+  if (!pending) return undefined;
+  try {
+    const removed = await redis.del(REDIS_KEYS.pendingEvent(pendingId));
+    if (removed === 0) {
+      console.warn(`[Voice] pending event ${pendingId} was taken by another tap at the same moment; this one is treated as expired`);
+      return undefined;
+    }
+  } catch (error) {
+    console.error('[Voice] Error removing pending event from Redis:', error);
+    captureError(error, 'voice-confirmations', {}, 'warning');
+  }
+  return pending;
+}
+
+/**
+ * A tap on one of a reminder's opinion buttons (Telegram's event_pick, WhatsApp's reply button): the tap claims the
+ * pending reminder (takePendingEvent), so a second tap at the same moment finds it gone, and the reminder becomes the
+ * one with that opinion's rule, on that choice's day, its notice and pause note worked out again. It is NOT stored back:
+ * the caller creates it at once, like any confirmed reminder. `expired` is a pending event that is gone (or taken by
+ * another tap); `no_such_choice` is a button the reminder has no choice for (logged), and the card is put back as it was.
  */
 export async function chooseZmanOpinion(
   pendingId: string,
   index: number
 ): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' } | { ok: false; reason: 'no_such_choice'; pending: PendingEventData }> {
-  const pending = await getPendingEvent(pendingId);
+  const pending = await takePendingEvent(pendingId);
   if (!pending) return { ok: false, reason: 'expired' };
   const timezone = await resolveUserTimezone(pending.user);
   const chosen = withZmanChoice(pending.event, index, timezone);
   if (!chosen) {
     console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} has no choice (${pending.event.zmanChoices?.length ?? 0} choices)`);
+    await setPendingEvent(pendingId, pending);
     return { ok: false, reason: 'no_such_choice', pending };
   }
   const event = await refreshReminderNotice(chosen, timezone, new Date(), pending.user);
-  const next: PendingEventData = { ...pending, event };
-  await setPendingEvent(pendingId, next);
-  return { ok: true, pending: next };
+  return { ok: true, pending: { ...pending, event } };
 }
 
 /**

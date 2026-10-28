@@ -1378,7 +1378,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
 /**
  * Handle voice event callbacks from WhatsApp reply buttons
  */
-async function handleWhatsAppVoiceCallback(phone: string, callbackData: string): Promise<void> {
+async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, claimed?: import('./voice/confirmations').PendingEventData): Promise<void> {
   const waService = getWhatsAppService();
   // Try to get user language for i18n — default to English
   const userRecord = await getUserByWhatsAppPhone(phone);
@@ -1405,14 +1405,16 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.');
         return;
       }
-      // An expired one falls through: the create below answers that it has expired
-      await handleWhatsAppVoiceCallback(phone, `event_create:${pendingId}`);
+      // The tap has claimed the reminder; creating it is then the Create tap's own path. An expired one (or one another tap
+      // took) is answered by the create below as expired
+      await handleWhatsAppVoiceCallback(phone, `event_create:${pendingId}`, chosen.ok ? chosen.pending : undefined);
       return;
     }
 
     if (action === 'event_create') {
-      const { getPendingEvent, removePendingEvent } = await import('./voice/confirmations');
-      const pending = await getPendingEvent(pendingId);
+      // The tap claims the pending reminder (a second tap at the same moment finds it gone); an opinion tap already did
+      const { takePendingEvent } = await import('./voice/confirmations');
+      const pending = claimed ?? await takePendingEvent(pendingId);
 
       if (!pending) {
         await waService.sendMessage(phone, wa.eventExpired || 'This confirmation has expired.');
@@ -1437,8 +1439,6 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
           ...reminderCreateFields(pending.event),
         }
       );
-
-      await removePendingEvent(pendingId);
 
       if (result.success) {
         const reminder = pending.event.kind === 'reminder';
