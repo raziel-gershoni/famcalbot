@@ -23,7 +23,7 @@ The owner's answers on 2026-10-28 ("go with recommendations"):
 3. **Look:** the app's own look (the `--ch-*` tokens of `components/app-ui/theme.ts`), light and dark, showing the real app. **Ruling:** "real app screenshots" are built as the real app parts rendered live with sample data (§5.3), not as PNG files. They follow the visitor's language and theme on their own, and they can never fall behind the app.
 4. **Pages:**
    - one landing page, which absorbs How it works;
-   - no plans section and no prices (§3.2.5, owner 2026-10-28): the site says FamCal is free to use. Plans come back to the site once the owner has chosen how people pay;
+   - a plans section read from `src/config/plans.ts`, with no mention of early access (§3.2.5);
    - the blog is kept;
    - Privacy and Terms are rewritten. I draft them; the owner reads them before they ship.
 5. **Calls to action, revised for the owner's doubt** ("in Israel WA is pretty popular"). Two buttons of the **same size and weight**: Telegram, then WhatsApp. They sit side by side, stacked on a phone. Under them is one honest line: reminders, photo capture and paying for a plan are on Telegram for now.
@@ -42,7 +42,7 @@ The owner's answers on 2026-10-28 ("go with recommendations"):
 ### 3.1 Header (every public page)
 
 - **Logo.**
-- **Links:** How it works (`#how`), Blog.
+- **Links:** How it works (`#how`), Plans (`#plans`), Blog.
 - **Language switcher.**
 - **Start control:**
   - On a wide screen, two compact buttons, Telegram and WhatsApp, equal in size.
@@ -75,10 +75,15 @@ In order:
 
    Only what is built is listed (§4).
 4. **Telegram or WhatsApp.** A small two-column comparison of what each channel does today, from the channel matrix. It is the long form of the honest line, and it says that linking WhatsApp to Telegram later keeps everything.
-5. **Price** (owner 2026-10-28: drop "early access" from the site, and no Telegram Stars on it, because Stars can sound unreliable to most people):
-   - one plain line, "FamCal is free to use", in the start-again section (item 7), shown while `earlyAdoptionMode` is on. The page reads the switch on the server (§6.3);
-   - no plan cards, no plan names, no Stars, no prices and no "early access" wording anywhere on the public pages;
-   - the early-access switch stays on in production; this is wording only. Turning the switch off is a separate owner decision, and the site's price section is redone with it (§11).
+5. **Plans** (`#plans`), read from `PLAN_CONFIGS` and `TRIAL_DURATION_DAYS`:
+   - **Cards:**
+     - Free: 10 text and 3 voice summaries a month, 3 calendars.
+     - Basic: unlimited summaries, 5 calendars.
+     - Pro: everything, including reminders, voice, photo and PDF events, Copy to Google, and unlimited calendars.
+   - **Price:** in Telegram Stars per month, formatted for the locale.
+   - **Terms notes:** a 14-day Pro trial starts by itself, with no card. Monthly, no auto-renew. Paid with Telegram Stars inside Telegram.
+   - **No early access** (owner 2026-10-28): the site never mentions early access and never reads the switch. The switch and its code stay in the app.
+   - **Wording:** card bullets come from messages, never from `PLAN_CONFIGS[...].features`, which is English-only and stale.
 6. **From the founder.** The existing personal story, shortened, linking to the blog post.
 7. **Start again.** The two buttons once more, then the footer.
 
@@ -95,7 +100,7 @@ In order:
 
 ### 3.4 Footer
 
-Links (How it works, Blog, Privacy, Terms, Contact), the language switcher, "Made in Israel" (no emoji), and the copyright years.
+Links (How it works, Plans, Blog, Privacy, Terms, Contact), the language switcher, "Made in Israel" (no emoji), and the copyright years.
 
 ## 4. Words
 
@@ -116,7 +121,7 @@ Links (How it works, Blog, Privacy, Terms, Contact), the language switcher, "Mad
   - OpenAI and OpenWeatherMap.
 
   The site may claim only what §2 of the product facts verified. It says nothing about events by zman, typed events, two-way Google sync, WhatsApp reminders, WhatsApp photo capture, auto-renewal, or a scheduled weekly summary.
-- **No plans talk.** The public pages never say "early access", "Stars", "Basic", "Pro" or a price, in any language (the truth list's smoke checks it).
+- **No early access.** The public pages never say "early access" or its he/ru forms (the truth list's smoke checks it).
 - **Sample people** in the live parts are made-up names per language, never a real user.
 
 ## 5. Look
@@ -168,8 +173,8 @@ The design work is done with the frontend-design skill during the build. These a
 
 ### 6.3 Data on the page
 
-- **Server reads.** The landing reads the early-access switch through the existing server getter, and nothing from `PLAN_CONFIGS`.
-- **Freshness.** The page revalidates every 5 minutes, so it stays cached and a switch flip shows within minutes.
+- **Server reads.** The landing reads only `PLAN_CONFIGS` and `TRIAL_DURATION_DAYS` (no imports, safe anywhere), so it can be fully static.
+- **"Unlimited".** `Infinity` is rendered as "Unlimited" from messages, never serialised.
 
 ### 6.4 SEO
 
@@ -194,7 +199,7 @@ The full facts with file references are in the session notes (`web/data.md`, che
   - your calendar: events, reminders, the family members' names you add, and your notes for the AI. These are stored in our database;
   - the Google connection, if you make one: an encrypted token and the calendars you chose. Google events are held at most 30 minutes to show them, and are not kept;
   - your partner link;
-  - your plan, and the payment reference from Telegram if you paid in the app. We never receive card details;
+  - your plan and the Telegram Stars payment reference. We never receive card details;
   - feedback you send;
   - an activity log, deleted after 90 days.
 - **What we don't keep:**
@@ -224,12 +229,11 @@ The full facts with file references are in the session notes (`web/data.md`, che
 
 - **The service:** a Telegram and WhatsApp bot with a web app; Google is optional.
 - **Eligibility:** a Telegram or WhatsApp account, which means meeting that app's own age rule where you live (§10.4). FamCal sets no age of its own.
-- **Price:**
-  - FamCal is free to use today;
-  - if paid plans are offered, their price and terms are shown in the app before anyone pays, and a plan is monthly with no auto-renew;
-  - a payment made in the app can be refunded on request within 14 days, through `/paysupport` (§10.3).
-
-  No plan names, Stars or prices (§3.2.5).
+- **Plans:**
+  - the Free, Basic and Pro limits;
+  - the automatic 14-day Pro trial;
+  - monthly, no auto-renew, paid with Telegram Stars;
+  - refunds per §10.3, through `/paysupport`.
 - **AI output can be wrong:** summaries, voice reading, and computed zmanim (check a halachic time that matters with a reliable source).
 - **You are responsible** for the data you add about family members.
 - **Fair use:** acceptable use, suspension, liability limits, Israeli law, and contact.
@@ -253,7 +257,7 @@ The full facts with file references are in the session notes (`web/data.md`, che
 - **Render (all three languages, light and dark CSS present):**
   - the landing, blog, privacy and terms render;
   - both start buttons share one class list and the honest line is present;
-  - the "free to use" line follows the switch, and no public string names a plan, Stars, a price or early access;
+  - the plan cards show the numbers from `PLAN_CONFIGS`, and no public string mentions early access;
   - the sample names are not real users.
 - **Site layout:**
   - no `telegram-web-app.js`;
@@ -281,11 +285,11 @@ The full facts with file references are in the session notes (`web/data.md`, che
 2. **Gemini billing:** paid tier. The policy says Google does not use the content to improve its products.
 3. **Refunds for Stars:** a refund on request within 14 days of a payment, through `/paysupport`, using Telegram's refund call. This holds while Stars is the way to pay.
 4. **Minimum age:** no FamCal age of its own (owner: the default). The terms say a person must meet the age rule of the app they use FamCal through, since Telegram and WhatsApp set their own by country. Children's details are added by their parents.
-5. **Early access and payments:** wording only (owner: "a"). The site drops "early access" and shows no plans, Stars or prices, only that FamCal is free to use (§3.2.5). The prod switch stays on. Payment options beyond Stars are a later research task, not part of this spec.
+5. **Early access and payments:** the site doesn't mention early access; plans and Stars prices stay (owner, corrected 2026-10-28). The switch and its code stay in the app; the owner believes it has been off for a while. Payment options beyond Stars are a later research task, not part of this spec.
 
 ## 11. Risks
 
 - **The layout split** touches every page's root. A wrong move breaks the Mini App's Telegram start. Each moved page is covered by the existing page smokes and by a check that the app layout still loads the Telegram script `beforeInteractive`.
 - **Rendering `AgendaView` on the landing** may pull client code. The plan measures it and falls back to static markup.
-- **Turning early access off** would make the "free to use" line disappear and leave the site with nothing about price. That decision comes with the payment research and redoes §3.2.5.
+- **The early-access switch.** If it were on, everyone would get Pro and the site's plan limits would not be what people get. The owner believes it is off; the admin panel shows it.
 - **Legal text** is drafted from code facts, not legal advice. The owner reads it, and the decisions in §10 shape it.
