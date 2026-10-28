@@ -375,6 +375,8 @@ const KEYS: Record<string, readonly string[]> = {
   'zmanimList.community.chabad': [],
   'zmanimList.shabbatEnds': [],
   'zmanimList.yomTovEnds': [],
+  'zmanimList.shabbatYomTovEnds': [],
+  'zmanimList.candlesNotBefore': [],
   'zmanimList.noTime': [],
   'zmanimList.hourLabel': [],
   'zmanimList.loading': [],

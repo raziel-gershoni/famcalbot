@@ -277,6 +277,8 @@
       },
       "shabbatEnds": "Shabbat ends",
       "yomTovEnds": "Yom Tov ends",
+      "shabbatYomTovEnds": "Shabbat and Yom Tov end",
+      "candlesNotBefore": "Candle lighting, not before",
       "noTime": "No time this day",
       "hourLabel": "Halachic hour:",
       "loading": "Loading zmanim…",

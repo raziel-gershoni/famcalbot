@@ -5,7 +5,7 @@
  *   buildZmanClock    the clock the pass, the home and the digests read a reminder's due time from
  *   zmanEditorInfo    what the editor offers: the community's zmanim and today's time of each
  *   zmanDayList       the home's sun sheet: a day's zmanim at the person's place, the candle lighting and the end of
- *                     Shabbat or Yom Tov the day earns, and the length of the halachic hour
+ *                     Shabbat or Yom Tov the day earns (the pause's windows), and the length of the halachic hour
  *
  * The one function that turns a zman rule into an instant is compute.ts zmanInstant; everything here only finds the
  * place to count it at: the person's own (saved coordinates, filled once from a place name), else their zone's main
@@ -23,7 +23,7 @@
 
 import { ensureUserCoordinates, placeWithHeightRetry, type PlaceUser } from './place';
 import { mainCityPlace } from './pause-windows';
-import { halachicHourMs, shabbatYomTovWindows, zmanInstant, type Place } from './compute';
+import { halachicHourMs, isYomTovAt, shabbatYomTovWindows, zmanInstant, type Place } from './compute';
 import { ZMAN_KEYS, communityCounting, isZmanKey, zmanimOfSet, zmanimSet, type ZmanKey, type ZmanimCommunity } from './sets';
 import { asZmanSpec, communityOfUser, reminderZmanim } from './spec';
 import type { ZmanClock, ZmanSpecValue, ZmanimInfo } from '../../lib/calendar-view/zman-spec';
@@ -144,14 +144,22 @@ export async function zmanEditorInfo(user: ZmanUser, zone: string, today: string
 /** The zmanim a day's list does not take from the set's own order: the Shabbat and Yom Tov windows give them (zmanDayList). */
 const FROM_WINDOWS: readonly ZmanKey[] = ['CANDLE_LIGHTING', 'SHABBAT_ENDS'];
 
-/** Where a row stands in the day: its key's place in the order of the day, a Yom Tov's end where the end of Shabbat is. */
-const orderOf = (key: string): number => ZMAN_KEYS.indexOf((key === 'YOM_TOV_ENDS' ? 'SHABBAT_ENDS' : key) as ZmanKey);
+/** The window rows that stand where a set zman does in the order of the day: every kind of end, and the candles "not before", stand where the end of Shabbat does. */
+const STANDS_AT: Record<string, ZmanKey> = { YOM_TOV_ENDS: 'SHABBAT_ENDS', SHABBAT_YOM_TOV_ENDS: 'SHABBAT_ENDS', CANDLE_LIGHTING_NOT_BEFORE: 'SHABBAT_ENDS' };
+
+/** Where a row stands in the day: its key's place in the order of the day. */
+const orderOf = (key: string): number => ZMAN_KEYS.indexOf((STANDS_AT[key] ?? key) as ZmanKey);
 
 /**
  * The home's sun sheet: `day` (a civil date in `zone`) at the person's place under their community's set.
- *   rows   the set's zmanim in the order of the day, and among them the candle lighting on the day a Shabbat or Yom Tov
- *          window begins and the end of Shabbat (a Saturday) or Yom Tov (any other day) on the day one ends. Those two
- *          come from shabbatYomTovWindows, the windows the pause reads, so the list and the pause never disagree.
+ *   rows   the set's zmanim in the order of the day, and among them the rows of the Shabbat and Yom Tov windows (the
+ *          pause's own, shabbatYomTovWindows, so the list and the pause never disagree; WINDOW_ROW_KEYS names them):
+ *          - the candle lighting on the day a window begins (the window's start) and on every Friday, a Friday inside a
+ *            longer window (a Yom Tov on Friday) at that Friday's own time, the Shabbat's candles;
+ *          - on any other rest day inside a window and before its last (the Saturday before a Yom Tov on Sunday, the
+ *            first day of a two-day Yom Tov) the candle lighting "not before" that day's own end;
+ *          - on the day a window ends, its end: of Shabbat (a Saturday), of Shabbat and Yom Tov together (a Saturday that
+ *            is also a Yom Tov) or of Yom Tov (any other day).
  *   hours  the halachic hour: the GRA's and the Magen Avraham's, or the Baal HaTanya's for Chabad.
  * The place is the editor info's (placeFor in the background): the sheet never waits on a lookup. A person with no place
  * at all (a zone with no main city and no saved location) gets `place: null` and no rows. Server only; the client words it.
@@ -165,10 +173,21 @@ export async function zmanDayList(user: ZmanUser, zone: string, day: string): Pr
 
   const rows = zmanRows(place, community, day, zmanimOfSet(community).filter((key) => !FROM_WINDOWS.includes(key)));
   const windows = shabbatYomTovWindows({ from: startOfLocalDay(day, zone), to: startOfLocalDay(addDaysToDate(day, 1), zone) }, place, community);
+  const weekday = new Date(`${day}T00:00:00Z`).getUTCDay();
+  /** The day's own instant of a zman, as a row carries it (the set's rows come from the same instantAt). */
+  const ownAt = (zman: ZmanKey): string | null => instantAt(place, community, day, { zman, offsetMin: 0 })?.toISOString() ?? null;
   for (const [start, end] of windows) {
-    if (localDate(start, zone) === day) rows.push({ key: 'CANDLE_LIGHTING', opinion: null, at: start.toISOString() });
-    const endDay = localDate(end, zone);
-    if (endDay === day) rows.push({ key: new Date(`${day}T00:00:00Z`).getUTCDay() === 6 ? 'SHABBAT_ENDS' : 'YOM_TOV_ENDS', opinion: null, at: end.toISOString() });
+    const eve = localDate(start, zone);
+    const last = localDate(end, zone);
+    if (eve === day) rows.push({ key: 'CANDLE_LIGHTING', opinion: null, at: start.toISOString() });
+    else if (eve < day && day < last) {
+      // A rest day inside the window that is not its last: the Shabbat's candles on a Friday, else the second night's, after the day's own end.
+      rows.push(weekday === 5 ? { key: 'CANDLE_LIGHTING', opinion: null, at: ownAt('CANDLE_LIGHTING') } : { key: 'CANDLE_LIGHTING_NOT_BEFORE', opinion: null, at: ownAt('SHABBAT_ENDS') });
+    }
+    if (last === day) {
+      const key = weekday !== 6 ? 'YOM_TOV_ENDS' : isYomTovAt(day, place) ? 'SHABBAT_YOM_TOV_ENDS' : 'SHABBAT_ENDS';
+      rows.push({ key, opinion: null, at: end.toISOString() });
+    }
   }
   rows.sort((a, b) => orderOf(a.key) - orderOf(b.key));
 

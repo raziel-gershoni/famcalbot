@@ -277,6 +277,8 @@
       },
       "shabbatEnds": "צאת השבת",
       "yomTovEnds": "צאת החג",
+      "shabbatYomTovEnds": "צאת השבת והחג",
+      "candlesNotBefore": "הדלקת נרות, לא לפני",
       "noTime": "אין זמן כזה ביום הזה",
       "hourLabel": "שעה זמנית:",
       "loading": "הזמנים נטענים…",

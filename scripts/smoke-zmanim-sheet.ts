@@ -9,16 +9,18 @@
 //     attributes, the sun icon hidden from readers, and its label in each language;
 //   - the sheet in each language: the title (today's, else the plain one), the place and the set ("חריש · ספרדי"), the
 //     Gregorian and the Hebrew date (gematriya in Hebrew), every row named with its opinion, its time in 24 hours in the
-//     person's zone (not the device's) and left to right inside Hebrew, the candle lighting and the ends in the accent,
-//     a dash and a reader's text where the sun makes no such zman, and the halachic hour line;
+//     person's zone (not the device's) and left to right inside Hebrew, the candle lighting, the candle lighting "not
+//     before" and the three ends (of Shabbat, of Yom Tov, of both) in the accent, a dash and a reader's text where the
+//     sun makes no such zman, and the halachic hour line (worded by the editor's own "name (opinion)" message);
 //   - the arrows: the sheet opens on the home's today, each tap asks the server for that day (previous and next, the
 //     title following), the date follows at once, the list shows a loading state meanwhile, an older answer that lands
-//     after a newer tap is dropped, and the arrows flip in RTL;
+//     after a newer tap is dropped, and the arrows flip in RTL; the arrows and the spinner are the kit's icon library's
+//     (lucide), not copies of an inline drawing;
 //   - the states: a request that fails (an answer, a network error, a thrown error) says so with Retry, which asks again;
 //     no saved place shows the editor's note with its way to Settings; no place at all shows the other note and no rows;
 //   - the request: the URL, the init data in the header only, and every way it can fail read as `failed` and logged;
 //   - the sheet's CSS: nothing under 11 px, logical properties only, no hover, no colour literal, and only the contrast
-//     pairs the app's design smoke already holds.
+//     pairs the app's design smoke already holds; the header's room: the usual three buttons beside the day from 320 px.
 // React must log no warning. No network, no DB. Run under three process zones (this file re-runs itself as child
 // processes, so one command covers UTC, Asia/Jerusalem and America/New_York): the times are the person's zone's, never the
 // process's.
@@ -151,6 +153,9 @@ const il = (day: string, hhmm: string): string => {
 };
 const row = (day: string, key: string, hhmm: string | null, opinion: ZmanOpinion | null = null) => ({ key, opinion, at: hhmm === null ? null : il(day, hhmm) });
 
+/** What the server really answers for Harish on 2026-10-28 (smoke-zmanim-api.ts pins them): 55:24 and 66:29, a second under Zmanei Yosef's 55:25 and 66:30. */
+const HARISH_HOURS = { gra: { opinion: 'gra', ms: 3_324_000 }, mga: { opinion: 'mga', ms: 3_988_800 } } as const;
+
 function harish(day = TODAY, o: Partial<ZmanimListResponse> = {}): ZmanimListResponse {
   return {
     day,
@@ -167,10 +172,7 @@ function harish(day = TODAY, o: Partial<ZmanimListResponse> = {}): ZmanimListRes
       row(day, 'TZEIT', '17:09'),
       row(day, 'CHATZOT_HALAYLA', '23:24'),
     ],
-    hours: [
-      { opinion: 'gra', ms: (55 * 60 + 25) * 1000 },
-      { opinion: 'mga', ms: (66 * 60 + 30) * 1000 },
-    ],
+    hours: [HARISH_HOURS.gra, HARISH_HOURS.mga],
     ...o,
   };
 }
@@ -226,7 +228,7 @@ async function runChecks(): Promise<void> {
 
   // ================= The sheet in each language =================
 
-  await check('English: "Today\'s zmanim" under a dialog of that name, "Harish..." place line with the set, the day in Gregorian and Hebrew, every row named with its opinion, times in 24 hours in the person\'s zone inside <bdi dir="ltr">, the hour line "Halachic hour: 55:25 (GRA) · 66:30 (MGA)", and no key left bare', async () => {
+  await check('English: "Today\'s zmanim" under a dialog of that name, "Harish..." place line with the set, the day in Gregorian and Hebrew, every row named with its opinion, times in 24 hours in the person\'s zone inside <bdi dir="ltr">, the hour line "Halachic hour: 55:24 (GRA) · 66:29 (MGA)", and no key left bare', async () => {
     const { m, calls } = await openSheet('en', (day) => ok(harish(day, { place: { source: 'saved', name: 'Harish' } })));
     try {
       assert(calls.length === 1 && calls[0][0] === 5550001 && calls[0][1] === TODAY, `the request ${show(calls)}`);
@@ -244,14 +246,14 @@ async function runChecks(): Promise<void> {
         assert(bdi.length === 1 && bdi[0].getAttribute('dir') === 'ltr', 'a time in <bdi dir="ltr">');
       }
       const hours = byClass(m.container, 'ch-zl-hours')[0];
-      assert(textOf(hours) === 'Halachic hour: 55:25 (GRA) · 66:30 (MGA)', textOf(hours));
+      assert(textOf(hours) === 'Halachic hour: 55:24 (GRA) · 66:29 (MGA)', textOf(hours));
       assert(!/zmanimList\.|calendarHome\./.test(textOf(m.container)), 'a key left bare');
     } finally {
       m.unmount();
     }
   });
 
-  await check('Hebrew (RTL): "זמני היום", the place line "חריש · ספרדי", the date with the Hebrew year in gematriya, the names of the editor, the times left to right, the hour line "שעה זמנית: 55:25 (גר״א) · 66:30 (מג״א)"', async () => {
+  await check('Hebrew (RTL): "זמני היום", the place line "חריש · ספרדי", the date with the Hebrew year in gematriya, the names of the editor, the times left to right, the hour line "שעה זמנית: 55:24 (גר״א) · 66:29 (מג״א)"', async () => {
     const { m } = await openSheet('he', (day) => ok(harish(day)));
     try {
       assert(titleOf(m) === 'זמני היום', titleOf(m));
@@ -265,10 +267,10 @@ async function runChecks(): Promise<void> {
         const t = byClass(r, 'ch-zl-time')[0];
         assert(/^\d\d:\d\d$/.test(textOf(t)) && elements(t).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr'), 'a time left to right');
       }
-      assert(textOf(byClass(m.container, 'ch-zl-hours')[0]) === 'שעה זמנית: 55:25 (גר״א) · 66:30 (מג״א)', textOf(byClass(m.container, 'ch-zl-hours')[0]));
+      assert(textOf(byClass(m.container, 'ch-zl-hours')[0]) === 'שעה זמנית: 55:24 (גר״א) · 66:29 (מג״א)', textOf(byClass(m.container, 'ch-zl-hours')[0]));
       // The arrows flip in RTL: the previous day's points the way the reading goes back
-      const arrows = byClass(m.container, 'ch-icon-btn').map((b) => elements(b).filter((e) => e.localName === 'svg')[0].className);
-      assert(show(arrows) === show(['ch-flip', 'ch-flip']), `arrows ${show(arrows)}`);
+      const arrows = byClass(m.container, 'ch-icon-btn').map((b) => elements(b).filter((e) => e.localName === 'svg')[0].className.split(' '));
+      assert(arrows.length === 2 && arrows.every((classes) => classes.includes('ch-flip')), `arrows ${show(arrows)}`);
       assert(byLabel(m.container, 'היום הקודם') && byLabel(m.container, 'היום הבא'), 'the arrows\' labels');
     } finally {
       m.unmount();
@@ -284,7 +286,7 @@ async function runChecks(): Promise<void> {
       assert(textOf(byClass(m.container, 'ch-zl-hebrew')[0]) === hebrewFullDate(TODAY, 'ru', genitive) && /хешвана 5787$/.test(textOf(byClass(m.container, 'ch-zl-hebrew')[0])), `Hebrew date ${textOf(byClass(m.container, 'ch-zl-hebrew')[0])}`);
       const names = rowsOf(m).map((r) => textOf(byClass(r, 'ch-zl-name')[0]));
       assert(names[3] === 'Конец времени Шма (ГРА)' && names[2] === 'Конец времени Шма (Маген Авраам)', `names ${show(names)}`);
-      assert(textOf(byClass(m.container, 'ch-zl-hours')[0]) === 'Галахический час: 55:25 (ГРА) · 66:30 (Маген Авраам)', textOf(byClass(m.container, 'ch-zl-hours')[0]));
+      assert(textOf(byClass(m.container, 'ch-zl-hours')[0]) === 'Галахический час: 55:24 (ГРА) · 66:29 (Маген Авраам)', textOf(byClass(m.container, 'ch-zl-hours')[0]));
       assert(!/zmanimList\.|calendarHome\./.test(textOf(m.container)), 'a key left bare');
     } finally {
       m.unmount();
@@ -307,10 +309,14 @@ async function runChecks(): Promise<void> {
     }
   });
 
-  await check('a Friday and a Saturday: the candle lighting and the end of Shabbat are rows in the accent (is-key), named in each language; a Yom Tov ends as "Yom Tov ends"; a plain row is not in the accent', async () => {
+  await check('a Friday and a Saturday: the candle lighting, the candle lighting "not before" and the three ends (Shabbat, Yom Tov, Shabbat and Yom Tov) are rows in the accent (is-key), named in each language; a plain row is not in the accent', async () => {
     const friday = '2026-10-30';
     const saturday = '2026-10-31';
-    const expected = { en: ['Candle lighting', 'Shabbat ends', 'Yom Tov ends'], he: ['הדלקת נרות', 'צאת השבת', 'צאת החג'], ru: ['Зажигание свечей', 'Исход Шаббата', 'Исход праздника'] };
+    const expected = {
+      en: ['Candle lighting', 'Shabbat ends', 'Yom Tov ends', 'Shabbat and Yom Tov end', 'Candle lighting, not before'],
+      he: ['הדלקת נרות', 'צאת השבת', 'צאת החג', 'צאת השבת והחג', 'הדלקת נרות, לא לפני'],
+      ru: ['Зажигание свечей', 'Исход Шаббата', 'Исход праздника', 'Исход Шаббата и праздника', 'Зажигание свечей, не раньше'],
+    };
     for (const locale of LOCALES) {
       const fri = await openSheet(locale, (day) => ok(harish(day, { rows: [row(day, 'SHKIA', '16:53'), row(day, 'CANDLE_LIGHTING', '16:33')] })), friday);
       try {
@@ -321,11 +327,14 @@ async function runChecks(): Promise<void> {
       } finally {
         fri.m.unmount();
       }
-      const sat = await openSheet(locale, (day) => ok(harish(day, { rows: [row(day, 'TZEIT', '17:07'), row(day, 'SHABBAT_ENDS', '17:25'), row(day, 'YOM_TOV_ENDS', '17:26')] })), saturday);
+      const keys = ['SHABBAT_ENDS', 'YOM_TOV_ENDS', 'SHABBAT_YOM_TOV_ENDS', 'CANDLE_LIGHTING_NOT_BEFORE'];
+      const sat = await openSheet(locale, (day) => ok(harish(day, { rows: [row(day, 'TZEIT', '17:07'), ...keys.map((k, i) => row(day, k, `17:2${i + 5}`))] })), saturday);
       try {
-        const [shabbat, yomTov] = ['SHABBAT_ENDS', 'YOM_TOV_ENDS'].map((k) => rowsOf(sat.m).filter((r) => r.getAttribute('data-zman') === k)[0]);
-        assert(textOf(byClass(shabbat, 'ch-zl-name')[0]) === expected[locale][1] && textOf(byClass(yomTov, 'ch-zl-name')[0]) === expected[locale][2], `${locale}: ${textOf(shabbat)} / ${textOf(yomTov)}`);
-        assert(shabbat.className.includes('is-key') && yomTov.className.includes('is-key'), `${locale}: the ends are in the accent`);
+        const named = keys.map((k) => rowsOf(sat.m).filter((r) => r.getAttribute('data-zman') === k)[0]);
+        assert(show(named.map((r) => textOf(byClass(r, 'ch-zl-name')[0]))) === show(expected[locale].slice(1)), `${locale}: ${show(named.map(textOf))}`);
+        assert(named.every((r) => r.className.includes('is-key')), `${locale}: the window rows are in the accent`);
+        const tzeit = rowsOf(sat.m).filter((r) => r.getAttribute('data-zman') === 'TZEIT')[0];
+        assert(!tzeit.className.includes('is-key'), `${locale}: a plain row in the accent`);
       } finally {
         sat.m.unmount();
       }
@@ -362,6 +371,45 @@ async function runChecks(): Promise<void> {
       } finally {
         m.unmount();
       }
+    }
+  });
+
+  await check('the hour line is worded by the editor\'s own "name (opinion)" message (calendarHome.zmanim.withOpinion), not by a format of its own: with that message changed, the line follows it in each language', async () => {
+    for (const locale of LOCALES) {
+      const changed = JSON.parse(JSON.stringify(messages[locale])) as Row;
+      changed.calendarHome.zmanim.withOpinion = '{opinion} => {name}';
+      installWindow();
+      const l = loader((day) => ok(harish(day)));
+      const provider = { locale, messages: changed, timeZone: TZ } as ComponentProps<typeof NextIntlClientProvider>;
+      const m = mount(createElement(NextIntlClientProvider, provider, createElement(ZmanimSheet, { userId: 5550001, locale, today: TODAY, load: l.load, onOpenSettings: noop, onClose: noop })));
+      await settle();
+      try {
+        const o = changed.calendarHome.zmanim.opinions;
+        const want = `${changed.calendarHome.zmanimList.hourLabel} ${o.gra} => 55:24 · ${o.mga} => 66:29`;
+        assert(textOf(byClass(m.container, 'ch-zl-hours')[0]) === want, `${locale}: ${textOf(byClass(m.container, 'ch-zl-hours')[0])} (want ${want})`);
+        // The rows' names are worded by the same message, as before
+        assert(textOf(byClass(rowsOf(m)[3], 'ch-zl-name')[0]).includes('=>'), `${locale}: the rows follow it too`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('the sheet draws no icon of its own: the arrows are the kit\'s icon library\'s chevrons (lucide) flipped in RTL, the spinner is its Loader with the kit\'s .ch-spin', async () => {
+    const { m } = await openSheet('en', (day) => ok(harish(day)));
+    try {
+      const arrows = byClass(m.container, 'ch-icon-btn').map((b) => elements(b).filter((e) => e.localName === 'svg')[0].className.split(' '));
+      assert(arrows[0].includes('lucide-chevron-left') && arrows[1].includes('lucide-chevron-right') && arrows.every((c) => c.includes('ch-flip')), `arrows ${show(arrows)}`);
+    } finally {
+      m.unmount();
+    }
+    const loading = await openSheet('en', () => new Promise<ZmanimListOutcome>(() => undefined));
+    try {
+      const status = elements(loading.m.container).filter((e) => e.getAttribute('role') === 'status')[0];
+      const spinner = elements(status).filter((e) => e.localName === 'svg')[0];
+      assert(spinner && spinner.className.split(' ').includes('ch-spin') && spinner.className.includes('lucide') && spinner.getAttribute('aria-hidden') === 'true', `spinner ${spinner ? spinner.className : 'none'}`);
+    } finally {
+      loading.m.unmount();
     }
   });
 
@@ -562,15 +610,15 @@ async function runChecks(): Promise<void> {
     for (const value of bad) assert(!isZmanimList(value), `accepted ${show(value)}`);
   });
 
-  await check('a halachic hour is minutes and seconds, not hours: 55:25, 66:30 and 105:45 on a long day, whole seconds rounded, and a dash where the day has none', () => {
-    const cases: Array<[number | null, string]> = [[3_325_000, '55:25'], [3_990_000, '66:30'], [6_344_500, '105:45'], [3_599_600, '60:00'], [3_324_400, '55:24'], [0, '0:00'], [59_000, '0:59'], [null, '—'], [-1, '—'], [Number.NaN, '—']];
+  await check('a halachic hour is minutes and seconds, not hours: 55:24 and 66:29 (Harish today), 55:25, 66:30 and 105:45 on a long day, whole seconds rounded, and a dash where the day has none', () => {
+    const cases: Array<[number | null, string]> = [[3_324_000, '55:24'], [3_988_800, '66:29'], [3_325_000, '55:25'], [3_990_000, '66:30'], [6_344_500, '105:45'], [3_599_600, '60:00'], [3_324_400, '55:24'], [0, '0:00'], [59_000, '0:59'], [null, '—'], [-1, '—'], [Number.NaN, '—']];
     for (const [ms, want] of cases) assert(formatHalachicHour(ms) === want, `${String(ms)} -> ${formatHalachicHour(ms)} (want ${want})`);
   });
 
   // ================= The copy and the CSS =================
 
   await check('the copy: every new key is real text in en, he and ru, none is a copy of English in he or ru (apart from the plain "Zmanim" of the unchanged Hebrew title), the Russian and Hebrew community names match Settings\' own', () => {
-    const keys = ['title', 'titleOther', 'previousDay', 'nextDay', 'shabbatEnds', 'yomTovEnds', 'noTime', 'hourLabel', 'loading', 'failedTitle', 'failedBody'];
+    const keys = ['title', 'titleOther', 'previousDay', 'nextDay', 'shabbatEnds', 'yomTovEnds', 'shabbatYomTovEnds', 'candlesNotBefore', 'noTime', 'hourLabel', 'loading', 'failedTitle', 'failedBody'];
     for (const locale of LOCALES) {
       const list = messages[locale].calendarHome.zmanimList;
       for (const key of keys) assert(typeof list[key] === 'string' && list[key].length > 2, `${locale}.${key}`);
@@ -603,7 +651,7 @@ async function runChecks(): Promise<void> {
     assert(/font-variant-numeric: tabular-nums/.test(ZMANIM_SHEET_CSS), 'times line up');
   });
 
-  await check('the header makes room for the fourth button: the day keeps 140 px beside the buttons and the buttons wrap to a row of their own, at the end, when it would be left less; so four buttons (the sun) wrap on a 360 px phone and sit beside the day from 388 px, and the usual three never wrap on a phone of 360 px or more', () => {
+  await check('the header makes room for the fourth button: the day keeps 120 px beside the buttons and the buttons wrap to a row of their own, at the end, when it would be left less; so the usual three never wrap on a phone of 320 px or more (128 px stay for the day, as before the sun), four buttons (the sun) wrap on a 360 px phone and sit beside the day from 364 px', () => {
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(HOME_SHELL_CSS);
       assert(m, `no rule ${selector}`);
@@ -611,15 +659,17 @@ async function runChecks(): Promise<void> {
     };
     assert(/flex-wrap:\s*wrap/.test(rule('.ch-head')), '.ch-head wraps');
     const basis = /flex:\s*1 1 (\d+)px/.exec(rule('.ch-head-text'));
-    assert(basis && Number(basis[1]) === 140, `.ch-head-text: ${rule('.ch-head-text')}`);
+    assert(basis && Number(basis[1]) === 120, `.ch-head-text: ${rule('.ch-head-text')}`);
     assert(/margin-inline-start:\s*auto/.test(rule('.ch-head-buttons')), 'the wrapped buttons sit at the end');
     // The arithmetic the CSS makes: padding 16 + 16, the gap of 12, buttons of 44 with gaps of 8
     const gap = Number(/gap:\s*(\d+)px/.exec(rule('.ch-head'))![1]);
     const pad = Number(/padding:\s*\d+px (\d+)px/.exec(rule('.ch-head'))![1]);
     const buttons = (n: number) => 44 * n + Number(/gap:\s*(\d+)px/.exec(rule('.ch-head-buttons'))![1]) * (n - 1);
     const fits = (width: number, n: number) => Number(basis[1]) + gap + buttons(n) + 2 * pad <= width;
-    assert(!fits(360, 4) && fits(388, 4) && fits(390, 4), 'four buttons: a 360 px phone wraps, 390 does not');
-    assert(fits(360, 3) && fits(360, 2), 'three buttons stay beside the day at 360 px');
+    assert(fits(320, 3) && fits(320, 2) && fits(360, 3) && fits(360, 2), 'the usual three buttons stay beside the day from 320 px');
+    assert(!fits(360, 4) && !fits(363, 4) && fits(364, 4) && fits(388, 4) && fits(390, 4), 'four buttons: a 360 px phone wraps, 364 and wider do not');
+    // What the day is left beside the buttons, in px: as before the sun at 320 px, and never narrower than the basis while it stays on the line
+    assert(320 - 2 * pad - gap - buttons(3) >= Number(basis[1]), 'at 320 px the day keeps its room beside three buttons');
   });
 
   await check('React logged no warning (keys, nesting, attributes, act), and the sheet\'s own logs are only the failures the checks caused', () => {

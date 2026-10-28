@@ -12,20 +12,23 @@
 // - the rows, a plain list (no tap creates anything): the set's zmanim in the order of the day, each named with its
 //   opinion (the editor's words), its time in 24 hours in the person's zone and left to right inside Hebrew. A zman the
 //   sun does not make that day shows a dash. The candle lighting and the end of Shabbat or Yom Tov are in the accent:
-//   the server adds them on the days they fall (the pause's windows);
+//   the server adds them on the days they fall (the pause's windows, WINDOW_ROW_KEYS), among them the candle lighting
+//   "not before" the day's own end on a rest day inside a longer window and "Shabbat and Yom Tov end" on a Saturday that
+//   is also a Yom Tov;
 // - the halachic hour at the bottom, as minutes and seconds under each opinion the set counts by.
 //
 // The server counts and sends instants; every word and format is here. Client component: it never imports the zmanim
 // service (the list's shapes are src/lib/calendar-view/zmanim-list.ts).
 
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { formatDayLong, formatTime } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import { addDaysToKey } from '@/src/lib/calendar-view/store';
 import type { DayKey } from '@/src/lib/calendar-view/types';
-import { formatHalachicHour, type ZmanimApi, type ZmanimListResponse, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
+import { WINDOW_ROW_KEYS, formatHalachicHour, type ZmanimApi, type ZmanimListResponse, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Notice } from '@/components/app-ui/Notice';
 import { StateCard } from '@/components/app-ui/StateCard';
@@ -133,31 +136,10 @@ export const ZMANIM_SHEET_CSS = `
   min-block-size: 280px;
   color: var(--ch-accent);
 }
-.ch-zl-loading svg {
-  inline-size: 28px;
-  block-size: 28px;
-}
 .ch-zl .ch-home-card {
   margin: 8px 0 0;
 }
 `;
-
-/** An arrow: back (the previous day) or forward. Flipped in RTL by .ch-flip. */
-function Arrow({ back }: { back: boolean }) {
-  return (
-    <svg className="ch-flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <path d={back ? 'M15 18l-6-6 6-6' : 'M9 18l6-6-6-6'} />
-    </svg>
-  );
-}
-
-function Spinner() {
-  return (
-    <svg className="ch-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true" focusable="false">
-      <path d="M12 3a9 9 0 1 1-9 9" />
-    </svg>
-  );
-}
 
 export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClose }: ZmanimSheetProps) {
   const t = useTranslations('calendarHome');
@@ -198,11 +180,20 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
   const hebrew = hebrewFullDate(day, locale, genitive);
 
   const rowText = (row: ZmanimListRow): string => {
-    if (row.key === 'SHABBAT_ENDS') return t('zmanimList.shabbatEnds');
-    if (row.key === 'YOM_TOV_ENDS') return t('zmanimList.yomTovEnds');
-    return zmanName(t, row.key, row.opinion);
+    switch (row.key) {
+      case 'SHABBAT_ENDS':
+        return t('zmanimList.shabbatEnds');
+      case 'YOM_TOV_ENDS':
+        return t('zmanimList.yomTovEnds');
+      case 'SHABBAT_YOM_TOV_ENDS':
+        return t('zmanimList.shabbatYomTovEnds');
+      case 'CANDLE_LIGHTING_NOT_BEFORE':
+        return t('zmanimList.candlesNotBefore');
+      default:
+        return zmanName(t, row.key, row.opinion);
+    }
   };
-  const isKey = (row: ZmanimListRow) => row.key === 'CANDLE_LIGHTING' || row.key === 'SHABBAT_ENDS' || row.key === 'YOM_TOV_ENDS';
+  const isKey = (row: ZmanimListRow) => WINDOW_ROW_KEYS.includes(row.key);
 
   // The place and the set, from the latest list (they do not change from day to day).
   const place = last?.place ?? null;
@@ -223,14 +214,14 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
         ) : null}
         <div className="ch-zl-nav">
           <button type="button" className="ch-icon-btn" aria-label={t('zmanimList.previousDay')} onClick={() => setDay(addDaysToKey(day, -1))}>
-            <Arrow back />
+            <ChevronLeft className="ch-flip" aria-hidden="true" />
           </button>
           <div className="ch-zl-date" aria-live="polite">
             <p className="ch-zl-day">{formatDayLong(day, locale)}</p>
             {hebrew ? <p className="ch-zl-hebrew">{hebrew}</p> : null}
           </div>
           <button type="button" className="ch-icon-btn" aria-label={t('zmanimList.nextDay')} onClick={() => setDay(addDaysToKey(day, 1))}>
-            <Arrow back={false} />
+            <ChevronRight className="ch-flip" aria-hidden="true" />
           </button>
         </div>
         {last && (place === null || place.source === 'zone') ? (
@@ -240,7 +231,7 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
         ) : null}
         {current.status === 'loading' ? (
           <div className="ch-zl-loading" role="status">
-            <Spinner />
+            <Loader2 size={28} className="ch-spin" aria-hidden="true" />
             <span className="ch-visually-hidden">{t('zmanimList.loading')}</span>
           </div>
         ) : null}
@@ -269,12 +260,7 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
             {current.list.hours.length > 0 ? (
               <p className="ch-zl-hours">
                 {t('zmanimList.hourLabel')}{' '}
-                {current.list.hours.map((hour, i) => (
-                  <Fragment key={hour.opinion}>
-                    {i > 0 ? ' · ' : null}
-                    <bdi dir="ltr">{formatHalachicHour(hour.ms)}</bdi> ({t(`zmanim.opinions.${hour.opinion}`)})
-                  </Fragment>
-                ))}
+                {current.list.hours.map((hour) => t('zmanim.withOpinion', { name: formatHalachicHour(hour.ms), opinion: t(`zmanim.opinions.${hour.opinion}`) })).join(' · ')}
               </p>
             ) : null}
           </>

@@ -9,10 +9,20 @@ import { initDataHeaders } from '../read-init-data';
 import type { ZmanOpinion } from './zman-spec';
 
 /**
- * One row of the day: a zman of the person's set, in the order of the day, or one of the two the day earns.
- *  - CANDLE_LIGHTING: only on the day a Shabbat or Yom Tov window begins (a Friday, the eve of a Yom Tov).
- *  - SHABBAT_ENDS: only on a Saturday a window ends; YOM_TOV_ENDS: on any other day one ends.
- * Both come from the Shabbat and Yom Tov windows the pause reads (shabbatYomTovWindows), so the list and the pause agree.
+ * The rows a day's list carries besides the set's own zmanim: the Shabbat and Yom Tov windows (the pause's, from
+ * shabbatYomTovWindows) give them, so the list and the pause agree. The sheet draws them in the accent.
+ *  - CANDLE_LIGHTING: on the day a window begins (a Friday, the eve of a Yom Tov) and on every Friday, a Friday inside a
+ *    longer window (a Yom Tov on a Friday) at that Friday's own time.
+ *  - CANDLE_LIGHTING_NOT_BEFORE: on a rest day inside a window that is neither a Friday nor the window's last day (a Saturday
+ *    before a Yom Tov on Sunday, the first day of a two-day Yom Tov): the second night's candles, not before the day's own end
+ *    of Shabbat or Yom Tov.
+ *  - SHABBAT_ENDS: on the Saturday a window ends; SHABBAT_YOM_TOV_ENDS: when that Saturday is also a Yom Tov; YOM_TOV_ENDS:
+ *    on any other day one ends.
+ */
+export const WINDOW_ROW_KEYS: readonly string[] = ['CANDLE_LIGHTING', 'CANDLE_LIGHTING_NOT_BEFORE', 'SHABBAT_ENDS', 'YOM_TOV_ENDS', 'SHABBAT_YOM_TOV_ENDS'];
+
+/**
+ * One row of the day: a zman of the person's set, in the order of the day, or one of the window rows above (WINDOW_ROW_KEYS).
  * `at` is null where the sun does not make that zman that day.
  */
 export interface ZmanimListRow {

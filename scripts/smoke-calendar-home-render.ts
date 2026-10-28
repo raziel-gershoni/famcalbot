@@ -9714,7 +9714,7 @@ async function main() {
       { key: 'SOF_SHMA_GRA', opinion: 'gra', at: `${date}T05:37:00.000Z` },
       { key: 'SHKIA', opinion: null, at: `${date}T14:55:00.000Z` },
     ],
-    hours: [{ opinion: 'gra', ms: 3_325_000 }, { opinion: 'mga', ms: 3_990_000 }],
+    hours: [{ opinion: 'gra', ms: 3_324_000 }, { opinion: 'mga', ms: 3_988_800 }],
     ...o,
   });
   const serveSun = (o: Record<string, unknown> = {}) => (c: FetchCall) => ok200(sunList(c.query.get('date') ?? '', o));
@@ -9783,7 +9783,7 @@ async function main() {
       const dialog = byRole(a.m.container, 'dialog');
       assert(dialog.length === 1 && dialog[0].getAttribute('aria-label') === 'Today’s zmanim', `dialog ${show(dialog.map((d) => d.getAttribute('aria-label')))}`);
       const text = dialogText(a.m.container);
-      assertHas(text, ['Today’s zmanim', 'Harish · Sephardi', 'Thursday, 15 October', 'Sunrise', '06:54', 'Latest time for Shema (GRA)', '08:37', 'Sunset', '17:55', 'Halachic hour: 55:25 (GRA) · 66:30 (MGA)'], 'the sheet');
+      assertHas(text, ['Today’s zmanim', 'Harish · Sephardi', 'Thursday, 15 October', 'Sunrise', '06:54', 'Latest time for Shema (GRA)', '08:37', 'Sunset', '17:55', 'Halachic hour: 55:24 (GRA) · 66:29 (MGA)'], 'the sheet');
       assert(sunButton(a.m)[0].getAttribute('aria-expanded') === 'true', 'aria-expanded while open');
       assert(show(a.tg.calls.filter((c) => c.startsWith('BackButton'))) === show(['BackButton.onClick', 'BackButton.show()']), `BackButton ${show(a.tg.calls)}`);
       // The arrows ask the next and the previous day
@@ -9823,7 +9823,7 @@ async function main() {
       a.m.click(sunButton(a.m, 'זמני היום')[0]);
       await settle();
       const hebrewToday = hebrewFullDate(TODAY, 'he');
-      assertHas(dialogText(a.m.container), ['זמני היום', 'Harish · ספרדי', hebrewToday, 'שעה זמנית: 55:25 (גר״א) · 66:30 (מג״א)', 'הנץ החמה', '06:54'], 'the Hebrew sheet');
+      assertHas(dialogText(a.m.container), ['זמני היום', 'Harish · ספרדי', hebrewToday, 'שעה זמנית: 55:24 (גר״א) · 66:29 (מג״א)', 'הנץ החמה', '06:54'], 'the Hebrew sheet');
       assert(topDialog(a.m).getAttribute('aria-label') === 'זמני היום' && elements(a.m.container).find((e) => e.className === 'ch-app ch-screen ch-home')?.getAttribute('dir') === 'rtl', 'a dialog in an RTL screen');
       // A failure
       serveZmanim = () => ({ status: 500, body: { error: 'internal_error' } });

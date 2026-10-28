@@ -6,6 +6,7 @@
  *   zmanimForDay    every zman of a community's set on a civil day, rounded to the minute as the set says
  *   zmanInstant     a reminder's zman plus an offset (or N halachic hours after sunrise) as one instant
  *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from candle lighting to the end of the day
+ *   isYomTovAt             whether a civil day is a Yom Tov at the place (the windows' own test)
  *
  * Pure: no database, Redis or network. Server only: @hebcal/core must never reach the Mini App
  * bundle (the client gets computed times in the DTO).
@@ -295,11 +296,24 @@ export function zmanInstant(date: string, spec: ZmanSpec, place: Place, communit
   return base === null ? null : new Date(base.getTime() + spec.offsetMin * MINUTE_MS);
 }
 
-/** A day on which work is forbidden: Shabbat, or a Yom Tov by the Israel or the diaspora schedule. */
-function isRestDay(day: string, il: boolean): boolean {
-  if (new Date(`${day}T00:00:00Z`).getUTCDay() === 6) return true;
+/** A Yom Tov (work forbidden) by the Israel or the diaspora schedule: the days a Shabbat-like window holds besides Shabbat. */
+function isYomTov(day: string, il: boolean): boolean {
   const events = HebrewCalendar.getHolidaysOnDate(hdateOf(day), il) ?? [];
   return events.some(event => (event.getFlags() & flags.CHAG) !== 0);
+}
+
+/** A day on which work is forbidden: Shabbat, or a Yom Tov by the Israel or the diaspora schedule. */
+function isRestDay(day: string, il: boolean): boolean {
+  return new Date(`${day}T00:00:00Z`).getUTCDay() === 6 || isYomTov(day, il);
+}
+
+/**
+ * Whether `day` (a civil date) is a Yom Tov at the place: the Israel schedule in Israel, the diaspora's elsewhere, the same
+ * test the windows use for their rest days. The home's sun sheet asks it of the Saturday a window ends on, to word that end
+ * as the end of Shabbat and Yom Tov together.
+ */
+export function isYomTovAt(day: string, place: Place): boolean {
+  return isYomTov(day, inIsrael(place.timeZone));
 }
 
 /**

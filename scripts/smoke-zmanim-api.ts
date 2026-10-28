@@ -5,11 +5,14 @@
 // faked Prisma, Redis and geocoding fetch (no network, no database). What it pins:
 //   - Harish, 2026-10-28 (32.46182, 35.04555, 270 m, Sephardi): every row is the golden time (the owner's Zmanei Yosef
 //     screenshot within one minute, and what we show pinned), in the order of the day, with the opinions and the
-//     two halachic hours (55:25 GRA, 66:30 Magen Avraham);
-//   - the candle lighting only on the day a Shabbat or Yom Tov window begins and the end only on the day one ends,
-//     and both are exactly the instants shabbatYomTovWindows (the pause's windows) gives: a Friday, a Saturday, a
-//     Wednesday with neither, Yom Kippur (a Tuesday eve and a Wednesday end), a Saturday inside a longer window, and
-//     Sukkot abroad (two days);
+//     two halachic hours (the GRA's 55:24 and the Magen Avraham's 66:29, each within two seconds of Zmanei Yosef's 55:25 and 66:30);
+//   - the candle lighting on the day a Shabbat or Yom Tov window begins and on every Friday (a Friday inside a longer
+//     window, a Yom Tov on Friday, is the Shabbat's candles), the end only on the day one ends, and the edges are exactly
+//     the instants shabbatYomTovWindows (the pause's windows) gives: a Friday, a Saturday, a Wednesday with neither, Yom
+//     Kippur (a Sunday eve and a Monday end), Shavuot on a Friday in Israel and Pesach abroad (a Friday inside a window), a
+//     Saturday or a weekday inside a longer window (the candle lighting "not before" the day's end of Shabbat), the end
+//     of a Saturday that is also a Yom Tov ("Shabbat and Yom Tov end"), and Sukkot abroad (two days); and a sweep of 400
+//     days in Israel and in New York for the rules a person reads the list by;
 //   - no saved place: the zone's main city and source 'zone', at once, without waiting for the place lookup; a zone with
 //     no main city and no place: place null and no rows;
 //   - a polar day: null times and a null hour, never a failure;
@@ -274,8 +277,14 @@ const OURS: Record<string, string> = {
 };
 /** The Sephardi set's keys in the order of the day, without the two the windows give. */
 const SEPHARDI_ORDER = Object.keys(OURS);
+/** The rows that end a Shabbat or a Yom Tov: of Shabbat, of a Yom Tov, and of a Saturday that is also a Yom Tov. */
+const END_KEYS = ['SHABBAT_ENDS', 'YOM_TOV_ENDS', 'SHABBAT_YOM_TOV_ENDS'];
+/** The Sephardi set with one more row at the place the end of Shabbat sits (before the midnight): the day's end, or the candle lighting "not before" it. */
+const withNightRow = (key: string): string[] => [...SEPHARDI_ORDER.slice(0, -1), key, SEPHARDI_ORDER[SEPHARDI_ORDER.length - 1]];
 
 const minutesOf = (hhmm: string): number => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+/** The weekday of a civil date (0 = Sunday), the same in any process zone. */
+const weekdayOf = (date: string): number => new Date(`${date}T00:00:00Z`).getUTCDay();
 
 async function runChecks(): Promise<void> {
   console.log(`process TZ=${process.env.TZ} (Intl: ${Intl.DateTimeFormat().resolvedOptions().timeZone})`);
@@ -286,6 +295,7 @@ async function runChecks(): Promise<void> {
   const compute = nodeRequire(path.join(ROOT, 'src/services/zmanim/compute.ts')) as {
     zmanimForDay: (date: string, place: Row, community: string) => Record<string, Date | null>;
     shabbatYomTovWindows: (range: { from: Date; to: Date }, place: Row, community: string) => Array<[Date, Date]>;
+    halachicHourMs: (date: string, place: Row, community: string) => { day: number | null; mga: number | null };
   };
   const route = (await import(path.join(ROOT, 'app/api/zmanim/route.ts'))) as Row;
 
@@ -345,12 +355,15 @@ async function runChecks(): Promise<void> {
     for (const key of SEPHARDI_ORDER) assert(rowOf(list, key).at === direct[key]!.toISOString(), `${key} is not zmanimForDay's instant`);
   });
 
-  await check('Harish: the halachic hour is 55:25 under the GRA and 66:30 under the Magen Avraham (to two seconds), the GRA first', async () => {
+  await check('Harish: the halachic hour is 55:24 under the GRA (3 324 000 ms) and 66:29 under the Magen Avraham (3 988 800 ms), exactly what the calculator gives and within two seconds of Zmanei Yosef\'s 55:25 and 66:30, the GRA first', async () => {
     seed();
     const list = await listOf(TG.harish, '2026-10-28');
     assertSame(list.hours.map((h: Row) => h.opinion), ['gra', 'mga'], 'the opinions');
+    assertSame(list.hours.map((h: Row) => h.ms), [3_324_000, 3_988_800], 'the hours, in milliseconds');
     assert(Math.abs(list.hours[0].ms - (55 * 60 + 25) * 1000) <= 2000, `GRA ${list.hours[0].ms}`);
     assert(Math.abs(list.hours[1].ms - (66 * 60 + 30) * 1000) <= 2000, `MGA ${list.hours[1].ms}`);
+    const direct = compute.halachicHourMs('2026-10-28', HARISH_PLACE, 'sephardi');
+    assertSame([list.hours[0].ms, list.hours[1].ms], [direct.day, direct.mga], 'the module\'s own hours');
   });
 
   // ================= Shabbat and Yom Tov =================
@@ -377,7 +390,7 @@ async function runChecks(): Promise<void> {
     assertSame(keysOf(friday).filter((k) => k !== 'CANDLE_LIGHTING'), SEPHARDI_ORDER, 'Friday\'s other rows');
   });
 
-  await check('Yom Tov: the eve of Yom Kippur (Sunday the 20th) earns the candle lighting and the day (Monday the 21st) its end as the end of a Yom Tov, not of Shabbat; the Saturday before it is a window of its own with its own end; the days around earn neither; the list and the windows agree on every one of 60 days', async () => {
+  await check('Yom Tov: the eve of Yom Kippur (Sunday the 20th) earns the candle lighting and the day (Monday the 21st) its end as the end of a Yom Tov, not of Shabbat; the Saturday before it is a window of its own with its own end; the days around earn neither; the list and the windows agree on the edges of every one of 60 days', async () => {
     seed();
     const saturday = await listOf(TG.harish, '2026-09-19');
     const eve = await listOf(TG.harish, '2026-09-20');
@@ -390,43 +403,128 @@ async function runChecks(): Promise<void> {
     assertSame(keysOf(after), SEPHARDI_ORDER, 'the day after has the plain set');
     const windows = compute.shabbatYomTovWindows({ from: new Date('2026-09-19T12:00:00Z'), to: new Date('2026-09-22T12:00:00Z') }, HARISH_PLACE, 'sephardi');
     assert(windows.length === 2 && rowOf(eve, 'CANDLE_LIGHTING').at === windows[1][0].toISOString() && rowOf(day, 'YOM_TOV_ENDS').at === windows[1][1].toISOString(), `windows ${show(windows)}`);
-    // The whole run of days: a row appears exactly when a window begins or ends on the day (in Israel's zone)
+    // The whole run of days: the window edges appear exactly on the days they fall (in Israel's zone), to the millisecond
     const dayOf = (instant: Date) => wall.instantToWallTime(instant, IL).slice(0, 10);
     const all = compute.shabbatYomTovWindows({ from: new Date(Date.UTC(2026, 8, 1)), to: new Date(Date.UTC(2026, 10, 30)) }, HARISH_PLACE, 'sephardi');
     assert(all.length >= 8, `${all.length} windows in the autumn`);
     for (let n = 0; n < 60; n++) {
       const date = new Date(Date.UTC(2026, 8, 8 + n)).toISOString().slice(0, 10);
       const list = await listOf(TG.harish, date);
-      const begins = all.filter(([start]) => dayOf(start) === date).length;
-      const ends = all.filter(([, end]) => dayOf(end) === date).length;
-      const got = { candles: keysOf(list).filter((k) => k === 'CANDLE_LIGHTING').length, ends: keysOf(list).filter((k) => k === 'SHABBAT_ENDS' || k === 'YOM_TOV_ENDS').length };
-      assertSame(got, { candles: begins, ends }, `${date}`);
+      const starts = all.filter(([start]) => dayOf(start) === date).map(([start]) => start.toISOString());
+      const ends = all.filter(([, end]) => dayOf(end) === date).map(([, end]) => end.toISOString());
+      const candles = rowsOf(list).filter((r) => r.key === 'CANDLE_LIGHTING').map((r) => r.at);
+      assertSame(rowsOf(list).filter((r) => END_KEYS.includes(r.key)).map((r) => r.at), ends, `${date}: the ends`);
+      // The window's start is a row; the one more a Friday may carry is its own candle lighting (the Shabbat's, inside a longer window)
+      assert(starts.every((start) => candles.includes(start)) && (candles.length === starts.length || (weekdayOf(date) === 5 && candles.length === 1)), `${date}: the candle lighting ${show(candles)} for the starts ${show(starts)}`);
     }
   });
 
-  await check('a Saturday inside a longer window earns neither: Rosh Hashana 5787 is the Friday\'s candles (the 11th) to the Sunday\'s end (the 13th), and the Saturday between them (a Shabbat and the first day) has no row of either kind', async () => {
+  await check('a Saturday inside a longer window carries the candle lighting "not before" its own end of Shabbat, and neither the window\'s candle lighting nor an end: Rosh Hashana 5787 is the Friday\'s candles (the 11th) to the Sunday\'s end (the 13th), the Saturday between them (a Shabbat and the first day) lights the second day\'s candles after its own Shabbat ends', async () => {
     seed();
     const friday = await listOf(TG.harish, '2026-09-11');
     const saturday = await listOf(TG.harish, '2026-09-12');
     const sunday = await listOf(TG.harish, '2026-09-13');
     assert(keysOf(friday).includes('CANDLE_LIGHTING'), 'the Friday has the candles');
-    assertSame(keysOf(saturday), SEPHARDI_ORDER, `Saturday inside the window`);
-    assert(keysOf(sunday).includes('YOM_TOV_ENDS') && !keysOf(sunday).includes('SHABBAT_ENDS'), `Sunday ${show(keysOf(sunday))}`);
+    assertSame(keysOf(saturday), withNightRow('CANDLE_LIGHTING_NOT_BEFORE'), 'Saturday inside the window: the plain set and the candles "not before", where the end of Shabbat sits');
+    const notBefore = rowOf(saturday, 'CANDLE_LIGHTING_NOT_BEFORE');
+    const windows = compute.shabbatYomTovWindows({ from: new Date('2026-09-10T12:00:00Z'), to: new Date('2026-09-14T12:00:00Z') }, HARISH_PLACE, 'sephardi');
+    assert(windows.length === 1 && rowOf(sunday, 'YOM_TOV_ENDS').at === windows[0][1].toISOString(), `windows ${show(windows)}`);
+    // The Saturday's own end of Shabbat (30 minutes after its sunset in Israel), not the window's end on Sunday
+    const own = compute.zmanimForDay('2026-09-12', HARISH_PLACE, 'sephardi').SHABBAT_ENDS!;
+    assert(notBefore.at === own.toISOString() && notBefore.opinion === null && notBefore.at !== windows[0][1].toISOString(), `the time ${notBefore.at}, the Saturday's own ${own.toISOString()}`);
+    assert(keysOf(sunday).includes('YOM_TOV_ENDS') && !keysOf(sunday).includes('SHABBAT_ENDS') && !keysOf(sunday).includes('CANDLE_LIGHTING_NOT_BEFORE'), `Sunday ${show(keysOf(sunday))}`);
   });
 
-  await check('Yom Tov follows the place: Sukkot 2026 is one day in Israel (Shabbat and Yom Tov the 26th: the end is a Saturday\'s, the 27th earns nothing) and two abroad (New York: the window runs to the Sunday the 27th, a Yom Tov\'s end, and the Saturday earns none), each the pause\'s window', async () => {
+  await check('a Friday inside a longer window still carries the Shabbat\'s candle lighting, at its own time and not the window\'s start: Shavuot 5787 is a Friday in Israel (the 11th: the window runs from Thursday the 10th to Saturday the 12th), Pesach 5787 abroad runs from Wednesday the 21st to Saturday the 24th with its second day on the Friday (New York)', async () => {
+    seed();
+    const cases = [
+      { who: TG.harish, place: HARISH_PLACE, label: 'Israel', eve: '2027-06-10', friday: '2027-06-11', saturday: '2027-06-12', from: '2027-06-09T12:00:00Z', to: '2027-06-13T12:00:00Z' },
+      { who: TG.ny, place: NY_PLACE, label: 'New York', eve: '2027-04-21', friday: '2027-04-23', saturday: '2027-04-24', from: '2027-04-20T12:00:00Z', to: '2027-04-25T12:00:00Z' },
+    ];
+    for (const c of cases) {
+      const eveList = await listOf(c.who, c.eve);
+      const friday = await listOf(c.who, c.friday);
+      const saturday = await listOf(c.who, c.saturday);
+      const windows = compute.shabbatYomTovWindows({ from: new Date(c.from), to: new Date(c.to) }, c.place, 'sephardi');
+      assert(windows.length === 1, `${c.label}: ${windows.length} windows`);
+      assert(rowOf(eveList, 'CANDLE_LIGHTING').at === windows[0][0].toISOString(), `${c.label}: the eve's candles are the window's start`);
+      const candles = rowsOf(friday).filter((r) => r.key === 'CANDLE_LIGHTING');
+      const own = compute.zmanimForDay(c.friday, c.place, 'sephardi').CANDLE_LIGHTING!;
+      assert(candles.length === 1 && candles[0].at === own.toISOString() && candles[0].opinion === null, `${c.label}: the Friday's candle lighting ${show(candles)}, its own ${own.toISOString()}`);
+      assert(candles[0].at !== windows[0][0].toISOString(), `${c.label}: the Friday's candles are not the window's start`);
+      assert(keysOf(friday).indexOf('CANDLE_LIGHTING') === keysOf(friday).indexOf('SHKIA') - 1, `${c.label}: the candles sit before the sunset ${show(keysOf(friday))}`);
+      assert(!keysOf(friday).some((k) => END_KEYS.includes(k) || k === 'CANDLE_LIGHTING_NOT_BEFORE'), `${c.label}: nothing else on the Friday ${show(keysOf(friday))}`);
+      // The Saturday ends the window; it is a Shabbat only (the Yom Tov was on the Friday or earlier)
+      assert(keysOf(saturday).includes('SHABBAT_ENDS') && rowOf(saturday, 'SHABBAT_ENDS').at === windows[0][1].toISOString() && !keysOf(saturday).includes('SHABBAT_YOM_TOV_ENDS'), `${c.label}: Saturday ${show(keysOf(saturday).slice(-3))}`);
+    }
+    // Abroad the first day (the Thursday) lights the second day's candles after its own end of Shabbat and Yom Tov, and has no candle lighting
+    const thursday = await listOf(TG.ny, '2027-04-22');
+    assertSame(keysOf(thursday), withNightRow('CANDLE_LIGHTING_NOT_BEFORE'), 'Pesach, the first day abroad');
+    assert(rowOf(thursday, 'CANDLE_LIGHTING_NOT_BEFORE').at === compute.zmanimForDay('2027-04-22', NY_PLACE, 'sephardi').SHABBAT_ENDS!.toISOString(), 'the Thursday\'s own end');
+  });
+
+  await check('a Saturday that is also a Yom Tov ends as "Shabbat and Yom Tov end": Sukkot 2026 in Israel (the 26th) and a Yom Kippur on Shabbat (the 12th of October 2024); a Saturday that is only a Shabbat, even one that follows a Friday Yom Tov, still ends as Shabbat; a Yom Tov after Shabbat ends as a Yom Tov (Sunday, abroad), and the Saturday night before it carries the candles "not before"', async () => {
+    seed();
+    const sukkot = await listOf(TG.harish, '2026-09-26');
+    const kippur = await listOf(TG.harish, '2024-10-12');
+    for (const [label, list, date] of [['Sukkot', sukkot, '2026-09-26'], ['Yom Kippur', kippur, '2024-10-12']] as const) {
+      assert(keysOf(list).includes('SHABBAT_YOM_TOV_ENDS') && !keysOf(list).includes('SHABBAT_ENDS') && !keysOf(list).includes('YOM_TOV_ENDS'), `${label}: ${show(keysOf(list).slice(-3))}`);
+      assertSame(keysOf(list).slice(-3), ['TZEIT_LECHUMRA', 'SHABBAT_YOM_TOV_ENDS', 'CHATZOT_HALAYLA'], `${label}: the end sits where the end of Shabbat does`);
+      const windows = compute.shabbatYomTovWindows({ from: new Date(`${date}T00:00:00Z`), to: new Date(`${date}T23:00:00Z`) }, HARISH_PLACE, 'sephardi');
+      assert(windows.length === 1 && rowOf(list, 'SHABBAT_YOM_TOV_ENDS').at === windows[0][1].toISOString(), `${label}: the window's end`);
+    }
+    assert(keysOf(await listOf(TG.harish, '2026-10-31')).includes('SHABBAT_ENDS'), 'a plain Shabbat');
+    // Simchat Torah abroad: Shemini Atzeret is a Saturday (the 3rd), Simchat Torah the Sunday (the 4th)
+    const saturday = await listOf(TG.ny, '2026-10-03');
+    const sunday = await listOf(TG.ny, '2026-10-04');
+    assert(keysOf(saturday).includes('CANDLE_LIGHTING_NOT_BEFORE') && !keysOf(saturday).some((k) => END_KEYS.includes(k)), `Saturday ${show(keysOf(saturday))}`);
+    assert(keysOf(sunday).includes('YOM_TOV_ENDS') && !keysOf(sunday).includes('SHABBAT_YOM_TOV_ENDS') && !keysOf(sunday).includes('SHABBAT_ENDS'), `Sunday ${show(keysOf(sunday))}`);
+  });
+
+  for (const [label, who, place, zone] of [['Israel', TG.harish, HARISH_PLACE, IL], ['New York', TG.ny, NY_PLACE, NY]] as const) {
+    await check(`the rules a person reads the list by hold on every one of 400 days from 2026-09-01 in ${label}: every Friday has its candle lighting (its own time); no other day has one unless a window begins; every Saturday has exactly one of the end of Shabbat, the end of Shabbat and Yom Tov and the candles "not before"; the ends are the windows' ends to the millisecond; "not before" is a rest day inside a window that is neither a Friday nor its last day, at the day's own end; no key twice`, async () => {
+      seed();
+      const dayOf = (instant: Date) => wall.instantToWallTime(instant, zone).slice(0, 10);
+      const all = compute.shabbatYomTovWindows({ from: new Date(Date.UTC(2026, 7, 28)), to: new Date(Date.UTC(2027, 10, 5)) }, place, 'sephardi');
+      assert(all.length > 60, `${all.length} windows`);
+      for (let n = 0; n < 400; n++) {
+        const date = new Date(Date.UTC(2026, 8, 1 + n)).toISOString().slice(0, 10);
+        const dow = weekdayOf(date);
+        const list = await listOf(who, date);
+        const keys = keysOf(list);
+        assert(new Set(keys).size === keys.length, `${date}: a key twice ${show(keys)}`);
+        const own = compute.zmanimForDay(date, place, 'sephardi');
+        const count = (key: string) => keys.filter((k) => k === key).length;
+        // The candle lighting: a window's start, and every Friday's own
+        const starts = all.filter(([start]) => dayOf(start) === date);
+        assert(count('CANDLE_LIGHTING') === (dow === 5 || starts.length > 0 ? 1 : 0), `${date}: ${count('CANDLE_LIGHTING')} candle lighting rows on a weekday ${dow}`);
+        if (starts.length > 0) assert(rowOf(list, 'CANDLE_LIGHTING').at === starts[0][0].toISOString(), `${date}: the window's start`);
+        if (dow === 5) assert(rowOf(list, 'CANDLE_LIGHTING').at === own.CANDLE_LIGHTING!.toISOString(), `${date}: the Friday's own candle lighting`);
+        // The ends: the windows' ends, and a Saturday's three kinds
+        assertSame(rowsOf(list).filter((r) => END_KEYS.includes(r.key)).map((r) => r.at), all.filter(([, end]) => dayOf(end) === date).map(([, end]) => end.toISOString()), `${date}: the ends`);
+        assert(!(dow === 6 && count('YOM_TOV_ENDS') > 0) && !(dow !== 6 && (count('SHABBAT_ENDS') > 0 || count('SHABBAT_YOM_TOV_ENDS') > 0)), `${date}: an end of the wrong kind for a weekday ${dow}: ${show(keys.filter((k) => END_KEYS.includes(k)))}`);
+        // "Not before": a rest day inside a window, neither a Friday nor the window's last day
+        const inside = all.some(([start, end]) => dayOf(start) < date && date < dayOf(end));
+        assert(count('CANDLE_LIGHTING_NOT_BEFORE') === (inside && dow !== 5 ? 1 : 0), `${date}: ${count('CANDLE_LIGHTING_NOT_BEFORE')} "not before" rows (inside a window: ${inside})`);
+        if (inside && dow !== 5) assert(rowOf(list, 'CANDLE_LIGHTING_NOT_BEFORE').at === own.SHABBAT_ENDS!.toISOString(), `${date}: the day's own end`);
+        if (dow === 6) assert(count('SHABBAT_ENDS') + count('SHABBAT_YOM_TOV_ENDS') + count('CANDLE_LIGHTING_NOT_BEFORE') === 1, `${date}: a Saturday carries ${show(keys.filter((k) => END_KEYS.includes(k) || k === 'CANDLE_LIGHTING_NOT_BEFORE'))}`);
+      }
+    });
+  }
+
+  await check('Yom Tov follows the place: Sukkot 2026 is one day in Israel (Shabbat and Yom Tov the 26th: "Shabbat and Yom Tov end", the 27th earns nothing) and two abroad (New York: the window runs to the Sunday the 27th, a Yom Tov\'s end, and the Saturday inside it lights the second day\'s candles "not before"), each the pause\'s window', async () => {
     seed();
     const israelSaturday = await listOf(TG.harish, '2026-09-26');
     const israelSunday = await listOf(TG.harish, '2026-09-27');
-    assert(keysOf(israelSaturday).includes('SHABBAT_ENDS') && keysOf(israelSunday).length === SEPHARDI_ORDER.length, `Israel ${show(keysOf(israelSaturday).slice(-3))} ${keysOf(israelSunday).length}`);
+    assert(keysOf(israelSaturday).includes('SHABBAT_YOM_TOV_ENDS') && keysOf(israelSunday).length === SEPHARDI_ORDER.length, `Israel ${show(keysOf(israelSaturday).slice(-3))} ${keysOf(israelSunday).length}`);
     const friday = await listOf(TG.ny, '2026-09-25');
     const saturday = await listOf(TG.ny, '2026-09-26');
     const sunday = await listOf(TG.ny, '2026-09-27');
     const monday = await listOf(TG.ny, '2026-09-28');
     assert(keysOf(friday).includes('CANDLE_LIGHTING'), 'Friday');
-    assert(!keysOf(saturday).some((k) => k.endsWith('_ENDS') || k === 'CANDLE_LIGHTING'), `Saturday inside it ${show(keysOf(saturday))}`);
+    assert(!keysOf(saturday).some((k) => END_KEYS.includes(k) || k === 'CANDLE_LIGHTING') && keysOf(saturday).includes('CANDLE_LIGHTING_NOT_BEFORE'), `Saturday inside it ${show(keysOf(saturday))}`);
     assert(keysOf(sunday).includes('YOM_TOV_ENDS') && !keysOf(sunday).includes('SHABBAT_ENDS'), `Sunday ${show(keysOf(sunday))}`);
-    assert(!keysOf(monday).some((k) => k.endsWith('_ENDS') || k === 'CANDLE_LIGHTING'), `Monday ${show(keysOf(monday))}`);
+    assert(!keysOf(monday).some((k) => END_KEYS.includes(k) || k === 'CANDLE_LIGHTING' || k === 'CANDLE_LIGHTING_NOT_BEFORE'), `Monday ${show(keysOf(monday))}`);
     const windows = compute.shabbatYomTovWindows({ from: new Date('2026-09-25T00:00:00Z'), to: new Date('2026-09-29T00:00:00Z') }, NY_PLACE, 'sephardi');
     assert(windows.length === 1 && rowOf(friday, 'CANDLE_LIGHTING').at === windows[0][0].toISOString() && rowOf(sunday, 'YOM_TOV_ENDS').at === windows[0][1].toISOString(), `windows ${show(windows)}`);
     assertSame({ tz: friday.tz, evening: hm(rowOf(sunday, 'YOM_TOV_ENDS').at, NY) > '18:00' && hm(rowOf(sunday, 'YOM_TOV_ENDS').at, NY) < '20:30' }, { tz: NY, evening: true }, 'read on New York\'s clock');

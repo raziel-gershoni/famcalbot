@@ -51,7 +51,11 @@ A sun button in the home's header, next to + and Send, opens a bottom sheet with
   - times are 24-hour in the person's zone. A zman the sun does not make that day shows a dash;
   - at the bottom, the halachic hour as mm:ss under each opinion the set counts by (GRA and Magen Avraham; the Baal HaTanya's for Chabad);
   - it is a plain list: no row creates anything.
-- **Candle lighting and the end:** the candle lighting appears on the day a Shabbat or Yom Tov window begins (a Friday, the eve of a Yom Tov) and the end of Shabbat (a Saturday) or of Yom Tov (any other day) on the day one ends. Both are the pause's own windows (`shabbatYomTovWindows`), so the list and the pause cannot disagree. A Friday inside a longer window (a Yom Tov on Thursday and Friday) therefore has no candle row: the window began earlier. The set's other days carry no candle lighting or end.
+- **Candle lighting and the end:** the rows of the Shabbat and Yom Tov windows, the pause's own (`shabbatYomTovWindows`), so the list and the pause cannot disagree. They are worded and drawn in the accent.
+  - *Candle lighting:* on the day a window begins (a Friday, the eve of a Yom Tov), and on every Friday. A Friday inside a longer window (Shavuot in Israel, or the second day of Pesach abroad, on a Friday) shows the Shabbat's candle lighting at that Friday's own time.
+  - *Candle lighting, not before:* on a rest day inside a window that is neither a Friday nor its last day (a Saturday before a Yom Tov on Sunday, the first day of a two-day Yom Tov). It shows that day's own end of Shabbat or Yom Tov, the earliest time to light the next night's candles.
+  - *The end:* on the day a window ends: "Shabbat ends" on a Saturday, "Shabbat and Yom Tov end" on a Saturday that is also a Yom Tov (Sukkot in Israel, a Yom Kippur on Shabbat), "Yom Tov ends" on any other day.
+  - The set's other days carry none of these.
 - **No saved place:** the zone's main city, with the editor's own note and its link to Settings. The place is never waited for (the editor info's background fill).
 - **Server:** `GET /api/zmanim?date=yyyy-MM-dd` (the editor's auth), answered by `zmanDayList`; the client words everything.
 
