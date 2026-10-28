@@ -522,24 +522,31 @@ async function sendSummaryToAll(
     // (the retry passes the batch's start); unset, it is the time of the mark, as before.
     const deliverToUser = async (user: UserConfig, platform: DeliveryPlatform, runOptions: SummaryRunOptions, markedFor?: Date) => {
       const tUser = Date.now();
-      const { summary, dateHeader, otherEvents, googleReconnect } = await prepareSummaryForUser(
-        user, fetchFunction, summaryDate, undefined, undefined, undefined, runOptions
-      );
+      const waButtonPayload = summaryDate ? 'summary tmrw' : 'summary';
+      if (isWhatsAppOnlyDelivery(user, platform)) {
+        // Only the tap-to-open template goes out, and the tap makes the summary (and counts it). Making it here as well
+        // would be paid for twice: nothing of it would be sent. The tap also tells of a Google connection to renew.
+        if (await wantsWhatsAppTemplate(user)) await sendWhatsAppSummaryTemplate(user, waButtonPayload);
+      } else {
+        const { summary, dateHeader, otherEvents, googleReconnect } = await prepareSummaryForUser(
+          user, fetchFunction, summaryDate, undefined, undefined, undefined, runOptions
+        );
 
-      // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
-      const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
-      await deliverSummary({
-        userId: deliveryUserId,
-        summary,
-        user,
-        platform,
-        dateHeader,
-        waButtonPayload: summaryDate ? 'summary tmrw' : 'summary',
-        otherEvents,
-        summaryDate,
-      });
-      // The summary kept FamCal while Google needs reconnecting: the reconnect line and button follow
-      if (googleReconnect) await sendReconnectNotice(user, platform, googleReconnect);
+        // Use telegramId for TG delivery, whatsappPhone for WA, or user.id as fallback
+        const deliveryUserId = user.telegramId ?? getWhatsAppChatId(user) ?? user.id;
+        await deliverSummary({
+          userId: deliveryUserId,
+          summary,
+          user,
+          platform,
+          dateHeader,
+          waButtonPayload,
+          otherEvents,
+          summaryDate,
+        });
+        // The summary kept FamCal while Google needs reconnecting: the reconnect line and button follow
+        if (googleReconnect) await sendReconnectNotice(user, platform, googleReconnect);
+      }
 
       console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
       result.processed++;
@@ -861,6 +868,62 @@ export async function sendTomorrowSummaryToAll(options?: { filterByHour?: boolea
 type DeliveryPlatform = 'telegram' | 'whatsapp' | 'all';
 
 /**
+ * A scheduled delivery that carries no Telegram text: the person is on WhatsApp (alone, or Telegram is not set up for
+ * them). All it sends is the template, so deliverToUser makes no summary for it.
+ */
+function isWhatsAppOnlyDelivery(user: UserConfig, platform: DeliveryPlatform): boolean {
+  const toTelegram = (platform === 'telegram' || platform === 'all') && !!user.telegramId;
+  const toWhatsApp = (platform === 'whatsapp' || platform === 'all') && !!getWhatsAppChatId(user);
+  return toWhatsApp && !toTelegram;
+}
+
+/**
+ * Whether a WhatsApp-only person gets the template, by the rules deliverSummary applies to the same delivery: with the
+ * text summary on, it is the text's template; with it off, the voice summary's (the date header goes out as the
+ * template) when the plan has voice summaries; with both off, nothing goes out.
+ */
+async function wantsWhatsAppTemplate(user: UserConfig): Promise<boolean> {
+  if (user.textSummaryEnabled !== false) return true;
+  if (user.voiceSummaryEnabled === false) return false;
+  return (await checkFeatureAccess(user.id, 'voice_summary')).allowed;
+}
+
+/**
+ * A WhatsApp send that failed: logged, sent to Sentry, and when Meta says this recipient can never receive, the
+ * person is flagged unreachable so the scheduled passes stop retrying them (as for a blocked Telegram chat).
+ */
+async function failedWhatsAppSend(user: UserConfig, what: string, error: unknown): Promise<void> {
+  console.error(`[Delivery] WA ${what} failed for user ${user.id} (${getWhatsAppChatId(user)}):`, error);
+  captureError(error, 'whatsapp-delivery', { user_id: user.id, service: 'sendMessage' });
+  const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
+  await markUnreachableAfterSendFailure(user, error);
+}
+
+/**
+ * A proactive WhatsApp summary: the tap-to-open template, outside the 24-hour window where only a template may be
+ * sent. The person's tap on its button (`payload` is the command it runs, "summary" or "summary tmrw") opens the
+ * window and makes the summary then. The one place the template is sent, for a person on both platforms (routeTextMessage)
+ * and on WhatsApp alone (deliverToUser). A refused send is logged and handled, never thrown.
+ */
+async function sendWhatsAppSummaryTemplate(user: UserConfig, payload: string | undefined): Promise<void> {
+  const waChatId = getWhatsAppChatId(user);
+  if (!waChatId) {
+    console.warn(`[Delivery] WA template skipped for user ${user.id}: no WhatsApp phone/BSUID`);
+    return;
+  }
+  try {
+    const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
+    const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
+    const template = buildWhatsAppTemplate(user.language || 'en', payload);
+    console.log(`[Delivery] Sending WA template to user ${user.id} (${waChatId}) tpl=${template.name} payload=${payload || 'none'}`);
+    const tplId = await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
+    console.log(`[Delivery] WA template sent (msgId=${tplId})`);
+  } catch (e) {
+    await failedWhatsAppSend(user, 'template', e);
+  }
+}
+
+/**
  * Route text message to appropriate platform(s)
  */
 export async function routeTextMessage(
@@ -931,29 +994,19 @@ export async function routeTextMessage(
   }
 
   if ((targetPlatform === 'whatsapp' || targetPlatform === 'all') && getWhatsAppChatId(user)) {
-    try {
+    if (isProactive) {
+      // Send template with quick reply button — user taps to get content
+      await sendWhatsAppSummaryTemplate(user, waButtonPayload);
+    } else {
       const waChatId = getWhatsAppChatId(user)!;
-      const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
-
-      if (isProactive) {
-        // Send template with quick reply button — user taps to get content
-        const { buildWhatsAppTemplate } = await import('../messaging/whatsapp-template');
-        const template = buildWhatsAppTemplate(user.language || 'en', waButtonPayload);
-        console.log(`[Delivery] Sending WA template to user ${user.id} (${waChatId}) tpl=${template.name} payload=${waButtonPayload || 'none'}`);
-        const tplId = await whatsappService.sendMessage(waChatId, '', { whatsappTemplate: template });
-        console.log(`[Delivery] WA template sent (msgId=${tplId})`);
-      } else {
+      try {
+        const whatsappService = getMessagingServiceByPlatform(MessagingPlatform.WHATSAPP);
         console.log(`[Delivery] Sending WA text to user ${user.id} (${waChatId})`);
         const telegramCta = getLabel(TELEGRAM_CTA_LABELS, user.language || 'en');
         await whatsappService.sendMessage(waChatId, text, { format: MessageFormat.HTML, telegramCta });
+      } catch (e) {
+        await failedWhatsAppSend(user, 'text', e);
       }
-    } catch (e) {
-      console.error(`[Delivery] WA text failed for user ${user.id} (${getWhatsAppChatId(user)}):`, e);
-      captureError(e, 'whatsapp-delivery', { user_id: userId, service: 'sendMessage' });
-
-      // Meta says this recipient can never receive: stop the retries, as for a blocked Telegram chat.
-      const { markUnreachableAfterSendFailure } = await import('../../lib/user-reachability');
-      await markUnreachableAfterSendFailure(user, e);
     }
   }
 }
