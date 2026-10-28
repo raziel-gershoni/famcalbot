@@ -212,6 +212,9 @@ to local synthesis on any error, as `voice-generator.ts` does today.
 2. English and Russian: design two male hosts each, owner approves samples, add
    them to the host table. Prompt builders for en and ru.
 3. Later release: migration dropping `voicePreference` and `voiceStyle`.
+   - Step 1 (2026-10-28): the schema and the code stopped knowing both columns
+     (with the other dead ones, guarded by `scripts/smoke-dead-columns.ts`).
+   - Step 2, the `DROP COLUMN IF EXISTS` migration, follows once that build is live.
 
 ## Production facts to confirm
 

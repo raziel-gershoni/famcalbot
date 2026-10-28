@@ -93,6 +93,10 @@ The switch goes to `ADMINS` after C and D land; `ALL` after E and the device che
 
 ## 1. Rollout switch
 
+> Historical: the switch was set to ALL and removed (6a641ae, 7ebfa86). On 2026-10-28 the schema and the
+> code stopped knowing the column and its enum (`scripts/smoke-dead-columns.ts` guards it); a later
+> migration drops them from the database. What follows is the design as it was.
+
 - `AdminSettings.calendarHomeRollout`, a new enum `CalendarHomeRollout { OFF ADMINS ALL }`, default `OFF`. Migration `20261016000000_calendar_home_rollout`. Ships as `OFF`: the home and the summary reader change nothing on deploy (the §8 fixes are live for everyone).
 - `src/services/calendar-read/rollout.ts`:
   - `getCalendarHomeRollout(): Promise<'OFF' | 'ADMINS' | 'ALL'>`: an in-process memo on `globalThis` for 30 s, then Redis `chome:rollout`, then the DB (also when the Redis read fails). Any other value, both stores failing, or no row → `OFF`. The read-through populate writes `EX 60`.

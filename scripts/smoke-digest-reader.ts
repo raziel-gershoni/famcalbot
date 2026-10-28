@@ -23,6 +23,10 @@
 //   npx tsx scripts/smoke-digest-reader.ts --write-golden-fixture
 // That mode refuses to overwrite the file. Take a new one only when the summaries' reads
 // or prompts are meant to change: delete the file, then run it again.
+// The weeks were retaken once, when the per-person switch for weekly series was removed
+// (2026-10-28): a weekly series never appears in /week, /nextweek or the lookahead block,
+// so the golden lost exactly its nine weekly entries (Swimming, Choir) and nothing else;
+// the days and the prompts are unchanged.
 //
 // Real: summary.ts, commands.ts (/week), the command pipeline, week-lookahead.ts, the
 // digest adapters, readRange and both halves, calendar.ts, the native provider, the event
@@ -554,7 +558,7 @@ function person(id: number, name: string, extra: Record<string, unknown>): UserC
     calendarSource: 'GOOGLE', googleRefreshToken: '', calendarAssignments: undefined, pairingId: null,
     isAdmin: true, messagingPlatform: 'telegram', whatsappPhone: null, whatsappBsuid: null,
     location: 'Tel Aviv', weatherEnabled: false, textSummaryEnabled: true, voiceSummaryEnabled: true,
-    includeLookaheadInTomorrow: false, includeWeeklyInLookahead: true, lookaheadAlways7Days: false, globalRules: [],
+    includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, globalRules: [],
     suspendedAt: null, unreachableSince: null, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
     ...extra,
@@ -1159,6 +1163,9 @@ async function main() {
           weekProblems.push(`${where}: not read through the reader: ${show(log)}`);
         }
         if (local === '2026-10-22 07:00:00' && lookahead.events.length === 0) weekProblems.push(`${where}: nothing listed`);
+        // A daily or weekly series is never listed: the fixtures hold a weekly one for Dana (Swimming) and for Gali (Choir).
+        const series = lookahead.events.filter(e => e.recurrenceType === 'daily' || e.recurrenceType === 'weekly').map(e => e.summary);
+        if (series.length > 0) weekProblems.push(`${where}: lists a repeating series: ${show(series)}`);
       }
     }
   }

@@ -313,7 +313,7 @@ function userRow(id: number, o: Row = {}): Row {
     calendarSource: 'NATIVE', googleScopes: ['calendar.readonly', 'calendar.events', 'https://www.googleapis.com/auth/calendar.app.created'],
     googleSyncNotifiedAt: new Date('2026-10-01T00:00:00Z'), remindersEnabled: true, defaultReminderMinutes: 15, pickupRemindersEnabled: true,
     pairingId: null, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: false, voiceInputEnabled: false, weatherEnabled: true,
-    includeWeeklyInLookahead: false, includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, locationForced: false,
+    includeLookaheadInTomorrow: false, lookaheadAlways7Days: false,
     createdAt: new Date('2026-09-01T00:00:00Z'), updatedAt: new Date('2026-10-01T00:00:00Z'), ...o,
   };
 }

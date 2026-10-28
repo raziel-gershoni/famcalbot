@@ -280,8 +280,10 @@ async function filterAndBuildLookaheadEvents(
     }
 
     // Filter by recurrence rules (birthdays bypass this — already set to 'yearly')
+    // Daily and weekly series stay out of the lookahead for everyone (it lists what is
+    // different about the week, and there is no switch for weekly ones).
     if (recurrenceType === 'daily') continue;
-    if (recurrenceType === 'weekly' && !user.includeWeeklyInLookahead) continue;
+    if (recurrenceType === 'weekly') continue;
 
     // An all-day event starts at the user's midnight, not at UTC midnight, which west of
     // UTC is the evening before. Its end date is exclusive; a missing or non-advancing

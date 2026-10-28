@@ -110,7 +110,6 @@ const user = (id: number, extra: Record<string, unknown> = {}) => ({
   calendarSource: 'NATIVE',
   googleRefreshToken: '',
   pairingId: 'pair-1',
-  includeWeeklyInLookahead: false,
   lookaheadAlways7Days: false,
   ...extra,
 }) as unknown as UserConfig;

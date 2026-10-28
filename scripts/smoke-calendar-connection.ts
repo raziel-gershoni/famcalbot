@@ -355,11 +355,11 @@ const TOKENS = { a: '', b: '' };
 function baseUser(o: Row): Row {
   return {
     name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', culture: 'default',
-    locationForced: false, messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
+    messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
     calendarSource: 'NATIVE', pairingId: null, remindersEnabled: false, suspendedAt: null, suspendedBy: null,
     suspendedReason: null, unreachableSince: null, whatsappPhone: null, whatsappBsuid: null, telegramId: null,
     isAdmin: false, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false,
-    voicePreference: 'default', voiceStyle: 'natural', weatherEnabled: true, includeWeeklyInLookahead: false,
+    weatherEnabled: true,
     includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
     pickupRemindersEnabled: true, reminderStartAt: null, createdAt: days(-400), updatedAt: days(-1),

@@ -526,11 +526,11 @@ const CODE = 'ABC234';
 function baseUser(o: Row): Row {
   return {
     name: 'x', englishName: '', gender: 'male', language: 'en', location: 'Tel Aviv', culture: 'default',
-    locationForced: false, messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
+    messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
     calendarSource: 'NATIVE', pairingId: null, remindersEnabled: true, suspendedAt: null, suspendedBy: null,
     suspendedReason: null, unreachableSince: null, whatsappPhone: null, whatsappBsuid: null, telegramId: null,
     isAdmin: false, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false,
-    voicePreference: 'default', voiceStyle: 'natural', weatherEnabled: true, includeWeeklyInLookahead: false,
+    weatherEnabled: true,
     includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
     pickupRemindersEnabled: true, reminderStartAt: null,
@@ -663,9 +663,9 @@ function freshT() {
 
 /** W's setup, made on WhatsApp over months: no value is a default. */
 const W_SETUP: Row = {
-  englishName: 'Dana', gender: 'female', language: 'he', location: 'Haifa', locationForced: true, culture: 'jewish',
-  globalRules: ['Noa is my daughter'], voiceSummaryEnabled: false, voiceInputEnabled: true, voicePreference: 'Algieba',
-  voiceStyle: 'calm', weatherEnabled: false, includeWeeklyInLookahead: true, includeLookaheadInTomorrow: true,
+  englishName: 'Dana', gender: 'female', language: 'he', location: 'Haifa', culture: 'jewish',
+  globalRules: ['Noa is my daughter'], voiceSummaryEnabled: false, voiceInputEnabled: true,
+  weatherEnabled: false, includeLookaheadInTomorrow: true,
   lookaheadAlways7Days: true, preferredMorningHour: 6, preferredEveningHour: 21, dailySummaryDays: [0, 1, 2, 3, 4],
   tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,
   // Where W is (the coordinates and highest ground its location was looked up to, which travel with the location) and its zmanim setup.
@@ -1213,7 +1213,7 @@ async function main() {
   await check('#24 an established T (a month old) keeps its own settings, its language included; a setting it never changed takes W\'s', async () => {
     seed();
     const T_SETUP: Row = {
-      englishName: 'Dana C', language: 'en', location: 'Tel Aviv', locationForced: false, voicePreference: 'Kore', voiceStyle: 'cheerful',
+      englishName: 'Dana C', language: 'en', location: 'Tel Aviv',
       preferredMorningHour: 8, preferredEveningHour: 20, dailySummaryDays: [1, 3, 5], tomorrowSummaryDays: [0], defaultReminderMinutes: 15,
       // T has a location, so it keeps the place that location was looked up to; a zmanim community it chose is kept too.
       latitude: 32.0853, longitude: 34.7818, elevationM: 25, zmanimCommunity: 'chabad',

@@ -10,8 +10,8 @@ there is no admin setting and no environment variable for either.
 | Text | `AI_MODEL` / `AI_MODEL_ID` | `gemini-3.8-flash` | `src/config/ai-models.ts` |
 | Speech | `TTS_MODEL` | `gemini-3.8-flash-tts` | `src/config/tts-models.ts` |
 
-The `AdminSettings` columns `defaultAiModel`, `geminiThinkingLevel` and `ttsModel` are
-still in the schema but nothing reads or writes them.
+`AdminSettings` has no model columns: the schema and the code do not know any, so a
+model is never read from the database.
 
 ## Text model
 

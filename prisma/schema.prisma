@@ -27,7 +27,6 @@ model User {
   // Settings
   location                   String    @default("") // User's location for weather/timezone
   culture                    String    @default("default") // 'jewish' | 'default'
-  locationForced             Boolean   @default(false) // true = user confirmed their location
   globalRules                String[]  @default([]) // Max 3 free-text rules for all calendars
   language                   String    @default("he") // Locale code: 'he' | 'en' | 'ru'
   messagingPlatform          String    @default("telegram") // 'telegram' | 'whatsapp' | 'all'
@@ -43,10 +42,7 @@ model User {
   textSummaryEnabled         Boolean   @default(true) // Receive text summaries
   voiceSummaryEnabled        Boolean   @default(true) // Receive voice summaries
   voiceInputEnabled          Boolean   @default(false) // Allow voice message input for event creation
-  voicePreference            String    @default("default") // TTS voice name (e.g. "Algieba") or "default"
-  voiceStyle                 String    @default("natural") // TTS speaking style preset
   weatherEnabled             Boolean   @default(true) // Include weather in summaries
-  includeWeeklyInLookahead   Boolean   @default(false) // Include weekly recurring in week lookahead
   includeLookaheadInTomorrow Boolean   @default(false) // Include week lookahead in tomorrow summary
   lookaheadAlways7Days       Boolean   @default(false) // true = always 7 days, false = until end of week
   preferredMorningHour       Int       @default(7) // 0-23, user's local time for daily summary
@@ -139,26 +135,13 @@ model OAuthState {
 }
 
 model AdminSettings {
-  id                      String              @id @default("global")
-  remindersEnabled        Boolean             @default(false)
-  earlyAdoptionMode       Boolean             @default(true)
-  // Unused: the AI and TTS models are fixed in src/config/ai-models.ts and
-  // src/config/tts-models.ts. These three columns are kept only to avoid a migration.
-  defaultAiModel          String?
-  geminiThinkingLevel     String?
-  ttsModel                String?
-  voiceAutoCreateHighConf Boolean             @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
-  voiceTtsOutcome         Boolean             @default(false) // Speak the outcome line back when input was voice
-  nativeRemindersEnabled  Boolean             @default(true) // Built-in calendar reminders: the extraction rules and the 1-minute ping pass
-  calendarHomeRollout     CalendarHomeRollout @default(OFF) // No longer read: the calendar home and the summary reader are on for everyone. Kept to avoid a migration
-  updatedAt               DateTime            @updatedAt
-}
-
-// No longer read (the switch was set to ALL and its code removed); kept with its column to avoid a migration
-enum CalendarHomeRollout {
-  OFF // The column's default
-  ADMINS // Users with isAdmin only
-  ALL // Everyone
+  id                      String   @id @default("global")
+  remindersEnabled        Boolean  @default(false)
+  earlyAdoptionMode       Boolean  @default(true)
+  voiceAutoCreateHighConf Boolean  @default(false) // Auto-create on HIGH-confidence voice CRUD (skip confirmation)
+  voiceTtsOutcome         Boolean  @default(false) // Speak the outcome line back when input was voice
+  nativeRemindersEnabled  Boolean  @default(true) // Built-in calendar reminders: the extraction rules and the 1-minute ping pass
+  updatedAt               DateTime @updatedAt
 }
 
 // ============================================

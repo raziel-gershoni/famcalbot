@@ -394,7 +394,7 @@ function baseUser(o: Row): Row {
     googleScopes: [], googleSyncNotifiedAt: null,
     pairingId: null, remindersEnabled: false, suspendedAt: null, unreachableSince: null, whatsappPhone: null,
     whatsappBsuid: null, telegramId: null, isAdmin: false, globalRules: [], voiceInputEnabled: true,
-    textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true, locationForced: false,
+    textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true,
     createdAt: new Date(Date.now() - 30 * DAY), updatedAt: new Date(Date.now() - DAY),
     ...o,
   };

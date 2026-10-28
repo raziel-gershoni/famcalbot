@@ -108,13 +108,20 @@ const SERIES_EVENTS: Fixture[] = [
   { summary: 'Book club', start: '2026-10-15T19:00:00+03:00', end: '2026-10-15T21:00:00+03:00', recurringEventId: 'bookclub' },
 ];
 
+// A weekly series (listed by no one: there is no switch for it) beside a one-off and a monthly series (listed).
+const WEEKLY_EVENTS: Fixture[] = [
+  { summary: 'Choir', start: '2026-10-14T18:00:00+03:00', end: '2026-10-14T19:30:00+03:00', recurringEventId: 'choir' },
+  { summary: 'Dentist', start: '2026-10-15T08:00:00+03:00', end: '2026-10-15T09:00:00+03:00' },
+  { summary: 'Book club', start: '2026-10-15T19:00:00+03:00', end: '2026-10-15T21:00:00+03:00', recurringEventId: 'bookclub' },
+];
+
 const GOOGLE_EVENTS: Record<string, Fixture[]> = {
   'token-il': ISRAEL_EVENTS, 'token-ny': NEW_YORK_EVENTS, 'token-running': RUNNING_EVENTS,
-  'token-series-6': SERIES_EVENTS, 'token-series-66': SERIES_EVENTS,
+  'token-series-6': SERIES_EVENTS, 'token-series-66': SERIES_EVENTS, 'token-weekly': WEEKLY_EVENTS,
 };
 const RRULES: Record<string, string> = {
   gym: 'RRULE:FREQ=DAILY', anniv: 'FREQ=YEARLY', standup: 'FREQ=DAILY', vitamins: 'FREQ=DAILY',
-  bookclub: 'RRULE:FREQ=MONTHLY', carpool: 'RRULE:FREQ=DAILY',
+  bookclub: 'RRULE:FREQ=MONTHLY', carpool: 'RRULE:FREQ=DAILY', choir: 'RRULE:FREQ=WEEKLY;BYDAY=WE',
 };
 
 // Native events as the provider hands them over: all-day as dates in the event's own
@@ -272,7 +279,6 @@ const user = (id: number, extra: Record<string, unknown>) => ({
   gender: 'female',
   language: 'en',
   calendarSource: 'GOOGLE',
-  includeWeeklyInLookahead: false,
   lookaheadAlways7Days: false,
   ...(extra.calendarSource === 'NATIVE' ? {} : { calendarAssignments: calendars }),
   ...extra,
@@ -982,6 +988,16 @@ async function main() {
     const tokenless = user(21, { culture: 'default', googleRefreshToken: '', calendarSource: 'GOOGLE', calendarAssignments: calendars });
     const lookahead = await getWeekLookahead(tokenless, [...nativeCalendars, ...calendars], new Date('2026-10-13T09:00:00+03:00'));
     assert(lookahead.events.some(e => e.summary === 'Teacher day'), `events ${lookahead.events.map(e => e.summary).join(', ') || 'none'}`);
+  });
+
+  // (j) a weekly series is never listed
+  await check('(j) a weekly series stays out of /week and /nextweek for everyone; a one-off and a monthly series are listed, and the weekly series was asked about', async () => {
+    clearRecurrenceCache();
+    masterCalls.length = 0;
+    const weekly = user(30, { culture: 'default', googleRefreshToken: 'token-weekly' });
+    const seen = (await getWeekLookahead(weekly, calendars, new Date('2026-10-13T09:00:00+03:00'))).events;
+    assertList(seen.map(e => `${e.summary} ${e.recurrenceType}`), ['Dentist single', 'Book club monthly']);
+    assertList(masterCalls, ['token-weekly:choir', 'token-weekly:bookclub']);
   });
 
   let failed = 0;

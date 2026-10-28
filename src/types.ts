@@ -29,13 +29,11 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'what
   gender: 'male' | 'female';  // Narrow type for type safety
   calendarAssignments?: CalendarAssignment[];  // Parsed from JSON
   culture?: string;
-  locationForced?: boolean;
   globalRules?: string[];
   textSummaryEnabled?: boolean;
   voiceSummaryEnabled?: boolean;
   voiceInputEnabled?: boolean;
   weatherEnabled?: boolean;
-  includeWeeklyInLookahead?: boolean;
   includeLookaheadInTomorrow?: boolean;
   lookaheadAlways7Days?: boolean;
   remindersEnabled?: boolean;
@@ -60,13 +58,11 @@ export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
       ? (user.calendarAssignments as unknown as CalendarAssignment[])
       : undefined,
     culture: user.culture,
-    locationForced: user.locationForced,
     globalRules: user.globalRules,
     textSummaryEnabled: user.textSummaryEnabled,
     voiceSummaryEnabled: user.voiceSummaryEnabled,
     voiceInputEnabled: user.voiceInputEnabled,
     weatherEnabled: user.weatherEnabled,
-    includeWeeklyInLookahead: user.includeWeeklyInLookahead,
     includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
     lookaheadAlways7Days: user.lookaheadAlways7Days,
     remindersEnabled: user.remindersEnabled,
