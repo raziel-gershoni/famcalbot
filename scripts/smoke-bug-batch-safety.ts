@@ -793,6 +793,24 @@ async function fix2() {
     assertSame(captured, [], 'something was captured');
   });
 
+  await check('2: the hard delete also revokes a token a merged-away account left on a copy link, as Disconnect Google does', async () => {
+    addGoogleUser('refresh-token-6');
+    DB.googleSyncLink = [
+      { id: 'link-merged', userId: GOOGLE_USER, unlinkToken: encrypt('merged-away-token') },
+      { id: 'link-plain', userId: GOOGLE_USER, unlinkToken: null },
+      { id: 'link-other', userId: 99, unlinkToken: encrypt('someone-elses-token') },
+    ];
+    answer = () => new Response('{}', { status: 200 });
+    watchGoogle();
+    try {
+      const { hardDeleteUser } = await import('../src/lib/user-moderation');
+      await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+      assertSame(revokes.map(r => r.token).sort(), ['merged-away-token', 'refresh-token-6'], 'the tokens revoked');
+    } finally {
+      DB.googleSyncLink = [];
+    }
+  });
+
   await check('2: a revoke Google refuses is logged and captured, and the delete goes on', async () => {
     addGoogleUser('refresh-token-6');
     answer = () => new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400 });

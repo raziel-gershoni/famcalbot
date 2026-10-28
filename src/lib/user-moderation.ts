@@ -98,13 +98,21 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
   // The Google token goes with the row below, and the grant would stay alive at Google with nothing left that could
   // ever use or revoke it: revoke it now, with Disconnect Google's own call (after the copies above, which needed it).
   // revokeGoogleToken logs and reports its own failure; the delete goes on either way.
+  // The same tokens Disconnect Google revokes: the person's own, and any a merged-away account left on a copy link
+  // (unlinkToken), which the cascade below would otherwise drop with the link while the grant lives on.
   try {
     const row = await prisma.user.findUnique({ where: { id: userId }, select: { googleRefreshToken: true } });
-    const token = row ? readStoredToken(row.googleRefreshToken, { userId, column: 'googleRefreshToken' }) : '';
-    if (token) {
+    const links = await prisma.googleSyncLink.findMany({ where: { userId, unlinkToken: { not: null } }, select: { id: true, unlinkToken: true } });
+    const tokens = [...new Set([
+      row ? readStoredToken(row.googleRefreshToken, { userId, column: 'googleRefreshToken' }) : '',
+      ...links.map((l) => readStoredToken(l.unlinkToken ?? '', { userId, column: `unlinkToken of link ${l.id}` })),
+    ].filter(Boolean))];
+    if (tokens.length > 0) {
       const { revokeGoogleToken } = await import('../services/google-disconnect');
-      if (!(await revokeGoogleToken(token, { user_id: userId }))) {
-        console.warn(`[Moderation] Hard delete of user ${userId}: Google's grant could not be revoked; the delete goes on`);
+      for (const token of tokens) {
+        if (!(await revokeGoogleToken(token, { user_id: userId }))) {
+          console.warn(`[Moderation] Hard delete of user ${userId}: a Google grant could not be revoked; the delete goes on`);
+        }
       }
     }
   } catch (error) {
