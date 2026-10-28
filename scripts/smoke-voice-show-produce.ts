@@ -109,7 +109,7 @@ async function main() {
       synthesize: fakeSynth,
     });
     await fs.unlink(voice.filePath).catch(() => {});
-    assert(prompts.length === 1 && prompts[0].includes('מה שמחכה למאזין מחר'), 'writer prompt is not the tomorrow one');
+    assert(prompts.length === 1 && prompts[0].includes('מה שבלוח של המאזין למחר'), 'writer prompt is not the tomorrow one');
   });
 
   await check('a TTS failure reaches the caller', async () => {

@@ -524,6 +524,9 @@ ${WEATHER_WEEK_RU}`,
 ];
 
 const SOUND = /<(chuckle|laugh|sigh|gasp|whispers|throat-clearing)>/g;
+// Present-tense ל״ה verbs are spelled alike for a man and a woman ("מחכה": mechake or
+// mechaka), and TTS picks the wrong one (2026-10-28 sample: "יום מחכה" read "mechaka").
+const AMBIGUOUS_HE_VERB = /(?<![\u05D0-\u05EA])(?:[ושהכ]|מה ?ש)?(?:מחכה|מצפה|עולה|נראה|קורה|רואה|עושה|נהנה|מתפנה)(?![\u05D0-\u05EA])/g;
 const JUDGE_SCHEMA = {
   type: 'object',
   properties: { ok: { type: 'boolean' }, problems: { type: 'array', items: { type: 'string' } } },
@@ -605,6 +608,10 @@ async function main() {
         checks.push({ name: 'leads with', ok: found.length > 0, detail: found.length ? `${found.join(', ')} in the first ${within} turns` : `none of ${any.join('|')} in the first ${within} turns` });
       }
       checks.push({ name: 'no digits', ok: !/\d/.test(text), detail: (text.match(/\S*\d\S*/g) ?? []).join(' ') || 'none' });
+      if (language === 'he') {
+        const ambiguous = text.match(AMBIGUOUS_HE_VERB) ?? [];
+        checks.push({ name: 'no ל״ה present verbs', ok: ambiguous.length === 0, detail: ambiguous.join(' ') || 'none' });
+      }
       const sounds = text.match(SOUND) ?? [];
       checks.push({ name: 'sounds <= 2', ok: sounds.length <= 2, detail: sounds.join(' ') || 'none' });
       checks.push({ name: 'shape', ok: true, detail: `${turns.length} turns, ${new Set(turns.map(t => t.mood)).size} moods (${[...new Set(turns.map(t => t.mood))].join(', ')}), attempts ${written.attempts}` });
