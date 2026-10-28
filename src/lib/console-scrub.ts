@@ -10,8 +10,11 @@ import { formatWithOptions } from 'util';
 
 const REDACTED = '[redacted]';
 
-/** Environment names whose values are secrets: tokens, keys, passwords and the database URLs. */
-const SECRET_NAME = /TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|ENCRYPTION_KEY|CREDENTIALS|DATABASE_URL|DIRECT_URL|REDIS_URL/i;
+/**
+ * Environment names whose values are secrets: tokens, keys, passwords and the database URLs. A new secret must be named
+ * to match (…_TOKEN, …_SECRET, …_API_KEY, …), or its value is not scrubbed from the logs.
+ */
+const SECRET_NAME = /TOKEN(?!S)|SECRET|PASSWORD|API_KEY|PRIVATE_KEY|ENCRYPTION_KEY|CREDENTIALS|DATABASE_URL|DIRECT_URL|REDIS_URL/i;
 
 /** The secret values of an environment, longest first (so one that contains another is replaced whole). Short values are left: they would match ordinary text. */
 export function secretValues(env: NodeJS.ProcessEnv): string[] {
@@ -42,6 +45,10 @@ export function installConsoleScrub(env: NodeJS.ProcessEnv = process.env, target
   const marked = target as ConsoleLike & { __secretsScrubbed?: boolean };
   if (marked.__secretsScrubbed) return;
   const secrets = secretValues(env);
+  // Names only, never values: which secrets the logs are kept clear of, and any too short to scrub safely
+  const named = Object.keys(env).filter((name) => SECRET_NAME.test(name) && typeof env[name] === 'string' && env[name] !== '');
+  const short = named.filter((name) => (env[name] as string).length < 12);
+  target.info(`[console-scrub] ${secrets.length ? 'scrubbing' : 'nothing to scrub:'} ${named.filter((n) => !short.includes(n)).join(', ') || 'no secret-named variables'}${short.length ? `; too short to scrub: ${short.join(', ')}` : ''}`);
   if (secrets.length === 0) return;
   for (const level of LEVELS) {
     const write = target[level].bind(target);

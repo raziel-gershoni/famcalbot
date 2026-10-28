@@ -40,7 +40,8 @@ function capturedConsole() {
   const keep = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
   const target = { log: keep, info: keep, warn: keep, error: keep, debug: keep };
   installConsoleScrub(ENV, target);
-  return { target, lines };
+  const coverage = lines.splice(0);
+  return { target, lines, coverage };
 }
 
 /** What node-telegram-bot-api throws for a refused call: the response with the request whose path holds the token. */
@@ -75,20 +76,34 @@ check('every level, format strings and nested objects are scrubbed', () => {
   for (const line of lines) assert(![BOT_TOKEN, DB_URL, 'cron-secret-of-the-smoke'].some((s) => line.includes(s)), `a secret in: ${line}`);
 });
 
-check('the scrub is installed once: a second install does not wrap twice', () => {
+check('the scrub is installed once: a second install leaves the wrapped methods as they are', () => {
   const { target, lines } = capturedConsole();
+  const before = { log: target.log, error: target.error };
   installConsoleScrub(ENV, target);
+  assert(target.log === before.log && target.error === before.error, 'a second install wrapped the console again');
   target.error('plain line');
   assert(lines.length === 1 && lines[0] === 'plain line', JSON.stringify(lines));
+});
+
+check('the install says which secret names it covers, and which are too short, by name only, never a value', () => {
+  const { coverage } = capturedConsole();
+  const line = coverage.join('\n');
+  assert(line.includes('[console-scrub]') && line.includes('TELEGRAM_BOT_TOKEN') && line.includes('DATABASE_URL') && line.includes('too short to scrub: SHORT_TOKEN'), line);
+  assert(![BOT_TOKEN, DB_URL, 'cron-secret-of-the-smoke'].some((v) => line.includes(v)), `a value in the coverage line: ${line}`);
+  assert(!/AI_MAX_TOKENS/.test(secretValues({ AI_MAX_TOKENS: '123456789012345' } as unknown as NodeJS.ProcessEnv).join()) && secretValues({ AI_MAX_TOKENS: '123456789012345' } as unknown as NodeJS.ProcessEnv).length === 0, 'a count of tokens is not a token');
 });
 
 check('a value that contains another is replaced whole', () => {
   assert(scrubText(`x ${DB_URL} y`, secretValues({ ...ENV, DIRECT_URL: 'sup3r-secret-pw' } as unknown as NodeJS.ProcessEnv)) === 'x [redacted] y', 'partial replacement');
 });
 
-check('the server installs it at startup, in the Node runtime', () => {
+check('the server installs it at startup, in the Node runtime, before the scheduler starts', () => {
   const source = fs.readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8');
-  assert(/installConsoleScrub\(\)/.test(source), 'instrumentation.ts does not install the console scrub');
+  const start = source.indexOf("if (process.env.NEXT_RUNTIME === 'nodejs') {");
+  const scheduler = source.indexOf('startScheduler()', start);
+  assert(start >= 0 && scheduler > start, 'the Node branch or the scheduler start is not where this check expects it');
+  const branch = source.slice(start, scheduler).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert(/^\s+installConsoleScrub\(\);/m.test(branch), 'the console scrub is not installed in the Node branch before the scheduler');
 });
 
 const failed = results.filter((r) => !r.ok);

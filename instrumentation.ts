@@ -5,8 +5,14 @@ export async function register() {
     await import('./sentry.server.config');
 
     // No secret value reaches the logs (a Telegram error prints the bot token in its request path): every console line is scrubbed
-    const { installConsoleScrub } = await import('./src/lib/console-scrub');
-    installConsoleScrub();
+    // (guarded: startup never throws, see below)
+    try {
+      const { installConsoleScrub } = await import('./src/lib/console-scrub');
+      installConsoleScrub();
+    } catch (err) {
+      console.error('[startup] the console scrub could not be installed; secrets may reach the logs', err);
+      Sentry.captureException(err);
+    }
 
     // Start in-process cron scheduler (replaces QStash)
     const { startScheduler } = await import('./src/cron/scheduler');
