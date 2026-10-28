@@ -1215,6 +1215,7 @@
       "allDay": "All day",
       "expired": "This event has expired. Please try again.",
       "expiredMessage": "❌ This event confirmation has expired. Please send a new voice message.",
+      "batchExpired": "⏰ This list has expired. Send a new voice message.",
       "cancelled": "Event cancelled",
       "cancelledMessage": "❌ Event creation cancelled.",
       "creating": "Creating event...",

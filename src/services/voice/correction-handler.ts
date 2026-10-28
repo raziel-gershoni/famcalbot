@@ -9,7 +9,7 @@ import { ParsedEvent } from '../event-parser';
 import { getMessagingService } from '../telegram';
 import { MessageFormat } from '../messaging/types';
 import { resolveUserTimezone } from '../../lib/timezone';
-import { getBotMessages } from '../../lib/bot-messages';
+import { getBotMessages, getBotMessagesForTelegramUser } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
 import { AI_MODEL_ID } from '../../config/ai-models';
@@ -115,9 +115,9 @@ export async function handleEventCorrection(
     const pending = await getPendingEvent(pendingId);
 
     if (!pending) {
-      const t = await getBotMessages('en');
+      const t = await getBotMessagesForTelegramUser(userId);
       await messagingService.sendMessage(chatId,
-        t.voice?.expiredMessage || '⏰ This event confirmation has expired. Please send a new voice message.',
+        t.voice.expiredMessage,
         { format: MessageFormat.HTML }
       );
       return;
@@ -302,7 +302,7 @@ export async function handleEventCorrection(
     console.error('[Correction] Error applying correction:', error);
     captureError(error, 'event-correction');
 
-    const t = await getBotMessages('en');
+    const t = await getBotMessagesForTelegramUser(userId);
     await messagingService.sendMessage(chatId,
       t.voice?.correctionFailed || '❌ Could not apply correction. Please try again.',
       { format: MessageFormat.HTML }

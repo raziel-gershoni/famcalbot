@@ -29,6 +29,26 @@ export async function getBotMessages(locale: string) {
   return messageCache[normalizedLocale];
 }
 
+/** The bot's texts in one language: `bot` in messages/<locale>.json. */
+export type BotMessages = Awaited<ReturnType<typeof getBotMessages>>;
+
+/**
+ * The bot's texts in a Telegram person's own language, for a reply to a tap or a message that has no user in hand
+ * (an expired card). A person the bot does not know, or a lookup that fails (logged), gets English.
+ * The id is the person's Telegram id: in a private chat that is the callback's `chatId`.
+ */
+export async function getBotMessagesForTelegramUser(telegramId: number): Promise<BotMessages> {
+  try {
+    // Loaded here: user-service reaches the database, and many callers of this module should not
+    const { getUserByTelegramId } = await import('../services/user-service');
+    const user = await getUserByTelegramId(telegramId);
+    return await getBotMessages(user?.language || 'en');
+  } catch (error) {
+    console.error(`[bot-messages] Could not read the language of Telegram user ${telegramId}, answering in English:`, error);
+    return getBotMessages('en');
+  }
+}
+
 /**
  * Get subscription messages for a specific locale
  * Falls back to English if locale is not supported

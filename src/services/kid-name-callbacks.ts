@@ -8,7 +8,7 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
 import { getBot } from './telegram/bot';
 import { getUserById } from './user-service';
-import { getBotMessages } from '../lib/bot-messages';
+import { getBotMessages, getBotMessagesForTelegramUser } from '../lib/bot-messages';
 import { buildUrl } from '../config/urls';
 import { CalendarAssignment } from '../types';
 import { isFamcalId } from '../utils/calendar-helpers';
@@ -43,11 +43,10 @@ export async function handleKidNameCallback(
   // Get pending data from Redis
   const raw = await redis.get(REDIS_KEYS.kidNamePending(pendingId));
   if (!raw) {
-    // Expired
-    const t = await getBotMessages('en');
-    const kd = t.kidNameDetection || {};
-    await bot.answerCallbackQuery(queryId, { text: kd.expired || 'This request has expired.' });
-    await bot.editMessageText(kd.expired || 'This request has expired.', {
+    // Expired: the question is answered in the language of the person who tapped it (the chat is theirs)
+    const t = await getBotMessagesForTelegramUser(chatId);
+    await bot.answerCallbackQuery(queryId, { text: t.kidNameDetection.expired });
+    await bot.editMessageText(t.kidNameDetection.expired, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',

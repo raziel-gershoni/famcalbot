@@ -579,17 +579,18 @@ async function fix2() {
   const q = 'cbq-1';
   type Case = { name: string; run: (chatId: number) => Promise<void>; answer?: string; edit: string };
   const cases: Case[] = [
-    { name: 'a create card', run: async chatId => { const { handleEventCallback } = await import('../src/services/voice/callbacks'); await handleEventCallback(chatId, 5, q, 'create', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
-    { name: 'an edit card', run: async chatId => { const { handleEditCallback } = await import('../src/services/voice/callbacks'); await handleEditCallback(chatId, 5, q, 'confirm', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
-    { name: 'a delete card', run: async chatId => { const { handleDeleteCallback } = await import('../src/services/voice/callbacks'); await handleDeleteCallback(chatId, 5, q, 'confirm', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
-    { name: 'a bulk card', run: async chatId => { const { handleBulkCallback } = await import('../src/services/voice/callbacks'); await handleBulkCallback(chatId, 5, q, 'confirm', 'gone'); }, edit: 'voice.expiredMessage' },
-    { name: 'a quick-fix button', run: async chatId => { const { handleQuickFixCallback } = await import('../src/services/voice/callbacks'); await handleQuickFixCallback(chatId, 5, q, 'time', 'gone'); }, edit: 'voice.expiredMessage' },
-    { name: 'a bulk-edit button', run: async chatId => { const { handleBulkEditCallback } = await import('../src/services/voice/callbacks'); await handleBulkEditCallback(chatId, 5, q, 0, 'gone'); }, edit: 'voice.batchExpired' },
-    { name: 'a kid-name question', run: async chatId => { const { handleKidNameCallback } = await import('../src/services/kid-name-callbacks'); await handleKidNameCallback(chatId, 5, q, 'kidname_yes', 'gone'); }, answer: 'kidNameDetection.expired', edit: 'kidNameDetection.expired' },
+    { name: 'a create card that has expired', run: async chatId => { const { handleEventCallback } = await import('../src/services/voice/callbacks'); await handleEventCallback(chatId, 5, q, 'create', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
+    { name: 'an edit card that has expired', run: async chatId => { const { handleEditCallback } = await import('../src/services/voice/callbacks'); await handleEditCallback(chatId, 5, q, 'confirm', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
+    { name: 'a delete card that has expired', run: async chatId => { const { handleDeleteCallback } = await import('../src/services/voice/callbacks'); await handleDeleteCallback(chatId, 5, q, 'confirm', 'gone'); }, answer: 'voice.expired', edit: 'voice.expiredMessage' },
+    { name: 'a bulk card that has expired', run: async chatId => { const { handleBulkCallback } = await import('../src/services/voice/callbacks'); await handleBulkCallback(chatId, 5, q, 'confirm', 'gone'); }, edit: 'voice.expiredMessage' },
+    { name: 'a bulk card cancelled after it expired', run: async chatId => { const { handleBulkCallback } = await import('../src/services/voice/callbacks'); await handleBulkCallback(chatId, 5, q, 'cancel', 'gone'); }, edit: 'voice.bulkCancelled' },
+    { name: 'a quick-fix button that has expired', run: async chatId => { const { handleQuickFixCallback } = await import('../src/services/voice/callbacks'); await handleQuickFixCallback(chatId, 5, q, 'time', 'gone'); }, edit: 'voice.expiredMessage' },
+    { name: 'a bulk-edit button that has expired', run: async chatId => { const { handleBulkEditCallback } = await import('../src/services/voice/callbacks'); await handleBulkEditCallback(chatId, 5, q, 0, 'gone'); }, edit: 'voice.batchExpired' },
+    { name: 'a kid-name question that has expired', run: async chatId => { const { handleKidNameCallback } = await import('../src/services/kid-name-callbacks'); await handleKidNameCallback(chatId, 5, q, 'kidname_yes', 'gone'); }, answer: 'kidNameDetection.expired', edit: 'kidNameDetection.expired' },
   ];
   for (const lang of LANGS) {
     for (const c of cases) {
-      await check(`2: ${c.name} that has expired answers in ${lang}`, async () => {
+      await check(`2: ${c.name} answers in ${lang}`, async () => {
         await withLogs(() => c.run(PEOPLE[lang].tg));
         const edits = botCalls('editMessageText');
         assert(edits.length === 1, `expected one edit, got ${edits.length}`);

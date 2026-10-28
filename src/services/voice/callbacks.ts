@@ -9,7 +9,7 @@ import { createCalendarFor, providerForCalendar } from '../calendar-provider';
 import { isFamcalId } from '../../utils/calendar-helpers';
 import type { CreateEventResult, UpdateEventResult, DeleteEventResult } from '../calendar-provider';
 import { buildUrl } from '../../config/urls';
-import { getBotMessages } from '../../lib/bot-messages';
+import { getBotMessages, getBotMessagesForTelegramUser } from '../../lib/bot-messages';
 import { trackActivityAsync } from '../analytics-service';
 import { captureError } from '../../lib/error-capture';
 import { incrementUsage } from '../subscription-service';
@@ -48,7 +48,7 @@ export async function handleEventCallback(
   const pending = claimed ?? await takePendingEvent(pendingId);
 
   if (!pending) {
-    const t = await getBotMessages('en');
+    const t = await getBotMessagesForTelegramUser(chatId);
     await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
     await bot.editMessageText(t.voice.expiredMessage, {
       chat_id: chatId,
@@ -270,9 +270,9 @@ export async function handleEditCallback(
   const pending = await getPendingEdit(pendingId);
 
   if (!pending) {
-    const t = await getBotMessages('en');
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.expired || 'Request expired' });
-    await bot.editMessageText(t.voice?.expiredMessage || '⏰ This request has expired.', {
+    const t = await getBotMessagesForTelegramUser(chatId);
+    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
+    await bot.editMessageText(t.voice.expiredMessage, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML'
@@ -465,9 +465,9 @@ export async function handleDeleteCallback(
   const pending = await getPendingDelete(pendingId);
 
   if (!pending) {
-    const t = await getBotMessages('en');
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.expired || 'Request expired' });
-    await bot.editMessageText(t.voice?.expiredMessage || '⏰ This request has expired.', {
+    const t = await getBotMessagesForTelegramUser(chatId);
+    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
+    await bot.editMessageText(t.voice.expiredMessage, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML'
@@ -688,7 +688,7 @@ export async function handleBulkCallback(
   if (action === 'cancel') {
     const { handleBulkCancel } = await import('./bulk-confirmations');
     const user = await handleBulkCancel(pendingId);
-    const t = await getBotMessages(user?.language || 'en');
+    const t = user ? await getBotMessages(user.language || 'en') : await getBotMessagesForTelegramUser(chatId);
     await bot.editMessageText(t.voice?.bulkCancelled || '❌ Batch cancelled.', {
       chat_id: chatId,
       message_id: messageId,
@@ -720,9 +720,9 @@ export async function handleBulkCallback(
       parse_mode: 'HTML',
     });
   } catch (err) {
-    const t = await getBotMessages('en');
+    const t = await getBotMessagesForTelegramUser(chatId);
     if (err instanceof Error && err.message === 'bulk_pending_expired') {
-      await bot.editMessageText(t.voice?.expiredMessage || '⏰ This confirmation has expired.', {
+      await bot.editMessageText(t.voice.expiredMessage, {
         chat_id: chatId,
         message_id: messageId,
         parse_mode: 'HTML',
@@ -755,7 +755,8 @@ export async function handleQuickFixCallback(
   const pending = await getPendingEvent(pendingId);
   if (!pending) {
     await bot.answerCallbackQuery(queryId, { text: '⏰' });
-    await bot.editMessageText('⏰ This confirmation has expired.', {
+    const t = await getBotMessagesForTelegramUser(chatId);
+    await bot.editMessageText(t.voice.expiredMessage, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',
@@ -795,7 +796,8 @@ export async function handleBulkEditCallback(
   const { showEventConfirmation } = await import('./confirmations');
   const popped = await popEventFromBatch(pendingId, index);
   if (!popped) {
-    await bot.editMessageText('⏰ This batch has expired.', {
+    const t = await getBotMessagesForTelegramUser(chatId);
+    await bot.editMessageText(t.voice.batchExpired, {
       chat_id: chatId,
       message_id: messageId,
       parse_mode: 'HTML',
