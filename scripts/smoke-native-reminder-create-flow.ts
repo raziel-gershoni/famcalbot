@@ -1038,6 +1038,18 @@ async function main() {
     assert(JSON.stringify(held) === JSON.stringify(expected), `tracked ${JSON.stringify(held)}`);
   });
 
+  await check('whatsapp voice: an event made by voice is confirmed in WhatsApp\'s own bold (sent as HTML), with one check mark', async () => {
+    created = [];
+    waCalls = [];
+    extracted = [createIntent(promo, 'high')];
+    await whatsappVoice();
+    assert(created.length === 1, `created ${JSON.stringify(created)}`);
+    const reply = waCalls.find(c => c.text.startsWith(t.voice.created));
+    assert(!!reply, `no created reply: ${JSON.stringify(waCalls.map(c => c.text.slice(0, 40)))}`);
+    assert(reply!.opts?.format === 'html', `sent without the HTML format, so the <b> tags show: ${JSON.stringify(reply!.opts)}`);
+    assert(!reply!.text.startsWith('✅ ✅'), `two check marks: ${reply!.text}`);
+  });
+
   await check('whatsapp: an edit the built-in calendar refuses as a day move for a series on set weekdays (FIXED_DAYS) says how to do it, not an error code', async () => {
     const pendingEdit = (id: string) => fakeRedis.set(`voice:pending:edit:${id}`, {
       originalEvent: { summary: 'Swimming', start: '2026-10-20T14:00:00.000Z', end: '2026-10-20T15:00:00.000Z', calendarId: 'native:main-1', eventId: 'sw1#2026-10-20T14:00:00.000Z', recurringEventId: 'sw1' },

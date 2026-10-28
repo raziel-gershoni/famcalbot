@@ -1320,8 +1320,9 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           const { reminderCreatedLine } = await import('./voice/confirmations');
           const createdLine = reminder
             ? await reminderCreatedLine(intentResult.event, user.language || 'en', timezone, false, user)
-            : `✅ ${t.voice?.created || 'Event created!'}`;
-          await waService.sendMessage(phone, `${createdLine}\n\n*${intentResult.event.title}*`);
+            : t.voice?.created || '✅ Event created!';
+          // The created line is HTML (<b>): the adapter turns it into WhatsApp's bold; the *title* is WhatsApp's own
+          await waService.sendMessage(phone, `${createdLine}\n\n*${intentResult.event.title}*`, { format: MessageFormat.HTML });
         } else {
           await waService.sendMessage(phone, writeFailureText(result, t, 'create', { userId: user.id, calendarId: calId }), { format: MessageFormat.HTML });
         }
@@ -1485,7 +1486,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
 
       if (result.success) {
         const reminder = pending.event.kind === 'reminder';
-        let createdLine = `✅ ${t.voice?.created || 'Event created!'}`;
+        let createdLine = t.voice?.created || '✅ Event created!';
         let pausedLine = '';
         if (reminder) {
           const { reminderCreatedLine, reminderPausedNote } = await import('./voice/confirmations');
@@ -1495,7 +1496,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
           const pausedNote = await reminderPausedNote(pending.event, pending.user.language || 'en');
           if (pausedNote) pausedLine = `\n\n_${pausedNote}_`;
         }
-        await waService.sendMessage(phone, `${createdLine}\n\n*${pending.event.title}*${pausedLine}`);
+        await waService.sendMessage(phone, `${createdLine}\n\n*${pending.event.title}*${pausedLine}`, { format: MessageFormat.HTML });
 
         const { incrementUsage } = await import('./subscription-service');
         const { trackActivityAsync } = await import('./analytics-service');
