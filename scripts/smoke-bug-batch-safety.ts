@@ -1080,6 +1080,12 @@ async function fix4() {
     }
   });
 
+  await check('4: a calendar name with HTML characters is escaped in the answer, so Telegram accepts the edit', async () => {
+    const kids: Row = { calendarId: GOOGLE_KIDS, labels: ['kids'], name: 'Kids & <Family>', color: '#33B679' };
+    const { card } = await yes(1, 'en', [other, kids]);
+    assertSame(card, 'Added a rule to Kids &amp; &lt;Family&gt;: "Noam is my child"', 'the card');
+  });
+
   await check('4: a "Yes" for a calendar that is still chosen adds the rule and names the calendar by its name, never its id', async () => {
     const kids: Row = { calendarId: GOOGLE_KIDS, labels: ['kids'], name: 'Kids', color: '#33B679' };
     const { card, assignments } = await yes(1, 'en', [other, kids]);

@@ -9,6 +9,7 @@ import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { getBot } from './telegram/bot';
 import { getBotMessages } from '../lib/bot-messages';
+import { escapeHtml } from '../utils/html';
 
 /** Stopwords by language — filtered out from potential name candidates */
 const STOPWORDS: Record<string, Set<string>> = {
@@ -190,9 +191,9 @@ export async function sendKidNameFollowUp(
   const kd = t.kidNameDetection || {};
 
   const questionText = (kd.question || 'I noticed "{name}" in the event "{event}" on {calendar}. Is {name} your child?')
-    .replace(/\{name\}/g, candidate.name)
-    .replace(/\{event\}/g, candidate.eventTitle)
-    .replace(/\{calendar\}/g, candidate.calendarName);
+    .replace(/\{name\}/g, escapeHtml(candidate.name))
+    .replace(/\{event\}/g, escapeHtml(candidate.eventTitle))
+    .replace(/\{calendar\}/g, escapeHtml(candidate.calendarName));
 
   const yesText = kd.yes || 'Yes';
   const noText = kd.no || 'No';

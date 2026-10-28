@@ -13,6 +13,7 @@ import { buildUrl } from '../config/urls';
 import { CalendarAssignment } from '../types';
 import { isFamcalId } from '../utils/calendar-helpers';
 import { decodeCalendarId } from './native-calendar/event-store';
+import { escapeHtml } from '../utils/html';
 import { liveGoogleChoices } from '../lib/google-state';
 
 interface KidNamePending {
@@ -139,7 +140,7 @@ async function confirmOnGoogle(
     data: { calendarAssignments: assignments as unknown as object[] },
   });
   return {
-    text: kd.confirmed.replace('{calendar}', assignments[assignmentIndex].name).replace('{name}', pending.name),
+    text: kd.confirmed.replace('{calendar}', escapeHtml(assignments[assignmentIndex].name)).replace('{name}', escapeHtml(pending.name)),
     written: true,
   };
 }
@@ -166,13 +167,13 @@ async function confirmOnFamcal(userId: number, pending: KidNamePending, ruleText
   if (calendar.labels.includes('kids') && !calendar.personName?.trim()) {
     await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { personName: pending.name } });
     return {
-      text: (kd.confirmedFamcal || '{calendar} is now {name}\'s calendar').replace('{calendar}', calendar.name).replace('{name}', pending.name),
+      text: (kd.confirmedFamcal || '{calendar} is now {name}\'s calendar').replace('{calendar}', escapeHtml(calendar.name)).replace('{name}', escapeHtml(pending.name)),
       written: true,
     };
   }
   await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: { rules: [ruleText] } });
   return {
-    text: (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"').replace('{calendar}', calendar.name).replace('{name}', pending.name),
+    text: (kd.confirmed || 'Added a rule to {calendar}: "{name} is my child"').replace('{calendar}', escapeHtml(calendar.name)).replace('{name}', escapeHtml(pending.name)),
     written: true,
   };
 }
