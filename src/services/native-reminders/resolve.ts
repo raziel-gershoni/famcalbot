@@ -18,8 +18,8 @@ import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils
 import { wallTimeToInstant } from '../../utils/wall-time';
 import { isAllDayEvent, isReminderEvent } from '../../utils/event-formatter';
 import { resolveUserTimezone } from '../../lib/timezone';
-import type { ZmanOpinion, ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
-import { communityOfUser, readZmanFromModel, zmanKeyOpinion, type ModelZman, type ZmanRefusal } from '../zmanim/spec';
+import { sameZmanSpec, type ZmanOpinion, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
+import { communityOfUser, readZmanFromModel, zmanKeyOpinion, zmanNameOfKey, type ModelZman, type ZmanRefusal } from '../zmanim/spec';
 import { zmanimSet, type ZmanKey } from '../zmanim/sets';
 import { zmanClockFor, type ZmanClock, type ZmanUser } from '../zmanim/reminder-clock';
 import { isPaused } from '../zmanim/pause';
@@ -403,6 +403,53 @@ export function withZmanChoice(event: ParsedEvent, index: number, timezone: stri
     allDay: true,
     reminderPaused: choice.paused,
   };
+}
+
+/** The fields of a reminder that say it is by zman: what an edit carries over or clears. */
+export type ZmanFields = Pick<ParsedEvent, 'zmanSpec' | 'zmanChoices' | 'zmanDaySaid' | 'reminderPaused'>;
+
+/**
+ * What an edit of a pending reminder (a reply to its card, a Time or Day quick fix) does to its zman rule, given the
+ * reminder before and the one with the edit's times (`after`: startTime, endTime, allDay):
+ *  - a clock time given (`after` is not date-only) makes it a fixed time: the rule, the choices and the pause note go;
+ *  - a day change keeps the rule and says the day was said (`zmanDaySaid`), and moves every choice to the new day;
+ *  - anything else carries the rule and the choices over as they were.
+ * Spread the result over the edited event. A reminder that is not by zman gets nothing (empty), so a plain one is
+ * edited as before.
+ */
+export function zmanAfterEdit(before: ParsedEvent, after: Pick<ParsedEvent, 'startTime' | 'allDay'>, timezone: string): Partial<ZmanFields> {
+  if (before.kind !== 'reminder' || !(before.zmanSpec || before.zmanChoices?.length)) return {};
+  if (!after.allDay) {
+    console.log(`[zman-voice] a clock time was given to a reminder by zman; it is a fixed time now, the rule is dropped`);
+    return { zmanSpec: undefined, zmanChoices: undefined, zmanDaySaid: undefined, reminderPaused: undefined };
+  }
+  const day = localDate(after.startTime, timezone);
+  const moved = day !== localDate(before.startTime, timezone);
+  return {
+    zmanSpec: before.zmanSpec,
+    zmanChoices: moved ? before.zmanChoices?.map((c) => ({ spec: c.spec, day })) : before.zmanChoices,
+    zmanDaySaid: moved ? true : before.zmanDaySaid,
+    // The pause note is worked out again for the day it now has (refreshReminderNotice)
+    reminderPaused: moved ? undefined : before.reminderPaused,
+  };
+}
+
+/**
+ * A reminder whose opinion is to be chosen, with the opinion a reply named: the one choice that opinion is, as if it
+ * had been tapped (withZmanChoice), or null when the reply names none the choices have (the card stays as it was).
+ * The opinion goes through readZmanFromModel under the writer's community, as everything the model says.
+ */
+export function zmanChoiceByOpinion(event: ParsedEvent, said: unknown, community: ReturnType<typeof communityOfUser>, timezone: string): ParsedEvent | null {
+  const choices = event.zmanChoices;
+  const first = choices?.[0]?.spec;
+  if (!choices || !first || !('zman' in first)) return null;
+  const mapped = readZmanFromModel({ name: zmanNameOfKey(first.zman), opinion: said, offsetMinutes: first.offsetMin }, community);
+  if (mapped.kind !== 'spec') {
+    console.warn(`[zman-voice] a reply named the opinion ${JSON.stringify(said)}, which is none of the choices (${mapped.kind}); the choices stay`);
+    return null;
+  }
+  const index = choices.findIndex((c) => sameZmanSpec(c.spec, mapped.spec));
+  return index < 0 ? null : withZmanChoice(event, index, timezone);
 }
 
 /**

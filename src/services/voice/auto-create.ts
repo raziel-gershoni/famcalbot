@@ -23,7 +23,7 @@ import { MessageFormat } from '../messaging/types';
 import { pushRecentEvent } from './recent-events-store';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { escapeHtml, formatEventDateTime, formatReminderCreated } from './confirmations';
-import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
+import { isByZman, reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import { trackActivityAsync } from '../analytics-service';
 import { trackCreatedEvent } from './event-resolution';
 import { captureError } from '../../lib/error-capture';
@@ -95,6 +95,11 @@ export async function autoCreateEvent(
   chatId: number | string
 ): Promise<boolean> {
   if (!(await isAutoCreateEnabled())) return false;
+  // A reminder by zman is shown its card first, with the time and the rule (and the opinion to choose): never made unseen
+  if (isByZman(event)) {
+    console.log(`[zman-voice] user ${user.id}: a reminder by zman is not auto-created; it gets its card`);
+    return false;
+  }
 
   // The calendar it goes to picks the provider; an unplaced event takes the default (spec §3)
   const calendarId = await createCalendarFor(user, event);

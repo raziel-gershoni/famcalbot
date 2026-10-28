@@ -81,7 +81,7 @@ async function routeTypedIntents(ctx: TypedContext, results: VoiceIntentResult[]
   const creates = intents.filter((r): r is CreateResult => r.intent === 'create' && !!r.event && !r.error);
   if (creates.length > 0 || failures.length > 0) {
     if (creates.length > 1) {
-      await showBulkConfirmation(ctx.chatId, creates, ctx.user, ctx.text, ctx.t, ctx.service, ctx.timezone);
+      await showBulkConfirmation(ctx.chatId, creates, ctx.user, ctx.text, ctx.t, ctx.service, ctx.timezone, 'text');
     } else if (creates.length === 1) {
       await showEventConfirmation(ctx.chatId, undefined, creates[0].event, ctx.text, ctx.user, ctx.adminFooter, 'text');
     }

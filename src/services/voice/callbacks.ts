@@ -17,6 +17,7 @@ import { trackCreatedEvent } from './event-resolution';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import {
+  chooseZmanOpinion,
   getPendingEvent,
   removePendingEvent,
   getPendingEdit,
@@ -228,6 +229,27 @@ export async function handleEventCallback(
       );
     }
   }
+}
+
+/**
+ * A tap on one of the opinion buttons of a reminder by zman whose opinion was unsaid: that opinion becomes the
+ * reminder's rule, and it is created exactly as a Create tap creates it (the same path, so the reply, the analytics
+ * and the recent-events are the same). A card that has expired gets the expired answer.
+ */
+export async function handleEventChoiceCallback(
+  chatId: number,
+  messageId: number,
+  queryId: string,
+  index: number,
+  pendingId: string
+): Promise<void> {
+  const chosen = await chooseZmanOpinion(pendingId, index);
+  if (!chosen.ok && chosen.reason === 'no_such_choice') {
+    const t = await getBotMessages(chosen.pending.user.language || 'en');
+    await getBot().answerCallbackQuery(queryId, { text: t.voice.unknownError });
+    return;
+  }
+  await handleEventCallback(chatId, messageId, queryId, 'create', pendingId);
 }
 
 /**

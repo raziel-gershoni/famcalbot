@@ -16,6 +16,7 @@ import { AI_MODEL_ID } from '../../config/ai-models';
 import { formatInTimeZone } from 'date-fns-tz';
 import { wallTimeToInstant } from '../../utils/wall-time';
 import type { ParsedEvent } from '../event-parser';
+import { zmanAfterEdit } from '../native-reminders/resolve';
 import type { CalendarAssignment } from '../../types';
 
 export type QuickField = 'time' | 'day' | 'cal';
@@ -47,6 +48,21 @@ export interface FieldPatch {
   allDay?: boolean; // a date-only reminder given a time becomes timed
   calendarId?: string;
   calendarName?: string;
+}
+
+/**
+ * The pending event with a quick fix's patch applied. A reminder by zman keeps its rule (and its choices) through a
+ * Day fix, which says the day was said, and loses them to a Time fix (a clock time makes it a fixed time): the same
+ * rule a reply to the card follows (zmanAfterEdit).
+ */
+export function applyFieldPatch(event: ParsedEvent, patch: FieldPatch, timezone: string): ParsedEvent {
+  const next: ParsedEvent = { ...event };
+  if (patch.startTime) next.startTime = patch.startTime;
+  if (patch.endTime) next.endTime = patch.endTime;
+  if (patch.allDay !== undefined) next.allDay = patch.allDay;
+  if (patch.calendarId) next.calendarId = patch.calendarId;
+  if (patch.calendarName) next.calendarName = patch.calendarName;
+  return { ...next, ...zmanAfterEdit(event, next, timezone) };
 }
 
 /**

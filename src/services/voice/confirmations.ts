@@ -104,14 +104,14 @@ export async function removePendingEvent(pendingId: string) {
 export async function chooseZmanOpinion(
   pendingId: string,
   index: number
-): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' | 'no_such_choice' }> {
+): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' } | { ok: false; reason: 'no_such_choice'; pending: PendingEventData }> {
   const pending = await getPendingEvent(pendingId);
   if (!pending) return { ok: false, reason: 'expired' };
   const timezone = await resolveUserTimezone(pending.user);
   const chosen = withZmanChoice(pending.event, index, timezone);
   if (!chosen) {
     console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} has no choice (${pending.event.zmanChoices?.length ?? 0} choices)`);
-    return { ok: false, reason: 'no_such_choice' };
+    return { ok: false, reason: 'no_such_choice', pending };
   }
   const event = await refreshReminderNotice(chosen, timezone, new Date(), pending.user);
   const next: PendingEventData = { ...pending, event };
@@ -490,7 +490,7 @@ export async function formatReminderCard(
     // WhatsApp's buttons name the opinion alone, so its body carries each one's time; Telegram's buttons carry it
     if (markup === 'whatsapp') for (const label of await zmanChoiceLabels(event, view, language, timezone)) lines.push(`• ${label}`);
   }
-  for (const note of await zmanNotes(event, view, language)) lines.push('', m.italic(note));
+  for (const note of await zmanNotes(event, view, language, m.text)) lines.push('', m.italic(note));
   if (event.reminderNotice === 'no_time_set') {
     lines.push('', m.italic(t.nativeReminders.card.noTimeSet));
   } else if (event.reminderNotice === 'time_passed') {
@@ -505,14 +505,14 @@ export async function formatReminderCard(
 
 /**
  * The one-line notes under a reminder by zman: its time is counted from the time zone's main city (no place saved), and
- * a one-off inside its recipient's paused Shabbat or Yom Tov will not be sent. Plain text; the caller marks it up.
+ * a one-off inside its recipient's paused Shabbat or Yom Tov will not be sent. `text` escapes a name for the card's markup.
  */
-async function zmanNotes(event: ParsedEvent, view: ZmanView | null, language: string): Promise<string[]> {
+async function zmanNotes(event: ParsedEvent, view: ZmanView | null, language: string, text: (s: string) => string): Promise<string[]> {
   if (!view) return [];
   const notes: string[] = [];
   if (view.source === 'zone') {
     notes.push(view.forPartner
-      ? await getBotMessage(language, 'nativeReminders.zman.zoneOnlyPartner', { name: event.forName || '' })
+      ? await getBotMessage(language, 'nativeReminders.zman.zoneOnlyPartner', { name: text(event.forName || '') })
       : await getBotMessage(language, 'nativeReminders.zman.zoneOnly'));
   }
   if (view.choices) {

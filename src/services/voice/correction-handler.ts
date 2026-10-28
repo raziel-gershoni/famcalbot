@@ -18,6 +18,8 @@ import { getPendingEvent, removePendingEvent, showEventConfirmation } from './co
 import { buildEventTimes, readRepeat } from './gemini-voice';
 import { isSilent } from './speech-presence';
 import { normalizeReminderTimes } from '../native-calendar/event-store';
+import { zmanAfterEdit, zmanChoiceByOpinion } from '../native-reminders/resolve';
+import { communityOfUser } from '../zmanim/spec';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { startTypingInterval } from '../telegram/command-pipeline';
@@ -50,6 +52,15 @@ function buildCorrectionPrompt(
     ? '\nThis event repeats every year on its Hebrew date. Its start date is the day of the first occurrence. Do not change how it repeats.\n'
     : '';
 
+  // A reminder by a halachic time (a zman): its start time is a placeholder, and how it is timed is not the model's to change
+  const choosing = event.kind === 'reminder' && !!event.zmanChoices?.length;
+  const byZman = event.kind === 'reminder' && (!!event.zmanSpec || choosing);
+  const zmanNote = !byZman ? '' : '\nThis REMINDER is timed by a halachic time (a zman), not by a clock time: its start time of 00:00 is only a placeholder. Keep "allDay" true and "startTime" null unless the user gives a clock time. Change the date only if the user names a day. Never change how it is timed.\n'
+    + (choosing
+      ? 'The person has still to choose whose opinion counts the zman. If the correction names one, return it in "opinion" as exactly one of: "gra" (the GRA, Vilna Gaon), "mga" (the MGA, Magen Avraham), "halachaBerura" (Halacha Berura), "yalkutYosef" (Yalkut Yosef), "baalHatanya" (the Baal HaTanya, Alter Rebbe). Otherwise "opinion" is null.\n'
+      : '');
+  const opinionField = choosing ? ',\n  "opinion": "gra" | "mga" | "halachaBerura" | "yalkutYosef" | "baalHatanya" | null' : '';
+
   return `You are correcting a calendar event based on user feedback.
 The user will provide their correction as text or voice.
 
@@ -62,7 +73,7 @@ CURRENT EVENT:
 - Location: ${event.location || 'none'}
 - Calendar: ${event.calendarName || 'Primary'} (ID: ${event.calendarId || 'primary'})
 - All day: ${event.allDay}
-${reminderNote}${hebrewNote}
+${reminderNote}${hebrewNote}${zmanNote}
 USER'S CALENDARS:
 ${calendarList || '- Primary calendar (ID: primary)'}
 
@@ -83,7 +94,7 @@ RESPOND IN JSON FORMAT ONLY:
   "hebrewDate": {"day": 1-30, "month": "Tevet", "year": Hebrew year as a number or null} or null,
   "location": "..." or null,
   "calendarId": "..." or "primary",
-  "calendarName": "..." or "Primary"
+  "calendarName": "..." or "Primary"${opinionField}
 }`;
 }
 
@@ -246,6 +257,21 @@ export async function handleEventCorrection(
         forName: event.forName,
         reminderNotice: event.reminderNotice,
       });
+      // A reminder by zman keeps its rule and its choices through a day change, and loses them to a clock time
+      Object.assign(correctedEvent, zmanAfterEdit(event, correctedEvent, timezone));
+      if (correctedEvent.zmanChoices?.length && parsed.opinion != null) {
+        // A reply that names the opinion is the choice made: the card then has one rule, for the person to create
+        const chosen = zmanChoiceByOpinion(correctedEvent, parsed.opinion, communityOfUser(user), timezone);
+        if (chosen) {
+          Object.assign(correctedEvent, {
+            zmanSpec: chosen.zmanSpec,
+            zmanChoices: undefined,
+            startTime: chosen.startTime,
+            endTime: chosen.endTime,
+            reminderPaused: chosen.reminderPaused,
+          });
+        }
+      }
     }
 
     // Clean up old pending event + reverse mapping

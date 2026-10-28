@@ -130,6 +130,20 @@ export async function handleTelegramWebhook(
         if (messageId) {
           await handleEventCallback(chatId, messageId, queryId, actionType, fullPendingId);
         }
+      } else if (data.startsWith('event_pick:')) {
+        // A reminder by zman whose opinion was unsaid: a tap on one of its opinion buttons.
+        // data shape: event_pick:<index>:<pendingId>
+        const rest = data.substring('event_pick:'.length);
+        const colon = rest.indexOf(':');
+        const index = Number(rest.slice(0, colon));
+        const messageId = callbackQuery.message?.message_id;
+        if (messageId && colon > 0 && Number.isInteger(index)) {
+          const { handleEventChoiceCallback } = await import('./voice/callbacks');
+          await handleEventChoiceCallback(chatId, messageId, queryId, index, rest.slice(colon + 1));
+        } else {
+          console.error(`[zman-voice] an opinion button with data ${JSON.stringify(data)} is malformed`);
+          await getBot().answerCallbackQuery(queryId).catch((err: unknown) => console.error('[zman-voice] could not answer the malformed button:', err));
+        }
       } else if (data.startsWith('edit_confirm:') || data.startsWith('edit_cancel:')) {
         // Handle event edit callbacks
         const [action] = data.split(':').slice(0, 1);
@@ -267,7 +281,7 @@ export async function handleTelegramWebhook(
   // focused field correction. Intercept it before normal voice/text routing.
   if (update.message?.chat?.id && (update.message.text || update.message.voice)) {
     const chatId = update.message.chat.id;
-    const { getQuickCorrection, clearQuickCorrection, extractFieldPatch } = await import('./voice/quick-correction');
+    const { getQuickCorrection, clearQuickCorrection, extractFieldPatch, applyFieldPatch } = await import('./voice/quick-correction');
     const quickState = await getQuickCorrection(chatId);
     if (quickState) {
       try {
@@ -300,16 +314,12 @@ export async function handleTelegramWebhook(
           if (patch) {
             // Apply patch to the pending event and re-render the confirmation
             // card in place via showEventConfirmation(messageId=...).
-            if (patch.startTime) pending.event.startTime = patch.startTime;
-            if (patch.endTime) pending.event.endTime = patch.endTime;
-            if (patch.allDay !== undefined) pending.event.allDay = patch.allDay;
-            if (patch.calendarId) pending.event.calendarId = patch.calendarId;
-            if (patch.calendarName) pending.event.calendarName = patch.calendarName;
+            const patched = applyFieldPatch(pending.event, patch, tz);
             await removePendingEvent(quickState.pendingId);
             await showEventConfirmation(
               chatId,
               quickState.messageId,
-              pending.event,
+              patched,
               pending.transcription,
               pending.user,
               undefined,
@@ -995,7 +1005,7 @@ export async function handleWhatsAppWebhook(
       const feedbackText = text.replace(/^feedback\s+/i, '').trim();
       runAsync(() => handleFeedbackCommand(from, commandUserId, feedbackText), 'feedback');
       return;
-    } else if (lowerText.startsWith('event_create:') || lowerText.startsWith('event_cancel:') ||
+    } else if (lowerText.startsWith('event_create:') || lowerText.startsWith('event_cancel:') || lowerText.startsWith('event_pick:') ||
                lowerText.startsWith('edit_confirm:') || lowerText.startsWith('edit_cancel:') ||
                lowerText.startsWith('delete_confirm:') || lowerText.startsWith('delete_cancel:')) {
       // Voice event callbacks from WhatsApp reply buttons
@@ -1084,7 +1094,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
     // Native reminders (spec R3): only users linked to Telegram, where the ping goes
     const { getReminderSupport } = await import('./native-reminders/support');
-    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice, primaryIntent, zmanAnalytics } =
+    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice, primaryIntent, zmanAnalytics, isByZman } =
       await import('./native-reminders/resolve');
     const support = await getReminderSupport(user);
     const extraction = await processVoiceWithGemini(
@@ -1130,9 +1140,10 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const validBulkWa = (intentResults || []).filter((r) => r.intent === 'create' && r.event && !r.error);
     if (validBulkWa.length > 1) {
       // A reminder with a notice (partner not on Telegram, time passed, no time set) needs its card first,
-      // and so does speech that seemed not meant for the device (TV, radio)
+      // and so does speech that seemed not meant for the device (TV, radio), and a reminder by zman (its card
+      // says its time, and asks the opinion when none was said)
       const allHigh = validBulkWa.every(
-        (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice && !r.notAddressed
+        (r) => r.confidence === 'high' && !r.event!.recurrence && !r.event!.reminderNotice && !r.notAddressed && !isByZman(r.event!)
       );
       if (!allHigh) {
         await waService.sendMessage(
@@ -1240,6 +1251,8 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         intentResult.confidence === 'high' &&
         !intentResult.event.recurrence &&
         !intentResult.event.reminderNotice &&
+        // A reminder by zman waits for its card: it shows the time, and asks the opinion when none was said
+        !isByZman(intentResult.event) &&
         // Speech that seemed not meant for the device (TV, radio) waits for a tap
         !intentResult.notAddressed
       ) {
@@ -1317,14 +1330,28 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
         ? t.nativeReminders.card.keepAsMine
         : wa.createButton || '✅ Create';
 
-      await waService.sendMessage(phone,
-        `${card}\n\n_"${transcription}"_`,
-        {
-          whatsappButtons: [
+      // A reminder by zman whose opinion was unsaid: one reply button per opinion (named alone, WhatsApp's 20
+      // characters; the card body has each one's time) in place of Create. At most 3 buttons: 2 opinions and Cancel.
+      const { reminderZman } = await import('./native-reminders/zman-view');
+      const choiceView = reminder && pendingEvent.allDay && pendingEvent.zmanChoices?.length
+        ? await reminderZman(pendingEvent, user, user.language || 'en', timezone)
+        : null;
+      if (choiceView?.choices && choiceView.choices.length > 2) {
+        throw new Error(`[zman-voice] ${choiceView.choices.length} opinions do not fit WhatsApp's three reply buttons`);
+      }
+      const buttons = choiceView?.choices
+        ? [
+            ...choiceView.choices.map((c) => ({ id: `event_pick:${c.index}:${pendingId}`, title: c.name })),
+            { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
+          ]
+        : [
             { id: `event_create:${pendingId}`, title: createTitle },
             { id: `event_cancel:${pendingId}`, title: wa.cancelButton || '❌ Cancel' },
-          ],
-        }
+          ];
+
+      await waService.sendMessage(phone,
+        `${card}\n\n_"${transcription}"_`,
+        { whatsappButtons: buttons }
       );
       await askAboutReminders();
     } else if (reminderFailures.length > 0) {
@@ -1361,7 +1388,27 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
 
   try {
     const [action, ...pendingIdParts] = callbackData.split(':');
+    // event_pick:<index>:<pendingId>, a tap on one of a reminder's opinion buttons; the rest: <action>:<pendingId>
+    const pickedIndex = action === 'event_pick' ? Number(pendingIdParts.shift()) : null;
     const pendingId = pendingIdParts.join(':');
+
+    if (action === 'event_pick') {
+      // The opinion chosen becomes the reminder's rule; creating it is then the Create tap's own path
+      const { chooseZmanOpinion } = await import('./voice/confirmations');
+      const chosen = pickedIndex !== null && Number.isInteger(pickedIndex) ? await chooseZmanOpinion(pendingId, pickedIndex) : null;
+      if (!chosen) {
+        console.error(`[zman-voice] a WhatsApp opinion button with data ${JSON.stringify(callbackData)} is malformed`);
+        await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.');
+        return;
+      }
+      if (!chosen.ok && chosen.reason === 'no_such_choice') {
+        await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.');
+        return;
+      }
+      // An expired one falls through: the create below answers that it has expired
+      await handleWhatsAppVoiceCallback(phone, `event_create:${pendingId}`);
+      return;
+    }
 
     if (action === 'event_create') {
       const { getPendingEvent, removePendingEvent } = await import('./voice/confirmations');

@@ -139,15 +139,16 @@ const fakeRedis = {
   del: async (key: string) => (store.delete(key) ? 1 : 0),
 };
 
-type Sent = { method: string; chatId?: number | string; text: string; opts?: Record<string, unknown> };
+type Sent = { method: string; chatId?: number | string; text: string; opts?: Record<string, unknown>; n?: number };
+let seq = 0;
 let botCalls: Sent[] = [];
 const fakeBot = {
   sendMessage: async (chatId: number, text: string, opts?: Record<string, unknown>) => {
-    botCalls.push({ method: 'sendMessage', chatId, text, opts });
+    botCalls.push({ method: 'sendMessage', chatId, text, opts, n: ++seq });
     return { message_id: 700 + botCalls.length };
   },
   editMessageText: async (text: string, opts?: Record<string, unknown>) => {
-    botCalls.push({ method: 'editMessageText', text, opts });
+    botCalls.push({ method: 'editMessageText', text, opts, n: ++seq });
     return true;
   },
   answerCallbackQuery: async (_id: string, opts?: Record<string, unknown>) => {
@@ -158,7 +159,7 @@ const fakeBot = {
 let serviceCalls: Sent[] = [];
 const fakeService = {
   sendMessage: async (chatId: number | string, text: string, opts?: Record<string, unknown>) => {
-    serviceCalls.push({ method: 'sendMessage', chatId, text, opts });
+    serviceCalls.push({ method: 'sendMessage', chatId, text, opts, n: ++seq });
     return { messageId: String(900 + serviceCalls.length) };
   },
   sendTypingIndicator: async () => {},
@@ -528,6 +529,11 @@ async function main() {
     const theirs = await formatReminderCard(forRaziel, 'en', IL, 'html', dana);
     const partnerNote = await getBotMessage('en', 'nativeReminders.zman.zoneOnlyPartner', { name: 'Raziel' });
     assert(theirs.includes(partnerNote) && !theirs.includes(note), theirs);
+    // a partner's name is escaped for Telegram's markup in the note too, and not for WhatsApp's
+    partner = { ...raziel, ...NOWHERE, name: 'Ra<z>' };
+    const escapedName = await resolved(zmanReminder(SHKIA(-30), { forPerson: 'partner' }));
+    const html = await formatReminderCard(escapedName, 'en', IL, 'html', dana);
+    assert(html.includes('Ra&lt;z&gt;') && !html.includes('Ra<z>'), html);
   });
 
   await check('a one-off inside Shabbat: the card says it will not be sent (the pause\'s own answer), in en/he/ru; the pause off says nothing', async () => {
@@ -623,7 +629,323 @@ async function main() {
     }
   });
 
-  void showEventConfirmation; void waButtonsOf; void lastBot; void rowsOf; void buttonsOf; void pendingIdOf; void MGA_10;
+  // ---- Task 8: the opinion buttons, the taps, bulk, corrections, no auto-create ----
+
+  const { handleTelegramWebhook, handleWhatsAppWebhook } = await import('../src/services/webhook-handlers');
+  const { handleVoiceMessage } = await import('../src/services/voice/handler');
+  const { handleEventCorrection } = await import('../src/services/voice/correction-handler');
+  const { setQuickCorrection, extractFieldPatch, applyFieldPatch } = await import('../src/services/voice/quick-correction');
+  const { showBulkConfirmation, handleBulkConfirmAll } = await import('../src/services/voice/bulk-confirmations');
+  const { autoCreateEvent } = await import('../src/services/voice/auto-create');
+  const { getPendingEvent } = confirmations;
+  const voice = { file_id: 'f1', file_unique_id: 'u1', duration: 4 };
+  const from = { id: 1001, first_name: 'Dana' };
+  const noop = () => {};
+  const quiet = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const kept = { log: console.log, warn: console.warn };
+    console.log = noop; console.warn = noop;
+    try { return await fn(); } finally { Object.assign(console, kept); }
+  };
+  /** A tap on a Telegram inline button, through the webhook. */
+  const tap = (data: string, chatId = 555, messageId = 701) => quiet(() => handleTelegramWebhook(
+    { body: { update_id: 1, callback_query: { id: 'q1', from, message: { chat: { id: chatId }, message_id: messageId }, data } } } as never,
+    { status: () => ({ json: noop }) } as never,
+  ));
+  /** A tap on a WhatsApp reply button, through the webhook. */
+  const waTap = (id: string) => quiet(() => handleWhatsAppWebhook(
+    { body: { entry: [{ changes: [{ value: { messages: [{ from: '972500000008', id: 'wamid.tap', type: 'interactive', interactive: { type: 'button_reply', button_reply: { id, title: 'x' } } }] } }] }] } } as never,
+    { status: () => ({ json: noop }) } as never,
+  ));
+  const whatsappVoice = () => quiet(() => handleWhatsAppWebhook(
+    { body: { entry: [{ changes: [{ value: { messages: [{ from: '972500000008', id: 'wamid.in', type: 'audio', audio: { id: 'media-1' } }] } }] }] } } as never,
+    { status: () => ({ json: noop }) } as never,
+  ));
+  /** The reminder the person said without an opinion: two choices (MGA then GRA) for Dana, a Sephardi in Harish. */
+  const choosing = (over: Partial<ParsedEvent> = {}) => resolved(zmanReminder(SHEMA(-10), over));
+  const lastWa = () => waCalls[waCalls.length - 1];
+  /** How many reminders the provider was asked to create (a function, so a check after `=== 0` is not narrowed). */
+  const made = () => created.length;
+
+  await check('choices card (Telegram): the rule without an opinion, "Which opinion?", one button per opinion with its time, Cancel and the quick row; no Create', async () => {
+    const event = await choosing();
+    assert(event.zmanChoices?.length === 2 && !event.zmanSpec, show(event));
+    const mga = hm(await clockTime(dana, IL, '2026-10-28', MGA_10));
+    const gra = hm(await clockTime(dana, IL, '2026-10-28', GRA_10));
+    assert(mga === '07:53' && gra === '08:27', `${mga} ${gra}`);
+    await showEventConfirmation(555, undefined, event, 'remind me 10 minutes before sof zman Shema', dana);
+    const card = lastBot();
+    assert(card.text.startsWith('⏰ <b>Say Shema</b>\n📆 Wed, Oct 28 · 10 min before the latest time for Shema\n\nWhich opinion?'), card.text);
+    assert(!card.text.includes('(GRA)') && !card.text.includes('(MGA)'), card.text);
+    const id = pendingIdOf({ ...card, opts: { reply_markup: { inline_keyboard: [[{ text: '', callback_data: buttonsOf(card).find((b) => b.callback_data.startsWith('event_cancel:'))!.callback_data }]] } } }, 'event_cancel:');
+    const rows = rowsOf(card);
+    assert(show(rows[0]) === show([{ text: 'MGA · 07:53', callback_data: `event_pick:0:${id}` }]), show(rows[0]));
+    assert(show(rows[1]) === show([{ text: 'GRA · 08:27', callback_data: `event_pick:1:${id}` }]), show(rows[1]));
+    assert(rows[2].length === 1 && rows[2][0].callback_data === `event_cancel:${id}`, show(rows[2]));
+    assert(rows[3].map((b) => b.callback_data.split(':')[1]).join() === 'time,day' && rows.length === 4, show(rows));
+    assert(!buttonsOf(card).some((b) => b.callback_data.startsWith('event_create:')), 'a Create button on an unchosen reminder');
+    // The same card in Hebrew and Russian: the Mini App's opinion names
+    for (const language of ['he', 'ru']) {
+      const user = asUser({ language });
+      botCalls = [];
+      await showEventConfirmation(555, undefined, event, 'x', user);
+      const t = homeT(language);
+      assert(show(buttonsOf(lastBot()).slice(0, 2).map((b) => b.text)) === show([`${t('zmanim.opinions.mga')} · 07:53`, `${t('zmanim.opinions.gra')} · 08:27`]), `${language}: ${show(buttonsOf(lastBot()).map((b) => b.text))}`);
+      assert(lastBot().text.includes(await getBotMessage(language, 'nativeReminders.zman.whichOpinion')), lastBot().text);
+    }
+  });
+
+  await check('callback data stays within Telegram\'s 64 bytes for a group chat id, and a choice on another day says so on its button', async () => {
+    const event = await choosing();
+    await showEventConfirmation(-1001234567890123, undefined, event, 'x', dana);
+    for (const b of buttonsOf(lastBot())) assert(Buffer.byteLength(b.callback_data) <= 64, `${b.callback_data.length} bytes: ${b.callback_data}`);
+    // 08:00: MGA's time has passed (tomorrow's), GRA's is still ahead (today's)
+    clock = at('2026-10-28 08:00').getTime();
+    botCalls = [];
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    assert(lastBot().text.includes('📆 Wed, Oct 28 ·'), lastBot().text);
+    const mgaTomorrow = hm(await clockTime(dana, IL, '2026-10-29', MGA_10));
+    assert(show(buttonsOf(lastBot()).slice(0, 2).map((b) => b.text)) === show([`MGA · tomorrow ${mgaTomorrow}`, 'GRA · 08:27']), show(buttonsOf(lastBot()).map((b) => b.text)));
+  });
+
+  await check('a tap on GRA (through the webhook) creates SOF_SHMA_GRA, -10, date-only, through the normal path; the reply names the opinion; a second tap is expired', async () => {
+    await showEventConfirmation(555, undefined, await choosing(), 'remind me', dana);
+    const id = lastBot().text && buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:1:'))!.callback_data.slice('event_pick:1:'.length);
+    await tap(`event_pick:1:${id}`);
+    assert(made() === 1, `created ${show(created)}`);
+    const input = created[0].input;
+    assert(input.kind === 'reminder' && show(input.zmanSpec) === show(GRA_10) && input.allDay === true && input.forBoth === false, show(input));
+    assert((input.startTime as Date).getTime() === at('2026-10-28 00:00').getTime() && (input.endTime as Date).getTime() === (input.startTime as Date).getTime(), show(input));
+    assert(created[0].calendarId === 'native:main-1', created[0].calendarId);
+    assert(lastBot().method === 'editMessageText' && lastBot().text === '⏰ I\'ll remind you today at 08:27: 10 min before the latest time for Shema (GRA).\n\n<b>Say Shema</b>', lastBot().text);
+    assert(tracked.some((e) => e.action === 'native_reminder_created' && e.metadata?.by_zman === true), show(tracked));
+    assert(!(await getPendingEvent(id)), 'the pending event is still there');
+    botCalls = [];
+    await tap(`event_pick:1:${id}`);
+    assert(made() === 1 && botCalls.some((c) => c.text.includes('expired') || c.text.includes('⏰')), `created ${made()}; ${show(botCalls)}`);
+  });
+
+  await check('a tap on MGA when its time has passed today creates it for tomorrow (its own day), and says so', async () => {
+    clock = at('2026-10-28 08:00').getTime();
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const id = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:0:'))!.callback_data.slice('event_pick:0:'.length);
+    await tap(`event_pick:0:${id}`);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(MGA_10), show(created));
+    assert((created[0].input.startTime as Date).getTime() === at('2026-10-29 00:00').getTime(), show(created[0].input.startTime));
+    const mgaTomorrow = hm(await clockTime(dana, IL, '2026-10-29', MGA_10));
+    assert(lastBot().text.startsWith(`⏰ I'll remind you tomorrow at ${mgaTomorrow}: 10 min before the latest time for Shema (MGA).`), lastBot().text);
+  });
+
+  await check('a repeating reminder gets the same buttons, and a tap creates the series with the rule', async () => {
+    const event = await choosing({ recurrence: { frequency: 'daily' } });
+    await showEventConfirmation(555, undefined, event, 'every day', dana);
+    assert(lastBot().text.includes('🔄 Daily') && lastBot().text.includes('Which opinion?'), lastBot().text);
+    const pick = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:1:'))!.callback_data;
+    await tap(pick);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(GRA_10) && show(created[0].input).includes('DAILY'), show(created));
+    assert(lastBot().text.includes('🔄 Daily') && lastBot().text.includes('(GRA)'), lastBot().text);
+  });
+
+  await check('a button the reminder has no choice for creates nothing and is answered; a malformed one is answered too', async () => {
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const id = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:0:'))!.callback_data.slice('event_pick:0:'.length);
+    botCalls = [];
+    await tap(`event_pick:7:${id}`);
+    await tap('event_pick:nonsense');
+    assert(made() === 0, show(created));
+    assert(botCalls.filter((c) => c.method === 'answerCallbackQuery').length === 2, show(botCalls));
+    assert(!!(await getPendingEvent(id)), 'the card should still be there to tap again');
+  });
+
+  await check('"Confirm all" never carries a choice: an intent with choices is its own card right after the list; the list creates the rest', async () => {
+    const a = await graReminder();
+    const b = await resolved(zmanReminder(SHKIA(-30)));
+    const pick = await choosing();
+    await showBulkConfirmation(555, [intentOf(a), intentOf(pick), intentOf(b)], dana, 'three', {}, fakeService as never, IL);
+    const list = serviceCalls[0];
+    const card = lastBot();
+    assert(list.text.includes('1. ') && list.text.includes('2. ') && !list.text.includes('3. ') && !list.text.includes('Which opinion?'), list.text);
+    assert(card.text.includes('Which opinion?') && buttonsOf(card).some((x) => x.callback_data.startsWith('event_pick:')), card.text);
+    assert((list as Sent & { n: number }).n < (card as Sent & { n: number }).n, 'the choice card came before the list');
+    const batchButtons = (list.opts?.replyMarkup as { inline_keyboard: Button[][] }).inline_keyboard.flat();
+    const batchId = batchButtons.find((x) => x.callback_data.startsWith('bulk_confirm:'))!.callback_data.slice('bulk_confirm:'.length);
+    const done = await handleBulkConfirmAll(batchId);
+    assert(done.successCount === 2 && done.failureCount === 0, show(done));
+    assert(made() === 2 && created.every((c) => !!c.input.zmanSpec), show(created));
+    // Only one thing besides the choice left: it is not a list of one
+    botCalls = []; serviceCalls = []; created = [];
+    await showBulkConfirmation(555, [intentOf(a), intentOf(pick)], dana, 'two', {}, fakeService as never, IL);
+    assert(serviceCalls.length === 0 && botCalls.length === 2, `${serviceCalls.length} list messages; ${botCalls.length} cards`);
+    assert(buttonsOf(botCalls[0]).some((x) => x.callback_data.startsWith('event_create:')) && buttonsOf(botCalls[1]).some((x) => x.callback_data.startsWith('event_pick:')), show(botCalls.map((c) => c.text)));
+  });
+
+  await check('the voice handler: a bulk of three with a choice, through the real handler, lists two and cards the choice', async () => {
+    extracted = [intentOf(zmanReminder(SHKIA(-30))), intentOf(zmanReminder(SHEMA(-10))), intentOf(plainReminder())];
+    await quiet(() => handleVoiceMessage(555, 1001, voice, from));
+    assert(serviceCalls[0]?.text.includes('1. ') && serviceCalls[0].text.includes('2. ') && !serviceCalls[0].text.includes('3. '), show(serviceCalls.map((c) => c.text)));
+    assert(botCalls.some((c) => c.text.includes('Which opinion?')), show(botCalls.map((c) => c.text)));
+  });
+
+  await check('no zman reminder is auto-created on Telegram (a rule or choices, HIGH confidence, the flag on), while a plain one still is', async () => {
+    flags.autoCreate = true;
+    extracted = [intentOf(zmanReminder(SHEMA(-10, 'gra')), 'high')];
+    await quiet(() => handleVoiceMessage(555, 1001, voice, from));
+    assert(made() === 0, `auto-created ${show(created)}`);
+    assert(buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_create:')) && lastBot().text.includes('08:27'), show(lastBot()));
+    botCalls = [];
+    extracted = [intentOf(zmanReminder(SHEMA(-10)), 'high')];
+    await quiet(() => handleVoiceMessage(555, 1001, voice, from));
+    assert(made() === 0 && buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_pick:')), show(lastBot()));
+    // the same through the function itself
+    const spec = await graReminder();
+    assert((await quiet(() => autoCreateEvent(dana, spec, {}, fakeService as never, 555))) === false && made() === 0, 'autoCreateEvent created a reminder by zman');
+    extracted = [intentOf(plainReminder(), 'high')];
+    await quiet(() => handleVoiceMessage(555, 1001, voice, from));
+    assert(made() === 1 && created[0].input.kind === 'reminder', `a plain reminder should still auto-create: ${show(created)}`);
+  });
+
+  await check('WhatsApp voice: a reminder by zman is never auto-created; a rule gets Create and Cancel on its card, with its time', async () => {
+    extracted = [intentOf(zmanReminder(SHEMA(-10, 'gra')), 'high')];
+    await whatsappVoice();
+    assert(made() === 0, `auto-created ${show(created)}`);
+    const sent = lastWa();
+    assert(sent.text.includes('08:27 · 10 min before the latest time for Shema (GRA)'), sent.text);
+    assert(show(waButtonsOf(sent).map((b) => b.id.split(':')[0])) === show(['event_create', 'event_cancel']), show(waButtonsOf(sent)));
+    const pendingId = waButtonsOf(sent)[0].id.slice('event_create:'.length);
+    await waTap(`event_create:${pendingId}`);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(GRA_10), show(created));
+    assert(lastWa().text.startsWith('⏰ I\'ll remind you today at 08:27: 10 min before the latest time for Shema (GRA).'), lastWa().text);
+  });
+
+  await check('WhatsApp voice: with the opinion unsaid, one reply button per opinion (the name alone) and Cancel; each time is a line of the body; a tap creates it', async () => {
+    extracted = [intentOf(zmanReminder(SHEMA(-10)), 'high')];
+    await whatsappVoice();
+    assert(made() === 0, `auto-created ${show(created)}`);
+    const sent = lastWa();
+    const buttons = waButtonsOf(sent);
+    assert(show(buttons.slice(0, 2).map((b) => b.title)) === show(['MGA', 'GRA']), show(buttons));
+    assert(buttons.length === 3 && buttons.every((b) => [...b.title].length <= 20 && Buffer.byteLength(b.id) <= 256), show(buttons));
+    assert(show(buttons.map((b) => b.id.split(':')[0])) === show(['event_pick', 'event_pick', 'event_cancel']), show(buttons));
+    assert(sent.text.includes('Which opinion?\n• MGA · 07:53\n• GRA · 08:27') && !sent.text.includes('(GRA)'), sent.text);
+    await waTap(buttons[1].id);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(GRA_10), show(created));
+    assert(lastWa().text.includes('(GRA)') && lastWa().text.includes('08:27'), lastWa().text);
+    // a second tap: the confirmation has expired, nothing more is created
+    await waTap(buttons[1].id);
+    assert(made() === 1, show(created));
+    // Cancel drops the pending reminder
+    waCalls = [];
+    extracted = [intentOf(zmanReminder(SHEMA(-10)), 'high')];
+    await whatsappVoice();
+    await waTap(waButtonsOf(lastWa())[2].id);
+    assert(made() === 1 && lastWa().text.includes('cancelled'), show(waCalls.map((c) => c.text)));
+  });
+
+  await check('WhatsApp voice: a batch of two HIGH reminders with a zman in it is the Telegram hint, never auto-created', async () => {
+    extracted = [intentOf(zmanReminder(SHKIA(-30)), 'high'), intentOf(plainReminder(), 'high')];
+    await whatsappVoice();
+    assert(made() === 0, `auto-created ${show(created)}`);
+    assert(lastWa().text === (await import('../src/lib/bot-messages').then((m) => m.getBotMessages('en'))).whatsapp.bulkUseTelegram, lastWa().text);
+  });
+
+  /** The model's answer to a correction, for a reminder on `day`. */
+  const answer = (over: Record<string, unknown>) => JSON.stringify({ title: 'Say Shema', startDate: '2026-10-28', startTime: null, endDate: '2026-10-28', endTime: null, allDay: true, calendarId: 'native:whatever', calendarName: 'Dana', ...over });
+  const pendingOf = async (call: Sent) => {
+    const id = buttonsOf(call).find((b) => b.callback_data.startsWith('event_cancel:'))!.callback_data.slice('event_cancel:'.length);
+    return { id, pending: (await getPendingEvent(id))! };
+  };
+
+  await check('correction: a day keeps the rule and says the day was said; the card shows the new day\'s time; Create makes it for that day', async () => {
+    await showEventConfirmation(555, undefined, await graReminder(), 'x', dana);
+    const { id } = await pendingOf(lastBot());
+    geminiText = answer({ startDate: '2026-10-29', endDate: '2026-10-29' });
+    await handleEventCorrection(555, 1001, id, 701, { text: 'tomorrow' });
+    const card = lastBot();
+    const time = hm(await clockTime(dana, IL, '2026-10-29', GRA_10));
+    assert(card.text.includes(`📆 Thu, Oct 29, ${time} · 10 min before the latest time for Shema (GRA)`), card.text);
+    const { id: next, pending } = await pendingOf(card);
+    assert(show(pending.event.zmanSpec) === show(GRA_10) && pending.event.zmanDaySaid === true && pending.event.allDay === true, show(pending.event));
+    assert(geminiPrompts[0].includes('timed by a halachic time (a zman)') && geminiPrompts[0].includes('Never change how it is timed.') && !geminiPrompts[0].includes('"opinion"'), geminiPrompts[0]);
+    await tap(`event_create:${next}`);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(GRA_10) && (created[0].input.startTime as Date).getTime() === at('2026-10-29 00:00').getTime(), show(created));
+  });
+
+  await check('correction: a clock time makes it a fixed time: no rule, no choices, no zmanSpec in the create', async () => {
+    for (const make of [graReminder, choosing]) {
+      botCalls = []; created = [];
+      await showEventConfirmation(555, undefined, await make(), 'x', dana);
+      const { id } = await pendingOf(lastBot());
+      geminiText = answer({ startTime: '17:00', endTime: '17:00', allDay: false });
+      await handleEventCorrection(555, 1001, id, 701, { text: 'at 5pm' });
+      const card = lastBot();
+      assert(card.text.includes('📆 Wed, Oct 28, 17:00') && card.text.includes('<b>Say Shema</b>') && !card.text.includes('min before') && !card.text.includes('Which opinion?'), card.text);
+      const { id: next, pending } = await pendingOf(card);
+      assert(pending.event.zmanSpec === undefined && pending.event.zmanChoices === undefined && pending.event.zmanDaySaid === undefined && pending.event.allDay === false, show(pending.event));
+      await tap(`event_create:${next}`);
+      assert(made() === 1 && !('zmanSpec' in created[0].input) && (created[0].input.startTime as Date).getTime() === at('2026-10-28 17:00').getTime(), show(created));
+    }
+  });
+
+  await check('correction: the choices stay through a day change (every choice on the new day) and a reply naming the opinion resolves them', async () => {
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const { id } = await pendingOf(lastBot());
+    geminiText = answer({ startDate: '2026-10-29', endDate: '2026-10-29', opinion: null });
+    await handleEventCorrection(555, 1001, id, 701, { text: 'tomorrow' });
+    assert(geminiPrompts[0].includes('"opinion": "gra" | "mga"') && geminiPrompts[0].includes('still to choose whose opinion'), geminiPrompts[0]);
+    const { id: next, pending } = await pendingOf(lastBot());
+    assert(show(pending.event.zmanChoices?.map((c) => c.day)) === show(['2026-10-29', '2026-10-29']) && pending.event.zmanSpec === undefined && pending.event.zmanDaySaid === true, show(pending.event));
+    assert(buttonsOf(lastBot()).some((b) => b.callback_data.startsWith('event_pick:')), show(buttonsOf(lastBot())));
+    // "the GRA", said in a reply: one rule, with a Create button
+    geminiText = answer({ startDate: '2026-10-29', endDate: '2026-10-29', opinion: 'gra' });
+    await handleEventCorrection(555, 1001, next, 701, { text: 'the GRA' });
+    const card = lastBot();
+    const { id: third, pending: chosen } = await pendingOf(card);
+    assert(show(chosen.event.zmanSpec) === show(GRA_10) && chosen.event.zmanChoices === undefined && (chosen.event.startTime as Date).getTime() === at('2026-10-29 00:00').getTime(), show(chosen.event));
+    assert(card.text.includes('(GRA)') && !card.text.includes('Which opinion?') && buttonsOf(card).some((b) => b.callback_data === `event_create:${third}`), card.text);
+    // an opinion the set lacks leaves the choices (and is logged)
+    botCalls = [];
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const { id: fourth } = await pendingOf(lastBot());
+    geminiText = answer({ opinion: 'baalHatanya' });
+    await handleEventCorrection(555, 1001, fourth, 701, { text: 'the Alter Rebbe' });
+    assert(lastBot().text.includes('Which opinion?'), lastBot().text);
+  });
+
+  await check('quick fix: Day keeps the rule (and moves every choice), Time drops it; through the webhook\'s own reply handler', async () => {
+    const day = await graReminder();
+    geminiText = '{"startDate": "2026-10-29"}';
+    const patch = await extractFieldPatch('day', null, 'tomorrow', day, CALENDARS, 'en', IL);
+    assert(!!patch, 'no patch');
+    const moved = applyFieldPatch(day, patch, IL);
+    assert(show(moved.zmanSpec) === show(GRA_10) && moved.zmanDaySaid === true && dayOf(moved.startTime) === '2026-10-29' && moved.allDay, show(moved));
+    const choicesMoved = applyFieldPatch(await choosing(), patch, IL);
+    assert(show(choicesMoved.zmanChoices?.map((c) => c.day)) === show(['2026-10-29', '2026-10-29']) && choicesMoved.zmanSpec === undefined, show(choicesMoved));
+    geminiText = '{"startTime": "17:00"}';
+    const timePatch = await extractFieldPatch('time', null, '5pm', day, CALENDARS, 'en', IL);
+    assert(!!timePatch && timePatch.allDay === false, show(timePatch));
+    const fixed = applyFieldPatch(await choosing(), timePatch, IL);
+    assert(fixed.zmanSpec === undefined && fixed.zmanChoices === undefined && fixed.reminderPaused === undefined && !fixed.allDay, show(fixed));
+    // A plain reminder is patched as it always was
+    const plain = plainReminder();
+    const plainFixed = applyFieldPatch(plain, timePatch, IL);
+    assert(plainFixed.startTime === timePatch.startTime && !('zmanSpec' in plainFixed && plainFixed.zmanSpec !== undefined), show(plainFixed));
+    // The reply handler: a Day reply on the card of a rule re-renders the card with the rule and the new day
+    await showEventConfirmation(555, undefined, day, 'x', dana);
+    const { id } = await pendingOf(lastBot());
+    await setQuickCorrection(555, { pendingId: id, field: 'day', messageId: 701 });
+    geminiText = '{"startDate": "2026-10-29"}';
+    await quiet(() => handleTelegramWebhook({ body: { update_id: 2, message: { message_id: 800, from, chat: { id: 555 }, text: 'tomorrow' } } } as never, { status: () => ({ json: noop }) } as never));
+    assert(lastBot().text.includes('Thu, Oct 29') && lastBot().text.includes('(GRA)') && lastBot().text.includes('· 10 min before'), lastBot().text);
+    const { pending } = await pendingOf(lastBot());
+    assert(pending.event.zmanDaySaid === true && show(pending.event.zmanSpec) === show(GRA_10), show(pending.event));
+    // ... and a Time reply drops it
+    await setQuickCorrection(555, { pendingId: (await pendingOf(lastBot())).id, field: 'time', messageId: 701 });
+    geminiText = '{"startTime": "17:00"}';
+    await quiet(() => handleTelegramWebhook({ body: { update_id: 3, message: { message_id: 801, from, chat: { id: 555 }, text: 'at 5pm' } } } as never, { status: () => ({ json: noop }) } as never));
+    assert(lastBot().text.includes('17:00') && !lastBot().text.includes('min before'), lastBot().text);
+    const timed = (await pendingOf(lastBot())).pending.event;
+    assert(timed.zmanSpec === undefined && timed.allDay === false, show(timed));
+  });
+
 
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'OK ' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     ${r.reason}`}`);
