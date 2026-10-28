@@ -607,6 +607,18 @@ async function main() {
     const html = await retryMod.googleFetch(PRIMARY);
     assertEq([html.status, fetches.length], [403, 1], 'a 403 that is not JSON');
     assert(warnings.some((w) => w.includes('with a body that is not JSON')), `logged ${show(warnings)}`);
+    // The reasons are read for a 429 too, as the API client reads them for any status: a quota is left to the caller on both paths.
+    for (const [reason, want] of [['quotaExceeded', 1], ['dailyLimitExceeded', 1], ['rateLimitExceeded', 4], ['userRateLimitExceeded', 4]] as const) {
+      resetSeam();
+      fakeFetch([respond(429, apiBody(429, reason))]);
+      const r = await retryMod.googleFetch(PRIMARY);
+      assertEq([r.status, fetches.length, sleeps.length], [429, want, want - 1], `429 ${reason}`);
+      assertEq((await r.json()).error.errors[0].reason, reason, `429 ${reason}: the returned answer is still readable`);
+    }
+    resetSeam();
+    fakeFetch([respond(429, 'slow down')]);
+    const plain = await retryMod.googleFetch(PRIMARY);
+    assertEq([plain.status, fetches.length, sleeps], [429, 4, JITTER], 'a 429 that is not JSON is still a rate limit: retried');
   });
 
   await check('googleFetch: GET on 5xx and a lost connection is retried and, when it still fails, returns the last answer or rethrows the same error; Retry-After over the cap is not slept on', async () => {

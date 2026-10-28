@@ -269,7 +269,8 @@ export async function googleFetch(url: string, init: RequestInit = {}): Promise<
       continue;
     }
     if (res.ok) return res;
-    const reasons = res.status === 403 ? await reasonsOf(res, request) : [];
+    // The reasons ride on a 403 and on a 429 (a quota can arrive as either): read for both, as the API client's errors are for any status.
+    const reasons = res.status === 403 || res.status === 429 ? await reasonsOf(res, request) : [];
     const asked = retryAfterMs({ response: { headers: res.headers } }, env.now());
     const plan = planRetry({ ...base, status: res.status, reasons, ...(asked !== undefined ? { retryAfterMs: asked } : {}), aborted: init.signal?.aborted === true, retried }, env);
     if (!plan.retry) {
