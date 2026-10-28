@@ -36,6 +36,7 @@ import {
   fetchRemindersForUserInRange,
   isNativeCalendarId,
   listVisibleCalendars,
+  NativeScopeError,
   refusesFixedDays,
   updateNativeEvent,
   type UpdateNativeEventInput,
@@ -46,6 +47,7 @@ import { TIMEZONE } from '../../config/constants';
 import { addDaysToDate } from '../../utils/day-events';
 import { captureError } from '../../lib/error-capture';
 import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
+import { asZmanSpec, communityOfUser, offeredIn } from '../zmanim/spec';
 import { anniversaryOf } from '../../lib/hebrew-anniversary';
 
 const PROVIDER_NAME = 'native' as const;
@@ -350,6 +352,14 @@ export const nativeProvider: CalendarProvider = {
       return { success: false, error: 'NOT_FOUND', errorMessage: `Not a native calendar id: ${calendarId}` };
     }
     try {
+      // A reminder by zman: only a zman the writer's own set offers, the check the Mini App's write makes (write.ts)
+      if (data.zmanSpec) {
+        const spec = asZmanSpec(data.zmanSpec);
+        if (!spec || !offeredIn(spec, communityOfUser(user))) {
+          console.warn(`[zman-voice] user ${user.id} (${communityOfUser(user)}): create with ${JSON.stringify(data.zmanSpec)} refused, not a zman their set offers`);
+          throw new NativeScopeError('zmanSpec', 'Not a zman the writer\'s set offers');
+        }
+      }
       // user.location is a city name (e.g. "Tel Aviv"), not an IANA tz —
       // resolveUserTimezone is the authoritative source.
       const { resolveUserTimezone } = await import('../../lib/timezone');
@@ -373,6 +383,7 @@ export const nativeProvider: CalendarProvider = {
         forUserId: data.forUserId ?? null,
         forBoth: data.forBoth === true,
         eachMarksDone: data.eachMarksDone === true,
+        ...(data.zmanSpec ? { zmanSpec: data.zmanSpec } : {}),
       });
       return {
         success: true,

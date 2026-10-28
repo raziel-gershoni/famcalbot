@@ -23,7 +23,7 @@ import { MessageFormat } from '../messaging/types';
 import { pushRecentEvent } from './recent-events-store';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { escapeHtml, formatEventDateTime, formatReminderCreated } from './confirmations';
-import { reminderCreateFields } from '../native-reminders/resolve';
+import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import { trackActivityAsync } from '../analytics-service';
 import { trackCreatedEvent } from './event-resolution';
 import { captureError } from '../../lib/error-capture';
@@ -176,6 +176,7 @@ export async function autoCreateEvent(
       for_partner: event.forUserId != null,
       ...(event.forBoth ? { for_both: true } : {}),
       all_day: event.allDay,
+      ...zmanAnalytics(event),
     });
   }
   return true;

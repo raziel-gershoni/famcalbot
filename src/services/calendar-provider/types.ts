@@ -7,6 +7,7 @@
 import { CalendarEvent, UserConfig } from '../../types';
 import type { ClearedPing } from '../native-calendar/event-store';
 import type { HebrewRule } from '../native-calendar/recurrence';
+import type { ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
 
 export type CalendarProviderName = 'google' | 'native';
 
@@ -57,6 +58,11 @@ export interface CreateEventInput {
   forBoth?: boolean;
   /** With forBoth: each of them marks their own Done. Only the editor sets it; the bot's create leaves it off. */
   eachMarksDone?: boolean;
+  /**
+   * A date-only reminder by zman: its rule (the bot's reminderCreateFields sets it). The native provider takes only a
+   * zman the writer's own set offers, as the Mini App's write does; the store keeps it on a date-only reminder only.
+   */
+  zmanSpec?: ZmanSpecValue;
 }
 
 export interface UpdateEventInput {

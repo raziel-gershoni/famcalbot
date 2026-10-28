@@ -17,7 +17,7 @@ import { recurrenceFields, recurrenceNotice, repeatInput, targetOf } from '../re
 import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { pushRecentEvent } from './recent-events-store';
 import { escapeHtml, formatEventDateTime, formatReminderWhen } from './confirmations';
-import { reminderCreateFields } from '../native-reminders/resolve';
+import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import { trackActivityAsync } from '../analytics-service';
 import { getBotMessage } from '../../lib/bot-messages';
 import { trackCreatedEvent } from './event-resolution';
@@ -249,7 +249,7 @@ export async function handleBulkConfirmAll(pendingId: string): Promise<{
     if (result.success && result.eventId) {
       success++;
       if (ev.kind === 'reminder') {
-        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, ...(ev.forBoth ? { for_both: true } : {}), all_day: ev.allDay });
+        trackActivityAsync(pending.user.id, 'native_reminder_created', { bulk: true, for_partner: ev.forUserId != null, ...(ev.forBoth ? { for_both: true } : {}), all_day: ev.allDay, ...zmanAnalytics(ev) });
       }
       // "Cancel that" reaches the batch's last reminder, as after a card (spec §11.3)
       if (ev.kind === 'reminder' && pending.user.telegramId != null) {

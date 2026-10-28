@@ -15,7 +15,7 @@ import { captureError } from '../../lib/error-capture';
 import { incrementUsage } from '../subscription-service';
 import { trackCreatedEvent } from './event-resolution';
 import { resolveUserTimezone } from '../../lib/timezone';
-import { reminderCreateFields } from '../native-reminders/resolve';
+import { reminderCreateFields, zmanAnalytics } from '../native-reminders/resolve';
 import {
   getPendingEvent,
   removePendingEvent,
@@ -149,6 +149,7 @@ export async function handleEventCallback(
           ...(event.forBoth ? { for_both: true } : {}),
           all_day: event.allDay,
           recurring: !!event.recurrence,
+          ...zmanAnalytics(event),
         });
       }
       incrementUsage(user.id, 'voiceEvents').catch(err =>

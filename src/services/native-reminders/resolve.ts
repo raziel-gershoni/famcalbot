@@ -556,7 +556,24 @@ export async function reminderPromptContext(
  * event gets nothing, so its input is unchanged. A reminder has one time: it ends
  * where it starts (the store enforces that too).
  */
-export function reminderCreateFields(event: ParsedEvent): Partial<Pick<CreateEventInput, 'kind' | 'forUserId' | 'forBoth' | 'endTime'>> {
+export function reminderCreateFields(event: ParsedEvent): Partial<Pick<CreateEventInput, 'kind' | 'forUserId' | 'forBoth' | 'endTime' | 'zmanSpec'>> {
   if (event.kind !== 'reminder') return {};
-  return { kind: 'reminder', forUserId: event.forUserId ?? null, forBoth: event.forBoth === true, endTime: event.startTime };
+  // Choices not yet chosen: creating it would make a plain date-only reminder at the reminder time. Never silently.
+  if (event.allDay && !event.zmanSpec && event.zmanChoices?.length) {
+    console.error(`[zman-voice] a reminder with ${event.zmanChoices.length} unchosen zman opinions reached a create; refused`);
+    throw new Error('A reminder by zman whose opinion is not chosen cannot be created');
+  }
+  return {
+    kind: 'reminder',
+    forUserId: event.forUserId ?? null,
+    forBoth: event.forBoth === true,
+    endTime: event.startTime,
+    // The rule, on a date-only reminder only: a clock time given since (a quick fix, a correction) makes it a fixed time
+    ...(event.zmanSpec && event.allDay ? { zmanSpec: event.zmanSpec } : {}),
+  };
+}
+
+/** The `by_zman` flag of a created reminder's analytics (native_reminder_created): set when it is created with a rule. */
+export function zmanAnalytics(event: ParsedEvent): { by_zman?: true } {
+  return event.kind === 'reminder' && event.zmanSpec && event.allDay ? { by_zman: true } : {};
 }

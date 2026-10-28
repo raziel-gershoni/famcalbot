@@ -1,9 +1,11 @@
-// Smoke test for reminders by zman made by voice and text (zman reminders by voice plan, Task 5):
+// Smoke test for reminders by zman made by voice and text (zman reminders by voice plan, Tasks 5 and 6):
 //   - resolution (src/services/native-reminders/resolve.ts): the model's zman mapped under the WRITER's community, the
 //     recipient's clock (the partner's own place and zone for a reminder for them alone), the day per rule or per
 //     choice (the next time that has not passed, or the day said), the notice counted at the rule's time (not at the
 //     09:00 reminder time), the pause note read through isPaused, the three refusals, the choices on the pending event
 //     and the tap that makes one of them the rule;
+//   - the create path: reminderCreateFields carries the rule (never unchosen choices), the native provider passes it
+//     to the store and refuses a zman the writer's set does not offer, and every native_reminder_created says by_zman;
 //   - the questions a refused zman reminder gets, in en/he/ru.
 //
 // The zman clock and the pause are the real ones (hebcal, places from the fixtures' coordinates). Prisma, Redis, the
@@ -13,6 +15,7 @@
 //   npx tsx scripts/smoke-zman-voice.ts
 
 import { spawn } from 'node:child_process';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -224,9 +227,10 @@ const SHKIA = (offsetMinutes = 0) => ({ name: 'SHKIA', opinion: null, offsetMinu
 
 async function main() {
   const resolve = await import('../src/services/native-reminders/resolve');
-  const { resolveReminderIntents, refreshReminderNotice, withZmanChoice, zmanTimingFor, zmanTimeOn } = resolve;
+  const { resolveReminderIntents, refreshReminderNotice, reminderCreateFields, withZmanChoice, zmanAnalytics, zmanTimingFor, zmanTimeOn } = resolve;
   const { isPaused } = await import('../src/services/zmanim/pause');
   const { zmanClockFor } = await import('../src/services/zmanim/reminder-clock');
+  const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
   const { anchorQuestion } = await import('../src/services/voice/confirmations');
 
   /** One reminder through resolveReminderIntents, as every handler resolves it. Console lines are kept in `logs`. */
@@ -454,6 +458,84 @@ async function main() {
     const gra = withZmanChoice(stored, 1, IL)!;
     assert(show(gra.zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }) && dayOf(gra.startTime) === '2026-10-28', show(gra));
     assert(withZmanChoice(stored, 2, IL) === null && withZmanChoice({ ...stored, zmanChoices: undefined }, 0, IL) === null, 'no such choice');
+    const fields = reminderCreateFields(gra);
+    assert(show(fields.zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }), show(fields));
+  });
+
+  // ---- The create path ----
+
+  await check('reminderCreateFields: the rule on a date-only reminder; a plain one byte-identical; a clock time drops it; unchosen choices are refused loudly', async () => {
+    const day = at('2026-10-29 00:00');
+    const base: ParsedEvent = { title: 'x', startTime: day, endTime: day, allDay: true, confidence: 'high', kind: 'reminder', forUserId: null, forBoth: false };
+    assert(show(reminderCreateFields(base)) === show({ kind: 'reminder', forUserId: null, forBoth: false, endTime: day }), show(reminderCreateFields(base)));
+    const rule = { zman: 'SHKIA', offsetMin: -30 };
+    assert(show(reminderCreateFields({ ...base, zmanSpec: rule })) === show({ kind: 'reminder', forUserId: null, forBoth: false, endTime: day, zmanSpec: rule }), 'with the rule');
+    assert(!('zmanSpec' in reminderCreateFields({ ...base, zmanSpec: rule, allDay: false })), 'a clock time is a fixed time');
+    assert(show(reminderCreateFields({ ...base, kind: undefined, zmanSpec: rule })) === '{}', 'an event gets nothing');
+    const kept = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    let threw = false;
+    try {
+      reminderCreateFields({ ...base, zmanChoices: [{ spec: rule, day: '2026-10-29' }, { spec: { zman: 'TZEIT', offsetMin: 0 }, day: '2026-10-29' }] });
+    } catch {
+      threw = true;
+    } finally {
+      console.error = kept;
+    }
+    assert(threw && errors.some((e) => e.startsWith('[zman-voice]')), `threw ${threw}, ${show(errors)}`);
+    // A clock time given since (the Time quick fix): the choices no longer matter
+    assert(!('zmanSpec' in reminderCreateFields({ ...base, allDay: false, zmanChoices: [{ spec: rule, day: '2026-10-29' }] })), 'timed with choices');
+  });
+
+  await check('the native provider passes the rule to the store, and refuses (nothing stored, logged) a zman the writer\'s set does not offer', async () => {
+    const { encodeCalendarId } = await import('../src/services/native-calendar/event-store');
+    const day = at('2026-10-29 00:00');
+    const input = { title: 'Shema', startTime: day, endTime: day, allDay: true, kind: 'reminder' as const, forUserId: null, forBoth: false };
+    const ok = await nativeProvider.createEvent(dana, encodeCalendarId('main1'), { ...input, zmanSpec: { zman: 'SOF_SHMA_GRA', offsetMin: -10 } });
+    assert(ok.success && created.length === 1 && show(created[0].zmanSpec) === show({ zman: 'SOF_SHMA_GRA', offsetMin: -10 }) && created[0].kind === 'REMINDER', show(created));
+    const plain = await nativeProvider.createEvent(dana, encodeCalendarId('main1'), input);
+    assert(plain.success && (created.length as number) === 2 && !('zmanSpec' in created[1]), show(created[1]));
+    const kept = console.warn;
+    const warned: string[] = [];
+    console.warn = (...args: unknown[]) => { warned.push(args.map(String).join(' ')); };
+    let refused;
+    try {
+      refused = await nativeProvider.createEvent(user({ zmanimCommunity: 'chabad' }), encodeCalendarId('main1'), { ...input, zmanSpec: { zman: 'SOF_SHMA_MGA', offsetMin: -10 } });
+    } finally {
+      console.warn = kept;
+    }
+    assert(!refused.success && (created.length as number) === 2, `${show(refused)} ${created.length}`);
+    assert(warned.some((w) => w.startsWith('[zman-voice]') && w.includes('SOF_SHMA_MGA')), show(warned));
+  });
+
+  await check('analytics: by_zman on a reminder created with a rule, and every native_reminder_created of the bot carries it', () => {
+    const day = at('2026-10-29 00:00');
+    const base: ParsedEvent = { title: 'x', startTime: day, endTime: day, allDay: true, confidence: 'high', kind: 'reminder' };
+    assert(show(zmanAnalytics({ ...base, zmanSpec: { zman: 'SHKIA', offsetMin: 0 } })) === show({ by_zman: true }), 'by zman');
+    assert(show(zmanAnalytics(base)) === '{}' && show(zmanAnalytics({ ...base, kind: undefined, zmanSpec: { zman: 'SHKIA', offsetMin: 0 } })) === '{}', 'plain, or an event');
+    // The audit: the Mini App's write has its own by_zman (cmd.zmanSpec); every other site spreads zmanAnalytics
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const full = path.join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (/\.tsx?$/.test(name)) files.push(full);
+      }
+    };
+    walk(SRC);
+    let sites = 0;
+    for (const file of files) {
+      const text = readFileSync(file, 'utf8');
+      for (let i = text.indexOf("'native_reminder_created',"); i >= 0; i = text.indexOf("'native_reminder_created',", i + 1)) {
+        sites++;
+        const call = text.slice(i, text.indexOf(');', i));
+        const rel = path.relative(ROOT, file);
+        if (rel === 'src/services/calendar-write/write.ts') assert(call.includes('by_zman'), `${rel}: no by_zman`);
+        else assert(call.includes('zmanAnalytics('), `${rel}: a native_reminder_created without zmanAnalytics`);
+      }
+    }
+    assert(sites >= 7, `found ${sites} sites`);
   });
 
   // ---- What a refused one is asked ----

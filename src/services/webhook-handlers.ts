@@ -1084,7 +1084,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const recentBlock = formatRecentEventsBlock(recentEvents, timezone);
     // Native reminders (spec R3): only users linked to Telegram, where the ping goes
     const { getReminderSupport } = await import('./native-reminders/support');
-    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice, primaryIntent } =
+    const { reminderPromptContext, resolveReminderIntents, reminderCreateFields, refreshReminderNotice, primaryIntent, zmanAnalytics } =
       await import('./native-reminders/resolve');
     const support = await getReminderSupport(user);
     const extraction = await processVoiceWithGemini(
@@ -1174,7 +1174,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           successCount++;
           successTitles.push(ev.title);
           if (ev.kind === 'reminder') {
-            trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true, bulk: true });
+            trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true, bulk: true, ...zmanAnalytics(ev) });
           }
           await pushRecentEvent(user.id, {
             provider: provider.name,
@@ -1275,7 +1275,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
           const { incrementUsage } = await import('./subscription-service');
           const { trackActivityAsync } = await import('./analytics-service');
           trackActivityAsync(user.id, 'voice_event_created', { platform: 'whatsapp', auto: true });
-          if (reminder) trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true });
+          if (reminder) trackActivityAsync(user.id, 'native_reminder_created', { platform: 'whatsapp', auto: true, ...zmanAnalytics(intentResult.event) });
           incrementUsage(user.id, 'voiceEvents').catch((e) =>
             captureError(e, 'usage-increment', { user_id: user.id }, 'warning')
           );
@@ -1374,7 +1374,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
 
       const { recurrenceFields, repeatInput } = await import('./recurrence-fields');
       const { createCalendarFor, providerForCalendar } = await import('./calendar-provider');
-      const { reminderCreateFields } = await import('./native-reminders/resolve');
+      const { reminderCreateFields, zmanAnalytics } = await import('./native-reminders/resolve');
       const calId = await createCalendarFor(pending.user, pending.event);
       const provider = providerForCalendar(calId);
       const result = await provider.createEvent(
@@ -1407,7 +1407,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string):
         const { incrementUsage } = await import('./subscription-service');
         const { trackActivityAsync } = await import('./analytics-service');
         trackActivityAsync(pending.user.id, 'voice_event_created', { platform: 'whatsapp' });
-        if (reminder) trackActivityAsync(pending.user.id, 'native_reminder_created', { platform: 'whatsapp' });
+        if (reminder) trackActivityAsync(pending.user.id, 'native_reminder_created', { platform: 'whatsapp', ...zmanAnalytics(pending.event) });
         incrementUsage(pending.user.id, 'voiceEvents').catch(e => captureError(e, 'usage-increment', { user_id: pending.user.id }, 'warning'));
 
         // Recent-events: feed the sliding window so follow-ups resolve via context (PR 9).
