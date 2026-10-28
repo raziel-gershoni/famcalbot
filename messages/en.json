@@ -640,6 +640,13 @@
         "stopped": "Free Pro stopped",
         "blocked": "They already have a plan, so there's nothing to give."
       },
+      "refund": {
+        "button": "Refund last payment",
+        "confirmTitle": "Refund {plan} paid on {date}?",
+        "confirm": "Refund",
+        "done": "Refunded",
+        "failed": "Telegram refused the refund. It may be refunded already or too old."
+      },
       "setup": {
         "title": "Setup",
         "restarted": "{count, plural, =0 {Setup restarted today} one {Setup restarted # day ago} other {Setup restarted # days ago}}",
@@ -1321,6 +1328,7 @@
     "subscription": {
       "upgradeButton": "⭐ Upgrade Plan",
       "voiceEventsRequired": "⭐ <b>Voice event creation is a Pro feature</b>\n\nUpgrade to Pro to create calendar events using voice messages!",
+      "refunded": "Your payment was refunded. You're back on the Free plan.",
       "trialExpired": {
         "message": "📋 <b>Your Pro trial has ended</b>\n\nYou're now on the Free plan:\n• 10 text summaries/month\n• 3 voice summaries/month\n• Up to 3 calendars\n• No event reminders\n• No voice event creation\n\nYour calendars and settings are safe! Upgrade anytime to unlock unlimited features."
       },

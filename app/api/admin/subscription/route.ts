@@ -1,10 +1,12 @@
 /**
  * Admin Subscription API
  * POST: Grant a free ("comped") PRO subscription to a user
+ * POST with { action: 'refund' }: refund the user's last payment at Telegram and end the paid plan
  * DELETE: Revoke a comped PRO subscription
  *
- * Only comps are writable here. A real paying customer can never be created or
- * downgraded through this route — the guards live in the service layer.
+ * Comps are the only plan writable here: a real paying customer can never be created or
+ * downgraded through the grant and revoke — the guards live in the service layer. The one way
+ * a paid plan ends here is the refund, which Telegram has to agree to first (admin-refund.ts).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -13,6 +15,7 @@ import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { grantCompedSubscription, revokeCompedSubscription } from '@/src/services/subscription-service';
+import { refundLastPayment } from '@/src/services/admin-refund';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +23,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { initData, user_id, reason } = body;
+    const { initData, user_id, reason, action } = body;
 
     const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
@@ -47,6 +50,19 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.findUnique({ where: { id: user_id } });
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    // Refund the last payment: Telegram first, the plan only ends when it agrees. The codes are the panel's to word.
+    if (action === 'refund') {
+      const outcome = await refundLastPayment(user, auth.adminId!);
+      if (outcome.ok) {
+        console.log(`[admin-subscription] Admin ${auth.adminId} refunded the last payment of user ${user_id}`);
+        return NextResponse.json({ success: true });
+      }
+      if (outcome.code === 'NO_PAYMENT' || outcome.code === 'REFUND_REFUSED') {
+        return NextResponse.json({ error: outcome.code }, { status: 409 });
+      }
+      return NextResponse.json({ error: 'Failed to refund' }, { status: 500 });
     }
 
     const result = await grantCompedSubscription(user_id, auth.adminId!, reason || undefined);

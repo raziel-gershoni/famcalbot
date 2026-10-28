@@ -43,6 +43,7 @@ export function failureText(t: Translate, action: ProfileAction, failure: AdminF
   if (action === 'switchToWhatsApp' && status === 409) return t('errors.phoneTaken');
   if (action === 'grantComp' && status === 409) return t('errors.compGrant');
   if (action === 'revokeComp' && status === 409) return t('errors.compRevoke');
+  if (action === 'refund' && code === 'REFUND_REFUSED') return t('profile.refund.failed');
   if ((action === 'suspend' || action === 'unsuspend' || action === 'hardDelete') && status === 400) return t('errors.selfModerate');
   return t('errors.generic');
 }

@@ -358,6 +358,44 @@ export async function revokeCompedSubscription(
   return { ok: true };
 }
 
+export type RefundSubscriptionResult = { ok: true; plan: string } | { ok: false; code: 'NO_PAYMENT' };
+
+/**
+ * End a person's paid plan after an admin refunded their last payment at Telegram (admin-refund.ts calls this only once
+ * Telegram has agreed). Their access ends the way a stopped gift's does, but always FREE / EXPIRED: the message they are
+ * sent says they are back on the Free plan, so a trial the payment replaced is not given back (a gift was never paid for,
+ * which is why stopping one does give the trial days back). The payment's charge id is cleared with the period, in one
+ * transaction with the check that there is a real payment to end: a free gift (compedBy) is never touched here, as a
+ * real payment is never touched by the comp code. Then the feature access cache is dropped and an activity row is written.
+ * Usage counters are left alone, as when a gift is stopped.
+ */
+export async function refundSubscription(userId: number, adminId: number): Promise<RefundSubscriptionResult> {
+  const result = await prisma.$transaction(async (tx) => {
+    const existing = await tx.subscription.findUnique({ where: { userId } });
+    if (!existing || !existing.telegramPaymentChargeId || existing.compedBy != null) return null;
+    await tx.subscription.update({
+      where: { userId },
+      data: {
+        plan: 'FREE',
+        status: 'EXPIRED',
+        telegramPaymentChargeId: null,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+    return existing.plan;
+  });
+  if (result === null) return { ok: false, code: 'NO_PAYMENT' };
+
+  await invalidateFeatureAccessCache(userId);
+  await trackActivity(userId, 'subscription_refunded', { admin_id: adminId, plan: result });
+
+  console.log(`[Subscription] Admin ${adminId} refunded the last payment of user ${userId} (${result}); they are on the Free plan`);
+
+  return { ok: true, plan: result };
+}
+
 /**
  * Cancel subscription (will expire at period end)
  */

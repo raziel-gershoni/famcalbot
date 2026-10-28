@@ -114,10 +114,11 @@ const PEOPLE_NAMES: Record<Locale, string[]> = {
 };
 const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 const SUBS: Record<string, Row> = {
-  trial: { plan: 'FREE', status: 'TRIALING', trialEndsAt: inDays(9), trialDaysRemaining: 9, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
-  free: { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
-  paid: { plan: 'BASIC', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: inDays(20), comped: false, compedAt: null, compReason: null },
-  comped: { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: true, compedAt: ago(5 * 24 * 60), compReason: 'pilot' },
+  trial: { plan: 'FREE', status: 'TRIALING', trialEndsAt: inDays(9), trialDaysRemaining: 9, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null, paidAt: null },
+  free: { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null, paidAt: null },
+  // Paid three days ago (a payment inside the 14 days of the refund rule)
+  paid: { plan: 'BASIC', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: inDays(20), comped: false, compedAt: null, compReason: null, paidAt: ago(3 * 24 * 60) },
+  comped: { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: true, compedAt: ago(5 * 24 * 60), compReason: 'pilot', paidAt: null },
 };
 const NO_PAID = { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false };
 function makePeople(locale: Locale): Map<number, Row> {
@@ -1054,6 +1055,8 @@ async function main() {
           // Free Pro can be given to everyone but a paid plan (a person on a trial included: the gift replaces the trial); the paid one is told why not
           assert(!!btn(o.m, w('profile.comp.give')) === (id !== PAID && id !== COMPED), `${where}: Give Pro for free`);
           assert(text.includes(w('profile.comp.blocked')) === (id === PAID), `${where}: the "nothing to give" hint`);
+          // The refund of the last payment is offered to the person who paid three days ago, and to nobody else
+          assert(!!btn(o.m, w('profile.refund.button')) === (id === PAID), `${where}: Refund last payment`);
           assert(!!btn(o.m, w('profile.messaging.move')) === (person.whatsappPhone === null), `${where}: the Move to WhatsApp row`);
           assert(!!btn(o.m, w('profile.account.suspend')) === (id !== SUSPENDED) && !!btn(o.m, w('profile.account.unsuspend')) === (id === SUSPENDED), `${where}: suspend / unsuspend`);
           assert(elements(o.m.container).some((e) => classes(e).includes('ch-tag-danger') && flat(e) === w('users.suspended')) === (id === SUSPENDED), `${where}: the Suspended tag`);
@@ -1371,6 +1374,95 @@ async function main() {
           close(sheetOpened);
         }
       }
+    }
+  });
+
+  await check('U3r refunding the last payment: the row shows only for a person who paid within the last 14 days (not a trial, a free person, a free gift, or a payment 15 days old); it asks first with a sheet that names the plan and the payment date in the page\'s language, Cancel and Back send nothing, Confirm sends { user_id, action: "refund" } with the person\'s database id, a success reloads the profile and the list and says Refunded, a refusal stays in the sheet with our own message and a log and reloads nothing', async () => {
+    const profileOf = async (locale: Locale, index: number, paidAt?: string | null) => {
+      reset();
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      // open() makes the people; the payment date of the one asked for is set before the profile is read
+      if (paidAt !== undefined) (scenario.people.get(IDS[index]) as Row).subscription = { ...SUBS.paid, paidAt };
+      await openPerson(o, locale, index);
+      calls.splice(0);
+      return o;
+    };
+    const days = (n: number) => ago(n * 24 * 60);
+    const { dateOnly } = await import('../app/[locale]/admin-panel/data/format');
+
+    // Who is offered it
+    for (const [label, index, paidAt, offered] of [
+      ['a payment 3 days ago', 2, undefined, true],
+      ['a payment 13 days ago', 2, days(13), true],
+      ['a payment 15 days ago', 2, days(15), false],
+      ['a paid plan with no known payment date', 2, null, false],
+      ['a trial', 0, undefined, false],
+      ['a free person', 1, undefined, false],
+      ['a free Pro gift', 3, undefined, false],
+    ] as [string, number, string | null | undefined, boolean][]) {
+      const o = await profileOf('en', index, paidAt);
+      try {
+        assert(!!btn(o.m, word('en', 'profile.refund.button')) === offered, `${label}: Refund last payment ${offered ? 'is missing' : 'shows'}`);
+      } finally {
+        close(o);
+      }
+    }
+
+    // The sheet, in each language: plan and date in its title; the row reads as a risky action
+    for (const locale of LOCALES) {
+      const o = await profileOf(locale, 2);
+      try {
+        const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
+        const paidAt = (scenario.people.get(PAID) as Row).subscription.paidAt as string;
+        const titleText = w('profile.refund.confirmTitle', { plan: w('plan.names.basic'), date: dateOnly(paidAt, locale) });
+        assert(classes(btn(o.m, w('profile.refund.button'))).includes('ch-danger-row'), `${locale}: the row is not a danger row`);
+        o.m.click(btn(o.m, w('profile.refund.button')));
+        assert(dialogs(o.m).length === 1 && dialogs(o.m)[0]?.getAttribute('aria-label') === titleText, `${locale}: the sheet is ${dialogs(o.m)[0]?.getAttribute('aria-label')}, wanted ${titleText}`);
+        assert(flat(confirmOf(o.m) as FakeElement) === w('profile.refund.confirm'), `${locale}: the confirm button says ${flat(confirmOf(o.m) as FakeElement)}`);
+        assert(classes(confirmOf(o.m) as FakeElement).includes('ch-btn-danger'), `${locale}: the confirm button is not the red one of a step that cannot be undone`);
+        o.m.click(cancelOf(o.m) as FakeElement);
+        assert(dialogs(o.m).length === 0 && sent() === 0, `${locale}: Cancel sent ${sent()}`);
+        o.m.click(btn(o.m, w('profile.refund.button')));
+        tapBack(o);
+        assert(dialogs(o.m).length === 0 && sent() === 0 && pushes.length === 0, `${locale}: Back sent ${sent()} or left (${show(pushes)})`);
+      } finally {
+        close(o);
+      }
+    }
+
+    // Confirm: the exact body, a reload, the notice
+    let o = await profileOf('en', 2);
+    try {
+      const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+      o.m.click(btn(o.m, w('profile.refund.button')));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      const made = posts('subscription');
+      assert(made.length === 1 && show(made[0].body) === show({ user_id: PAID, action: 'refund', initData: INIT_DATA }), `the request: ${show(made.map((c) => c.body))}`);
+      assert(reloadedAfter(calls.indexOf(made[0]), PAID), 'the profile and the list were not asked for again');
+      assert(dialogs(o.m).length === 0 && statusesIn(o.m.container).includes(w('profile.refund.done')), `the notice: ${show(statusesIn(o.m.container))}`);
+      assert(!viewerIdSent(), "the viewer's Telegram id was sent");
+    } finally {
+      close(o);
+    }
+
+    // A refusal from Telegram (409 REFUND_REFUSED): our own message in the sheet, one log, nothing reloaded, the sheet usable again
+    o = await profileOf('en', 2);
+    try {
+      const w = (key: string, args?: Row) => word('en', key, 'admin', args);
+      scenario.answers.set('POST subscription', () => json({ error: 'REFUND_REFUSED' }, 409));
+      o.m.click(btn(o.m, w('profile.refund.button')));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('profile.refund.failed')]), `a refused refund: ${show(alertsIn(o.m.container))}`);
+      assert(logged() === 1 && !calls.some((c) => c.url.includes('user-overrides')) && !(confirmOf(o.m) as FakeElement).hasAttribute('disabled'), `a refused refund: ${logged()} log(s), ${show(urls())}`);
+      // Any other failure says that it did not work
+      scenario.answers.set('POST subscription', () => json({ error: 'Failed to refund' }, 500));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(show(alertsIn(dialogs(o.m)[0])) === show([w('errors.generic')]), `another failure: ${show(alertsIn(o.m.container))}`);
+    } finally {
+      close(o);
     }
   });
 

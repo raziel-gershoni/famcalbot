@@ -16,6 +16,7 @@ import { googleStateOf, liveGoogleChoices } from '@/src/lib/google-state';
 import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
+import { lastPaymentAt } from '@/src/lib/refund-eligibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -259,6 +260,8 @@ export async function GET(request: NextRequest) {
             comped: subscription.compedBy != null,
             compedAt: subscription.compedAt ? subscription.compedAt.toISOString() : null,
             compReason: subscription.compReason,
+            // When they last paid (a real payment, never the charge id): the panel offers a refund within 14 days of it
+            paidAt: lastPaymentAt(subscription)?.toISOString() ?? null,
           } : null,
           usage: user.usageCounter ? {
             textSummariesUsed: user.usageCounter.textSummariesUsed,

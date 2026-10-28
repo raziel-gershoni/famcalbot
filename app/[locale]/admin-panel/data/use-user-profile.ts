@@ -20,7 +20,7 @@ import type { ActivityAnswer, ActivityItem, OverrideInput, ReminderType, UserDet
 
 export const ACTIVITY_PAGE = 20;
 
-export type ProfileAction = 'saveOverrides' | 'grantComp' | 'revokeComp' | 'sendReminder' | 'resetReminders' | 'switchToWhatsApp' | 'suspend' | 'unsuspend' | 'hardDelete' | 'ban';
+export type ProfileAction = 'saveOverrides' | 'grantComp' | 'revokeComp' | 'refund' | 'sendReminder' | 'resetReminders' | 'switchToWhatsApp' | 'suspend' | 'unsuspend' | 'hardDelete' | 'ban';
 
 export interface ProfileActivity {
   items: ActivityItem[];
@@ -171,6 +171,8 @@ export function useUserProfile(onUsersChanged: () => unknown) {
     );
   const grantComp = (reason: string) => act('grantComp', (id) => adminPost('subscription', { user_id: id, reason: orNull(reason) }));
   const revokeComp = () => act('revokeComp', (id) => adminDelete('subscription', { user_id: id }));
+  /** Refund the last payment at Telegram; the plan ends only when Telegram agrees (the route answers REFUND_REFUSED when it does not). */
+  const refund = () => act('refund', (id) => adminPost('subscription', { user_id: id, action: 'refund' }));
   const sendReminder = (reminderType: ReminderType) => act('sendReminder', (id) => adminPost('send-reminder', { user_id: id, reminder_type: reminderType }));
   const resetReminders = () => act('resetReminders', (id) => adminPost('reset-reminders', { user_id: id }));
   const switchToWhatsApp = (phone: string) => act('switchToWhatsApp', (id) => adminPost('switch-platform', { user_id: id, whatsapp_phone: phone.trim() }));
@@ -191,5 +193,5 @@ export function useUserProfile(onUsersChanged: () => unknown) {
   /** The profile as it is now (a reload that finished a moment ago, before the next render): what a draft is rebuilt from. */
   const current = () => profileRef.current;
 
-  return { profile, status, activity, working, current, load, clear, loadMoreActivity, saveOverrides, grantComp, revokeComp, sendReminder, resetReminders, switchToWhatsApp, suspend, unsuspend, hardDelete, ban };
+  return { profile, status, activity, working, current, load, clear, loadMoreActivity, saveOverrides, grantComp, revokeComp, refund, sendReminder, resetReminders, switchToWhatsApp, suspend, unsuspend, hardDelete, ban };
 }

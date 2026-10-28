@@ -52,6 +52,11 @@ export type AdminTranslate = (key: string, values?: Record<string, string | numb
 /** The message of each plan's name (admin.plan.names.*). */
 const PLAN_NAMES: Record<string, string> = { FREE: 'plan.names.free', BASIC: 'plan.names.basic', PRO: 'plan.names.pro' };
 
+/** A plan's name in the page's language ("Basic", "בסיסי"); a plan with no message is named as the database has it. */
+export function planName(plan: string, t: AdminTranslate): string {
+  return PLAN_NAMES[plan] ? t(PLAN_NAMES[plan]) : plan;
+}
+
 interface PlanSource {
   plan: string;
   status: string;
@@ -68,7 +73,7 @@ interface PlanSource {
  */
 export function planLine(user: { subscription: PlanSource | null }, t: AdminTranslate, locale: string, now: Date = new Date()): string {
   const sub = user.subscription;
-  const name = (plan: string) => (PLAN_NAMES[plan] ? t(PLAN_NAMES[plan]) : plan);
+  const name = (plan: string) => planName(plan, t);
   if (!sub) return name('FREE');
   if (sub.comped && sub.status === 'ACTIVE') return t('planLine.comped', { plan: name(sub.plan) });
   if (sub.status === 'TRIALING') {

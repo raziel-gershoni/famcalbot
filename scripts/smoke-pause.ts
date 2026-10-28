@@ -283,6 +283,7 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/native-reminders/ping.ts': 'the ping text and the edits of a ping that is already on screen; the one send, sendPing, is called by the paused pass',
   // To the admin
   'app/api/admin/send-reminder/route.ts': 'the admin pressing "send a reminder" for one person',
+  'src/services/admin-refund.ts': 'the note to the person that an admin refunded their payment: the answer to their own /paysupport request, sent when the admin acts',
   'src/utils/error-notifier.ts': 'messages to the admin (errors and warnings)',
   'src/services/key-rotation.ts': 'the key sweep\'s SAFE message to the admin',
   'instrumentation.ts': 'the deploy notice to the admin',

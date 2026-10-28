@@ -70,6 +70,8 @@ export interface UserOverrideDetails {
     comped: boolean;
     compedAt: string | null;
     compReason: string | null;
+    /** When they last paid (ISO), or null when they have not paid (a trial, a free gift): the refund is offered within 14 days of it. */
+    paidAt: string | null;
   } | null;
   usage: {
     textSummariesUsed: number;

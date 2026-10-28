@@ -73,6 +73,8 @@ export type ActivityAction =
   // Admin actions (attributed to the target user; the acting admin is in metadata)
   | 'admin_granted_premium'
   | 'admin_revoked_premium'
+  // An admin refunded the person's last payment at Telegram and ended the paid plan (metadata: admin_id, plan)
+  | 'subscription_refunded'
   // Delivery reachability
   | 'user_unreachable'
   | 'user_reachable_again'
