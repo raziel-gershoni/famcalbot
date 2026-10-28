@@ -1428,6 +1428,10 @@
         "pausedOne": "For one of you that time falls on Shabbat or Yom Tov, so I won't send it to them.",
         "pausedOneSome": "By {opinions}, for one of you that time falls on Shabbat or Yom Tov, so I won't send it to them.",
         "pausedOneShort": "falls on Shabbat or Yom Tov for one of you, won't be sent to them",
+        "parseUnreadable": "I couldn't make out that halachic time. Try saying it like “remind me 10 minutes before sunset”.",
+        "parseAnchor": "A halachic time can't be combined with “before an event”. Pick one, like “remind me 10 minutes before sunset” or “remind me an hour before the dentist”.",
+        "parseClockTime": "A reminder takes a halachic time or a clock time, not both. Pick one, like “remind me 10 minutes before sunset” or “remind me at 17:30”.",
+        "parseNotReminder": "A halachic time works for reminders only. Say something like “remind me 10 minutes before sunset”, or give the event a clock time.",
         "notOfferedOpinion": "I can't set “{description}” by that opinion. For “{zman}”, your community's list has: {opinions}. Send it again with one of those.",
         "badOffset": "That's out of range: a reminder can be up to 12 hours before or after a zman, or up to 12 halachic hours after sunrise. I didn't set “{description}”. Send it again with a closer time."
       },

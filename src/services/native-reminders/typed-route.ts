@@ -20,7 +20,7 @@ import { addBreadcrumb } from '../analytics-service';
 import { startTypingInterval } from '../telegram/command-pipeline';
 import { processTextWithGemini } from '../forward-event/gemini-text';
 import { handleEditIntent, handleDeleteIntent } from '../voice';
-import { sendAnchorQuestions, showEventConfirmation } from '../voice/confirmations';
+import { sendAnchorQuestions, showEventConfirmation, zmanParseQuestion } from '../voice/confirmations';
 import { showBulkConfirmation } from '../voice/bulk-confirmations';
 import type { ParsedEvent, VoiceIntentResult } from '../event-parser';
 import type { UserConfig } from '../../types';
@@ -97,7 +97,9 @@ async function routeTypedIntents(ctx: TypedContext, results: VoiceIntentResult[]
   } else if (change?.intent === 'delete') {
     await handleDeleteIntent(ctx.chatId, undefined, change, ctx.text, ctx.user, ctx.t, ctx.adminFooter);
   } else {
-    await ctx.service.sendMessage(ctx.chatId, ctx.t.nativeReminders.typed.notUnderstood, { format: MessageFormat.PLAIN });
+    // A reminder by zman the parser refused (a clock time with it, an anchor, an event): one line saying what to change
+    const zmanQuestion = await zmanParseQuestion(intents, ctx.user.language || 'en');
+    await ctx.service.sendMessage(ctx.chatId, zmanQuestion ?? ctx.t.nativeReminders.typed.notUnderstood, { format: MessageFormat.PLAIN });
   }
 }
 

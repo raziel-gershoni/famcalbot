@@ -1361,10 +1361,17 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       // Silence or noise - there is no transcript to quote back.
       await waService.sendMessage(phone, t.voice?.noSpeech || "🎤 I didn't hear anything in that voice message. Please try again.");
     } else {
-      const safeTranscription = transcription || '';
-      await waService.sendMessage(phone,
-        `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_I heard: "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
-      );
+      // A reminder by zman the parser refused (a clock time with it, an anchor, an event): one line saying what to change
+      const { zmanParseQuestion } = await import('./voice/confirmations');
+      const zmanQuestion = await zmanParseQuestion(intentResults ?? [intentResult], user.language || 'en');
+      if (zmanQuestion) {
+        await waService.sendMessage(phone, zmanQuestion);
+      } else {
+        const safeTranscription = transcription || '';
+        await waService.sendMessage(phone,
+          `${t.voice?.notUnderstood || "I couldn't understand that."}\n\n_I heard: "${safeTranscription}"_\n\n${t.voice?.tryExamples || 'Try something like:'}\n• "${t.voice?.example1 || 'Meeting tomorrow at 3pm'}"\n• "${t.voice?.example2 || 'Dentist on Thursday at 10'}"`,
+        );
+      }
     }
 
     const { trackActivityAsync } = await import('./analytics-service');

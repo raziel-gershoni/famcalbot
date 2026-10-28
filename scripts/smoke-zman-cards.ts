@@ -945,6 +945,23 @@ async function main() {
     assert(made() === 1 && lastWa().text.includes('cancelled'), show(waCalls.map((c) => c.text)));
   });
 
+  await check('WhatsApp voice: a zman the parser refused is asked about in one line (en/he/ru); any other unparsed speech still gets the general answer', async () => {
+    for (const language of ['en', 'he', 'ru']) {
+      currentUser = asUser({ language });
+      for (const [reason, key] of [['unreadable', 'parseUnreadable'], ['with_anchor', 'parseAnchor'], ['with_clock_time', 'parseClockTime'], ['not_a_reminder', 'parseNotReminder']] as const) {
+        waCalls = [];
+        extracted = [{ intent: 'create', confidence: 'low', error: 'A zman cannot go with a clock time', zmanParseError: reason }];
+        await whatsappVoice();
+        assert(lastWa().text === await getBotMessage(language, `nativeReminders.zman.${key}`), `${language} ${reason}: ${lastWa().text}`);
+      }
+    }
+    currentUser = dana;
+    waCalls = [];
+    extracted = [{ intent: 'create', confidence: 'low', error: 'Missing date/time fields' }];
+    await whatsappVoice();
+    assert(lastWa().text.includes('I heard'), lastWa().text);
+  });
+
   await check('WhatsApp voice: a batch of two HIGH reminders with a zman in it is the Telegram hint, never auto-created', async () => {
     extracted = [intentOf(zmanReminder(SHKIA(-30)), 'high'), intentOf(plainReminder(), 'high')];
     await whatsappVoice();

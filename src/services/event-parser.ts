@@ -56,7 +56,15 @@ export interface VoiceIntentResult {
   // A voice parse kept although the speech seemed not meant for the device (TV, radio):
   // it is never auto-created, so the user always confirms it on the card.
   notAddressed?: true;
+  /**
+   * A reminder by zman the parser refused (with `error`, and no event): why, so the person is asked one line about it
+   * instead of being told it was not understood. Logged by the parser as [zman-voice].
+   */
+  zmanParseError?: ZmanParseError;
 }
+
+/** Why the parser refused a reminder by zman: its zman was not a readable shape, came with an anchor or a clock time, or was on an event. */
+export type ZmanParseError = 'unreadable' | 'with_anchor' | 'with_clock_time' | 'not_a_reminder';
 
 /**
  * Recurrence pattern for repeating events

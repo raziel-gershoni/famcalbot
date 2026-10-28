@@ -301,6 +301,7 @@ async function main() {
       const r = parse({ zman });
       assert(!r.event && !!r.error && r.confidence === 'low', `${JSON.stringify(zman)}: ${JSON.stringify(r)}`);
       assert(warnings.some((w) => w.includes('zman')), `${JSON.stringify(zman)}: no warning`);
+      assert(r.zmanParseError === 'unreadable', `${JSON.stringify(zman)}: zmanParseError ${r.zmanParseError}`);
     }
   });
 
@@ -317,6 +318,9 @@ async function main() {
       const r = parse(fields, remindersOn);
       assert(!r.event && !!r.error && r.confidence === 'low', `${name}: ${JSON.stringify(r)}`);
       assert(warnings.some((w) => w.includes('zman')), `${name}: no warning`);
+      // The person is asked about it (the handlers read this), except with reminders off, where a zman is not asked about at all
+      const reason = { anchor: 'with_anchor', 'clock time': 'with_clock_time', 'event kind': 'not_a_reminder', 'event kind, all day': 'not_a_reminder' }[name];
+      assert(r.zmanParseError === reason, `${name}: zmanParseError ${r.zmanParseError}, wanted ${reason}`);
     }
   });
 

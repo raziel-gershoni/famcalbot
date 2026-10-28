@@ -7,6 +7,7 @@
 import { redis } from '../../utils/redis';
 import { getBot } from '../telegram';
 import { ParsedEvent, RecurrenceScope } from '../event-parser';
+import type { VoiceIntentResult, ZmanParseError } from '../event-parser';
 import { CalendarEvent, UpdateEventData } from '../calendar';
 import { resolveUserTimezone } from '../../lib/timezone';
 import { UserConfig } from '../../types';
@@ -655,6 +656,23 @@ export async function anchorQuestion(failure: ReminderFailure, language: string,
     }
   }
   return getBotMessage(language, `nativeReminders.${key}`, params);
+}
+
+const ZMAN_PARSE_QUESTIONS = {
+  unreadable: 'zman.parseUnreadable',
+  with_anchor: 'zman.parseAnchor',
+  with_clock_time: 'zman.parseClockTime',
+  not_a_reminder: 'zman.parseNotReminder',
+} as const satisfies Record<ZmanParseError, string>;
+
+/**
+ * What to say when the parser refused a reminder by zman (a zman it could not read, or one with an anchor, a clock time
+ * or an event): one line saying what to change, in place of "I couldn't understand that" with event examples. Null when
+ * none of the results was refused for that, so the caller falls back to its general answer. The first one asked about.
+ */
+export async function zmanParseQuestion(results: Array<Pick<VoiceIntentResult, 'zmanParseError'> | undefined>, language: string): Promise<string | null> {
+  const reason = results.find((r) => r?.zmanParseError)?.zmanParseError;
+  return reason ? getBotMessage(language, `nativeReminders.${ZMAN_PARSE_QUESTIONS[reason]}`) : null;
 }
 
 /** Ask about each reminder in a message that couldn't be placed (Telegram). */

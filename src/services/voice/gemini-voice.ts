@@ -694,16 +694,16 @@ function parseReminderCreate(
   const zman = readZman(eventData.zman);
   if (zman === 'invalid') {
     console.warn(`[zman-voice] reminder has a zman that is not a readable shape; refused: ${JSON.stringify(eventData.zman)}`);
-    return { intent: 'create', confidence: 'low', error: 'Unreadable zman' };
+    return { intent: 'create', confidence: 'low', error: 'Unreadable zman', zmanParseError: 'unreadable' };
   }
   // A zman is the reminder's time, so it takes no other: not an anchor, and not a clock time
   if (zman && anchor) {
     console.warn(`[zman-voice] reminder has both a zman and an anchor; refused: ${JSON.stringify({ zman: eventData.zman, anchor: eventData.anchor })}`);
-    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with an anchor' };
+    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with an anchor', zmanParseError: 'with_anchor' };
   }
   if (zman && typeof eventData.startTime === 'string' && eventData.startTime.trim()) {
     console.warn(`[zman-voice] reminder has both a zman and a clock time; refused: ${JSON.stringify({ zman: eventData.zman, startTime: eventData.startTime })}`);
-    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with a clock time' };
+    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with a clock time', zmanParseError: 'with_clock_time' };
   }
   const repeat = readRepeat(eventData, timezone, now);
   if (!anchor && eventData.anchor && !repeat.startDate) {
@@ -791,7 +791,7 @@ export function parseGeminiEventResponse(
     // A zman is a reminder's time; on an event (or with reminders off) it is refused, never dropped silently
     if (eventData.zman !== undefined && eventData.zman !== null) {
       console.warn(`[zman-voice] a zman on an event, or with reminders off; refused: ${JSON.stringify(eventData.zman)}`);
-      return { intent: 'create', confidence: 'low', error: 'A zman is for reminders only' };
+      return { intent: 'create', confidence: 'low', error: 'A zman is for reminders only', ...(remindersOn ? { zmanParseError: 'not_a_reminder' as const } : {}) };
     }
 
     // Validate calendarId against user's actual calendars

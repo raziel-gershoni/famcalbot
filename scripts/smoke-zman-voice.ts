@@ -1009,6 +1009,47 @@ async function main() {
     assert(!event.event && !!event.error, show(event));
   }
 
+  /** What the model answers for each way a reminder by zman can be refused by the parser, and the key of the line the person is asked. */
+  const PARSE_REFUSALS: Array<{ name: string; key: string; event: Record<string, unknown> }> = [
+    { name: 'unreadable', key: 'parseUnreadable', event: { kind: 'reminder', zman: { name: 5, opinion: null, offsetMinutes: 0 } } },
+    { name: 'with an anchor', key: 'parseAnchor', event: { kind: 'reminder', zman: SHKIA(-10), anchor: { description: 'the dentist', offsetMinutes: -60 } } },
+    { name: 'with a clock time', key: 'parseClockTime', event: { kind: 'reminder', zman: SHKIA(-10), startDate: '2026-10-30', startTime: '17:00', allDay: false } },
+    { name: 'on an event', key: 'parseNotReminder', event: { kind: 'event', zman: SHKIA(-10), startDate: '2026-10-30', startTime: '17:00', endDate: '2026-10-30', endTime: '18:00' } },
+  ];
+
+  await check('flow, a zman the parser refuses (unreadable, with an anchor, with a clock time, on an event): the person is asked one line about it, in en/he/ru, by voice and typed, not told it was not understood', async () => {
+    const now = at('2026-10-28 06:00');
+    let message = 300;
+    for (const language of LANGUAGES) {
+      const notUnderstood = await getBotMessage(language, 'voice.notUnderstood');
+      for (const refusal of PARSE_REFUSALS) {
+        const expected = await getBotMessage(language, `nativeReminders.zman.${refusal.key}`);
+        assert(!expected.includes('nativeReminders.') && expected.length > 20, `${language} ${refusal.key}: ${expected}`);
+        const event = { title: 'Say Shema', calendarId: FLOW_CALENDARS[0].calendarId, forPerson: 'self', ...refusal.event };
+        const json = { intent: 'create', confidence: 'high', event };
+        // By voice
+        reset();
+        clock = now.getTime();
+        currentUser = user({ language });
+        const parsed = parseGeminiEventResponse(json, FLOW_CALENDARS, IL, true, now);
+        assert(!parsed.event && !!parsed.error && !!parsed.zmanParseError, `${language} ${refusal.name}: ${show(parsed)}`);
+        extracted = [parsed];
+        await quiet(() => handleVoiceMessage(555, 1001, { file_id: 'f1', file_unique_id: 'u1', duration: 4 }, from));
+        assert(made() === 0 && lastBot().text === expected && !lastBot().text.includes(notUnderstood), `voice ${language} ${refusal.name}: ${lastBot().text}`);
+        // Typed
+        reset();
+        clock = now.getTime();
+        currentUser = user({ language });
+        geminiText = JSON.stringify(json);
+        await quiet(() => handleTelegramWebhook(
+          { body: { update_id: 2, message: { message_id: ++message, from, chat: { id: 555 }, text: 'Remind me before sunset' } } } as never,
+          { status: () => ({ json: noop }) } as never,
+        ));
+        assert(made() === 0 && lastBot().text === expected, `typed ${language} ${refusal.name}: ${lastBot().text}`);
+      }
+    }
+  });
+
   const failed = results.filter((r) => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'OK ' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     ${r.reason}`}`);
   console.log(`\n${results.length - failed.length}/${results.length} passed (process TZ=${process.env.TZ})`);

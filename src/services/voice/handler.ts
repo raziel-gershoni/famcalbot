@@ -17,7 +17,7 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { trackActivityAsync, addBreadcrumb, setUserContext } from '../analytics-service';
 import { checkFeatureAccess } from '../subscription-service';
 import { downloadVoiceFile, getLastCreatedEvent, findMatchingEvent, convertEditRequestToUpdates, isLastCreatedEvent, UNAVAILABLE } from './event-resolution';
-import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation } from './confirmations';
+import { sendAnchorQuestions, showEventConfirmation, showEditConfirmation, showDeleteConfirmation, zmanParseQuestion } from './confirmations';
 import { getReminderSupport } from '../native-reminders/support';
 import { primaryIntent, reminderPromptContext, resolveReminderIntents } from '../native-reminders/resolve';
 import type { ReminderFailure } from '../native-reminders/resolve';
@@ -458,6 +458,12 @@ export async function handleVoiceMessage(
         // A reminder anchored to an event that couldn't be found asks for a time instead
         if (reminderFailures.length > 0) {
           await sendAnchorQuestions(chatId, reminderFailures, user.language || 'en', messagingService);
+          return;
+        }
+        // A reminder by zman the parser refused (a clock time with it, an anchor, an event): one line saying what to change
+        const zmanQuestion = await zmanParseQuestion(intentResults?.length ? intentResults : [intentResult], user.language || 'en');
+        if (zmanQuestion) {
+          await messagingService.sendMessage(chatId, zmanQuestion, { format: MessageFormat.PLAIN });
           return;
         }
         const safeTranscription = transcription.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
