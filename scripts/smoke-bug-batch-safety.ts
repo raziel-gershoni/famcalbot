@@ -9,7 +9,9 @@
 //      to the channels they have), Settings refuses such a platform, and shows the choice only to a person with both.
 //   4. The kid-name "Yes" for a Google calendar that is no longer chosen says nothing was added (it used to say a rule was
 //      added to the calendar's id), and a rule that was added names the calendar, never its id.
-//   (the families of fixes 5-7 are added with their fixes)
+//   5. /api/set-menu-button, which resets the bot's default menu button for everyone, needs the operator's secret
+//      (Authorization: Bearer <CRON_SECRET>); a failure does not echo the error.
+//   (the families of fixes 6-7 are added with their fixes)
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -199,6 +201,9 @@ const tracked: { userId: number; action: string; metadata?: Row }[] = [];
 const edits: { chatId: unknown; messageId: unknown; text: string; options?: Row }[] = [];
 /** The toasts answering a tap (answerCallbackQuery). */
 const toasts: string[] = [];
+/** The bot's default menu button calls, and whether the next one fails. */
+const menuButtonCalls: unknown[] = [];
+let menuButtonFails = false;
 let voiceIntents: Row[] = [];
 let voiceTranscription = '';
 
@@ -234,6 +239,11 @@ const waService = {
 const fakeBot = {
   sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
   answerCallbackQuery: async (_queryId: string, options?: Row) => { toasts.push(String(options?.text ?? '')); return true; },
+  setChatMenuButton: async (options: unknown) => {
+    menuButtonCalls.push(options);
+    if (menuButtonFails) throw new Error('ETELEGRAM: 400 Bad Request: secret-detail-from-telegram');
+    return true;
+  },
   editMessageText: async (text: string, options: Row) => { edits.push({ chatId: options.chat_id, messageId: options.message_id, text, options }); return true; },
 };
 
@@ -263,7 +273,8 @@ function reset() {
   for (const k of Object.keys(DB)) delete DB[k];
   redisStore.clear();
   failing.clear();
-  for (const list of [sent, logs, captured, tracked, edits, toasts, providerCalls, providerScript]) list.length = 0;
+  for (const list of [sent, logs, captured, tracked, edits, toasts, providerCalls, providerScript, menuButtonCalls]) list.length = 0;
+  menuButtonFails = false;
   newCalendarId = 'native:home1';
   fetchHandler = async url => { throw new Error(`network blocked in this smoke: ${url}`); };
   carried.length = 0;
@@ -1016,6 +1027,56 @@ async function fix4() {
   });
 }
 
+// ---- Fix 5 ----
+
+async function fix5() {
+  const call = async (headers: Record<string, string>) => {
+    const { GET } = await import('../app/api/set-menu-button/route');
+    const response = await withLogs(() => GET(new Request('https://famcal.test/api/set-menu-button', { headers }) as never));
+    return { status: response.status, body: (await response.json()) as Row };
+  };
+  const secret = process.env.CRON_SECRET;
+  assert(secret, 'this smoke needs the fake CRON_SECRET of the runner');
+
+  await check('5: /api/set-menu-button without the secret answers 401, logs the refusal and leaves the bot\'s menu button alone', async () => {
+    const refused: Record<string, string>[] = [{}, { authorization: 'Bearer wrong-secret' }, { authorization: secret }, { authorization: 'Bearer ' }, { authorization: 'Basic abc' }];
+    for (const headers of refused) {
+      logs.length = 0;
+      const answer = await call(headers);
+      assertSame([answer.status, answer.body], [401, { error: 'Unauthorized' }], `with ${show(headers)}`);
+      assert(logs.some(l => l.includes('[set-menu-button]') && l.includes('Refused')), `${show(headers)}: no log line: ${show(logs)}`);
+    }
+    assertSame(menuButtonCalls, [], 'the menu button was set without the secret');
+  });
+
+  await check('5: /api/set-menu-button with the secret sets the default menu button once', async () => {
+    const answer = await call({ authorization: `Bearer ${secret}` });
+    assert(answer.status === 200 && answer.body.success === true, `got ${show(answer)}`);
+    assert(menuButtonCalls.length === 1, `expected one call, got ${menuButtonCalls.length}`);
+  });
+
+  await check('5: a CRON_SECRET that is not set opens nothing, not even for an empty Bearer', async () => {
+    process.env.CRON_SECRET = '';
+    try {
+      const unset: Record<string, string>[] = [{ authorization: 'Bearer ' }, { authorization: 'Bearer anything' }, {}];
+      for (const headers of unset) {
+        assertSame((await call(headers)).status, 401, `with ${show(headers)} and no secret set`);
+      }
+      assertSame(menuButtonCalls, [], 'the menu button was set');
+    } finally {
+      process.env.CRON_SECRET = secret;
+    }
+  });
+
+  await check("5: a failure answers 500 without Telegram's words or the error object, and is captured", async () => {
+    menuButtonFails = true;
+    const answer = await call({ authorization: `Bearer ${secret}` });
+    assertSame(answer.status, 500, 'status');
+    assert(!JSON.stringify(answer.body).includes('secret-detail-from-telegram') && !('details' in answer.body) && !('message' in answer.body), `the 500 body echoes the error: ${show(answer.body)}`);
+    assert(captured.some(c => c.startsWith('set-menu-button')), `not captured: ${show(captured)}`);
+  });
+}
+
 async function main() {
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
@@ -1025,6 +1086,7 @@ async function main() {
     await fix2();
     await fix3();
     await fix4();
+    await fix5();
   } finally {
     Object.assign(console, original);
   }
