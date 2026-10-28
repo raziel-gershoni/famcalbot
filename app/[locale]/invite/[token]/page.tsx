@@ -1,7 +1,7 @@
 // Public landing for a pair invite. No auth required to LOAD — anyone with the
 // link can preview the inviter's display name. Acceptance happens in one of:
 //   - In-app via Telegram initData (one-tap), POST /api/pair/accept.
-//   - Out-of-app: tap "Open in Telegram" deep link → /start invite_<token>.
+//   - Out-of-app: tap "Open in Telegram" deep link → /start invite_<packed token> (src/lib/invite-link.ts).
 //   - WhatsApp-only users: tap "Open in WhatsApp" → wa.me with prefilled "accept <token>".
 //
 // Token validation lives in pairing-service.getInviteByToken — the page just
@@ -16,6 +16,7 @@ import { getInviteByToken } from '@/src/services/pairing-service';
 import InviteClient from './InviteClient';
 import { INVITE_CSS } from './invite-css';
 import { normalizeLocale } from '@/src/utils/locale';
+import { inviteStartParam } from '@/src/lib/invite-link';
 
 interface PageProps {
   params: Promise<{ locale: string; token: string }>;
@@ -44,7 +45,8 @@ export default async function InvitePage({ params }: PageProps) {
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || '';
   const waNumber = process.env.WHATSAPP_PHONE_NUMBER || '';
-  const tgDeepLink = botUsername ? `https://t.me/${botUsername}?start=invite_${token}` : '';
+  const startParam = botUsername ? inviteStartParam(token) : null;
+  const tgDeepLink = startParam ? `https://t.me/${botUsername}?start=${startParam}` : '';
   const waDeepLink = waNumber ? `https://wa.me/${waNumber}?text=${encodeURIComponent(`accept ${token}`)}` : '';
 
   return (

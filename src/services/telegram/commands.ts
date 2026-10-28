@@ -151,11 +151,10 @@ export async function handleStartCommand(
     return;
   }
 
-  // Pairing invite deep link: t.me/<bot>?start=invite_<token>
+  // Pairing invite deep link: t.me/<bot>?start=invite_<packed token> (src/lib/invite-link.ts)
   if (args && args.startsWith('invite_')) {
-    const token = args.slice('invite_'.length);
-    const { handlePairAccept } = await import('./pair-handler');
-    await handlePairAccept(chatId, user.id, token, locale, platform);
+    const { handlePairStart } = await import('./pair-handler');
+    await handlePairStart(chatId, user.id, args.slice('invite_'.length), locale, platform);
     return;
   }
 

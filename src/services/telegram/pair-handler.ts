@@ -1,5 +1,5 @@
 // Shared pair-acceptance flow used by both:
-//   - Telegram /start invite_<token> (deep link)
+//   - Telegram /start invite_<packed token> (deep link; src/lib/invite-link.ts packs the token to fit)
 //   - Free-text "accept <token>" on Telegram and WhatsApp
 //
 // All routing converges here so the validation, error mapping, and inviter
@@ -15,6 +15,7 @@ import { getMessagingService } from './bot';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { captureError } from '../../lib/error-capture';
 import { escapeHtml } from '../../utils/html';
+import { inviteTokenFromStart } from '../../lib/invite-link';
 
 /** The factory needs the bot instance for Telegram; ./bot supplies it. */
 function messagingFor(platform: MessagingPlatform): IMessagingService {
@@ -132,6 +133,17 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
   } catch (err) {
     captureError(err, 'pair-notify-inviter', undefined, 'warning');
   }
+}
+
+/** /start invite_<payload>, from the invite page's Telegram link: the payload is the token packed to fit Telegram's start parameter. */
+export async function handlePairStart(
+  chatId: number | string,
+  acceptingUserId: number,
+  payload: string,
+  locale: string,
+  platform: MessagingPlatform
+): Promise<void> {
+  await handlePairAccept(chatId, acceptingUserId, inviteTokenFromStart(payload), locale, platform);
 }
 
 /**

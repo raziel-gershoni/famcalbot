@@ -521,6 +521,28 @@ async function main() {
       `to the acceptor: ${show(toAcceptor)}`);
   });
 
+  await check('#4b the Telegram link: its start parameter fits Telegram\'s 64 base64url characters, and /start with it pairs the two', async () => {
+    seed();
+    const { inviteStartParam } = await load('src/lib/invite-link.ts');
+    const param: string | null = inviteStartParam(TOKEN_1);
+    // "invite_" plus the 64-hex token is 71 characters: Telegram drops it and opens a bare chat.
+    assert(param !== null && /^[A-Za-z0-9_-]{1,64}$/.test(param) && param.startsWith('invite_'), `the start parameter: ${param} (${param?.length})`);
+    const { handlePairStart } = await load('src/services/telegram/pair-handler.ts');
+    await handlePairStart(7770002, 2, (param as string).slice('invite_'.length), 'en', 'telegram');
+    await settle();
+    const pairing = DB.pairing.find(p => p.status === 'ACTIVE');
+    assert(pairing !== undefined && pairing.inviterUserId === 1 && pairing.inviteeUserId === 2 && userRow(2).pairingId === pairing.id, `pairings ${show(DB.pairing)}`);
+    assert(toChat(5550001).length === 1, `messages to the inviter: ${show(toChat(5550001))}`);
+  });
+
+  await check('#4c /start with a token as it is (typed by hand) still accepts it', async () => {
+    seed();
+    const { handlePairStart } = await load('src/services/telegram/pair-handler.ts');
+    await handlePairStart(7770002, 2, TOKEN_1, 'en', 'telegram');
+    await settle();
+    assert(userRow(2).pairingId !== null && userRow(2).pairingId !== undefined, `user 2 is not paired: ${show(DB.pairing)}`);
+  });
+
   // ---- Unlink ----
 
   await check('#5 [guard] after unlink the partner\'s access to the shared calendar is none', async () => {

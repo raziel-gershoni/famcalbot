@@ -3,7 +3,7 @@
 // DELETE /api/pair/invite — revoke the user's active invite.
 //
 // Token persistence lives in PairingInvite (DB) — see pairing-service.ts.
-// The miniapp renders the URL; the bot accepts the token via /start invite_<t>
+// The miniapp renders the URL; the bot accepts the token via /start invite_<packed token> (src/lib/invite-link.ts)
 // (TG) or `accept <t>` (TG+WA), see PR 6.
 
 import { NextRequest, NextResponse } from 'next/server';

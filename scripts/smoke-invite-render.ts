@@ -469,6 +469,18 @@ async function main() {
       const el = await valid(inviter);
       assert(el.type === Invite && show(el.props) === show({ token: TOKEN, inviterName: name, locale: 'he', tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: expires.toISOString() }), `the props for ${show(inviter)}: ${show(el.props)}`);
     }
+    // A real token is 64 hex characters: the Telegram link carries it packed, within Telegram's 64 base64url characters
+    {
+      const hex = 'a1'.repeat(32);
+      inviteFor = (token) => (token === hex ? { invite: { expiresAt: expires }, inviter: { name: 'Dana' } } : null);
+      const el = (await InvitePage({ params: Promise.resolve({ locale: 'he', token: hex }) })) as unknown as { props: Row };
+      const link = String(el.props.tgDeepLink);
+      const param = new URL(link).searchParams.get('start') ?? '';
+      const { inviteTokenFromStart } = await import('../src/lib/invite-link');
+      assert(link.startsWith('https://t.me/test_bot?start=invite_') && /^[A-Za-z0-9_-]{1,64}$/.test(param), `the Telegram link: ${link} (${param.length})`);
+      assert(inviteTokenFromStart(param.slice('invite_'.length)) === hex, `the link does not carry the token back: ${param}`);
+      assert(el.props.waDeepLink === `https://wa.me/972500000000?text=accept%20${hex}`, `WhatsApp keeps the token as it is: ${el.props.waDeepLink}`);
+    }
     // No bot or number in the environment: the links are empty strings, so the buttons hide
     const [bot, number] = [process.env.TELEGRAM_BOT_USERNAME, process.env.WHATSAPP_PHONE_NUMBER];
     delete process.env.TELEGRAM_BOT_USERNAME;
