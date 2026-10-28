@@ -378,9 +378,9 @@ async function main() {
     return found;
   };
 
-  await check('the eval has 18 zman cases: 15 reminders by a halachic time (en, he, ru) and 3 controls, all selected by EVAL_ONLY=zman and none with an apostrophe in the text', () => {
-    assert(zmanCases.length === 18 && zmanOnly.length === 15, `${zmanCases.length} cases, ${zmanOnly.length} zman`);
-    for (const language of ['en', 'he', 'ru']) assert(zmanOnly.filter((c) => c.language === language).length === 5, `${language} does not have 5`);
+  await check('the eval has 20 zman cases: 17 reminders by a halachic time (en, he, ru) and 3 controls, all selected by EVAL_ONLY=zman and none with an apostrophe in the text', () => {
+    assert(zmanCases.length === 20 && zmanOnly.length === 17, `${zmanCases.length} cases, ${zmanOnly.length} zman`);
+    for (const [language, count] of [['en', 6], ['he', 5], ['ru', 6]] as const) assert(zmanOnly.filter((c) => c.language === language).length === count, `${language} does not have ${count}`);
     assert(zmanCases.filter((c) => c.label.startsWith('zman control')).length === 3, 'three controls');
     for (const c of zmanCases) assert(!c.text.includes("'"), `${c.label}: an apostrophe breaks the phrasing check's pattern`);
     assert(zmanOnly.filter((c) => c.label === 'zman: opinion said').length === 3, 'one opinion-said case per language');
@@ -404,6 +404,8 @@ async function main() {
     'en zman: friday candles': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -90 }, recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
     'he zman: friday candles for both': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -60 }, forPerson: 'both', recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
     'ru zman: friday candles': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -90 }, recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
+    'en zman: chatzot': { zman: { name: 'CHATZOT', opinion: null, offsetMinutes: -10 } },
+    'ru zman: halachic midnight': { zman: { name: 'CHATZOT_HALAYLA', opinion: null, offsetMinutes: 30 } },
     'he zman: halachic hours': { zman: { halachicHours: 4, offsetMinutes: 0 }, recurrence: { frequency: 'daily' } },
     'ru zman control: clock time': { startDate: TOMORROW, startTime: '17:30', allDay: false },
     'he zman control: midnight': { startDate: TOMORROW, startTime: '00:00', allDay: false },

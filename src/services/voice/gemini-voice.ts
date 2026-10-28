@@ -440,7 +440,7 @@ ${whoRules}
    - "opinion" is null unless the user said whose opinion to follow: "gra" ("GRA", "the Vilna Gaon", "הגר"א", "ГРА"), "mga" ("MGA", "Magen Avraham", "מג"א", "מגן אברהם", "Маген Авраам"), "halachaBerura" ("Halacha Berura", "הלכה ברורה", "Алаха Бруря"), "yalkutYosef" ("Yalkut Yosef", "ילקוט יוסף", "Ялкут Йосеф"), "baalHatanya" ("Baal HaTanya", "בעל התניא", "Баал а-Тания"). Never choose one for the user who said none: FamCal asks them.
    - "offsetMinutes" is whole clock minutes, negative for before and positive for after, 0 for "at": "10 minutes before" → -10, "חצי שעה לפני" → -30, "שעה אחרי" → 60, "за 10 минут до" → -10.
    - "N halachic hours after sunrise" ("שעות זמניות אחרי הנץ", "галахических часов после восхода") is {"halachicHours": N, "offsetMinutes": 0} instead of a name. A halachic hour is a twelfth of the daytime, not a clock hour.
-   - A bare "midnight" ("בחצות", "в полночь") is the clock's 00:00, a time of rule 4, not a zman. Only "halachic midnight", "chatzot" and "חצות הלילה" are CHATZOT_HALAYLA, and only "halachic noon", "chatzot" and "חצות היום" are CHATZOT.
+   - A bare "midnight" ("בחצות", "в полночь") is the clock's 00:00, a time of rule 4, not a zman. Only "halachic midnight" and "חצות הלילה" are CHATZOT_HALAYLA, and only "halachic noon", "chatzot" and "חצות היום" are CHATZOT.
    - A clock time printed beside the name, as in a forwarded message that says "candle lighting 18:12", is a plain clock time: give "startTime" and no "zman".
    - A halachic time that is not in the list ("Rabbeinu Tam", "רבנו תם", "72 minutes after sunset", "end of Shabbat", "צאת השבת", "havdalah") is never the nearest one in the list: return intent "none" with an "error" naming what was asked.${forwardedRule}
 

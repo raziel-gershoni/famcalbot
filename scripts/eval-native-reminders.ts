@@ -21,7 +21,7 @@
 //   NODE_OPTIONS='--conditions=import' npx tsx scripts/eval-native-reminders.ts --dry-run
 // Options (env): EVAL_RUNS=1
 //   EVAL_ONLY=both     only the cases whose label starts with that word (the "remind us" ones: 9 calls)
-//   EVAL_ONLY=zman     only the reminders by a halachic time (zman) and their controls: 18 calls. A zman is the reminder's
+//   EVAL_ONLY=zman     only the reminders by a halachic time (zman) and their controls: 20 calls. A zman is the reminder's
 //                      time: allDay, no clock time, a name (or halachic hours) and an offset; the opinion is null unless
 //                      it was said (FamCal asks the person which one; the model must never pick), no day unless one was said.
 //   EVAL_FAIL_FAST=1   stop at the first failing case
@@ -286,6 +286,9 @@ export const ALL_CASES: Case[] = [
   { language: 'he', label: 'zman: friday candles for both', text: 'תזכיר לנו בכל יום שישי שעה לפני הדלקת נרות להכין את השולחן', expect: reminder({ forPerson: 'both', weekly: 'FR', zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -60 } }) },
   { language: 'ru', label: 'zman: friday candles', text: 'Напоминай каждую пятницу за полтора часа до зажигания свечей ставить еду', expect: reminder({ forPerson: 'self', weekly: 'FR', zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -90 } }) },
   { language: 'he', label: 'zman: halachic hours', text: 'תזכיר לי כל יום ארבע שעות זמניות אחרי הנץ החמה לקחת ויטמין', expect: reminder({ forPerson: 'self', daily: true, zman: { halachicHours: 4, offsetMinutes: 0 } }) },
+  // A bare "chatzot" is halachic noon; only the midnight words are CHATZOT_HALAYLA (twelve hours apart, with no button to catch a slip)
+  { language: 'en', label: 'zman: chatzot', text: 'Remind me ten minutes before chatzot to put the pot on', expect: reminder({ forPerson: 'self', zman: { name: 'CHATZOT', opinion: null, offsetMinutes: -10 } }) },
+  { language: 'ru', label: 'zman: halachic midnight', text: 'Напомни через полчаса после халахической полуночи лечь спать', expect: reminder({ forPerson: 'self', zman: { name: 'CHATZOT_HALAYLA', opinion: null, offsetMinutes: 30 } }) },
   // Controls: a clock time, a bare midnight and an event at sunset stay what they were
   { language: 'ru', label: 'zman control: clock time', text: 'Напомни завтра в 17:30 забрать халы', expect: reminder({ forPerson: 'self', inDays: 1, time: '17:30' }) },
   { language: 'he', label: 'zman control: midnight', text: 'תזכיר לי בחצות לכבות את המחשב', expect: reminder({ forPerson: 'self', time: '00:00' }) },

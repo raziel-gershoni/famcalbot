@@ -339,10 +339,10 @@ async function extractionChecks() {
     }
   });
 
-  await check('the live eval\'s zman cases (eighteen: fifteen reminders by a halachic time and three controls) are phrased differently from the prompt\'s own examples and rules, so they test generalisation', () => {
+  await check('the live eval\'s zman cases (twenty: seventeen reminders by a halachic time and three controls) are phrased differently from the prompt\'s own examples and rules, so they test generalisation', () => {
     const source = readFileSync(path.resolve(__dirname, 'eval-native-reminders.ts'), 'utf8');
     const texts = [...source.matchAll(/label: 'zman[^']*', text: '([^']+)'/g)].map((m) => m[1]);
-    assert(texts.length === 18, `${texts.length} cases`);
+    assert(texts.length === 20, `${texts.length} cases`);
     for (const mode of ['voice', 'text'] as const) {
       for (const people of [PAIR, SOLO]) {
         const rules = rulesFor(mode, people).toLowerCase();
@@ -395,6 +395,20 @@ async function extractionChecks() {
     for (const word of words) assert(section.includes(word), `no "${word}"`);
     // A bare midnight is the clock's 00:00; only the halachic ones are zmanim
     assert(/bare "midnight"[^\n]*"בחצות"[^\n]*"в полночь"[^\n]*00:00/.test(section), 'no rule for a bare midnight');
+  });
+
+  await check('a bare "chatzot" is halachic noon only: CHATZOT_HALAYLA is never listed under it', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      const section = zmanSection(rulesFor(mode));
+      const midnight = section.split('\n').find((line) => line.includes('CHATZOT_HALAYLA') && line.includes('Only "halachic midnight"'));
+      assert(midnight, `${mode}: no sentence for CHATZOT_HALAYLA`);
+      const [halayla, chatzot] = midnight.split(', and only ');
+      assert(halayla && chatzot, `${mode}: the sentence is not "Only ... are CHATZOT_HALAYLA, and only ... are CHATZOT": ${midnight}`);
+      assert(!halayla.includes('"chatzot"'), `${mode}: "chatzot" is listed under CHATZOT_HALAYLA: ${halayla}`);
+      assert(chatzot.includes('"chatzot"'), `${mode}: "chatzot" is not listed under CHATZOT: ${chatzot}`);
+      // The alias list names it for CHATZOT, and nowhere for CHATZOT_HALAYLA
+      assert(/CHATZOT: "halachic noon", "chatzot"/.test(section), `${mode}: the alias list lacks CHATZOT: "halachic noon", "chatzot"`);
+    }
   });
 
   await check('the zman rule refuses what is not in its list (Rabbeinu Tam, the end of Shabbat) instead of mapping it to the nearest time, and leaves a printed clock time a clock time', () => {
