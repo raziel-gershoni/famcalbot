@@ -528,6 +528,7 @@ async function sendSummaryToAll(
         // Only the tap-to-open template goes out, and the tap makes the summary (and counts it). Making it here as well
         // would be paid for twice: nothing of it would be sent. The tap also tells of a Google connection to renew.
         if (await wantsWhatsAppTemplate(user)) await sendWhatsAppSummaryTemplate(user, waButtonPayload);
+        else console.log(`[Summary] WA template skipped for user ${user.id}: the text summary is off and the voice summary is off or not in the plan`);
       } else {
         const { summary, dateHeader, otherEvents, googleReconnect } = await prepareSummaryForUser(
           user, fetchFunction, summaryDate, undefined, undefined, undefined, runOptions
