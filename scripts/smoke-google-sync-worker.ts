@@ -11,7 +11,7 @@
 //     slot-only patches, structural delete and reinsert, deletes (404/410 done), reminder and
 //     moved-out removal, the owner re-check, old one-offs, unsupported items (and their retry
 //     after a FamCal change), the Hebrew yearly singles (horizon, RDATE migration, edit, delete), no alerts on copies, the dirtySeq race;
-//   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit (a Sentry warning with its reason; the next pass at the later of a minute and Retry-After; a quota backing off per stop)
+//   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit (a Sentry warning with its reason; the user's cooldown at the later of a minute and Retry-After, which a FamCal write or another user's work does not cut short; a quota backing off per stop)
 //     pause, token, scopes, otherAccount and plan states, the reconnect message once per
 //     outage, suspended users, the admin alert after 10 attempts once per link per day; a
 //     copy's own steps (account check, create, rename, turn-off) backed off per link with the
@@ -1442,11 +1442,15 @@ async function main() {
       itemRow('L', 'a');
       worker.__resetSyncWorkerForTests();
       let op = 'events.insert'; // once the item is in Google, an edit is an update
+      // Each stop comes when the last one's cooldown ends (the user is not run before it: see the cooldown check below).
+      let clock = NOW.getTime();
       const stop = async (error: Error) => {
         captured.length = 0;
         google.failures.push({ op, error, left: 1 });
-        const result = await worker.runGoogleSyncPass(NOW);
-        return { wait: (result.next?.getTime() ?? 0) - NOW.getTime(), warning: captured.filter((c) => c.ctx === 'google-sync-rate-limit') };
+        const result = await worker.runGoogleSyncPass(new Date(clock));
+        const wait = (result.next?.getTime() ?? 0) - clock;
+        clock += wait;
+        return { wait, warning: captured.filter((c) => c.ctx === 'google-sync-rate-limit') };
       };
       const waits: number[] = [];
       for (const reason of ['dailyLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'quotaExceeded']) {
@@ -1459,7 +1463,7 @@ async function main() {
       assert((await stop(gErr(403, 'dailyLimitExceeded', 'usageLimits', { 'retry-after': '3600' }))).wait === 3_600_000, 'Retry-After 3600 against a 16 min backoff');
       assert((await stop(gErr(403, 'dailyLimitExceeded', 'usageLimits', { 'retry-after': '30' }))).wait === 32 * 60_000, 'Retry-After 30 under the backoff: the backoff (the 6th stop: 32 min)');
       // A run that reaches Google and meets no rate limit ends the run of quota stops.
-      const clean = await worker.runGoogleSyncPass(NOW);
+      const clean = await worker.runGoogleSyncPass(new Date(clock));
       assert(item('a')!.pushedSeq === item('a')!.dirtySeq, `clean run ${show(item('a'))} ${show(clean)}`);
       DB.nativeEvent.find((e: Row) => e.id === 'a')!.location = 'pool'; // a change the copy has to write
       bump('a');
@@ -1474,11 +1478,52 @@ async function main() {
       for (let i = 0; i < 2; i++) await stop(gErr(403, 'quotaExceeded', 'usageLimits'));
       captured.length = 0;
       google.failures.push({ op, error: gErr(403, 'quotaExceeded', 'usageLimits'), left: 1 });
-      const later = new Date(NOW.getTime() + 25 * HOUR);
+      const later = new Date(clock + 25 * HOUR);
       const forgotten = await worker.runGoogleSyncPass(later);
       assert((forgotten.next?.getTime() ?? 0) - later.getTime() === 60_000, `after a day: ${show(forgotten.next)}`);
     } finally {
       Math.random = random;
+    }
+  });
+
+  await check('rate-limit cooldown is the user\'s own: a pass a minute after a stop (a FamCal write opened the gate, or another user had work) makes no Google call for that user and sends no second warning, another user\'s work still runs, the pass names the cooldown\'s end as its next, and the user goes on once it ends', async () => {
+    const noaWork = () => {
+      google.accounts.set('tok-2', 'noa@example.com');
+      googleCalendar('g-noa', 'LN', { account: 'noa@example.com', summary: 'FamCal · Noa' });
+      DB.googleSyncLink.push(linkRow('LN', NOA, 'noa', { googleCalendarId: 'g-noa', pushedName: 'Noa', googleAccount: 'noa@example.com' }));
+      seriesRow('noa-ev', 'noa', { creatorUserId: NOA });
+      itemRow('LN', 'noa-ev');
+    };
+    const warnings = () => captured.filter((c) => c.ctx === 'google-sync-rate-limit');
+    for (const [label, error, wait] of [
+      ['a daily quota with Retry-After 3600', gErr(403, 'dailyLimitExceeded', 'usageLimits', { 'retry-after': '3600' }), HOUR],
+      ['a brief limit with Retry-After 300', gErr(429, 'rateLimitExceeded', 'usageLimits', { 'retry-after': '300' }), 300_000],
+    ] as Array<[string, Error, number]>) {
+      seedCopy();
+      worker.__resetSyncWorkerForTests();
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      google.failures.push({ op: 'events.insert', error, left: 1 });
+      const first = await worker.runGoogleSyncPass(NOW);
+      assert(warnings().length === 1 && first.next?.getTime() === NOW.getTime() + wait && gcalls('events.insert').length === 1, `${label}: first ${show(first)} ${show(captured)}`);
+      // A minute on: Tal writes again, and Noa has work. The gate is open and the pass runs.
+      captured.length = 0;
+      google.calls.length = 0;
+      bump('a');
+      noaWork();
+      const minute = new Date(NOW.getTime() + 60_000);
+      const second = await worker.runGoogleSyncPass(minute);
+      assert(!google.calls.some((c) => c.endsWith(' tok-1')), `${label}: Google was called for the limited user at +60 s: ${show(google.calls)}`);
+      assert(warnings().length === 0, `${label}: a second warning ${show(captured)}`);
+      assert(item('a')!.pushedSeq === 0 && item('noa-ev')!.pushedSeq === 1 && second.users === 1, `${label}: items ${show(DB.googleSyncItem)} ${show(second)}`);
+      assert(second.next?.getTime() === NOW.getTime() + wait, `${label}: the next pass is the cooldown's end: ${show(second.next)}`);
+      // The pass that finds only the limited user's work reads no Google at all and still names the end.
+      google.calls.length = 0;
+      const alone = await worker.runGoogleSyncPass(new Date(NOW.getTime() + 120_000));
+      assert(google.calls.length === 0 && alone.users === 0 && alone.next?.getTime() === NOW.getTime() + wait, `${label}: alone ${show(alone)} ${show(google.calls)}`);
+      // The cooldown over: the user goes on, and pushes.
+      const end = await worker.runGoogleSyncPass(new Date(NOW.getTime() + wait));
+      assert(gcalls('events.insert').length === 1 && item('a')!.pushedSeq === item('a')!.dirtySeq && end.users === 1, `${label}: at the end ${show(DB.googleSyncItem)} ${show(end)}`);
     }
   });
 

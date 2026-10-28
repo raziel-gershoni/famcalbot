@@ -11,11 +11,16 @@
 // - Each user's run makes at most 100 Google calls; the rest waits for the next tick.
 // - Calendars are created one at a time (serially, across the users running).
 // - A rate-limit answer ends the user's run without counting an attempt, is sent to Sentry as a
-//   warning with its reason, and sets the next pass: at the later of a minute and the
-//   Retry-After Google sent; for a quota that a wait of seconds does not clear (quotaExceeded,
-//   dailyLimitExceeded) at the jittered backoff of the user's run of quota stops (backoffMs),
-//   not every minute. (Calls inside a request are retried by the one Google retry policy,
-//   google-retry.ts; what reaches this layer is what that policy handed up.)
+//   warning with its reason, and starts the user's cooldown: no run for that user before the
+//   later of a minute and the Retry-After Google sent; for a quota that a wait of seconds does
+//   not clear (quotaExceeded, dailyLimitExceeded) the jittered backoff of the user's run of
+//   quota stops (backoffMs), not every minute. The cooldown is the user's, not the gate's: a
+//   FamCal write (which opens the gate at once) or another user's work wakes the pass, and the
+//   pass still leaves a cooling user alone and names the cooldown's end as its next. (Calls
+//   inside a request are retried by the one Google retry policy, google-retry.ts; what reaches
+//   this layer is what that policy handed up.) The cooldown lives in memory: a restart probes
+//   once at the minute, then backs off again. The gate sleeps at most an hour whatever the
+//   cooldown (gate.ts), so a longer cooldown is re-checked, and left alone, once an hour.
 //
 // Per user: a suspended user is skipped. Copies turned off with a Remove/Keep queued are
 // carried out first (link.unlinkToken ?? the user's token). Then, for the copies that are on:
@@ -148,8 +153,10 @@ type WorkerState = {
   hebrewCheckedAt: number;
   /** Per user: the quota stops in a row (a stop for quotaExceeded or dailyLimitExceeded) and when the last came. In memory: a restart probes once at the minute, then backs off again. */
   quotaStops: Map<number, { stops: number; at: number }>;
+  /** Per user: epoch ms before which no run starts, set by a rate-limit stop (stopUser). In memory, like quotaStops. */
+  cooldownUntil: Map<number, number>;
 };
-const shared = ((globalThis as { __googleSyncWorker?: WorkerState }).__googleSyncWorker ??= { creation: Promise.resolve(), hebrewCheckedAt: 0, quotaStops: new Map() });
+const shared = ((globalThis as { __googleSyncWorker?: WorkerState }).__googleSyncWorker ??= { creation: Promise.resolve(), hebrewCheckedAt: 0, quotaStops: new Map(), cooldownUntil: new Map() });
 
 /** Calendar creation is serial (spec §4 Pace): one calendars.insert at a time in the process. */
 function serially<T>(task: () => Promise<T>): Promise<T> {
@@ -163,6 +170,7 @@ export function __resetSyncWorkerForTests(): void {
   shared.creation = Promise.resolve();
   shared.hebrewCheckedAt = 0;
   shared.quotaStops.clear();
+  shared.cooldownUntil.clear();
 }
 
 // ---- Small helpers ----
@@ -220,6 +228,7 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
     if (d && (!next || d < next)) next = d;
   };
   for (const l of later) sooner(l._min.nextAttemptAt);
+  for (const [userId, until] of shared.cooldownUntil) if (until <= now.getTime()) shared.cooldownUntil.delete(userId);
 
   const hasWork = (l: LinkRow) =>
     !l.enabled || l.state === 'plan' || !l.googleCalendarId || !l.backfilledAt || l.dirtySeq > l.pushedSeq
@@ -228,7 +237,18 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
   // A copy whose own step failed waits out its backoff (retries.ts); its time is the gate's next.
   const retries = await readLinkRetries(withWork.map((l) => l.id));
   const byUser = new Map<number, LinkRow[]>();
+  const cooling = new Set<number>();
   for (const l of withWork) {
+    // A user Google rate-limited waits out the cooldown the stop set, whoever woke this pass.
+    const cooldownEnd = shared.cooldownUntil.get(l.userId);
+    if (cooldownEnd !== undefined) {
+      sooner(new Date(cooldownEnd));
+      if (!cooling.has(l.userId)) {
+        cooling.add(l.userId);
+        console.log(`[google-sync] user ${l.userId}: cooling down after a Google rate limit until ${new Date(cooldownEnd).toISOString()}; not run`);
+      }
+      continue;
+    }
     const retry = retries.get(l.id);
     if (retry && retry.at > now.getTime()) {
       sooner(new Date(retry.at));
@@ -356,6 +376,7 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
     }, 'warning');
     run.again = true;
     run.againInMs = waitMs;
+    shared.cooldownUntil.set(userId, run.now.getTime() + waitMs);
     return;
   }
   const cls = classOf(error);
