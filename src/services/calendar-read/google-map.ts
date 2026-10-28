@@ -21,7 +21,11 @@ import { isSyncCopy } from '../google-sync/markers';
  */
 export type GoogleErrorClass = 'scopes' | 'token' | 'config' | 'gone' | 'transient' | 'forbidden' | 'unknown';
 
-const RATE_LIMIT_REASONS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded']);
+/** The 403 reasons that say "too fast": a wait of seconds clears them, so a retry is worth it (Calendar API errors guide, usageLimits). */
+export const BRIEF_RATE_LIMIT_REASONS: ReadonlySet<string> = new Set(['rateLimitExceeded', 'userRateLimitExceeded']);
+/** The 403 reasons for a quota that a wait of seconds does not clear (a daily or per-project quota): never retried in-process. */
+export const LONG_QUOTA_REASONS: ReadonlySet<string> = new Set(['quotaExceeded', 'dailyLimitExceeded']);
+const RATE_LIMIT_REASONS: ReadonlySet<string> = new Set([...BRIEF_RATE_LIMIT_REASONS, ...LONG_QUOTA_REASONS]);
 
 /** What the Google client's errors carry (gaxios GaxiosError, after google-auth-library's processError). */
 interface GoogleErrorShape {
@@ -30,7 +34,7 @@ interface GoogleErrorShape {
   status?: unknown;
   type?: unknown;
   errors?: unknown;
-  response?: { status?: unknown; data?: unknown } | null;
+  response?: { status?: unknown; data?: unknown; headers?: unknown } | null;
   error?: { name?: unknown; type?: unknown } | null;
 }
 
@@ -143,6 +147,47 @@ export function isGoogleRateLimit(e: unknown): boolean {
   const err = e as GoogleErrorShape;
   const status = httpStatus(err);
   return status === 429 || (status === 403 && errorReasons(err).some((r) => RATE_LIMIT_REASONS.has(r)));
+}
+
+/**
+ * Which kind of rate limit a Google error is, or null when it is none: 'quota' when Google
+ * names a quota that a wait of seconds does not clear (quotaExceeded, dailyLimitExceeded, on
+ * a 403 or a 429), else 'brief' (a 429, or rateLimitExceeded / userRateLimitExceeded on a 403).
+ */
+export function googleRateLimitKind(e: unknown): 'brief' | 'quota' | null {
+  if (!isGoogleRateLimit(e)) return null;
+  return errorReasons(e as GoogleErrorShape).some((r) => LONG_QUOTA_REASONS.has(r)) ? 'quota' : 'brief';
+}
+
+/** The first value of a header from a plain object (any key case, as gaxios keeps them) or a Headers-like with get(). */
+function headerValue(headers: unknown, name: string): string | undefined {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const get = (headers as { get?: unknown }).get;
+  const raw: unknown =
+    typeof get === 'function'
+      ? (get as (n: string) => unknown).call(headers, name)
+      : Object.entries(headers as Record<string, unknown>).find(([k]) => k.toLowerCase() === name)?.[1];
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  return typeof first === 'string' ? first.trim() : typeof first === 'number' ? String(first) : undefined;
+}
+
+/** An HTTP-date in the two forms with an explicit GMT (IMF-fixdate, RFC 850): the server's own zone never enters. asctime has no zone and is ignored. */
+const HTTP_DATE = /^[A-Za-z]{3,9}, .+ GMT$/i;
+
+/**
+ * How long Google asked the caller to wait, in ms, from the Retry-After header of the error's
+ * response: delta-seconds ('3'), or an HTTP-date ('Wed, 21 Oct 2026 07:28:00 GMT', counted from
+ * `now`, never below 0). The header may be a plain lowercase-key object (gaxios) or a Headers
+ * (fetch). Undefined when there is none or it is not one of those two (garbage is ignored).
+ */
+export function retryAfterMs(e: unknown, now: number = Date.now()): number | undefined {
+  if (!e || typeof e !== 'object') return undefined;
+  const raw = headerValue((e as GoogleErrorShape).response?.headers, 'retry-after');
+  if (raw === undefined) return undefined;
+  if (/^\d+$/.test(raw)) return Number(raw) * 1000;
+  if (!HTTP_DATE.test(raw)) return undefined;
+  const at = Date.parse(raw);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - now);
 }
 
 /** The calendar roles that may change events (a calendarList entry's accessRole). */

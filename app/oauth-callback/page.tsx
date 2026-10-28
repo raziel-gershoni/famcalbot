@@ -10,6 +10,7 @@ import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
 import { createPendingGoogleToken, finishPageUrl, type GoogleGrant } from '@/src/services/google-connect';
 import { GOOGLE_CONNECT_SCOPES, parseGrantedScopes } from '@/src/services/google-sync/scopes';
 import { googleAccountOf } from '@/src/services/google-sync/account';
+import { googleFetch } from '@/src/services/google-retry';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
 
@@ -320,12 +321,14 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   }
   const retryHref = retryHrefFor(user);
 
-  // Exchange code for tokens
+  // Exchange code for tokens. googleFetch retries a rate limit or a 5xx on the token endpoint
+  // (the state is used up already, so a failure here is a "try again" page); a code Google
+  // had redeemed before the answer was lost comes back invalid_grant, the page it would have been.
   const redirectUri = buildUrl('/api/refresh-token');
   let tokenResponse;
 
   try {
-    tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    tokenResponse = await googleFetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

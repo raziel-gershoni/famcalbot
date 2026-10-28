@@ -177,19 +177,20 @@ async function lookUpUserTimezone(user: TimezoneUser): Promise<string> {
     }
   }
 
-  // 3. Try Google Calendar settings (with 1 retry)
+  // 3. Try Google Calendar settings. One call: getUserCalendarTimezone catches every Google
+  // failure itself (it logs it and answers null), and its requests carry the one Google retry
+  // policy (google-retry.ts), so a retry loop here never had an error to retry.
   if (user.googleRefreshToken) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
-        if (gcalTz) {
-          await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
-          return gcalTz;
-        }
-        break;
-      } catch {
-        if (attempt === 0) await new Promise(r => setTimeout(r, 2000));
+    try {
+      const gcalTz = await getUserCalendarTimezone(user.googleRefreshToken);
+      if (gcalTz) {
+        await redis.set(cacheKey, gcalTz, { ex: TIMEZONE_CACHE_TTL });
+        return gcalTz;
       }
+    } catch (error) {
+      // Only the cache write can land here; the zone is still unresolved, so step 4 decides.
+      console.warn(`[timezone] user ${user.id}: caching the Google Calendar zone failed`, error);
+      captureError(error, 'timezone-resolution', { user_id: user.id, service: 'timezone', step: 'google' }, 'warning');
     }
   }
 

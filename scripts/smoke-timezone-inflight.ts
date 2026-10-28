@@ -95,6 +95,10 @@ const fakeGeocoding = {
   },
 };
 
+/** Google Calendar's timezone lookup (getUserCalendarTimezone): the calls it got, and what it answers (null: it found none). */
+const googleZoneCalls: string[] = [];
+let googleZone: () => Promise<string | null> = async () => null;
+
 /** Every console line written while the checks ran. */
 const consoleLines: string[] = [];
 /** What error capture was asked to send (a Sentry event's message, context and extra). */
@@ -110,7 +114,12 @@ function installStubs() {
   };
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/services/weather/geocoding.ts', fakeGeocoding);
-  stub('src/services/calendar.ts', { getUserCalendarTimezone: async () => null });
+  stub('src/services/calendar.ts', {
+    getUserCalendarTimezone: async (token: string) => {
+      googleZoneCalls.push(token);
+      return googleZone();
+    },
+  });
   const record = (level: string) => (message: string, context: unknown, extra: unknown) => {
     captures.push({ level, message, context, extra });
   };
@@ -138,6 +147,8 @@ function seed() {
   redisSets = 0;
   holdReads = null;
   geocodes.length = 0;
+  googleZoneCalls.length = 0;
+  googleZone = async () => null;
 }
 
 /** The one geocode call still waiting for `location`. */
@@ -283,6 +294,31 @@ async function main() {
       assert(typeof ctx.user_id === 'number' && 'hasToken' in ctx, `context ${show(ctx)}`);
     }
     assert(!JSON.stringify(captures).includes('Secret Street') && !JSON.stringify(captures).includes('Springfield'), 'the location reached error capture');
+  });
+
+  await check('the Google Calendar step is one call: it finds the zone and caches it, or finds none and the default is used; a failure in the step is logged (warning, with the user id) and never waited out or tried twice', async () => {
+    seed();
+    googleZone = async () => 'Europe/Paris';
+    assert(await resolveUserTimezone({ id: 41, googleRefreshToken: 'tok-41' }) === 'Europe/Paris' && googleZoneCalls.length === 1 && redisStore.get('tz:user:41') === 'Europe/Paris', `found: ${googleZoneCalls.length} calls, cached ${show(redisStore.get('tz:user:41'))}`);
+    seed();
+    captures.length = 0;
+    const fallback = await resolveUserTimezone({ id: 42, googleRefreshToken: 'tok-42' });
+    assert(googleZoneCalls.length === 1 && typeof fallback === 'string' && redisStore.get('tz:user:42') === fallback, `none found: ${googleZoneCalls.length} calls, zone ${show(fallback)}`);
+    // A step that throws (getUserCalendarTimezone catches everything itself, so only the cache write can): logged once, one call, no 2 s wait.
+    seed();
+    captures.length = 0;
+    googleZone = async () => {
+      throw new Error('the step failed');
+    };
+    const started = Date.now();
+    const zone = await resolveUserTimezone({ id: 43, googleRefreshToken: 'tok-43' });
+    const took = Date.now() - started;
+    assert(googleZoneCalls.length === 1, `a failing step was called ${googleZoneCalls.length} times`);
+    assert(took < 1000, `a failing step took ${took} ms (a fixed wait?)`);
+    assert(typeof zone === 'string', `zone ${show(zone)}`);
+    const step = captures.filter((c) => (c.extra as Row | undefined)?.step === 'google');
+    assert(step.length === 1 && step[0].context === 'timezone-resolution' && (step[0].extra as Row).user_id === 43 && String(step[0].message).includes('the step failed'), `captures ${show(captures.map((c) => [c.level, c.context, c.extra]))}`);
+    assert(consoleLines.some((l) => l.includes('[timezone] user 43')), 'no console line for the failed step');
   });
 
   await check('the shared lookup prints nothing: no console line names a location', () => {

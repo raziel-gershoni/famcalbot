@@ -42,25 +42,3 @@ export function isInsufficientScopesError(error: unknown): boolean {
      message.includes('insufficientpermissions'))
   );
 }
-
-export function isTokenError(error: unknown): boolean {
-  if (!error) return false;
-
-  const err = error as { message?: string; code?: number };
-  const message = err.message?.toLowerCase() || '';
-  const code = err.code;
-
-  // Don't treat scope errors as token errors - they need different handling
-  if (isInsufficientScopesError(error)) {
-    return false;
-  }
-
-  return (
-    code === 401 ||
-    code === 403 ||
-    message.includes('invalid_grant') ||
-    message.includes('invalid credentials') ||
-    message.includes('token') ||
-    message.includes('unauthorized')
-  );
-}

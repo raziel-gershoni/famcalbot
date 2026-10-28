@@ -92,6 +92,7 @@ function failOn(match: (r: Req) => boolean, answer: Answer, o: { times?: number;
 
 const writes = () => calls.filter((c) => c.method !== 'GET');
 /** gaxios retries a GET or DELETE that answered 5xx three times: a failure that lasts answers every try. */
+/** Requests a failure lasts for: Google calls (the one policy, google-retry.ts) are tried 1 + 3 times on a 5xx, a PATCH and a DELETE as well. */
 const RETRIED = 4;
 const eventsOf = (cal: string) => evs.get(cal) ?? new Map<string, Row>();
 const stored = (cal: string, id: string) => eventsOf(cal).get(id);
@@ -640,6 +641,9 @@ async function main() {
     consoleLines.push(`${name} did not load: ${err.message.split('\n')[0]}`);
     return {} as Row;
   };
+  // The Google retry policy runs for real; only its sleep and dice are replaced, so a failure that lasts costs no time.
+  const retry = await load('src/services/google-retry.ts');
+  retry.__useGoogleRetryForTests({ sleep: async () => {}, random: () => 0 });
   const mapper = await load('src/services/calendar-move/mapper.ts').catch(missing('mapper.ts'));
   const write = await load('src/services/calendar-write/write.ts');
   const info = await load('src/services/calendar-write/item-info.ts');
@@ -929,7 +933,7 @@ async function main() {
     reset();
     seedSeries('wk', { rrule: 'FREQ=WEEKLY;COUNT=4', startsAt: at('2026-10-06T10:00:00') });
     seedInstance('wk', at('2026-10-20T10:00:00'), { status: 'OVERRIDE', title: 'Moved' });
-    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'));
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'), { times: RETRIED });
     assertSame(await move(NOA, key, NOA_CAL), { status: 'failed' }, 'patch failed');
     assertSame([eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted], [0, false], 'the copy deleted, original kept');
     assert(captured.some((c) => c.ctx.startsWith('calendar-move')), `logged: ${show(captured.map((c) => c.ctx))}`);
@@ -1027,7 +1031,7 @@ async function main() {
     assertSame([r, eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted, leftReported()], [{ status: 'move_failed' }, 1, false, true], 'no instance, the take-back failed');
     reset();
     seedWk();
-    failOn((r) => r.method === 'PATCH', fail(500, 'backendError'));
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError'), { times: RETRIED });
     failOn((r) => r.method === 'DELETE', fail(500, 'backendError'), { times: RETRIED });
     const r2 = await move(NOA, key, NOA_CAL);
     assertSame([r2, eventsOf(NOA_CAL).size, eventRow('wk')!.isDeleted, leftReported()], [{ status: 'move_failed' }, 1, false, true], 'a failed patch, the take-back failed');

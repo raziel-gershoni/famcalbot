@@ -657,10 +657,15 @@ async function main() {
       assert(elapsed < 300, `took ${elapsed} ms for 100 ms requests`);
       // A calendar that fails is skipped, the rest sorted by start
       assert(events.map(e => `${e.summary}@${e.calendarName}`).join(', ') === `Meeting@${cals[0]}, Dentist@${cals[3]}, Gym@${cals[2]}`, `got ${events.map(e => e.summary).join(', ')}`);
-      // and one whose token is refused fails the whole fetch.
-      googleCalls.failing = { [cals[3]]: Object.assign(new Error('invalid_grant'), { code: 400 }) };
+      // and one whose token is refused fails the whole fetch. The error is the token endpoint's own
+      // shape (the message and the OAuth error in the body: classifyGoogleError reads the body, no
+      // longer the bare message), and a 403 rate limit is not a token error.
+      googleCalls.failing = { [cals[3]]: Object.assign(new Error('invalid_grant'), { code: 400, response: { status: 400, data: { error: 'invalid_grant' } } }) };
       const failed = await fetchEventsInRange('refresh-token', cals, ...range).then(() => 'resolved', (err: Error) => err.message);
       assert(failed === 'GOOGLE_TOKEN_EXPIRED', `token error: ${failed}`);
+      googleCalls.failing = { [cals[3]]: Object.assign(new Error('Rate Limit Exceeded'), { code: 403, response: { status: 403, data: { error: { code: 403, errors: [{ domain: 'usageLimits', reason: 'rateLimitExceeded' }] } } } }) };
+      const limited = await fetchEventsInRange('refresh-token', cals, ...range).then(e => `resolved ${e.length}`, (err: Error) => err.message);
+      assert(limited === 'resolved 2', `one calendar rate limited: ${limited}`);
       // When not one calendar answers, Google couldn't be read at all: the fetch fails, so the
       // split fetch knows its Google half failed (G2), not a day with no events.
       googleCalls.failing = Object.fromEntries(cals.map(c => [c, Object.assign(new Error('Backend Error'), { code: 503 })]));
@@ -868,7 +873,7 @@ async function main() {
     nativeCalendars = [{ id: 'cal21', name: 'Dana', labels: ['yours'] }];
     nativeEvents = [{ calendarId: 'cal21', id: 'n21', title: 'Swim', startsAt: at('2026-10-13 10:00', IL), endsAt: at('2026-10-13 11:00', IL), timeZone: IL }];
     googleEvents = [{ calendarId: kidsCal, id: 'k21', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
-    googleCalls.failing[kidsCal] = Object.assign(new Error('invalid_grant'), { code: 400 });
+    googleCalls.failing[kidsCal] = Object.assign(new Error('invalid_grant'), { code: 400, response: { status: 400, data: { error: 'invalid_grant' } } });
     try {
       await syncCache(handlers, at('2026-10-13 07:00', IL));
       await runTicks(handlers, at('2026-10-13 09:40', IL), at('2026-10-13 09:50', IL));

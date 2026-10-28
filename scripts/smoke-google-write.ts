@@ -61,7 +61,7 @@ const NY = 'America/New_York';
 
 interface CalMeta { summary: string; accessRole: string; primary?: boolean; timeZone: string; backgroundColor: string }
 type Req = { method: string; path: string; params: Row; body: Row | undefined };
-type Answer = { status: number; data: unknown };
+type Answer = { status: number; data: unknown; headers?: Record<string, string> };
 
 const cals = new Map<string, CalMeta>();
 const evs = new Map<string, Map<string, Row>>();
@@ -302,7 +302,7 @@ function installFakeGoogle(): void {
         answer = serve(req);
       }
     }
-    return { config: opts, data: answer.data, headers: {}, status: answer.status, statusText: String(answer.status), request: { responseURL: String(opts.url) } };
+    return { config: opts, data: answer.data, headers: answer.headers ?? {}, status: answer.status, statusText: String(answer.status), request: { responseURL: String(opts.url) } };
   };
 }
 
@@ -492,6 +492,13 @@ async function main() {
     (console as Row)[level] = (...args: unknown[]) => { consoleLines.push(args.map(String).join(' ')); };
   }
 
+  // The one Google retry policy (google-retry.ts) runs for real; only its sleep and dice are replaced, so no
+  // real time passes and `retryWaits` shows what it waited. A rate limit or a 5xx on a write is retried
+  // (a create only on a rate limit), so a failure the checks below want to see lasts for 1 + 3 requests.
+  const retry = await load('services/google-retry.ts');
+  const retryWaits: number[] = [];
+  retry.__useGoogleRetryForTests({ sleep: async (ms: number) => { retryWaits.push(ms); }, random: () => 0 });
+  const FAILS = 4;
   const { googleProvider } = await load('services/calendar-provider/google-provider.ts');
   const { wouldRefuseFixedDays } = await load('services/calendar-provider/native-provider.ts');
   const write = await load('services/calendar-write/write.ts');
@@ -564,17 +571,37 @@ async function main() {
     assertSame((await remove(NOA, NOA_CAL, 'e1', { scope: 'single' })).error, 'NOT_FOUND', 'delete 410');
   });
 
-  await check('errors: a rate limit (429, or a 403 with a rate-limit reason) and a 5xx are UNKNOWN_ERROR with retryable', async () => {
+  await check('errors: a rate limit (429, or a 403 with a rate-limit reason) and a 5xx that outlast the retries are UNKNOWN_ERROR with retryable', async () => {
     seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
-    failOn((r) => r.method === 'PATCH', fail(429, 'rateLimitExceeded', 'Rate Limit Exceeded'));
+    failOn((r) => r.method === 'PATCH', fail(429, 'rateLimitExceeded', 'Rate Limit Exceeded'), FAILS);
     const a = await update(NOA, NOA_CAL, 'e1', { title: 'x' });
-    assertSame([a.error, a.retryable], ['UNKNOWN_ERROR', true], '429');
-    failOn((r) => r.method === 'PATCH', fail(403, 'userRateLimitExceeded', 'User Rate Limit Exceeded'));
+    assertSame([a.error, a.retryable, writes().length], ['UNKNOWN_ERROR', true, FAILS], '429');
+    calls.length = 0;
+    failOn((r) => r.method === 'PATCH', fail(403, 'userRateLimitExceeded', 'User Rate Limit Exceeded'), FAILS);
     const b = await update(NOA, NOA_CAL, 'e1', { title: 'x' });
-    assertSame([b.error, b.retryable], ['UNKNOWN_ERROR', true], '403 rate limit');
+    assertSame([b.error, b.retryable, writes().length], ['UNKNOWN_ERROR', true, FAILS], '403 rate limit');
+    calls.length = 0;
     failOn((r) => r.method === 'POST', fail(500, 'backendError', 'Backend Error'));
     const c = await googleProvider.createEvent(NOA, NOA_CAL, { title: 'x', startTime: at('2026-10-20T10:00:00'), endTime: at('2026-10-20T11:00:00') });
-    assertSame([c.error, c.retryable], ['UNKNOWN_ERROR', true], '500 on insert');
+    assertSame([c.error, c.retryable, writes().length], ['UNKNOWN_ERROR', true, 1], '500 on insert: a create is not repeated, it might have gone through');
+  });
+
+  await check('errors: one rate limit or one 5xx on an edit is retried and the edit lands (waiting what Retry-After said); a create is retried on a rate limit, never on a 5xx', async () => {
+    retryWaits.length = 0;
+    seed(NOA_CAL, 'e1', { start: '2026-10-20T10:00:00' });
+    failOn((r) => r.method === 'PATCH', { ...fail(429, 'rateLimitExceeded', 'Rate Limit Exceeded'), headers: { 'retry-after': '2' } });
+    const a = await update(NOA, NOA_CAL, 'e1', { title: 'x' });
+    assertSame([a.success, writes().length, retryWaits], [true, 2, [2000]], 'patch, 429 then ok');
+    calls.length = 0;
+    retryWaits.length = 0;
+    failOn((r) => r.method === 'PATCH', fail(503, 'backendError', 'Backend Error'));
+    const b = await update(NOA, NOA_CAL, 'e1', { title: 'y' });
+    assertSame([b.success, writes().length, retryWaits.length], [true, 2, 1], 'patch, 503 then ok');
+    calls.length = 0;
+    failOn((r) => r.method === 'POST', fail(403, 'userRateLimitExceeded', 'User Rate Limit Exceeded'));
+    const c = await googleProvider.createEvent(NOA, NOA_CAL, { title: 'x', startTime: at('2026-10-20T10:00:00'), endTime: at('2026-10-20T11:00:00') });
+    assertSame([c.success, writes().length], [true, 2], 'create, 403 rate limit then ok');
+    assertSame(evs.get(NOA_CAL)!.size, 2, 'one event made, not two');
   });
 
   await check('errors: a create on a calendar the user only reads is FORBIDDEN', async () => {
@@ -1340,7 +1367,7 @@ async function main() {
     calls.length = 0;
     stamps.length = 0;
     captured.length = 0;
-    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'));
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'), FAILS);
     const b = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, 'one'), scope: 'single', changes: { calendarId: FAMILY, title: 'x' } }), IL);
     assertSame(b, { status: 'ok', key: gkey(FAMILY, 'one') }, 'ok after the move');
     assert(captured.some((c) => c.ctx === 'calendar-google-item-patch-after-move'), `not logged: ${show(captured.map((c) => c.ctx))}`);
@@ -1349,7 +1376,7 @@ async function main() {
 
   await check('move: "following" from the first occurrence with a calendar change (run as "all"): a patch that fails after the move is logged, and the new key is returned', async () => {
     WEEKLY_TUE();
-    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'));
+    failOn((r) => r.method === 'PATCH', fail(500, 'backendError', 'Backend Error'), FAILS);
     const first = inst('wk', '2026-10-06T10:00:00');
     const r = await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, first), scope: 'following', changes: { calendarId: FAMILY, title: 'x' } }), IL);
     assertSame([r, Boolean(stored(FAMILY, 'wk'))], [{ status: 'ok', key: gkey(FAMILY, first) }, true], 'ok after the move');
@@ -1379,7 +1406,7 @@ async function main() {
     assertSame(await edit(), { status: 'not_allowed' }, 'forbidden');
     failOn((r) => r.method === 'PATCH', fail(404, 'notFound', 'Not Found'));
     assertSame(await edit(), { status: 'changed' }, 'gone');
-    failOn((r) => r.method === 'PATCH', fail(429, 'rateLimitExceeded', 'Rate Limit Exceeded'));
+    failOn((r) => r.method === 'PATCH', fail(429, 'rateLimitExceeded', 'Rate Limit Exceeded'), FAILS);
     assertSame(await edit(), { status: 'failed' }, 'transient');
     WEEKLY_TUE({ recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=TU'] });
     assertSame(await write.updateItem(NOA, patchCmd({ key: gkey(NOA_CAL, inst('wk', '2026-10-20T10:00:00')), scope: 'all', changes: { start: '2026-10-21T10:00', end: '2026-10-21T11:00' } }), IL), { status: 'invalid', field: 'start' }, 'fixed days');
@@ -1403,7 +1430,7 @@ async function main() {
     assertSame(await create({ calendarId: FAMILY }), { status: 'failed' }, '503, a calendar');
     assertSame(await create(), { status: 'failed' }, '503, no calendar');
     rules = [];
-    // The list's reader rewrites any 403 to GOOGLE_TOKEN_EXPIRED; Google's own error says it is a rate limit.
+    // The list's reader once rewrote any 403 to GOOGLE_TOKEN_EXPIRED (isTokenError); Google's own error says it is a rate limit, and it stays one.
     failOn(list, fail(403, 'rateLimitExceeded', 'Rate Limit Exceeded'), 20);
     assertSame(await create({ calendarId: FAMILY }), { status: 'failed' }, 'a 403 rate limit');
     rules = [];

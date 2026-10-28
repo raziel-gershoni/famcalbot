@@ -11,7 +11,7 @@
 //     slot-only patches, structural delete and reinsert, deletes (404/410 done), reminder and
 //     moved-out removal, the owner re-check, old one-offs, unsupported items (and their retry
 //     after a FamCal change), the Hebrew yearly singles (horizon, RDATE migration, edit, delete), no alerts on copies, the dirtySeq race;
-//   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit
+//   - failures: the 404 split (calendars.get), a second 404, backoff with jitter, the rate-limit (a Sentry warning with its reason; the next pass at the later of a minute and Retry-After; a quota backing off per stop)
 //     pause, token, scopes, otherAccount and plan states, the reconnect message once per
 //     outage, suspended users, the admin alert after 10 attempts once per link per day; a
 //     copy's own steps (account check, create, rename, turn-off) backed off per link with the
@@ -423,9 +423,9 @@ const fakeRedis: Row = {
 // ---- Fake Google ----
 
 /** A Google API error as gaxios shapes it. */
-function gErr(status: number, reason?: string, domain = 'global'): Error {
+function gErr(status: number, reason?: string, domain = 'global', headers: Record<string, string> = {}): Error {
   return Object.assign(new Error(`Google HTTP ${status}${reason ? ` ${reason}` : ''}`), {
-    response: { status, data: { error: { code: status, errors: reason ? [{ domain, reason, message: reason }] : [] } } },
+    response: { status, headers, data: { error: { code: status, errors: reason ? [{ domain, reason, message: reason }] : [] } } },
     config: { data: 'REQUEST BODY WITH TITLES' },
   });
 }
@@ -1403,17 +1403,84 @@ async function main() {
     assert(later.next?.getTime() === item('a')!.nextAttemptAt.getTime(), `the gate's next ${show(later)} vs ${show(item('a'))}`);
   });
 
-  for (const [label, error] of [['403 rateLimitExceeded (usageLimits)', gErr(403, 'rateLimitExceeded', 'usageLimits')], ['403 userRateLimitExceeded', gErr(403, 'userRateLimitExceeded', 'usageLimits')], ['429', gErr(429, 'rateLimitExceeded', 'usageLimits')]] as Array<[string, Error]>) {
-    await check(`rate limit (${label}): the user's run ends with no attempt counted and nothing sent to Sentry; the next tick goes on`, async () => {
+  for (const [label, error, reasons] of [['403 rateLimitExceeded (usageLimits)', gErr(403, 'rateLimitExceeded', 'usageLimits'), ['rateLimitExceeded']], ['403 userRateLimitExceeded', gErr(403, 'userRateLimitExceeded', 'usageLimits'), ['userRateLimitExceeded']], ['429', gErr(429, 'rateLimitExceeded', 'usageLimits'), ['rateLimitExceeded']]] as Array<[string, Error, string[]]>) {
+    await check(`rate limit (${label}): the user's run ends with no attempt counted and one Sentry warning with the reason; the next tick (a minute on) goes on`, async () => {
       seedCopy();
       seriesRow('a', 'home');
       itemRow('L', 'a');
       google.failures.push({ op: 'events.insert', error, left: 1 });
       const result = await pass();
-      assert(item('a')!.attempts === 0 && item('a')!.nextAttemptAt === null && captured.length === 0, `item ${show(item('a'))} captured ${show(captured)}`);
+      assert(item('a')!.attempts === 0 && item('a')!.nextAttemptAt === null, `item ${show(item('a'))}`);
+      assert(captured.length === 1 && captured[0].ctx === 'google-sync-rate-limit' && captured[0].level === 'warning' && captured[0].message === `Google rate limit (${error.message.includes('429') ? 429 : 403} ${reasons[0]}, brief) stopped a copy run`, `captured ${show(captured)}`);
+      assert(captured[0].extra?.user_id === TAL && show(captured[0].extra?.reasons) === show(reasons) && captured[0].extra?.kind === 'brief' && captured[0].extra?.next_pass_in_ms === 60_000, `extra ${show(captured[0].extra)}`);
       assert(result.next?.getTime() === NOW.getTime() + 60_000, `next ${show(result.next)}`);
+      assert(!JSON.stringify(captured).includes('REQUEST BODY'), 'the request body reached Sentry');
     });
   }
+
+  await check('rate limit with Retry-After: the next pass is the later of a minute and what Google asked (capped at 6 h); a Retry-After under a minute leaves the minute', async () => {
+    for (const [asked, want] of [['300', 300_000], ['5', 60_000], ['99999', 6 * HOUR], ['soon', 60_000]] as const) {
+      seedCopy();
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      captured.length = 0;
+      google.failures.push({ op: 'events.insert', error: gErr(429, 'rateLimitExceeded', 'usageLimits', { 'retry-after': asked }), left: 1 });
+      const result = await pass();
+      assert(result.next?.getTime() === NOW.getTime() + want, `Retry-After ${asked}: next ${show(result.next)} want +${want}`);
+      assert(captured.length === 1 && captured[0].extra?.next_pass_in_ms === want, `Retry-After ${asked}: captured ${show(captured)}`);
+      assert(asked === 'soon' ? captured[0].extra?.retry_after_ms === undefined : captured[0].extra?.retry_after_ms === Number(asked) * 1000, `retry_after_ms ${show(captured[0].extra)}`);
+      assert(item('a')!.attempts === 0, 'an attempt was counted');
+    }
+  });
+
+  await check('quota (dailyLimitExceeded, quotaExceeded): each stop in a row backs off with backoffMs (a minute, two, four ...), not every minute; Retry-After wins when longer; a clean run ends the run of stops; a brief limit never grows', async () => {
+    const random = Math.random;
+    Math.random = () => 1; // backoffMs at its full value: 60 s * 2^(stops - 1)
+    try {
+      seedCopy();
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      worker.__resetSyncWorkerForTests();
+      let op = 'events.insert'; // once the item is in Google, an edit is an update
+      const stop = async (error: Error) => {
+        captured.length = 0;
+        google.failures.push({ op, error, left: 1 });
+        const result = await worker.runGoogleSyncPass(NOW);
+        return { wait: (result.next?.getTime() ?? 0) - NOW.getTime(), warning: captured.filter((c) => c.ctx === 'google-sync-rate-limit') };
+      };
+      const waits: number[] = [];
+      for (const reason of ['dailyLimitExceeded', 'quotaExceeded', 'dailyLimitExceeded', 'quotaExceeded']) {
+        const r = await stop(gErr(403, reason, 'usageLimits'));
+        waits.push(r.wait);
+        assert(r.warning.length === 1 && r.warning[0].level === 'warning' && r.warning[0].message === `Google rate limit (403 ${reason}, quota) stopped a copy run` && r.warning[0].extra?.kind === 'quota', `warning ${show(r.warning)}`);
+      }
+      assert(show(waits) === show([60_000, 120_000, 240_000, 480_000]), `waits ${show(waits)}`);
+      assert(item('a')!.attempts === 0, 'an attempt was counted');
+      assert((await stop(gErr(403, 'dailyLimitExceeded', 'usageLimits', { 'retry-after': '3600' }))).wait === 3_600_000, 'Retry-After 3600 against a 16 min backoff');
+      assert((await stop(gErr(403, 'dailyLimitExceeded', 'usageLimits', { 'retry-after': '30' }))).wait === 32 * 60_000, 'Retry-After 30 under the backoff: the backoff (the 6th stop: 32 min)');
+      // A run that reaches Google and meets no rate limit ends the run of quota stops.
+      const clean = await worker.runGoogleSyncPass(NOW);
+      assert(item('a')!.pushedSeq === item('a')!.dirtySeq, `clean run ${show(item('a'))} ${show(clean)}`);
+      DB.nativeEvent.find((e: Row) => e.id === 'a')!.location = 'pool'; // a change the copy has to write
+      bump('a');
+      op = 'events.update';
+      const restarted = (await stop(gErr(403, 'quotaExceeded', 'usageLimits'))).wait;
+      assert(restarted === 60_000, `after a clean run the backoff starts again: ${restarted}`);
+      // A brief limit takes a minute every time.
+      const briefWaits: number[] = [];
+      for (let i = 0; i < 3; i++) briefWaits.push((await stop(gErr(429, 'rateLimitExceeded', 'usageLimits'))).wait);
+      assert(show(briefWaits) === show([60_000, 60_000, 60_000]), `brief waits ${show(briefWaits)}`);
+      // A run of stops older than a day is forgotten.
+      for (let i = 0; i < 2; i++) await stop(gErr(403, 'quotaExceeded', 'usageLimits'));
+      captured.length = 0;
+      google.failures.push({ op, error: gErr(403, 'quotaExceeded', 'usageLimits'), left: 1 });
+      const later = new Date(NOW.getTime() + 25 * HOUR);
+      const forgotten = await worker.runGoogleSyncPass(later);
+      assert((forgotten.next?.getTime() ?? 0) - later.getTime() === 60_000, `after a day: ${show(forgotten.next)}`);
+    } finally {
+      Math.random = random;
+    }
+  });
 
   await check('token: no token sets every working link of the user to token and sends the reconnect message once per outage (Telegram, /refresh-token); a commit\'s clear lets the next outage message again', async () => {
     seedCopy();
@@ -2109,7 +2176,7 @@ async function main() {
     assert(String(redisStore.get('google-sync:link-retry:L')?.value).startsWith('11:') && adminWarnings.length === 1, `the same day ${show(adminWarnings)}`);
   });
 
-  await check('the account check failing transiently backs off every copy of the user; a 403 rate limit on it pauses the run with nothing counted or sent to Sentry', async () => {
+  await check('the account check failing transiently backs off every copy of the user; a 403 rate limit on it pauses the run with nothing counted and one Sentry warning', async () => {
     seedCopy();
     seriesRow('a', 'home');
     itemRow('L', 'a');
@@ -2121,14 +2188,17 @@ async function main() {
     itemRow('L', 'a');
     google.failures.push({ op: 'account', error: gErr(403, 'userRateLimitExceeded', 'usageLimits'), left: 1 });
     const result = await pass();
-    assert(result.next?.getTime() === NOW.getTime() + 60_000 && captured.length === 0 && !redisStore.has('google-sync:link-retry:L'), `rate limit ${show(result)} ${show(captured)}`);
+    assert(result.next?.getTime() === NOW.getTime() + 60_000 && captured.length === 1 && captured[0].ctx === 'google-sync-rate-limit' && captured[0].level === 'warning' && !redisStore.has('google-sync:link-retry:L'), `rate limit ${show(result)} ${show(captured)}`);
   });
 
   await check('googleAccountOf: a 403 carries Google\'s reasons, so usageLimits is a rate limit and insufficientPermissions a missing scope; a body that isn\'t JSON still keeps its status; a network failure is transient', async () => {
     const account = await load('src/services/google-sync/account.ts');
     const map = await load('src/services/calendar-read/google-map.ts');
     const blocked = globalThis.fetch;
-    const answer = (status: number, body: string) => { globalThis.fetch = (async () => new Response(body, { status, headers: { 'content-type': 'application/json' } })) as typeof fetch; };
+    // googleFetch (the one Google retry policy) runs for real; only its sleep and dice are replaced.
+    const retry = await load('src/services/google-retry.ts');
+    retry.__useGoogleRetryForTests({ sleep: async () => {}, random: () => 0 });
+    const answer = (status: number, body: string, headers: Record<string, string> = {}) => { globalThis.fetch = (async () => new Response(body, { status, headers: { 'content-type': 'application/json', ...headers } })) as typeof fetch; };
     const thrown = async () => {
       try {
         await account.googleAccountOf('access-token');
@@ -2139,8 +2209,9 @@ async function main() {
     };
     const googleBody = (reason: string, domain: string) => JSON.stringify({ error: { code: 403, message: reason, errors: [{ domain, reason, message: reason }] } });
     try {
-      answer(403, googleBody('rateLimitExceeded', 'usageLimits'));
+      answer(403, googleBody('rateLimitExceeded', 'usageLimits'), { 'retry-after': '120' });
       const limit = await thrown();
+      assert(map.retryAfterMs(limit) === 120_000, `Retry-After on the thrown error: ${map.retryAfterMs(limit)}`);
       answer(403, googleBody('userRateLimitExceeded', 'usageLimits'));
       const userLimit = await thrown();
       answer(403, googleBody('insufficientPermissions', 'global'));
@@ -2155,6 +2226,7 @@ async function main() {
       assert(map.classifyGoogleError(html) === 'transient', `html ${show(html)}`);
     } finally {
       globalThis.fetch = blocked;
+      retry.__useGoogleRetryForTests(null);
     }
   });
 

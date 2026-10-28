@@ -9,17 +9,22 @@
 // address"; FamCal only compares it for equality (the copy's account against the token's),
 // and never logs it, since it is an address.
 
+import { googleFetch } from '../google-retry';
+
 const PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id';
 
 /**
  * The account of an access token: its primary calendar's id. Throws on any failure (the
  * caller logs it with the user id and decides what an unknown account means). No timeout
- * of its own: the request ends at Google's or the platform's ceiling.
+ * of its own: the request ends at Google's or the platform's ceiling. The request goes
+ * through the one Google retry policy (googleFetch: a rate limit or a 5xx is retried, and
+ * Retry-After honoured); what still fails is thrown with Google's headers on its response, so
+ * retryAfterMs reads the wait Google asked for.
  */
 export async function googleAccountOf(accessToken: string): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+    res = await googleFetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
   } catch (error) {
     // No answer at all (native fetch rejects with TypeError('fetch failed'), the cause carrying
     // the network code): a string code and no response, which classifyGoogleError counts as
@@ -30,11 +35,13 @@ export async function googleAccountOf(accessToken: string): Promise<string> {
   }
   if (!res.ok) {
     // The status and Google's error body ride on the error as the API client shapes them
-    // (response: { status, data }), so classifyGoogleError and isGoogleRateLimit read the 403's
+    // (response: { status, data, headers }, the headers as gaxios keeps them: a plain object with
+    // lowercase keys), so classifyGoogleError and isGoogleRateLimit read the 403's
     // reasons too: usageLimits (rateLimitExceeded, userRateLimitExceeded) is a rate limit,
     // insufficientPermissions a missing scope; 401 is the token, 429 a rate limit, 5xx transient.
     const data = await errorBody(res);
-    throw Object.assign(new Error(`calendars.get(primary) answered HTTP ${res.status}`), { status: res.status, response: { status: res.status, data } });
+    const headers = Object.fromEntries(res.headers.entries());
+    throw Object.assign(new Error(`calendars.get(primary) answered HTTP ${res.status}`), { status: res.status, response: { status: res.status, data, headers } });
   }
   const body = (await res.json()) as { id?: unknown };
   if (typeof body.id !== 'string' || body.id === '') throw new Error('calendars.get(primary) answered with no id');

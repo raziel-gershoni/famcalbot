@@ -204,7 +204,12 @@ function fakeGoogle(token: string) {
 // ---- Fake fetch: Google's revoke endpoint only ----
 
 const revokes: { url: string; body: string; contentType: string | null }[] = [];
-let revokeAnswer: { status: number; body: Row } | 'throw' = { status: 200, body: {} };
+const retryWaits: number[] = [];
+/** A list's length read afresh: an assert on `.length` narrows it for the checks after it. */
+const count = (list: readonly unknown[]): number => list.length;
+let revokeAnswer: { status: number; body: Row; headers?: Record<string, string> } | 'throw' = { status: 200, body: {} };
+/** Answers served first, one per revoke, before revokeAnswer repeats. */
+let revokeQueue: Array<NonNullable<typeof revokeAnswer>> = [];
 globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const url = String(input);
   if (url !== 'https://oauth2.googleapis.com/revoke') throw new Error(`network blocked in smoke: ${url}`);
@@ -212,8 +217,9 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const body = String(init.body);
   revokes.push({ url, body, contentType: headers.get('content-type') });
   events.push(`revoke ${new URLSearchParams(body).get('token')}`);
-  if (revokeAnswer === 'throw') throw new TypeError('fetch failed');
-  return new Response(JSON.stringify(revokeAnswer.body), { status: revokeAnswer.status, headers: { 'Content-Type': 'application/json' } });
+  const answer = revokeQueue.shift() ?? revokeAnswer;
+  if (answer === 'throw') throw new TypeError('fetch failed');
+  return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', ...answer.headers } });
 }) as typeof fetch;
 
 // ---- Stubs served to import() ----
@@ -338,7 +344,9 @@ function seed(o: { copies?: string[]; extra?: (() => void) } = {}) {
   stamped.length = 0;
   featureInvalidated.length = 0;
   revokes.length = 0;
+  retryWaits.length = 0;
   revokeAnswer = { status: 200, body: {} };
+  revokeQueue = [];
   failTransaction = false;
   google.calendars.clear();
   google.tokens.clear();
@@ -400,6 +408,9 @@ async function main() {
   let svcError: unknown;
   try {
     svc = await load('src/services/google-disconnect.ts');
+    // The revoke goes through googleFetch (the one Google retry policy, run for real); only its sleep and dice are replaced.
+    const retry = await load('src/services/google-retry.ts');
+    retry.__useGoogleRetryForTests({ sleep: async (ms: number) => { retryWaits.push(ms); }, random: () => 0 });
     const client = await load('src/services/google-sync/client.ts');
     client.__useSyncGoogleForTests((token: string) => fakeGoogle(token));
   } catch (err) {
@@ -495,6 +506,7 @@ async function main() {
     revokeAnswer = 'throw';
     const res = await run(true);
     assert(res.revoked === false && captured.some((c) => c.ctx === 'google-disconnect-revoke'), `res ${show(res)} captured ${show(captured)}`);
+    assert(revokes.length === 3, `a lost connection is tried 1 + 2 times: ${revokes.length}`);
     assert(row('user', ME)!.googleRefreshToken === '' && !T('googleSyncLink').some((l) => l.userId === ME && l.enabled), 'the clear did not run');
   });
 
@@ -503,10 +515,22 @@ async function main() {
     revokeAnswer = { status: 500, body: { error: 'backend_error' } };
     let res = await run(true);
     assert(res.revoked === false && captured.some((c) => c.ctx === 'google-disconnect-revoke'), `500: ${show(res)} ${show(captured)}`);
+    assert(revokes.length === 4, `a 5xx on the token endpoint is tried 1 + 3 times: ${revokes.length}`);
     seed();
     revokeAnswer = { status: 400, body: { error: 'invalid_token', error_description: 'Token expired or revoked' } };
     res = await run(true);
     assert(res.revoked === true && !captured.some((c) => c.ctx === 'google-disconnect-revoke'), `400: ${show(res)} ${show(captured)}`);
+  });
+
+  await check('a revoke Google rate-limits is tried again after the wait Google asked (Retry-After) and then counts as revoked, not captured; one told to wait over 10 s is not slept on: captured, revoked false', async () => {
+    seed();
+    revokeQueue = [{ status: 429, body: { error: { code: 429, errors: [{ domain: 'usageLimits', reason: 'rateLimitExceeded' }] } }, headers: { 'retry-after': '2' } }];
+    let res = await run(true);
+    assert(res.revoked === true && count(revokes) === 2 && show(retryWaits) === '[2000]' && !captured.some((c) => c.ctx === 'google-disconnect-revoke'), `429 then ok: ${show(res)} revokes ${revokes.length} waits ${show(retryWaits)} ${show(captured)}`);
+    seed();
+    revokeAnswer = { status: 429, body: {}, headers: { 'retry-after': '120' } };
+    res = await run(true);
+    assert(res.revoked === false && count(revokes) === 1 && retryWaits.length === 0 && captured.some((c) => c.ctx === 'google-disconnect-revoke'), `Retry-After 120: ${show(res)} revokes ${revokes.length} waits ${show(retryWaits)}`);
   });
 
   await check('the database failing is the one failure that surfaces: nothing is cleared, and a retry then completes', async () => {

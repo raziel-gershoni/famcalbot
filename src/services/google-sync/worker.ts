@@ -10,7 +10,12 @@
 //   lock. A locked user is skipped; a Redis error skips the user's run.
 // - Each user's run makes at most 100 Google calls; the rest waits for the next tick.
 // - Calendars are created one at a time (serially, across the users running).
-// - A rate-limit answer ends the user's run without counting an attempt.
+// - A rate-limit answer ends the user's run without counting an attempt, is sent to Sentry as a
+//   warning with its reason, and sets the next pass: at the later of a minute and the
+//   Retry-After Google sent; for a quota that a wait of seconds does not clear (quotaExceeded,
+//   dailyLimitExceeded) at the jittered backoff of the user's run of quota stops (backoffMs),
+//   not every minute. (Calls inside a request are retried by the one Google retry policy,
+//   google-retry.ts; what reaches this layer is what that policy handed up.)
 //
 // Per user: a suspended user is skipped. Copies turned off with a Remove/Keep queued are
 // carried out first (link.unlinkToken ?? the user's token). Then, for the copies that are on:
@@ -48,7 +53,7 @@ import { safeDecrypt } from '../../utils/encryption';
 import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
 import { scrubbedGoogleError } from '../calendar';
-import { classifyGoogleError, googleErrorFacts, isGoogleRateLimit, type GoogleErrorClass } from '../calendar-read/google-map';
+import { classifyGoogleError, googleErrorFacts, googleRateLimitKind, isGoogleRateLimit, retryAfterMs, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
 import { isPaused } from '../zmanim/pause';
 import { copyName, ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
@@ -68,6 +73,8 @@ const BACKOFF_BASE_MS = 60_000;
 const BACKOFF_CAP_MS = 6 * 60 * 60 * 1000;
 /** A run cut short (budget, rate limit, lock, Google down) goes on at the next tick. */
 const AGAIN_MS = 60_000;
+/** A user's run of quota stops is forgotten after this long without one (the quota came back, or nobody was syncing). */
+const QUOTA_MEMORY_MS = 24 * 60 * 60 * 1000;
 const HEBREW_CHECK_MS = 24 * 60 * 60 * 1000;
 /** Rows per backfill statement (Postgres caps bind parameters; each row is three). */
 const BACKFILL_CHUNK = 1000;
@@ -120,6 +127,8 @@ interface UserRun {
   failed: number;
   /** Work is left that the next tick should take: the gate stays open. */
   again: boolean;
+  /** When `again` is set: ms to the next pass for this user, when later than AGAIN_MS (a rate limit's Retry-After or quota backoff). */
+  againInMs?: number;
   /** The token check after a bare 401 on one request (tokenStillWorks); asked at most once per run. */
   tokenCheck?: 'works' | 'dead' | 'inconclusive';
 }
@@ -134,8 +143,13 @@ export interface SyncPassResult {
 
 // ---- Shared state on globalThis (Next 16 gives the scheduler and the routes separate module instances) ----
 
-type WorkerState = { creation: Promise<unknown>; hebrewCheckedAt: number };
-const shared = ((globalThis as { __googleSyncWorker?: WorkerState }).__googleSyncWorker ??= { creation: Promise.resolve(), hebrewCheckedAt: 0 });
+type WorkerState = {
+  creation: Promise<unknown>;
+  hebrewCheckedAt: number;
+  /** Per user: the quota stops in a row (a stop for quotaExceeded or dailyLimitExceeded) and when the last came. In memory: a restart probes once at the minute, then backs off again. */
+  quotaStops: Map<number, { stops: number; at: number }>;
+};
+const shared = ((globalThis as { __googleSyncWorker?: WorkerState }).__googleSyncWorker ??= { creation: Promise.resolve(), hebrewCheckedAt: 0, quotaStops: new Map() });
 
 /** Calendar creation is serial (spec §4 Pace): one calendars.insert at a time in the process. */
 function serially<T>(task: () => Promise<T>): Promise<T> {
@@ -148,6 +162,7 @@ function serially<T>(task: () => Promise<T>): Promise<T> {
 export function __resetSyncWorkerForTests(): void {
   shared.creation = Promise.resolve();
   shared.hebrewCheckedAt = 0;
+  shared.quotaStops.clear();
 }
 
 // ---- Small helpers ----
@@ -231,7 +246,7 @@ export async function runGoogleSyncPass(now: Date = new Date()): Promise<SyncPas
     const run = await runUser(user, own, now, new Map(own.flatMap((l) => (retries.has(l.id) ? [[l.id, retries.get(l.id)!] as const] : []))));
     pushed += run.pushed;
     failed += run.failed;
-    if (run.again) sooner(new Date(now.getTime() + AGAIN_MS));
+    if (run.again) sooner(new Date(now.getTime() + Math.max(AGAIN_MS, run.againInMs ?? 0)));
   });
   return { users: users.length, pushed, failed, next };
 }
@@ -285,6 +300,8 @@ async function runUser(user: UserRow, links: LinkRow[], now: Date, retries: Map<
     for (const link of live.filter((l) => !l.enabled)) await turnOffLink(run, link);
     const on = live.filter((l) => l.enabled);
     if (on.length > 0) await syncLinks(run, on);
+    // A run that made Google calls and met no rate limit: the quota is back, so its run of quota stops ends.
+    if (run.budget.left < CALLS_PER_RUN) shared.quotaStops.delete(run.user.id);
   } catch (error) {
     // stopUser itself can meet the disconnect (the outage path checks before it writes or sends): that stops the run too.
     await stopUser(run, error).catch((again: unknown) => stopUser(run, again));
@@ -317,10 +334,28 @@ async function stopUser(run: UserRun, error: unknown): Promise<void> {
     run.again = true;
     return;
   }
-  if (isGoogleRateLimit(error)) {
-    // Not an attempt, and not a Sentry event: Google asked to slow down.
-    console.warn(`[google-sync] user ${userId}: Google rate limit; paused until the next tick`);
+  const limit = googleRateLimitKind(error);
+  if (limit) {
+    // Not an attempt: Google asked to slow down. The next pass is the later of a minute and
+    // Google's Retry-After; a quota that a wait of seconds does not clear backs off with the
+    // user's run of such stops, not every minute. Sent to Sentry as a warning with its reason.
+    const facts = googleErrorFacts(error);
+    const asked = retryAfterMs(error);
+    let waitMs = Math.max(AGAIN_MS, asked ?? 0);
+    if (limit === 'quota') {
+      const before = shared.quotaStops.get(userId);
+      const stops = (before && run.now.getTime() - before.at < QUOTA_MEMORY_MS ? before.stops : 0) + 1;
+      shared.quotaStops.set(userId, { stops, at: run.now.getTime() });
+      waitMs = Math.max(waitMs, backoffMs(stops));
+    }
+    waitMs = Math.min(waitMs, BACKOFF_CAP_MS);
+    const reason = `${facts.status ?? 'no status'}${facts.reasons.length > 0 ? ` ${facts.reasons.join(',')}` : ''}, ${limit}`;
+    console.warn(`[google-sync] user ${userId}: Google rate limit (${reason}); next pass in ${Math.round(waitMs / 1000)} s${asked !== undefined ? ` (Retry-After ${Math.round(asked / 1000)} s)` : ''}`);
+    captureError(new Error(`Google rate limit (${reason}) stopped a copy run`), 'google-sync-rate-limit', {
+      user_id: userId, status: facts.status, reasons: facts.reasons, kind: limit, retry_after_ms: asked, next_pass_in_ms: waitMs,
+    }, 'warning');
     run.again = true;
+    run.againInMs = waitMs;
     return;
   }
   const cls = classOf(error);

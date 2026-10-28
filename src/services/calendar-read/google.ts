@@ -150,11 +150,14 @@ export function attachGoogleCalendars(
 
 interface Deadline {
   readonly reached: Promise<void>;
+  /** Epoch ms the deadline falls at: the Google retry policy never sleeps past it (getGoogleAuth's deadlineAt). */
+  readonly endsAt: number;
   expired(): boolean;
   clear(): void;
 }
 
 function startDeadline(ms: number): Deadline {
+  const endsAt = Date.now() + ms;
   let expired = false;
   let handle: ReturnType<typeof setTimeout> | undefined;
   const reached = new Promise<void>(resolve => {
@@ -163,7 +166,7 @@ function startDeadline(ms: number): Deadline {
       resolve();
     }, ms);
   });
-  return { reached, expired: () => expired, clear: () => clearTimeout(handle) };
+  return { reached, endsAt, expired: () => expired, clear: () => clearTimeout(handle) };
 }
 
 /** One calendar's list, as far as it got. */
@@ -412,9 +415,10 @@ export async function readGoogleUncached(
   // it: a token request a stuck token server never answers, or a list still waiting at the
   // deadline, is cancelled then and not retried, so nothing keeps running after the read
   // has answered. The token request's own timeout is the deadline (the lists set theirs).
+  // The Google retry policy (google-retry.ts) sleeps on that same signal, and never past the deadline.
   const cancel = new AbortController();
   try {
-    const auth = getGoogleAuth(token, { timeout: opts.deadlineMs, signal: cancel.signal });
+    const auth = getGoogleAuth(token, { timeout: opts.deadlineMs, signal: cancel.signal, deadlineAt: deadline.endsAt });
     type Step = { kind: 'ok' } | { kind: 'failed'; error: unknown } | { kind: 'deadline' };
     const step: Step = await Promise.race([
       auth.getAccessToken().then(

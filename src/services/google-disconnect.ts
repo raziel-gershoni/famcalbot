@@ -38,6 +38,7 @@ import { trackActivity } from './analytics-service';
 import { stampGoogleCache } from './calendar-read/google';
 import { copyName } from './google-sync/calendars';
 import { syncGoogle, type CallBudget } from './google-sync/client';
+import { googleFetch } from './google-retry';
 import { clearLinkRetries } from './google-sync/retries';
 import { markDisconnected, markDisconnecting, turnOffInGoogle } from './google-sync/worker';
 import { syncReminderCacheEntry } from './reminder-cache';
@@ -89,7 +90,7 @@ function openToken(stored: string | null | undefined, extra: Record<string, unkn
  */
 async function revokeToken(token: string, extra: Record<string, unknown>): Promise<boolean> {
   try {
-    const res = await fetch(REVOKE_URL, {
+    const res = await googleFetch(REVOKE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token }).toString(),

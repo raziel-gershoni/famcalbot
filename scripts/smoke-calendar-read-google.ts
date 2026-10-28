@@ -110,6 +110,8 @@ const google = {
   /** Requests in call order: 'token', 'get:<id>', 'list:<id>'. */
   log: [] as string[],
   clients: 0,
+  /** The transporterOptions each OAuth2 client was built with (getGoogleAuth). */
+  transporters: [] as (Record<string, unknown> | undefined)[],
   credentials: [] as unknown[],
   factory: [] as { version?: string; auth?: unknown }[],
   inFlight: 0,
@@ -136,8 +138,15 @@ function track<T>(promise: Promise<T>): Promise<T> {
 }
 
 class FakeOAuth2 {
-  constructor(readonly clientId?: string, readonly clientSecret?: string) {
+  readonly clientId?: string;
+  readonly clientSecret?: string;
+  /** Built like the real client: the options object (clientId, clientSecret, transporterOptions) or the two strings. */
+  constructor(options?: string | { clientId?: string; clientSecret?: string; transporterOptions?: Record<string, unknown> }, secret?: string) {
+    const o = typeof options === 'object' ? options : { clientId: options, clientSecret: secret };
+    this.clientId = o.clientId;
+    this.clientSecret = o.clientSecret;
     google.clients++;
+    google.transporters.push(o.transporterOptions);
   }
   setCredentials(credentials: unknown) {
     google.credentials.push(credentials);
@@ -402,6 +411,7 @@ function reset() {
   google.calls = [];
   google.log = [];
   google.clients = 0;
+  google.transporters = [];
   google.credentials = [];
   google.factory = [];
   google.inFlight = 0;
@@ -471,6 +481,9 @@ async function main() {
     const auth = calendar.getGoogleAuth('refresh-a') as unknown as FakeOAuth2;
     assert(auth instanceof FakeOAuth2, 'getGoogleAuth did not return the OAuth2 client');
     assert(auth.clientId === process.env.GOOGLE_CLIENT_ID && auth.clientSecret === process.env.GOOGLE_CLIENT_SECRET, 'not built from the client env');
+    // Every client carries the one Google retry policy on its transporter (google-retry.ts), the token refresh included.
+    const { GOOGLE_RETRY_CONFIG } = await import('../src/services/google-retry');
+    assert(google.transporters[0]?.retry === true && google.transporters[0]?.retryConfig === GOOGLE_RETRY_CONFIG, `transporter ${JSON.stringify(google.transporters)}`);
     assertSame(google.credentials, [{ refresh_token: 'refresh-a' }], 'credentials');
     assert(count(google.factory) === 0, 'getGoogleAuth built a calendar client');
     calendar.getCalendarClient('refresh-b');
@@ -515,6 +528,19 @@ async function main() {
     google.calls = [];
     await read(user(), { calendarIds: [DANA], deadlineMs: 8000 });
     assert(google.calls[0].options?.timeout === 7500, `timeout ${google.calls[0].options?.timeout} at an 8 s deadline`);
+  });
+
+  await check('request: the reader\'s client carries the timeout, the cancel signal and the Google retry policy bound to the read\'s deadline: no retry waits past it', async () => {
+    await read(user(), { calendarIds: [DANA], deadlineMs: 6000 });
+    const transporter = google.transporters[0] as { timeout?: number; signal?: unknown; retry?: unknown; retryConfig?: { shouldRetry: (e: unknown) => boolean } } | undefined;
+    assert(transporter?.timeout === 6000 && transporter.signal instanceof AbortSignal && transporter.retry === true && typeof transporter.retryConfig?.shouldRetry === 'function', `transporter ${JSON.stringify(transporter)}`);
+    const { GOOGLE_RETRY_CONFIG } = await import('../src/services/google-retry');
+    assert(transporter.retryConfig !== GOOGLE_RETRY_CONFIG, 'the reader used the policy with no deadline');
+    const refused = (retryAfter: string) => ({
+      config: { method: 'GET', url: 'https://www.googleapis.com/calendar/v3/calendars/x/events', retryConfig: { retry: 1, currentRetryAttempt: 0, noResponseRetries: 0 } },
+      response: { status: 429, headers: { 'retry-after': retryAfter }, data: {} },
+    });
+    assertSame([transporter.retryConfig.shouldRetry(refused('1')), transporter.retryConfig.shouldRetry(refused('7'))], [true, false], 'a 1 s wait fits a 6 s deadline, a 7 s one does not');
   });
 
   await check('request: the calendars are listed in parallel, in the order of the choices', async () => {

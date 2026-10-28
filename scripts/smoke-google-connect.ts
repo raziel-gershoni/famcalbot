@@ -298,7 +298,11 @@ const BOTH_SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://w
 /** What Google's token endpoint answers next; tests override it. */
 let googleAnswer: Row = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
 /** A refusal instead: the HTTP status and the raw body (JSON or not). seed() clears it. */
-let googleRefusal: { status: number; body: string } | null = null;
+let googleRefusal: { status: number; body: string; headers?: Record<string, string> } | null = null;
+/** Refusals the token endpoint answers first, one per request, before googleRefusal or the success repeats. */
+let googleRefusalQueue: { status: number; body: string; headers?: Record<string, string> }[] = [];
+/** The waits the Google retry policy slept (its sleep is replaced in main). */
+const retryWaits: number[] = [];
 const SYNC_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
 /** The account's identity: calendars.get('primary')'s id, asked with the exchange's access token (google-sync S2). */
 const GOOGLE_PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fields=id';
@@ -394,7 +398,8 @@ function installStubs() {
     const url = String(input instanceof Request ? input.url : input);
     googleCalls.push(url);
     if (url === GOOGLE_TOKEN_URL) {
-      if (googleRefusal) return new Response(googleRefusal.body, { status: googleRefusal.status, headers: { 'content-type': 'application/json' } });
+      const refusal = googleRefusalQueue.shift() ?? googleRefusal;
+      if (refusal) return new Response(refusal.body, { status: refusal.status, headers: { 'content-type': 'application/json', ...refusal.headers } });
       return new Response(JSON.stringify(googleAnswer), { headers: { 'content-type': 'application/json' } });
     }
     if (url === GOOGLE_PRIMARY_URL) {
@@ -452,6 +457,8 @@ function seed() {
   syncChecks.length = 0;
   googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'test' };
   googleRefusal = null;
+  googleRefusalQueue = [];
+  retryWaits.length = 0;
   primaryAnswer = { id: 'tal@gmail.com' };
   primaryAuth.length = 0;
   DB.googleSyncLink = [];
@@ -674,6 +681,10 @@ const sentTo = (chatId: unknown) => sent.filter(s => String(s.chatId) === String
 
 async function main() {
   installStubs();
+  // The Google calls here (the code exchange, the account check) go through googleFetch, the one Google
+  // retry policy, run for real; only its sleep and dice are replaced, so a failure that lasts costs no time.
+  const retry = await load('src/services/google-retry.ts');
+  retry.__useGoogleRetryForTests({ sleep: async (ms: number) => { retryWaits.push(ms); }, random: () => 0 });
   const { NextRequest } = nodeRequire('next/server');
   const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8'));
 
@@ -1927,6 +1938,23 @@ async function main() {
       assert(errors.some(e => e.includes(`user 9`) && e.includes(refusal.says)), `${refusal.status}: logged ${show(errors)}`);
       assert(pendingKeys().length === 0, `${refusal.status}: a token was parked`);
     }
+  });
+
+  await check('#50b the code exchange goes through the one Google retry policy: a 429 with Retry-After is tried again after that wait and the connect parks the token; a 502 is tried 1 + 3 times before the "couldn\'t finish" page; a Retry-After over 10 s is not slept on', async () => {
+    seed();
+    googleRefusalQueue = [{ status: 429, body: JSON.stringify({ error: { code: 429, errors: [{ domain: 'usageLimits', reason: 'rateLimitExceeded' }] } }), headers: { 'retry-after': '2' } }];
+    const { value: ok } = await quietly(() => runCallback(addState(9)));
+    assert(ok.redirect && pendingKeys().length === 1, `429 then ok: ${show(ok.threw ?? ok.element?.type)} parked ${pendingKeys().length}`);
+    assert(googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 2 && show(retryWaits) === '[2000]', `requests ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length}, waits ${show(retryWaits)}`);
+    seed();
+    googleRefusal = { status: 502, body: '<html>Bad Gateway</html>' };
+    const { value: down } = await quietly(() => runCallback(addState(9)));
+    assert((down.element?.type as Row | undefined)?.name === 'ExchangeFailedPage' && pendingKeys().length === 0, `502: ${show(down.threw ?? down.element?.type)}`);
+    assert(googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 4, `a 502 was tried ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length} times`);
+    seed();
+    googleRefusal = { status: 429, body: '{}', headers: { 'retry-after': '120' } };
+    const { value: long } = await quietly(() => runCallback(addState(9)));
+    assert((long.element?.type as Row | undefined)?.name === 'ExchangeFailedPage' && googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 1 && retryWaits.length === 0, `Retry-After 120: requests ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length} waits ${show(retryWaits)}`);
   });
 
   let failed = 0;

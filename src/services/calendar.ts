@@ -4,9 +4,10 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { TIMEZONE } from '../config/constants';
 import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../utils/day-events';
 import { wallTimeToInstant } from '../utils/wall-time';
-import { isTokenError, isInsufficientScopesError } from '../utils/errors';
+import { isInsufficientScopesError } from '../utils/errors';
 import { captureError } from '../lib/error-capture';
 import { classifyGoogleError, googleErrorFacts, type GoogleErrorClass } from './calendar-read/google-map';
+import { GOOGLE_RETRY_CONFIG, googleRetryConfig } from './google-retry';
 import { isSyncCopy } from './google-sync/markers';
 import { syncCopyFilter } from './google-sync/links';
 import { mapGoogleColour } from '../lib/calendar-colours';
@@ -40,24 +41,25 @@ export type { CalendarEvent };
  * home's reader (calendar-read/google.ts) runs that refresh itself first, inside its
  * deadline, so a dead token or a stuck token server is one outcome for the whole read.
  *
- * The reader also passes `transport`: every request of this client, the token refresh
- * included, gets that timeout unless it sets its own, and is cancelled when the signal is
- * aborted. Without it (getCalendarClient), the client is built exactly as before.
+ * Every client carries the one Google retry policy (google-retry.ts) on its transporter, so
+ * every request it makes, the token refresh included, is retried the same way and honours
+ * Retry-After. The reader also passes `transport`: every request of this client gets that
+ * timeout unless it sets its own, and is cancelled when the signal is aborted (which also
+ * ends a retry's sleep). `deadlineAt` (epoch ms) is the read's deadline: no retry waits past it.
  */
 export function getGoogleAuth(
   refreshToken: string,
-  transport?: { timeout: number; signal: AbortSignal }
+  transport?: { timeout: number; signal: AbortSignal; deadlineAt?: number }
 ): InstanceType<typeof auth.OAuth2> {
-  const oauth2Client = transport
-    ? new auth.OAuth2({
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        transporterOptions: { timeout: transport.timeout, signal: transport.signal },
-      })
-    : new auth.OAuth2(
-        process.env.GOOGLE_CLIENT_ID,
-        process.env.GOOGLE_CLIENT_SECRET
-      );
+  const oauth2Client = new auth.OAuth2({
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    transporterOptions: {
+      retry: true,
+      retryConfig: transport?.deadlineAt === undefined ? GOOGLE_RETRY_CONFIG : googleRetryConfig({ deadlineAt: transport.deadlineAt }),
+      ...(transport ? { timeout: transport.timeout, signal: transport.signal } : {}),
+    },
+  });
 
   oauth2Client.setCredentials({
     refresh_token: refreshToken,
@@ -111,16 +113,7 @@ export interface CalendarInfo {
  * @returns Array of calendar information
  */
 export async function listUserCalendars(refreshToken: string, userId: number): Promise<CalendarInfo[]> {
-  const oauth2Client = new auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET
-  );
-
-  oauth2Client.setCredentials({
-    refresh_token: refreshToken,
-  });
-
-  const calendar = googleCalendar({ version: 'v3', auth: oauth2Client });
+  const calendar = getCalendarClient(refreshToken);
 
   try {
     const [response, copies] = await Promise.all([
@@ -151,8 +144,8 @@ export async function listUserCalendars(refreshToken: string, userId: number): P
       throw new Error('GOOGLE_INSUFFICIENT_SCOPES', { cause: error });
     }
 
-    // If it's a token error, re-throw with specific message
-    if (isTokenError(error)) {
+    // A dead token (a 401, invalid_grant), by Google's own table: a 403 rate limit or a 5xx is not one
+    if (classifyGoogleError(error) === 'token') {
       throw new Error('GOOGLE_TOKEN_EXPIRED', { cause: error });
     }
 
@@ -426,7 +419,8 @@ export async function fetchEventsInRange(
     console.error(`Error fetching calendar ${calendarId}:`, error);
     captureError(error, 'calendar-fetch-range', { calendarId }, 'warning');
 
-    if (isTokenError(error)) {
+    // A dead token (a 401, invalid_grant), by Google's own table: a 403 rate limit or a 5xx is not one
+    if (classifyGoogleError(error) === 'token') {
       throw new Error('GOOGLE_TOKEN_EXPIRED');
     }
     // Continue with other calendars if it's a different error
