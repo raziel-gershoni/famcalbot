@@ -13,6 +13,7 @@ import {
   handleSummaryCommand,
   handleWeatherCommand,
   handleFeedbackCommand,
+  handleSupportCommand,
   handleConnectCommand,
   getBot
 } from './telegram';
@@ -554,6 +555,14 @@ export async function handleTelegramWebhook(
   } else if (text.startsWith('/feedback')) {
     const args = text.replace('/feedback', '').trim();
     await handleFeedbackCommand(chatId, textUserId, args || undefined);
+  } else if (text.startsWith('/terms')) {
+    // Telegram's rules for a bot that takes payments: /terms and /paysupport must answer
+    await handleSupportCommand(chatId, textUserId, 'terms');
+  } else if (text.startsWith('/support')) {
+    await handleSupportCommand(chatId, textUserId, 'support');
+  } else if (text.startsWith('/paysupport')) {
+    const args = text.replace('/paysupport', '').trim();
+    await handleSupportCommand(chatId, textUserId, 'paysupport', args || undefined);
   } else if (text.startsWith('/connect')) {
     await handleConnectCommand(chatId, textUserId, MessagingPlatform.TELEGRAM);
   } else {

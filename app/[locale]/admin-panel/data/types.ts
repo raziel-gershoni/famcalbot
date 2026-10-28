@@ -148,7 +148,7 @@ export interface FeedbackItem {
   userName: string;
   userTelegramId: number | null;
   text: string;
-  source: 'telegram' | 'dashboard';
+  source: 'telegram' | 'dashboard' | 'paysupport';
   createdAt: string;
 }
 

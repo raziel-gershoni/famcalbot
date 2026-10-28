@@ -6,6 +6,7 @@
 import * as Sentry from '@sentry/nextjs';
 import { getBot } from '../services/telegram';
 import { prisma } from './prisma';
+import { escapeHtml } from './html';
 
 /**
  * Get all admin user Telegram IDs
@@ -122,26 +123,30 @@ export async function notifyAdminWarning(
 /**
  * Notify admin of new user feedback via Telegram
  * @param userName - Name of the user who submitted feedback
- * @param telegramId - Telegram ID of the user (null for dashboard submissions without it)
+ * @param telegramId - Telegram ID of the user (null for dashboard and WhatsApp submissions without it)
  * @param feedbackText - The feedback text
- * @param source - Where the feedback was submitted from ('telegram' or 'dashboard')
+ * @param source - Where the feedback was submitted from ('telegram', 'whatsapp', 'dashboard', or 'paysupport' for a payment question)
+ * @param facts - Lines of facts under the sender (a payment question carries the subscription's, so a refund can be made by hand)
  */
 export async function notifyAdminFeedback(
   userName: string,
   telegramId: bigint | number | null,
   feedbackText: string,
-  source: 'telegram' | 'dashboard'
+  source: 'telegram' | 'dashboard' | 'whatsapp' | 'paysupport',
+  facts?: Record<string, string>
 ): Promise<void> {
   try {
     const bot = getBot();
     const adminIds = await getAdminUserIds();
 
-    const message = `📨 <b>New Feedback</b>
-From: ${userName}
+    // The sender's words are text, not markup: a "<" in them must not make Telegram refuse the whole note
+    const factLines = Object.entries(facts ?? {}).map(([label, value]) => `${label}: ${escapeHtml(value)}\n`).join('');
+    const message = `${source === 'paysupport' ? '💳 <b>Payment question</b>' : '📨 <b>New Feedback</b>'}
+From: ${escapeHtml(userName)}
 ID: ${telegramId || 'N/A'}
 Source: ${source}
-───────────
-${feedbackText}`;
+${factLines}───────────
+${escapeHtml(feedbackText)}`;
 
     await Promise.all(adminIds.map(id =>
       bot.sendMessage(id, message, { parse_mode: 'HTML' })

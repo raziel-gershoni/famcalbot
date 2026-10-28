@@ -566,6 +566,7 @@
       "noFeedback": "No feedback yet",
       "telegram": "Telegram",
       "dashboard": "In the app",
+      "paysupport": "Payments",
       "sentAt": "Sent {date}"
     },
     "blocked": {
@@ -1280,6 +1281,12 @@
       "rateLimit": "⏳ You've reached the daily feedback limit. Please try again tomorrow.",
       "tooShort": "❌ Feedback must be at least 10 characters.",
       "tooLong": "❌ Feedback must be less than 1000 characters."
+    },
+    "support": {
+      "terms": "<b>Terms of use</b>\n\nFamCal is a family calendar assistant on Telegram and WhatsApp. It is free to use today. If a paid plan is offered, its price and terms are shown in the bot before you pay, and a plan runs for a month with no auto-renew. Payments in the bot are made with Telegram Stars, and a payment can be refunded on request within 14 days through /paysupport.\n\nThe AI can make mistakes, so check anything important, and check a halachic time that matters with a reliable source. You are responsible for what you add about your family.",
+      "help": "<b>Help</b>\n\nTo tell us something or ask a question, send /feedback followed by your message. For a payment question or a refund, send /paysupport followed by your message. We answer here in the chat.",
+      "payPrompt": "<b>Payments and refunds</b>\n\nA payment made in the bot can be refunded on request within 14 days. Send /paysupport followed by your question, for example:\n/paysupport I was charged twice for Pro\n\nWe answer here in the chat.",
+      "paySent": "Thank you, your message reached us. We'll answer here in the chat."
     },
     "connect": {
       "code": "Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.",

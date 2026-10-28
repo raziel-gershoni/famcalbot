@@ -651,17 +651,48 @@ export async function handleNextWeekCommand(
   if (completed) trackCommandCompleted(user.id, 'nextweek', platform);
 }
 
+/** Where a feedback message came from: its own column on UserFeedback, and the admin note's "Source". */
+type FeedbackSource = 'telegram' | 'paysupport';
+
 /**
- * Handle /feedback command
+ * The subscription facts a payment question carries to the admins, so a refund can be made by hand: the person's
+ * id, plan, status, the Telegram payment charge id and the period's start. A failed read is logged and told in the
+ * note; it never stops the question from reaching the admins.
+ */
+async function paymentFacts(userId: number): Promise<Record<string, string>> {
+  const facts: Record<string, string> = { 'User id': String(userId) };
+  try {
+    const subscription = await prisma.subscription.findUnique({ where: { userId } });
+    if (!subscription) {
+      facts.Subscription = 'none';
+      return facts;
+    }
+    facts.Plan = subscription.plan;
+    facts.Status = subscription.status;
+    facts['Charge id'] = subscription.telegramPaymentChargeId ?? 'none';
+    facts['Period start'] = subscription.currentPeriodStart?.toISOString() ?? 'none';
+  } catch (error) {
+    console.error(`[paysupport] could not read the subscription of user ${userId}:`, error);
+    captureError(error, 'paysupport-subscription', { user_id: userId }, 'warning');
+    facts.Subscription = 'lookup failed';
+  }
+  return facts;
+}
+
+/**
+ * Handle /feedback command (and /paysupport with words, which is the same message under its own source)
  * Allows users to submit feedback via Telegram
  * Usage: /feedback <text> (10-1000 characters)
- * Rate limited to 3 submissions per 24 hours
+ * Rate limited to 3 submissions per 24 hours, payment questions counted apart from feedback so one never blocks the other
  */
 export async function handleFeedbackCommand(
   chatId: number,
   userId: number,
-  feedbackText: string | undefined
+  feedbackText: string | undefined,
+  options: { source?: FeedbackSource } = {}
 ): Promise<void> {
+  const source = options.source ?? 'telegram';
+
   const user = await getUserByTelegramId(userId);
   if (!user) {
     console.error(`[Feedback] User with Telegram ID ${userId} not found`);
@@ -672,7 +703,8 @@ export async function handleFeedbackCommand(
   const userLanguage = user.language || 'en';
   const t = await getBotMessages(userLanguage);
 
-  if (!feedbackText || feedbackText.trim().length === 0) {
+  // The form is a button for /feedback alone: a payment question with no words is answered before it gets here
+  if ((!feedbackText || feedbackText.trim().length === 0) && source === 'telegram') {
     const feedbackUrl = buildUrl(`/${userLanguage}/feedback?user_id=${user.telegramId ?? user.id}`);
     const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
     await messagingService.sendMessage(chatId, openFormMessage, {
@@ -686,7 +718,7 @@ export async function handleFeedbackCommand(
     return;
   }
 
-  const trimmedText = feedbackText.trim();
+  const trimmedText = (feedbackText ?? '').trim();
 
   if (trimmedText.length < 10) {
     const tooShortMessage = t.feedback?.tooShort || 'Feedback must be at least 10 characters.';
@@ -706,7 +738,8 @@ export async function handleFeedbackCommand(
     const recentFeedbackCount = await prisma.userFeedback.count({
       where: {
         userId: user.id,
-        createdAt: { gte: oneDayAgo }
+        createdAt: { gte: oneDayAgo },
+        source: source === 'paysupport' ? 'paysupport' : { not: 'paysupport' }
       }
     });
 
@@ -720,28 +753,57 @@ export async function handleFeedbackCommand(
       data: {
         userId: user.id,
         text: trimmedText,
-        source: 'telegram'
+        source
       }
     });
 
     const { notifyAdminFeedback } = await import('../../utils/error-notifier');
-    await notifyAdminFeedback(user.name, user.telegramId, trimmedText, 'telegram');
+    await notifyAdminFeedback(user.name, user.telegramId, trimmedText, source, source === 'paysupport' ? await paymentFacts(user.id) : undefined);
 
     trackActivityAsync(user.id, 'feedback_submitted', {
-      source: 'telegram',
+      source,
       text_length: trimmedText.length
     });
 
-    const successMessage = t.feedback?.success || 'Thank you for your feedback!';
+    const successMessage = source === 'paysupport' ? t.support.paySent : t.feedback?.success || 'Thank you for your feedback!';
     await messagingService.sendMessage(chatId, successMessage);
 
-    console.log(`[Feedback] User ${userId} submitted feedback (${trimmedText.length} chars)`);
+    console.log(`[Feedback] User ${user.id} submitted ${source} feedback (${trimmedText.length} chars)`);
   } catch (error) {
     console.error('[Feedback] Error handling feedback command:', error);
-    captureError(error, 'feedback-command', { user_id: userId });
+    captureError(error, 'feedback-command', { user_id: user.id, source });
 
     const errorMessage = t.feedback?.error || 'Failed to send feedback. Please try again.';
     await messagingService.sendMessage(chatId, errorMessage);
+  }
+}
+
+/**
+ * Handle /terms, /support and /paysupport (Telegram's rules for a bot that takes Stars payments: it must answer
+ * /terms and /paysupport). Each answers a person the bot does not know yet too, in English. /paysupport with words
+ * is a payment question: it goes through handleFeedbackCommand under its own source, and needs a known person (the
+ * admins answer in the chat), who is told to /start first when it is not.
+ */
+export async function handleSupportCommand(
+  chatId: number,
+  userId: number,
+  command: 'terms' | 'support' | 'paysupport',
+  args?: string
+): Promise<void> {
+  const user = await getUserByTelegramId(userId);
+  const t = await getBotMessages(user?.language || 'en');
+  const messagingService = getMessagingService();
+  const reply = (text: string) => messagingService.sendMessage(chatId, text, { format: MessageFormat.HTML });
+
+  if (command === 'terms') {
+    await reply(t.support.terms);
+  } else if (command === 'support' || (command === 'paysupport' && !args)) {
+    await reply(command === 'support' ? t.support.help : t.support.payPrompt);
+  } else if (!user) {
+    console.error(`[paysupport] unknown user: Telegram id ${userId} wrote a payment question before /start`);
+    await reply(t.support.help);
+  } else {
+    await handleFeedbackCommand(chatId, userId, args, { source: 'paysupport' });
   }
 }
 
