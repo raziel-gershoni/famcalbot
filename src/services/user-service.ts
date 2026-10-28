@@ -3,6 +3,7 @@ import { UserConfig, convertPrismaUserToConfig } from '../types';
 import { prisma, withRetry } from '../utils/prisma';
 import { encrypt } from '../utils/encryption';
 import { isIdentifierBlocked } from '../lib/user-moderation';
+import { normalizeLocale, type Locale } from '../utils/locale';
 
 export class IdentifierBlockedError extends Error {
   constructor(message = 'Identifier is on the admin blocklist') {
@@ -269,13 +270,15 @@ export async function updateUserById(id: number, data: Partial<PrismaUser>): Pro
 
 /**
  * Get or create user by WhatsApp identifier (phone or BSUID)
- * Auto-registers new WhatsApp users with minimal defaults
+ * Auto-registers new WhatsApp users with minimal defaults. `initialLanguage` is the language a new user starts
+ * in (English when unset); a user who already exists keeps theirs.
  */
 export async function getOrCreateUserByWhatsApp(
   identifier: string,
   profileName?: string,
   bsuid?: string,
-  phone?: string
+  phone?: string,
+  initialLanguage?: Locale
 ): Promise<UserConfig> {
   // Try lookup by BSUID first, then phone
   if (bsuid) {
@@ -311,7 +314,7 @@ export async function getOrCreateUserByWhatsApp(
       name,
       englishName: '',
       gender: 'male',  // As above: changed in Settings ("Address me as")
-      language: 'en',
+      language: normalizeLocale(initialLanguage),
       location: '',
       culture: 'default',
       messagingPlatform: 'whatsapp',

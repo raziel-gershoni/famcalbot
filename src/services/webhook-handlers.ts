@@ -19,6 +19,7 @@ import {
 } from './telegram';
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
+import { guessLanguageFromText } from '../utils/locale';
 import { MessagingPlatform, getWhatsAppService } from './messaging';
 import type { WhatsAppAdapter } from './messaging/whatsapp-adapter';
 import { handleVoiceMessage, handleEventCallback, handleEditCallback, handleDeleteCallback } from './voice';
@@ -808,7 +809,10 @@ export async function handleWhatsAppWebhook(
   }
   if (!user) {
     const normalizedPhone = contactPhone ? (contactPhone.startsWith('+') ? contactPhone : `+${contactPhone}`) : (isBsuid ? undefined : fromId);
-    user = await getOrCreateUserByWhatsApp(from, contactName, externalUserId, normalizedPhone);
+    // A first message in Hebrew or Russian starts the person in that language, so the welcome is not English
+    // (the language buttons still follow it). A tap on a button or list row has no words to read.
+    const typed: string | undefined = message.text?.body;
+    user = await getOrCreateUserByWhatsApp(from, contactName, externalUserId, normalizedPhone, typed ? guessLanguageFromText(typed) : undefined);
     isNewUser = true;
   }
 

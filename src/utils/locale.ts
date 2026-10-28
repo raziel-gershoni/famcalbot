@@ -16,6 +16,17 @@ export function normalizeLocale(locale: string | undefined | null): Locale {
 }
 
 /**
+ * The language a message is written in, from its letters: any Hebrew letter gives 'he', else any Cyrillic letter
+ * gives 'ru', else 'en'. For a first message from someone we know nothing else about (a new WhatsApp contact);
+ * it only starts them off, they can change the language afterwards.
+ */
+export function guessLanguageFromText(text: string): Locale {
+  if (/[\u05D0-\u05EA]/.test(text)) return 'he';
+  if (/\p{Script=Cyrillic}/u.test(text)) return 'ru';
+  return 'en';
+}
+
+/**
  * The first app locale a browser asks for in its Accept-Language header, by q-value
  * ('he-IL' counts as 'he'; 'iw' is the old code for Hebrew), else 'en'.
  */
