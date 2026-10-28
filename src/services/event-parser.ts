@@ -3,6 +3,8 @@
  * Type definitions for voice intent parsing and calendar event data
  */
 
+import type { ModelZman } from './zmanim/spec';
+
 /**
  * Voice intent types
  */
@@ -103,4 +105,10 @@ export interface ParsedEvent {
    * until resolution finds the event.
    */
   anchor?: { description: string; offsetMinutes: number };
+  /**
+   * Reminders only, for "10 minutes before sof zman Shema": what the model said about the zman, read but not yet
+   * mapped to a rule (readZmanFromModel does that, under the person's community). A reminder with one is date-only
+   * and has no clock time.
+   */
+  zman?: ModelZman;
 }

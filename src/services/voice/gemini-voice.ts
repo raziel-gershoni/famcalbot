@@ -15,6 +15,7 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { AI_MODEL_ID } from '../../config/ai-models';
 import { addDaysToDate, localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
 import { wallTimeToInstant } from '../../utils/wall-time';
+import type { ModelZman } from '../zmanim/spec';
 import { readSpokenHebrewDate, resolveSpokenHebrewDate } from '../hebrew-date-resolve';
 
 const VOICE_RETRY_CONFIG = {
@@ -629,6 +630,29 @@ function readAnchor(raw: unknown): ParsedEvent['anchor'] {
 }
 
 /**
+ * The model's `zman` of a reminder, read strictly: a name (with the opinion only if one was said) or a number of
+ * halachic hours, and an offset in minutes (none means 0). Undefined when the model gave none (null or missing);
+ * 'invalid' when it gave something that is not that shape, which the caller refuses, never reads as "no zman".
+ * Whether the name is a zman, the opinion one the set has and the numbers in range is readZmanFromModel's to say.
+ */
+function readZman(raw: unknown): ModelZman | 'invalid' | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return 'invalid';
+  const o = raw as Record<string, unknown>;
+  const hasName = o.name !== undefined && o.name !== null;
+  const hasHours = o.halachicHours !== undefined && o.halachicHours !== null;
+  if (hasName === hasHours) return 'invalid';
+  const offset = o.offsetMinutes ?? 0;
+  if (typeof offset !== 'number' || !Number.isFinite(offset)) return 'invalid';
+  if (hasHours) {
+    return typeof o.halachicHours === 'number' && Number.isFinite(o.halachicHours) ? { halachicHours: o.halachicHours, offsetMinutes: offset } : 'invalid';
+  }
+  if (typeof o.name !== 'string' || !o.name.trim()) return 'invalid';
+  if (o.opinion !== undefined && o.opinion !== null && typeof o.opinion !== 'string') return 'invalid';
+  return { name: o.name.trim(), opinion: typeof o.opinion === 'string' && o.opinion.trim() ? o.opinion.trim() : null, offsetMinutes: offset };
+}
+
+/**
  * A reminder the model created. It ends where it starts (see buildReminderTimes). An
  * anchored one has no time of its own yet: both times stay Invalid Dates until resolution
  * finds the anchor event. It goes on the user's own calendar whatever the model picked, so
@@ -644,6 +668,20 @@ function parseReminderCreate(
   const eventData = parsed.event;
   const confidence = parsed.confidence || 'medium';
   const anchor = readAnchor(eventData.anchor);
+  const zman = readZman(eventData.zman);
+  if (zman === 'invalid') {
+    console.warn(`[zman-voice] reminder has a zman that is not a readable shape; refused: ${JSON.stringify(eventData.zman)}`);
+    return { intent: 'create', confidence: 'low', error: 'Unreadable zman' };
+  }
+  // A zman is the reminder's time, so it takes no other: not an anchor, and not a clock time
+  if (zman && anchor) {
+    console.warn(`[zman-voice] reminder has both a zman and an anchor; refused: ${JSON.stringify({ zman: eventData.zman, anchor: eventData.anchor })}`);
+    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with an anchor' };
+  }
+  if (zman && typeof eventData.startTime === 'string' && eventData.startTime.trim()) {
+    console.warn(`[zman-voice] reminder has both a zman and a clock time; refused: ${JSON.stringify({ zman: eventData.zman, startTime: eventData.startTime })}`);
+    return { intent: 'create', confidence: 'low', error: 'A zman cannot go with a clock time' };
+  }
   const repeat = readRepeat(eventData, timezone, now);
   if (!anchor && eventData.anchor && !repeat.startDate) {
     return { intent: 'create', confidence: 'low', error: 'Missing date/time fields' };
@@ -657,7 +695,9 @@ function parseReminderCreate(
 
   const { start, allDay } = anchor
     ? { start: new Date(NaN), allDay: false }
-    : buildReminderTimes(repeat.startDate, eventData.startTime, !!eventData.allDay, timezone, now);
+    : zman
+      ? buildReminderTimes(repeat.startDate, undefined, true, timezone, now) // date-only: the store takes a zman on no other
+      : buildReminderTimes(repeat.startDate, eventData.startTime, !!eventData.allDay, timezone, now);
   if (!anchor && isNaN(start.getTime())) {
     return { intent: 'create', confidence: 'low', error: 'Invalid date/time parsed' };
   }
@@ -679,6 +719,7 @@ function parseReminderCreate(
     kind: 'reminder',
     forPerson: eventData.forPerson === 'partner' || eventData.forPerson === 'both' ? eventData.forPerson : 'self',
     ...(anchor ? { anchor } : {}),
+    ...(zman ? { zman } : {}),
   };
 
   return {
@@ -722,6 +763,12 @@ export function parseGeminiEventResponse(
       return parseReminderCreate(parsed, calendars, timezone, now);
     }
     const eventData = parsed.event;
+
+    // A zman is a reminder's time; on an event (or with reminders off) it is refused, never dropped silently
+    if (eventData.zman !== undefined && eventData.zman !== null) {
+      console.warn(`[zman-voice] a zman on an event, or with reminders off; refused: ${JSON.stringify(eventData.zman)}`);
+      return { intent: 'create', confidence: 'low', error: 'A zman is for reminders only' };
+    }
 
     // Validate calendarId against user's actual calendars
     const geminiCalId = eventData.calendarId || '';
