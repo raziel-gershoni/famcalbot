@@ -4,6 +4,10 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./sentry.server.config');
 
+    // No secret value reaches the logs (a Telegram error prints the bot token in its request path): every console line is scrubbed
+    const { installConsoleScrub } = await import('./src/lib/console-scrub');
+    installConsoleScrub();
+
     // Start in-process cron scheduler (replaces QStash)
     const { startScheduler } = await import('./src/cron/scheduler');
     startScheduler();
