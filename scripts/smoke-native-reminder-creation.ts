@@ -339,6 +339,18 @@ async function extractionChecks() {
     }
   });
 
+  await check('the live eval\'s zman cases (eighteen: fifteen reminders by a halachic time and three controls) are phrased differently from the prompt\'s own examples and rules, so they test generalisation', () => {
+    const source = readFileSync(path.resolve(__dirname, 'eval-native-reminders.ts'), 'utf8');
+    const texts = [...source.matchAll(/label: 'zman[^']*', text: '([^']+)'/g)].map((m) => m[1]);
+    assert(texts.length === 18, `${texts.length} cases`);
+    for (const mode of ['voice', 'text'] as const) {
+      for (const people of [PAIR, SOLO]) {
+        const rules = rulesFor(mode, people).toLowerCase();
+        for (const text of texts) assert(!rules.includes(text.toLowerCase()), `${mode}: the prompt already holds "${text}"`);
+      }
+    }
+  });
+
   await check('the rules carry the Hebrew, English and Russian phrasings', () => {
     const rules = rulesFor('text');
     const phrases = [

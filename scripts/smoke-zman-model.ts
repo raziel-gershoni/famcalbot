@@ -7,6 +7,7 @@
 // Pure. The model is not called; a fetch throws. Run under any process zone:
 //   npx tsx scripts/smoke-zman-model.ts
 
+import { readFileSync } from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -362,6 +363,100 @@ async function main() {
       });
       assert(JSON.stringify(got) === JSON.stringify(want), `${mode}: ${JSON.stringify(got)}`);
     }
+  });
+
+  // ---- The live eval's zman cases (Task 10): checked offline, no model call ----
+
+  const evalSource = readFileSync(path.resolve(__dirname, 'eval-native-reminders.ts'), 'utf8');
+  const { ALL_CASES } = await import('./eval-native-reminders');
+  type ZmanCase = (typeof ALL_CASES)[number];
+  const zmanCases = ALL_CASES.filter((c) => c.label.startsWith('zman'));
+  const zmanOnly = zmanCases.filter((c) => !c.label.startsWith('zman control'));
+  const caseOf = (language: string, label: string) => {
+    const found = zmanCases.find((c) => c.language === language && c.label === label);
+    assert(!!found, `no eval case ${language} ${label}`);
+    return found;
+  };
+
+  await check('the eval has 18 zman cases: 15 reminders by a halachic time (en, he, ru) and 3 controls, all selected by EVAL_ONLY=zman and none with an apostrophe in the text', () => {
+    assert(zmanCases.length === 18 && zmanOnly.length === 15, `${zmanCases.length} cases, ${zmanOnly.length} zman`);
+    for (const language of ['en', 'he', 'ru']) assert(zmanOnly.filter((c) => c.language === language).length === 5, `${language} does not have 5`);
+    assert(zmanCases.filter((c) => c.label.startsWith('zman control')).length === 3, 'three controls');
+    for (const c of zmanCases) assert(!c.text.includes("'"), `${c.label}: an apostrophe breaks the phrasing check's pattern`);
+    assert(zmanOnly.filter((c) => c.label === 'zman: opinion said').length === 3, 'one opinion-said case per language');
+  });
+
+  /** One correct model answer per case: what a model that reads the phrase right returns. */
+  const TOMORROW = '2026-10-29';
+  const FRIDAY = '2026-10-30';
+  const ANSWERS: Record<string, Record<string, unknown>> = {
+    'en zman: shema': { zman: { name: 'SOF_SHMA', opinion: null, offsetMinutes: -12 } },
+    'he zman: shema': { zman: { name: 'SOF_SHMA', opinion: null, offsetMinutes: -12 } },
+    'ru zman: shema': { zman: { name: 'SOF_SHMA', opinion: null, offsetMinutes: -12 } },
+    'en zman: sunset daily': { zman: { name: 'SHKIA', opinion: null, offsetMinutes: -30 }, recurrence: { frequency: 'daily' } },
+    'he zman: sunset daily': { zman: { name: 'SHKIA', opinion: null, offsetMinutes: -20 }, recurrence: { frequency: 'daily' } },
+    'ru zman: sunset daily': { zman: { name: 'SHKIA', opinion: null, offsetMinutes: -30 }, recurrence: { frequency: 'daily' } },
+    'en zman: opinion said': { zman: { name: 'PLAG', opinion: 'yalkutYosef', offsetMinutes: 0 }, startDate: TOMORROW },
+    'he zman: opinion said': { zman: { name: 'SOF_SHMA', opinion: 'mga', offsetMinutes: -40 }, startDate: TOMORROW },
+    'ru zman: opinion said': { zman: { name: 'PLAG', opinion: 'halachaBerura', offsetMinutes: -20 }, startDate: TOMORROW },
+    'en zman: nightfall': { zman: { name: 'TZEIT', opinion: null, offsetMinutes: 15 } },
+    'ru zman: nightfall': { zman: { name: 'TZEIT', opinion: null, offsetMinutes: 15 }, startDate: FRIDAY },
+    'en zman: friday candles': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -90 }, recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
+    'he zman: friday candles for both': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -60 }, forPerson: 'both', recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
+    'ru zman: friday candles': { zman: { name: 'CANDLE_LIGHTING', opinion: null, offsetMinutes: -90 }, recurrence: { frequency: 'weekly', daysOfWeek: ['FR'] } },
+    'he zman: halachic hours': { zman: { halachicHours: 4, offsetMinutes: 0 }, recurrence: { frequency: 'daily' } },
+    'ru zman control: clock time': { startDate: TOMORROW, startTime: '17:30', allDay: false },
+    'he zman control: midnight': { startDate: TOMORROW, startTime: '00:00', allDay: false },
+  };
+  const answerFor = (c: ZmanCase, over: Record<string, unknown> = {}) => {
+    const base = ANSWERS[`${c.language} ${c.label}`];
+    assert(!!base, `no answer for ${c.language} ${c.label}`);
+    const { event, error } = parse({ ...base, ...over });
+    return { event, error, results: event ? [{ intent: 'create' as const, confidence: 'high' as const, event }] : [{ intent: 'create' as const, confidence: 'low' as const, error }] };
+  };
+
+  await check('each zman case of the eval accepts a correct answer (parsed by the real parser) and the control event stays an event', () => {
+    for (const c of zmanCases) {
+      if (c.label === 'zman control: event') continue;
+      const { results: got } = answerFor(c);
+      const problem = c.expect(got, NOW);
+      assert(problem === null, `${c.language} ${c.label}: ${problem}`);
+    }
+    const dinner = parseGeminiEventResponse(
+      { intent: 'create', confidence: 'high', event: { title: 'Dinner', calendarId: 'primary', kind: 'event', startDate: FRIDAY, startTime: '18:00', endDate: FRIDAY, endTime: '20:00' } },
+      CALENDARS, IL, true, NOW
+    );
+    assert(caseOf('en', 'zman control: event').expect([dinner], NOW) === null, 'the dinner stays an event');
+  });
+
+  await check('the eval refuses a wrong answer: an opinion the person did not say, a wrong name or offset, hours for a name, a day nobody said, a missing or wrong repeat, a zman on a control', () => {
+    const shema = caseOf('en', 'zman: shema');
+    const fails = (c: ZmanCase, over: Record<string, unknown>, needle: RegExp) => {
+      const { results: got } = answerFor(c, over);
+      const problem = c.expect(got, NOW);
+      assert(problem !== null && needle.test(problem), `${c.language} ${c.label} ${JSON.stringify(over)}: ${problem}`);
+    };
+    fails(shema, { zman: { name: 'SOF_SHMA', opinion: 'gra', offsetMinutes: -12 } }, /zman/); // the model picked one
+    fails(shema, { zman: { name: 'SOF_SHMA', opinion: null, offsetMinutes: 12 } }, /zman/); // the sign
+    fails(shema, { zman: { name: 'SOF_TFILA', opinion: null, offsetMinutes: -12 } }, /zman/); // the name
+    fails(shema, { zman: { halachicHours: 3, offsetMinutes: -12 } }, /zman/);
+    fails(shema, { startDate: TOMORROW }, /read from nothing/); // a day invented for "no day"
+    fails(shema, { zman: undefined }, /no zman/); // a clock time or nothing instead
+    fails(shema, { recurrence: { frequency: 'daily' } }, /recurrence/);
+    fails(caseOf('en', 'zman: sunset daily'), { recurrence: null }, /recurrence/);
+    fails(caseOf('en', 'zman: friday candles'), { recurrence: { frequency: 'weekly', daysOfWeek: ['TH'] } }, /recurrence/);
+    fails(caseOf('he', 'zman: friday candles for both'), { forPerson: 'self' }, /forPerson/);
+    fails(caseOf('en', 'zman: opinion said'), { startDate: null }, /date/); // the day the person said
+    fails(caseOf('ru', 'zman control: clock time'), { zman: { name: 'SHKIA', opinion: null, offsetMinutes: 0 }, startTime: null }, /unexpected zman/);
+    fails(caseOf('he', 'zman control: midnight'), { startTime: null, zman: { name: 'CHATZOT_HALAYLA', opinion: null, offsetMinutes: 0 } }, /unexpected zman/);
+  });
+
+  await check('the eval\'s zman cases are phrased differently from the prompt\'s own examples and rules, in both modes, so they test generalisation', () => {
+    for (const mode of ['voice', 'text'] as const) {
+      const prompt = buildEventExtractionPrompt('en', CALENDARS, IL, mode, undefined, { userName: 'Raziel', partnerName: 'Dana' }).toLowerCase();
+      for (const c of zmanCases) assert(!prompt.includes(c.text.toLowerCase()), `${mode}: the prompt already holds "${c.text}"`);
+    }
+    assert(/label: 'zman[^']*', text:/.test(evalSource), 'the cases are written in the eval\'s form');
   });
 
   let failed = 0;
