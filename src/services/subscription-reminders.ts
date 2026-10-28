@@ -67,6 +67,11 @@ async function getSubscriptionMessages(locale: string) {
   return messages.default.subscription;
 }
 
+/** The plan's name in the person's language (payment-handler names it the same way), the English name when the language has none. */
+function localizedPlanName(t: Awaited<ReturnType<typeof getSubscriptionMessages>>, plan: string, englishName: string): string {
+  return t.plans?.[plan.toLowerCase()]?.name || englishName;
+}
+
 /**
  * Send expiring subscription reminders
  * @param daysLeft - Days until subscription expires (3 = 3-day warning, 0 = last day)
@@ -168,7 +173,7 @@ async function sendExpiringReminders(daysLeft: number): Promise<void> {
 
       message = [
         (t.reminders?.expiringSoon?.title || '\uD83C\uDF1F Heads up! Your FamCal {plan} renews in {days} days')
-          .replace('{plan}', planConfig.name)
+          .replace('{plan}', localizedPlanName(t, sub.plan, planConfig.name))
           .replace('{days}', String(userDaysLeft)),
         '',
         t.reminders?.expiringSoon?.usage || 'Your family has used:',
@@ -332,7 +337,7 @@ async function expireSubscriptions(): Promise<void> {
     ].join('\n');
 
     const buttonText = (t.reminders?.expired?.button || '\uD83D\uDCAB Get {plan} - \u2B50{price}/month')
-      .replace('{plan}', planConfig.name)
+      .replace('{plan}', localizedPlanName(t, previousPlan, planConfig.name))
       .replace('{price}', String(planConfig.priceStars));
 
     try {
