@@ -14,6 +14,8 @@
 // delete the file, then run it again.
 // (Retaken once for "remind us both": the twelve reminder prompts gained one clause explaining
 // "(for both of you)"; nothing else in them moved.)
+// (Edited by hand once for the Russian day count in the week prompts: "Через 2 дней", "Через 3 дней" and "Через 4 дней" are
+// now "Через 2 дня", "Через 3 дня" and "Через 4 дня", the form Intl.PluralRules gives; nothing else in them moved.)
 //
 // With the flag, a daily or tomorrow prompt gains exactly one line, in its guidelines.
 // The AI, the holiday lookup and Sentry are faked, and the clock is frozen per case.
