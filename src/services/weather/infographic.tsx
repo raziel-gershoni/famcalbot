@@ -12,7 +12,8 @@ import { detectDustStorm } from './dust-storm';
 import { detectSharav } from './sharav';
 import { getLocalizedLocationName } from './geocoding';
 import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon, getUmbrellaIcon } from './weather-icons';
-import { getWindDirectionLabel } from './open-meteo';
+import { describeWeather, getWindDirectionLabel } from './open-meteo';
+import { getBotMessages } from '../../lib/bot-messages';
 import bidiFactory from 'bidi-js';
 
 const bidi = bidiFactory();
@@ -159,36 +160,6 @@ function getWindUnitLabel(language: string): string {
   return 'km/h';
 }
 
-function getLocalizedWeatherDescription(code: number, language: string): string {
-  const descriptions: Record<string, Record<number, string>> = {
-    en: {
-      0: 'Clear sky', 1: 'Partly cloudy', 45: 'Foggy', 51: 'Drizzle',
-      61: 'Rain', 71: 'Snow', 80: 'Showers', 85: 'Snow showers', 95: 'Thunderstorm',
-    },
-    he: {
-      0: 'שמיים בהירים', 1: 'מעונן חלקית', 45: 'ערפל', 51: 'טפטוף',
-      61: 'גשם', 71: 'שלג', 80: 'ממטרים', 85: 'ממטרי שלג', 95: 'סופת רעמים',
-    },
-    ru: {
-      0: 'Ясно', 1: 'Переменная облачность', 45: 'Туман', 51: 'Морось',
-      61: 'Дождь', 71: 'Снег', 80: 'Ливень', 85: 'Снегопад', 95: 'Гроза',
-    },
-  };
-  const lang = descriptions[language] || descriptions.en;
-  // Map WMO code to grouped key
-  let key: number;
-  if (code === 0) key = 0;
-  else if (code <= 3) key = 1;
-  else if (code <= 48) key = 45;
-  else if (code <= 57) key = 51;
-  else if (code <= 67) key = 61;
-  else if (code <= 77) key = 71;
-  else if (code <= 82) key = 80;
-  else if (code <= 86) key = 85;
-  else key = 95;
-  return lang[key] || descriptions.en[key] || 'Unknown';
-}
-
 // ---------------------------------------------------------------------------
 // Compute render data
 // ---------------------------------------------------------------------------
@@ -246,6 +217,7 @@ function buildInfographicJsx(
   rows: RowData[],
   globalMin: number,
   globalMax: number,
+  conditionText: string,
 ): React.ReactElement {
   const [gradFrom, gradTo] = getBackgroundGradient(config.weather.current.weatherCode);
   const isRTL = config.language === 'he';
@@ -337,9 +309,7 @@ function buildInfographicJsx(
           </div>
           {/* Condition text */}
           <div style={{ display: 'flex', fontSize: 34, opacity: 0.85, marginTop: 4 }}>
-            {isRTL
-              ? toVisualOrder(getLocalizedWeatherDescription(config.weather.current.weatherCode, config.language))
-              : getLocalizedWeatherDescription(config.weather.current.weatherCode, config.language)}
+            {isRTL ? toVisualOrder(conditionText) : conditionText}
           </div>
           {/* Feels like */}
           <div style={{ display: 'flex', fontSize: 32, opacity: 0.7, marginTop: 4 }}>
@@ -590,7 +560,8 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
       } catch { /* keep English name */ }
     }
 
-    const jsx = buildInfographicJsx(config, rows, globalMin, globalMax);
+    const conditionText = describeWeather(config.weather.current.weatherCode, await getBotMessages(config.language));
+    const jsx = buildInfographicJsx(config, rows, globalMin, globalMax, conditionText);
     const satoriStartMs = Date.now();
     const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });
     console.log('[Infographic] Satori render:', { durationMs: Date.now() - satoriStartMs });

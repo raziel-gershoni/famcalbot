@@ -723,7 +723,7 @@ async function sendWeatherOnlyToUser(
   const messagingService = getMessagingService();
 
   const { getTimezone } = await import('../weather/geocoding');
-  const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('../weather/open-meteo');
+  const { fetchWeather, describeWeather, getWindDirectionLabel } = await import('../weather/open-meteo');
   const { detectSharav } = await import('../weather/sharav');
   const { fetchAirQuality } = await import('../weather/air-quality');
   const { detectDustStorm } = await import('../weather/dust-storm');
@@ -796,7 +796,7 @@ async function sendWeatherOnlyToUser(
 
   const weatherMessage = `🌤️ <b>${t.weatherOnly?.title || 'Weather'} - ${dateStr}</b>
 
-<b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}${windLine}
+<b>${t.weatherOnly?.current || 'Current'}:</b> ${weatherData.current.temperature}°C (${t.weatherOnly?.feelsLike || 'feels like'} ${weatherData.current.feelsLike}°C), ${describeWeather(weatherData.current.weatherCode, t)}${windLine}
 
 <b>${t.weatherOnly?.today || 'Today'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.today.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}
 ${weatherData.tomorrow ? `<b>${t.weatherOnly?.tomorrow || 'Tomorrow'}:</b> ${t.weatherOnly?.high || 'High'} ${weatherData.tomorrow.tempMax}°C, ${t.weatherOnly?.low || 'Low'} ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% ${t.weatherOnly?.rain || 'rain'}` : ''}${sharavLine}${dustLine}`;

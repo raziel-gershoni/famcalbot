@@ -101,7 +101,7 @@ async function main() {
   const TERMS: Record<string, string[]> = {
     en: ['sharav', 'dust storm'],
     he: ['שרב', 'סופת אבק'],
-    ru: ['хамсин', 'пылевая буря'],
+    ru: ['шарав', 'пылевая буря'],
   };
 
   // ---- Hazard terms: only the target language's reach the model ----

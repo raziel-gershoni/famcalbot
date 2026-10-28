@@ -6,6 +6,7 @@
 
 import { WeatherData } from '../../types';
 import { fetchWithTimeout, geocodeLocation } from './geocoding';
+import type { BotMessages } from '../../lib/bot-messages';
 
 interface OpenMeteoResponse {
   current: {
@@ -152,8 +153,11 @@ export async function fetchWeather(
 }
 
 /**
- * Weather code descriptions (WMO Weather interpretation codes)
+ * Weather code descriptions in English (WMO Weather interpretation codes)
  * https://open-meteo.com/en/docs
+ *
+ * For text the MODEL reads (the forecast prompts) only. Anything the person reads gets its condition from
+ * describeWeather, which takes the name from the messages in their language.
  */
 export function getWeatherDescription(code: number): string {
   const descriptions: Record<number, string> = {
@@ -188,6 +192,25 @@ export function getWeatherDescription(code: number): string {
   };
 
   return descriptions[code] || 'Unknown';
+}
+
+/** The bot message key of each WMO weather code's name (bot.weatherConditions.<key>). */
+const WEATHER_CONDITION_KEYS: Record<number, string> = {
+  0: 'clear', 1: 'mainlyClear', 2: 'partlyCloudy', 3: 'overcast', 45: 'fog', 48: 'rimeFog',
+  51: 'drizzleLight', 53: 'drizzleModerate', 55: 'drizzleDense', 56: 'freezingDrizzleLight', 57: 'freezingDrizzleDense',
+  61: 'rainSlight', 63: 'rainModerate', 65: 'rainHeavy', 66: 'freezingRainLight', 67: 'freezingRainHeavy',
+  71: 'snowSlight', 73: 'snowModerate', 75: 'snowHeavy', 77: 'snowGrains',
+  80: 'showersSlight', 81: 'showersModerate', 82: 'showersViolent', 85: 'snowShowersSlight', 86: 'snowShowersHeavy',
+  95: 'thunderstorm', 96: 'thunderstormHail', 99: 'thunderstormHeavyHail',
+};
+
+/**
+ * The name of a weather condition, in the language of the bot messages given. The one source for a condition's name
+ * in anything the person reads: the infographic, the weather-only message and the fallback forecast.
+ */
+export function describeWeather(code: number, t: BotMessages): string {
+  const key = WEATHER_CONDITION_KEYS[code];
+  return (key && t.weatherConditions[key]) || t.weatherConditions.unknown;
 }
 
 /**

@@ -9,9 +9,11 @@ import { formatInTimeZone } from 'date-fns-tz';
 import '@hebcal/locales';
 import { AirQualityData, WeatherData } from '../../types';
 import { detectDustStorm } from './dust-storm';
-import { getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
+import { describeWeather, getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
 import { detectSharav } from './sharav';
 import { timeOfDayGreeting } from '../../utils/greeting';
+import { escapeHtml } from '../../utils/html';
+import { getBotMessages, type BotMessages } from '../../lib/bot-messages';
 import type { InfographicConfig } from './infographic';
 
 interface RainHours {
@@ -102,14 +104,14 @@ function formatRainHours(rainPeriods: RainHours[]): string {
 }
 
 /**
- * Get UV index description
+ * Get UV index description, in the language of the fallback messages
  */
-function getUVDescription(uvIndex: number): string {
-  if (uvIndex < 3) return 'Low';
-  if (uvIndex < 6) return 'Moderate';
-  if (uvIndex < 8) return 'High';
-  if (uvIndex < 11) return 'Very High';
-  return 'Extreme';
+function getUVDescription(uvIndex: number, f: BotMessages['weatherFallback']): string {
+  if (uvIndex < 3) return f.uvLow;
+  if (uvIndex < 6) return f.uvModerate;
+  if (uvIndex < 8) return f.uvHigh;
+  if (uvIndex < 11) return f.uvVeryHigh;
+  return f.uvExtreme;
 }
 
 /**
@@ -208,7 +210,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
 const HAZARD_TERMS: Record<string, { sharav: string; dustStorm: string }> = {
   en: { sharav: 'sharav', dustStorm: 'dust storm' },
   he: { sharav: 'שרב', dustStorm: 'סופת אבק' },
-  ru: { sharav: 'хамсин', dustStorm: 'пылевая буря' },
+  ru: { sharav: 'шарав', dustStorm: 'пылевая буря' },
 };
 
 const SECTION_HEADERS: Record<string, { todayTomorrow: string; thisWeek: string; extended: string }> = {
@@ -354,48 +356,55 @@ ${JSON.stringify(payload, null, 2)}`;
     return { brief: text + modelFooter, detailed: text, infographicConfig };
   } catch (error) {
     console.error('Failed to generate AI weather forecast:', error);
-    const fallback = await formatWeatherDetailed(weather);
+    const fallback = await formatWeatherDetailed(weather, language);
     return { brief: fallback, detailed: fallback };
   }
 }
 
 /**
- * Format weather data in detailed format (fallback when AI is unavailable)
+ * Format weather data in detailed format (fallback when AI is unavailable), in the person's language.
+ * It is sent as Telegram HTML (and read out as the voice text), so bold is <b> and the place name is escaped.
  */
-async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
-  let output = `🌤️ *Weather for ${weather.location}*\n\n`;
+async function formatWeatherDetailed(weather: WeatherData, language: string): Promise<string> {
+  const t = await getBotMessages(language);
+  const w = t.weatherOnly;
+  const f = t.weatherFallback;
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  const section = (title: string) => `<b>━━━ ${title} ━━━</b>\n`;
+
+  let output = `🌤️ <b>${escapeHtml(f.title.replace('{location}', weather.location))}</b>\n\n`;
 
   // ========== CURRENT CONDITIONS ==========
-  output += `*━━━ Current Conditions ━━━*\n`;
-  output += `${getWeatherEmoji(weather.current.weatherCode)} ${getWeatherDescription(weather.current.weatherCode)}\n`;
-  output += `🌡️ Temperature: ${weather.current.temperature}°C (feels like ${weather.current.feelsLike}°C)\n`;
-  output += `💨 Wind: ${weather.current.windSpeed} km/h`;
+  output += section(w.current);
+  output += `${getWeatherEmoji(weather.current.weatherCode)} ${describeWeather(weather.current.weatherCode, t)}\n`;
+  output += `🌡️ ${f.temperature}: ${weather.current.temperature}°C (${w.feelsLike} ${weather.current.feelsLike}°C)\n`;
+  output += `💨 ${f.wind}: ${weather.current.windSpeed} ${w.windSpeed}`;
 
   // Wind comfort
   if (weather.current.windSpeed > 25) {
-    output += ` (Strong winds, feels colder)`;
+    output += ` (${f.windStrong})`;
   } else if (weather.current.windSpeed > 15) {
-    output += ` (Breezy)`;
+    output += ` (${f.windBreezy})`;
   }
   output += `\n`;
 
-  output += `💧 Humidity: ${weather.current.humidity}%\n`;
-  output += `☀️ UV Index: ${weather.current.uvIndex} (${getUVDescription(weather.current.uvIndex)})\n\n`;
+  output += `💧 ${f.humidity}: ${weather.current.humidity}%\n`;
+  output += `☀️ ${f.uvIndex}: ${weather.current.uvIndex} (${getUVDescription(weather.current.uvIndex, f)})\n\n`;
 
   // ========== TODAY ==========
-  output += `*━━━ Today ━━━*\n`;
-  output += `📈 High: ${weather.today.tempMax}°C | 📉 Low: ${weather.today.tempMin}°C\n`;
-  output += `${getWeatherEmoji(weather.today.weatherCode)} ${getWeatherDescription(weather.today.weatherCode)}\n`;
-  output += `🌅 Sunrise: ${formatTime(weather.today.sunrise)} | 🌇 Sunset: ${formatTime(weather.today.sunset)}\n`;
-  output += `☀️ Max UV: ${weather.today.uvIndexMax} (${getUVDescription(weather.today.uvIndexMax)})`;
+  output += section(w.today);
+  output += `📈 ${w.high}: ${weather.today.tempMax}°C | 📉 ${w.low}: ${weather.today.tempMin}°C\n`;
+  output += `${getWeatherEmoji(weather.today.weatherCode)} ${describeWeather(weather.today.weatherCode, t)}\n`;
+  output += `🌅 ${f.sunrise}: ${formatTime(weather.today.sunrise)} | 🌇 ${f.sunset}: ${formatTime(weather.today.sunset)}\n`;
+  output += `☀️ ${f.maxUv}: ${weather.today.uvIndexMax} (${getUVDescription(weather.today.uvIndexMax, f)})`;
 
   if (weather.today.uvIndexMax >= 6) {
-    output += ` - Sunscreen recommended`;
+    output += ` - ${f.sunscreen}`;
   }
   output += `\n`;
 
   if (weather.today.precipitationProbability > 0) {
-    output += `🌧️ Rain probability: ${weather.today.precipitationProbability}%\n`;
+    output += `🌧️ ${f.rainProbability}: ${weather.today.precipitationProbability}%\n`;
   }
 
   // Rain hours for today
@@ -403,13 +412,13 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
     const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
     const rainHours = extractRainHours(weather.hourly, todayDate);
     if (rainHours.length > 0) {
-      output += `⏰ Rain expected: ${formatRainHours(rainHours)}\n`;
+      output += `⏰ ${f.rainExpected}: ${formatRainHours(rainHours)}\n`;
     }
   }
 
   // ========== 12-HOUR HOURLY BREAKDOWN ==========
   if (weather.hourly) {
-    output += `\n*━━━ Next 12 Hours ━━━*\n`;
+    output += `\n${section(f.next12Hours)}`;
     const now = new Date();
 
     let hoursShown = 0;
@@ -433,7 +442,7 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
       }
 
       if (wind > 20) {
-        output += ` 💨${wind}km/h`;
+        output += ` 💨${wind} ${w.windSpeed}`;
       }
 
       output += `\n`;
@@ -443,14 +452,14 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
 
   // ========== TOMORROW ==========
   if (weather.tomorrow) {
-    output += `\n*━━━ Tomorrow ━━━*\n`;
-    output += `📈 High: ${weather.tomorrow.tempMax}°C | 📉 Low: ${weather.tomorrow.tempMin}°C\n`;
-    output += `${getWeatherEmoji(weather.tomorrow.weatherCode)} ${getWeatherDescription(weather.tomorrow.weatherCode)}\n`;
-    output += `🌅 Sunrise: ${formatTime(weather.tomorrow.sunrise)} | 🌇 Sunset: ${formatTime(weather.tomorrow.sunset)}\n`;
-    output += `☀️ Max UV: ${weather.tomorrow.uvIndexMax} (${getUVDescription(weather.tomorrow.uvIndexMax)})\n`;
+    output += `\n${section(w.tomorrow)}`;
+    output += `📈 ${w.high}: ${weather.tomorrow.tempMax}°C | 📉 ${w.low}: ${weather.tomorrow.tempMin}°C\n`;
+    output += `${getWeatherEmoji(weather.tomorrow.weatherCode)} ${describeWeather(weather.tomorrow.weatherCode, t)}\n`;
+    output += `🌅 ${f.sunrise}: ${formatTime(weather.tomorrow.sunrise)} | 🌇 ${f.sunset}: ${formatTime(weather.tomorrow.sunset)}\n`;
+    output += `☀️ ${f.maxUv}: ${weather.tomorrow.uvIndexMax} (${getUVDescription(weather.tomorrow.uvIndexMax, f)})\n`;
 
     if (weather.tomorrow.precipitationProbability > 0) {
-      output += `🌧️ Rain probability: ${weather.tomorrow.precipitationProbability}%\n`;
+      output += `🌧️ ${f.rainProbability}: ${weather.tomorrow.precipitationProbability}%\n`;
     }
 
     // Rain hours for tomorrow
@@ -459,7 +468,7 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
       if (tomorrowDate) {
         const rainHours = extractRainHours(weather.hourly, tomorrowDate);
         if (rainHours.length > 0) {
-          output += `⏰ Rain expected: ${formatRainHours(rainHours)}\n`;
+          output += `⏰ ${f.rainExpected}: ${formatRainHours(rainHours)}\n`;
         }
       }
     }
@@ -467,11 +476,11 @@ async function formatWeatherDetailed(weather: WeatherData): Promise<string> {
 
   // ========== 7-DAY FORECAST ==========
   if (weather.daily && weather.daily.length > 2) {
-    output += `\n*━━━ 7-Day Forecast ━━━*\n`;
+    output += `\n${section(f.forecast7Days)}`;
     for (let i = 2; i < Math.min(7, weather.daily.length); i++) {
       const day = weather.daily[i];
-      const date = new Date(day.date);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      // The day is a plain date: read it as the UTC day it names, not as the server's local day
+      const dayName = new Date(day.date).toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
       output += `${dayName}: ${day.tempMin}-${day.tempMax}°C ${getWeatherEmoji(day.weatherCode)}`;
 
