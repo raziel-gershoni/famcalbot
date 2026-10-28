@@ -34,7 +34,7 @@ const ROOT = path.resolve(__dirname, '..');
 const NOT_YET = ['landing'];
 
 /** An informal pronoun, or an informal imperative a message gives the person. A quoted example of what to say to the bot («напомни …») is the person's own words and does not count. */
-const INFORMAL = /(?<![\p{L}])(?:ты|тебе|тебя|тобой|твой|твоя|твоё|твои|твоих|твоего|твоей|твоим|твоими|отправь|нажми|открой|попробуй|проверь|выбери|укажи|скажи|напиши|повтори|свяжи|закрой|скопируй)(?![\p{L}])/iu;
+const INFORMAL = /(?<![\p{L}])(?:ты|тебе|тебя|тобой|твой|твоя|твоё|твои|твоих|твоего|твоей|твоим|твоими|отправь|нажми|открой|попробуй|проверь|выбери|укажи|скажи|напиши|повтори|свяжи|закрой|скопируй|можешь|хочешь|сможешь|напишешь|отправишь)(?![\p{L}])/iu;
 
 function leaves(node: unknown, prefix = ''): Array<[string, string]> {
   if (typeof node === 'string') return [[prefix, node]];
@@ -48,10 +48,10 @@ const withoutQuotes = (text: string) => text.replace(/«[^»]*»/g, '');
 const ru = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/ru.json'), 'utf8')) as Record<string, unknown>;
 
 check('the matcher finds an informal word and passes a formal one (so a clean walk below means something)', () => {
-  for (const informal of ['Напомню тебе завтра.', 'Попробуй ещё раз.', 'Это не для тебя.', 'Твой календарь готов.', 'Повтори и укажи время.']) {
+  for (const informal of ['Напомню тебе завтра.', 'Попробуй ещё раз.', 'Это не для тебя.', 'Твой календарь готов.', 'Повтори и укажи время.', 'Можешь добавить уточнение.', 'Если хочешь, напишешь позже.', 'Ты сможешь отправить, а потом отправишь ещё.']) {
     assert(INFORMAL.test(withoutQuotes(informal)), `missed: ${informal}`);
   }
-  for (const formal of ['Напомню вам завтра.', 'Попробуйте ещё раз.', 'Это не для вас.', 'Ваш календарь готов.', 'Скажите, например: «напомни мне завтра».', 'Тыква и твёрдый сыр']) {
+  for (const formal of ['Напомню вам завтра.', 'Попробуйте ещё раз.', 'Это не для вас.', 'Ваш календарь готов.', 'Скажите, например: «напомни мне завтра».', 'Тыква и твёрдый сыр', 'Можете добавить уточнение.', 'Если хотите, напишите позже.', 'Вы сможете отправить его позже.']) {
     assert(!INFORMAL.test(withoutQuotes(formal)), `flagged: ${formal}`);
   }
 });

@@ -373,22 +373,27 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
 }
 
 /**
- * Localized relative day labels
+ * Localized relative day labels. "In N days" is one text, or one text per plural form where the language counts days
+ * in forms (Russian: 2 дня, 5 дней, 21 день), picked with Intl.PluralRules.
  */
-const RELATIVE_LABELS: Record<string, Record<string, string>> = {
+const RELATIVE_LABELS: Record<string, { today: string; tomorrow: string; inDays: string | Partial<Record<Intl.LDMLPluralRule, string>> }> = {
   en: { today: 'Today', tomorrow: 'Tomorrow', inDays: 'In {n} days' },
   he: { today: 'היום', tomorrow: 'מחר', inDays: 'בעוד {n} ימים' },
-  ru: { today: 'Сегодня', tomorrow: 'Завтра', inDays: 'Через {n} дней' },
+  ru: { today: 'Сегодня', tomorrow: 'Завтра', inDays: { one: 'Через {n} день', few: 'Через {n} дня', many: 'Через {n} дней', other: 'Через {n} дня' } },
 };
 
 /**
  * Get relative day label based on days from now
  */
-function getRelativeLabel(daysFromNow: number, language: string): string {
-  const labels = RELATIVE_LABELS[language] || RELATIVE_LABELS.en;
+export function getRelativeLabel(daysFromNow: number, language: string): string {
+  const lang = RELATIVE_LABELS[language] ? language : 'en';
+  const labels = RELATIVE_LABELS[lang];
   if (daysFromNow === 0) return labels.today;
   if (daysFromNow === 1) return labels.tomorrow;
-  return labels.inDays.replace('{n}', String(daysFromNow));
+  const inDays = typeof labels.inDays === 'string'
+    ? labels.inDays
+    : labels.inDays[new Intl.PluralRules(lang).select(daysFromNow)] ?? labels.inDays.other ?? '';
+  return inDays.replace('{n}', String(daysFromNow));
 }
 
 /**

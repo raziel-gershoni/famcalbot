@@ -329,8 +329,8 @@ async function formatReminderMessage(
         auto: `🤖 <b>Авто-напоминание: ${title}</b>\n📅 ${calendarName}\n⏰ ${when}${location}`,
       },
       pickup: {
-        event: `🚗 <b>Напоминание о заборе: ${childName}</b>\n⏰ ${when}${location}`,
-        auto: `🤖🚗 <b>Авто-напоминание о заборе: ${childName}</b>\n⏰ ${when}${location}`,
+        event: `🚗 <b>Напоминание: пора забирать — ${childName}</b>\n⏰ ${when}${location}`,
+        auto: `🤖🚗 <b>Авто-напоминание: пора забирать — ${childName}</b>\n⏰ ${when}${location}`,
       },
     },
   };
