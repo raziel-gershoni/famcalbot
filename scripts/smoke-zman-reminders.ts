@@ -591,6 +591,18 @@ async function main() {
     }
   });
 
+  const copy = (locale: 'en' | 'he' | 'ru') => translate(locale) as unknown as (key: string) => string;
+
+  await check('words (review): the Yalkut Yosef plag is "Ялкут Йосеф" in Russian, as Russian-speaking readers know the book', () => {
+    assert(copy('ru')('zmanim.opinions.yalkutYosef') === 'Ялкут Йосеф', copy('ru')('zmanim.opinions.yalkutYosef'));
+    assert(words.zmanName(translate('ru'), 'PLAG_YALKUT_YOSEF', 'yalkutYosef').endsWith('(Ялкут Йосеф)'), words.zmanName(translate('ru'), 'PLAG_YALKUT_YOSEF', 'yalkutYosef'));
+  });
+
+  await check('words (review): the editor\'s Hebrew switch and row say "זמן הלכתי", since a bare "לפי זמן" next to "מתי" reads as "by time"', () => {
+    assert(copy('he')('editor.byZman') === 'לפי זמן הלכתי', copy('he')('editor.byZman'));
+    assert(copy('he')('editor.zmanLabel') === 'זמן הלכתי', copy('he')('editor.zmanLabel'));
+  });
+
   // ============ The migration ============
 
   await check('migration: NativeEvent.zmanSpec is one additive, idempotent JSONB column, matching the schema', () => {

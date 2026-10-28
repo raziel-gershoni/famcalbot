@@ -7375,10 +7375,10 @@ async function main() {
       tapPlus(m, messages.he.calendarHome.header.add);
       await settle();
       tapIn(m, 'תזכורת');
-      m.click(switchOf(m, 'לפי זמן'));
-      assert(shownIn(m, 'זמן') === 'סוף זמן קריאת שמע (גר״א)', `the zman: ${shownIn(m, 'זמן')}`);
-      assertSame(optionsIn(m, 'זמן').map(([v]) => v), ['ALOT', 'SOF_SHMA_MGA', 'SOF_SHMA_GRA', 'SHKIA', 'hours'], 'the options');
-      assert(optionsIn(m, 'זמן')[1][1] === 'סוף זמן קריאת שמע (מג״א)' && optionsIn(m, 'זמן')[0][1] === 'עלות השחר' && optionsIn(m, 'זמן')[4][1] === 'שעות זמניות אחרי הנץ החמה', 'luach terms');
+      m.click(switchOf(m, 'לפי זמן הלכתי'));
+      assert(shownIn(m, 'זמן הלכתי') === 'סוף זמן קריאת שמע (גר״א)', `the zman: ${shownIn(m, 'זמן הלכתי')}`);
+      assertSame(optionsIn(m, 'זמן הלכתי').map(([v]) => v), ['ALOT', 'SOF_SHMA_MGA', 'SOF_SHMA_GRA', 'SHKIA', 'hours'], 'the options');
+      assert(optionsIn(m, 'זמן הלכתי')[1][1] === 'סוף זמן קריאת שמע (מג״א)' && optionsIn(m, 'זמן הלכתי')[0][1] === 'עלות השחר' && optionsIn(m, 'זמן הלכתי')[4][1] === 'שעות זמניות אחרי הנץ החמה', 'luach terms');
       m.click(byLabel(topDialog(m), 'יותר דקות'));
       const today = elements(topDialog(m)).filter((e) => e.className.includes('ch-form-row') && e.localName === 'div' && e.textContent.startsWith('היום'))[0];
       const ltr = elements(today).filter((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr');
