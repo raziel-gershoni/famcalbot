@@ -124,6 +124,8 @@ let partner: PartnerSummary | null = raziel;
 let currentUser: UserConfig = dana;
 /** Each person's zone, as resolveUserTimezone answers (the fake). */
 let zones: Record<number, string> = {};
+/** How many more zone reads fail (a DB or lookup error), as resolveUserTimezone can throw. */
+let zoneFailures = 0;
 
 // ---- Fakes ----
 
@@ -249,7 +251,13 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/lib/error-capture.ts`]: { captureError: () => {}, captureWarning: () => {}, captureInfo: () => {} },
   [`${SRC}/lib/timezone.ts`]: {
-    resolveUserTimezone: async (u: { id: number }) => zones[u.id] ?? IL,
+    resolveUserTimezone: async (u: { id: number }) => {
+      if (zoneFailures > 0) {
+        zoneFailures--;
+        throw new Error('zone read failed');
+      }
+      return zones[u.id] ?? IL;
+    },
     resolveLocation: async () => null,
     LOOKUP_TIMEOUT_MS: 3000,
     TIMEZONE_CACHE_TTL: 86_400,
@@ -859,6 +867,21 @@ async function main() {
     assert(made() === 0, show(created));
     assert(botCalls.filter((c) => c.method === 'answerCallbackQuery').length === 2, show(botCalls));
     assert(!!(await getPendingEvent(id)), 'the card should still be there to tap again');
+  });
+
+  await check('an opinion tap that fails before the create keeps the card: nothing is created, the tap is answered, and the next tap creates', async () => {
+    await showEventConfirmation(555, undefined, await choosing(), 'x', dana);
+    const pick = buttonsOf(lastBot()).find((b) => b.callback_data.startsWith('event_pick:1:'))!.callback_data;
+    const id = pick.slice('event_pick:1:'.length);
+    botCalls = [];
+    zoneFailures = 1;
+    await tap(pick);
+    assert(zoneFailures === 0, 'the failing zone read was not reached');
+    assert(made() === 0, show(created));
+    assert(botCalls.some((c) => c.method === 'answerCallbackQuery'), `the failed tap was not answered: ${show(botCalls)}`);
+    assert(!!(await getPendingEvent(id)), 'the card was lost with the failed tap');
+    await tap(pick);
+    assert(made() === 1 && show(created[0].input.zmanSpec) === show(GRA_10), show(created));
   });
 
   await check('"Confirm all" never carries a choice: an intent with choices is its own card right after the list; the list creates the rest', async () => {

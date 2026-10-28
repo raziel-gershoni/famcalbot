@@ -1408,7 +1408,8 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
         await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.');
         return;
       }
-      if (!chosen.ok && chosen.reason === 'no_such_choice') {
+      if (!chosen.ok && chosen.reason !== 'expired') {
+        // No such choice, or a failure before the create: the card stays for another tap
         await waService.sendMessage(phone, wa.genericError || 'Something went wrong. Please try again.');
         return;
       }

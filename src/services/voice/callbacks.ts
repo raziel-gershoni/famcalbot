@@ -245,7 +245,8 @@ export async function handleEventChoiceCallback(
   pendingId: string
 ): Promise<void> {
   const chosen = await chooseZmanOpinion(pendingId, index);
-  if (!chosen.ok && chosen.reason === 'no_such_choice') {
+  if (!chosen.ok && chosen.reason !== 'expired') {
+    // No such choice, or a failure before the create: the card stays for another tap
     const t = await getBotMessages(chosen.pending.user.language || 'en');
     await getBot().answerCallbackQuery(queryId, { text: t.voice.unknownError });
     return;

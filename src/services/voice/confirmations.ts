@@ -128,18 +128,26 @@ export async function takePendingEvent(pendingId: string): Promise<PendingEventD
 export async function chooseZmanOpinion(
   pendingId: string,
   index: number
-): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' } | { ok: false; reason: 'no_such_choice'; pending: PendingEventData }> {
+): Promise<{ ok: true; pending: PendingEventData } | { ok: false; reason: 'expired' } | { ok: false; reason: 'no_such_choice' | 'failed'; pending: PendingEventData }> {
   const pending = await takePendingEvent(pendingId);
   if (!pending) return { ok: false, reason: 'expired' };
-  const timezone = await resolveUserTimezone(pending.user);
-  const chosen = withZmanChoice(pending.event, index, timezone);
-  if (!chosen) {
-    console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} has no choice (${pending.event.zmanChoices?.length ?? 0} choices)`);
+  try {
+    const timezone = await resolveUserTimezone(pending.user);
+    const chosen = withZmanChoice(pending.event, index, timezone);
+    if (!chosen) {
+      console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} has no choice (${pending.event.zmanChoices?.length ?? 0} choices)`);
+      await setPendingEvent(pendingId, pending);
+      return { ok: false, reason: 'no_such_choice', pending };
+    }
+    const event = await refreshReminderNotice(chosen, timezone, new Date(), pending.user);
+    return { ok: true, pending: { ...pending, event } };
+  } catch (error) {
+    // The tap claimed the card; a failure before the create puts it back, so the next tap can still choose.
+    console.error(`[zman-voice] user ${pending.user.id}: opinion button ${index} of ${pendingId} failed before the create, the card is kept:`, error);
+    captureError(error, 'zman-voice', { user_id: pending.user.id }, 'warning');
     await setPendingEvent(pendingId, pending);
-    return { ok: false, reason: 'no_such_choice', pending };
+    return { ok: false, reason: 'failed', pending };
   }
-  const event = await refreshReminderNotice(chosen, timezone, new Date(), pending.user);
-  return { ok: true, pending: { ...pending, event } };
 }
 
 /**
