@@ -1,12 +1,14 @@
-// Smoke test for the timezone after a location change (app/api/settings/route.ts and
-// resolveTimezoneForLocation in src/lib/timezone.ts). A settings save wrote the new
-// location but left the old zone cached under tz:user:{id} for up to 24 h, so the
-// summaries, reminders and voice kept the old city's clock that long. A save that
-// changes the location now looks the zone up after the response: one Nominatim request
-// and one Open-Meteo request, 3 s each, no retries, no geocode cache and no
-// Asia/Jerusalem fallback. Only a lookup that finds a valid zone replaces the cached one,
-// and only while the stored location is still the one it looked up: two quick saves each
-// schedule a lookup, and the older one can land last.
+// Smoke test for the timezone after a location change (app/api/settings/route.ts, the
+// lookup in src/lib/timezone.ts and the saved place in src/services/zmanim/place.ts). A
+// settings save wrote the new location but left the old zone cached under tz:user:{id} for up
+// to 24 h, so the summaries, reminders and voice kept the old city's clock that long. A save
+// that changes the location now looks the place up after the response: one Nominatim request,
+// one Open-Meteo request for the zone and one for the highest ground (zmanim), 3 s each, no
+// retries, no geocode cache and no Asia/Jerusalem fallback. Only a lookup that finds a valid
+// zone replaces the cached one, and only while the stored location is still the one it looked
+// up: two quick saves each schedule a lookup, and the older one can land last. The same save
+// clears the old place's coordinates in the same write as the location, and the lookup stores
+// the new place's coordinates and highest ground (zmanim, Task 1).
 //
 // The route, resolveTimezoneForLocation and REDIS_KEYS run for real. Faked: auth (a
 // Telegram user), the user row (written through updateUserById, its location read back
@@ -74,9 +76,10 @@ const fakeRedis = {
 type LookupRequest = { url: string; options: unknown; timeoutMs: unknown; maxRetries: unknown };
 const requests: LookupRequest[] = [];
 /** How each host answers a request in the current scenario: a Response, or a thrown error. */
-let answers: { nominatim: (url: URL) => Response; openMeteo: (url: URL) => Response } = {
+let answers: { nominatim: (url: URL) => Response; openMeteo: (url: URL) => Response; elevation: (url: URL) => Response } = {
   nominatim: () => { throw new Error('no scenario'); },
   openMeteo: () => { throw new Error('no scenario'); },
+  elevation: () => { throw new Error('no scenario'); },
 };
 /** Nominatim queries whose answer waits for its release: a lookup still in flight. */
 const held = new Map<string, Promise<void>>();
@@ -93,6 +96,7 @@ async function fakeFetchWithTimeout(url: string, options?: unknown, timeoutMs?: 
     await held.get(parsed.searchParams.get('q') ?? '');
     return answers.nominatim(parsed);
   }
+  if (parsed.host === 'api.open-meteo.com' && parsed.pathname === '/v1/elevation') return answers.elevation(parsed);
   if (parsed.host === 'api.open-meteo.com') return answers.openMeteo(parsed);
   throw new Error(`unexpected request: ${url}`);
 }
@@ -106,9 +110,19 @@ const PLACES: Record<string, { lat: string; lon: string; zone: string }> = {
   'Москва': { lat: '55.7505412', lon: '37.6174782', zone: 'Europe/Moscow' },
 };
 
+/** Nominatim's boundingbox for a place: [south, north, west, east] as strings, 0.05 degrees each way. */
+const boxAround = (place: { lat: string; lon: string }): string[] => {
+  const lat = parseFloat(place.lat), lon = parseFloat(place.lon);
+  return [String(lat - 0.05), String(lat + 0.05), String(lon - 0.05), String(lon + 0.05)];
+};
+/** The highest ground the fake terrain has at the 25 sampled points: rising with the point's index, 100 m for the first. */
+const ELEVATION_MAX = 124;
+
 /** Prisma, for the one read the route makes itself: the stored location, before the zone is written. */
 const locationReads: unknown[] = [];
 let userGone = false;
+/** What the lookup wrote to the user's place: one entry per updateMany. */
+const placeWrites: { where: Row; data: Row }[] = [];
 const fakePrisma = {
   user: {
     findUnique: async (args: { where: { id: number }; select: Record<string, boolean> }) => {
@@ -116,11 +130,21 @@ const fakePrisma = {
       if (userGone || args.where.id !== USER_ID) return null;
       return Object.fromEntries(Object.keys(args.select).map(key => [key, userRow[key]]));
     },
+    // Compare and set: the place is written only while the stored location is still the one it was looked up for.
+    updateMany: async (args: { where: { id: number; location: string }; data: Row }) => {
+      placeWrites.push({ where: args.where, data: args.data });
+      if (userGone || args.where.id !== USER_ID || userRow.location !== args.where.location) return { count: 0 };
+      Object.assign(userRow, args.data);
+      return { count: 1 };
+    },
   },
 };
 
 /** Calls into the geocoding module's cached path (geocodeLocation / getTimezone): there must be none. */
 const cachedPathCalls: string[] = [];
+
+/** The settings_changed rows the route tracked: the names of the fields a save changed, never values. */
+const activities: { type: string; meta: unknown }[] = [];
 
 /** captureError calls: context and severity. */
 const captured: { context: string; severity: unknown; message: string }[] = [];
@@ -155,11 +179,14 @@ function installStubs() {
   });
   stub('src/services/reminder-cache.ts', { updateUserInCache: async () => {}, removeUserFromCache: async () => {}, syncReminderCacheEntry: async () => {} });
   stub('src/services/telegram/index.ts', { setUserMenuButton: async () => {} });
+  stub('src/services/analytics-service.ts', {
+    trackActivityAsync: (_userId: number, type: string, meta: unknown) => { activities.push({ type, meta }); },
+  });
   stub('src/lib/error-capture.ts', {
     captureError: (error: unknown, context: string, _extra?: unknown, severity: unknown = 'error') => {
       captured.push({ context, severity, message: error instanceof Error ? error.message : String(error) });
     },
-    captureWarning: () => {},
+    captureWarning: (message: string, context: string) => { captured.push({ context, severity: 'warning', message }); },
     captureInfo: () => {},
   });
   stub('src/services/calendar.ts', { getUserCalendarTimezone: async () => null });
@@ -198,11 +225,13 @@ function seed() {
   afterQueue.length = 0;
   held.clear();
   locationReads.length = 0;
+  placeWrites.length = 0;
+  activities.length = 0;
   userGone = false;
   answers = {
     nominatim: url => {
       const place = PLACES[url.searchParams.get('q') ?? ''];
-      return json(place ? [{ lat: place.lat, lon: place.lon }] : []);
+      return json(place ? [{ lat: place.lat, lon: place.lon, boundingbox: boxAround(place) }] : []);
     },
     openMeteo: url => {
       const place = Object.values(PLACES).find(p => String(parseFloat(p.lat)) === url.searchParams.get('latitude'));
@@ -210,6 +239,8 @@ function seed() {
         ? json({ timezone: place.zone, latitude: Number(place.lat), longitude: Number(place.lon) })
         : json({ error: true, reason: 'unknown place' }, 400);
     },
+    // 25 sampled points, rising from 100 m: the highest is the last, ELEVATION_MAX.
+    elevation: url => json({ elevation: (url.searchParams.get('latitude') ?? '').split(',').map((_lat, index) => 100 + index) }),
   };
 }
 
@@ -236,7 +267,9 @@ async function main() {
   };
 
   /** Each request, as "host timeout/retries". */
-  const shape = () => requests.map(r => `${new URL(r.url).host} ${String(r.timeoutMs)}/${String(r.maxRetries)}`);
+  const shape = () => requests.map(r => `${new URL(r.url).host}${new URL(r.url).pathname === '/v1/elevation' ? '/elevation' : ''} ${String(r.timeoutMs)}/${String(r.maxRetries)}`);
+  /** The three requests a full lookup makes: the place, its zone and its highest ground, each 3 s with no retry. */
+  const FULL_LOOKUP = ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com 3000/0', 'api.open-meteo.com/elevation 3000/0'];
 
   await check('(a) a new location: the save answers at once, then tz:user:{id} becomes the new zone for 24 h', async () => {
     seed();
@@ -252,11 +285,11 @@ async function main() {
     assert(captured.length === 0, `captured ${show(captured)}`);
   });
 
-  await check('(a) the lookup: one Nominatim and one Open-Meteo request, each with a 3 s timeout and no retries, no geocode cache', async () => {
+  await check('(a) the lookup: one Nominatim, one Open-Meteo zone and one Open-Meteo elevation request, each with a 3 s timeout and no retries, no geocode cache', async () => {
     seed();
     await save({ location: 'New York' });
     await drainAfter();
-    assert(show(shape()) === show(['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com 3000/0']), `requests ${show(shape())}`);
+    assert(show(shape()) === show(FULL_LOOKUP), `requests ${show(shape())}`);
     const search = new URL(requests[0].url);
     assert(search.pathname === '/search' && search.searchParams.get('q') === 'New York' && search.searchParams.get('format') === 'json' && search.searchParams.get('limit') === '1', `Nominatim url ${requests[0].url}`);
     const headers = (requests[0].options as { headers?: Record<string, string> } | undefined)?.headers;
@@ -272,8 +305,10 @@ async function main() {
     const res = await save({ location: 'New York' });
     assert(res.status === 200, `status ${res.status}`);
     await drainAfter();
-    assert(show(shape()) === show(['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com 3000/0']), `requests ${show(shape())}`);
+    // The zone request fails; the place is still saved with its elevation, which is its own request (no retry of either).
+    assert(show(shape()) === show(FULL_LOOKUP), `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
+    assert(userRow.latitude === 40.7127281 && userRow.elevationM === ELEVATION_MAX, `the place is kept: ${show([userRow.latitude, userRow.elevationM])}`);
   });
 
   await check('(b) Open-Meteo answers 503: the cached zone stays', async () => {
@@ -281,7 +316,7 @@ async function main() {
     answers.openMeteo = () => json({ error: true, reason: 'busy' }, 503);
     await save({ location: 'New York' });
     await drainAfter();
-    assert(requests.length === 2, `requests ${show(shape())}`);
+    assert(requests.length === 3, `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
   });
 
@@ -299,7 +334,7 @@ async function main() {
     answers.openMeteo = () => json({ timezone: 'Mars/Olympus_Mons' });
     await save({ location: 'New York' });
     await drainAfter();
-    assert(requests.length === 2, `requests ${show(shape())}`);
+    assert(requests.length === 3, `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
   });
 
@@ -308,7 +343,7 @@ async function main() {
     answers.openMeteo = () => json({ latitude: 40.71, longitude: -74.0 });
     await save({ location: 'New York' });
     await drainAfter();
-    assert(requests.length === 2, `requests ${show(shape())}`);
+    assert(requests.length === 3, `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
   });
 
@@ -375,14 +410,17 @@ async function main() {
     await telAvivLanded;
     const asked = requests.map(r => {
       const url = new URL(r.url);
+      if (url.pathname === '/v1/elevation') return 'elevation';
       return url.host === 'nominatim.openstreetmap.org' ? `place ${url.searchParams.get('q')}` : `zone ${url.searchParams.get('latitude')}`;
     });
-    assert(show(asked) === show(['place Tel Aviv', 'place London', 'zone 51.5074456', 'zone 32.0852997']), `asked ${show(asked)}`);
+    assert(show(asked) === show(['place Tel Aviv', 'place London', 'zone 51.5074456', 'elevation', 'zone 32.0852997', 'elevation']), `asked ${show(asked)}`);
     assert(show(redisSets) === show([{ key: TZ_KEY, value: 'Europe/London', opts: { ex: 86400 } }]), `redis sets ${show(redisSets)}`);
     assert(redisStore.get(TZ_KEY) === 'Europe/London', `cached zone ${show(redisStore.get(TZ_KEY))}`);
     // Each lookup found a zone, so each read the location back before writing.
     const read = { where: { id: USER_ID }, select: { location: true } };
     assert(show(locationReads) === show([read, read]), `location reads ${show(locationReads)}`);
+    // The place follows the zone: London's coordinates are stored, the stale Tel Aviv lookup wrote none.
+    assert(placeWrites.length === 1 && userRow.latitude === 51.5074456, `place writes ${show(placeWrites)}`);
   });
 
   await check('(k) [race] the location changes before its lookup lands (saved again as spaces, or the row is gone): nothing is written', async () => {
@@ -397,9 +435,9 @@ async function main() {
         userGone = true;
       }
       await drainAfter();
-      assert(requests.length === 2, `${change}: requests ${show(shape())}`);
+      assert(requests.length === 3, `${change}: requests ${show(shape())}`);
       assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `${change}: zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-      assert(locationReads.length === 1, `${change}: ${locationReads.length} location reads`);
+      assert(locationReads.length === 1 && placeWrites.length === 0, `${change}: ${locationReads.length} location reads, ${placeWrites.length} place writes`);
     }
   });
 
@@ -409,11 +447,73 @@ async function main() {
       seed();
       await save({ location });
       await drainAfter();
-      assert(requests.length === 2, `"${location}": requests ${show(shape())}`);
+      assert(requests.length === 3, `"${location}": requests ${show(shape())}`);
       const url = requests[0].url;
       assert(url.includes(`?q=${encodeURIComponent(location)}&`) && /^[\x21-\x7e]+$/.test(url), `"${location}": Nominatim url ${url}`);
       assert(new URL(url).searchParams.get('q') === location, `"${location}": q reads back as ${show(new URL(url).searchParams.get('q'))}`);
       assert(show(redisSets) === show([{ key: TZ_KEY, value: zone, opts: { ex: 86400 } }]), `"${location}": redis sets ${show(redisSets)}`);
+    }
+  });
+
+  await check('(m) [place] a changed location clears the old place\'s coordinates and highest ground in the same write, the lookup then stores the new place\'s coordinates and the highest of its 25 sampled points, and settings_changed names the location only', async () => {
+    seed();
+    Object.assign(userRow, { latitude: 51.5074456, longitude: -0.1277653, elevationM: 11 }); // London\'s, as saved before
+    const res = await save({ location: 'New York' });
+    assert(res.status === 200, `status ${res.status}`);
+    assert(userRow.location === 'New York' && userRow.latitude === null && userRow.longitude === null && userRow.elevationM === null, `before the lookup: ${show([userRow.location, userRow.latitude, userRow.longitude, userRow.elevationM])}`);
+    assert(show(activities) === show([{ type: 'settings_changed', meta: { changed_fields: ['location'] } }]), `activity ${show(activities)}`);
+    await drainAfter();
+    assert(show([userRow.latitude, userRow.longitude, userRow.elevationM]) === show([40.7127281, -74.0060152, ELEVATION_MAX]), `stored ${show([userRow.latitude, userRow.longitude, userRow.elevationM])}`);
+    assert(show(placeWrites) === show([{ where: { id: USER_ID, location: 'New York' }, data: { latitude: 40.7127281, longitude: -74.0060152, elevationM: ELEVATION_MAX } }]), `place writes ${show(placeWrites)}`);
+    // The 25 points are one request, within 3 km of the centre on each axis.
+    const url = new URL(requests[2].url);
+    const lats = url.searchParams.get('latitude')!.split(',').map(Number), lons = url.searchParams.get('longitude')!.split(',').map(Number);
+    assert(lats.length === 25 && lons.length === 25, `${lats.length} points`);
+    assert(lats.every(lat => Math.abs(lat - 40.7127281) * 111_320 <= 3000.5), 'held to 3 km north-south');
+    assert(lons.every(lon => Math.abs(lon + 74.0060152) * 111_320 * Math.cos((40.7127281 * Math.PI) / 180) <= 3000.5), 'held to 3 km east-west');
+  });
+
+  await check('(n) [guard] a save that leaves the location as it is leaves the saved place alone: nothing cleared, nothing looked up, nothing written', async () => {
+    for (const location of ['London', '  London ', undefined]) {
+      seed();
+      Object.assign(userRow, { latitude: 51.5074456, longitude: -0.1277653, elevationM: 11 });
+      await save(location === undefined ? { weatherEnabled: true } : { location, weatherEnabled: true });
+      await drainAfter();
+      assert(show([userRow.latitude, userRow.longitude, userRow.elevationM]) === show([51.5074456, -0.1277653, 11]), `${show(location)}: cleared ${show([userRow.latitude, userRow.longitude, userRow.elevationM])}`);
+      assert(requests.length === 0 && placeWrites.length === 0, `${show(location)}: ${requests.length} requests, ${placeWrites.length} writes`);
+    }
+  });
+
+  await check('(o) a lookup that finds no place leaves the new location saved with its coordinates cleared (the lazy fill tries again on first need), and a location saved with spaces is compared and set as stored', async () => {
+    seed();
+    Object.assign(userRow, { latitude: 51.5074456, longitude: -0.1277653, elevationM: 11 });
+    answers.nominatim = () => json([], 500);
+    await save({ location: 'New York' });
+    await drainAfter();
+    assert(userRow.location === 'New York' && userRow.latitude === null && placeWrites.length === 0, `kept: ${show([userRow.location, userRow.latitude, placeWrites.length])}`);
+    seed();
+    await save({ location: '  New York ' });
+    await drainAfter();
+    assert(show(placeWrites.map(w => w.where)) === show([{ id: USER_ID, location: '  New York ' }]), `compare and set on the stored text: ${show(placeWrites)}`);
+    assert(userRow.latitude === 40.7127281, 'stored');
+  });
+
+  await check('(p) [logging] every failure of the lookup is logged under location-lookup and never with the place\'s name: Nominatim throwing, answering 500 or sending bad coordinates, and the zone request failing, answering 503 or sending no zone', async () => {
+    const cases: Array<[string, (a: typeof answers) => void]> = [
+      ['Nominatim throws', a => { a.nominatim = () => { throw new Error('timeout'); }; }],
+      ['Nominatim 500', a => { a.nominatim = () => json([], 500); }],
+      ['Nominatim bad coordinates', a => { a.nominatim = () => json([{ lat: 'x', lon: 'y' }]); }],
+      ['zone throws', a => { a.openMeteo = () => { throw new Error('timeout'); }; }],
+      ['zone 503', a => { a.openMeteo = () => json({ error: true }, 503); }],
+      ['zone not one Intl knows', a => { a.openMeteo = () => json({ timezone: 'Mars/Olympus_Mons' }); }],
+    ];
+    const { resolveLocation } = (await import(path.join(ROOT, 'src/lib/timezone.ts'))) as { resolveLocation: (location: string) => Promise<unknown> };
+    for (const [name, change] of cases) {
+      seed();
+      change(answers);
+      await resolveLocation('New York');
+      assert(captured.length === 1 && captured[0].context === 'location-lookup' && captured[0].severity === 'warning', `${name}: captured ${show(captured)}`);
+      assert(!captured[0].message.includes('New York'), `${name}: the place's name was logged: ${captured[0].message}`);
     }
   });
 

@@ -668,6 +668,8 @@ const W_SETUP: Row = {
   voiceStyle: 'calm', weatherEnabled: false, includeWeeklyInLookahead: true, includeLookaheadInTomorrow: true,
   lookaheadAlways7Days: true, preferredMorningHour: 6, preferredEveningHour: 21, dailySummaryDays: [0, 1, 2, 3, 4],
   tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,
+  // Where W is (the coordinates and highest ground its location was looked up to, which travel with the location) and its zmanim setup.
+  latitude: 32.794, longitude: 34.9896, elevationM: 120, zmanimCommunity: 'ashkenazi', pauseOnShabbat: true,
 };
 
 /** Google refresh tokens as the user row stores them (encrypted); set in main. */
@@ -1213,6 +1215,8 @@ async function main() {
     const T_SETUP: Row = {
       englishName: 'Dana C', language: 'en', location: 'Tel Aviv', locationForced: false, voicePreference: 'Kore', voiceStyle: 'cheerful',
       preferredMorningHour: 8, preferredEveningHour: 20, dailySummaryDays: [1, 3, 5], tomorrowSummaryDays: [0], defaultReminderMinutes: 15,
+      // T has a location, so it keeps the place that location was looked up to; a zmanim community it chose is kept too.
+      latitude: 32.0853, longitude: 34.7818, elevationM: 25, zmanimCommunity: 'chabad',
     };
     Object.assign(userRow(T), T_SETUP);
     Object.assign(userRow(W), W_SETUP);
@@ -1223,6 +1227,7 @@ async function main() {
     assert(changed.length === 0, `overwritten: ${show(Object.fromEntries(changed.map(k => [k, t[k]])))}`);
     assert(t.name === 'Dana Cohen', `T's name ${show(t.name)}`);
     assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
+    assert(t.pauseOnShabbat === true, `T never changed the Shabbat pause, so it takes W's: ${show(t.pauseOnShabbat)}`);
   });
 
   await check('#38 the merge changes T\'s language: T\'s Telegram menu button is set again in it; a merge that keeps T\'s language leaves the button alone', async () => {

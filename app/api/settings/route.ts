@@ -5,31 +5,12 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { setUserMenuButton } from '@/src/services/telegram';
 import { syncReminderCacheEntry } from '@/src/services/reminder-cache';
-import { resolveTimezoneForLocation } from '@/src/lib/timezone';
-import { redis } from '@/src/utils/redis';
-import { prisma } from '@/src/utils/prisma';
-import { REDIS_KEYS } from '@/src/config/redis-keys';
+import { saveUserPlace } from '@/src/services/zmanim/place';
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { changedSettingFields } from '@/src/lib/settings-changes';
 import { canReceiveReminderPings } from '@/src/services/native-reminders/support';
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
-
-const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // as resolveUserTimezone caches it
-
-/**
- * Caches the zone of a newly saved location (`location` is trimmed). A failed lookup
- * leaves the cached zone as it is. So does a location that changed again while the lookup
- * ran: two quick saves each schedule a lookup, and the older one can land last.
- */
-async function refreshTimezone(userId: number, location: string): Promise<void> {
-  const tz = await resolveTimezoneForLocation(location);
-  if (!tz) return;
-  // Compared trimmed, as the save compares it. A row that is gone reads as ''.
-  const stored = await prisma.user.findUnique({ where: { id: userId }, select: { location: true } });
-  if ((stored?.location ?? '').trim() !== location) return;
-  await redis.set(REDIS_KEYS.userTimezone(userId), tz, { ex: TIMEZONE_CACHE_TTL });
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -83,9 +64,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid tomorrowSummaryDays' }, { status: 400 });
     }
 
-    // A changed location moves the cached timezone with it (else the old zone stays up to 24 h).
-    // Compared trimmed, so spaces alone are no change; an empty location is not saved
-    // (`location || undefined` below), so it changes nothing here either.
+    // A changed location moves the cached timezone, and the coordinates and highest ground (zmanim),
+    // with it: the zone would stay up to 24 h, and the coordinates for good. Compared trimmed, so spaces
+    // alone are no change; an empty location is not saved (`location || undefined` below), so it
+    // changes nothing here either.
     const newLocation = typeof location === 'string' ? location.trim() : '';
     const locationChanged = newLocation !== '' && newLocation !== (auth.user.location ?? '').trim();
 
@@ -111,7 +93,11 @@ export async function POST(request: NextRequest) {
       pickupRemindersEnabled: typeof pickupRemindersEnabled === 'boolean' ? pickupRemindersEnabled : undefined,
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined
     };
-    const updatedUser = await updateUserById(auth.user.id, update);
+    // The old place's coordinates must never sit beside the new name, so a changed location clears them
+    // in the same write; the lookup below fills them again (and the lazy fill does, if it fails).
+    // Not part of `update`: they are no setting the person changed.
+    const clearedPlace = locationChanged ? { latitude: null, longitude: null, elevationM: null } : {};
+    const updatedUser = await updateUserById(auth.user.id, { ...update, ...clearedPlace });
 
     // The names of the fields this save changed, never their values; a save that changed nothing logs nothing.
     const changedFields = changedSettingFields(auth.user as unknown as Record<string, unknown>, update);
@@ -120,11 +106,12 @@ export async function POST(request: NextRequest) {
     // A new reminder time moves the date-only pings the due gate has memoed: wake the pass.
     if (acceptedReminderTime !== undefined && acceptedReminderTime !== reminderTimeOf(auth.user)) invalidateDueGate();
 
-    // The lookup runs after the response, so the save answers at once.
+    // The lookup runs after the response, so the save answers at once. saveUserPlace is the one writer of
+    // the coordinates and the highest ground, and it moves the cached zone with them.
     if (locationChanged) {
       const id = auth.user.id;
       after(() =>
-        refreshTimezone(id, newLocation).catch(error =>
+        saveUserPlace(id, newLocation).catch(error =>
           captureError(error, 'settings-timezone', { api_route: '/api/settings', user_id: id }, 'warning')
         )
       );

@@ -99,7 +99,8 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  * getOrCreateUser sets). T takes W's value for each field where T's is still the starting
  * one, so a T that /start connect made seconds ago ends up with W's setup and an
  * established T keeps what it chose. Name and language (Telegram's on a fresh T), and
- * location with locationForced, have their own rules (setupFromW).
+ * location with locationForced and its coordinates (latitude, longitude, elevationM), have
+ * their own rules (setupFromW).
  * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
  * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
  * Telegram delivery state (unreachableSince). Set by the merge itself: the WhatsApp ids,
@@ -114,8 +115,9 @@ const NEW_ACCOUNT = {
   lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
   dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
   remindersEnabled: false, defaultReminderMinutes: null as number | null, reminderTime: null as string | null, pickupRemindersEnabled: true,
+  zmanimCommunity: 'sephardi', pauseOnShabbat: false,
 } satisfies Partial<User>;
-type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'locationForced' | 'language';
+type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'locationForced' | 'language' | 'latitude' | 'longitude' | 'elevationM';
 
 /** A Telegram account this young was made by the /start connect that sent the link code. */
 const FRESH_ACCOUNT_MS = 24 * 60 * 60 * 1000;
@@ -134,10 +136,14 @@ function setupFromW(w: User, t: User): Partial<Pick<User, SetupField>> {
   const fresh = isFresh(t);
   const wNamed = !!w.name.trim() && w.name !== 'User';
   if ((fresh && wNamed) || !t.name.trim() || t.name === 'User') data.name = w.name;
-  // The location and whether the user confirmed it go together.
+  // The location, whether the user confirmed it, and the place it was looked up to (the coordinates and
+  // the highest ground, which describe that location and no other) go together.
   if (!t.location) {
     data.location = w.location;
     data.locationForced = w.locationForced;
+    data.latitude = w.latitude;
+    data.longitude = w.longitude;
+    data.elevationM = w.elevationM;
   }
   if (fresh) data.language = w.language;
   return data as Partial<Pick<User, SetupField>>;

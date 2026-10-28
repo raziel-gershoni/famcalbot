@@ -58,6 +58,15 @@ model User {
   reminderTime               String? // HH:mm (15-minute step): when a reminder with no time of day pings. Null = 09:00
   pickupRemindersEnabled     Boolean   @default(true) // Enable pickup reminders for kids' events
 
+  // Where the person is, for zmanim (halachic times). Written with the location (the coordinates the
+  // lookup finds, and the highest ground in the place); cleared when the location changes; filled
+  // lazily, once, for a user who has a place name and none of these.
+  latitude        Float?
+  longitude       Float?
+  elevationM      Int? // Highest point in the place, metres (Open-Meteo); null = unknown, read as sea level
+  zmanimCommunity String  @default("sephardi") // 'sephardi' | 'ashkenazi' | 'chabad': which set of zmanim
+  pauseOnShabbat  Boolean @default(false) // No scheduled message from candle lighting to nightfall on Shabbat and Yom Tov
+
   // Calendar integration
   calendarSource       CalendarSource @default(NATIVE) // GOOGLE for legacy GCal users, NATIVE for in-bot calendar
   googleRefreshToken   String         @db.Text // Empty string '' for NATIVE users (existing convention for pre-OAuth users)
