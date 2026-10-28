@@ -261,6 +261,30 @@ export function zmanimSet(community: ZmanimCommunity): ZmanimSet {
 }
 
 /**
+ * Where to look for a zman the reader's own set lacks, nearest first. A reminder by a zman is written under
+ * the writer's set (src/services/zmanim/spec.ts offeredIn) but read under each recipient's, and the sets do not
+ * hold the same zmanim: Ashkenazi and Chabad have neither plag of the Sephardi luach nor its stricter nightfall,
+ * Chabad has no Magen Avraham, Sephardi has no GRA plag. Sea-level sets stand nearer to each other than to the
+ * Sephardi one, which cuts its day at the elevation in Israel.
+ */
+const NEAREST_SETS: Record<ZmanimCommunity, ZmanimCommunity[]> = {
+  sephardi: ['ashkenazi', 'chabad'],
+  ashkenazi: ['sephardi', 'chabad'],
+  chabad: ['ashkenazi', 'sephardi'],
+};
+
+/**
+ * The community whose set counts `zman` for a reader of `reader`: their own when it has the zman, else the
+ * nearest set that does (NEAREST_SETS), so a reminder by a zman is never silent for a recipient whose set lacks it
+ * (a partner in another community, or the writer after switching). It is counted at the reader's own place, and
+ * named with that set's opinion. Null when no set has the zman (a key this build does not know).
+ */
+export function communityCounting(zman: ZmanKey, reader: ZmanimCommunity): ZmanimCommunity | null {
+  if (SETS[reader].zmanim[zman]) return reader;
+  return NEAREST_SETS[reader].find((community) => SETS[community].zmanim[zman]) ?? null;
+}
+
+/**
  * The zmanim a community offers, in the order of the day: what a reminder can be set to. The
  * end of Shabbat is in the set because the pause windows need it; the editor may leave it out.
  */

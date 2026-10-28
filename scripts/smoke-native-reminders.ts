@@ -1756,6 +1756,34 @@ async function main() {
     assert(sent.length === 2 && sent[1].chatId === secondChat, `then the other: ${sentLines()}`);
   });
 
+  await check('zman: a reminder for both partners whose communities differ: Raziel (Sephardi) sets it at the plag of Yalkut Yosef, a zman Dana\'s Ashkenazi set lacks, and Dana is still pinged, at her own place, by the set that has it', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV, 'sephardi'); where(2, EILAT, 'ashkenazi');
+    const spec: SpecT = { zman: 'PLAG_YALKUT_YOSEF', offsetMin: -10 };
+    dateOnly(DAY, { zmanSpec: spec, forUserId: 2, forBoth: true });
+    const raziel = dueAtPlace(DAY, spec, TEL_AVIV, IL, 'sephardi');
+    const dana = dueAtPlace(DAY, spec, EILAT, IL, 'sephardi');
+    assert(raziel.getTime() !== dana.getTime(), 'two cities, two times');
+    await pass(new RealDate(Math.min(raziel.getTime(), dana.getTime()) - MIN));
+    assert(sent.length === 0, `not before either: ${sentLines()}`);
+    await pass(new RealDate(Math.max(raziel.getTime(), dana.getTime())));
+    assert(sent.map((m) => m.chatId).sort().join() === '1001,1002', `both pinged: ${sentLines()}`);
+    assert(!zmanLines.some((l) => l.includes('skipped for user 2')), `Dana was not skipped for want of a time: ${show(zmanLines)}`);
+  });
+
+  await check('zman: a person who switches community after setting a reminder by a zman their new set lacks (Sephardi plag of Yalkut Yosef, then Chabad) is still pinged', async () => {
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    where(1, TEL_AVIV, 'chabad');
+    const spec: SpecT = { zman: 'PLAG_YALKUT_YOSEF', offsetMin: 0 };
+    dateOnly(DAY, { zmanSpec: spec });
+    const instant = dueAtPlace(DAY, spec, TEL_AVIV, IL, 'sephardi');
+    await pass(new RealDate(instant.getTime() - MIN));
+    assert(sent.length === 0, `early: ${sentLines()}`);
+    await pass(instant);
+    assert(sent.length === 1 && sent[0].chatId === '1001', `pinged by the set that has the zman: ${sentLines()}`);
+    assert(!zmanLines.some((l) => l.includes('skipped for user 1')), `not skipped: ${show(zmanLines)}`);
+  });
+
   await check('zman: the DST day through the resolver: on Oct 25 (clocks back) the reminder is due at the calculator\'s instant, in the winter offset', async () => {
     reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
     where(1, TEL_AVIV);

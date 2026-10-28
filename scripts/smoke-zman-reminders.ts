@@ -293,8 +293,39 @@ async function main() {
     const mga = ashkenazi!.instant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 });
     const sephardiMga = harish!.instant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 });
     assert(mga !== null && sephardiMga !== null && mga.getTime() !== sephardiMga.getTime(), 'the sets give other times');
+    // Chabad's own set has no Magen Avraham, but a reminder by it that a Chabad reader is handed (a partner's "for both", or their own from
+    // before they switched) still has a time: the nearest set that has the zman counts it (the next check pins which).
     const chabad = await times.buildZmanClock(asUser(user({ zmanimCommunity: 'chabad' })), IL);
-    assert(chabad!.instant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 }) === null, 'Chabad has no Magen Avraham: no time');
+    assert(chabad!.instant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 }) !== null, 'a Chabad reader still gets a Magen Avraham time');
+  });
+
+  await check('clock: a zman the reader\'s own set lacks is counted by the nearest set that has it, at the READER\'S place, with that set\'s opinion (a partner in another community, or a community switched after the reminder was made, still gets a time)', async () => {
+    const harish = { latitude: 32.46182, longitude: 35.04555, elevationM: 270, timeZone: IL };
+    // [reader, zman, the set that counts it, its opinion]
+    type Community = import('../src/services/zmanim/sets').ZmanimCommunity;
+    const cases: Array<[Community, string, Community, string | null]> = [
+      ['ashkenazi', 'PLAG_YALKUT_YOSEF', 'sephardi', 'yalkutYosef'],
+      ['chabad', 'PLAG_YALKUT_YOSEF', 'sephardi', 'yalkutYosef'],
+      ['ashkenazi', 'PLAG_HALACHA_BERURA', 'sephardi', 'halachaBerura'],
+      ['ashkenazi', 'TZEIT_LECHUMRA', 'sephardi', null],
+      ['chabad', 'TZEIT_LECHUMRA', 'sephardi', null],
+      ['chabad', 'SOF_SHMA_MGA', 'ashkenazi', 'mga'],
+      ['sephardi', 'PLAG_GRA', 'ashkenazi', 'gra'],
+    ];
+    for (const [reader, zman, counting, opinion] of cases) {
+      const clock = await times.buildZmanClock(asUser(user({ zmanimCommunity: reader })), IL);
+      const at = clock!.instant(HARISH_DAY, { zman, offsetMin: -10 });
+      const want = compute.zmanInstant(HARISH_DAY, { zman, offsetMin: -10 } as import('../src/services/zmanim/compute').ZmanSpec, harish, counting);
+      assert(at !== null && want !== null && at.getTime() === want.getTime(), `${reader} reader, ${zman}: ${at?.toISOString()} but the ${counting} set gives ${want?.toISOString()}`);
+      assert(clock!.opinion(zman) === opinion, `${reader} reader, ${zman}: opinion ${show(clock!.opinion(zman))}, want ${show(opinion)}`);
+    }
+    // The reader's own set still wins where it has the zman: an Ashkenazi reader's Magen Avraham is the Ashkenazi one, not the Sephardi one.
+    const own = await times.buildZmanClock(asUser(user({ zmanimCommunity: 'ashkenazi' })), IL);
+    const ashkenaziMga = compute.zmanInstant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 }, harish, 'ashkenazi');
+    assert(own!.instant(HARISH_DAY, { zman: 'SOF_SHMA_MGA', offsetMin: 0 })?.getTime() === ashkenaziMga?.getTime(), 'the reader\'s own set counts what it has');
+    assert(sets.communityCounting('SOF_SHMA_GRA', 'chabad') === 'chabad' && sets.communityCounting('PLAG_GRA', 'chabad') === 'chabad', 'Chabad\'s own GRA keys are Chabad\'s');
+    // A zman no set has: nothing counts it.
+    assert(sets.communityCounting('SHABBAT_ENDS', 'ashkenazi') === 'ashkenazi' && sets.communityCounting('NOT_A_ZMAN' as never, 'sephardi') === null, 'no set, no counting community');
   });
 
   await check('clock: the opinion a person\'s set names a zman with (Sephardi GRA keys are the GRA\'s, Chabad\'s the Baal HaTanya\'s; no opinion for a zman without one)', async () => {
