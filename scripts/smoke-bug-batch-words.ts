@@ -562,9 +562,26 @@ async function fix1() {
       deniedFeatures.add('voice_events');
       await withLogs(() => waAudio(WA_BY_LANG[lang]));
       const texts = sentTo('whatsapp').map(s => s.text);
-      assert(texts.includes(botText(lang, 'subscription.voiceEventsRequired')), `${lang}: not among the WhatsApp replies: ${show(texts)}`);
+      const pro = sentTo('whatsapp').find(s => s.text === botText(lang, 'subscription.voiceEventsRequired'));
+      assert(pro, `${lang}: not among the WhatsApp replies: ${show(texts)}`);
+      // The message is HTML (<b>): the adapter turns it into WhatsApp's own bold only when told so
+      assert(pro.options?.format === 'html', `${lang}: sent without the HTML format, so WhatsApp shows the raw tags: ${show(pro.options)}`);
     });
   }
+
+  await check('1: WhatsApp\'s "voice events are off" reply goes out as HTML, so the bold is WhatsApp\'s and not raw tags', async () => {
+    const row = DB.user.find(u => u.whatsappPhone === WA_HE)!;
+    const before = row.voiceInputEnabled;
+    row.voiceInputEnabled = false;
+    try {
+      await withLogs(() => waAudio(WA_HE));
+      const off = sentTo('whatsapp').find(s => s.text === botText('he', 'voice.featureDisabled'));
+      assert(off, `not sent: ${show(sentTo('whatsapp').map(s => s.text.slice(0, 40)))}`);
+      assert(off.options?.format === 'html', `sent without the HTML format: ${show(off.options)}`);
+    } finally {
+      row.voiceInputEnabled = before;
+    }
+  });
 
   await check('1: the Hebrew Pro message asks nobody in the masculine', () => {
     const text = botText('he', 'subscription.voiceEventsRequired');

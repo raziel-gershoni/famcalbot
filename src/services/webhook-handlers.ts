@@ -1080,6 +1080,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
       const { generateMagicLink } = await import('./magic-link');
       const link = await generateMagicLink(user.id, user.language || 'en');
       await waService.sendMessage(phone, t.voice?.featureDisabled || 'Voice input is disabled. Enable it in settings.', {
+        format: MessageFormat.HTML,
         whatsappUrlButton: { text: t.voice?.enableInSettings || 'Open Settings', url: link },
       });
       return;
@@ -1089,7 +1090,7 @@ async function handleWhatsAppVoice(phone: string, user: UserConfig, mediaId: str
     const { checkFeatureAccess } = await import('./subscription-service');
     const voiceEventAccess = await checkFeatureAccess(user.id, 'voice_events');
     if (!voiceEventAccess.allowed) {
-      await waService.sendMessage(phone, t.subscription.voiceEventsRequired);
+      await waService.sendMessage(phone, t.subscription.voiceEventsRequired, { format: MessageFormat.HTML });
       return;
     }
 
