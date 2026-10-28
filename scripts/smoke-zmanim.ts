@@ -10,7 +10,8 @@
 //     (scratchpad zmanim-probe/out.json, values copied below);
 //   - each set's formula on one day, re-derived here from hebcal's own methods and plain arithmetic;
 //   - the direction each zman rounds, as Zmanei Yosef rounds it;
-//   - the windows: Friday to Saturday night, two-day Yom Tov abroad and one day in Israel, Yom Tov next
+//   - the windows: sunset on the eve (the owner's ruling 2026-10-28; candle lighting is 20 minutes earlier and is
+//     not the start) to the end of the last rest day, two-day Yom Tov abroad and one day in Israel, Yom Tov next
 //     to Shabbat as one window, Rosh Hashana's two days, the minute either side of a window;
 //   - DST days, a polar day (null and a log), elevation rules, the server's own zone never mattering;
 //   - the location save (coordinates, the highest of the 25 sampled points, logged) and the lazy fill (once).
@@ -658,20 +659,23 @@ async function runChecks(): Promise<void> {
   const dates = (windows: Array<[Date, Date]>, zone: string) => windows.map(([a, b]) => `${wallOf(a, zone).slice(0, 10)} -> ${wallOf(b, zone).slice(0, 10)}`);
   const inside = (windows: Array<[Date, Date]>, at: number) => windows.some(([a, b]) => a.getTime() <= at && at < b.getTime());
 
-  await check('a plain Shabbat: candle lighting on Friday (sunset minus 20, rounded earlier) to the end of Shabbat on Saturday (sunset plus 30, rounded later); the minute before it starts and the minute it ends are outside, the edges inside', () => {
+  await check('a plain Shabbat: sunset on Friday (the plain sunset row, rounded earlier; candle lighting is 20 minutes before it and is not the start) to the end of Shabbat on Saturday (sunset plus 30, rounded later); the minute before it starts and the minute it ends are outside, the edges inside', () => {
     const windows = windowsAround('2026-10-29', '2026-11-02', JERUSALEM);
     assertSame(dates(windows, 'Asia/Jerusalem'), ['2026-10-30 -> 2026-10-31'], 'one window');
     const [start, end] = windows[0];
     const friday = sephardiByHand(JERUSALEM, '2026-10-30'), saturday = sephardiByHand(JERUSALEM, '2026-10-31');
-    assert(start.getTime() === roundMinute(secondFloor(friday.CANDLE_LIGHTING), 'earlier'), `starts at candle lighting ${hm(start)}`);
+    assert(start.getTime() === roundMinute(secondFloor(friday.SHKIA), 'earlier'), `starts at sunset ${hm(start)}`);
     assert(end.getTime() === roundMinute(secondFloor(saturday.SHABBAT_ENDS), 'later'), `ends at the end of Shabbat ${hm(end)}`);
-    assert(start.getTime() === compute.zmanimForDay('2026-10-30', JERUSALEM, 'sephardi').CANDLE_LIGHTING!.getTime(), 'the same candle lighting zmanimForDay shows');
+    const shownFriday = compute.zmanimForDay('2026-10-30', JERUSALEM, 'sephardi');
+    assert(start.getTime() === shownFriday.SHKIA!.getTime(), 'the same sunset zmanimForDay shows as the plain sunset row');
+    assert(shownFriday.CANDLE_LIGHTING!.getTime() === start.getTime() - 20 * MINUTE, `candle lighting is 20 minutes before the start: ${hm(shownFriday.CANDLE_LIGHTING!)} ${hm(start)}`);
     assert(!inside(windows, start.getTime() - MINUTE) && inside(windows, start.getTime()) && inside(windows, start.getTime() + MINUTE), 'the start');
+    assert(!inside(windows, shownFriday.CANDLE_LIGHTING!.getTime()) && !inside(windows, start.getTime() - 5 * MINUTE), 'candle lighting and the minutes after it are outside the window');
     assert(inside(windows, end.getTime() - 1) && !inside(windows, end.getTime()) && !inside(windows, end.getTime() + MINUTE), 'the end: the minute after the window is outside');
     assertSame(windowsAround('2026-10-26', '2026-10-29', JERUSALEM), [], 'a weekday has none');
   });
 
-  await check('a window is found from any instant in it: a range that is one instant (Friday evening after candle lighting, Saturday noon, Saturday evening before the end) returns it; a range wholly before or after does not', () => {
+  await check('a window is found from any instant in it: a range that is one instant (Friday evening at sunset, Saturday noon, Saturday evening before the end) returns it; a range wholly before or after does not', () => {
     const [start, end] = windowsAround('2026-10-29', '2026-11-02', JERUSALEM)[0];
     for (const at of [start.getTime(), start.getTime() + 3 * 3_600_000, end.getTime() - 1]) {
       const found = compute.shabbatYomTovWindows({ from: new Date(at), to: new Date(at) }, JERUSALEM, 'sephardi');
@@ -701,11 +705,12 @@ async function runChecks(): Promise<void> {
     assertSame(dates(windowsAround('2027-06-08', '2027-06-14', JERUSALEM), 'Asia/Jerusalem'), ['2027-06-10 -> 2027-06-12'], 'Shavuot on a Friday, then Shabbat: one window');
   });
 
-  await check('a window\'s edges are the set\'s: the Ashkenazi window ends at 8.5 degrees, the Chabad one at 8.5 and starts 20 minutes before the sea-level sunset; the same Shabbat is a different window in each set', () => {
+  await check('a window\'s edges are the set\'s: the Ashkenazi window ends at 8.5 degrees, the Chabad one at 8.5 and both start at their own sunset (the Chabad one the sea-level sunset); the same Shabbat is a different window in each set', () => {
     for (const community of ['ashkenazi', 'chabad'] as Community[]) {
       const [start, end] = windowsAround('2026-10-29', '2026-11-02', NEW_YORK, community)[0];
       const shown = compute.zmanimForDay('2026-10-30', NEW_YORK, community);
-      assert(start.getTime() === shown.CANDLE_LIGHTING!.getTime(), `${community} start`);
+      assert(start.getTime() === shown.SHKIA!.getTime(), `${community} start is its sunset`);
+      assert(start.getTime() - shown.CANDLE_LIGHTING!.getTime() === 20 * MINUTE, `${community}: candle lighting is 20 minutes before the start`);
       assert(end.getTime() === compute.zmanimForDay('2026-10-31', NEW_YORK, community).SHABBAT_ENDS!.getTime(), `${community} end`);
     }
     const end = (window: [Date, Date]) => window[1].getTime();
@@ -713,23 +718,32 @@ async function runChecks(): Promise<void> {
     const ashkenazi = windowsAround('2026-10-29', '2026-11-02', NEW_YORK, 'ashkenazi')[0];
     assert(sephardi[1].getTime() < ashkenazi[1].getTime(), 'Sephardi Shabbat ends at 7.165 degrees abroad, earlier than 8.5 degrees in New York in autumn');
     assert(end(sephardi) === compute.zmanimForDay('2026-10-31', NEW_YORK, 'sephardi').SHABBAT_ENDS!.getTime(), 'and the window ends at the set\'s end of Shabbat');
+    assert(sephardi[0].getTime() === compute.zmanimForDay('2026-10-30', NEW_YORK, 'sephardi').SHKIA!.getTime(), 'the Sephardi start abroad is the sea-level sunset');
   });
 
-  await check('the windows on a change-of-clock Friday (Israel 2026-03-27) read on the person\'s clock: candle lighting is after the jump (UTC+3), and the window still ends the next night', () => {
+  await check('the start is the set\'s own sunset where the sets differ in the height: Jerusalem (754 m) on Friday 2026-10-30, the Sephardi window starts at the elevation sunset and the Chabad one at the sea-level sunset, earlier; each is the plain sunset row of its set', () => {
+    const sephardi = windowsAround('2026-10-29', '2026-11-02', JERUSALEM, 'sephardi')[0];
+    const chabad = windowsAround('2026-10-29', '2026-11-02', JERUSALEM, 'chabad')[0];
+    assert(sephardi[0].getTime() === compute.zmanimForDay('2026-10-30', JERUSALEM, 'sephardi').SHKIA!.getTime(), 'Sephardi: the elevation sunset');
+    assert(chabad[0].getTime() === compute.zmanimForDay('2026-10-30', JERUSALEM, 'chabad').SHKIA!.getTime(), 'Chabad: the sea-level sunset');
+    assert(chabad[0].getTime() < sephardi[0].getTime(), `Chabad ${hm(chabad[0])} starts before Sephardi ${hm(sephardi[0])}`);
+  });
+
+  await check('the windows on a change-of-clock Friday (Israel 2026-03-27) read on the person\'s clock: sunset is after the jump (UTC+3), and the window still ends the next night', () => {
     const windows = windowsAround('2026-03-26', '2026-03-30', JERUSALEM);
     assertSame(dates(windows, 'Asia/Jerusalem'), ['2026-03-27 -> 2026-03-28'], 'the jump Friday');
-    assert(minutesOf(hm(windows[0][0])) >= 18 * 60 + 15 && minutesOf(hm(windows[0][0])) <= 18 * 60 + 50, `candle lighting reads ${hm(windows[0][0])}`);
+    assert(minutesOf(hm(windows[0][0])) >= 18 * 60 + 35 && minutesOf(hm(windows[0][0])) <= 19 * 60 + 15, `sunset reads ${hm(windows[0][0])}`);
     const fall = windowsAround('2026-10-23', '2026-10-27', JERUSALEM);
     assertSame(dates(fall, 'Asia/Jerusalem'), ['2026-10-23 -> 2026-10-24'], 'the Friday before the fall-back Sunday');
   });
 
-  await check('a window whose candle lighting or end does not exist (the sun never gets 8.5 degrees below the horizon in Reykjavik in June; no sunset at 78 degrees north) is left out and logged', async () => {
+  await check('a window whose sunset or end does not exist (the sun never gets 8.5 degrees below the horizon in Reykjavik in June; no sunset at 78 degrees north) is left out and logged', async () => {
     const reykjavik = await logged(() => windowsAround('2026-06-24', '2026-06-29', REYKJAVIK, 'ashkenazi'));
     assertSame(reykjavik.value, [], 'Reykjavik');
     assert(reykjavik.lines.some(l => l.startsWith('[zmanim]') && l.includes('end of Shabbat')), `logged: ${show(reykjavik.lines)}`);
     const svalbard = await logged(() => windowsAround('2026-06-24', '2026-06-29', SVALBARD));
     assertSame(svalbard.value, [], 'Svalbard');
-    assert(svalbard.lines.some(l => l.startsWith('[zmanim]') && l.includes('candle lighting')), `logged: ${show(svalbard.lines)}`);
+    assert(svalbard.lines.some(l => l.startsWith('[zmanim]') && l.includes('no sunset')), `logged: ${show(svalbard.lines)}`);
   });
 
   // ============ Server only ============

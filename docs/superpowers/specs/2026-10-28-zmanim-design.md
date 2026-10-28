@@ -4,7 +4,7 @@ Shipped 2026-10-28. This file holds the owner's decisions and the rules the code
 
 ## What people get
 - **Reminders by zman.** A reminder's time can be a zman plus an offset ("10 min before sof zman Shema (GRA)"), or N halachic hours after sunrise. It is computed every day for each recipient at their own place: in a reminder for both partners, each gets their own city's time.
-- **The pause.** Settings has "Pause messages on Shabbat and Yom Tov". Nothing scheduled is sent from candle lighting to nightfall at the person's place, neither reminders, nor alerts, nor summaries, nor nudges.
+- **The pause.** Settings has "Pause messages on Shabbat and Yom Tov". Nothing scheduled is sent from sunset on the eve to nightfall at the person's place, neither reminders, nor alerts, nor summaries, nor nudges. A send between candle lighting and sunset still goes out.
   - It is on by default for the Jewish calendar, and switching the calendar setting resets it.
   - A reminder that falls inside the window is not sent late. It stays open in the app, and the next summary carries it.
 - **A "Zmanim" setting** for the community set:
@@ -21,11 +21,12 @@ Shipped 2026-10-28. This file holds the owner's decisions and the rules the code
 6. **The offset is in clock minutes.**
 7. **The pause switch** covers reminders and summaries as described above.
 8. **Creating these by voice or text is for later.** The Gemini prompt is unchanged.
+9. **The pause starts at sunset on the eve (owner 2026-10-28, replacing candle lighting); candle lighting stays 20 minutes before sunset.** The window is `[the eve's sunset, the end of the last rest day)`, at the person's place in their community's set: the set's own `SHKIA`, the sunset the list's plain sunset row shows (the elevation sunset in Israel for the Sephardi set, sea level abroad and for the Chabad set). The end does not change. So a reminder, summary or nudge between candle lighting and sunset on a Friday or a Yom Tov eve is sent.
 
 ## How it is computed
 - `@hebcal/core` with our own sets in `src/services/zmanim/`:
   - `sets.ts` holds the three sets as data;
-  - `compute.ts` has `zmanimForDay`, `zmanInstant` and `shabbatYomTovWindows`;
+  - `compute.ts` has `zmanimForDay`, `zmanInstant` and `shabbatYomTovWindows` (from the eve's sunset to the end of the last rest day);
   - `pause.ts` has `isPaused`.
 
   Zmanei Yosef's code has no license; only its formulas were used.
@@ -51,8 +52,8 @@ A sun button in the home's header, next to + and Send, opens a bottom sheet with
   - times are 24-hour in the person's zone. A zman the sun does not make that day shows a dash;
   - at the bottom, the halachic hour as mm:ss under each opinion the set counts by (GRA and Magen Avraham; the Baal HaTanya's for Chabad);
   - it is a plain list: no row creates anything.
-- **Candle lighting and the end:** the rows of the Shabbat and Yom Tov windows, the pause's own (`shabbatYomTovWindows`), so the list and the pause cannot disagree. They are worded and drawn in the accent.
-  - *Candle lighting:* on the day a window begins (a Friday, the eve of a Yom Tov), and on every Friday. A Friday inside a longer window (Shavuot in Israel, or the second day of Pesach abroad, on a Friday) shows the Shabbat's candle lighting at that Friday's own time.
+- **Candle lighting and the end:** the rows of the Shabbat and Yom Tov windows. The days they fall on and the ends are the pause's own (`shabbatYomTovWindows`), so the list and the pause cannot disagree on them. The pause begins at the eve's sunset (the list's plain sunset row), not at the candle row. They are worded and drawn in the accent.
+  - *Candle lighting:* on the day a window begins (a Friday, the eve of a Yom Tov), and on every Friday. It is always that day's own candle lighting, 20 minutes before that day's sunset row, and never the window's start. A Friday inside a longer window (Shavuot in Israel, or the second day of Pesach abroad, on a Friday) shows the Shabbat's candle lighting at that Friday's own time.
   - *Candle lighting, not before:* on a rest day inside a window that is neither a Friday nor its last day (a Saturday before a Yom Tov on Sunday, the first day of a two-day Yom Tov). It shows that day's own end of Shabbat or Yom Tov, the earliest time to light the next night's candles.
   - *The end:* on the day a window ends: "Shabbat ends" on a Saturday, "Shabbat and Yom Tov end" on a Saturday that is also a Yom Tov (Sukkot in Israel, a Yom Kippur on Shabbat), "Yom Tov ends" on any other day.
   - The set's other days carry none of these.

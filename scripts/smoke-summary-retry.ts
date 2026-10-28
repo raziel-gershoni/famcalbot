@@ -859,10 +859,10 @@ async function main() {
     assert(textOf('Pia').length === 1 && skippedOnYomTov() === 0, `the day after: ${textOf('Pia').length} texts`);
   });
 
-  await check('pause: a summary set aside for the Google retry is paused too when the wait carries the retry into Shabbat (Friday 12 February 2027: candle lighting 17:07; first attempt 17:00, the failed read ends at 17:07, the retry at 17:07:30): nothing is sent or marked, and it is counted', async () => {
+  await check('pause: a summary set aside for the Google retry is paused too when the wait carries the retry into Shabbat (Friday 12 February 2027: sunset 17:27, where the pause begins; first attempt 17:00, the failed read ends at 17:27, the retry at 17:27:30): nothing is sent or marked, and it is counted', async () => {
     const early = { ...PIA, preferredEveningHour: 17 } as UserConfig;
     reset([early], [[early, ['fail', 'ok']]], il('2027-02-12 17:00:00'));
-    readMs = 7 * 60_000;
+    readMs = 27 * 60_000;
     const result = await summary.sendTomorrowSummaryToAll({ filterByHour: true });
     assert(sleeps.length === 1 && readsOf('Pia').length === 1, `the first read failed and the retry waited: ${sleeps.length} sleeps, ${readsOf('Pia').length} reads`);
     assert(sent.length === 0 && voices.length === 0 && store.size === 0, `sent ${sent.length}, voices ${voices.length}, marks ${[...store.keys()]}`);
@@ -870,9 +870,18 @@ async function main() {
     // The same retry with the switch off sends
     const off = { ...early, pauseOnShabbat: false } as UserConfig;
     reset([off], [[off, ['fail', 'ok']]], il('2027-02-12 17:00:00'));
-    readMs = 7 * 60_000;
+    readMs = 27 * 60_000;
     await summary.sendTomorrowSummaryToAll({ filterByHour: true });
     assert(textOf('Pia').length === 1, `switch off: ${textOf('Pia').length} texts`);
+  });
+
+  await check('pause: a retry that the wait carries past candle lighting but not to the sunset is sent (Friday 12 February 2027: candle lighting 17:07, the retry at 17:07:30, the pause begins at 17:27)', async () => {
+    const early = { ...PIA, preferredEveningHour: 17 } as UserConfig;
+    reset([early], [[early, ['fail', 'ok']]], il('2027-02-12 17:00:00'));
+    readMs = 7 * 60_000;
+    const result = await summary.sendTomorrowSummaryToAll({ filterByHour: true });
+    assert(sleeps.length === 1 && readsOf('Pia').length === 2, `the first read failed and the retry read: ${sleeps.length} sleeps, ${readsOf('Pia').length} reads`);
+    assert(textOf('Pia').length === 1 && result.skippedPause === 0 && pauseLines.length === 0, `sent ${textOf('Pia').length}, counts ${JSON.stringify(result)} ${pauseLines.join('|')}`);
   });
 
   await check('pause: a person with no calendars who gets the weather alone is paused before anything is fetched (the weather-only path is inside the same check)', async () => {

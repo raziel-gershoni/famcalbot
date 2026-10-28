@@ -10,9 +10,11 @@ import type { ZmanOpinion } from './zman-spec';
 
 /**
  * The rows a day's list carries besides the set's own zmanim: the Shabbat and Yom Tov windows (the pause's, from
- * shabbatYomTovWindows) give them, so the list and the pause agree. The sheet draws them in the accent.
+ * shabbatYomTovWindows) say on which days they fall, so the list and the pause agree on the days. The sheet draws them in
+ * the accent. The pause begins at the eve's sunset (the set's plain sunset row) and ends at the end row; the candle
+ * lighting is the day's own time, 20 minutes before that sunset, not the window's start.
  *  - CANDLE_LIGHTING: on the day a window begins (a Friday, the eve of a Yom Tov) and on every Friday, a Friday inside a
- *    longer window (a Yom Tov on a Friday) at that Friday's own time.
+ *    longer window (a Yom Tov on a Friday): that day's own time.
  *  - CANDLE_LIGHTING_NOT_BEFORE: on a rest day inside a window that is neither a Friday nor the window's last day (a Saturday
  *    before a Yom Tov on Sunday, the first day of a two-day Yom Tov): the second night's candles, not before the day's own end
  *    of Shabbat or Yom Tov.

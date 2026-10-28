@@ -3,8 +3,9 @@
 // place the app sends a message, so a send nobody classified fails here.
 //
 // What it pins:
-//   - the answer: the switch off (or unset) is never paused and does no work; from candle lighting to the end of
-//     Shabbat in the person's own place, the minute either side of both edges; Yom Tov next to Shabbat as one
+//   - the answer: the switch off (or unset) is never paused and does no work; from sunset on the eve (the owner's
+//     ruling 2026-10-28: not candle lighting, which is 20 minutes earlier and sends) to the end of Shabbat in the
+//     person's own place, the minute either side of both edges; Yom Tov next to Shabbat as one
 //     window; a two-day Yom Tov abroad but one day in Israel; Rosh Hashana's two days in Israel; each person by their
 //     own place at the same instant; the community's own edge (Sephardi and Ashkenazi end Shabbat at different minutes);
 //   - the place: saved coordinates; a place name with none, filled once (and the pause then uses them); no usable
@@ -197,6 +198,7 @@ function resetWorld(): void {
 
 const JERUSALEM = { latitude: 31.778, longitude: 35.235, elevationM: 754 };
 const NEW_YORK = { latitude: 40.7127, longitude: -74.006, elevationM: 10 };
+const HARISH = { latitude: 32.46182, longitude: 35.04555, elevationM: 290 };
 const ZONE_OF = new Map<number, string>();
 
 /** A person whose switch is on, in a place, with their zone cached the way resolveUserTimezone finds it. */
@@ -310,8 +312,10 @@ async function runChecks(): Promise<void> {
     else realError(...args);
   };
 
-  // Friday 2026-10-16, Jerusalem, Sephardi: candle lighting 17:50 (14:50 UTC), Shabbat ends 18:39 (15:39 UTC the next day).
+  // Friday 2026-10-16, Jerusalem, Sephardi: candle lighting 17:50 (14:50 UTC), sunset 18:10 (15:10 UTC), Shabbat ends 18:39
+  // (15:39 UTC the next day). The pause begins at the sunset.
   const FRI_CANDLES = '2026-10-16T14:50:00.000Z';
+  const FRI_SUNSET = '2026-10-16T15:10:00.000Z';
   const SAT_END = '2026-10-17T15:39:00.000Z';
 
   // ============ The answer ============
@@ -326,13 +330,18 @@ async function runChecks(): Promise<void> {
     assert(redisReads === 0 && dbCalls === 0 && requests.length === 0 && logs.length === 0 && captured.length === 0, `work done: ${redisReads} reads, ${dbCalls} db, ${requests.length} requests, ${logs.join('|')}`);
   });
 
-  await check('Friday to Saturday night in Jerusalem (Sephardi): paused from candle lighting (the minute itself) to the end of Shabbat (not the minute itself), through Saturday noon, and not the minute before either edge', async () => {
+  await check('Friday to Saturday night in Jerusalem (Sephardi): paused from sunset (the minute itself, 20 minutes after candle lighting, which sends) to the end of Shabbat (not the minute itself), through Saturday noon, and not the minute before either edge', async () => {
     resetWorld();
     const user = person(2, 'Asia/Jerusalem', JERUSALEM);
     const cases: Array<[string, Date, boolean]> = [
       ['Friday noon', at('2026-10-16T09:00:00.000Z'), false],
       ['a minute before candle lighting', minute(FRI_CANDLES, -1), false],
-      ['candle lighting itself', at(FRI_CANDLES), true],
+      ['candle lighting itself', at(FRI_CANDLES), false],
+      ['between candle lighting and sunset', minute(FRI_CANDLES, 10), false],
+      ['a minute before sunset', minute(FRI_SUNSET, -1), false],
+      ['a millisecond before sunset', new Date(Date.parse(FRI_SUNSET) - 1), false],
+      ['sunset itself', at(FRI_SUNSET), true],
+      ['a minute after sunset', minute(FRI_SUNSET, 1), true],
       ['Friday night', at('2026-10-16T20:00:00.000Z'), true],
       ['Saturday noon', at('2026-10-17T09:00:00.000Z'), true],
       ['a millisecond before the end', new Date(Date.parse(SAT_END) - 1), true],
@@ -344,14 +353,16 @@ async function runChecks(): Promise<void> {
     for (const [name, when, want] of cases) assert(await pause.isPaused(user, when) === want, `${name}: ${when.toISOString()} should be ${want ? 'paused' : 'sending'}`);
   });
 
-  await check('the same instant, two places: Friday 14:30 UTC is after candle lighting in Jerusalem and the morning in New York; each person is read by their own place', async () => {
+  await check('the same instant, two places: Friday 21:00 UTC is after sunset in Jerusalem and the afternoon in New York; each person is read by their own place, and New York begins at its own sunset (22:14 UTC), not its candle lighting (21:54 UTC)', async () => {
     resetWorld();
     const jerusalem = person(3, 'Asia/Jerusalem', JERUSALEM);
     const newYork = person(4, 'America/New_York', NEW_YORK);
     const when = at('2026-10-16T21:00:00.000Z');
     assert(await pause.isPaused(jerusalem, when) === true, 'Jerusalem is in Shabbat');
-    assert(await pause.isPaused(newYork, when) === false, 'New York is a minute before its candle lighting (21:54 UTC)');
-    assert(await pause.isPaused(newYork, at('2026-10-16T21:54:00.000Z')) === true, 'New York at its own candle lighting');
+    assert(await pause.isPaused(newYork, when) === false, 'New York is before its candle lighting (21:54 UTC)');
+    assert(await pause.isPaused(newYork, at('2026-10-16T21:54:00.000Z')) === false, 'New York at its own candle lighting sends');
+    assert(await pause.isPaused(newYork, at('2026-10-16T22:13:00.000Z')) === false, 'New York a minute before its sunset');
+    assert(await pause.isPaused(newYork, at('2026-10-16T22:14:00.000Z')) === true, 'New York at its own sunset');
   });
 
   await check('the community\'s own edge: Sephardi ends Shabbat at 15:39 UTC and Ashkenazi at 15:42 in Jerusalem, so the minutes between are paused for one and not the other', async () => {
@@ -370,9 +381,10 @@ async function runChecks(): Promise<void> {
     resetWorld();
     const jerusalem = person(8, 'Asia/Jerusalem', JERUSALEM);
     const newYork = person(9, 'America/New_York', NEW_YORK);
-    // Israel, Rosh Hashana: Friday 11 September 18:34 to Sunday 13 September 19:23, with no gap between the two days.
-    assert(await pause.isPaused(jerusalem, at('2026-09-11T15:33:00.000Z')) === false, 'a minute before Rosh Hashana');
-    assert(await pause.isPaused(jerusalem, at('2026-09-11T15:34:00.000Z')) === true, 'Rosh Hashana begins');
+    // Israel, Rosh Hashana: Friday 11 September 18:54 (the sunset; the candle lighting is 18:34) to Sunday 13 September 19:23, with no gap between the two days.
+    assert(await pause.isPaused(jerusalem, at('2026-09-11T15:34:00.000Z')) === false, 'candle lighting sends');
+    assert(await pause.isPaused(jerusalem, at('2026-09-11T15:53:00.000Z')) === false, 'a minute before Rosh Hashana');
+    assert(await pause.isPaused(jerusalem, at('2026-09-11T15:54:00.000Z')) === true, 'Rosh Hashana begins at the sunset');
     assert(await pause.isPaused(jerusalem, at('2026-09-12T16:30:00.000Z')) === true, 'between Saturday night and the second day');
     assert(await pause.isPaused(jerusalem, at('2026-09-13T16:22:00.000Z')) === true, 'a minute before the second day ends');
     assert(await pause.isPaused(jerusalem, at('2026-09-13T16:23:00.000Z')) === false, 'the second day ends');
@@ -381,7 +393,95 @@ async function runChecks(): Promise<void> {
     assert(await pause.isPaused(newYork, fridayNoon) === true, 'New York: Friday is the second day, inside one window from Wednesday evening to Saturday night');
     assert(await pause.isPaused(jerusalem, fridayNoon) === false, 'Jerusalem: Friday is Chol HaMoed');
     assert(await pause.isPaused(jerusalem, at('2027-04-22T12:00:00.000Z')) === true, 'Jerusalem: Thursday is the first day');
-    assert(await pause.isPaused(jerusalem, at('2027-04-23T15:56:00.000Z')) === false && await pause.isPaused(jerusalem, at('2027-04-23T15:57:00.000Z')) === true, 'Jerusalem: Shabbat Chol HaMoed begins at its candle lighting');
+    assert(await pause.isPaused(jerusalem, at('2027-04-23T15:57:00.000Z')) === false && await pause.isPaused(jerusalem, at('2027-04-23T16:16:00.000Z')) === false && await pause.isPaused(jerusalem, at('2027-04-23T16:17:00.000Z')) === true, 'Jerusalem: Shabbat Chol HaMoed begins at its sunset (16:17 UTC), not its candle lighting (15:57)');
+  });
+
+  // ============ The pause starts at the eve's sunset (owner 2026-10-28), not at candle lighting ============
+
+  await check('Harish, Friday 2026-10-30 (Sephardi, 290 m): candle lighting 16:33 (14:33 UTC) and the minute before sunset send, sunset 16:53 (14:53 UTC) is paused, and Saturday ends as it did (15:24 UTC: the minute before is paused, the minute itself sends)', async () => {
+    resetWorld();
+    const user = person(60, 'Asia/Jerusalem', HARISH);
+    const cases: Array<[string, string, boolean]> = [
+      ['candle lighting itself, 16:33', '2026-10-30T14:33:00.000Z', false],
+      ['twenty minutes after it', '2026-10-30T14:52:00.000Z', false],
+      ['sunset, 16:53', '2026-10-30T14:53:00.000Z', true],
+      ['Friday night', '2026-10-30T19:00:00.000Z', true],
+      ['the minute before Shabbat ends', '2026-10-31T15:23:00.000Z', true],
+      ['Shabbat ends, 17:24', '2026-10-31T15:24:00.000Z', false],
+    ];
+    for (const [name, when, want] of cases) assert(await pause.isPaused(user, at(when)) === want, `${name}: ${when} should be ${want ? 'paused' : 'sending'}`);
+  });
+
+  await check('a Yom Tov eve in Israel is the same: Erev Yom Kippur (Sunday 2026-09-20, sunset 15:42 UTC, candles 15:22), Erev Sukkot (Friday 2026-09-25, sunset 15:36, candles 15:16, one window into the Saturday that ends 16:05) and Erev Pesach (Wednesday 2027-04-21, sunset 16:16, candles 15:56): candle lighting and the minute before sunset send, sunset is paused, and the end is the day\'s end as before', async () => {
+    resetWorld();
+    const user = person(61, 'Asia/Jerusalem', JERUSALEM);
+    const cases: Array<[string, string, boolean]> = [
+      ['Erev Yom Kippur: candle lighting', '2026-09-20T15:22:00.000Z', false],
+      ['Erev Yom Kippur: a minute before sunset', '2026-09-20T15:41:00.000Z', false],
+      ['Erev Yom Kippur: sunset', '2026-09-20T15:42:00.000Z', true],
+      ['Yom Kippur: the minute before its end', '2026-09-21T16:11:00.000Z', true],
+      ['Yom Kippur: its end', '2026-09-21T16:12:00.000Z', false],
+      ['Erev Sukkot (a Friday): candle lighting', '2026-09-25T15:16:00.000Z', false],
+      ['Erev Sukkot: a minute before sunset', '2026-09-25T15:35:00.000Z', false],
+      ['Erev Sukkot: sunset', '2026-09-25T15:36:00.000Z', true],
+      ['Sukkot, a Saturday: the minute before its end', '2026-09-26T16:04:00.000Z', true],
+      ['Sukkot, a Saturday: its end', '2026-09-26T16:05:00.000Z', false],
+      ['Erev Pesach: candle lighting', '2027-04-21T15:56:00.000Z', false],
+      ['Erev Pesach: a minute before sunset', '2027-04-21T16:15:00.000Z', false],
+      ['Erev Pesach: sunset', '2027-04-21T16:16:00.000Z', true],
+    ];
+    for (const [name, when, want] of cases) assert(await pause.isPaused(user, at(when)) === want, `${name}: ${when} should be ${want ? 'paused' : 'sending'}`);
+  });
+
+  await check('a Yom Tov on a Friday inside a longer window (Shavuot 2027 in Israel is Friday 2027-06-11): the window starts at Thursday 06-10\'s sunset (16:48 UTC; candles 16:28 send), Friday is paused all day, and it ends at Saturday\'s end (17:20 UTC)', async () => {
+    resetWorld();
+    const user = person(62, 'Asia/Jerusalem', JERUSALEM);
+    const cases: Array<[string, string, boolean]> = [
+      ['Thursday noon', '2027-06-10T09:00:00.000Z', false],
+      ['Thursday candle lighting (the eve\'s, Erev Shavuot)', '2027-06-10T16:28:00.000Z', false],
+      ['Thursday, a minute before sunset', '2027-06-10T16:47:00.000Z', false],
+      ['Thursday sunset', '2027-06-10T16:48:00.000Z', true],
+      ['Friday morning', '2027-06-11T04:00:00.000Z', true],
+      ['Friday noon', '2027-06-11T09:00:00.000Z', true],
+      ['Friday candle lighting (the Shabbat\'s, inside the window)', '2027-06-11T16:29:00.000Z', true],
+      ['Friday sunset', '2027-06-11T16:49:00.000Z', true],
+      ['Saturday noon', '2027-06-12T09:00:00.000Z', true],
+      ['Saturday, a minute before the end', '2027-06-12T17:19:00.000Z', true],
+      ['Saturday\'s end', '2027-06-12T17:20:00.000Z', false],
+    ];
+    for (const [name, when, want] of cases) assert(await pause.isPaused(user, at(when)) === want, `${name}: ${when} should be ${want ? 'paused' : 'sending'}`);
+    const [only, ...rest] = compute.shabbatYomTovWindows({ from: at('2027-06-09T00:00:00.000Z'), to: at('2027-06-14T00:00:00.000Z') }, { ...JERUSALEM, timeZone: 'Asia/Jerusalem' }, 'sephardi');
+    assert(rest.length === 0 && only[0].toISOString() === '2027-06-10T16:48:00.000Z' && only[1].toISOString() === '2027-06-12T17:20:00.000Z', `one window: ${show([only, ...rest])}`);
+  });
+
+  await check('New York (Ashkenazi): a Friday starts at its own sunset (2026-10-16 22:14 UTC; candles 21:54 send), the minute before is sending, Shabbat ends at 22:54 UTC the next day', async () => {
+    resetWorld();
+    const user = person(63, 'America/New_York', NEW_YORK, { zmanimCommunity: 'ashkenazi' });
+    const cases: Array<[string, string, boolean]> = [
+      ['candle lighting', '2026-10-16T21:54:00.000Z', false],
+      ['a minute before sunset', '2026-10-16T22:13:00.000Z', false],
+      ['sunset', '2026-10-16T22:14:00.000Z', true],
+      ['the minute before Shabbat ends', '2026-10-17T22:53:00.000Z', true],
+      ['Shabbat ends', '2026-10-17T22:54:00.000Z', false],
+    ];
+    for (const [name, when, want] of cases) assert(await pause.isPaused(user, at(when)) === want, `${name}: ${when} should be ${want ? 'paused' : 'sending'}`);
+  });
+
+  await check('Chabad begins at its own sea-level sunset, not the Sephardi one: Jerusalem (754 m) on Friday 2026-10-16 the Chabad sunset is 15:05 UTC and the Sephardi elevation sunset 15:10, so 15:07 is paused for Chabad and sends for Sephardi; the Chabad candle lighting (14:45) sends', async () => {
+    resetWorld();
+    const chabad = person(64, 'Asia/Jerusalem', JERUSALEM, { zmanimCommunity: 'chabad' });
+    const sephardi = person(65, 'Asia/Jerusalem', JERUSALEM, { zmanimCommunity: 'sephardi' });
+    const cases: Array<[string, string, boolean, boolean]> = [
+      ['Chabad candle lighting', '2026-10-16T14:45:00.000Z', false, false],
+      ['a minute before the Chabad sunset', '2026-10-16T15:04:00.000Z', false, false],
+      ['the Chabad sunset', '2026-10-16T15:05:00.000Z', true, false],
+      ['between the two sunsets', '2026-10-16T15:07:00.000Z', true, false],
+      ['the Sephardi sunset', '2026-10-16T15:10:00.000Z', true, true],
+    ];
+    for (const [name, when, wantChabad, wantSephardi] of cases) {
+      assert(await pause.isPaused(chabad, at(when)) === wantChabad, `Chabad, ${name}: ${when} should be ${wantChabad ? 'paused' : 'sending'}`);
+      assert(await pause.isPaused(sephardi, at(when)) === wantSephardi, `Sephardi, ${name}: ${when} should be ${wantSephardi ? 'paused' : 'sending'}`);
+    }
   });
 
   // ============ The place ============
@@ -423,7 +523,7 @@ async function runChecks(): Promise<void> {
     const city = windows.mainCityPlace('Asia/Jerusalem')!;
     const reference = person(12, 'Asia/Jerusalem', { latitude: city.latitude, longitude: city.longitude, elevationM: city.elevationM });
     const fallbackLogs = () => logs.filter(l => l.includes('user 11 ') && /main city/.test(l)).length;
-    for (const when of ['2026-10-16T14:49:00.000Z', '2026-10-16T14:50:00.000Z', '2026-10-17T15:38:00.000Z', '2026-10-17T15:39:00.000Z']) {
+    for (const when of ['2026-10-16T15:09:00.000Z', '2026-10-16T15:10:00.000Z', '2026-10-17T15:39:00.000Z', '2026-10-17T15:40:00.000Z']) {
       assert(await pause.isPaused(none, at(when)) === await pause.isPaused(reference, at(when)), `the fallback is Jerusalem's windows at ${when}`);
     }
     assert(fallbackLogs() === 2, `logged once for each of the two days (Friday, Saturday): ${show(logs)}`);

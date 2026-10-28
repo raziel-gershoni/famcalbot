@@ -1108,20 +1108,22 @@ async function main() {
     assert(sentLines(IL).join(' | ') === '09:45 🤖 Auto-Reminder: Kiddush | 10:45 🤖🚗 Auto-Pickup Reminder: Noa' && pauseLines.length === 0, `switch off: ${sentLines(IL).join(' | ') || '(nothing)'} ${pauseLines.join('|')}`);
   });
 
-  await check('pause: the run either side of the window: Friday 17:45 sends and 17:50 (candle lighting) does not; Saturday 18:35 does not and 18:40 (after Shabbat ends at 18:39) does; an alert due in the last minutes of Shabbat goes with a run that starts inside it, so it is not sent', async () => {
+  await check('pause: the run either side of the window: Friday 17:45, 17:50 (candle lighting) and 18:05 send and 18:10 (the sunset, where the pause begins) does not; Saturday 18:35 does not and 18:40 (after Shabbat ends at 18:39) does; an alert due in the last minutes of Shabbat goes with a run that starts inside it, so it is not sent', async () => {
     reset({ id: 42, ...JERUSALEM_ON, pickupRemindersEnabled: false });
     googleEvents = [
       shabbatEvent('f1', 'Friday 18:00', '2026-10-16 18:00', '2026-10-16 19:00'),
       shabbatEvent('f2', 'Friday 18:05', '2026-10-16 18:05', '2026-10-16 19:00'),
+      shabbatEvent('f3', 'Friday 18:24', '2026-10-16 18:24', '2026-10-16 19:00'),
+      shabbatEvent('f4', 'Friday 18:25', '2026-10-16 18:25', '2026-10-16 19:00'),
       shabbatEvent('s1', 'Saturday 18:50', '2026-10-17 18:50', '2026-10-17 19:30'),
       shabbatEvent('s2', 'Saturday 18:54', '2026-10-17 18:54', '2026-10-17 19:30'),
       shabbatEvent('s3', 'Saturday 18:55', '2026-10-17 18:55', '2026-10-17 19:30'),
     ];
     await syncCache(handlers, at('2026-10-16 07:00', IL));
-    await runTicks(handlers, at('2026-10-16 17:40', IL), at('2026-10-16 18:10', IL));
+    await runTicks(handlers, at('2026-10-16 17:40', IL), at('2026-10-16 18:15', IL));
     await runTicks(handlers, at('2026-10-17 18:30', IL), at('2026-10-17 18:50', IL));
-    assert(sentLines(IL).join(' | ') === '17:45 🤖 Auto-Reminder: Friday 18:00 | 18:40 🤖 Auto-Reminder: Saturday 18:55', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
-    assert(pauseLines.length === 3, `three skipped (17:50, 18:35, and 18:39's run at 18:35): ${pauseLines.join('|')}`);
+    assert(sentLines(IL).join(' | ') === '17:45 🤖 Auto-Reminder: Friday 18:00 | 17:50 🤖 Auto-Reminder: Friday 18:05 | 18:05 🤖 Auto-Reminder: Friday 18:24 | 18:40 🤖 Auto-Reminder: Saturday 18:55', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(pauseLines.length === 3, `three skipped (the 18:10 run's, 18:35, and 18:39's run at 18:35): ${pauseLines.join('|')}`);
   });
 
   await check('pause: the switch in a settings save reaches the cache at once, both ways: off sends the next run, on pauses it', async () => {

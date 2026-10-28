@@ -786,7 +786,7 @@
     },
     "pause": {
       "label": "Pause messages on Shabbat and Yom Tov",
-      "hint": "Nothing is sent from candle lighting until nightfall"
+      "hint": "Nothing is sent from sunset until nightfall"
     },
     "zmanim": {
       "label": "Zmanim",

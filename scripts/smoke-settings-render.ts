@@ -891,7 +891,7 @@ async function main() {
       assert(sectionLabels(html)[0] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
     }
     assert(word('en', 'pause.label') === 'Pause messages on Shabbat and Yom Tov' && word('he', 'pause.label') === 'השהיית הודעות בשבת ובחג' && word('ru', 'pause.label') === 'Пауза в Шаббат и праздники', 'the owner\'s labels');
-    assert(word('en', 'pause.hint') === 'Nothing is sent from candle lighting until nightfall' && word('he', 'pause.hint') === 'לא נשלחות הודעות מהדלקת נרות ועד צאת השבת או החג' && word('ru', 'pause.hint') === 'С зажигания свечей до выхода звёзд ничего не приходит', 'the owner\'s hints');
+    assert(word('en', 'pause.hint') === 'Nothing is sent from sunset until nightfall' && word('he', 'pause.hint') === 'לא נשלחות הודעות מהשקיעה ועד צאת השבת או החג' && word('ru', 'pause.hint') === 'С заката до выхода звёзд ничего не приходит', 'the owner\'s hints (the pause begins at sunset, not candle lighting: 2026-10-28)');
 
     const label = word('en', 'pause.label');
     const checked = (m: Mounted) => switchOf(m, label)?.getAttribute('aria-checked');

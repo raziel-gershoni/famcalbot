@@ -250,7 +250,7 @@ async function main(): Promise<void> {
     // The control: the same person, the period ending on Saturday 02:00 UTC, is reminded by Friday morning's run (outside the window).
     reset();
     subscriptions = [paid(1, at('2026-10-17T02:00:00Z'))];
-    await run('2026-10-16T07:00:00Z'); // Friday 10:00 in Israel, before candle lighting at 17:50
+    await run('2026-10-16T07:00:00Z'); // Friday 10:00 in Israel, before the pause begins at sunset (18:10)
     assert(to(1).some(m => m.text.includes('Last day')) && logs.length === 0, `Friday: ${show(to(1).map(m => m.text.split('\n')[0]))} ${logs.join('|')}`); // (the 3-day one goes too: it reaches four days ahead)
   });
 

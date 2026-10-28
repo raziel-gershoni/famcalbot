@@ -3,7 +3,7 @@
  * Plan: docs/superpowers/plans/2026-10-28-zmanim-reminders.md (Task 2).
  *
  *   isPaused(user, at)   whether `pauseOnShabbat` is on and `at` falls inside a Shabbat or Yom Tov
- *                        window at the person's place, from candle lighting to the end of the day
+ *                        window at the person's place, from sunset on the eve to the end of the day
  *
  * A send that is paused is skipped and logged "[pause] skipped <kind> for <userId>" (pass `skipped`
  * to have it logged here, once, in one format). What a pass does with the thing it skipped is the

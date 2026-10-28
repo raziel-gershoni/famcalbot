@@ -259,7 +259,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
             ]}
             onChange={(value) => setForm((f) => ({ ...f, culture: value, ...defaultsForCulture(value) }))}
           />
-          {/* Under the calendar, whose choice sets it, and in the place card: candle lighting is counted at the place. */}
+          {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). */}
           <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />
           <ValueRow
             label={t('platform.label')}

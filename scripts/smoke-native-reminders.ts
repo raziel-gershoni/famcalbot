@@ -1618,7 +1618,8 @@ async function main() {
   });
 
   // ---- The Shabbat and Yom Tov pause (plan 2026-10-28-zmanim-reminders, Task 2) ----
-  // Raziel (1) is in Jerusalem, Sephardi: Shabbat runs from Friday 17:50 to Saturday 18:39 (Israel time, 2026-10-16/17).
+  // Raziel (1) is in Jerusalem, Sephardi: the pause runs from Friday 18:10 (the sunset; the candle lighting, 17:50, is not the
+  // start: the owner's ruling 2026-10-28) to Saturday 18:39 (Israel time, 2026-10-16/17).
 
   /** Raziel with the switch on, in Jerusalem. */
   const pauseRaziel = (over: Row = {}) => Object.assign(db.users[0], { pauseOnShabbat: true, latitude: 31.778, longitude: 35.235, elevationM: 754, zmanimCommunity: 'sephardi', ...over });
@@ -1654,8 +1655,8 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1001', `switch off: ${sentLines()}`);
   });
 
-  await check('pause: the minute either side of the window: Friday 17:49 pings, 17:50 (candle lighting) does not; Saturday 18:38 does not, 18:39 (Shabbat ends) pings', async () => {
-    for (const [when, want] of [[`${FRI} 17:49`, true], [`${FRI} 17:50`, false], [`${SAT} 18:38`, false], [`${SAT} 18:39`, true], [`${FRI} 10:00`, true], [`${SAT} 20:00`, true]] as Array<[string, boolean]>) {
+  await check('pause: the minute either side of the window: Friday 17:50 (candle lighting) and 18:09 ping, 18:10 (sunset) does not; Saturday 18:38 does not, 18:39 (Shabbat ends) pings', async () => {
+    for (const [when, want] of [[`${FRI} 17:49`, true], [`${FRI} 17:50`, true], [`${FRI} 18:09`, true], [`${FRI} 18:10`, false], [`${FRI} 18:11`, false], [`${SAT} 18:38`, false], [`${SAT} 18:39`, true], [`${FRI} 10:00`, true], [`${SAT} 20:00`, true]] as Array<[string, boolean]>) {
       reset();
       pauseRaziel();
       reminder({ startsAt: at(when) });
@@ -1736,6 +1737,32 @@ async function main() {
     await pass(new RealDate(instant.getTime() + 30 * MIN));
     assert(sent.length === 1, `not again: ${sentLines()}`);
     assert(!!stateOf(r.id, startOfLocalDay(DAY, IL)), 'its state is keyed by the occurrence, not by the zman time');
+  });
+
+  await check('zman and the pause: a reminder by candle lighting on a Friday is sent by the pass at its time (the pause starts at the sunset, 20 minutes later), and one by sunset on that Friday is paused at its time, claimed without a message and left open', async () => {
+    const JERUSALEM_P = { latitude: 31.778, longitude: 35.235, elevationM: 754 };
+    const CANDLES: SpecT = { zman: 'CANDLE_LIGHTING', offsetMin: 0 };
+    const SUNSET: SpecT = { zman: 'SHKIA', offsetMin: 0 };
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    pauseRaziel();
+    const candles = dateOnly(FRI, { zmanSpec: CANDLES });
+    const candleAt = dueAtPlace(FRI, CANDLES, JERUSALEM_P);
+    assert(candleAt.toISOString() === at(`${FRI} 17:50`).toISOString(), `candle lighting is 17:50: ${candleAt.toISOString()}`);
+    await pass(new RealDate(candleAt.getTime() - MIN));
+    assert(sent.length === 0, `a minute early: ${sentLines()}`);
+    await pass(candleAt);
+    assert(sent.length === 1 && sent[0].chatId === '1001' && pauseLines.length === 0, `at candle lighting: ${sentLines()} ${show(pauseLines)}`);
+    assert(!!stateOf(candles.id, startOfLocalDay(FRI, IL)), 'its occurrence is recorded');
+    reset(); __resetZmanClockForTests(); __resetWarnOnceForTests();
+    pauseRaziel();
+    const sunset = dateOnly(FRI, { zmanSpec: SUNSET });
+    const sunsetAt = dueAtPlace(FRI, SUNSET, JERUSALEM_P);
+    assert(sunsetAt.toISOString() === at(`${FRI} 18:10`).toISOString(), `the sunset is 18:10: ${sunsetAt.toISOString()}`);
+    await pass(sunsetAt);
+    assert(sent.length === 0, `at sunset it is paused: ${sentLines()}`);
+    assertSame(pauseLines, ['[pause] skipped native reminder ping for 1']);
+    const row = stateOf(sunset.id, startOfLocalDay(FRI, IL));
+    assert(!!row && row.doneAt === null && row.pingMessageId === null, `claimed, no message, still open: ${show(row)}`);
   });
 
   await check('zman: a reminder for both partners in two cities gets each their own time: Raziel (Tel Aviv) and Dana (Eilat) are pinged at their own latest time for Shema', async () => {

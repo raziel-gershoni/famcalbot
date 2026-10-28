@@ -27,7 +27,7 @@ export interface SettingsValues {
   reminderTime: string;
   pickupRemindersEnabled: boolean;
   voiceInputEnabled: boolean;
-  /** Pause every scheduled message from candle lighting to the end of Shabbat or Yom Tov (src/services/zmanim/pause.ts). */
+  /** Pause every scheduled message from sunset on the eve to the end of Shabbat or Yom Tov (src/services/zmanim/pause.ts). */
   pauseOnShabbat: boolean;
   /** Whose zmanim the person follows: 'sephardi' | 'ashkenazi' | 'chabad' (src/services/zmanim/sets.ts COMMUNITIES). */
   zmanimCommunity: string;

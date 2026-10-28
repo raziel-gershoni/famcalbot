@@ -152,10 +152,12 @@ const orderOf = (key: string): number => ZMAN_KEYS.indexOf((STANDS_AT[key] ?? ke
 
 /**
  * The home's sun sheet: `day` (a civil date in `zone`) at the person's place under their community's set.
- *   rows   the set's zmanim in the order of the day, and among them the rows of the Shabbat and Yom Tov windows (the
- *          pause's own, shabbatYomTovWindows, so the list and the pause never disagree; WINDOW_ROW_KEYS names them):
- *          - the candle lighting on the day a window begins (the window's start) and on every Friday, a Friday inside a
- *            longer window (a Yom Tov on Friday) at that Friday's own time, the Shabbat's candles;
+ *   rows   the set's zmanim in the order of the day, and among them the rows of the Shabbat and Yom Tov windows
+ *          (shabbatYomTovWindows, the pause's own, says on which day each falls; WINDOW_ROW_KEYS names them). The pause
+ *          begins at the eve's sunset, the set's plain sunset row (SHKIA), and ends at the end row; the candle lighting is
+ *          not the window's edge, it is the day's own time, 20 minutes before that sunset:
+ *          - the candle lighting on the day a window begins (the eve) and on every Friday, a Friday inside a longer
+ *            window (a Yom Tov on Friday) too: that day's own time, the Shabbat's candles;
  *          - on any other rest day inside a window and before its last (the Saturday before a Yom Tov on Sunday, the
  *            first day of a two-day Yom Tov) the candle lighting "not before" that day's own end;
  *          - on the day a window ends, its end: of Shabbat (a Saturday), of Shabbat and Yom Tov together (a Saturday that
@@ -179,7 +181,8 @@ export async function zmanDayList(user: ZmanUser, zone: string, day: string): Pr
   for (const [start, end] of windows) {
     const eve = localDate(start, zone);
     const last = localDate(end, zone);
-    if (eve === day) rows.push({ key: 'CANDLE_LIGHTING', opinion: null, at: start.toISOString() });
+    // The window begins at the eve's sunset (a row of the set, in the rows above): the candle lighting is the eve's own time, not the start.
+    if (eve === day) rows.push({ key: 'CANDLE_LIGHTING', opinion: null, at: ownAt('CANDLE_LIGHTING') });
     else if (eve < day && day < last) {
       // A rest day inside the window that is not its last: the Shabbat's candles on a Friday, else the second night's, after the day's own end.
       rows.push(weekday === 5 ? { key: 'CANDLE_LIGHTING', opinion: null, at: ownAt('CANDLE_LIGHTING') } : { key: 'CANDLE_LIGHTING_NOT_BEFORE', opinion: null, at: ownAt('SHABBAT_ENDS') });

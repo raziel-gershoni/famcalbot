@@ -12,7 +12,8 @@
 // - the rows, a plain list (no tap creates anything): the set's zmanim in the order of the day, each named with its
 //   opinion (the editor's words), its time in 24 hours in the person's zone and left to right inside Hebrew. A zman the
 //   sun does not make that day shows a dash. The candle lighting and the end of Shabbat or Yom Tov are in the accent:
-//   the server adds them on the days they fall (the pause's windows, WINDOW_ROW_KEYS), among them the candle lighting
+//   the server adds them on the days they fall (the pause's windows, WINDOW_ROW_KEYS; the pause itself begins at the
+//   eve's sunset, the plain sunset row, 20 minutes after the candle lighting), among them the candle lighting
 //   "not before" the day's own end on a rest day inside a longer window and "Shabbat and Yom Tov end" on a Saturday that
 //   is also a Yom Tov;
 // - the halachic hour at the bottom, as minutes and seconds under each opinion the set counts by.

@@ -5,7 +5,7 @@
  *
  *   zmanimForDay    every zman of a community's set on a civil day, rounded to the minute as the set says
  *   zmanInstant     a reminder's zman plus an offset (or N halachic hours after sunrise) as one instant
- *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from candle lighting to the end of the day
+ *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from sunset on the eve to the end of the day
  *   isYomTovAt             whether a civil day is a Yom Tov at the place (the windows' own test)
  *
  * Pure: no database, Redis or network. Server only: @hebcal/core must never reach the Mini App
@@ -318,12 +318,13 @@ export function isYomTovAt(day: string, place: Place): boolean {
 
 /**
  * When Shabbat and Yom Tov hold at the place, for the days that touch `range`: each window runs
- * from candle lighting on the evening before the first rest day to the end of the last one (the
- * set's end of Shabbat, rounded later), and rest days next to each other make one window (Yom Tov
- * on a Friday into Shabbat, Shabbat into a Yom Tov on Sunday, the two days of Rosh Hashana).
- * Yom Tov follows the Israel schedule in Israel and the diaspora's elsewhere. A window is the
- * half-open [start, end): at its start the pause holds, at its end it no longer does. A window
- * whose candle lighting or end does not exist (polar) is left out and logged.
+ * from sunset on the evening before the first rest day (the set's SHKIA, the sunset its list shows
+ * as the plain sunset row, 20 minutes after its candle lighting: the owner's ruling, 2026-10-28) to
+ * the end of the last one (the set's end of Shabbat, rounded later), and rest days next to each
+ * other make one window (Yom Tov on a Friday into Shabbat, Shabbat into a Yom Tov on Sunday, the
+ * two days of Rosh Hashana). Yom Tov follows the Israel schedule in Israel and the diaspora's
+ * elsewhere. A window is the half-open [start, end): at its start the pause holds, at its end it
+ * no longer does. A window whose sunset or end does not exist (polar) is left out and logged.
  *
  * `range` is two instants; the windows returned are those that overlap it.
  */
@@ -346,12 +347,12 @@ export function shabbatYomTovWindows(range: { from: Date; to: Date }, place: Pla
     let blockEnd = day;
     while (blockEnd < last && isRestDay(addDaysToDate(blockEnd, 1), il)) blockEnd = addDaysToDate(blockEnd, 1);
     const eve = addDaysToDate(day, -1);
-    const start = dayOf(eve, place, community).shown('CANDLE_LIGHTING');
+    const start = dayOf(eve, place, community).shown('SHKIA');
     const end = dayOf(blockEnd, place, community).shown('SHABBAT_ENDS');
     if (start && end) {
       if (start.getTime() <= range.to.getTime() && end.getTime() > range.from.getTime()) windows.push([start, end]);
     } else {
-      console.warn(`[zmanim] no ${start ? 'end of Shabbat' : 'candle lighting'} for the rest days ${day} to ${blockEnd}: that window is left out`);
+      console.warn(`[zmanim] no ${start ? 'end of Shabbat' : 'sunset'} for the rest days ${day} to ${blockEnd}: that window is left out`);
     }
     day = addDaysToDate(blockEnd, 1);
   }

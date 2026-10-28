@@ -6,7 +6,7 @@
  *
  * The answer is a ZmanimListResponse (src/lib/calendar-view/zmanim-list.ts): the day, the zone, the community, where the
  * times are counted (the saved place, the zone's main city, or none), the rows in the order of the day (the candle
- * lighting and the end of Shabbat or Yom Tov on the days they fall) and the halachic hour. The client words it; the
+ * lighting, the day's own time, and the end of Shabbat or Yom Tov on the days they fall) and the halachic hour. The client words it; the
  * instants come from src/services/zmanim only (zmanDayList). Authenticated like the editor's info.
  */
 
