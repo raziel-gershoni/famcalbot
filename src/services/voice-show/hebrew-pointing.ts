@@ -70,6 +70,11 @@ const SECOND_PERSON: Record<string, { male?: string; female: string }> = {
   'בך': { male: 'בְּךָ', female: 'בָּךְ' },
   'עבורך': { male: 'עֲבוּרְךָ', female: 'עֲבוּרֵךְ' },
   'אתך': { male: 'אִתְּךָ', female: 'אִתָּךְ' },
+  'לגביך': { male: 'לְגַבֶּיךָ', female: 'לְגַבַּיִךְ' },
+  // The reflexive takes its ב and ל inside the word: "להשקיע בעצמך" (2026-10-28 sample).
+  'עצמך': { male: 'עַצְמְךָ', female: 'עַצְמֵךְ' },
+  'בעצמך': { male: 'בְּעַצְמְךָ', female: 'בְּעַצְמֵךְ' },
+  'לעצמך': { male: 'לְעַצְמְךָ', female: 'לְעַצְמֵךְ' },
 };
 
 const TEEN_RE = new RegExp(`${START}${PREFIX}(${Object.keys(FEMININE_UNITS).join('|')})\\s+עשרה${END}`, 'g');

@@ -409,6 +409,10 @@ const MORE_SECOND_PERSON: Array<[string, string, string]> = [
   ['בך', 'בְּךָ', 'בָּךְ'],
   ['עבורך', 'עֲבוּרְךָ', 'עֲבוּרֵךְ'],
   ['אתך', 'אִתְּךָ', 'אִתָּךְ'],
+  ['לגביך', 'לְגַבֶּיךָ', 'לְגַבַּיִךְ'],
+  ['עצמך', 'עַצְמְךָ', 'עַצְמֵךְ'],
+  ['בעצמך', 'בְּעַצְמְךָ', 'בְּעַצְמֵךְ'],
+  ['לעצמך', 'לְעַצְמְךָ', 'לְעַצְמֵךְ'],
 ];
 for (const [word, male, female] of MORE_SECOND_PERSON) {
   check(`points "${word}" for a man and for a woman`, () => {
@@ -428,6 +432,7 @@ check('after a prefix, a leading ב, כ or פ loses its dagesh', () => {
   // Without a prefix the dagesh stays.
   assert(same(pointSecondPerson('גאים בך', 'female'), 'גאים בָּךְ'), `בך female ${pointSecondPerson('גאים בך', 'female')}`);
   assert(same(pointSecondPerson('ולפניך', 'female'), 'וּלְפָנַיִךְ'), `ולפניך female ${pointSecondPerson('ולפניך', 'female')}`);
+  assert(same(pointSecondPerson('ובעצמך', 'female'), 'וּבְעַצְמֵךְ'), `ובעצמך female ${pointSecondPerson('ובעצמך', 'female')}`);
 });
 
 check('second-person pointing leaves other words alone', () => {

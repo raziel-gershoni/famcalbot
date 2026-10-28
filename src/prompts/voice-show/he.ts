@@ -30,8 +30,12 @@ function personLine(label: string, person: ShowPerson): string {
 
 function listenerLine(context: ShowPromptContext): string {
   const name = sanitizeForPrompt(context.listener.name);
+  // TTS reads a word spelled alike for a man and a woman as masculine. The second-person
+  // prepositions are pointed in code (voice-show/hebrew-pointing.ts); the pronoun "את"
+  // (read "et") and a possessive ending on a noun ("תורך", read "torcha") cannot be, so
+  // the writer avoids them. Both were in the 2026-10-28 female sample.
   return context.listener.gender === 'female'
-    ? `המאזינה: ${name}. היא אישה — פנו אליה בשמה ובלשון נקבה ("את", "יש לך", "תזכרי", "מוכנה").`
+    ? `המאזינה: ${name}. היא אישה — פנו אליה בשמה ובלשון נקבה ("יש לך", "תזכרי", "מוכנה"). הקריינות קוראת כזכר כל מילה שנכתבת אותו דבר בזכר ובנקבה, ולכן: בלי הכינוי "את" (כתבו "ברבע לשש מחכה לך פילאטיס", לא "את נכנסת לפילאטיס"), ובלי סיומת שייכות על שם עצם (כתבו "התור שלך", "היומן שלך", לא "תורך", "יומנך").`
     : `המאזין: ${name}. הוא גבר — פנו אליו בשמו ובלשון זכר ("אתה", "יש לך", "תזכור", "מוכן").`;
 }
 
