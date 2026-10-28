@@ -313,9 +313,9 @@ async function runChecks(): Promise<void> {
     const friday = '2026-10-30';
     const saturday = '2026-10-31';
     const expected = {
-      en: ['Candle lighting', 'Shabbat ends', 'Yom Tov ends', 'Shabbat and Yom Tov end', 'Candle lighting, not before'],
-      he: ['הדלקת נרות', 'צאת השבת', 'צאת החג', 'צאת השבת והחג', 'הדלקת נרות, לא לפני'],
-      ru: ['Зажигание свечей', 'Исход Шаббата', 'Исход праздника', 'Исход Шаббата и праздника', 'Зажигание свечей, не раньше'],
+      en: ['Candle lighting', 'Shabbat ends', 'Yom Tov ends', 'Shabbat and Yom Tov end', 'Candle lighting after'],
+      he: ['הדלקת נרות', 'צאת השבת', 'צאת החג', 'צאת השבת והחג', 'הדלקת נרות אחרי'],
+      ru: ['Зажигание свечей', 'Исход Шаббата', 'Исход праздника', 'Исход Шаббата и праздника', 'Зажигание свечей после'],
     };
     for (const locale of LOCALES) {
       const fri = await openSheet(locale, (day) => ok(harish(day, { rows: [row(day, 'SHKIA', '16:53'), row(day, 'CANDLE_LIGHTING', '16:33')] })), friday);
