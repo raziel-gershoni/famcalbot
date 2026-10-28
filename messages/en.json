@@ -1360,6 +1360,7 @@
       "confirmed": "Added a rule to {calendar}: \"{name} is my child\"",
       "confirmedFamcal": "Got it: {calendar} is now {name}’s calendar",
       "declined": "Got it, thanks!",
+      "calendarGone": "That calendar isn't in your list any more, so nothing was added.",
       "expired": "This request has expired.",
       "openSettings": "Open Settings"
     },

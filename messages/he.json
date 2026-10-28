@@ -1360,6 +1360,7 @@
       "confirmed": "הוספתי כלל ביומן {calendar}: \"{name} – בין ילדיי\"",
       "confirmedFamcal": "רשמתי: היומן {calendar} שייך עכשיו ל{name}",
       "declined": "הבנתי, תודה!",
+      "calendarGone": "היומן הזה כבר לא ברשימה שלכם, אז לא נוסף כלום.",
       "expired": "הבקשה פגה.",
       "openSettings": "פתיחת הגדרות"
     },

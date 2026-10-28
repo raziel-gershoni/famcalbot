@@ -7,7 +7,9 @@
 //      goes on when the revoke fails.
 //   3. A saved platform that names a channel the person lacks no longer stops their summaries (deliveryPlatformFor narrows it
 //      to the channels they have), Settings refuses such a platform, and shows the choice only to a person with both.
-//   (the families of fixes 4-7 are added with their fixes)
+//   4. The kid-name "Yes" for a Google calendar that is no longer chosen says nothing was added (it used to say a rule was
+//      added to the calendar's id), and a rule that was added names the calendar, never its id.
+//   (the families of fixes 5-7 are added with their fixes)
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -195,6 +197,8 @@ const captured: string[] = [];
 const tracked: { userId: number; action: string; metadata?: Row }[] = [];
 /** The bot's card edits and answers on Telegram: what the person's card now says. */
 const edits: { chatId: unknown; messageId: unknown; text: string; options?: Row }[] = [];
+/** The toasts answering a tap (answerCallbackQuery). */
+const toasts: string[] = [];
 let voiceIntents: Row[] = [];
 let voiceTranscription = '';
 
@@ -229,7 +233,7 @@ const waService = {
 /** The bot itself: the admin notifier's sends, and the card edits of the callbacks. */
 const fakeBot = {
   sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
-  answerCallbackQuery: async () => true,
+  answerCallbackQuery: async (_queryId: string, options?: Row) => { toasts.push(String(options?.text ?? '')); return true; },
   editMessageText: async (text: string, options: Row) => { edits.push({ chatId: options.chat_id, messageId: options.message_id, text, options }); return true; },
 };
 
@@ -259,7 +263,7 @@ function reset() {
   for (const k of Object.keys(DB)) delete DB[k];
   redisStore.clear();
   failing.clear();
-  for (const list of [sent, logs, captured, tracked, edits, providerCalls, providerScript]) list.length = 0;
+  for (const list of [sent, logs, captured, tracked, edits, toasts, providerCalls, providerScript]) list.length = 0;
   newCalendarId = 'native:home1';
   fetchHandler = async url => { throw new Error(`network blocked in this smoke: ${url}`); };
   carried.length = 0;
@@ -974,6 +978,44 @@ async function fix3() {
   });
 }
 
+// ---- Fix 4 ----
+
+const GOOGLE_KIDS = 'kids-calendar-id@group.calendar.google.com';
+
+async function fix4() {
+  /** A "Yes" tap on the kid-name question for a Google calendar, for the person (Telegram) with the calendars asked for. */
+  const yes = async (userId: number, language: Lang, chosen: Row[]) => {
+    const row = DB.user.find(u => u.id === userId)!;
+    Object.assign(row, { language, googleRefreshToken: 'google-token', calendarSource: 'GOOGLE', calendarAssignments: chosen });
+    await redisImpl.set(REDIS_KEYS.kidNamePending('k1'), { name: 'Noam', calendarId: GOOGLE_KIDS, userId });
+    const { handleKidNameCallback } = await import('../src/services/kid-name-callbacks');
+    await withLogs(() => handleKidNameCallback(Number(row.telegramId), 10, 'q', 'kidname_yes', 'k1'));
+    return { card: lastEdit(), toast: toasts[toasts.length - 1] ?? '', assignments: DB.user.find(u => u.id === userId)!.calendarAssignments as Row[] };
+  };
+  const other: Row = { calendarId: 'someone-else@gmail.com', labels: ['yours'], name: 'Work', color: '#039BE5' };
+
+  for (const [lang, id] of [['he', 2], ['ru', 3], ['en', 1]] as [Lang, number][]) {
+    await check(`4: ${lang}: a "Yes" for a Google calendar that is no longer chosen says nothing was added, writes nothing and names no id`, async () => {
+      const before = JSON.stringify([other]);
+      const { card, toast, assignments } = await yes(id, lang, [other]);
+      assertSame(card, botText(lang, 'kidNameDetection.calendarGone'), 'the card');
+      assert(!card.includes(GOOGLE_KIDS) && !toast.includes(GOOGLE_KIDS), `the calendar's id is shown: ${card} / ${toast}`);
+      assertSame(toast, botText(lang, 'kidNameDetection.calendarGone'), 'the toast does not claim a rule');
+      assertSame(JSON.stringify(assignments), before, 'the calendars were written');
+      assert(logs.some(l => l.includes('[KidName]') && l.includes('no longer chosen')), `no log line: ${show(logs)}`);
+    });
+  }
+
+  await check('4: a "Yes" for a calendar that is still chosen adds the rule and names the calendar by its name, never its id', async () => {
+    const kids: Row = { calendarId: GOOGLE_KIDS, labels: ['kids'], name: 'Kids', color: '#33B679' };
+    const { card, assignments } = await yes(1, 'en', [other, kids]);
+    assertSame(card, 'Added a rule to Kids: "Noam is my child"', 'the card');
+    assert(!card.includes(GOOGLE_KIDS), `the calendar's id is shown: ${card}`);
+    assertSame(assignments.find(a => a.calendarId === GOOGLE_KIDS)?.rules, ['Noam is my child'], 'the rule saved on the calendar');
+    assertSame(assignments.find(a => a.calendarId === other.calendarId)?.rules, undefined, 'the other calendar was changed');
+  });
+}
+
 async function main() {
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
@@ -982,6 +1024,7 @@ async function main() {
     await fix1();
     await fix2();
     await fix3();
+    await fix4();
   } finally {
     Object.assign(console, original);
   }
