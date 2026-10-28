@@ -8,6 +8,8 @@
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
 //   language reloads this page in the new one. The request is /api/settings, as it has always been
 //   (settings-body.ts).
+// - The "Address me as" row (male or female) sits under the language: the voice show, the summaries and a partner's
+//   calendar speak of the person in that gender.
 // - The community row ("Zmanim": Sephardi, Ashkenazi or Chabad) sits under the location: the zmanim a reminder can be set
 //   to and the Shabbat and Yom Tov windows are counted at that place, by that community's set.
 // - The pause switch ("Pause messages on Shabbat and Yom Tov") sits in the first card under the calendar: choosing a
@@ -37,7 +39,7 @@ import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
 import { LocationSheet, type LocationProblem } from './LocationSheet';
 import { validateLocation } from './location-lookup';
-import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type SettingsValues } from './settings-body';
+import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type Gender, type SettingsValues } from './settings-body';
 
 interface SubscriptionInfo {
   effectivePlan: string;
@@ -53,6 +55,7 @@ interface SettingsClientProps {
   userId: number;
   currentSettings: {
     language: string;
+    gender: Gender;
     location: string;
     messagingPlatform: string;
     culture: string;
@@ -230,6 +233,16 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
         <SectionLabel>{t('sections.place')}</SectionLabel>
         <FormCard>
           <ValueRow label={t('language.label')} hint={t('language.hint')} value={form.language} options={LANGUAGES} onChange={(value) => set('language', value)} />
+          {/* How the voice show and the summaries address the person: a grammatical choice, so it sits beside the language. */}
+          <ValueRow
+            label={t('gender.label')}
+            value={form.gender}
+            options={[
+              { value: 'male', text: t('gender.male') },
+              { value: 'female', text: t('gender.female') },
+            ]}
+            onChange={(value) => set('gender', value === 'female' ? 'female' : 'male')}
+          />
           <ButtonRow
             label={t('location.label')}
             hint={locationChecking ? t('location.checking') : t('location.hint')}

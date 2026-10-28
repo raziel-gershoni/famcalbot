@@ -5,8 +5,13 @@
 // request's JSON, kept exactly as the page has always posted it: the same keys, the same values for the same
 // choices. No imports: pure, so a smoke can hold it to the letter.
 
+/** How the person is addressed in the voice show and the summaries (User.gender). The only two the server accepts. */
+export type Gender = 'male' | 'female';
+
 export interface SettingsValues {
   language: string;
+  /** "Address me as": the grammatical gender the show and the summaries use for the person. */
+  gender: Gender;
   location: string;
   messagingPlatform: string;
   culture: string;
@@ -42,6 +47,7 @@ export function valuesOf(current: Omit<SettingsValues, 'defaultReminderMinutes'>
 export function buildSettingsBody(values: SettingsValues, nativeRemindersSupported: boolean, initData: string | undefined) {
   return {
     language: values.language,
+    gender: values.gender,
     location: values.location,
     messagingPlatform: values.messagingPlatform,
     culture: values.culture,
@@ -72,6 +78,7 @@ const sameDays = (a: number[], b: number[]) => JSON.stringify([...a].sort((x, y)
 export function sameSettings(a: SettingsValues, b: SettingsValues): boolean {
   return (
     a.language === b.language &&
+    a.gender === b.gender &&
     a.location === b.location &&
     a.messagingPlatform === b.messagingPlatform &&
     a.culture === b.culture &&

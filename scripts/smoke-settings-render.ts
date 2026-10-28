@@ -121,6 +121,7 @@ const reset = () => {
 
 const settings = (over: Partial<Omit<SettingsValues, 'defaultReminderMinutes'>> & { defaultReminderMinutes?: number | null } = {}) => ({
   language: 'en',
+  gender: 'male' as SettingsValues['gender'],
   location: 'Tel Aviv',
   messagingPlatform: 'telegram',
   culture: 'jewish',
@@ -347,6 +348,7 @@ async function main() {
   await check("S3 buildSettingsBody is the JSON the page has always posted, written out here for two fixtures (alerts on with a reminder time; alerts off without FamCal reminders), and the page posts it", async () => {
     const values: SettingsValues = {
       language: 'he',
+      gender: 'female',
       location: 'Haifa, Israel',
       messagingPlatform: 'all',
       culture: 'jewish',
@@ -372,6 +374,7 @@ async function main() {
       show(wire(buildSettingsBody(values, true, 'init-data'))) ===
         show({
           language: 'he',
+          gender: 'female',
           location: 'Haifa, Israel',
           messagingPlatform: 'all',
           culture: 'jewish',
@@ -400,6 +403,7 @@ async function main() {
       show(wire(buildSettingsBody(off, false, undefined))) ===
         show({
           language: 'he',
+          gender: 'female',
           location: 'Haifa, Israel',
           messagingPlatform: 'all',
           culture: 'jewish',
@@ -435,6 +439,7 @@ async function main() {
         show(JSON.parse(String(call.init.body))) ===
           show({
             language: 'en',
+            gender: 'male',
             location: 'Tel Aviv',
             messagingPlatform: 'telegram',
             culture: 'jewish',
@@ -970,6 +975,78 @@ async function main() {
     const b = open('en', propsOf({}, {}));
     try {
       assert((rowOf(b.m, 'Zmanim')?.textContent ?? '').includes(options.en[0]), 'Sephardi by default');
+    } finally {
+      close(b);
+    }
+  });
+
+  await check('S13 "Address me as" (the gender row): a row in the Language and place card right under Language, labelled in the person\'s language with two options (male, female) in it, the saved one shown; a pick enables Save and is posted as "male" or "female"; picking it back before saving leaves Save off; once saved the new value is the baseline', async () => {
+    // Written out, so a change of wording is seen here: the label and the two options of each language
+    const copy: Record<Locale, { label: string; male: string; female: string }> = {
+      en: { label: 'Address me as', male: 'Male', female: 'Female' },
+      he: { label: 'לשון פנייה', male: 'זכר', female: 'נקבה' },
+      ru: { label: 'Как к вам обращаться', male: 'В мужском роде', female: 'В женском роде' },
+    };
+    for (const locale of LOCALES) {
+      const want = copy[locale];
+      assert(word(locale, 'gender.label') === want.label && word(locale, 'gender.male') === want.male && word(locale, 'gender.female') === want.female, `${locale}: the messages: ${word(locale, 'gender.label')} / ${word(locale, 'gender.male')} / ${word(locale, 'gender.female')}`);
+      for (const gender of ['male', 'female'] as const) {
+        const html = renderToString(tree(locale, propsOf({}, { language: locale, gender })));
+        const text = textOf(html);
+        assert(!/settings\./.test(text), `${locale}: a raw key in ${text}`);
+        assert(html.indexOf(want.label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
+        // The row shows the saved choice and the select holds both, in the language of the page
+        const m = open(locale, propsOf({}, { language: locale, gender }));
+        try {
+          const row = rowOf(m.m, want.label);
+          assert(row, `${locale}: no row ${want.label}`);
+          // The rows of the page, in order: Language, then this one, then Location
+          const rows = elements(m.m.container).filter((e) => (e.localName === 'button' || e.localName === 'label') && e.className.split(' ').includes('ch-form-row'));
+          const firstThree = rows.slice(0, 3).map((r) => flat(r));
+          assert(firstThree[0].startsWith(word(locale, 'language.label')) && firstThree[1].startsWith(want.label) && firstThree[2].startsWith(word(locale, 'location.label')), `${locale}: the first rows are ${show(firstThree)}`);
+          const shown = elements(row).find((e) => e.className.split(' ').includes('ch-form-value-text'));
+          assert(shown && flat(shown) === want[gender], `${locale} ${gender}: the row shows ${shown ? flat(shown) : '(nothing)'}`);
+          const select = selectOf(m.m, want.label) as FakeElement;
+          const options = elements(select).filter((e) => e.localName === 'option');
+          assert(show(options.map((o) => [o.getAttribute('value'), o.textContent])) === show([['male', want.male], ['female', want.female]]), `${locale}: the options ${show(options.map((o) => [o.getAttribute('value'), o.textContent]))}`);
+          assert(saveButton(m.m)?.hasAttribute('disabled'), `${locale}: Save is off while nothing differs`);
+        } finally {
+          close(m);
+        }
+      }
+    }
+    // A pick enables Save and is posted; the old value is no longer the baseline once saved
+    reset();
+    const a = open('en', propsOf());
+    try {
+      const select = () => selectOf(a.m, 'Address me as') as FakeElement;
+      a.m.change(select(), 'female');
+      assert((rowOf(a.m, 'Address me as')?.textContent ?? '').includes('Female') && !saveButton(a.m)?.hasAttribute('disabled'), 'a pick shows and enables Save');
+      // ... and picking the saved value back, before saving, is no change
+      a.m.change(select(), 'male');
+      assert(saveButton(a.m)?.hasAttribute('disabled'), 'back to the saved value: Save is off again');
+      a.m.change(select(), 'female');
+      a.m.click(saveButton(a.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(posts().length === 1 && body.gender === 'female' && body.language === 'en' && body.culture === 'jewish', `the request: ${show(body)}`);
+      assert(saveButton(a.m)?.hasAttribute('disabled'), 'saved: Save is off');
+      a.m.change(select(), 'male');
+      assert(!saveButton(a.m)?.hasAttribute('disabled'), 'female is the baseline now: male differs');
+      a.m.click(saveButton(a.m) as FakeElement);
+      await settle();
+      assert(posts().length === 2 && JSON.parse(String(posts()[1].init.body)).gender === 'male', `the second request: ${posts().map((c) => String(c.init.body).slice(0, 60))}`);
+    } finally {
+      close(a);
+    }
+    // A saved female shows female, and saving something else posts her choice as it is
+    reset();
+    const b = open('he', propsOf({}, { language: 'he', gender: 'female' }));
+    try {
+      b.m.click(switchOf(b.m, word('he', 'weather.label')) as FakeElement);
+      b.m.click(saveButton(b.m) as FakeElement);
+      await settle();
+      assert(JSON.parse(String(posts()[0].init.body)).gender === 'female', `a female user's other save: ${String(posts()[0].init.body).slice(0, 80)}`);
     } finally {
       close(b);
     }

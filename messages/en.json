@@ -766,6 +766,11 @@
       "label": "Language",
       "hint": "For the app, the bot and your summaries"
     },
+    "gender": {
+      "label": "Address me as",
+      "male": "Male",
+      "female": "Female"
+    },
     "location": {
       "label": "Location",
       "hint": "For the weather and your time zone",

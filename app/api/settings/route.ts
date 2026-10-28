@@ -13,12 +13,14 @@ import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 import { isCommunity } from '@/src/services/zmanim/sets';
 
+const isGender = (value: unknown): value is 'male' | 'female' => value === 'male' || value === 'female';
+
 export async function POST(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, initData } = body;
+    const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, initData } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -39,6 +41,10 @@ export async function POST(request: NextRequest) {
     }
     if (name !== undefined && (typeof name !== 'string' || name.length > 50)) {
       return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
+    }
+    // "Address me as": a closed set of two. Anything else (null, '', 'other', a number) is refused, never stored.
+    if (gender !== undefined && !isGender(gender)) {
+      return NextResponse.json({ error: 'Invalid gender' }, { status: 400 });
     }
     if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
       return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
@@ -79,6 +85,8 @@ export async function POST(request: NextRequest) {
     // auth.user is the row the credential proved (a Telegram user, or a WhatsApp session's DB id)
     const update = {
       language: language || undefined,  // Locale code: 'he', 'en', 'ru'
+      // Who the voice show and the summaries say the person is (read fresh from the row at each use: nothing caches it)
+      gender: isGender(gender) ? gender : undefined,
       location: location || undefined,
       messagingPlatform: messagingPlatform || undefined,
       culture: culture || undefined,

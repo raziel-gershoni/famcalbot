@@ -253,6 +253,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     userId,
     currentSettings: {
       language: userLocale,  // Pass normalized locale
+      // "Address me as": a row that holds anything but the two values reads as male, as the voice show reads it
+      gender: user.gender === 'female' ? 'female' : 'male',
       location: user.location,
       messagingPlatform: user.messagingPlatform,
       culture: user.culture || 'default',

@@ -225,7 +225,7 @@ export async function getOrCreateUser(
       telegramId: BigInt(telegramId),
       name,
       englishName: '',
-      gender: 'male',  // Default, user can change in settings
+      gender: 'male',  // Where everyone starts; the person picks "Address me as" in Settings (app/api/settings)
       language,
       location: '',
       culture: 'default',
@@ -310,7 +310,7 @@ export async function getOrCreateUserByWhatsApp(
       whatsappBsuid: bsuid || (isBsuid ? identifier : undefined),
       name,
       englishName: '',
-      gender: 'male',
+      gender: 'male',  // As above: changed in Settings ("Address me as")
       language: 'en',
       location: '',
       culture: 'default',
