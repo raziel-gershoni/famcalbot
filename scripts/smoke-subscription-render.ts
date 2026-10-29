@@ -13,6 +13,9 @@
 //    language and never the server's, a throw logged;
 //  - U5 Back: AppScreen is the only BackButton caller, and both backs go to the calendar;
 //  - U6 React logs no warning; U7 the messages: every key of the screen is read, the bot's keys are all still there;
+//  - U9 the terms before paying (the legal review of 2026-10-29, issue 4): the seller, one month that never renews, the
+//    14-day full refund and the Terms before the first pay button, wherever there is one; the button agrees to the Terms;
+//    the Terms open in the person's language through Telegram's openLink, or a new tab in a browser;
 //  - U8 a plan card's head wraps and the plan's name keeps its words whole (a Basic user in Russian at 320 px read "Базов / ый");
 //  - L1 the page loader hands the screen the calendar count (the count that enforces the limit) and whether Telegram is linked.
 //
@@ -29,6 +32,8 @@ import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { PLAN_CONFIGS } from '../src/config/plans';
+import { policyUrl } from '../src/lib/plan-disclosure';
+import { SELLER } from '../src/lib/seller';
 import { SUBSCRIPTION_CSS } from '../app/[locale]/(app)/subscription/subscription-css';
 import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
@@ -215,7 +220,8 @@ const word = (locale: Locale, key: string, ns = 'subscription'): string => {
   return value;
 };
 const planName = (locale: Locale, id: 'basic' | 'pro' | 'free') => word(locale, `plans.${id}.name`);
-const choose = (locale: Locale, id: 'basic' | 'pro') => word(locale, 'screen.choose').replace('{plan}', planName(locale, id));
+/** What every pay button says (both cards' the same): agreeing to the Terms, never "I have read" (Standard Contracts Law s.4(12)). */
+const payLabel = (locale: Locale) => word(locale, 'screen.agreeAndPay');
 
 // ---- Reading what is on the page ----
 
@@ -243,6 +249,12 @@ const buttonsOf = (m: Mounted) => elements(m.container).filter((e) => e.localNam
 const classes = (e: FakeElement) => e.className.split(' ');
 const chooseButtons = (m: Mounted) => buttonsOf(m).filter((b) => classes(b).includes('ch-plan-choose'));
 const chooseLabels = (m: Mounted) => chooseButtons(m).map(flat);
+/** A plan card's pay button in the mounted tree, found by its card (the card is labelled by `<id>-<PLAN>`). */
+const cardButton = (m: Mounted, id: 'basic' | 'pro') =>
+  chooseButtons(m).find((b) => {
+    for (let up: FakeNode | null = b; up instanceof FakeElement; up = up.parentNode) if (up.localName === 'section') return (up.getAttribute('aria-labelledby') ?? '').endsWith(`-${id.toUpperCase()}`);
+    return false;
+  });
 
 /** The choose buttons of a server render, by their text. */
 const chooseOf = (html: string) => [...html.matchAll(/<button type="button" class="[^"]*\bch-plan-choose\b[^"]*"[^>]*>([\s\S]*?)<\/button>/g)].map((m) => textOf(m[1]));
@@ -314,9 +326,9 @@ async function main() {
       assert(!/subscription\.|screen\.|ui\./.test(text), `${locale}: a raw key in ${text}`);
       assert(!/\p{Extended_Pictographic}/u.test(text), `${locale}: an emoji`);
       assert(!html.includes('[object Object]'), `${locale}: an object printed`);
-      // The order: the current plan, the Plans label, Basic, Pro, the Stars note
+      // The order: the current plan, the Plans label, the terms before paying, Basic, Pro, the Stars note
       const at = (needle: string) => html.indexOf(needle);
-      const order = [at('ch-plan-current'), at(`<h2 class="ch-section-label">${w('screen.plansLabel')}</h2>`), at(`>${planName(locale, 'basic')}</h3>`), at(`>${planName(locale, 'pro')}</h3>`), at(textOf(w('screen.starsNote')))];
+      const order = [at('ch-plan-current'), at(`<h2 class="ch-section-label">${w('screen.plansLabel')}</h2>`), at(textOf(w('screen.oneMonth'))), at(`>${planName(locale, 'basic')}</h3>`), at(`>${planName(locale, 'pro')}</h3>`), at(textOf(w('screen.starsNote')))];
       assert(order.every((n, i) => n > 0 && (i === 0 || n > order[i - 1])), `${locale}: the order ${show(order)}`);
       assert(html.includes(`<h2 id=`) && html.includes(`${planName(locale, 'free')}</h2>`), `${locale}: the current plan's name is a heading`);
       if (locale !== 'en') {
@@ -342,7 +354,7 @@ async function main() {
         assert(root && root.getAttribute('data-theme') === 'dark' && root.getAttribute('dir') === dir && root.getAttribute('lang') === locale, `${locale}: the dark root`);
         assert(dark.calls.includes('setHeaderColor(bg_color)') && dark.calls.includes('setBackgroundColor(bg_color)'), `${locale}: dark colours: ${show(dark.calls)}`);
         assert(!dark.calls.some((c) => /^set(?:Header|Background)Color\(#/.test(c)), 'no colour of ours on Telegram');
-        assert(show(chooseLabels(dark.m)) === show([choose(locale, 'basic'), choose(locale, 'pro')]), `${locale}: the dark buttons ${show(chooseLabels(dark.m))}`);
+        assert(show(chooseLabels(dark.m)) === show([payLabel(locale), payLabel(locale)]) && cardButton(dark.m, 'basic') && cardButton(dark.m, 'pro'), `${locale}: the dark buttons ${show(chooseLabels(dark.m))}`);
         // In the mounted tree: no element a meter's count sits in, up to the root, forces left to right (it would read "10 of 7" in Hebrew)
         const counts = elements(dark.m.container).filter((e) => e.className === 'ch-meter-value');
         assert(counts.length === 3, `${locale}: ${counts.length} meter counts`);
@@ -377,12 +389,13 @@ async function main() {
       const w = (key: string) => word(locale, key);
       // The markup, without the style sheets (their rules name the classes too)
       const render = (state: State, over: Row = {}) => renderToString(tree(locale, propsOf(state, over))).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
-      const both = [choose(locale, 'basic'), choose(locale, 'pro')];
-      // Which buttons, and what else each state says
-      const cases: [State, string[]][] = [['free', both], ['trial', both], ['basic', [choose(locale, 'pro')]], ['pro', []], ['comped', []], ['early', []], ['whatsapp', []]];
+      const both = [planName(locale, 'basic'), planName(locale, 'pro')];
+      // Which cards have a pay button, and what else each state says
+      const cases: [State, string[]][] = [['free', both], ['trial', both], ['basic', [planName(locale, 'pro')]], ['pro', []], ['comped', []], ['early', []], ['whatsapp', []]];
       for (const [state, want] of cases) {
         const html = render(state);
-        assert(show(chooseOf(html)) === show(want), `${locale} ${state}: the buttons ${show(chooseOf(html))}, want ${show(want)}`);
+        const paying = cardsOf(html).filter(([, card]) => chooseOf(card).length > 0).map(([name]) => name);
+        assert(show(paying) === show(want) && chooseOf(html).every((label) => label === payLabel(locale)), `${locale} ${state}: the cards with a button ${show(paying)} (${show(chooseOf(html))}), want ${show(want)}`);
         const text = textOf(html);
         const note = textOf(w('screen.starsNote'));
         assert(text.includes(note) === (want.length > 0), `${locale} ${state}: the Stars note ${want.length > 0 ? 'is missing' : 'shows with no button'}`);
@@ -473,10 +486,9 @@ async function main() {
   });
 
   await check('U4 the upgrade: a tap posts once, to /api/subscription/upgrade, with the body the route reads ({ user_id: the page\'s, plan, initData from the SDK, recurring: false }); a second tap on either button while it is in flight sends nothing, every Choose button is disabled and the tapped one is busy; a success in Telegram is a pop-up and the window closes only after it; in a browser it is a notice on the page; a refusal or a throw is a notice in the page\'s language, a pop-up in Telegram, never the server\'s English, and logged; the buttons come back', async () => {
-    const pro = (locale: Locale) => choose(locale, 'pro');
-    const button = (o: Opened, label: string) => {
-      const b = chooseButtons(o.m).find((x) => flat(x) === label);
-      assert(b, `no button ${label} in ${show(chooseLabels(o.m))}`);
+    const button = (o: Opened, id: 'basic' | 'pro') => {
+      const b = cardButton(o.m, id);
+      assert(b, `no ${id} button in ${show(chooseLabels(o.m))}`);
       return b;
     };
     // --- In Telegram: the request, the guard, the success
@@ -485,7 +497,7 @@ async function main() {
     world.upgrade = () => new Promise<Response>((resolve) => (release = resolve));
     const tg = open('en', propsOf('free'), { version: '7.7' });
     try {
-      tg.m.click(button(tg, pro('en')));
+      tg.m.click(button(tg, 'pro'));
       assert(posts().length === 1, `a tap posts: ${posts().length}`);
       const call = posts()[0];
       assert(call.init.method === 'POST' && (call.init.headers as Row)['Content-Type'] === 'application/json', `method and header: ${show(call.init)}`);
@@ -493,12 +505,12 @@ async function main() {
       // In flight: every button waits, the tapped one is busy with a spinner
       const waiting = chooseButtons(tg.m);
       assert(waiting.length === 2 && waiting.every((b) => b.hasAttribute('disabled')), 'every Choose button is disabled while a request is in flight');
-      const tapped = button(tg, pro('en'));
+      const tapped = button(tg, 'pro');
       assert(tapped.getAttribute('aria-busy') === 'true' && elements(tapped).some((e) => e.className === 'ch-form-spinner'), 'the tapped button is busy, with a spinner');
       assert(chooseButtons(tg.m).filter((b) => b.getAttribute('aria-busy') === 'true').length === 1, 'only the tapped button is busy');
       // Taps while it is in flight: on the same button and on the other one
-      tg.m.click(button(tg, pro('en')));
-      tg.m.click(button(tg, choose('en', 'basic')));
+      tg.m.click(button(tg, 'pro'));
+      tg.m.click(button(tg, 'basic'));
       assert(posts().length === 1, `taps in flight: ${posts().length} requests`);
       // The answer: a pop-up, and the window closes only once it is dismissed
       release(json({ success: true }));
@@ -517,8 +529,8 @@ async function main() {
     world.upgrade = () => new Promise<Response>(() => undefined);
     const twice = open('en', propsOf('free'), { version: '7.7' });
     try {
-      const b = button(twice, pro('en'));
-      const other = button(twice, choose('en', 'basic'));
+      const b = button(twice, 'pro');
+      const other = button(twice, 'basic');
       act(() => {
         twice.m.click(b);
         twice.m.click(b);
@@ -532,7 +544,7 @@ async function main() {
     reset();
     const browser = open('en', propsOf('free'));
     try {
-      browser.m.click(button(browser, choose('en', 'basic')));
+      browser.m.click(button(browser, 'basic'));
       await settle();
       assert(show(JSON.parse(String(posts()[0].init.body))) === show({ user_id: 1, plan: 'BASIC', initData: '', recurring: false }), `the browser's body: ${posts()[0]?.init.body}`);
       const notice = byRole(browser.m.container, 'status').find((e) => classes(e).includes('ch-notice'));
@@ -541,7 +553,7 @@ async function main() {
       // A new tap takes the old notice away while it is in flight
       let again: (r: Response) => void = () => undefined;
       world.upgrade = () => new Promise<Response>((resolve) => (again = resolve));
-      browser.m.click(button(browser, pro('en')));
+      browser.m.click(button(browser, 'pro'));
       assert(byRole(browser.m.container, 'status').every((e) => !classes(e).includes('ch-notice')), 'the old notice is gone while the next request runs');
       again(json({ success: true }));
       await settle();
@@ -554,7 +566,7 @@ async function main() {
       world.upgrade = () => json({ error: 'Failed to send invoice' }, 500);
       const refused = open(locale, propsOf('free'), { version: '7.7' });
       try {
-        refused.m.click(button(refused, pro(locale)));
+        refused.m.click(button(refused, 'pro'));
         await settle();
         const alert = byRole(refused.m.container, 'alert').find((e) => classes(e).includes('ch-notice-error'));
         assert(alert && flat(alert) === word(locale, 'screen.upgradeFailed'), `${locale}: the error notice: ${alert && flat(alert)}`);
@@ -572,7 +584,7 @@ async function main() {
     world.upgrade = () => json({ success: false, error: 'Cannot upgrade to free plan' });
     const unsuccessful = open('en', propsOf('free'));
     try {
-      unsuccessful.m.click(button(unsuccessful, pro('en')));
+      unsuccessful.m.click(button(unsuccessful, 'pro'));
       await settle();
       assert(page(unsuccessful.m).includes(word('en', 'screen.upgradeFailed')) && !page(unsuccessful.m).includes('Cannot upgrade') && show(appLogs) === show(['[subscription] upgrade refused: 200']), `no success: ${show(appLogs)}`);
     } finally {
@@ -583,7 +595,7 @@ async function main() {
     world.upgrade = () => Promise.reject(new Error('network down'));
     const thrown = open('he', propsOf('free'), { version: '7.7' });
     try {
-      thrown.m.click(button(thrown, pro('he')));
+      thrown.m.click(button(thrown, 'pro'));
       await settle();
       assert(byRole(thrown.m.container, 'alert').some((e) => flat(e) === word('he', 'screen.upgradeFailed')), 'the error notice');
       assert(show(thrown.alerts.map((a) => a.message)) === show([word('he', 'screen.upgradeFailed')]), 'the pop-up');
@@ -597,7 +609,7 @@ async function main() {
     world.upgrade = () => new Response('<html>', { status: 200 });
     const broken = open('en', propsOf('free'));
     try {
-      broken.m.click(button(broken, pro('en')));
+      broken.m.click(button(broken, 'pro'));
       await settle();
       assert(page(broken.m).includes(word('en', 'screen.upgradeFailed')) && appLogs.length === 1 && appLogs[0].startsWith('[subscription] upgrade failed:'), `not JSON: ${show(appLogs)}`);
     } finally {
@@ -610,7 +622,7 @@ async function main() {
       (noPopUp.tg as Row).showAlert = () => {
         throw new Error('WebAppMethodUnsupported');
       };
-      noPopUp.m.click(button(noPopUp, pro('en')));
+      noPopUp.m.click(button(noPopUp, 'pro'));
       await settle();
       assert(byRole(noPopUp.m.container, 'status').some((e) => classes(e).includes('ch-notice') && flat(e) === word('en', 'screen.invoiceSent')), 'the success is on the page when the pop-up fails');
       assert(appLogs.some((l) => l.startsWith('[telegram-ui] showAlert failed:')) && !noPopUp.calls.includes('close()'), `the log: ${show(appLogs)}`);
@@ -653,7 +665,7 @@ async function main() {
     for (const locale of LOCALES) {
       const screen = messages[locale].subscription.screen as Row;
       const keys = leaves(screen);
-      assert(keys.length === 27, `${locale}: ${keys.length} keys in subscription.screen`);
+      assert(keys.length === 31, `${locale}: ${keys.length} keys in subscription.screen`);
       // The trial's days left is the home's banner line, said once: the screen has no copy of it, and reads the home's with { count }
       assert(!('trialLeft' in screen), `${locale}: subscription.screen.trialLeft is back (the home's calendarHome.banner.trial says it)`);
       assert(typeof (messages[locale].calendarHome as Row).banner.trial === 'string' && (messages[locale].calendarHome as Row).banner.trial.includes('{count, plural'), `${locale}: calendarHome.banner.trial`);
@@ -672,6 +684,61 @@ async function main() {
     assert(!/TelegramLayout|@\/components\/Layout|@\/components\/UI|styled-jsx|<style jsx|Crown|Sparkles|Clock/.test(code), 'a part of the old page is still imported');
     assert(!/Unable to identify|Failed to send invoice|An error occurred|Invoice sent|'\.\.\.'|\/mo\b/.test(code), 'hard-coded English is still there');
     assert(!fs.existsSync(path.join(ROOT, 'components/UI')), 'components/UI (the Section, whose last user this screen was) is still there');
+  });
+
+  await check('U9 the terms before paying (Consumer Protection Law s.14C, Telegram\'s Stars checklist): wherever a pay button shows, the seller (src/lib/seller.ts), one month that never renews, the 14-day full refund and the Terms come before the first button, as static text (no live region); every pay button says the language\'s "I agree to the Terms, pay", never "I have read"; with no pay button there is no block; the Terms open in the person\'s language through Telegram\'s openLink (the Mini App stays: no navigation, no close, no invoice) or in a new tab in a browser', async () => {
+    for (const locale of LOCALES) {
+      const w = (key: string) => word(locale, key);
+      assert(!/\bread\b|прочит|קראתי|קראנו|שקראתי/i.test(w('screen.agreeAndPay')), `${locale}: the button says it was read: ${w('screen.agreeAndPay')}`);
+      for (const state of ['free', 'trial', 'basic', 'pro', 'comped', 'early', 'whatsapp'] as State[]) {
+        const html = renderToString(tree(locale, propsOf(state))).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
+        const buttons = chooseOf(html);
+        const block = html.indexOf(textOf(w('screen.oneMonth')));
+        if (buttons.length === 0) {
+          assert(block < 0, `${locale} ${state}: the terms with no pay button`);
+          continue;
+        }
+        const firstButton = html.search(/<button type="button" class="[^"]*\bch-plan-choose\b/);
+        assert(block > 0 && block < firstButton, `${locale} ${state}: the terms (${block}) are not before the first pay button (${firstButton})`);
+        const start = html.lastIndexOf('<div class="ch-notice', block);
+        assert(start > 0 && html.slice(start, html.indexOf('>', start) + 1) === '<div class="ch-notice">', `${locale} ${state}: the terms are not a static notice: ${html.slice(start, start + 60)}`);
+        const notice = textOf(html.slice(start, html.indexOf('</div>', start)));
+        const lines = [w('screen.seller').replace('{name}', SELLER.name[locale]), w('screen.oneMonth'), w('screen.refund'), w('screen.termsLink')].map(textOf);
+        assert(show(lines.filter((line) => !notice.includes(line))) === show([]), `${locale} ${state}: the notice ${show(notice)} lacks ${show(lines.filter((line) => !notice.includes(line)))}`);
+        assert(buttons.every((label) => label === w('screen.agreeAndPay')), `${locale} ${state}: the buttons ${show(buttons)}`);
+      }
+    }
+    // Inside Telegram: Telegram's openLink with the Terms in the page's language; the Mini App stays where it is
+    for (const locale of LOCALES) {
+      reset();
+      pushes.length = 0;
+      const tg = open(locale, propsOf('free'), { version: '7.7' });
+      try {
+        (tg.tg as Row).openLink = (url: string) => void tg.calls.push(`openLink(${url})`);
+        const terms = buttonsOf(tg.m).find((b) => flat(b) === word(locale, 'screen.termsLink'));
+        assert(terms && classes(terms).includes('ch-notice-action') && terms.getAttribute('type') === 'button', `${locale}: no Terms action`);
+        tg.m.click(terms);
+        assert(show(tg.calls.filter((c) => c.startsWith('openLink'))) === show([`openLink(${policyUrl('terms', locale)})`]), `${locale}: ${show(tg.calls.filter((c) => c.startsWith('openLink')))}`);
+        assert(policyUrl('terms', locale) === (locale === 'en' ? 'https://famcal.bot/terms' : `https://famcal.bot/${locale}/terms`), `${locale}: ${policyUrl('terms', locale)}`);
+        assert(pushes.length === 0 && !tg.calls.includes('close()') && posts().length === 0, `${locale}: the Mini App moved: ${show({ pushes, calls: tg.calls, posts: posts().length })}`);
+      } finally {
+        close(tg);
+      }
+    }
+    // In a browser: a new tab
+    const opened: unknown[][] = [];
+    const browser = open('ru', propsOf('basic'));
+    fakeWindow.open = (...args: unknown[]) => void opened.push(args);
+    try {
+      const terms = buttonsOf(browser.m).find((b) => flat(b) === word('ru', 'screen.termsLink'));
+      assert(terms, 'no Terms action in a browser');
+      browser.m.click(terms);
+      assert(show(opened) === show([['https://famcal.bot/ru/terms', '_blank', 'noopener,noreferrer']]), `the tab: ${show(opened)}`);
+      assert(show(appLogs) === show([]), `logged: ${show(appLogs)}`);
+    } finally {
+      close(browser);
+      delete fakeWindow.open;
+    }
   });
 
   await check('U8 a plan card\'s head wraps (the price and the Current tag drop to a second line when there is no room) and the plan\'s name keeps its words whole: it sizes to its text, may shrink no narrower than its longest word, and has no break-anywhere (a Basic user in Russian at 320 px read "Базов / ый")', () => {

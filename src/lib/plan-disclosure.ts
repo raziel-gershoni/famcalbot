@@ -9,7 +9,7 @@
 //  - the invoice's description (Telegram takes 1-255 characters) and the confirmation's text.
 // The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription and
 // subscription.paymentSuccess. Every value put
-// into Telegram's HTML is escaped here. Pure and client-safe: the plan screen reads policyUrl.
+// into Telegram's HTML is escaped here. Pure and client-safe: the plan screen reads policyUrl and sellerName.
 
 import { pageUrl } from '../site/seo';
 import { escapeHtml } from '../utils/html';
@@ -22,6 +22,11 @@ export type PolicyPage = 'privacy' | 'terms';
 /** A policy page in the person's language: https://famcal.bot/terms, /he/terms, /ru/terms. Any other language reads English. */
 export function policyUrl(page: PolicyPage, locale: string | null | undefined): string {
   return pageUrl(normalizeLocale(locale), `/${page}`);
+}
+
+/** The seller's name as the person's language writes it (any other language reads English). */
+export function sellerName(locale: string | null | undefined, seller: Seller = SELLER): string {
+  return seller.name[normalizeLocale(locale)];
 }
 
 /** The words the disclosure is made of: bot.policy in messages/<locale>.json. */
@@ -76,7 +81,7 @@ export function cancelBlock(words: PolicyWords, seller: Seller = SELLER): string
 /** The seller's lines in Telegram's HTML: the name in the person's language, then the ID number and the address when given. */
 export function sellerBlock(words: PolicyWords, locale: string | null | undefined, seller: Seller = SELLER): string {
   return [
-    fill(words.seller, { name: escapeHtml(seller.name[normalizeLocale(locale)]) }),
+    fill(words.seller, { name: escapeHtml(sellerName(locale, seller)) }),
     seller.idNumber ? fill(words.sellerId, { id: escapeHtml(seller.idNumber) }) : null,
     seller.postalAddress ? fill(words.sellerAddress, { address: escapeHtml(seller.postalAddress) }) : null,
   ]
@@ -100,7 +105,7 @@ export const INVOICE_DESCRIPTION_MAX = 255;
 export function invoiceDescription(template: string, locale: string | null | undefined, planName: string, seller: Seller = SELLER): string {
   const text = fill(template, {
     plan: planName,
-    seller: seller.name[normalizeLocale(locale)],
+    seller: sellerName(locale, seller),
     terms: policyUrl('terms', locale).replace(/^https:\/\//, ''),
   });
   if (text.length > INVOICE_DESCRIPTION_MAX) {

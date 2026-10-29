@@ -10,6 +10,11 @@
 // - Only Basic and Pro have a card. A card offers its button when it is above the user's plan (a Pro user is never
 //   offered Basic) and Telegram is linked: paying is a Telegram Stars invoice the bot sends to the user's chat. A user
 //   with no Telegram is told that, in place of the buttons. Early access shows no plans at all.
+// - Before the first pay button (Consumer Protection Law s.14C; Telegram's Stars checklist; the legal review of
+//   2026-10-29, issue 4): the seller, one month that never renews, the 14-day full refund and the Terms, as a static
+//   notice wherever a button shows; each card's price stands above its button. The button agrees to the Terms ("I agree
+//   to the Terms, pay"), never "I have read" (Standard Contracts Law s.4(12)). The Terms open in the person's language
+//   outside the Mini App: Telegram's openLink, or a new tab in a browser (openExternalLink).
 // - Choosing sends the request the upgrade route has always read; the invoice itself waits in the chat. In Telegram
 //   the answer is Telegram's pop-up (the window closes once it is dismissed); in a browser it is a notice on the
 //   page. A failure is a notice in the page's language, never the server's text, and is logged. While one request is
@@ -22,7 +27,8 @@ import { useRouter } from 'next/navigation';
 import { Star } from 'lucide-react';
 import { PLAN_CONFIGS, type PlanId } from '@/src/config/plans';
 import { readInitData } from '@/src/lib/read-init-data';
-import { showTelegramAlert, telegramWebApp } from '@/src/lib/telegram-ui';
+import { openExternalLink, showTelegramAlert, telegramWebApp } from '@/src/lib/telegram-ui';
+import { policyUrl, sellerName } from '@/src/lib/plan-disclosure';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { Meter } from '@/components/app-ui/Meter';
@@ -129,6 +135,11 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
     }
   };
 
+  const openTerms = () => {
+    const url = policyUrl('terms', locale);
+    if (!openExternalLink(url)) console.warn('[subscription] could not open the Terms:', url);
+  };
+
   const limits = PLAN_CONFIGS[subscription.effectivePlan].limits;
   const unlimited = t('unlimited');
   const measure = (label: string, used: number, limit: number) =>
@@ -175,6 +186,15 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
         {isEarlyAdopter ? null : (
           <>
             <SectionLabel>{t('plansLabel')}</SectionLabel>
+            {showButtons ? (
+              <Notice live={false} action={{ label: t('termsLink'), onClick: openTerms }}>
+                {t('seller', { name: sellerName(locale) })}
+                <br />
+                {t('oneMonth')}
+                <br />
+                {t('refund')}
+              </Notice>
+            ) : null}
             {CARD_PLANS.map((id) => (
               <section key={id} className={id === 'PRO' ? 'ch-panel ch-panel-ring' : 'ch-panel'} aria-labelledby={`${ids}-${id}`}>
                 <div className="ch-plan-head">
@@ -203,7 +223,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
                     onClick={() => void choose(id)}
                   >
                     {choosing === id ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
-                    {t('choose', { plan: nameOf(id) })}
+                    {t('agreeAndPay')}
                   </button>
                 ) : null}
               </section>
