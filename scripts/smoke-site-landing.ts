@@ -366,6 +366,20 @@ async function main() {
     }
   });
 
+  await check('G13 the reminder buttons the landing names in Hebrew and Russian are the ping\'s real ones (Done, and the 15-minute, hour and tomorrow snoozes): every quoted name in How it works, the features and the channel table', () => {
+    for (const locale of ['he', 'ru'] as const) {
+      const m = messages[locale];
+      const real = Object.values(m.bot.nativeReminders.buttons as Record<string, string>).map(bot);
+      const lines = [m.landing.how.step3.body, m.landing.features.reminders.doneSnooze, m.landing.channels.rows.reminders.telegram];
+      for (const line of lines) {
+        const quoted = [...line.matchAll(locale === 'he' ? /״([^״]+)״/g : /«([^»]+)»/g)].map((x) => x[1]);
+        const buttons = quoted.filter((q) => !/תזכיר|напомни/.test(q));
+        assert(buttons.length >= 2 && buttons.every((b) => real.includes(b)), `${locale}: ${show(buttons)} are not all the ping's buttons ${show(real)}: ${line}`);
+        assert(real.every((b) => buttons.includes(b)), `${locale}: not every button of the ping is named: ${line}`);
+      }
+    }
+  });
+
   finish();
 }
 
