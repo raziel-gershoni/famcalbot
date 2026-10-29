@@ -529,7 +529,7 @@ function baseUser(o: Row): Row {
     messagingPlatform: 'telegram', googleRefreshToken: '', calendarAssignments: null,
     calendarSource: 'NATIVE', pairingId: null, remindersEnabled: true, suspendedAt: null, suspendedBy: null,
     suspendedReason: null, unreachableSince: null, whatsappPhone: null, whatsappBsuid: null, telegramId: null,
-    isAdmin: false, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false,
+    isAdmin: false, globalRules: [], textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: true,
     weatherEnabled: true,
     includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
@@ -664,7 +664,7 @@ function freshT() {
 /** W's setup, made on WhatsApp over months: no value is a default. */
 const W_SETUP: Row = {
   englishName: 'Dana', gender: 'female', language: 'he', location: 'Haifa', culture: 'jewish',
-  globalRules: ['Noa is my daughter'], voiceSummaryEnabled: false, voiceInputEnabled: true,
+  globalRules: ['Noa is my daughter'], voiceSummaryEnabled: false, voiceInputEnabled: false,
   weatherEnabled: false, includeLookaheadInTomorrow: true,
   lookaheadAlways7Days: true, preferredMorningHour: 6, preferredEveningHour: 21, dailySummaryDays: [0, 1, 2, 3, 4],
   tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,

@@ -41,7 +41,7 @@ model User {
   suspendedReason            String?   @db.Text // Why suspended (admin-facing audit)
   textSummaryEnabled         Boolean   @default(true) // Receive text summaries
   voiceSummaryEnabled        Boolean   @default(true) // Receive voice summaries
-  voiceInputEnabled          Boolean   @default(false) // Allow voice message input for event creation
+  voiceInputEnabled          Boolean   @default(true) // Allow voice message input for event creation (on for new accounts since 2026-10-29)
   weatherEnabled             Boolean   @default(true) // Include weather in summaries
   includeLookaheadInTomorrow Boolean   @default(false) // Include week lookahead in tomorrow summary
   lookaheadAlways7Days       Boolean   @default(false) // true = always 7 days, false = until end of week

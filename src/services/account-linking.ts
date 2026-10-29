@@ -110,7 +110,7 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  */
 const NEW_ACCOUNT = {
   englishName: '', gender: 'male', culture: 'default', globalRules: [] as string[],
-  textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: false,
+  textSummaryEnabled: true, voiceSummaryEnabled: true, voiceInputEnabled: true,
   weatherEnabled: true, includeLookaheadInTomorrow: false, lookaheadAlways7Days: false,
   preferredMorningHour: 7, preferredEveningHour: 19,
   dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
