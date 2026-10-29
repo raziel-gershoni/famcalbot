@@ -84,9 +84,8 @@ function accessRank(sub: Subscription): [kind: number, endsAt: number] {
 
 /**
  * Whether subscription a runs longer than b. Kind first: a paid row beats a trial
- * that ends later, since it carries the plan a renewal keeps (renewSubscription
- * leaves plan as it is, and an old renew invoice can still be paid). Within a
- * kind, the later end wins.
+ * that ends later, since it carries the plan the person paid for. Within a kind,
+ * the later end wins.
  */
 function runsLonger(a: Subscription, b: Subscription): boolean {
   const [aKind, aEnds] = accessRank(a);

@@ -6,10 +6,10 @@
 //  - the two links, as Telegram's anchors or as WhatsApp's plain "label: url" lines;
 //  - the ways to cancel within 14 days and the seller's lines, from SELLER (src/lib/seller.ts). A detail the owner has not
 //    given yet (null) leaves its line out; scripts/smoke-seller.ts keeps a release from shipping without it;
-//  - the invoice's description (Telegram takes 1-255 characters) and the confirmation's text.
-// The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription and
-// subscription.paymentSuccess. Every value put into Telegram's HTML is escaped here. Pure and client-safe: the plan
-// screen reads policyUrl and sellerName.
+//  - the invoice's description (Telegram takes 1-255 characters), the confirmation's text and its plain fallback.
+// The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription,
+// subscription.paymentSuccess and subscription.paymentFallback. Every value put into Telegram's HTML is escaped here. Pure
+// and client-safe: the plan screen reads policyUrl and sellerName.
 
 import { pageUrl } from '../site/seo';
 import { escapeHtml } from '../utils/html';
@@ -114,11 +114,15 @@ export function invoiceDescription(template: string, locale: string | null | und
   return text;
 }
 
+/** "29 Nov 2026" / "29 בנוב׳ 2026": an instant's day with its year in `timeZone` (a payment's day, in the refund's message). */
+export function paymentDay(at: Date, timeZone: string, locale: string | null | undefined): string {
+  const day = instantDay(at.toISOString(), timeZone);
+  return day ? formatDayYear(day, normalizeLocale(locale)) : '';
+}
+
 /** "29 Nov 2026, 02:00" / "29 בנוב׳ 2026, 02:00": an instant's day with its year and its 24-hour time in `timeZone`. */
 function endText(periodEnd: Date, timeZone: string, locale: string): string {
-  const iso = periodEnd.toISOString();
-  const day = instantDay(iso, timeZone);
-  return `${day ? formatDayYear(day, locale) : ''}, ${formatTime(iso, timeZone, locale)}`;
+  return `${paymentDay(periodEnd, timeZone, locale)}, ${formatTime(periodEnd.toISOString(), timeZone, locale)}`;
 }
 
 /**
@@ -145,4 +149,14 @@ export function paymentConfirmation(a: {
     cancel: cancelBlock(a.words, a.seller),
     terms: policyLink(a.words, 'terms', locale, 'html'),
   });
+}
+
+/**
+ * The confirmation's short fallback, as plain text (no HTML to refuse): subscription.paymentFallback with the plan and
+ * when the month ends in the person's zone. Sent when the full confirmation could not be, so the person still learns the
+ * payment went through.
+ */
+export function paymentFallback(a: { template: string; locale: string | null | undefined; planName: string; periodEnd: Date; timeZone: string }): string {
+  const locale = normalizeLocale(a.locale);
+  return fill(a.template, { plan: a.planName, end: endText(a.periodEnd, a.timeZone, locale) });
 }

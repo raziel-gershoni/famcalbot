@@ -16,7 +16,7 @@ import { googleStateOf, liveGoogleChoices } from '@/src/lib/google-state';
 import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
-import { lastPaymentAt } from '@/src/lib/refund-eligibility';
+import { refundWindowStart } from '@/src/lib/refund-eligibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -212,6 +212,12 @@ export async function GET(request: NextRequest) {
       // the comp block gates Grant on this status, and a stale `null` would offer
       // Grant for a user the server has just turned into a trialist and will refuse.
       const subscription = await prisma.subscription.findUnique({ where: { userId } });
+      // The payments an admin may still refund: not refunded, within 14 days of being paid (refund-eligibility.ts), newest first
+      const refundable = await prisma.payment.findMany({
+        where: { userId, refundedAt: null, paidAt: { gte: refundWindowStart(new Date()) } },
+        orderBy: { paidAt: 'desc' },
+        select: { id: true, plan: true, amount: true, paidAt: true },
+      });
 
       // Calculate trial days remaining
       const trialDaysRemaining = subscription?.status === 'TRIALING' && subscription?.trialEndsAt
@@ -260,9 +266,9 @@ export async function GET(request: NextRequest) {
             comped: subscription.compedBy != null,
             compedAt: subscription.compedAt ? subscription.compedAt.toISOString() : null,
             compReason: subscription.compReason,
-            // When they last paid (a real payment, never the charge id): the panel offers a refund within 14 days of it
-            paidAt: lastPaymentAt(subscription)?.toISOString() ?? null,
           } : null,
+          // Each payment the panel offers to refund, by its own id (never the charge id)
+          payments: refundable.map((p) => ({ id: p.id, plan: p.plan, amount: p.amount, paidAt: p.paidAt.toISOString() })),
           usage: user.usageCounter ? {
             textSummariesUsed: user.usageCounter.textSummariesUsed,
             voiceSummariesUsed: user.usageCounter.voiceSummariesUsed,

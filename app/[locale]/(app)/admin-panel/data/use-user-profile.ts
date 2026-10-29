@@ -171,8 +171,8 @@ export function useUserProfile(onUsersChanged: () => unknown) {
     );
   const grantComp = (reason: string) => act('grantComp', (id) => adminPost('subscription', { user_id: id, reason: orNull(reason) }));
   const revokeComp = () => act('revokeComp', (id) => adminDelete('subscription', { user_id: id }));
-  /** Refund the last payment at Telegram; the plan ends only when Telegram agrees (the route answers REFUND_REFUSED when it does not). */
-  const refund = () => act('refund', (id) => adminPost('subscription', { user_id: id, action: 'refund' }));
+  /** Refund one payment at Telegram, by its row's id; it is recorded only when Telegram agrees (the route answers REFUND_REFUSED when it does not). */
+  const refund = (paymentId: string) => act('refund', (id) => adminPost('subscription', { user_id: id, action: 'refund', payment_id: paymentId }));
   const sendReminder = (reminderType: ReminderType) => act('sendReminder', (id) => adminPost('send-reminder', { user_id: id, reminder_type: reminderType }));
   const resetReminders = () => act('resetReminders', (id) => adminPost('reset-reminders', { user_id: id }));
   const switchToWhatsApp = (phone: string) => act('switchToWhatsApp', (id) => adminPost('switch-platform', { user_id: id, whatsapp_phone: phone.trim() }));

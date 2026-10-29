@@ -2,9 +2,9 @@
 
 // The person's plan (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > User profile 2): what they are on
 // (the plan line, with a tag for a trial, a paid plan or free Pro), how much of each limit they have used, and giving or stopping Pro
-// for free, and refunding the last payment. All ask first; giving takes an optional reason, and the refund (shown only within the 14
-// days of the refund rule, src/lib/refund-eligibility.ts) names the plan and the day it was paid. When early access is on for
-// everyone, a note says Pro is theirs anyway.
+// for free, and refunding a payment. All ask first; giving takes an optional reason. Each payment still inside the 14 days of the
+// refund rule (src/lib/refund-eligibility.ts) has its own Refund row, with its plan, its Stars and the day it was paid, newest
+// first; its sheet names the plan and the day. When early access is on for everyone, a note says Pro is theirs anyway.
 
 import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -16,7 +16,7 @@ import { Tag } from '@/components/app-ui/Tag';
 import { holdsPaidPlan } from '@/src/lib/comp-eligibility';
 import { refundableNow } from '@/src/lib/refund-eligibility';
 import { dateOnly, planLine, planName, type AdminTranslate } from '../../data/format';
-import type { UserOverrideDetails } from '../../data/types';
+import type { RefundablePayment, UserOverrideDetails } from '../../data/types';
 import { ActionSheet, type Message, type SectionProps } from './shared';
 
 type Kind = 'comped' | 'trial' | 'paid' | 'free';
@@ -39,6 +39,7 @@ export function Plan({ person, profile, earlyAccessOn }: SectionProps & { earlyA
   const t = useTranslations('admin');
   const locale = useLocale();
   const [sheet, setSheet] = useState<'give' | 'stop' | 'refund' | null>(null);
+  const [refunding, setRefunding] = useState<RefundablePayment | null>(null);
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<Message | null>(null);
   const now = new Date();
@@ -58,16 +59,16 @@ export function Plan({ person, profile, earlyAccessOn }: SectionProps & { earlyA
     setSheet(null);
     setReason('');
   };
-  const open = (which: 'give' | 'stop' | 'refund') => {
+  const open = (which: 'give' | 'stop' | 'refund', payment: RefundablePayment | null = null) => {
     setMessage(null);
+    setRefunding(payment);
     setSheet(which);
   };
 
   const giveRow = canGive(sub, now);
   const blocked = kind !== 'comped' && !giveRow;
-  // A real payment inside the refund window: the plan they paid for and the day, for the question the sheet asks
-  const paidAt = sub?.paidAt ?? null;
-  const refundRow = sub !== null && refundableNow(paidAt, now);
+  // Each payment still inside the refund window (the server sends those; the page may have stayed open past one's end)
+  const refundable = (person.payments ?? []).filter((p) => refundableNow(p.paidAt, now));
 
   return (
     <>
@@ -106,11 +107,14 @@ export function Plan({ person, profile, earlyAccessOn }: SectionProps & { earlyA
             <span className="ch-form-hint">{t('profile.comp.blocked')}</span>
           </div>
         ) : null}
-        {refundRow ? (
-          <button type="button" className="ch-form-row ch-danger-row" aria-haspopup="dialog" onClick={() => open('refund')}>
-            {t('profile.refund.button')}
+        {refundable.map((p) => (
+          <button key={p.id} type="button" className="ch-form-row ch-danger-row" aria-haspopup="dialog" onClick={() => open('refund', p)}>
+            <span className="ch-form-label">
+              <span>{t('profile.refund.row', { plan: planName(p.plan, t as unknown as AdminTranslate), stars: p.amount })}</span>
+              <span className="ch-form-hint">{t('profile.refund.paidOn', { date: dateOnly(p.paidAt, locale) })}</span>
+            </span>
           </button>
-        ) : null}
+        ))}
       </FormCard>
       {earlyAccessOn ? <Notice>{t('profile.plan.earlyOn')}</Notice> : null}
       {message ? <Notice tone={message.tone}>{message.text}</Notice> : null}
@@ -130,13 +134,13 @@ export function Plan({ person, profile, earlyAccessOn }: SectionProps & { earlyA
           </FormCard>
         </ActionSheet>
       ) : null}
-      {sheet === 'refund' && sub && paidAt ? (
+      {sheet === 'refund' && refunding ? (
         <ActionSheet
           action="refund"
-          title={t('profile.refund.confirmTitle', { plan: planName(sub.plan, t as unknown as AdminTranslate), date: dateOnly(paidAt, locale) })}
+          title={t('profile.refund.confirmTitle', { plan: planName(refunding.plan, t as unknown as AdminTranslate), date: dateOnly(refunding.paidAt, locale) })}
           confirmLabel={t('profile.refund.confirm')}
           tone="danger"
-          run={() => profile.refund()}
+          run={() => profile.refund(refunding.id)}
           onDone={() => done(t('profile.refund.done'))}
           onClose={close}
         />

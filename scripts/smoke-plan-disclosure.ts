@@ -216,8 +216,11 @@ const stubs: Record<string, object> = {
   [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async (id: number) => USERS.find((u) => Number(u.telegramId) === Number(id)) ?? null },
   [`${SRC}/services/subscription-service.ts`]: {
     getSubscription: async () => null,
-    upgradeSubscription: async (userId: number, plan: string) => ({ subscription: { userId, plan, status: 'ACTIVE', currentPeriodEnd: PERIOD_END }, credited: true }),
-    renewSubscription: async (userId: number) => ({ subscription: { userId, plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: PERIOD_END }, credited: true }),
+    creditPayment: async (userId: number, paid: Row) => ({
+      subscription: { userId, plan: paid.plan, status: 'ACTIVE', currentPeriodEnd: PERIOD_END },
+      payment: { id: `payment-${paid.chargeId}`, userId, telegramPaymentChargeId: paid.chargeId, plan: paid.plan, periodEnd: PERIOD_END },
+      credited: true,
+    }),
   },
   [`${SRC}/utils/prisma.ts`]: { prisma: { user: { findUnique: async ({ where }: Row) => USERS.find((u) => u.id === where.id) ?? null } } },
   [`${SRC}/services/analytics-service.ts`]: { trackActivity: async () => undefined, addBreadcrumb: () => undefined, setUserContext: () => undefined },

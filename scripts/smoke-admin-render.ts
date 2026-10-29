@@ -34,7 +34,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
-import { NextIntlClientProvider } from 'next-intl';
+import { createTranslator, NextIntlClientProvider } from 'next-intl';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted } from './lib/fake-dom';
 import { lintCss } from './lib/css-lint';
 import { ADMIN_CSS } from '../app/[locale]/(app)/admin-panel/admin-css';
@@ -114,12 +114,13 @@ const PEOPLE_NAMES: Record<Locale, string[]> = {
 };
 const inDays = (days: number) => new Date(Date.now() + days * 86400000).toISOString();
 const SUBS: Record<string, Row> = {
-  trial: { plan: 'FREE', status: 'TRIALING', trialEndsAt: inDays(9), trialDaysRemaining: 9, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null, paidAt: null },
-  free: { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null, paidAt: null },
-  // Paid three days ago (a payment inside the 14 days of the refund rule)
-  paid: { plan: 'BASIC', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: inDays(20), comped: false, compedAt: null, compReason: null, paidAt: ago(3 * 24 * 60) },
-  comped: { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: true, compedAt: ago(5 * 24 * 60), compReason: 'pilot', paidAt: null },
+  trial: { plan: 'FREE', status: 'TRIALING', trialEndsAt: inDays(9), trialDaysRemaining: 9, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
+  free: { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: false, compedAt: null, compReason: null },
+  paid: { plan: 'BASIC', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: inDays(20), comped: false, compedAt: null, compReason: null },
+  comped: { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null, comped: true, compedAt: ago(5 * 24 * 60), compReason: 'pilot' },
 };
+/** The paid person's payment three days ago (inside the 14 days of the refund rule), as the detail lists it. */
+const PAYMENT = { id: 'pay-basic-3d', plan: 'BASIC', amount: 2500, paidAt: ago(3 * 24 * 60) };
 const NO_PAID = { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false };
 function makePeople(locale: Locale): Map<number, Row> {
   const names = PEOPLE_NAMES[locale];
@@ -128,7 +129,7 @@ function makePeople(locale: Locale): Map<number, Row> {
   return new Map<number, Row>([
     person(TRIAL, { subscription: SUBS.trial, registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: false, applicableReminder: 'location', googleState: 'none' }, setupReminders: { daysSinceCreated: 12, daysSinceStart: 12, wasReset: false, calendars: [], reconnect: [], location: [{ day: 1, sent: true, due: true }, { day: 3, sent: true, due: true }, { day: 7, sent: false, due: true }, { day: 14, sent: false, due: false }] } }),
     person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars', googleState: 'choose' } }),
-    person(PAID, { subscription: SUBS.paid, whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
+    person(PAID, { subscription: SUBS.paid, payments: [PAYMENT], whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
     person(COMPED, { subscription: SUBS.comped, whatsappPhone: null }),
     person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free }),
     person(SUSPENDED, { subscription: SUBS.free, suspendedAt: ago(2 * 24 * 60), suspendedReason: spam, suspendedBy: 9 }),
@@ -381,6 +382,21 @@ const sectionsOf = (m: Mounted) => elements(m.container).filter((e) => e.localNa
 const idFields = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'input' && classes(e).includes('ch-copy-field-input'));
 /** The button whose whole text is `text`. */
 const btn = (m: Mounted, text: string) => buttonsOf(m).find((b) => flat(b) === text) as FakeElement;
+/** The admin namespace as next-intl formats it (ICU plurals included). */
+const icu = (locale: Locale) => createTranslator({ locale, messages: messages[locale] as never, namespace: 'admin' as never }) as unknown as (key: string, args?: Row) => string;
+/** A payment's Refund row's two lines: what it refunds (plan and Stars) and the day it was paid. */
+const refundLines = (locale: Locale, payment: Row) => {
+  const { dateOnly } = require('../app/[locale]/(app)/admin-panel/data/format') as typeof import('../app/[locale]/(app)/admin-panel/data/format');
+  const t = icu(locale);
+  // As flat() reads text: any run of spaces (a no-break one in "2 500" included) is one space
+  const read = (text: string) => text.replace(/\s+/g, ' ').trim();
+  return [read(t('profile.refund.row', { plan: t(`plan.names.${String(payment.plan).toLowerCase()}`), stars: payment.amount })), read(t('profile.refund.paidOn', { date: dateOnly(payment.paidAt, locale) }))];
+};
+/** The Refund rows of the open profile: the danger rows that start the way profile.refund.row does. */
+const refundRows = (m: Mounted, locale: Locale) => {
+  const head = word(locale, 'profile.refund.row').split('{')[0];
+  return buttonsOf(m).filter((b) => classes(b).includes('ch-danger-row') && flat(b).startsWith(head)) as FakeElement[];
+};
 /** The text field in the open sheet. */
 const sheetField = (m: Mounted) => inSheet(m, (e) => e.localName === 'input' || e.localName === 'textarea') as FakeElement;
 /** The people's rows, by their index in PEOPLE_NAMES. */
@@ -1055,8 +1071,8 @@ async function main() {
           // Free Pro can be given to everyone but a paid plan (a person on a trial included: the gift replaces the trial); the paid one is told why not
           assert(!!btn(o.m, w('profile.comp.give')) === (id !== PAID && id !== COMPED), `${where}: Give Pro for free`);
           assert(text.includes(w('profile.comp.blocked')) === (id === PAID), `${where}: the "nothing to give" hint`);
-          // The refund of the last payment is offered to the person who paid three days ago, and to nobody else
-          assert(!!btn(o.m, w('profile.refund.button')) === (id === PAID), `${where}: Refund last payment`);
+          // A refund is offered for the payment three days ago, and to nobody else
+          assert(refundRows(o.m, locale).length === (id === PAID ? 1 : 0), `${where}: ${refundRows(o.m, locale).length} Refund rows`);
           assert(!!btn(o.m, w('profile.messaging.move')) === (person.whatsappPhone === null), `${where}: the Move to WhatsApp row`);
           assert(!!btn(o.m, w('profile.account.suspend')) === (id !== SUSPENDED) && !!btn(o.m, w('profile.account.unsuspend')) === (id === SUSPENDED), `${where}: suspend / unsuspend`);
           assert(elements(o.m.container).some((e) => classes(e).includes('ch-tag-danger') && flat(e) === w('users.suspended')) === (id === SUSPENDED), `${where}: the Suspended tag`);
@@ -1377,52 +1393,62 @@ async function main() {
     }
   });
 
-  await check('U3r refunding the last payment: the row shows only for a person who paid within the last 14 days (not a trial, a free person, a free gift, or a payment 15 days old); it asks first with a sheet that names the plan and the payment date in the page\'s language, Cancel and Back send nothing, Confirm sends { user_id, action: "refund" } with the person\'s database id, a success reloads the profile and the list and says Refunded, a refusal stays in the sheet with our own message and a log and reloads nothing', async () => {
-    const profileOf = async (locale: Locale, index: number, paidAt?: string | null) => {
+  await check('U3r refunding a payment: a Refund row for each payment the detail lists that is still inside the 14 days (none for a trial, a free person, a free gift, or a payment 15 days old), newest first, each with its plan, its Stars and the day it was paid; it asks first with a sheet that names the plan and the day in the page\'s language, Cancel and Back send nothing, Confirm sends { user_id, action: "refund", payment_id } with the person\'s database id and that payment\'s own id, a success reloads the profile and the list and says Refunded, a refusal stays in the sheet with our own message and a log and reloads nothing', async () => {
+    const profileOf = async (locale: Locale, index: number, payments?: Row[]) => {
       reset();
       const o = open(locale, propsOf(locale), { version: '7.7' });
-      // open() makes the people; the payment date of the one asked for is set before the profile is read
-      if (paidAt !== undefined) (scenario.people.get(IDS[index]) as Row).subscription = { ...SUBS.paid, paidAt };
+      // open() makes the people; the payments of the one asked for are set before the profile is read
+      if (payments !== undefined) (scenario.people.get(IDS[index]) as Row).payments = payments;
       await openPerson(o, locale, index);
       calls.splice(0);
       return o;
     };
     const days = (n: number) => ago(n * 24 * 60);
     const { dateOnly } = await import('../app/[locale]/(app)/admin-panel/data/format');
+    const OLDER = { id: 'pay-pro-10d', plan: 'PRO', amount: 5000, paidAt: days(10) };
 
-    // Who is offered it
-    for (const [label, index, paidAt, offered] of [
-      ['a payment 3 days ago', 2, undefined, true],
-      ['a payment 13 days ago', 2, days(13), true],
-      ['a payment 15 days ago', 2, days(15), false],
-      ['a paid plan with no known payment date', 2, null, false],
-      ['a trial', 0, undefined, false],
-      ['a free person', 1, undefined, false],
-      ['a free Pro gift', 3, undefined, false],
-    ] as [string, number, string | null | undefined, boolean][]) {
-      const o = await profileOf('en', index, paidAt);
+    // Who is offered which rows
+    for (const [label, index, payments, want] of [
+      ['a payment 3 days ago', 2, undefined, [PAYMENT]],
+      ['a payment 13 days ago', 2, [{ ...PAYMENT, paidAt: days(13) }], [{ ...PAYMENT, paidAt: days(13) }]],
+      ['a payment 15 days ago (the server lists it, the page has stayed open past its 14 days)', 2, [{ ...PAYMENT, paidAt: days(15) }], []],
+      ['two payments, newest first', 2, [PAYMENT, OLDER], [PAYMENT, OLDER]],
+      ['a trial', 0, undefined, []],
+      ['a free person', 1, undefined, []],
+      ['a free Pro gift', 3, undefined, []],
+    ] as [string, number, Row[] | undefined, Row[]][]) {
+      const o = await profileOf('en', index, payments);
       try {
-        assert(!!btn(o.m, word('en', 'profile.refund.button')) === offered, `${label}: Refund last payment ${offered ? 'is missing' : 'shows'}`);
+        const rows = refundRows(o.m, 'en');
+        assert(show(rows.map(flat)) === show(want.map((p) => refundLines('en', p).join(''))), `${label}: the rows ${show(rows.map(flat))}`);
       } finally {
         close(o);
       }
     }
 
-    // The sheet, in each language: plan and date in its title; the row reads as a risky action
+    // Each language: the row's two lines, its kit (a danger row button: 44 px, the whole row the target), the sheet
     for (const locale of LOCALES) {
-      const o = await profileOf(locale, 2);
+      const o = await profileOf(locale, 2, [PAYMENT, OLDER]);
       try {
         const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
-        const paidAt = (scenario.people.get(PAID) as Row).subscription.paidAt as string;
-        const titleText = w('profile.refund.confirmTitle', { plan: w('plan.names.basic'), date: dateOnly(paidAt, locale) });
-        assert(classes(btn(o.m, w('profile.refund.button'))).includes('ch-danger-row'), `${locale}: the row is not a danger row`);
-        o.m.click(btn(o.m, w('profile.refund.button')));
+        const rows = refundRows(o.m, locale);
+        assert(rows.length === 2, `${locale}: ${rows.length} rows`);
+        rows.forEach((row, i) => {
+          const [what, when] = refundLines(locale, [PAYMENT, OLDER][i]);
+          const lines = elements(row).filter((e) => e.localName === 'span' && !e.getAttribute('class'));
+          assert(flat(row) === `${what}${when}` && lines.some((e) => flat(e) === what), `${locale}: the row says ${flat(row)}`);
+          assert(elements(row).some((e) => classes(e).includes('ch-form-hint') && flat(e) === when), `${locale}: the day is not the row's hint: ${flat(row)}`);
+          assert(classes(row).includes('ch-form-row') && row.getAttribute('aria-haspopup') === 'dialog' && row.getAttribute('type') === 'button', `${locale}: not a kit row button: ${classes(row)}`);
+        });
+        assert(/2[,.\s  ]?500/.test(flat(rows[0])) && /5[,.\s  ]?000/.test(flat(rows[1])), `${locale}: the Stars: ${show(rows.map(flat))}`);
+        o.m.click(rows[1]);
+        const titleText = w('profile.refund.confirmTitle', { plan: w('plan.names.pro'), date: dateOnly(OLDER.paidAt, locale) });
         assert(dialogs(o.m).length === 1 && dialogs(o.m)[0]?.getAttribute('aria-label') === titleText, `${locale}: the sheet is ${dialogs(o.m)[0]?.getAttribute('aria-label')}, wanted ${titleText}`);
         assert(flat(confirmOf(o.m) as FakeElement) === w('profile.refund.confirm'), `${locale}: the confirm button says ${flat(confirmOf(o.m) as FakeElement)}`);
         assert(classes(confirmOf(o.m) as FakeElement).includes('ch-btn-danger'), `${locale}: the confirm button is not the red one of a step that cannot be undone`);
         o.m.click(cancelOf(o.m) as FakeElement);
         assert(dialogs(o.m).length === 0 && sent() === 0, `${locale}: Cancel sent ${sent()}`);
-        o.m.click(btn(o.m, w('profile.refund.button')));
+        o.m.click(refundRows(o.m, locale)[0]);
         tapBack(o);
         assert(dialogs(o.m).length === 0 && sent() === 0 && pushes.length === 0, `${locale}: Back sent ${sent()} or left (${show(pushes)})`);
       } finally {
@@ -1430,15 +1456,15 @@ async function main() {
       }
     }
 
-    // Confirm: the exact body, a reload, the notice
-    let o = await profileOf('en', 2);
+    // Confirm: the exact body (that payment's own id), a reload, the notice
+    let o = await profileOf('en', 2, [PAYMENT, OLDER]);
     try {
       const w = (key: string, args?: Row) => word('en', key, 'admin', args);
-      o.m.click(btn(o.m, w('profile.refund.button')));
+      o.m.click(refundRows(o.m, 'en')[1]);
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       const made = posts('subscription');
-      assert(made.length === 1 && show(made[0].body) === show({ user_id: PAID, action: 'refund', initData: INIT_DATA }), `the request: ${show(made.map((c) => c.body))}`);
+      assert(made.length === 1 && show(made[0].body) === show({ user_id: PAID, action: 'refund', payment_id: OLDER.id, initData: INIT_DATA }), `the request: ${show(made.map((c) => c.body))}`);
       assert(reloadedAfter(calls.indexOf(made[0]), PAID), 'the profile and the list were not asked for again');
       assert(dialogs(o.m).length === 0 && statusesIn(o.m.container).includes(w('profile.refund.done')), `the notice: ${show(statusesIn(o.m.container))}`);
       assert(!viewerIdSent(), "the viewer's Telegram id was sent");
@@ -1451,7 +1477,7 @@ async function main() {
     try {
       const w = (key: string, args?: Row) => word('en', key, 'admin', args);
       scenario.answers.set('POST subscription', () => json({ error: 'REFUND_REFUSED' }, 409));
-      o.m.click(btn(o.m, w('profile.refund.button')));
+      o.m.click(refundRows(o.m, 'en')[0]);
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('profile.refund.failed')]), `a refused refund: ${show(alertsIn(o.m.container))}`);

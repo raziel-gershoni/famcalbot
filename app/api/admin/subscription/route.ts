@@ -1,7 +1,8 @@
 /**
  * Admin Subscription API
  * POST: Grant a free ("comped") PRO subscription to a user
- * POST with { action: 'refund' }: refund the user's last payment at Telegram and end the paid plan
+ * POST with { action: 'refund', payment_id }: refund one of the user's payments at Telegram (by its Payment row); the paid
+ *   plan ends when that payment funds the current month
  * DELETE: Revoke a comped PRO subscription
  *
  * Comps are the only plan writable here: a real paying customer can never be created or
@@ -15,7 +16,7 @@ import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { grantCompedSubscription, revokeCompedSubscription } from '@/src/services/subscription-service';
-import { refundLastPayment } from '@/src/services/admin-refund';
+import { refundPayment } from '@/src/services/admin-refund';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { initData, user_id, reason, action } = body;
+    const { initData, user_id, reason, action, payment_id } = body;
 
     const auth = await verifyAdminAccess(initData);
     if (!auth.authorized) {
@@ -52,11 +53,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    // Refund the last payment: Telegram first, the plan only ends when it agrees. The codes are the panel's to word.
+    // Refund one payment: Telegram first, the refund is recorded only when it agrees. The codes are the panel's to word.
     if (action === 'refund') {
-      const outcome = await refundLastPayment(user, auth.adminId!);
+      if (typeof payment_id !== 'string' || !payment_id) {
+        return NextResponse.json({ error: 'payment_id is required and must be a string' }, { status: 400 });
+      }
+      const outcome = await refundPayment(user, payment_id, auth.adminId!);
       if (outcome.ok) {
-        console.log(`[admin-subscription] Admin ${auth.adminId} refunded the last payment of user ${user_id}`);
+        console.log(`[admin-subscription] Admin ${auth.adminId} refunded payment ${payment_id} of user ${user_id}`);
         return NextResponse.json({ success: true });
       }
       if (outcome.code === 'NO_PAYMENT' || outcome.code === 'REFUND_REFUSED') {

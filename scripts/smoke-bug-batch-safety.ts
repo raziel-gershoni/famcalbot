@@ -13,10 +13,12 @@
 //      (Authorization: Bearer <CRON_SECRET>); a failure does not echo the error.
 //   6. A partner's calendar reaches the viewer's browser without the partner's private sorting (labels, rules, the person's
 //      name, English name and gender), by the API and by the Calendars page's own data; its name, colour and access stay.
-//   7. The admin's refund of a person's last payment (Telegram Stars, within the 14 days of the refund rule): Telegram is asked
-//      for the refund with the payment's charge id, the plan ends only when Telegram agrees, a refusal changes nothing in the
-//      database, and the person is told in their language. The panel's Plan section (the button only within 14 days of a
-//      payment, the confirm, the failure) is in smoke-admin-render.ts, which has the admin panel's world.
+//   7. The admin's refund of one of a person's payments (Telegram Stars; the final review's I-1): Telegram is asked for the
+//      refund with that payment's own charge id, and only when Telegram agrees is the payment marked refunded. Refunding the
+//      payment that funds the current month ends the paid plan; refunding an earlier one leaves the plan as it is. A refusal
+//      changes nothing in the database, and the person is told in their language which payment was refunded. The panel's
+//      list (each payment within 14 days of it, with its plan, Stars and date, and its own Refund) is in
+//      smoke-admin-render.ts, which has the admin panel's world.
 //
 // The real webhook handlers, voice callbacks, the bulk card, summary delivery, the providers and the routes run. Faked: Prisma
 // (in memory), Redis (in memory), both messaging services and the bot (every send is recorded), the AI, the calendar
@@ -25,6 +27,7 @@
 // Run with the fake env (never the real one), from the repo root:
 //   bash <scratchpad>/run-smoke.sh scripts/smoke-bug-batch-safety.ts
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import fs from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
@@ -128,7 +131,13 @@ function model(name: string): Row {
   return {
     findUnique: async (a: Row = {}) => { guard('findUnique'); const r = table().find(x => matches(x, a.where)); return r ? { ...r } : null; },
     findFirst: async (a: Row = {}) => { guard('findFirst'); const r = table().find(x => matches(x, a.where)); return r ? { ...r } : null; },
-    findMany: async (a: Row = {}) => { guard('findMany'); return table().filter(x => matches(x, a.where)).map(x => ({ ...x })); },
+    findMany: async (a: Row = {}) => {
+      guard('findMany');
+      const rows = table().filter(x => matches(x, a.where)).map(x => ({ ...x }));
+      // orderBy: { field: 'asc' | 'desc' } (one field), as the Payment list asks for
+      const [field, dir] = Object.entries((a.orderBy as Row | undefined) ?? {})[0] ?? [];
+      return field ? rows.sort((x, y) => (num(x[field]) - num(y[field])) * (dir === 'desc' ? -1 : 1)) : rows;
+    },
     count: async (a: Row = {}) => { guard('count'); return table().filter(x => matches(x, a.where)).length; },
     create: async (a: Row) => {
       guard('create');
@@ -166,14 +175,33 @@ function model(name: string): Row {
   };
 }
 const models: Record<string, Row> = {};
-const fakePrisma: Row = new Proxy({} as Row, {
-  get(_t, prop) {
-    if (typeof prop !== 'string' || prop === 'then') return undefined;
-    if (prop === '$transaction') return async (arg: unknown) => (typeof arg === 'function' ? arg(fakePrisma) : Promise.all(arg as Promise<unknown>[]));
-    if (prop.startsWith('$')) return async () => undefined;
-    return (models[prop] ??= model(prop));
-  },
-});
+/** Inside a transaction's own callback: Prisma would run a root-client call there on another connection, outside it. */
+const inTx = new AsyncLocalStorage<boolean>();
+function client(isTx: boolean): Row {
+  return new Proxy({} as Row, {
+    get(_t, prop) {
+      if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (!isTx && inTx.getStore() && !prop.startsWith('$')) throw new Error(`prisma.${prop} used inside an interactive transaction (use tx)`);
+      if (prop === '$transaction') {
+        // All or nothing: a throw puts every table back as it was when the transaction began.
+        return async (arg: unknown) => {
+          const before = structuredClone(DB);
+          try {
+            return await (typeof arg === 'function' ? inTx.run(true, () => (arg as (tx: Row) => unknown)(txClient)) : Promise.all(arg as Promise<unknown>[]));
+          } catch (err) {
+            for (const k of Object.keys(DB)) delete DB[k];
+            Object.assign(DB, before);
+            throw err;
+          }
+        };
+      }
+      if (prop.startsWith('$')) return async () => undefined;
+      return (models[prop] ??= model(prop));
+    },
+  });
+}
+const fakePrisma: Row = client(false);
+const txClient: Row = client(true);
 
 // ---- Fake Redis ----
 
@@ -1220,164 +1248,209 @@ async function fix6() {
 // ---- Fix 7 ----
 
 async function fix7() {
-  const DAY_MS = 86_400_000;
   /** Telegram ids are 3000 + the database id here, so the fake bot can name whose payment was refunded. */
   const subscriptionOf = (userId: number) => DB.subscription.find(r => r.userId === userId)!;
+  const paymentOf = (id: string) => DB.payment.find(r => r.id === id)!;
+  const ago = (days: number) => new Date(Date.now() - days * DAY);
   const seedPayers = () => {
-    // 2: Dana (he) paid Pro 3 days ago; 3: Olga (ru) is on Basic from an old payment; 1: Noa is on a free Pro gift; 5: Yael has never paid
+    // 2: Dana (he) paid Basic 8 days ago, then Pro 3 days ago (the Pro payment funds the month);
+    // 3: Olga (ru) is on Basic from a payment 20 days ago;
+    // 1: Noa is on a free Pro gift given over an old payment that left its charge id on the row; 5: Yael has never paid
     for (const user of DB.user) if (user.telegramId != null) user.telegramId = BigInt(3000 + Number(user.id));
     DB.subscription = [
-      { id: 's2', userId: 2, plan: 'PRO', status: 'ACTIVE', telegramPaymentChargeId: 'charge-dana', currentPeriodStart: new Date(Date.now() - 3 * DAY_MS), currentPeriodEnd: new Date(Date.now() + 27 * DAY_MS), cancelAtPeriodEnd: false, compedBy: null, compedAt: null, compReason: null, trialEndsAt: new Date(Date.now() - 20 * DAY_MS) },
-      { id: 's3', userId: 3, plan: 'BASIC', status: 'ACTIVE', telegramPaymentChargeId: 'charge-olga', currentPeriodStart: new Date(Date.now() - 20 * DAY_MS), currentPeriodEnd: new Date(Date.now() + 10 * DAY_MS), cancelAtPeriodEnd: false, compedBy: null, compedAt: null, compReason: null, trialEndsAt: new Date(Date.now() - 40 * DAY_MS) },
-      // A free Pro gift given over an old payment that left its charge id on the row: never a payment to refund
-      { id: 's1', userId: 1, plan: 'PRO', status: 'ACTIVE', telegramPaymentChargeId: 'charge-old', currentPeriodStart: new Date(Date.now() - 2 * DAY_MS), currentPeriodEnd: null, cancelAtPeriodEnd: false, compedBy: 9, compedAt: new Date(), compReason: 'pilot', trialEndsAt: new Date(Date.now() - 20 * DAY_MS) },
+      { id: 's2', userId: 2, plan: 'PRO', status: 'ACTIVE', telegramPaymentChargeId: 'charge-dana', currentPeriodStart: ago(3), currentPeriodEnd: new Date(Date.now() + 27 * DAY), cancelAtPeriodEnd: false, compedBy: null, compedAt: null, compReason: null, trialEndsAt: ago(20) },
+      { id: 's3', userId: 3, plan: 'BASIC', status: 'ACTIVE', telegramPaymentChargeId: 'charge-olga', currentPeriodStart: ago(20), currentPeriodEnd: new Date(Date.now() + 10 * DAY), cancelAtPeriodEnd: false, compedBy: null, compedAt: null, compReason: null, trialEndsAt: ago(40) },
+      { id: 's1', userId: 1, plan: 'PRO', status: 'ACTIVE', telegramPaymentChargeId: 'charge-old', currentPeriodStart: ago(2), currentPeriodEnd: null, cancelAtPeriodEnd: false, compedBy: 9, compedAt: new Date(), compReason: 'pilot', trialEndsAt: ago(20) },
     ];
+    const payment = (id: string, userId: number, charge: string, plan: string, amount: number, paid: Date, refundedAt: Date | null = null) =>
+      ({ id, userId, telegramPaymentChargeId: charge, plan, amount, currency: 'XTR', paidAt: paid, periodStart: paid, periodEnd: new Date(paid.getTime() + 30 * DAY), refundedAt, createdAt: paid });
+    DB.payment = [
+      payment('p-dana-basic', 2, 'charge-dana-basic', 'BASIC', 2500, ago(8)),
+      payment('p-dana', 2, 'charge-dana', 'PRO', 5000, ago(3)),
+      payment('p-olga', 3, 'charge-olga', 'BASIC', 2500, ago(20)),
+      payment('p-noa-old', 1, 'charge-old', 'PRO', 5000, ago(60)),
+      payment('p-noa-refunded', 1, 'charge-noa-refunded', 'PRO', 5000, ago(5), ago(4)),
+    ];
+    // The people's zones, as the cache holds them (the refund's message names the payment's day in it)
+    for (const id of [1, 2, 3, 5]) redisStore.set(REDIS_KEYS.userTimezone(id), 'Asia/Jerusalem');
   };
-  const refund = async (userId: number, body: Row = {}) => {
+  const refund = async (userId: number, paymentId: unknown, body: Row = {}) => {
     const { POST } = await import('../app/api/admin/subscription/route');
-    const request = new Request('https://famcal.test/api/admin/subscription', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initData: 'x', user_id: userId, action: 'refund', ...body }) });
+    const request = new Request('https://famcal.test/api/admin/subscription', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initData: 'x', user_id: userId, action: 'refund', payment_id: paymentId, ...body }) });
     const response = await withLogs(() => POST(request as never));
     return { status: response.status, body: (await response.json()) as Row };
   };
-  const unchanged = (userId: number, before: Row) => assertSame(JSON.stringify(subscriptionOf(userId)), JSON.stringify(before), `the subscription of ${userId} changed`);
+  const unchanged = (before: Row) => assertSame(JSON.stringify({ subscription: DB.subscription, payment: DB.payment }), JSON.stringify(before), 'the database changed');
+  const snapshot = () => JSON.parse(JSON.stringify({ subscription: DB.subscription, payment: DB.payment }));
   const refundedActivity = () => tracked.filter(t => t.action === 'subscription_refunded');
   /** Telegram refuses the way node-telegram-bot-api reports it: a TelegramError with the Bot API's description. */
   const refusal = (description: string, statusCode = 400) => Object.assign(new Error(`ETELEGRAM: ${statusCode} Bad Request: ${description}`), { code: 'ETELEGRAM', response: { statusCode, body: { ok: false, error_code: statusCode, description: `Bad Request: ${description}` } } });
+  const toPerson = () => sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]);
+  const { paymentDay } = await import('../src/lib/plan-disclosure');
+  const earlierText = (lang: Lang, plan: 'basic' | 'pro', paid: Date) =>
+    botText(lang, 'subscription.refundedEarlier').replace('{plan}', FILES[lang].subscription.plans[plan].name).replace('{date}', paymentDay(paid, 'Asia/Jerusalem', lang));
 
-  await check("7: the refund asks Telegram for it with the person's Telegram id and charge id, and only when Telegram agrees ends the plan (FREE / EXPIRED, charge id cleared), clears the access cache, records it and tells the person in their language", async () => {
+  await check("7: refunding the payment that funds the month asks Telegram with the person's Telegram id and that payment's charge id, and only when Telegram agrees marks it refunded and ends the plan (FREE / EXPIRED, charge id and period cleared), clears the access cache, records it and tells the person in their language; the earlier payment is untouched", async () => {
     seedPayers();
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
     assertSame(botCalls.map(c => [c.method, c.form]), [['refundStarPayment', { user_id: 3002, telegram_payment_charge_id: 'charge-dana' }]], 'the call to Telegram');
     assertSame(botCalls[0].planAtCall, 'PRO', 'the plan when Telegram was asked: the database changes only after Telegram agreed');
     const row = subscriptionOf(2);
     assertSame([row.plan, row.status, row.telegramPaymentChargeId, row.currentPeriodStart, row.currentPeriodEnd, row.cancelAtPeriodEnd, row.compedBy], ['FREE', 'EXPIRED', null, null, null, false, null], 'the subscription after');
+    assert(paymentOf('p-dana').refundedAt instanceof Date, `the payment is not marked refunded: ${show(paymentOf('p-dana'))}`);
+    assertSame(paymentOf('p-dana-basic').refundedAt, null, 'the earlier payment was marked');
     for (const feature of ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync']) {
       assert(redisDeletes.includes(REDIS_KEYS.featureAccess(2, feature)), `the ${feature} access cache was not cleared: ${show(redisDeletes)}`);
     }
-    assertSame(refundedActivity().map(t => [t.userId, t.metadata?.admin_id, t.metadata?.plan]), [[2, ADMIN_ID, 'PRO']], 'the activity row');
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]), [[3002, botText('he', 'subscription.refunded')]], 'the message to the person');
+    assertSame(refundedActivity().map(t => [t.userId, t.metadata?.admin_id, t.metadata?.plan, t.metadata?.ended_plan]), [[2, ADMIN_ID, 'PRO', true]], 'the activity row');
+    assertSame(toPerson(), [[3002, botText('he', 'subscription.refunded')]], 'the message to the person');
     assertSame(captured, [], 'something was captured');
-    // The other people's rows are untouched
     assert(subscriptionOf(3).plan === 'BASIC' && subscriptionOf(3).telegramPaymentChargeId === 'charge-olga', 'another person\'s subscription changed');
   });
 
-  await check('7: the person is told in Russian too, and the payment that is older than 14 days is refundable by the route (Telegram decides)', async () => {
+  await check('7: refunding an earlier payment (Basic, 8 days ago, while Pro funds the month) refunds that charge, marks that payment only, leaves the plan as it is, and tells the person which payment was refunded', async () => {
     seedPayers();
-    const answer = await refund(3);
+    const before = JSON.parse(JSON.stringify(subscriptionOf(2)));
+    const answer = await refund(2, 'p-dana-basic');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]), [[3003, botText('ru', 'subscription.refunded')]], 'the message to the person');
+    assertSame(botCalls.map(c => c.form), [{ user_id: 3002, telegram_payment_charge_id: 'charge-dana-basic' }], 'the call to Telegram');
+    assertSame(JSON.stringify(subscriptionOf(2)), JSON.stringify(before), 'the plan changed');
+    assert(paymentOf('p-dana-basic').refundedAt instanceof Date && paymentOf('p-dana').refundedAt === null, `the payments: ${show(DB.payment.filter(p => p.userId === 2))}`);
+    assertSame(refundedActivity().map(t => [t.userId, t.metadata?.plan, t.metadata?.ended_plan]), [[2, 'BASIC', false]], 'the activity row');
+    assertSame(toPerson(), [[3002, earlierText('he', 'basic', paymentOf('p-dana-basic').paidAt)]], 'the message to the person');
+    assert(!redisDeletes.some(k => k.startsWith('feature:access:2:')), `the access cache was cleared for an unchanged plan: ${show(redisDeletes)}`);
+  });
+
+  await check('7: the person is told in Russian too, and a payment older than 14 days is refundable by the route (Telegram decides; the panel offers 14 days)', async () => {
+    seedPayers();
+    const answer = await refund(3, 'p-olga');
+    assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
+    assertSame(toPerson(), [[3003, botText('ru', 'subscription.refunded')]], 'the message to the person');
   });
 
   await check("7: a refusal from Telegram (a charge it can't refund) answers 409 REFUND_REFUSED, logs Telegram's description, changes nothing in the database and tells the person nothing", async () => {
     seedPayers();
-    const before = { ...subscriptionOf(2) };
+    const before = snapshot();
     telegramRefund = () => { throw refusal('CHARGE_NOT_FOUND'); };
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame([answer.status, answer.body], [409, { error: 'REFUND_REFUSED' }], 'the answer');
-    unchanged(2, before);
+    unchanged(before);
     assertSame(refundedActivity(), [], 'an activity row was written');
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage'), [], 'the person was told');
+    assertSame(toPerson(), [], 'the person was told');
     assert(logs.some(l => l.includes('CHARGE_NOT_FOUND')), `Telegram's description is not in the log: ${show(logs)}`);
   });
 
-  await check('7: "already refunded" (a refund whose plan never ended: a lost answer, a failed second step) ends the plan now, as a success, so tapping Refund again finishes it', async () => {
+  await check('7: "already refunded" (a refund whose recording never happened: a lost answer, a failed second step) marks the payment and ends the plan now, as a success, so tapping Refund again finishes it', async () => {
     seedPayers();
     telegramRefund = () => { throw refusal('CHARGE_ALREADY_REFUNDED'); };
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
     const row = subscriptionOf(2);
     assertSame([row.plan, row.status, row.telegramPaymentChargeId], ['FREE', 'EXPIRED', null], 'the subscription after');
+    assert(paymentOf('p-dana').refundedAt instanceof Date, 'the payment is not marked');
     assertSame(refundedActivity().map(t => t.userId), [2], 'the activity row');
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => s.text), [botText('he', 'subscription.refunded')], 'the person is told');
+    assertSame(toPerson().map(([, text]) => text), [botText('he', 'subscription.refunded')], 'the person is told');
   });
 
-  await check('7: two admins refunding the same payment at once: the second finds it refunded and the plan ended, and answers success without telling the person again', async () => {
+  await check('7: two admins refunding the same payment at once: the second finds it refunded and recorded, and answers success without telling the person again', async () => {
     seedPayers();
     telegramRefund = () => {
-      // The other admin's refund finishes in between: Telegram refunded once, the plan ended
+      // The other admin's refund finishes in between: Telegram refunded once, the payment is marked, the plan ended
+      Object.assign(paymentOf('p-dana'), { refundedAt: new Date() });
       Object.assign(subscriptionOf(2), { plan: 'FREE', status: 'EXPIRED', telegramPaymentChargeId: null });
       throw refusal('CHARGE_ALREADY_REFUNDED');
     };
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage'), [], 'the person was told twice');
+    assertSame(toPerson(), [], 'the person was told twice');
+    assertSame(refundedActivity(), [], 'a second activity row');
     assertSame(captured, [], 'a false alarm went to Sentry');
+  });
+
+  await check('7: a payment the database already holds as refunded (a panel that was not reloaded) answers success and asks Telegram nothing', async () => {
+    seedPayers();
+    const before = snapshot();
+    const answer = await refund(1, 'p-noa-refunded');
+    assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
+    assertSame(botCalls, [], 'Telegram was asked');
+    unchanged(before);
+    assertSame(toPerson(), [], 'the person was told');
   });
 
   await check('7: a rate limit or a Telegram server error is a failure to try again (500), not a refusal, and changes nothing', async () => {
     for (const statusCode of [429, 502]) {
       seedPayers();
-      const before = { ...subscriptionOf(2) };
+      const before = snapshot();
       telegramRefund = () => { throw refusal('Too Many Requests: retry after 5', statusCode); };
-      const answer = await refund(2);
+      const answer = await refund(2, 'p-dana');
       assertSame(answer.status, 500, `status for ${statusCode}`);
-      unchanged(2, before);
+      unchanged(before);
     }
   });
 
   await check('7: any other failure (Telegram unreachable) answers 500, changes nothing, is captured, and never logs the bot token', async () => {
     seedPayers();
-    const before = { ...subscriptionOf(2) };
+    const before = snapshot();
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
     telegramRefund = () => { throw Object.assign(new Error(`EFATAL: getaddrinfo ENOTFOUND while calling https://api.telegram.org/bot${token}/refundStarPayment`), { code: 'EFATAL' }); };
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame(answer.status, 500, 'status');
     assert(!JSON.stringify(answer.body).includes(token), 'the token is in the answer');
-    unchanged(2, before);
+    unchanged(before);
     assert(captured.some(c => c.startsWith('admin-refund')), `not captured: ${show(captured)}`);
     assert(logs.some(l => l.includes('[admin-refund]')) && !logs.some(l => l.includes(token)) && !captured.some(c => c.includes(token)), `the token is in a log or in Sentry: ${show(logs)} ${show(captured)}`);
   });
 
-  await check('7: a person with no payment to refund (a free Pro gift, no charge id, never paid, no Telegram id, no such person) answers 409 NO_PAYMENT or 404 and never reaches Telegram', async () => {
+  await check("7: no payment to refund (an unknown payment, another person's payment, no payment named, no Telegram id, no such person) answers 409 NO_PAYMENT, 400 or 404 and never reaches Telegram", async () => {
     seedPayers();
-    const comped = await refund(1);
-    assertSame([comped.status, comped.body], [409, { error: 'NO_PAYMENT' }], 'a free Pro gift');
-    const never = await refund(5);
-    assertSame([never.status, never.body], [409, { error: 'NO_PAYMENT' }], 'a person who never paid');
-    subscriptionOf(3).telegramPaymentChargeId = null;
-    assertSame((await refund(3)).status, 409, 'a paid plan with no charge id');
-    subscriptionOf(2).telegramPaymentChargeId = 'charge-dana';
+    assertSame([(await refund(2, 'p-nope')).status, (await refund(2, 'p-nope')).body], [409, { error: 'NO_PAYMENT' }], 'an unknown payment');
+    assertSame((await refund(2, 'p-olga')).body, { error: 'NO_PAYMENT' }, "another person's payment");
+    assertSame((await refund(5, 'p-dana')).body, { error: 'NO_PAYMENT' }, 'a person who never paid, naming someone else\'s payment');
+    assertSame((await refund(2, undefined)).status, 400, 'no payment named');
+    assertSame((await refund(2, 42)).status, 400, 'a payment id that is not a string');
     DB.user.find(u => u.id === 2)!.telegramId = null;
-    assertSame((await refund(2)).status, 409, 'a person with no Telegram id');
-    assertSame((await refund(999)).status, 404, 'no such person');
+    assertSame((await refund(2, 'p-dana')).body, { error: 'NO_PAYMENT' }, 'a person with no Telegram id');
+    assertSame((await refund(999, 'p-dana')).status, 404, 'no such person');
     assertSame(botCalls, [], 'Telegram was asked');
   });
 
-  await check('7: refundSubscription itself refuses a free gift (even one with a leftover charge id) and a row with no charge id, and leaves them as they are', async () => {
+  await check('7: recordRefund itself marks a payment once (a second call records nothing), ends the plan only for the payment that funds the month, never for a free gift that kept an old charge id, and leaves the rest as it is', async () => {
     seedPayers();
-    const { refundSubscription } = await import('../src/services/subscription-service');
-    const gift = { ...subscriptionOf(1) };
-    assertSame(await withLogs(() => refundSubscription(1, ADMIN_ID)), { ok: false, code: 'NO_PAYMENT' }, 'a free gift');
-    unchanged(1, gift);
-    subscriptionOf(3).telegramPaymentChargeId = null;
-    const unpaid = { ...subscriptionOf(3) };
-    assertSame(await withLogs(() => refundSubscription(3, ADMIN_ID)), { ok: false, code: 'NO_PAYMENT' }, 'no charge id');
-    unchanged(3, unpaid);
-    assertSame(await withLogs(() => refundSubscription(404, ADMIN_ID)), { ok: false, code: 'NO_PAYMENT' }, 'no subscription at all');
-    assertSame(refundedActivity(), [], 'an activity row was written');
-    assertSame(await withLogs(() => refundSubscription(2, ADMIN_ID)), { ok: true, plan: 'PRO' }, 'a real payment');
+    const { recordRefund } = await import('../src/services/subscription-service');
+    const gift = JSON.parse(JSON.stringify(subscriptionOf(1)));
+    const first = await withLogs(() => recordRefund('p-noa-old', ADMIN_ID));
+    assert(first.ok && first.endedPlan === false && first.plan === 'PRO', `an old payment under a gift: ${show(first)}`);
+    assertSame(JSON.stringify(subscriptionOf(1)), JSON.stringify(gift), 'the gift changed');
+    assertSame(await withLogs(() => recordRefund('p-noa-old', ADMIN_ID)), { ok: false, code: 'ALREADY_RECORDED' }, 'a second call');
+    let threw = '';
+    await withLogs(() => recordRefund('p-nope', ADMIN_ID)).catch((e: Error) => { threw = e.message; });
+    assert(/p-nope/.test(threw), `an unknown payment did not throw: ${show(threw)}`);
+    const ended = await withLogs(() => recordRefund('p-olga', ADMIN_ID));
+    assert(ended.ok && ended.endedPlan && subscriptionOf(3).plan === 'FREE', `the funding payment: ${show(ended)} ${show(subscriptionOf(3))}`);
+    assertSame(refundedActivity().map(t => [t.userId, t.metadata?.ended_plan]), [[1, false], [3, true]], 'the activity rows');
   });
 
   await check('7: only an admin can refund: others get 403 and Telegram is not asked', async () => {
     seedPayers();
     adminAsking = false;
-    const before = { ...subscriptionOf(2) };
-    const answer = await refund(2);
+    const before = snapshot();
+    const answer = await refund(2, 'p-dana');
     assertSame(answer.status, 403, 'status');
     assertSame(botCalls, [], 'Telegram was asked');
-    unchanged(2, before);
+    unchanged(before);
   });
 
-  await check('7: if the database cannot record a refund Telegram already made, it is logged and captured loudly and the answer is a failure', async () => {
+  await check('7: if the database cannot record a refund Telegram already made, it is logged and captured loudly, the answer is a failure, nothing half-recorded stays, and the person is not told', async () => {
     seedPayers();
     failing.add('subscription.update');
-    const answer = await refund(2);
+    const answer = await refund(2, 'p-dana');
     assertSame(answer.status, 500, 'status');
     assert(botCalls.length === 1, 'Telegram was not asked');
+    assertSame(paymentOf('p-dana').refundedAt, null, 'the payment stayed marked although the plan was not ended');
     assert(captured.some(c => c.startsWith('admin-refund')), `not captured: ${show(captured)}`);
-    assert(logs.some(l => l.includes('[admin-refund]') && l.includes('refunded at Telegram') && l.includes('user 2')), `the log does not say the money is back but the plan is not ended: ${show(logs)}`);
-    assertSame(sentTo('telegram').filter(s => s.method === 'sendMessage'), [], 'the person was told of a refund that is not recorded');
+    assert(logs.some(l => l.includes('[admin-refund]') && l.includes('refunded at Telegram') && l.includes('user 2') && l.includes('p-dana')), `the log does not say the money is back but nothing is recorded: ${show(logs)}`);
+    assertSame(toPerson(), [], 'the person was told of a refund that is not recorded');
   });
 
   await check('7: a message to the person that fails to send does not undo the refund (logged and captured as a warning)', async () => {
@@ -1385,7 +1458,7 @@ async function fix7() {
     const original = tgService.sendMessage;
     tgService.sendMessage = async () => { throw new Error('Forbidden: bot was blocked by the user'); };
     try {
-      const answer = await refund(2);
+      const answer = await refund(2, 'p-dana');
       assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
     } finally {
       tgService.sendMessage = original;
@@ -1394,35 +1467,34 @@ async function fix7() {
     assert(captured.some(c => c.startsWith('admin-refund-notify')), `not captured: ${show(captured)}`);
   });
 
-  await check('7: the rule for a refund: a real payment (a charge id nobody gave away) is dated by the start of its period, and is refundable for 14 days, not a minute longer', async () => {
-    const { lastPaymentAt, refundableNow, REFUND_WINDOW_DAYS } = await import('../src/lib/refund-eligibility');
-    const start = new Date('2026-10-01T08:00:00Z');
-    const paid = { telegramPaymentChargeId: 'c1', compedBy: null, currentPeriodStart: start };
-    assertSame(lastPaymentAt(paid)?.toISOString(), start.toISOString(), 'a payment');
-    assertSame(lastPaymentAt({ ...paid, telegramPaymentChargeId: null }), null, 'no charge id');
-    assertSame(lastPaymentAt({ ...paid, compedBy: 9 }), null, 'a free Pro gift');
-    assertSame(lastPaymentAt({ ...paid, currentPeriodStart: null }), null, 'no period start');
-    assertSame(lastPaymentAt(null), null, 'no subscription');
+  await check('7: the rule for a refund: a payment is refundable for 14 days, not a second longer (REFUND_WINDOW_DAYS, the one constant)', async () => {
+    const { refundableNow, refundWindowStart, REFUND_WINDOW_DAYS } = await import('../src/lib/refund-eligibility');
     assertSame(REFUND_WINDOW_DAYS, 14, 'the window');
     const at = (iso: string) => new Date(iso);
     assert(refundableNow('2026-10-01T08:00:00Z', at('2026-10-15T08:00:00Z')), 'exactly 14 days later');
     assert(!refundableNow('2026-10-01T08:00:00Z', at('2026-10-15T08:00:01Z')), 'a second past 14 days');
     assert(refundableNow('2026-10-14T08:00:00Z', at('2026-10-15T08:00:00Z')), 'a day later');
     assert(!refundableNow(null, at('2026-10-15T08:00:00Z')) && !refundableNow('', at('2026-10-15T08:00:00Z')) && !refundableNow('not a date', at('2026-10-15T08:00:00Z')), 'no date');
+    assertSame(refundWindowStart(at('2026-10-15T08:00:00Z')).toISOString(), '2026-10-01T08:00:00.000Z', 'the window\'s start');
   });
 
-  await check('7: the overrides detail the panel reads carries the payment date (paidAt) of a real payment only, and never the charge id', async () => {
+  await check('7: the overrides detail the panel reads lists the refundable payments (not refunded, within 14 days), newest first, with their id, plan, Stars and date, and never a charge id', async () => {
     seedPayers();
     const { GET } = await import('../app/api/admin/user-overrides/route');
     const detail = async (userId: number) => {
       const response = await withLogs(() => GET(new Request(`https://famcal.test/api/admin/user-overrides?user_id=${userId}`, { headers: { 'x-telegram-init-data': 'x' } }) as never));
       assert(response.status === 200, `the route answered ${response.status}`);
-      return ((await response.json()) as { user: Row }).user.subscription as Row | null;
+      return ((await response.json()) as { user: Row }).user as Row;
     };
     const dana = await detail(2);
-    assertSame(dana?.paidAt, subscriptionOf(2).currentPeriodStart.toISOString(), 'the payment date of a person who paid');
-    assertSame((await detail(1))?.paidAt, null, 'a free Pro gift');
-    assert(!JSON.stringify(dana).includes('charge-dana'), 'the charge id reaches the browser');
+    assertSame(dana.payments, [
+      { id: 'p-dana', plan: 'PRO', amount: 5000, paidAt: paymentOf('p-dana').paidAt.toISOString() },
+      { id: 'p-dana-basic', plan: 'BASIC', amount: 2500, paidAt: paymentOf('p-dana-basic').paidAt.toISOString() },
+    ], 'Dana\'s payments');
+    assertSame((await detail(3)).payments, [], 'a payment 20 days old');
+    assertSame((await detail(1)).payments, [], 'a refunded payment and an old one');
+    assert(!JSON.stringify(dana).includes('charge-'), 'a charge id reaches the browser');
+    assert(!('paidAt' in (dana.subscription ?? {})), 'the old single payment date is still sent');
   });
 }
 

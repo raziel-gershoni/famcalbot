@@ -50,6 +50,14 @@ export type SetupAttempts = Array<{ day: number; sent: boolean; due: boolean }>;
 export const REMINDER_TYPES = ['calendars', 'reconnect', 'location'] as const;
 export type ReminderType = (typeof REMINDER_TYPES)[number];
 
+/** One Telegram Stars payment the panel offers to refund: its own row's id (never the charge id), the plan it paid for, its Stars and when. */
+export interface RefundablePayment {
+  id: string;
+  plan: string;
+  amount: number;
+  paidAt: string;
+}
+
 export interface UserOverrideDetails {
   /** The database id. */
   id: number;
@@ -70,9 +78,9 @@ export interface UserOverrideDetails {
     comped: boolean;
     compedAt: string | null;
     compReason: string | null;
-    /** When they last paid (ISO), or null when they have not paid (a trial, a free gift): the refund is offered within 14 days of it. */
-    paidAt: string | null;
   } | null;
+  /** The payments an admin may still refund: not refunded, within 14 days of being paid (ISO), newest first. */
+  payments: RefundablePayment[];
   usage: {
     textSummariesUsed: number;
     voiceSummariesUsed: number;

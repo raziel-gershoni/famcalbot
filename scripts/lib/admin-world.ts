@@ -54,6 +54,7 @@ export const detail = (id: number, over: Row = {}): Row => ({
   paidFeatures: { unlimitedSummaries: false, remindersEnabled: false, voiceEventsEnabled: false, unlimitedCalendars: false },
   registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: true, applicableReminder: null, googleState: 'none' },
   setupReminders: { daysSinceCreated: 3, daysSinceStart: 3, wasReset: false, calendars: [], reconnect: [], location: [] },
+  payments: [],
   ...over,
 });
 

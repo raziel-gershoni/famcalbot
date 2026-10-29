@@ -81,6 +81,7 @@ model User {
 
   // Relations
   subscription    Subscription?
+  payments        Payment[]
   usageCounter    UsageCounter?
   activities      UserActivity[]
   featureOverride UserFeatureOverride?
@@ -442,6 +443,27 @@ model Subscription {
 
   @@index([userId])
   @@index([status])
+}
+
+// One row per Telegram Stars payment (the Privacy Policy keeps the reference number and the month of each one; the Terms
+// refund any payment within 14 days of it). Written in the credit's own transaction, before anything else: the unique
+// charge id is what makes a second delivery of the same successful_payment credit nothing, refunded or not. Deleted with
+// the account (the Policy keeps no payment records of ours after it; Telegram keeps its own).
+model Payment {
+  id                      String           @id @default(cuid())
+  userId                  Int
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  telegramPaymentChargeId String           @unique // successful_payment.telegram_payment_charge_id
+  plan                    SubscriptionPlan // The plan it paid for (BASIC or PRO)
+  amount                  Int // successful_payment.total_amount: whole Telegram Stars
+  currency                String // 'XTR'
+  paidAt                  DateTime
+  periodStart             DateTime // The month it paid for, on the person's clock (getSubscriptionEndDate)
+  periodEnd               DateTime
+  refundedAt              DateTime? // Set when Telegram refunded it (or said it already had)
+  createdAt               DateTime         @default(now())
+
+  @@index([userId])
 }
 
 model UsageCounter {

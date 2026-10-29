@@ -3,7 +3,7 @@
  * Manages user subscriptions, trials, and feature access
  */
 
-import { Prisma, Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
+import { Payment, Prisma, Subscription, SubscriptionPlan, SubscriptionStatus, UsageCounter, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { prisma } from '../utils/prisma';
 import { PlanId, getPlanLimits, TRIAL_DURATION_DAYS, PLAN_CONFIGS } from '../config/plans';
@@ -70,9 +70,21 @@ export function getSubscriptionEndDate(from: Date, timeZone: string): Date {
  */
 const USAGE_ZONE = TIMEZONE;
 
-/** What a payment did: the subscription after it, and whether this call credited it (false: that charge was already). */
+/** A Telegram Stars payment, as successful_payment reports it, for the plan its invoice was for. */
+export interface StarsPayment {
+  /** telegram_payment_charge_id: unique per payment, and what a refund names. */
+  chargeId: string;
+  plan: PlanId;
+  /** total_amount: whole Stars. */
+  amount: number;
+  /** 'XTR' */
+  currency: string;
+}
+
+/** What a payment did: the subscription after it, its Payment row, and whether this call credited it (false: that charge was already). */
 export interface PaymentCredit {
   subscription: Subscription;
+  payment: Payment;
   credited: boolean;
 }
 
@@ -173,26 +185,6 @@ export async function getSubscriptionWithUsage(userId: number, isEarlyAdopter?: 
   };
 }
 
-/**
- * Writes a payment's month to the subscription once per charge: the row is updated only while it doesn't hold
- * `chargeId` yet, in one statement. Postgres reads that condition again under the row's lock, so two deliveries of the
- * same charge (Telegram sending the update again, even at the same time) can't both match. False when the charge was
- * already credited; throws when the row is missing.
- */
-async function creditCharge(userId: number, chargeId: string, data: Prisma.SubscriptionUpdateManyMutationInput): Promise<boolean> {
-  const { count } = await prisma.subscription.updateMany({
-    where: { userId, OR: [{ telegramPaymentChargeId: null }, { telegramPaymentChargeId: { not: chargeId } }] },
-    data: { ...data, telegramPaymentChargeId: chargeId },
-  });
-  if (count > 0) return true;
-  const current = await prisma.subscription.findUnique({ where: { userId } });
-  if (current?.telegramPaymentChargeId === chargeId) {
-    console.log(`[Subscription] Charge ${chargeId} was already credited to user ${userId}: nothing changes`);
-    return false;
-  }
-  throw new Error(`The subscription of user ${userId} did not take charge ${chargeId}`);
-}
-
 /** A paid month's fields: from now to one calendar month on, on the person's clock (getSubscriptionEndDate). */
 function paidMonth(now: Date, timeZone: string) {
   return {
@@ -210,8 +202,8 @@ function paidMonth(now: Date, timeZone: string) {
 }
 
 /** A new paid month resets the usage counters. */
-async function resetUsage(userId: number, now: Date): Promise<void> {
-  await prisma.usageCounter.upsert({
+async function resetUsage(tx: Prisma.TransactionClient, userId: number, now: Date): Promise<void> {
+  await tx.usageCounter.upsert({
     where: { userId },
     update: {
       textSummariesUsed: 0,
@@ -228,38 +220,61 @@ async function resetUsage(userId: number, now: Date): Promise<void> {
 }
 
 /**
- * Upgrade subscription to a new plan, once per charge (a repeated delivery credits nothing). The month runs until the
- * same wall time one calendar month later in `timeZone`, the person's zone.
+ * Credit a Telegram Stars payment, once per charge. In one transaction: the payment's own row first (its charge id is
+ * unique, so a charge already recorded, credited or credited and refunded since, inserts nothing and credits nothing),
+ * then the subscription (the plan paid for, ACTIVE, the month from now until the same wall time one calendar month later
+ * in `timeZone`, the person's zone; a free gift ends; the charge id it now holds is the one that funds this month), then
+ * fresh usage counters. Either all of it is written or none of it: a failure throws with nothing half-credited, and the
+ * next delivery of the update credits it. Every way to pay comes here (a new plan, a move up or down, a renewal, an old
+ * invoice paid after the plan lapsed), so the stored plan is always the one paid for. After the commit, the access cache
+ * is dropped and an activity row is written; each logs its own failure and never undoes the credit.
  */
-export async function upgradeSubscription(
+export async function creditPayment(
   userId: number,
-  newPlan: PlanId,
-  telegramPaymentChargeId: string,
-  timeZone: string
+  paid: StarsPayment,
+  timeZone: string,
+  action: 'upgrade' | 'renew' = 'upgrade'
 ): Promise<PaymentCredit> {
   const existing = await getOrCreateSubscription(userId);
   const fromPlan = existing.plan;
 
   const now = new Date();
   const month = paidMonth(now, timeZone);
-  if (!(await creditCharge(userId, telegramPaymentChargeId, { plan: newPlan, ...month }))) {
-    return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: false };
-  }
-
-  await resetUsage(userId, now);
-
-  // Track upgrade
-  await trackActivity(userId, 'subscription_upgraded', {
-    from_plan: fromPlan,
-    to_plan: newPlan,
+  const credited = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.payment.createMany({
+      data: [{
+        userId,
+        telegramPaymentChargeId: paid.chargeId,
+        plan: paid.plan,
+        amount: paid.amount,
+        currency: paid.currency,
+        paidAt: now,
+        periodStart: month.currentPeriodStart,
+        periodEnd: month.currentPeriodEnd,
+      }],
+      skipDuplicates: true,
+    });
+    if (count === 0) return false;
+    await tx.subscription.update({ where: { userId }, data: { plan: paid.plan, ...month, telegramPaymentChargeId: paid.chargeId } });
+    await resetUsage(tx, userId, now);
+    return true;
   });
 
-  // Invalidate feature access cache so new limits take effect immediately
+  const [subscription, payment] = await Promise.all([
+    prisma.subscription.findUniqueOrThrow({ where: { userId } }),
+    prisma.payment.findUniqueOrThrow({ where: { telegramPaymentChargeId: paid.chargeId } }),
+  ]);
+  if (!credited) {
+    console.log(`[Subscription] Charge ${paid.chargeId} was already credited (payment ${payment.id} of user ${payment.userId}${payment.refundedAt ? ', refunded since' : ''}): nothing changes`);
+    return { subscription, payment, credited: false };
+  }
+
   await invalidateFeatureAccessCache(userId);
+  await trackActivity(userId, action === 'renew' ? 'subscription_renewed' : 'subscription_upgraded', { from_plan: fromPlan, to_plan: paid.plan });
 
-  console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}, valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
+  console.log(`[Subscription] User ${userId} paid ${paid.amount} ${paid.currency} for ${paid.plan} (from ${fromPlan}, charge ${paid.chargeId}), valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
 
-  return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: true };
+  return { subscription, payment, credited: true };
 }
 
 // ============================================
@@ -283,7 +298,7 @@ export type CompRevokeResult =
  * trial's own dates stay, so that stopping the gift can give back the trial days that are left.
  * The gift is silent, and so is stopping it.
  *
- * Deliberately does NOT reuse upgradeSubscription(): that stamps a one-month
+ * Deliberately does NOT reuse creditPayment(): that stamps a one-month
  * currentPeriodEnd and is the payment path. A comp has no period end at all,
  * which is what keeps expireSubscriptions() away from it even if the explicit
  * compedBy guard is ever removed.
@@ -326,7 +341,7 @@ export async function grantCompedSubscription(
         data: { userId, trialStartedAt: now, trialEndsAt: now, ...compFields },
       });
 
-  // Match upgradeSubscription: a new period starts with a clean slate.
+  // Match creditPayment: a new period starts with a clean slate.
   await prisma.usageCounter.upsert({
     where: { userId },
     update: {
@@ -400,42 +415,51 @@ export async function revokeCompedSubscription(
   return { ok: true };
 }
 
-export type RefundSubscriptionResult = { ok: true; plan: string } | { ok: false; code: 'NO_PAYMENT' };
+export type RecordRefundResult =
+  | { ok: true; plan: SubscriptionPlan; paidAt: Date; endedPlan: boolean }
+  | { ok: false; code: 'ALREADY_RECORDED' };
 
 /**
- * End a person's paid plan after an admin refunded their last payment at Telegram (admin-refund.ts calls this only once
- * Telegram has agreed). Their access ends the way a stopped gift's does, but always FREE / EXPIRED: the message they are
- * sent says they are back on the Free plan, so a trial the payment replaced is not given back (a gift was never paid for,
- * which is why stopping one does give the trial days back). The payment's charge id is cleared with the period, in one
- * transaction with the check that there is a real payment to end: a free gift (compedBy) is never touched here, as a
- * real payment is never touched by the comp code. Then the feature access cache is dropped and an activity row is written.
- * Usage counters are left alone, as when a gift is stopped.
+ * Record a refund Telegram has made (admin-refund.ts calls this only once Telegram agreed, or said it already had): in
+ * one transaction, the payment is marked refunded (only while it isn't yet, so two admins refunding it at once record it
+ * once), and when it is the payment that funds the current month (the subscription holds its charge id, and no admin has
+ * given the plan away since) the paid plan ends: FREE / EXPIRED, the charge id and the period cleared. A trial the payment
+ * replaced is not given back (the message says they are on the Free plan; a gift was never paid for, which is why
+ * stopping one does give the trial days back). An earlier payment changes nothing else: the plan the later one paid for
+ * keeps running. Then the access cache is dropped (when the plan ended) and an activity row is written. Usage counters
+ * are left alone, as when a gift is stopped.
  */
-export async function refundSubscription(userId: number, adminId: number): Promise<RefundSubscriptionResult> {
+export async function recordRefund(paymentId: string, adminId: number): Promise<RecordRefundResult> {
   const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.subscription.findUnique({ where: { userId } });
-    if (!existing || !existing.telegramPaymentChargeId || existing.compedBy != null) return null;
-    await tx.subscription.update({
-      where: { userId },
-      data: {
-        plan: 'FREE',
-        status: 'EXPIRED',
-        telegramPaymentChargeId: null,
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
-        cancelAtPeriodEnd: false,
-      },
-    });
-    return existing.plan;
+    const payment = await tx.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new Error(`No payment ${paymentId}`);
+    const { count } = await tx.payment.updateMany({ where: { id: paymentId, refundedAt: null }, data: { refundedAt: new Date() } });
+    if (count === 0) return null;
+    const sub = await tx.subscription.findUnique({ where: { userId: payment.userId } });
+    const funded = !!sub && sub.compedBy == null && sub.telegramPaymentChargeId === payment.telegramPaymentChargeId;
+    if (funded) {
+      await tx.subscription.update({
+        where: { userId: payment.userId },
+        data: {
+          plan: 'FREE',
+          status: 'EXPIRED',
+          telegramPaymentChargeId: null,
+          currentPeriodStart: null,
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+        },
+      });
+    }
+    return { userId: payment.userId, plan: payment.plan, paidAt: payment.paidAt, endedPlan: funded };
   });
-  if (result === null) return { ok: false, code: 'NO_PAYMENT' };
+  if (result === null) return { ok: false, code: 'ALREADY_RECORDED' };
 
-  await invalidateFeatureAccessCache(userId);
-  await trackActivity(userId, 'subscription_refunded', { admin_id: adminId, plan: result });
+  if (result.endedPlan) await invalidateFeatureAccessCache(result.userId);
+  await trackActivity(result.userId, 'subscription_refunded', { admin_id: adminId, plan: result.plan, ended_plan: result.endedPlan });
 
-  console.log(`[Subscription] Admin ${adminId} refunded the last payment of user ${userId} (${result}); they are on the Free plan`);
+  console.log(`[Subscription] Admin ${adminId} refunded payment ${paymentId} of user ${result.userId} (${result.plan}, paid ${result.paidAt.toISOString()}); ${result.endedPlan ? 'it funded the current month, so they are on the Free plan' : 'an earlier payment: the current plan stays'}`);
 
-  return { ok: true, plan: result };
+  return { ok: true, plan: result.plan, paidAt: result.paidAt, endedPlan: result.endedPlan };
 }
 
 /**
@@ -520,40 +544,6 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   console.log(`[Subscription] Trial expired for user ${userId}`);
 
   return updated;
-}
-
-/**
- * Renew subscription (called on successful manual payment), once per charge (a repeated delivery credits nothing). The
- * month runs until the same wall time one calendar month later in `timeZone`, the person's zone.
- */
-export async function renewSubscription(
-  userId: number,
-  telegramPaymentChargeId: string,
-  timeZone: string
-): Promise<PaymentCredit> {
-  const existing = await getSubscription(userId);
-  if (!existing) {
-    throw new Error('No subscription found');
-  }
-
-  const now = new Date();
-  const month = paidMonth(now, timeZone);
-  if (!(await creditCharge(userId, telegramPaymentChargeId, month))) {
-    return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: false };
-  }
-
-  await resetUsage(userId, now);
-
-  await trackActivity(userId, 'subscription_renewed', {
-    plan: existing.plan,
-  });
-
-  // Invalidate feature access cache
-  await invalidateFeatureAccessCache(userId);
-
-  console.log(`[Subscription] Subscription renewed for user ${userId}, valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
-
-  return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: true };
 }
 
 // ============================================

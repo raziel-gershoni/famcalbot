@@ -5,7 +5,7 @@
 
 import { getBot, getMessagingService } from './telegram';
 import { getUserByTelegramId } from './user-service';
-import { upgradeSubscription, renewSubscription, getSubscription } from './subscription-service';
+import { creditPayment, getSubscription } from './subscription-service';
 import { prisma } from '../utils/prisma';
 import { trackActivity, addBreadcrumb, setUserContext } from './analytics-service';
 import { MessageFormat } from './messaging/types';
@@ -14,9 +14,8 @@ import { PlanId, PLAN_CONFIGS } from '../config/plans';
 import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
-import { invoiceDescription, paymentConfirmation } from '../lib/plan-disclosure';
-import { timezoneWithin, TZ_LOOKUP_MS } from '../lib/timezone';
-import type { UserConfig } from '../types';
+import { invoiceDescription, paymentConfirmation, paymentFallback } from '../lib/plan-disclosure';
+import { timezoneWithin, TZ_LOOKUP_MS, type TimezoneUser } from '../lib/timezone';
 
 interface PreCheckoutQuery {
   id: string;
@@ -116,27 +115,45 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
  * The person's zone for the paid month's end and its confirmation, as the lookup gives it within TZ_LOOKUP_MS (the
  * screens' own wait): the webhook answers Telegram only when this handler returns, so a cold cache and a slow place
  * search must not hold it. Past that wait the lookup carries on and caches its answer for next time, and the month is
- * counted in Israel's zone (TIMEZONE); a lookup that fails does the same. Either is logged.
+ * counted in Israel's zone (TIMEZONE); a lookup that fails does the same. Either is logged. The refund's message to the
+ * person names the payment's day in the same zone (admin-refund.ts).
  */
-async function paymentZone(user: UserConfig): Promise<string> {
+export async function paymentZone(user: TimezoneUser): Promise<string> {
   try {
     const zone = await timezoneWithin(user, TZ_LOOKUP_MS);
     if (zone) return zone;
-    console.warn(`[Payment] The timezone of user ${user.id} took over ${TZ_LOOKUP_MS} ms; the paid month and its confirmation use ${TIMEZONE}`);
+    console.warn(`[Payment] The timezone of user ${user.id} took over ${TZ_LOOKUP_MS} ms; the payment's dates use ${TIMEZONE}`);
     return TIMEZONE;
   } catch (error) {
-    console.error(`[Payment] Could not read the timezone of user ${user.id}; the paid month and its confirmation use ${TIMEZONE}:`, error);
+    console.error(`[Payment] Could not read the timezone of user ${user.id}; the payment's dates use ${TIMEZONE}:`, error);
     captureError(error, 'payment-confirmation-timezone', { user_id: user.id }, 'warning');
     return TIMEZONE;
   }
 }
 
+/** The invoice's payload, when it names a paid plan; null when it can't be read. */
+function readPayload(raw: string): PaymentPayload | null {
+  try {
+    const payload = JSON.parse(raw) as PaymentPayload;
+    return payload && PLAN_CONFIGS[payload.plan] && PLAN_CONFIGS[payload.plan].priceStars > 0 ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Handle successful payment
- * Activate or renew subscription, then send the one confirmation (src/lib/plan-disclosure.ts): the plan, the price, when
- * the month ends in the person's zone, that it never renews, the seller and the ways to cancel within 14 days.
- * Once per charge: Telegram delivers the update again when the webhook's answer is late or fails, and a charge already
- * credited credits nothing and sends nothing.
+ * Handle successful payment (the webhook's successful_payment), once per charge: Telegram delivers the update again
+ * when the webhook's answer fails or is late, and a charge already recorded credits nothing and sends nothing.
+ *
+ *   1. Who paid (the internal user.id from the payer's Telegram id) and for what (the invoice's payload). A payer the
+ *      bot doesn't know, or a payload that names no paid plan, can't be credited by any delivery: logged, captured, the
+ *      person told activation failed (in their language when known), and answered.
+ *   2. The credit (creditPayment): the payment's row, the plan and the month, in one transaction. A failure there (the
+ *      database) leaves nothing written: it is logged and thrown, so the webhook answers 500 and Telegram delivers the
+ *      update again, which credits it then.
+ *   3. The one confirmation (src/lib/plan-disclosure.ts): the plan, the price, when the month ends in the person's zone,
+ *      that it never renews, the seller and the ways to cancel within 14 days. The plan is active by now, so a failure
+ *      here never says activation failed: it is logged and captured, and the short plain-text fallback is sent instead.
  */
 export async function handleSuccessfulPayment(
   chatId: number,
@@ -144,6 +161,7 @@ export async function handleSuccessfulPayment(
   payment: SuccessfulPayment
 ): Promise<void> {
   const messagingService = getMessagingService();
+  const chargeId = payment.telegram_payment_charge_id;
 
   // Set user context and add breadcrumb
   setUserContext(userId);
@@ -151,66 +169,53 @@ export async function handleSuccessfulPayment(
     user_id: userId,
     currency: payment.currency,
     amount: payment.total_amount,
-    charge_id: payment.telegram_payment_charge_id,
+    charge_id: chargeId,
   }, 'payment');
 
+  // 1. Who paid and for what (userId is the payer's Telegram id; a lookup that throws goes to the route: 500, delivered again)
+  const user = await getUserByTelegramId(userId);
+  const payload = readPayload(payment.invoice_payload);
+  if (!user || !payload) {
+    const why = !user ? `no user has Telegram id ${userId}` : `its payload names no paid plan: ${payment.invoice_payload}`;
+    console.error(`[Payment] Charge ${chargeId} can't be credited: ${why}`);
+    captureError(new Error(`A paid charge can't be credited: ${why}`), 'payment-successful', { telegram_id: userId, charge_id: chargeId });
+    const errorT = await getSubscriptionMessages(user?.language || 'en');
+    await messagingService.sendMessage(chatId, errorT.paymentError, { format: MessageFormat.HTML });
+    return;
+  }
+  const language = user.language || 'en';
+
+  // 2. The credit, all or nothing (use internal DB user.id, not Telegram userId), the month on the person's clock
+  const timeZone = await paymentZone(user);
+  let credit: Awaited<ReturnType<typeof creditPayment>>;
   try {
-    // Parse payload
-    let payload: PaymentPayload;
-    try {
-      payload = JSON.parse(payment.invoice_payload);
-    } catch {
-      captureError(new Error('Invalid payment payload JSON'), 'payment-successful', {
-        user_id: userId,
-        charge_id: payment.telegram_payment_charge_id,
-      });
-      const errorT = await getSubscriptionMessages('en');
-      await messagingService.sendMessage(
-        chatId,
-        errorT.paymentError || '❌ There was an error activating your subscription. Please contact support.',
-        { format: MessageFormat.HTML }
-      );
-      return;
-    }
+    credit = await creditPayment(user.id, { chargeId, plan: payload.plan, amount: payment.total_amount, currency: payment.currency }, timeZone, payload.action);
+  } catch (error) {
+    console.error(`[Payment] Crediting charge ${chargeId} to user ${user.id} failed, nothing was written; the webhook answers 500 so Telegram delivers it again:`, error);
+    throw error;
+  }
+  if (!credit.credited) {
+    console.log(`[Payment] Charge ${chargeId} for user ${user.id} was already credited: a repeated update, so no second confirmation`);
+    return;
+  }
 
-    // Get user for language (userId param is Telegram ID from webhook)
-    const user = await getUserByTelegramId(userId);
-    if (!user) {
-      throw new Error(`User not found for Telegram ID: ${userId}`);
-    }
-    const language = user.language || 'en';
-    const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
+  // Add breadcrumb for subscription activation
+  addBreadcrumb('subscription_activated', {
+    user_id: user.id,
+    plan: payload.plan,
+    action: payload.action,
+  }, 'payment');
 
-    // Activate subscription (use internal DB user.id, not Telegram userId), the month on the person's clock
-    const chargeId = payment.telegram_payment_charge_id;
-    const timeZone = await paymentZone(user);
-    const { subscription, credited } = payload.action === 'renew'
-      ? await renewSubscription(user.id, chargeId, timeZone)
-      : await upgradeSubscription(user.id, payload.plan, chargeId, timeZone);
-    if (!credited) {
-      console.log(`[Payment] Charge ${chargeId} for user ${user.id} was already credited: a repeated update, so no second confirmation`);
-      return;
-    }
-    if (!subscription.currentPeriodEnd) {
-      throw new Error(`The subscription of user ${user.id} has no period end after a payment`);
-    }
+  // Track payment (use internal DB user.id)
+  await trackActivity(user.id, 'subscription_upgraded', {
+    plan: payload.plan,
+    to_plan: payload.plan,
+  });
 
-    // Add breadcrumb for subscription activation
-    addBreadcrumb('subscription_activated', {
-      user_id: user.id,
-      plan: payload.plan,
-      action: payload.action,
-    }, 'payment');
-
-    // Track payment (use internal DB user.id)
-    await trackActivity(user.id, 'subscription_upgraded', {
-      plan: payload.plan,
-      to_plan: payload.plan,
-    });
-
-    // The one confirmation, in the person's language and zone
-    const planKey = payload.plan.toLowerCase();
-    const localizedPlanName = t.plans?.[planKey]?.name || payload.plan;
+  // 3. The one confirmation, in the person's language and zone; its plain fallback if it can't be sent
+  const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
+  const localizedPlanName = t.plans?.[payload.plan.toLowerCase()]?.name || payload.plan;
+  try {
     const dashboardUrl = buildUrl(`/${language}/subscription?user_id=${userId}`);
     const successMessage = paymentConfirmation({
       template: t.paymentSuccess,
@@ -218,34 +223,31 @@ export async function handleSuccessfulPayment(
       locale: language,
       planName: localizedPlanName,
       price: payment.total_amount,
-      periodEnd: subscription.currentPeriodEnd,
+      periodEnd: credit.payment.periodEnd,
       timeZone,
     });
-
     await messagingService.sendMessage(chatId, successMessage, {
       format: MessageFormat.HTML,
       disablePreview: true,
       replyMarkup: {
         inline_keyboard: [[
           {
-            text: t.viewSubscription || 'View Subscription',
+            text: t.viewSubscription,
             web_app: { url: dashboardUrl },
           },
         ]],
       },
     });
-
-    console.log(`[Payment] Subscription activated for user ${userId}, plan: ${payload.plan}`);
+    console.log(`[Payment] Subscription activated for user ${user.id}, plan: ${payload.plan}`);
   } catch (error) {
-    captureError(error, 'payment-successful', { user_id: userId });
-
-    // Notify user of error
-    const errorT = await getSubscriptionMessages('en');
-    await messagingService.sendMessage(
-      chatId,
-      errorT.paymentError || '❌ There was an error activating your subscription. Please contact support.',
-      { format: MessageFormat.HTML }
-    );
+    console.error(`[Payment] The confirmation of charge ${chargeId} to user ${user.id} failed (the plan is active); sending its short fallback:`, error);
+    captureError(error, 'payment-confirmation', { user_id: user.id, charge_id: chargeId });
+    try {
+      await messagingService.sendMessage(chatId, paymentFallback({ template: t.paymentFallback, locale: language, planName: localizedPlanName, periodEnd: credit.payment.periodEnd, timeZone }));
+    } catch (fallbackError) {
+      console.error(`[Payment] The fallback confirmation of charge ${chargeId} to user ${user.id} failed too:`, fallbackError);
+      captureError(fallbackError, 'payment-confirmation-fallback', { user_id: user.id, charge_id: chargeId });
+    }
   }
 }
 
@@ -286,13 +288,9 @@ export async function sendSubscriptionInvoice(
   const planKey = plan.toLowerCase();
   const localizedPlanName = t.plans?.[planKey]?.name || planConfig.name;
 
-  const title = t.invoiceTitle
-    ? t.invoiceTitle.replace('{plan}', localizedPlanName)
-    : `FamCalBot ${localizedPlanName}`;
+  const title = String(t.invoiceTitle).replace('{plan}', localizedPlanName);
   const description = invoiceDescription(t.invoiceDescription, language, localizedPlanName);
-  const priceLabel = t.invoiceLabel
-    ? t.invoiceLabel.replace('{plan}', localizedPlanName)
-    : `${localizedPlanName} (1 month)`;
+  const priceLabel = String(t.invoiceLabel).replace('{plan}', localizedPlanName);
 
   // Add breadcrumb for invoice sent
   addBreadcrumb('invoice_sending', {
