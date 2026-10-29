@@ -143,6 +143,6 @@ New keys, natural in en, he and ru: gender-neutral Hebrew, formal вы in Russia
 - Turning a copy on without the permission takes two taps (the switch, then Open Google): Telegram opens an outside link only straight from a tap, and the consent URL comes back from the server first.
 - The 'error' state has no button of its own; turning the copy off and on again retries it.
 - The WhatsApp reply after a sync consent has no button (a magic link can't open the calendars page); it carries the Telegram tip.
-- The calendars page is light-only, as before; its dark mode comes with the deferred screen redesign.
+- The calendars page is in the app's design since W4-1 (2026-10-29): light and dark follow the device, the Copy to Google rows are the form kit's switch rows (one per own calendar, under a "Copy to Google" label), and the Remove / Keep question is a bottom sheet, for turning a copy off and for deleting a calendar whose copy is on.
 - "Copy again" on an 'otherAccount' copy drops the old calendar's id. That calendar stays in the other Google account, and FamCal keeps hiding it by its `[famcal:<linkId>]` token if that account is connected again.
 - Serial calendar creation and the daily Hebrew refresh are per process, which is right for one Railway instance. The admin hard delete carries out each queued Remove inside its own request (best effort; the delete goes ahead when Google fails).
