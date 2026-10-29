@@ -1052,7 +1052,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   }, [monthPossible]);
 
   if (blocked === 'noCredential') {
-    return <NoCredentialCard look="app" inTelegram={inTelegram} links={CLIENT_GATE_LINKS} />;
+    return <NoCredentialCard inTelegram={inTelegram} links={CLIENT_GATE_LINKS} />;
   }
 
   const zone = facts && zoneDiffers(deviceZone, facts.tz) ? facts.tz : null;

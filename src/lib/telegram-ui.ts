@@ -213,8 +213,8 @@ export function applyTelegramColours(key: 'bg_color' | 'secondary_bg_color' = 'b
 
 /**
  * The home's look (spec §7.1). On mount, and again on every themeChanged, Telegram's
- * header and background take the theme's bg_color (PageGate's loader set the purple
- * ones). A grouped screen (cards on a ground, Settings) takes secondary_bg_color in a
+ * header and background take the theme's bg_color (no page sets a colour of its own
+ * any more). A grouped screen (cards on a ground, Settings) takes secondary_bg_color in a
  * light theme, the ground its cards sit on, and bg_color in a dark one, where the ground
  * is the page's own; the scheme is read when the event fires. Returns the scheme to
  * render: Telegram's colorScheme, following themeChanged, inside Telegram;

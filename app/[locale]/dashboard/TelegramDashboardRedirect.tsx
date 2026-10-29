@@ -24,7 +24,7 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
 
       // MUST call ready() first thing; full height before the dashboard loads. The dashboard's own look,
       // the app's: no colour of ours on Telegram's header (its AppScreen takes the theme's bg_color).
-      startMiniApp('app');
+      startMiniApp();
 
       // Get user ID from initData
       const userId = tg.initDataUnsafe?.user?.id;
@@ -57,9 +57,9 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
   }, [router, locale]);
 
   if (gate) {
-    return <NoCredentialCard look="app" inTelegram={gate === 'telegram'} links={links} />;
+    return <NoCredentialCard inTelegram={gate === 'telegram'} links={links} />;
   }
 
   // The dashboard's own loader, the one PageGate shows while the home loads
-  return <PageLoader look="app" />;
+  return <PageLoader />;
 }

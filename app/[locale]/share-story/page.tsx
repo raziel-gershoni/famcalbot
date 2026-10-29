@@ -94,5 +94,5 @@ export default function ShareStoryPage() {
       </AppScreen>
     );
   }
-  return <PageLoader look="app" />;
+  return <PageLoader />;
 }

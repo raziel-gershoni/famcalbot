@@ -41,7 +41,7 @@ export default function FeedbackClient({ userId, locale }: FeedbackClientProps) 
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    startMiniApp('app');
+    startMiniApp();
   }, []);
 
   const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);

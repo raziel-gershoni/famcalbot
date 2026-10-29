@@ -12,7 +12,7 @@
 //  - AppScreen (in real React on a small fake DOM, with a fake Telegram.WebApp): its root, the
 //    scheme it provides, and Telegram's BackButton, which shows exactly while onBack is set,
 //    calls the latest onBack, and goes with the screen; and no other file calls
-//    useTelegramBackButton but the Calendars client, which a later plan moves;
+//    useTelegramBackButton;
 //  - the layer's boundary: nothing in components/app-ui/ imports from app/ or a server module,
 //    so every screen can take it into its client bundle;
 //  - the cards (renderToString in en, he and ru): StateCard draws the home's card with the markup
@@ -455,7 +455,7 @@ async function main() {
     const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
     const calls: string[] = [];
     fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
-    const card = (inTelegram: boolean) => inIntl('he', createElement(NoCredentialCard, { look: 'app', inTelegram, links }));
+    const card = (inTelegram: boolean) => inIntl('he', createElement(NoCredentialCard, { inTelegram, links }));
     const tg = mount(card(true));
     try {
       const buttons = elements(tg.container).filter((e) => e.localName === 'button');
@@ -947,7 +947,7 @@ async function main() {
     }
   });
 
-  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and the dynamic() fallback of Settings, of Subscription and of Pair draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
+  await check("K12 the loader is on the page's ground: PageGate's own (while the data is on its way) and the dynamic() fallback of Settings, of Subscription, of Pair, of Calendars and of Select calendars draw the grouped screen, and in a light Telegram 7.7 ask secondary_bg_color, so the header does not change colour when the page arrives; the dashboard's loader stays plain (bg_color)", () => {
     installWindow();
     const { AppRouterContext } = createRequire(__filename)('next/dist/shared/lib/app-router-context.shared-runtime');
     const router = { push: noop, replace: noop, prefetch: noop, back: noop, forward: noop, refresh: noop };
@@ -957,7 +957,7 @@ async function main() {
     const origFetch = globalThis.fetch;
     globalThis.fetch = (() => new Promise<Response>(() => undefined)) as typeof fetch;
     try {
-      for (const [page, grouped] of [['settings', true], ['subscription', true], ['pair', true], ['dashboard', false]] as const) {
+      for (const [page, grouped] of [['settings', true], ['subscription', true], ['pair', true], ['calendars', true], ['select-calendars', true], ['dashboard', false]] as const) {
         // The gate's own loader, mounted in a light Telegram 7.7
         const calls: string[] = [];
         fakeWindow.Telegram = { WebApp: fakeTelegram(calls, '7.7') };
@@ -973,7 +973,7 @@ async function main() {
           fakeWindow.Telegram = undefined;
         }
         // The page's chunk loading (next/dynamic's fallback)
-        const props = page !== 'dashboard' ? { userId: 1 } : { user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: false }, locale: 'en', sources: ['famcal'], googleConnected: false, googleState: 'none', trial: { isTrialing: false, daysRemaining: 0, trialEndsAt: null }, isEarlyAdopter: false, hints: { reminders: true, voiceEvents: false }, lookahead7: false };
+        const props = page === 'select-calendars' ? { userId: 1, currentSelections: { selectedCalendars: [], calendarLabels: [], calendarRules: [], spouseInfo: null, globalRules: [] } } : page !== 'dashboard' ? { userId: 1 } : { user: { id: 5550001, name: 'Dana', location: 'Tel Aviv', isAdmin: false }, locale: 'en', sources: ['famcal'], googleConnected: false, googleState: 'none', trial: { isTrialing: false, daysRemaining: 0, trialEndsAt: null }, isEarlyAdopter: false, hints: { reminders: true, voiceEvents: false }, lookahead7: false };
         const fallback = renderToString(inRouter(renderPage(page, props as never)));
         assert(fallback.startsWith(`<div class="${grouped ? 'ch-app ch-screen ch-grouped' : 'ch-app ch-screen'}" `) && fallback.includes('class="ch-loader"'), `${page}: the chunk's fallback: ${fallback.slice(0, 90)}`);
       }
@@ -981,7 +981,7 @@ async function main() {
       globalThis.fetch = origFetch;
     }
     // The gate's cards (nobody proved who they are) are a different screen and stay plain
-    const card = renderToString(inIntl('en', createElement(NoCredentialCard, { look: 'app', inTelegram: false, links })));
+    const card = renderToString(inIntl('en', createElement(NoCredentialCard, { inTelegram: false, links })));
     assert(card.startsWith('<div class="ch-app ch-screen" '), 'the gate card is plain');
   });
 

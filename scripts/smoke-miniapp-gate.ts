@@ -17,7 +17,7 @@
 // while its session cookie is still valid.
 //
 // The dashboard (calendar-home spec §7.1; Plan D, Task D7; #16-#19): always the calendar
-// home, with exactly the props it takes. It loads behind the dashboard's purple loader,
+// home, with exactly the props it takes. It loads behind the dashboard's own (app) loader,
 // and its chunk starts loading while the data is in flight. The home's chunk sits inside
 // PageGate's own boundary (spec §5); what it does with a failed import is the render
 // smoke's #40, in real React (next/dynamic under tsx is the pages-router loadable, which
@@ -225,7 +225,7 @@ function pageGateEffects(src: string): string[] {
   const start = src.indexOf('export default function PageGate');
   assert(start >= 0, 'no PageGate component in PageGate.tsx');
   const body = src.slice(start);
-  const end = body.indexOf('const look = LOOK[page]');
+  const end = body.indexOf('if (!outcome || outcome.key !== key)');
   const component = end > 0 ? body.slice(0, end) : body;
   return component.split('useEffect(').slice(1);
 }
@@ -250,66 +250,47 @@ async function main() {
     assert(lifecycleAt < fetchAt, `the ready/expand effect is #${lifecycleAt + 1}, the fetch effect #${fetchAt + 1}`);
   });
 
-  await check('#2 startMiniApp: ready + expand always; purple pages also get the purple header and white background, each surviving a throw', async () => {
+  await check('#2 startMiniApp: ready + expand always, swipes on a 7.7+ client, and never a colour of ours (the page\'s AppScreen takes the theme\'s bg_color for Telegram\'s header and background); no WebApp is no throw', async () => {
     const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
     assert(typeof startMiniApp === 'function', 'PageGate exports no startMiniApp');
 
-    const purple = fakeWebApp();
-    await withWindow(purple.webApp, () => startMiniApp('telegram'));
-    for (const call of ['ready()', 'expand()', 'setHeaderColor(#667eea)', 'setBackgroundColor(#ffffff)']) {
-      assert(purple.calls.includes(call), `purple look: no ${call} in ${show(purple.calls)}`);
-    }
-    assert(purple.calls.indexOf('ready()') < purple.calls.indexOf('setHeaderColor(#667eea)'), `order: ${show(purple.calls)}`);
-
-    // WebApp 6.1-6.8 throw on a hex header colour; a throw here would replace the gate
-    const old = fakeWebApp(['setHeaderColor']);
-    await withWindow(old.webApp, () => startMiniApp('telegram'));
-    assert(old.calls.includes('expand()') && old.calls.includes('setBackgroundColor(#ffffff)'),
-      `after setHeaderColor threw: ${show(old.calls)}`);
-    const oldBg = fakeWebApp(['setBackgroundColor']);
-    await withWindow(oldBg.webApp, () => startMiniApp('telegram'));
-
-    // The app's own look sets no colour (its AppScreen takes the theme's bg_color), and turns swipes on
     const app = fakeWebApp([], '7.7');
-    await withWindow(app.webApp, () => startMiniApp('app'));
-    assert(show(app.calls) === show(['ready()', 'expand()', 'enableVerticalSwipes()']), `app look: ${show(app.calls)}`);
+    await withWindow(app.webApp, () => startMiniApp());
+    assert(show(app.calls) === show(['ready()', 'expand()', 'enableVerticalSwipes()']), `7.7: ${show(app.calls)}`);
     const appOld = fakeWebApp();
-    await withWindow(appOld.webApp, () => startMiniApp('app'));
-    assert(show(appOld.calls) === show(['ready()', 'expand()']), `app look without the 7.x members: ${show(appOld.calls)}`);
+    await withWindow(appOld.webApp, () => startMiniApp());
+    assert(show(appOld.calls) === show(['ready()', 'expand()']), `without the 7.x members: ${show(appOld.calls)}`);
 
-    await withWindow(null, () => startMiniApp('telegram'));
-    await withWindow(null, () => startMiniApp('app'));
+    await withWindow(null, () => startMiniApp());
+
+    // The purple look is gone: no header or background colour, no gradient, no purple card
+    const src = readSource('app/[locale]/PageGate.tsx');
+    const code = src.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    assert(!/setHeaderColor|setBackgroundColor|#667eea|#ffffff|linear-gradient|GateCard|GateActions|function GateAction\b|<GateAction\b|AlertTriangle|telegramLoader|\bLook\b|\bLOOK\b/.test(code), `a trace of the purple look is left in PageGate: ${code.match(/setHeaderColor|setBackgroundColor|#667eea|#ffffff|linear-gradient|GateCard|GateActions|function GateAction\b|<GateAction\b|AlertTriangle|telegramLoader|\bLook\b|\bLOOK\b/)?.[0]}`);
   });
 
   await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing', async () => {
     const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
     const modern = fakeWebApp([], '7.7');
-    await withWindow(modern.webApp, () => startMiniApp('telegram'));
+    await withWindow(modern.webApp, () => startMiniApp());
     assert(modern.calls.filter(c => c === 'enableVerticalSwipes()').length === 1, `7.7: ${show(modern.calls)}`);
     assert(!modern.calls.includes('disableVerticalSwipes()'), `7.7 disabled swipes: ${show(modern.calls)}`);
 
     const old = fakeWebApp([], '7.6');
-    await withWindow(old.webApp, () => startMiniApp('telegram'));
+    await withWindow(old.webApp, () => startMiniApp());
     assert(!old.calls.some(c => c.includes('VerticalSwipes')), `7.6: ${show(old.calls)}`);
 
     const throws = fakeWebApp(['enableVerticalSwipes'], '8.0');
     const logged = console.warn;
     console.warn = () => undefined;
     try {
-      await withWindow(throws.webApp, () => startMiniApp('telegram'));
+      await withWindow(throws.webApp, () => startMiniApp());
     } finally {
       console.warn = logged;
     }
-    for (const call of ['ready()', 'expand()', 'setHeaderColor(#667eea)', 'setBackgroundColor(#ffffff)']) {
+    for (const call of ['ready()', 'expand()']) {
       assert(throws.calls.includes(call), `swipes threw: no ${call} in ${show(throws.calls)}`);
     }
-
-    const app = fakeWebApp([], '8.0');
-    await withWindow(app.webApp, () => startMiniApp('app'));
-    assert(app.calls.filter(c => c === 'enableVerticalSwipes()').length === 1 && !app.calls.includes('disableVerticalSwipes()'), `app look 8.0: ${show(app.calls)}`);
-    const appOld = fakeWebApp([], '7.6');
-    await withWindow(appOld.webApp, () => startMiniApp('app'));
-    assert(!appOld.calls.some(c => c.includes('VerticalSwipes')), `app look 7.6: ${show(appOld.calls)}`);
   });
 
   await check('#3 share-story keeps ready() alone: no expand() anywhere in it', () => {
@@ -318,11 +299,11 @@ async function main() {
     assert(!/expand\s*\(/.test(src), 'share-story calls expand()');
   });
 
-  await check("#4 the global menu button path (TelegramDashboardRedirect) is the dashboard's own, in the app look: it makes startMiniApp('app')'s calls (ready, expand, swipes, and no colour) through PageGate's function, shows PageGate's app loader before its effect runs (no purple), and its gate card is the app's; the user is still pushed on", async () => {
+  await check("#4 the global menu button path (TelegramDashboardRedirect) is the dashboard's own, in the app look: it makes startMiniApp()'s calls (ready, expand, swipes, and no colour) through PageGate's function, shows PageGate's app loader before its effect runs (no purple), and its gate card is the app's; the user is still pushed on", async () => {
     const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
-    assert(src.includes("startMiniApp('app')"), "it does not call startMiniApp('app')");
+    assert(src.includes('startMiniApp()'), 'it does not call startMiniApp()');
     assert(!/setHeaderColor|setBackgroundColor|#667eea|linear-gradient|Loader2/.test(src), 'a purple header, background or loader is still there');
-    assert(src.includes('<PageLoader look="app"') && src.includes('<NoCredentialCard look="app"') && !src.includes('look="telegram"'), 'the loader and the card are not the app look');
+    assert(src.includes('<PageLoader') && src.includes('<NoCredentialCard') && !/\blook=/.test(src), 'the loader and the card take a look again');
     // The first render, before any effect: the app loader inside its own AppScreen
     const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
     const React = nodeRequire('react');
@@ -370,13 +351,13 @@ async function main() {
     const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const problems: string[] = [];
-    for (const look of ['telegram', 'app']) {
-      const html = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: LINKS }), 'he');
+    {
+      const html = renderHtml(React.createElement(NoCredentialCard, { inTelegram: false, links: LINKS }), 'he');
       const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
       const tg = html.indexOf(`href="${LINKS.telegram}"`);
-      if (wa < 0 || tg < 0 || wa > tg) problems.push(`${look}: WhatsApp link at ${wa}, Telegram link at ${tg}`);
+      if (wa < 0 || tg < 0 || wa > tg) problems.push(`WhatsApp link at ${wa}, Telegram link at ${tg}`);
       for (const key of ['browserTitle', 'browserBody', 'openWhatsApp', 'openTelegram']) {
-        if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`${look}: no pageGate.${key}`);
+        if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`no pageGate.${key}`);
       }
     }
     assert(problems.length === 0, problems.join('; '));
@@ -386,20 +367,20 @@ async function main() {
     const React = nodeRequire('react');
     const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
-    const html = renderHtml(React.createElement(NoCredentialCard, { look: 'telegram', inTelegram: true, links: LINKS }), 'he');
+    const html = renderHtml(React.createElement(NoCredentialCard, { inTelegram: true, links: LINKS }), 'he');
     assert(html.includes(asHtml(he.pageGate.telegramBody)) && he.pageGate.close && html.includes(asHtml(he.pageGate.close)),
       `the card: ${html.slice(0, 300)}`);
     assert(!html.includes('wa.me') && !html.includes('t.me/'), 'the in-Telegram card links out');
-    // The card's action is data for the gate (Gate renders it as a button in each look)
-    for (const look of ['telegram', 'app']) {
-      const card = treeOf(NoCredentialCard, { look, inTelegram: true, links: LINKS }, 'he') as Row;
+    // The card's action is data for the gate (Gate renders it as the card's button)
+    {
+      const card = treeOf(NoCredentialCard, { inTelegram: true, links: LINKS }, 'he') as Row;
       const clicks = (card.props.actions as Row[]).map(a => a.onClick).filter((f): f is () => void => typeof f === 'function');
-      assert(clicks.length === 1 && card.props.actions.length === 1, `${look}: ${clicks.length} click handlers`);
+      assert(clicks.length === 1 && card.props.actions.length === 1, `${clicks.length} click handlers`);
       const tg = fakeWebApp();
       await withWindow(tg.webApp, () => clicks[0]());
-      assert(show(tg.calls) === show(['close()']), `${look}: the click called ${show(tg.calls)}`);
-      const appHtml = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: true, links: LINKS }), 'he');
-      assert(appHtml.includes(asHtml(he.pageGate.telegramTitle)) && appHtml.includes(asHtml(he.pageGate.close)), `${look}: the card's text`);
+      assert(show(tg.calls) === show(['close()']), `the click called ${show(tg.calls)}`);
+      const appHtml = renderHtml(React.createElement(NoCredentialCard, { inTelegram: true, links: LINKS }), 'he');
+      assert(appHtml.includes(asHtml(he.pageGate.telegramTitle)) && appHtml.includes(asHtml(he.pageGate.close)), `the card's text`);
     }
   });
 
@@ -565,7 +546,7 @@ async function main() {
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard, LOOK.settings, LOOK.subscription, LOOK.pair and LOOK.calendars are app (the loader\'s look, which Settings\', Subscription\', Pair\'s and Calendars\' chunks load behind, on their own (grouped) ground, as GROUND says); select-calendars keeps the purple one, and no page or loader has the old light look any more', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk; every page is drawn in the app\'s look (there is no look to choose any more), and Settings\', Subscription\', Pair\'s, Calendars\' and Select calendars\' chunks load behind the app\'s loader on their own (grouped) ground, as GROUND says; no page or loader has the purple look or the old light look any more', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -575,15 +556,13 @@ async function main() {
     const entry = preload.slice(preload.indexOf('dashboard:'), preload.indexOf('settings:'));
     assert(entry.includes("import('./dashboard/CalendarHome')"), `no CalendarHome chunk in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
     assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
-    const look = block('LOOK');
-    for (const page of ['dashboard', 'settings', 'subscription', 'pair', 'calendars']) assert(new RegExp(`\\n\\s*${page}: 'app',`).test(look), `${page} is app: ${look}`);
-    assert(/const groupedAppLoader = \(\) => <PageLoader look="app" ground="grouped" \/>;/.test(src), 'the grouped loader draws the app look on the grouped ground');
-    for (const page of ['Settings', 'Subscription', 'Pair', 'Calendars']) assert(new RegExp(`const ${page} = dynamic\\([^\\n]*loading: groupedAppLoader`).test(src), `${page}'s chunk loads behind the app's loader on its own (grouped) ground`);
+    assert(/const groupedAppLoader = \(\) => <PageLoader ground="grouped" \/>;/.test(src) && /const appLoader = \(\) => <PageLoader \/>;/.test(src), 'the loaders draw the app look, the grouped one on the grouped ground');
+    for (const page of ['Settings', 'Subscription', 'Pair', 'Calendars', 'SelectCalendars']) assert(new RegExp(`const ${page} = dynamic\\([^\\n]*loading: groupedAppLoader`).test(src), `${page}'s chunk loads behind the app's loader on its own (grouped) ground`);
     const ground = block('GROUND');
-    for (const page of ['settings', 'subscription', 'pair', 'calendars']) assert(new RegExp(`\\n\\s*${page}: 'grouped',`).test(ground), `${page} is drawn on the grouped ground: ${ground}`);
-    assert(/\n\s*'select-calendars': 'telegram',/.test(look), `select-calendars keeps telegram: ${look}`);
-    // The light look (the Calendars page's own, Tailwind) is gone: its type member, loader, gate card and startMiniApp branch
-    assert(!/'light'|lightLoader|look === 'light'|bg-gradient-to-br|text-indigo|min-h-screen/.test(src.replace(/data-theme|color-scheme|\blight theme\b/g, '')) && /export type Look = 'app' \| 'telegram';/.test(src), 'a trace of the light look is left in PageGate');
+    for (const page of ['settings', 'subscription', 'pair', 'calendars', "'select-calendars'"]) assert(new RegExp(`\\n\\s*${page}: 'grouped',`).test(ground), `${page} is drawn on the grouped ground: ${ground}`);
+    assert(!/\n\s*dashboard: 'grouped'/.test(ground), `the dashboard is plain: ${ground}`);
+    // The light look (the Calendars page's own, Tailwind) and the purple one (Select calendars') are gone: the Look type, the loaders, the gate card and startMiniApp's branches
+    assert(!/'light'|lightLoader|look === 'light'|bg-gradient-to-br|text-indigo|min-h-screen|export type Look|\blook\b/.test(src.replace(/data-theme|color-scheme|\blight theme\b/g, '').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n')), 'a trace of a look is left in PageGate');
   });
 
   await check('#19 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code', async () => {

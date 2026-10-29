@@ -82,7 +82,7 @@ export default function AdminPanelClient({ userId, locale }: AdminPanelClientPro
 
   // Full height at mount while the data loads; the app's look sets no colour of its own on Telegram's chrome
   useEffect(() => {
-    startMiniApp('app');
+    startMiniApp();
   }, []);
 
   useEffect(() => {
@@ -95,7 +95,7 @@ export default function AdminPanelClient({ userId, locale }: AdminPanelClientPro
     };
   }, [attempt]);
 
-  if (!load) return <PageLoader look="app" ground="grouped" />;
+  if (!load) return <PageLoader ground="grouped" />;
   if (load.kind === 'denied') return <AdminUnauthorized />;
   if (load.kind === 'error') {
     return (
