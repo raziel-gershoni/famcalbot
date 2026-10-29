@@ -580,7 +580,7 @@ async function fix1() {
 
 /** The admin panel's feedback list names where a message came from; a source it does not know reads "In the app". */
 function adminLabels(sources: string[]) {
-  const view = fs.readFileSync(path.join(ROOT, 'app/[locale]/admin-panel/views/FeedbackView.tsx'), 'utf8');
+  const view = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/admin-panel/views/FeedbackView.tsx'), 'utf8');
   for (const source of sources) {
     assert(view.includes(`'${source}'`) && view.includes(`feedback.${source}`), `FeedbackView.tsx does not label the "${source}" source`);
     for (const lang of LANGS) {

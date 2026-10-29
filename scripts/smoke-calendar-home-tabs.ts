@@ -1,6 +1,6 @@
 // Smoke test for the calendar home's tab bar, its memory and the Month's colours (Plan E,
 // Task E4; spec §7.1 State and Look, §7.4 Memory, §7.6, §7.7; Plan E Rulings 1, 2 and 9):
-//  - HomeTabs (app/[locale]/dashboard/HomeTabs.tsx) in en, he and ru: one tablist named
+//  - HomeTabs (app/[locale]/(app)/dashboard/HomeTabs.tsx) in en, he and ru: one tablist named
 //    by tabs.label, two tabs with their ids, aria-selected, aria-controls naming their
 //    panels and a roving tabIndex, the labels, dir="rtl" in Hebrew only;
 //  - in real React (react-dom/client with act on a small fake DOM): a tap selects the
@@ -31,11 +31,11 @@ import path from 'path';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { HomeTabs, PANEL_IDS, TAB_IDS, TABS_CSS } from '../app/[locale]/dashboard/HomeTabs';
+import { HomeTabs, PANEL_IDS, TAB_IDS, TABS_CSS } from '../app/[locale]/(app)/dashboard/HomeTabs';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { byRole, fakeDocument, fakeTelegram, fakeWindow, installWindow, memoryStorage, mount, type FakeElement, type Mounted } from './lib/fake-dom';
 import { cascade as cascadeOf, contrast, cssBlocks, customProps, resolver as resolverOf, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
-import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
+import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/(app)/dashboard/HomeErrorBoundary';
 import { useTelegramBackButton } from '../src/lib/telegram-ui';
 import { homeTabKey, monthLayoutKey, readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '../src/lib/calendar-view/home-storage';
 

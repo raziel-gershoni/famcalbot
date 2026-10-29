@@ -1,6 +1,6 @@
 // Smoke test for the Month's picked layout (Plan E, Task E7; spec §7.4 "Tap a day →
 // picked", §7.7, §7.8; Rulings R11 and R12; Plan E Rulings 4, 5, 6 and 8):
-// MonthPicked (app/[locale]/dashboard/MonthPicked.tsx), fed the way MonthView (E8) feeds
+// MonthPicked (app/[locale]/(app)/dashboard/MonthPicked.tsx), fed the way MonthView (E8) feeds
 // it: range answers go through the real store (reduceStore), and the model, the rows,
 // the day's status and the chevrons come from month.ts (monthModels, dayRows,
 // dayStatus, canStep). It checks:
@@ -35,11 +35,11 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-month-picked.ts
 
 // The view first: the import check walks what it loads.
-import { MONTH_PICKED_CSS, MonthPicked, type MonthPickedProps } from '../app/[locale]/dashboard/MonthPicked';
-import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
+import { MONTH_PICKED_CSS, MonthPicked, type MonthPickedProps } from '../app/[locale]/(app)/dashboard/MonthPicked';
+import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
-import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
+import { HOME_SHELL_CSS } from '../app/[locale]/(app)/dashboard/home-shell';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
@@ -667,7 +667,7 @@ async function main() {
   (globalThis as Row).fetch = async () => ({ ok: true, status: 200, json: async () => ({ days: {} }) });
 
   await check('#1 the view is client-safe: MonthPicked loads no server module (DB, Redis, services, date-fns-tz, @hebcal/core), and it does load the model, the Hebrew dates and D\'s rows', () => {
-    const root = path.join(ROOT, 'app/[locale]/dashboard/MonthPicked.tsx');
+    const root = path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthPicked.tsx');
     assert(require.cache[root] !== undefined, `${root} is not in require.cache: the check would be empty`);
     const loaded = new Set<string>();
     const walk = (id: string) => {
@@ -678,7 +678,7 @@ async function main() {
       }
     };
     walk(root);
-    for (const want of ['src/lib/calendar-view/month.ts', 'src/lib/calendar-view/grid.ts', 'src/lib/calendar-view/hebrew-date.ts', 'src/lib/calendar-view/format.ts', 'app/[locale]/dashboard/ItemRow.tsx', 'app/[locale]/dashboard/DayList.tsx']) {
+    for (const want of ['src/lib/calendar-view/month.ts', 'src/lib/calendar-view/grid.ts', 'src/lib/calendar-view/hebrew-date.ts', 'src/lib/calendar-view/format.ts', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'app/[locale]/(app)/dashboard/DayList.tsx']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>

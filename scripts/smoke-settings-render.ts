@@ -28,7 +28,7 @@ import { createRequire } from 'module';
 import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { buildSettingsBody, defaultsForCulture, toggleSummaryDay, type SettingsValues } from '../app/[locale]/settings/settings-body';
+import { buildSettingsBody, defaultsForCulture, toggleSummaryDay, type SettingsValues } from '../app/[locale]/(app)/settings/settings-body';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -223,7 +223,7 @@ const close = (opened: ReturnType<typeof open>) => {
 };
 
 async function main() {
-  Settings = (await import('../app/[locale]/settings/SettingsClient')).default as unknown as (props: Row) => ReactElement;
+  Settings = (await import('../app/[locale]/(app)/settings/SettingsClient')).default as unknown as (props: Row) => ReactElement;
 
   await check('S1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the four sections in order, no raw key, no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right', async () => {
     const places: Record<Locale, string> = { en: 'Tel Aviv', he: 'תל אביב', ru: 'Тель-Авив' };
@@ -727,15 +727,15 @@ async function main() {
       close(here);
     }
     assert(alerts.length === 0, `window.alert was called: ${show(alerts)}`);
-    for (const file of fs.readdirSync(path.join(ROOT, 'app/[locale]/settings')).filter((f) => /\.tsx?$/.test(f))) {
-      const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings', file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    for (const file of fs.readdirSync(path.join(ROOT, 'app/[locale]/(app)/settings')).filter((f) => /\.tsx?$/.test(f))) {
+      const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings', file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
       assert(!/(?<![\w.])(?:window\.)?alert\(/.test(code), `${file} calls alert()`);
     }
   });
 
   await check("S6 Back: AppScreen is the only BackButton caller on Settings; Telegram's Back closes only the sheet that is open (time, location, Google) and does nothing while the disconnect is in flight; with none open it returns to the calendar in the saved language, even after an unsaved language pick", async () => {
-    for (const file of fs.readdirSync(path.join(ROOT, 'app/[locale]/settings')).filter((f) => /\.tsx?$/.test(f))) {
-      const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings', file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    for (const file of fs.readdirSync(path.join(ROOT, 'app/[locale]/(app)/settings')).filter((f) => /\.tsx?$/.test(f))) {
+      const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings', file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
       assert(!/useTelegramBackButton\(/.test(code), `${file} calls useTelegramBackButton`);
     }
     reset();
@@ -1086,7 +1086,7 @@ async function main() {
   });
 
   await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect is its own section\'s)', () => {
-    const dir = path.join(ROOT, 'app/[locale]/settings');
+    const dir = path.join(ROOT, 'app/[locale]/(app)/settings');
     // The Google section reads its own namespace (settings.googleDisconnect), which its own smoke holds.
     const source = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && f !== 'GoogleDisconnect.tsx').map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
     const keysOf = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? keysOf(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));

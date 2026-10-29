@@ -37,8 +37,8 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted } from './lib/fake-dom';
 import { lintCss } from './lib/css-lint';
-import { ADMIN_CSS } from '../app/[locale]/admin-panel/admin-css';
-import { UserProfile } from '../app/[locale]/admin-panel/views/UserProfile';
+import { ADMIN_CSS } from '../app/[locale]/(app)/admin-panel/admin-css';
+import { UserProfile } from '../app/[locale]/(app)/admin-panel/views/UserProfile';
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { ListRow } from '../components/app-ui/ListRow';
 import { calls, defaultRespond, detail, INIT_DATA, installFakeFetch, json, NAMES, OTHER, ok, overrideAfterPost, TARGET, VIEWER_TELEGRAM_ID, world, type Call, type Row } from './lib/admin-world';
@@ -404,13 +404,13 @@ const markupOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g
 
 const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini|\bID\b/g;
 
-/** Every .ts and .tsx file of the panel (app/[locale]/admin-panel), whole path. */
-function panelFiles(dir = path.join(ROOT, 'app/[locale]/admin-panel')): string[] {
+/** Every .ts and .tsx file of the panel (app/[locale]/(app)/admin-panel), whole path. */
+function panelFiles(dir = path.join(ROOT, 'app/[locale]/(app)/admin-panel')): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? panelFiles(path.join(dir, entry.name)) : /\.tsx?$/.test(entry.name) ? [path.join(dir, entry.name)] : []));
 }
 
 async function main() {
-  AdminPanel = (await import('../app/[locale]/admin-panel/AdminPanel')).default as unknown as (props: Row) => ReactElement;
+  AdminPanel = (await import('../app/[locale]/(app)/admin-panel/AdminPanel')).default as unknown as (props: Row) => ReactElement;
 
   await check('R1 the Overview in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language and the page title; four counts, People and Still setting up as buttons and the other two plain, the setup share (75%) and none at 0 people; the rows into people, feedback, blocked and activity; the five switches with the right state; the reset row; no raw key, no emoji, no English in he and ru beyond the brands', async () => {
     for (const locale of LOCALES) {
@@ -881,7 +881,7 @@ async function main() {
   });
 
   await check('R8 the entry: the loader is the app\'s on the grouped ground; a non-admin gets the denied card (an alert with the page\'s h1, in the app look, text from messages in en, he and ru) and nothing of the panel; a failed load gets the error card with a retry that asks again; a good load shows the panel; startMiniApp asks for full height and sets no colour of its own', async () => {
-    const client = await import('../app/[locale]/admin-panel/AdminPanelClient');
+    const client = await import('../app/[locale]/(app)/admin-panel/AdminPanelClient');
     const Client = client.default as unknown as (props: Row) => ReactElement;
     for (const locale of LOCALES) {
       reset();
@@ -1388,7 +1388,7 @@ async function main() {
       return o;
     };
     const days = (n: number) => ago(n * 24 * 60);
-    const { dateOnly } = await import('../app/[locale]/admin-panel/data/format');
+    const { dateOnly } = await import('../app/[locale]/(app)/admin-panel/data/format');
 
     // Who is offered it
     for (const [label, index, paidAt, offered] of [
@@ -1631,8 +1631,8 @@ async function main() {
     }
   });
 
-  await check('U7 the panel is made of the kit: no styled-jsx, no :hover, no hex colour, no physical CSS property, no emoji and no Tailwind class in any file of app/[locale]/admin-panel; the old body, its dead messages and the old panel\'s strings are gone; every admin message is read by the panel; none that the panel reads is missing', () => {
-    const dir = path.join(ROOT, 'app/[locale]/admin-panel');
+  await check('U7 the panel is made of the kit: no styled-jsx, no :hover, no hex colour, no physical CSS property, no emoji and no Tailwind class in any file of app/[locale]/(app)/admin-panel; the old body, its dead messages and the old panel\'s strings are gone; every admin message is read by the panel; none that the panel reads is missing', () => {
+    const dir = path.join(ROOT, 'app/[locale]/(app)/admin-panel');
     const files = panelFiles();
     const code = (file: string) => fs.readFileSync(file, 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     const problems: string[] = [];
@@ -1987,7 +1987,7 @@ async function main() {
       for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
         const rel = path.join(dir, entry.name);
         if (entry.isDirectory()) walk(rel);
-        else if (/\.(?:tsx?|css)$/.test(entry.name) && /\.ch-admin-/.test(fs.readFileSync(path.join(ROOT, rel), 'utf8')) && rel !== 'app/[locale]/admin-panel/admin-css.ts') owners.push(rel);
+        else if (/\.(?:tsx?|css)$/.test(entry.name) && /\.ch-admin-/.test(fs.readFileSync(path.join(ROOT, rel), 'utf8')) && rel !== 'app/[locale]/(app)/admin-panel/admin-css.ts') owners.push(rel);
       }
     };
     for (const dir of ['app', 'components', 'src']) walk(dir);

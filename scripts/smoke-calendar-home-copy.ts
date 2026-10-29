@@ -766,7 +766,7 @@ async function main() {
 
   await check('#8 the dashboard loader (TelegramDashboardRedirect) says pageGate.loading in each language, not "Loading Dashboard..."', async () => {
     const React = nodeRequire('react');
-    const Redirect = (await load('app/[locale]/dashboard/TelegramDashboardRedirect.tsx')).default;
+    const Redirect = (await load('app/[locale]/(app)/dashboard/TelegramDashboardRedirect.tsx')).default;
     const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
     const problems: string[] = [];
     for (const locale of LOCALES) {

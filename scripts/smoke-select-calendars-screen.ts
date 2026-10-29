@@ -289,10 +289,10 @@ const tapAndSettle = async (o: Opened, el: FakeNode) => {
 };
 
 async function main() {
-  Screen = (await import('../app/[locale]/select-calendars/SelectCalendarsClient')).default as unknown as (props: Props) => ReactElement;
+  Screen = (await import('../app/[locale]/(app)/select-calendars/SelectCalendarsClient')).default as unknown as (props: Props) => ReactElement;
   const noComments = (code: string) => code.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
   const source = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
-  const SCREEN_FILE = 'app/[locale]/select-calendars/SelectCalendarsClient.tsx';
+  const SCREEN_FILE = 'app/[locale]/(app)/select-calendars/SelectCalendarsClient.tsx';
 
   await check('W1 the screen\'s words: selectCalendars has the same keys in en, he and ru; the limit and notes plurals use each language\'s forms (ru few / many, he two); {name}, {number}, {limit} and {count} are kept; he and ru are their own text with no Latin letter but the product names; no emoji; the categories and the noGoogle notice are still there', () => {
     const leaves = (node: unknown, prefix = ''): [string, string][] =>
@@ -1146,7 +1146,7 @@ async function main() {
   });
 
   await check('S19 the pure rules (selection.ts): a change never touches the selection it started from (a refused save puts it back); primary is always also yours and only yours; a category leaves the other categories out; turning a calendar on gives yours only to a selection with none; edits to the spouse details of a calendar that is not a spouse calendar are dropped; the notes are trimmed and padded to three', async () => {
-    const sel = await import('../app/[locale]/select-calendars/selection');
+    const sel = await import('../app/[locale]/(app)/select-calendars/selection');
     const set = (...l: string[]) => new Set(l) as Set<never>;
     const names = (labels: Iterable<string>) => [...labels].sort().join();
     assert(names(sel.withCategory(set('primary', 'yours'), 'kids')) === 'primary,yours', 'a category replaced yours under primary');

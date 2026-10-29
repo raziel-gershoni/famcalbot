@@ -218,7 +218,7 @@ async function main() {
 
   await check('#7 /ru/feedback?user_id=5550001 renders FeedbackClient for the URL\'s id and locale, with no DB lookup and no redirect', async () => {
     dataCalls.length = 0;
-    const page = (await load('app/[locale]/feedback/page.tsx')).default;
+    const page = (await load('app/[locale]/(app)/feedback/page.tsx')).default;
     let el: Row | undefined;
     let thrown: string | undefined;
     try {
@@ -233,7 +233,7 @@ async function main() {
   });
 
   await check('#8 [guard] /en/feedback with no user_id still shows the missing-parameter card', async () => {
-    const page = (await load('app/[locale]/feedback/page.tsx')).default;
+    const page = (await load('app/[locale]/(app)/feedback/page.tsx')).default;
     const el = await page({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({}) });
     assert(el?.type?.name === 'MissingParameterCard', `renders ${el?.type?.name ?? show(el).slice(0, 200)}`);
   });

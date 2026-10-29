@@ -215,7 +215,7 @@ const closes = (o: Opened) => o.calls.filter((c) => c === 'close()').length;
 const signCalls = () => fetchCalls.filter((c) => c.url.startsWith('/api/weather-image/sign'));
 
 async function main() {
-  ShareStory = (await import('../app/[locale]/share-story/page')).default as unknown as () => ReactElement;
+  ShareStory = (await import('../app/[locale]/(app)/share-story/page')).default as unknown as () => ReactElement;
 
   await check('H1 the way it goes, in en, he and ru, mounted fresh and hydrated from the server\'s markup (Telegram 7.8): ready() is called (never expand()), one request to /api/weather-image/sign with the page\'s user, source and message and the initData header, shareToStory with the image it gave and the FamCal widget link, and the window closes 5 seconds later, not before; no pop-up, nothing logged', async () => {
     const cases: [string, string][] = [
@@ -358,7 +358,7 @@ async function main() {
         close(o);
       }
     }
-    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/share-story/page.tsx'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/share-story/page.tsx'), 'utf8');
     const code = source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(code.includes('tg.ready()') && !/expand\s*\(/.test(code) && !/startMiniApp/.test(code), 'ready() stays, expand() and startMiniApp stay out');
     assert(!/Update Telegram to share|Failed to load image|Failed to share|Loading\.\.\.|#667eea|linear-gradient/.test(code), 'the old English or purple is still there');

@@ -119,7 +119,7 @@ const rendered: { props: Row }[] = [];
 function installStubs() {
   // The calendar home is a placeholder at its real path: it records the props PageGate
   // hands it and renders one marker line.
-  stub('app/[locale]/dashboard/CalendarHome.tsx', {
+  stub('app/[locale]/(app)/dashboard/CalendarHome.tsx', {
     __esModule: true,
     default: function CalendarHome(props: Row) {
       rendered.push({ props });
@@ -236,7 +236,7 @@ async function main() {
   // ---- Full height at once ----
 
   await check('#1 PageGate calls ready() and expand() in an effect declared before its /api/page-data fetch effect', () => {
-    const src = readSource('app/[locale]/PageGate.tsx');
+    const src = readSource('app/[locale]/(app)/PageGate.tsx');
     const effects = pageGateEffects(src);
     const fetchAt = effects.findIndex(e => e.includes("fetch('/api/page-data'"));
     assert(fetchAt >= 0, 'no effect fetches /api/page-data');
@@ -251,7 +251,7 @@ async function main() {
   });
 
   await check('#2 startMiniApp: ready + expand always, swipes on a 7.7+ client, and never a colour of ours (the page\'s AppScreen takes the theme\'s bg_color for Telegram\'s header and background); no WebApp is no throw', async () => {
-    const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
+    const { startMiniApp } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof startMiniApp === 'function', 'PageGate exports no startMiniApp');
 
     const app = fakeWebApp([], '7.7');
@@ -264,13 +264,13 @@ async function main() {
     await withWindow(null, () => startMiniApp());
 
     // The purple look is gone: no header or background colour, no gradient, no purple card
-    const src = readSource('app/[locale]/PageGate.tsx');
+    const src = readSource('app/[locale]/(app)/PageGate.tsx');
     const code = src.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/setHeaderColor|setBackgroundColor|#667eea|#ffffff|linear-gradient|GateCard|GateActions|function GateAction\b|<GateAction\b|AlertTriangle|telegramLoader|\bLook\b|\bLOOK\b/.test(code), `a trace of the purple look is left in PageGate: ${code.match(/setHeaderColor|setBackgroundColor|#667eea|#ffffff|linear-gradient|GateCard|GateActions|function GateAction\b|<GateAction\b|AlertTriangle|telegramLoader|\bLook\b|\bLOOK\b/)?.[0]}`);
   });
 
   await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing', async () => {
-    const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
+    const { startMiniApp } = await load('app/[locale]/(app)/PageGate.tsx');
     const modern = fakeWebApp([], '7.7');
     await withWindow(modern.webApp, () => startMiniApp());
     assert(modern.calls.filter(c => c === 'enableVerticalSwipes()').length === 1, `7.7: ${show(modern.calls)}`);
@@ -294,20 +294,20 @@ async function main() {
   });
 
   await check('#3 share-story keeps ready() alone: no expand() anywhere in it', () => {
-    const src = readSource('app/[locale]/share-story/page.tsx');
+    const src = readSource('app/[locale]/(app)/share-story/page.tsx');
     assert(src.includes('tg.ready()'), 'share-story no longer calls ready()');
     assert(!/expand\s*\(/.test(src), 'share-story calls expand()');
   });
 
   await check("#4 the global menu button path (TelegramDashboardRedirect) is the dashboard's own, in the app look: it makes startMiniApp()'s calls (ready, expand, swipes, and no colour) through PageGate's function, shows PageGate's app loader before its effect runs (no purple), and its gate card is the app's; the user is still pushed on", async () => {
-    const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
+    const src = readSource('app/[locale]/(app)/dashboard/TelegramDashboardRedirect.tsx');
     assert(src.includes('startMiniApp()'), 'it does not call startMiniApp()');
     assert(!/setHeaderColor|setBackgroundColor|#667eea|linear-gradient|Loader2/.test(src), 'a purple header, background or loader is still there');
     assert(src.includes('<PageLoader') && src.includes('<NoCredentialCard') && !/\blook=/.test(src), 'the loader and the card take a look again');
     // The first render, before any effect: the app loader inside its own AppScreen
     const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
     const React = nodeRequire('react');
-    const { default: Redirect } = await load('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
+    const { default: Redirect } = await load('app/[locale]/(app)/dashboard/TelegramDashboardRedirect.tsx');
     const html = renderHtml(React.createElement(AppRouterContext.Provider, { value: {} }, React.createElement(Redirect, { locale: 'he', links: LINKS })), 'he');
     assert(html.startsWith('<div class="ch-app ch-screen" data-theme="light" dir="rtl" lang="he">') && html.includes('class="ch-loader" role="status"') && html.includes(asHtml(he.pageGate.loading)), `the first render: ${html.slice(0, 160)}`);
     assert(!html.includes('#667eea') && !html.includes('linear-gradient'), 'the loader is purple');
@@ -325,7 +325,7 @@ async function main() {
     delete process.env.WHATSAPP_PHONE_NUMBER;
     const unset = gateLinks();
     // Without a WhatsApp line the card's only action would be the account-splitting Telegram one
-    const landingNumber = readSource('app/[locale]/page.tsx').match(/const WA_PHONE = '(\d+)'/)?.[1];
+    const landingNumber = readSource('app/[locale]/(site)/page.tsx').match(/const WA_PHONE = '(\d+)'/)?.[1];
     assert(landingNumber, 'the landing page no longer names its WhatsApp number');
     assert(unset.whatsapp === `https://wa.me/${landingNumber}?text=settings`, `no WA number: ${show(unset)}`);
     assert(unset.telegram === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `no bot username: ${show(unset)}`);
@@ -336,11 +336,11 @@ async function main() {
     process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
     const problems: string[] = [];
     for (const name of ['dashboard', 'settings', 'select-calendars', 'subscription', 'calendars', 'pair']) {
-      const el = await callPage(`app/[locale]/${name}/page.tsx`, 'he', '5550001');
+      const el = await callPage(`app/[locale]/(app)/${name}/page.tsx`, 'he', '5550001');
       if (el?.type?.name !== 'PageGate') problems.push(`${name} renders ${el?.type?.name ?? show(el)}`);
       else if (show(el.props.links) !== show(LINKS)) problems.push(`${name} links: ${show(el.props.links)}`);
     }
-    const redirect = await callPage('app/[locale]/dashboard/page.tsx', 'he');
+    const redirect = await callPage('app/[locale]/(app)/dashboard/page.tsx', 'he');
     if (redirect?.type?.name !== 'TelegramDashboardRedirect') problems.push(`dashboard without user_id renders ${redirect?.type?.name}`);
     else if (show(redirect.props.links) !== show(LINKS)) problems.push(`TelegramDashboardRedirect links: ${show(redirect.props.links)}`);
     assert(problems.length === 0, problems.join('; '));
@@ -348,7 +348,7 @@ async function main() {
 
   await check('#7 the browser card (he): the WhatsApp link first, then the Telegram one labelled for Telegram users', async () => {
     const React = nodeRequire('react');
-    const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
+    const { NoCredentialCard } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const problems: string[] = [];
     {
@@ -365,7 +365,7 @@ async function main() {
 
   await check('#8 the in-Telegram card: its action closes the Mini App (back to the chat), and it links nowhere', async () => {
     const React = nodeRequire('react');
-    const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
+    const { NoCredentialCard } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const html = renderHtml(React.createElement(NoCredentialCard, { inTelegram: true, links: LINKS }), 'he');
     assert(html.includes(asHtml(he.pageGate.telegramBody)) && he.pageGate.close && html.includes(asHtml(he.pageGate.close)),
@@ -385,7 +385,7 @@ async function main() {
   });
 
   await check('#9 PageGate\'s gate outcome renders the shared card with the page\'s links', () => {
-    const src = readSource('app/[locale]/PageGate.tsx');
+    const src = readSource('app/[locale]/(app)/PageGate.tsx');
     const gate = src.slice(src.indexOf("if (outcome.kind === 'gate')"), src.indexOf('const data = outcome.data'));
     assert(/<NoCredentialCard[^>]*inTelegram=\{outcome\.inTelegram\}[^>]*links=\{links\}/.test(gate), `the gate branch: ${gate.trim()}`);
   });
@@ -439,7 +439,7 @@ async function main() {
   });
 
   await check('#13 TelegramDashboardRedirect shows the shared card when there is no Telegram user (no hard-coded English), and keeps pushing Telegram users on', () => {
-    const src = readSource('app/[locale]/dashboard/TelegramDashboardRedirect.tsx');
+    const src = readSource('app/[locale]/(app)/dashboard/TelegramDashboardRedirect.tsx');
     assert(src.includes('<NoCredentialCard'), 'it does not render NoCredentialCard');
     assert(src.includes('readInitData()'), 'it does not read initData to tell a browser from Telegram');
     assert(!/Please open this app|Type \/start in Telegram/.test(src), 'the hard-coded English card is still there');
@@ -491,7 +491,7 @@ async function main() {
    * in yet; later passes wait for the placeholder to record its props.
    */
   const renderDashboard = async (props: Row): Promise<{ first: string; html: string }> => {
-    const { renderPage } = await load('app/[locale]/PageGate.tsx');
+    const { renderPage } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof renderPage === 'function', 'PageGate exports no renderPage');
     rendered.length = 0;
     const el = renderPage('dashboard', props);
@@ -547,7 +547,7 @@ async function main() {
   });
 
   await check('#18 PRELOAD.dashboard starts the home\'s chunk; every page is drawn in the app\'s look (there is no look to choose any more), and Settings\', Subscription\', Pair\'s, Calendars\' and Select calendars\' chunks load behind the app\'s loader on their own (grouped) ground, as GROUND says; no page or loader has the purple look or the old light look any more', () => {
-    const src = readSource('app/[locale]/PageGate.tsx');
+    const src = readSource('app/[locale]/(app)/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
       return at < 0 ? '' : src.slice(at, src.indexOf('\n};', at));
@@ -566,13 +566,13 @@ async function main() {
   });
 
   await check('#19 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code', async () => {
-    const { renderPage, HomeChunkBoundary } = await load('app/[locale]/PageGate.tsx');
+    const { renderPage, HomeChunkBoundary } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof HomeChunkBoundary === 'function', 'PageGate exports no HomeChunkBoundary');
     const on = renderPage('dashboard', DASHBOARD);
     assert(on?.type === HomeChunkBoundary, `the root is ${on?.type?.name ?? show(on?.type)}`);
     const home = on.props.children;
     assert(home?.props?.user?.id === 5550001 && home.props.hints?.reminders === true, `inside it, the home with its props: ${canon(home?.props)}`);
-    const src = readSource('app/[locale]/PageGate.tsx');
+    const src = readSource('app/[locale]/(app)/PageGate.tsx');
     assert(src.includes("from '@/src/lib/calendar-view/reload-guard'"), 'the guard does not come from reload-guard');
     assert(!/calendar-view\/(?:home-client|home-loader|store|format)'|dashboard\/HomeErrorBoundary'/.test(src), 'PageGate imports the home\'s client code, which every page would then load');
     const leaf = readSource('src/lib/calendar-view/reload-guard.ts');
@@ -586,7 +586,7 @@ async function main() {
     for (const locale of ['en', 'he', 'ru']) {
       const copy = JSON.parse(readSource(`messages/${locale}.json`)).ui.missingParameter;
       for (const name of ['settings', 'admin-panel', 'feedback', 'select-calendars', 'calendars', 'pair']) {
-        const el = await callPage(`app/[locale]/${name}/page.tsx`, locale);
+        const el = await callPage(`app/[locale]/(app)/${name}/page.tsx`, locale);
         if (el?.type?.name !== 'MissingParameterCard') {
           problems.push(`${locale} ${name} renders ${el?.type?.name ?? show(el)}`);
           continue;
@@ -603,7 +603,7 @@ async function main() {
     }
     let threw = false;
     try {
-      await callPage('app/[locale]/subscription/page.tsx', 'en');
+      await callPage('app/[locale]/(app)/subscription/page.tsx', 'en');
     } catch (err) {
       threw = /NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(String((err as Row)?.digest ?? err));
     }
@@ -611,7 +611,7 @@ async function main() {
     // The notices of select-calendars: their copy from messages in each language, no raw key, nothing from the server
     for (const locale of ['en', 'he', 'ru']) {
       const m = JSON.parse(readSource(`messages/${locale}.json`));
-      const gate = await callPage('app/[locale]/select-calendars/page.tsx', locale, '5550001');
+      const gate = await callPage('app/[locale]/(app)/select-calendars/page.tsx', locale, '5550001');
       const notices = gate.props.notices as Row;
       const root = `<div class="ch-app ch-screen" data-theme="light" dir="${locale === 'he' ? 'rtl' : 'ltr'}" lang="${locale}">`;
       const none = renderHtml(notices.noGoogleToken, locale);
@@ -622,7 +622,7 @@ async function main() {
       // The server's message never reaches the page: no fallback text, and no detail in the wire type or in PageGate
       if (/Unknown error|Try Again|NoticeDetail/.test(error)) problems.push(`${locale} error notice shows server detail or old copy`);
     }
-    for (const rel of ['app/[locale]/PageGate.tsx', 'src/lib/page-data.ts']) {
+    for (const rel of ['app/[locale]/(app)/PageGate.tsx', 'src/lib/page-data.ts']) {
       const code = readSource(rel).split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
       if (/NoticeDetail|\bdetail\b/.test(code)) problems.push(`${rel} still carries a notice detail`);
     }

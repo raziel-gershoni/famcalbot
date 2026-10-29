@@ -554,7 +554,7 @@ async function main() {
 
   await check('#1 /he/pair?user_id=1 with no credential: neither the props nor the HTML carry the invite token or the partner', async () => {
     seed();
-    const r = await callPage('app/[locale]/pair/page.tsx', 'he', '1');
+    const r = await callPage('app/[locale]/(app)/pair/page.tsx', 'he', '1');
     const props = r.thrown ?? serialize(r.el);
     const html = r.el ? renderHtml(r.el, 'he') : '';
     const leaks: string[] = [];
@@ -577,7 +577,7 @@ async function main() {
     for (const [name, locale, userId] of pages) {
       seed();
       try {
-        const r = await callPage(`app/[locale]/${name}/page.tsx`, locale, userId);
+        const r = await callPage(`app/[locale]/(app)/${name}/page.tsx`, locale, userId);
         const out = r.thrown ?? serialize(r.el);
         const secrets = [...new Set(out.match(/[A-Z]+-SECRET[\w@.-]*/g) ?? [])];
         if (secrets.length) problems.push(`${name} carries ${secrets.join(', ')}`);

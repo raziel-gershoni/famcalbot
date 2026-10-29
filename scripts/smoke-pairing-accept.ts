@@ -982,7 +982,7 @@ async function main() {
     const g = globalThis as Row;
     const blocked = g.fetch;
     const problems: string[] = [];
-    const InviteClient = (await load('app/[locale]/invite/[token]/InviteClient.tsx')).default;
+    const InviteClient = (await load('app/[locale]/(app)/invite/[token]/InviteClient.tsx')).default;
     // The phone's fetch reaches the real accept route; the server has no window
     g.fetch = async (url: string, init: RequestInit) => {
       const phone = g.window;

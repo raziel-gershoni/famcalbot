@@ -613,7 +613,7 @@ async function main() {
   });
 
   await check('server only: no file the Mini App bundles imports the zmanim module (the client gets computed times in the DTO)', () => {
-    const files = ['app/[locale]/dashboard/EditorSheet.tsx', 'app/[locale]/dashboard/ItemRow.tsx', 'app/[locale]/dashboard/ItemSheet.tsx', 'src/lib/calendar-view/zman-words.ts', 'app/[locale]/dashboard/CalendarHome.tsx',
+    const files = ['app/[locale]/(app)/dashboard/EditorSheet.tsx', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'app/[locale]/(app)/dashboard/ItemSheet.tsx', 'src/lib/calendar-view/zman-words.ts', 'app/[locale]/(app)/dashboard/CalendarHome.tsx',
       'src/lib/calendar-view/editor-model.ts', 'src/lib/calendar-view/editor-types.ts', 'src/lib/calendar-view/editor-client.ts', 'src/lib/calendar-view/types.ts', 'src/lib/calendar-view/zman-spec.ts'];
     for (const file of files) {
       const text = readFileSync(path.join(ROOT, file), 'utf8');

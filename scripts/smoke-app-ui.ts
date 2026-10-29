@@ -21,7 +21,7 @@
 //    key, no English in he and ru), and show no BackButton, in Telegram or in a browser; the
 //    gate's card (PageGate's NoCredentialCard) in the app look closes the Mini App or links on;
 //  - an unknown path under a locale calls notFound() (the catch-all), which Next answers with
-//    app/[locale]/not-found.tsx;
+//    app/[locale]/(app)/not-found.tsx;
 //  - the dashboard's redirect (the 404's way back, the menu button, a launch with no user_id), in
 //    real React with a fake router and Telegram: no colour call, the app loader, a push for a
 //    Telegram user, and the app-look gate card without one, in a browser and inside Telegram;
@@ -66,22 +66,22 @@ import { Notice } from '../components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
 import { ListRow } from '../components/app-ui/ListRow';
 import { Tag } from '../components/app-ui/Tag';
-import NotFound from '../app/[locale]/not-found';
-import UnknownPath from '../app/[locale]/[...rest]/page';
-import PageGate, { NoCredentialCard, renderPage } from '../app/[locale]/PageGate';
-import TelegramDashboardRedirect from '../app/[locale]/dashboard/TelegramDashboardRedirect';
-import { HOME_TOP_CSS, publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
-import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
-import { DRAG_BAR_CSS } from '../app/[locale]/dashboard/DragBar';
-import { DRAG_CSS } from '../app/[locale]/dashboard/DragSurface';
-import { EDITOR_FORM_CSS } from '../app/[locale]/dashboard/form-kit';
-import { TABS_CSS } from '../app/[locale]/dashboard/HomeTabs';
-import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
-import { MONTH_PICKED_CSS } from '../app/[locale]/dashboard/MonthPicked';
-import { PICKER_CSS } from '../app/[locale]/dashboard/picker-kit';
-import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
-import { ZMANIM_SHEET_CSS } from '../app/[locale]/dashboard/ZmanimSheet';
+import NotFound from '../app/[locale]/(app)/not-found';
+import UnknownPath from '../app/[locale]/(app)/[...rest]/page';
+import PageGate, { NoCredentialCard, renderPage } from '../app/[locale]/(app)/PageGate';
+import TelegramDashboardRedirect from '../app/[locale]/(app)/dashboard/TelegramDashboardRedirect';
+import { HOME_TOP_CSS, publishTopHeight } from '../app/[locale]/(app)/dashboard/CalendarHome';
+import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
+import { DRAG_BAR_CSS } from '../app/[locale]/(app)/dashboard/DragBar';
+import { DRAG_CSS } from '../app/[locale]/(app)/dashboard/DragSurface';
+import { EDITOR_FORM_CSS } from '../app/[locale]/(app)/dashboard/form-kit';
+import { TABS_CSS } from '../app/[locale]/(app)/dashboard/HomeTabs';
+import { HOME_SHELL_CSS } from '../app/[locale]/(app)/dashboard/home-shell';
+import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
+import { MONTH_PICKED_CSS } from '../app/[locale]/(app)/dashboard/MonthPicked';
+import { PICKER_CSS } from '../app/[locale]/(app)/dashboard/picker-kit';
+import { REPEAT_CSS } from '../app/[locale]/(app)/dashboard/RepeatSheet';
+import { ZMANIM_SHEET_CSS } from '../app/[locale]/(app)/dashboard/ZmanimSheet';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeDocument, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
@@ -492,7 +492,7 @@ async function main() {
     }
   });
 
-  await check("#8 an unknown path under a locale reaches the app's 404: the catch-all page calls notFound(), and the route files are where Next looks (app/[locale]/[...rest]/page.tsx, app/[locale]/not-found.tsx)", () => {
+  await check("#8 an unknown path under a locale reaches the app's 404: the catch-all page calls notFound(), and the route files are where Next looks (app/[locale]/(app)/[...rest]/page.tsx, app/[locale]/(app)/not-found.tsx)", () => {
     let digest = '';
     try {
       UnknownPath();
@@ -500,8 +500,8 @@ async function main() {
       digest = String((err as Row)?.digest ?? err);
     }
     assert(/NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(digest), `the catch-all threw ${digest || 'nothing'}`);
-    for (const file of ['app/[locale]/[...rest]/page.tsx', 'app/[locale]/not-found.tsx']) assert(fs.existsSync(path.join(ROOT, file)), `no ${file}`);
-    const gone = fs.readFileSync(path.join(ROOT, 'app/[locale]/not-found.tsx'), 'utf8');
+    for (const file of ['app/[locale]/(app)/[...rest]/page.tsx', 'app/[locale]/(app)/not-found.tsx']) assert(fs.existsSync(path.join(ROOT, file)), `no ${file}`);
+    const gone = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/not-found.tsx'), 'utf8');
     assert(/NotFoundCard/.test(gone), 'the 404 is the card');
   });
 

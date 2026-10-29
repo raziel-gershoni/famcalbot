@@ -416,7 +416,7 @@ async function main() {
   Object.assign(console, { log: () => {}, warn: () => {}, error: () => {} });
 
   const page = async (userId: string): Promise<unknown> => {
-    const AdminPanelPage = (await load('app/[locale]/admin-panel/page.tsx')).default;
+    const AdminPanelPage = (await load('app/[locale]/(app)/admin-panel/page.tsx')).default;
     return AdminPanelPage({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({ user_id: userId }) });
   };
   const get = async (route: string, o: { header?: string; query?: string } = {}): Promise<Response> => {
@@ -452,7 +452,7 @@ async function main() {
       return res;
     }) as typeof fetch;
     try {
-      return await fn(await load('app/[locale]/admin-panel/AdminPanelClient.tsx'));
+      return await fn(await load('app/[locale]/(app)/admin-panel/AdminPanelClient.tsx'));
     } finally {
       globalThis.fetch = blocked;
       delete g.window;
@@ -547,7 +547,7 @@ async function main() {
 
   await check('#6 the denied card says what the Unauthorized card used to say, that the area is for administrators only: an alert with the page\'s h1 in the app look (a plain AppScreen), its text from messages in en, he and ru (never the old English in he and ru)', async () => {
     const React = nodeRequire('react');
-    const { AdminUnauthorized } = await load('app/[locale]/admin-panel/AdminPanelClient.tsx');
+    const { AdminUnauthorized } = await load('app/[locale]/(app)/admin-panel/AdminPanelClient.tsx');
     assert(typeof AdminUnauthorized === 'function', 'AdminPanelClient exports no AdminUnauthorized');
     for (const locale of ['en', 'he', 'ru']) {
       const words = JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${locale}.json`), 'utf8')).admin.unauthorized as { title: string; body: string };

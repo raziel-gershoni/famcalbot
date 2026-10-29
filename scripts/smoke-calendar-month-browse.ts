@@ -1,6 +1,6 @@
 // Smoke test for the Month's browse layout (Plan E, Task E6; spec §7.4 Browse, §5's month
 // windows, §7.7, §7.8; Rulings R11 and R12; Plan E Rulings 3, 4, 6, 7 and 8):
-// app/[locale]/dashboard/MonthBrowse.tsx.
+// app/[locale]/(app)/dashboard/MonthBrowse.tsx.
 //
 // The months get their data the way the container (E8) will feed them: range answers for
 // month windows go through D3's real reducer, and E5's monthModels builds each month.
@@ -37,7 +37,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-month-browse.ts
 
 // The view first: the import-rule check walks what it loads.
-import { MonthBrowse, MONTH_BROWSE_CSS, type MonthBrowseProps } from '../app/[locale]/dashboard/MonthBrowse';
+import { MonthBrowse, MONTH_BROWSE_CSS, type MonthBrowseProps } from '../app/[locale]/(app)/dashboard/MonthBrowse';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
 import path from 'path';
@@ -776,7 +776,7 @@ async function main() {
   (globalThis as Row).fetch = async () => ({ ok: true, status: 200, json: async () => ({ days: {} }) });
 
   await check('#1 the view is client-safe: MonthBrowse loads no server module (DB, Redis, services, date-fns-tz, @hebcal/core), no home-client and no Telegram code; it reads month.ts, grid.ts, hebrew-date.ts and format.ts', () => {
-    const root = path.join(ROOT, 'app/[locale]/dashboard/MonthBrowse.tsx');
+    const root = path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthBrowse.tsx');
     assert(require.cache[root] !== undefined, 'MonthBrowse is not in require.cache: the check would be empty');
     const loaded = new Set<string>();
     const walk = (id: string) => {

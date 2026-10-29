@@ -48,7 +48,7 @@ import {
 } from '../src/lib/calendar-view/repeat-model';
 import { minYearFor } from '../src/lib/calendar-view/year-limits';
 import { allOfThem, repeatWords } from '../src/lib/calendar-view/editor-model';
-import { endOfInfo, infoText, specText, withEndText, type WordsContext } from '../app/[locale]/dashboard/repeat-words';
+import { endOfInfo, infoText, specText, withEndText, type WordsContext } from '../app/[locale]/(app)/dashboard/repeat-words';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
 import ru from '../messages/ru.json';

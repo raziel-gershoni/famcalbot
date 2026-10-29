@@ -14,7 +14,7 @@
 //
 // What only the editor's flow draws (its header and body, the date and time pills, the scope
 // sheet and the calendar swatch ValueRow shows beside a calendar's name) is in
-// app/[locale]/dashboard/form-kit.tsx with EDITOR_FORM_CSS, which a screen renders after FORM_CSS.
+// app/[locale]/(app)/dashboard/form-kit.tsx with EDITOR_FORM_CSS, which a screen renders after FORM_CSS.
 //
 // Every target is at least 44 px, with logical properties, no :hover and nothing under
 // 11 px. A list row (./ListRow.tsx: ch-list-row*) is a button row with a title, a quiet line, tags and a chevron.

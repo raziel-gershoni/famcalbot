@@ -1,5 +1,5 @@
 // Smoke test for the date and time sheets' markup and CSS (editor upgrades spec §1):
-// DatePickerSheet, TimePickerSheet and picker-kit in app/[locale]/dashboard/, rendered with the
+// DatePickerSheet, TimePickerSheet and picker-kit in app/[locale]/(app)/dashboard/, rendered with the
 // real messages and the real wheel library, in he, en and ru, light and dark.
 //
 // It checks, per language and look:
@@ -26,12 +26,12 @@ import path from 'path';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { DatePickerSheet } from '../app/[locale]/dashboard/DatePickerSheet';
-import { TimePickerSheet } from '../app/[locale]/dashboard/TimePickerSheet';
+import { DatePickerSheet } from '../app/[locale]/(app)/dashboard/DatePickerSheet';
+import { TimePickerSheet } from '../app/[locale]/(app)/dashboard/TimePickerSheet';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import SettingsClient from '../app/[locale]/settings/SettingsClient';
-import { preloadPickers } from '../app/[locale]/dashboard/form-kit';
-import { PICKER_CSS, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/dashboard/picker-kit';
+import SettingsClient from '../app/[locale]/(app)/settings/SettingsClient';
+import { preloadPickers } from '../app/[locale]/(app)/dashboard/form-kit';
+import { PICKER_CSS, applyWheelAria, spinbuttonKey, swapWheelArrow, tickOnce } from '../app/[locale]/(app)/dashboard/picker-kit';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { AppScreen } from '../components/app-ui/AppScreen';
 import { pageCells, pageOf } from '../src/lib/calendar-view/picker-model';
@@ -226,7 +226,7 @@ async function main() {
   });
 
   await check("Settings: the reminder time is a row that opens the time sheet in 15-minute steps; the <select> is gone; the sheet brings no scope of its own inside the screen; the swipe lock follows the sheets and Back is the screen's", () => {
-    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings/SettingsClient.tsx'), 'utf8');
     assert(!/name="reminderTime"/.test(src) && !/REMINDER_TIME_OPTIONS/.test(src), 'no <select> of times');
     assert(/<TimePickerSheet[\s\S]*?step=\{REMINDER_TIME_STEP_MINUTES\}/.test(src) && !/standalone/.test(src), "the dashboard's time sheet, on the 15-minute step, with no scope of its own");
     assert(/useTelegramVerticalSwipes\(timeOpen \|\|/.test(src) && !/useTelegramBackButton\(/.test(src.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n')), "the swipe lock follows the sheets, and Back is AppScreen's");
@@ -238,7 +238,7 @@ async function main() {
   });
 
   await check('Settings has no error boundary, so its time sheet is not a lazy chunk (a failed load would take the page and its unsaved changes down)', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings/SettingsClient.tsx'), 'utf8');
     assert(!/\blazy\(/.test(src) && !/import\(['"][^'"]*TimePickerSheet/.test(src), 'a lazy import of the sheet');
     assert(/^import \{ TimePickerSheet \} from '\.\.\/dashboard\/TimePickerSheet';/m.test(src), 'a static import');
   });
@@ -288,7 +288,7 @@ async function main() {
   });
 
   await check('the sheets start loading when the editor opens, a failure is logged', async () => {
-    const editor = fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/EditorSheet.tsx'), 'utf8');
+    const editor = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/EditorSheet.tsx'), 'utf8');
     assert(/useEffect\(\(\) => \{\s*preloadPickers\(\);\s*\}, \[\]\)/.test(editor), 'the editor preloads on mount');
     assert(typeof preloadPickers === 'function', 'exported');
     preloadPickers();

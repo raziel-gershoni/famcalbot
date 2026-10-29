@@ -29,7 +29,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { PLAN_CONFIGS } from '../src/config/plans';
-import { SUBSCRIPTION_CSS } from '../app/[locale]/subscription/subscription-css';
+import { SUBSCRIPTION_CSS } from '../app/[locale]/(app)/subscription/subscription-css';
 import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
 
@@ -301,7 +301,7 @@ const close = (opened: Opened) => {
 };
 
 async function main() {
-  Subscription = (await import('../app/[locale]/subscription/SubscriptionClient')).default as unknown as (props: Row) => ReactElement;
+  Subscription = (await import('../app/[locale]/(app)/subscription/SubscriptionClient')).default as unknown as (props: Row) => ReactElement;
 
   await check('U1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the title, the current plan, then Plans with Basic and Pro; no raw key, no emoji, no Latin in he and ru beyond the brands; the Stars prices alone left to right in <bdi dir="ltr"> (the prices as the locale writes them) while the meters\' counts, translated sentences, sit in a bare <bdi> and take their own direction; the star icon hidden from assistive tech beside a hidden sentence; the screen\'s own CSS clean', () => {
     for (const locale of LOCALES) {
@@ -620,7 +620,7 @@ async function main() {
   });
 
   await check('U5 Back: AppScreen is the only BackButton caller (the screen never calls useTelegramBackButton); in Telegram 7.7 the BackButton shows and goes to /<locale>/dashboard?user_id=<id>, with no second back on the page; in a browser the header\'s own back goes to the same place', () => {
-    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/subscription/SubscriptionClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/subscription/SubscriptionClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/useTelegramBackButton\(/.test(source), 'SubscriptionClient calls useTelegramBackButton');
     for (const locale of LOCALES) {
       reset();
@@ -647,7 +647,7 @@ async function main() {
   });
 
   await check('U7 the messages: every key of subscription.screen is read by the screen and none is left over (the trial days left are calendarHome.banner.trial, the home line, read with { count }, not a copy of it); the keys the bot reads are all still there; the screen-only keys of the old page are gone; the old page\'s parts (TelegramLayout, Header, Section, styled-jsx, hard-coded English) are gone', () => {
-    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/subscription/SubscriptionClient.tsx'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/subscription/SubscriptionClient.tsx'), 'utf8');
     const code = source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     const leaves = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? leaves(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
     for (const locale of LOCALES) {

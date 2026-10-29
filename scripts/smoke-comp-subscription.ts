@@ -271,7 +271,7 @@ async function main(): Promise<void> {
     const service = fs.readFileSync(path.join(ROOT, 'src/services/subscription-service.ts'), 'utf8');
     assert(/from '\.\.\/lib\/comp-eligibility'/.test(service) && /holdsPaidPlan\(existing, now\)/.test(service), 'the service does not ask holdsPaidPlan');
     assert(!/hasPaidAccess/.test(service), 'hasPaidAccess is still in the service');
-    const plan = fs.readFileSync(path.join(ROOT, 'app/[locale]/admin-panel/views/profile/Plan.tsx'), 'utf8');
+    const plan = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/admin-panel/views/profile/Plan.tsx'), 'utf8');
     assert(/from '@\/src\/lib\/comp-eligibility'/.test(plan) && /holdsPaidPlan\(sub, now\)/.test(plan), 'the Plan view does not ask holdsPaidPlan');
     assert(!/hasPaidAccess/.test(plan), 'the Plan view carries its own copy of the rule');
   });

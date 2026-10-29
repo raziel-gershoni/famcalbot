@@ -257,10 +257,10 @@ async function main() {
   });
   process.env.TELEGRAM_BOT_USERNAME = 'test_bot';
   process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
-  const clientModule = await import('../app/[locale]/invite/[token]/InviteClient');
+  const clientModule = await import('../app/[locale]/(app)/invite/[token]/InviteClient');
   Invite = clientModule.default as unknown as (props: Row) => ReactElement;
-  const { INVITE_CSS } = await import('../app/[locale]/invite/[token]/invite-css');
-  const InvitePage = (await import('../app/[locale]/invite/[token]/page')).default as unknown as (props: Row) => Promise<ReactElement>;
+  const { INVITE_CSS } = await import('../app/[locale]/(app)/invite/[token]/invite-css');
+  const InvitePage = (await import('../app/[locale]/(app)/invite/[token]/page')).default as unknown as (props: Row) => Promise<ReactElement>;
 
   await check('V1 render in en, he and ru, light (the server\'s markup, hydrated as a browser does it, in a browser and inside Telegram) and dark (Telegram): a plain AppScreen root with its direction and language, the card\'s h1 and body, no raw key, no emoji, no English in he and ru beyond the brands, no hydration mismatch, and the expiry on the device in 24-hour time (15:45, never PM) once the page is on the client', async () => {
     for (const locale of LOCALES) {
@@ -495,7 +495,7 @@ async function main() {
   });
 
   await check('V5 the landing is made of the kit: no Tailwind class, emoji or gradient and no mention of Tailwind in InviteClient or the page; the old comments are gone; it logs a failed accept (captureError, no bare catch); its own CSS passes the lint; every key of the invite namespace is read', () => {
-    const dir = path.join(ROOT, 'app/[locale]/invite/[token]');
+    const dir = path.join(ROOT, 'app/[locale]/(app)/invite/[token]');
     const strip = (source: string) => source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     const sources = Object.fromEntries(['InviteClient.tsx', 'page.tsx'].map((f) => [f, fs.readFileSync(path.join(dir, f), 'utf8')]));
     for (const [file, source] of Object.entries(sources)) {

@@ -1,4 +1,4 @@
-// Smoke test for the admin panel's data layer (app/[locale]/admin-panel/data/; plan
+// Smoke test for the admin panel's data layer (app/[locale]/(app)/admin-panel/data/; plan
 // docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Task 1): the one request helper, a hook per area, the
 // formatters, and the blocklist route's self-ban guard. Real React on the small fake DOM (the hooks are probed through a
 // component), a fake Telegram.WebApp and a fake fetch. No network, no DB.
@@ -32,7 +32,7 @@ import { act, createElement, useEffect } from 'react';
 import { createTranslator } from 'next-intl';
 import { fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
 import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, overrideAfterPost, PHONE, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
-import type { AdminResult, Outcome } from '../app/[locale]/admin-panel/data/admin-api';
+import type { AdminResult, Outcome } from '../app/[locale]/(app)/admin-panel/data/admin-api';
 
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
@@ -234,14 +234,14 @@ function seedRoute() {
 // ---- The checks ----
 
 async function main() {
-  const api = await import('../app/[locale]/admin-panel/data/admin-api');
-  const { useAdminSettings } = await import('../app/[locale]/admin-panel/data/use-admin-settings');
-  const { useUsers, filterUsers, resetAllSetupReminders } = await import('../app/[locale]/admin-panel/data/use-users');
-  const { useUserProfile } = await import('../app/[locale]/admin-panel/data/use-user-profile');
-  const { useActivity } = await import('../app/[locale]/admin-panel/data/use-activity');
-  const { useFeedback } = await import('../app/[locale]/admin-panel/data/use-feedback');
-  const { useBlocklist } = await import('../app/[locale]/admin-panel/data/use-blocklist');
-  const format = await import('../app/[locale]/admin-panel/data/format');
+  const api = await import('../app/[locale]/(app)/admin-panel/data/admin-api');
+  const { useAdminSettings } = await import('../app/[locale]/(app)/admin-panel/data/use-admin-settings');
+  const { useUsers, filterUsers, resetAllSetupReminders } = await import('../app/[locale]/(app)/admin-panel/data/use-users');
+  const { useUserProfile } = await import('../app/[locale]/(app)/admin-panel/data/use-user-profile');
+  const { useActivity } = await import('../app/[locale]/(app)/admin-panel/data/use-activity');
+  const { useFeedback } = await import('../app/[locale]/(app)/admin-panel/data/use-feedback');
+  const { useBlocklist } = await import('../app/[locale]/(app)/admin-panel/data/use-blocklist');
+  const format = await import('../app/[locale]/(app)/admin-panel/data/format');
   const { NextRequest } = nodeRequire('next/server');
   installRouteStubs();
 

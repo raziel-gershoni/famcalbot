@@ -614,7 +614,7 @@ async function main() {
     const res = await oauthStart({ user_id: '111111111', initData: reads.afterFullLoad });
     assert(res.status === 200, `oauth/start: status ${res.status} ${await bodyOf(res)}`);
     assert(DB.oAuthState.length === 1 && String(DB.oAuthState[0].userId) === '9', `OAuth states: ${show(DB.oAuthState)}`);
-    for (const rel of ['app/(connect)/refresh-token/RefreshTokenClient.tsx', 'app/[locale]/PageGate.tsx']) {
+    for (const rel of ['app/(connect)/refresh-token/RefreshTokenClient.tsx', 'app/[locale]/(app)/PageGate.tsx']) {
       assert(readSource(rel).includes("from '@/src/lib/read-init-data'"), `${rel} does not use the shared initData reader`);
     }
   });

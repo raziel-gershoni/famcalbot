@@ -1,6 +1,6 @@
 // Smoke test for the Mini App side of "Disconnect Google"
 // (docs/superpowers/specs/2026-10-25-disconnect-google-design.md): Settings' Google section
-// and its confirmation (app/[locale]/settings/GoogleDisconnect.tsx, drawn with the app's kit),
+// and its confirmation (app/[locale]/(app)/settings/GoogleDisconnect.tsx, drawn with the app's kit),
 // the request helper (google-disconnect-client.ts), the copy in en, he and ru, the admin
 // timeline's wording of the activity row, and the privacy page's promise. Rendered through
 // next-intl with the real messages. No network, no DB, no Redis.
@@ -12,11 +12,11 @@ import path from 'path';
 import { act, createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import GoogleDisconnect, { GoogleDisconnectView, type GoogleDisconnectViewProps } from '../app/[locale]/settings/GoogleDisconnect';
-import { requestDisconnect } from '../app/[locale]/settings/google-disconnect-client';
+import GoogleDisconnect, { GoogleDisconnectView, type GoogleDisconnectViewProps } from '../app/[locale]/(app)/settings/GoogleDisconnect';
+import { requestDisconnect } from '../app/[locale]/(app)/settings/google-disconnect-client';
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { activityDetail } from '../src/lib/admin-activity';
-import PrivacyPage from '../app/[locale]/privacy/page';
+import PrivacyPage from '../app/[locale]/(site)/privacy/page';
 import { TEXT_PAIRS } from './lib/css-resolve';
 import { byRole, elements, installWindow, mount } from './lib/fake-dom';
 
@@ -256,7 +256,7 @@ async function main() {
   // ---- Wiring, activity row, privacy ----
 
   await check('wiring: Settings renders the section from a googleConnected prop that page-data fills from the stored token', () => {
-    const client = fs.readFileSync(path.join(ROOT, 'app/[locale]/settings/SettingsClient.tsx'), 'utf8');
+    const client = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings/SettingsClient.tsx'), 'utf8');
     const pageData = fs.readFileSync(path.join(ROOT, 'src/lib/page-data.ts'), 'utf8');
     assert(/<GoogleDisconnect\b/.test(client) && /googleConnected: boolean/.test(client), 'SettingsClient does not render the section');
     assert(/googleConnected: Boolean\(user\.googleRefreshToken\)/.test(pageData), 'page-data does not pass googleConnected');

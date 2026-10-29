@@ -456,10 +456,10 @@ async function main() {
     const lib = readFileSync(path.join(ROOT, 'src/lib/calendar-view/zman-words.ts'), 'utf8');
     assert(!/services\/zmanim|@hebcal/.test(lib), 'zman-words.ts imports the zmanim module');
     let gone = false;
-    try { readFileSync(path.join(ROOT, 'app/[locale]/dashboard/zman-words.ts'), 'utf8'); } catch { gone = true; }
-    assert(gone, 'app/[locale]/dashboard/zman-words.ts is still there');
+    try { readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/zman-words.ts'), 'utf8'); } catch { gone = true; }
+    assert(gone, 'app/[locale]/(app)/dashboard/zman-words.ts is still there');
     for (const file of ['EditorSheet', 'ItemRow', 'ItemSheet', 'ZmanimSheet']) {
-      const text = readFileSync(path.join(ROOT, `app/[locale]/dashboard/${file}.tsx`), 'utf8');
+      const text = readFileSync(path.join(ROOT, `app/[locale]/(app)/dashboard/${file}.tsx`), 'utf8');
       assert(text.includes("@/src/lib/calendar-view/zman-words") && !text.includes("'./zman-words'"), `${file} imports the old path`);
     }
     // One words path in the services: only the view helper builds a rule's words

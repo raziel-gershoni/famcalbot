@@ -34,7 +34,7 @@ import {
 } from '../src/lib/calendar-view/drag-model';
 import { fromZonedTime } from 'date-fns-tz';
 import { daySpanOf } from '../src/utils/day-events';
-import { OVERLAY_CLASS, ghostTranslation, visibleHits, type HitElement } from '../app/[locale]/dashboard/DragSurface';
+import { OVERLAY_CLASS, ghostTranslation, visibleHits, type HitElement } from '../app/[locale]/(app)/dashboard/DragSurface';
 import { dayItems, dayStatus, emptyStore, itemCopies, reduceStore } from '../src/lib/calendar-view/store';
 import type { RangeResponse } from '../src/lib/calendar-view/types';
 import type { EditScope, ItemEditInfoResponse, RepeatInfo, RepeatSpec } from '../src/lib/calendar-view/editor-types';

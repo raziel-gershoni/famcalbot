@@ -1,5 +1,5 @@
 // Smoke test for the home's sun sheet (the zmanim list): the header's sun button (HomeHeader), the sheet
-// (app/[locale]/dashboard/ZmanimSheet.tsx) and its request (src/lib/calendar-view/zmanim-list.ts), with the real
+// (app/[locale]/(app)/dashboard/ZmanimSheet.tsx) and its request (src/lib/calendar-view/zmanim-list.ts), with the real
 // messages in en, he (RTL) and ru, in real React (react-dom/client with act on scripts/lib/fake-dom.ts). The route behind
 // it is smoke-zmanim-api.ts's; the container's gate (the button only for the Jewish calendar, the sheet opened from it) is
 // smoke-calendar-home-render.ts's #126-#128.
@@ -32,9 +32,9 @@ import path from 'node:path';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { HomeHeader } from '../app/[locale]/dashboard/HomeHeader';
-import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
-import { ZMANIM_SHEET_CSS, ZmanimSheet } from '../app/[locale]/dashboard/ZmanimSheet';
+import { HomeHeader } from '../app/[locale]/(app)/dashboard/HomeHeader';
+import { HOME_SHELL_CSS } from '../app/[locale]/(app)/dashboard/home-shell';
+import { ZMANIM_SHEET_CSS, ZmanimSheet } from '../app/[locale]/(app)/dashboard/ZmanimSheet';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { formatDayLong } from '../src/lib/calendar-view/format';

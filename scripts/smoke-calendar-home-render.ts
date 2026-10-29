@@ -1,6 +1,6 @@
 // Smoke test for the calendar home's Agenda view (spec §7.3, §7.5, §7.7, §5 States;
 // Rulings R7, R8, R10, R19; Plan D, Task D5): AgendaView and its parts (DayList, ItemRow,
-// StillOpenCard, ItemSheet, BottomSheet) in app/[locale]/dashboard/, and the date and
+// StillOpenCard, ItemSheet, BottomSheet) in app/[locale]/(app)/dashboard/, and the date and
 // time helpers in src/lib/calendar-view/format.ts.
 //
 // The Agenda is built the way CalendarHome (D6) builds it: range answers go through the
@@ -95,18 +95,18 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-home-render.ts
 
 // The views first: the import-rule checks walk what these load.
-import CalendarHome, { CalendarHomeContainer, DRAG_BAR_MS, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/dashboard/CalendarHome';
-import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/dashboard/AgendaView';
-import { ItemSheet, type SheetActions } from '../app/[locale]/dashboard/ItemSheet';
+import CalendarHome, { CalendarHomeContainer, DRAG_BAR_MS, GONE_NOTE_MS, HOME_TOP_CSS, type HomeDeps } from '../app/[locale]/(app)/dashboard/CalendarHome';
+import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/(app)/dashboard/AgendaView';
+import { ItemSheet, type SheetActions } from '../app/[locale]/(app)/dashboard/ItemSheet';
 import { FORM_CSS } from '../components/app-ui/form-kit';
-import { EDITOR_FORM_CSS } from '../app/[locale]/dashboard/form-kit';
-import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/dashboard/DragSurface';
-import { DRAG_BAR_CSS, DragBar } from '../app/[locale]/dashboard/DragBar';
-import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
-import { SendSheet } from '../app/[locale]/dashboard/SendSheet';
+import { EDITOR_FORM_CSS } from '../app/[locale]/(app)/dashboard/form-kit';
+import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/(app)/dashboard/DragSurface';
+import { DRAG_BAR_CSS, DragBar } from '../app/[locale]/(app)/dashboard/DragBar';
+import { REPEAT_CSS } from '../app/[locale]/(app)/dashboard/RepeatSheet';
+import { SendSheet } from '../app/[locale]/(app)/dashboard/SendSheet';
 import { BottomSheet } from '../components/app-ui/BottomSheet';
-import SelectCalendarsClient from '../app/[locale]/select-calendars/SelectCalendarsClient';
-import CalendarsClient from '../app/[locale]/calendars/CalendarsClient';
+import SelectCalendarsClient from '../app/[locale]/(app)/select-calendars/SelectCalendarsClient';
+import CalendarsClient from '../app/[locale]/(app)/calendars/CalendarsClient';
 
 /** BottomSheet with its children passed as createElement arguments (the lint rule forbids the prop). */
 const SheetProbe = BottomSheet as unknown as (props: Omit<ComponentProps<typeof BottomSheet>, 'children'>) => ReactElement;
@@ -126,18 +126,18 @@ import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
 import { isolate } from '../src/lib/isolate';
-import { ItemRow } from '../app/[locale]/dashboard/ItemRow';
+import { ItemRow } from '../app/[locale]/(app)/dashboard/ItemRow';
 import bidiFactory from 'bidi-js';
 import { hebrewFullDate } from '../src/lib/calendar-view/hebrew-date';
-import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
-import { HomeChunkBoundary } from '../app/[locale]/PageGate';
-import { homeBanners, type BannerFacts } from '../app/[locale]/dashboard/HomeBanners';
-import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
-import { menuEntries } from '../app/[locale]/dashboard/MenuSheet';
+import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/(app)/dashboard/HomeErrorBoundary';
+import { HomeChunkBoundary } from '../app/[locale]/(app)/PageGate';
+import { homeBanners, type BannerFacts } from '../app/[locale]/(app)/dashboard/HomeBanners';
+import { HOME_SHELL_CSS } from '../app/[locale]/(app)/dashboard/home-shell';
+import { menuEntries } from '../app/[locale]/(app)/dashboard/MenuSheet';
 import { isChunkLoadError, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
 import { ERROR_RETRY_MS, MONTH_INFLIGHT_MAX, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
-import { PANEL_IDS, TAB_IDS } from '../app/[locale]/dashboard/HomeTabs';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
+import { PANEL_IDS, TAB_IDS } from '../app/[locale]/(app)/dashboard/HomeTabs';
+import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
 import { homeTabKey, monthLayoutKey } from '../src/lib/calendar-view/home-storage';
 import { monthSpan, monthWindow, type MonthKey } from '../src/lib/calendar-view/grid';
 import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-view/month';
@@ -1232,7 +1232,7 @@ async function main() {
   (globalThis as Row).fetch = fakeFetch;
 
   await check('#1 the view is client-safe: AgendaView and ItemSheet load no server module (DB, Redis, services, date-fns-tz, @hebcal/core)', () => {
-    const roots = [path.join(ROOT, 'app/[locale]/dashboard/AgendaView.tsx'), path.join(ROOT, 'app/[locale]/dashboard/ItemSheet.tsx')];
+    const roots = [path.join(ROOT, 'app/[locale]/(app)/dashboard/AgendaView.tsx'), path.join(ROOT, 'app/[locale]/(app)/dashboard/ItemSheet.tsx')];
     const loaded = new Set<string>();
     const walk = (id: string) => {
       for (const child of require.cache[id]?.children ?? []) {
@@ -1245,7 +1245,7 @@ async function main() {
       assert(require.cache[id] !== undefined, `${id} is not in require.cache: the check would be empty`);
       walk(id);
     }
-    for (const want of ['app/[locale]/dashboard/DayList.tsx', 'app/[locale]/dashboard/ItemRow.tsx', 'src/lib/calendar-view/format.ts', 'src/lib/telegram-ui.ts']) {
+    for (const want of ['app/[locale]/(app)/dashboard/DayList.tsx', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'src/lib/calendar-view/format.ts', 'src/lib/telegram-ui.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>
@@ -1736,7 +1736,7 @@ async function main() {
   // ---- CalendarHome (Task D6): the container, in real React with a fake fetch ----
 
   await check('#21 the container is client-safe: CalendarHome and its parts load no server module', () => {
-    const root = path.join(ROOT, 'app/[locale]/dashboard/CalendarHome.tsx');
+    const root = path.join(ROOT, 'app/[locale]/(app)/dashboard/CalendarHome.tsx');
     assert(require.cache[root] !== undefined, 'CalendarHome is not in require.cache: the check would be empty');
     const loaded = new Set<string>();
     const walk = (id: string) => {
@@ -1747,8 +1747,8 @@ async function main() {
       }
     };
     walk(root);
-    const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/dashboard/${f}`);
-    for (const want of [...parts, 'components/app-ui/AppScreen.tsx', 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'components/app-ui/BottomSheet.tsx', 'components/app-ui/form-kit.tsx', 'app/[locale]/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
+    const parts = ['HomeHeader.tsx', 'HomeBanners.tsx', 'SendSheet.tsx', 'MenuSheet.tsx', 'HomeErrorBoundary.tsx', 'home-shell.ts', 'AgendaView.tsx'].map((f) => `app/[locale]/(app)/dashboard/${f}`);
+    for (const want of [...parts, 'components/app-ui/AppScreen.tsx', 'components/app-ui/theme.ts', 'components/app-ui/screen.ts', 'components/app-ui/BottomSheet.tsx', 'components/app-ui/form-kit.tsx', 'app/[locale]/(app)/PageGate.tsx', 'src/lib/calendar-view/home-loader.ts', 'src/lib/calendar-view/home-client.ts', 'src/lib/command-client.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>
@@ -2724,7 +2724,7 @@ async function main() {
       walk(id);
       return loaded;
     };
-    const dashboard = (f: string) => path.join(ROOT, 'app/[locale]/dashboard', f);
+    const dashboard = (f: string) => path.join(ROOT, 'app/[locale]/(app)/dashboard', f);
     const root = dashboard('CalendarHome.tsx');
     const home = graph(root);
     for (const want of [dashboard('HomeTabs.tsx'), ...['month.ts', 'grid.ts', 'home-storage.ts', 'hebrew-date.ts'].map((f) => path.join(ROOT, 'src/lib/calendar-view', f))]) {
@@ -6582,7 +6582,7 @@ async function main() {
     const loaded = [...walk(client)];
     assert(!loaded.some((id) => /@hebcal|hebrew-holidays|node_modules\/(?:@prisma|ioredis|@upstash)/.test(id)), `server code reached: ${show(loaded.filter((id) => /@hebcal|hebrew-holidays/.test(id)))}`);
     for (const view of ['MonthBrowse', 'DayList', 'MonthPicked', 'HomeHeader']) {
-      const file = fs.readFileSync(path.join(ROOT, `app/[locale]/dashboard/${view}.tsx`), 'utf8');
+      const file = fs.readFileSync(path.join(ROOT, `app/[locale]/(app)/dashboard/${view}.tsx`), 'utf8');
       assert(/holidays-client/.test(file) && !/@hebcal\/core|services\/hebrew-holidays/.test(file), `${view} reads holidays-client only`);
     }
     const css = [HOME_SHELL_CSS, MONTH_BROWSE_CSS].join('\n');
@@ -9081,7 +9081,7 @@ async function main() {
       m.unmount();
     }
     // The client's own code reads no calendarSource (the legacy column stays on the server, unread).
-    for (const rel of ['app/[locale]/PageGate.tsx', 'app/[locale]/dashboard/CalendarHome.tsx', 'app/[locale]/dashboard/HomeBanners.tsx', 'app/[locale]/dashboard/MenuSheet.tsx', 'src/lib/calendar-view/home-client.ts', 'src/lib/calendar-view/home-props.ts', 'src/lib/page-data.ts']) {
+    for (const rel of ['app/[locale]/(app)/PageGate.tsx', 'app/[locale]/(app)/dashboard/CalendarHome.tsx', 'app/[locale]/(app)/dashboard/HomeBanners.tsx', 'app/[locale]/(app)/dashboard/MenuSheet.tsx', 'src/lib/calendar-view/home-client.ts', 'src/lib/calendar-view/home-props.ts', 'src/lib/page-data.ts']) {
       const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
       assert(!/\bcalendarSource\b|\bneedsOAuth\b|\bneedsCalendars\b/.test(src), `${rel} still reads the legacy source`);
     }
@@ -10094,7 +10094,7 @@ async function main() {
       for (const done of [true, false]) assertPartnerChip(monthRow(locale, eachItem({ partnerDone: done })), locale, 'Dana', done, `${locale} Month list, partner ${done ? 'done' : 'not yet'}`);
     }
     // The Month's list renders ItemRow itself, so there is one chip for the Agenda, the Month list and the card
-    assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/MonthPicked.tsx'), 'utf8')), 'MonthPicked no longer renders ItemRow');
+    assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthPicked.tsx'), 'utf8')), 'MonthPicked no longer renders ItemRow');
   });
 
   await check('#134 the chip\'s CSS: a small inline row (icon and label) on the existing chip, the icon 14 px in the chip\'s own colour, the label ellipsised, the done tone the muted one with a ring (so it shows on the Still open card in every theme); logical properties and no hover', () => {

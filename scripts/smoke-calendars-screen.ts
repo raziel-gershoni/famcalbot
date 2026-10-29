@@ -473,10 +473,10 @@ async function main() {
     for (const l of LOCALES) assert(!/\(.\)/.test(messages[l].calendars.categories.spouse), `${l}: a parenthetical gender form in ${messages[l].calendars.categories.spouse}`);
   });
 
-  Calendars = (await import('../app/[locale]/calendars/CalendarsClient')).default as unknown as (props: Props) => ReactElement;
+  Calendars = (await import('../app/[locale]/(app)/calendars/CalendarsClient')).default as unknown as (props: Props) => ReactElement;
   const noComments = (code: string) => code.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
   const source = (file: string) => fs.readFileSync(path.join(ROOT, file), 'utf8');
-  const PAGE_FILES = ['app/[locale]/calendars/CalendarsClient.tsx', 'app/[locale]/calendars/GoogleCopyRow.tsx'];
+  const PAGE_FILES = ['app/[locale]/(app)/calendars/CalendarsClient.tsx', 'app/[locale]/(app)/calendars/GoogleCopyRow.tsx'];
   const TELEGRAM = { version: '7.7' };
   const initDataOf = (o: Opened) => (o.tg as Row).initData as string;
   const swatchLabels = (locale: Locale) => CALENDAR_PALETTE.map((c) => messageAt(locale, `calendarsPage.colors.${c.name.toLowerCase()}`));

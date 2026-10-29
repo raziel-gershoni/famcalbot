@@ -1,5 +1,5 @@
 // Smoke test for the calendars page's "Copy to Google" rows (google-sync spec §1 Where it
-// lives, §5 Copy; plan Task S4; W4-1 moved the rows onto the form kit): app/[locale]/calendars/GoogleCopyRow.tsx
+// lives, §5 Copy; plan Task S4; W4-1 moved the rows onto the form kit): app/[locale]/(app)/calendars/GoogleCopyRow.tsx
 // and its client helpers (google-copy-client.ts), rendered through next-intl with the real
 // messages in en, he and ru. It checks:
 //  - each state's row: off, copying (with and without progress), copied, "N can't be copied",
@@ -24,8 +24,8 @@ import path from 'path';
 import { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, isolate, type GoogleCopyRowProps } from '../app/[locale]/calendars/GoogleCopyRow';
-import { consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds } from '../app/[locale]/calendars/google-copy-client';
+import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, isolate, type GoogleCopyRowProps } from '../app/[locale]/(app)/calendars/GoogleCopyRow';
+import { consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds } from '../app/[locale]/(app)/calendars/google-copy-client';
 import { OAUTH_STATE_TTL_MS } from '../src/lib/oauth-state';
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { lintCss } from './lib/css-lint';

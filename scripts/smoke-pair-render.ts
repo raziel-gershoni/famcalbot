@@ -204,7 +204,7 @@ const close = (opened: ReturnType<typeof open>) => {
 };
 
 async function main() {
-  Pair = (await import('../app/[locale]/pair/PairClient')).default as unknown as (props: Row) => ReactElement;
+  Pair = (await import('../app/[locale]/(app)/pair/PairClient')).default as unknown as (props: Row) => ReactElement;
 
   await check('P1 render in en, he and ru, light (server) and dark (Telegram), paired / not paired / with a link: a grouped AppScreen root with its direction and language and the page title, no raw key, no emoji, no English in he and ru, the link field left to right, the dates in 24-hour time (15:45, never PM), and the right rows for the state', async () => {
     for (const locale of LOCALES) {
@@ -497,7 +497,7 @@ async function main() {
   });
 
   await check("P5 Back: AppScreen is the only BackButton caller on the Partner screen; Telegram's Back (and the header's own back in a browser) returns to the calendar in the page's language with no sheet open, and closes the sheet first when there is one", async () => {
-    const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/pair/PairClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/pair/PairClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/useTelegramBackButton\(/.test(code), 'PairClient calls useTelegramBackButton');
     for (const locale of LOCALES) {
       reset();
@@ -528,7 +528,7 @@ async function main() {
   });
 
   await check('P7 the screen is made of the kit: no Tailwind class, no emoji and no window.confirm in its source, the invite link reads through readInitData, and it brings the form kit\'s style sheet', () => {
-    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/pair/PairClient.tsx'), 'utf8');
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/pair/PairClient.tsx'), 'utf8');
     const code = source.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/className="[^"]*\b(?:bg-|text-(?:gray|rose|blue|xs|sm|lg|xl|2xl|3xl)|rounded|px-\d|py-\d|min-h-screen|flex-1|shadow|mt-\d|mb-\d|p-\d|gap-\d|max-w)/.test(code), 'a Tailwind class is left');
     assert(!/\p{Extended_Pictographic}/u.test(source), 'an emoji in the source');

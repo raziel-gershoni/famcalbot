@@ -174,7 +174,7 @@ async function send(o: Opened, text: string) {
 }
 
 async function main() {
-  Feedback = (await import('../app/[locale]/feedback/FeedbackClient')).default as unknown as (props: Row) => ReactElement;
+  Feedback = (await import('../app/[locale]/(app)/feedback/FeedbackClient')).default as unknown as (props: Row) => ReactElement;
 
   await check('F1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the title as the h1, the intro, a textarea with its label, placeholder, maxlength 1000 and the id of the count line that describes it, the count left to right; Send off; no raw key, no emoji, no Latin in he and ru beyond FamCal', () => {
     for (const locale of LOCALES) {
@@ -359,7 +359,7 @@ async function main() {
     } finally {
       close(browser);
     }
-    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/feedback/FeedbackClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/feedback/FeedbackClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/useTelegramBackButton\(/.test(source), 'FeedbackClient calls useTelegramBackButton');
     assert((source.match(/startMiniApp\(/g) ?? []).length === 1, 'startMiniApp is called once');
   });
@@ -394,7 +394,7 @@ async function main() {
     const route = fs.readFileSync(path.join(ROOT, 'app/api/feedback/route.ts'), 'utf8');
     assert(/from '@\/src\/lib\/feedback-limits'/.test(route) && /FEEDBACK_LIMITS\.minLength/.test(route) && /FEEDBACK_LIMITS\.maxLength/.test(route) && /FEEDBACK_LIMITS\.perDay/.test(route), 'the route does not read FEEDBACK_LIMITS');
     assert(!/\b(?:minLength|maxLength|rateLimitCount):\s*\d/.test(route) && /rateLimitHours:\s*24/.test(route), 'the route still has its own numbers, or lost its 24 hours');
-    const client = fs.readFileSync(path.join(ROOT, 'app/[locale]/feedback/FeedbackClient.tsx'), 'utf8');
+    const client = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/feedback/FeedbackClient.tsx'), 'utf8');
     const code = client.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(/from '@\/src\/lib\/feedback-limits'/.test(code) && /FEEDBACK_LIMITS\.maxLength/.test(code) && /FEEDBACK_LIMITS\.minLength/.test(code), 'the screen does not read FEEDBACK_LIMITS');
     assert(!/(?<![\w.])1000(?![\w])|(?<![\w.])10(?![\w])/.test(code.replace(/rows=\{8\}/, '')), `a limit written out in the screen: ${code.match(/.*\b(?:1000|10)\b.*/)?.[0]}`);

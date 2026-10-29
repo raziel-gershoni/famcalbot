@@ -1780,7 +1780,7 @@ async function main() {
   });
 
   await check('#42 S2 the privacy page names the Google copy in every language: calendar.app.created, the "FamCal ·" calendar, never read back, Remove or Keep; dated October 2026', async () => {
-    const page = (await load('app/[locale]/privacy/page.tsx')).default;
+    const page = (await load('app/[locale]/(site)/privacy/page.tsx')).default;
     const want: Record<string, RegExp[]> = {
       en: [/calendar\.app\.created/, /FamCal · /, /never read back/, /delete that Google calendar or keep it/, /October 2026/],
       he: [/calendar\.app\.created/, /FamCal · /, /לא נקראים בחזרה/, /למחוק את יומן ה-Google הזה או להשאיר אותו/, /אוקטובר 2026/],

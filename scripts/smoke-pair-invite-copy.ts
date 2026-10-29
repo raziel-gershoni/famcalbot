@@ -1,5 +1,5 @@
-// Smoke test for the Pair and Invite screens' copy (app/[locale]/pair/PairClient.tsx,
-// app/[locale]/pair/page.tsx, app/[locale]/invite/[token]/InviteClient.tsx and page.tsx).
+// Smoke test for the Pair and Invite screens' copy (app/[locale]/(app)/pair/PairClient.tsx,
+// app/[locale]/(app)/pair/page.tsx, app/[locale]/(app)/invite/[token]/InviteClient.tsx and page.tsx).
 //
 // Every string those screens show lives in the "pair" and "invite" namespaces of
 // messages/{en,he,ru}.json and reaches the page through next-intl. This smoke pins:
@@ -39,8 +39,8 @@ function assert(cond: unknown, message: string): asserts cond {
 }
 
 const SCREENS = [
-  { namespace: 'pair', files: ['app/[locale]/pair/PairClient.tsx', 'app/[locale]/pair/page.tsx'] },
-  { namespace: 'invite', files: ['app/[locale]/invite/[token]/InviteClient.tsx', 'app/[locale]/invite/[token]/page.tsx'] },
+  { namespace: 'pair', files: ['app/[locale]/(app)/pair/PairClient.tsx', 'app/[locale]/(app)/pair/page.tsx'] },
+  { namespace: 'invite', files: ['app/[locale]/(app)/invite/[token]/InviteClient.tsx', 'app/[locale]/(app)/invite/[token]/page.tsx'] },
 ] as const;
 
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -125,7 +125,7 @@ check('the Hebrew week-ahead note uses the app\'s own name for the block, \u05de
 });
 
 check('the invite page logs a failed accept (no bare catch)', () => {
-  const src = read('app/[locale]/invite/[token]/InviteClient.tsx');
+  const src = read('app/[locale]/(app)/invite/[token]/InviteClient.tsx');
   assert(!/catch\s*\{/.test(src) && src.includes("captureError(error, 'invite-accept'"), 'a bare catch, or the failure is not reported');
 });
 

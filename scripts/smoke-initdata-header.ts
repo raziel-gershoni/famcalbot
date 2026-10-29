@@ -531,7 +531,7 @@ async function main() {
 
   await check('#9 calendars and pair read initData through readInitData for every call', () => {
     const bad: string[] = [];
-    for (const rel of ['app/[locale]/calendars/CalendarsClient.tsx', 'app/[locale]/pair/PairClient.tsx']) {
+    for (const rel of ['app/[locale]/(app)/calendars/CalendarsClient.tsx', 'app/[locale]/(app)/pair/PairClient.tsx']) {
       const fn = readSource(rel).match(/function getInitData\(\)[^{]*\{([^}]*)\}/)?.[1]?.trim() ?? '(not found)';
       if (fn !== 'return readInitData();') bad.push(`${rel}: ${fn}`);
     }
@@ -539,7 +539,7 @@ async function main() {
   });
 
   await check('#10 select-calendars: the screen sends the credential in the header (initDataHeaders) and never in the body, and the route reads it through requestInitData', () => {
-    const client = readSource('app/[locale]/select-calendars/SelectCalendarsClient.tsx').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    const client = readSource('app/[locale]/(app)/select-calendars/SelectCalendarsClient.tsx').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(/headers: \{ 'Content-Type': 'application\/json', \.\.\.initDataHeaders\(\) \}/.test(client), 'the save does not send initDataHeaders()');
     assert(!/window\.Telegram|readInitData|initData:|\binitData\b\s*[,}]/.test(client), 'the screen reads initData itself or puts it in a body');
     const route = readSource('app/api/select-calendars/route.ts');

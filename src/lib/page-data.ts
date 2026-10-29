@@ -15,11 +15,11 @@
  */
 
 import type { ComponentProps } from 'react';
-import type SettingsClient from '@/app/[locale]/settings/SettingsClient';
-import type SelectCalendarsClient from '@/app/[locale]/select-calendars/SelectCalendarsClient';
-import type CalendarsClient from '@/app/[locale]/calendars/CalendarsClient';
-import type PairClient from '@/app/[locale]/pair/PairClient';
-import type SubscriptionClient from '@/app/[locale]/subscription/SubscriptionClient';
+import type SettingsClient from '@/app/[locale]/(app)/settings/SettingsClient';
+import type SelectCalendarsClient from '@/app/[locale]/(app)/select-calendars/SelectCalendarsClient';
+import type CalendarsClient from '@/app/[locale]/(app)/calendars/CalendarsClient';
+import type PairClient from '@/app/[locale]/(app)/pair/PairClient';
+import type SubscriptionClient from '@/app/[locale]/(app)/subscription/SubscriptionClient';
 import { calendarTotal, countCalendars, getSubscriptionWithUsage, getTrialStatus, checkEarlyAdopterAccess, peekFeatureAccess } from '@/src/services/subscription-service';
 import { canReceiveReminderPings, getReminderSupport } from '@/src/services/native-reminders/support';
 import { trackActivityAsync } from '@/src/services/analytics-service';

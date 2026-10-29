@@ -27,9 +27,9 @@
 
 import { CalendarTones, LINE_FLOOR, TEXT_FLOOR, calendarTones, calendarVars, contrast, toneGrounds, type ToneTheme } from '../src/lib/calendar-view/colours';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
-import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
-import { MONTH_PICKED_CSS } from '../app/[locale]/dashboard/MonthPicked';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
+import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
+import { MONTH_PICKED_CSS } from '../app/[locale]/(app)/dashboard/MonthPicked';
+import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
 import fs from 'fs';
 import path from 'path';
 
