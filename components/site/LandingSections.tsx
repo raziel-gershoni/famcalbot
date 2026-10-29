@@ -27,12 +27,17 @@ import {
 import { Link } from '@/i18n/navigation';
 import { TRIAL_DURATION_DAYS } from '@/src/config/plans';
 import { planCards } from '@/src/site/plans';
+import { LegalInline, sellerView } from './LegalInline';
 import { ReminderPing } from './ReminderPing';
 import { HonestLine, StartButtons, type StartWords } from './StartButtons';
 
 // The landing's sections after the hero, in the spec's order (2026-10-28-public-website §3.2): How it works (#how),
 // What it does, Telegram or WhatsApp, Plans (#plans), From the founder, and Start again (#start). Every word is a
 // message; every icon is lucide's. Server components: no client code.
+//
+// The plans end with the "Cancel a payment" link to the Terms' cancellation part, with the four ways to cancel next to
+// it (Consumer Protection Law s.14I(b), (e)(2)): the bot's /paysupport, email, post and phone, the seller's details
+// from src/lib/seller.ts.
 
 type Translate = ((key: string, values?: Record<string, string | number>) => string) & { raw: (key: string) => unknown };
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -232,8 +237,9 @@ export function Channels({ t }: { t: Translate }) {
   );
 }
 
-export function Plans({ t }: { t: Translate }) {
+export function Plans({ t, locale }: { t: Translate; locale: string }) {
   const cards = planCards(t);
+  const seller = sellerView(locale);
   return (
     <section id="plans" className="site-section site-band" aria-labelledby="plans-title">
       <div className="site-wrap">
@@ -275,6 +281,18 @@ export function Plans({ t }: { t: Translate }) {
             </li>
           ))}
         </ul>
+        <div className="site-cancel">
+          <Link className="site-cancel-link" href={{ pathname: '/terms', hash: 'cancel' }}>
+            {t('landing.plans.cancel.link')}
+          </Link>
+          <ul className="site-cancel-ways">
+            {(['bot', 'email', 'post', 'phone'] as const).map((way) => (
+              <li key={way}>
+                <LegalInline text={String(t.raw(`landing.plans.cancel.${way}`))} seller={seller} missing={t('legal.sellerMissing')} />
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </section>
   );

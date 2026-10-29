@@ -17,8 +17,11 @@
 //  - G7 the look: every text colour of the site's palette keeps 4.5:1 on what it sits on and every mark 3:1, in both
 //    themes (the kit's contrast helper); nothing hangs on hover; every animation sits inside prefers-reduced-motion:
 //    no-preference (so reduced motion stops it), and the site's sheet doesn't slide.
-//  - G8 the page reads nothing on the server but messages and the plan table: no database, no Redis, no early-access
-//    switch; it is static, rendered again once a day.
+//  - G8 the page reads nothing on the server but messages, the plan table and the seller's details: no database, no
+//    Redis, no early-access switch; it is static, rendered again once a day.
+//  - G9 the plans end with a clearly labelled "Cancel a payment" link to the Terms' #cancel, the four ways to cancel
+//    right next to it (the bot's /paysupport kept as plain text, the email linked, the postal address and the phone
+//    from src/lib/seller.ts, or the "to be added" words while one is missing) (Consumer Protection Law s.14I(b), (e)(2)).
 //
 // The page runs as Next runs it on the server (the page as a function, next-intl's server API over the real messages,
 // the plan table stood in for where a check changes it). No network, no DB.
@@ -85,7 +88,9 @@ async function main() {
       }
       assert(!/\b(?:landing|site|bot)\.[a-z]+\.[a-zA-Z]/.test(text), `${locale}: a raw key in ${text.match(/\b(?:landing|site|bot)\.[a-z]+\.[a-zA-Z]\S*/)?.[0]}`);
       assert(!EMOJI.test(html.replace(/https:\/\/wa\.me\/[^"]+/g, '')), `${locale}: an emoji: ${html.match(EMOJI)?.[0]}`);
-      if (locale !== 'en') assert(!/[A-Za-z]{4,}/.test(text.replace(/FamCal|Telegram|WhatsApp|Google|Shabbat|Pro|PDF|English|Русский|Yom Tov|QR/g, '')) || locale === 'ru', `${locale}: English words in the page`);
+      // An email address and a bot command (the cancel line's ways) are not words
+      const words = text.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?<![\w/])\/[a-z]+/g, '');
+      if (locale !== 'en') assert(!/[A-Za-z]{4,}/.test(words.replace(/FamCal|Telegram|WhatsApp|Google|Shabbat|Pro|PDF|English|Русский|Yom Tov|QR/g, '')) || locale === 'ru', `${locale}: English words in the page`);
     }
   });
 
@@ -236,13 +241,46 @@ async function main() {
     assert(/\.site \.ch-sheet \{[^}]*animation: none;/.test(own), 'the sheet slides');
   });
 
-  await check('G8 the page reads nothing on the server beyond messages and the plan table (no Prisma, Redis or early-access switch, in its own files), and is static, rendered again once a day', () => {
-    const files = ['app/[locale]/(site)/page.tsx', 'components/site/LandingSections.tsx', 'components/site/HeroDemo.tsx', 'components/site/DemoAgenda.tsx', 'components/site/ReminderPing.tsx', 'src/site/plans.ts', 'src/site/sample-week.ts'];
+  await check('G8 the page reads nothing on the server beyond messages, the plan table and the seller\'s details (no Prisma, Redis or early-access switch, in its own files), and is static, rendered again once a day', () => {
+    const files = ['app/[locale]/(site)/page.tsx', 'components/site/LandingSections.tsx', 'components/site/HeroDemo.tsx', 'components/site/DemoAgenda.tsx', 'components/site/ReminderPing.tsx', 'components/site/LegalInline.tsx', 'src/site/plans.ts', 'src/site/sample-week.ts', 'src/site/legal.ts', 'src/lib/seller.ts'];
     for (const file of files) {
       const src = readSource(file);
       assert(!/prisma|redis|earlyAdopt|early-adopt|feature-access|subscription-service|cookies\(|headers\(/i.test(src.replace(/^\s*\/\/.*$/gm, '')), `${file} reads the server`);
     }
     assert(revalidate === 86400, `revalidate ${revalidate}`);
+  });
+
+  await check('G9 the plans end with "Cancel a payment" linked to the Terms\' #cancel, with the four ways next to it: /paysupport as plain text, the email linked, the address and the phone (or "to be added" while missing)', async () => {
+    const { SELLER } = await load('src/lib/seller.ts');
+    const cancelHtml = (html: string) => {
+      const plans = html.slice(html.indexOf('id="plans"'), html.indexOf('id="founder-title"'));
+      return plans.slice(plans.indexOf('<div class="site-cancel">'));
+    };
+    for (const locale of LOCALES) {
+      const m = messages[locale];
+      const block = cancelHtml(pages[locale]);
+      assert(block.startsWith('<div class="site-cancel">'), `${locale}: no cancel block in the plans`);
+      const href = locale === 'en' ? '/terms#cancel' : `/${locale}/terms#cancel`;
+      assert(block.includes(`<a class="site-cancel-link" href="${href}">${m.landing.plans.cancel.link}</a>`), `${locale}: the link ${block.slice(0, 200)}`);
+      const ways = [...block.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((x) => x[1]);
+      assert(ways.length === 4, `${locale}: ${ways.length} ways`);
+      assert(ways[0].includes('<bdi dir="ltr">/paysupport</bdi>') && !/<a[^>]*paysupport/.test(ways[0]), `${locale}: /paysupport ${ways[0]}`);
+      assert(ways[1].includes(`<a href="mailto:${SELLER.email}" dir="ltr">${SELLER.email}</a>`), `${locale}: the email ${ways[1]}`);
+      for (const [i, field] of [[2, 'postalAddress'], [3, 'phone']] as const) {
+        const words = decodeEntities(textOf(ways[i]));
+        assert(SELLER[field] ? words.includes(SELLER[field]) : words.includes(m.legal.sellerMissing), `${locale}: the ${field} way reads ${words}`);
+      }
+    }
+    const real = { postalAddress: SELLER.postalAddress, phone: SELLER.phone };
+    try {
+      Object.assign(SELLER, { postalAddress: 'רחוב הדוגמה 1, תל אביב', phone: '+972 50-000-0000' });
+      for (const locale of LOCALES) {
+        const block = cancelHtml(await page(locale));
+        assert(block.includes('<bdi>רחוב הדוגמה 1, תל אביב</bdi>') && block.includes('<a href="tel:+972500000000" dir="ltr">+972 50-000-0000</a>') && !block.includes('site-legal-missing'), `${locale}: the ways once given ${block}`);
+      }
+    } finally {
+      Object.assign(SELLER, real);
+    }
   });
 
   finish();

@@ -2,9 +2,10 @@ import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { LanguageLinks } from './LanguageLinks';
 
-// The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Privacy, Terms and
-// Contact (the bot's feedback chat), the language switcher, "Made in Israel" and the years. The years stay left to
-// right in Hebrew (<bdi dir="ltr">).
+// The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Privacy, Terms,
+// Cancel a payment (the Terms' cancellation part, Consumer Protection Law s.14I) and Contact (the bot's feedback
+// chat), the language switcher, "Made in Israel" and the years. The years stay left to right in Hebrew
+// (<bdi dir="ltr">).
 
 const CONTACT_URL = 'https://t.me/family_calendar_telegram_bot?start=feedback';
 
@@ -30,6 +31,9 @@ export async function SiteFooter({ locale, path }: { locale: string; path: strin
             </li>
             <li>
               <Link href="/terms">{t('site.footer.terms')}</Link>
+            </li>
+            <li>
+              <Link href={{ pathname: '/terms', hash: 'cancel' }}>{t('site.footer.cancel')}</Link>
             </li>
             <li>
               <a href={CONTACT_URL}>{t('site.footer.contact')}</a>

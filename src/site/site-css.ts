@@ -996,6 +996,31 @@ const LANDING_CSS = `
   block-size: 18px;
   margin-block-start: 2px;
 }
+.site-cancel {
+  margin-block-start: 20px;
+}
+.site-cancel-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--ch-accent);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.site-cancel-ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  color: var(--ch-muted);
+  font-size: 15px;
+}
+.site-cancel-ways a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .site-founder {
   margin: 32px 0 0;
 }

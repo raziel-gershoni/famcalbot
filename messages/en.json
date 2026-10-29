@@ -1686,6 +1686,7 @@
       "navLabel": "Site links",
       "privacy": "Privacy",
       "terms": "Terms",
+      "cancel": "Cancel a payment",
       "contact": "Contact",
       "madeIn": "Made in Israel",
       "copyright": "© 2025–{year} FamCal"
@@ -2462,6 +2463,13 @@
         "trial": "The {days}-day Pro trial starts on its own. No card needed.",
         "monthly": "Plans are monthly and never renew on their own. When one ends, you’re back on Free.",
         "stars": "You pay with Telegram Stars, inside Telegram."
+      },
+      "cancel": {
+        "link": "Cancel a payment",
+        "bot": "In the Telegram bot: send /paysupport",
+        "email": "By email: {email}",
+        "post": "By post: {postalAddress}",
+        "phone": "By phone: {phone}"
       }
     },
     "founder": {

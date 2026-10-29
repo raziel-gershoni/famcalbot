@@ -8,8 +8,8 @@
 //  - H2 the language switcher on a page (the blog post): the same page in each language, each name in its own
 //    language and lang; the current one marked and unprefixed for English; the others carry their prefix (English's
 //    too: the proxy stores the choice, then lands on the unprefixed page).
-//  - H3 the footer: How it works, Plans, Blog, Privacy, Terms and Contact (the bot's feedback chat), the switcher,
-//    "Made in Israel" and the years kept left to right in Hebrew.
+//  - H3 the footer: How it works, Plans, Blog, Privacy, Terms, Cancel a payment (the Terms' #cancel) and Contact (the
+//    bot's feedback chat), the switcher, "Made in Israel" and the years kept left to right in Hebrew.
 //  - H4 the phone menu in real React on the small fake DOM: closed at first; the button opens the app's sheet, focus
 //    moves into it, and Escape, the scrim, the Close button and a link each close it with focus back on the button;
 //    the sheet holds the links and the switcher.
@@ -95,16 +95,19 @@ async function main() {
     }
   });
 
-  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Privacy, Terms and Contact, the switcher, "Made in Israel", the years left to right; no emoji', async () => {
+  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Privacy, Terms, Cancel a payment and Contact, the switcher, "Made in Israel", the years left to right; no emoji', async () => {
     const year = new Date().getFullYear();
     for (const locale of LOCALES) {
       const html = await footer(locale, '/privacy');
       const site = messages[locale].site;
       const p = prefix(locale);
       const hrefs = attrs(html, 'a').map((a) => decode(attr(a, 'href') ?? ''));
-      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/privacy`, `${p}/terms`, 'https://t.me/family_calendar_telegram_bot?start=feedback']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
+      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
       const text = textOf(html);
-      for (const word of [site.footer.privacy, site.footer.terms, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
+      for (const word of [site.footer.privacy, site.footer.terms, site.footer.cancel, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
+      const cancel = attrs(html, 'a').findIndex((a) => decode(attr(a, 'href') ?? '') === `${p}/terms#cancel`);
+      const link = html.split('<a ').slice(1)[cancel] ?? '';
+      assert(cancel >= 0 && textOf(link.slice(link.indexOf('>') + 1)).startsWith(site.footer.cancel), `${locale}: the cancel link's words`);
       assert(html.includes(`<bdi dir="ltr">© 2025–${year} FamCal</bdi>`), `${locale}: the years`);
       assert(html.includes(`aria-label="${site.footer.navLabel}"`), `${locale}: the footer's nav has no name`);
       assert(!EMOJI.test(html), `${locale}: an emoji`);
@@ -174,7 +177,7 @@ async function main() {
     const problems = lintCss(own);
     assert(problems.length === 0, show(problems));
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(own)?.[1];
-    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy']) {
+    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-cancel-link', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy']) {
       const body = rule(selector);
       assert(body, `no rule ${selector}`);
       const min = /min-block-size:\s*(\d+)px/.exec(body);

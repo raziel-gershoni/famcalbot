@@ -87,7 +87,7 @@ export default async function LandingPage({ params }: Props) {
         <HowItWorks t={t} />
         <Features t={t} />
         <Channels t={t} />
-        <Plans t={t} />
+        <Plans t={t} locale={locale} />
         <Founder t={t} />
         <StartAgain t={t} words={words} />
       </main>
