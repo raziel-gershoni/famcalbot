@@ -498,15 +498,15 @@ export async function handleSetupReminders(): Promise<CronResult> {
       unreachableSince: null,
       AND: [hasMessagingPlatform, { OR: tracks.GOOGLE_NUDGE_WHERE }],
     },
-    select: { ...userSelect, googleRefreshToken: true, calendarSource: true, calendarAssignments: true },
+    select: { ...userSelect, googleRefreshToken: true, calendarSource: true, calendarAssignments: true, googleNudgeStartedAt: true },
   });
 
   for (const user of googleTrackUsers) {
     const track = tracks.googleTrackOf(googleStateOf(user));
     if (!track) continue;
     try {
-      const start = await tracks.googleTrackStart(user.id, track);
-      const attempt = tracks.dueAttempt(tracks.daysSince(start), SETUP_SCHEDULES[track]);
+      const start = await tracks.googleTrackStart(user);
+      const attempt = tracks.dueGoogleAttempt(tracks.daysSince(start), track);
       if (attempt === null) continue;
 
       const alreadySent = await redis.get(REDIS_KEYS.setupReminder(user.id, track, attempt));
@@ -518,11 +518,11 @@ export async function handleSetupReminders(): Promise<CronResult> {
         const copy = t.setupReminders.calendars;
         const body = pickBody(copy, attempt, SETUP_SCHEDULES.calendars.length);
         const calendarsUrl = buildUrl(`/${user.language || 'en'}/select-calendars?${userParam}`);
-        await sendSetupReminder(user, copy.title, body, copy.button, calendarsUrl, track, attempt, tracks.GOOGLE_TRACK_TTL_SECONDS);
+        await sendSetupReminder(user, copy.title, body, copy.button, calendarsUrl, track, attempt, tracks.SETUP_ATTEMPT_TTL_SECONDS);
       } else {
         // The summary's token copy and refresh button: /refresh-token picks the language itself
         const refreshUrl = buildUrl(`/refresh-token?${userParam}`);
-        await sendSetupReminder(user, t.tokenExpired.title, t.tokenExpired.message, t.buttons.refreshGoogle, refreshUrl, track, attempt, tracks.GOOGLE_TRACK_TTL_SECONDS);
+        await sendSetupReminder(user, t.tokenExpired.title, t.tokenExpired.message, t.buttons.refreshGoogle, refreshUrl, track, attempt, tracks.SETUP_ATTEMPT_TTL_SECONDS);
       }
     } catch (error) {
       captureError(error, 'cron-setup-reminders', { user_id: user.id, track }, 'warning');
@@ -556,7 +556,7 @@ export async function handleSetupReminders(): Promise<CronResult> {
 
       const t = (await getBotCopy(user.language || 'en')).setupReminders;
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId ?? user.id}`);
-      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', attempt, tracks.LOCATION_ATTEMPT_TTL_SECONDS);
+      await sendSetupReminder(user, t.location.title, t.location.body, t.location.button, settingsUrl, 'location', attempt, tracks.SETUP_ATTEMPT_TTL_SECONDS);
     } catch (error) {
       captureError(error, 'cron-setup-reminders', { user_id: user.id, track: 'location' }, 'warning');
       results.push({

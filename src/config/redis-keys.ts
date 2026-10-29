@@ -14,7 +14,7 @@ export const REDIS_KEYS = {
   reminderDowngradeNotified: (userId: number) =>
     `reminder:downgrade_notified:${userId}`,
 
-  // Subscription reminders (trial expiry, renewal)
+  // Subscription reminders (trial expiry, renewal): one per month's end (its UTC day, subscriptionReminderDay) and type
   subscriptionReminder: (telegramId: number | string | bigint, dateStr: string, type: string) =>
     `subscription_reminder:${telegramId}:${dateStr}:${type}`,
 
@@ -139,3 +139,19 @@ export const REDIS_KEYS = {
   googleSyncAlert: (linkId: string, day: string) => `google-sync:alert:${linkId}:${day}`,
   googleSyncLinkRetry: (linkId: string) => `google-sync:link-retry:${linkId}`,
 } as const;
+
+/** The subscription reminders' kinds (src/services/subscription-reminders.ts). */
+export const SUBSCRIPTION_REMINDER_TYPES = ['3day', 'lastday', 'expired'] as const;
+
+/** The day a subscription reminder key names a month by: its end's UTC date (yyyy-MM-dd). */
+export const subscriptionReminderDay = (periodEnd: Date): string => periodEnd.toISOString().split('T')[0];
+
+/**
+ * Every key that may remember a subscription reminder for a person: each month's end, every type, under each id the
+ * reminders key a person by (the Telegram id, or the user id for a person without one). For the account's deletion.
+ */
+export function subscriptionReminderKeys(ids: (bigint | number | string | null | undefined)[], periodEnds: (Date | null | undefined)[]): string[] {
+  const keyIds = [...new Set(ids.filter((id) => id !== null && id !== undefined).map(String))];
+  const ends = periodEnds.filter((end): end is Date => end instanceof Date);
+  return [...new Set(ends.flatMap((end) => SUBSCRIPTION_REMINDER_TYPES.flatMap((type) => keyIds.map((id) => REDIS_KEYS.subscriptionReminder(id, subscriptionReminderDay(end), type)))))];
+}

@@ -78,11 +78,12 @@ export async function POST(request: NextRequest) {
         whatsappPhone: cleaned,
         messagingPlatform: 'whatsapp',
         reminderStartAt: new Date(),
+        googleNudgeStartedAt: null,
       },
     });
 
     // Clear existing reminder tracking so cron sends fresh reminders via WhatsApp
-    // (every track's attempts and the Google tracks' starts, as the admin reset does)
+    // (every track's attempts; the Google track's start went with the row above, as the admin reset does)
     await redis.del(...setupTrackKeys(user_id));
 
     console.log(`[switch-platform] Admin ${auth.adminId} set WhatsApp ${cleaned} for user ${user_id} (${user.name}), switched platform to whatsapp, reminders reset`);

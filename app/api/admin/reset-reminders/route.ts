@@ -12,15 +12,16 @@ import { GOOGLE_NUDGE_WHERE, setupTrackKeys } from '@/src/services/setup-tracks'
 
 export const dynamic = 'force-dynamic';
 
-/** Every setup track's attempts, and the Google tracks' starts (setup-tracks.ts). */
+/** Every setup track's attempts (setup-tracks.ts). */
 async function clearReminderKeys(userId: number): Promise<number> {
   return redis.del(...setupTrackKeys(userId));
 }
 
+/** The location track counts from now, and the Google track starts over when the cron next sees the state. */
 async function resetReminderStart(userId: number): Promise<void> {
   await prisma.user.update({
     where: { id: userId },
-    data: { reminderStartAt: new Date() },
+    data: { reminderStartAt: new Date(), googleNudgeStartedAt: null },
   });
 }
 

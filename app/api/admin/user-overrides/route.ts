@@ -11,7 +11,7 @@ import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { calendarTotal, getSubscriptionWithUsage, invalidateFeatureAccessCache } from '@/src/services/subscription-service';
-import { applicableSetupReminder, daysSince, readGoogleTrackStart, SETUP_SCHEDULES, type SetupTrack } from '@/src/services/setup-tracks';
+import { applicableSetupReminder, daysSince, googleTrackOf, SETUP_SCHEDULES, type GoogleTrack, type SetupTrack } from '@/src/services/setup-tracks';
 import { googleStateOf, liveGoogleChoices } from '@/src/lib/google-state';
 import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
@@ -22,10 +22,11 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Each setup track's attempts, sent and due (setup-tracks.ts): location by days since
- * signup (or the admin reset), a Google track by days since the cron first saw the state
- * (none due before it has).
+ * signup (or the admin reset), the Google track the user's state is in by days since the
+ * cron first saw it (the row's googleNudgeStartedAt; none due before it has, and none for
+ * the other Google track).
  */
-async function getSetupReminderStatus(userId: number, createdAt: Date, reminderStartAt: Date | null) {
+async function getSetupReminderStatus(userId: number, createdAt: Date, reminderStartAt: Date | null, googleTrack: GoogleTrack | null, googleNudgeStartedAt: Date | null) {
   const startDate = reminderStartAt ?? createdAt;
   const daysSinceSignup = daysSince(startDate);
 
@@ -38,10 +39,7 @@ async function getSetupReminderStatus(userId: number, createdAt: Date, reminderS
       }))
     );
   }
-  const googleDays = async (track: 'calendars' | 'reconnect') => {
-    const start = await readGoogleTrackStart(userId, track);
-    return start ? daysSince(start) : null;
-  };
+  const googleDays = async (track: GoogleTrack) => (track === googleTrack && googleNudgeStartedAt ? daysSince(googleNudgeStartedAt) : null);
 
   return {
     daysSinceCreated: daysSince(createdAt),
@@ -243,7 +241,7 @@ export async function GET(request: NextRequest) {
       const googleState = googleStateOf(user);
 
       // Get setup reminder status from Redis
-      const setupReminders = await getSetupReminderStatus(userId, user.createdAt, user.reminderStartAt);
+      const setupReminders = await getSetupReminderStatus(userId, user.createdAt, user.reminderStartAt, googleTrackOf(googleState), user.googleNudgeStartedAt);
 
       return NextResponse.json({
         success: true,

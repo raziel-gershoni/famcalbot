@@ -14,22 +14,26 @@ import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
 import { getEarlyAdoptionMode } from './reminder-cache';
 import { invalidateFeatureAccessCache } from './subscription-service';
-import { REDIS_KEYS } from '../config/redis-keys';
+import { REDIS_KEYS, SUBSCRIPTION_REMINDER_TYPES, subscriptionReminderDay } from '../config/redis-keys';
 import { isPaused } from './zmanim/pause';
 import { createTranslator } from 'next-intl';
 
 
-const REMINDER_TTL_SECONDS = 35 * 24 * 60 * 60; // 35 days
+/**
+ * How long a reminder is remembered as sent: the Privacy Policy's longest cache copy (30 days). A key names one month by
+ * its end, and is read only around that end (the 3-day reminder looks 4 days ahead, the last-day one 1, the expiry notice
+ * runs once the month ended and the row is EXPIRED after it), so 30 days outlives every window it guards.
+ */
+export const SUBSCRIPTION_REMINDER_TTL_SECONDS = 30 * 24 * 60 * 60;
 
-type ReminderType = '3day' | 'lastday' | 'expired';
+type ReminderType = (typeof SUBSCRIPTION_REMINDER_TYPES)[number];
 
 /**
  * Generate Redis key for subscription reminder tracking
  * Uses the subscription period end date for dedup (each billing period gets its own set of reminders)
  */
 function getReminderKey(telegramId: bigint | string, periodEnd: Date, type: ReminderType): string {
-  const dateStr = periodEnd.toISOString().split('T')[0];
-  return REDIS_KEYS.subscriptionReminder(telegramId, dateStr, type);
+  return REDIS_KEYS.subscriptionReminder(telegramId, subscriptionReminderDay(periodEnd), type);
 }
 
 /**
@@ -53,7 +57,7 @@ async function hasReminderBeenSent(telegramId: bigint | string, periodEnd: Date,
 async function markReminderSent(telegramId: bigint | string, periodEnd: Date, type: ReminderType): Promise<void> {
   const key = getReminderKey(telegramId, periodEnd, type);
   try {
-    await redis.set(key, '1', { ex: REMINDER_TTL_SECONDS });
+    await redis.set(key, '1', { ex: SUBSCRIPTION_REMINDER_TTL_SECONDS });
   } catch (error) {
     console.error('[Subscription Reminders] Error marking reminder as sent:', error);
     captureError(error, 'subscription-reminder-mark-sent', { telegramId: String(telegramId) }, 'warning');

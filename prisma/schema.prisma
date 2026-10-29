@@ -69,6 +69,7 @@ model User {
   calendarAssignments  Json? // GOOGLE only — Array of CalendarAssignment: {calendarId, labels[], name, color, personName?, personEnglishName?, personGender?, rules?[]}
   googleScopes         String[]       @default([]) // The Google scopes granted, written when a token is committed; empty = calendar.app.created not granted
   googleSyncNotifiedAt DateTime? // The copy-to-Google reconnect message went out for the current outage (once per outage)
+  googleNudgeStartedAt DateTime? // The Google setup nudges' start: when the 07:00 run first saw the Google state (setup-tracks.ts); null = none started
 
   // Pairing (NATIVE only — 1:1 partner)
   pairingId String?

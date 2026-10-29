@@ -204,11 +204,14 @@ const decode = (raw: string | undefined) => {
   if (raw === undefined) return null;
   try { return JSON.parse(raw); } catch { return raw; }
 };
+/** The expiry each key was last written with (seconds), for the 30-day cache rule. */
+const redisTtl = new Map<string, number | undefined>();
 const redisImpl: Row = {
   get: async (k: string) => decode(redisStore.get(k)),
   set: async (k: string, v: unknown, o?: Row) => {
     if (o?.nx && redisStore.has(k)) return null;
     redisStore.set(k, typeof v === 'string' ? v : JSON.stringify(v));
+    redisTtl.set(k, o?.ex);
     return 'OK';
   },
   del: async (...ks: unknown[]) => ks.flat().reduce((n: number, k) => n + (redisStore.delete(String(k)) ? 1 : 0), 0),
@@ -383,6 +386,7 @@ const subscription = (userId: number, plan = 'FREE') => ({
 function seed() {
   DB = {};
   redisStore.clear();
+  redisTtl.clear();
   sent.length = 0;
   botSent.length = 0;
   captured.length = 0;
@@ -786,8 +790,8 @@ async function main() {
     seed();
     for (const id of [1, 2, 3, 4, 6]) userRow(id).location = 'Tel Aviv';
     // Tami (token, none chosen) and Omri (token cleared, calendars stored) were first seen in that state days ago
-    redisStore.set('setup:start:6:calendars', String(days(-4).getTime()));
-    redisStore.set('setup:start:5:reconnect', String(days(-2).getTime()));
+    userRow(6).googleNudgeStartedAt = days(-4);
+    userRow(5).googleNudgeStartedAt = days(-2);
     table('user').push(baseUser({ id: 7, name: 'Yael', telegramId: BigInt(5550007), calendarSource: 'GOOGLE', createdAt: days(-2) }));
     const { handleSetupReminders } = await load('src/cron/handlers.ts');
     await handleSetupReminders();
@@ -799,23 +803,56 @@ async function main() {
     assert(![...redisStore.keys()].some(k => k.includes(':oauth:')), 'an oauth attempt was recorded');
   });
 
-  await check('G2 the Google tracks start when the cron first sees the state: no nudge that day, the start is kept', async () => {
+  await check('G2 the Google tracks start when the cron first sees the state: no nudge that day, the start is kept on the person\'s row (account data, not a cache copy), and no start key goes to Redis', async () => {
     seed();
     for (const id of [1, 2, 3, 4, 6]) userRow(id).location = 'Tel Aviv';
+    const before = Date.now();
     const { handleSetupReminders } = await load('src/cron/handlers.ts');
     await handleSetupReminders();
     assert(sent.length === 0, `sent ${show(sent)}`);
-    assert(redisStore.has('setup:start:6:calendars') && redisStore.has('setup:start:5:reconnect'), `keys ${[...redisStore.keys()]}`);
+    for (const id of [5, 6]) assert(userRow(id).googleNudgeStartedAt instanceof Date && userRow(id).googleNudgeStartedAt.getTime() >= before, `${id}: the start ${show(userRow(id).googleNudgeStartedAt)}`);
+    assert(![...redisStore.keys()].some(k => k.startsWith('setup:start:')), `a start key in Redis: ${[...redisStore.keys()]}`);
   });
 
-  await check('G3 a fresh connect restarts the Google tracks (commitGoogleToken clears their start and attempts)', async () => {
+  await check('G7 a Google track nudges within 30 days of its start (each attempt marked for 30 days at most), not after (the marks may be gone by then), and starts over a year on for a person still in that state', async () => {
+    const { SETUP_ATTEMPT_TTL_SECONDS, GOOGLE_TRACK_WINDOW_DAYS } = await load('src/services/setup-tracks.ts');
+    assert(SETUP_ATTEMPT_TTL_SECONDS <= 30 * 86400 && GOOGLE_TRACK_WINDOW_DAYS * 86400 <= SETUP_ATTEMPT_TTL_SECONDS, `the attempt marks (${SETUP_ATTEMPT_TTL_SECONDS} s) must outlive the window (${GOOGLE_TRACK_WINDOW_DAYS} days) and stay within 30 days`);
+    const { handleSetupReminders } = await load('src/cron/handlers.ts');
+    const tami = () => sent.filter(s => String(s.chatId) === '5550006');
+    // 20 days in, the last attempt not sent yet: it goes, and its mark lives 30 days at most
     seed();
+    for (const id of [1, 2, 3, 4, 6]) userRow(id).location = 'Tel Aviv';
+    userRow(5).googleNudgeStartedAt = days(-2);
+    userRow(6).googleNudgeStartedAt = days(-20);
+    await handleSetupReminders();
+    assert(tami().length === 1, `20 days in: ${show(tami())}`);
+    const marks = [...redisTtl.entries()].filter(([k]) => k.startsWith('setup:reminder:'));
+    assert(marks.length > 0 && marks.every(([, ttl]) => ttl !== undefined && ttl <= 30 * 86400), `the marks' expiry: ${show(marks)}`);
+    // 31 days in, the marks gone with their 30 days: nothing
+    seed();
+    for (const id of [1, 2, 3, 4, 6]) userRow(id).location = 'Tel Aviv';
+    userRow(6).googleNudgeStartedAt = days(-31);
+    await handleSetupReminders();
+    assert(tami().length === 0, `31 days in: ${show(tami())}`);
+    // 366 days in: the track starts over today (no nudge on its first day), and its days count from now
+    seed();
+    for (const id of [1, 2, 3, 4, 6]) userRow(id).location = 'Tel Aviv';
+    userRow(6).googleNudgeStartedAt = days(-366);
+    const before = Date.now();
+    await handleSetupReminders();
+    assert(tami().length === 0 && userRow(6).googleNudgeStartedAt.getTime() >= before, `a year on: ${show(tami())} ${show(userRow(6).googleNudgeStartedAt)}`);
+  });
+
+  await check('G3 a fresh connect restarts the Google tracks (commitGoogleToken clears their start and attempts, and a start key an older build left)', async () => {
+    seed();
+    userRow(5).googleNudgeStartedAt = days(-20);
     redisStore.set('setup:start:5:reconnect', String(days(-20).getTime()));
     redisStore.set('setup:reminder:5:reconnect:0', '1');
     redisStore.set('setup:start:5:calendars', String(days(-20).getTime()));
     const { commitGoogleToken } = await load('src/services/google-connect.ts');
     await commitGoogleToken(5, 'google-rt-again');
     assert(![...redisStore.keys()].some(k => /^setup:(start|reminder):5:(reconnect|calendars)/.test(k)), `keys ${[...redisStore.keys()]}`);
+    assert(userRow(5).googleNudgeStartedAt === null, `the start ${show(userRow(5).googleNudgeStartedAt)}`);
   });
 
   await check('G4 the location nudge goes to every user without one, a Google user without a token too', async () => {
@@ -966,18 +1003,19 @@ async function main() {
     for (const id of [1, 2, 3, 4]) userRow(id).location = 'Tel Aviv';
     Object.assign(userRow(5), { unreachableSince: days(-90) }); // reconnect, start 2 days ago
     Object.assign(userRow(6), { unreachableSince: days(-90), location: 'Tel Aviv' }); // choose, start 4 days ago
-    redisStore.set('setup:start:6:calendars', String(days(-4).getTime()));
-    redisStore.set('setup:start:5:reconnect', String(days(-2).getTime()));
+    userRow(6).googleNudgeStartedAt = days(-4);
+    userRow(5).googleNudgeStartedAt = days(-2);
     table('user').push(baseUser({ id: 8, name: 'Dov', telegramId: BigInt(5550008), location: '', createdAt: days(-6), unreachableSince: days(-1) }));
     const { handleSetupReminders } = await load('src/cron/handlers.ts');
     await handleSetupReminders();
     assert(sent.length === 0, `sent ${show(sent)}`);
   });
 
-  await check('H8 admin switch-platform clears every setup track key (reconnect attempts and the Google starts too)', async () => {
+  await check('H8 admin switch-platform and the admin\'s reset clear every setup track key and the Google track\'s start', async () => {
     seed();
     const { setupTrackKeys } = await load('src/services/setup-tracks.ts');
     for (const k of setupTrackKeys(5) as string[]) redisStore.set(k, '1');
+    userRow(5).googleNudgeStartedAt = days(-20);
     const { POST } = await load('app/api/admin/switch-platform/route.ts');
     const { NextRequest } = await import('next/server');
     const res = await POST(new NextRequest('https://famcal.test/api/admin/switch-platform', {
@@ -986,6 +1024,16 @@ async function main() {
     assert(res.status === 200, `status ${res.status}`);
     const left = [...redisStore.keys()].filter(k => /^setup:(start|reminder):5:/.test(k));
     eq(left, [], 'keys left');
+    eq(userRow(5).googleNudgeStartedAt, null, 'the start after switch-platform');
+    // The admin's reset, for one person and for every incomplete one
+    for (const body of [{ user_id: 6 }, { reset_all: true }]) {
+      userRow(6).googleNudgeStartedAt = days(-20);
+      redisStore.set('setup:reminder:6:calendars:0', '1');
+      const reset = await load('app/api/admin/reset-reminders/route.ts');
+      const r = await reset.POST(new NextRequest('https://famcal.test/api/admin/reset-reminders', { method: 'POST', body: JSON.stringify({ initData: 'x', ...body }) }));
+      assert(r.status === 200, `reset ${show(body)}: status ${r.status}`);
+      eq([userRow(6).googleNudgeStartedAt, redisStore.has('setup:reminder:6:calendars:0')], [null, false], `reset ${show(body)}`);
+    }
   });
 
   // ---- R. A FamCal user's stale Google choices: relics, not a connection ----
@@ -1016,8 +1064,8 @@ async function main() {
   await check('R2 the 07:00 nudges: the track query leaves a FamCal user\'s stale choices out (no reconnect); a legacy Google user with no token and choices (Omri) still gets reconnect', async () => {
     seed();
     addRina();
-    redisStore.set('setup:start:5:reconnect', String(days(-2).getTime()));
-    redisStore.set('setup:start:9:reconnect', String(days(-2).getTime()));
+    userRow(5).googleNudgeStartedAt = days(-2);
+    userRow(9).googleNudgeStartedAt = days(-2);
     const { GOOGLE_NUDGE_WHERE } = await load('src/services/setup-tracks.ts');
     const picked = await fakePrisma.user.findMany({ where: { OR: GOOGLE_NUDGE_WHERE }, select: { id: true } });
     eq(picked.map((u: Row) => u.id), [5, 6], 'the track query (Omri reconnect, Tami choose)');
