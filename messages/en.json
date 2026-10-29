@@ -995,16 +995,33 @@
     }
   },
   "oauth": {
+    "expired": {
+      "title": "This link has expired",
+      "body": "Each Google connection needs a fresh link. Start again from FamCal."
+    },
+    "denied": {
+      "title": "Google wasn't connected",
+      "body": "You can connect it any time from FamCal's menu."
+    },
+    "generic": {
+      "title": "Couldn't connect Google",
+      "body": "Something went wrong on our side. Start again from FamCal in a minute."
+    },
+    "noRefreshToken": {
+      "title": "Connect again",
+      "body": "Google didn't finish giving access. Start again from FamCal and allow access on Google's screen."
+    },
+    "backToFamcal": "Back to FamCal",
     "insufficientScopes": {
-      "title": "Permissions Required",
-      "description": "FamCal needs <strong>both</strong> permissions to work properly.",
-      "checkAll": "Please check ALL boxes on Google's screen:",
+      "title": "Tick both boxes",
+      "description": "FamCal needs <b>both</b> permissions.",
+      "checkAll": "On Google's screen, tick every box:",
       "viewCalendar": "View calendar",
-      "viewCalendarDesc": "for daily summaries",
+      "viewCalendarDesc": "for your summaries",
       "editEvents": "Edit events",
-      "editEventsDesc": "for voice commands",
-      "footnote": "Without both permissions, FamCal cannot provide summaries or create events.",
-      "tryAgain": "Try Again"
+      "editEventsDesc": "to add events by voice",
+      "footnote": "Without both, FamCal can't show your Google calendars or add events to them.",
+      "tryAgain": "Try again"
     },
     "exchangeFailed": {
       "title": "Couldn't finish",
@@ -1013,20 +1030,24 @@
     }
   },
   "refreshToken": {
-    "title": "Refresh Calendar Access",
-    "subtitle": "Your Google Calendar access has expired. Let's refresh it!",
-    "stepsTitle": "What will happen:",
-    "step1": "You'll log in to Google",
-    "step2": "Grant calendar access",
-    "step3": "Your bot will work again!",
+    "title": "Reconnect Google Calendar",
+    "subtitle": "Google stopped sharing your calendars with FamCal. Connect again to see them here and in your summaries.",
+    "stepsTitle": "How it goes",
+    "step1": "Sign in to Google",
+    "step2": "Allow access to your calendar, ticking every box",
+    "step3": "Your calendars are back in FamCal",
     "connectTitle": "Connect Google Calendar",
     "connectSubtitle": "Your Google calendars will show up next to FamCal: in the app, in the summaries and in the bot.",
-    "connectStep3": "Pick the calendars you want to see",
-    "button": "Connect Google Calendar",
-    "checking": "Checking authentication...",
+    "connectStep3": "Choose the calendars to show",
+    "button": "Continue to Google",
+    "preparing": "Getting Google ready…",
+    "checking": "Checking the connection…",
     "startFailed": "We couldn’t reach Google just now. Please try again in a minute.",
     "waitingTelegram": "Finish signing in to Google in the browser, then tap “Finish in Telegram”. This page moves on by itself once you’re done.",
-    "waitingWhatsApp": "Finish signing in to Google in the new tab, then tap “Finish in WhatsApp” and send the message. This page moves on by itself once you’re done."
+    "waitingWhatsApp": "Finish signing in to Google in the new tab, then tap “Finish in WhatsApp” and send the message. This page moves on by itself once you’re done.",
+    "retry": "Try again",
+    "checkAgain": "Check again",
+    "stillWaiting": "Still waiting? If you finished in Google, tap Check again."
   },
   "pageGate": {
     "loading": "Loading…",

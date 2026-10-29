@@ -995,16 +995,33 @@
     }
   },
   "oauth": {
+    "expired": {
+      "title": "הקישור הזה כבר לא בתוקף",
+      "body": "כל חיבור ל־Google צריך קישור חדש. אפשר להתחיל מחדש מתוך FamCal."
+    },
+    "denied": {
+      "title": "Google לא חובר",
+      "body": "אפשר לחבר אותו בכל זמן מהתפריט של FamCal."
+    },
+    "generic": {
+      "title": "לא הצלחנו לחבר את Google",
+      "body": "משהו השתבש אצלנו. אפשר להתחיל מחדש מתוך FamCal בעוד דקה."
+    },
+    "noRefreshToken": {
+      "title": "צריך להתחבר שוב",
+      "body": "Google לא סיים לתת גישה. אפשר להתחיל מחדש מתוך FamCal ולאשר גישה במסך של Google."
+    },
+    "backToFamcal": "חזרה ל־FamCal",
     "insufficientScopes": {
-      "title": "נדרשות הרשאות",
-      "description": "FamCal צריך את <strong>שתי</strong> ההרשאות כדי לעבוד כראוי.",
-      "checkAll": "אנא סמן את כל התיבות במסך של Google:",
+      "title": "צריך לסמן את שתי התיבות",
+      "description": "FamCal צריך את <b>שתי</b> ההרשאות.",
+      "checkAll": "במסך של Google מסמנים את כל התיבות:",
       "viewCalendar": "צפייה ביומן",
-      "viewCalendarDesc": "לסיכומים יומיים",
+      "viewCalendarDesc": "לסיכומים",
       "editEvents": "עריכת אירועים",
-      "editEventsDesc": "לפקודות קוליות",
-      "footnote": "ללא שתי ההרשאות, FamCal לא יוכל לספק סיכומים או ליצור אירועים.",
-      "tryAgain": "נסה שוב"
+      "editEventsDesc": "כדי להוסיף אירועים בקול",
+      "footnote": "בלי שתיהן FamCal לא יכול להציג את יומני Google או להוסיף להם אירועים.",
+      "tryAgain": "לנסות שוב"
     },
     "exchangeFailed": {
       "title": "החיבור לא הושלם",
@@ -1013,20 +1030,24 @@
     }
   },
   "refreshToken": {
-    "title": "רענון גישה ליומן",
-    "subtitle": "הגישה ליומן Google שלך פגה. בוא נרענן אותה!",
-    "stepsTitle": "מה יקרה:",
-    "step1": "תתחבר ל-Google",
-    "step2": "תאשר גישה ליומן",
-    "step3": "הבוט יעבוד שוב!",
+    "title": "חיבור מחדש ליומן Google",
+    "subtitle": "Google הפסיק לשתף את היומנים שלכם עם FamCal. אפשר להתחבר שוב כדי לראות אותם כאן ובסיכומים.",
+    "stepsTitle": "איך זה עובד",
+    "step1": "נכנסים לחשבון Google",
+    "step2": "מאשרים גישה ליומן ומסמנים את כל התיבות",
+    "step3": "היומנים חוזרים ל־FamCal",
     "connectTitle": "חיבור ליומן Google",
     "connectSubtitle": "אחרי החיבור, יומני Google יופיעו לצד FamCal: באפליקציה, בסיכומים ובבוט.",
     "connectStep3": "בוחרים אילו יומנים להציג",
-    "button": "התחבר ליומן Google",
-    "checking": "בודק אימות...",
+    "button": "להמשיך ל־Google",
+    "preparing": "מכינים את החיבור ל־Google…",
+    "checking": "בודקים את החיבור…",
     "startFailed": "לא הצלחנו להתחבר ל-Google כרגע. כדאי לנסות שוב בעוד דקה.",
     "waitingTelegram": "סיימו להתחבר ל-Google בדפדפן, ואז לחצו על \"לסיים בטלגרם\". הדף הזה ימשיך לבד כשזה יסתיים.",
-    "waitingWhatsApp": "סיימו להתחבר ל-Google בכרטיסייה החדשה, ואז לחצו על \"לסיים בוואטסאפ\" ושלחו את ההודעה. הדף הזה ימשיך לבד כשזה יסתיים."
+    "waitingWhatsApp": "סיימו להתחבר ל-Google בכרטיסייה החדשה, ואז לחצו על \"לסיים בוואטסאפ\" ושלחו את ההודעה. הדף הזה ימשיך לבד כשזה יסתיים.",
+    "retry": "לנסות שוב",
+    "checkAgain": "לבדוק שוב",
+    "stillWaiting": "עדיין מחכים? אם סיימתם ב־Google, אפשר להקיש על \"לבדוק שוב\"."
   },
   "pageGate": {
     "loading": "בטעינה…",
