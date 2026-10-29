@@ -24,7 +24,7 @@ export default async function SharePage({ params }: Props) {
   setRequestLocale(locale);
   const t = await getTranslations({ locale });
   const waUrl = whatsappStartUrl(String(t.raw('bot.whatsapp.greeting')));
-  const copy = { copyLabel: t('share.copy'), copiedLabel: t('share.copied') };
+  const copy = { copyLabel: t('share.copy'), copiedLabel: t('share.copied'), failedLabel: t('share.copyFailed') };
   const pitches = [
     { label: t('share.shortLabel'), text: t('share.msgShort') },
     { label: t('share.mediumLabel'), text: t('share.msgMedium') },

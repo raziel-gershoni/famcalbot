@@ -2,18 +2,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
-import { Check, Copy, Download } from 'lucide-react';
+import { Check, CircleAlert, Copy, Download } from 'lucide-react';
 import { APP_TOKENS } from '@/components/app-ui/tokens';
 
-// The share page's two client parts (spec 2026-10-28-public-website §3.3): a Copy button, and the QR codes with their
-// downloads. The words come in already translated. A QR code is dark on light in both themes (a scanner needs it):
+// The share page's two client parts (spec 2026-10-28-public-website §3.3): a Copy button (Copied, or for a moment that
+// it couldn't copy), and the QR codes with their downloads. The words come in already translated. A QR code is dark on light in both themes (a scanner needs it):
 // the app's light text and page colours.
 
-/** How long the button says Copied. */
+/** How long the button says Copied, or that it couldn't copy. */
 const COPIED_MS = 2000;
+const FAILED_MS = 4000;
 
-export function CopyButton({ text, copyLabel, copiedLabel }: { text: string; copyLabel: string; copiedLabel: string }) {
-  const [copied, setCopied] = useState(false);
+type CopyState = 'idle' | 'copied' | 'failed';
+
+export function CopyButton({ text, copyLabel, copiedLabel, failedLabel }: { text: string; copyLabel: string; copiedLabel: string; failedLabel: string }) {
+  const [state, setState] = useState<CopyState>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -21,23 +24,28 @@ export function CopyButton({ text, copyLabel, copiedLabel }: { text: string; cop
     },
     [],
   );
+  const show = (next: CopyState, ms: number) => {
+    setState(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState('idle'), ms);
+  };
   const copy = async () => {
     try {
       if (!navigator.clipboard) throw new Error('navigator.clipboard is not available');
       await navigator.clipboard.writeText(text);
     } catch (error) {
-      // Nothing was copied: the text stays on the page to select by hand, and the button never says Copied
-      console.warn('[share] clipboard unavailable:', error);
+      // Nothing was copied: the button says so for a moment, and the text stays on the page to select by hand
+      console.warn('[share] could not copy:', error);
+      show('failed', FAILED_MS);
       return;
     }
-    setCopied(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+    show('copied', COPIED_MS);
   };
+  const Icon = state === 'copied' ? Check : state === 'failed' ? CircleAlert : Copy;
   return (
     <button type="button" className="site-copy" onClick={copy}>
-      {copied ? <Check aria-hidden="true" focusable="false" /> : <Copy aria-hidden="true" focusable="false" />}
-      <span aria-live="polite">{copied ? copiedLabel : copyLabel}</span>
+      <Icon aria-hidden="true" focusable="false" />
+      <span aria-live="polite">{state === 'copied' ? copiedLabel : state === 'failed' ? failedLabel : copyLabel}</span>
     </button>
   );
 }

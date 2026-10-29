@@ -18,6 +18,8 @@
 //    messages, the QR codes and the three links; kept out of search.
 //  - P5 a page that doesn't exist under the site (a blog post) gets the site's own 404, in the page's language, with the
 //    way home.
+//  - P6 the share page's Copy in real React on the fake DOM: Copied when the copy works, and the failure words from
+//    messages (logged) when there is no clipboard or it refuses.
 //
 // The pages run as Next runs them on the server (the page as a function, next-intl's server API over the real
 // messages). No network, no DB.
@@ -211,6 +213,46 @@ async function main() {
       assert(html.includes('https://famcal.bot') && html.includes('https://t.me/family_calendar_telegram_bot'), `${locale}: the links`);
       const meta = await generateMetadata({ params: Promise.resolve({ locale }) });
       assert(meta.robots?.index === false && meta.title === messages[locale].site.meta.share.title, `${locale}: the metadata ${show(meta)}`);
+    }
+  });
+
+  await check('P6 the share page\'s Copy (real React, fake DOM): a copy that works says Copied; one that fails (no clipboard, or a refusal) says so, from messages, and logs why', async () => {
+    const { installWindow, mount, elements } = await import('./lib/fake-dom');
+    installWindow();
+    const React = nodeRequire('react');
+    const { CopyButton } = await load('app/[locale]/(site)/share/ShareClient.tsx');
+    assert(/failedLabel: t\('share\.copyFailed'\)/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/(site)/share/page.tsx'), 'utf8')), 'the page does not pass the failure words');
+    const nav = globalThis.navigator as unknown as Row;
+    const setClipboard = (value: unknown) => Object.defineProperty(nav, 'clipboard', { value, configurable: true, writable: true });
+    const warned: string[] = [];
+    const warn = console.warn;
+    try {
+      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
+      for (const locale of LOCALES) {
+        const s = messages[locale].share;
+        for (const [how, clipboard, want] of [
+          ['works', { writeText: async () => undefined }, s.copied],
+          ['no clipboard', undefined, s.copyFailed],
+          ['refused', { writeText: async () => { throw new Error('NotAllowedError (smoke)'); } }, s.copyFailed],
+        ] as [string, unknown, string][]) {
+          setClipboard(clipboard);
+          warned.length = 0;
+          const m = mount(h(CopyButton, { text: 'hello', copyLabel: s.copy, copiedLabel: s.copied, failedLabel: s.copyFailed }));
+          const button = elements(m.container).find((e) => e.localName === 'button');
+          assert(button && button.textContent === s.copy, `${locale} ${how}: the button at first reads ${button?.textContent}`);
+          m.click(button);
+          await React.act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          });
+          const live = elements(m.container).find((e) => e.getAttribute('aria-live') === 'polite');
+          assert(live?.textContent === want, `${locale} ${how}: reads ${show(live?.textContent)}, want ${show(want)}`);
+          if (want === s.copyFailed) assert(warned.some((line) => line.includes('[share]')), `${locale} ${how}: the failure is not logged`);
+          m.unmount();
+        }
+      }
+    } finally {
+      console.warn = warn;
+      setClipboard(undefined);
     }
   });
 

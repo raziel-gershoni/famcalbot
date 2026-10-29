@@ -2543,7 +2543,8 @@
     "qrTelegram": "טלגרם",
     "qrWhatsapp": "וואטסאפ",
     "qrWebsite": "אתר",
-    "copy": "העתקה"
+    "copy": "העתקה",
+    "copyFailed": "לא הצלחנו להעתיק. אפשר לסמן את הטקסט ולהעתיק."
   },
   "holidays": {
     "names": {
