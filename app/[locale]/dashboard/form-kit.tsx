@@ -2,9 +2,9 @@
 
 // The editor's part of the form kit (home editing spec §4): the date and time pills (buttons that
 // open the picker sheets) and EDITOR_FORM_CSS, the CSS of what only the editor's flow draws: its
-// header and body (.ch-editor-*), the pills, the scope sheet (.ch-scope*) and the swatch dot of a
-// calendar's colour. A screen renders it after FORM_CSS (components/app-ui/form-kit.tsx, the
-// generic kit). Times are always left to right, as the Agenda's are.
+// header and body (.ch-editor-*), the pills and the scope sheet (.ch-scope*). A screen renders it after
+// FORM_CSS (components/app-ui/form-kit.tsx, the generic kit), which also draws the swatch dot of a calendar's
+// colour (.ch-swatch-dot). Times are always left to right, as the Agenda's are.
 
 import { Suspense, lazy, useId } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -69,13 +69,6 @@ export const EDITOR_FORM_CSS = `
   min-block-size: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-.ch-swatch-dot {
-  flex: none;
-  inline-size: 10px;
-  block-size: 10px;
-  border-radius: 5px;
-  background: var(--ch-outline);
 }
 .ch-pill {
   flex: none;

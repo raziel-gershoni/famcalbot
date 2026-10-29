@@ -419,9 +419,19 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
   }));
 
   // Only the colours: the page never shifts a Google calendar, it only keeps FamCal ones apart from them.
-  const googleColors = (await googleColoursOnScreen(user)).flatMap((c) => c.color ?? []);
+  // The partner's name titles the shared calendars' section (a name only: the page reads nothing else of the partner).
+  const [googleOnScreen, partnerInfo] = await Promise.all([googleColoursOnScreen(user), getActivePartner(user.id)]);
+  const googleColors = googleOnScreen.flatMap((c) => c.color ?? []);
 
-  const props: PagePropsMap['calendars'] = { userId, locale: userLocale, initialCalendars: initial, googleColors };
+  const props: PagePropsMap['calendars'] = {
+    userId,
+    locale: userLocale,
+    initialCalendars: initial,
+    googleColors,
+    // Where the person is with Google, for the screen's last section (the same rule the home's banners follow)
+    google: { state: googleStateOf(user), chosen: liveGoogleChoices(user).length },
+    partnerName: partnerInfo?.partner.name ?? null,
+  };
   return { kind: 'props', props };
 }
 

@@ -6,6 +6,8 @@
 // a Save bar (sticky on a screen that scrolls).
 // The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts). It also draws CopyField's
 // (./CopyField.tsx: ch-copy-field*) and dims a disabled row button (button.ch-form-row:disabled).
+// A calendar's colour: .ch-swatch-dot is the dot beside a name (.is-lg: 12 px; in a list row's title it sits
+// before the name), and ColorSwatches is the picker (a radiogroup of 44 px swatches, a check on the chosen one).
 //
 // What only the editor's flow draws (its header and body, the date and time pills, the scope
 // sheet and the calendar swatch ValueRow shows beside a calendar's name) is in
@@ -97,6 +99,9 @@ export const FORM_CSS = `
   font-size: 13px;
   color: var(--ch-muted);
 }
+.ch-form-hint.is-danger {
+  color: var(--ch-danger);
+}
 .ch-form-value {
   display: inline-flex;
   align-items: center;
@@ -171,6 +176,74 @@ button.ch-form-row:focus-visible {
   flex-wrap: wrap;
   gap: 6px;
   margin-block-start: 3px;
+}
+.ch-swatch-dot {
+  flex: none;
+  inline-size: 10px;
+  block-size: 10px;
+  border-radius: 5px;
+  background: var(--ch-outline);
+}
+.ch-swatch-dot.is-lg {
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 6px;
+}
+.ch-list-title .ch-swatch-dot {
+  display: inline-block;
+  margin-inline-end: 8px;
+  vertical-align: middle;
+}
+.ch-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+}
+.ch-swatch {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-swatch:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: -2px;
+}
+.ch-swatch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.ch-swatch-color {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  border-radius: 50%;
+  background: var(--ch-outline);
+  box-shadow: 0 0 0 1px var(--ch-outline);
+}
+.ch-swatch-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  border-radius: 50%;
+  background: var(--ch-selected);
+  color: var(--ch-selected-text);
+}
+.ch-swatch-check svg {
+  inline-size: 12px;
+  block-size: 12px;
 }
 button.ch-danger-row {
   color: var(--ch-danger);
@@ -502,6 +575,12 @@ button.ch-form-row:disabled {
 .ch-sheet:not(.ch-sheet-full) .ch-form-card {
   background: var(--ch-surface);
 }
+.ch-sheet:not(.ch-sheet-full) .ch-save-bar,
+.ch-app[data-theme='dark'] .ch-sheet:not(.ch-sheet-full) .ch-save-bar {
+  padding: 0;
+  border-block-start: 0;
+  background: transparent;
+}
 .ch-sheet-stack {
   display: flex;
   flex-direction: column;
@@ -633,9 +712,9 @@ export function Chevron() {
   );
 }
 
-function Check() {
+function Check({ className }: { className?: string }) {
   return (
-    <svg className="ch-choice-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       <path d="M5 12.5l4.5 4.5L19 7.5" />
     </svg>
   );
@@ -677,7 +756,39 @@ export function RadioCard({ label, value, options, onChange }: { label: string; 
           <span className="ch-form-label">
             <span dir="auto">{o.text}</span>
           </span>
-          {o.value === value ? <Check /> : null}
+          {o.value === value ? <Check className="ch-choice-check" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export interface ColorSwatchOption {
+  value: string;
+  /** The colour the swatch is drawn in. */
+  color: string;
+  /** The colour's name in the page's language: the swatch's accessible name (a colour is never told by colour alone). */
+  text: string;
+}
+
+const HEX = /^#[0-9a-f]{3,8}$/i;
+
+/**
+ * A colour picker: a radiogroup of swatches, one chosen (a check on it). Each swatch is a 44 px button (Tab goes through
+ * them, there is no roving focus), the dot 28 px in its colour; they wrap onto as many lines as the width needs.
+ */
+export function ColorSwatches({ label, value, options, onChange, disabled }: { label: string; value: string | null; options: ColorSwatchOption[]; onChange: (value: string) => void; disabled?: boolean }) {
+  return (
+    <div className="ch-swatches" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} aria-label={o.text} className="ch-swatch" disabled={disabled} onClick={() => onChange(o.value)}>
+          <span className="ch-swatch-color" style={HEX.test(o.color) ? { background: o.color } : undefined} aria-hidden="true">
+            {o.value === value ? (
+              <span className="ch-swatch-check">
+                <Check />
+              </span>
+            ) : null}
+          </span>
         </button>
       ))}
     </div>

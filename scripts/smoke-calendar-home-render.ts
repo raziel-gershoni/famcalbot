@@ -9386,7 +9386,7 @@ async function main() {
     fakeWindow.location = { hash: '', reload: noop, assign: (u: string) => assigned.push(u) };
     (globalThis as Row).confirm = () => true;
     answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : c.path === '/api/native-calendars' ? ok200({ calendars: CALS }) : ok200({ success: true }));
-    const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS, googleColors: [] })));
+    const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS, googleColors: [], google: { state: 'none', chosen: 0 }, partnerName: null })));
     await settle();
     return { m, tg, assigned };
   };
@@ -9699,7 +9699,7 @@ async function main() {
       resetHome();
       fakeWindow.Telegram = { WebApp: fakeTelegram().webApp };
       answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : ok200({ success: true }));
-      const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: labelled, googleColors: [] })));
+      const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: labelled, googleColors: [], google: { state: 'none', chosen: 0 }, partnerName: null })));
       await settle();
       try {
         const cat = (messages[locale] as Row).calendars as Row & { categories: Record<string, string> };

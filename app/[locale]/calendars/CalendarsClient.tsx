@@ -19,6 +19,7 @@ import { useTranslations } from 'next-intl';
 import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
 import { CALENDAR_PALETTE, displayColours } from '@/src/lib/calendar-colours';
+import type { GoogleState } from '@/src/lib/google-state';
 import { openExternalLink, useTelegramBackButton } from '@/src/lib/telegram-ui';
 import type { CopiesView, CopyRow } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
@@ -52,6 +53,10 @@ interface Props {
   initialCalendars: Calendar[];
   /** The user's chosen Google calendars with their colours as Google's app shows them: on screen beside the FamCal ones. */
   googleColors: string[];
+  /** Where the person is with Google and how many calendars they chose: the Google section's one row follows it. */
+  google: { state: GoogleState; chosen: number };
+  /** The active partner's name, for the heading of the calendars they share; null when not paired. */
+  partnerName: string | null;
 }
 
 const VALID_LABELS = ['primary', 'yours', 'spouse', 'kids', 'birthdays'] as const;
