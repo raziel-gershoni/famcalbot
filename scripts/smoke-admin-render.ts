@@ -384,9 +384,8 @@ const idFields = (m: Mounted) => elements(m.container).filter((e) => e.localName
 const btn = (m: Mounted, text: string) => buttonsOf(m).find((b) => flat(b) === text) as FakeElement;
 /** The admin namespace as next-intl formats it (ICU plurals included). */
 const icu = (locale: Locale) => createTranslator({ locale, messages: messages[locale] as never, namespace: 'admin' as never }) as unknown as (key: string, args?: Row) => string;
-/** A payment's Refund row's two lines: what it refunds (plan and Stars) and the day it was paid. */
-const refundLines = (locale: Locale, payment: Row) => {
-  const { dateOnly } = require('../app/[locale]/(app)/admin-panel/data/format') as typeof import('../app/[locale]/(app)/admin-panel/data/format');
+/** A payment's Refund row's two lines: what it refunds (plan and Stars) and the day it was paid (the panel's dateOnly). */
+const refundLines = (locale: Locale, payment: Row, dateOnly: (iso: string, locale: string) => string) => {
   const t = icu(locale);
   // As flat() reads text: any run of spaces (a no-break one in "2 500" included) is one space
   const read = (text: string) => text.replace(/\s+/g, ' ').trim();
@@ -1420,7 +1419,7 @@ async function main() {
       const o = await profileOf('en', index, payments);
       try {
         const rows = refundRows(o.m, 'en');
-        assert(show(rows.map(flat)) === show(want.map((p) => refundLines('en', p).join(''))), `${label}: the rows ${show(rows.map(flat))}`);
+        assert(show(rows.map(flat)) === show(want.map((p) => refundLines('en', p, dateOnly).join(''))), `${label}: the rows ${show(rows.map(flat))}`);
       } finally {
         close(o);
       }
@@ -1434,7 +1433,7 @@ async function main() {
         const rows = refundRows(o.m, locale);
         assert(rows.length === 2, `${locale}: ${rows.length} rows`);
         rows.forEach((row, i) => {
-          const [what, when] = refundLines(locale, [PAYMENT, OLDER][i]);
+          const [what, when] = refundLines(locale, [PAYMENT, OLDER][i], dateOnly);
           const lines = elements(row).filter((e) => e.localName === 'span' && !e.getAttribute('class'));
           assert(flat(row) === `${what}${when}` && lines.some((e) => flat(e) === what), `${locale}: the row says ${flat(row)}`);
           assert(elements(row).some((e) => classes(e).includes('ch-form-hint') && flat(e) === when), `${locale}: the day is not the row's hint: ${flat(row)}`);
