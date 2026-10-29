@@ -321,6 +321,19 @@ async function main() {
     }
   });
 
+  await check('G11 the Jewish calendar group says what needs Settings: the line under its list names Settings\' own calendar setting and its Jewish choice (the sun button, holidays in the summaries, the pause), and the pause reads as optional', () => {
+    for (const locale of LOCALES) {
+      const m = messages[locale];
+      const html = decodeEntities(pages[locale]);
+      const group = html.slice(html.indexOf('<h3 id="features-jewish"'), html.indexOf('<h3 id="features-adding"'));
+      const note = /<\/ul><p class="site-group-note">[\s\S]*?<span>([^<]*)<\/span><\/p><\/section>/.exec(group)?.[1];
+      assert(note === m.landing.features.jewish.setting, `${locale}: the line under the Jewish calendar group ${show(note)}`);
+      const lower = note.toLowerCase();
+      assert(lower.includes(m.settings.culture.label.toLowerCase()) && lower.includes(m.settings.culture.jewish.toLowerCase()), `${locale}: the line doesn't name Settings' "${m.settings.culture.label}" and "${m.settings.culture.jewish}": ${note}`);
+      assert({ en: /optional/i, he: /^אפשר להפעיל/, ru: /^По желанию/ }[locale].test(m.landing.features.jewish.pause), `${locale}: the pause doesn't read as optional: ${m.landing.features.jewish.pause}`);
+    }
+  });
+
   finish();
 }
 

@@ -834,6 +834,21 @@ const LANDING_CSS = `
   margin-block-start: 1px;
   color: var(--ch-accent);
 }
+/* What a group needs in Settings (the Jewish calendar's culture), under its list */
+.site-group-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding-block: 12px 4px;
+  border-block-start: 1px solid var(--ch-separator);
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.site-group-note .site-icon {
+  margin-block-start: 1px;
+  color: var(--ch-accent);
+}
 .site-ping {
   margin: 8px 0 6px;
 }

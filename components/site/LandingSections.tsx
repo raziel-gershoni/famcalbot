@@ -18,6 +18,7 @@ import {
   Palette,
   PilcrowRight,
   Radio,
+  Settings,
   Star,
   Sun,
   Sunrise,
@@ -163,6 +164,12 @@ export function Features({ t }: { t: Translate }) {
                   </li>
                 ))}
               </ul>
+              {group === 'jewish' ? (
+                <p className="site-group-note">
+                  {icon(Settings)}
+                  <span>{t('landing.features.jewish.setting')}</span>
+                </p>
+              ) : null}
               {group === 'reminders' ? <ReminderPing t={t} /> : null}
             </section>
           ))}
