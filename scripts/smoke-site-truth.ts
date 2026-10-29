@@ -3,13 +3,15 @@
 //
 //  - T1 the truth list (UNTRUE in scripts/lib/site-harness.ts: "never stored", feature parity, early access, OpenAI,
 //    OpenWeatherMap, Google as a step, two-way sync, events by zman, typed events, WhatsApp photo capture, WhatsApp
-//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew) over every public
+//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew; and OFF_SITE, event
+//    alerts, which only the legal texts may name) over every public
 //    string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and greeting, the WhatsApp onboarding
 //    that follows them (bot.onboarding valueProp, sampleSummary, ctaSetup), and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
 //    something.
 //  - T2 no emoji in the site's strings or posts (the WhatsApp greeting, which the visitor sends, is the bot's).
-//  - T3 no user-facing string written in the site's TSX: no text between tags and no literal aria-label, title, alt or
-//    placeholder with letters in it, beyond the brand name.
+//  - T3 no user-facing string written in the site's TSX, read with TypeScript's parser: no JSX text (between tags or
+//    next to an expression), and no string with letters shown as a child or through a prop that renders text (any prop
+//    but the code-like ones: className, href, role, data-*...), beyond the brand name. The scanner is checked on probes.
 //  - T4 the copy guards hold the site to their rules: smoke-ru-formal and smoke-he-neutral skip no namespace and exempt
 //    no landing or how-it-works key; the share page's friend-to-friend templates are the Russian guard's only
 //    exemptions, each with its reason.
@@ -23,7 +25,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { assert, check, EMOJI, finish, LOCALES, messages, readSource, ROOT, show, UNTRUE, type Row } from './lib/site-harness';
+import ts from 'typescript';
+import { assert, check, EMOJI, finish, LOCALES, messages, OFF_SITE, readSource, ROOT, show, UNTRUE, type Row } from './lib/site-harness';
 
 const SITE_NAMESPACES = ['site', 'landing', 'legal', 'blog', 'share'];
 
@@ -45,6 +48,53 @@ const siteFiles = (dir: string): string[] =>
     return /\.tsx$/.test(e.name) ? [rel] : [];
   });
 
+/** JSX props whose value is code, never shown: a string with letters in any other prop is copy. */
+const CODE_PROPS = new Set(['className', 'id', 'key', 'href', 'src', 'rel', 'type', 'role', 'dir', 'lang', 'scope', 'target', 'variant', 'level', 'path', 'doc', 'focusable', 'aria-hidden', 'aria-current', 'aria-haspopup', 'aria-expanded', 'aria-live', 'aria-modal', 'aria-labelledby', 'aria-describedby', 'aria-controls']);
+const BRAND = new Set(['FamCal']);
+const hasWords = (text: string) => {
+  const t = text.replace(/&[a-z]+;/g, '').trim();
+  return t !== '' && /\p{L}/u.test(t) && !BRAND.has(t);
+};
+
+/** The strings an expression shows as its value: a literal, or one a ?:, || or ?? (or the right of &&) gives back. */
+function shownLiterals(e: ts.Expression): string[] {
+  if (ts.isParenthesizedExpression(e)) return shownLiterals(e.expression);
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return [e.text];
+  if (ts.isTemplateExpression(e)) return [e.head.text, ...e.templateSpans.map((span) => span.literal.text)];
+  if (ts.isConditionalExpression(e)) return [...shownLiterals(e.whenTrue), ...shownLiterals(e.whenFalse)];
+  if (ts.isBinaryExpression(e)) {
+    const op = e.operatorToken.kind;
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) return [...shownLiterals(e.left), ...shownLiterals(e.right)];
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) return shownLiterals(e.right);
+  }
+  return [];
+}
+
+/** The copy written in a TSX source: JSX text, and strings shown as a child or through a prop that renders text. */
+function jsxCopy(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const found: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxText(node) && hasWords(node.text)) found.push(`${file}: "${node.text.trim()}"`);
+    if (ts.isJsxExpression(node) && node.expression && !ts.isJsxAttribute(node.parent)) {
+      for (const text of shownLiterals(node.expression)) if (hasWords(text)) found.push(`${file}: {"${text}"}`);
+    }
+    if (ts.isJsxAttribute(node) && node.initializer) {
+      const name = node.name.getText(sf);
+      const code = CODE_PROPS.has(name) || /^data-/.test(name);
+      const values = ts.isStringLiteral(node.initializer) ? [node.initializer.text] : ts.isJsxExpression(node.initializer) && node.initializer.expression ? shownLiterals(node.initializer.expression) : [];
+      for (const text of values) {
+        // A code prop's value is a code word (a class list, a path, an id); one with spaces and capitals is copy
+        if (code && !/[A-Z][a-z]+ [a-z]/.test(text)) continue;
+        if (hasWords(text)) found.push(`${file}: ${name}="${text}"`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
+}
+
 async function main() {
   await check('T1 the truth list finds each claim in the old copy, then none of them in any public string in en, he and ru (the site\'s namespaces, the bot\'s WhatsApp welcome, greeting and onboarding, the blog\'s posts)', () => {
     const old = [
@@ -65,8 +115,9 @@ async function main() {
       'The Hebrew date in letters, next to every day.',
       'Готовы? Подключите Google Calendar, чтобы увидеть *своё* расписание (60 секунд):',
       'מוכנים? חברו את Google Calendar כדי לראות את *הלו״ז שלכם* (60 שניות):',
+      'Get an alert before every event, on time.',
     ];
-    for (const [claim, pattern] of UNTRUE) assert(old.some((line) => pattern.test(line)), `the pattern for ${claim} finds none of the old copy`);
+    for (const [claim, pattern] of [...UNTRUE, ...OFF_SITE]) assert(old.some((line) => pattern.test(line)), `the pattern for ${claim} finds none of the old copy`);
     const found: string[] = [];
     for (const locale of LOCALES) {
       const strings = [
@@ -76,11 +127,13 @@ async function main() {
         // The WhatsApp onboarding after the language buttons (whatsapp-onboarding.ts): what a site visitor gets next
         ...(['valueProp', 'sampleSummary', 'ctaSetup'] as const).map((k) => [`bot.onboarding.${k}`, messages[locale].bot.onboarding[k]] as [string, string]),
       ];
-      for (const [key, text] of strings) for (const [claim, pattern] of UNTRUE) if (pattern.test(text)) found.push(`${locale} ${key}: ${claim}`);
+      for (const [key, text] of strings) {
+        for (const [claim, pattern] of [...UNTRUE, ...(key.startsWith('legal.') ? [] : OFF_SITE)]) if (pattern.test(text)) found.push(`${locale} ${key}: ${claim}`);
+      }
     }
     for (const file of posts()) {
       const text = readSource(file);
-      for (const [claim, pattern] of UNTRUE) if (pattern.test(text)) found.push(`${file}: ${claim}: ${text.match(pattern)?.[0]}`);
+      for (const [claim, pattern] of [...UNTRUE, ...OFF_SITE]) if (pattern.test(text)) found.push(`${file}: ${claim}: ${text.match(pattern)?.[0]}`);
     }
     assert(found.length === 0, show(found));
   });
@@ -94,28 +147,26 @@ async function main() {
     assert(found.length === 0, show(found));
   });
 
-  await check('T3 no user-facing string written in the site\'s TSX (components/site, app/[locale]/(site), the share image): no text between tags, no literal aria-label, title, alt or placeholder with letters, beyond the brand', () => {
+  await check('T3 no user-facing string written in the site\'s TSX (components/site, app/[locale]/(site), the share image): no text in JSX (also next to an expression), and no string with letters in a prop that renders text (any prop but the code-like ones) or as a child, beyond the brand', () => {
     const files = [...siteFiles('components/site'), ...siteFiles('app/[locale]/(site)'), 'app/og/[file]/route.tsx'];
     assert(files.length >= 15, `only ${files.length} files read`);
-    const BRAND = new Set(['FamCal']);
     const found: string[] = [];
-    for (const file of files) {
-      const src = readSource(file)
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/^\s*\/\/.*$/gm, '')
-        .replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
-      // Text right after a tag (<x ...> or </x>), up to the next tag, outside braces; code between generics (a ; = ( or ))
-      // is not copy
-      for (const m of src.matchAll(/(?:<[A-Za-z][\w.]*(?:\s[^<>]*)?>|<\/[A-Za-z][\w.]*>)([^<>{}]+)(?=<)/g)) {
-        const text = m[1].replace(/&[a-z]+;/g, '').trim();
-        if (!text || !/\p{L}/u.test(text) || /[;=()]/.test(text) || BRAND.has(text)) continue;
-        found.push(`${file}: "${text}"`);
-      }
-      for (const m of src.matchAll(/\b(aria-label|title|alt|placeholder)="([^"]*)"/g)) {
-        if (/\p{L}/u.test(m[2]) && !BRAND.has(m[2])) found.push(`${file}: ${m[1]}="${m[2]}"`);
-      }
-    }
+    for (const file of files) found.push(...jsxCopy(file, readSource(file)));
     assert(found.length === 0, show(found));
+    // The scanner itself finds what the old regexes missed
+    const probes: [string, string][] = [
+      ['<p>Copy {n}</p>', 'Copy'],
+      ['<p>{x} items left</p>', 'items left'],
+      ['<Card label="Hello" />', 'Hello'],
+      ['<Card caption={\'Hello\'} />', 'Hello'],
+      ['<p>{\'Hello\'}</p>', 'Hello'],
+      ['<p>{on ? \'Yes\' : \'No\'}</p>', 'Yes'],
+      ['<img alt="A family" />', 'A family'],
+    ];
+    for (const [probe, word] of probes) assert(jsxCopy('probe.tsx', `const x = ${probe};`).some((f) => f.includes(word)), `the scanner misses ${probe}`);
+    for (const fine of ['<p className="site-x" dir="ltr" data-channel="telegram">{t(\'a.b\')}</p>', '<a href="/terms">{t(`x.${n}`)}</a>', '<p>{group === \'jewish\' ? <Note /> : null}</p>', '<span>FamCal</span>', '<p>&quot;{t(\'a\')}&quot;</p>']) {
+      assert(jsxCopy('probe.tsx', `const x = ${fine};`).length === 0, `the scanner flags ${fine}: ${show(jsxCopy('probe.tsx', `const x = ${fine};`))}`);
+    }
   });
 
   await check('T4 the copy guards hold the site to their rules: no namespace skipped, no landing or how-it-works key exempted; the Russian guard exempts only the share page\'s friend-to-friend templates, each with its reason', () => {

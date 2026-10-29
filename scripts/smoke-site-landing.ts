@@ -32,7 +32,7 @@
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
 import { contrast, type Rgb } from './lib/css-resolve';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, readSource, render, show, stub, strayLtrTokens, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, readSource, render, show, stub, strayLtrTokens, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -217,7 +217,7 @@ async function main() {
   await check('G6 the truth list over the rendered page in en, he and ru; the JSON-LD from messages (the description, the offer, the features), with the Organization block', () => {
     for (const locale of LOCALES) {
       const html = decodeEntities(pages[locale]);
-      for (const [claim, pattern] of UNTRUE) assert(!pattern.test(html), `${locale}: ${claim}: ${html.match(pattern)?.[0]}`);
+      for (const [claim, pattern] of [...UNTRUE, ...OFF_SITE]) assert(!pattern.test(html), `${locale}: ${claim}: ${html.match(pattern)?.[0]}`);
       const ld = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/.exec(pages[locale])?.[1] ?? 'null');
       const site = messages[locale].site.jsonLd;
       assert(Array.isArray(ld) && ld[0].description === site.description && ld[0].offers.description === site.offer && show(ld[0].featureList) === show(site.features), `${locale}: the JSON-LD ${show(ld?.[0])?.slice(0, 200)}`);

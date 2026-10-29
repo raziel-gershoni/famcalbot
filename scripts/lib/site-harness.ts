@@ -72,6 +72,14 @@ export const UNTRUE: [string, RegExp][] = [
   ['the Hebrew date in letters, in English or Russian', /\bin (?:hebrew )?letters\b|gematriya|буквами|гематри/i],
 ];
 
+/**
+ * What the site's own copy never offers, though the app has it (spec §4): event alerts. The Privacy Policy and the Terms
+ * (owner-approved wording) name them, as they must for the data they read; nothing else on the site does.
+ */
+export const OFF_SITE: [string, RegExp][] = [
+  ['event alerts', /event alerts?|alerts? before (?:an |the |your |each |every )?events?|התרא(?:ה|ות) לפני (?:ה)?אירוע|(?:оповещени|уведомлени)\S* (?:о|перед) событи/i],
+];
+
 /** HTML entities React writes in attributes and text, decoded. */
 export const decodeEntities = (s: string) => s.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 /** Prints the results and exits 1 on any failure. */

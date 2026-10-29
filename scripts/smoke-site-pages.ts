@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -63,7 +63,9 @@ async function main() {
     assert(html.includes('class="site-header"') && html.includes('class="site-footer"'), `${where} ${locale}: not in the site's chrome`);
     assert(!EMOJI.test(html.replace(/https:\/\/wa\.me\/[^"\s]+/g, '')), `${where} ${locale}: an emoji: ${html.match(EMOJI)?.[0]}`);
     const text = decodeEntities(html);
-    for (const [claim, pattern] of UNTRUE) assert(!pattern.test(text), `${where} ${locale}: ${claim}: ${text.match(pattern)?.[0]}`);
+    // The legal texts may name what the site's own copy never offers (OFF_SITE)
+    const legal = where === 'privacy' || where === 'terms';
+    for (const [claim, pattern] of [...UNTRUE, ...(legal ? [] : OFF_SITE)]) assert(!pattern.test(text), `${where} ${locale}: ${claim}: ${text.match(pattern)?.[0]}`);
     assert(!/\b(?:landing|site|blog|share|legal|ui)\.[a-z]+[A-Za-z.]*\b/.test(textOf(html).replace(/famcal\.bot|t\.me\/\S+|wa\.me\/\S+/g, '')), `${where} ${locale}: a raw key`);
   };
 
