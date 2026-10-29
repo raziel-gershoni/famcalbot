@@ -947,6 +947,41 @@
       "edit": "You can edit"
     }
   },
+  "selectCalendars": {
+    "title": "Google calendars",
+    "intro": "Choose the Google calendars FamCal shows in your calendar and summaries.",
+    "show": "Show in FamCal",
+    "chosen": "Chosen calendars",
+    "chosenHint": "Tap a calendar to set its category and a note for the AI.",
+    "category": "Category",
+    "noCategory": "No category",
+    "mainIsYours": "The main calendar is always one of yours.",
+    "note": "Note for the AI",
+    "notePlaceholder": "e.g. Early dismissal every Friday",
+    "noteHint": "Read with this calendar's events in your summaries.",
+    "noNote": "None",
+    "spouse": "Spouse details",
+    "spouseHint": "Used for every spouse calendar, so summaries name them.",
+    "spouseName": "Name",
+    "spouseNamePlaceholder": "e.g. Noa",
+    "spouseEnglishName": "Name in English (optional)",
+    "spouseGender": "Gender",
+    "male": "Male",
+    "female": "Female",
+    "notes": "Notes for all calendars",
+    "notesHint": "Up to three notes the AI reads with every summary, e.g. early dismissal on certain days.",
+    "notesPlaceholder": "Note {number}",
+    "notesCount": "{count, plural, =0 {None} one {# note} other {# notes}}",
+    "newEventsGoTo": "New events will go to {name}",
+    "errors": {
+      "save": "Couldn't save, so the change was undone.",
+      "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together."
+    },
+    "empty": {
+      "title": "No calendars in this Google account",
+      "body": "Add a calendar in Google Calendar, then open this page again."
+    }
+  },
   "calendars": {
     "title": "Select Your Calendars",
     "subtitle": "Choose which calendars to include in your daily summary",
