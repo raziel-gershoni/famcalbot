@@ -3,8 +3,9 @@
 //
 //  - T1 the truth list (UNTRUE in scripts/lib/site-harness.ts: "never stored", feature parity, early access, OpenAI,
 //    OpenWeatherMap, Google as a step, two-way sync, events by zman, typed events, WhatsApp photo capture, WhatsApp
-//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew) over every public string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and
-//    greeting, and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
+//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew) over every public
+//    string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and greeting, the WhatsApp onboarding
+//    that follows them (bot.onboarding valueProp, sampleSummary, ctaSetup), and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
 //    something.
 //  - T2 no emoji in the site's strings or posts (the WhatsApp greeting, which the visitor sends, is the bot's).
 //  - T3 no user-facing string written in the site's TSX: no text between tags and no literal aria-label, title, alt or
@@ -45,7 +46,7 @@ const siteFiles = (dir: string): string[] =>
   });
 
 async function main() {
-  await check('T1 the truth list finds each claim in the old copy, then none of them in any public string in en, he and ru (the site\'s namespaces, the bot\'s WhatsApp welcome and greeting, the blog\'s posts)', () => {
+  await check('T1 the truth list finds each claim in the old copy, then none of them in any public string in en, he and ru (the site\'s namespaces, the bot\'s WhatsApp welcome, greeting and onboarding, the blog\'s posts)', () => {
     const old = [
       'Your calendar data is never stored.',
       'Данные календаря никогда не хранятся.',
@@ -62,6 +63,8 @@ async function main() {
       'Plans renew automatically',
       'A weekly summary every Sunday',
       'The Hebrew date in letters, next to every day.',
+      'Готовы? Подключите Google Calendar, чтобы увидеть *своё* расписание (60 секунд):',
+      'מוכנים? חברו את Google Calendar כדי לראות את *הלו״ז שלכם* (60 שניות):',
     ];
     for (const [claim, pattern] of UNTRUE) assert(old.some((line) => pattern.test(line)), `the pattern for ${claim} finds none of the old copy`);
     const found: string[] = [];
@@ -70,6 +73,8 @@ async function main() {
         ...SITE_NAMESPACES.flatMap((ns) => leaves(messages[locale][ns], ns)),
         ['bot.whatsapp.welcome', messages[locale].bot.whatsapp.welcome] as [string, string],
         ['bot.whatsapp.greeting', messages[locale].bot.whatsapp.greeting] as [string, string],
+        // The WhatsApp onboarding after the language buttons (whatsapp-onboarding.ts): what a site visitor gets next
+        ...(['valueProp', 'sampleSummary', 'ctaSetup'] as const).map((k) => [`bot.onboarding.${k}`, messages[locale].bot.onboarding[k]] as [string, string]),
       ];
       for (const [key, text] of strings) for (const [claim, pattern] of UNTRUE) if (pattern.test(text)) found.push(`${locale} ${key}: ${claim}`);
     }

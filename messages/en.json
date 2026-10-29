@@ -1261,9 +1261,9 @@
     },
     "onboarding": {
       "langConfirm": "Language set to English ✓",
-      "valueProp": "Here's what you'll get:\n\n📅 *Merged family schedule* — yours, spouse, and kids in one view\n🎤 *30-second voice briefing* — listen while making coffee\n🚗 *Kids' pickup order* — sorted by end time\n🌤️ *Weather tied to your schedule*\n🗣️ *Voice commands* — create events by talking",
-      "sampleSummary": "Here's what your morning briefing looks like:\n\n━━━━━━━━━━━━━━━\n☀️ *Good morning!*\nToday — Sunday, Mar 15\n\n*Your Schedule:*\n• 09:00 – Team standup (Zoom)\n• 14:00 – Client meeting\n\n*Sarah's Schedule:*\n• 10:30 – Dentist\n\n*Kids Pickup:*\n1. 14:00 — Noah (School)\n2. 16:30 — Maya, Liam (Soccer)\n\n💡 Sarah finishes at 12 — she can handle Noah's pickup\n🌤️ 22°C, sunny. Light jacket for evening.\n━━━━━━━━━━━━━━━",
-      "ctaSetup": "Ready? Connect your Google Calendar to see *your* schedule (60 seconds):",
+      "valueProp": "Here's what you get:\n\n📅 *Your family calendar* — FamCal's own, ready now. No Google account needed\n🎤 *Add by voice* — send a voice note with what and when\n☀️ *A morning summary* — the family's day, the kids' pickup order and the weather\n🎧 *A voice show* — the same summary as a short radio show with two hosts",
+      "sampleSummary": "Here's what a morning summary looks like:\n\n━━━━━━━━━━━━━━━\n☀️ *Good morning!*\nToday — Sunday, 15 March\n\n*Your day:*\n• 09:00 – Team meeting\n• 14:00 – Client meeting\n\n*Sarah's day:*\n• 10:30 – Dentist\n\n*Kids' pickup:*\n1. 14:00 — Noah (school)\n2. 16:30 — Maya, Liam (football)\n\n💡 Sarah finishes at 12, so she can pick up Noah\n🌤️ 22°C and sunny. A light jacket for the evening.\n━━━━━━━━━━━━━━━",
+      "ctaSetup": "Your calendar is ready. Open it to add your city, for the weather and zmanim. Google Calendar is optional: you can connect it from the calendar's menu any time.",
       "ctaButton": "🚀 Set Up FamCal",
       "nativeWelcome": "👋 Hi {name}, your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.",
       "nativeLocationButton": "📍 Set my location"
@@ -2336,7 +2336,7 @@
       "title": "How it works",
       "step1": {
         "title": "Start the bot",
-        "body": "Open FamCal in Telegram or WhatsApp, choose your language and add your city, for the weather and zmanim. Your family calendar is ready."
+        "body": "Open FamCal in Telegram or WhatsApp (on WhatsApp, choose your language first) and add your city when it asks, for the weather and zmanim. Your family calendar is ready."
       },
       "step2": {
         "title": "Add things by voice",

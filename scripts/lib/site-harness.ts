@@ -60,7 +60,7 @@ export const UNTRUE: [string, RegExp][] = [
   ['early access', /early access|early adopter|גישה מוקדמת|תקופת ההשקה|ранн\S* доступ/i],
   ['OpenAI', /openai/i],
   ['OpenWeatherMap', /openweather/i],
-  ['Google as a step', /connect your google calendars?|sign in with google|מחברים את יומני Google|подключаете google календари/i],
+  ['Google as a step', /connect your google calendars?|sign in with google|מחברים את יומני Google|חברו את Google Calendar|подключаете google календари|подключите google calendar/i],
   ['two-way Google sync', /two-way|דו[- ]כיווני|двусторонн/i],
   ['events by zman', /events? by zman|אירועים לפי זמני היום|событи\S* по зманим/i],
   ['typed events', /\btype (?:an |your )?events?\b|typed events|מקלידים אירוע|набира\S* событи/i],
