@@ -1724,6 +1724,79 @@
       "features": ["Семейный календарь с несколькими цветными календарями", "Добавление событий голосовыми", "Добавление событий по фото и PDF в Telegram", "Утренние и вечерние сводки", "Голосовая сводка в виде радиошоу с двумя ведущими", "Напоминания с кнопками «Готово» и «Отложить» в Telegram", "Напоминания по зманим в Telegram", "Еврейские даты, праздники и государственные дни Израиля", "Пауза в Шаббат и праздники", "Общие календари с партнёром", "Подключение Google Календаря по желанию", "Иврит, английский и русский"]
     }
   },
+  "legal": {
+    "lastUpdated": "Последнее обновление: {date}",
+    "privacy": {
+      "intro": "[Privacy policy: legal text pending review]",
+      "sections": {
+        "who": {
+          "heading": "[Who we are, and how to contact us: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "keep": {
+          "heading": "[What we keep: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "notKeep": {
+          "heading": "[What we don’t keep: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "processors": {
+          "heading": "[Who processes it: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "partner": {
+          "heading": "[Your partner: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "cookies": {
+          "heading": "[Cookies: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "controls": {
+          "heading": "[Your controls: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "children": {
+          "heading": "[Children: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "security": {
+          "heading": "[Security: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        }
+      }
+    },
+    "terms": {
+      "intro": "[Terms of use: legal text pending review]",
+      "sections": {
+        "service": {
+          "heading": "[The service: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "eligibility": {
+          "heading": "[Who can use FamCal: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "plans": {
+          "heading": "[Plans and payments: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "ai": {
+          "heading": "[AI output can be wrong: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "responsibility": {
+          "heading": "[Your responsibility: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        },
+        "fairUse": {
+          "heading": "[Fair use, liability, law and contact: legal text pending review]",
+          "blocks": ["[legal text pending review]"]
+        }
+      }
+    }
+  },
   "landing": {
     "meta": {
       "title": "FamCal — семейный календарь в Telegram и WhatsApp",
