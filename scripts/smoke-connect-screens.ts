@@ -73,6 +73,7 @@ const asHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 // ---- The server's world: Prisma, Redis, error capture, the request's headers, Google ----
 
 const DB: { user: Row[]; oAuthState: Row[] } = { user: [], oAuthState: [] };
+let takenBetween = false;
 const redisStore = new Map<string, string>();
 const captured: string[] = [];
 let acceptLanguage = 'en-US,en;q=0.9';
@@ -90,6 +91,11 @@ const fakePrisma = {
   oAuthState: {
     findUnique: async ({ where }: Row) => DB.oAuthState.find((s) => matches(s, where)) ?? null,
     deleteMany: async ({ where }: Row) => {
+      // Another callback took the row between this one's read and its delete
+      if (takenBetween) {
+        takenBetween = false;
+        DB.oAuthState = DB.oAuthState.filter((s) => !matches(s, where));
+      }
       const before = DB.oAuthState.length;
       DB.oAuthState = DB.oAuthState.filter((s) => !matches(s, where));
       return { count: before - DB.oAuthState.length };
@@ -704,16 +710,24 @@ async function main() {
       // The state names its owner: their language, their way back
       seed({ talLanguage: l, noaLanguage: l });
       acceptLanguage = ACCEPT[l === 'en' ? 'ru' : 'en'];
+      const browserLang: Locale = acceptLanguage.startsWith('ru') ? 'ru' : 'en';
       const tal = addState(9);
+      // Two callbacks at once: one parks, the other gets the card (in the owner's language when it read the row before
+      // the winner used it up, else the browser's: which one is up to the timing)
       const { value: [a, b2] } = await quietly(() => Promise.all([runPage(`${CONNECT}/oauth-callback/page.tsx`, { code: 'c', state: tal }), runPage(`${CONNECT}/oauth-callback/page.tsx`, { code: 'c', state: tal })]));
       const lost = [a, b2].find((e) => e.element);
       if (!lost || [a, b2].filter((e) => e.redirect).length !== 1) problems.push(`${l} race: ${show([a, b2].map((e) => e.redirect ?? e.threw ?? 'page'))}`);
-      else expect('used by the other callback', lost, BOT, l);
-      expect('used', (await callbackPage({ code: 'c', state: tal })).value, BOT, acceptLanguage.startsWith('ru') ? 'ru' : 'en');
+      else expect('the race', lost, BOT, htmlTag(html(lost)).includes(`lang="${l}"`) ? l : browserLang);
+      // The row taken between the read and the delete (the race's other order): the owner is known
+      const taken = addState(9);
+      takenBetween = true;
+      expect('used by the other callback', (await callbackPage({ code: 'c', state: taken })).value, BOT, l);
+      if (takenBetween) problems.push(`${l}: the callback did not reach the delete`);
+      expect('used', (await callbackPage({ code: 'c', state: tal })).value, BOT, browserLang);
       expect('expired (Telegram owner)', (await callbackPage({ code: 'c', state: addState(9, { expired: true }) })).value, BOT, l);
       expect('expired (WhatsApp only)', (await callbackPage({ code: 'c', state: addState(42, { expired: true }) })).value, '/refresh-token?user_id=42', l);
       const ghost = addState(77);
-      expect('owner gone', (await callbackPage({ code: 'c', state: ghost })).value, BOT, acceptLanguage.startsWith('ru') ? 'ru' : 'en');
+      expect('owner gone', (await callbackPage({ code: 'c', state: ghost })).value, BOT, browserLang);
       // Only the race's winner parked a token
       if (redisStore.size !== 1) problems.push(`${l}: ${redisStore.size} tokens parked (the race's winner only)`);
     }
