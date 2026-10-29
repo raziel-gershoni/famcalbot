@@ -2274,7 +2274,7 @@
           "heading": "Suspension and closing an account",
           "blocks": [
             "We may suspend an account, which means the bot stops answering it. We may also ban or delete an account. We do this when the account breaks these terms, puts FamCal or other people at risk, or when the law requires it. You can ask us why through the contact above.",
-            "If we suspend or close an account that didn’t break these terms during a paid month, we refund that month.",
+            "If, during a paid month, we suspend or close an account that didn’t break these terms, we refund that month.",
             "You can stop using FamCal any time: block the bot, and ask us to delete your account (see the [Privacy Policy](/privacy))."
           ]
         },
