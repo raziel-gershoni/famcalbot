@@ -1913,8 +1913,6 @@
   },
   "blog": {
     "pageTitle": "Blog",
-    "pageDescription": "Stories, updates, and tips from the FamCal team",
-    "readMore": "Read more",
     "backToBlog": "Back to blog",
     "tryFamcal": "Try FamCal with your family",
     "ctaText": "Start in the app you already use.",

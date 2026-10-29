@@ -98,6 +98,9 @@ html:has(.site) {
   background-color: var(--ch-bg);
   color-scheme: light dark;
 }
+body {
+  margin: 0;
+}
 .site,
 .site-header,
 .site-footer {
@@ -1033,8 +1036,242 @@ const LANDING_CSS = `
 }
 `;
 
+
+const PAGES_CSS = `
+.site-page-main {
+  padding-block-start: 40px;
+}
+.site-narrow {
+  max-inline-size: 760px;
+}
+.site-page-title {
+  font-size: 36px;
+}
+@media (min-width: 720px) {
+  .site-page-main {
+    padding-block-start: 64px;
+  }
+  .site-page-title {
+    font-size: 44px;
+  }
+}
+.site-back a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  margin-block-end: 8px;
+  color: var(--ch-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.site-byline {
+  margin-block-start: 12px;
+  color: var(--ch-muted);
+  font-size: 15px;
+}
+.site-posts {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 32px;
+}
+.site-post-card {
+  padding: 20px 24px;
+  border-radius: 18px;
+  background: var(--ch-surface);
+}
+.site-post-card a {
+  text-decoration: none;
+}
+.site-post-card p {
+  margin-block-start: 8px;
+  color: var(--ch-muted);
+  font-size: 16px;
+}
+.site-article {
+  margin-block-start: 32px;
+  font-size: 18px;
+  line-height: 1.7;
+}
+.site-article h2 {
+  margin-block: 40px 12px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.site-article h3 {
+  margin-block: 32px 8px;
+  font-size: 20px;
+  font-weight: 650;
+}
+.site-article p,
+.site-article ul,
+.site-article ol {
+  margin-block-end: 18px;
+}
+.site-article ul,
+.site-article ol {
+  padding-inline-start: 24px;
+}
+.site-article ul {
+  list-style: disc;
+}
+.site-article ol {
+  list-style: decimal;
+}
+.site-article li + li {
+  margin-block-start: 6px;
+}
+.site-article a,
+.site-legal a {
+  color: var(--ch-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.site-article strong {
+  font-weight: 650;
+}
+.site-article blockquote {
+  margin-block: 24px;
+  padding-inline-start: 20px;
+  border-inline-start: 3px solid var(--ch-accent);
+  color: var(--ch-muted);
+}
+.site-article hr {
+  margin-block: 40px;
+  border: 0;
+  border-block-start: 1px solid var(--ch-separator);
+}
+.site-cta {
+  margin-block-start: 48px;
+  padding: 28px 24px;
+  border-radius: 20px;
+  background: var(--ch-card);
+}
+.site-cta-text {
+  margin-block: 8px 20px;
+  color: var(--ch-muted);
+}
+.site-legal-intro {
+  margin-block-start: 24px;
+  font-size: 18px;
+}
+.site-legal-section {
+  margin-block-start: 36px;
+}
+.site-legal-section p,
+.site-legal-list {
+  margin-block-start: 12px;
+}
+.site-legal-list {
+  display: grid;
+  gap: 8px;
+  padding-inline-start: 24px;
+}
+.site-legal .site-legal-list {
+  list-style: disc;
+}
+.site-share-block {
+  margin-block-start: 48px;
+}
+.site-pitches {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 20px;
+}
+.site-pitch {
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: var(--ch-surface);
+}
+.site-pitch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 8px;
+}
+.site-pitch-label,
+.site-qr-label {
+  color: var(--ch-muted);
+  font-size: 15px;
+  font-weight: 650;
+}
+.site-pitch p {
+  font-size: 16px;
+  line-height: 1.55;
+}
+.site-copy {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  padding-inline: 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ch-accent-soft);
+  color: var(--ch-accent);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-copy svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+.site-qrs {
+  display: grid;
+  gap: 24px;
+  margin-block-start: 24px;
+}
+@media (min-width: 640px) {
+  .site-qrs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.site-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.site-qr-code {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-white);
+}
+.site-qr-code canvas {
+  display: block;
+}
+.site-share-link h2 {
+  margin-block-end: 10px;
+}
+.site-link-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px;
+  padding-inline: 16px 8px;
+  border-radius: 14px;
+  background: var(--ch-surface);
+}
+.site-link-row code {
+  flex: 1;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--ch-accent);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+`;
+
 /** The whole style sheet: the kit's theme (the sheet, the buttons, the demo's .ch-app scope), then the site's own. */
-export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS;
+export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS;
 
 /** The sheet's address (app/site.css/route.ts), versioned by its content: a new sheet is a new URL. */
 export const SITE_CSS_HREF = `/site.css?v=${createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12)}`;

@@ -1,92 +1,42 @@
-import { getTranslations } from 'next-intl/server';
-import { Metadata } from 'next';
-import Link from 'next/link';
-import Image from 'next/image';
-import { SiteHeader } from '@/components/site/SiteHeader';
-import { SiteFooter } from '@/components/site/SiteFooter';
+import type { Metadata } from 'next';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { SitePage } from '@/components/site/SitePage';
+import { Link } from '@/i18n/navigation';
 import { getAllPosts } from '@/src/lib/blog';
 
-type Props = {
-  params: Promise<{ locale: string }>;
-};
+// The blog's index (spec 2026-10-28-public-website §3.3): the posts in the visitor's language, each its title (the link)
+// and its line, in the site's chrome. Static per locale.
+
+type Props = { params: Promise<{ locale: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: 'blog' });
-
-  return {
-    title: t('pageTitle'),
-    description: t('pageDescription'),
-  };
+  const t = await getTranslations({ locale });
+  return { title: t('site.meta.blog.title'), description: t('site.meta.blog.description') };
 }
 
 export default async function BlogIndexPage({ params }: Props) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: 'blog' });
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale });
   const posts = getAllPosts(locale);
-
-
   return (
-    <>
-      <SiteHeader locale={locale} path="/blog" />
-
-      <main className="mx-auto max-w-4xl px-6 py-16">
-        <h1 className="mb-12 text-center text-4xl font-bold text-text-primary">
-          {t('pageTitle')}
-        </h1>
-
-        {posts.length === 0 ? (
-          <p className="text-center text-text-muted">No posts yet.</p>
-        ) : (
-          <div className="grid gap-8 sm:grid-cols-2">
+    <SitePage locale={locale} path="/blog">
+      <main id="main" className="site-section site-page-main">
+        <div className="site-wrap site-narrow">
+          <h1 className="site-h1 site-page-title">{t('blog.pageTitle')}</h1>
+          <ul className="site-posts">
             {posts.map((post) => (
-              <Link
-                key={post.slug}
-                href={`/${locale}/blog/${post.slug}`}
-                className="group overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-all hover:-translate-y-1 hover:shadow-md"
-              >
-                {post.coverImage ? (
-                  <div className="relative aspect-[2/1] overflow-hidden">
-                    <Image
-                      src={post.coverImage}
-                      alt={post.title}
-                      fill
-                      className="object-cover transition-transform group-hover:scale-105"
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="aspect-[2/1]"
-                    style={{ background: 'var(--gradient-brand)' }}
-                  />
-                )}
-                <div className="p-5">
-                  <h2 className="mb-2 text-xl font-semibold text-text-primary group-hover:text-brand-primary transition-colors">
-                    {post.title}
-                  </h2>
-                  <p className="mb-4 text-sm leading-relaxed text-text-secondary line-clamp-2">
-                    {post.description}
-                  </p>
-                  {post.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {post.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full bg-bg-section px-3 py-1 text-xs text-text-muted"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Link>
+              <li key={post.slug} className="site-post-card">
+                <h2 className="site-h3">
+                  <Link href={`/blog/${post.slug}`}>{post.title}</Link>
+                </h2>
+                <p>{post.description}</p>
+              </li>
             ))}
-          </div>
-        )}
+          </ul>
+        </div>
       </main>
-
-      <SiteFooter locale={locale} path="/blog" />
-    </>
+    </SitePage>
   );
 }
