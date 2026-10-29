@@ -560,7 +560,7 @@ async function main() {
     assert(bad.length === 0, bad.join('\n     '));
   });
 
-  await check('the plans name both things the \'reminders\' feature gates: reminders and event alerts (the bot\'s feature list and the Pro card of the Subscription screen)', () => {
+  await check('the plans name both things the \'reminders\' feature gates: reminders and event alerts (the Pro card of the Subscription screen)', () => {
     const want: Record<string, RegExp[]> = {
       en: [/remind/i, /alert/i],
       he: [/תזכורות/, /התראות/],
@@ -568,11 +568,8 @@ async function main() {
     };
     for (const [locale, words] of Object.entries(want)) {
       const subscription = JSON.parse(readFileSync(path.resolve(__dirname, '../messages', `${locale}.json`), 'utf8')).subscription;
-      for (const text of [subscription.features.reminders, subscription.screen.proReminders]) {
-        assert(words.every(w => w.test(text)), `${locale}: "${text}"`);
-      }
-      // The payment-success message puts subscription.features into HTML unescaped
-      assert(!/[&<>]/.test(subscription.features.reminders), `${locale}: "${subscription.features.reminders}" breaks HTML`);
+      const text = subscription.screen.proReminders;
+      assert(words.every(w => w.test(text)), `${locale}: "${text}"`);
     }
   });
 

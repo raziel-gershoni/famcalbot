@@ -663,8 +663,9 @@ async function main() {
       for (const gone of ['page', 'currentPlan', 'usage', 'textSummaries', 'voiceSummaries', 'voiceEvents', 'usageReminders', 'calendars', 'unlimited', 'of', 'usageDisplay', 'trialBanner', 'trialEndsIn', 'earlyAdopterBanner', 'earlyAdopterDescription', 'planFeatures', 'cancelPlan']) assert(!(gone in sub), `${locale}: subscription.${gone} is still there`);
       for (const id of ['free', 'basic', 'pro']) assert(show(Object.keys(sub.plans[id])) === show(['name']), `${locale}: subscription.plans.${id}: ${show(Object.keys(sub.plans[id]))}`);
       // The bot's keys (payment-handler, subscription-reminders, text-limit, notifications): all there, in this language (the voice-events message lives in bot.subscription, where the voice handlers read it)
-      for (const key of ['reminders', 'upgradeButton', 'paymentSuccess', 'paymentError', 'viewSubscription', 'invoiceTitle', 'invoiceDescription', 'invoiceLabel', 'textLimitReached', 'voiceLimitReached', 'remindersRequired', 'plans', 'features']) assert(key in sub, `${locale}: the bot's subscription.${key} is missing`);
-      for (const key of ['textSummaries', 'voiceSummaries', 'calendars', 'reminders', 'voiceEvents']) assert(typeof sub.features[key] === 'string', `${locale}: subscription.features.${key}`);
+      for (const key of ['reminders', 'upgradeButton', 'paymentSuccess', 'paymentError', 'viewSubscription', 'invoiceTitle', 'invoiceDescription', 'invoiceLabel', 'textLimitReached', 'voiceLimitReached', 'remindersRequired', 'plans']) assert(key in sub, `${locale}: the bot's subscription.${key} is missing`);
+      // The invoice and the confirmation carry the disclosure (src/lib/plan-disclosure.ts), not a feature list: the old one listed every feature, Pro's too, to a Basic payer
+      assert(!('features' in sub), `${locale}: subscription.features is back, and nothing reads it`);
       for (const key of ['expiringSoon', 'lastDay', 'expired']) assert(typeof sub.reminders[key] === 'object', `${locale}: subscription.reminders.${key}`);
     }
     assert(code.includes("useTranslations('calendarHome')") && code.includes("home('banner.trial', { count: trial.daysRemaining })"), "the screen does not read the home's banner.trial with { count: trial.daysRemaining }");

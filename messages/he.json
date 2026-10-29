@@ -1410,6 +1410,19 @@
       "payPrompt": "<b>תשלומים והחזרים</b>\n\nעל תשלום שנעשה בבוט אפשר לבקש החזר תוך 14 יום. שלחו /paysupport ואחריו את השאלה, למשל:\n/paysupport חויבתי פעמיים על Pro\n\nנענה כאן בצ׳אט.",
       "paySent": "תודה, ההודעה הגיעה אלינו. נענה כאן בצ׳אט."
     },
+    "policy": {
+      "privacy": "מדיניות הפרטיות",
+      "terms": "תנאי השימוש",
+      "cancel": "אפשר לבטל תשלום תוך 14 יום ממועד התשלום ולקבל החזר מלא. כדי לבטל, פנו אלינו באחת מהדרכים האלה:",
+      "cancelBot": "בבוט: שלחו /paysupport ואחריו את ההודעה",
+      "cancelEmail": "במייל: {email}",
+      "cancelPost": "בדואר: {address}",
+      "cancelPhone": "בטלפון: {phone}",
+      "cancelDetails": "ציינו בפנייה את השם ואת תאריך התשלום.",
+      "seller": "המוכר: {name}",
+      "sellerId": "ת״ז או מספר עוסק: {id}",
+      "sellerAddress": "כתובת: {address}"
+    },
     "connect": {
       "code": "קוד החיבור שלכם: <b>{code}</b>\n\nשלחו בוואטסאפ:\n<code>link {code}</code>\n\nהקוד תקף ל-5 דקות.",
       "alreadyLinked": "החשבון שלך כבר מחובר לוואטסאפ ({phone}).",
@@ -1631,11 +1644,11 @@
       }
     },
     "upgradeButton": "⭐ שדרוג התוכנית",
-    "paymentSuccess": "✅ <b>התשלום הצליח!</b>\n\nאתם עכשיו בתוכנית <b>{plan}</b>.\n\n<b>תכונות שנפתחו:</b>\n• {features}",
+    "paymentSuccess": "<b>התשלום התקבל</b>\n\nהתוכנית שלכם עכשיו <b>{plan}</b>, לחודש אחד, עד {end}. המחיר: {price} Telegram Stars. התוכנית לא מתחדשת מעצמה: כדי להמשיך, משלמים שוב.\n\n{seller}\n\n{cancel}\n\n{terms}",
     "paymentError": "❌ אירעה שגיאה בהפעלת המנוי. פנו לתמיכה.",
     "viewSubscription": "צפייה במנוי",
     "invoiceTitle": "FamCalBot {plan}",
-    "invoiceDescription": "מנוי חודשי: {features}",
+    "invoiceDescription": "FamCal {plan} לחודש אחד מיום התשלום, בלי חידוש אוטומטי. המוכר: {seller}. התשלום הוא הסכמה לתנאי השימוש: {terms}. אפשר לבטל תוך 14 יום ולקבל החזר מלא: /paysupport",
     "invoiceLabel": "{plan} (חודש 1)",
     "textLimitReached": "📊 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} סיכומי הטקסט החודש.\n\nאפשר לשדרג כדי לקבל סיכומים ללא הגבלה!",
     "voiceLimitReached": "🎤 <b>הגעת למגבלה החודשית</b>\n\nהשתמשת בכל {limit} הסיכומים הקוליים החודש.\n\nאפשר לשדרג כדי לקבל קול ללא הגבלה!",
@@ -1650,13 +1663,6 @@
       "pro": {
         "name": "Pro"
       }
-    },
-    "features": {
-      "textSummaries": "סיכומי טקסט",
-      "voiceSummaries": "סיכומים קוליים",
-      "calendars": "יומנים",
-      "reminders": "תזכורות והתראות על אירועים",
-      "voiceEvents": "יצירת אירועים בקול"
     }
   },
   "site": {

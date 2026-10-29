@@ -1410,6 +1410,19 @@
       "payPrompt": "<b>Payments and refunds</b>\n\nA payment made in the bot can be refunded on request within 14 days. Send /paysupport followed by your question, for example:\n/paysupport I was charged twice for Pro\n\nWe answer here in the chat.",
       "paySent": "Thank you, your message reached us. We'll answer here in the chat."
     },
+    "policy": {
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Use",
+      "cancel": "You can cancel a payment within 14 days of making it, for a full refund. Tell us in any of these ways:",
+      "cancelBot": "In the bot: send /paysupport followed by your message",
+      "cancelEmail": "By email: {email}",
+      "cancelPost": "By post: {address}",
+      "cancelPhone": "By phone: {phone}",
+      "cancelDetails": "Give your name and the payment date.",
+      "seller": "Seller: {name}",
+      "sellerId": "ID or business number: {id}",
+      "sellerAddress": "Address: {address}"
+    },
     "connect": {
       "code": "Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.",
       "alreadyLinked": "Your account is already linked to WhatsApp ({phone}).",
@@ -1631,11 +1644,11 @@
       }
     },
     "upgradeButton": "⭐ Upgrade Plan",
-    "paymentSuccess": "✅ <b>Payment successful!</b>\n\nYou're now on the <b>{plan}</b> plan.\n\n<b>Features unlocked:</b>\n• {features}",
+    "paymentSuccess": "<b>Payment received</b>\n\nYour plan is now <b>{plan}</b>, for one month, until {end}. Price: {price} Telegram Stars. The plan never renews by itself: to keep it, pay again.\n\n{seller}\n\n{cancel}\n\n{terms}",
     "paymentError": "❌ There was an error activating your subscription. Please contact support.",
     "viewSubscription": "View Subscription",
     "invoiceTitle": "FamCalBot {plan}",
-    "invoiceDescription": "Monthly subscription: {features}",
+    "invoiceDescription": "The {plan} plan, for one month from the day you pay. It never renews by itself. Seller: {seller}. By paying, you agree to the Terms of Use: {terms}. You can cancel within 14 days for a full refund: /paysupport",
     "invoiceLabel": "{plan} (1 month)",
     "textLimitReached": "📊 <b>Monthly limit reached</b>\n\nYou've used all {limit} text summaries this month.\n\nUpgrade to get unlimited summaries!",
     "voiceLimitReached": "🎤 <b>Monthly limit reached</b>\n\nYou've used all {limit} voice summaries this month.\n\nUpgrade to get unlimited voice!",
@@ -1650,13 +1663,6 @@
       "pro": {
         "name": "Pro"
       }
-    },
-    "features": {
-      "textSummaries": "Text Summaries",
-      "voiceSummaries": "Voice Summaries",
-      "calendars": "Calendars",
-      "reminders": "Reminders and Event Alerts",
-      "voiceEvents": "Voice Event Creation"
     }
   },
   "site": {

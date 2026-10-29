@@ -9,10 +9,14 @@ import { upgradeSubscription, renewSubscription, getSubscription } from './subsc
 import { prisma } from '../utils/prisma';
 import { trackActivity, addBreadcrumb, setUserContext } from './analytics-service';
 import { MessageFormat } from './messaging/types';
-import { getSubscriptionMessages } from '../lib/bot-messages';
+import { getBotMessages, getSubscriptionMessages } from '../lib/bot-messages';
 import { PlanId, PLAN_CONFIGS } from '../config/plans';
+import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
+import { invoiceDescription, paymentConfirmation } from '../lib/plan-disclosure';
+import { resolveUserTimezone } from '../lib/timezone';
+import type { UserConfig } from '../types';
 
 interface PreCheckoutQuery {
   id: string;
@@ -108,9 +112,21 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
   }
 }
 
+/** The person's zone for the confirmation's end date. A lookup that throws is logged and the default zone answers. */
+async function confirmationZone(user: UserConfig): Promise<string> {
+  try {
+    return await resolveUserTimezone(user);
+  } catch (error) {
+    console.error(`[Payment] Could not read the timezone of user ${user.id}; the confirmation uses ${TIMEZONE}:`, error);
+    captureError(error, 'payment-confirmation-timezone', { user_id: user.id }, 'warning');
+    return TIMEZONE;
+  }
+}
+
 /**
  * Handle successful payment
- * Activate or renew subscription
+ * Activate or renew subscription, then send the one confirmation (src/lib/plan-disclosure.ts): the plan, the price, when
+ * the month ends in the person's zone, that it never renews, the seller and the ways to cancel within 14 days.
  */
 export async function handleSuccessfulPayment(
   chatId: number,
@@ -153,13 +169,14 @@ export async function handleSuccessfulPayment(
       throw new Error(`User not found for Telegram ID: ${userId}`);
     }
     const language = user.language || 'en';
-    const t = await getSubscriptionMessages(language);
+    const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
 
     // Activate subscription (use internal DB user.id, not Telegram userId)
-    if (payload.action === 'renew') {
-      await renewSubscription(user.id, payment.telegram_payment_charge_id);
-    } else {
-      await upgradeSubscription(user.id, payload.plan, payment.telegram_payment_charge_id);
+    const subscription = payload.action === 'renew'
+      ? await renewSubscription(user.id, payment.telegram_payment_charge_id)
+      : await upgradeSubscription(user.id, payload.plan, payment.telegram_payment_charge_id);
+    if (!subscription.currentPeriodEnd) {
+      throw new Error(`The subscription of user ${user.id} has no period end after a payment`);
     }
 
     // Add breadcrumb for subscription activation
@@ -175,24 +192,23 @@ export async function handleSuccessfulPayment(
       to_plan: payload.plan,
     });
 
-    // Get localized plan name and features
+    // The one confirmation, in the person's language and zone
     const planKey = payload.plan.toLowerCase();
     const localizedPlanName = t.plans?.[planKey]?.name || payload.plan;
-    const featuresList = t.features
-      ? Object.values(t.features).join('\n• ')
-      : '';
-
-    // Send confirmation message
     const dashboardUrl = buildUrl(`/${language}/subscription?user_id=${userId}`);
-
-    const successMessage = t.paymentSuccess
-      ? t.paymentSuccess
-          .replace('{plan}', localizedPlanName)
-          .replace('{features}', featuresList)
-      : `✅ <b>Payment successful!</b>\n\nYou're now on the <b>${localizedPlanName}</b> plan.\n\n<b>Features unlocked:</b>\n• ${featuresList}`;
+    const successMessage = paymentConfirmation({
+      template: t.paymentSuccess,
+      words: botMessages.policy,
+      locale: language,
+      planName: localizedPlanName,
+      price: payment.total_amount,
+      periodEnd: subscription.currentPeriodEnd,
+      timeZone: await confirmationZone(user),
+    });
 
     await messagingService.sendMessage(chatId, successMessage, {
       format: MessageFormat.HTML,
+      disablePreview: true,
       replyMarkup: {
         inline_keyboard: [[
           {
@@ -250,19 +266,14 @@ export async function sendSubscriptionInvoice(
     action,
   };
 
-  // Use localized plan name and features
+  // The plan's name in the person's language, and the disclosure Telegram shows before paying (src/lib/plan-disclosure.ts)
   const planKey = plan.toLowerCase();
   const localizedPlanName = t.plans?.[planKey]?.name || planConfig.name;
-  const localizedFeatures = t.features
-    ? Object.values(t.features).join(', ')
-    : planConfig.features.join(', ');
 
   const title = t.invoiceTitle
     ? t.invoiceTitle.replace('{plan}', localizedPlanName)
     : `FamCalBot ${localizedPlanName}`;
-  const description = t.invoiceDescription
-    ? t.invoiceDescription.replace('{features}', localizedFeatures)
-    : localizedFeatures;
+  const description = invoiceDescription(t.invoiceDescription, language, localizedPlanName);
   const priceLabel = t.invoiceLabel
     ? t.invoiceLabel.replace('{plan}', localizedPlanName)
     : `${localizedPlanName} (1 month)`;
