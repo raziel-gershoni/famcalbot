@@ -1,9 +1,9 @@
-// Smoke test: the Russian copy speaks to the person formally ("вы"), everywhere but the public landing page.
+// Smoke test: the Russian copy speaks to the person formally ("вы"), everywhere.
 //
 // The owner's rule is formal Russian. A few bot strings had kept the informal "ты" ("Напомню тебе", "Попробуй ещё
 // раз"), so one reply could mix the two registers. This walks every string in messages/ru.json and fails on an
-// informal pronoun or imperative. The landing page's marketing copy is left out until the public website redesign
-// rewrites it.
+// informal pronoun or imperative. Quoted dialogue («…») is the person's own words and does not count. What it leaves
+// out is listed by key below, with the reason.
 //
 // Nothing is faked: no DB, Redis or network.
 //
@@ -30,8 +30,13 @@ function assert(cond: boolean, message: string): void {
 
 const ROOT = path.resolve(__dirname, '..');
 
-/** Namespaces whose copy is not yet held to the rule (rewritten by the public website redesign). */
-const NOT_YET = ['landing'];
+/** Single keys not held to the rule, with the reason. */
+const EXEMPT_KEYS: Record<string, string> = {
+  'share.msgShort': 'a text the person sends a friend, written as one friend writes to another',
+  'share.msgMedium': 'a text the person sends a parents\' group, written as one friend writes to another',
+  'landing.painPoints.item2': 'the old landing page shows it until the public website build replaces the page (plan 2026-10-29, Task 4)',
+  'landing.painPoints.item4': 'the old landing page shows it until the public website build replaces the page (plan 2026-10-29, Task 4)',
+};
 
 /** An informal pronoun, or an informal imperative a message gives the person. A quoted example of what to say to the bot («напомни …») is the person's own words and does not count. */
 const INFORMAL = /(?<![\p{L}])(?:ты|тебе|тебя|тобой|твой|твоя|твоё|твои|твоих|твоего|твоей|твоим|твоими|отправь|нажми|открой|попробуй|проверь|выбери|укажи|скажи|напиши|повтори|свяжи|закрой|скопируй|можешь|хочешь|сможешь|напишешь|отправишь)(?![\p{L}])/iu;
@@ -56,10 +61,13 @@ check('the matcher finds an informal word and passes a formal one (so a clean wa
   }
 });
 
-check('every Russian string outside the landing page is formal', () => {
+check('every Russian string is formal, but the keys exempted by name', () => {
   const all = leaves(ru);
   assert(all.length > 1000, `only ${all.length} strings read`);
-  const informal = all.filter(([key, text]) => !NOT_YET.includes(key.split('.')[0]) && INFORMAL.test(withoutQuotes(text)));
+  const keys = new Set(all.map(([key]) => key));
+  const stale = Object.keys(EXEMPT_KEYS).filter((key) => !keys.has(key));
+  assert(stale.length === 0, `exempted keys that no longer exist: ${stale.join(', ')}`);
+  const informal = all.filter(([key, text]) => !(key in EXEMPT_KEYS) && INFORMAL.test(withoutQuotes(text)));
   assert(informal.length === 0, `${informal.length} informal:\n${informal.map(([k, v]) => `  ${k}: ${v}`).join('\n')}`);
 });
 

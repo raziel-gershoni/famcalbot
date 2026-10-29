@@ -1428,7 +1428,7 @@
       "openSettings": "Open Settings"
     },
     "whatsapp": {
-      "welcome": "Welcome to FamCal, {name}! 👋\n\nFamCal reads your family's Google Calendars and sends you a *daily briefing* every morning — merged schedules, kids' pickup order, weather, and a 30-second voice summary.",
+      "welcome": "Welcome to FamCal, {name}! 👋\n\nSend me a voice note about what’s coming up, and I’ll add it to your family calendar. In the morning, a short message arrives: tap it to get the family’s day and the voice show. Reminders and adding from a photo are on Telegram for now.",
       "linkTelegramPrompt": "Already on Telegram? Tap below to start the linking process, or send /connect in the Telegram bot.",
       "linkTelegramButton": "Link Telegram",
       "linkSuccess": "Accounts linked! Your Telegram and WhatsApp are now connected. 🎉",
@@ -1659,22 +1659,284 @@
       "voiceEvents": "Voice Event Creation"
     }
   },
+  "site": {
+    "nav": {
+      "howItWorks": "How it works",
+      "plans": "Plans",
+      "blog": "Blog"
+    },
+    "header": {
+      "homeLabel": "FamCal home",
+      "start": "Start"
+    },
+    "menu": {
+      "button": "Menu",
+      "open": "Open the menu",
+      "close": "Close the menu"
+    },
+    "cta": {
+      "telegram": "Start on Telegram",
+      "whatsapp": "Start on WhatsApp",
+      "telegramShort": "Telegram",
+      "whatsappShort": "WhatsApp",
+      "honest": "Reminders, adding from a photo and paying for a plan are on Telegram for now."
+    },
+    "footer": {
+      "navLabel": "Site links",
+      "privacy": "Privacy",
+      "terms": "Terms",
+      "contact": "Contact",
+      "madeIn": "Made in Israel",
+      "copyright": "© 2025–{year} FamCal"
+    },
+    "language": {
+      "label": "Language",
+      "choose": "Choose a language",
+      "names": {
+        "en": "English",
+        "he": "עברית",
+        "ru": "Русский"
+      }
+    },
+    "meta": {
+      "blog": {
+        "title": "Blog",
+        "description": "Stories and updates from FamCal, the family calendar in Telegram and WhatsApp."
+      },
+      "privacy": {
+        "title": "Privacy policy",
+        "description": "What FamCal keeps and what it doesn’t, who processes your data, and how to ask for a copy or for deletion."
+      },
+      "terms": {
+        "title": "Terms of use",
+        "description": "The rules for using FamCal: the plans, paying with Telegram Stars, refunds, and what you’re responsible for."
+      },
+      "share": {
+        "title": "Share FamCal",
+        "description": "Ready-made messages and a QR code to tell other parents about FamCal."
+      },
+      "keywords": "family calendar, family calendar bot, Telegram bot, WhatsApp bot, Hebrew calendar, Hebrew date, zmanim, Shabbat, Jewish holidays, voice notes, reminders, morning summary"
+    },
+    "jsonLd": {
+      "description": "A family calendar assistant in Telegram and WhatsApp. Add events by voice note, get morning and evening summaries with a two-host voice show, and keep Hebrew dates, Jewish holidays, zmanim and a Shabbat and Yom Tov pause in one place. Reminders work on Telegram.",
+      "offer": "Free plan. Basic and Pro are monthly, paid with Telegram Stars.",
+      "features": ["Family calendar with several coloured calendars", "Adding events by voice note", "Adding events from photos and PDFs on Telegram", "Morning and evening summaries", "Voice summary as a two-host radio show", "Reminders with Done and Snooze on Telegram", "Reminders by zman on Telegram", "Hebrew dates, Jewish holidays and Israel’s national days", "Shabbat and Yom Tov pause", "Partner calendar sharing", "Optional Google Calendar connection", "Hebrew, English and Russian"]
+    }
+  },
   "landing": {
     "meta": {
-      "title": "FamCal — AI Family Calendar Bot for Telegram & WhatsApp",
-      "description": "FamCal merges everyone’s Google Calendar into a single daily briefing — delivered as text and voice on Telegram and WhatsApp, every morning.",
-      "ogTitle": "FamCal — Your family’s day. One voice message away.",
+      "title": "FamCal: a family calendar in Telegram and WhatsApp",
+      "description": "Add events by voice note and get the family’s day in a morning summary, with Hebrew dates, holidays, zmanim and a Shabbat pause. Free to start.",
+      "ogTitle": "Your family’s day, in one place. Just say it.",
+      "ogImageAlt": "FamCal: your family’s day in one place, in Telegram and WhatsApp",
       "ogDescription": "AI-powered daily family calendar briefings on Telegram. Voice summaries, smart pickup order, weather in context."
+    },
+    "hero": {
+      "headline": "Your family’s day, in one place.\nJust say it.",
+      "subtitle": "Send a voice note and it’s on the calendar. In the morning, everyone’s day arrives in Telegram or WhatsApp.",
+      "startFree": "Start Free",
+      "ctaSecondary": "Free during early access · No app to install · 2 minutes to set up"
+    },
+    "how": {
+      "title": "How it works",
+      "step1": {
+        "title": "Start the bot",
+        "body": "Open FamCal in Telegram or WhatsApp, choose your language and add your city, for the weather and zmanim. Your family calendar is ready."
+      },
+      "step2": {
+        "title": "Add things by voice",
+        "body": "Send a voice note, like “Swimming for Ari every Tuesday at five”, and FamCal puts it on the calendar. On Telegram, a photo or PDF of an invitation works too."
+      },
+      "step3": {
+        "title": "Get the morning summary",
+        "body": "At the hour you choose, FamCal sends the family’s day: who has what, the kids’ pickup order and the weather. On Telegram, reminders come too, with Done and Snooze."
+      },
+      "google": "Already use Google Calendar? Connect it, and its calendars show up next to FamCal’s. You don’t need it to start."
+    },
+    "features": {
+      "title": "What FamCal does",
+      "telegramTag": "On Telegram",
+      "calendar": {
+        "title": "Calendar",
+        "own": "FamCal’s own calendar, with repeating events and one-day changes. No Google account needed.",
+        "colours": "Separate calendars for each parent, the kids and birthdays, each in its own colour.",
+        "partner": "Pair with your partner to see each other’s calendars. Any calendar can be kept private."
+      },
+      "jewish": {
+        "title": "Jewish calendar",
+        "dates": "The Hebrew date in letters, next to every day.",
+        "holidays": "Jewish holidays, plus Yom HaShoah, Yom HaZikaron, Yom HaAtzma’ut and Yom Yerushalayim.",
+        "hebrewRepeat": "Birthdays and yahrzeits every year on the Hebrew date, with the count of years.",
+        "sunList": "A sun button with the day’s zmanim for your city, including candle lighting and when Shabbat or Yom Tov ends.",
+        "zmanReminders": "Reminders by zman, like “ten minutes before sunset”, timed for each person’s own place, by Sephardi, Ashkenazi or Chabad custom.",
+        "pause": "Pause on Shabbat and Yom Tov: nothing scheduled is sent from sunset until nightfall."
+      },
+      "adding": {
+        "title": "Adding events",
+        "voice": "A voice note with what and when, including things that repeat.",
+        "photo": "A photo of an invitation, the school schedule as a PDF, or up to ten photos at once."
+      },
+      "reminders": {
+        "title": "Reminders",
+        "doneSnooze": "Say or type “remind me to call the plumber at ten”, then tap Done or Snooze when it pings.",
+        "both": "One reminder for both of you: one Done closes it, or each of you marks your own and sees where the other stands."
+      },
+      "summaries": {
+        "title": "Summaries",
+        "daily": "A morning summary of today and an evening one for tomorrow, at the hour and on the days you choose.",
+        "week": "This week or next week, whenever you ask.",
+        "weather": "Weather that fits your plans, like rain at pickup time, and a warning when a dust storm is coming.",
+        "show": "The same summary as a short radio show with two hosts."
+      },
+      "languages": {
+        "title": "Languages",
+        "three": "Hebrew, English and Russian in the bot, the summaries, the voice show and the calendar.",
+        "rtl": "Right to left in Hebrew, everywhere."
+      },
+      "voiceSummaries": {
+        "title": "Voice Summaries",
+        "description": "Your family’s schedule as a 30-second audio briefing. Listen hands-free while getting ready. Hebrew, English, or Russian."
+      },
+      "voiceCommands": {
+        "title": "Voice Commands",
+        "description": "Send a voice note to create, edit, or delete events. Works with recurring events too. No typing needed."
+      },
+      "smartPickup": {
+        "title": "Smart Pickup Order",
+        "description": "Kids’ events sorted by end time. Always know who to pick up first. Get reminders before each pickup."
+      },
+      "weatherContext": {
+        "title": "Weather in Context",
+        "description": "Not just a forecast — weather tied to your schedule. “Rain expected at pickup time, bring umbrellas.”"
+      },
+      "hebrewCalendar": {
+        "title": "Hebrew Calendar",
+        "description": "Full Hebrew dates in gematriya, Rosh Chodesh awareness, Shabbat-aware week boundaries. Built for Israeli families."
+      },
+      "familyView": {
+        "title": "Family-Wide View",
+        "description": "Merge calendars for you, your spouse, and every kid. Label them, set rules per calendar, see it all in one place."
+      }
+    },
+    "channels": {
+      "title": "Telegram or WhatsApp?",
+      "intro": "Start on either. This is what each one does today.",
+      "colTelegram": "Telegram",
+      "colWhatsapp": "WhatsApp",
+      "yes": "Yes",
+      "no": "No",
+      "rows": {
+        "summaries": {
+          "label": "Morning and evening summaries",
+          "telegram": "Arrive in full at your hour",
+          "whatsapp": "A short notice arrives; tap it for the summary"
+        },
+        "show": {
+          "label": "Voice show",
+          "telegram": "Comes with the summary",
+          "whatsapp": "Comes when you open a summary or ask for one"
+        },
+        "onRequest": {
+          "label": "This week, next week and the weather, on request"
+        },
+        "voice": {
+          "label": "Adding by voice note",
+          "telegram": "Add, change and delete",
+          "whatsapp": "Add"
+        },
+        "photo": {
+          "label": "Adding from a photo, PDF or album"
+        },
+        "reminders": {
+          "label": "Reminders",
+          "telegram": "Yes, with Done and Snooze"
+        },
+        "calendar": {
+          "label": "The calendar",
+          "telegram": "Opens inside Telegram",
+          "whatsapp": "Opens in the browser from a link in the chat"
+        },
+        "partner": {
+          "label": "Partner sharing"
+        },
+        "pause": {
+          "label": "Shabbat and Yom Tov pause"
+        },
+        "pay": {
+          "label": "Paying for a plan",
+          "telegram": "With Telegram Stars"
+        }
+      },
+      "link": "Started on WhatsApp? Link Telegram any time: your calendars, events and settings come with you, and messages can go to both."
+    },
+    "plans": {
+      "title": "Plans",
+      "subtitle": "Start with {days, plural, one {# day} other {# days}} of Pro, then stay on Free or choose a plan.",
+      "free": {
+        "name": "Free",
+        "price": "No payment"
+      },
+      "basic": {
+        "name": "Basic"
+      },
+      "pro": {
+        "name": "Pro"
+      },
+      "price": "{price} Stars a month",
+      "priceA11y": "{price, number} Telegram Stars a month",
+      "unlimited": "Unlimited",
+      "bullets": {
+        "textSummaries": "{count, plural, one {# text summary} other {# text summaries}} a month",
+        "voiceSummaries": "{count, plural, one {# voice summary} other {# voice summaries}} a month",
+        "summariesUnlimited": "Unlimited text and voice summaries",
+        "calendars": "Up to {count} calendars",
+        "calendarsUnlimited": "Unlimited calendars",
+        "everythingInBasic": "Everything in Basic",
+        "reminders": "Reminders, on Telegram",
+        "voiceEvents": "Adding events by voice, and on Telegram by photo or PDF",
+        "googleCopy": "Copy to Google: your FamCal calendars in Google Calendar too"
+      },
+      "allPlans": "Every plan has the calendar, Hebrew dates and holidays, the day’s zmanim, the Shabbat pause and partner sharing.",
+      "notes": {
+        "trial": "The {days}-day Pro trial starts on its own. No card needed.",
+        "monthly": "Plans are monthly and never renew on their own. When one ends, you’re back on Free.",
+        "stars": "You pay with Telegram Stars, inside Telegram."
+      }
+    },
+    "founder": {
+      "title": "From the founder",
+      "quote": "My wife and I have five kids, and every morning started with “wait, who has what today?” I built FamCal so the day comes to us: we add things by voice and hear the plan over coffee.",
+      "author": "Raziel, founder of FamCal",
+      "readMore": "Read the whole story"
+    },
+    "final": {
+      "title": "Your family’s day, in one place.",
+      "body": "Start in the app you already use."
+    },
+    "sample": {
+      "voiceNote": "Dentist for Noa on Thursday at four",
+      "events": {
+        "dentist": "Dentist for Noa",
+        "swimming": "Ari’s swimming",
+        "parents": "Parents’ evening at school",
+        "birthday": "Grandma Rina’s birthday"
+      },
+      "reminder": "Buy flowers for Shabbat",
+      "calendars": {
+        "self": "Dana",
+        "partner": "Eli",
+        "kids": "Kids",
+        "birthdays": "Birthdays"
+      }
+    },
+    "demo": {
+      "label": "Example: a voice note becomes an event on the family calendar",
+      "voiceNote": "Voice message",
+      "calendarFrame": "FamCal’s calendar",
+      "pingCaption": "A reminder for both of you, on Telegram"
     },
     "header": {
       "startFree": "Start Free"
-    },
-    "hero": {
-      "headline": "Your family’s day.\nOne voice message away.",
-      "subtitle": "FamCal merges everyone’s Google Calendar into a single daily briefing — delivered as text and voice to your Telegram or WhatsApp, every morning.",
-      "cta": "Start Free",
-      "startFree": "Start Free",
-      "ctaSecondary": "Free during early access · No app to install · 2 minutes to set up"
     },
     "painPoints": {
       "title": "Sound familiar?",
@@ -1704,33 +1966,6 @@
       "bullet3": "AI spots conflicts before they become problems",
       "bullet4": "Weather tied to YOUR schedule, not just the forecast",
       "bullet5": "30-second voice version — listen while making coffee"
-    },
-    "features": {
-      "title": "Everything your family calendar should do",
-      "voiceSummaries": {
-        "title": "Voice Summaries",
-        "description": "Your family’s schedule as a 30-second audio briefing. Listen hands-free while getting ready. Hebrew, English, or Russian."
-      },
-      "voiceCommands": {
-        "title": "Voice Commands",
-        "description": "Send a voice note to create, edit, or delete events. Works with recurring events too. No typing needed."
-      },
-      "smartPickup": {
-        "title": "Smart Pickup Order",
-        "description": "Kids’ events sorted by end time. Always know who to pick up first. Get reminders before each pickup."
-      },
-      "weatherContext": {
-        "title": "Weather in Context",
-        "description": "Not just a forecast — weather tied to your schedule. “Rain expected at pickup time, bring umbrellas.”"
-      },
-      "hebrewCalendar": {
-        "title": "Hebrew Calendar",
-        "description": "Full Hebrew dates in gematriya, Rosh Chodesh awareness, Shabbat-aware week boundaries. Built for Israeli families."
-      },
-      "familyView": {
-        "title": "Family-Wide View",
-        "description": "Merge calendars for you, your spouse, and every kid. Label them, set rules per calendar, see it all in one place."
-      }
     },
     "howItWorks": {
       "title": "Set up in 2 minutes",
@@ -1775,9 +2010,10 @@
     "pageTitle": "Blog",
     "pageDescription": "Stories, updates, and tips from the FamCal team",
     "readMore": "Read more",
-    "backToBlog": "← Back to blog",
-    "tryFamcal": "Try FamCal Free",
-    "ctaText": "Start your family’s daily briefing on Telegram"
+    "backToBlog": "Back to blog",
+    "tryFamcal": "Try FamCal with your family",
+    "ctaText": "Start in the app you already use.",
+    "byline": "By {author}"
   },
   "share": {
     "pageTitle": "Share FamCal",
@@ -1787,18 +2023,19 @@
     "mediumLabel": "For parent groups",
     "parentLabel": "For school groups",
     "copied": "Copied!",
-    "qrTitle": "QR Code",
+    "qrTitle": "QR code",
     "qrSubtitle": "Print it, share it, stick it on the school bulletin board",
-    "downloadQr": "Download QR Code",
-    "botLinkTitle": "Bot Link",
-    "siteLinkTitle": "Website Link",
-    "msgShort": "Hey, check out FamCal — it’s a bot for Telegram and WhatsApp that reads your family’s Google Calendar every morning and sends you a voice + text summary. Who’s picking up which kid, what’s the schedule, weather warnings — all in 30 seconds. Free right now. famcal.bot",
-    "msgMedium": "Anyone else drowning in family calendar chaos? 😅 I found this bot that works on Telegram and WhatsApp called FamCal — you connect your Google Calendars and every morning it sends you a summary of everyone’s schedule. Best part: kids’ pickup order sorted by time, and you can listen to it as a voice message while getting ready. It’s free during early access → famcal.bot",
-    "msgParent": "For parents juggling multiple kids’ schedules — there’s a free bot for Telegram and WhatsApp that connects to your Google Calendar and sends you a daily briefing: who has what today, pickup order by time, weather at pickup time, and AI-detected conflicts. Works in Hebrew, English, and Russian. Check it out: famcal.bot",
-    "whatsappLinkTitle": "WhatsApp Bot Link",
+    "downloadQr": "Download the QR code",
+    "botLinkTitle": "Telegram link",
+    "siteLinkTitle": "Website link",
+    "msgShort": "Hey, check out FamCal: a family calendar bot for Telegram and WhatsApp. You send it voice notes, and in the morning it tells you who has what today, who picks up which kid, and the weather. Free to start. famcal.bot",
+    "msgMedium": "Anyone else drowning in family schedules? I found FamCal, a bot for Telegram and WhatsApp. You tell it what’s coming up in a voice note, and in the morning it sends everyone’s day, with the kids’ pickup order and the weather. You can even listen to it as a short radio show. Free to start: famcal.bot",
+    "msgParent": "For parents juggling several kids’ schedules: FamCal is a family calendar bot for Telegram and WhatsApp. In the morning it sends a summary of who has what, the pickup order and the weather at pickup time, and it knows the Hebrew dates and holidays. Works in Hebrew, English and Russian. Free to start: famcal.bot",
+    "whatsappLinkTitle": "WhatsApp link",
     "qrTelegram": "Telegram",
     "qrWhatsapp": "WhatsApp",
-    "qrWebsite": "Website"
+    "qrWebsite": "Website",
+    "copy": "Copy"
   },
   "nav": {
     "howItWorks": "How it works",

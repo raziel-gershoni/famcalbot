@@ -36,16 +36,16 @@ function assert(cond: unknown, message: string): asserts cond {
 const ROOT = path.resolve(__dirname, '..');
 
 /** Top-level groups of messages/he.json not held to the rule, with the reason. */
-const NOT_HELD: Record<string, string> = {
-  landing: 'the public website build rewrites it',
-  howItWorksPage: 'the public website build rewrites it',
-};
+const NOT_HELD: Record<string, string> = {};
 
 /** Single keys not held to the rule, with the reason. */
 const EXEMPT_KEYS: Record<string, string> = {
   'share.msgShort': 'a text the person sends a friend, not an address to the person',
   'share.msgMedium': 'a text the person sends a friend, not an address to the person',
   'share.msgParent': 'a text the person sends a friend, not an address to the person',
+  'landing.footer.contact': 'the old site footer shows it until the public website build replaces the footer (plan 2026-10-29, Task 3)',
+  'howItWorksPage.step2.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
+  'howItWorksPage.daily.voice.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
 };
 
 /** Source files whose Hebrew is not copy for the person, with the reason. */
@@ -67,7 +67,7 @@ const ALLOWED: Record<string, string> = {
 
 const H = '\\u05D0-\\u05EA';
 /** Words that spell like a masculine imperative and are something else. */
-const NOUN_PHRASES = /בית ספר|בתי ספר|דבר אחד|כל דבר|אותו דבר|עוד דבר|דבר ראשון|הדבר|דברים|חבר משפחה|חבר'ה|חברים/g;
+const NOUN_PHRASES = /בית ספר|בתי ספר|דבר אחד|כל דבר|שום דבר|אותו דבר|עוד דבר|דבר ראשון|הדבר|דברים|חבר משפחה|חבר'ה|חברים/g;
 
 /**
  * Masculine singular forms a message addresses the person with: the imperative of the verbs a bot message uses, and
@@ -104,7 +104,7 @@ check('the matcher finds a masculine address and a slash form, and passes a neut
   for (const bad of ['נסה שוב', 'לחץ כאן', 'את/ה', 'ספר/י לי', 'אנא התחבר מחדש', 'שים לב!', 'אתה עכשיו בתוכנית', 'תהנה מיום פנוי', 'ילד/ה שלך', 'ואז לחץ על הכפתור', 'ימחק: כל האירועים', 'פתח הגדרות']) {
     assert(hit(bad) !== null, `missed: ${bad}`);
   }
-  for (const good of ['נסו שוב', 'לנסות שוב', 'בית ספר', 'עבור', 'אני לא בטוח', 'לחצו כאן', 'שימו לב', 'פתיחת הגדרות', 'לפתוח הגדרות', 'עוד דבר אחד קצר', 'יימחקו: כל האירועים', 'המשפחה שלך', 'קחו מטריה', 'מצטער, אירעה שגיאה', 'שנה', 'ראה', 'חברים']) {
+  for (const good of ['נסו שוב', 'לנסות שוב', 'בית ספר', 'עבור', 'אני לא בטוח', 'לחצו כאן', 'שימו לב', 'פתיחת הגדרות', 'לפתוח הגדרות', 'עוד דבר אחד קצר', 'לא נשלח שום דבר', 'יימחקו: כל האירועים', 'המשפחה שלך', 'קחו מטריה', 'מצטער, אירעה שגיאה', 'שנה', 'ראה', 'חברים']) {
     assert(hit(good) === null, `flagged: ${good} (${hit(good)})`);
   }
 });
