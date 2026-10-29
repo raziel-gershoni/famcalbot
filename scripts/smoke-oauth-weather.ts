@@ -299,6 +299,11 @@ function stub(rel: string, exports: Row) {
 }
 
 function installStubs() {
+  // The request's headers, as next/headers gives them in a request (the callback reads Accept-Language for a card no state names an owner for)
+  const headersFile = nodeRequire.resolve('next/headers', { paths: [ROOT] });
+  const headersModule = new Module(headersFile);
+  Object.assign(headersModule, { filename: headersFile, loaded: true, exports: { headers: async () => new Headers({ 'accept-language': 'en-US,en;q=0.9' }) } });
+  Module._cache[headersFile] = headersModule;
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/lib/rate-limit.ts', {
@@ -490,7 +495,7 @@ async function main() {
     const token = crypto.randomBytes(32).toString('hex');
     DB.oAuthState.push({ id: 'st-old', userId: BigInt(111111111), token, createdAt: new Date(), expiresAt: new Date(Date.now() + 10 * 60_000) });
     const ended = await runCallback(token);
-    assert(userWrites.length === 0, `ended with ${ended}; user writes: ${show(userWrites.map(w => ({ where: w.where, hit: w.hit })))}`);
+    assert(ended === 'rendered a page' && userWrites.length === 0, `ended with ${ended}; user writes: ${show(userWrites.map(w => ({ where: w.where, hit: w.hit })))}`);
   });
 
   // ---- weather-image signing ----

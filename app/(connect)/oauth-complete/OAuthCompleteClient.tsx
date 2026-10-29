@@ -1,29 +1,38 @@
 'use client';
 
-import { useSyncExternalStore, type ReactNode } from 'react';
-import { CheckCircle2, ArrowRight } from 'lucide-react';
+// /oauth-complete in the app's design (plan W4-3): one more tap, in Telegram or WhatsApp, to finish connecting Google.
+// It always opens in a browser (after Google's consent), so its look follows the browser's light or dark.
+//
+// - Before the fragment is read (the server's render and the first paint) the app's loader, never an empty card.
+// - Ready: an AppScreen on the grouped ground (the owner line is a notice on a card): a success icon, the title and the
+//   subtitle, the owner line ({name} through next-intl), then the buttons the fragment's b= allows: Finish in Telegram
+//   (the primary), Finish in WhatsApp (outlined beside Telegram, the primary alone) with its hint under it.
+// - A fragment that is missing or bad: the kit's state card, "This link is incomplete".
+//
+// The pendingId, the owner's first name and the buttons are in the URL fragment (finishPageUrl), which only this
+// client reads and which never reaches a server. Words: oauthComplete.* and pageGate.loading (the page's provider).
 
-interface Translations {
-  title: string;
-  subtitle: string;
-  /** {name} is the owner's first name */
-  owner: string;
-  ownerUnnamed: string;
+import { useSyncExternalStore } from 'react';
+import { useTranslations } from 'next-intl';
+import { CircleCheck } from 'lucide-react';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { FORM_CSS } from '@/components/app-ui/form-kit';
+import { Notice } from '@/components/app-ui/Notice';
+import { StateCard } from '@/components/app-ui/StateCard';
+import { CONNECT_CSS } from '../connect-css';
+import { ConnectHero, ConnectLoader } from '../connect-ui';
+
+/** What the claim buttons say. */
+export interface FinishButtonWords {
   telegramButton: string;
   whatsappButton: string;
-  /** The prefilled WhatsApp message; {code} is gc_<pendingId> */
-  whatsappText: string;
   /** Under the WhatsApp button: nothing is connected until that message is sent */
   whatsappHint: string;
-  incompleteTitle: string;
-  incompleteBody: string;
 }
 
 interface OAuthCompleteClientProps {
-  locale: string;
   botUsername: string;
   waNumber: string;
-  translations: Translations;
 }
 
 /** What the OAuth callback put in the fragment: #p=<pendingId>&n=<first name>&b=tg,wa */
@@ -63,30 +72,27 @@ export function finishLinks(
   };
 }
 
-/** The claim buttons. WhatsApp only prefills the message, so its button says to send it. */
-export function FinishButtons({ links, translations: t, arrow }: {
-  links: { telegram?: string; whatsapp?: string };
-  translations: Translations;
-  arrow: ReactNode;
-}) {
+/**
+ * The claim buttons. Telegram is the primary; WhatsApp is outlined beside it and the primary alone. WhatsApp only
+ * prefills the message, so its hint under it says to send it.
+ */
+export function FinishButtons({ links, translations: t }: { links: { telegram?: string; whatsapp?: string }; translations: FinishButtonWords }) {
   return (
-    <>
-      {links.telegram && (
-        <a href={links.telegram} className="btn">
+    <div className="ch-connect-actions">
+      {links.telegram ? (
+        <a className="ch-btn ch-btn-primary ch-save" href={links.telegram}>
           {t.telegramButton}
-          {arrow}
         </a>
-      )}
-      {links.whatsapp && (
+      ) : null}
+      {links.whatsapp ? (
         <>
-          <a href={links.whatsapp} className="btn">
+          <a className={`ch-btn ${links.telegram ? 'ch-btn-outline' : 'ch-btn-primary'} ch-save`} href={links.whatsapp}>
             {t.whatsappButton}
-            {arrow}
           </a>
-          <p className="hint">{t.whatsappHint}</p>
+          <p className="ch-form-fixed">{t.whatsappHint}</p>
         </>
-      )}
-    </>
+      ) : null}
+    </div>
   );
 }
 
@@ -95,145 +101,40 @@ const subscribeToHash = (onChange: () => void) => {
   return () => window.removeEventListener('hashchange', onChange);
 };
 
-export default function OAuthCompleteClient({ locale, botUsername, waNumber, translations: t }: OAuthCompleteClientProps) {
-  const isRTL = locale === 'he';
+export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthCompleteClientProps) {
+  const t = useTranslations('oauthComplete');
+  const gate = useTranslations('pageGate');
   // The fragment exists only in the browser; the server render has none (null)
   const hash = useSyncExternalStore(subscribeToHash, () => window.location.hash, () => null);
-  const params = hash === null ? null : parseFinishFragment(hash);
-  const links = params ? finishLinks(params, botUsername, waNumber, t.whatsappText) : {};
-  const incomplete = hash !== null && !links.telegram && !links.whatsapp;
-  const arrow = <ArrowRight size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />;
-
+  if (hash === null) {
+    return (
+      <AppScreen ground="grouped">
+        <ConnectLoader label={gate('loading')} />
+      </AppScreen>
+    );
+  }
+  const params = parseFinishFragment(hash);
+  // The message as written, {code} and all: finishLinks puts the claim code in
+  const links = params ? finishLinks(params, botUsername, waNumber, t.raw('whatsappText') as string) : {};
+  if (!params || (!links.telegram && !links.whatsapp)) {
+    return (
+      <AppScreen>
+        <StateCard tone="crash" title={t('incompleteTitle')} body={t('incompleteBody')} />
+      </AppScreen>
+    );
+  }
   return (
-    <>
-        <style>{`
-          * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-          }
-          body {
-            font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-          }
-          .container {
-            background: white;
-            padding: 50px 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 450px;
-            text-align: center;
-            animation: slideUp 0.5s ease-out;
-          }
-          @keyframes slideUp {
-            from {
-              opacity: 0;
-              transform: translateY(30px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-          .success-icon {
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 30px;
-            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            animation: scaleIn 0.6s ease-out 0.2s both;
-          }
-          @keyframes scaleIn {
-            from {
-              transform: scale(0);
-            }
-            to {
-              transform: scale(1);
-            }
-          }
-          h1 {
-            color: #1f2937;
-            font-size: 28px;
-            font-weight: 600;
-            margin-bottom: 15px;
-          }
-          .subtitle {
-            color: #6b7280;
-            font-size: 16px;
-            margin-bottom: 30px;
-            line-height: 1.6;
-          }
-          .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            width: 100%;
-            padding: 16px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            text-decoration: none;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-          }
-          .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
-          }
-          .btn:active {
-            transform: translateY(0);
-          }
-          .btn + .btn {
-            margin-top: 12px;
-          }
-          .hint {
-            color: #6b7280;
-            font-size: 14px;
-            margin-top: 10px;
-            line-height: 1.5;
-          }
-          .owner {
-            color: #374151;
-            font-size: 15px;
-            margin-bottom: 30px;
-            line-height: 1.6;
-          }
-        `}</style>
-        <div className="container">
-          {incomplete ? (
-            <>
-              <h1>{t.incompleteTitle}</h1>
-              <p className="subtitle">{t.incompleteBody}</p>
-            </>
-          ) : params && (
-            <>
-              <div className="success-icon">
-                <CheckCircle2 size={48} color="white" />
-              </div>
-
-              <h1>{t.title}</h1>
-              <p className="subtitle">{t.subtitle}</p>
-              <p className="owner">
-                {params.ownerName ? t.owner.replace('{name}', () => params.ownerName) : t.ownerUnnamed}
-              </p>
-
-              <FinishButtons links={links} translations={t} arrow={arrow} />
-            </>
-          )}
-        </div>
-    </>
+    <AppScreen ground="grouped">
+      <style>{FORM_CSS}</style>
+      <style>{CONNECT_CSS}</style>
+      <div className="ch-form-page ch-form-page-grouped">
+        <ConnectHero icon={<CircleCheck aria-hidden="true" />} title={t('title')} lead={t('subtitle')} />
+        <Notice>{params.ownerName ? t('owner', { name: params.ownerName }) : t('ownerUnnamed')}</Notice>
+        <FinishButtons
+          links={links}
+          translations={{ telegramButton: t('telegramButton'), whatsappButton: t('whatsappButton'), whatsappHint: t('whatsappHint') }}
+        />
+      </div>
+    </AppScreen>
   );
 }

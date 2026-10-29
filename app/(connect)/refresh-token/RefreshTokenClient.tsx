@@ -1,8 +1,34 @@
 'use client';
 
-import { useEffect, useCallback, useRef, useState } from 'react';
-import { RefreshCw, KeyRound, ArrowLeft, Loader2 } from 'lucide-react';
+// /refresh-token in the app's design (plan W4-3; spec 2026-10-19 §4, §5): connect or reconnect Google. An AppScreen on
+// the grouped ground (its steps are a card), made of the kit: the header with its back, the hero (the icon and the lead),
+// the steps as a numbered card, one primary Continue, and the notices under it.
+//
+// The flow is the Google connection spec's, unchanged (docs/superpowers/specs/2026-10-19-google-connection-design.md):
+// - On mount POST /api/oauth/start (the credential: initData in the body, or the WhatsApp session cookie) makes the
+//   Google URL; Continue is busy ("Getting Google ready") until it arrives. A start that fails says why in an error
+//   notice (startErrorLines); a server or network failure can be tried again from there, a refused credential cannot.
+// - Continue stores famcalbot_oauth_pending and opens Google: Telegram's openLink in the Mini App, a new tab elsewhere.
+//   A new URL is made at once (each consent uses one up), and one left 9 minutes is replaced (URL_FRESH_MS).
+// - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
+//   GET /api/check-token-refresh (initData in the header, `since` the tap on the server's clock) every 2 s for 3
+//   minutes, on visibilitychange and on mount; when the 3 minutes end the notice says to check again.
+// - A check that the person asked for shows the loader with "Checking the connection"; once the token landed the page
+//   moves on to /<locale>/select-calendars?user_id=… with a full load.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser): the calendar,
+//   /<locale>/dashboard?user_id=…, with a full page load (this page is outside [locale]).
+//
+// The words come in a prop (`translations`, from page.tsx: the connect or the reconnect copy, the gate's lines, Back).
+
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarSync } from 'lucide-react';
 import { readInitData } from '@/src/lib/read-init-data';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { FORM_CSS } from '@/components/app-ui/form-kit';
+import { Notice } from '@/components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
+import { CONNECT_CSS } from '../connect-css';
+import { ConnectHero, ConnectLoader } from '../connect-ui';
 
 interface Translations {
   title: string;
@@ -12,11 +38,21 @@ interface Translations {
   step2: string;
   step3: string;
   button: string;
+  /** Continue while the Google URL is being made */
+  preparing: string;
   checking: string;
   startFailed: string;
   /** Shown after Google opens: finish there, then tap the finish page's button */
   waitingTelegram: string;
   waitingWhatsApp: string;
+  /** Under the waiting text once the 3-minute poll has ended */
+  stillWaiting: string;
+  /** The error notice's action: ask oauth/start again */
+  retry: string;
+  /** The waiting notice's action: one check now */
+  checkAgain: string;
+  /** The header's back (ui.back) */
+  back: string;
   /** pageGate's strings: what to do when there is no credential for this page */
   gate: {
     telegramTitle: string;
@@ -51,6 +87,9 @@ const POLL_WINDOW_MS = 3 * 60_000;
  */
 const URL_FRESH_MS = 9 * 60_000;
 
+/** A refused credential: trying again can't help, the page has to be opened again from the chat. */
+const refusedCredential = (status: number) => status === 401 || status === 403 || status === 404;
+
 /**
  * What the page says when oauth/start gives no Google URL. With no credential it says
  * what PageGate says: inside Telegram, reopen from the bot; in a browser, the WhatsApp
@@ -58,7 +97,7 @@ const URL_FRESH_MS = 9 * 60_000;
  * lands a Telegram user here in the external browser).
  */
 export function startErrorLines(status: number, initData: string, t: Translations): string[] {
-  if (status === 401 || status === 403 || status === 404) {
+  if (refusedCredential(status)) {
     return initData
       ? [t.gate.telegramTitle, t.gate.telegramBody]
       : [t.gate.browserTitle, t.gate.browserBody, t.gate.browserTelegramHint];
@@ -91,16 +130,18 @@ export function attemptSince(clockOffset: number, tapNow: number): number {
 }
 
 export default function RefreshTokenClient({ userId, locale, translations: t }: RefreshTokenClientProps) {
-  const isRTL = locale === 'he';
   const [isChecking, setIsChecking] = useState(false);
   // The Google URL comes from POST /api/oauth/start, which creates the OAuth state for
   // the user our credential proves, with the server's clock offset (attemptFromStart).
   // Until it arrives the button stays disabled, and again after each tap (URL_FRESH_MS).
   const [start, setStart] = useState<{ oauthUrl: string; clockOffset: number; preparedAt: number } | null>(null);
   const oauthUrl = start?.oauthUrl ?? null;
-  const [startError, setStartError] = useState<string[] | null>(null);
+  // The page's own first start failed: what to say, and whether trying again can help
+  const [startError, setStartError] = useState<{ lines: string[]; canRetry: boolean } | null>(null);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
+  // The 3-minute poll ended without the token
+  const [timedOut, setTimedOut] = useState(false);
   const checkInFlight = useRef(false);
   // A later prepare (after a tap, or the timer) failed: Connect stays, and its tap prepares again
   const [retry, setRetry] = useState(false);
@@ -116,10 +157,11 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     setStart(null);
     setRetry(false);
     const initData = readInitData();
-    const failed = (lines: string[], why: string) => {
+    const failed = (lines: string[], canRetry: boolean, why: string) => {
       if (!mounted.current || run !== prepared.current) return;
       if (first) {
-        setStartError(lines);
+        console.warn(`[refresh-token] starting the Google sign-in failed (${why})`);
+        setStartError({ lines, canRetry });
       } else {
         console.warn(`[refresh-token] preparing the next Google sign-in failed (${why}); Connect retries`);
         setRetry(true);
@@ -138,11 +180,11 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
       if (attempt) {
         setStart(attempt);
       } else {
-        failed(startErrorLines(response.status, initData, t), `HTTP ${response.status}`);
+        failed(startErrorLines(response.status, initData, t), !refusedCredential(response.status), `HTTP ${response.status}`);
       }
     } catch (error) {
-      console.error('Error starting Google sign-in:', error);
-      failed([t.startFailed], error instanceof Error ? error.message : String(error));
+      console.error('[refresh-token] starting the Google sign-in threw:', error);
+      failed([t.startFailed], true, error instanceof Error ? error.message : String(error));
     }
   }, [userId, t]);
 
@@ -154,6 +196,12 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     };
   }, [prepare]);
 
+  // The error notice's Try again: the page's own start, once more
+  const retryStart = () => {
+    setStartError(null);
+    void prepare(true);
+  };
+
   // A URL nobody tapped is replaced before its state ends (a backgrounded page's timer runs on return)
   useEffect(() => {
     if (!start) return;
@@ -161,7 +209,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     return () => clearTimeout(timer);
   }, [start, prepare]);
 
-  // quiet: the interval poll, which shows no overlay unless the connection landed
+  // quiet: the interval poll, which shows no loader unless the connection landed
   const checkTokenRefresh = useCallback(async (quiet = false) => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
     if (!pending || checkInFlight.current) return;
@@ -190,7 +238,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         setIsChecking(false);
       }
     } catch (error) {
-      console.error('Error checking token refresh:', error);
+      console.error('[refresh-token] checking the connection failed:', error);
       setIsChecking(false);
     } finally {
       checkInFlight.current = false;
@@ -222,6 +270,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     }
     // With initData the finish is in Telegram; on the WhatsApp session, in WhatsApp
     setWaiting({ since: Date.now(), telegram: readInitData() !== '' });
+    setTimedOut(false);
     // This URL's state is spent once its consent finishes: the next tap opens a new one
     void prepare();
   }, [start, retry, userId, prepare]);
@@ -257,6 +306,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     const timer = setInterval(() => {
       if (Date.now() - waiting.since > POLL_WINDOW_MS) {
         clearInterval(timer);
+        // The poll stops here: the notice says so, and Check again still asks
+        setTimedOut(true);
         return;
       }
       checkTokenRefresh(true);
@@ -264,257 +315,61 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     return () => clearInterval(timer);
   }, [waiting, checkTokenRefresh]);
 
+  // The calendar, with a full load: this page is outside [locale]
+  const back = () => {
+    window.location.href = `/${locale}/dashboard?user_id=${userId}`;
+  };
+  const preparing = !oauthUrl && !retry;
+
   return (
-    <>
-      <style jsx global>{`
-        * {
-          box-sizing: border-box;
-          margin: 0;
-          padding: 0;
-        }
-        body {
-          font-family: 'Rubik', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          min-height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0;
-          padding: 20px;
-        }
-      `}</style>
-
-      <style jsx>{`
-        .container {
-          background: white;
-          padding: 50px 40px;
-          border-radius: 20px;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-          max-width: 450px;
-          text-align: center;
-          animation: slideUp 0.5s ease-out;
-        }
-
-        @keyframes slideUp {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        .icon-wrapper {
-          width: 80px;
-          height: 80px;
-          margin: 0 auto 30px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          animation: scaleIn 0.6s ease-out 0.2s both;
-        }
-
-        @keyframes scaleIn {
-          from {
-            transform: scale(0);
-          }
-          to {
-            transform: scale(1);
-          }
-        }
-
-        h2 {
-          margin: 0 0 15px 0;
-          color: #1f2937;
-          font-size: 28px;
-          font-weight: 600;
-        }
-
-        .subtitle {
-          color: #6b7280;
-          font-size: 16px;
-          line-height: 1.6;
-          margin-bottom: 30px;
-        }
-
-        .steps {
-          text-align: left;
-          background: #f3f4f6;
-          padding: 20px;
-          border-radius: 12px;
-          margin-bottom: 30px;
-        }
-
-        .steps strong {
-          color: #374151;
-          font-size: 15px;
-        }
-
-        .steps ol {
-          margin: 12px 0 0 0;
-          padding-left: 20px;
-        }
-
-        .steps li {
-          margin-bottom: 8px;
-          color: #4b5563;
-          font-size: 14px;
-          line-height: 1.5;
-        }
-
-        .steps li:last-child {
-          margin-bottom: 0;
-        }
-
-        .btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          width: 100%;
-          padding: 16px 24px;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          text-decoration: none;
-          border: none;
-          border-radius: 12px;
-          font-size: 16px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: transform 0.2s, box-shadow 0.2s;
-          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
-        }
-
-        .btn:active {
-          transform: translateY(0);
-        }
-
-        .back-button {
-          position: absolute;
-          top: 20px;
-          left: 20px;
-          background: rgba(255, 255, 255, 0.2);
-          border: none;
-          color: white;
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: background 0.2s;
-          backdrop-filter: blur(10px);
-        }
-
-        .back-button:hover {
-          background: rgba(255, 255, 255, 0.3);
-        }
-
-        .loading-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(255, 255, 255, 0.95);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          z-index: 100;
-          gap: 20px;
-        }
-
-        .spinner {
-          animation: spin 1s linear infinite;
-          color: #667eea;
-        }
-
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-
-        .loading-text {
-          color: #4b5563;
-          font-size: 16px;
-          font-weight: 500;
-        }
-
-        .waiting {
-          margin-top: 20px;
-          color: #4b5563;
-          font-size: 15px;
-          line-height: 1.6;
-        }
-      `}</style>
-
-      {isChecking && (
-        <div className="loading-overlay">
-          <Loader2 size={48} style={{ animation: 'spin 1s linear infinite', color: '#667eea' }} />
-          <div className="loading-text">{t.checking}</div>
+    <AppScreen ground="grouped" onBack={back}>
+      <style>{FORM_CSS}</style>
+      <style>{CONNECT_CSS}</style>
+      <ScreenHeader title={t.title} backLabel={t.back} onBack={back} />
+      {isChecking ? (
+        <ConnectLoader label={t.checking} shown />
+      ) : (
+        <div className="ch-form-page ch-form-page-grouped">
+          <ConnectHero icon={<CalendarSync aria-hidden="true" />} lead={t.subtitle} />
+          <SectionLabel>{t.stepsTitle}</SectionLabel>
+          <ol className="ch-form-card ch-connect-steps">
+            {[t.step1, t.step2, t.step3].map((step, i) => (
+              <li key={i} className="ch-form-row ch-connect-step">
+                <span className="ch-connect-num" aria-hidden="true">{i + 1}</span>
+                <span className="ch-form-label">{step}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="ch-connect-actions">
+            {startError ? (
+              <Notice tone="error" action={startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}>
+                {startError.lines.map((line, i) => (
+                  <Fragment key={line}>
+                    {i > 0 ? <br /> : null}
+                    {i === 0 && startError.lines.length > 1 ? <strong>{line}</strong> : line}
+                  </Fragment>
+                ))}
+              </Notice>
+            ) : (
+              <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={preparing} aria-busy={preparing || undefined} onClick={startOAuth}>
+                {preparing ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
+                {preparing ? t.preparing : t.button}
+              </button>
+            )}
+            {waiting ? (
+              <Notice action={{ label: t.checkAgain, onClick: () => void checkTokenRefresh() }}>
+                {waiting.telegram ? t.waitingTelegram : t.waitingWhatsApp}
+                {timedOut ? (
+                  <>
+                    <br />
+                    {t.stillWaiting}
+                  </>
+                ) : null}
+              </Notice>
+            ) : null}
+          </div>
         </div>
       )}
-
-      <button
-        className="back-button"
-        style={isRTL ? { left: 'auto', right: '20px' } : undefined}
-        onClick={() => window.history.back()}
-        aria-label="Go back"
-      >
-        <ArrowLeft size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />
-      </button>
-
-      <div className="container" style={{ direction: isRTL ? 'rtl' : 'ltr' }}>
-        <div className="icon-wrapper">
-          <RefreshCw size={48} color="white" />
-        </div>
-
-        <h2>{t.title}</h2>
-        <p className="subtitle">{t.subtitle}</p>
-
-        <div className="steps">
-          <strong>{t.stepsTitle}</strong>
-          <ol>
-            <li>{t.step1}</li>
-            <li>{t.step2}</li>
-            <li>{t.step3}</li>
-          </ol>
-        </div>
-
-        {startError ? (
-          <div role="alert">
-            {startError.map((line, i) => (
-              <p key={line} className="subtitle">{i === 0 && startError.length > 1 ? <strong>{line}</strong> : line}</p>
-            ))}
-          </div>
-        ) : (
-          <button
-            onClick={startOAuth}
-            className="btn"
-            disabled={!oauthUrl && !retry}
-          >
-            {oauthUrl || retry ? <KeyRound size={20} /> : <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />}
-            {t.button}
-          </button>
-        )}
-
-        {waiting && (
-          <p className="waiting" role="status">
-            {waiting.telegram ? t.waitingTelegram : t.waitingWhatsApp}
-          </p>
-        )}
-      </div>
-    </>
+    </AppScreen>
   );
 }

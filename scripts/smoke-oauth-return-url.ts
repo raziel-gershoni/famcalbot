@@ -1,6 +1,7 @@
 // Smoke test: GET /api/refresh-token (Google's redirect target after consent) forwards to
 // /oauth-callback on the app's public URL. On Railway, request.url is Next's own listen
 // address (http://localhost:8080/...), so a redirect built from it sent phones to localhost.
+// A return with no code (Google's deny) goes to the callback's card too, never a JSON answer.
 //
 // Run: npx tsx -r dotenv/config scripts/smoke-oauth-return-url.ts
 
@@ -20,8 +21,22 @@ async function main() {
     reason: location,
   });
 
+  // No code (Google's deny, or anything else): the callback's card, on the public URL, never JSON
+  const quiet = console.warn;
+  console.warn = () => undefined;
   const noCode = await GET(new NextRequest('http://localhost:8080/api/refresh-token?state=st4te'));
-  results.push({ name: 'no code -> 400', ok: noCode.status === 400, reason: `status ${noCode.status}` });
+  const denied = await GET(new NextRequest('http://localhost:8080/api/refresh-token?error=access_denied&state=st4te'));
+  console.warn = quiet;
+  results.push({
+    name: 'no code -> the callback with missing_code and the state',
+    ok: noCode.status === 307 && noCode.headers.get('location') === 'https://app.example.test/oauth-callback?error=missing_code&state=st4te',
+    reason: `${noCode.status} ${noCode.headers.get('location')}`,
+  });
+  results.push({
+    name: "Google's deny -> the callback with Google's error and the state",
+    ok: denied.status === 307 && denied.headers.get('location') === 'https://app.example.test/oauth-callback?error=access_denied&state=st4te',
+    reason: `${denied.status} ${denied.headers.get('location')}`,
+  });
 
   let failed = 0;
   for (const r of results) { console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`); if (!r.ok) failed++; }

@@ -24,12 +24,12 @@ export default async function OAuthCompletePage({ searchParams }: PageProps) {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
   const waNumber = process.env.WHATSAPP_PHONE_NUMBER || DEFAULT_WA_NUMBER;
 
-  const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
-  const t = messages.oauthComplete;
+  const title = { en: enMessages, he: heMessages, ru: ruMessages }[locale].oauthComplete.title;
 
+  // The words come from the shell's provider (oauthComplete, pageGate's loading)
   return (
-    <ConnectShell locale={locale} namespaces={['oauthComplete']} title={t.title}>
-      <OAuthCompleteClient locale={locale} botUsername={botUsername} waNumber={waNumber} translations={t} />
+    <ConnectShell locale={locale} namespaces={['oauthComplete']} title={title}>
+      <OAuthCompleteClient botUsername={botUsername} waNumber={waNumber} />
     </ConnectShell>
   );
 }

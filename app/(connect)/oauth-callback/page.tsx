@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { prisma } from '@/src/utils/prisma';
 import { getUserById } from '@/src/services/user-service';
-import { normalizeLocale, type Locale } from '@/src/utils/locale';
-import { XCircle, AlertTriangle } from 'lucide-react';
+import { localeFromAcceptLanguage, normalizeLocale, type Locale } from '@/src/utils/locale';
 import { buildUrl } from '@/src/config/urls';
 import { captureError } from '@/src/lib/error-capture';
 import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
@@ -13,6 +13,7 @@ import { googleFetch } from '@/src/services/google-retry';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
 import { ConnectShell } from '../ConnectShell';
+import { CallbackCard, type CallbackKind } from './CallbackCard';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
 import ruMessages from '@/messages/ru.json';
@@ -23,81 +24,44 @@ interface PageProps {
   searchParams: Promise<{
     code?: string;
     state?: string;
+    /** Google's own error when it came back with no code (access_denied), or missing_code (/api/refresh-token) */
+    error?: string;
   }>;
 }
 
 /**
- * Where "Try again" goes from the consent browser. That browser has no Telegram initData,
+ * Where "Back to FamCal" goes from the consent browser. That browser has no Telegram initData,
  * so /refresh-token would only show its gate to a Telegram user: send them back to the
- * bot. A WhatsApp-only user may have their session cookie here.
+ * bot. A WhatsApp-only user may have their session cookie here. Nobody known: the bot.
  */
-function retryHrefFor(user: UserConfig): string {
+function retryHrefFor(user: UserConfig | null): string {
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME;
-  if (user.telegramId) return `https://t.me/${botUsername}?start=dashboard`;
+  if (!user || user.telegramId) return `https://t.me/${botUsername}?start=dashboard`;
   return `/refresh-token?user_id=${user.telegramId ?? user.id}`;
 }
 
-// Error page component. retryHref is the "Try again" link (retryHrefFor). The title, the
-// button's text and the direction default to the English page.
-function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Again', locale = 'en' }: {
-  message: string;
-  retryHref?: string;
-  title?: string;
-  buttonText?: string;
-  locale?: Locale;
-}) {
-  return (
-    <ConnectShell locale={locale} namespaces={['oauth']} title={title}>
-        <style>{`
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0;
-            padding: 20px;
-          }
-          .container {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            max-width: 400px;
-            text-align: center;
-          }
-          .icon { font-size: 64px; margin-bottom: 20px; }
-          h2 { margin: 0 0 20px 0; color: #333; }
-          p { color: #666; line-height: 1.6; margin-bottom: 15px; }
-          a { color: #667eea; text-decoration: none; font-weight: 600; }
-          .btn {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 15px 30px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-          }
-        `}</style>
-        <div className="container">
-          <div className="icon"><XCircle size={64} color="#ef4444" /></div>
-          <h2>{title}</h2>
-          <p>{message}</p>
-          {retryHref !== undefined && (
-            <a href={retryHref} className="btn">
-              {buttonText}
-            </a>
-          )}
-        </div>
-    </ConnectShell>
-  );
+/**
+ * The language of a card and its way back: the owner's, when the state names one; else the browser's
+ * (Accept-Language), and the bot.
+ */
+async function readerOf(user: UserConfig | null): Promise<{ locale: Locale; retryHref: string }> {
+  if (user) return { locale: normalizeLocale(user.language), retryHref: retryHrefFor(user) };
+  return { locale: localeFromAcceptLanguage((await headers()).get('accept-language')), retryHref: retryHrefFor(null) };
 }
 
-// Google refused to exchange the code (exchangeRefusal): the sign-in starts again from FamCal
-function ExchangeFailedPage({ locale, retryHref }: { locale: Locale; retryHref: string }) {
-  const t = OAUTH[locale].exchangeFailed;
-  return <ErrorPage title={t.title} message={t.message} buttonText={t.tryAgain} retryHref={retryHref} locale={locale} />;
+/** The document's title for a card: the card's own. */
+function titleOf(kind: CallbackKind, locale: Locale): string {
+  const m = OAUTH[locale];
+  return kind === 'exchangeFailed' ? m.exchangeFailed.title : kind === 'insufficientScopes' ? m.insufficientScopes.title : m[kind].title;
+}
+
+/** A connect that did not go through: the card in the shell (CallbackCard), in the reader's language. */
+function CallbackResult({ kind, locale, retryHref }: { kind: CallbackKind; locale: Locale; retryHref: string }) {
+  return (
+    <ConnectShell locale={locale} namespaces={['oauth']} title={titleOf(kind, locale)}>
+      <CallbackCard kind={kind} retryHref={retryHref} />
+    </ConnectShell>
+  );
 }
 
 /** Google's token endpoint answer, as far as the callback reads it. */
@@ -121,160 +85,40 @@ function exchangeRefusal(status: number, ok: boolean, answer: TokenAnswer | null
   return `HTTP ${status}${error}${description}${answer ? '' : ' (no JSON body)'}`;
 }
 
-// No refresh token error page
-function NoRefreshTokenPage({ retryHref }: { retryHref: string }) {
-  return (
-    <ConnectShell locale="en" namespaces={['oauth']} title="One More Step">
-        <style>{`
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0;
-            padding: 20px;
-          }
-          .container {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            max-width: 400px;
-            text-align: center;
-          }
-          .icon { font-size: 64px; margin-bottom: 20px; }
-          h2 { margin: 0 0 20px 0; color: #333; }
-          p { color: #666; line-height: 1.6; }
-          a { color: #667eea; text-decoration: none; font-weight: 600; }
-          .btn {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 15px 30px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-          }
-        `}</style>
-        <div className="container">
-          <div className="icon"><AlertTriangle size={64} color="#f59e0b" /></div>
-          <h2>One More Step</h2>
-          <p>Google didn&apos;t provide a new refresh token because you&apos;ve authorized before.</p>
-          <p><strong>Please revoke access first:</strong></p>
-          <p>1. Go to <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Permissions</a></p>
-          <p>2. Remove &quot;FamCalBot&quot;</p>
-          <p>3. Come back and try again</p>
-          <a href={retryHref} className="btn">
-            Try Again
-          </a>
-        </div>
-    </ConnectShell>
-  );
-}
-
-// Insufficient scopes error page - shown when user deselects permissions on Google consent screen
-function InsufficientScopesPage({ retryHref, missingScopes, locale }: { retryHref: string; missingScopes: string[]; locale: Locale }) {
-  const m = OAUTH[locale].insufficientScopes;
-  const t = (key: keyof typeof m) => m[key];
-  const missingRead = missingScopes.some(s => s.includes('readonly'));
-  const missingWrite = missingScopes.some(s => s.includes('events'));
-  const isRtl = locale === 'he';
-
-  return (
-    <ConnectShell locale={locale} namespaces={['oauth']} title={m.title}>
-        <style>{`
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0;
-            padding: 20px;
-          }
-          .container {
-            background: white;
-            padding: 40px;
-            border-radius: 15px;
-            max-width: 420px;
-            text-align: center;
-          }
-          h2 { margin: 0 0 15px 0; color: #333; }
-          p { color: #666; line-height: 1.6; margin-bottom: 15px; }
-          .highlight {
-            background: #fef3c7;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            text-align: ${isRtl ? 'right' : 'left'};
-          }
-          .highlight strong { color: #92400e; }
-          .permission {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 6px;
-          }
-          .permission.granted { background: #d1fae5; }
-          .permission.missing { background: #fee2e2; }
-          .checkbox { font-size: 20px; }
-          .btn {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 15px 30px;
-            background: #667eea;
-            color: white;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-          }
-        `}</style>
-        <div className="container">
-          <div style={{ fontSize: '48px', marginBottom: '15px' }}>&#9888;&#65039;</div>
-          <h2>{t('title')}</h2>
-          <p dangerouslySetInnerHTML={{ __html: t('description') }} />
-
-          <div className="highlight">
-            <strong>{t('checkAll')}</strong>
-            <div className={`permission ${missingRead ? 'missing' : 'granted'}`}>
-              <span className="checkbox">{missingRead ? '☐' : '☑️'}</span>
-              <span><strong>{t('viewCalendar')}</strong> — {t('viewCalendarDesc')}</span>
-            </div>
-            <div className={`permission ${missingWrite ? 'missing' : 'granted'}`}>
-              <span className="checkbox">{missingWrite ? '☐' : '☑️'}</span>
-              <span><strong>{t('editEvents')}</strong> — {t('editEventsDesc')}</span>
-            </div>
-          </div>
-
-          <p style={{ fontSize: '14px', color: '#888' }}>
-            {t('footnote')}
-          </p>
-
-          <a href={retryHref} className="btn">
-            {t('tryAgain')}
-          </a>
-        </div>
-    </ConnectShell>
-  );
+/** The owner a state names, read only (the state stays as it is), for a card's language and way back. */
+async function ownerOfState(state: unknown): Promise<UserConfig | null> {
+  if (typeof state !== 'string' || !state.startsWith(OAUTH_STATE_PREFIX)) return null;
+  const record = await prisma.oAuthState.findUnique({ where: { token: state } });
+  return record ? getUserById(Number(record.userId)) : null;
 }
 
 export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const { code, state } = params;
+  const { code, state, error } = params;
+
+  // Google came back without a code: the person said no on its screen (access_denied), or something else went wrong
+  // there. Nothing to exchange; the state is left as it is (it ends on its own).
+  if (error !== undefined) {
+    const owner = await ownerOfState(state);
+    console.warn(`[oauth-callback] Google came back without a code (${String(error).slice(0, 60)}) for ${owner ? `user ${owner.id}` : 'no known user'}`);
+    return <CallbackResult kind={error === 'access_denied' ? 'denied' : 'expired'} {...await readerOf(owner)} />;
+  }
+
+  // A link that is used up or out of date: one card for the person, the reason in the log
+  const expired = async (why: string, owner: UserConfig | null = null) => {
+    console.warn(`[oauth-callback] ${why}: the link has expired`);
+    return <CallbackResult kind="expired" {...await readerOf(owner)} />;
+  };
 
   // Validate state token
   if (!state || typeof state !== 'string') {
-    return <ErrorPage message="Missing or invalid state parameter" />;
+    return expired('no state');
   }
 
   // Only states from POST /api/oauth/start (bound to an authenticated user) are
   // honoured. An unprefixed one came from the old unauthenticated /refresh-token page.
   if (!state.startsWith(OAUTH_STATE_PREFIX)) {
-    return <ErrorPage message="State token expired. Please try again." />;
+    return expired('a state without the u1_ prefix');
   }
 
   // Look up state token in database
@@ -282,7 +126,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
 
   // Validate state exists
   if (!stateRecord) {
-    return <ErrorPage message="Invalid or expired state token. Please try again." />;
+    return expired('a state that is not there (used, or swept)');
   }
 
   // Use the state up (one-time use only). deleteMany checks and deletes in one statement,
@@ -290,25 +134,26 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // here instead of failing on a row that is already gone.
   const { count } = await prisma.oAuthState.deleteMany({ where: { id: stateRecord.id } });
   if (count !== 1) {
-    return <ErrorPage message="Invalid or expired state token. Please try again." />;
+    return expired(`user ${stateRecord.userId}'s state, used by another callback`, await getUserById(Number(stateRecord.userId)));
   }
 
   // Validate state hasn't expired
   if (stateRecord.expiresAt < new Date()) {
-    return <ErrorPage message="State token expired. Please try again." />;
+    return expired(`user ${stateRecord.userId}'s state, past its time`, await getUserById(Number(stateRecord.userId)));
   }
 
   // The state holds the DB id of the user oauth/start authenticated. Resolve it before
   // talking to Google: the token can be committed on this user and no other.
   const user = await getUserById(Number(stateRecord.userId));
   if (!user) {
-    return <ErrorPage message="User not found" />;
+    return expired(`user ${stateRecord.userId} of the state is not there`);
   }
   const retryHref = retryHrefFor(user);
+  const userLocale = normalizeLocale(user.language);
 
   // Exchange code for tokens. googleFetch retries a rate limit or a 5xx on the token endpoint
-  // (the state is used up already, so a failure here is a "try again" page); a code Google
-  // had redeemed before the answer was lost comes back invalid_grant, the page it would have been.
+  // (the state is used up already, so a failure here is a "start again" card); a code Google
+  // had redeemed before the answer was lost comes back invalid_grant, the card it would have been.
   const redirectUri = buildUrl('/api/refresh-token');
   let tokenResponse;
 
@@ -325,20 +170,15 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
       })
     });
   } catch (error) {
+    // The reason goes to the log and Sentry; the person gets the card
+    console.error(`[oauth-callback] user ${user.id}: the code exchange threw:`, error instanceof Error ? error.message : String(error));
     captureError(error, 'oauth-token-exchange');
-    return (
-      <ErrorPage
-        message={`Error exchanging authorization code: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        retryHref={retryHref}
-      />
-    );
+    return <CallbackResult kind="generic" locale={userLocale} retryHref={retryHref} />;
   }
-
-  const userLocale = normalizeLocale(user.language);
 
   // Google's answer. A refusal (invalid_grant: a code used already or expired;
   // redirect_uri_mismatch; invalid_client) has no scope list, so it used to show as the
-  // permissions page. It is its own page, logged with Google's reason.
+  // permissions page. It is its own card, logged with Google's reason.
   const tokens: TokenAnswer | null = await tokenResponse.json().catch((error: unknown) => {
     console.warn(`[oauth-callback] user ${user.id}: Google's token answer (HTTP ${tokenResponse.status}) isn't JSON:`, error instanceof Error ? error.message : String(error));
     return null;
@@ -347,7 +187,7 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   if (refusal || !tokens) {
     console.error(`[oauth-callback] user ${user.id}: Google refused the code exchange (${refusal})`);
     captureError(new Error(`Google refused the code exchange (${refusal})`), 'oauth-token-exchange', { user_id: user.id, purpose: stateRecord.purpose ?? 'connect' });
-    return <ExchangeFailedPage locale={userLocale} retryHref={retryHref} />;
+    return <CallbackResult kind="exchangeFailed" locale={userLocale} retryHref={retryHref} />;
   }
 
   // Check if all required scopes were granted. Connecting needs the two calendar scopes
@@ -357,13 +197,15 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const missingScopes = GOOGLE_CONNECT_SCOPES.filter(s => !grantedScopes.includes(s));
 
   if (missingScopes.length > 0) {
-    return <InsufficientScopesPage retryHref={retryHref} missingScopes={missingScopes} locale={userLocale} />;
+    console.warn(`[oauth-callback] user ${user.id}: the consent left out ${missingScopes.join(' ')}`);
+    return <CallbackResult kind="insufficientScopes" locale={userLocale} retryHref={retryHref} />;
   }
 
   const refreshToken = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
   if (!refreshToken) {
-    // No refresh token - need to revoke and retry
-    return <NoRefreshTokenPage retryHref={retryHref} />;
+    // Google gave no refresh token: the person starts again from FamCal
+    console.warn(`[oauth-callback] user ${user.id}: Google's answer has no refresh token`);
+    return <CallbackResult kind="noRefreshToken" locale={userLocale} retryHref={retryHref} />;
   }
 
   // Nothing is saved here. This browser finished Google's consent, but the state only says
@@ -389,13 +231,10 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   try {
     pendingId = await createPendingGoogleToken(user.id, refreshToken, grant);
   } catch (error) {
+    // The reason goes to the log and Sentry; the person gets the card
+    console.error(`[oauth-callback] user ${user.id}: parking the token failed:`, error instanceof Error ? error.message : String(error));
     captureError(error, 'oauth-save-token');
-    return (
-      <ErrorPage
-        message={`Error saving token: ${error instanceof Error ? error.message : 'Unknown error'}`}
-        retryHref={retryHref}
-      />
-    );
+    return <CallbackResult kind="generic" locale={userLocale} retryHref={retryHref} />;
   }
 
   // The finish page, with the pendingId in the URL fragment: a reload keeps it, and it

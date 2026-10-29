@@ -392,6 +392,11 @@ function installStubs() {
   stub('src/services/google-sync/access.ts', {
     syncAllowed: async (userId: number) => { syncChecks.push(userId); return !syncDenied.has(userId); },
   });
+  // The request's headers, as next/headers gives them in a request (the callback reads Accept-Language for a card no state names an owner for)
+  const headersFile = nodeRequire.resolve('next/headers', { paths: [ROOT] });
+  const headersModule = new Module(headersFile);
+  Object.assign(headersModule, { filename: headersFile, loaded: true, exports: { headers: async () => new Headers({ 'accept-language': 'en-US,en;q=0.9' }) } });
+  Module._cache[headersFile] = headersModule;
   stub('src/services/messaging/index.ts', messaging);
   stub('src/services/messaging/factory.ts', messaging);
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -559,6 +564,11 @@ function elementsOf(node: unknown, out: Row[] = []): Row[] {
   out.push(el);
   elementsOf(el.props?.children, out);
   return out;
+}
+/** The href of the primary action (a link) on a page the callback rendered, as react-dom/server writes it. */
+function actionHref(element: unknown): string | null {
+  const html: string = nodeRequire('react-dom/server').renderToString(element);
+  return /<a class="ch-btn ch-btn-primary[^"]*" href="([^"]*)"/.exec(html)?.[1]?.replace(/&amp;/g, '&') ?? null;
 }
 /** The page's own element inside the document its page draws (ConnectShell, app/(connect)/ConnectShell.tsx). */
 const pageClient = (el: Row): Row => (el?.type?.name === 'ConnectShell' ? el.props.children : el);
@@ -744,7 +754,7 @@ async function main() {
     assert(frag.get('b') === 'tg', `buttons ${frag.get('b')}`);
   });
 
-  await check('#3 a reused state gets the clean "invalid or expired" page; two racing callbacks park one token', async () => {
+  await check('#3 a reused state gets the clean "link has expired" card; two racing callbacks park one token', async () => {
     seed();
     const state = addState(9);
     const { value: [a, b] } = await quietly(() => Promise.all([runCallback(state), runCallback(state)]));
@@ -754,19 +764,19 @@ async function main() {
     assert(pendingKeys().length === 1, `pending keys ${pendingKeys().length}`);
     const { value: again } = await quietly(() => runCallback(state));
     assert(again.element && !again.threw, `the third callback ended with ${show(again.threw ?? again.redirect)}`);
-    const text = textOf(elementsOf(again.element));
-    assert(/invalid or expired/i.test(text), `page text: ${text}`);
+    assert(again.element?.type?.name === 'CallbackResult' && again.element.props.kind === 'expired', `the third callback: ${show(again.element?.props)}`);
+    const html: string = nodeRequire('react-dom/server').renderToString(again.element);
+    assert(html.includes(en.oauth.expired.title.replace(/'/g, '&#x27;')), `page: ${html.slice(html.indexOf('<h1'), html.indexOf('<h1') + 120)}`);
   });
 
-  await check('#4 error-page "Try again": t.me/<bot>?start=dashboard for a Telegram owner, /refresh-token for a WhatsApp-only one', async () => {
+  await check('#4 the error card\'s "Back to FamCal": t.me/<bot>?start=dashboard for a Telegram owner, /refresh-token for a WhatsApp-only one', async () => {
     seed();
     googleAnswer = { scope: BOTH_SCOPES, access_token: 'test' }; // no refresh_token: the NoRefreshToken page
     const hrefs: string[] = [];
     for (const owner of [9, 42]) {
       const { value: end } = await quietly(() => runCallback(addState(owner)));
       assert(end.element, `owner ${owner}: ${show(end.redirect ?? end.threw)}`);
-      const btn = elementsOf(end.element).find(e => e.type === 'a' && e.props?.className === 'btn');
-      hrefs.push(String(btn?.props?.href));
+      hrefs.push(String(actionHref(end.element)));
     }
     assert(hrefs[0] === 'https://t.me/famcal_test_bot?start=dashboard', `Telegram owner: ${hrefs[0]}`);
     assert(hrefs[1] === '/refresh-token?user_id=42', `WhatsApp owner: ${hrefs[1]}`);
@@ -794,8 +804,9 @@ async function main() {
       assert(!l.telegram && !l.whatsapp, `fragment ${show(bad)} gave links ${show(l)}`);
     }
     const page = (await load('app/(connect)/oauth-complete/page.tsx')).default;
-    const el = pageClient((await page({ searchParams: Promise.resolve({ locale: 'he' }) })) as Row);
-    assert(el.props.botUsername === 'famcal_test_bot' && el.props.waNumber === '15550001111' && el.props.locale === 'he', `props ${show(el.props)}`);
+    const shell = (await page({ searchParams: Promise.resolve({ locale: 'he' }) })) as Row;
+    const el = pageClient(shell);
+    assert(el.props.botUsername === 'famcal_test_bot' && el.props.waNumber === '15550001111' && shell.props.locale === 'he', `props ${show(el.props)}, locale ${shell.props.locale}`);
   });
 
   // ---- B3: claims ----
@@ -1285,8 +1296,8 @@ async function main() {
       seed();
       googleAnswer = { scope: BOTH_SCOPES, access_token: 'test' }; // no refresh_token: the NoRefreshToken page
       const { value: end } = await quietly(() => runCallback(addState(9)));
-      const btn = end.element ? elementsOf(end.element).find(e => e.type === 'a' && e.props?.className === 'btn') : undefined;
-      assert(btn?.props?.href === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `Try again: ${show(btn?.props?.href ?? end)}`);
+      const href = end.element ? actionHref(end.element) : null;
+      assert(href === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `Back to FamCal: ${show(href ?? end)}`);
       seed();
       await waWebhook(waText(WA_BSUID, `gc_${await pendingFor(42)}`, { bsuid: WA_BSUID }));
       const reply = sentTo(WA_BSUID).at(-1)?.text ?? '';
@@ -1313,11 +1324,11 @@ async function main() {
     for (const locale of ['en', 'he', 'ru'] as const) {
       const t = JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')).oauthComplete;
       assert(SEND[locale].test(t.whatsappHint ?? ''), `${locale} oauthComplete.whatsappHint: ${show(t.whatsappHint)}`);
-      const both = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x', whatsapp: 'https://wa.me/1?text=x' }, translations: t, arrow: null }));
+      const both = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x', whatsapp: 'https://wa.me/1?text=x' }, translations: t }));
       const waAt = both.findIndex(e => e.type === 'a' && e.props?.href === 'https://wa.me/1?text=x');
       const hintAt = both.findIndex(e => textOf([e]) === t.whatsappHint);
       assert(waAt >= 0 && hintAt > waAt, `${locale}: the hint is not under the WhatsApp button (${waAt}, ${hintAt})`);
-      const tgOnly = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x' }, translations: t, arrow: null }));
+      const tgOnly = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x' }, translations: t }));
       assert(tgOnly.some(e => e.type === 'a') && !textOf(tgOnly).includes(t.whatsappHint), `${locale}: Telegram-only shows the WhatsApp hint`);
     }
     const src = fs.readFileSync(path.join(ROOT, 'app/(connect)/oauth-complete/OAuthCompleteClient.tsx'), 'utf8');
@@ -1360,7 +1371,7 @@ async function main() {
         // The page, run as on the phone: oauth/start on mount, then the tap, then the poll
         const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
         await phone.settle();
-        const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+        const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && String(e.props?.className).includes('ch-btn-primary'));
         assert(connect()?.props.disabled === false, `${label}: no Google URL from oauth/start: ${show(connect()?.props ?? null)}`);
         // Another connect lands while the page is open (another tab, an earlier consent's finish button)
         await phone.asServer(async () => {
@@ -1862,7 +1873,7 @@ async function main() {
     assert(wa?.text?.startsWith(heBot.noPermission) && !wa.text.startsWith(heBot.started), `reply ${show(wa)}`);
   });
 
-  await check('#49 every Connect tap opens a Google URL of its own: after a consent used the first state, a second tap on the same page opens a new one, whose consent reaches the finish page instead of "Invalid or expired state token"; a URL left unused 9 minutes is replaced, not opened', async () => {
+  await check('#49 every Connect tap opens a Google URL of its own: after a consent used the first state, a second tap on the same page opens a new one, whose consent reaches the finish page instead of the expired-link card; a URL left unused 9 minutes is replaced, not opened', async () => {
     const client = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
     const stateOf = (url: unknown) => new URL(String(url)).searchParams.get('state') ?? '';
@@ -1870,7 +1881,7 @@ async function main() {
     await onPhone(0, initDataFor(TAL_TG), async phone => {
       const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
       await phone.settle();
-      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && String(e.props?.className).includes('ch-btn-primary'));
       assert(connect()?.props.disabled === false, `not ready: ${show(connect()?.props ?? null)}`);
       connect()!.props.onClick();
       // The URL just opened is spent: until the next one is ready, nothing can reopen it
@@ -1906,7 +1917,7 @@ async function main() {
     await onPhone(0, initDataFor(TAL_TG), async phone => {
       const app = runClient(client.default, { userId: String(TAL_TG), locale: 'en', translations: TRANSLATIONS });
       await phone.settle();
-      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && String(e.props?.className).includes('ch-btn-primary'));
       const alerts = () => elementsOf(app.tree()).filter(e => e.props?.role === 'alert');
       phone.refuse.add('/api/oauth/start');
       connect()!.props.onClick();
@@ -1930,7 +1941,7 @@ async function main() {
     await onPhone(0, initDataFor(TAL_TG), async phone => {
       const app = runClient(client.default, { userId: String(TAL_TG), locale: 'he', translations: TRANSLATIONS });
       await phone.settle();
-      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && e.props?.className === 'btn');
+      const connect = () => elementsOf(app.tree()).find(e => e.type === 'button' && String(e.props?.className).includes('ch-btn-primary'));
       assert(connect()?.props.disabled === false && phone.mainButtonShows === 0, `ready: button ${show(connect()?.props ?? null)}, MainButton shown ${phone.mainButtonShows}x`);
       connect()!.props.onClick();
       await phone.settle();
@@ -1950,7 +1961,7 @@ async function main() {
       googleRefusal = refusal;
       const { value: end, errors } = await quietly(() => runCallback(addState(9)));
       const type = end.element?.type as Row | undefined;
-      assert(type?.name === 'ExchangeFailedPage', `${refusal.status}: rendered ${show(type?.name ?? end.threw ?? end.redirect)}`);
+      assert(type?.name === 'CallbackResult' && end.element?.props.kind === 'exchangeFailed', `${refusal.status}: rendered ${show(end.element?.props ?? end.threw ?? end.redirect)}`);
       assert(end.element?.props.locale === 'en' && String(end.element?.props.retryHref).startsWith('https://t.me/'), `${refusal.status}: props ${show(end.element?.props)}`);
       assert(captured.some(c => c.startsWith('oauth-token-exchange:') && c.includes(refusal.says)), `${refusal.status}: captured ${show(captured)}`);
       assert(errors.some(e => e.includes(`user 9`) && e.includes(refusal.says)), `${refusal.status}: logged ${show(errors)}`);
@@ -1967,12 +1978,12 @@ async function main() {
     seed();
     googleRefusal = { status: 502, body: '<html>Bad Gateway</html>' };
     const { value: down } = await quietly(() => runCallback(addState(9)));
-    assert((down.element?.type as Row | undefined)?.name === 'ExchangeFailedPage' && pendingKeys().length === 0, `502: ${show(down.threw ?? down.element?.type)}`);
+    assert(down.element?.props?.kind === 'exchangeFailed' && pendingKeys().length === 0, `502: ${show(down.threw ?? down.element?.props)}`);
     assert(googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 4, `a 502 was tried ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length} times`);
     seed();
     googleRefusal = { status: 429, body: '{}', headers: { 'retry-after': '120' } };
     const { value: long } = await quietly(() => runCallback(addState(9)));
-    assert((long.element?.type as Row | undefined)?.name === 'ExchangeFailedPage' && googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 1 && retryWaits.length === 0, `Retry-After 120: requests ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length} waits ${show(retryWaits)}`);
+    assert(long.element?.props?.kind === 'exchangeFailed' && googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length === 1 && retryWaits.length === 0, `Retry-After 120: requests ${googleCalls.filter(u => u === GOOGLE_TOKEN_URL).length} waits ${show(retryWaits)}`);
   });
 
   let failed = 0;
