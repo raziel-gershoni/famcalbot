@@ -2462,7 +2462,7 @@
         "summariesUnlimited": "Текстовые и голосовые сводки без ограничений",
         "textUnlimited": "Текстовые сводки без ограничений",
         "voiceUnlimited": "Голосовые сводки без ограничений",
-        "calendars": "До {count} календарей",
+        "calendars": "До {count, plural, one {# календаря} few {# календарей} many {# календарей} other {# календаря}}",
         "calendarsUnlimited": "Календари без ограничений",
         "everythingInBasic": "Всё, что есть в «Базовом»",
         "reminders": "Напоминания в Telegram",

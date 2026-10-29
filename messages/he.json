@@ -2454,15 +2454,15 @@
       "pro": {
         "name": "Pro"
       },
-      "price": "{price, number} כוכבים לחודש",
-      "priceA11y": "{price, number} כוכבים של טלגרם לחודש",
+      "price": "{price, plural, one {כוכב אחד} two {שני כוכבים} other {# כוכבים}} לחודש",
+      "priceA11y": "{price, plural, one {כוכב אחד של טלגרם} two {שני כוכבים של טלגרם} other {# כוכבים של טלגרם}} לחודש",
       "bullets": {
         "textSummaries": "{count, plural, one {סיכום אחד בטקסט} two {שני סיכומים בטקסט} other {# סיכומים בטקסט}} בחודש",
         "voiceSummaries": "{count, plural, one {סיכום קולי אחד} two {שני סיכומים קוליים} other {# סיכומים קוליים}} בחודש",
         "summariesUnlimited": "סיכומים בטקסט ובקול ללא הגבלה",
         "textUnlimited": "סיכומים בטקסט ללא הגבלה",
         "voiceUnlimited": "סיכומים קוליים ללא הגבלה",
-        "calendars": "עד {count} יומנים",
+        "calendars": "עד {count, plural, one {יומן אחד} two {שני יומנים} other {# יומנים}}",
         "calendarsUnlimited": "יומנים ללא הגבלה",
         "everythingInBasic": "כל מה שבמסלול בסיסי",
         "reminders": "תזכורות, בטלגרם",

@@ -126,6 +126,16 @@ async function main() {
       // Grouped as the locale groups a number (Russian with a no-break space)
       assert(price(2500).replace(/[\u00a0\u202f]/g, ' ') === { en: '2,500 Stars a month', he: '2,500 כוכבים לחודש', ru: '2 500 звёзд в месяц' }[locale], `${locale}: the price reads ${show(price(2500))}`);
       assert(!/Infinity|NaN|undefined/.test(textOf(html)), `${locale}: Infinity or NaN printed`);
+      // A number from the plan table reads right at any value: one, two (Hebrew), 21 and 22 (Russian)
+      const plural = {
+        en: [['calendars', 1, 'Up to 1 calendar'], ['calendars', 2, 'Up to 2 calendars'], ['price', 1, '1 Star a month'], ['priceA11y', 1, '1 Telegram Star a month']],
+        he: [['calendars', 1, 'עד יומן אחד'], ['calendars', 2, 'עד שני יומנים'], ['calendars', 5, 'עד 5 יומנים'], ['price', 1, 'כוכב אחד לחודש'], ['price', 2, 'שני כוכבים לחודש'], ['priceA11y', 2, 'שני כוכבים של טלגרם לחודש']],
+        ru: [['calendars', 1, 'До 1 календаря'], ['calendars', 3, 'До 3 календарей'], ['calendars', 21, 'До 21 календаря'], ['calendars', 22, 'До 22 календарей'], ['price', 21, '21 звезда в месяц']],
+      }[locale] as [string, number, string][];
+      for (const [key, n, want] of plural) {
+        const got = key === 'calendars' ? tr('landing.plans.bullets.calendars', { count: n }) : tr(`landing.plans.${key}`, { price: n });
+        assert(got === want, `${locale}: ${key} at ${n} reads ${show(got)}, want ${show(want)}`);
+      }
     }
     try {
       plans.FREE.limits.calendars = 4;

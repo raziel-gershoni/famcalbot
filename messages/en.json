@@ -2454,15 +2454,15 @@
       "pro": {
         "name": "Pro"
       },
-      "price": "{price, number} Stars a month",
-      "priceA11y": "{price, number} Telegram Stars a month",
+      "price": "{price, plural, one {# Star} other {# Stars}} a month",
+      "priceA11y": "{price, plural, one {# Telegram Star} other {# Telegram Stars}} a month",
       "bullets": {
         "textSummaries": "{count, plural, one {# text summary} other {# text summaries}} a month",
         "voiceSummaries": "{count, plural, one {# voice summary} other {# voice summaries}} a month",
         "summariesUnlimited": "Unlimited text and voice summaries",
         "textUnlimited": "Unlimited text summaries",
         "voiceUnlimited": "Unlimited voice summaries",
-        "calendars": "Up to {count} calendars",
+        "calendars": "Up to {count, plural, one {# calendar} other {# calendars}}",
         "calendarsUnlimited": "Unlimited calendars",
         "everythingInBasic": "Everything in Basic",
         "reminders": "Reminders, on Telegram",
