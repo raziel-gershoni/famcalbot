@@ -1,5 +1,5 @@
 {
-  "source": "Every --ch-* token of the app's theme, resolved from the parent of F1 (commit 5ea62a2): HOME_THEME_CSS + HOME_SHELL_CSS on .ch-home. Keys: theme/color-mix/Telegram params (tg = scripts/lib/css-resolve.ts TG_ALL). Values: rgb (3 decimals), or the literal text of a non-colour token.",
+  "source": "Every --ch-* token of the app's theme, resolved from the parent of F1 (commit 5ea62a2): HOME_THEME_CSS + HOME_SHELL_CSS on .ch-home. Keys: theme/color-mix/Telegram params (tg = scripts/lib/css-resolve.ts TG_ALL). Values: rgb (3 decimals), or the literal text of a non-colour token. One deliberate change since: W4-3 made the dark --ch-button fallback outside Telegram #6d4ff0 (was --brand-primary, 4.38:1 under its white label).",
   "combos": {
     "light/nomix/plain": {
       "--ch-accent": [99,68,224],
@@ -185,7 +185,7 @@
       "--ch-accent": [187,168,255],
       "--ch-accent-soft": [44,37,80],
       "--ch-bg": [21,21,29],
-      "--ch-button": [124,92,252],
+      "--ch-button": [109,79,240],
       "--ch-button-text": [255,255,255],
       "--ch-card": [34,29,58],
       "--ch-card-separator": [51,43,85],
@@ -275,7 +275,7 @@
       "--ch-accent": [187,168,255],
       "--ch-accent-soft": [44.24,41.58,60.64],
       "--ch-bg": [21,21,29],
-      "--ch-button": [124,92,252],
+      "--ch-button": [109,79,240],
       "--ch-button-text": [255,255,255],
       "--ch-card": [34.28,32.76,47.08],
       "--ch-card-separator": [50.88,47.46,69.68],

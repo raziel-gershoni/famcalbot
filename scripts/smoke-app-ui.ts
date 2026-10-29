@@ -242,7 +242,7 @@ async function main() {
       hint: '--ch-hint',
       link: '--ch-accent',
       'accent-text': '--ch-accent',
-      // The dark primary button's own fallback (--brand-primary, #7c5cfc) is 4.38:1 under white text; the Month's fill (#6d4ff0) is the pair the floors cover.
+      // The Telegram stand-in's button: the Month's fill, which the primary button's dark fallback is too (#6d4ff0)
       button: '--ch-mine-solid',
       'button-text': '--ch-button-text',
       'secondary-bg': '--ch-surface',

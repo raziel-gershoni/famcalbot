@@ -61,6 +61,8 @@
 //   --ch-switch-thumb-shadow, a literal-text token (a shadow has no colour to resolve).
 // - Near a limit (W1b, the Meter): --ch-warn is the fill's orange and --ch-warn-text the count's, on the card
 //   (--ch-section): the fill keeps 3:1 and the text 4.5:1. They are fixed shades (Telegram has no orange).
+// - The primary button's fill outside Telegram (W4-3): in the dark it is the Month's fill (#6d4ff0, 5.2:1 under the white
+//   label and 3:1 on the dark grounds); --brand-primary was 4.38:1. Inside Telegram the theme's button colour stands.
 
 
 export const APP_THEME_CSS = `
@@ -131,7 +133,7 @@ export const APP_THEME_CSS = `
   --ch-surface: var(--tg-theme-secondary-bg-color, #22222e);
   --ch-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #1e1e29));
   --ch-separator: var(--tg-theme-section-separator-color, #2a2a38);
-  --ch-button: var(--tg-theme-button-color, var(--brand-primary));
+  --ch-button: var(--tg-theme-button-color, #6d4ff0);
   --ch-danger: var(--tg-theme-destructive-text-color, #ff8a80);
   --ch-card: #221d3a;
   --ch-card-separator: #332b55;

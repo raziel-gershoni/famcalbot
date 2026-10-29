@@ -1559,11 +1559,13 @@ async function main() {
     // A calendar's tones are set inline on the mark that draws them (calendarVars), not by the theme.
     const inline = new Set(Object.keys(calendarVars('#000000') ?? {}));
     const read = [...new Set([...APP_THEME_CSS.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]))].filter((n) => !/^--(?:tg|ch)-/.test(n) && !inline.has(n));
-    assert(read.length >= 4 && read.every((n) => defined.has(n)), `the fallbacks read ${show(read)}, globals.css defines ${show(read.filter((n) => defined.has(n)))}`);
+    // Three since W4-3: the dark button's fallback is the app's own dark shade, not --brand-primary
+    assert(read.length >= 3 && read.every((n) => defined.has(n)), `the fallbacks read ${show(read)}, globals.css defines ${show(read.filter((n) => defined.has(n)))}`);
     for (const [token, brand] of [['--ch-bg', '--bg-white'], ['--ch-text', '--text-primary'], ['--ch-accent', '--brand-primary-dark'], ['--ch-button', '--brand-primary-dark']]) {
       assert(new RegExp(`${token}: var\\(--tg-theme-[\\w-]+, (?:var\\(--tg-theme-[\\w-]+, )?var\\(${brand}\\)\\)`).test(APP_THEME_CSS), `${token} falls back to ${brand}`);
     }
-    assert(/\.ch-app\[data-theme='dark'\] \{[^}]*--ch-button: var\(--tg-theme-button-color, var\(--brand-primary\)\);/.test(APP_THEME_CSS), 'the dark button falls back to --brand-primary');
+    // The dark palette is the app's own (theme.ts): the dark button falls back to the Month's fill, 4.5:1 under its white label (W4-3; --brand-primary was 4.38:1)
+    assert(/\.ch-app\[data-theme='dark'\] \{[^}]*--ch-button: var\(--tg-theme-button-color, #6d4ff0\);/.test(APP_THEME_CSS), 'the dark button falls back to #6d4ff0');
     // The home scrolls the document: the root behind an iOS bounce takes the theme's background.
     assert(/\nhtml:has\(\.ch-screen\) \{\s*background-color: var\(--tg-theme-bg-color, var\(--bg-white\)\);\s*\}/.test(APP_SCREEN_CSS), 'the root, light');
     assert(/\nhtml:has\(\.ch-screen\[data-theme='dark'\]\) \{\s*background-color: var\(--tg-theme-bg-color, #15151d\);\s*color-scheme: dark;\s*\}/.test(APP_SCREEN_CSS), 'the root, dark');

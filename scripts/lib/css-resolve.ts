@@ -213,6 +213,8 @@ export const TEXT_PAIRS: [string, string][] = [
   ['--ch-accent', '--ch-surface'],
   // A (the admin panel): the danger tag's text on its soft ground. The muted tag is --ch-muted on --ch-surface (W1a's pair above).
   ['--ch-danger', '--ch-danger-soft'],
+  // W4-3: a primary button's label on its fill (Back to FamCal, Finish in Telegram on the browser pages, in the dark too)
+  ['--ch-button-text', '--ch-button'],
 ];
 /** The marks that tell whose an item is without colour, and the solid fills: 3:1 (WCAG 1.4.11). */
 export const MARK_PAIRS: [string, string][] = [
