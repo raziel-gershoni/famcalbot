@@ -325,8 +325,8 @@ async function main() {
     delete process.env.WHATSAPP_PHONE_NUMBER;
     const unset = gateLinks();
     // Without a WhatsApp line the card's only action would be the account-splitting Telegram one
-    const landingNumber = readSource('app/[locale]/(site)/page.tsx').match(/const WA_PHONE = '(\d+)'/)?.[1];
-    assert(landingNumber, 'the landing page no longer names its WhatsApp number');
+    const landingNumber = readSource('src/site/config.ts').match(/const WA_PHONE = '(\d+)'/)?.[1];
+    assert(landingNumber, 'the public site (src/site/config.ts) no longer names its WhatsApp number');
     assert(unset.whatsapp === `https://wa.me/${landingNumber}?text=settings`, `no WA number: ${show(unset)}`);
     assert(unset.telegram === 'https://t.me/family_calendar_telegram_bot?start=dashboard', `no bot username: ${show(unset)}`);
   });

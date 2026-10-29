@@ -7,7 +7,8 @@
 //  - L2 the Mini App's layout as it was: the Telegram SDK before the app (beforeInteractive), no zoom, the 16 px input
 //    rule and touch-action: manipulation, the whole message catalogue, and noindex for every page under it.
 //  - L3 the site's layout: no Telegram SDK, zoom allowed, no web font, only the site's client namespaces reach the
-//    client, the page's language and direction on <html>, and it renders statically (setRequestLocale).
+//    client, the page's language and direction on <html>, it renders statically (setRequestLocale), and it links the
+//    site's one style sheet (/site.css, versioned by its content, cached for good).
 //  - L4 the site's metadata comes from messages, per language: the title, its template, the description, the keywords
 //    and the share image's alt text.
 //
@@ -106,7 +107,17 @@ async function main() {
       assert(passed.length > 0 && passed.every((ns) => SITE_NAMESPACES.includes(ns)), `${locale}: the client gets ${show(passed)}`);
       for (const ns of passed) assert((provider.props as Row).messages[ns] === messages[locale][ns], `${locale}: ${ns} is not the catalogue's`);
       assert((provider.props as Row).locale === locale, `${locale}: the provider's locale is ${(provider.props as Row).locale}`);
+      const sheets = els.filter((e) => e.type === 'link' && (e.props as Row).rel === 'stylesheet').map((e) => String((e.props as Row).href));
+      assert(sheets.length === 1 && /^\/site\.css\?v=[0-9a-f]{12}$/.test(sheets[0]), `${locale}: the style sheets ${show(sheets)}`);
     }
+    // The sheet itself: the site's CSS, as CSS, cached for good (its URL changes with its content)
+    const { GET, dynamic } = await load('app/site.css/route.ts');
+    const { SITE_CSS, SITE_CSS_HREF } = await load('src/site/site-css.ts');
+    const res: Response = GET();
+    assert(dynamic === 'force-static' && res.headers.get('content-type') === 'text/css; charset=utf-8' && /immutable/.test(res.headers.get('cache-control') ?? ''), `the sheet's headers: ${res.headers.get('content-type')}, ${res.headers.get('cache-control')}`);
+    assert((await res.text()) === SITE_CSS, 'the sheet is not SITE_CSS');
+    const { createHash } = await import('node:crypto');
+    assert(SITE_CSS_HREF === `/site.css?v=${createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12)}`, `the sheet's version ${SITE_CSS_HREF}`);
   });
 
   await check('L4 the site metadata from messages in en, he and ru: the title and its "%s | FamCal" template, the description, the keywords and the share image\'s alt; the site URL as metadataBase', async () => {

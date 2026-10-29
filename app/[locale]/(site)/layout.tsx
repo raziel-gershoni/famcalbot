@@ -5,7 +5,7 @@ import type { Metadata, Viewport } from 'next';
 import { routing } from '@/i18n/routing';
 import { SITE_URL } from '@/src/site/config';
 import { SITE_CLIENT_NAMESPACES, pickMessages } from '@/src/site/messages';
-import { SITE_CSS } from '@/src/site/site-css';
+import { SITE_CSS_HREF } from '@/src/site/site-css';
 // The public pages that still use Tailwind classes, until each is rebuilt on the site's own style sheet.
 import '../../globals.css';
 
@@ -18,7 +18,7 @@ import '../../globals.css';
 // - Only the namespaces the site's client components read reach the client (SITE_CLIENT_NAMESPACES); the pages
 //   themselves read their words on the server.
 // - Static: every page is rendered per locale at build time (generateStaticParams, setRequestLocale).
-// - The site's one style sheet (SITE_CSS: the app's colour values, light and dark from the device's setting) in <head>.
+// - The site's one style sheet (/site.css, versioned: the app's colour values, light and dark from the device's setting).
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -64,7 +64,7 @@ export default async function SiteLayout({ children, params }: { children: React
   return (
     <html lang={locale} dir={locale === 'he' ? 'rtl' : 'ltr'}>
       <head>
-        <style>{SITE_CSS}</style>
+        <link rel="stylesheet" href={SITE_CSS_HREF} />
       </head>
       <body>
         <NextIntlClientProvider locale={locale} messages={messages} timeZone={SITE_TIME_ZONE}>

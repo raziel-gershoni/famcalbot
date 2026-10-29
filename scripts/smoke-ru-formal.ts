@@ -34,8 +34,6 @@ const ROOT = path.resolve(__dirname, '..');
 const EXEMPT_KEYS: Record<string, string> = {
   'share.msgShort': 'a text the person sends a friend, written as one friend writes to another',
   'share.msgMedium': 'a text the person sends a parents\' group, written as one friend writes to another',
-  'landing.painPoints.item2': 'the old landing page shows it until the public website build replaces the page (plan 2026-10-29, Task 4)',
-  'landing.painPoints.item4': 'the old landing page shows it until the public website build replaces the page (plan 2026-10-29, Task 4)',
 };
 
 /** An informal pronoun, or an informal imperative a message gives the person. A quoted example of what to say to the bot («напомни …») is the person's own words and does not count. */

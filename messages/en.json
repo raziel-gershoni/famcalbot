@@ -1729,14 +1729,11 @@
       "title": "FamCal: a family calendar in Telegram and WhatsApp",
       "description": "Add events by voice note and get the family’s day in a morning summary, with Hebrew dates, holidays, zmanim and a Shabbat pause. Free to start.",
       "ogTitle": "Your family’s day, in one place. Just say it.",
-      "ogImageAlt": "FamCal: your family’s day in one place, in Telegram and WhatsApp",
-      "ogDescription": "AI-powered daily family calendar briefings on Telegram. Voice summaries, smart pickup order, weather in context."
+      "ogImageAlt": "FamCal: your family’s day in one place, in Telegram and WhatsApp"
     },
     "hero": {
       "headline": "Your family’s day, in one place.\nJust say it.",
-      "subtitle": "Send a voice note and it’s on the calendar. In the morning, everyone’s day arrives in Telegram or WhatsApp.",
-      "startFree": "Start Free",
-      "ctaSecondary": "Free during early access · No app to install · 2 minutes to set up"
+      "subtitle": "Send a voice note and it’s on the calendar. In the morning, everyone’s day arrives in Telegram or WhatsApp."
     },
     "how": {
       "title": "How it works",
@@ -1793,30 +1790,6 @@
         "title": "Languages",
         "three": "Hebrew, English and Russian in the bot, the summaries, the voice show and the calendar.",
         "rtl": "Right to left in Hebrew, everywhere."
-      },
-      "voiceSummaries": {
-        "title": "Voice Summaries",
-        "description": "Your family’s schedule as a 30-second audio briefing. Listen hands-free while getting ready. Hebrew, English, or Russian."
-      },
-      "voiceCommands": {
-        "title": "Voice Commands",
-        "description": "Send a voice note to create, edit, or delete events. Works with recurring events too. No typing needed."
-      },
-      "smartPickup": {
-        "title": "Smart Pickup Order",
-        "description": "Kids’ events sorted by end time. Always know who to pick up first. Get reminders before each pickup."
-      },
-      "weatherContext": {
-        "title": "Weather in Context",
-        "description": "Not just a forecast — weather tied to your schedule. “Rain expected at pickup time, bring umbrellas.”"
-      },
-      "hebrewCalendar": {
-        "title": "Hebrew Calendar",
-        "description": "Full Hebrew dates in gematriya, Rosh Chodesh awareness, Shabbat-aware week boundaries. Built for Israeli families."
-      },
-      "familyView": {
-        "title": "Family-Wide View",
-        "description": "Merge calendars for you, your spouse, and every kid. Label them, set rules per calendar, see it all in one place."
       }
     },
     "channels": {
@@ -1883,13 +1856,14 @@
       "pro": {
         "name": "Pro"
       },
-      "price": "{price} Stars a month",
+      "price": "{price, number} Stars a month",
       "priceA11y": "{price, number} Telegram Stars a month",
-      "unlimited": "Unlimited",
       "bullets": {
         "textSummaries": "{count, plural, one {# text summary} other {# text summaries}} a month",
         "voiceSummaries": "{count, plural, one {# voice summary} other {# voice summaries}} a month",
         "summariesUnlimited": "Unlimited text and voice summaries",
+        "textUnlimited": "Unlimited text summaries",
+        "voiceUnlimited": "Unlimited voice summaries",
         "calendars": "Up to {count} calendars",
         "calendarsUnlimited": "Unlimited calendars",
         "everythingInBasic": "Everything in Basic",
@@ -1935,62 +1909,6 @@
       "voiceNote": "Voice message",
       "calendarFrame": "FamCal’s calendar",
       "pingCaption": "A reminder for both of you, on Telegram"
-    },
-    "painPoints": {
-      "title": "Sound familiar?",
-      "item1": "Wait, what time does Maya finish today?",
-      "item2": "Did you see I have a meeting at 5? Who’s picking up the kids?",
-      "item3": "Check the calendar — no, the OTHER calendar",
-      "item4": "I sent you the schedule… you didn’t see it?",
-      "resolution": "FamCal makes this go away."
-    },
-    "coreValue": {
-      "title": "How your morning changes",
-      "mockGreeting": "Good morning! ☀️",
-      "mockDate": "Today — Sunday, March 15, 2026",
-      "mockHebrewDate": "י״ד אדר ה׳תשפ״ו",
-      "mockYourSchedule": "Your Schedule:",
-      "mockEvent1": "• 09:00–10:00 — Team standup (Zoom)",
-      "mockEvent2": "• 14:00–15:30 — Client meeting (Office)",
-      "mockSpouseSchedule": "Sarah’s Schedule:",
-      "mockSpouseEvent": "• 10:30–12:00 — Dentist",
-      "mockPickupTitle": "Kids Pickup Order:",
-      "mockPickup1": "• 14:00 — Noah (Gan HaShalom)",
-      "mockPickup2": "• 16:30 — Maya, Liam (School)",
-      "mockInsight": "Sarah finishes at 12 — she can handle Noah’s 14:00 pickup while you’re in the client meeting.",
-      "mockWeather": "22°C, sunny until 16:00. Light jacket for evening pickup.",
-      "bullet1": "Everyone’s schedule, merged and sorted",
-      "bullet2": "Kids’ pickup order by end time — no more mental math",
-      "bullet3": "AI spots conflicts before they become problems",
-      "bullet4": "Weather tied to YOUR schedule, not just the forecast",
-      "bullet5": "30-second voice version — listen while making coffee"
-    },
-    "howItWorks": {
-      "title": "Set up in 2 minutes",
-      "step1": {
-        "title": "Start the bot",
-        "description": "Open FamCal on Telegram or WhatsApp and say hi. That's it — your account is created automatically."
-      },
-      "step2": {
-        "title": "Connect Google Calendar",
-        "description": "Sign in with Google and pick which calendars to track"
-      },
-      "step3": {
-        "title": "Get your first briefing",
-        "description": "Choose your summary times and wake up to your family’s day, organized"
-      }
-    },
-    "earlyAccess": {
-      "title": "Free during early access",
-      "subtitle": "All features. All languages. No credit card. Join now and help shape FamCal.",
-      "privacyNote": "Your calendar data is never stored. Fetched, summarized, discarded. Only settings saved, encrypted.",
-      "cta": "Start Free",
-      "sharePrompt": "Know a busy parent? Share FamCal →"
-    },
-    "personalStory": {
-      "quote": "I built FamCal because my wife and I have 5 kids and we were drowning in calendar chaos. Every morning was “wait, who has what today?” Now we just listen to a 30-second summary over coffee.",
-      "author": "Raziel, builder of FamCal",
-      "readMore": "Read the full story →"
     }
   },
   "blog": {

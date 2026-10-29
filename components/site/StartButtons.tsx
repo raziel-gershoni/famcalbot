@@ -15,7 +15,7 @@ export interface StartWords {
   greeting: string;
 }
 
-type Translate = (key: string) => string;
+type Translate = ((key: string) => string) & { raw: (key: string) => unknown };
 
 /** The start buttons' words, in the page's language. */
 export function startWords(t: Translate): StartWords {
@@ -24,7 +24,8 @@ export function startWords(t: Translate): StartWords {
     whatsapp: t('site.cta.whatsapp'),
     telegramShort: t('site.cta.telegramShort'),
     whatsappShort: t('site.cta.whatsappShort'),
-    greeting: t('bot.whatsapp.greeting'),
+    // A bot string: {name}-style, not ICU, so it is read raw
+    greeting: String(t.raw('bot.whatsapp.greeting')),
   };
 }
 

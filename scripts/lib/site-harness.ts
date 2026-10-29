@@ -50,6 +50,24 @@ export function assert(cond: unknown, message: string): asserts cond {
 export const show = (value: unknown) => JSON.stringify(value);
 /** An emoji, but not the text symbols © ® ™ (Unicode counts them as pictographs). */
 export const EMOJI = /(?![\u00a9\u00ae\u2122])\p{Extended_Pictographic}/u;
+/**
+ * The truth list (spec 2026-10-28-public-website §4): what no public string says, in any language. Each entry names
+ * the claim and the pattern that finds it (case-insensitive).
+ */
+export const UNTRUE: [string, RegExp][] = [
+  ['"never stored"', /never stored|לא נשמר|לא נשמרים|не хран|никогда не сохран/i],
+  ['"full feature parity"', /feature parity|full parity|אותם פיצ[׳']רים|одинаковые фич|всё одно и то же/i],
+  ['early access', /early access|early adopter|גישה מוקדמת|תקופת ההשקה|ранн\S* доступ/i],
+  ['OpenAI', /openai/i],
+  ['OpenWeatherMap', /openweather/i],
+  ['Google as a step', /connect your google calendars?|sign in with google|מחברים את יומני Google|подключаете google календари/i],
+  ['two-way Google sync', /two-way|דו[- ]כיווני|двусторонн/i],
+  ['events by zman', /events? by zman|אירועים לפי זמני היום|событи\S* по зманим/i],
+  ['WhatsApp reminders', /reminders? (?:on|in|via) whatsapp|תזכורות בוואטסאפ|напоминания в whatsapp/i],
+  ['auto-renewal', /auto-?renew|renews? automatically|מתחדש(?:ים)? אוטומטית|автоматически продлева|автопродлен/i],
+  ['a scheduled weekly summary', /weekly summary every|every (?:sunday|week) (?:you get|it sends)|סיכום שבועי (?:בכל|כל)|еженедельн\S* сводк/i],
+];
+
 /** HTML entities React writes in attributes and text, decoded. */
 export const decodeEntities = (s: string) => s.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 /** Prints the results and exits 1 on any failure. */
