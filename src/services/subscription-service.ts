@@ -444,22 +444,20 @@ export async function recordRefund(paymentId: string, adminId: number): Promise<
     if (!payment) throw new Error(`No payment ${paymentId}`);
     const { count } = await tx.payment.updateMany({ where: { id: paymentId, refundedAt: null }, data: { refundedAt: new Date() } });
     if (count === 0) return null;
-    const sub = await tx.subscription.findUnique({ where: { userId: payment.userId } });
-    const funded = !!sub && sub.compedBy == null && sub.telegramPaymentChargeId === payment.telegramPaymentChargeId;
-    if (funded) {
-      await tx.subscription.update({
-        where: { userId: payment.userId },
-        data: {
-          plan: 'FREE',
-          status: 'EXPIRED',
-          telegramPaymentChargeId: null,
-          currentPeriodStart: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        },
-      });
-    }
-    return { userId: payment.userId, plan: payment.plan, paidAt: payment.paidAt, endedPlan: funded };
+    // Only while the subscription still holds this charge and no gift: one conditional write, which Postgres checks again
+    // under the row's lock, so a new payment that commits meanwhile (it sets its own charge id) keeps its month
+    const { count: ended } = await tx.subscription.updateMany({
+      where: { userId: payment.userId, telegramPaymentChargeId: payment.telegramPaymentChargeId, compedBy: null },
+      data: {
+        plan: 'FREE',
+        status: 'EXPIRED',
+        telegramPaymentChargeId: null,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+      },
+    });
+    return { userId: payment.userId, plan: payment.plan, paidAt: payment.paidAt, endedPlan: ended > 0 };
   });
   if (result === null) return { ok: false, code: 'ALREADY_RECORDED' };
 

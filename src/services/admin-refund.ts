@@ -27,18 +27,18 @@ import { paymentDay } from '../lib/plan-disclosure';
 import { getBot, getMessagingService } from './telegram/bot';
 import { recordRefund } from './subscription-service';
 import { paymentZone } from './payment-handler';
+import { getUserById } from './user-service';
+import { TIMEZONE } from '../config/constants';
 
 export type RefundOutcome =
   | { ok: true }
   | { ok: false; code: 'NO_PAYMENT' | 'REFUND_REFUSED' | 'REFUND_FAILED' | 'NOT_RECORDED' };
 
-/** The person, as the route reads their row: the ids, the language, and what their zone is looked up from. */
+/** The person, as the route reads their row: the ids and the language. */
 interface RefundTarget {
   id: number;
   telegramId: bigint | number | null;
   language: string | null;
-  location?: string;
-  googleRefreshToken?: string;
 }
 
 /** What an error says, with the bot token (which a Telegram request's URL carries) taken out. */
@@ -123,7 +123,10 @@ export async function refundPayment(user: RefundTarget, paymentId: string, admin
     let text = t.subscription.refunded as string;
     if (!recorded.endedPlan) {
       const plans = (await getSubscriptionMessages(language)).plans;
-      const zone = await paymentZone({ id: user.id, location: user.location, googleRefreshToken: user.googleRefreshToken });
+      // The zone as the confirmation counted it: the person's config (getUserById decrypts the Google token the zone
+      // lookup may use; the route's raw row holds it sealed)
+      const person = await getUserById(user.id);
+      const zone = person ? await paymentZone(person) : TIMEZONE;
       text = String(t.subscription.refundedEarlier)
         .replace('{plan}', plans?.[recorded.plan.toLowerCase()]?.name || recorded.plan)
         .replace('{date}', paymentDay(recorded.paidAt, zone, language));

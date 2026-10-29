@@ -1428,6 +1428,14 @@ async function fix7() {
     assert(/p-nope/.test(threw), `an unknown payment did not throw: ${show(threw)}`);
     const ended = await withLogs(() => recordRefund('p-olga', ADMIN_ID));
     assert(ended.ok && ended.endedPlan && subscriptionOf(3).plan === 'FREE', `the funding payment: ${show(ended)} ${show(subscriptionOf(3))}`);
+    // A new payment that commits while a refund of the old one runs keeps its month: the plan ends only by one write
+    // conditioned on the old charge id (Postgres checks it again under the row's lock), never a read and then a write
+    const source = fs.readFileSync(path.join(SRC, 'services/subscription-service.ts'), 'utf8');
+    const body = source.slice(source.indexOf('export async function recordRefund'), source.indexOf('/**', source.indexOf('export async function recordRefund')));
+    assert(!/tx\.subscription\.(?:update|findUnique|findFirst)\(/.test(body) && /tx\.subscription\.updateMany\(\{\s*where: \{ userId: payment\.userId, telegramPaymentChargeId: payment\.telegramPaymentChargeId, compedBy: null \}/.test(body), 'recordRefund ends the plan by a read and then an unconditional write');
+    // The refund's message names the payment's day in the person's zone, looked up from the person's config (the Google token decrypted), never the route's raw row
+    const refundSource = fs.readFileSync(path.join(SRC, 'services/admin-refund.ts'), 'utf8');
+    assert(/const person = await getUserById\(user\.id\);\s*const zone = person \? await paymentZone\(person\)/.test(refundSource), 'the zone lookup is not given the decrypted config');
     assertSame(refundedActivity().map(t => [t.userId, t.metadata?.ended_plan]), [[1, false], [3, true]], 'the activity rows');
   });
 
@@ -1443,7 +1451,7 @@ async function fix7() {
 
   await check('7: if the database cannot record a refund Telegram already made, it is logged and captured loudly, the answer is a failure, nothing half-recorded stays, and the person is not told', async () => {
     seedPayers();
-    failing.add('subscription.update');
+    failing.add('subscription.updateMany');
     const answer = await refund(2, 'p-dana');
     assertSame(answer.status, 500, 'status');
     assert(botCalls.length === 1, 'Telegram was not asked');

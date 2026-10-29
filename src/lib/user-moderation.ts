@@ -200,11 +200,13 @@ export async function personalCacheKeys(userId: number): Promise<string[]> {
  * exists: after a hard delete, and for the WhatsApp-only half of an account
  * merge. Drops them from the reminder cache too, so the reminder run stops
  * reading a user that is gone before the next hourly sync. Every key of the
- * person goes (the account's deletion clears them, not only their 30 days): the
- * access cache, the timezone, the voice flows' state, the setup tracks, the
- * copy-to-Google markers and the Google cache stamps by their id, the kid-name
- * notes by a scan of their prefix, and `extraKeys` (personalCacheKeys, read
- * before the rows went).
+ * person that outlives a day goes (the account's deletion clears them, not only
+ * their 30 days): the access cache, the timezone, the voice flows' state, the
+ * setup tracks, the copy-to-Google markers and the Google cache stamps by their
+ * id, the kid-name notes by a scan of their prefix, and `extraKeys`
+ * (personalCacheKeys, read before the rows went). Keys that live a day or less
+ * (the Google ranges, the summary dedup, a briefing's text, the event alerts'
+ * marks, the voice cards) expire on their own.
  */
 export async function clearDeletedUserCaches(userId: number, extraKeys: string[] = []): Promise<void> {
   try {
