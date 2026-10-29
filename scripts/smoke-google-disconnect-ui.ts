@@ -300,8 +300,10 @@ async function main() {
     };
     const old = [/When you disconnect your Google Calendar or delete your account/, /כאשר אתה מנתק את יומן Google או מוחק את חשבונך/, /Когда вы отключаете Google Calendar или удаляете свой аккаунт/];
     const texts = LOCALES.map((l) => legalText(messages[l], 'privacy'));
-    for (const [i, l] of LOCALES.entries()) assert(texts[i].length > 0 && !old[i].test(texts[i]), `${l}: no privacy text, or the old promise is still there`);
-    for (const [i, l] of LOCALES.entries()) for (const re of want[l]) assert(re.test(texts[i]), `${l}: ${re} missing`);
+    // The Russian text binds a one-letter word to the next with a no-break space (smoke-site-truth T6): \s covers it
+    const spaces = (l: Locale, re: RegExp) => (l === 'ru' ? new RegExp(re.source.replace(/ /g, '\\s'), re.flags) : re);
+    for (const [i, l] of LOCALES.entries()) assert(texts[i].length > 0 && !spaces(l, old[i]).test(texts[i]), `${l}: no privacy text, or the old promise is still there`);
+    for (const [i, l] of LOCALES.entries()) for (const re of want[l]) assert(spaces(l, re).test(texts[i]), `${l}: ${re} missing`);
   });
 
   const failed = results.filter((r) => !r.ok);

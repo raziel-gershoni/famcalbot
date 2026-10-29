@@ -16,8 +16,9 @@
 //    no landing or how-it-works key; the share page's friend-to-friend templates are the Russian guard's only
 //    exemptions, each with its reason.
 //  - T5 the i18n parity check passes (the same keys and ICU arguments in en, he and ru).
-//  - T6 Russian site strings bind a one-letter word (в, с, к, о, у, и, а, я) to the next with a no-break space, so none
-//    ends a line (the legal texts, owner-approved wording, aside).
+//  - T6 Russian site and legal strings (site, landing, share, blog, legal) bind a one-letter word (в, с, к, о, у, и, а, я)
+//    to the next with a no-break space, so none ends a line, and put a no-break space, never a plain one, before an em
+//    dash "—", so none starts a line.
 //
 // Nothing is faked: no DB, Redis or network.
 //
@@ -188,12 +189,13 @@ async function main() {
     assert(/i18n parity OK/.test(out), out.slice(-400));
   });
 
-  await check('T6 Russian typography: no one-letter word (в, с, к, о, у, и, а, я) ends a line, a no-break space binds it to the next in every Russian site string (site, landing, share, blog; the legal texts\' approved wording aside)', () => {
+  await check('T6 Russian typography: in every Russian site and legal string (site, landing, share, blog, legal), no one-letter word (в, с, к, о, у, и, а, я) is followed by a plain space and no plain space comes before an em dash "—": a no-break space (U+00A0) binds them, so a line never ends on the word or starts with the dash', () => {
     const found: string[] = [];
-    for (const ns of ['site', 'landing', 'share', 'blog']) {
+    for (const ns of ['site', 'landing', 'share', 'blog', 'legal']) {
       for (const [key, text] of leaves(messages.ru[ns], ns)) {
-        const loose = text.match(/(?:^|[\s«(„"—])[вскоуиая] /giu);
+        const loose = text.match(/(?<![^\s«(„"—*])[вскоуиая] /giu);
         if (loose) found.push(`${key}: ${show(loose.map((x) => x.trim()))}`);
+        if (text.includes(' —')) found.push(`${key}: a plain space before "—": ${show(text.slice(Math.max(0, text.indexOf(' —') - 12), text.indexOf(' —') + 3))}`);
       }
     }
     assert(found.length === 0, show(found));

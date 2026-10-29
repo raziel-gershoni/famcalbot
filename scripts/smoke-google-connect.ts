@@ -1822,9 +1822,11 @@ async function main() {
         new RegExp(String.raw`Использование FamCal информации, полученной через API Google, и её передача в любое другое приложение будут соответствовать \[Политике в отношении пользовательских данных сервисов Google API\]${UDP}, включая требования об ограниченном использовании \(Limited Use\)`),
       ],
     };
+    // The Russian text binds a one-letter word to the next with a no-break space (smoke-site-truth T6): \s covers it
+    const spaces = (locale: string, re: RegExp) => (locale === 'ru' ? new RegExp(re.source.replace(/ /g, '\\s'), re.flags) : re);
     for (const [locale, patterns] of Object.entries(want)) {
       const text = legalText(JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')), 'privacy');
-      for (const re of patterns) assert(re.test(text), `${locale}: no ${re} in the privacy text`);
+      for (const re of patterns) assert(spaces(locale, re).test(text), `${locale}: no ${re} in the privacy text`);
     }
   });
 

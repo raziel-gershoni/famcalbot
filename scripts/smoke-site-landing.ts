@@ -198,7 +198,7 @@ async function main() {
       // The viewer's own name is a calendar's, which no row shows; the partner's shows in "Eli: done"
       return [s.calendars.partner, s.events.dentist, s.events.swimming, s.events.birthday];
     };
-    const script: Record<Locale, RegExp> = { en: /^[A-Za-z’' ]+$/, he: /^[֐-׿ ]+$/, ru: /^[Ѐ-ӿ —]+$/ };
+    const script: Record<Locale, RegExp> = { en: /^[A-Za-z’' ]+$/, he: /^[֐-׿ ]+$/, ru: /^[Ѐ-ӿ\u00a0 —]+$/ };
     for (const locale of LOCALES) {
       const text = decodeEntities(pages[locale]);
       for (const name of names(locale)) {
