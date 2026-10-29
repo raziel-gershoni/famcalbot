@@ -89,6 +89,24 @@ async function main() {
     }
   });
 
+  await check('L2b the app\'s global sheet holds only what the app reads: Tailwind\'s import, and brand tokens each read somewhere in app/, components/ or src/ (no @theme, no old blog prose styles)', () => {
+    const globals = readSource('app/globals.css');
+    assert(/^@import "tailwindcss";/m.test(globals) && !/@theme|prose-famcal/.test(globals), 'globals.css holds dead blocks');
+    const sources: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const rel = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(rel);
+        else if (/\.(tsx?|css)$/.test(e.name) && rel !== 'app/globals.css') sources.push(readSource(rel));
+      }
+    };
+    for (const dir of ['app', 'components', 'src']) walk(dir);
+    const tokens = [...globals.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1]);
+    assert(tokens.length > 0, 'no tokens');
+    const dead = tokens.filter((token) => !sources.some((src) => src.includes(`var(${token}`)));
+    assert(dead.length === 0, `tokens nothing reads: ${show(dead)}`);
+  });
+
   await check('L3 the site layout: no Telegram SDK and no web font (in its source or its tree), zoom allowed, only the site\'s client namespaces reach the client, <html> in the page\'s language and direction, the request locale set for static rendering, a static page per locale', async () => {
     const src = readSource(`${LOCALE_DIR}/(site)/layout.tsx`).replace(/^\s*\/\/.*$/gm, '');
     assert(!/telegram-web-app|next\/script/.test(src), 'the site layout loads the Telegram SDK');
