@@ -583,7 +583,7 @@ async function main() {
     const sentences: Record<Locale, [number, string][]> = {
       en: [[1, 'Your plan has room for 1 calendar, FamCal and Google together.'], [3, 'Your plan has room for 3 calendars, FamCal and Google together.']],
       he: [[1, 'בתוכנית שלכם יש מקום ליומן אחד, של FamCal ושל Google יחד.'], [2, 'בתוכנית שלכם יש מקום לשני יומנים, של FamCal ושל Google יחד.'], [3, 'בתוכנית שלכם יש מקום ל־3 יומנים, של FamCal ושל Google יחד.'], [5, 'בתוכנית שלכם יש מקום ל־5 יומנים, של FamCal ושל Google יחד.']],
-      ru: [[1, 'В вашем плане есть место для 1 календаря FamCal и Google вместе.'], [3, 'В вашем плане есть место для 3 календарей FamCal и Google вместе.'], [5, 'В вашем плане есть место для 5 календарей FamCal и Google вместе.'], [21, 'В вашем плане есть место для 21 календаря FamCal и Google вместе.']],
+      ru: [[1, 'В вашем тарифе есть место для 1 календаря FamCal и Google вместе.'], [3, 'В вашем тарифе есть место для 3 календарей FamCal и Google вместе.'], [5, 'В вашем тарифе есть место для 5 календарей FamCal и Google вместе.'], [21, 'В вашем тарифе есть место для 21 календаря FamCal и Google вместе.']],
     };
     for (const locale of LOCALES) {
       for (const [limit, sentence] of sentences[locale]) {
