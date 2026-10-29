@@ -586,6 +586,9 @@ button.ch-form-row:disabled {
   flex-direction: column;
   gap: 12px;
 }
+.ch-sheet-stack.is-roomy .ch-form-row {
+  padding-block: 8px;
+}
 .ch-working {
   display: flex;
   align-items: center;

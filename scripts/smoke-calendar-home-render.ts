@@ -9355,6 +9355,9 @@ async function main() {
   });
 
   // ---- The calendars page's Copy to Google rows (google-sync S4), in real React ----
+  // (W4-1: the screen is the app's own, on the form kit: the rows are in a Copy to Google section, an own calendar's
+  // sheet holds its edit and its delete, and the Remove / Keep question is a sheet. The screen's own behaviour is in
+  // smoke-calendars-screen.ts; these keep the Copy to Google rows' real-React checks.)
 
   const warnedBeforeCopies = reactWarnings.length;
   const cal = (rawId: string, name: string, isOwner: boolean) => ({
@@ -9364,17 +9367,29 @@ async function main() {
   const CALS = [cal('own', 'Home', true), cal('plain', 'Work', true), cal('noa-cal', 'Noa family', false)];
   const copyRow = (calendarId: string, o: Row = {}) => ({ calendarId, linkId: `link-${calendarId}`, on: true, status: 'copied', copied: 0, total: 0, unsupported: 0, consentOpen: false, ...o });
   const VIEW = { shown: true, ownerName: 'Noa', rows: [copyRow('own'), copyRow('plain', { on: false, status: 'off', linkId: null })] };
-  const gcm = (locale: Locale) => (messages[locale] as Row).googleCopy as Row & { status: Row; actions: Row; unlink: Row; errors: Row; notes: Row; busy: Row };
+  const gcm = (locale: Locale) => (messages[locale] as Row).googleCopy as Row & { title: string; status: Row; actions: Row; unlink: Row; errors: Row; notes: Row; busy: Row };
+  /** A calendar's Copy to Google row: the wrapper of its switch, its action row and its error. */
   const cardOf = (m: Mounted, name: string) => {
-    const card = elements(m.container).filter((e) => e.className === 'bg-white rounded-2xl shadow p-4' && e.textContent.includes(name))[0];
-    assert(card, `no card for ${name}`);
-    return card;
+    const sw = byRole(m.container, 'switch').find((s) => textOf(htmlOf(s)).startsWith(name));
+    assert(sw && sw.parentNode, `no Copy to Google row for ${name}`);
+    return sw.parentNode as FakeElement;
   };
   const switchIn = (node: FakeNode) => byRole(node, 'switch')[0];
   const buttonIn = (node: FakeNode, text: string) => {
     const b = elements(node).filter((e) => e.localName === 'button' && textOf(htmlOf(e)) === text)[0];
     assert(b, `no button ${show(text)} in ${textOf(htmlOf(node)).slice(0, 300)}`);
     return b;
+  };
+  /** The open sheet, and the list row of an own calendar (a tap on it opens its sheet). */
+  const sheetIn = (m: Mounted) => {
+    const d = byRole(m.container, 'dialog')[0];
+    assert(d, 'no sheet is open');
+    return d;
+  };
+  const listRowOf = (m: Mounted, name: string) => {
+    const row = elements(m.container).filter((e) => e.localName === 'button' && e.className.includes('ch-list-row') && textOf(htmlOf(e)).startsWith(name))[0];
+    assert(row, `no list row for ${name}`);
+    return row;
   };
   const copyCalls = () => fetchCalls.filter((c) => c.path === '/api/google-sync');
   let serveCopies: (c: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ok200(VIEW);
@@ -9384,14 +9399,14 @@ async function main() {
     fakeWindow.Telegram = { WebApp: tg.webApp };
     const assigned: string[] = [];
     fakeWindow.location = { hash: '', reload: noop, assign: (u: string) => assigned.push(u) };
-    (globalThis as Row).confirm = () => true;
+    (globalThis as Row).confirm = () => { throw new Error('window.confirm was called'); };
     answerFetch = (c) => (c.path === '/api/google-sync' ? serveCopies(c) : c.path === '/api/native-calendars' ? ok200({ calendars: CALS }) : ok200({ success: true }));
     const m = mount(inApp(locale, createElement(CalendarsClient, { userId: 5, locale, initialCalendars: CALS, googleColors: [], google: { state: 'none', chosen: 0 }, partnerName: null })));
     await settle();
     return { m, tg, assigned };
   };
 
-  await check('#119 calendars page: after its GET each own card has the Copy to Google row (on and copied; off), the partner\'s card says only its owner can copy it, and the notes show once; en, he (RTL) and ru; the GET carries initData in the header only', async () => {
+  await check('#119 calendars page: after its GET the Copy to Google section has a switch row per own calendar (Home on and copied; Work off), the partner\'s calendars say only their owner can copy them, and the notes show once; en, he (RTL) and ru; the GET carries initData in the header only', async () => {
     serveCopies = () => ok200(VIEW);
     for (const locale of ['en', 'he', 'ru'] as Locale[]) {
       const { m } = await mountCalendars(locale);
@@ -9401,12 +9416,11 @@ async function main() {
         assert(get && get.method === 'GET' && get.url === '/api/google-sync?user_id=5' && Object.keys(get.headers).some((h) => /init-data/i.test(h)), `${locale}: GET ${show(get)}`);
         const home = cardOf(m, 'Home');
         assert(switchIn(home).getAttribute('aria-checked') === 'true', `${locale}: Home's switch`);
-        assertHas(textOf(htmlOf(home)), [String(g.title), String(g.status.copied)], `${locale}: Home`);
+        assertHas(textOf(htmlOf(home)), [String(g.status.copied)], `${locale}: Home`);
         assert(switchIn(cardOf(m, 'Work')).getAttribute('aria-checked') === 'false', `${locale}: Work's switch`);
-        const noa = cardOf(m, 'Noa family');
-        assert(!switchIn(noa), `${locale}: a switch on the partner's calendar`);
-        assertHas(textOf(htmlOf(noa)), [String(g.nonOwner).replace('{owner}', 'Noa')], `${locale}: the non-owner line`);
+        assert(!byRole(m.container, 'switch').some((s) => textOf(htmlOf(s)).startsWith('Noa family')), `${locale}: a switch on the partner's calendar`);
         const text = textOf(innerHtml(m.container));
+        assertHas(text, [String(g.title), String(g.nonOwner).replace('{owner}', 'Noa')], `${locale}: the section and the non-owner line`);
         assert(text.split(String(g.notes.alerts)).length === 2, `${locale}: the notes, once: ${text.slice(0, 400)}`);
         if (locale === 'he') assert(elements(m.container).some((e) => e.getAttribute('dir') === 'rtl'), 'he: no dir="rtl"');
       } finally {
@@ -9415,13 +9429,13 @@ async function main() {
     }
   });
 
-  await check('#120 calendars page: no copy rows, non-owner line or notes when the copies don\'t apply (no Google, no copy on); a failed GET shows the load error and the cards as before', async () => {
+  await check('#120 calendars page: no copy rows, non-owner line or notes when the copies don\'t apply (no Google, no copy on); a failed GET shows the load error and the calendars as before', async () => {
     serveCopies = () => ok200({ shown: false, ownerName: 'Noa', rows: [] });
     let { m } = await mountCalendars('en');
     try {
       assert(byRole(m.container, 'switch').length === 0, 'a switch');
       assertLacks(textOf(innerHtml(m.container)), ['Copy to Google', 'Only Noa can copy', String(gcm('en').notes.alerts)], 'not shown');
-      assertHas(textOf(innerHtml(m.container)), ['Home', 'Work', 'Noa family'], 'the cards');
+      assertHas(textOf(innerHtml(m.container)), ['Home', 'Work', 'Noa family'], 'the calendars');
     } finally {
       m.unmount();
     }
@@ -9469,22 +9483,23 @@ async function main() {
     }
   });
 
-  await check('#122 calendars page: turning a copy off asks Remove or Keep (spec §1\'s question); Keep sends DELETE with googleCopy keep; Cancel sends nothing; an error answer shows under the row', async () => {
+  await check('#122 calendars page: turning a copy off asks Remove or Keep (spec §1\'s question) in a sheet, never window.confirm; Keep sends DELETE with googleCopy keep; Cancel sends nothing; an error answer shows under the row', async () => {
     serveCopies = (c) => (c.method === 'DELETE' ? ok200({ status: 'off' }) : ok200(VIEW));
     const { m } = await mountCalendars('en');
     try {
       m.click(switchIn(cardOf(m, 'Home')));
       await settle();
-      assertHas(textOf(htmlOf(cardOf(m, 'Home'))), ['from Google too, including anything you added to it?', 'FamCal · '], 'the question');
-      m.click(buttonIn(cardOf(m, 'Home'), 'Cancel'));
+      assertHas(textOf(htmlOf(sheetIn(m))), ['from Google too, including anything you added to it?', 'FamCal · '], 'the question');
+      m.click(buttonIn(sheetIn(m), 'Cancel'));
       await settle();
-      assert(!copyCalls().some((c) => c.method === 'DELETE'), 'Cancel sent a DELETE');
+      assert(!copyCalls().some((c) => c.method === 'DELETE') && byRole(m.container, 'dialog').length === 0, 'Cancel sent a DELETE or left the sheet');
       m.click(switchIn(cardOf(m, 'Home')));
       await settle();
-      m.click(buttonIn(cardOf(m, 'Home'), 'Keep'));
+      m.click(buttonIn(sheetIn(m), 'Keep'));
       await settle();
       const del = copyCalls().find((c) => c.method === 'DELETE');
       assert(del && show(del.body) === show({ nativeCalendarId: 'own', googleCopy: 'keep' }), `DELETE ${show(del)}`);
+      assert(byRole(m.container, 'dialog').length === 0, 'the sheet stays after the answer');
     } finally {
       m.unmount();
     }
@@ -9493,7 +9508,7 @@ async function main() {
     try {
       failed.m.click(switchIn(cardOf(failed.m, 'Home')));
       await settle();
-      failed.m.click(buttonIn(cardOf(failed.m, 'Home'), 'Remove'));
+      failed.m.click(buttonIn(sheetIn(failed.m), 'Remove'));
       await settle();
       assert(byRole(cardOf(failed.m, 'Home'), 'alert').some((e) => textOf(htmlOf(e)) === String(gcm('en').errors.failed)), 'no error under the row');
     } finally {
@@ -9501,18 +9516,25 @@ async function main() {
     }
   });
 
-  await check('#123 calendars page: deleting a calendar whose copy is on asks Remove or Keep after the confirm and sends the choice in the calendar DELETE; a calendar with no copy on is deleted as before, with no googleCopy', async () => {
+  await check('#123 calendars page: deleting a calendar whose copy is on asks Remove or Keep in the delete sheet and sends the choice in the calendar DELETE; a calendar with no copy on is deleted as before, with no googleCopy; neither goes through window.confirm', async () => {
     serveCopies = () => ok200(VIEW);
     const { m } = await mountCalendars('en');
     try {
-      m.click(byLabel(cardOf(m, 'Home'), 'Delete'));
+      m.click(listRowOf(m, 'Home'));
+      await settle();
+      m.click(buttonIn(sheetIn(m), 'Delete calendar'));
       await settle();
       assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own'), 'deleted before the question');
-      m.click(buttonIn(cardOf(m, 'Home'), 'Remove'));
+      assertHas(textOf(htmlOf(sheetIn(m))), ['from Google too, including anything you added to it?'], 'the question');
+      m.click(buttonIn(sheetIn(m), 'Remove'));
       await settle();
       const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
       assert(del && del.body?.googleCopy === 'remove', `DELETE ${show(del)}`);
-      m.click(byLabel(cardOf(m, 'Work'), 'Delete'));
+      m.click(listRowOf(m, 'Work'));
+      await settle();
+      m.click(buttonIn(sheetIn(m), 'Delete calendar'));
+      await settle();
+      m.click(buttonIn(sheetIn(m), 'Delete calendar'));
       await settle();
       const plain = fetchCalls.find((c) => c.path === '/api/native-calendars/plain' && c.method === 'DELETE');
       assert(plain && !('googleCopy' in (plain.body ?? {})), `plain DELETE ${show(plain)}`);
@@ -9568,7 +9590,7 @@ async function main() {
       assert(hold, 'the second GET is not in flight');
       m.click(switchIn(cardOf(m, 'Home')));
       await settle();
-      m.click(buttonIn(cardOf(m, 'Home'), 'Keep'));
+      m.click(buttonIn(sheetIn(m), 'Keep'));
       await settle();
       (hold as unknown as (a: FetchAnswer) => void)(ok200(VIEW));
       await settle();
@@ -9586,11 +9608,13 @@ async function main() {
     const a = await mountCalendars('en');
     try {
       assert(byRole(a.m.container, 'switch').length === 0, 'rows after a failed GET');
-      a.m.click(byLabel(cardOf(a.m, 'Home'), 'Delete'));
+      a.m.click(listRowOf(a.m, 'Home'));
+      await settle();
+      a.m.click(buttonIn(sheetIn(a.m), 'Delete calendar'));
       await settle();
       assert(gets === 2, `GETs ${gets}`);
       assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE'), 'deleted before the question');
-      a.m.click(buttonIn(cardOf(a.m, 'Home'), 'Keep'));
+      a.m.click(buttonIn(sheetIn(a.m), 'Keep'));
       await settle();
       const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
       assert(del && del.body?.googleCopy === 'keep', `DELETE ${show(del)}`);
@@ -9603,10 +9627,12 @@ async function main() {
     serveCopies = (c) => (c.method === 'GET' && ++gets === 1 ? new Promise<FetchAnswer>((r) => { hold = r; }) : ok200(VIEW));
     const b = await mountCalendars('en');
     try {
-      b.m.click(byLabel(cardOf(b.m, 'Home'), 'Delete'));
+      b.m.click(listRowOf(b.m, 'Home'));
+      await settle();
+      b.m.click(buttonIn(sheetIn(b.m), 'Delete calendar'));
       await settle();
       assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE'), 'deleted while the rows were loading');
-      assertHas(textOf(htmlOf(cardOf(b.m, 'Home'))), ['from Google too, including anything you added to it?'], 'the question');
+      assertHas(textOf(htmlOf(sheetIn(b.m))), ['from Google too, including anything you added to it?'], 'the question');
       (hold as unknown as (x: FetchAnswer) => void)(ok200(VIEW));
       await settle();
     } finally {
@@ -9616,10 +9642,12 @@ async function main() {
     serveCopies = () => ({ status: 500, body: { error: 'failed' } });
     const c = await mountCalendars('en');
     try {
-      c.m.click(byLabel(cardOf(c.m, 'Home'), 'Delete'));
+      c.m.click(listRowOf(c.m, 'Home'));
+      await settle();
+      c.m.click(buttonIn(sheetIn(c.m), 'Delete calendar'));
       await settle();
       assert(!fetchCalls.some((x) => x.path === '/api/native-calendars/own' && x.method === 'DELETE'), 'deleted with no rows');
-      assertHas(textOf(innerHtml(c.m.container)), [String(gcm('en').errors.load)], 'the load error');
+      assertHas(textOf(innerHtml(c.m.container)), [String((messages.en as Row).calendarsPage.errors.delete), String(gcm('en').errors.load)], 'the errors');
     } finally {
       c.m.unmount();
     }
@@ -9692,7 +9720,7 @@ async function main() {
     }
   });
 
-  await check('#124e calendars page: a card names its categories in the screen\'s language (never the stored "primary", "yours"), leaves out "yours" (the section says it), and a partner\'s calendar shows none of the partner\'s categories and says what the viewer may do ("View only", "You can edit"), not the owner\'s "Partner can edit"; the edit chips are in the screen\'s language too', async () => {
+  await check('#124e calendars page: a list row names its calendar\'s categories in the screen\'s language (never the stored "primary", "yours"), leaves out "yours" (the section says it), and a partner\'s calendar shows none of the partner\'s categories and says what the viewer may do ("View only", "You can edit"), not the owner\'s "Partner can edit"; the sheet\'s category switches are in the screen\'s language too', async () => {
     serveCopies = () => ok200({ shown: false, ownerName: 'Noa', rows: [] });
     const labelled = [{ ...CALS[0], labels: ['primary', 'yours'] }, { ...CALS[1], labels: ['kids'] }, { ...CALS[2], labels: ['yours', 'spouse'] }, { ...cal('noa-work', 'Noa work', false), privacy: 'SHARED_VIEWER' as const }];
     for (const locale of ['en', 'he', 'ru'] as Locale[]) {
@@ -9703,22 +9731,26 @@ async function main() {
       await settle();
       try {
         const cat = (messages[locale] as Row).calendars as Row & { categories: Record<string, string> };
-        const home = textOf(htmlOf(cardOf(m, 'Home')));
-        assertHas(home, [cat.categories.primary], `${locale}: Home`);
+        const page = (messages[locale] as Row).calendarsPage as Row & { sharedAccess: Record<string, string>; privacyEditor: string };
+        const home = textOf(htmlOf(listRowOf(m, 'Home')));
+        assertHas(home, [cat.categories.primary, page.privacyEditor], `${locale}: Home`);
         assertLacks(home, [cat.categories.yours, ...(locale === 'en' ? [] : ['primary', 'yours'])], `${locale}: Home`);
-        assertHas(textOf(htmlOf(cardOf(m, 'Work'))), [cat.categories.kids], `${locale}: Work`);
-        const noa = textOf(htmlOf(cardOf(m, 'Noa family')));
+        assertHas(textOf(htmlOf(listRowOf(m, 'Work'))), [cat.categories.kids], `${locale}: Work`);
+        // The partner's calendars are plain rows (no button) in their own section
+        const partnerRow = (name: string) => {
+          const label = elements(m.container).filter((e) => e.className === 'ch-form-label' && textOf(htmlOf(e)).startsWith(name) && e.parentNode && (e.parentNode as FakeElement).localName === 'div')[0];
+          assert(label, `${locale}: no row for ${name}`);
+          return textOf(htmlOf(label));
+        };
+        const noa = partnerRow('Noa family');
         assertLacks(noa, [cat.categories.yours, cat.categories.spouse, 'yours', 'spouse'], `${locale}: the partner's calendar`);
-        // A partner's calendar says what the viewer may do with it, never the owner's "Partner can edit".
-        const access = ((messages[locale] as Row).calendarsPage as Row & { sharedAccess: Record<string, string> }).sharedAccess;
-        assertHas(noa, [access.edit], `${locale}: the partner's editable calendar`);
-        assertLacks(noa, [{ en: 'Partner can edit', he: 'פרטנר יכול לערוך', ru: 'Партнёр редактирует' }[locale]], `${locale}: the partner's calendar`);
-        assertHas(textOf(htmlOf(cardOf(m, 'Noa work'))), [access.view], `${locale}: the partner's view-only calendar`);
-        assertHas(textOf(htmlOf(cardOf(m, 'Home'))), [{ en: 'Partner can edit', he: 'פרטנר יכול לערוך', ru: 'Партнёр редактирует' }[locale]], `${locale}: an own calendar keeps the owner's line`);
-        m.click(elements(cardOf(m, 'Home')).filter((e) => e.localName === 'button')[0]);
+        assertHas(noa, [page.sharedAccess.edit], `${locale}: the partner's editable calendar`);
+        assertLacks(noa, [page.privacyEditor], `${locale}: the partner's calendar`);
+        assertHas(partnerRow('Noa work'), [page.sharedAccess.view], `${locale}: the partner's view-only calendar`);
+        m.click(listRowOf(m, 'Home'));
         await settle();
-        const chips = elements(m.container).filter((e) => e.localName === 'button' && e.className.includes('rounded-full') && e.className.includes('text-xs')).map((e) => textOf(htmlOf(e)));
-        assert(show(chips) === show(['primary', 'yours', 'spouse', 'kids', 'birthdays'].map((k) => cat.categories[k])), `${locale}: chips ${show(chips)}`);
+        const chips = byRole(sheetIn(m), 'switch').map((e) => textOf(htmlOf((e.childNodes[0] as FakeElement).childNodes[0])));
+        assert(show(chips) === show(['primary', 'yours', 'spouse', 'kids', 'birthdays'].map((k) => cat.categories[k])), `${locale}: switches ${show(chips)}`);
       } finally {
         m.unmount();
       }

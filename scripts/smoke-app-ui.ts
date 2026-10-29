@@ -344,7 +344,7 @@ async function main() {
     fakeWindow.Telegram = undefined;
   });
 
-  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's), except the Calendars client, which a later plan moves onto AppScreen; the list is pinned, so a new caller fails", () => {
+  await check("#5 one BackButton owner per screen: no file calls useTelegramBackButton but AppScreen.tsx (the hook is src/lib/telegram-ui.ts's); the list is pinned, so a new caller fails", () => {
     const calls: string[] = [];
     const walk = (dir: string) => {
       for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -358,7 +358,6 @@ async function main() {
     };
     for (const dir of ['app', 'components', 'src']) walk(dir);
     const expected = [
-      'app/[locale]/calendars/CalendarsClient.tsx',
       'components/app-ui/AppScreen.tsx',
       'src/lib/telegram-ui.ts',
     ];

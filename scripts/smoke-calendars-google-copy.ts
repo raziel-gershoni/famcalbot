@@ -1,18 +1,18 @@
 // Smoke test for the calendars page's "Copy to Google" rows (google-sync spec §1 Where it
-// lives, §5 Copy; plan Task S4): app/[locale]/calendars/GoogleCopyRow.tsx and its client
-// helpers (google-copy-client.ts), rendered through next-intl with the real messages in en, he
-// and ru. It checks:
+// lives, §5 Copy; plan Task S4; W4-1 moved the rows onto the form kit): app/[locale]/calendars/GoogleCopyRow.tsx
+// and its client helpers (google-copy-client.ts), rendered through next-intl with the real
+// messages in en, he and ru. It checks:
 //  - each state's row: off, copying (with and without progress), copied, "N can't be copied",
 //    Approve in Google, the consent wait, Needs reconnect, paused on the plan, gone with
 //    "Create it again", another account with "Copy again", error;
 //  - the switch: role="switch", aria-checked, its label naming the calendar, disabled while busy
-//    with the busy line and a spinner;
-//  - the unlink question with Remove and Keep (spec §1's wording), and the non-owner line with
-//    the owner's name; the notes (one way, alerts, Hebrew dates);
+//    (or while another request of the page runs) with the busy line and a spinner;
+//  - the Remove / Keep question (spec §1's wording, now asked by the page in a sheet, not by the
+//    row), and the non-owner line with the owner's name; the notes (one way, alerts, Hebrew dates);
 //  - the copy in en, he and ru: plurals per language, numbers grouped per locale, no raw key,
 //    no emoji;
-//  - the CSS rules: every tap target at least 44 px, no hover-only styling, logical
-//    properties only (RTL), no text under 12 px, icons hidden from screen readers;
+//  - the markup is the form kit's: every control a ch-form-row (a 48 px row), no Tailwind class,
+//    a status that needs the person in the danger colour, icons hidden from screen readers;
 //  - the client helpers against a fake fetch: the request shapes (initData in the header,
 //    never the URL), consent vs on, the error codes, what each status offers, and polling.
 // No network, no DB, no Redis.
@@ -24,9 +24,11 @@ import path from 'path';
 import { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, type GoogleCopyRowProps } from '../app/[locale]/calendars/GoogleCopyRow';
+import { GoogleCopyRow, GoogleCopyNotes, NonOwnerCopyLine, isolate, type GoogleCopyRowProps } from '../app/[locale]/calendars/GoogleCopyRow';
 import { consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds } from '../app/[locale]/calendars/google-copy-client';
 import { OAUTH_STATE_TTL_MS } from '../src/lib/oauth-state';
+import { FORM_CSS } from '../components/app-ui/form-kit';
+import { lintCss } from './lib/css-lint';
 import type { CopyRow } from '../src/services/google-sync/view';
 
 type Row = Record<string, unknown>;
@@ -62,8 +64,8 @@ const baseRow = (o: Partial<CopyRow> = {}): CopyRow => ({ calendarId: 'cal-1', l
 const noop = () => undefined;
 function props(o: Partial<GoogleCopyRowProps> = {}, row: Partial<CopyRow> = {}): GoogleCopyRowProps {
   return {
-    calendarName: 'Home', row: baseRow(row), busy: null, waiting: false, asking: false, error: null,
-    onToggle: noop, onAction: noop, onOpenGoogle: noop, onChoose: noop, onCancelAsk: noop, ...o,
+    calendarName: 'Home', row: baseRow(row), busy: null, waiting: false, error: null,
+    onToggle: noop, onAction: noop, onOpenGoogle: noop, ...o,
   };
 }
 const rowHtml = (locale: Locale, o: Partial<GoogleCopyRowProps> = {}, row: Partial<CopyRow> = {}) => render(locale, createElement(GoogleCopyRow, props(o, row)));
@@ -75,13 +77,14 @@ const EMOJI = /\p{Extended_Pictographic}/u;
 async function main() {
   // ---- Each state's row ----
 
-  await check('off: the title and a switch that is off, labelled with the calendar, and no status line', async () => {
+  await check('off: the calendar\'s name on a switch row that is off, labelled with the calendar, and no status line', async () => {
     for (const l of LOCALES) {
       const html = rowHtml(l, {}, { on: false, status: 'off', linkId: null });
       const sw = switchOf(html);
       assert(sw && /aria-checked="false"/.test(sw.tag), `${l}: switch ${show(sw)}`);
       assert(sw.tag.includes(`aria-label="${gc(l).switchLabel.replace('{name}', 'Home').replace(/"/g, '&quot;')}"`), `${l}: switch label ${sw.tag}`);
-      assert(textOf(html) === gc(l).title, `${l}: text ${textOf(html)}`);
+      assert(textOf(html) === 'Home', `${l}: text ${textOf(html)}`);
+      assert(/<button[^>]*class="ch-form-row"/.test(html) && /<span class="ch-switch"/.test(html), `${l}: the kit's switch row: ${html.slice(0, 300)}`);
     }
   });
 
@@ -159,7 +162,7 @@ async function main() {
         assert(/\bdisabled=""/.test(sw.tag) && /aria-busy="true"/.test(sw.tag), `${l} ${busy}: switch ${sw.tag}`);
         const t = textOf(html);
         assert(t.includes(gc(l).busy[busy]) && !t.includes(gc(l).status.gone), `${l} ${busy}: ${t}`);
-        assert(/animate-spin/.test(html), `${l} ${busy}: no spinner`);
+        assert(/ch-form-spinner/.test(html) && /ch-working/.test(html), `${l} ${busy}: no spinner`);
         assert(buttons(html).length === 1, `${l} ${busy}: buttons ${show(buttons(html))}`);
       }
     }
@@ -174,18 +177,29 @@ async function main() {
     }
   });
 
-  await check('the unlink question: spec §1\'s words with the copy calendar\'s name, Remove and Keep and Cancel, and no switch while asking', async () => {
-    const en = rowHtml('en', { asking: true });
-    assert(textOf(en).replace(/[\u2068\u2069]/g, '').includes('Delete the calendar “FamCal · Home” from Google too, including anything you added to it?'), `en ${textOf(en)}`);
+  await check('the unlink question (asked by the page in a sheet, not by the row): spec §1\'s words with the copy calendar\'s name, Remove and Keep and Cancel in every language; a right-to-left name is isolated inside the sentence; the row itself no longer carries it', async () => {
+    const question = (l: Locale, name: string) => gc(l).unlink.question.replace('{name}', isolate(name));
+    assert(question('en', 'Home').replace(/[\u2068\u2069]/g, '') === 'Delete the calendar “FamCal · Home” from Google too, including anything you added to it?', `en ${question('en', 'Home')}`);
     for (const l of LOCALES) {
-      const html = rowHtml(l, { asking: true });
-      const labels = buttons(html).map((b) => b.text);
-      assert(show(labels) === show([gc(l).unlink.remove, gc(l).unlink.keep, gc(l).unlink.cancel]), `${l}: ${show(labels)}`);
-      assert(!switchOf(html), `${l}: a switch while asking`);
-      assert(textOf(html).includes('FamCal · '), `${l}: ${textOf(html)}`);
+      for (const k of ['question', 'remove', 'keep', 'cancel']) assert(typeof gc(l).unlink[k] === 'string' && gc(l).unlink[k].length > 0, `${l}: unlink.${k}`);
+      assert(question(l, 'בית').includes('⁨בית⁩'), `${l}: the name is not isolated`);
+      // The row, in any state, asks nothing: no Remove, Keep or Cancel button and no question
+      for (const status of ['off', 'copying', 'copied', 'approve', 'reconnect', 'plan', 'gone', 'otherAccount', 'error'] as const) {
+        const html = rowHtml(l, {}, { status, on: status !== 'off' });
+        assert(!buttons(html).some((b) => [gc(l).unlink.remove, gc(l).unlink.keep, gc(l).unlink.cancel].includes(b.text)), `${l} ${status}: a Remove / Keep / Cancel button in the row`);
+        assert(!textOf(html).includes('FamCal · '), `${l} ${status}: the question in the row`);
+      }
     }
-    // A right-to-left name stays isolated inside the sentence
-    assert(/⁨בית⁩/.test(textOf(rowHtml('he', { asking: true, calendarName: 'בית' }))), 'the Hebrew name is not isolated');
+    // A name in the row keeps its own direction
+    assert(/<bdi dir="auto">בית<\/bdi>/.test(rowHtml('he', { calendarName: 'בית' })), 'the Hebrew name is not in a <bdi dir="auto">');
+  });
+
+  await check('locked: while another request of the page runs the switch and the action are disabled, and the row shows no busy line of its own', async () => {
+    for (const l of LOCALES) {
+      const html = rowHtml(l, { locked: true }, { status: 'gone' });
+      assert(buttons(html).length === 2 && buttons(html).every((b) => /\bdisabled=""/.test(b.tag)), `${l}: ${show(buttons(html))}`);
+      assert(!/ch-form-spinner|aria-busy/.test(html), `${l}: busy look on a locked row`);
+    }
   });
 
   await check('the Hebrew-dates note stays true for copies not yet switched to one event per year: it says earlier copies switch on the next sync (en/he/ru)', async () => {
@@ -210,7 +224,7 @@ async function main() {
     const statuses: CopyRow['status'][] = ['off', 'copying', 'copied', 'approve', 'reconnect', 'plan', 'gone', 'otherAccount', 'error'];
     return [
       ...statuses.map((status) => rowHtml(l, {}, { status, on: status !== 'off', copied: 3, total: 9, unsupported: 2 })),
-      rowHtml(l, { waiting: true }), rowHtml(l, { asking: true }), rowHtml(l, { busy: 'on' }), rowHtml(l, { error: 'failed' }),
+      rowHtml(l, { waiting: true }), rowHtml(l, { locked: true }), rowHtml(l, { busy: 'on' }), rowHtml(l, { error: 'failed' }),
       render(l, createElement(NonOwnerCopyLine, { owner: 'Noa' })), render(l, createElement(GoogleCopyNotes)),
     ].join('\n');
   };
@@ -230,14 +244,21 @@ async function main() {
     assert(!/(^|\s)(ты|тебе|твой|твои|твоя|нажми|подтверди)(?=[\s,.?]|$)/iu.test(ru) && /вы|ваш/iu.test(ru), `ru: not formal: ${ru}`);
   });
 
-  await check('CSS rules: every button is a 44 px tap target; no hover-only styling; logical properties only; no text under 12 px; icons aria-hidden', async () => {
+  await check('the markup is the form kit\'s: every button a ch-form-row (the kit draws a 48 px row with a visible focus ring, and FORM_CSS passes the CSS lint), no Tailwind class, a status that needs the person in the danger colour and the others quiet, icons aria-hidden', async () => {
     const html = everything('en');
-    for (const b of buttons(html)) assert(/\bmin-h-11\b/.test(b.tag) && (!/role="switch"/.test(b.tag) || /\bmin-w-11\b/.test(b.tag)), `tap target ${b.tag}`);
+    for (const b of buttons(html)) assert(/class="ch-form-row(?: ch-action-row)?"/.test(b.tag), `a button that is not a kit row: ${b.tag}`);
     const classes = [...html.matchAll(/class="([^"]*)"/g)].flatMap((m) => m[1].split(/\s+/));
-    const bad = classes.filter((c) => /^(hover:|group-hover:)/.test(c) || /^-?(ml|mr|pl|pr)-/.test(c) || /^(left|right)-/.test(c) || /^text-(left|right)$/.test(c) || /^text-\[(\d|10|11)px\]$/.test(c) || /^text-(2xs|\[0\.[0-6])/.test(c));
-    assert(bad.length === 0, `classes ${show([...new Set(bad)])}`);
+    const tailwind = classes.filter((c) => /^(?:hover:|group-hover:|-?(?:ml|mr|pl|pr|mt|mb|px|py|gap)-\d|min-h-|min-w-|bg-|text-(?:gray|rose|blue|white|xs|sm)|rounded|flex-1|shrink|animate-)/.test(c));
+    assert(tailwind.length === 0, `Tailwind classes ${show([...new Set(tailwind)])}`);
+    const needs = ['approve', 'reconnect', 'gone', 'otherAccount', 'error'] as const;
+    for (const status of needs) assert(/class="ch-form-hint is-danger"/.test(rowHtml('en', {}, { status })), `${status}: not in the danger colour`);
+    for (const status of ['copied', 'plan'] as const) assert(/class="ch-form-hint"/.test(rowHtml('en', {}, { status })) && !/is-danger/.test(rowHtml('en', {}, { status })), `${status}: should be quiet`);
+    assert(!/is-danger/.test(rowHtml('en', { waiting: true }, { on: false, status: 'off' })), 'the wait line is quiet');
     const svgs = [...html.matchAll(/<svg\b[^>]*>/g)].map((m) => m[0]);
     assert(svgs.length > 0 && svgs.every((s) => /aria-hidden="true"/.test(s)), `icons ${show(svgs.filter((s) => !/aria-hidden="true"/.test(s)))}`);
+    const problems = lintCss(FORM_CSS);
+    assert(problems.length === 0, `FORM_CSS: ${show(problems)}`);
+    assert(/button\.ch-form-row\s*\{[^}]*inline-size:\s*100%/.test(FORM_CSS) && /\.ch-form-row\s*\{[^}]*min-block-size:\s*48px/.test(FORM_CSS), 'the kit\'s row is not a 48 px target');
   });
 
   // ---- The client helpers ----

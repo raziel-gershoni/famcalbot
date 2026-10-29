@@ -269,10 +269,6 @@ async function main() {
     const oldBg = fakeWebApp(['setBackgroundColor']);
     await withWindow(oldBg.webApp, () => startMiniApp('telegram'));
 
-    const light = fakeWebApp();
-    await withWindow(light.webApp, () => startMiniApp('light'));
-    assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
-
     // The app's own look sets no colour (its AppScreen takes the theme's bg_color), and turns swipes on
     const app = fakeWebApp([], '7.7');
     await withWindow(app.webApp, () => startMiniApp('app'));
@@ -285,7 +281,7 @@ async function main() {
     await withWindow(null, () => startMiniApp('app'));
   });
 
-  await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing; the light look stays ready+expand', async () => {
+  await check('#2b startMiniApp: a 7.7+ client gets enableVerticalSwipes() once and never disable; 7.6 gets none; a throw there costs nothing', async () => {
     const { startMiniApp } = await load('app/[locale]/PageGate.tsx');
     const modern = fakeWebApp([], '7.7');
     await withWindow(modern.webApp, () => startMiniApp('telegram'));
@@ -307,10 +303,6 @@ async function main() {
     for (const call of ['ready()', 'expand()', 'setHeaderColor(#667eea)', 'setBackgroundColor(#ffffff)']) {
       assert(throws.calls.includes(call), `swipes threw: no ${call} in ${show(throws.calls)}`);
     }
-
-    const light = fakeWebApp([], '8.0');
-    await withWindow(light.webApp, () => startMiniApp('light'));
-    assert(show(light.calls) === show(['ready()', 'expand()']), `light look: ${show(light.calls)}`);
 
     const app = fakeWebApp([], '8.0');
     await withWindow(app.webApp, () => startMiniApp('app'));
@@ -378,7 +370,7 @@ async function main() {
     const { NoCredentialCard } = await load('app/[locale]/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const problems: string[] = [];
-    for (const look of ['telegram', 'light', 'app']) {
+    for (const look of ['telegram', 'app']) {
       const html = renderHtml(React.createElement(NoCredentialCard, { look, inTelegram: false, links: LINKS }), 'he');
       const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
       const tg = html.indexOf(`href="${LINKS.telegram}"`);
@@ -399,7 +391,7 @@ async function main() {
       `the card: ${html.slice(0, 300)}`);
     assert(!html.includes('wa.me') && !html.includes('t.me/'), 'the in-Telegram card links out');
     // The card's action is data for the gate (Gate renders it as a button in each look)
-    for (const look of ['telegram', 'light', 'app']) {
+    for (const look of ['telegram', 'app']) {
       const card = treeOf(NoCredentialCard, { look, inTelegram: true, links: LINKS }, 'he') as Row;
       const clicks = (card.props.actions as Row[]).map(a => a.onClick).filter((f): f is () => void => typeof f === 'function');
       assert(clicks.length === 1 && card.props.actions.length === 1, `${look}: ${clicks.length} click handlers`);
@@ -573,7 +565,7 @@ async function main() {
     assert(got.trialDaysLeft === null && got.hasLocation === false, `trialDaysLeft ${show(got.trialDaysLeft)}, hasLocation ${show(got.hasLocation)}`);
   });
 
-  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard, LOOK.settings, LOOK.subscription and LOOK.pair are app (the loader\'s look, which Settings\', Subscription\'s and Pair\'s chunks load behind, on their own (grouped) ground, as GROUND says); the other pages keep theirs', () => {
+  await check('#18 PRELOAD.dashboard starts the home\'s chunk, and LOOK.dashboard, LOOK.settings, LOOK.subscription, LOOK.pair and LOOK.calendars are app (the loader\'s look, which Settings\', Subscription\', Pair\'s and Calendars\' chunks load behind, on their own (grouped) ground, as GROUND says); select-calendars keeps the purple one, and no page or loader has the old light look any more', () => {
     const src = readSource('app/[locale]/PageGate.tsx');
     const block = (name: string) => {
       const at = src.indexOf(`const ${name}`);
@@ -584,14 +576,14 @@ async function main() {
     assert(entry.includes("import('./dashboard/CalendarHome')"), `no CalendarHome chunk in PRELOAD.dashboard: ${entry.trim() || '(not found)'}`);
     assert(!entry.includes('DashboardClient'), `PRELOAD.dashboard: ${entry.trim()}`);
     const look = block('LOOK');
-    for (const page of ['dashboard', 'settings', 'subscription', 'pair']) assert(new RegExp(`\\n\\s*${page}: 'app',`).test(look), `${page} is app: ${look}`);
+    for (const page of ['dashboard', 'settings', 'subscription', 'pair', 'calendars']) assert(new RegExp(`\\n\\s*${page}: 'app',`).test(look), `${page} is app: ${look}`);
     assert(/const groupedAppLoader = \(\) => <PageLoader look="app" ground="grouped" \/>;/.test(src), 'the grouped loader draws the app look on the grouped ground');
-    for (const page of ['Settings', 'Subscription', 'Pair']) assert(new RegExp(`const ${page} = dynamic\\([^\\n]*loading: groupedAppLoader`).test(src), `${page}'s chunk loads behind the app's loader on its own (grouped) ground`);
+    for (const page of ['Settings', 'Subscription', 'Pair', 'Calendars']) assert(new RegExp(`const ${page} = dynamic\\([^\\n]*loading: groupedAppLoader`).test(src), `${page}'s chunk loads behind the app's loader on its own (grouped) ground`);
     const ground = block('GROUND');
-    for (const page of ['settings', 'subscription', 'pair']) assert(new RegExp(`\\n\\s*${page}: 'grouped',`).test(ground), `${page} is drawn on the grouped ground: ${ground}`);
-    for (const [page, kept] of [["'select-calendars'", 'telegram'], ['calendars', 'light']]) {
-      assert(new RegExp(`\\n\\s*${page}: '${kept}',`).test(look), `${page} keeps ${kept}: ${look}`);
-    }
+    for (const page of ['settings', 'subscription', 'pair', 'calendars']) assert(new RegExp(`\\n\\s*${page}: 'grouped',`).test(ground), `${page} is drawn on the grouped ground: ${ground}`);
+    assert(/\n\s*'select-calendars': 'telegram',/.test(look), `select-calendars keeps telegram: ${look}`);
+    // The light look (the Calendars page's own, Tailwind) is gone: its type member, loader, gate card and startMiniApp branch
+    assert(!/'light'|lightLoader|look === 'light'|bg-gradient-to-br|text-indigo|min-h-screen/.test(src.replace(/data-theme|color-scheme|\blight theme\b/g, '')) && /export type Look = 'app' \| 'telegram';/.test(src), 'a trace of the light look is left in PageGate');
   });
 
   await check('#19 the calendar home\'s chunk sits inside PageGate\'s own boundary (the home\'s boundary lives inside that chunk), which reads the reload guard from the leaf reload-guard, never the home\'s code', async () => {

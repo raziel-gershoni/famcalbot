@@ -1,29 +1,44 @@
 'use client';
 
-// Native calendar management — list owned + partner-shared calendars,
-// create new, rename / recolor / relabel / change privacy. View-only for
-// partner-owned shared calendars.
+// The Calendars screen, in the home's design (spec 2026-10-19 §4, §5; plan W4-1): an AppScreen on the grouped ground, a
+// header with its back, and four sections of cards, all drawn with the form kit (components/app-ui).
 //
-// Voice CRUD remains the primary creation surface; this page is for the
-// long tail of organization (renaming a calendar, moving a label, hiding
-// one as private) where typed UI is faster than dictating.
+// - Your calendars: one list row per own calendar (a dot in the colour it is drawn in, the name, who sees it, its
+//   categories as tags) and a "New calendar" row. A tap on a calendar opens its sheet; the row opens the create sheet.
+// - Copy to Google (google-sync spec §1): once /api/google-sync says the copies apply (Google connected, or a copy on),
+//   a switch row per own calendar (GoogleCopyRow) and the notes. The rows refresh while a copy is being made or a consent
+//   waits, and when the page comes back to the foreground. Turning a copy off asks Remove or Keep in a sheet.
+// - The partner's calendars (only when there are any): read-only rows; only their owner can copy them.
+// - Google Calendar: one row that leads to where the person is with Google (choose calendars, connect, reconnect).
 //
-// Copy to Google (google-sync spec §1): each own calendar's card carries a "Copy to Google"
-// row (GoogleCopyRow) once /api/google-sync says the copies apply (Google connected, or a
-// copy on); a partner's calendar says only its owner can copy it. The rows refresh while a
-// copy is being made or a consent waits, and when the page comes back to the foreground.
+// The edit sheet holds the name, colour, categories and who sees the calendar; Delete turns the same sheet into its confirm
+// step (named for the calendar), which asks Remove or Keep when the calendar's Google copy is on. No browser pop-up.
+//
+// - One request at a time (the Partner screen's pattern): the one that runs shows a spinner and the other actions are off.
+//   Every failure is said in the page's language, in the sheet whose request it was (a sheet covers the page), and logged.
+//   A refused save, create or delete keeps its sheet open with what the person entered.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the sheet that
+//   is open (a confirm step goes back to the edit step), does nothing while a request runs, else returns to the calendar.
+// - The requests are /api/native-calendars (POST, PATCH, DELETE) and /api/google-sync, as they have always been.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { Lock, Eye, Edit3, Trash2, Plus, Check } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
 import { CALENDAR_PALETTE, displayColours } from '@/src/lib/calendar-colours';
 import type { GoogleState } from '@/src/lib/google-state';
-import { openExternalLink, useTelegramBackButton } from '@/src/lib/telegram-ui';
+import { openExternalLink, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { AppScreen } from '@/components/app-ui/AppScreen';
+import { BottomSheet } from '@/components/app-ui/BottomSheet';
+import { Chevron, ColorSwatches, FORM_CSS, FieldError, FormCard, RadioCard, SaveBar, SwitchRow, TextField } from '@/components/app-ui/form-kit';
+import { ListRow } from '@/components/app-ui/ListRow';
+import { Notice } from '@/components/app-ui/Notice';
+import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
+import { Tag } from '@/components/app-ui/Tag';
 import type { CopiesView, CopyRow } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
-import { GoogleCopyNotes, GoogleCopyRow, NonOwnerCopyLine } from './GoogleCopyRow';
+import { GoogleCopyNotes, GoogleCopyRow, NonOwnerCopyLine, isolate } from './GoogleCopyRow';
 import {
   consentWait, copyAction, deleteCalendarBody, loadCopies, needsPolling, recreateCopy, startCopy, stopCopy, waitExpired, waitHolds,
   type ConsentWait, type CopyErrorCode,
@@ -60,112 +75,97 @@ interface Props {
 }
 
 const VALID_LABELS = ['primary', 'yours', 'spouse', 'kids', 'birthdays'] as const;
-
-const COPY: Record<string, Record<string, string>> = {
-  en: {
-    title: 'Your calendars',
-    yours: 'Yours',
-    sharedFromPartner: 'Shared from partner',
-    addCalendar: 'New calendar',
-    addCalendarPrompt: 'Calendar name',
-    save: 'Save',
-    cancel: 'Cancel',
-    rename: 'Rename',
-    delete: 'Delete',
-    deleteConfirm: 'Delete this calendar?',
-    privacyPrivate: 'Private (only you)',
-    privacySharedViewer: 'Partner can view',
-    privacySharedEditor: 'Partner can edit',
-    labels: 'Labels',
-    color: 'Color',
-    privacyHeading: 'Visibility',
-    canView: 'Partner can view',
-    canEdit: 'Partner can edit',
-    private: 'Private',
-    cantDeleteLast: 'Cannot delete your only calendar.',
-    saving: 'Saving…',
-    deleting: 'Deleting…',
-    creating: 'Creating…',
-    namePlaceholder: 'e.g. Work, Family, Soccer',
-    errorGeneric: 'Something went wrong.',
-    paywall: 'Upgrade to add more calendars.',
-  },
-  he: {
-    title: 'היומנים שלך',
-    yours: 'שלך',
-    sharedFromPartner: 'משותף מהפרטנר',
-    addCalendar: 'יומן חדש',
-    addCalendarPrompt: 'שם היומן',
-    save: 'שמירה',
-    cancel: 'ביטול',
-    rename: 'שינוי שם',
-    delete: 'מחיקה',
-    deleteConfirm: 'למחוק את היומן הזה?',
-    privacyPrivate: 'פרטי (רק את/ה)',
-    privacySharedViewer: 'הפרטנר רואה',
-    privacySharedEditor: 'הפרטנר יכול לערוך',
-    labels: 'תוויות',
-    color: 'צבע',
-    privacyHeading: 'נראות',
-    canView: 'פרטנר רואה',
-    canEdit: 'פרטנר יכול לערוך',
-    private: 'פרטי',
-    cantDeleteLast: 'אי אפשר למחוק את היומן היחיד שלך.',
-    saving: 'שומר…',
-    deleting: 'מוחק…',
-    creating: 'יוצר…',
-    namePlaceholder: 'למשל: עבודה, משפחה, כדורגל',
-    errorGeneric: 'משהו השתבש.',
-    paywall: 'שדרוג כדי להוסיף עוד יומנים.',
-  },
-  ru: {
-    title: 'Твои календари',
-    yours: 'Твои',
-    sharedFromPartner: 'От партнёра',
-    addCalendar: 'Новый календарь',
-    addCalendarPrompt: 'Название календаря',
-    save: 'Сохранить',
-    cancel: 'Отмена',
-    rename: 'Переименовать',
-    delete: 'Удалить',
-    deleteConfirm: 'Удалить этот календарь?',
-    privacyPrivate: 'Приватный (только ты)',
-    privacySharedViewer: 'Партнёр видит',
-    privacySharedEditor: 'Партнёр редактирует',
-    labels: 'Метки',
-    color: 'Цвет',
-    privacyHeading: 'Видимость',
-    canView: 'Партнёр видит',
-    canEdit: 'Партнёр редактирует',
-    private: 'Приватный',
-    cantDeleteLast: 'Нельзя удалить единственный календарь.',
-    saving: 'Сохраняем…',
-    deleting: 'Удаляем…',
-    creating: 'Создаём…',
-    namePlaceholder: 'напр. Работа, Семья, Футбол',
-    errorGeneric: 'Что-то пошло не так.',
-    paywall: 'Обнови подписку, чтобы добавить календари.',
-  },
-};
+const PRIVACIES: Calendar['privacy'][] = ['PRIVATE', 'SHARED_VIEWER', 'SHARED_EDITOR'];
+const PRIVACY_KEY: Record<Calendar['privacy'], string> = { PRIVATE: 'privacyPrivate', SHARED_VIEWER: 'privacyViewer', SHARED_EDITOR: 'privacyEditor' };
 
 function getInitData(): string {
   return readInitData();
 }
 
+/** What the person is changing in the edit sheet. */
+interface Draft {
+  name: string;
+  color: string;
+  labels: string[];
+  privacy: Calendar['privacy'];
+}
+
+/**
+ * The sheet that is open. Edit and delete hold the calendar as it was when the sheet opened: a calendar that was deleted
+ * elsewhere (and so leaves the list) does not take its sheet, and the error it caused, away.
+ */
+type Sheet =
+  | { kind: 'create' }
+  | { kind: 'edit'; calendar: Calendar }
+  | { kind: 'delete'; calendar: Calendar }
+  | { kind: 'copyOff'; calendar: Calendar };
+
+/** The one request that runs. The delete and turn-off kinds say which button was pressed. */
+type Busy = 'create' | 'save' | 'load' | 'copy' | 'delete-plain' | 'delete-remove' | 'delete-keep' | 'off-remove' | 'off-keep';
+
+type Action = 'save' | 'create' | 'delete';
+type Failure = 'notFound' | 'tooMany' | 'reopen' | 'limit' | 'onlyOne' | 'generic';
+interface SheetError {
+  action: Action;
+  failure: Failure;
+}
+
+/** What a refused write means: by the server's code first, then by its status. A 401 or 403 is a session that ended. */
+function failureOf(action: Action, status: number, code: unknown): Failure {
+  if (action === 'create' && code === 'calendar_limit_reached') return 'limit';
+  if (action === 'delete' && code === 'cannot_delete_last') return 'onlyOne';
+  if (action !== 'create' && (status === 404 || code === 'not_found')) return 'notFound';
+  if (status === 429) return 'tooMany';
+  if (status === 401 || status === 403) return 'reopen';
+  return 'generic';
+}
+
+const HEX = /^#[0-9a-f]{3,8}$/i;
+
+/** A private-use character that stands for the name while a message is formatted. */
+const NAME_MARK = '\uE000';
+
+/** A message that has {name} in it, with the name in a <bdi>: it keeps its own direction inside a sentence of either. */
+function sentenceWithName(message: (name: string) => string, name: string): ReactNode {
+  const [before, after] = message(NAME_MARK).split(NAME_MARK);
+  return (
+    <>
+      {before}
+      <bdi dir="auto">{name}</bdi>
+      {after}
+    </>
+  );
+}
+
+/** The dot of a calendar's colour, in a list row's title or beside a partner's calendar. */
+function Dot({ colour }: { colour: string }) {
+  return <span className="ch-swatch-dot is-lg" style={HEX.test(colour) ? { background: colour } : undefined} aria-hidden="true" />;
+}
+
+function Spinner() {
+  return <span className="ch-form-spinner" aria-hidden="true" />;
+}
+
 export default function CalendarsClient(props: Props) {
-  const { userId, locale, initialCalendars, googleColors } = props;
-  const t = COPY[locale] || COPY.en;
-  const isRTL = locale === 'he';
+  const { userId, locale, initialCalendars, googleColors, google, partnerName } = props;
+  const t = useTranslations('calendarsPage');
+  const tc = useTranslations('googleCopy');
+  const categories = useTranslations('calendars.categories');
+  const sharedAccess = useTranslations('calendarsPage.sharedAccess');
+  const ui = useTranslations('ui');
   const router = useRouter();
-  // These pages open from the home's ⋯ menu: Telegram's back button (and Android's back) returns there.
-  useTelegramBackButton(true, () => router.push(`/${locale}/dashboard?user_id=${userId}`));
+  const deleteErrorId = useId();
 
   const [calendars, setCalendars] = useState<Calendar[]>(initialCalendars);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [draft, setDraft] = useState<Draft>({ name: '', color: '', labels: [], privacy: 'PRIVATE' });
   const [newName, setNewName] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string>('');
+  const [sheetError, setSheetError] = useState<SheetError | null>(null);
+  const [busy, setBusy] = useState<Busy | null>(null);
+  /** The same as `busy`, readable in the handler that runs right after another (two taps in one frame). */
+  const running = useRef(false);
+  // A swipe down in a sheet must not minimize the app.
+  useTelegramVerticalSwipes(sheet !== null);
 
   // The colours as drawn on every screen (displayColours): a FamCal calendar too close to
   // another is shifted here too. The saved colour, and the picker below, stay as saved.
@@ -177,14 +177,28 @@ export default function CalendarsClient(props: Props) {
   const owned = calendars.filter((c) => c.isOwner);
   const shared = calendars.filter((c) => !c.isOwner);
 
+  /** One request at a time: `kind` is busy while `work` runs; a throw is logged and `fail` tells the person. */
+  const run = async (kind: Busy, work: () => Promise<void>, fail: (error: unknown) => void) => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(kind);
+    try {
+      await work();
+    } catch (error) {
+      console.error(`[calendars] ${kind} failed:`, error);
+      fail(error);
+    } finally {
+      running.current = false;
+      setBusy(null);
+    }
+  };
+
   // ---- Copy to Google ----
-  const tc = useTranslations('googleCopy');
   const [copies, setCopies] = useState<CopiesView | null>(null);
   const [copyLoadFailed, setCopyLoadFailed] = useState(false);
   const [copyBusy, setCopyBusy] = useState<Record<string, 'on' | 'off' | 'working'>>({});
   /** Calendars whose consent was started and can still be used: Google's URL, opened by the row's Open Google tap. */
   const [waiting, setWaiting] = useState<Record<string, ConsentWait>>({});
-  const [asking, setAsking] = useState<{ calendarId: string; mode: 'off' | 'delete' } | null>(null);
   const [copyErrors, setCopyErrors] = useState<Record<string, CopyErrorCode>>({});
   const loading = useRef(false);
   /** A refresh asked while one was in flight: that one may have read the rows before a change, so one more runs after it. */
@@ -251,23 +265,27 @@ export default function CalendarsClient(props: Props) {
   }, [polling, refreshCopies]);
 
   /** Turn a copy on, or start Google's consent when the permission is missing. */
-  const turnOn = async (calendarId: string, busyAs: 'on' | 'working') => {
-    setBusyFor(calendarId, busyAs);
-    setErrorFor(calendarId, null);
-    try {
-      const result = await startCopy(userId, calendarId);
-      if (result.kind === 'consent') {
-        const wait = consentWait(result.oauthUrl, copyOf(calendarId), Date.now(), asks.current);
-        setWaiting((w) => ({ ...w, [calendarId]: wait }));
-      }
-      else if (result.kind === 'error') setErrorFor(calendarId, result.code);
-      else await refreshCopies();
-    } finally {
-      setBusyFor(calendarId, null);
-    }
-  };
+  const turnOn = (calendarId: string, busyAs: 'on' | 'working') =>
+    run(
+      'copy',
+      async () => {
+        setBusyFor(calendarId, busyAs);
+        setErrorFor(calendarId, null);
+        try {
+          const result = await startCopy(userId, calendarId);
+          if (result.kind === 'consent') {
+            const wait = consentWait(result.oauthUrl, copyOf(calendarId), Date.now(), asks.current);
+            setWaiting((w) => ({ ...w, [calendarId]: wait }));
+          } else if (result.kind === 'error') setErrorFor(calendarId, result.code);
+          else await refreshCopies();
+        } finally {
+          setBusyFor(calendarId, null);
+        }
+      },
+      () => setErrorFor(calendarId, 'failed'),
+    );
 
-  const copyActionFor = async (row: CopyRow) => {
+  const copyActionFor = (row: CopyRow) => {
     const action = copyAction(row.status);
     if (action === 'consent') return turnOn(row.calendarId, 'working');
     if (action === 'reconnect') {
@@ -276,15 +294,22 @@ export default function CalendarsClient(props: Props) {
       return;
     }
     if (action === 'recreate' && row.linkId) {
-      setBusyFor(row.calendarId, 'working');
-      setErrorFor(row.calendarId, null);
-      try {
-        const result = await recreateCopy(userId, row.linkId);
-        if (result.kind === 'error') setErrorFor(row.calendarId, result.code);
-        else await refreshCopies();
-      } finally {
-        setBusyFor(row.calendarId, null);
-      }
+      const linkId = row.linkId;
+      return run(
+        'copy',
+        async () => {
+          setBusyFor(row.calendarId, 'working');
+          setErrorFor(row.calendarId, null);
+          try {
+            const result = await recreateCopy(userId, linkId);
+            if (result.kind === 'error') setErrorFor(row.calendarId, result.code);
+            else await refreshCopies();
+          } finally {
+            setBusyFor(row.calendarId, null);
+          }
+        },
+        () => setErrorFor(row.calendarId, 'failed'),
+      );
     }
   };
 
@@ -298,404 +323,462 @@ export default function CalendarsClient(props: Props) {
     if (!wait || !openExternalLink(wait.url)) setErrorFor(calendarId, 'openFailed');
   };
 
-  /** The answer to "Delete the calendar … from Google too?": a turn-off, or the calendar's delete. */
-  const chooseCopy = async (choice: UnlinkChoice) => {
-    if (!asking) return;
-    const { calendarId, mode } = asking;
-    if (mode === 'delete') {
-      setBusyFor(calendarId, 'working');
-      try {
-        await deleteCalendar(calendarId, choice);
-      } finally {
-        setBusyFor(calendarId, null);
-        setAsking(null);
-      }
-      return;
-    }
-    setBusyFor(calendarId, 'off');
-    setErrorFor(calendarId, null);
-    try {
-      const result = await stopCopy(userId, calendarId, choice);
-      if (result.kind === 'error') setErrorFor(calendarId, result.code);
-      else await refreshCopies();
-    } finally {
-      setBusyFor(calendarId, null);
-      setAsking(null);
-    }
-  };
+  /** The answer to "Delete the calendar … from Google too?" for a copy being turned off: the sheet closes whatever the answer. */
+  const turnOff = (c: Calendar, choice: UnlinkChoice) =>
+    run(
+      choice === 'remove' ? 'off-remove' : 'off-keep',
+      async () => {
+        setBusyFor(c.rawId, 'off');
+        setErrorFor(c.rawId, null);
+        try {
+          const result = await stopCopy(userId, c.rawId, choice);
+          if (result.kind === 'error') setErrorFor(c.rawId, result.code);
+          else await refreshCopies();
+        } finally {
+          setBusyFor(c.rawId, null);
+          setSheet(null);
+        }
+      },
+      () => setErrorFor(c.rawId, 'failed'),
+    );
 
   const copyRowFor = (c: Calendar): ReactNode => {
     const row = copyOf(c.rawId);
     if (!copies?.shown || !row) return null;
     return (
       <GoogleCopyRow
+        key={c.rawId}
         calendarName={c.name}
         row={row}
         busy={copyBusy[c.rawId] ?? null}
         waiting={Boolean(waiting[c.rawId])}
-        asking={asking?.calendarId === c.rawId}
+        locked={busy !== null}
         error={copyErrors[c.rawId] ?? null}
-        onToggle={() => (row.on ? setAsking({ calendarId: c.rawId, mode: 'off' }) : turnOn(c.rawId, 'on'))}
-        onAction={() => copyActionFor(row)}
+        onToggle={() => {
+          if (running.current) return;
+          if (row.on) setSheet({ kind: 'copyOff', calendar: c });
+          else void turnOn(c.rawId, 'on');
+        }}
+        onAction={() => void copyActionFor(row)}
         onOpenGoogle={() => openGoogle(c.rawId)}
-        onChoose={chooseCopy}
-        onCancelAsk={() => setAsking(null)}
       />
     );
   };
 
-  const reload = async () => {
-    const res = await fetch(`/api/native-calendars?user_id=${userId}`, { headers: initDataHeaders() });
-    if (res.ok) {
+  // ---- The calendars ----
+
+  /** The list as the server has it. False when it could not be asked: the page then keeps what it shows. */
+  const reload = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/native-calendars?user_id=${userId}`, { headers: initDataHeaders() });
+      if (!res.ok) {
+        console.error('[calendars] reloading the list answered', res.status);
+        return false;
+      }
       const data = await res.json();
+      if (!Array.isArray(data?.calendars)) {
+        console.error('[calendars] reloading the list answered with no calendars');
+        return false;
+      }
       setCalendars(data.calendars);
+      return true;
+    } catch (error) {
+      console.error('[calendars] reloading the list failed:', error);
+      return false;
     }
   };
 
-  const create = async () => {
-    if (!newName.trim()) return;
-    setBusy('creating');
-    setError('');
-    try {
-      const res = await fetch(`/api/native-calendars?user_id=${userId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName.trim(), initData: getInitData() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error === 'calendar_limit_reached' ? t.paywall : t.errorGeneric);
-        return;
-      }
-      setNewName('');
-      setCreating(false);
-      await reload();
-    } finally {
-      setBusy(null);
-    }
+  /** A write to the calendars API: whether it went through (with the body it answered) or why not. A refusal is logged. */
+  const write = async (action: Action, method: 'POST' | 'PATCH' | 'DELETE', path: string, payload: Record<string, unknown>): Promise<{ failure: Failure | null; data: Record<string, unknown> | null }> => {
+    const res = await fetch(`${path}?user_id=${userId}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (res.ok) return { failure: null, data };
+    const code = data?.error;
+    console.error(`[calendars] ${action} refused: ${res.status} ${typeof code === 'string' ? code : ''}`.trim());
+    return { failure: failureOf(action, res.status, code), data };
   };
 
-  const patch = async (rawId: string, body: Record<string, unknown>) => {
-    setBusy(rawId);
-    setError('');
-    try {
-      const res = await fetch(`/api/native-calendars/${rawId}?user_id=${userId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...body, initData: getInitData() }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || t.errorGeneric);
-        return;
-      }
-      await reload();
-    } finally {
-      setBusy(null);
+  const closeSheet = () => {
+    if (running.current) return;
+    setSheet(null);
+    setSheetError(null);
+  };
+
+  const openEdit = (c: Calendar) => {
+    if (running.current) return;
+    setDraft({ name: c.name, color: c.color, labels: c.labels, privacy: c.privacy });
+    setSheetError(null);
+    setSheet({ kind: 'edit', calendar: c });
+  };
+
+  const openCreate = () => {
+    if (running.current) return;
+    setNewName('');
+    setSheetError(null);
+    setSheet({ kind: 'create' });
+  };
+
+  const create = () => {
+    const name = newName.trim();
+    if (!name) return;
+    return run(
+      'create',
+      async () => {
+        setSheetError(null);
+        const { failure, data } = await write('create', 'POST', '/api/native-calendars', { name, initData: getInitData() });
+        if (failure) {
+          setSheetError({ action: 'create', failure });
+          return;
+        }
+        setSheet(null);
+        if (!(await reload())) {
+          // The calendar exists; the list could not be asked, so the page adds what the server answered with
+          const made = data?.calendar as Partial<Calendar> | undefined;
+          if (made?.rawId) {
+            setCalendars((list) => [...list, {
+              rawId: made.rawId as string, name: made.name ?? name, color: made.color ?? '', labels: made.labels ?? [], privacy: made.privacy ?? 'PRIVATE',
+              ownerUserId: list.find((c) => c.isOwner)?.ownerUserId ?? 0, isOwner: true, rules: [], createdAt: new Date().toISOString(),
+            }]);
+          }
+        }
+      },
+      () => setSheetError({ action: 'create', failure: 'generic' }),
+    );
+  };
+
+  const save = () => {
+    if (sheet?.kind !== 'edit' || !draft.name.trim()) return;
+    const c = sheet.calendar;
+    const changes = { name: draft.name.trim(), color: draft.color, labels: draft.labels, privacy: draft.privacy };
+    return run(
+      'save',
+      async () => {
+        setSheetError(null);
+        const { failure } = await write('save', 'PATCH', `/api/native-calendars/${c.rawId}`, { ...changes, initData: getInitData() });
+        if (failure) {
+          setSheetError({ action: 'save', failure });
+          // Deleted somewhere else: the list is asked again, the sheet keeps what the person entered
+          if (failure === 'notFound') await reload();
+          return;
+        }
+        setCalendars((list) => list.map((x) => (x.rawId === c.rawId ? { ...x, ...changes } : x)));
+        setSheet(null);
+        // Another calendar may have lost its primary label to this one: the server's list is the truth
+        await reload();
+      },
+      () => setSheetError({ action: 'save', failure: 'generic' }),
+    );
+  };
+
+  /** Delete asks what happens to a Google copy first: the copy rows are loaded when they are not yet, and the confirm step follows. */
+  const startDelete = (c: Calendar) => {
+    if (running.current) return;
+    setSheetError(null);
+    // A delete never goes without googleCopy (the server's Keep) unless a loaded view says the copy is off
+    if (copies && !copyLoadFailed) {
+      setSheet({ kind: 'delete', calendar: c });
+      return;
     }
+    return run(
+      'load',
+      async () => {
+        try {
+          const view = await loadCopies(userId);
+          setCopies(view);
+          setCopyLoadFailed(false);
+        } catch (err) {
+          console.error('[calendars] loading the Google copies before a delete failed:', err);
+          setCopyLoadFailed(true);
+          setSheetError({ action: 'delete', failure: 'generic' });
+          return;
+        }
+        setSheet({ kind: 'delete', calendar: c });
+      },
+      () => setSheetError({ action: 'delete', failure: 'generic' }),
+    );
   };
 
   // A calendar whose copy is on asks what happens to its Google calendar (spec §1) before
   // the delete; googleCopy goes in the body only then.
-  async function deleteCalendar(rawId: string, googleCopy: UnlinkChoice | null) {
-    setBusy(rawId);
-    setError('');
-    try {
-      const res = await fetch(`/api/native-calendars/${rawId}?user_id=${userId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(deleteCalendarBody(googleCopy, getInitData())),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error === 'cannot_delete_last' ? t.cantDeleteLast : t.errorGeneric);
-        return;
-      }
-      await reload();
-      if (googleCopy) await refreshCopies();
-    } finally {
-      setBusy(null);
-    }
-  }
+  const deleteCalendar = (c: Calendar, choice: UnlinkChoice | null) =>
+    run(
+      choice ? (choice === 'remove' ? 'delete-remove' : 'delete-keep') : 'delete-plain',
+      async () => {
+        setSheetError(null);
+        const { failure } = await write('delete', 'DELETE', `/api/native-calendars/${c.rawId}`, deleteCalendarBody(choice, getInitData()));
+        if (failure) {
+          setSheetError({ action: 'delete', failure });
+          if (failure === 'notFound') await reload();
+          return;
+        }
+        // Gone from the list at once; the server's list follows (and is the truth if it differs)
+        setCalendars((list) => list.filter((x) => x.rawId !== c.rawId));
+        setSheet(null);
+        await reload();
+        if (choice) await refreshCopies();
+      },
+      () => setSheetError({ action: 'delete', failure: 'generic' }),
+    );
 
-  const remove = async (rawId: string) => {
-    if (!confirm(t.deleteConfirm)) return;
-    // The question needs the copy rows: before they loaded, or after their GET failed, they
-    // are asked now, and a delete never goes without googleCopy (the server's Keep) unless
-    // a loaded view says the copy is off.
-    let view = copyLoadFailed ? null : copies;
-    if (!view) {
-      setBusy(rawId);
-      try {
-        view = await loadCopies(userId);
-        setCopies(view);
-        setCopyLoadFailed(false);
-      } catch (err) {
-        console.error('[calendars] loading the Google copies before a delete failed:', err);
-        setCopyLoadFailed(true);
-        setError(t.errorGeneric);
-        return;
-      } finally {
-        setBusy(null);
-      }
+  // ---- Back ----
+
+  const back = () => {
+    if (running.current) return;
+    if (sheet?.kind === 'delete') {
+      setSheet({ kind: 'edit', calendar: sheet.calendar });
+      setSheetError(null);
+    } else if (sheet) {
+      closeSheet();
+    } else {
+      router.push(`/${locale}/dashboard?user_id=${userId}`);
     }
-    if (view.rows.find((r) => r.calendarId === rawId)?.on) {
-      setAsking({ calendarId: rawId, mode: 'delete' });
-      return;
-    }
-    await deleteCalendar(rawId, null);
   };
 
-  return (
-    <div dir={isRTL ? 'rtl' : 'ltr'} className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl md:text-3xl font-bold text-gray-800 mb-6">{t.title}</h1>
+  // ---- Drawing ----
 
-        {error && (
-          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-4 text-rose-700 text-sm">{error}</div>
-        )}
-        {copyLoadFailed && (
-          <div role="alert" className="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-4 text-rose-700 text-sm">{tc('errors.load')}</div>
-        )}
+  const failureText = (e: SheetError) => (e.failure === 'onlyOne' ? t('onlyOne') : e.failure === 'generic' ? t(`errors.${e.action}`) : t(`errors.${e.failure}`));
+  const colourName = (name: string) => (t.has(`colors.${name.toLowerCase()}`) ? t(`colors.${name.toLowerCase()}`) : t('colors.unknown'));
+  const locked = busy !== null;
+  const copyRows = copies?.shown ? owned.filter((c) => copyOf(c.rawId)) : [];
 
-        {/* Owned calendars */}
-        <div className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide">{t.yours}</h2>
-          <div className="space-y-2">
-            {owned.map((c) => (
-              <CalendarCard
-                key={c.rawId}
-                calendar={c}
-                drawnColor={drawn.get(c.rawId) ?? c.color}
-                t={t}
-                isRTL={isRTL}
-                editing={editingId === c.rawId}
-                busy={busy === c.rawId}
-                onStartEdit={() => setEditingId(c.rawId)}
-                onCancelEdit={() => setEditingId(null)}
-                onSave={async (body) => {
-                  await patch(c.rawId, body);
-                  setEditingId(null);
-                }}
-                onDelete={() => remove(c.rawId)}
-                extra={copyRowFor(c)}
-              />
-            ))}
+  const calendarRow = (c: Calendar) => {
+    // The row names the calendar's categories in the screen's language. "Yours" goes unsaid (the section above says it).
+    const shownLabels = c.labels.filter((l) => l !== 'yours' && (VALID_LABELS as readonly string[]).includes(l));
+    return (
+      <ListRow
+        key={c.rawId}
+        title={
+          <>
+            <Dot colour={drawn.get(c.rawId) ?? c.color} />
+            <bdi dir="auto">{c.name}</bdi>
+          </>
+        }
+        meta={t(PRIVACY_KEY[c.privacy])}
+        tags={shownLabels.length > 0 ? shownLabels.map((l) => <Tag key={l} tone={l === 'primary' ? 'accent' : 'muted'}>{categories(l)}</Tag>) : undefined}
+        onClick={() => openEdit(c)}
+      />
+    );
+  };
 
-            {creating ? (
-              <div className="bg-white rounded-2xl shadow p-4 flex flex-col gap-3">
-                <input
-                  autoFocus
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder={t.namePlaceholder}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  maxLength={60}
-                />
-                <div className="flex gap-2 justify-end">
-                  <button
-                    onClick={() => { setCreating(false); setNewName(''); }}
-                    className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
-                  >
-                    {t.cancel}
-                  </button>
-                  <button
-                    onClick={create}
-                    disabled={!newName.trim() || busy === 'creating'}
-                    className="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
-                  >
-                    {busy === 'creating' ? t.creating : t.save}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button
-                onClick={() => setCreating(true)}
-                className="w-full bg-white rounded-2xl shadow border-2 border-dashed border-gray-300 hover:border-blue-400 p-4 flex items-center justify-center gap-2 text-gray-600 font-medium transition-colors"
-              >
-                <Plus size={18} /> {t.addCalendar}
-              </button>
-            )}
-            {copies?.shown && copies.rows.length > 0 && <GoogleCopyNotes />}
-          </div>
-        </div>
+  const googleRow = () => {
+    const toSelect = () => router.push(`/${locale}/select-calendars?user_id=${userId}`);
+    // /refresh-token lives outside [locale] (proxy.ts skips that path): no language prefix
+    const toGoogle = () => window.location.assign(`/refresh-token?user_id=${userId}`);
+    const go = google.state === 'connected' || google.state === 'choose' ? toSelect : toGoogle;
+    const label = google.state === 'connected' ? t('googleChosen') : google.state === 'choose' ? t('googleChoose') : google.state === 'reconnect' ? t('googleReconnect') : t('googleConnect');
+    return (
+      <button type="button" className="ch-form-row" onClick={go}>
+        <span className="ch-form-label">
+          <span>{label}</span>
+        </span>
+        {google.state === 'connected' ? (
+          <span className="ch-form-value">
+            <span className="ch-form-value-text" dir="auto">{t('googleChosenCount', { count: google.chosen })}</span>
+          </span>
+        ) : null}
+        <Chevron />
+      </button>
+    );
+  };
 
-        {shared.length > 0 && (
-          <div>
-            <h2 className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide">{t.sharedFromPartner}</h2>
-            <div className="space-y-2">
-              {shared.map((c) => (
-                <CalendarCard
-                  key={c.rawId}
-                  calendar={c}
-                  drawnColor={drawn.get(c.rawId) ?? c.color}
-                  t={t}
-                  isRTL={isRTL}
-                  editing={false}
-                  busy={false}
-                  readOnly
-                  onStartEdit={() => {}}
-                  onCancelEdit={() => {}}
-                  onSave={async () => {}}
-                  onDelete={() => {}}
-                  extra={copies?.shown && copies.ownerName ? <NonOwnerCopyLine owner={copies.ownerName} /> : null}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+  /** The Remove / Keep question, for a copy being turned off and for a calendar being deleted with its copy on. */
+  const question = (c: Calendar, onChoose: (choice: UnlinkChoice) => void, pending: { remove: boolean; keep: boolean }) => (
+    <div className="ch-sheet-stack">
+      <h2 className="ch-sheet-heading">{tc('unlink.question', { name: isolate(c.name) })}</h2>
+      <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={pending.remove || undefined} onClick={() => onChoose('remove')}>
+        {pending.remove ? <Spinner /> : null}
+        {tc('unlink.remove')}
+      </button>
+      <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={locked} aria-busy={pending.keep || undefined} onClick={() => onChoose('keep')}>
+        {pending.keep ? <Spinner /> : null}
+        {tc('unlink.keep')}
+      </button>
     </div>
   );
-}
 
-interface CardProps {
-  calendar: Calendar;
-  /** The colour the calendar is drawn in (displayColours); its saved colour is calendar.color. */
-  drawnColor: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  t: any;
-  isRTL: boolean;
-  editing: boolean;
-  busy: boolean;
-  readOnly?: boolean;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSave: (body: Record<string, unknown>) => Promise<void>;
-  onDelete: () => void;
-  /** Under the card's row: the Copy to Google row, or the non-owner line. */
-  extra?: ReactNode;
-}
-
-function CalendarCard(props: CardProps) {
-  const { calendar: c, drawnColor, t, editing, busy, readOnly, onStartEdit, onCancelEdit, onSave, onDelete, extra } = props;
-  const categories = useTranslations('calendars.categories');
-  // The row names the calendar's categories in the screen's language. "Yours" goes unsaid (the
-  // section above says it), and a partner's calendar shows none: they are the partner's own sorting.
-  const shownLabels = c.isOwner ? c.labels.filter((l) => l !== 'yours' && (VALID_LABELS as readonly string[]).includes(l)) : [];
-  const [name, setName] = useState(c.name);
-  const [color, setColor] = useState(c.color);
-  const [labels, setLabels] = useState<string[]>(c.labels);
-  const [privacy, setPrivacy] = useState(c.privacy);
-
-  const sharedAccess = useTranslations('calendarsPage.sharedAccess');
-  const PrivacyIcon = c.privacy === 'PRIVATE' ? Lock : c.privacy === 'SHARED_VIEWER' ? Eye : Edit3;
-  // An own calendar says what the partner may do; a partner's calendar says what the viewer may do.
-  const privacyLabel = !c.isOwner
-    ? sharedAccess(c.privacy === 'SHARED_EDITOR' ? 'edit' : 'view')
-    : c.privacy === 'PRIVATE' ? t.private : c.privacy === 'SHARED_VIEWER' ? t.canView : t.canEdit;
-
-  if (editing) {
+  const editSheet = (c: Calendar) => {
+    const onlyOne = owned.length <= 1;
+    const toggle = (label: string) => setDraft((d) => ({ ...d, labels: d.labels.includes(label) ? d.labels.filter((l) => l !== label) : [...d.labels, label] }));
     return (
-      <div className="bg-white rounded-2xl shadow p-4">
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-400"
-          maxLength={60}
-        />
+      <BottomSheet label={c.name} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
+        <div className="ch-sheet-stack is-roomy">
+          <div className="ch-form-group">
+            <SectionLabel>{t('name')}</SectionLabel>
+            <FormCard>
+              <TextField label={t('name')} value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} maxLength={60} />
+            </FormCard>
+          </div>
 
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-gray-500 mb-1">{t.color}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {CALENDAR_PALETTE.map(({ hex, name: swatchName }) => (
-              <button
-                key={hex}
-                onClick={() => setColor(hex)}
-                className={`w-7 h-7 rounded-full border-2 ${color.toLowerCase() === hex ? 'border-gray-800' : 'border-transparent'}`}
-                style={{ backgroundColor: hex }}
-                aria-label={swatchName}
+          <div className="ch-form-group">
+            <SectionLabel>{t('color')}</SectionLabel>
+            <FormCard>
+              <ColorSwatches
+                label={t('color')}
+                value={draft.color.toLowerCase()}
+                options={CALENDAR_PALETTE.map(({ hex, name }) => ({ value: hex, color: hex, text: colourName(name) }))}
+                onChange={(color) => setDraft((d) => ({ ...d, color }))}
               />
-            ))}
+            </FormCard>
           </div>
-        </div>
 
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-gray-500 mb-1">{t.labels}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {VALID_LABELS.map((label) => {
-              const active = labels.includes(label);
-              return (
-                <button
-                  key={label}
-                  onClick={() =>
-                    setLabels(active ? labels.filter((l) => l !== label) : [...labels, label])
-                  }
-                  className={`text-xs px-2.5 py-1 rounded-full ${active ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                >
-                  {categories(label)}
-                </button>
-              );
-            })}
+          <div className="ch-form-group">
+            <SectionLabel>{t('categories')}</SectionLabel>
+            <FormCard>
+              {VALID_LABELS.map((label) => (
+                <SwitchRow key={label} label={categories(label)} hint={t(`categoryHint.${label}`)} checked={draft.labels.includes(label)} onChange={() => toggle(label)} />
+              ))}
+            </FormCard>
           </div>
-        </div>
 
-        <div className="mb-3">
-          <p className="text-xs font-semibold text-gray-500 mb-1">{t.privacyHeading}</p>
-          <select
-            value={privacy}
-            onChange={(e) => setPrivacy(e.target.value as Calendar['privacy'])}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2"
-          >
-            <option value="PRIVATE">{t.privacyPrivate}</option>
-            <option value="SHARED_VIEWER">{t.privacySharedViewer}</option>
-            <option value="SHARED_EDITOR">{t.privacySharedEditor}</option>
-          </select>
-        </div>
+          <div className="ch-form-group">
+            <SectionLabel>{t('privacy')}</SectionLabel>
+            <RadioCard
+              label={t('privacy')}
+              value={draft.privacy}
+              options={PRIVACIES.map((p) => ({ value: p, text: t(PRIVACY_KEY[p]) }))}
+              onChange={(privacy) => setDraft((d) => ({ ...d, privacy: privacy as Calendar['privacy'] }))}
+            />
+          </div>
 
-        <div className="flex gap-2 justify-end">
-          <button onClick={onCancelEdit} className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium">
-            {t.cancel}
-          </button>
-          <button
-            onClick={() => onSave({ name: name.trim(), color, labels, privacy })}
-            disabled={!name.trim() || busy}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 font-medium disabled:opacity-50"
-          >
-            {busy ? t.saving : t.save}
-          </button>
+          <SaveBar
+            label={ui('save')}
+            busy={busy === 'save'}
+            disabled={locked || !draft.name.trim()}
+            error={sheetError?.action === 'save' ? failureText(sheetError) : null}
+            onSave={() => void save()}
+          />
+
+          <FormCard>
+            {onlyOne ? (
+              <button type="button" className="ch-form-row ch-danger-row" disabled>
+                <span className="ch-form-label">
+                  <span>{t('delete')}</span>
+                  <span className="ch-form-hint">{t('onlyOne')}</span>
+                </span>
+              </button>
+            ) : (
+              <button type="button" className="ch-form-row ch-danger-row" disabled={locked} aria-busy={busy === 'load' || undefined} onClick={() => void startDelete(c)}>
+                {t('delete')}
+                {busy === 'load' ? <Spinner /> : null}
+              </button>
+            )}
+          </FormCard>
+          {sheetError?.action === 'delete' ? <FieldError id={deleteErrorId} error={failureText(sheetError)} /> : null}
         </div>
-      </div>
+      </BottomSheet>
     );
-  }
+  };
+
+  const deleteSheet = (c: Calendar) => {
+    const copyOn = copyOf(c.rawId)?.on === true;
+    return (
+      <BottomSheet label={copyOn ? tc('unlink.question', { name: isolate(c.name) }) : t('deleteTitle', { name: isolate(c.name) })} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
+        {copyOn ? (
+          <>
+            {question(c, (choice) => void deleteCalendar(c, choice), { remove: busy === 'delete-remove', keep: busy === 'delete-keep' })}
+            {sheetError ? (
+              <div className="ch-sheet-stack">
+                <Notice tone="error">{failureText(sheetError)}</Notice>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <h2 className="ch-sheet-heading">{sentenceWithName((name) => t('deleteTitle', { name }), c.name)}</h2>
+            <p className="ch-sheet-sub">{t('deleteBody')}</p>
+            <div className="ch-sheet-stack">
+              {sheetError ? <Notice tone="error">{failureText(sheetError)}</Notice> : null}
+              <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={busy === 'delete-plain' || undefined} onClick={() => void deleteCalendar(c, null)}>
+                {busy === 'delete-plain' ? <Spinner /> : null}
+                {t('delete')}
+              </button>
+            </div>
+          </>
+        )}
+      </BottomSheet>
+    );
+  };
+
+  const createSheet = () => (
+    <BottomSheet label={t('newCalendar')} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
+      <h2 className="ch-sheet-heading">{t('newCalendar')}</h2>
+      <div className="ch-sheet-stack">
+        <FormCard>
+          <TextField label={t('name')} value={newName} onChange={setNewName} placeholder={t('namePlaceholder')} maxLength={60} />
+        </FormCard>
+        {sheetError?.failure === 'limit' ? (
+          <Notice tone="error" action={{ label: t('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) }}>
+            {failureText(sheetError)}
+          </Notice>
+        ) : null}
+        <SaveBar
+          label={t('create')}
+          busy={busy === 'create'}
+          disabled={locked || !newName.trim()}
+          error={sheetError && sheetError.failure !== 'limit' ? failureText(sheetError) : null}
+          onSave={() => void create()}
+        />
+      </div>
+    </BottomSheet>
+  );
 
   return (
-    <div className="bg-white rounded-2xl shadow p-4">
-      <div className="flex items-center gap-3">
-        <div className="w-3 h-12 rounded-full" style={{ backgroundColor: drawnColor }} aria-hidden="true" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-gray-800 truncate">{c.name}</h3>
-          </div>
-          <div className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
-            <PrivacyIcon size={12} /> {privacyLabel}
-            {shownLabels.length > 0 && <span className="ml-1">· {shownLabels.map((l) => categories(l)).join(' · ')}</span>}
-          </div>
-        </div>
-        {!readOnly && (
-          <div className="flex gap-1">
-            <button
-              onClick={onStartEdit}
-              disabled={busy}
-              className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
-              aria-label={t.rename}
-            >
-              <Edit3 size={18} />
-            </button>
-            <button
-              onClick={onDelete}
-              disabled={busy}
-              className="p-2 rounded-lg text-gray-500 hover:bg-rose-50 hover:text-rose-600"
-              aria-label={t.delete}
-            >
-              {busy ? <Check size={18} /> : <Trash2 size={18} />}
-            </button>
-          </div>
-        )}
+    <AppScreen ground="grouped" onBack={back}>
+      <style>{FORM_CSS}</style>
+      <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
+      <div className="ch-form-page ch-form-page-grouped">
+        {copyLoadFailed ? <Notice tone="error">{tc('errors.load')}</Notice> : null}
+
+        <SectionLabel>{t('yours')}</SectionLabel>
+        <FormCard>
+          {owned.map(calendarRow)}
+          <button type="button" className="ch-form-row ch-action-row" disabled={locked} onClick={openCreate}>
+            <Plus size={18} aria-hidden="true" />
+            {t('newCalendar')}
+          </button>
+        </FormCard>
+
+        {copyRows.length > 0 ? (
+          <>
+            <SectionLabel>{tc('title')}</SectionLabel>
+            <FormCard>{copyRows.map(copyRowFor)}</FormCard>
+            <GoogleCopyNotes />
+          </>
+        ) : null}
+
+        {shared.length > 0 ? (
+          <>
+            <SectionLabel>{partnerName ? t('sharedBy', { name: isolate(partnerName) }) : t('sharedByPartner')}</SectionLabel>
+            <FormCard>
+              {shared.map((c) => (
+                <div key={c.rawId} className="ch-form-row">
+                  <span className="ch-form-label">
+                    <span className="ch-list-title">
+                      <Dot colour={drawn.get(c.rawId) ?? c.color} />
+                      <bdi dir="auto">{c.name}</bdi>
+                    </span>
+                    <span className="ch-form-hint">{sharedAccess(c.privacy === 'SHARED_EDITOR' ? 'edit' : 'view')}</span>
+                  </span>
+                </div>
+              ))}
+            </FormCard>
+            {copies?.shown && copies.ownerName ? <NonOwnerCopyLine owner={copies.ownerName} /> : null}
+          </>
+        ) : null}
+
+        <SectionLabel>{t('google')}</SectionLabel>
+        <FormCard>{googleRow()}</FormCard>
+        <p className="ch-form-fixed">{t('googleHint')}</p>
       </div>
-      {extra}
-    </div>
+
+      {sheet?.kind === 'create' ? createSheet() : null}
+      {sheet?.kind === 'edit' ? editSheet(sheet.calendar) : null}
+      {sheet?.kind === 'delete' ? deleteSheet(sheet.calendar) : null}
+      {sheet?.kind === 'copyOff' ? (
+        <BottomSheet label={tc('unlink.question', { name: isolate(sheet.calendar.name) })} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
+          {question(sheet.calendar, (choice) => void turnOff(sheet.calendar, choice), { remove: busy === 'off-remove', keep: busy === 'off-keep' })}
+        </BottomSheet>
+      ) : null}
+    </AppScreen>
   );
 }
