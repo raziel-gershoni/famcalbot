@@ -97,6 +97,9 @@ const BASE_CSS = `
 html:has(.site) {
   background-color: var(--ch-bg);
   color-scheme: light dark;
+  /* The sticky header is 65 px: a jump to an anchor (#how, #start, /terms#cancel) and a focused element scrolled into
+     view land below it, with room to spare (WCAG 2.4.11) */
+  scroll-padding-block-start: 80px;
 }
 body {
   margin: 0;
@@ -1206,9 +1209,6 @@ const PAGES_CSS = `
   font-size: 17px;
   font-weight: 700;
   line-height: 1.35;
-}
-.site-legal [id] {
-  scroll-margin-block-start: 88px;
 }
 .site-legal strong {
   font-weight: 650;

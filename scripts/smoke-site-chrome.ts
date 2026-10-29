@@ -14,7 +14,9 @@
 //    moves into it, and Escape, the scrim, the Close button and a link each close it with focus back on the button;
 //    the sheet holds the links and the switcher.
 //  - H5 the chrome's CSS: the kit's lint (sizes in px, logical properties only, no hover, colours only in token
-//    blocks), every tap target (the chrome's and the pages' links and buttons) at least 44 px, the wide and phone parts swap at one width, and the sheet doesn't slide.
+//    blocks), every tap target (the chrome's and the pages' links and buttons) at least 44 px, the wide and phone parts
+//    swap at one width, the sheet doesn't slide, and the page's scroll padding keeps an anchor or a focused element
+//    clear of the sticky header.
 //
 // The chrome runs as Next runs it on the server (next-intl's server API over the real messages), and the menu as a
 // browser runs it. No network, no DB.
@@ -171,7 +173,7 @@ async function main() {
     }
   });
 
-  await check('H5 the chrome\'s CSS: the kit\'s lint, every tap target at least 44 px, one width where the wide and the phone parts swap, and no slide for the sheet', () => {
+  await check('H5 the chrome\'s CSS: the kit\'s lint, every tap target at least 44 px, one width where the wide and the phone parts swap, no slide for the sheet, and anchors and focus clear of the sticky header', () => {
     const own = SITE_CSS.slice(APP_THEME_CSS.length);
     assert(SITE_CSS.startsWith(APP_THEME_CSS), 'the kit\'s theme is not the sheet\'s first part');
     const problems = lintCss(own);
@@ -187,6 +189,11 @@ async function main() {
     assert(button && /inline-size:\s*44px/.test(button) && /block-size:\s*44px/.test(button), `the menu button: ${button}`);
     assert(/@media \(max-width: 959\.98px\) \{\s*\.site-wide-only \{\s*display: none !important;/.test(own) && /@media \(min-width: 960px\) \{\s*\.site-phone-only \{\s*display: none !important;/.test(own), 'the swap');
     assert(/\.site \.ch-sheet \{[^}]*animation: none;/.test(own), 'the sheet slides');
+    // The sticky header (its row's height and a 1 px border) never covers an anchor's heading or a focused element
+    const pad = /scroll-padding-block-start:\s*(\d+)px/.exec(rule('html:has(.site)') ?? '');
+    const row = /min-block-size:\s*(\d+)px/.exec(rule('.site-header-row') ?? '');
+    assert(/position:\s*sticky/.test(rule('.site-header') ?? '') && row && pad && Number(pad[1]) >= Number(row[1]) + 1 + 8, `the scroll padding ${pad?.[1]} px under a ${row?.[1]} px sticky header`);
+    assert(!/scroll-margin/.test(own), 'a scroll margin on top of the scroll padding');
   });
 
   finish();
