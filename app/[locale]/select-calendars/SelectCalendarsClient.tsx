@@ -12,8 +12,10 @@
 //
 // Every save is the whole selection (selection.ts builds the body; the request is POST /api/select-calendars?user_id=… as it has
 // always been, with the credential in the X-Telegram-Init-Data header). A tap on a switch applies at once and is undone if the
-// save fails; a sheet's Save applies on success only, and a refusal keeps the sheet open with what was typed. The page's status
-// line says Saved (or "new events will go to …"), or what went wrong, until the next save.
+// save fails; a sheet's Save applies on success only, and a refusal keeps the sheet open with what was typed. The status line
+// (Saved, "new events will go to …", or what went wrong) is a bar fixed to the bottom of the screen until the next save, so a
+// tap anywhere on a long list shows its result. Two refusals have their own words, from the server's codes: the last calendar
+// can't be turned off and one calendar must stay marked as yours; the plan's limit has See plans.
 // - One request at a time (the Calendars screen's pattern): the one that runs shows a spinner and the other controls are off.
 //   Every failure is logged and said in the page's language; the server's own text is never shown.
 // - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the open sheet,
@@ -41,7 +43,6 @@ import {
 
 interface SelectCalendarsClientProps {
   userId: number;
-  userName: string;
   availableCalendars: ListedCalendar[];
   currentSelections: {
     selectedCalendars: Set<string>;
@@ -51,7 +52,6 @@ interface SelectCalendarsClientProps {
     globalRules: string[];
   };
   locale: string;
-  calendarLimit: number; // -1 means unlimited
   /**
    * The name of the user's FamCal calendar that is the default for new events (labelled
    * primary), or null. Ticking primary here moves the default off it, so the page says so.
@@ -61,15 +61,21 @@ interface SelectCalendarsClientProps {
 
 const HEX = /^#[0-9a-f]{3,8}$/i;
 
-/** Why a save did not go through. `limit` is the plan's room (the shared calendar total), when the server said it. */
-type Failure = 'tooMany' | 'reopen' | 'limit' | 'generic';
+/**
+ * Why a save did not go through. `limit` is the plan's room (the shared calendar total), when the server said it.
+ * `noneSelected` and `noYours` are the server's two refusals the person can act on: the last calendar can't be turned off,
+ * and one calendar must stay marked as theirs.
+ */
+type Failure = 'tooMany' | 'reopen' | 'limit' | 'noneSelected' | 'noYours' | 'generic';
 interface SaveFailure {
   failure: Failure;
   limit: number | null;
 }
 
 /** What a refused save means: the server's code first, then its status. A 401 or 403 is a session that ended. */
-function failureOf(status: number, data: { error?: unknown; limit?: unknown } | null): SaveFailure {
+function failureOf(status: number, data: { error?: unknown; code?: unknown; limit?: unknown } | null): SaveFailure {
+  if (status === 400 && data?.code === 'none_selected') return { failure: 'noneSelected', limit: null };
+  if (status === 400 && data?.code === 'no_yours') return { failure: 'noYours', limit: null };
   if (data?.error === 'calendar_limit_reached') return typeof data.limit === 'number' ? { failure: 'limit', limit: data.limit } : { failure: 'generic', limit: null };
   if (status === 429) return { failure: 'tooMany', limit: null };
   if (status === 401 || status === 403) return { failure: 'reopen', limit: null };
@@ -181,8 +187,8 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
       body: JSON.stringify(saveBody(next, availableCalendars)),
     });
     if (res.ok) return null;
-    const data = (await res.json().catch(() => null)) as { error?: unknown; limit?: unknown } | null;
-    console.error(`[select-calendars] save refused: ${res.status} ${typeof data?.error === 'string' ? data.error : ''}`.trim());
+    const data = (await res.json().catch(() => null)) as { error?: unknown; code?: unknown; limit?: unknown } | null;
+    console.error(`[select-calendars] save refused: ${res.status} ${typeof data?.code === 'string' ? data.code : typeof data?.error === 'string' ? data.error : ''}`.trim());
     return failureOf(res.status, data);
   };
 
@@ -287,7 +293,16 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
 
   // ---- Drawing ----
 
-  const failureText = (e: SaveFailure) => (e.failure === 'limit' ? t('errors.limit', { limit: e.limit ?? 0 }) : e.failure === 'generic' ? t('errors.save') : page(`errors.${e.failure}`));
+  /**
+   * What a refusal says. The generic one differs by where it shows: after a tap on a switch the change was undone ("so the
+   * change was undone"); in a sheet nothing was applied, so it is the calendars page's plain "couldn't save".
+   */
+  const failureText = (e: SaveFailure, inSheet = false) => {
+    if (e.failure === 'limit') return t('errors.limit', { limit: e.limit ?? 0 });
+    if (e.failure === 'noneSelected' || e.failure === 'noYours') return t(`errors.${e.failure}`);
+    if (e.failure === 'generic') return inSheet ? page('errors.save') : t('errors.save');
+    return page(`errors.${e.failure}`);
+  };
   const seePlans = { label: page('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) };
   const chosen = availableCalendars.filter((c) => sel.selected.has(c.id));
 
@@ -307,10 +322,10 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
   const sheetFailure = () =>
     sheetError?.failure === 'limit' ? (
       <Notice tone="error" action={seePlans}>
-        {failureText(sheetError)}
+        {failureText(sheetError, true)}
       </Notice>
     ) : null;
-  const sheetSaveError = () => (sheetError && sheetError.failure !== 'limit' ? failureText(sheetError) : null);
+  const sheetSaveError = () => (sheetError && sheetError.failure !== 'limit' ? failureText(sheetError, true) : null);
 
   const chosenRow = (c: ListedCalendar) => {
     const labels = sel.labels.get(c.id);
@@ -376,21 +391,31 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
           {category === 'spouse' ? (
             <div className="ch-form-group">
               <SectionLabel>{t('spouse')}</SectionLabel>
-              <FormCard>
-                <TextField label={t('spouseName')} value={draft.spouse.name} onChange={(name) => editSpouse({ name })} placeholder={t('spouseNamePlaceholder')} maxLength={50} disabled={locked} />
-                <TextField label={t('spouseEnglishName')} value={draft.spouse.englishName} onChange={(englishName) => editSpouse({ englishName })} placeholder={t('spouseEnglishName')} maxLength={50} disabled={locked} />
-              </FormCard>
-              <RadioPair<'male' | 'female' | ''>
-                label={t('spouseGender')}
-                value={draft.spouse.gender}
-                options={[
-                  { value: 'male', text: t('male') },
-                  { value: 'female', text: t('female') },
-                ]}
-                onChange={(gender) => {
-                  if (!locked) editSpouse({ gender: draft.spouse.gender === gender ? '' : gender });
-                }}
-              />
+              <div className="ch-sheet-stack">
+                <div className="ch-form-group">
+                  <span className="ch-form-group-label">{t('spouseName')}</span>
+                  <FormCard>
+                    <TextField label={t('spouseName')} value={draft.spouse.name} onChange={(name) => editSpouse({ name })} placeholder={t('spouseNamePlaceholder')} maxLength={50} disabled={locked} />
+                  </FormCard>
+                </div>
+                <div className="ch-form-group">
+                  <span className="ch-form-group-label">{t('spouseEnglishName')}</span>
+                  <FormCard>
+                    <TextField label={t('spouseEnglishName')} value={draft.spouse.englishName} onChange={(englishName) => editSpouse({ englishName })} maxLength={50} disabled={locked} />
+                  </FormCard>
+                </div>
+                <RadioPair<'male' | 'female' | ''>
+                  label={t('spouseGender')}
+                  value={draft.spouse.gender}
+                  options={[
+                    { value: 'male', text: t('male') },
+                    { value: 'female', text: t('female') },
+                  ]}
+                  onChange={(gender) => {
+                    if (!locked) editSpouse({ gender: draft.spouse.gender === gender ? '' : gender });
+                  }}
+                />
+              </div>
               <p className="ch-form-fixed">{t('spouseHint')}</p>
             </div>
           ) : null}
@@ -437,7 +462,6 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
       <div className="ch-form-page ch-form-page-grouped">
         <p className="ch-form-fixed">{t('intro')}</p>
-        {statusLine()}
 
         {availableCalendars.length === 0 ? (
           <StateCard title={t('empty.title')} body={t('empty.body')} />
@@ -473,6 +497,9 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
           </>
         )}
       </div>
+
+      {/* The status line is a bar fixed to the bottom of the screen (the kit's sticky save-bar container, with no button of its own): a tap anywhere on a long list shows its result */}
+      {status ? <div className="ch-save-bar ch-save-bar-sticky">{statusLine()}</div> : null}
 
       {openCalendarOf ? calendarSheet(openCalendarOf) : null}
       {sheet?.kind === 'notes' ? notesSheet() : null}

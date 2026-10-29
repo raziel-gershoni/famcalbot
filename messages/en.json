@@ -953,7 +953,6 @@
     "note": "Note for the AI",
     "notePlaceholder": "e.g. Early dismissal every Friday",
     "noteHint": "Read with this calendar's events in your summaries.",
-    "noNote": "None",
     "spouse": "Spouse details",
     "spouseHint": "Used for every spouse calendar, so summaries name them.",
     "spouseName": "Name",
@@ -969,7 +968,9 @@
     "newEventsGoTo": "New events will go to {name}",
     "errors": {
       "save": "Couldn't save, so the change was undone.",
-      "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together."
+      "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together.",
+      "noneSelected": "Keep at least one calendar on. To stop using Google, disconnect it in Settings.",
+      "noYours": "Keep at least one calendar marked as yours."
     },
     "empty": {
       "title": "No calendars in this Google account",

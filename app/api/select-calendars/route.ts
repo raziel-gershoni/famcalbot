@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     const validation = validateCalendarAssignments(calendarAssignments);
     if (!validation.valid) {
       return NextResponse.json(
-        { error: validation.errors[0] },
+        { error: validation.errors[0], code: validation.codes[0] },
         { status: 400 }
       );
     }

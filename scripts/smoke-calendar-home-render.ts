@@ -9132,7 +9132,7 @@ async function main() {
     const mountPage = async (locale: Locale, famcalPrimaryName: string | null, primary = false) => {
       resetHome();
       answerFetch = () => ok200({ success: true });
-      const m = mount(inApp(locale, createElement(SelectCalendarsClient, { userId: 5550001, userName: 'Dana', availableCalendars: calendars, currentSelections: selections(primary), locale, calendarLimit: -1, famcalPrimaryName })));
+      const m = mount(inApp(locale, createElement(SelectCalendarsClient, { userId: 5550001, availableCalendars: calendars, currentSelections: selections(primary), locale, famcalPrimaryName })));
       await settle();
       return m;
     };

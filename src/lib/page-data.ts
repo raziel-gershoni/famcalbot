@@ -342,22 +342,14 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
   }
 
   try {
-    const [availableCalendars, subWithUsage, ownFamcal] = await Promise.all([
+    const [availableCalendars, ownFamcal] = await Promise.all([
       listUserCalendars(user.googleRefreshToken, user.id),
-      getSubscriptionWithUsage(user.id).catch(() => null),
       prisma.nativeCalendar.findMany({
         where: { ownerUserId: user.id, isDeleted: false },
         select: { name: true, labels: true },
         orderBy: [{ createdAt: 'asc' }],
       }),
     ]);
-
-    const effectivePlan = subWithUsage?.effectivePlan || 'FREE';
-    const limits = getPlanLimits(effectivePlan);
-    // The Google share of the shared total: the limit less the FamCal calendars that count
-    // beside a Google choice (all but the main), at least 1 so the page always allows one.
-    const counted = Math.max(0, ownFamcal.length - 1);
-    const calendarLimit = limits.calendars === Infinity ? -1 : Math.max(1, limits.calendars - counted);
 
     // Convert user's current selections to new state format
     const chosen = liveGoogleChoices(user);
@@ -367,11 +359,9 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
 
     const props: SelectCalendarsPageProps = {
       userId,
-      userName: user.name,
       availableCalendars,
       currentSelections,
       locale: userLocale,
-      calendarLimit,
       famcalPrimaryName: ownFamcal.find((c) => c.labels.includes('primary'))?.name ?? null,
     };
     return { kind: 'props', props };

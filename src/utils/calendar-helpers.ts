@@ -78,47 +78,57 @@ export function defaultCalendarFor(calendars: readonly Pick<CalendarAssignment, 
   return (google.find((c) => c.labels.includes('yours')) ?? google[0])?.calendarId ?? null;
 }
 
+/** Why a selection of Google calendars is refused: a stable code beside each message, for the screen that says it in the person's words. */
+export type AssignmentIssueCode = 'multiple_primary' | 'primary_not_yours' | 'none_selected' | 'multiple_categories' | 'no_yours';
+
 /**
- * Validate calendar assignments against business rules
+ * Validate calendar assignments against business rules. `errors` are the messages (English, for logs and old callers);
+ * `codes` are the same issues in the same order, as stable codes.
  */
 export function validateCalendarAssignments(
   assignments: CalendarAssignment[]
-): { valid: boolean; errors: string[] } {
+): { valid: boolean; errors: string[]; codes: AssignmentIssueCode[] } {
   const errors: string[] = [];
+  const codes: AssignmentIssueCode[] = [];
+  const refuse = (code: AssignmentIssueCode, message: string) => {
+    codes.push(code);
+    errors.push(message);
+  };
 
   // Rule 1: Only one primary
   const primaryCount = assignments.filter(a => a.labels.includes('primary')).length;
   if (primaryCount > 1) {
-    errors.push('Only one calendar can be primary');
+    refuse('multiple_primary', 'Only one calendar can be primary');
   }
 
   // Rule 2: Primary must also be in "yours"
   const primaryCal = assignments.find(a => a.labels.includes('primary'));
   if (primaryCal && !primaryCal.labels.includes('yours')) {
-    errors.push('Primary calendar must be in "yours" category');
+    refuse('primary_not_yours', 'Primary calendar must be in "yours" category');
   }
 
   // Rule 3: At least one calendar must be checked
   if (assignments.length === 0) {
-    errors.push('At least one calendar must be selected');
+    refuse('none_selected', 'At least one calendar must be selected');
   }
 
   // Rule 4: Mutual exclusivity (except primary+yours)
   for (const assignment of assignments) {
     const categories = assignment.labels.filter(l => l !== 'primary');
     if (categories.length > 1) {
-      errors.push(`Calendar "${assignment.name}" cannot be in multiple categories (except primary+yours)`);
+      refuse('multiple_categories', `Calendar "${assignment.name}" cannot be in multiple categories (except primary+yours)`);
     }
   }
 
   // Rule 5: At least one calendar must have 'yours' label
   const hasYours = assignments.some(a => a.labels.includes('yours'));
   if (assignments.length > 0 && !hasYours) {
-    errors.push('At least one calendar must be marked as "yours"');
+    refuse('no_yours', 'At least one calendar must be marked as "yours"');
   }
 
   return {
     valid: errors.length === 0,
-    errors
+    errors,
+    codes
   };
 }

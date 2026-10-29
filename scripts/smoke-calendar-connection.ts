@@ -670,17 +670,28 @@ async function main() {
     eq([post.status, post.body.error, resave.status, five.status], [403, 'calendar_limit_reached', 200, 403], 'statuses');
   });
 
-  await check('E3 select-calendars page: the Google allowance leaves room for the counted FamCal calendars, and names the FamCal primary for the note', async () => {
+  await check('E3 select-calendars page: names the FamCal primary for the note and carries nothing else of the person or the plan (no allowance and no user name: the server counts the shared total, the screen guesses nothing)', async () => {
     seed();
     googleListed = [{ id: 'tami@gmail.com', name: 'Tami', primary: true, accessRole: 'owner' }];
     table('nativeCalendar').push(cal('cal-8', 6, 'Work', { labels: ['kids'] }));
     const { loadPageData } = await load('src/lib/page-data.ts');
     const page = await loadPageData('select-calendars', await configOf(6), 5550006, 'en');
     assert(page.kind === 'props', show(page));
-    eq([page.props.calendarLimit, page.props.famcalPrimaryName], [2, 'Tami'], 'allowance and note');
+    eq(page.props.famcalPrimaryName, 'Tami', 'the note');
+    eq(Object.keys(page.props).sort(), ['availableCalendars', 'currentSelections', 'famcalPrimaryName', 'locale', 'userId'], 'the page\'s props');
   });
 
   // ---- F. One primary across both lists ----
+
+  await check('E4 select-calendars route: a refused selection answers its message and a stable code (none_selected for an empty one, no_yours for one with no calendar of yours), 400, and saves nothing', async () => {
+    seed();
+    Object.assign(userRow(1), { googleRefreshToken: TOKENS.a, calendarAssignments: [gcal('nava@gmail.com', ['yours'], 'Nava G')] });
+    const none = await route('app/api/select-calendars/route.ts', 'POST', 1, { calendarAssignments: [] });
+    const noYours = await route('app/api/select-calendars/route.ts', 'POST', 1, { calendarAssignments: [gcal('nava@gmail.com', ['kids'], 'Nava G')] });
+    eq([none.status, none.body.error, none.body.code], [400, 'At least one calendar must be selected', 'none_selected'], 'empty');
+    eq([noYours.status, noYours.body.error, noYours.body.code], [400, 'At least one calendar must be marked as "yours"', 'no_yours'], 'no yours');
+    eq(userRow(1).calendarAssignments.map((a: Row) => a.labels), [['yours']], 'the saved choices');
+  });
 
   await check('F1 select-calendars: ticking primary on a Google calendar clears the FamCal primary (yours kept); the partner\'s calendar is untouched', async () => {
     seed();
