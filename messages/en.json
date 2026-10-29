@@ -952,6 +952,7 @@
     "category": "Category",
     "noCategory": "No category",
     "mainIsYours": "The main calendar is always one of yours.",
+    "mainHowToChange": "To change the main calendar, turn it on for another one.",
     "note": "Note for the AI",
     "notePlaceholder": "e.g. Early dismissal every Friday",
     "noteHint": "Read with this calendar's events in your summaries.",
@@ -972,7 +973,8 @@
       "save": "Couldn't save, so the change was undone.",
       "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together.",
       "noneSelected": "Keep at least one calendar on. To stop using Google, disconnect it in Settings.",
-      "noYours": "Keep at least one calendar marked as yours."
+      "noYours": "Keep at least one calendar marked as yours.",
+      "retry": "Couldn't save. Try again."
     },
     "empty": {
       "title": "No calendars in this Google account",

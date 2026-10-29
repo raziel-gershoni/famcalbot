@@ -7,7 +7,7 @@
 // The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts). It also draws CopyField's
 // (./CopyField.tsx: ch-copy-field*) and dims a disabled row button (button.ch-form-row:disabled).
 // A radio card's option can carry a hint (what it means) and be off by itself (RadioCardOption.hint, .disabled); a switch row's
-// label can be more than text (a dot and a name), and a hint wraps an unbroken word (a person's own text can be one).
+// label can be more than text (a dot and a name), a hint's own free text (its <bdi>) wraps an unbroken word, and a button row can be off.
 // A calendar's colour: .ch-swatch-dot is the dot beside a name (.is-lg: 12 px; in a list row's title it sits
 // before the name), and ColorSwatches is the picker (a radiogroup of 44 px swatches, a check on the chosen one; its
 // classes are .ch-color-swatch*: the home's Agenda has a .ch-swatch of its own, and smoke-app-ui keeps the kit's names apart).
@@ -104,7 +104,10 @@ export const FORM_CSS = `
 .ch-form-hint {
   font-size: 13px;
   color: var(--ch-muted);
-  /* A hint can be a person's own text (a Google calendar's description): an unbroken address wraps instead of widening the row. */
+}
+.ch-form-hint > bdi {
+  /* A person's own text in a hint (a Google calendar's description) can be one unbroken address: it wraps instead of widening the row.
+     Not the hint itself: a hint that wraps anywhere shrinks its label column to one letter and breaks the words of a row's own hint. */
   overflow-wrap: anywhere;
 }
 .ch-form-hint.is-danger {
@@ -744,12 +747,12 @@ function Check({ className }: { className?: string }) {
   );
 }
 
-/** A row that opens a sheet, shaped like a value row (the label, the value, a chevron); the inline error sits under it. `valueDir="ltr"` keeps a time or a number left to right. */
-export function ButtonRow({ label, hint, value, onClick, error, valueDir }: { label: string; hint?: string; value: string; onClick: () => void; error?: string | null; valueDir?: 'ltr' }) {
+/** A row that opens a sheet, shaped like a value row (the label, the value, a chevron); the inline error sits under it. `valueDir="ltr"` keeps a time or a number left to right; `disabled` (its screen is working) dims it and takes no tap. */
+export function ButtonRow({ label, hint, value, onClick, error, valueDir, disabled }: { label: string; hint?: string; value: string; onClick: () => void; error?: string | null; valueDir?: 'ltr'; disabled?: boolean }) {
   const id = useId();
   return (
     <>
-      <button type="button" className="ch-form-row" aria-haspopup="dialog" aria-describedby={error ? `${id}-error` : undefined} onClick={onClick}>
+      <button type="button" className="ch-form-row" aria-haspopup="dialog" aria-describedby={error ? `${id}-error` : undefined} disabled={disabled} onClick={onClick}>
         <span className="ch-form-label">
           <span>{label}</span>
           {hint ? <span className="ch-form-hint">{hint}</span> : null}

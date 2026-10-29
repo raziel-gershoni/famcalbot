@@ -300,8 +300,10 @@ async function main() {
     const block = (l: Locale) => new Map(leaves(messages[l].selectCalendars));
     const keys = (l: Locale) => [...block(l).keys()].sort();
     for (const l of ['he', 'ru'] as Locale[]) assert(show(keys(l)) === show(keys('en')), `${l}: the keys differ from en`);
-    for (const need of ['title', 'intro', 'show', 'chosen', 'chosenHint', 'category', 'noCategory', 'mainIsYours', 'note', 'notePlaceholder', 'noteHint', 'spouse', 'spouseHint', 'spouseName', 'spouseNamePlaceholder', 'spouseEnglishName', 'spouseGender', 'male', 'female', 'notes', 'notesHint', 'notesPlaceholder', 'notesCount', 'newEventsGoTo', 'errors.save', 'errors.limit', 'errors.noneSelected', 'errors.noYours', 'empty.title', 'empty.body']) assert(block('en').has(need), `en: no ${need}`);
+    for (const need of ['title', 'intro', 'show', 'chosen', 'chosenHint', 'category', 'noCategory', 'mainIsYours', 'note', 'notePlaceholder', 'noteHint', 'spouse', 'spouseHint', 'spouseName', 'spouseNamePlaceholder', 'spouseEnglishName', 'spouseGender', 'male', 'female', 'notes', 'notesHint', 'notesPlaceholder', 'notesCount', 'newEventsGoTo', 'errors.save', 'errors.limit', 'errors.noneSelected', 'errors.noYours', 'errors.retry', 'mainHowToChange', 'empty.title', 'empty.body']) assert(block('en').has(need), `en: no ${need}`);
     for (const l of LOCALES) assert(!block(l).has('noNote'), `${l}: the unread key noNote is still there`);
+    assert(messages.en.selectCalendars.errors.retry === "Couldn't save. Try again." && messages.he.selectCalendars.errors.retry === 'לא הצלחנו לשמור. נסו שוב.' && messages.ru.selectCalendars.errors.retry === 'Не удалось сохранить. Попробуйте ещё раз.', 'the retry sentence');
+    assert(messages.en.selectCalendars.mainHowToChange === 'To change the main calendar, turn it on for another one.' && messages.he.selectCalendars.mainHowToChange === 'כדי להחליף את היומן הראשי, מפעילים אותו ביומן אחר.' && messages.ru.selectCalendars.mainHowToChange === 'Чтобы сменить основной календарь, включите этот переключатель у другого календаря.', 'how to change the main calendar');
     assert(messages.en.selectCalendars.errors.noneSelected === 'Keep at least one calendar on. To stop using Google, disconnect it in Settings.' && messages.en.selectCalendars.errors.noYours === 'Keep at least one calendar marked as yours.', 'the English refusals');
     for (const l of LOCALES) {
       for (const [key, text] of block(l)) {
@@ -327,6 +329,14 @@ async function main() {
     }
   });
 
+  await check('W2 the reviewed wording: the Hebrew spouse hint names the spouse (not "them"), the Hebrew empty state says "in the Google account" with no English product line, the Russian note copy is native (lessons end earlier, not "ранний уход"), the Hebrew limit has its singular and dual', () => {
+    assert(messages.he.selectCalendars.spouseHint === 'משמשים לכל יומני בן או בת הזוג, כדי שהסיכומים יזכירו את בן או בת הזוג בשם.', messages.he.selectCalendars.spouseHint);
+    assert(messages.he.selectCalendars.empty.body === 'אפשר להוסיף יומן בחשבון Google ולפתוח את הדף הזה שוב.', messages.he.selectCalendars.empty.body);
+    assert(messages.ru.selectCalendars.notePlaceholder === 'Например: по пятницам уроки заканчиваются раньше' && messages.ru.selectCalendars.notesHint === 'До трёх заметок, которые ИИ учитывает в каждой сводке, например: в какие дни уроки заканчиваются раньше.', `${messages.ru.selectCalendars.notePlaceholder} / ${messages.ru.selectCalendars.notesHint}`);
+    assert(messages.he.selectCalendars.errors.limit === 'בתוכנית שלכם יש מקום {limit, plural, one {ליומן אחד} two {לשני יומנים} other {ל־# יומנים}}, של FamCal ושל Google יחד.', messages.he.selectCalendars.errors.limit);
+    for (const l of LOCALES) assert(!/ранний уход|early dismissal/i.test(messages[l].selectCalendars.notePlaceholder + messages[l].selectCalendars.notesHint) || l === 'en', `${l}: the calque is back`);
+  });
+
   await check('S1 the screen is made of the kit: no styled-jsx, Tailwind class, hex colour, emoji, :hover, window.confirm or direct useTelegramBackButton; no old Layout/Forms import, no inline Hebrew or Russian; initData only through initDataHeaders (never window.Telegram or the body); the grouped AppScreen owns Back and the form kit\'s style sheet is the only one', () => {
     const raw = source(SCREEN_FILE);
     const code = noComments(raw);
@@ -342,6 +352,7 @@ async function main() {
     assert(!/window\.Telegram|\binitData\b\s*[,}]|initData:/.test(code.replace(/initDataHeaders|readInitData/g, '')), 'initData is read in the screen or put in the body');
     assert(/initDataHeaders\(\)/.test(code), 'the credential does not go through initDataHeaders()');
     assert(!/\bcalendarLimit\b|\buserName\b/.test(code), 'the screen takes a prop it does not use (calendarLimit, userName)');
+    assert(/import \{ isolate \} from '@\/src\/lib\/isolate';/.test(code) && !/GoogleCopyRow/.test(code), 'isolate does not come from src/lib/isolate (a component module is no home for a helper)');
     const styles = code.match(/<style[^>]*>/g) ?? [];
     assert(styles.length === 1 && /<style>\{FORM_CSS\}<\/style>/.test(code), 'a style sheet but the form kit\'s');
     assert(/<AppScreen ground="grouped" onBack=\{back\}>/.test(code) && /<ScreenHeader title=\{t\('title'\)\} backLabel=\{ui\('back'\)\} onBack=\{back\} \/>/.test(code), 'the grouped AppScreen and the header with the same back');
@@ -529,9 +540,9 @@ async function main() {
     }
   });
 
-  await check('S6 a refused save is undone and said: the switch goes back, Chosen and the saved state are as before, "Couldn\'t save, so the change was undone." shows as an alert and is logged; a 429 says too many changes, a 401 or 403 says to reopen the page, a 500 and no network say the generic one; after the refusal the next tap saves the whole selection as it was plus the new change', async () => {
+  await check('S6 a refused save is undone and said: the switch goes back, Chosen and the saved state are as before, "Couldn\'t save, so the change was undone." shows as an alert and is logged; a 429 says too many changes, a 401 or 403 says to reopen the page, a 500, a 502 that is not JSON and no network (the server may have written the change) only say to try again, while the switch still goes back; any other refusal says "so the change was undone"; after the refusal the next tap saves the whole selection as it was plus the new change', async () => {
     const cases: [string, () => Reply, (l: Locale) => string][] = [
-      ['500', () => json({ error: 'Failed to update calendars' }, 500), (l) => word(l, 'errors.save')],
+      ['500', () => json({ error: 'Failed to update calendars' }, 500), (l) => word(l, 'errors.retry')],
       ['400 with no code', () => json({ error: 'At least one calendar must be marked as "yours"' }, 400), (l) => word(l, 'errors.save')],
       ['400 none_selected', () => json({ error: 'At least one calendar must be selected', code: 'none_selected' }, 400), (l) => word(l, 'errors.noneSelected')],
       ['400 no_yours', () => json({ error: 'At least one calendar must be marked as "yours"', code: 'no_yours' }, 400), (l) => word(l, 'errors.noYours')],
@@ -539,8 +550,9 @@ async function main() {
       ['429', () => json({ error: 'Too many requests. Please wait a minute.' }, 429), (l) => calendarsPageText(l, 'errors.tooMany')],
       ['401', () => json({ error: 'Unauthorized' }, 401), (l) => calendarsPageText(l, 'errors.reopen')],
       ['403 suspended', () => json({ error: 'Account suspended' }, 403), (l) => calendarsPageText(l, 'errors.reopen')],
-      ['no network', () => { throw new TypeError('Failed to fetch'); }, (l) => word(l, 'errors.save')],
-      ['not json', () => new Response('<html>', { status: 502 }), (l) => word(l, 'errors.save')],
+      ['404', () => json({ error: 'User not found' }, 404), (l) => word(l, 'errors.save')],
+      ['no network', () => { throw new TypeError('Failed to fetch'); }, (l) => word(l, 'errors.retry')],
+      ['not json', () => new Response('<html>', { status: 502 }), (l) => word(l, 'errors.retry')],
     ];
     for (const locale of LOCALES) {
       for (const [name, reply, text] of cases) {
@@ -570,7 +582,7 @@ async function main() {
   await check('S7 the calendar limit: a 403 calendar_limit_reached with the limit puts the switch back and says it as a sentence with the plan\'s room (en 1 / 3, he, ru one / few / many: 1, 3, 5, 21) and a See plans button to /<locale>/subscription?user_id=…; a tap the server would allow is never blocked by the page itself (a limit of 3 with three chosen still sends the tap)', async () => {
     const sentences: Record<Locale, [number, string][]> = {
       en: [[1, 'Your plan has room for 1 calendar, FamCal and Google together.'], [3, 'Your plan has room for 3 calendars, FamCal and Google together.']],
-      he: [[3, 'בתוכנית שלכם יש מקום ל־3 יומנים, של FamCal ושל Google יחד.'], [5, 'בתוכנית שלכם יש מקום ל־5 יומנים, של FamCal ושל Google יחד.']],
+      he: [[1, 'בתוכנית שלכם יש מקום ליומן אחד, של FamCal ושל Google יחד.'], [2, 'בתוכנית שלכם יש מקום לשני יומנים, של FamCal ושל Google יחד.'], [3, 'בתוכנית שלכם יש מקום ל־3 יומנים, של FamCal ושל Google יחד.'], [5, 'בתוכנית שלכם יש מקום ל־5 יומנים, של FamCal ושל Google יחד.']],
       ru: [[1, 'В вашем плане есть место для 1 календаря FamCal и Google вместе.'], [3, 'В вашем плане есть место для 3 календарей FamCal и Google вместе.'], [5, 'В вашем плане есть место для 5 календарей FamCal и Google вместе.'], [21, 'В вашем плане есть место для 21 календаря FamCal и Google вместе.']],
     };
     for (const locale of LOCALES) {
@@ -619,6 +631,7 @@ async function main() {
       const others = pageSwitches(o.m).filter((s) => s !== family);
       assert(others.every((s) => s.hasAttribute('disabled') && !s.hasAttribute('aria-busy')), 'another switch is on while a save runs');
       assert(listRows(o.m).every((r) => r.hasAttribute('disabled')), 'a row is on while a save runs');
+      assert(notesRow(o.m).hasAttribute('disabled'), 'the notes row is on while a save runs');
       assert(isOn(family), 'the tapped switch does not read on while it saves');
       o.m.click(switchOf(o.m, 'Noa'));
       o.m.click(switchOf(o.m, 'Kids and school'));
@@ -731,7 +744,7 @@ async function main() {
         // The primary calendar: its switch is on and only Yours can be chosen
         await openRow(o, n.me);
         const sh = sheetOf(o.m) as FakeElement;
-        assert(isOn(switchesOf(sh)[0]), `${locale}: Primary reads on`);
+        assert(isOn(switchesOf(sh)[0]) && switchesOf(sh)[0].getAttribute('aria-disabled') === 'true' && flat(switchesOf(sh)[0]).includes(word(locale, 'mainHowToChange')) && !flat(switchesOf(sh)[0]).includes(hint(locale, 'primary')), `${locale}: the main calendar's switch is on, off for taps, and says how to change it: ${flat(switchesOf(sh)[0])}`);
         const g = groupIn(sh, word(locale, 'category'));
         assert(show(radiosOf(g).filter((r) => r.hasAttribute('disabled')).map((r) => r.getAttribute('data-value'))) === show(['none', 'spouse', 'kids', 'birthdays']) && show(checkedOf(g).map((r) => r.getAttribute('data-value'))) === show(['yours']), `${locale}: primary's category options`);
         assert(flat(sh).includes(word(locale, 'mainIsYours')), `${locale}: the main-is-yours note`);
@@ -759,7 +772,7 @@ async function main() {
       await settle();
       assert(sheetOf(o.m), 'the sheet closed on a refusal');
       assert(valueOf(fieldByLabel(sheet(), word('en', 'note'))) === '  Pickup at four  ' && fieldByLabel(sheet(), word('en', 'spouseName')).value === ' Noa ' && show(checkedOf(groupIn(sheet(), word('en', 'category'))).map((r) => r.getAttribute('data-value'))) === show(['spouse']), 'the typed values did not stay');
-      assert(show(byRole(sheet(), 'alert').map(flat)) === show([calendarsPageText('en', 'errors.save')]), `the sheet's error ${show(byRole(sheet(), 'alert').map(flat))}`);
+      assert(show(byRole(sheet(), 'alert').map(flat)) === show([word('en', 'errors.retry')]), `the sheet's error ${show(byRole(sheet(), 'alert').map(flat))}`);
       assert(flat(rowOf(o.m, 'Kids and school')).includes(cat('en', 'kids')) && !page(o.m).includes(ui('en', 'saved')), 'the page behind changed');
       // Retry
       srv.save = () => json({ success: true });
@@ -822,14 +835,26 @@ async function main() {
       assert(canon(kids.labels.slice().sort()) === canon(['primary', 'yours']) && show(dana.labels) === show(['yours']), `labels: ${show(kids.labels)} / ${show(dana.labels)}`);
       assert(bodyOf().calendarAssignments.filter((a) => (a.labels as string[]).includes('primary')).length === 1, 'more than one primary in the body');
       assert(show(tagsOf(rowOf(o.m, 'Kids and school'))) === show([{ text: cat('en', 'primary'), tone: 'accent' }]) && tagsOf(rowOf(o.m, 'Dana')).length === 0, 'the primary tag did not move');
-      // Primary off: Yours stays, the options are free again
+      // Primary is one-way, as it was: once saved, its switch is off for good (it says how to change the main calendar), and a tap changes nothing
       await openRow(o, 'Kids and school');
-      o.m.click(switchesOf(sheet())[0]);
-      assert(!isOn(switchesOf(sheet())[0]) && radiosOf(group()).every((r) => !r.hasAttribute('disabled')) && show(checkedOf(group()).map((r) => r.getAttribute('data-value'))) === show(['yours']) && !flat(sheet()).includes(word('en', 'mainIsYours')), 'primary off');
+      const main = switchesOf(sheet())[0];
+      assert(isOn(main) && main.getAttribute('aria-disabled') === 'true', 'the saved main calendar\'s switch can be turned off');
+      assert(flat(main).includes(word('en', 'mainHowToChange')) && !flat(main).includes(hint('en', 'primary')), `the main calendar's hint: ${flat(main)}`);
+      o.m.click(main);
+      assert(isOn(switchesOf(sheet())[0]) && radiosOf(group()).filter((r) => r.hasAttribute('disabled')).length === 4 && flat(sheet()).includes(word('en', 'mainIsYours')), 'a tap on the saved main calendar\'s switch turned primary off');
       o.m.click(saveButton(o.m));
       await settle();
       const after = bodyOf().calendarAssignments.find((a) => a.calendarId === KIDS) as Row;
-      assert(show(after.labels) === show(['yours']), `primary off keeps yours: ${show(after.labels)}`);
+      assert(canon(after.labels.slice().sort()) === canon(['primary', 'yours']), `primary is kept: ${show(after.labels)}`);
+      // Before the save the switch is free: on, then off again, brings the options back (Family is not the main calendar)
+      await openRow(o, 'Family');
+      const family = () => switchesOf(sheet())[0];
+      assert(!isOn(family()) && family().getAttribute('aria-disabled') !== 'true' && flat(family()).includes(hint('en', 'primary')), `a calendar that is not the main one: ${flat(family())}`);
+      o.m.click(family());
+      assert(isOn(family()) && family().getAttribute('aria-disabled') !== 'true' && flat(family()).includes(hint('en', 'primary')), 'the switch is off before the save, or its hint changed already');
+      o.m.click(family());
+      assert(!isOn(family()) && radiosOf(group()).every((r) => !r.hasAttribute('disabled')) && !flat(sheet()).includes(word('en', 'mainIsYours')), 'on and off again before the save');
+      o.m.click(cancelButton(o.m));
     } finally {
       close(o);
     }
@@ -933,7 +958,7 @@ async function main() {
         srv.save = () => json({ error: 'nope' }, 500);
         o.m.click(saveButton(o.m));
         await settle();
-        assert(sheetOf(o.m) && fieldByLabel(sheetOf(o.m) as FakeElement, word(locale, 'notesPlaceholder', { number: 2 })).value === '  Mind the buses ' && show(byRole(sheetOf(o.m) as FakeElement, 'alert').map(flat)) === show([calendarsPageText(locale, 'errors.save')]), `${locale}: a refusal kept nothing`);
+        assert(sheetOf(o.m) && fieldByLabel(sheetOf(o.m) as FakeElement, word(locale, 'notesPlaceholder', { number: 2 })).value === '  Mind the buses ' && show(byRole(sheetOf(o.m) as FakeElement, 'alert').map(flat)) === show([word(locale, 'errors.retry')]), `${locale}: a refusal kept nothing`);
         srv.save = () => json({ success: true });
         o.m.input(fieldByLabel(sheetOf(o.m) as FakeElement, word(locale, 'notesPlaceholder', { number: 3 })), '');
         o.m.click(saveButton(o.m));
@@ -1069,15 +1094,19 @@ async function main() {
     } finally {
       close(o);
     }
-    // The kit lets a long unbroken hint wrap
+    // The kit lets a person's own unbroken text in a hint wrap (the <bdi> in it), and only that: a hint that wraps "anywhere" itself
+    // shrinks its label column to one letter and breaks the words of the editor's Repeat row in Russian
     const { FORM_CSS } = await import('../components/app-ui/form-kit');
-    assert(/\.ch-form-hint\s*\{[^}]*overflow-wrap:\s*anywhere/.test(FORM_CSS), 'FORM_CSS: .ch-form-hint does not wrap an unbroken word');
+    const ruleBody = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.>]/g, '\\$&')} \\{([^}]*)\\}`).exec(FORM_CSS)?.[1] ?? '';
+    assert(/overflow-wrap:\s*anywhere/.test(ruleBody('.ch-form-hint > bdi')), 'FORM_CSS: the free text in a hint does not wrap an unbroken word');
+    assert(ruleBody('.ch-form-hint') !== '' && !/overflow-wrap/.test(ruleBody('.ch-form-hint')), `FORM_CSS: .ch-form-hint itself wraps anywhere: ${ruleBody('.ch-form-hint')}`);
+    assert(!/\.ch-form-label\s*\{[^}]*overflow-wrap/.test(FORM_CSS), 'FORM_CSS: a label wraps anywhere');
     const { lintCss } = await import('./lib/css-lint');
     assert(lintCss(FORM_CSS).length === 0, `FORM_CSS lint: ${show(lintCss(FORM_CSS))}`);
   });
 
   await check('S17 the kit\'s RadioCard: an option can carry a hint and be off by itself (the card\'s own disabled still turns every option off); a disabled option takes no tap; SwitchRow takes a label that is more than text', async () => {
-    const { FORM_CSS, RadioCard, SwitchRow } = await import('../components/app-ui/form-kit');
+    const { ButtonRow, FORM_CSS, RadioCard, SwitchRow } = await import('../components/app-ui/form-kit');
     installWindow();
     const taken: string[] = [];
     const radio = (disabled?: boolean) => createElement(NextIntlClientProvider, { locale: 'en', messages: messages.en } as never, createElement(RadioCard, {
@@ -1097,6 +1126,21 @@ async function main() {
     all.unmount();
     // The chosen option is bold; what it means under it is not
     assert(/\.ch-choice\[aria-checked='true'\] \{\s*font-weight:\s*600;/.test(FORM_CSS) && /\.ch-choice \.ch-form-hint \{\s*font-weight:\s*400;/.test(FORM_CSS), 'the chosen option\'s hint is bold with it');
+    // A button row can be off (its screen is working): the platform's disabled, so a tap does nothing and the kit dims it; without it nothing changes
+    const opened: number[] = [];
+    const rowOf = (disabled?: boolean) => createElement(ButtonRow, { label: 'Notes', value: '2 notes', onClick: () => void opened.push(1), disabled } as never);
+    const off = mount(rowOf(true));
+    const offButton = byRole(off.container, 'button')[0] ?? elements(off.container).find((e) => e.localName === 'button');
+    assert(offButton && offButton.hasAttribute('disabled'), 'a disabled ButtonRow is not disabled');
+    off.click(offButton);
+    off.unmount();
+    const on = mount(rowOf());
+    const onButton = elements(on.container).find((e) => e.localName === 'button') as FakeElement;
+    assert(!onButton.hasAttribute('disabled'), 'a ButtonRow is disabled by default');
+    on.click(onButton);
+    on.unmount();
+    assert(opened.length === 1, `taps: ${opened.length} (a disabled row took one, or an enabled one none)`);
+    assert(renderToString(rowOf()) === renderToString(createElement(ButtonRow, { label: 'Notes', value: '2 notes', onClick: () => undefined })), 'a ButtonRow without disabled changed its markup');
     const html = renderToString(createElement(SwitchRow, { label: createElement('span', { className: 'x' }, 'Rich'), checked: true, onChange: () => undefined }));
     assert(html.includes('<span class="x">Rich</span>') && /role="switch"/.test(html), `a node as the label: ${html.slice(0, 160)}`);
   });
@@ -1155,7 +1199,7 @@ async function main() {
         // A refusal replaces it, as an alert
         srv.save = () => json({ error: 'x' }, 500);
         await tapAndSettle(o, switchOf(o.m, NAMES[locale].noa));
-        assert(barOf(o.m).length === 1 && show(statusText(o.m)) === show([word(locale, 'errors.save')]) && notices(o.m)[0].getAttribute('role') === 'alert' && isInside(notices(o.m)[0], barOf(o.m)[0]), `${locale}: the refusal's bar: ${show(statusText(o.m))}`);
+        assert(barOf(o.m).length === 1 && show(statusText(o.m)) === show([word(locale, 'errors.retry')]) && notices(o.m)[0].getAttribute('role') === 'alert' && isInside(notices(o.m)[0], barOf(o.m)[0]), `${locale}: the refusal's bar: ${show(statusText(o.m))}`);
         // The limit keeps its way on in the bar
         srv.save = () => json({ error: 'calendar_limit_reached', limit: 3 }, 403);
         await tapAndSettle(o, switchOf(o.m, NAMES[locale].noa));
@@ -1174,7 +1218,7 @@ async function main() {
     }
   });
 
-  await check('S21 a refusal in a sheet says what it is in the sheet\'s own words: the generic one is "Couldn\'t save the calendar. Try again." (nothing was applied, so not "the change was undone"), a selection with no calendar of yours says so (the only calendar of yours moved to another category), and the typed values stay; the instant-save rollback keeps "so the change was undone"', async () => {
+  await check('S21 a refusal in a sheet says what it is in the sheet\'s own words: the generic one is "Couldn\'t save. Try again." (nothing was applied there, so neither "the change was undone" nor "the calendar"; the notes sheet says it too), a selection with no calendar of yours says so (the only calendar of yours moved to another category), and the typed values stay; the instant-save rollback keeps "so the change was undone"', async () => {
     for (const locale of LOCALES) {
       resetWorld();
       const o = await open(locale, {}, TELEGRAM);
@@ -1192,12 +1236,28 @@ async function main() {
         srv.save = () => json({ error: 'x' }, 500);
         o.m.click(saveButton(o.m));
         await settle();
-        assert(show(byRole(sheet(), 'alert').map(flat)) === show([calendarsPageText(locale, 'errors.save')]), `${locale}: the generic refusal in a sheet: ${show(byRole(sheet(), 'alert').map(flat))}`);
-        assert(!flat(sheet()).includes(word(locale, 'errors.save')), `${locale}: "the change was undone" in a sheet`);
+        assert(show(byRole(sheet(), 'alert').map(flat)) === show([word(locale, 'errors.retry')]), `${locale}: the generic refusal in a sheet: ${show(byRole(sheet(), 'alert').map(flat))}`);
+        assert(!flat(sheet()).includes(word(locale, 'errors.save')) && !flat(sheet()).includes(calendarsPageText(locale, 'errors.save')), `${locale}: "the change was undone" (or "the calendar") in a sheet`);
+        // A refusal (4xx) with no word of its own says the same there
+        srv.save = () => json({ error: 'Bad request' }, 400);
+        o.m.click(saveButton(o.m));
+        await settle();
+        assert(show(byRole(sheet(), 'alert').map(flat)) === show([word(locale, 'errors.retry')]), `${locale}: a plain refusal in a sheet: ${show(byRole(sheet(), 'alert').map(flat))}`);
+        // A refusal in the notes sheet says the same, not "the calendar"
         o.m.click(cancelButton(o.m));
-        // The instant-save rollback keeps its own words
+        o.m.click(notesRow(o.m));
+        await settle();
+        o.m.click(saveButton(o.m));
+        await settle();
+        assert(show(byRole(sheet(), 'alert').map(flat)) === show([word(locale, 'errors.retry')]), `${locale}: the notes sheet's refusal: ${show(byRole(sheet(), 'alert').map(flat))}`);
+        o.m.click(cancelButton(o.m));
+        // The instant-save rollback after a refusal (4xx: the server wrote nothing) keeps "so the change was undone"; after a 5xx or no answer (it may have written) it only says to try again
+        srv.save = () => json({ error: 'Bad request' }, 400);
         await tapAndSettle(o, switchOf(o.m, NAMES[locale].family));
-        assert(show(statusText(o.m)) === show([word(locale, 'errors.save')]), `${locale}: the rollback's words: ${show(statusText(o.m))}`);
+        assert(show(statusText(o.m)) === show([word(locale, 'errors.save')]) && !isOn(switchOf(o.m, NAMES[locale].family)), `${locale}: the rollback's words after a refusal: ${show(statusText(o.m))}`);
+        srv.save = () => json({ error: 'x' }, 500);
+        await tapAndSettle(o, switchOf(o.m, NAMES[locale].family));
+        assert(show(statusText(o.m)) === show([word(locale, 'errors.retry')]) && !isOn(switchOf(o.m, NAMES[locale].family)), `${locale}: the rollback's words after a 5xx: ${show(statusText(o.m))}`);
       } finally {
         close(o);
       }

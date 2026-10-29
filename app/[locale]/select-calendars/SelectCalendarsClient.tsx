@@ -35,7 +35,7 @@ import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { Tag } from '@/components/app-ui/Tag';
-import { isolate } from '../calendars/GoogleCopyRow';
+import { isolate } from '@/src/lib/isolate';
 import {
   CATEGORIES, applyCalendar, categoriesOf, categoryOf, noteCount, paddedNotes, saveBody, selectionFrom, toggleShown, withCategory, withNotes, withPrimary,
   type CalendarDraft, type ListedCalendar, type Selection, type SpouseInfo,
@@ -64,9 +64,11 @@ const HEX = /^#[0-9a-f]{3,8}$/i;
 /**
  * Why a save did not go through. `limit` is the plan's room (the shared calendar total), when the server said it.
  * `noneSelected` and `noYours` are the server's two refusals the person can act on: the last calendar can't be turned off,
- * and one calendar must stay marked as theirs.
+ * and one calendar must stay marked as theirs. `generic` is any other refusal (a 4xx): the server wrote nothing, so a switch
+ * that went back is "undone". `retry` is a 5xx or no answer: the server may have written the change, so it only says to try again
+ * (the switch still goes back, and the next save, which is always the whole selection, puts both right).
  */
-type Failure = 'tooMany' | 'reopen' | 'limit' | 'noneSelected' | 'noYours' | 'generic';
+type Failure = 'tooMany' | 'reopen' | 'limit' | 'noneSelected' | 'noYours' | 'generic' | 'retry';
 interface SaveFailure {
   failure: Failure;
   limit: number | null;
@@ -76,10 +78,10 @@ interface SaveFailure {
 function failureOf(status: number, data: { error?: unknown; code?: unknown; limit?: unknown } | null): SaveFailure {
   if (status === 400 && data?.code === 'none_selected') return { failure: 'noneSelected', limit: null };
   if (status === 400 && data?.code === 'no_yours') return { failure: 'noYours', limit: null };
-  if (data?.error === 'calendar_limit_reached') return typeof data.limit === 'number' ? { failure: 'limit', limit: data.limit } : { failure: 'generic', limit: null };
+  if (data?.error === 'calendar_limit_reached') return typeof data.limit === 'number' ? { failure: 'limit', limit: data.limit } : { failure: status >= 500 ? 'retry' : 'generic', limit: null };
   if (status === 429) return { failure: 'tooMany', limit: null };
   if (status === 401 || status === 403) return { failure: 'reopen', limit: null };
-  return { failure: 'generic', limit: null };
+  return { failure: status >= 500 ? 'retry' : 'generic', limit: null };
 }
 
 /** The line under the intro: what the last save came to. It stays until the next save. */
@@ -215,7 +217,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
       },
       () => {
         commit(before);
-        say({ kind: 'failed', why: { failure: 'generic', limit: null } });
+        say({ kind: 'failed', why: { failure: 'retry', limit: null } });
       },
     );
   };
@@ -271,7 +273,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
           say({ kind: 'saved' });
         }
       },
-      () => setSheetError({ failure: 'generic', limit: null }),
+      () => setSheetError({ failure: 'retry', limit: null }),
     );
 
   const saveCalendar = () => {
@@ -294,13 +296,14 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
   // ---- Drawing ----
 
   /**
-   * What a refusal says. The generic one differs by where it shows: after a tap on a switch the change was undone ("so the
-   * change was undone"); in a sheet nothing was applied, so it is the calendars page's plain "couldn't save".
+   * What a refusal says. A refused tap on a switch was undone ("so the change was undone"); a 5xx or no answer only says to
+   * try again (the server may have it). In a sheet nothing was applied either way: "couldn't save, try again".
    */
   const failureText = (e: SaveFailure, inSheet = false) => {
     if (e.failure === 'limit') return t('errors.limit', { limit: e.limit ?? 0 });
     if (e.failure === 'noneSelected' || e.failure === 'noYours') return t(`errors.${e.failure}`);
-    if (e.failure === 'generic') return inSheet ? page('errors.save') : t('errors.save');
+    if (e.failure === 'retry' || (e.failure === 'generic' && inSheet)) return t('errors.retry');
+    if (e.failure === 'generic') return t('errors.save');
     return page(`errors.${e.failure}`);
   };
   const seePlans = { label: page('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) };
@@ -350,6 +353,8 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
   const calendarSheet = (calendar: ListedCalendar) => {
     const primary = draft.labels.has('primary');
     const category = categoryOf(draft.labels);
+    // The main calendar is one-way, as it has always been here: once saved it is changed by turning primary on for another calendar
+    const savedMain = sel.labels.get(calendar.id)?.has('primary') === true;
     const edit = (change: Partial<CalendarDraft>) => setDraft((d) => ({ ...d, ...change }));
     const editSpouse = (change: Partial<CalendarDraft['spouse']>) => setDraft((d) => ({ ...d, spouse: { ...d.spouse, ...change } }));
     return (
@@ -360,7 +365,13 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
           </h2>
 
           <FormCard>
-            <SwitchRow label={categories('primary')} hint={page('categoryHint.primary')} checked={primary} disabled={locked} onChange={(on) => edit({ labels: withPrimary(draft.labels, on) })} />
+            <SwitchRow
+              label={categories('primary')}
+              hint={savedMain ? t('mainHowToChange') : page('categoryHint.primary')}
+              checked={primary}
+              disabled={locked || savedMain}
+              onChange={(on) => edit({ labels: withPrimary(draft.labels, on) })}
+            />
           </FormCard>
 
           <div className="ch-form-group">
@@ -491,7 +502,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
 
             <SectionLabel>{t('notes')}</SectionLabel>
             <FormCard>
-              <ButtonRow label={t('notes')} value={t('notesCount', { count: noteCount(sel) })} onClick={openNotes} />
+              <ButtonRow label={t('notes')} value={t('notesCount', { count: noteCount(sel) })} disabled={locked} onClick={openNotes} />
             </FormCard>
             <p className="ch-form-fixed">{t('notesHint')}</p>
           </>

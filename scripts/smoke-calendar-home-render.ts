@@ -10095,7 +10095,7 @@ async function main() {
     assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/MonthPicked.tsx'), 'utf8')), 'MonthPicked no longer renders ItemRow');
   });
 
-  await check('#134 the chip\'s CSS: a small inline row (icon and label) on the existing chip, the icon 14 px in the chip\'s own colour, the label ellipsised, the done tone the muted one; logical properties and no hover', () => {
+  await check('#134 the chip\'s CSS: a small inline row (icon and label) on the existing chip, the icon 14 px in the chip\'s own colour, the label ellipsised, the done tone the muted one with a ring (so it shows on the Still open card in every theme); logical properties and no hover', () => {
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.\\[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(AGENDA_CSS);
       assert(m, `no rule for ${selector}`);
@@ -10109,6 +10109,8 @@ async function main() {
     assert(/overflow:\s*hidden/.test(label) && /text-overflow:\s*ellipsis/.test(label) && /min-width:\s*0/.test(label), `a long name is cut with an ellipsis, not the row: ${label}`);
     const doneTone = rule('.ch-chip.ch-chip-partner-done');
     assert(/background:\s*var\(--ch-surface\)/.test(doneTone) && /color:\s*var\(--ch-muted\)/.test(doneTone), `the done tone is the muted one: ${doneTone}`);
+    // Where a theme's card and secondary colours are one (the browser's dark theme, the Still open card), the pill would vanish: it keeps the muted Tag's 1px ring in the switch's off outline
+    assert(/box-shadow:\s*inset 0 0 0 1px var\(--ch-done\)/.test(doneTone), `the done pill has no ring: ${doneTone}`);
     for (const body of [chip, icon, label, doneTone]) {
       assert(!/(?:^|[;\s])(?:width|height|margin-left|margin-right|padding-left|padding-right|left|right|float|text-align):/.test(body), `a physical property: ${body}`);
     }

@@ -418,6 +418,8 @@ export const AGENDA_CSS = `
 .ch-chip.ch-chip-partner-done {
   background: var(--ch-surface);
   color: var(--ch-muted);
+  /* The switch's off outline, as the muted Tag has it: where a theme's card and secondary colours are one (the browser's dark theme, the Still open card), the pill would vanish. */
+  box-shadow: inset 0 0 0 1px var(--ch-done);
 }
 .ch-badge {
   padding: 0 6px;
