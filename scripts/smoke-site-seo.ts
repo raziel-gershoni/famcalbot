@@ -3,7 +3,7 @@
 //
 //  - S1 every public page in en, he and ru has a canonical URL, its other languages and x-default, English unprefixed
 //    and never /en; the title and description from messages; the share image of its language with its alt text, for
-//    Open Graph and X; the landing's title stands alone; the share page stays noindex.
+//    Open Graph and X; the landing's title stands alone; the share page stays noindex, with no canonical or languages.
 //  - S2 the sitemap: every indexed page in every language at the URL it is served at (no /en, no how-it-works, no
 //    share page, no Mini App), Privacy and Terms included, each with its languages and x-default, and the day its
 //    content changed, never the build's "now".
@@ -26,7 +26,7 @@ async function main() {
   stubMdx();
   const { getPostBySlug } = await load('src/lib/blog.ts');
 
-  await check('S1 every public page in en, he and ru: canonical, its languages and x-default (English unprefixed), title and description from messages, the share image of its language with its alt, for Open Graph and X; the landing\'s title alone; the share page noindex', async () => {
+  await check('S1 every public page in en, he and ru: canonical, its languages and x-default (English unprefixed), title and description from messages, the share image of its language with its alt, for Open Graph and X; the landing\'s title alone; the share page noindex, with no alternates', async () => {
     const pages: { rel: string; path: string; title: (l: Locale) => string; description: (l: Locale) => string; slug?: string }[] = [
       { rel: 'app/[locale]/(site)/page.tsx', path: '/', title: (l) => messages[l].landing.meta.title, description: (l) => messages[l].landing.meta.description },
       { rel: 'app/[locale]/(site)/blog/page.tsx', path: '/blog', title: (l) => messages[l].site.meta.blog.title, description: (l) => messages[l].site.meta.blog.description },
@@ -40,9 +40,14 @@ async function main() {
       for (const locale of LOCALES) {
         const m: Row = await generateMetadata({ params: Promise.resolve({ locale, ...(page.slug ? { slug: page.slug } : {}) }) });
         const where = `${page.path} ${locale}`;
-        assert(m.alternates?.canonical === url(locale, page.path), `${where}: canonical ${m.alternates?.canonical}`);
-        const langs = m.alternates?.languages ?? {};
-        assert(show(langs) === show({ en: url('en', page.path), he: url('he', page.path), ru: url('ru', page.path), 'x-default': url('en', page.path) }), `${where}: languages ${show(langs)}`);
+        if (page.path === '/share') {
+          // Kept out of search: no canonical and no languages to index
+          assert(m.alternates === undefined, `${where}: alternates on a noindex page ${show(m.alternates)}`);
+        } else {
+          assert(m.alternates?.canonical === url(locale, page.path), `${where}: canonical ${m.alternates?.canonical}`);
+          const langs = m.alternates?.languages ?? {};
+          assert(show(langs) === show({ en: url('en', page.path), he: url('he', page.path), ru: url('ru', page.path), 'x-default': url('en', page.path) }), `${where}: languages ${show(langs)}`);
+        }
         assert(!JSON.stringify(m).includes(`${SITE}/en`), `${where}: an /en URL`);
         const title = page.path === '/' ? m.title?.absolute : m.title;
         assert(title === page.title(locale) && m.description === page.description(locale), `${where}: title ${show(m.title)}, description ${m.description}`);

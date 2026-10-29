@@ -213,6 +213,8 @@ async function main() {
       assert(html.includes('https://famcal.bot') && html.includes('https://t.me/family_calendar_telegram_bot'), `${locale}: the links`);
       const meta = await generateMetadata({ params: Promise.resolve({ locale }) });
       assert(meta.robots?.index === false && meta.title === messages[locale].site.meta.share.title, `${locale}: the metadata ${show(meta)}`);
+      // Kept out of search, so it names no canonical page and no other languages to index
+      assert(meta.alternates === undefined, `${locale}: a noindex page with alternates ${show(meta.alternates)}`);
     }
   });
 

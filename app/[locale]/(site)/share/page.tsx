@@ -13,10 +13,10 @@ type Props = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale });
-  return {
-    ...siteMetadata({ locale, path: '/share', title: t('site.meta.share.title'), description: t('site.meta.share.description'), imageAlt: t('landing.meta.ogImageAlt') }),
-    robots: { index: false, follow: false },
-  };
+  // Kept out of search: no canonical and no languages to index (the rest of the site's metadata stays)
+  const meta = siteMetadata({ locale, path: '/share', title: t('site.meta.share.title'), description: t('site.meta.share.description'), imageAlt: t('landing.meta.ogImageAlt') });
+  delete meta.alternates;
+  return { ...meta, robots: { index: false, follow: false } };
 }
 
 export default async function SharePage({ params }: Props) {
