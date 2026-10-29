@@ -226,8 +226,9 @@ async function resetUsage(tx: Prisma.TransactionClient, userId: number, now: Dat
  * in `timeZone`, the person's zone; a free gift ends; the charge id it now holds is the one that funds this month), then
  * fresh usage counters. Either all of it is written or none of it: a failure throws with nothing half-credited, and the
  * next delivery of the update credits it. Every way to pay comes here (a new plan, a move up or down, a renewal, an old
- * invoice paid after the plan lapsed), so the stored plan is always the one paid for. After the commit, the access cache
- * is dropped and an activity row is written; each logs its own failure and never undoes the credit.
+ * invoice paid after the plan lapsed), so the stored plan is always the one paid for. The rows it answers are read in the
+ * same transaction; after the commit it never throws: the access cache is dropped and an activity row is written, each
+ * logging its own failure.
  */
 export async function creditPayment(
   userId: number,
@@ -240,7 +241,9 @@ export async function creditPayment(
 
   const now = new Date();
   const month = paidMonth(now, timeZone);
-  const credited = await prisma.$transaction(async (tx) => {
+  // The rows are read inside the transaction: once it commits, nothing here may throw, or the webhook would answer 500
+  // and the next delivery (which credits nothing) would never send the confirmation
+  const { credited, subscription, payment } = await prisma.$transaction(async (tx) => {
     const { count } = await tx.payment.createMany({
       data: [{
         userId,
@@ -254,23 +257,29 @@ export async function creditPayment(
       }],
       skipDuplicates: true,
     });
-    if (count === 0) return false;
-    await tx.subscription.update({ where: { userId }, data: { plan: paid.plan, ...month, telegramPaymentChargeId: paid.chargeId } });
-    await resetUsage(tx, userId, now);
-    return true;
+    if (count > 0) {
+      await tx.subscription.update({ where: { userId }, data: { plan: paid.plan, ...month, telegramPaymentChargeId: paid.chargeId } });
+      await resetUsage(tx, userId, now);
+    }
+    return {
+      credited: count > 0,
+      subscription: await tx.subscription.findUniqueOrThrow({ where: { userId } }),
+      payment: await tx.payment.findUniqueOrThrow({ where: { telegramPaymentChargeId: paid.chargeId } }),
+    };
   });
-
-  const [subscription, payment] = await Promise.all([
-    prisma.subscription.findUniqueOrThrow({ where: { userId } }),
-    prisma.payment.findUniqueOrThrow({ where: { telegramPaymentChargeId: paid.chargeId } }),
-  ]);
   if (!credited) {
     console.log(`[Subscription] Charge ${paid.chargeId} was already credited (payment ${payment.id} of user ${payment.userId}${payment.refundedAt ? ', refunded since' : ''}): nothing changes`);
     return { subscription, payment, credited: false };
   }
 
-  await invalidateFeatureAccessCache(userId);
-  await trackActivity(userId, action === 'renew' ? 'subscription_renewed' : 'subscription_upgraded', { from_plan: fromPlan, to_plan: paid.plan });
+  try {
+    await invalidateFeatureAccessCache(userId);
+    await trackActivity(userId, action === 'renew' ? 'subscription_renewed' : 'subscription_upgraded', { from_plan: fromPlan, to_plan: paid.plan });
+  } catch (error) {
+    // Each logs its own failures; this is for one that throws all the same: the credit stands, and the confirmation still goes
+    console.error(`[Subscription] After crediting charge ${paid.chargeId} to user ${userId}, the cache or the activity row failed:`, error);
+    captureError(error, 'subscription-credit-after', { user_id: userId, charge_id: paid.chargeId }, 'warning');
+  }
 
   console.log(`[Subscription] User ${userId} paid ${paid.amount} ${paid.currency} for ${paid.plan} (from ${fromPlan}, charge ${paid.chargeId}), valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
 

@@ -191,7 +191,7 @@ export async function handleSuccessfulPayment(
   try {
     credit = await creditPayment(user.id, { chargeId, plan: payload.plan, amount: payment.total_amount, currency: payment.currency }, timeZone, payload.action);
   } catch (error) {
-    console.error(`[Payment] Crediting charge ${chargeId} to user ${user.id} failed, nothing was written; the webhook answers 500 so Telegram delivers it again:`, error);
+    console.error(`[Payment] Crediting charge ${chargeId} to user ${user.id} failed before it committed, so nothing was written; the webhook answers 500 so Telegram delivers it again:`, error);
     throw error;
   }
   if (!credit.credited) {
@@ -199,29 +199,20 @@ export async function handleSuccessfulPayment(
     return;
   }
 
-  // Add breadcrumb for subscription activation
-  addBreadcrumb('subscription_activated', {
-    user_id: user.id,
-    plan: payload.plan,
-    action: payload.action,
-  }, 'payment');
-
-  // Track payment (use internal DB user.id)
-  await trackActivity(user.id, 'subscription_upgraded', {
-    plan: payload.plan,
-    to_plan: payload.plan,
-  });
-
-  // 3. The one confirmation, in the person's language and zone; its plain fallback if it can't be sent
-  const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
-  const localizedPlanName = t.plans?.[payload.plan.toLowerCase()]?.name || payload.plan;
+  // 3. The one confirmation, in the person's language and zone; its plain fallback if it can't be sent. The plan is active
+  // now, so nothing below may throw out of the handler (a 500 would bring a delivery that credits nothing and confirms nothing).
+  const localizedName = (names: Record<string, { name?: string }> | undefined) => names?.[payload.plan.toLowerCase()]?.name || payload.plan;
   try {
+    addBreadcrumb('subscription_activated', { user_id: user.id, plan: payload.plan, action: payload.action }, 'payment');
+    // Track payment (use internal DB user.id)
+    await trackActivity(user.id, 'subscription_upgraded', { plan: payload.plan, to_plan: payload.plan });
+    const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
     const dashboardUrl = buildUrl(`/${language}/subscription?user_id=${userId}`);
     const successMessage = paymentConfirmation({
       template: t.paymentSuccess,
       words: botMessages.policy,
       locale: language,
-      planName: localizedPlanName,
+      planName: localizedName(t.plans),
       price: payment.total_amount,
       periodEnd: credit.payment.periodEnd,
       timeZone,
@@ -243,7 +234,8 @@ export async function handleSuccessfulPayment(
     console.error(`[Payment] The confirmation of charge ${chargeId} to user ${user.id} failed (the plan is active); sending its short fallback:`, error);
     captureError(error, 'payment-confirmation', { user_id: user.id, charge_id: chargeId });
     try {
-      await messagingService.sendMessage(chatId, paymentFallback({ template: t.paymentFallback, locale: language, planName: localizedPlanName, periodEnd: credit.payment.periodEnd, timeZone }));
+      const t = await getSubscriptionMessages(language);
+      await messagingService.sendMessage(chatId, paymentFallback({ template: t.paymentFallback, locale: language, planName: localizedName(t.plans), periodEnd: credit.payment.periodEnd, timeZone }));
     } catch (fallbackError) {
       console.error(`[Payment] The fallback confirmation of charge ${chargeId} to user ${user.id} failed too:`, fallbackError);
       captureError(fallbackError, 'payment-confirmation-fallback', { user_id: user.id, charge_id: chargeId });

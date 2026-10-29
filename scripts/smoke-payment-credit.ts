@@ -25,6 +25,9 @@
 //    person's language, as plain text; the credit stays, and nothing says activation failed.
 //  - E3 a payload that can't be read, and a payer the bot doesn't know, are answered with the activation error (in
 //    the person's language when known), captured, and credit nothing; no copy is written in the handler itself.
+//  - E4 nothing that fails after the credit commits (a read of the rows on the root client, the activity row, the
+//    messages) throws out of the handler: Telegram's next delivery would credit nothing and confirm nothing, so the
+//    person would never get the confirmation. Exactly one confirmation (or its fallback) goes out.
 //
 // The real payment handler, subscription service and zone lookup (src/lib/timezone.ts) run over a fake Prisma (the
 // subscription, usage and payment rows; updateMany's where read as Postgres reads it; the payment's unique charge id;
@@ -66,6 +69,8 @@ const sent: { chatId: unknown; text: string; options?: Row }[] = [];
 const logs: string[] = [];
 const captured: string[] = [];
 let zoneMode: 'cached' | 'hang' | 'throw' = 'cached';
+/** The activity row throws (as trackActivity never does: it catches its own). */
+let activityFails = false;
 const ZONES: Record<number, string> = { 11: 'America/New_York', 12: 'Asia/Jerusalem' };
 const USERS: Row[] = [
   { id: 11, telegramId: BigInt(5011), language: 'en', location: 'New York', googleRefreshToken: null },
@@ -144,8 +149,11 @@ const models = { subscription: table('subscription'), usageCounter: table('usage
  * connection, outside the transaction, so it would neither wait for it nor roll back with it.
  */
 const inTx = new AsyncLocalStorage<boolean>();
+/** A root-client call that throws while listed ("payment.findUniqueOrThrow"): the database failing outside any transaction. */
+const rootFailing = new Set<string>();
 const rootModels = Object.fromEntries(Object.entries(models).map(([name, model]) => [name, Object.fromEntries(Object.entries(model).map(([method, fn]) => [method, (...args: unknown[]) => {
   if (inTx.getStore()) throw new Error(`prisma.${name}.${method} used inside an interactive transaction (use tx)`);
+  if (rootFailing.has(`${name}.${method}`)) throw new Error(`prisma.${name}.${method} failed (smoke)`);
   return (fn as (...a: unknown[]) => unknown)(...args);
 }]))])) as unknown as typeof models;
 /** Transactions run one at a time, as two inserts of one unique charge id do in Postgres; a throw puts every row back. */
@@ -192,7 +200,13 @@ const stubs: Record<string, object> = {
   [`${SRC}/utils/redis.ts`]: { redis },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => ({ answerPreCheckoutQuery: async () => true, sendInvoice: async () => ({}) }), getMessagingService: () => messaging },
   [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async (id: number) => USERS.find((u) => Number(u.telegramId) === Number(id)) ?? null },
-  [`${SRC}/services/analytics-service.ts`]: { trackActivity: async () => undefined, addBreadcrumb: () => undefined, setUserContext: () => undefined },
+  [`${SRC}/services/analytics-service.ts`]: {
+    trackActivity: async () => {
+      if (activityFails) throw new Error('the activity row failed (smoke)');
+    },
+    addBreadcrumb: () => undefined,
+    setUserContext: () => undefined,
+  },
   [`${SRC}/lib/error-capture.ts`]: {
     captureError: (e: unknown, context: string) => void captured.push(`${context}: ${e instanceof Error ? e.message : String(e)}`),
     captureWarning: () => undefined,
@@ -308,6 +322,8 @@ async function main() {
     logs.length = 0;
     captured.length = 0;
     failing.clear();
+    rootFailing.clear();
+    activityFails = false;
     sendFails = null;
     zoneMode = 'cached';
   };
@@ -496,6 +512,30 @@ async function main() {
     const src = fs.readFileSync(path.join(SRC, 'services/payment-handler.ts'), 'utf8').replace(/^\s*(?:\/\/|\*).*$/gm, '');
     // No English fallback beside a message key (`t.x || 'words'`, `t.x ? … : \`words\``): every word the person reads is in messages
     assert(!/\|\|\s*['`][^'`]*[A-Za-z]{2,} [A-Za-z]{2,}|There was an error activating|View Subscription|\(1 month\)|FamCalBot \$\{/.test(src), 'English copy is written in the handler');
+  });
+
+  await check('E4 nothing that fails after the credit commits throws out of the handler (the rows read again on the root client, the activity row): the plan stands and exactly one confirmation goes out, counting Telegram\'s next delivery', async () => {
+    const user = USERS[1];
+    for (const how of ['the rows read again on the root client', 'the activity row'] as const) {
+      reset();
+      seedSub(user.id, {}); // a trial row already there: the only activity row is the credit's own
+      if (how === 'the activity row') activityFails = true;
+      // (only the reads that come after the commit: the subscription's own read before the credit is a failure to deliver again)
+      else ['payment.findUniqueOrThrow', 'subscription.findUniqueOrThrow'].forEach((x) => rootFailing.add(x));
+      let threw = false;
+      await quietly(() => pay(user, 'chg_P')).catch(() => (threw = true));
+      if (threw) {
+        // The webhook answered 500: Telegram delivers the update again, the database well by then
+        rootFailing.clear();
+        activityFails = false;
+        await quietly(() => pay(user, 'chg_P')).catch(() => undefined);
+      }
+      const m = messages(user.language);
+      const fallback = D.paymentFallback({ template: m.subscription.paymentFallback, locale: user.language, planName: m.subscription.plans.pro.name, periodEnd: subOf(user.id).currentPeriodEnd, timeZone: ZONES[user.id] });
+      assert(!threw, `${how}: the handler threw after the credit committed`);
+      assert(DB.payment.length === 1 && subOf(user.id).plan === 'PRO', `${how}: the credit ${show(DB.payment)} ${show(subOf(user.id))}`);
+      assert(sent.length === 1 && (sent[0].text === confirmation(user, ZONES[user.id]) || sent[0].text === fallback), `${how}: ${sent.length} confirmations: ${show(sent.map((x) => x.text.slice(0, 40)))}`);
+    }
   });
 
   let failed = 0;
