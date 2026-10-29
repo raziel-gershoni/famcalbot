@@ -3,7 +3,8 @@
 // fake DOM, with a fake Telegram.WebApp, a router stub and a fake fetch. No network, no DB.
 //
 //  - C1 the page data: where the person is with Google (all four states, the chosen count) and the partner's name;
-//  - C2 the kit's colour swatches and the swatch dot's CSS.
+//  - C2 the kit's colour swatches and the swatch dot's CSS;
+//  - C3 the screen's words in en, he and ru.
 //
 // Run with the fake env (never the real one), from the repo root:
 //   bash <scratchpad>/run-smoke.sh scripts/smoke-calendars-screen.ts
@@ -16,6 +17,7 @@ import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { lintCss } from './lib/css-lint';
+import { CALENDAR_PALETTE } from '../src/lib/calendar-colours';
 import { ColorSwatches, FORM_CSS } from '../components/app-ui/form-kit';
 import { elements, installWindow, mount, type Row } from './lib/fake-dom';
 
@@ -183,6 +185,30 @@ async function main() {
     assert(rule('.ch-swatch-dot') !== '', 'FORM_CSS does not draw .ch-swatch-dot');
     const problems = lintCss(FORM_CSS);
     assert(problems.length === 0, `FORM_CSS: ${show(problems)}`);
+  });
+
+  await check('C3 the screen\'s words: calendarsPage has the same keys in en, he and ru; every palette colour has a name in each language (and colors.unknown a fallback); {name} and {count} are kept where the English has them; he and ru are their own text, with no Latin letter but the product names; no emoji', () => {
+    const leaves = (node: unknown, prefix = ''): [string, string][] =>
+      typeof node === 'string' ? [[prefix, node]] : node && typeof node === 'object' ? Object.entries(node).flatMap(([k, v]) => leaves(v, prefix ? `${prefix}.${k}` : k)) : [];
+    const page = (l: Locale) => new Map(leaves(messages[l].calendarsPage));
+    const keys = (l: Locale) => [...page(l).keys()].sort();
+    for (const l of ['he', 'ru'] as Locale[]) assert(show(keys(l)) === show(keys('en')), `${l}: the keys differ from en: ${show(keys(l).filter((k) => !keys('en').includes(k)))} / ${show(keys('en').filter((k) => !keys(l).includes(k)))}`);
+    for (const need of ['title', 'yours', 'sharedBy', 'sharedByPartner', 'newCalendar', 'name', 'namePlaceholder', 'create', 'color', 'categories', 'privacy', 'privacyPrivate', 'privacyViewer', 'privacyEditor', 'delete', 'deleteTitle', 'deleteBody', 'onlyOne', 'seePlans', 'google', 'googleHint', 'googleChosen', 'googleChosenCount', 'googleChoose', 'googleConnect', 'googleReconnect', 'sharedAccess.view', 'sharedAccess.edit', 'colors.unknown']) assert(page('en').has(need), `en: no ${need}`);
+    for (const k of ['primary', 'yours', 'spouse', 'kids', 'birthdays']) assert(page('en').has(`categoryHint.${k}`), `no categoryHint.${k}`);
+    for (const k of ['save', 'create', 'delete', 'notFound', 'tooMany', 'reopen', 'limit']) assert(page('en').has(`errors.${k}`), `no errors.${k}`);
+    for (const colour of CALENDAR_PALETTE) assert(page('en').has(`colors.${colour.name.toLowerCase()}`), `no name for the palette colour ${colour.name}`);
+    for (const l of LOCALES) {
+      for (const [key, text] of page(l)) {
+        const english = page('en').get(key) as string;
+        for (const arg of ['name', 'count']) assert(english.includes(`{${arg}`) === text.includes(`{${arg}`), `${l} ${key}: {${arg}} differs from en`);
+        assert(!/\p{Extended_Pictographic}/u.test(text), `${l} ${key}: an emoji`);
+        if (l !== 'en') {
+          assert(text !== english || /^(?:Google|\{count)/.test(english), `${l} ${key}: the English text`);
+          assert(!/[A-Za-z]/.test(text.replace(/\{[^}]*\}/g, '').replace(/\b(?:plural|one|two|few|many|other)\b/g, '').replace(/Google/g, '')), `${l} ${key}: Latin letters in ${text}`);
+        }
+      }
+    }
+    assert(messages.he.calendars.categories.spouse === 'בן או בת זוג', `the Hebrew spouse chip: ${messages.he.calendars.categories.spouse}`);
   });
 
   let failed = 0;
