@@ -6,7 +6,7 @@
 // - The steps of /refresh-token: a numbered list drawn as a form card, one row per step, its number on the accent's
 //   soft ground (they are a sequence, so they are numbered).
 // - The actions under a card (the primary button, its notices, the finish page's two buttons and the WhatsApp hint).
-// - The loader that says what it waits for (ConnectLoader), under the screen's header.
+// - A check running inside a notice (ConnectChecking): a small spinner beside the words.
 //
 // Rules (lintCss): px sizes of 11 or more, logical properties, no hover, colours only from the tokens.
 
@@ -58,7 +58,6 @@ export const CONNECT_CSS = `
 }
 .ch-connect-step {
   gap: 12px;
-  padding-block: 10px;
 }
 .ch-connect-num {
   flex: none;
@@ -82,12 +81,13 @@ export const CONNECT_CSS = `
 .ch-connect-actions a {
   text-decoration: none;
 }
-.ch-connect-loader {
-  flex-direction: column;
-  gap: 12px;
+.ch-connect-checking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
-.ch-connect-loader-text {
-  font-size: 15px;
-  color: var(--ch-muted);
+.ch-connect-checking svg {
+  flex: none;
+  color: var(--ch-accent);
 }
 `;

@@ -2,7 +2,8 @@
 
 // The pieces the Google connect pages share beside the kit (plan W4-3), drawn by ./connect-css.ts:
 // - ConnectHero: the icon, the title (a page with no header has its h1 here) and the lead;
-// - ConnectLoader: the app's loader (.ch-loader, the spinner), with what it waits for said, or only heard.
+// - ConnectLoader: the app's loader (.ch-loader, the spinner) for a whole screen, its words for a screen reader;
+// - ConnectChecking: a check running, said inside a notice (a small spinner and the words).
 // The text comes in already translated. Client-safe: React and lucide only.
 
 import type { ReactNode } from 'react';
@@ -18,12 +19,22 @@ export function ConnectHero({ icon, title, lead }: { icon: ReactNode; title?: st
   );
 }
 
-/** `shown`: the words under the spinner; without it a screen reader hears them and nothing else shows. */
-export function ConnectLoader({ label, shown = false }: { label: string; shown?: boolean }) {
+/** The app's loader for a whole screen: the spinner, and what it waits for for a screen reader. */
+export function ConnectLoader({ label }: { label: string }) {
   return (
-    <div className="ch-loader ch-connect-loader" role="status">
+    <div className="ch-loader" role="status">
       <Loader2 size={32} className="ch-spin" aria-hidden="true" />
-      <span className={shown ? 'ch-connect-loader-text' : 'ch-visually-hidden'}>{label}</span>
+      <span className="ch-visually-hidden">{label}</span>
     </div>
+  );
+}
+
+/** A check running, said inside a notice (whose role announces it): a small spinner and the words. */
+export function ConnectChecking({ label }: { label: string }) {
+  return (
+    <span className="ch-connect-checking">
+      <Loader2 size={16} className="ch-spin" aria-hidden="true" />
+      {label}
+    </span>
   );
 }

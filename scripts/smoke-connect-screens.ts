@@ -2,17 +2,19 @@
 // spec 2026-10-19-screens-and-colours §4, §5; the connect flow is spec 2026-10-19-google-connection, unchanged here):
 // /refresh-token, /oauth-callback and /oauth-complete.
 //
-//  - D1..D4 the shell: the three pages sit in the (connect) route group, whose one root layout loads the global CSS (the
+//  - D1..D5 the shell: the three pages sit in the (connect) route group, whose one root layout loads the global CSS (the
 //    kit's colours outside Telegram) and leaves the document to ConnectShell; each page's <html> has its language and
 //    direction (en, he, ru); the Telegram SDK loads before hydration on /refresh-token only.
-//  - R1..R6 /refresh-token on the kit (en, he, ru; light and dark; inside Telegram and in a browser): the header, the
+//  - R1..R7 /refresh-token on the kit (en, he, ru; light and dark; inside Telegram and in a browser): the header, the
 //    steps in order, Connect busy while Google's URL is made; a failed start says why and can be tried again; the
 //    waiting notice with Check again and, once the 3-minute poll ends, the line that says so; the loader while it
-//    checks; the move on once the token lands; Back to the calendar with a full load (Telegram's button and the page's).
-//  - B1..B7 /oauth-callback: every state that is not a success is one translated card with a way back (an expired or
-//    used link, Google's deny, a failure on our side with no raw error text, Google refusing the code, the scopes page,
-//    no refresh token), in the owner's language or else the browser's; /api/refresh-token turns a return with no code
-//    into the callback's card instead of JSON.
+//    checks (in the notice, the page and Check again staying put; a Check again during a quiet poll is made after it);
+//    the move on once the token lands; Back to the calendar with a full load (Telegram's button and the page's).
+//  - B1..B9 /oauth-callback: every state that is not a success is one translated card with a way back (an expired or
+//    used link, Google's deny, Google's other refusals, a failure on our side with no raw error text, Google refusing
+//    the code, the scopes page, no refresh token), in the owner's language or else the browser's; /api/refresh-token
+//    turns a return with no code into the callback's card instead of JSON; Google's error is logged quoted; a database
+//    failure on the deny path still shows the card.
 //  - F1..F4 /oauth-complete: the loader before the fragment is read, the ready page (the owner line through ICU, the
 //    buttons per b=), the incomplete card.
 //  - K1 the pages' own style sheet passes the kit's lint and the sources hold no old look and no inline copy.
@@ -461,9 +463,17 @@ async function main() {
   });
 
 
+  await check('D5 /refresh-token\'s provider carries ui and pageGate only: its client reads its words from its prop, so the namespace is not sent twice', async () => {
+    seed();
+    for (const q of [{ user_id: String(TAL_TG) }, {}]) {
+      const end = await refreshPage(q);
+      assert(end.element?.type?.name === 'ConnectShell' && show(end.element.props.namespaces) === show([]), `${show(q)}: namespaces ${show(end.element?.props?.namespaces)}`);
+    }
+  });
+
   // ---- R: /refresh-token ----
 
-  await check('R1 /refresh-token is an AppScreen on the kit in each language and look: the title in the header, the lead, the three steps as a numbered list in order under their label, one primary Continue; busy with "Getting Google ready" until oauth/start answers; Telegram\'s theme inside Telegram, the browser\'s outside it; nothing in English in he and ru', async () => {
+  await check('R1 /refresh-token is an AppScreen on the kit in each language and look: the title in the header, the lead, the three steps as a numbered list (role="list") in order under their label, one primary Continue; busy with "Getting Google ready" until oauth/start answers; Telegram\'s theme inside Telegram, the browser\'s outside it; nothing in English in he and ru', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
       for (const look of [{ telegram: 'light' as const }, { telegram: 'dark' as const }, { telegram: null, prefersDark: true }, { telegram: null, prefersDark: false }]) {
@@ -486,6 +496,8 @@ async function main() {
         if (!h1 || textOf(h1) !== t.title) problems.push(`${tag}: h1 ${h1 ? textOf(h1) : 'none'}`);
         if (!all(m).some((e: Row) => textOf(e) === t.subtitle && e.localName === 'p')) problems.push(`${tag}: no lead`);
         const ol = all(m).find((e: Row) => e.localName === 'ol') as Row | undefined;
+        // Its numbers are drawn (aria-hidden) and its markers are off, so the list says it is one (WebKit drops the role otherwise)
+        if (ol?.getAttribute('role') !== 'list') problems.push(`${tag}: the steps' <ol> has no role="list"`);
         const steps = ol ? elements(ol as FakeElement).filter((e: Row) => e.localName === 'li').map(textOf) : [];
         if (show(steps) !== show([`1${t.step1}`, `2${t.step2}`, `3${t.step3}`].map((x) => x.replace(/\s+/g, ' ')))) problems.push(`${tag}: steps ${show(steps)}`);
         const label = all(m).find((e: Row) => e.localName === 'h2');
@@ -558,7 +570,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('R3 after Continue: Google opens (Telegram\'s openLink inside Telegram, a new tab in a browser on the WhatsApp session, with no initData header), the waiting notice says where to finish and offers Check again, which asks check-token-refresh at once (the header credential and since) behind the loader that says it is checking; the 2 s poll runs for 3 minutes and then the notice says it is still waiting and the poll stops; Continue again starts a new wait', async () => {
+  await check('R3 after Continue: Google opens (Telegram\'s openLink inside Telegram, a new tab in a browser on the WhatsApp session, with no initData header), the waiting notice says where to finish and offers Check again, which asks check-token-refresh at once (the header credential and since) while the notice says it is checking (the page and the button stay, so focus does); the 2 s poll runs for 3 minutes and then the notice says it is still waiting and the poll stops; Continue again starts a new wait', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
       for (const inTelegram of [true, false]) {
@@ -575,21 +587,26 @@ async function main() {
         const status = () => all(m).find((e: Row) => e.getAttribute('role') === 'status' && textOf(e).includes(inTelegram ? t.waitingTelegram : t.waitingWhatsApp)) as Row | undefined;
         if (!status()) problems.push(`${tag}: no waiting notice`);
         if (status() && textOf(status() as Row).includes(t.stillWaiting)) problems.push(`${tag}: says still waiting too soon`);
-        // Check again: one check at once, behind the loader
+        // Check again: one check at once, said in the notice
         let answer!: (r: Response) => void;
         b.answer['/api/check-token-refresh'] = [() => new Promise<Response>((resolve) => { answer = resolve; })];
         const checks = () => b.calls.filter((c) => c.path.startsWith('/api/check-token-refresh'));
         const before = checks().length;
-        m.click(buttonNamed(m, t.checkAgain) as FakeElement);
+        const again0 = buttonNamed(m, t.checkAgain) as FakeElement;
+        m.click(again0);
         await settle();
         const asked = checks().at(-1);
         if (checks().length !== before + 1 || !asked?.path.includes(`since=${pending?.startTime}`) || asked.path.includes('initData')) problems.push(`${tag}: Check again asked ${show(checks().slice(before))}`);
         if (inTelegram ? !asked?.headers['x-telegram-init-data'] : asked?.headers['x-telegram-init-data'] !== undefined) problems.push(`${tag}: the credential header ${show(asked?.headers)}`);
-        const loader = all(m).find((e: Row) => String(e.getAttribute('class')).includes('ch-loader')) as Row | undefined;
-        if (!loader || loader.getAttribute('role') !== 'status' || !textOf(loader).includes(t.checking) || connectButton(m, t)) problems.push(`${tag}: while checking ${loader ? textOf(loader) : 'no loader'}`);
+        // While it checks the notice says so with a spinner in place of its text; Check again is the same button in the same
+        // place (so focus stays on it) and the page around it stays
+        const checkingLine = () => all(m).find((e: Row) => e.getAttribute('role') === 'status' && textOf(e).includes(t.checking)) as Row | undefined;
+        const line = checkingLine();
+        if (!line || textOf(line).includes(inTelegram ? t.waitingTelegram : t.waitingWhatsApp) || !elements(line as FakeElement).some((e: Row) => String(e.getAttribute('class')).includes('ch-spin'))) problems.push(`${tag}: while checking ${line ? textOf(line) : 'no checking line'}`);
+        if (buttonNamed(m, t.checkAgain) !== again0 || !connectButton(m, t) || !all(m).some((e: Row) => e.localName === 'ol')) problems.push(`${tag}: the page did not stay while checking`);
         answer(json({ refreshed: false }));
         await settle();
-        if (all(m).some((e: Row) => String(e.getAttribute('class')).includes('ch-loader')) || !status()) problems.push(`${tag}: after the check the page did not come back`);
+        if (checkingLine() || !status() || buttonNamed(m, t.checkAgain) !== again0) problems.push(`${tag}: after the check the notice did not come back with the same Check again`);
         // The poll: every 2 s while the window is open, then the line that says so
         if (b.intervals.size !== 1) problems.push(`${tag}: ${b.intervals.size} intervals`);
         const polled = checks().length;
@@ -605,6 +622,39 @@ async function main() {
         await settle();
         const again = status();
         if (b.opened.length !== 2 || !again || textOf(again).includes(t.stillWaiting) || b.intervals.size !== 1) problems.push(`${tag}: after Continue again: opened ${b.opened.length}, ${again ? textOf(again) : 'no notice'}, intervals ${b.intervals.size}`);
+        m.unmount();
+        leaveBrowser();
+      }
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('R7 Check again while a quiet poll is on its way: the notice says it is checking at once and no second request runs beside it; when that poll answers "not yet" the check the person asked for is made, and when it found the token the page moves on with no second ask', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      for (const outcome of ['notYet', 'landed'] as const) {
+        const t = messages[l].refreshToken;
+        const { m, b } = await mountRefresh(l, { telegram: 'light' });
+        const tag = `${l} ${outcome}`;
+        m.click(connectButton(m, t) as FakeElement);
+        await settle();
+        const checks = () => b.calls.filter((c) => c.path.startsWith('/api/check-token-refresh'));
+        let release!: (r: Response) => void;
+        b.answer['/api/check-token-refresh'] = [() => new Promise<Response>((resolve) => { release = resolve; })];
+        await b.tick();
+        const before = checks().length;
+        m.click(buttonNamed(m, t.checkAgain) as FakeElement);
+        await settle();
+        const checking = () => all(m).some((e: Row) => e.getAttribute('role') === 'status' && textOf(e).includes(t.checking));
+        if (!checking() || checks().length !== before) problems.push(`${tag}: on the tap: checking ${checking()}, requests ${checks().length - before}`);
+        b.answer['/api/check-token-refresh'] = [() => json({ refreshed: false })];
+        release(json({ refreshed: outcome === 'landed' }));
+        await settle();
+        if (outcome === 'notYet') {
+          if (checks().length !== before + 1 || checking()) problems.push(`${tag}: after the poll: requests ${checks().length - before}, checking ${checking()}`);
+        } else if (checks().length !== before || fakeWindow.location.href !== `/${l}/select-calendars?user_id=${TAL_TG}`) {
+          problems.push(`${tag}: requests ${checks().length - before}, at ${fakeWindow.location.href}`);
+        }
         m.unmount();
         leaveBrowser();
       }
@@ -803,7 +853,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('B6 Google\'s deny: /api/refresh-token answers a return with no code with a redirect to the callback (Google\'s error, or missing_code, and the state), never JSON; the callback shows "Google wasn\'t connected" for access_denied and the expired card for anything else, in the owner\'s language when the state names them (and leaves the state alone), else the browser\'s', async () => {
+  await check('B6 Google\'s deny: /api/refresh-token answers a return with no code with a redirect to the callback (Google\'s error, or missing_code, and the state), never JSON; the callback shows "Google wasn\'t connected" for access_denied, the expired card for our own missing_code and missing_state, and "Google didn\'t allow this connection" for any other error of Google\'s, in the owner\'s language when the state names them (and leaves the state alone), else the browser\'s', async () => {
     const problems: string[] = [];
     const { NextRequest } = nodeRequire('next/server');
     const { GET } = await load('app/api/refresh-token/route.ts');
@@ -822,12 +872,49 @@ async function main() {
       if (card.h1 !== o.denied.title || !card.text.includes(o.denied.body) || card.label !== o.backToFamcal || card.href !== '/refresh-token?user_id=42' || htmlTag(card.doc) !== `<html lang="${l}" dir="${dirOf(l)}">`) problems.push(`${l} denied: ${show({ h1: card.h1, href: card.href, tag: htmlTag(card.doc) })}`);
       if (!DB.oAuthState.some((r) => r.token === state)) problems.push(`${l} denied: the state was used up`);
       if (googleCalls()) problems.push(`${l} denied: Google was asked`);
-      const other = cardOf((await callbackPage({ error: 'missing_code', state })).value);
-      if (other.h1 !== o.expired.title) problems.push(`${l} missing_code: ${other.h1}`);
+      for (const ours of ['missing_code', 'missing_state']) {
+        const other = cardOf((await callbackPage({ error: ours, state })).value);
+        if (other.h1 !== o.expired.title) problems.push(`${l} ${ours}: ${other.h1}`);
+      }
+      // Any other error is Google's refusal (a workplace or school policy, an app it blocks): its own card
+      for (const google of ['admin_policy_enforced', 'org_internal', 'invalid_request']) {
+        const refused = cardOf((await callbackPage({ error: google, state })).value);
+        if (refused.h1 !== o.refused?.title || !refused.text.includes(o.refused?.body) || refused.label !== o.backToFamcal || refused.href !== '/refresh-token?user_id=42') problems.push(`${l} ${google}: ${show({ h1: refused.h1, href: refused.href })}`);
+        if (l !== 'en' && englishIn(refused.text).length) problems.push(`${l} ${google}: English ${show(englishIn(refused.text))}`);
+      }
       seed();
       acceptLanguage = ACCEPT[l];
       const stranger = cardOf((await callbackPage({ error: 'access_denied' })).value);
       if (stranger.h1 !== o.denied.title || stranger.href !== BOT || htmlTag(stranger.doc) !== `<html lang="${l}" dir="${dirOf(l)}">`) problems.push(`${l} denied, no state: ${show({ h1: stranger.h1, href: stranger.href })}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('B8 a crafted error value cannot forge a log line: the redirect URI and the callback log Google\'s error quoted (JSON), never its raw newlines', async () => {
+    const { NextRequest } = nodeRequire('next/server');
+    const { GET } = await load('app/api/refresh-token/route.ts');
+    const forged = '\n[oauth-callback] user 9: forged';
+    const { logs: routeLogs } = await quietly(async () => GET(new NextRequest(`http://localhost:8080/api/refresh-token?error=${encodeURIComponent(forged)}&state=u1_abc`)) as Promise<Response>);
+    seed();
+    const { logs: pageLogs } = await callbackPage({ error: forged, state: 'u1_abc' });
+    const logs = [...routeLogs, ...pageLogs];
+    assert(logs.length >= 2 && logs.every((x) => !x.includes('\n')) && logs.some((x) => x.includes(JSON.stringify(forged))), `logs ${show(logs)}`);
+  });
+
+  await check('B9 a database failure while the deny card looks up the state\'s owner still shows the denied card (in the browser\'s language, with the bot), logged and captured', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      seed({ noaLanguage: l === 'en' ? 'he' : 'en' });
+      acceptLanguage = ACCEPT[l];
+      const state = addState(42);
+      const realFind = fakePrisma.oAuthState.findUnique;
+      fakePrisma.oAuthState.findUnique = async () => { throw new Error('db down'); };
+      const { value: end, logs } = await callbackPage({ error: 'access_denied', state });
+      fakePrisma.oAuthState.findUnique = realFind;
+      const card = cardOf(end);
+      const o = messages[l].oauth;
+      if (card.h1 !== o.denied.title || card.href !== BOT || htmlTag(card.doc) !== `<html lang="${l}" dir="${dirOf(l)}">`) problems.push(`${l}: ${show({ h1: card.h1, href: card.href, tag: htmlTag(card.doc), threw: end.threw })}`);
+      if (!captured.some((c) => c.includes('db down')) || !logs.some((x) => x.startsWith('[oauth-callback]') && x.includes('db down'))) problems.push(`${l}: not captured or logged ${show({ captured, logs })}`);
     }
     assert(problems.length === 0, problems.join('; '));
   });
@@ -931,6 +1018,9 @@ async function main() {
     const problems = lintCss(CONNECT_CSS);
     // The subject of each rule (its first class) is the pages' own
     const own = [...String(CONNECT_CSS).matchAll(/^\.(ch-[\w-]+)/gm)].map((m) => m[1]);
+    // A step is a grouped card's row: FORM_CSS's .ch-form-page-grouped .ch-form-row sets its padding, so a padding here never applies
+    const step = /\n\.ch-connect-step \{([^}]*)\}/.exec(String(CONNECT_CSS))?.[1] ?? '';
+    if (/padding/.test(step)) problems.push(`.ch-connect-step declares a padding that never applies: ${step.trim()}`);
     if (!own.length || own.some((c) => !c.startsWith('ch-connect-'))) problems.push(`classes ${show(own)}`);
     for (const file of CONNECT_FILES()) {
       const src = readSource(file);

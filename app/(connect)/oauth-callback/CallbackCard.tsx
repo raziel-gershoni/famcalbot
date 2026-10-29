@@ -5,8 +5,9 @@
 // words are `oauth.*` (the page's provider); a reason from the server or Google never reaches it.
 //
 // - expired: a link used up or out of date (no state, an old one, one not there, one a second callback used, an
-//   expired one, an owner who is gone), and a Google return that is neither a code nor a deny;
+//   expired one, an owner who is gone), and our redirect URI finding no code or no state;
 // - denied: the person said no on Google's screen;
+// - refused: Google came back with another error of its own (a workplace or school policy, an app it blocks);
 // - generic: a failure on our side (the code exchange threw, parking the token failed);
 // - exchangeFailed: Google refused the code;
 // - noRefreshToken: Google gave no refresh token;
@@ -23,7 +24,7 @@ import { StateCard } from '@/components/app-ui/StateCard';
 import { CONNECT_CSS } from '../connect-css';
 import { ConnectHero } from '../connect-ui';
 
-export type CallbackKind = 'expired' | 'denied' | 'generic' | 'exchangeFailed' | 'noRefreshToken' | 'insufficientScopes';
+export type CallbackKind = 'expired' | 'denied' | 'refused' | 'generic' | 'exchangeFailed' | 'noRefreshToken' | 'insufficientScopes';
 
 export function CallbackCard({ kind, retryHref }: { kind: CallbackKind; retryHref: string }) {
   const t = useTranslations('oauth');

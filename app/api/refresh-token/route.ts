@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBaseUrl } from '@/src/config/urls';
+import { loggable, OAUTH_RETURN_MISSING_CODE, OAUTH_RETURN_MISSING_STATE } from '@/src/lib/oauth-state';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -18,8 +19,8 @@ export async function GET(request: NextRequest) {
 
   // On the public URL, not request.url: behind Railway's proxy that is Next's own http://localhost:8080.
   if (!code || !state) {
-    const error = searchParams.get('error') || (code ? 'missing_state' : 'missing_code');
-    console.warn(`[refresh-token] Google came back without ${code ? 'a state' : 'a code'} (${error.slice(0, 60)})`);
+    const error = searchParams.get('error') || (code ? OAUTH_RETURN_MISSING_STATE : OAUTH_RETURN_MISSING_CODE);
+    console.warn(`[refresh-token] Google came back without ${code ? 'a state' : 'a code'} (${loggable(error)})`);
     const query = new URLSearchParams({ error, ...(state ? { state } : {}) });
     return NextResponse.redirect(new URL(`/oauth-callback?${query.toString()}`, getBaseUrl()));
   }

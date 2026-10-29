@@ -5,7 +5,7 @@ import { getUserById } from '@/src/services/user-service';
 import { localeFromAcceptLanguage, normalizeLocale, type Locale } from '@/src/utils/locale';
 import { buildUrl } from '@/src/config/urls';
 import { captureError } from '@/src/lib/error-capture';
-import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
+import { loggable, OAUTH_RETURN_MISSING_CODE, OAUTH_RETURN_MISSING_STATE, OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
 import { createPendingGoogleToken, finishPageUrl, type GoogleGrant } from '@/src/services/google-connect';
 import { GOOGLE_CONNECT_SCOPES, parseGrantedScopes } from '@/src/services/google-sync/scopes';
 import { googleAccountOf } from '@/src/services/google-sync/account';
@@ -85,23 +85,43 @@ function exchangeRefusal(status: number, ok: boolean, answer: TokenAnswer | null
   return `HTTP ${status}${error}${description}${answer ? '' : ' (no JSON body)'}`;
 }
 
-/** The owner a state names, read only (the state stays as it is), for a card's language and way back. */
+/**
+ * The owner a state names, read only (the state stays as it is), for a card's language and way back. A lookup that
+ * fails is logged and captured, and the card goes to the browser's language and the bot: it must still show.
+ */
 async function ownerOfState(state: unknown): Promise<UserConfig | null> {
   if (typeof state !== 'string' || !state.startsWith(OAUTH_STATE_PREFIX)) return null;
-  const record = await prisma.oAuthState.findUnique({ where: { token: state } });
-  return record ? getUserById(Number(record.userId)) : null;
+  try {
+    const record = await prisma.oAuthState.findUnique({ where: { token: state } });
+    return record ? await getUserById(Number(record.userId)) : null;
+  } catch (error) {
+    console.error('[oauth-callback] looking up the owner of a state Google came back with failed:', error instanceof Error ? error.message : String(error));
+    captureError(error, 'oauth-callback-owner');
+    return null;
+  }
+}
+
+/**
+ * The card for a Google return with no code: the person said no on Google's screen (access_denied); our own redirect
+ * URI found no code or no state (an expired link); anything else is Google refusing the connection (a workplace or school
+ * policy, an app it blocks).
+ */
+function kindOfReturn(error: string): CallbackKind {
+  if (error === 'access_denied') return 'denied';
+  if (error === OAUTH_RETURN_MISSING_CODE || error === OAUTH_RETURN_MISSING_STATE) return 'expired';
+  return 'refused';
 }
 
 export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const { code, state, error } = params;
 
-  // Google came back without a code: the person said no on its screen (access_denied), or something else went wrong
-  // there. Nothing to exchange; the state is left as it is (it ends on its own).
+  // Google came back without a code: the person said no on its screen (access_denied), Google refused, or our redirect
+  // URI found no code or state (kindOfReturn). Nothing to exchange; the state is left as it is (it ends on its own).
   if (error !== undefined) {
     const owner = await ownerOfState(state);
-    console.warn(`[oauth-callback] Google came back without a code (${String(error).slice(0, 60)}) for ${owner ? `user ${owner.id}` : 'no known user'}`);
-    return <CallbackResult kind={error === 'access_denied' ? 'denied' : 'expired'} {...await readerOf(owner)} />;
+    console.warn(`[oauth-callback] Google came back without a code (${loggable(String(error))}) for ${owner ? `user ${owner.id}` : 'no known user'}`);
+    return <CallbackResult kind={kindOfReturn(String(error))} {...await readerOf(owner)} />;
   }
 
   // A link that is used up or out of date: one card for the person, the reason in the log

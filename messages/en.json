@@ -1003,6 +1003,10 @@
       "title": "Google wasn't connected",
       "body": "You can connect it any time from FamCal's menu."
     },
+    "refused": {
+      "title": "Google didn't allow this connection",
+      "body": "Your Google account may be managed by a workplace or school that blocks apps like FamCal. Try another Google account, or start again from FamCal."
+    },
     "generic": {
       "title": "Couldn't connect Google",
       "body": "Something went wrong on our side. Start again from FamCal in a minute."

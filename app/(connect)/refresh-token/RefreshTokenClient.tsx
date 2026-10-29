@@ -13,8 +13,10 @@
 // - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
 //   GET /api/check-token-refresh (initData in the header, `since` the tap on the server's clock) every 2 s for 3
 //   minutes, on visibilitychange and on mount; when the 3 minutes end the notice says to check again.
-// - A check that the person asked for shows the loader with "Checking the connection"; once the token landed the page
-//   moves on to /<locale>/select-calendars?user_id=… with a full load.
+// - A check that the person asked for (Check again, the return to the page, the mount) says "Checking the connection"
+//   with a spinner in the notice, in place of its text; the page stays as it is, so focus stays on Check again. One asked
+//   for while a quiet poll is on its way is made when that poll answers "not yet". Once the token landed the page moves
+//   on to /<locale>/select-calendars?user_id=… with a full load.
 // - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser): the calendar,
 //   /<locale>/dashboard?user_id=…, with a full page load (this page is outside [locale]).
 //
@@ -28,7 +30,7 @@ import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { CONNECT_CSS } from '../connect-css';
-import { ConnectHero, ConnectLoader } from '../connect-ui';
+import { ConnectChecking, ConnectHero } from '../connect-ui';
 
 interface Translations {
   title: string;
@@ -143,6 +145,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   // The 3-minute poll ended without the token
   const [timedOut, setTimedOut] = useState(false);
   const checkInFlight = useRef(false);
+  // A check the person asked for (Check again) while a quiet poll was on its way: made once that poll answers "not yet"
+  const checkAsked = useRef(false);
   // A later prepare (after a tap, or the timer) failed: Connect stays, and its tap prepares again
   const [retry, setRetry] = useState(false);
   // Only the latest prepare's answer counts, and none after the page is gone
@@ -209,36 +213,50 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     return () => clearTimeout(timer);
   }, [start, prepare]);
 
-  // quiet: the interval poll, which shows no loader unless the connection landed
+  // quiet: the interval poll, which says nothing unless the connection landed. A check the person asks for while one is
+  // on its way says it is checking at once and is made when that one answers "not yet" (one request at a time).
   const checkTokenRefresh = useCallback(async (quiet = false) => {
     const pending = localStorage.getItem(OAUTH_PENDING_KEY);
-    if (!pending || checkInFlight.current) return;
+    if (!pending) return;
+    if (checkInFlight.current) {
+      if (!quiet) {
+        checkAsked.current = true;
+        setIsChecking(true);
+      }
+      return;
+    }
 
     checkInFlight.current = true;
     if (!quiet) setIsChecking(true);
     try {
       const { userId: pendingUserId, startTime } = JSON.parse(pending);
-      // initData goes in a header, never the URL: it is a credential for 24 hours, and
-      // URLs end up in logs and traces. since: only a commit after this attempt counts, so
-      // a connect from minutes ago can't skip the consent that's still open
-      const initData = readInitData();
-      const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`, {
-        credentials: 'same-origin',
-        headers: initData ? { 'X-Telegram-Init-Data': initData } : undefined,
-      });
-      const data = await response.json();
+      for (;;) {
+        checkAsked.current = false;
+        // initData goes in a header, never the URL: it is a credential for 24 hours, and
+        // URLs end up in logs and traces. since: only a commit after this attempt counts, so
+        // a connect from minutes ago can't skip the consent that's still open
+        const initData = readInitData();
+        const response = await fetch(`/api/check-token-refresh?user_id=${pendingUserId}&since=${startTime}`, {
+          credentials: 'same-origin',
+          headers: initData ? { 'X-Telegram-Init-Data': initData } : undefined,
+        });
+        const data = await response.json();
 
-      if (data.refreshed) {
-        setIsChecking(true);
-        // Clear the pending flag
-        localStorage.removeItem(OAUTH_PENDING_KEY);
-        // Navigate to calendar selection with user's locale
-        window.location.href = `/${locale}/select-calendars?user_id=${pendingUserId}`;
-      } else {
-        setIsChecking(false);
+        if (data.refreshed) {
+          setIsChecking(true);
+          // Clear the pending flag
+          localStorage.removeItem(OAUTH_PENDING_KEY);
+          // Navigate to calendar selection with user's locale
+          window.location.href = `/${locale}/select-calendars?user_id=${pendingUserId}`;
+          return;
+        }
+        // Not yet. The person tapped Check again while this one was on its way: ask once more, for them
+        if (!checkAsked.current) break;
       }
+      setIsChecking(false);
     } catch (error) {
       console.error('[refresh-token] checking the connection failed:', error);
+      checkAsked.current = false;
       setIsChecking(false);
     } finally {
       checkInFlight.current = false;
@@ -326,50 +344,58 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
       <style>{FORM_CSS}</style>
       <style>{CONNECT_CSS}</style>
       <ScreenHeader title={t.title} backLabel={t.back} onBack={back} />
-      {isChecking ? (
-        <ConnectLoader label={t.checking} shown />
-      ) : (
-        <div className="ch-form-page ch-form-page-grouped">
-          <ConnectHero icon={<CalendarSync aria-hidden="true" />} lead={t.subtitle} />
-          <SectionLabel>{t.stepsTitle}</SectionLabel>
-          <ol className="ch-form-card ch-connect-steps">
-            {[t.step1, t.step2, t.step3].map((step, i) => (
-              <li key={i} className="ch-form-row ch-connect-step">
-                <span className="ch-connect-num" aria-hidden="true">{i + 1}</span>
-                <span className="ch-form-label">{step}</span>
-              </li>
-            ))}
-          </ol>
-          <div className="ch-connect-actions">
-            {startError ? (
-              <Notice tone="error" action={startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}>
-                {startError.lines.map((line, i) => (
-                  <Fragment key={line}>
-                    {i > 0 ? <br /> : null}
-                    {i === 0 && startError.lines.length > 1 ? <strong>{line}</strong> : line}
-                  </Fragment>
-                ))}
-              </Notice>
-            ) : (
-              <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={preparing} aria-busy={preparing || undefined} onClick={startOAuth}>
-                {preparing ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
-                {preparing ? t.preparing : t.button}
-              </button>
-            )}
-            {waiting ? (
-              <Notice action={{ label: t.checkAgain, onClick: () => void checkTokenRefresh() }}>
-                {waiting.telegram ? t.waitingTelegram : t.waitingWhatsApp}
-                {timedOut ? (
-                  <>
-                    <br />
-                    {t.stillWaiting}
-                  </>
-                ) : null}
-              </Notice>
-            ) : null}
-          </div>
+      <div className="ch-form-page ch-form-page-grouped">
+        <ConnectHero icon={<CalendarSync aria-hidden="true" />} lead={t.subtitle} />
+        <SectionLabel>{t.stepsTitle}</SectionLabel>
+        {/* role="list": its markers are off and its numbers drawn, and WebKit drops the list's role otherwise */}
+        <ol className="ch-form-card ch-connect-steps" role="list">
+          {[t.step1, t.step2, t.step3].map((step, i) => (
+            <li key={i} className="ch-form-row ch-connect-step">
+              <span className="ch-connect-num" aria-hidden="true">{i + 1}</span>
+              <span className="ch-form-label">{step}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="ch-connect-actions">
+          {startError ? (
+            <Notice tone="error" action={startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}>
+              {startError.lines.map((line, i) => (
+                <Fragment key={line}>
+                  {i > 0 ? <br /> : null}
+                  {i === 0 && startError.lines.length > 1 ? <strong>{line}</strong> : line}
+                </Fragment>
+              ))}
+            </Notice>
+          ) : (
+            <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={preparing} aria-busy={preparing || undefined} onClick={startOAuth}>
+              {preparing ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
+              {preparing ? t.preparing : t.button}
+            </button>
+          )}
+          {/* While a check runs the notice says so in place of its text; the page and Check again stay, so focus does */}
+          {waiting ? (
+            <Notice action={{ label: t.checkAgain, onClick: () => void checkTokenRefresh() }}>
+              {isChecking ? (
+                <ConnectChecking label={t.checking} />
+              ) : (
+                <>
+                  {waiting.telegram ? t.waitingTelegram : t.waitingWhatsApp}
+                  {timedOut ? (
+                    <>
+                      <br />
+                      {t.stillWaiting}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </Notice>
+          ) : isChecking ? (
+            <Notice>
+              <ConnectChecking label={t.checking} />
+            </Notice>
+          ) : null}
         </div>
-      )}
+      </div>
     </AppScreen>
   );
 }

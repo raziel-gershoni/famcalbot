@@ -52,7 +52,8 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   // its credential (initData or the WhatsApp session), and the state is bound to the
   // user that credential proves, not to this URL's user_id.
   return (
-    <ConnectShell locale={locale} namespaces={['refreshToken']} title={copy.title} telegram>
+    // The client reads its words from its prop: the provider needs only ui and pageGate (the kit's)
+    <ConnectShell locale={locale} namespaces={[]} title={copy.title} telegram>
       <RefreshTokenClient userId={user_id} locale={locale} translations={t} />
     </ConnectShell>
   );
