@@ -3,7 +3,7 @@
 //
 //  - T1 the truth list (UNTRUE in scripts/lib/site-harness.ts: "never stored", feature parity, early access, OpenAI,
 //    OpenWeatherMap, Google as a step, two-way sync, events by zman, typed events, WhatsApp photo capture, WhatsApp
-//    reminders, auto-renewal, a scheduled weekly summary) over every public string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and
+//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew) over every public string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and
 //    greeting, and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
 //    something.
 //  - T2 no emoji in the site's strings or posts (the WhatsApp greeting, which the visitor sends, is the bot's).
@@ -61,6 +61,7 @@ async function main() {
       'Get reminders on WhatsApp',
       'Plans renew automatically',
       'A weekly summary every Sunday',
+      'The Hebrew date in letters, next to every day.',
     ];
     for (const [claim, pattern] of UNTRUE) assert(old.some((line) => pattern.test(line)), `the pattern for ${claim} finds none of the old copy`);
     const found: string[] = [];

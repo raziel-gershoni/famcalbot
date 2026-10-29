@@ -2359,7 +2359,7 @@
       },
       "jewish": {
         "title": "Jewish calendar",
-        "dates": "The Hebrew date in letters, next to every day.",
+        "dates": "The Hebrew date next to every day.",
         "holidays": "Jewish holidays, plus Yom HaShoah, Yom HaZikaron, Yom HaAtzma’ut and Yom Yerushalayim.",
         "hebrewRepeat": "Birthdays and yahrzeits every year on the Hebrew date, with the count of years.",
         "sunList": "A sun button with the day’s zmanim for your city, including candle lighting and when Shabbat or Yom Tov ends.",

@@ -68,6 +68,8 @@ export const UNTRUE: [string, RegExp][] = [
   ['WhatsApp reminders', /reminders? (?:on|in|via) whatsapp|תזכורות בוואטסאפ|напоминания в whatsapp/i],
   ['auto-renewal', /auto-?renew|renews? automatically|מתחדש(?:ים)? אוטומטית|автоматически продлева|автопродлен/i],
   ['a scheduled weekly summary', /weekly summary every|every (?:sunday|week) (?:you get|it sends)|סיכום שבועי (?:בכל|כל)|еженедельн\S* сводк/i],
+  // Gematriya is drawn only when FamCal speaks Hebrew (hebrew-date.ts), so only English and Russian can't promise it
+  ['the Hebrew date in letters, in English or Russian', /\bin (?:hebrew )?letters\b|gematriya|буквами|гематри/i],
 ];
 
 /** HTML entities React writes in attributes and text, decoded. */
