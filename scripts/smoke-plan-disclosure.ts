@@ -11,6 +11,9 @@
 //    cancel with /paysupport; one that would not fit is refused, never cut;
 //  - D6 the confirmation after a payment: the plan, the price, the end of the month in the person's zone (24-hour), never
 //    renews, the seller, the ways to cancel and the Terms link, with and without the seller's missing details;
+//  - D7 in Hebrew and Russian the left-to-right values are bidi-isolated (Telegram's text has no <bdi>): the phone, the ID
+//    number and the email in U+2066 … U+2069, the address in U+2068 … U+2069 (its own first letter decides); English
+//    gets none; the one helper (src/lib/bidi-isolate.ts) does it;
 //  - W1 the wiring: payment-handler's invoice carries D5's description, and a successful payment sends one message, D6's,
 //    in the person's language and zone, as HTML with no link preview and the View Subscription button; a zone lookup
 //    that throws is logged and the confirmation still goes, in the default zone.
@@ -103,14 +106,14 @@ async function main() {
   await check('D3 the ways to cancel: 14 days and a full refund, /paysupport, the email, the post and the phone when given (escaped), then "give your name and the payment date"; a missing detail\'s way is left out, never "null"', () => {
     for (const l of LOCALES) {
       const w = words(l);
-      const bare = D.cancelBlock(w, BARE);
+      const bare = D.cancelBlock(w, l, BARE);
       assert(FULL_REFUND[l].test(bare) && bare.includes('14'), `${l}: no 14-day full refund in:\n${bare}`);
       inOrder(bare, [w.cancel, fixedParts(w.cancelBot)[0], fixedParts(w.cancelEmail)[0] ?? '', SELLER.email, w.cancelDetails].filter(Boolean), `${l} bare`);
       assert(bare.includes('/paysupport'), `${l}: no /paysupport`);
       assert(!bare.includes(fixedParts(w.cancelPost)[0]) && !bare.includes(fixedParts(w.cancelPhone)[0]), `${l}: a way with no detail is there:\n${bare}`);
       assert(!/null|undefined|\{\w+\}/.test(bare), `${l}: a hole in:\n${bare}`);
       assert(bare.split('\n').filter((line) => line.startsWith('• ')).length === 2, `${l}: two ways while the post and phone are missing:\n${bare}`);
-      const full = D.cancelBlock(w, FULL);
+      const full = D.cancelBlock(w, l, FULL);
       assert(full.split('\n').filter((line) => line.startsWith('• ')).length === 4, `${l}: four ways:\n${full}`);
       assert(full.includes('PO Box 7 &lt;Harish&gt; &amp; Co') && !full.includes('<Harish>'), `${l}: the address is not escaped:\n${full}`);
       assert(full.includes('+972-50-000-0000'), `${l}: no phone`);
@@ -124,8 +127,10 @@ async function main() {
       const bare = D.sellerBlock(w, l, BARE);
       assert(bare === w.seller.replace('{name}', SELLER.name[l]), `${l} bare: ${show(bare)}`);
       const full = D.sellerBlock(w, l, FULL);
+      // Hebrew and Russian isolate the ID (left to right) and the address (by its first letter); English as it is (D7)
+      const [ltr, auto] = l === 'en' ? [(v: string) => v, (v: string) => v] : [(v: string) => `\u2066${v}\u2069`, (v: string) => `\u2068${v}\u2069`];
       assert(
-        full === [w.seller.replace('{name}', SELLER.name[l]), w.sellerId.replace('{id}', '012345678'), w.sellerAddress.replace('{address}', 'PO Box 7 &lt;Harish&gt; &amp; Co')].join('\n'),
+        full === [w.seller.replace('{name}', SELLER.name[l]), w.sellerId.replace('{id}', ltr('012345678')), w.sellerAddress.replace('{address}', auto('PO Box 7 &lt;Harish&gt; &amp; Co'))].join('\n'),
         `${l} full: ${show(full)}`
       );
     }
@@ -172,7 +177,7 @@ async function main() {
           assert(!/AM|PM/.test(text), `${what}: a 12-hour time`);
           assert(NEVER_RENEWS[l].test(text), `${what}: never renews`);
           assert(text.includes(D.sellerBlock(w, l, seller)), `${what}: not the seller's lines`);
-          assert(text.includes(D.cancelBlock(w, seller)), `${what}: not the ways to cancel`);
+          assert(text.includes(D.cancelBlock(w, l, seller)), `${what}: not the ways to cancel`);
           assert(text.includes(D.policyLink(w, 'terms', l, 'html')), `${what}: not the Terms link in this language`);
           assert(!/null|undefined|\{\w+\}/.test(text), `${what}: a hole:\n${text}`);
           inOrder(text, fixedParts(template), what);
@@ -180,6 +185,35 @@ async function main() {
         }
       }
     }
+  });
+
+  await check('D7 Hebrew and Russian isolate the left-to-right values (the phone, the ID number, the email: U+2066 … U+2069) and the address (U+2068 … U+2069) in the ways to cancel, the seller\'s lines and the confirmation; English has no isolate; one helper', async () => {
+    const B = await import('../src/lib/bidi-isolate');
+    assert(B.isolateLtr('+972') === '\u2066+972\u2069' && B.isolateAuto('רחוב') === '\u2068רחוב\u2069', 'the helper');
+    const end = new Date('2026-11-29T00:00:00Z');
+    for (const l of LOCALES) {
+      const w = words(l);
+      const texts = [
+        D.cancelBlock(w, l, FULL),
+        D.sellerBlock(w, l, FULL),
+        D.withPolicy(messages[l].bot.support.terms, w, l).replace(D.cancelBlock(w, l), D.cancelBlock(w, l, FULL)),
+        D.paymentConfirmation({ template: sub(l).paymentSuccess, words: w, locale: l, planName: planName(l, 'pro'), price: 5000, periodEnd: end, timeZone: 'Asia/Jerusalem', seller: FULL }),
+      ];
+      const all = texts.join('\n');
+      if (l === 'en') {
+        assert(!/[\u2066-\u2069]/.test(all), `en: an isolate in English:\n${show(all)}`);
+        continue;
+      }
+      for (const want of ['\u2066+972-50-000-0000\u2069', `\u2066${SELLER.email}\u2069`, '\u2068PO Box 7 &lt;Harish&gt; &amp; Co\u2069']) {
+        assert(texts[0].includes(want) && texts[3].includes(want), `${l}: ${show(want)} is not isolated in the ways to cancel or the confirmation:\n${show(texts[0])}`);
+      }
+      assert(texts[1].includes('\u2066012345678\u2069') && texts[3].includes('\u2066012345678\u2069'), `${l}: the ID is not isolated: ${show(texts[1])}`);
+      // Nothing else is wrapped: one isolate per value (email, address, phone; ID, address)
+      assert((texts[0].match(/[\u2066\u2068]/g) ?? []).length === 3 && (texts[1].match(/[\u2066\u2068]/g) ?? []).length === 2, `${l}: other text isolated: ${show(texts.slice(0, 2))}`);
+      assert((all.match(/[\u2066\u2068]/g) ?? []).length === (all.match(/\u2069/g) ?? []).length, `${l}: an isolate left open`);
+    }
+    const src = fs.readFileSync(path.join(SRC, 'lib/plan-disclosure.ts'), 'utf8');
+    assert(!/\\u206[6-9]|[\u2066-\u2069]/.test(src) && /from '\.\/bidi-isolate'/.test(src), 'plan-disclosure writes its own isolates instead of the helper');
   });
 
   await wiring(D);

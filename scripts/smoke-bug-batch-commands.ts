@@ -889,7 +889,7 @@ async function fix7() {
       assert(reply, `${lang}: no reply`);
       const w = policyWords(lang);
       assert(ADULTS[lang].test(reply.text) && NEVER_RENEWS[lang].test(reply.text), `${lang}: 18+ or never renews:\n${reply.text}`);
-      assert(reply.text.includes(disclosure.cancelBlock(w)), `${lang}: not the ways to cancel:\n${reply.text}`);
+      assert(reply.text.includes(disclosure.cancelBlock(w, lang)), `${lang}: not the ways to cancel:\n${reply.text}`);
       assert(reply.text.includes(`href="${disclosure.policyUrl('privacy', lang)}"`) && reply.text.includes(`href="${disclosure.policyUrl('terms', lang)}"`), `${lang}: the links:\n${reply.text}`);
       assert(!/\{\w+\}|null/.test(reply.text), `${lang}: a hole:\n${reply.text}`);
       assert(reply.options?.format === MessageFormat.HTML && reply.options?.disablePreview === true, `${lang}: the options ${show(reply.options)}`);
@@ -901,7 +901,7 @@ async function fix7() {
       sent.length = 0;
       await telegramText(id, '/paysupport');
       const [reply] = sentTo('telegram');
-      assert(reply && NEVER_RENEWS[lang].test(reply.text) && reply.text.includes(disclosure.cancelBlock(policyWords(lang))), `${lang}:\n${reply?.text}`);
+      assert(reply && NEVER_RENEWS[lang].test(reply.text) && reply.text.includes(disclosure.cancelBlock(policyWords(lang), lang)), `${lang}:\n${reply?.text}`);
       assert(!/\{\w+\}|null/.test(reply.text), `${lang}: a hole:\n${reply.text}`);
     }
   });

@@ -8,11 +8,14 @@
 //    given yet (null) leaves its line out; scripts/smoke-seller.ts keeps a release from shipping without it;
 //  - the invoice's description (Telegram takes 1-255 characters), the confirmation's text and its plain fallback.
 // The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription,
-// subscription.paymentSuccess and subscription.paymentFallback. Every value put into Telegram's HTML is escaped here. Pure
-// and client-safe: the plan screen reads policyUrl and sellerName.
+// subscription.paymentSuccess and subscription.paymentFallback. Every value put into Telegram's HTML is escaped here. In
+// Hebrew and Russian the left-to-right values (the phone, the ID number, the email) are bidi-isolated, and the address
+// isolated by its own first letter (src/lib/bidi-isolate.ts): Telegram's text has no <bdi>. Pure and client-safe: the
+// plan screen reads policyUrl and sellerName.
 
 import { pageUrl } from '../site/seo';
 import { escapeHtml } from '../utils/html';
+import { isolateAuto, isolateLtr } from './bidi-isolate';
 import { normalizeLocale } from '../utils/locale';
 import { formatDayYear, formatTime, instantDay, intlLocale } from './calendar-view/format';
 import { SELLER, type Seller } from './seller';
@@ -64,16 +67,24 @@ export function policyLinks(words: PolicyWords, locale: string | null | undefine
   return format === 'html' ? `${privacy} · ${terms}` : `${privacy}\n${terms}`;
 }
 
+/** A seller detail as Telegram's HTML shows it in the person's language: escaped, and in Hebrew and Russian isolated. */
+function detail(value: string, locale: string | null | undefined, kind: 'ltr' | 'auto'): string {
+  const escaped = escapeHtml(value);
+  const lang = normalizeLocale(locale);
+  if (lang !== 'he' && lang !== 'ru') return escaped;
+  return kind === 'ltr' ? isolateLtr(escaped) : isolateAuto(escaped);
+}
+
 /**
  * The ways to cancel a payment within 14 days, in Telegram's HTML: what the person can do, a bullet per way (/paysupport,
  * the email, the post and the phone; one whose detail is still null left out), and what to give.
  */
-export function cancelBlock(words: PolicyWords, seller: Seller = SELLER): string {
+export function cancelBlock(words: PolicyWords, locale: string | null | undefined, seller: Seller = SELLER): string {
   const ways = [
     words.cancelBot,
-    fill(words.cancelEmail, { email: escapeHtml(seller.email) }),
-    seller.postalAddress ? fill(words.cancelPost, { address: escapeHtml(seller.postalAddress) }) : null,
-    seller.phone ? fill(words.cancelPhone, { phone: escapeHtml(seller.phone) }) : null,
+    fill(words.cancelEmail, { email: detail(seller.email, locale, 'ltr') }),
+    seller.postalAddress ? fill(words.cancelPost, { address: detail(seller.postalAddress, locale, 'auto') }) : null,
+    seller.phone ? fill(words.cancelPhone, { phone: detail(seller.phone, locale, 'ltr') }) : null,
   ].filter((way): way is string => way !== null);
   return [words.cancel, ...ways.map((way) => `• ${way}`), words.cancelDetails].join('\n');
 }
@@ -82,8 +93,8 @@ export function cancelBlock(words: PolicyWords, seller: Seller = SELLER): string
 export function sellerBlock(words: PolicyWords, locale: string | null | undefined, seller: Seller = SELLER): string {
   return [
     fill(words.seller, { name: escapeHtml(sellerName(locale, seller)) }),
-    seller.idNumber ? fill(words.sellerId, { id: escapeHtml(seller.idNumber) }) : null,
-    seller.postalAddress ? fill(words.sellerAddress, { address: escapeHtml(seller.postalAddress) }) : null,
+    seller.idNumber ? fill(words.sellerId, { id: detail(seller.idNumber, locale, 'ltr') }) : null,
+    seller.postalAddress ? fill(words.sellerAddress, { address: detail(seller.postalAddress, locale, 'auto') }) : null,
   ]
     .filter((line): line is string => line !== null)
     .join('\n');
@@ -91,7 +102,7 @@ export function sellerBlock(words: PolicyWords, locale: string | null | undefine
 
 /** A Telegram reply (bot.support.terms, bot.support.payPrompt) with its {cancel} (cancelBlock) and {links} (policyLinks) filled in. */
 export function withPolicy(template: string, words: PolicyWords, locale: string | null | undefined): string {
-  return fill(template, { cancel: cancelBlock(words), links: policyLinks(words, locale, 'html') });
+  return fill(template, { cancel: cancelBlock(words, locale), links: policyLinks(words, locale, 'html') });
 }
 
 /** The most Telegram takes in an invoice's description. */
@@ -146,7 +157,7 @@ export function paymentConfirmation(a: {
     price: new Intl.NumberFormat(intlLocale(locale)).format(a.price),
     end: endText(a.periodEnd, a.timeZone, locale),
     seller: sellerBlock(a.words, locale, a.seller),
-    cancel: cancelBlock(a.words, a.seller),
+    cancel: cancelBlock(a.words, locale, a.seller),
     terms: policyLink(a.words, 'terms', locale, 'html'),
   });
 }
