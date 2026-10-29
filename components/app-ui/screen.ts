@@ -25,6 +25,8 @@
 //   a meter (.ch-meter*, Meter; .is-near turns the fill and the count to the warn colours) and the outlined
 //   button (.ch-btn-outline, after .ch-btn in the theme's sheet, which AppScreen renders before this one).
 
+import { APP_TOKENS } from './tokens';
+
 export const APP_SCREEN_CSS = `
 .ch-screen {
   min-height: var(--tg-viewport-stable-height, 100dvh);
@@ -40,10 +42,10 @@ html:has(.ch-screen) {
   background-color: var(--tg-theme-bg-color, var(--bg-white));
 }
 html:has(.ch-screen.ch-grouped) {
-  background-color: var(--tg-theme-secondary-bg-color, #f3f2f8);
+  background-color: var(--tg-theme-secondary-bg-color, ${APP_TOKENS.light.surface});
 }
 html:has(.ch-screen[data-theme='dark']) {
-  background-color: var(--tg-theme-bg-color, #15151d);
+  background-color: var(--tg-theme-bg-color, ${APP_TOKENS.dark.bg});
   color-scheme: dark;
 }
 .ch-screen.ch-grouped {

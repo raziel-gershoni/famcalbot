@@ -54,6 +54,7 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
+import { APP_TOKENS } from '../components/app-ui/tokens';
 import { AppScreen, useAppScheme } from '../components/app-ui/AppScreen';
 import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } from '../components/app-ui/StateCard';
 import { BottomSheet, TABBABLE } from '../components/app-ui/BottomSheet';
@@ -206,6 +207,20 @@ async function main() {
       }
     }
     assert(problems.length === 0, `${problems.length} differ, first: ${show(problems.slice(0, 5))}`);
+  });
+
+  await check('#1b one palette: theme.ts and screen.ts write no colour of their own (every hex and rgba() is APP_TOKENS\', components/app-ui/tokens.ts, which the public site reads too), and the brand values APP_TOKENS holds equal app/globals.css\'s tokens the theme falls back to', () => {
+    const own = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    for (const rel of ['components/app-ui/theme.ts', 'components/app-ui/screen.ts']) {
+      const literals = own(rel).match(/#[0-9a-f]{3,8}\b|rgba?\(/gi);
+      assert(!literals, `${rel} writes ${show(literals)}`);
+    }
+    const globals = fs.readFileSync(path.join(ROOT, 'app/globals.css'), 'utf8');
+    const brand = (name: string) => new RegExp(`^\\s*${name}:\\s*(#[0-9a-f]{6});`, 'im').exec(globals)?.[1]?.toLowerCase();
+    const L = APP_TOKENS.light;
+    for (const [token, value] of [['--bg-white', L.bg], ['--bg-white', L.buttonText], ['--text-primary', L.text], ['--brand-primary-dark', L.accent], ['--brand-primary-dark', L.button]] as const) {
+      assert(brand(token) === value.toLowerCase(), `${token} is ${brand(token)} in globals.css, ${value} in APP_TOKENS`);
+    }
   });
 
   await check('#2 the lint over the theme, the screen and the form kit (lintCss, scripts/lib/css-lint.ts): nothing under 11 px and every size in px; .ch-btn, .ch-icon-btn and .ch-sheet-close at least 44 px; logical properties only; no hover; no hex or rgb() outside the token blocks (the two page paints\' fallbacks are the only exemptions, and are the dark --ch-bg\'s and the light --ch-surface\'s own)', () => {

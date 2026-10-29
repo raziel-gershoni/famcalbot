@@ -2,11 +2,12 @@
 // params with fallbacks, plus the pieces every screen shares (buttons, chips, the bottom
 // sheet). It began as the calendar home's own, and every --ch-* and ch-* name is kept.
 //
-// The fallbacks: the brand colours are app/globals.css's own tokens (--bg-white,
-// --text-primary, --brand-primary-dark, --brand-primary), so the palette lives in one
-// place; the layout imports globals.css on every page. The neutral shades globals.css has
-// no token for (the hint, surfaces, separators, the danger colour, the whole dark
-// palette) are the approved mockups' and belong to the app's look alone.
+// The fallbacks: every value is ./tokens.ts's (APP_TOKENS), the one module the public
+// site's style sheet reads too. The brand colours go through app/globals.css's own tokens
+// (--bg-white, --text-primary, --brand-primary-dark), whose values APP_TOKENS holds as well
+// (smoke-app-ui keeps them equal); the app's layouts import globals.css. The neutral
+// shades globals.css has no token for (the hint, surfaces, separators, the danger colour,
+// the whole dark palette) are the approved mockups' and belong to the app's look alone.
 //
 // The theme scope is the .ch-app class, carried by AppScreen (a whole screen):
 //   <div className="ch-app" data-theme={scheme} dir={…}>
@@ -64,57 +65,61 @@
 // - The primary button's fill outside Telegram (W4-3): in the dark it is the Month's fill (#6d4ff0, 5.2:1 under the white
 //   label and 3:1 on the dark grounds); --brand-primary was 4.38:1. Inside Telegram the theme's button colour stands.
 
+import { APP_TOKENS } from './tokens';
+
+const L = APP_TOKENS.light;
+const D = APP_TOKENS.dark;
 
 export const APP_THEME_CSS = `
 .ch-app {
   --ch-bg: var(--tg-theme-bg-color, var(--bg-white));
   --ch-text: var(--tg-theme-text-color, var(--text-primary));
-  --ch-hint: var(--tg-theme-hint-color, #5e5e78);
+  --ch-hint: var(--tg-theme-hint-color, ${L.hint});
   --ch-muted: var(--ch-hint);
   --ch-accent: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, var(--brand-primary-dark)));
-  --ch-surface: var(--tg-theme-secondary-bg-color, #f3f2f8);
+  --ch-surface: var(--tg-theme-secondary-bg-color, ${L.surface});
   --ch-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, var(--bg-white)));
-  --ch-separator: var(--tg-theme-section-separator-color, #eceaf3);
+  --ch-separator: var(--tg-theme-section-separator-color, ${L.separator});
   --ch-button: var(--tg-theme-button-color, var(--brand-primary-dark));
   --ch-button-text: var(--tg-theme-button-text-color, var(--bg-white));
-  --ch-danger: var(--tg-theme-destructive-text-color, #c62828);
-  --ch-card: #f5f2ff;
-  --ch-card-separator: #e4defa;
-  --ch-done: #8a8aa0;
-  --ch-chip-bg: #ffebd9;
-  --ch-chip-text: #8a3d00;
-  --ch-outline: #d4d2e0;
-  --ch-scrim: rgba(18, 18, 32, 0.45);
-  --ch-sheet-shadow: 0 -8px 24px rgba(18, 18, 32, 0.18);
+  --ch-danger: var(--tg-theme-destructive-text-color, ${L.danger});
+  --ch-card: ${L.card};
+  --ch-card-separator: ${L.cardSeparator};
+  --ch-done: ${L.done};
+  --ch-chip-bg: ${L.chipBg};
+  --ch-chip-text: ${L.chipText};
+  --ch-outline: ${L.outline};
+  --ch-scrim: ${L.scrim};
+  --ch-sheet-shadow: ${L.sheetShadow};
   --ch-tab-track: var(--ch-surface);
   --ch-tab-on: var(--ch-section);
   --ch-tab-on-text: var(--ch-text);
-  --ch-tab-shadow: 0 1px 2px rgba(26, 26, 46, 0.14);
-  --ch-mine-soft: #eee9ff;
-  --ch-mine-soft-text: #2e1a87;
+  --ch-tab-shadow: ${L.tabShadow};
+  --ch-mine-soft: ${L.mineSoft};
+  --ch-mine-soft-text: ${L.mineSoftText};
   --ch-mine-solid: var(--ch-button);
   --ch-mine-solid-text: var(--ch-button-text);
-  --ch-partner-soft: #ffd9b8;
-  --ch-partner-soft-text: #6b2c00;
-  --ch-partner-line: #b05f22;
-  --ch-partner-line-text: #7a3500;
+  --ch-partner-soft: ${L.partnerSoft};
+  --ch-partner-soft-text: ${L.partnerSoftText};
+  --ch-partner-line: ${L.partnerLine};
+  --ch-partner-line-text: ${L.partnerLineText};
   --ch-dot-mine: var(--ch-accent);
-  --ch-dot-partner: #b4540b;
+  --ch-dot-partner: ${L.dotPartner};
   --ch-today: var(--ch-button);
   --ch-today-text: var(--ch-button-text);
   --ch-selected: var(--ch-text);
   --ch-selected-text: var(--ch-bg);
   --ch-pill-bg: var(--ch-card);
-  --ch-pill-line: #d9d2fa;
-  --ch-pill-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
-  --ch-disabled: #c9c8d6;
-  --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #4b2fc9));
-  --ch-accent-soft: #eee9ff;
-  --ch-danger-soft: #fdecea;
-  --ch-switch-thumb: #ffffff;
-  --ch-switch-thumb-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-  --ch-warn: #c4580a;
-  --ch-warn-text: #8a3d00;
+  --ch-pill-line: ${L.pillLine};
+  --ch-pill-text: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, ${L.pillText}));
+  --ch-disabled: ${L.disabled};
+  --ch-month-title: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, ${L.monthTitle}));
+  --ch-accent-soft: ${L.accentSoft};
+  --ch-danger-soft: ${L.dangerSoft};
+  --ch-switch-thumb: ${L.switchThumb};
+  --ch-switch-thumb-shadow: ${L.switchThumbShadow};
+  --ch-warn: ${L.warn};
+  --ch-warn-text: ${L.warnText};
   color-scheme: light;
   background: var(--ch-bg);
   color: var(--ch-text);
@@ -126,50 +131,50 @@ export const APP_THEME_CSS = `
   -webkit-tap-highlight-color: transparent;
 }
 .ch-app[data-theme='dark'] {
-  --ch-bg: var(--tg-theme-bg-color, #15151d);
-  --ch-text: var(--tg-theme-text-color, #f1f0f7);
-  --ch-hint: var(--tg-theme-hint-color, #a6a6be);
-  --ch-accent: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, #bba8ff));
-  --ch-surface: var(--tg-theme-secondary-bg-color, #22222e);
-  --ch-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, #1e1e29));
-  --ch-separator: var(--tg-theme-section-separator-color, #2a2a38);
-  --ch-button: var(--tg-theme-button-color, #6d4ff0);
-  --ch-danger: var(--tg-theme-destructive-text-color, #ff8a80);
-  --ch-card: #221d3a;
-  --ch-card-separator: #332b55;
-  --ch-done: #7c7c94;
-  --ch-chip-bg: #3d2715;
-  --ch-chip-text: #ffc796;
-  --ch-outline: #3e3e52;
-  --ch-scrim: rgba(0, 0, 0, 0.6);
-  --ch-sheet-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+  --ch-bg: var(--tg-theme-bg-color, ${D.bg});
+  --ch-text: var(--tg-theme-text-color, ${D.text});
+  --ch-hint: var(--tg-theme-hint-color, ${D.hint});
+  --ch-accent: var(--tg-theme-accent-text-color, var(--tg-theme-link-color, ${D.accent}));
+  --ch-surface: var(--tg-theme-secondary-bg-color, ${D.surface});
+  --ch-section: var(--tg-theme-section-bg-color, var(--tg-theme-bg-color, ${D.section}));
+  --ch-separator: var(--tg-theme-section-separator-color, ${D.separator});
+  --ch-button: var(--tg-theme-button-color, ${D.button});
+  --ch-danger: var(--tg-theme-destructive-text-color, ${D.danger});
+  --ch-card: ${D.card};
+  --ch-card-separator: ${D.cardSeparator};
+  --ch-done: ${D.done};
+  --ch-chip-bg: ${D.chipBg};
+  --ch-chip-text: ${D.chipText};
+  --ch-outline: ${D.outline};
+  --ch-scrim: ${D.scrim};
+  --ch-sheet-shadow: ${D.sheetShadow};
   --ch-tab-track: var(--ch-surface);
-  --ch-tab-on: var(--tg-theme-section-bg-color, #33334a);
+  --ch-tab-on: var(--tg-theme-section-bg-color, ${D.tabOn});
   --ch-tab-on-text: var(--ch-text);
   --ch-tab-shadow: none;
-  --ch-mine-soft: #2c2550;
-  --ch-mine-soft-text: #d9cfff;
-  --ch-mine-solid: var(--tg-theme-button-color, #6d4ff0);
+  --ch-mine-soft: ${D.mineSoft};
+  --ch-mine-soft-text: ${D.mineSoftText};
+  --ch-mine-solid: var(--tg-theme-button-color, ${D.button});
   --ch-mine-solid-text: var(--ch-button-text);
-  --ch-partner-soft: #4a2b12;
-  --ch-partner-soft-text: #ffd2a8;
-  --ch-partner-line: #d98b4a;
-  --ch-partner-line-text: #ffb877;
+  --ch-partner-soft: ${D.partnerSoft};
+  --ch-partner-soft-text: ${D.partnerSoftText};
+  --ch-partner-line: ${D.partnerLine};
+  --ch-partner-line-text: ${D.partnerLineText};
   --ch-dot-mine: var(--ch-accent);
-  --ch-dot-partner: #f0924a;
-  --ch-today: var(--tg-theme-button-color, #6d4ff0);
+  --ch-dot-partner: ${D.dotPartner};
+  --ch-today: var(--tg-theme-button-color, ${D.button});
   --ch-today-text: var(--ch-button-text);
   --ch-selected: var(--ch-text);
   --ch-selected-text: var(--ch-bg);
   --ch-pill-bg: var(--ch-card);
-  --ch-pill-line: #3a3166;
+  --ch-pill-line: ${D.pillLine};
   --ch-pill-text: var(--ch-accent);
-  --ch-disabled: #4a4a5e;
+  --ch-disabled: ${D.disabled};
   --ch-month-title: var(--ch-accent);
-  --ch-accent-soft: #2c2550;
-  --ch-danger-soft: #3a2226;
-  --ch-warn: #ffb27a;
-  --ch-warn-text: #ffc796;
+  --ch-accent-soft: ${D.accentSoft};
+  --ch-danger-soft: ${D.dangerSoft};
+  --ch-warn: ${D.warn};
+  --ch-warn-text: ${D.warnText};
   color-scheme: dark;
 }
 @supports (color: color-mix(in srgb, red 50%, blue)) {
