@@ -7,6 +7,7 @@ import { HonestLine, StartButtons, startWords } from '@/components/site/StartBut
 import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { getAllSlugs, getPostBySlug } from '@/src/lib/blog';
+import { siteMetadata } from '@/src/site/seo';
 
 // A blog post (spec 2026-10-28-public-website §3.3): the post in the site's chrome, its type in the app's tokens
 // (.site-article), and at its end the two start buttons with the honest line. Static per locale and post.
@@ -17,11 +18,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale, slug } = await params;
   const post = getPostBySlug(slug, locale);
   if (!post) return {};
-  return {
-    title: post.title,
-    description: post.description,
-    openGraph: { type: 'article', title: post.title, description: post.description },
-  };
+  const t = await getTranslations({ locale });
+  return siteMetadata({ locale, path: `/blog/${slug}`, title: post.title, description: post.description, imageAlt: t('landing.meta.ogImageAlt'), type: 'article' });
 }
 
 export function generateStaticParams() {

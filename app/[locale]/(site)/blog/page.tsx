@@ -3,6 +3,7 @@ import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { SitePage } from '@/components/site/SitePage';
 import { Link } from '@/i18n/navigation';
 import { getAllPosts } from '@/src/lib/blog';
+import { siteMetadata } from '@/src/site/seo';
 
 // The blog's index (spec 2026-10-28-public-website §3.3): the posts in the visitor's language, each its title (the link)
 // and its line, in the site's chrome. Static per locale.
@@ -12,7 +13,7 @@ type Props = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale });
-  return { title: t('site.meta.blog.title'), description: t('site.meta.blog.description') };
+  return siteMetadata({ locale, path: '/blog', title: t('site.meta.blog.title'), description: t('site.meta.blog.description'), imageAlt: t('landing.meta.ogImageAlt') });
 }
 
 export default async function BlogIndexPage({ params }: Props) {

@@ -5,6 +5,7 @@ import { Channels, Features, Founder, HowItWorks, Plans, StartAgain } from '@/co
 import { SitePage } from '@/components/site/SitePage';
 import { HonestLine, StartButtons, startWords } from '@/components/site/StartButtons';
 import { SITE_URL } from '@/src/site/config';
+import { siteMetadata } from '@/src/site/seo';
 import { buildSampleWeek, sampleWords } from '@/src/site/sample-week';
 
 // The landing (spec 2026-10-28-public-website §3.2): the hero (the headline, the line under it, the two start buttons
@@ -22,16 +23,15 @@ type Props = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale });
-  const url = locale === 'en' ? SITE_URL : `${SITE_URL}/${locale}`;
-  return {
-    title: { absolute: t('landing.meta.title') },
+  return siteMetadata({
+    locale,
+    path: '/',
+    title: t('landing.meta.title'),
+    absoluteTitle: true,
+    ogTitle: t('landing.meta.ogTitle'),
     description: t('landing.meta.description'),
-    openGraph: { title: t('landing.meta.ogTitle'), description: t('landing.meta.description'), type: 'website', url },
-    alternates: {
-      canonical: url,
-      languages: { en: SITE_URL, he: `${SITE_URL}/he`, ru: `${SITE_URL}/ru`, 'x-default': SITE_URL },
-    },
-  };
+    imageAlt: t('landing.meta.ogImageAlt'),
+  });
 }
 
 export default async function LandingPage({ params }: Props) {

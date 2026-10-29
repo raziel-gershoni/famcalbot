@@ -8,9 +8,8 @@ import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import bidiFactory from 'bidi-js';
+import { wrapAndBidi } from '../lib/bidi-lines';
 
-const bidi = bidiFactory();
 const WIDTH = 1080;
 const HEIGHT = 1920;
 
@@ -68,44 +67,6 @@ function stripHtml(html: string): string {
     .replace(/[\u{200D}\u{FE0F}\u{FE0E}\u{20E3}]/gu, '') // Strip emoji joiners/selectors
     .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/gu, '') // Strip emojis but NOT digits (no color emoji font)
     .trim();
-}
-
-/**
- * Convert logical-order Hebrew text to visual order for satori.
- * Satori doesn't support bidi — we must reorder characters ourselves.
- */
-function toVisualOrder(text: string, lang: string): string {
-  if (lang !== 'he') return text;
-  try {
-    const embeddingLevels = bidi.getEmbeddingLevels(text, 'rtl');
-    return bidi.getReorderedString(text, embeddingLevels);
-  } catch {
-    return text;
-  }
-}
-
-/**
- * Pre-break long lines at word boundaries, then bidi each segment.
- * Simulates what browsers do: line-break first, then apply bidi per visual line.
- * Short lines pass through untouched.
- */
-function wrapAndBidi(text: string, lang: string, maxChars: number): string {
-  return text.split('\n').map(line => {
-    if (line.length <= maxChars) return toVisualOrder(line, lang);
-    const words = line.split(' ');
-    const segments: string[] = [];
-    let current = '';
-    for (const word of words) {
-      if (current && (current.length + 1 + word.length) > maxChars) {
-        segments.push(toVisualOrder(current, lang));
-        current = word;
-      } else {
-        current = current ? current + ' ' + word : word;
-      }
-    }
-    if (current) segments.push(toVisualOrder(current, lang));
-    return segments.join('\n');
-  }).join('\n');
 }
 
 export interface SummaryCardConfig {

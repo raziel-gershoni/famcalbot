@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, request, render, ROOT, show, stub, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, request, render, ROOT, show, stub, stubIntlServer, stubMdx, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -45,8 +45,7 @@ async function main() {
   // notFound() as Next throws it; the page's own call is what the check sees
   class NotFound extends Error {}
   stub(nodeRequire.resolve('next/navigation'), { ...nodeRequire('next/navigation'), notFound: () => { throw new NotFound('NEXT_NOT_FOUND'); } });
-  // The MDX compiler is ESM-only past what tsx loads here: the post's source stands in, as text (its links show as written)
-  stub(path.join(ROOT, 'node_modules/next-mdx-remote/dist/rsc.js'), { __esModule: true, MDXRemote: ({ source }: { source: string }) => h('div', { 'data-mdx': '' }, source) });
+  stubMdx();
 
   const wrap = (locale: Locale, el: ReactElement) =>
     render(h(AppRouterContext.Provider, { value: router }, h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, el) as unknown as ReactElement));

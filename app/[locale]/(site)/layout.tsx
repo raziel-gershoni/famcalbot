@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata, Viewport } from 'next';
 import { routing } from '@/i18n/routing';
 import { SITE_URL } from '@/src/site/config';
+import { OG_SIZE } from '@/src/site/seo';
 import { SITE_CLIENT_NAMESPACES, pickMessages } from '@/src/site/messages';
 import { SITE_CSS_HREF } from '@/src/site/site-css';
 
@@ -43,9 +44,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       type: 'website',
       siteName: 'FamCal',
       locale: OG_LOCALE[locale] ?? OG_LOCALE.en,
-      images: [{ url: '/og-image.png', width: 1200, height: 630, alt: t('landing.meta.ogImageAlt') }],
+      images: [{ url: `/og/${locale}.png`, ...OG_SIZE, alt: t('landing.meta.ogImageAlt') }],
     },
-    twitter: { card: 'summary_large_image', images: ['/og-image.png'] },
+    twitter: { card: 'summary_large_image', images: [`/og/${locale}.png`] },
   };
 }
 

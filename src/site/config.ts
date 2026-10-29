@@ -5,6 +5,9 @@
 /** The site's own origin, with no trailing slash. */
 export const SITE_URL = 'https://famcal.bot';
 
+/** The day the public pages' content last changed (yyyy-MM-dd): the sitemap's date for the landing and the blog. */
+export const SITE_CONTENT_UPDATED = '2026-10-29';
+
 /** The bot on Telegram: the start button opens the chat. */
 export const TELEGRAM_BOT_URL = 'https://t.me/family_calendar_telegram_bot';
 

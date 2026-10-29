@@ -55,7 +55,7 @@ export const EMOJI = /(?![\u00a9\u00ae\u2122])\p{Extended_Pictographic}/u;
  * the claim and the pattern that finds it (case-insensitive).
  */
 export const UNTRUE: [string, RegExp][] = [
-  ['"never stored"', /never stored|לא נשמר|לא נשמרים|не хран|никогда не сохран/i],
+  ['"never stored"', /never stored|לעולם לא נשמר|אף פעם לא נשמר|לא נשמר(?:ים|ת)? אף פעם|никогда не (?:хран|сохран)/i],
   ['"full feature parity"', /feature parity|full parity|אותם פיצ[׳']רים|одинаковые фич|всё одно и то же/i],
   ['early access', /early access|early adopter|גישה מוקדמת|תקופת ההשקה|ранн\S* доступ/i],
   ['OpenAI', /openai/i],
@@ -145,6 +145,11 @@ export function stubIntlServer() {
       request.locale = locale as Locale;
     },
   });
+}
+
+/** next-mdx-remote's renderer, whose MDX compiler is ESM-only past what tsx loads here: the post's source as text (its links show as written). */
+export function stubMdx() {
+  stub(path.join(ROOT, 'node_modules/next-mdx-remote/dist/rsc.js'), { __esModule: true, MDXRemote: ({ source }: { source: string }) => createElement('div', { 'data-mdx': '' }, source) });
 }
 
 /** Loads a module of the repo (after the stubs it needs are in place). */

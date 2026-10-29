@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { SitePage } from '@/components/site/SitePage';
 import { SITE_URL, TELEGRAM_BOT_URL, whatsappStartUrl } from '@/src/site/config';
+import { siteMetadata } from '@/src/site/seo';
 import { CopyButton, QrCodes } from './ShareClient';
 
 // The share page (spec 2026-10-28-public-website §3.3): ready-made messages a parent sends a friend or a group, QR
@@ -12,7 +13,10 @@ type Props = { params: Promise<{ locale: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale });
-  return { title: t('site.meta.share.title'), description: t('site.meta.share.description'), robots: { index: false, follow: false } };
+  return {
+    ...siteMetadata({ locale, path: '/share', title: t('site.meta.share.title'), description: t('site.meta.share.description'), imageAlt: t('landing.meta.ogImageAlt') }),
+    robots: { index: false, follow: false },
+  };
 }
 
 export default async function SharePage({ params }: Props) {

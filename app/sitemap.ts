@@ -1,44 +1,29 @@
-import { MetadataRoute } from 'next';
+import type { MetadataRoute } from 'next';
+import { routing } from '@/i18n/routing';
 import { getAllSlugs } from '@/src/lib/blog';
+import { SITE_CONTENT_UPDATED } from '@/src/site/config';
+import { LEGAL_UPDATED } from '@/src/site/legal';
+import { languageAlternates, pageUrl } from '@/src/site/seo';
 
-const locales = ['en', 'he', 'ru'];
-const baseUrl = 'https://famcal.bot';
+// The public site's sitemap (spec 2026-10-28-public-website §6.4): every indexed page in every language, at the URL it
+// is served at (English unprefixed, never a redirect), each with its other languages and x-default, and the day its
+// content last changed (never "now"). The share page is noindex and the Mini App is private: neither is listed.
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticPages = [
-    { path: '', changeFrequency: 'weekly' as const, priority: 1.0 },
-    { path: '/how-it-works', changeFrequency: 'monthly' as const, priority: 0.8 },
-    { path: '/blog', changeFrequency: 'weekly' as const, priority: 0.7 },
+  const pages: { path: string; lastModified: string; changeFrequency: 'weekly' | 'monthly' | 'yearly'; priority: number }[] = [
+    { path: '/', lastModified: SITE_CONTENT_UPDATED, changeFrequency: 'weekly', priority: 1 },
+    { path: '/blog', lastModified: SITE_CONTENT_UPDATED, changeFrequency: 'monthly', priority: 0.7 },
+    ...getAllSlugs().map((slug) => ({ path: `/blog/${slug}`, lastModified: SITE_CONTENT_UPDATED, changeFrequency: 'monthly' as const, priority: 0.7 })),
+    { path: '/privacy', lastModified: LEGAL_UPDATED.privacy, changeFrequency: 'yearly', priority: 0.3 },
+    { path: '/terms', lastModified: LEGAL_UPDATED.terms, changeFrequency: 'yearly', priority: 0.3 },
   ];
-
-  const staticEntries = staticPages.flatMap((page) =>
-    locales.map((locale) => ({
-      url: `${baseUrl}/${locale}${page.path}`,
-      lastModified: new Date(),
+  return pages.flatMap((page) =>
+    routing.locales.map((locale) => ({
+      url: pageUrl(locale, page.path),
+      lastModified: page.lastModified,
       changeFrequency: page.changeFrequency,
       priority: page.priority,
-      alternates: {
-        languages: Object.fromEntries(
-          locales.map((l) => [l, `${baseUrl}/${l}${page.path}`])
-        ),
-      },
-    }))
+      alternates: { languages: languageAlternates(page.path) },
+    })),
   );
-
-  const blogSlugs = getAllSlugs();
-  const blogEntries = blogSlugs.flatMap((slug) =>
-    locales.map((locale) => ({
-      url: `${baseUrl}/${locale}/blog/${slug}`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.7,
-      alternates: {
-        languages: Object.fromEntries(
-          locales.map((l) => [l, `${baseUrl}/${l}/blog/${slug}`])
-        ),
-      },
-    }))
-  );
-
-  return [...staticEntries, ...blogEntries];
 }
