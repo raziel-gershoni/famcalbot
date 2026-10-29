@@ -1963,7 +1963,7 @@
       "keep": "Keep",
       "cancel": "Cancel"
     },
-    "nonOwner": "Only {owner} can copy this one to Google.",
+    "nonOwnerAll": "Only {owner} can copy these to Google.",
     "errors": {
       "failed": "Couldn't change the Google copy. Try again.",
       "load": "Couldn't load the Google copies. Reopen the page to try again.",

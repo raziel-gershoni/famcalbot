@@ -7,7 +7,8 @@
 // The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts). It also draws CopyField's
 // (./CopyField.tsx: ch-copy-field*) and dims a disabled row button (button.ch-form-row:disabled).
 // A calendar's colour: .ch-swatch-dot is the dot beside a name (.is-lg: 12 px; in a list row's title it sits
-// before the name), and ColorSwatches is the picker (a radiogroup of 44 px swatches, a check on the chosen one).
+// before the name), and ColorSwatches is the picker (a radiogroup of 44 px swatches, a check on the chosen one; its
+// classes are .ch-color-swatch*: the home's Agenda has a .ch-swatch of its own, and smoke-app-ui keeps the kit's names apart).
 //
 // What only the editor's flow draws (its header and body, the date and time pills, the scope
 // sheet and the calendar swatch ValueRow shows beside a calendar's name) is in
@@ -60,6 +61,9 @@ export const FORM_CSS = `
 }
 .ch-form-field-title {
   font-size: 17px;
+}
+.ch-form-field:disabled {
+  opacity: 0.6;
 }
 .ch-form-field::placeholder {
   color: var(--ch-muted);
@@ -194,13 +198,13 @@ button.ch-form-row:focus-visible {
   margin-inline-end: 8px;
   vertical-align: middle;
 }
-.ch-swatches {
+.ch-color-swatches {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   justify-items: center;
   padding: 4px 6px;
 }
-.ch-swatch {
+.ch-color-swatch {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -214,15 +218,15 @@ button.ch-form-row:focus-visible {
   cursor: pointer;
   touch-action: manipulation;
 }
-.ch-swatch:focus-visible {
+.ch-color-swatch:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: -2px;
 }
-.ch-swatch:disabled {
+.ch-color-swatch:disabled {
   opacity: 0.6;
   cursor: default;
 }
-.ch-swatch-color {
+.ch-color-swatch-dot {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -232,7 +236,7 @@ button.ch-form-row:focus-visible {
   background: var(--ch-outline);
   box-shadow: 0 0 0 1px var(--ch-outline);
 }
-.ch-swatch-check {
+.ch-color-swatch-check {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -242,7 +246,7 @@ button.ch-form-row:focus-visible {
   background: var(--ch-selected);
   color: var(--ch-selected-text);
 }
-.ch-swatch-check svg {
+.ch-color-swatch-check svg {
   inline-size: 12px;
   block-size: 12px;
 }
@@ -634,10 +638,12 @@ export interface TextFieldProps {
   rows?: number;
   /** The id of text that describes the field (a count); the error's id, when there is one, follows it. */
   describedBy?: string;
+  /** The field takes no input (its screen is working); the kit dims it. */
+  disabled?: boolean;
 }
 
 /** A single-line field (or notes), labelled for assistive tech; it sits on a FormCard. */
-export function TextField({ label, value, onChange, placeholder, large, multiline, maxLength, rows, describedBy, error }: TextFieldProps & { error?: string | null }) {
+export function TextField({ label, value, onChange, placeholder, large, multiline, maxLength, rows, describedBy, disabled, error }: TextFieldProps & { error?: string | null }) {
   const errorId = useId();
   const common = {
     className: `ch-form-field${large ? ' ch-form-field-title' : ''}${multiline ? ' ch-form-notes' : ''}`,
@@ -647,6 +653,7 @@ export function TextField({ label, value, onChange, placeholder, large, multilin
     placeholder,
     dir: 'auto' as const,
     value,
+    disabled,
   };
   return (
     <>
@@ -758,11 +765,11 @@ export interface RadioCardOption {
 }
 
 /** A card of radio rows, one chosen (a check at its end): the whole row is the target. */
-export function RadioCard({ label, value, options, onChange }: { label: string; value: string | null; options: RadioCardOption[]; onChange: (value: string) => void }) {
+export function RadioCard({ label, value, options, onChange, disabled }: { label: string; value: string | null; options: RadioCardOption[]; onChange: (value: string) => void; disabled?: boolean }) {
   return (
     <div className="ch-form-card" role="radiogroup" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-form-row ch-choice" data-value={o.value} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-form-row ch-choice" data-value={o.value} disabled={disabled} onClick={() => onChange(o.value)}>
           <span className="ch-form-label">
             <span dir="auto">{o.text}</span>
           </span>
@@ -789,12 +796,12 @@ const HEX = /^#[0-9a-f]{3,8}$/i;
  */
 export function ColorSwatches({ label, value, options, onChange, disabled }: { label: string; value: string | null; options: ColorSwatchOption[]; onChange: (value: string) => void; disabled?: boolean }) {
   return (
-    <div className="ch-swatches" role="radiogroup" aria-label={label}>
+    <div className="ch-color-swatches" role="radiogroup" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} aria-label={o.text} className="ch-swatch" disabled={disabled} onClick={() => onChange(o.value)}>
-          <span className="ch-swatch-color" style={HEX.test(o.color) ? { background: o.color } : undefined} aria-hidden="true">
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} aria-label={o.text} className="ch-color-swatch" disabled={disabled} onClick={() => onChange(o.value)}>
+          <span className="ch-color-swatch-dot" style={HEX.test(o.color) ? { background: o.color } : undefined} aria-hidden="true">
             {o.value === value ? (
-              <span className="ch-swatch-check">
+              <span className="ch-color-swatch-check">
                 <Check />
               </span>
             ) : null}

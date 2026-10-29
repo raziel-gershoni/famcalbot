@@ -42,6 +42,7 @@ import type { CalendarAssignment, CalendarLabel, UserConfig } from '@/src/types'
 import type { HomeHints } from '@/src/lib/calendar-view/home-props';
 import type { SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { reminderTimeOf } from '@/src/lib/reminder-time';
+import { firstNameOf } from '@/src/lib/first-name';
 import { channelsOf, deliveryPlatformFor } from '@/src/lib/delivery-platform';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
 
@@ -419,7 +420,7 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
   }));
 
   // Only the colours: the page never shifts a Google calendar, it only keeps FamCal ones apart from them.
-  // The partner's name titles the shared calendars' section (a name only: the page reads nothing else of the partner).
+  // The partner's first name titles the shared calendars' section, as it names them under it (google-sync's view): a name only, the page reads nothing else of the partner.
   const [googleOnScreen, partnerInfo] = await Promise.all([googleColoursOnScreen(user), getActivePartner(user.id)]);
   const googleColors = googleOnScreen.flatMap((c) => c.color ?? []);
 
@@ -430,7 +431,7 @@ async function calendars(user: UserConfig, userId: number, userLocale: string): 
     googleColors,
     // Where the person is with Google, for the screen's last section (the same rule the home's banners follow)
     google: { state: googleStateOf(user), chosen: liveGoogleChoices(user).length },
-    partnerName: partnerInfo?.partner.name ?? null,
+    partnerName: partnerInfo ? firstNameOf(partnerInfo.partner) : null,
   };
   return { kind: 'props', props };
 }

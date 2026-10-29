@@ -7,6 +7,7 @@
 import { prisma } from '../../utils/prisma';
 import { getActivePartnerSummary } from '../native-reminders/ownership';
 import { syncAllowed } from './access';
+import { firstNameOf } from '../../lib/first-name';
 
 /** A copy's row, as the page words it (messages googleCopy.status.*). */
 export type CopyStatus = 'off' | 'copying' | 'copied' | 'approve' | 'reconnect' | 'plan' | 'gone' | 'otherAccount' | 'error';
@@ -115,7 +116,7 @@ export async function copiesView(user: { id: number; pairingId: string | null },
     };
   }));
   const anyOn = rows.some((r) => r.on);
-  const firstName = partner ? ((partner.name || partner.englishName || '').trim().split(/\s+/)[0] || null) : null;
+  const firstName = partner ? firstNameOf(partner) : null;
   return {
     shown: connected || anyOn,
     ownerName: firstName,

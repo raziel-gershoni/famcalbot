@@ -9420,7 +9420,7 @@ async function main() {
         assert(switchIn(cardOf(m, 'Work')).getAttribute('aria-checked') === 'false', `${locale}: Work's switch`);
         assert(!byRole(m.container, 'switch').some((s) => textOf(htmlOf(s)).startsWith('Noa family')), `${locale}: a switch on the partner's calendar`);
         const text = textOf(innerHtml(m.container));
-        assertHas(text, [String(g.title), String(g.nonOwner).replace('{owner}', 'Noa')], `${locale}: the section and the non-owner line`);
+        assertHas(text, [String(g.title), String(g.nonOwnerAll).replace('{owner}', 'Noa')], `${locale}: the section and the non-owner line`);
         assert(text.split(String(g.notes.alerts)).length === 2, `${locale}: the notes, once: ${text.slice(0, 400)}`);
         if (locale === 'he') assert(elements(m.container).some((e) => e.getAttribute('dir') === 'rtl'), 'he: no dir="rtl"');
       } finally {

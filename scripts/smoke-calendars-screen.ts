@@ -70,7 +70,7 @@ for (const level of ['error', 'warn'] as const) {
 
 interface World {
   calendars: Row[];
-  partner: { partner: { name: string } } | null;
+  partner: { partner: { name: string; englishName?: string } } | null;
 }
 const world: World = { calendars: [], partner: null };
 
@@ -391,6 +391,22 @@ async function main() {
     }
     const paired = await dataFor(userRow({ pairingId: 'pair1' }), { partner: { name: 'Dana' } });
     assert(paired.partnerName === 'Dana', `the partner: ${show(paired.partnerName)}`);
+    // The name the copy line under the section uses (google-sync's view): the first word of the name, else of the English name
+    for (const [what, partner, want] of [
+      ['a full name', { name: 'Noa Levi', englishName: 'Noa Levy' }, 'Noa'],
+      ['only an English name', { name: '', englishName: '  Noa Levy ' }, 'Noa'],
+      ['a name with spaces around it', { name: '  Noa  ', englishName: '' }, 'Noa'],
+      ['no name at all', { name: '', englishName: '' }, null],
+    ] as [string, { name: string; englishName: string }, string | null][]) {
+      const data = await dataFor(userRow({ pairingId: 'pair1' }), { partner });
+      assert(data.partnerName === want, `${what}: ${show(data.partnerName)} (want ${show(want)})`);
+    }
+    // One helper for the page and the copy rows
+    const { firstNameOf } = await import('../src/lib/first-name');
+    assert(firstNameOf({ name: 'Noa Levi' }) === 'Noa' && firstNameOf({ name: null, englishName: 'Dan' }) === 'Dan' && firstNameOf({ name: '', englishName: undefined }) === null, 'firstNameOf');
+    const viewSource = fs.readFileSync(path.join(ROOT, 'src/services/google-sync/view.ts'), 'utf8');
+    const pageSource = fs.readFileSync(path.join(ROOT, 'src/lib/page-data.ts'), 'utf8');
+    assert(/firstNameOf\(partner\)/.test(viewSource) && /firstNameOf\(partnerInfo\.partner\)/.test(pageSource) && !/split\(\/\\s\+\/\)\[0\]/.test(viewSource + pageSource), 'the copy rows and the page data derive the partner\'s name through the one helper');
     // The Google facts never carry the token or the chosen calendars themselves
     assert(!JSON.stringify(paired).includes('tok') && Object.keys(paired.google).sort().join() === 'chosen,state', `the Google facts: ${show(paired.google)}`);
   });
@@ -419,11 +435,12 @@ async function main() {
     m.unmount();
     assert(show(taken) === show(['#0b8043']), `a tap reports ${show(taken)}`);
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(FORM_CSS)?.[1] ?? '';
-    assert(/inline-size:\s*44px/.test(rule('.ch-swatch')) && /block-size:\s*44px/.test(rule('.ch-swatch')), `.ch-swatch: ${rule('.ch-swatch')}`);
-    assert(/inline-size:\s*28px/.test(rule('.ch-swatch-color')) && /block-size:\s*28px/.test(rule('.ch-swatch-color')), `.ch-swatch-color: ${rule('.ch-swatch-color')}`);
+    assert(/inline-size:\s*44px/.test(rule('.ch-color-swatch')) && /block-size:\s*44px/.test(rule('.ch-color-swatch')), `.ch-color-swatch: ${rule('.ch-color-swatch')}`);
+    assert(/inline-size:\s*28px/.test(rule('.ch-color-swatch-dot')) && /block-size:\s*28px/.test(rule('.ch-color-swatch-dot')), `.ch-color-swatch-dot: ${rule('.ch-color-swatch-dot')}`);
+    assert(rule('.ch-color-swatch-check') !== '' && !/\.ch-swatch(?![\w-])|\.ch-swatches/.test(FORM_CSS), 'the picker\'s classes are .ch-color-swatch*, never the names a screen of the home already uses');
     // Two even rows of four for the palette's eight, never a 7 + 1 wrap; the targets stay 44 px
-    assert(/display:\s*grid/.test(rule('.ch-swatches')) && /grid-template-columns:\s*repeat\(4,\s*1fr\)/.test(rule('.ch-swatches')), `.ch-swatches: ${rule('.ch-swatches')}`);
-    assert(CALENDAR_PALETTE.length === 8 && !/flex-wrap/.test(rule('.ch-swatches')), 'the palette is eight colours: two rows of four');
+    assert(/display:\s*grid/.test(rule('.ch-color-swatches')) && /grid-template-columns:\s*repeat\(4,\s*1fr\)/.test(rule('.ch-color-swatches')), `.ch-color-swatches: ${rule('.ch-color-swatches')}`);
+    assert(CALENDAR_PALETTE.length === 8 && !/flex-wrap/.test(rule('.ch-color-swatches')), 'the palette is eight colours: two rows of four');
     assert(rule('.ch-swatch-dot') !== '', 'FORM_CSS does not draw .ch-swatch-dot');
     const problems = lintCss(FORM_CSS);
     assert(problems.length === 0, `FORM_CSS: ${show(problems)}`);
@@ -451,6 +468,9 @@ async function main() {
       }
     }
     assert(messages.he.calendars.categories.spouse === 'בן או בת זוג', `the Hebrew spouse chip: ${messages.he.calendars.categories.spouse}`);
+    // The categories this screen shows as tags and switches read like the rest of its copy: no "Супруг(а)", and "שלכם" beside its plural hint
+    assert(messages.ru.calendars.categories.spouse === 'Супруг или супруга' && messages.he.calendars.categories.yours === 'שלכם', `the Russian spouse ${messages.ru.calendars.categories.spouse}, the Hebrew yours ${messages.he.calendars.categories.yours}`);
+    for (const l of LOCALES) assert(!/\(.\)/.test(messages[l].calendars.categories.spouse), `${l}: a parenthetical gender form in ${messages[l].calendars.categories.spouse}`);
   });
 
   Calendars = (await import('../app/[locale]/calendars/CalendarsClient')).default as unknown as (props: Props) => ReactElement;
@@ -474,6 +494,13 @@ async function main() {
   };
   /** The Copy to Google switches of the page: the sheet's category switches are not among them. */
   const pageSwitches = (m: Mounted) => switchesOf(m.container).filter((s) => !isInside(s, sheetOf(m)));
+  /** What a control's aria-describedby points at, read as text. */
+  const describedBy = (m: Mounted, control: FakeElement) =>
+    (control.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean).map((id) => {
+      const target = elements(m.container).find((e) => e.getAttribute('id') === id);
+      assert(target, `aria-describedby="${id}" points at nothing`);
+      return flat(target);
+    }).join(' ');
   const holdNext = <K extends 'patch' | 'del' | 'create' | 'copyWrite'>(key: K) => {
     let release: (r: Response) => void = () => undefined;
     (srv as Row)[key] = () => new Promise<Response>((resolve) => void (release = resolve));
@@ -563,7 +590,7 @@ async function main() {
         assert(buttonsOf(card).length === 0 && !elements(card).some((e) => e.getAttribute('role') === 'switch'), `${locale}: a control on the partner's calendar`);
         assert(flat(card).startsWith(NAMES[locale].noa) && flat(card).includes(word(locale, 'sharedAccess.edit')), `${locale}: the partner's row: ${flat(card)}`);
         assert(dotColour(card).length > 0, `${locale}: no dot`);
-        assert(page(named.m).includes(tc(locale, 'nonOwner', { owner: 'Noa' })), `${locale}: the owner's copy line`);
+        assert(page(named.m).includes(tc(locale, 'nonOwnerAll', { owner: 'Noa' })), `${locale}: the owner's copy line`);
       } finally {
         close(named);
       }
@@ -576,7 +603,7 @@ async function main() {
       const none = await open(locale, { initialCalendars: calendarsFor(locale).filter((c) => c.isOwner), partnerName: NAMES[locale].partner }, TELEGRAM);
       try {
         assert(!sectionLabels(none.m).some((l) => l === word(locale, 'sharedByPartner') || l === word(locale, 'sharedBy', { name: NAMES[locale].partner })), `${locale}: a partner section with nothing shared: ${show(sectionLabels(none.m))}`);
-        assert(!page(none.m).includes(tc(locale, 'nonOwner', { owner: 'Noa' })), `${locale}: the owner's line with nothing shared`);
+        assert(!page(none.m).includes(tc(locale, 'nonOwnerAll', { owner: 'Noa' })), `${locale}: the owner's line with nothing shared`);
       } finally {
         close(none);
       }
@@ -586,13 +613,13 @@ async function main() {
     srv.copies = () => json({ shown: false, ownerName: 'Noa', rows: [] });
     const off = await open('en', {}, TELEGRAM);
     try {
-      assert(page(off.m).includes('Noa family') && !page(off.m).includes(tc('en', 'nonOwner', { owner: 'Noa' })), 'the copies are not shown: the partner row stays, its copy line goes');
+      assert(page(off.m).includes('Noa family') && !page(off.m).includes(tc('en', 'nonOwnerAll', { owner: 'Noa' })), 'the copies are not shown: the partner row stays, its copy line goes');
     } finally {
       close(off);
     }
   });
 
-  await check('S4 the Google row: connected shows "Google calendars" with the count (plural per language) and opens Select calendars; choose says "Choose Google calendars" and opens it; none and reconnect lead to /refresh-token (no locale prefix, through the browser); the hint sits under the card; works in a browser with no Telegram', async () => {
+  await check('S4 the Google row: connected shows "Google calendars" with the count (plural per language) and opens Select calendars; choose says "Choose Google calendars" and opens it; none and reconnect lead to /refresh-token (no locale prefix, through the browser); the hint (where the Google calendars show) sits under the card for connected and reconnect only; works in a browser with no Telegram', async () => {
     const cases: [string, Row, string, string | null, 'push' | 'assign', string][] = [
       ['connected', { state: 'connected', chosen: 2 }, 'googleChosen', 'count2', 'push', '/select-calendars?user_id=5'],
       ['connected one', { state: 'connected', chosen: 1 }, 'googleChosen', 'count1', 'push', '/select-calendars?user_id=5'],
@@ -611,8 +638,9 @@ async function main() {
           assert(row && classes(row).includes('ch-form-row') && elements(row).some((e) => classes(e).includes('ch-form-chevron')), `${locale} ${name}: the row in ${show(buttonsOf(o.m.container).map(flat))}`);
           if (count) assert(flat(row) === `${word(locale, label)} ${countText(locale, Number(count.slice(5)))}`, `${locale} ${name}: ${flat(row)}`);
           else assert(flat(row) === word(locale, label), `${locale} ${name}: a value on ${flat(row)}`);
+          // The hint says where the Google calendars show: it is for a person who has some (connected, reconnect), not for one who has none (none, choose)
           const hint = elements(o.m.container).find((e) => e.localName === 'p' && classes(e).includes('ch-form-fixed') && flat(e) === word(locale, 'googleHint'));
-          assert(hint, `${locale} ${name}: the hint`);
+          assert(Boolean(hint) === (google.state === 'connected' || google.state === 'reconnect'), `${locale} ${name}: the hint is ${hint ? 'there' : 'missing'}`);
           const before = [pushes.length, assigned.length];
           o.m.click(row);
           if (how === 'push') assert(show(pushes) === show([`/${locale}${target}`]) && assigned.length === before[1], `${locale} ${name}: pushes ${show(pushes)} assigns ${show(assigned)}`);
@@ -638,9 +666,26 @@ async function main() {
         assert(elements(switches[0]).some((e) => classes(e).includes('ch-switch') && classes(e).includes('is-on')) && !elements(switches[1]).some((e) => classes(e).includes('is-on')), `${locale}: the switches' look`);
         assert(page(o.m).split(tc(locale, 'notes.alerts')).length === 2, `${locale}: the notes once`);
         assert(copyGets().length === 1, `${locale}: ${copyGets().length} copy GETs`);
+        // The name is the label; what the copy is doing is its description (a switch's children are not read)
+        assert(describedBy(o.m, switches[0]) === tc(locale, 'status.copied') && !switches[1].hasAttribute('aria-describedby'), `${locale}: Home is described by ${show(describedBy(o.m, switches[0]))}`);
       } finally {
         close(o);
       }
+    }
+    // A row that needs the person, one counting what cannot be copied, one waiting for Google: each says so on its switch
+    resetWorld();
+    srv.copies = () => json({ shown: true, ownerName: 'Noa', rows: [copyRow('own', { status: 'approve' }), copyRow('plain', { status: 'copying', copied: 3, total: 9, unsupported: 2 })] });
+    const needs = await open('en', {}, TELEGRAM);
+    try {
+      const [home, work] = switchesOf(needs.m.container);
+      assert(describedBy(needs.m, home) === tc('en', 'status.approve') && home.getAttribute('aria-label') === tc('en', 'switchLabel', { name: 'Home' }), `the approve row: ${describedBy(needs.m, home)}`);
+      assert(describedBy(needs.m, work) === "Copying… 3 of 9 2 events can't be copied", `the copying row: ${describedBy(needs.m, work)}`);
+      srv.copyWrite = () => json({ status: 'consent', oauthUrl: 'https://accounts.google.com/x' });
+      needs.m.click(mustButton(needs.m.container, tc('en', 'actions.approve')));
+      await settle();
+      assert(describedBy(needs.m, switchesOf(needs.m.container)[0]) === tc('en', 'status.waiting'), 'the wait for consent');
+    } finally {
+      close(needs);
     }
     resetWorld();
     srv.copies = () => json({ shown: false, ownerName: 'Noa', rows: [] });
@@ -765,7 +810,7 @@ async function main() {
           assert(nameField(o.m).value === 'Typed name', `${where}: the typed name is ${nameField(o.m).value}`);
           assert(listRows(o.m).some((r) => flat(r).startsWith(NAMES[locale].home)) && !listRows(o.m).some((r) => flat(r).startsWith('Typed name')), `${where}: the list changed`);
           assert(appLogs.some((l) => l.startsWith('[calendars]')), `${where}: not logged: ${show(appLogs)}`);
-          assert(!saveButton(o.m).hasAttribute('disabled') && !cancelButton(o.m).hasAttribute('disabled'), `${where}: the sheet is not usable again`);
+          assert(!saveButton(o.m).hasAttribute('disabled') && !cancelButton(o.m).hasAttribute('disabled') && !nameField(o.m).hasAttribute('disabled') && radiosOf(groupOf(o.m, word(locale, 'color'))).every((r) => !r.hasAttribute('disabled')), `${where}: the sheet is not usable again`);
           if (what === '404') assert(listGets().length > listBefore, `${where}: the list was not asked again`);
           else assert(listGets().length === listBefore, `${where}: the list was asked again`);
           // The next save that works closes the sheet and clears the error
@@ -792,7 +837,7 @@ async function main() {
         const labels = radiosOf(group).map((r) => r.getAttribute('aria-label'));
         assert(show(labels) === show(swatchLabels(locale)), `${locale}: ${show(labels)}`);
         if (locale !== 'en') for (const c of CALENDAR_PALETTE) assert(!labels.includes(c.name) && !labels.includes(messageAt('en', `calendarsPage.colors.${c.name.toLowerCase()}`)), `${locale}: the English name of ${c.name}`);
-        assert(radiosOf(group).every((r, i) => elements(r).some((e) => classes(e).includes('ch-swatch-color') && e.style.background === CALENDAR_PALETTE[i].hex)), `${locale}: the dots`);
+        assert(radiosOf(group).every((r, i) => elements(r).some((e) => classes(e).includes('ch-color-swatch-dot') && e.style.background === CALENDAR_PALETTE[i].hex)), `${locale}: the dots`);
         assert(show(checkedOf(group).map((r) => r.getAttribute('aria-label'))) === show([swatchLabels(locale)[0]]), `${locale}: ${show(checkedOf(group).map((r) => r.getAttribute('aria-label')))}`);
         assert(radiosOf(group).every((r) => elements(r).every((e) => e.localName !== 'svg') || r.getAttribute('aria-checked') === 'true'), `${locale}: a check on an unchosen swatch`);
         o.m.click(cancelButton(o.m));
@@ -1195,7 +1240,7 @@ async function main() {
     }
   });
 
-  await check('S16 one request at a time: while a save runs only it is busy (spinner, aria-busy), the delete row, the New calendar row and the copy switches are off, a tap on a list row opens nothing, and a second Save sends nothing; while a copy request runs the New calendar row and the other switches are off too', async () => {
+  await check('S16 one request at a time: while a save runs only it is busy (spinner, aria-busy), the delete row, the New calendar row, the copy switches, the list rows and every field of the sheet are off, a tap on a list row opens nothing, and a second Save sends nothing; while a copy request runs the New calendar row and the other switches are off too', async () => {
     resetWorld();
     const o = await open('en', {}, TELEGRAM);
     try {
@@ -1213,6 +1258,17 @@ async function main() {
       assert(buttonNamed(o.m.container, 'New calendar')?.hasAttribute('disabled') && pageSwitches(o.m).length === 2 && pageSwitches(o.m).every((s) => s.hasAttribute('disabled')), 'the page\'s rows are on while Save works');
       o.m.click(rowOf(o.m, 'Work'));
       assert(labelOf(sheetOf(o.m)) === 'Home' && dialogs(o.m).length === 1, 'a list row opened something');
+      // The rows look and act off, and so do the sheet's fields: an edit made now would be lost when the request answers
+      assert(listRows(o.m).every((r) => r.hasAttribute('disabled')), 'a list row is on while the page is locked');
+      const sheetNow = sheetOf(o.m) as FakeNode;
+      const colourGroup = groupOf(o.m, word('en', 'color'));
+      const privacyGroup = groupOf(o.m, word('en', 'privacy'));
+      assert(nameField(o.m).hasAttribute('disabled') && radiosOf(colourGroup).every((r) => r.hasAttribute('disabled')) && radiosOf(privacyGroup).every((r) => r.hasAttribute('disabled')) && switchesOf(sheetNow).every((r) => r.getAttribute('aria-disabled') === 'true'), 'a field of the sheet takes input while Save works');
+      const formBefore = show([checkedOf(colourGroup).map((r) => r.getAttribute('aria-label')), switchesOf(sheetNow).map((r) => r.getAttribute('aria-checked')), checkedOf(privacyGroup).map(flat)]);
+      o.m.click(radiosOf(colourGroup).find((r) => r.getAttribute('aria-label') === 'Green') as FakeNode);
+      o.m.click(switchesOf(sheetNow)[3]);
+      o.m.click(radiosOf(privacyGroup).find((r) => flat(r) === word('en', 'privacyPrivate')) as FakeNode);
+      assert(show([checkedOf(colourGroup).map((r) => r.getAttribute('aria-label')), switchesOf(sheetNow).map((r) => r.getAttribute('aria-checked')), checkedOf(privacyGroup).map(flat)]) === formBefore, 'the form changed while Save worked');
       await release(json({ success: true }));
       await settle();
       assert(!sheetOf(o.m) && patches().length === 1, 'after the answer');
@@ -1251,6 +1307,7 @@ async function main() {
       const [homeSwitch, workSwitch] = switchesOf(o.m.container);
       assert(workSwitch.hasAttribute('disabled') && workSwitch.getAttribute('aria-busy') === 'true' && flat(workSwitch).includes(tc('en', 'busy.on')) && elements(workSwitch).some((e) => classes(e).includes('ch-form-spinner')), `the busy row: ${flat(workSwitch)}`);
       assert(homeSwitch.hasAttribute('disabled') && !homeSwitch.hasAttribute('aria-busy') && buttonNamed(o.m.container, 'New calendar')?.hasAttribute('disabled'), 'the other controls are on while a copy request runs');
+      assert(listRows(o.m).every((r) => r.hasAttribute('disabled')), 'a list row is on while a copy request runs');
       o.m.click(rowOf(o.m, 'Home'));
       o.m.click(homeSwitch);
       assert(!sheetOf(o.m) && callsTo('POST', '/api/google-sync').length === 1, 'something opened or was sent while a copy request ran');

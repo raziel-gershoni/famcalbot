@@ -21,11 +21,13 @@ export interface ListRowProps {
   tags?: ReactNode;
   onClick: () => void;
   describedBy?: string;
+  /** The row takes no tap (its screen is working); the kit dims a disabled row button. */
+  disabled?: boolean;
 }
 
-export function ListRow({ title, meta, tags, onClick, describedBy }: ListRowProps) {
+export function ListRow({ title, meta, tags, onClick, describedBy, disabled }: ListRowProps) {
   return (
-    <button type="button" className="ch-form-row ch-list-row" aria-describedby={describedBy} onClick={onClick}>
+    <button type="button" className="ch-form-row ch-list-row" aria-describedby={describedBy} disabled={disabled} onClick={onClick}>
       <span className="ch-form-label">
         <span className="ch-list-title" dir={typeof title === 'string' ? 'auto' : undefined}>
           {title}

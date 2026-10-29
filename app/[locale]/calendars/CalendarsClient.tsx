@@ -556,6 +556,7 @@ export default function CalendarsClient(props: Props) {
         }
         meta={t(PRIVACY_KEY[c.privacy])}
         tags={shownLabels.length > 0 ? shownLabels.map((l) => <Tag key={l} tone={l === 'primary' ? 'accent' : 'muted'}>{categories(l)}</Tag>) : undefined}
+        disabled={locked}
         onClick={() => openEdit(c)}
       />
     );
@@ -606,7 +607,7 @@ export default function CalendarsClient(props: Props) {
           <div className="ch-form-group">
             <SectionLabel>{t('name')}</SectionLabel>
             <FormCard>
-              <TextField label={t('name')} value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} maxLength={60} />
+              <TextField label={t('name')} value={draft.name} onChange={(name) => setDraft((d) => ({ ...d, name }))} maxLength={60} disabled={locked} />
             </FormCard>
           </div>
 
@@ -618,6 +619,7 @@ export default function CalendarsClient(props: Props) {
                 value={draft.color.toLowerCase()}
                 options={CALENDAR_PALETTE.map(({ hex, name }) => ({ value: hex, color: hex, text: colourName(name) }))}
                 onChange={(color) => setDraft((d) => ({ ...d, color }))}
+                disabled={locked}
               />
             </FormCard>
           </div>
@@ -626,7 +628,7 @@ export default function CalendarsClient(props: Props) {
             <SectionLabel>{t('categories')}</SectionLabel>
             <FormCard>
               {VALID_LABELS.map((label) => (
-                <SwitchRow key={label} label={categories(label)} hint={t(`categoryHint.${label}`)} checked={draft.labels.includes(label)} onChange={() => toggle(label)} />
+                <SwitchRow key={label} label={categories(label)} hint={t(`categoryHint.${label}`)} checked={draft.labels.includes(label)} disabled={locked} onChange={() => toggle(label)} />
               ))}
             </FormCard>
           </div>
@@ -638,6 +640,7 @@ export default function CalendarsClient(props: Props) {
               value={draft.privacy}
               options={PRIVACIES.map((p) => ({ value: p, text: t(PRIVACY_KEY[p]) }))}
               onChange={(privacy) => setDraft((d) => ({ ...d, privacy: privacy as Calendar['privacy'] }))}
+              disabled={locked}
             />
           </div>
 
@@ -771,7 +774,7 @@ export default function CalendarsClient(props: Props) {
 
         <SectionLabel>{t('google')}</SectionLabel>
         <FormCard>{googleRow()}</FormCard>
-        <p className="ch-form-fixed">{t('googleHint')}</p>
+        {google.state === 'connected' || google.state === 'reconnect' ? <p className="ch-form-fixed">{t('googleHint')}</p> : null}
       </div>
 
       {sheet?.kind === 'create' ? createSheet() : null}

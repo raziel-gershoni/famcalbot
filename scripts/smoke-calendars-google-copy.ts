@@ -168,6 +168,37 @@ async function main() {
     }
   });
 
+  await check('the switch is named for the calendar and described by what the copy is doing: the status line, the wait for Google\'s consent, the busy line and "N can\'t be copied" (a switch\'s children are not read, so each line has an id and the switch points at the ones shown); a row with nothing to say has no description', async () => {
+    const described = (html: string) => {
+      const tag = switchOf(html)!.tag;
+      const ids = (/aria-describedby="([^"]*)"/.exec(tag)?.[1] ?? '').split(/\s+/).filter(Boolean);
+      return ids.map((id) => {
+        const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const hit = new RegExp(`<span[^>]*\\bid="${escaped}"[^>]*>([\\s\\S]*?)</span>(?=<|$)`).exec(html);
+        assert(hit, `aria-describedby="${id}" points at nothing in ${html}`);
+        return textOf(hit[1]);
+      }).join(' ');
+    };
+    for (const l of LOCALES) {
+      const g = gc(l);
+      assert(!/aria-describedby/.test(switchOf(rowHtml(l, {}, { on: false, status: 'off', linkId: null }))!.tag), `${l}: a description for a plain off row`);
+      for (const status of ['copied', 'approve', 'reconnect', 'plan', 'gone', 'otherAccount', 'error'] as const) {
+        const html = rowHtml(l, {}, { status });
+        assert(described(html) === g.status[status], `${l} ${status}: described by ${show(described(html))}`);
+        assert(/aria-label="/.test(switchOf(html)!.tag), `${l} ${status}: the label is gone`);
+      }
+      assert(described(rowHtml(l, {}, { status: 'copying', copied: 3, total: 9 })) === g.status.copyingCount.replace('{copied, number}', '3').replace('{total, number}', '9'), `${l}: copying with a count: ${described(rowHtml(l, {}, { status: 'copying', copied: 3, total: 9 }))}`);
+      assert(described(rowHtml(l, { waiting: true }, { on: false, status: 'off' })) === g.status.waiting, `${l}: the wait`);
+      assert(described(rowHtml(l, { busy: 'off' })) === g.busy.off, `${l}: busy: ${described(rowHtml(l, { busy: 'off' }))}`);
+      const two = described(rowHtml(l, {}, { status: 'copied', unsupported: 2 }));
+      assert(two.startsWith(g.status.copied) && two.length > g.status.copied.length, `${l}: status and the count: ${two}`);
+    }
+    // Two lines, two ids, none repeated
+    const html = rowHtml('en', {}, { status: 'approve', unsupported: 2 });
+    const ids = (/aria-describedby="([^"]*)"/.exec(switchOf(html)!.tag)?.[1] ?? '').split(/\s+/);
+    assert(ids.length === 2 && new Set(ids).size === 2, `the ids: ${show(ids)}`);
+  });
+
   await check('an error under the row: the code\'s message, in the language, as an alert', async () => {
     for (const l of LOCALES) {
       for (const code of ['failed', 'upgrade', 'notFound', 'openFailed'] as const) {
@@ -210,12 +241,15 @@ async function main() {
   await check('the non-owner line names the owner, and the notes say one way, alerts from FamCal and Hebrew dates', async () => {
     for (const l of LOCALES) {
       const t = textOf(render(l, createElement(NonOwnerCopyLine, { owner: 'Noa' })));
-      assert(t === gc(l).nonOwner.replace('{owner}', 'Noa'), `${l}: ${t}`);
+      assert(t === gc(l).nonOwnerAll.replace('{owner}', 'Noa'), `${l}: ${t}`);
+      // It sits once under every calendar the partner shares, so it is plural: no "this one" (the singular key is gone)
+      assert(gc(l).nonOwner === undefined, `${l}: the singular key is still there`);
       const notes = textOf(render(l, createElement(GoogleCopyNotes)));
       for (const k of ['oneWay', 'alerts', 'hebrew']) assert(notes.includes(gc(l).notes[k]), `${l}: no ${k} in ${notes}`);
     }
     assert(textOf(render('en', createElement(GoogleCopyNotes))).includes('Alerts come from FamCal, not from the Google copy.'), 'spec wording');
-    assert(textOf(render('en', createElement(NonOwnerCopyLine, { owner: 'Noa' }))) === 'Only Noa can copy this one to Google.', 'spec wording');
+    assert(textOf(render('en', createElement(NonOwnerCopyLine, { owner: 'Noa' }))) === 'Only Noa can copy these to Google.', 'spec wording');
+    assert(gc('he').nonOwnerAll === 'את היומנים האלה אפשר להעתיק ל־Google רק מהחשבון של {owner}.' && gc('ru').nonOwnerAll === 'Скопировать эти календари в Google может только {owner}.', 'he and ru wording');
   });
 
   // ---- Copy and CSS ----

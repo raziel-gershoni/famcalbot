@@ -59,7 +59,7 @@ import { MissingParameterCard, NotFoundCard, StateCard, type StateCardProps } fr
 import { BottomSheet, TABBABLE } from '../components/app-ui/BottomSheet';
 import { CopyField } from '../components/app-ui/CopyField';
 import { DayChips, type DayChip } from '../components/app-ui/DayChips';
-import { ButtonRow, FORM_CSS, SaveBar, SwitchRow, ValueRow } from '../components/app-ui/form-kit';
+import { ButtonRow, FORM_CSS, RadioCard, SaveBar, SwitchRow, TextField, ValueRow } from '../components/app-ui/form-kit';
 import { Meter, NEAR_LIMIT } from '../components/app-ui/Meter';
 import { Notice } from '../components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '../components/app-ui/ScreenHeader';
@@ -69,7 +69,18 @@ import NotFound from '../app/[locale]/not-found';
 import UnknownPath from '../app/[locale]/[...rest]/page';
 import PageGate, { NoCredentialCard, renderPage } from '../app/[locale]/PageGate';
 import TelegramDashboardRedirect from '../app/[locale]/dashboard/TelegramDashboardRedirect';
-import { publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
+import { HOME_TOP_CSS, publishTopHeight } from '../app/[locale]/dashboard/CalendarHome';
+import { AGENDA_CSS } from '../app/[locale]/dashboard/AgendaView';
+import { DRAG_BAR_CSS } from '../app/[locale]/dashboard/DragBar';
+import { DRAG_CSS } from '../app/[locale]/dashboard/DragSurface';
+import { EDITOR_FORM_CSS } from '../app/[locale]/dashboard/form-kit';
+import { TABS_CSS } from '../app/[locale]/dashboard/HomeTabs';
+import { HOME_SHELL_CSS } from '../app/[locale]/dashboard/home-shell';
+import { MONTH_BROWSE_CSS } from '../app/[locale]/dashboard/MonthBrowse';
+import { MONTH_PICKED_CSS } from '../app/[locale]/dashboard/MonthPicked';
+import { PICKER_CSS } from '../app/[locale]/dashboard/picker-kit';
+import { REPEAT_CSS } from '../app/[locale]/dashboard/RepeatSheet';
+import { ZMANIM_SHEET_CSS } from '../app/[locale]/dashboard/ZmanimSheet';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeDocument, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
@@ -821,6 +832,30 @@ async function main() {
     assert(!/\.ch-day\b(?!chip)|\.ch-days\b/.test(FORM_CSS), "no .ch-day or .ch-days (the Agenda's day sections have those names)");
   });
 
+  await check("K10b the kit's classes are the kit's alone: the class selectors FORM_CSS defines (the subject of each selector, not a class it only sits under) are not defined by the home's own style sheets (the Agenda, the tabs, the month, the pickers, the editor, the sheets ...), which share a page with it and, at the same specificity, the later sheet wins (the 44 px colour swatch became the Agenda's 10 px dot's square); state modifiers (is-*, has-*) always sit on a base class and are left out; the guard sees the old clash", () => {
+    /** The classes a selector's subject carries (its last compound, minus what is inside :not(...) or another pseudo's brackets). */
+    const subjectClasses = (css: string) => {
+      const heads = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(?:^|\})\s*([^{}@][^{}]*)\{/g)].map((m) => m[1]);
+      const out = new Set<string>();
+      for (const head of heads) {
+        for (const selector of head.split(',')) {
+          const plain = selector.replace(/\[[^\]]*\]/g, '').replace(/:[\w-]+\([^()]*(?:\([^()]*\)[^()]*)*\)/g, '').trim();
+          const subject = plain.split(/[\s>+~]+/).filter(Boolean).at(-1) ?? '';
+          for (const m of subject.matchAll(/\.([A-Za-z][\w-]*)/g)) out.add(m[1]);
+        }
+      }
+      return out;
+    };
+    const STATE = /^(?:is|has)-/;
+    const shared = (a: string, b: string) => [...subjectClasses(a)].filter((c) => !STATE.test(c) && subjectClasses(b).has(c)).sort();
+    const home: Record<string, string> = { AGENDA_CSS, TABS_CSS, DRAG_BAR_CSS, DRAG_CSS, ZMANIM_SHEET_CSS, HOME_SHELL_CSS, HOME_TOP_CSS, PICKER_CSS, EDITOR_FORM_CSS, MONTH_BROWSE_CSS, MONTH_PICKED_CSS, REPEAT_CSS };
+    assert(subjectClasses(FORM_CSS).size > 50 && subjectClasses(AGENDA_CSS).size > 20, `the guard reads the sheets: ${subjectClasses(FORM_CSS).size} and ${subjectClasses(AGENDA_CSS).size} classes`);
+    assert(show(shared(FORM_CSS + '\n.ch-swatch {\n  inline-size: 44px;\n}\n', AGENDA_CSS)) === show(['ch-swatch']), "the old clash (FORM_CSS's .ch-swatch against the Agenda's) is seen");
+    assert(show(shared('.a:not(.b) .c {}', '.b {} .a {}')) === show([]) && show(shared('.x .a.is-on {}', '.a {}')) === show(['a']), 'the guard reads the subject, not the context');
+    const clashes = Object.entries(home).flatMap(([name, css]) => shared(FORM_CSS, css).map((c) => `${name}: .${c}`));
+    assert(clashes.length === 0, `FORM_CSS and a sheet of the home define the same class: ${show(clashes)}`);
+  });
+
   await check("K12 a boundary where the grounds are the same: a sheet's card and a muted tag draw a 1px inset ring in the token the switch's off track uses (--ch-done, which #2b holds to 3:1 against --ch-section in every look), so they stay visible under a Telegram theme whose section and secondary colours are one; the ring is on the sheet's card only (the page's cards, the full-screen editor's cards and the other tags are as they were); #2's lint covers the new CSS", () => {
     const ring = /box-shadow:\s*inset 0 0 0 1px var\((--[\w-]+)\)/;
     const off = /box-shadow:\s*inset 0 0 0 1\.5px var\((--[\w-]+)\)/.exec(rule(FORM_CSS, '.ch-switch'))?.[1];
@@ -833,6 +868,31 @@ async function main() {
     assert(!/box-shadow/.test(rule(FORM_CSS, '.ch-form-card')) && !/box-shadow/.test(rule(APP_SCREEN_CSS, '.ch-tag')) && !/box-shadow/.test(rule(APP_SCREEN_CSS, '.ch-tag-danger')), 'a page card, a plain tag and a danger tag carry no ring');
     const ringed = [...FORM_CSS.matchAll(/(?:^|\n)([^\n{}]*\.ch-form-card[^\n{}]*) \{([^}]*)\}/g)].filter((m) => /box-shadow/.test(m[2])).map((m) => m[1]);
     assert(show(ringed) === show(['.ch-sheet:not(.ch-sheet-full) .ch-form-card']), `the rules that ring a card: ${show(ringed)} (the full-screen editor's cards are not among them)`);
+  });
+
+  await check("K10c TextField, RadioCard and ListRow can be switched off while their screen works (disabled, dimmed by the kit's own :disabled rules), and without it they are exactly what they were: an enabled field and option, a row with no disabled attribute", () => {
+    const html = (el: ReactElement) => markupOf(renderToString(el));
+    const Field = TextField as unknown as (props: Row) => ReactElement;
+    const Radios = RadioCard as unknown as (props: Row) => ReactElement;
+    const Row2 = ListRow as unknown as (props: Row) => ReactElement;
+    const field = { label: 'Name', value: 'Home', onChange: noop };
+    assert(!/\bdisabled/.test(html(createElement(Field, field))) && /<input [^>]*\bdisabled=""/.test(html(createElement(Field, { ...field, disabled: true }))), `the field: ${html(createElement(Field, { ...field, disabled: true }))}`);
+    assert(!/\bdisabled/.test(html(createElement(Field, { ...field, multiline: true }))) && /<textarea [^>]*\bdisabled=""/.test(html(createElement(Field, { ...field, multiline: true, disabled: true }))), 'the notes');
+    const radios = { label: 'Who', value: 'a', options: [{ value: 'a', text: 'A' }, { value: 'b', text: 'B' }], onChange: noop };
+    assert(!/\bdisabled/.test(html(createElement(Radios, radios))) && (html(createElement(Radios, { ...radios, disabled: true })).match(/<button [^>]*\bdisabled=""/g) ?? []).length === 2, 'the options');
+    const row = { title: 'Home', onClick: noop };
+    assert(!/\bdisabled/.test(html(createElement(Row2, row))) && /<button [^>]*\bdisabled=""/.test(html(createElement(Row2, { ...row, disabled: true }))), 'the list row');
+    assert(/button\.ch-form-row:disabled\s*\{[^}]*opacity/.test(FORM_CSS) && /\.ch-form-field:disabled\s*\{[^}]*opacity/.test(FORM_CSS), 'the kit dims a disabled row button and a disabled field');
+    // A tap on a disabled one does nothing
+    installWindow();
+    let taps = 0;
+    const m = mount(createElement('div', null, createElement(Row2, { ...row, disabled: true, onClick: () => void taps++ }), createElement(Radios, { ...radios, disabled: true, onChange: () => void taps++ })));
+    try {
+      for (const b of elements(m.container).filter((e) => e.localName === 'button')) m.click(b);
+      assert(taps === 0, `${taps} tap(s) reached a disabled control`);
+    } finally {
+      m.unmount();
+    }
   });
 
   await check("K11 the fake DOM's selectors: it matches what the app passes (BottomSheet's TABBABLE finds only the enabled controls, a [attr] list, [attr=\"v\"], [attr^=\"v\"]) and throws \"fake-dom: unsupported selector\" on the rest, so a check that reaches one can't pass on nothing; BottomSheet's Tab trap, which runs on TABBABLE, wraps over the enabled button only", () => {

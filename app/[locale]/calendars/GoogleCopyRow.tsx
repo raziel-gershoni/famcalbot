@@ -46,7 +46,8 @@ const ACTION_LABEL = { consent: 'approve', reconnect: 'reconnect' } as const;
 
 export function GoogleCopyRow(props: GoogleCopyRowProps) {
   const t = useTranslations('googleCopy');
-  const errorId = useId();
+  const id = useId();
+  const errorId = `${id}-error`;
   const { row, busy, waiting, locked, error } = props;
 
   const action = copyAction(row.status);
@@ -56,6 +57,12 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
   if (row.status === 'copying') line = row.total > 0 ? t('status.copyingCount', { copied: row.copied, total: row.total }) : t('status.copying');
   else if (STATUS_LINE[row.status]) line = t(`status.${STATUS_LINE[row.status]}`);
 
+  // A switch's children are not read: the label names it, and the lines that are shown describe it
+  const unsupported = row.unsupported > 0 && row.on ? t('status.unsupported', { count: row.unsupported }) : null;
+  const lineId = `${id}-line`;
+  const unsupportedId = `${id}-unsupported`;
+  const describedBy = busy ? [lineId] : [waiting || line ? lineId : null, unsupported ? unsupportedId : null].filter(Boolean);
+
   return (
     <div>
       <button
@@ -63,6 +70,7 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
         role="switch"
         aria-checked={row.on}
         aria-label={t('switchLabel', { name: props.calendarName })}
+        aria-describedby={describedBy.length > 0 ? describedBy.join(' ') : undefined}
         aria-busy={busy !== null || undefined}
         disabled={busy !== null || locked}
         className="ch-form-row"
@@ -73,16 +81,16 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
           {busy ? (
             <span className="ch-form-hint ch-working">
               <span className="ch-form-spinner" aria-hidden="true" />
-              {t(`busy.${busy}`)}
+              <span id={lineId}>{t(`busy.${busy}`)}</span>
             </span>
           ) : (
             <>
               {waiting ? (
-                <span className="ch-form-hint">{t('status.waiting')}</span>
+                <span id={lineId} className="ch-form-hint">{t('status.waiting')}</span>
               ) : line ? (
-                <span className={LINE_NEEDS_USER.has(row.status) ? 'ch-form-hint is-danger' : 'ch-form-hint'}>{line}</span>
+                <span id={lineId} className={LINE_NEEDS_USER.has(row.status) ? 'ch-form-hint is-danger' : 'ch-form-hint'}>{line}</span>
               ) : null}
-              {row.unsupported > 0 && row.on ? <span className="ch-form-hint">{t('status.unsupported', { count: row.unsupported })}</span> : null}
+              {unsupported ? <span id={unsupportedId} className="ch-form-hint">{unsupported}</span> : null}
             </>
           )}
         </span>
@@ -98,13 +106,13 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
   );
 }
 
-/** On a partner's calendars: only their owner can copy them (spec §1, Not copied). */
+/** Under the partner's calendars as a whole (one line for all of them, so it is plural): only their owner can copy them (spec §1, Not copied). */
 export function NonOwnerCopyLine({ owner }: { owner: string }) {
   const t = useTranslations('googleCopy');
   return (
     <p className="ch-form-fixed ch-working">
       <CalendarSync size={14} aria-hidden="true" />
-      {t('nonOwner', { owner })}
+      {t('nonOwnerAll', { owner })}
     </p>
   );
 }
