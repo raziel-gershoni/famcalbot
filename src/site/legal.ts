@@ -3,7 +3,7 @@
 // Client-safe: no import.
 
 /** The day each page's text last changed (yyyy-MM-dd). Change it with the text. */
-export const LEGAL_UPDATED = { privacy: '2026-10-29', terms: '2026-10-29' } as const;
+export const LEGAL_UPDATED = { privacy: '2026-10-30', terms: '2026-10-30' } as const;
 
 export type LegalDoc = keyof typeof LEGAL_UPDATED;
 
@@ -21,9 +21,11 @@ export interface LegalSection {
 
 /**
  * The arguments a legal string may carry, in ICU's syntax (`{phone}`): the seller's details (src/lib/seller.ts), filled
- * by the page. The strings are read raw, so ICU's quotes and tags don't apply ("FamCal · <name>" is plain text).
+ * by the page. The strings are read raw, so ICU's quotes and tags don't apply ("FamCal · <name>" is plain text). Never
+ * the ID number: the owner keeps it off the website (2026-10-30), the bot shows it where a plan is bought
+ * (src/lib/plan-disclosure.ts), and a `{idNumber}` in the legal text throws in inlineParts.
  */
-export const SELLER_ARGS = ['sellerName', 'idNumber', 'postalAddress', 'phone', 'email'] as const;
+export const SELLER_ARGS = ['sellerName', 'postalAddress', 'phone', 'email'] as const;
 export type SellerArg = (typeof SELLER_ARGS)[number];
 
 /** A web address, an email address or a t.me link in plain text: what a legal paragraph links. */

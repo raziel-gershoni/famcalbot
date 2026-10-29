@@ -12,7 +12,7 @@ import { inlineParts, type SellerArg } from '@/src/site/legal';
 /** The seller's details for one page: the name in its language, the rest as they are (null: not given yet). */
 export function sellerView(locale: string): Record<SellerArg, string | null> {
   const lang = (['en', 'he', 'ru'].includes(locale) ? locale : 'en') as SellerLocale;
-  return { sellerName: SELLER.name[lang], idNumber: SELLER.idNumber, postalAddress: SELLER.postalAddress, phone: SELLER.phone, email: SELLER.email };
+  return { sellerName: SELLER.name[lang], postalAddress: SELLER.postalAddress, phone: SELLER.phone, email: SELLER.email };
 }
 
 function Arg({ name, seller, missing }: { name: SellerArg; seller: Record<SellerArg, string | null>; missing: string }) {

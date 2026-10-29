@@ -167,19 +167,22 @@ async function main() {
           const cancel = html.indexOf('<h3 id="cancel" class="site-legal-h3">');
           assert(cancel > html.indexOf('<section id="plans"') && cancel < html.indexOf('<section id="ai"'), `terms ${locale}: no h3#cancel inside the plans`);
           assert(text.includes(SELLER.name[locale]), `terms ${locale}: no seller's name`);
-          for (const field of ['idNumber', 'postalAddress', 'phone'] as const) {
+          for (const field of ['postalAddress', 'phone'] as const) {
             if (!SELLER[field]) assert(body.includes(`<span class="site-legal-missing">${legal.sellerMissing}</span>`), `terms ${locale}: no "${legal.sellerMissing}" for the missing ${field}`);
           }
         }
       }
     }
-    // Once the owner gives the details: the values on the page, the phone a tap to call, an address isolated
+    // Once the owner gives the details: the values on the page, the phone a tap to call, an address isolated; the ID
+    // number never (the owner keeps it off the website: the bot shows it where a plan is bought)
+    assert(!(SELLER_ARGS as string[]).includes('idNumber'), 'the ID number is a legal text argument: it would reach the website')
     const real = { idNumber: SELLER.idNumber, postalAddress: SELLER.postalAddress, phone: SELLER.phone };
     try {
       Object.assign(SELLER, { idNumber: '012345678', postalAddress: 'רחוב הדוגמה 1, תל אביב', phone: '+972 50-000-0000' });
       for (const locale of LOCALES) {
         const body = article(await page('app/[locale]/(site)/terms/page.tsx', locale));
-        assert(body.includes('<bdi>012345678</bdi>') && body.includes('<bdi>רחוב הדוגמה 1, תל אביב</bdi>'), `terms ${locale}: the ID and address once given`);
+        assert(body.includes('<bdi>רחוב הדוגמה 1, תל אביב</bdi>'), `terms ${locale}: the address once given`);
+        assert(!body.includes('012345678'), `terms ${locale}: the ID number is on the website`);
         assert(body.includes('<a href="tel:+972500000000" dir="ltr">+972 50-000-0000</a>'), `terms ${locale}: the phone once given`);
         assert(!body.includes('site-legal-missing'), `terms ${locale}: "to be added" with every detail given`);
       }

@@ -2112,7 +2112,6 @@
           "blocks": [
             "FamCal is run by {sellerName}, in Israel.",
             [
-              "ID or business number: {idNumber}",
               "Postal address: {postalAddress}",
               "Phone: {phone}",
               "Email: {email} (from 1 November 2026)",
