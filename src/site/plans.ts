@@ -53,6 +53,17 @@ function covers(plan: PlanLimits, base: PlanLimits): boolean {
   return COUNTS.every((k) => plan[k] >= base[k]) && FLAGS.every(([flag]) => plan[flag] || !base[flag]);
 }
 
+/** A feature the plan table turns on or off: reminders, adding events by voice (photo, PDF, a forward), Copy to Google. */
+export type PlanFlag = (typeof FLAGS)[number][0];
+
+/**
+ * The cheapest plan that turns `flag` on, in the order Free, Basic, Pro; null when none does. The landing tags a feature
+ * with its name ("Pro"), and with nothing when Free has it.
+ */
+export function cheapestPlanWith(flag: PlanFlag, configs: Record<PlanId, PlanConfig> = PLAN_CONFIGS): PlanId | null {
+  return ORDER.find((id) => configs[id].limits[flag]) ?? null;
+}
+
 export function planCards(t: Translate, configs: Record<PlanId, PlanConfig> = PLAN_CONFIGS): PlanCard[] {
   return ORDER.map((id) => {
     const { limits, priceStars } = configs[id];

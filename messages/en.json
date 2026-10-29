@@ -2340,7 +2340,7 @@
       },
       "step2": {
         "title": "Add things by voice",
-        "body": "Send a voice note, like “Swimming for Ari every Tuesday at five”, and FamCal puts it on the calendar. On Telegram, a photo or PDF of an invitation works too."
+        "body": "Send a voice note, like “Swimming for Ari every Tuesday at five”, and FamCal puts it on the calendar. On Telegram, a photo or PDF of an invitation works too. Adding by voice, photo or PDF is part of Pro, and every new account starts with {days, plural, one {# day} other {# days}} of Pro."
       },
       "step3": {
         "title": "Get the morning summary",

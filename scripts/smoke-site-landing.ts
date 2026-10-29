@@ -287,6 +287,40 @@ async function main() {
     }
   });
 
+  await check('G10 a Pro feature says so: adding by voice, photo or PDF and reminders (reminders by zman too) carry the plan\'s tag from the plan table, and nothing else does; How it works step 2 ends with Pro and the trial\'s days; the tag follows the table (Basic\'s name when Basic gets reminders, none when Free gets voice)', async () => {
+    const tagged = (html: string) => {
+      const features = html.slice(html.indexOf('id="features-title"'), html.indexOf('id="channels-title"'));
+      const out: string[] = [];
+      for (const m of features.matchAll(/<h3 id="features-(\w+)" class="site-group-title">([\s\S]*?)<\/h3>|<li class="site-list-row">([\s\S]*?)<\/li>/g)) {
+        const tags = [...(m[2] ?? m[3]).matchAll(/<span class="site-tag">([^<]*)<\/span>/g)].map((x) => x[1]);
+        const name = m[1] ? `group:${m[1]}` : decodeEntities(textOf(m[3])).slice(0, 24);
+        if (tags.length) out.push(`${name}=${tags.join('+')}`);
+      }
+      return out;
+    };
+    for (const locale of LOCALES) {
+      const m = messages[locale].landing;
+      const tg = m.features.telegramTag;
+      const pro = m.plans.pro.name;
+      const zman = m.features.jewish.zmanReminders.slice(0, 24);
+      const photo = m.features.adding.photo.slice(0, 24);
+      assert(show(tagged(pages[locale])) === show([`${zman}=${tg}+${pro}`, `group:adding=${pro}`, `${photo}=${tg}`, `group:reminders=${tg}+${pro}`]), `${locale}: the tags ${show(tagged(pages[locale]))}`);
+      const step2 = nodeRequire('next-intl').createTranslator({ locale, messages: messages[locale] })('landing.how.step2.body', { days: 14 });
+      assert(decodeEntities(pages[locale]).includes(`<p>${step2}</p>`) && step2.includes('Pro') && step2.includes('14'), `${locale}: step 2 ${step2}`);
+    }
+    try {
+      plans.BASIC.limits.reminders = true;
+      plans.FREE.limits.voiceEvents = true;
+      for (const locale of LOCALES) {
+        const m = messages[locale].landing;
+        const got = tagged(await page(locale));
+        assert(got.includes(`group:reminders=${m.features.telegramTag}+${m.plans.basic.name}`) && !got.some((x) => x.startsWith('group:adding')), `${locale}: the tags with another table ${show(got)}`);
+      }
+    } finally {
+      restorePlans();
+    }
+  });
+
   finish();
 }
 

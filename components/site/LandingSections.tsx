@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { TRIAL_DURATION_DAYS } from '@/src/config/plans';
-import { planCards } from '@/src/site/plans';
+import { cheapestPlanWith, planCards, type PlanFlag } from '@/src/site/plans';
 import { LegalInline, sellerView } from './LegalInline';
 import { ReminderPing } from './ReminderPing';
 import { HonestLine, StartButtons, type StartWords } from './StartButtons';
@@ -58,7 +58,7 @@ export function HowItWorks({ t }: { t: Translate }) {
                 {n}
               </span>
               <h3 className="site-h3">{t(`landing.how.step${n}.title`)}</h3>
-              <p>{t(`landing.how.step${n}.body`)}</p>
+              <p>{t(`landing.how.step${n}.body`, { days: TRIAL_DURATION_DAYS })}</p>
             </li>
           ))}
         </ol>
@@ -71,8 +71,12 @@ export function HowItWorks({ t }: { t: Translate }) {
   );
 }
 
-/** The groups of What it does (copy deck §2.3): each item's key, its icon, and whether it is on Telegram alone. */
-const FEATURES: { group: string; telegram?: boolean; items: { key: string; icon: Icon; telegram?: boolean }[] }[] = [
+/**
+ * The groups of What it does (copy deck §2.3): each item's key, its icon, whether it is on Telegram alone, and the plan
+ * table's switch it needs (src/config/plans.ts: reminders, voiceEvents), for a group or for one item. A feature that
+ * needs a switch Free doesn't have is tagged with the cheapest plan that has it ("Pro").
+ */
+const FEATURES: { group: string; telegram?: boolean; plan?: PlanFlag; items: { key: string; icon: Icon; telegram?: boolean; plan?: PlanFlag }[] }[] = [
   {
     group: 'calendar',
     items: [
@@ -88,12 +92,13 @@ const FEATURES: { group: string; telegram?: boolean; items: { key: string; icon:
       { key: 'holidays', icon: Star },
       { key: 'hebrewRepeat', icon: Cake },
       { key: 'sunList', icon: Sun },
-      { key: 'zmanReminders', icon: Sunset, telegram: true },
+      { key: 'zmanReminders', icon: Sunset, telegram: true, plan: 'reminders' },
       { key: 'pause', icon: CirclePause },
     ],
   },
   {
     group: 'adding',
+    plan: 'voiceEvents',
     items: [
       { key: 'voice', icon: Mic },
       { key: 'photo', icon: Camera, telegram: true },
@@ -102,6 +107,7 @@ const FEATURES: { group: string; telegram?: boolean; items: { key: string; icon:
   {
     group: 'reminders',
     telegram: true,
+    plan: 'reminders',
     items: [
       { key: 'doneSnooze', icon: BellRing },
       { key: 'both', icon: Users },
@@ -127,6 +133,10 @@ const FEATURES: { group: string; telegram?: boolean; items: { key: string; icon:
 
 export function Features({ t }: { t: Translate }) {
   const tag = <span className="site-tag">{t('landing.features.telegramTag')}</span>;
+  const planTag = (flag: PlanFlag | undefined) => {
+    const plan = flag ? cheapestPlanWith(flag) : null;
+    return plan && plan !== 'FREE' ? <span className="site-tag">{t(`landing.plans.${plan.toLowerCase()}.name`)}</span> : null;
+  };
   return (
     <section className="site-section site-band" aria-labelledby="features-title">
       <div className="site-wrap">
@@ -134,11 +144,12 @@ export function Features({ t }: { t: Translate }) {
           {t('landing.features.title')}
         </h2>
         <div className="site-groups">
-          {FEATURES.map(({ group, telegram, items }) => (
+          {FEATURES.map(({ group, telegram, plan, items }) => (
             <section key={group} className="site-group" aria-labelledby={`features-${group}`}>
               <h3 id={`features-${group}`} className="site-group-title">
                 {t(`landing.features.${group}.title`)}
                 {telegram ? tag : null}
+                {planTag(plan)}
               </h3>
               <ul className="site-list">
                 {items.map((item) => (
@@ -147,6 +158,7 @@ export function Features({ t }: { t: Translate }) {
                     <span>
                       {t(`landing.features.${group}.${item.key}`)}
                       {item.telegram ? <> {tag}</> : null}
+                      {planTag(item.plan) ? <> {planTag(item.plan)}</> : null}
                     </span>
                   </li>
                 ))}
