@@ -17,7 +17,7 @@ import { requestDisconnect } from '../app/[locale]/(app)/settings/google-disconn
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { activityDetail } from '../src/lib/admin-activity';
 import { TEXT_PAIRS } from './lib/css-resolve';
-import { legalPending, legalText } from './lib/legal-text';
+import { legalText } from './lib/legal-text';
 import { byRole, elements, installWindow, mount } from './lib/fake-dom';
 
 type Row = Record<string, unknown>;
@@ -268,21 +268,39 @@ async function main() {
     assert(activityDetail('calendar_disconnected', { provider: 'google', copies_deleted: 0, copies_left: 0, revoked: false }).endsWith('not revoked'), 'not revoked');
   });
 
-  // The privacy text lives in messages (legal.privacy) since the public website build; its wording is a placeholder until
-  // the owner-approved text replaces it, and the facts below are checked from that moment on.
-  await check('privacy: the old blanket promise is gone; and once the approved wording replaces the placeholder, the retention paragraph says what happens, in en, he and ru', async () => {
+  // The privacy text lives in messages (legal.privacy) since the public website build, in the approved wording. This
+  // holds what it says about disconnecting Google, in every language: the access revoked at Google, then what is
+  // deleted, the copies deleted only with the box ticked, the way to remove the access at Google, and what stays.
+  await check('privacy: the old blanket promise is gone; the text says, in en, he and ru: disconnecting revokes the access at Google, then deletes the key, the calendar choices and the cached data; the box deletes the copy calendars; the access can be removed at Google; what is kept from Google is deleted on disconnect, a moved event stays a FamCal event, and copies chosen to be kept stay', async () => {
     const want: Record<Locale, RegExp[]> = {
-      en: [/Disconnect Google/, /revoke/i, /delete the Google refresh token/, /Also delete the FamCal copies from Google/, /FamCal · <name>/, /Copies you chose to keep stay in Google/, /no Google account id or email is kept/],
-      he: [/ניתוק Google/, /מבטלים את הגישה/, /אסימון/, /למחוק גם את העותקים של FamCal מ-Google/, /FamCal · <שם>/, /עותקים שבחרת להשאיר נשארים ב-Google/, /לא נשמר מזהה או כתובת של חשבון Google/],
-      ru: [/Отключить Google/, /отзываем доступ/, /токен/, /Также удалить копии FamCal из Google/, /FamCal · <название>/, /Копии, которые вы решили оставить, остаются в Google/, /идентификатор и адрес аккаунта Google не сохраняются/],
+      en: [
+        /disconnect Google in Settings\. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached\./,
+        /If you tick the box, we also delete the FamCal copy calendars from your Google account\./,
+        /You can also remove FamCal’s access at any time from your Google Account’s permissions page/,
+        /Disconnecting Google deletes it/,
+        /If you move a Google event into FamCal, it becomes a FamCal event and we keep it like any other\./,
+        /remove your FamCal copy calendars from Google, except those you chose to keep, and revoke FamCal’s access to your Google account/,
+      ],
+      he: [
+        /לנתק את Google בהגדרות\. אנחנו מבטלים את הגישה של FamCal אצל Google, ואז מוחקים את המפתח, את בחירת יומני ה־Google שלכם ואת המידע מ־Google שהחזקנו בזיכרון המטמון\./,
+        /אם מסמנים את התיבה, אנחנו מוחקים גם את יומני העותק של FamCal מחשבון ה־Google שלכם\./,
+        /אפשר גם להסיר בכל עת את הגישה של FamCal בדף ההרשאות של חשבון Google שלכם/,
+        /ניתוק Google מוחק את המידע הזה/,
+        /אם מעבירים אירוע מ־Google ל־FamCal, הוא הופך לאירוע של FamCal, ואנחנו שומרים אותו כמו כל אירוע אחר\./,
+        /מסירים מ־Google את יומני העותק של FamCal, חוץ מאלה שבחרתם להשאיר, ומבטלים את הגישה של FamCal לחשבון ה־Google שלכם/,
+      ],
+      ru: [
+        /отключить Google в «Настройках»\. Мы отзываем доступ FamCal в Google, а затем удаляем ключ, ваш выбор календарей Google и закешированные данные Google\./,
+        /Если вы отметите галочку, мы удалим также календари-копии FamCal из вашего аккаунта Google\./,
+        /вы в любой момент можете отозвать доступ FamCal на странице разрешений вашего аккаунта Google/,
+        /При отключении Google эти данные удаляются/,
+        /Если вы переносите событие из Google в FamCal, оно становится событием FamCal, и мы храним его, как любое другое\./,
+        /удаляем ваши календари-копии FamCal из Google, кроме тех, что вы решили оставить, и отзываем доступ FamCal к вашему аккаунту Google/,
+      ],
     };
     const old = [/When you disconnect your Google Calendar or delete your account/, /כאשר אתה מנתק את יומן Google או מוחק את חשבונך/, /Когда вы отключаете Google Calendar или удаляете свой аккаунт/];
     const texts = LOCALES.map((l) => legalText(messages[l], 'privacy'));
     for (const [i, l] of LOCALES.entries()) assert(texts[i].length > 0 && !old[i].test(texts[i]), `${l}: no privacy text, or the old promise is still there`);
-    if (legalPending(texts)) {
-      console.log('NOTE  privacy: the wording is the placeholder until the legal review; the retention facts are checked once it is replaced');
-      return;
-    }
     for (const [i, l] of LOCALES.entries()) for (const re of want[l]) assert(re.test(texts[i]), `${l}: ${re} missing`);
   });
 

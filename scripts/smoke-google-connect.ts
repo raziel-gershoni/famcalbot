@@ -1779,25 +1779,53 @@ async function main() {
     assert(show(userRow(9).googleScopes) === show(['https://www.googleapis.com/auth/calendar.readonly']), `googleScopes ${show(userRow(9).googleScopes)}`);
   });
 
-  // The privacy text lives in messages (legal.privacy) since the public website build; its wording is a placeholder until
-  // the owner-approved text replaces it, and the Google copy's facts are checked from that moment on (its Hebrew is
-  // held gender-neutral by smoke-he-neutral, which walks every message).
-  await check('#42 S2 the privacy page names the Google copy in every language (once the approved wording replaces the placeholder): calendar.app.created, the "FamCal ·" calendar, never read back, Remove or Keep; dated October 2026 or later', async () => {
-    const { legalPending, legalText } = await import('./lib/legal-text');
+  // The privacy text lives in messages (legal.privacy) since the public website build, in the approved wording (its
+  // Hebrew is held gender-neutral by smoke-he-neutral, which walks every message). This holds what it says FamCal does
+  // with Google data, and Google's Limited Use sentence with its link, in every language.
+  await check('#42 S2 the privacy page says what FamCal does with Google data in every language: read calendars and manage events, only the calendars FamCal creates for the copy, writes only when asked, the "FamCal · <name>" copy one way and never read back, sent to Gemini, no human look, no ads, sale or training; and Google\'s Limited Use sentence with its link; dated October 2026 or later', async () => {
+    const { legalText } = await import('./lib/legal-text');
     const { LEGAL_UPDATED } = await load('src/site/legal.ts');
     assert(LEGAL_UPDATED.privacy >= '2026-10-01', `the privacy page is dated ${LEGAL_UPDATED.privacy}`);
+    const UDP = String.raw`\(https://developers\.google\.com/terms/api-services-user-data-policy\)`;
     const want: Record<string, RegExp[]> = {
-      en: [/calendar\.app\.created/, /FamCal · /, /never read back/, /delete that Google calendar or keep it/],
-      he: [/calendar\.app\.created/, /FamCal · /, /לא נקראים בחזרה/, /למחוק את יומן ה-Google הזה או להשאיר אותו/],
-      ru: [/calendar\.app\.created/, /FamCal · /, /никогда не читаются обратно/, /удалить этот календарь Google или оставить его/],
+      en: [
+        /FamCal asks permission to read your calendars and to manage your events/,
+        /it also asks permission to manage the calendars FamCal itself creates, and only those/,
+        /We write to your Google Calendar only when you ask/,
+        /“FamCal · <name>” copy calendar/,
+        /Copying goes one way, and FamCal never reads those copies back/,
+        /Your Google events go to our AI provider, Google Gemini/,
+        /The people who run FamCal don’t look at your Google data/,
+        /We don’t use Google data for ads, we don’t sell it, and we don’t use it to train AI models/,
+        new RegExp(String.raw`FamCal’s use and transfer to any other app of information received from Google APIs will adhere to the \[Google API Services User Data Policy\]${UDP}, including the Limited Use requirements`),
+      ],
+      he: [
+        /FamCal מבקש הרשאה לקרוא את היומנים שלכם ולנהל את האירועים שלכם/,
+        /הוא מבקש גם הרשאה לנהל את היומנים ש־FamCal עצמו יוצר, ורק אותם/,
+        /אנחנו כותבים ליומן Google שלכם רק כשאתם מבקשים/,
+        /יומן עותק בשם ״FamCal · <שם>״/,
+        /ההעתקה היא בכיוון אחד, ו־FamCal אף פעם לא קורא את העותקים האלה בחזרה/,
+        /האירועים שלכם מ־Google נשלחים לספק הבינה המלאכותית שלנו, Google Gemini/,
+        /האנשים שמפעילים את FamCal לא מסתכלים במידע שלכם מ־Google/,
+        /אנחנו לא משתמשים במידע מ־Google לפרסום, לא מוכרים אותו, ולא משתמשים בו כדי לאמן מודלים של בינה מלאכותית/,
+        new RegExp(String.raw`השימוש של FamCal במידע שמתקבל מממשקי ה־API של Google, והעברתו לכל אפליקציה אחרת, יעמדו ב\[מדיניות נתוני המשתמש של שירותי Google API\]${UDP}, כולל דרישות השימוש המוגבל \(Limited Use\)`),
+      ],
+      ru: [
+        /FamCal запрашивает разрешение читать ваши календари и управлять вашими событиями/,
+        /он запрашивает также разрешение управлять календарями, которые создаёт сам FamCal, и только ими/,
+        /Мы вносим изменения в ваш Google Календарь, только когда вы об этом просите/,
+        /календарь-копию «FamCal · <название>»/,
+        /Копирование идёт в одну сторону, и FamCal никогда не читает эти копии обратно/,
+        /Ваши события Google передаются нашему поставщику ИИ, Google Gemini/,
+        /Те, кто управляет FamCal, не просматривают ваши данные Google/,
+        /Мы не используем данные Google для рекламы, не продаём их и не используем для обучения моделей ИИ/,
+        new RegExp(String.raw`Использование FamCal информации, полученной через API Google, и её передача в любое другое приложение будут соответствовать \[Политике в отношении пользовательских данных сервисов Google API\]${UDP}, включая требования об ограниченном использовании \(Limited Use\)`),
+      ],
     };
-    const texts = Object.fromEntries(Object.keys(want).map((locale) => [locale, legalText(JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')), 'privacy')]));
-    assert(Object.values(texts).every((text) => text.length > 0), 'no privacy text in messages');
-    if (legalPending(Object.values(texts))) {
-      console.log('NOTE  #42: the privacy wording is the placeholder until the legal review; the Google copy\'s facts are checked once it is replaced');
-      return;
+    for (const [locale, patterns] of Object.entries(want)) {
+      const text = legalText(JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')), 'privacy');
+      for (const re of patterns) assert(re.test(text), `${locale}: no ${re} in the privacy text`);
     }
-    for (const [locale, patterns] of Object.entries(want)) for (const re of patterns) assert(re.test(texts[locale]), `${locale}: no ${re} in the privacy text`);
   });
 
   // ---- google-sync S4: the plan gate on a sync consent, and the reply to a sync commit ----

@@ -7,9 +7,13 @@
 //  - P2 the blog's index and post in en, he and ru: the site's chrome, the post's title, the byline from messages, the
 //    way back to the blog, and at the end the two start buttons (one class list, Telegram first) with the honest line;
 //    no emoji, no early access, no inline start links left in the post.
-//  - P3 Privacy and Terms in en, he and ru: the title, a real "last updated" date in the page's language, the opening
-//    paragraph, and the sections the spec lists (§7.1, §7.2), in its order, each with its id and heading; the same
-//    sections and the same shape of blocks in every language; addresses in the text are links.
+//  - P3 Privacy and Terms in en, he and ru: the title, a real "last updated" date in the page's language, and the
+//    approved text's sections (its `##` headings), in its order, each with its id and heading; the same sections and
+//    the same shape of blocks (paragraphs, lists, nested lists, sub-headings) in every language; the anchors other pages
+//    link to (/terms#cancel on an h3, /privacy#google); every mark drawn (bold, code, links), none left raw; addresses
+//    and "Privacy Policy" linked, the bot's /paysupport and /feedback plain text kept left to right; the seller's
+//    details from src/lib/seller.ts (the same arguments in every language, the "to be added" words for a missing one,
+//    the value, linked where it is an email or a phone, once given).
 //  - P4 the share page in en, he and ru: the site's chrome, its words from messages (the Copy label too), the three
 //    messages, the QR codes and the three links; kept out of search.
 //  - P5 a page that doesn't exist under the site (a blog post) gets the site's own 404, in the page's language, with the
@@ -32,8 +36,8 @@ const { NextIntlClientProvider } = nodeRequire('next-intl');
 const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
 const router = { push() {}, replace() {}, prefetch() {}, back() {}, forward() {}, refresh() {} };
 
-const PRIVACY_SECTIONS = ['who', 'keep', 'notKeep', 'processors', 'partner', 'cookies', 'controls', 'children', 'security'];
-const TERMS_SECTIONS = ['service', 'eligibility', 'plans', 'ai', 'responsibility', 'fairUse'];
+const PRIVACY_SECTIONS = ['who', 'required', 'keep', 'notKeep', 'sensitive', 'use', 'google', 'processors', 'partner', 'cookies', 'retention', 'rights', 'euUk', 'children', 'security', 'changes', 'contact'];
+const TERMS_SECTIONS = ['about', 'operator', 'service', 'eligibility', 'account', 'plans', 'ai', 'delivery', 'fairUse', 'suspension', 'changes', 'liability', 'law', 'contact'];
 const POST = 'why-i-built-famcal';
 
 const attrs = (html: string, tag: string) => [...html.matchAll(new RegExp(`<${tag}\\b([^>]*)>`, 'g'))].map((m) => m[1]);
@@ -109,11 +113,20 @@ async function main() {
     }
   });
 
-  await check('P3 Privacy and Terms in en, he and ru: the title, a real "last updated" date in the page\'s language, the opening paragraph, the spec\'s sections in its order (ids and headings), the same sections and block shapes in every language, addresses linked', async () => {
-    const { LEGAL_UPDATED, linkParts } = await load('src/site/legal.ts');
-    const shape = (locale: Locale, doc: string) => JSON.stringify(Object.entries(messages[locale].legal[doc].sections).map(([id, s]) => [id, (s as Row).blocks.map((b: unknown) => (Array.isArray(b) ? b.length : 'p'))]));
+  await check('P3 Privacy and Terms in en, he and ru: the title, the date, the approved sections in order (ids and headings), the same block shapes in every language, the #cancel and #google anchors, every mark drawn, links and plain commands, the seller\'s details', async () => {
+    const { LEGAL_UPDATED, linkParts, inlineParts, SELLER_ARGS } = await load('src/site/legal.ts');
+    const { SELLER } = await load('src/lib/seller.ts');
+    // A block's shape: p (a paragraph), h or h:<id> (a sub-heading), or a list of items (s, or [its items, paragraphs after])
+    const item = (i: unknown): unknown => (typeof i === 'string' ? 's' : [(i as Row).items.map(item), ((i as Row).after ?? []).length]);
+    const block = (b: unknown): unknown => (typeof b === 'string' ? 'p' : Array.isArray(b) ? b.map(item) : `h${(b as Row).id ? `:${(b as Row).id}` : ''}`);
+    const shape = (locale: Locale, doc: string) => JSON.stringify(Object.entries(messages[locale].legal[doc].sections).map(([id, s]) => [id, (s as Row).blocks.map(block)]));
+    const strings = (node: unknown, at: string): [string, string][] =>
+      typeof node === 'string' ? [[at, node]] : node && typeof node === 'object' ? Object.entries(node).flatMap(([k, v]) => strings(v, `${at}.${k}`)) : [];
+    const args = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(' ');
+    const article = (html: string) => html.slice(html.indexOf('<article'), html.indexOf('</article>'));
     for (const [doc, ids] of [['privacy', PRIVACY_SECTIONS], ['terms', TERMS_SECTIONS]] as const) {
       assert(/^\d{4}-\d{2}-\d{2}$/.test(LEGAL_UPDATED[doc]) && !Number.isNaN(Date.parse(LEGAL_UPDATED[doc])), `${doc}: the date ${LEGAL_UPDATED[doc]}`);
+      const en = Object.fromEntries(strings(messages.en.legal[doc], doc));
       for (const locale of LOCALES) {
         const html = await page(`app/[locale]/(site)/${doc}/page.tsx`, locale);
         common(locale, html, doc);
@@ -123,14 +136,61 @@ async function main() {
         const date = new Date(`${LEGAL_UPDATED[doc]}T12:00:00Z`).toLocaleDateString({ en: 'en-GB', he: 'he-IL', ru: 'ru-RU' }[locale], { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
         assert(decodeEntities(textOf(html)).includes(legal.lastUpdated.replace('{date}', date)), `${doc} ${locale}: the date line`);
         const found = [...html.matchAll(/<section id="([^"]+)" class="site-legal-section"/g)].map((m) => m[1]);
-        const spec = found.filter((id) => ids.includes(id));
-        assert(show(spec) === show(ids), `${doc} ${locale}: the sections ${show(found)}, the spec's ${show(ids)}`);
+        assert(show(found) === show(ids), `${doc} ${locale}: the sections ${show(found)}, the approved text's ${show(ids)}`);
         for (const id of found) assert(html.includes(`<h2 id="${id}-title" class="site-h3">`), `${doc} ${locale}: ${id} has no heading`);
         assert(shape(locale, doc) === shape('en', doc), `${doc} ${locale}: its sections differ from English's`);
+        // The seller's arguments: only SELLER_ARGS, and the same in every string as English's
+        for (const [at, text] of strings(legal[doc], doc)) {
+          for (const name of args(text).split(' ').filter(Boolean)) assert(SELLER_ARGS.includes(name), `${locale} ${at}: {${name}} is not a seller argument`);
+          assert(args(text) === args(en[at] ?? ''), `${locale} ${at}: the arguments [${args(text)}], English has [${args(en[at] ?? '')}]`);
+        }
+        const body = article(html);
+        const text = decodeEntities(textOf(body));
+        assert(!/\*\*|`|\]\(|[{}]/.test(text), `${doc} ${locale}: a mark left raw: ${text.match(/.{0,30}(?:\*\*|`|\]\(|[{}]).{0,30}/)?.[0]}`);
+        assert(/<li>(?:(?!<\/li>).)*?<ul class="site-legal-list">/.test(body) && body.includes('<strong>'), `${doc} ${locale}: no nested list or no bold`);
+        for (const command of ['/feedback', ...(doc === 'terms' ? ['/paysupport'] : [])]) assert(body.includes(`<bdi dir="ltr">${command}</bdi>`), `${doc} ${locale}: ${command} is not plain text kept left to right`);
+        assert(!attrs(body, 'a').some((a) => /paysupport|feedback/.test(attr(a, 'href') ?? '')), `${doc} ${locale}: a bot command became a link`);
+        const hrefs = attrs(body, 'a').map((a) => decodeEntities(attr(a, 'href') ?? ''));
+        assert(hrefs.includes(`mailto:${SELLER.email}`), `${doc} ${locale}: the email isn't linked`);
+        if (doc === 'privacy') {
+          assert(hrefs.includes('https://developers.google.com/terms/api-services-user-data-policy'), `privacy ${locale}: the Google policy isn't linked`);
+          assert(html.includes('<section id="google" class="site-legal-section"'), `privacy ${locale}: no #google`);
+          assert(/<code dir="ltr">famcal_session<\/code>/.test(body), `privacy ${locale}: the cookie's name isn't code`);
+        } else {
+          assert(hrefs.filter((h) => h === `${prefix(locale)}/privacy`).length === 2, `terms ${locale}: "Privacy Policy" is not linked twice to ${prefix(locale)}/privacy: ${show(hrefs)}`);
+          const cancel = html.indexOf('<h3 id="cancel" class="site-legal-h3">');
+          assert(cancel > html.indexOf('<section id="plans"') && cancel < html.indexOf('<section id="ai"'), `terms ${locale}: no h3#cancel inside the plans`);
+          assert(text.includes(SELLER.name[locale]), `terms ${locale}: no seller's name`);
+          for (const field of ['idNumber', 'postalAddress', 'phone'] as const) {
+            if (!SELLER[field]) assert(body.includes(`<span class="site-legal-missing">${legal.sellerMissing}</span>`), `terms ${locale}: no "${legal.sellerMissing}" for the missing ${field}`);
+          }
+        }
       }
+    }
+    // Once the owner gives the details: the values on the page, the phone a tap to call, an address isolated
+    const real = { idNumber: SELLER.idNumber, postalAddress: SELLER.postalAddress, phone: SELLER.phone };
+    try {
+      Object.assign(SELLER, { idNumber: '012345678', postalAddress: 'רחוב הדוגמה 1, תל אביב', phone: '+972 50-000-0000' });
+      for (const locale of LOCALES) {
+        const body = article(await page('app/[locale]/(site)/terms/page.tsx', locale));
+        assert(body.includes('<bdi>012345678</bdi>') && body.includes('<bdi>רחוב הדוגמה 1, תל אביב</bdi>'), `terms ${locale}: the ID and address once given`);
+        assert(body.includes('<a href="tel:+972500000000" dir="ltr">+972 50-000-0000</a>'), `terms ${locale}: the phone once given`);
+        assert(!body.includes('site-legal-missing'), `terms ${locale}: "to be added" with every detail given`);
+      }
+    } finally {
+      Object.assign(SELLER, real);
     }
     const parts = linkParts('Write to privacy@famcal.bot or https://famcal.bot/privacy, or t.me/family_calendar_telegram_bot?start=feedback.');
     assert(show(parts.filter((p: Row) => p.href).map((p: Row) => p.href)) === show(['mailto:privacy@famcal.bot', 'https://famcal.bot/privacy', 'https://t.me/family_calendar_telegram_bot?start=feedback']), `the links ${show(parts)}`);
+    const kinds = inlineParts('**Email:** {email}, see [Privacy Policy](/privacy), send /paysupport over HTTPS/TLS, `NEXT_LOCALE`.').map((p: Row) => p.kind + (p.name ? `:${p.name}` : ''));
+    assert(show(kinds) === show(['strong', 'text', 'arg:email', 'text', 'link', 'text', 'command', 'text', 'code', 'text']), `the marks ${show(kinds)}`);
+    let thrown = false;
+    try {
+      inlineParts('call {nobody}');
+    } catch {
+      thrown = true;
+    }
+    assert(thrown, 'an argument that is not the seller\'s passes');
   });
 
   await check('P4 the share page in en, he and ru: the site\'s chrome, its words from messages, the three messages with a Copy button each, the QR codes and the three links; noindex', async () => {

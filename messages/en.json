@@ -1731,72 +1731,581 @@
     "lastUpdated": "Last updated: {date}",
     "sellerMissing": "to be added",
     "privacy": {
-      "intro": "[Privacy policy: legal text pending review]",
       "sections": {
         "who": {
-          "heading": "[Who we are, and how to contact us: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Who we are",
+          "blocks": [
+            "FamCal is a family-calendar assistant. You use it by chatting with our bot on Telegram or WhatsApp, through a web app that opens from the bot, and on our website, famcal.bot. FamCal is built and run by {sellerName} in Israel (“we”, “us”). He decides how FamCal uses your data and is responsible for it.",
+            "This policy covers what we keep about you, why we keep it, who else handles it, and what you can do about it. To reach us, see Contact at the end."
+          ]
+        },
+        "required": {
+          "heading": "What you have to give us",
+          "blocks": [
+            "No law requires you to give us anything. FamCal can’t work without your Telegram user id or your WhatsApp number, because that’s how the bot talks to you. Everything else is up to you. If you leave something out, only the feature that needs it won’t work. For example, without a place there’s no weather or zmanim, and without a Google connection we can’t show your Google events."
+          ]
         },
         "keep": {
-          "heading": "[What we keep: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "What we keep",
+          "blocks": [
+            {
+              "title": "Your account"
+            },
+            [
+              "On Telegram: your Telegram user id, plus the first and last name on your Telegram profile when you first started the bot. We don’t keep your @username.",
+              "On WhatsApp: your phone number, the user id WhatsApp gives us, and your WhatsApp profile name from your first message to us.",
+              {
+                "text": "Your settings:",
+                "items": [
+                  "your language and how you want to be addressed (“Address me as”);",
+                  "your place;",
+                  "your calendar culture (General or Jewish), your community for zmanim (Sephardi, Ashkenazi or Chabad) and the Shabbat and Yom Tov pause;",
+                  "which app your messages go to, and when briefings and reminders are sent;",
+                  "any notes you write for the AI."
+                ]
+              },
+              "We keep your place at the level of a town or neighbourhood. If you type a street address, we keep only its town. To work out weather and zmanim, we look up that place’s map position and height. This is the place’s position, not your device’s."
+            ],
+            {
+              "title": "Your calendar"
+            },
+            [
+              "The events and reminders you add: the title, time, place and notes, how they repeat (including by Hebrew date), who each one is for, who added it, and whether a reminder is done or snoozed.",
+              "Your calendars: each one’s name, colour and labels, the family member it is for (their name, and how to address them), and any note for the AI.",
+              "When you delete an event or a calendar, you and your partner no longer see it. We still keep it in our database until your account is deleted."
+            ],
+            {
+              "title": "Your Google connection (only if you connect Google)"
+            },
+            [
+              "A key that lets FamCal reach your Google Calendar (a “refresh token”), stored encrypted.",
+              "The permissions you gave, and the Google calendars you chose, with their names and the labels you gave them. A Google calendar’s id can be an email address.",
+              {
+                "text": "If you turn on Copy to Google, we also keep:",
+                "items": [
+                  "which Google calendar each FamCal calendar is copied to;",
+                  "the ids of the copied events, but not their content;",
+                  "the id of your main Google calendar, which is usually your Gmail address, so copies stay in the same Google account;",
+                  "the last error Google returned."
+                ]
+              },
+              "We don’t keep copies of your Google events. To show them quickly, we cache them for up to 30 minutes. If you move a Google event into FamCal, it becomes a FamCal event and we keep it like any other."
+            ],
+            {
+              "title": "Your partner link"
+            },
+            [
+              "Who you’re linked with, the invites you sent (an invite link works for 7 days), and when you linked and unlinked. This history stays after you unlink."
+            ],
+            {
+              "title": "Your plan and payments"
+            },
+            [
+              "Your plan, the dates of your trial and of each paid month, and how many briefings you used this month.",
+              "The reference number of each Telegram Stars payment. Telegram handles the payment itself, so we never see card or bank details."
+            ],
+            {
+              "title": "What you send us"
+            },
+            [
+              "Feedback and payment questions you send through the bot or the web app."
+            ],
+            {
+              "title": "An activity log"
+            },
+            [
+              "Which features you used and when, with technical details such as an error message. For example, “briefing sent”, or “setting changed” with the setting’s name but not its new value.",
+              "We delete these records after 90 days. The most recent ones can travel with an error report (see below)."
+            ],
+            {
+              "title": "Our notes on your account"
+            },
+            [
+              "If we give you a plan or a feature for free, or suspend or ban an account, we write down why."
+            ],
+            {
+              "title": "Short-lived copies"
+            },
+            [
+              "To keep FamCal fast, we keep some copies in a cache. Most last a few minutes.",
+              {
+                "text": "The longest are:",
+                "items": [
+                  "a briefing’s text, kept for 24 hours so you can share it;",
+                  "a note that the bot already asked whether a name is one of your children, kept for 30 days."
+                ]
+              },
+              "A copy of your settings stays in the cache for as long as your account exists."
+            ],
+            {
+              "title": "Server logs and error reports"
+            },
+            [
+              "Our server logs record what happened and when. A log line carries your FamCal or Telegram id, and sometimes your name or WhatsApp number. Secret values, such as keys and passwords, are removed before anything is written. Our host deletes logs after 90 days.",
+              "When you open famcal.bot or the web app, our host receives your request, with your IP address and browser, as any website does.",
+              "When something breaks, an error report goes to Sentry. It carries your id, your first name and technical details, such as the features you used just before. Sometimes it also carries the content of the request that failed, which can include a message you sent or an event’s details. Sentry deletes reports after at most 90 days."
+            ]
+          ]
         },
         "notKeep": {
-          "heading": "[What we don’t keep: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "What we don’t keep",
+          "blocks": [
+            [
+              "**Voice notes.** We send them to the AI to understand them, then drop them. What the AI understood is held for 10 minutes while you confirm it. If the AI couldn’t make sense of a voice note, we hold the note for 5 minutes so your next message can complete it.",
+              "**Photos, PDFs and forwarded messages** (Telegram only). We send them to the AI to find events, and we don’t store them.",
+              "**Audio we make for you**: voice briefings, the voice show and spoken replies. Each file is deleted as soon as it’s sent.",
+              "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name.",
+              "**Card or bank details.**"
+            ],
+            "Your messages and the bot’s replies also stay in your chat on Telegram or WhatsApp. That app’s own privacy policy covers them there."
+          ]
+        },
+        "sensitive": {
+          "heading": "Sensitive details",
+          "blocks": [
+            "A family calendar can hold sensitive things:",
+            [
+              "your calendar culture, your zmanim community and the Shabbat and Yom Tov pause can show your religious practice;",
+              "events and notes can hold health appointments or other private family matters."
+            ],
+            "We use these only for the features they belong to. They get the same protection as the rest of your data (see Security). You can turn those settings off at any time."
+          ]
+        },
+        "use": {
+          "heading": "How we use it",
+          "blocks": [
+            [
+              "To run the features you use: your calendar, reminders, briefings and the voice show, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, and your Google connection.",
+              "To understand what you send the bot: voice notes, photos, PDFs, forwarded messages and typed reminders.",
+              "To apply your plan’s limits, and to handle payments and refunds.",
+              "To answer you, fix problems, and keep FamCal safe from misuse."
+            ],
+            "We don’t show ads, we don’t sell your data, and we don’t use analytics or ad trackers. FamCal makes no automated decision about you that has legal or similarly serious effects."
+          ]
+        },
+        "google": {
+          "heading": "Google user data",
+          "blocks": [
+            "If you connect Google, FamCal asks permission to read your calendars and to manage your events. If you turn on Copy to Google, it also asks permission to manage the calendars FamCal itself creates, and only those.",
+            [
+              {
+                "text": "**Reading.** We read your Google events to:",
+                "items": [
+                  "show them in the app;",
+                  "include them in your briefings and the voice show;",
+                  "send event alerts on Telegram;",
+                  "find the event you ask to change."
+                ]
+              },
+              "**Writing.** We write to your Google Calendar only when you ask: to add, change or delete an event, or to keep a “FamCal · <name>” copy calendar up to date. Copying goes one way, and FamCal never reads those copies back.",
+              "**Sharing.** Your Google events go to our AI provider, Google Gemini, so it can write your briefings and understand what you ask. They also go to Telegram or WhatsApp inside the messages we send you.",
+              "**People.** The people who run FamCal don’t look at your Google data. We look only when you ask us to, for example to fix a problem with an event, when security needs it, or when the law requires it. An error report can include a request that failed, which can hold an event’s details. We open error reports only to fix the problem.",
+              "**Keeping and deleting.** What we keep from Google, and for how long, is under “Your Google connection” above. Disconnecting Google deletes it (see Your rights and choices).",
+              "We don’t use Google data for ads, we don’t sell it, and we don’t use it to train AI models.",
+              "FamCal’s use and transfer to any other app of information received from Google APIs will adhere to the [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements."
+            ]
+          ]
         },
         "processors": {
-          "heading": "[Who processes it: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Who else handles your data",
+          "blocks": [
+            {
+              "title": "Our providers"
+            },
+            [
+              {
+                "text": "**Google Gemini (our AI).** It receives:",
+                "items": [
+                  "your voice notes, photos, PDFs, forwarded messages and typed reminders, so it can understand them;",
+                  "your calendar names, your family members’ names and your recent events, so it can match what you ask;",
+                  "for briefings and the voice show: your name, how to address you, your family members’ names, your events, your calendar culture, your notes for the AI and the day’s weather;",
+                  "the text it reads aloud."
+                ],
+                "after": [
+                  "We use Gemini’s paid service. Under Google’s terms, Google doesn’t use what we send it to improve its products. It keeps that data for a limited time, only to detect misuse."
+                ]
+              },
+              "**Telegram:** every message between you and the bot, the web app’s sign-in, and Stars payments.",
+              "**Meta (WhatsApp):** your number and every message between you and the bot on WhatsApp.",
+              "**Google Calendar,** if you connect it (see above).",
+              "**Neon:** our database.",
+              "**Upstash:** our cache.",
+              "**Railway:** our servers and server logs.",
+              "**Sentry:** error reports.",
+              "**Cloudflare:** our domain’s DNS, and forwarding the mail you send to {email} to our mailbox.",
+              "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”.",
+              "**Open-Meteo:** your place’s map position, to get the weather, air quality, the place’s height and its time zone.",
+              "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. Like any site you visit, Telegram sees your IP address and browser."
+            ],
+            {
+              "title": "Where your data goes"
+            },
+            [
+              "These services may store or process data in countries other than Israel.",
+              "Google Gemini, Neon, Upstash, Railway, Sentry and Cloudflare handle data for us. Their terms commit them to protect it and to use it only to provide their service to us.",
+              "Telegram, Meta and Google run their own apps under their own privacy policies.",
+              "OpenStreetMap and Open-Meteo get only what’s listed above."
+            ],
+            {
+              "title": "The people who run FamCal"
+            },
+            [
+              "Our admin panel shows your account details, plan, usage, activity log and feedback. It doesn’t show your events.",
+              "We use it to give support, handle payments and refunds, and stop misuse.",
+              "Feedback and payment questions you send also reach us as Telegram messages, with your name and Telegram id."
+            ],
+            "**Your partner** (see below)."
+          ]
         },
         "partner": {
-          "heading": "[Your partner: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Your partner",
+          "blocks": [
+            "If you link with a partner:",
+            [
+              "they see the calendars you share with them, either to view or to view and edit. They see every event in those calendars and who added it, and they get the reminders from them;",
+              "they see the reminders you make for both of you, and whether each of you marked them done;",
+              "calendars you keep private stay private."
+            ],
+            "When you unlink, both of your calendars go back to private. Events you added to your partner’s calendar stay in their calendar."
+          ]
         },
         "cookies": {
-          "heading": "[Cookies: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Cookies and browser storage",
+          "blocks": [
+            [
+              "`famcal_session` keeps you signed in to the web app after you open it from WhatsApp. It lasts 24 hours.",
+              "`NEXT_LOCALE` remembers the site’s language until you close your browser."
+            ],
+            "The web app also saves a few view choices in your browser, such as which tab you were on. All of these are needed for the site and the app to work. We use no ad or tracking cookies."
+          ]
         },
-        "controls": {
-          "heading": "[Your controls: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+        "retention": {
+          "heading": "How long we keep it",
+          "blocks": [
+            [
+              "**Your account, calendar and settings:** until your account is deleted. We don’t delete accounts for being inactive.",
+              "**The activity log:** 90 days.",
+              "**Cache copies:** from a few minutes up to 30 days (see above).",
+              "**Server logs:** 90 days.",
+              "**Error reports:** at most 90 days.",
+              "**What Google Gemini logs:** a limited time, under Google’s terms."
+            ]
+          ]
+        },
+        "rights": {
+          "heading": "Your rights and choices",
+          "blocks": [
+            "**You have the right to:**",
+            [
+              "see the data we keep about you, and get a copy of it;",
+              "ask us to correct or delete anything that’s wrong, incomplete, unclear or out of date;",
+              "ask us to delete your account."
+            ],
+            "Write to us (see Contact) and we’ll answer within 30 days. We may ask you to confirm the request from the bot, so we know it comes from you. There’s no button yet to delete your account or download your data. We do both by hand when you ask.",
+            "If you’re not happy with our answer, you can complain to Israel’s Privacy Protection Authority.",
+            "**You can also, at any time:**",
+            [
+              "change your settings in Settings;",
+              "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. You can also ask us to stop them;",
+              "disconnect Google in Settings. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
+              "unlink your partner in the web app."
+            ],
+            "**When we delete your account**, we:",
+            [
+              "delete your account, settings, calendars and their events (deleted ones too), your plan, your activity log and your feedback;",
+              "remove your FamCal copy calendars from Google, except those you chose to keep, and revoke FamCal’s access to your Google account;",
+              "unlink your partner."
+            ],
+            "**What stays after that:**",
+            [
+              "events you added to your partner’s calendars, which become theirs;",
+              "feedback that already reached us as Telegram messages;",
+              "server logs and error reports, until they expire (up to 90 days);",
+              "cache copies, until they expire (up to 30 days);",
+              "if we banned the account: its Telegram id or WhatsApp number and the reason, so it can’t sign up again;",
+              "your payment records at Telegram."
+            ]
+          ]
+        },
+        "euUk": {
+          "heading": "If you live in the EU or the UK",
+          "blocks": [
+            "The EU’s and the UK’s data protection law (the GDPR) may apply to how we handle your data. Where it does:",
+            {
+              "title": "Our legal grounds"
+            },
+            [
+              "To run FamCal for you (your account, calendar, settings, Google connection, partner sharing, briefings, and reading what you send the bot): our agreement with you.",
+              "For payments and refunds: our agreement with you.",
+              "To keep FamCal working and safe (server logs, error reports, the activity log, and the record of banned accounts): our legitimate interest in running a reliable service and stopping misuse.",
+              "For details you add about family members: our legitimate interest in running the family calendar you asked for.",
+              "For the settings that can show your religious practice (calendar culture, zmanim community and the Shabbat and Yom Tov pause): your explicit consent, which you give by turning them on and withdraw by turning them off."
+            ],
+            "**Your extra rights.** You can also ask us to limit how we use your data, object to a use based on our legitimate interest, get your data in a format you can take elsewhere, and withdraw a consent at any time. You can complain to your country’s data protection authority.",
+            "**Transfers.** The European Commission and the UK recognise Israel as protecting personal data adequately. For providers in other countries, such as the US, we rely on the safeguards in their terms, such as the EU’s standard contractual clauses or the EU-US Data Privacy Framework."
+          ]
         },
         "children": {
-          "heading": "[Children: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Children",
+          "blocks": [
+            "FamCal is for adults who run a family. You must be 18 or older to use it. Parents may add their children’s names, schedules and birthdays, but children don’t use FamCal themselves.",
+            "We don’t ask anyone’s age. If you think someone under 18 is using FamCal, tell us and we’ll delete the account."
+          ]
         },
         "security": {
-          "heading": "[Security: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Security",
+          "blocks": [
+            [
+              "Everything travels over encrypted connections (HTTPS/TLS).",
+              "Your Google key is encrypted (AES-256-GCM) before we store it.",
+              "Our database host, Neon, encrypts stored data on its disks. FamCal doesn’t add its own encryption to the rest of your data.",
+              "The web app checks every request. On Telegram it checks Telegram’s signed sign-in. From WhatsApp it checks the sign-in link the bot sends you.",
+              "Secret values are removed from our server logs."
+            ],
+            "No system is completely safe. If a breach puts your data at risk, we’ll tell you, and we’ll report it to the Privacy Protection Authority when the law requires."
+          ]
+        },
+        "changes": {
+          "heading": "Changes to this policy",
+          "blocks": [
+            "When we change this policy, we post the new version on this page with a new date. If a change affects how we use data we already hold, we explain it here before it takes effect."
+          ]
+        },
+        "contact": {
+          "heading": "Contact",
+          "blocks": [
+            [
+              "**Email:** {email}. This address works from 1 November 2026.",
+              "**In the bot,** which works today: on Telegram, send /feedback followed by your message. On WhatsApp, send “feedback” followed by your message."
+            ]
+          ]
         }
       }
     },
     "terms": {
-      "intro": "[Terms of use: legal text pending review]",
       "sections": {
+        "about": {
+          "heading": "About these terms",
+          "blocks": [
+            "These terms are the agreement between you and {sellerName} (“we”, “us”) for using FamCal. They cover the Telegram bot, the WhatsApp bot, the web app and famcal.bot. By using FamCal, you accept these terms. If you don’t accept them, please don’t use FamCal.",
+            "Our [Privacy Policy](/privacy) explains how we handle your data.",
+            "We publish these terms in Hebrew, English and Russian. If a translation ever differs, the version in the language you use FamCal in applies."
+          ]
+        },
+        "operator": {
+          "heading": "Who runs FamCal",
+          "blocks": [
+            "FamCal is run by {sellerName}, in Israel.",
+            [
+              "ID or business number: {idNumber}",
+              "Postal address: {postalAddress}",
+              "Phone: {phone}",
+              "Email: {email} (from 1 November 2026)",
+              "In the Telegram bot: /feedback, and /paysupport for payments."
+            ]
+          ]
+        },
         "service": {
-          "heading": "[The service: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "What FamCal is",
+          "blocks": [
+            "FamCal is a family-calendar assistant. It:",
+            [
+              "keeps your family’s calendar;",
+              "sends you briefings, in text and voice;",
+              "shows Hebrew dates, holidays and zmanim;",
+              "can pause on Shabbat and Yom Tov;",
+              "lets you share calendars with a partner."
+            ],
+            "Connecting Google Calendar is optional.",
+            "For now, some features work only on Telegram:",
+            [
+              "reminders and event alerts;",
+              "adding events from photos, PDFs and forwarded messages;",
+              "paying for a plan."
+            ]
+          ]
         },
         "eligibility": {
-          "heading": "[Who can use FamCal: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Who can use FamCal",
+          "blocks": [
+            "You must be 18 or older, and you need your own Telegram or WhatsApp account. A partner you link with needs their own account, and must be 18 or older too."
+          ]
+        },
+        "account": {
+          "heading": "Your account and your family",
+          "blocks": [
+            [
+              "You’re responsible for what you add, including details about your children, your partner and other family members. Add only what you have the right to share.",
+              "Anyone who can use your Telegram or WhatsApp account can use FamCal as you. Keep that account safe.",
+              "A partner sees the calendars you share with them. If you allow it, they can also change them.",
+              "What you add stays yours. You allow us to store and process it only to run FamCal for you."
+            ]
+          ]
         },
         "plans": {
-          "heading": "[Plans and payments: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Plans and payment",
+          "blocks": [
+            {
+              "title": "Trial"
+            },
+            "Every new account gets the Pro plan free for 14 days. The trial starts automatically the first time you use FamCal. When it ends, you’re on Free unless you pick a paid plan. Nothing is charged automatically.",
+            {
+              "title": "Plans"
+            },
+            [
+              {
+                "text": "**Free:**",
+                "items": [
+                  "10 text briefings and 3 voice briefings a month;",
+                  "up to 3 calendars;",
+                  "no reminders;",
+                  "no adding events by voice, photo, PDF or forwarded message;",
+                  "no Copy to Google."
+                ]
+              },
+              {
+                "text": "**Basic:**",
+                "items": [
+                  "unlimited text and voice briefings;",
+                  "up to 5 calendars;",
+                  "no reminders;",
+                  "no adding events by voice, photo, PDF or forwarded message;",
+                  "no Copy to Google."
+                ]
+              },
+              {
+                "text": "**Pro:**",
+                "items": [
+                  "unlimited briefings and calendars;",
+                  "reminders;",
+                  "adding events by voice, photo, PDF or forwarded message;",
+                  "Copy to Google."
+                ]
+              }
+            ],
+            {
+              "title": "Paying"
+            },
+            [
+              "You pay for Basic and Pro in the Telegram bot, with Telegram Stars. You can’t pay on WhatsApp yet.",
+              "Prices are in Stars. The invoice shows the plan and its price before you pay. What Stars cost in your own money is set by Telegram or your app store.",
+              "Paying for a plan means you accept these terms.",
+              "A paid plan lasts one month from the day you pay. It never renews by itself, so to keep it, you pay again. The bot reminds you before it ends, unless the reminder falls inside your Shabbat and Yom Tov pause.",
+              "If you pay again before your month ends, including to move from Basic to Pro, the new month starts on the day you pay. The days left on the old month aren’t added to it.",
+              "When a trial or a paid month ends, you move to Free. Nothing you added is deleted, but features your plan doesn’t include stop working."
+            ],
+            {
+              "title": "Cancelling and refunds",
+              "id": "cancel"
+            },
+            [
+              "You can cancel a payment within 14 days of making it. We refund all of it, in Stars, through Telegram.",
+              {
+                "text": "To cancel, tell us in any of these ways:",
+                "items": [
+                  "in the Telegram bot, send /paysupport followed by your message;",
+                  "email {email} (from 1 November 2026);",
+                  "write to the postal address above;",
+                  "call the phone number above."
+                ]
+              },
+              "Give your name and the date of the payment, so we can find it.",
+              "We refund within 14 days of your message. Your paid plan ends when the refund goes through.",
+              "Israeli law gives some people longer to cancel, in some cases up to four months: people aged 65 or older, people with a disability, and new immigrants.",
+              "Telegram’s own rules for Stars also apply."
+            ],
+            {
+              "title": "Changes to prices and plans"
+            },
+            [
+              "We may change prices and plans. A new price applies only to payments made after the change.",
+              "An unpaid invoice from before a price change stops working. Choose the plan again to get a new one.",
+              "We may give a plan or a feature to some people for free."
+            ]
+          ]
         },
         "ai": {
-          "heading": "[AI output can be wrong: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "AI and computed times can be wrong",
+          "blocks": [
+            "FamCal uses AI to:",
+            [
+              "understand voice notes, photos, PDFs and forwarded messages;",
+              "write your briefings and the voice show;",
+              "read them aloud. The voices in voice briefings, the voice show and spoken replies are made by AI."
+            ],
+            "AI makes mistakes. It can mishear a name, get a date or a time wrong, or leave something out. Check what the bot made of your message, and check anything important against its source.",
+            "Zmanim, candle lighting, Hebrew dates, holidays and the times of the Shabbat and Yom Tov pause are all computed from your place and your community’s set. They can be off, for example when your place is set wrong. **For a halachic time that matters, check a reliable source.**",
+            "Weather is a forecast."
+          ]
         },
-        "responsibility": {
-          "heading": "[Your responsibility: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+        "delivery": {
+          "heading": "Reminders and messages can fail",
+          "blocks": [
+            "A reminder or a briefing can arrive late, or not at all, for example when Telegram, WhatsApp or one of our providers has a problem.",
+            "With the Shabbat and Yom Tov pause on, scheduled messages that fall inside the pause are not sent, not even afterwards. If FamCal can’t work out the pause times, it sends as usual.",
+            "Don’t rely on FamCal alone for anything critical, such as medication or safety."
+          ]
         },
         "fairUse": {
-          "heading": "[Fair use, liability, law and contact: legal text pending review]",
-          "blocks": ["[legal text pending review]"]
+          "heading": "Fair use",
+          "blocks": [
+            "Don’t:",
+            [
+              "use FamCal for anything illegal, or to harass or harm anyone;",
+              "add details about someone that you have no right to share;",
+              "try to break into FamCal, get around its limits or payments, or reach other people’s data;",
+              "overload FamCal, spam it, or use it through bots or scripts;",
+              "copy, resell or rebrand FamCal."
+            ]
+          ]
+        },
+        "suspension": {
+          "heading": "Suspension and closing an account",
+          "blocks": [
+            "We may suspend an account, which means the bot stops answering it. We may also ban or delete an account. We do this when the account breaks these terms, puts FamCal or other people at risk, or when the law requires it. You can ask us why through the contact above.",
+            "If we suspend or close an account that didn’t break these terms during a paid month, we refund that month.",
+            "You can stop using FamCal any time: block the bot, and ask us to delete your account (see the [Privacy Policy](/privacy))."
+          ]
+        },
+        "changes": {
+          "heading": "Changes to FamCal and to these terms",
+          "blocks": [
+            "FamCal changes as we build it. Features may be added, changed or removed.",
+            [
+              "If a change takes away something your paid plan includes, you can ask us to refund the month you’re in.",
+              "If we stop FamCal, we’ll say so on famcal.bot at least 30 days before, and refund any paid month that hasn’t ended."
+            ],
+            "When we change these terms, we post the new version on this page with a new date. If you keep using FamCal after that, the new terms apply. If a change is to your disadvantage and you’re in a paid month, you can ask us to refund that month."
+          ]
+        },
+        "liability": {
+          "heading": "Liability",
+          "blocks": [
+            "FamCal is provided as it is. We don’t promise that it will always work or be free of errors. To the extent the law allows:",
+            [
+              "we’re not responsible for indirect losses, such as a missed appointment, a missed time or lost data;",
+              "our total responsibility for any claim is limited to what you paid us for FamCal in the 12 months before the claim."
+            ],
+            "These limits don’t apply to bodily harm, to harm we cause on purpose or through gross negligence, or to any right the law doesn’t allow to be limited, including your rights as a consumer.",
+            "Telegram, WhatsApp, Google and our other providers run their own services under their own terms, and we aren’t responsible for them."
+          ]
+        },
+        "law": {
+          "heading": "Law and courts",
+          "blocks": [
+            "Israeli law governs these terms. A dispute goes to the Israeli court that has jurisdiction under Israeli law.",
+            "If you live outside Israel and use FamCal as a consumer, you also keep the protection that the consumer law where you live gives you, including the right to go to court there."
+          ]
+        },
+        "contact": {
+          "heading": "Contact",
+          "blocks": [
+            [
+              "**Email:** {email}. This address works from 1 November 2026.",
+              "**In the bot,** which works today: on Telegram, send /feedback followed by your message. For payments, send /paysupport followed by your message. On WhatsApp, send “feedback” followed by your message.",
+              "**By post or phone:** see “Who runs FamCal” above."
+            ]
+          ]
         }
       }
     }
