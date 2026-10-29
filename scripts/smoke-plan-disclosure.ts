@@ -70,7 +70,7 @@ function inOrder(text: string, parts: string[], what: string) {
   }
 }
 /** The words that carry the law in each language. */
-const NEVER_RENEWS: Record<Locale, RegExp> = { en: /never renews/i, he: /לא מתחדש|בלי חידוש/, ru: /не продлевается|без автопродления/ };
+const NEVER_RENEWS: Record<Locale, RegExp> = { en: /never renews/i, he: /אף פעם לא מתחדש|בלי חידוש/, ru: /никогда не продлевается/ };
 const FULL_REFUND: Record<Locale, RegExp> = { en: /full refund/i, he: /החזר מלא/, ru: /полный возврат/ };
 const ONE_MONTH: Record<Locale, RegExp> = { en: /one month/i, he: /חודש אחד/, ru: /один месяц/ };
 

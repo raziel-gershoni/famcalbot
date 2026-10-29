@@ -877,7 +877,7 @@ async function fix6() {
 
 // ---- Fix 7 ----
 
-const NEVER_RENEWS: Record<Lang, RegExp> = { en: /never renews/i, he: /לא מתחדשת/, ru: /не продлевается/ };
+const NEVER_RENEWS: Record<Lang, RegExp> = { en: /never renews/i, he: /אף פעם לא מתחדשת/, ru: /никогда не продлевается/ };
 const ADULTS: Record<Lang, RegExp> = { en: /18 or older/, he: /מגיל 18/, ru: /с 18 лет/ };
 
 async function fix7() {
