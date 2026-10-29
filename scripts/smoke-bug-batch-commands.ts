@@ -925,6 +925,26 @@ async function fix7() {
     }
   });
 
+  await check('7: every /start deep link that can be someone\'s first message ends with the links too, with no link preview: feedback, connect (WhatsApp not linked yet) and a partner\'s invite (a bad token and one the pairing refuses)', async () => {
+    const cases: [string, string, Lang, number][] = [
+      ['feedback', '/start feedback', 'en', TG_EN],
+      ['connect', '/start connect', 'he', TG_HE],
+      ['invite, a bad token', '/start invite_abc', 'ru', TG_RU],
+      ['invite, refused', `/start invite_${'f'.repeat(32)}`, 'en', TG_STRANGER],
+    ];
+    for (const [what, text, lang, id] of cases) {
+      if (id === TG_STRANGER) DB.user = DB.user.filter(u => Number(u.telegramId) !== TG_STRANGER);
+      sent.length = 0;
+      await withLogs(() => telegramText(id, text));
+      const replies = sentTo('telegram').filter(s => s.chatId === id);
+      assert(replies.length > 0, `${what}: no reply`);
+      const last = replies[replies.length - 1];
+      const want = id === TG_STRANGER ? 'en' : lang;
+      assert(last.text.endsWith(`\n\n${disclosure.policyLinks(policyWords(want), want, 'html')}`), `${what}: the links are not at the end:\n${last.text}`);
+      assert(last.options?.format === MessageFormat.HTML && last.options?.disablePreview === true, `${what}: the options ${show(last.options)}`);
+    }
+  });
+
   await check('7: the WhatsApp welcome sends the links as plain URLs, with no HTML and no format to convert', async () => {
     await waText(WA_NEW, 'שלום', 'Newcomer');
     const [welcome] = sentTo('whatsapp');

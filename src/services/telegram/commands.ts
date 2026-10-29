@@ -129,12 +129,18 @@ export async function handleStartCommand(
     await setUserMenuButton(user.telegramId, locale);
   }
 
+  // Every reply below ends with the Privacy Policy and the Terms (the notice that comes with the first request for data),
+  // with no link preview (the preview would be the policy page's card): the plain welcome, and each deep link that can be
+  // someone's first message (feedback, connect, a partner's invite). gc_ is answered above: it never creates an account.
+  const links = policyLinks(t.policy, locale, 'html');
+
   // Handle deep link parameters (e.g., t.me/BotName?start=feedback)
   if (args === 'feedback') {
     const feedbackUrl = buildUrl(`/${locale}/feedback?user_id=${user.telegramId ?? user.id}`);
     const openFormMessage = t.feedback?.openForm || 'Click below to send feedback:';
-    await service.sendMessage(chatId, openFormMessage, {
+    await service.sendMessage(chatId, `${openFormMessage}\n\n${links}`, {
       format: MessageFormat.HTML,
+      disablePreview: true,
       replyMarkup: {
         inline_keyboard: [[
           { text: t.feedback?.openButton || 'Send Feedback', web_app: { url: feedbackUrl } }
@@ -148,22 +154,19 @@ export async function handleStartCommand(
   // accounts see too. Linked already (by phone or BSUID): the usual reply below, with the
   // dashboard button. The polling /start lands here as well.
   if (args === 'connect' && !user.whatsappPhone && !user.whatsappBsuid) {
-    await handleConnectCommand(Number(chatId), userIdNum, platform, true);
+    await handleConnectCommand(Number(chatId), userIdNum, platform, true, links);
     return;
   }
 
   // Pairing invite deep link: t.me/<bot>?start=invite_<packed token> (src/lib/invite-link.ts)
   if (args && args.startsWith('invite_')) {
     const { handlePairStart } = await import('./pair-handler');
-    await handlePairStart(chatId, user.id, args.slice('invite_'.length), locale, platform);
+    await handlePairStart(chatId, user.id, args.slice('invite_'.length), locale, platform, links);
     return;
   }
 
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
   const welcome = t.start.welcome.replace('{name}', name);
-  // Every welcome below ends with the Privacy Policy and the Terms (the notice that comes with the first request for data),
-  // with no link preview: the preview would be the policy page's card
-  const links = policyLinks(t.policy, locale, 'html');
 
   if (user.isAdmin) {
     const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId ?? user.id}`);
@@ -826,7 +829,9 @@ export async function handleConnectCommand(
   chatId: number,
   userId: number,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
-  fromDeepLink = false
+  fromDeepLink = false,
+  /** /start connect's policy links (a first message): each reply ends with them, with no link preview. */
+  footer?: string
 ): Promise<void> {
   if (platform !== MessagingPlatform.TELEGRAM) {
     return; // /connect only works from Telegram
@@ -838,12 +843,14 @@ export async function handleConnectCommand(
   const locale = user.language || 'en';
   const t = await getBotMessages(locale);
   const service = getMessagingService();
+  const withFooter = (msg: string) => (footer ? `${msg}\n\n${footer}` : msg);
+  const noPreview = footer ? { disablePreview: true } : {};
 
   // Check if already linked
   if (user.whatsappPhone) {
     const msg = (t.connect?.alreadyLinked || 'Your account is already linked to WhatsApp ({phone}).')
       .replace('{phone}', user.whatsappPhone);
-    await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+    await service.sendMessage(chatId, withFooter(msg), { format: MessageFormat.HTML, ...noPreview });
     return;
   }
 
@@ -855,8 +862,9 @@ export async function handleConnectCommand(
     // Deep link flow: button that opens WA with pre-filled "link CODE"
     const waLink = `https://wa.me/${waNumber}?text=${encodeURIComponent(`link ${code}`)}`;
     const msg = t.connect?.deepLinkMsg || 'Tap below to link your WhatsApp account:';
-    await service.sendMessage(chatId, msg, {
+    await service.sendMessage(chatId, withFooter(msg), {
       format: MessageFormat.HTML,
+      ...noPreview,
       replyMarkup: {
         inline_keyboard: [[
           { text: t.connect?.sendToWhatsApp || 'Send to WhatsApp', url: waLink }
@@ -867,7 +875,7 @@ export async function handleConnectCommand(
     // Manual flow: show code
     const msg = (t.connect?.code || 'Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.')
       .replace(/\{code\}/g, code);
-    await service.sendMessage(chatId, msg, { format: MessageFormat.HTML });
+    await service.sendMessage(chatId, withFooter(msg), { format: MessageFormat.HTML, ...noPreview });
   }
   trackCommandCompleted(user.id, 'connect', platform);
 }

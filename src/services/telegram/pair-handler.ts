@@ -144,9 +144,11 @@ export async function handlePairStart(
   acceptingUserId: number,
   payload: string,
   locale: string,
-  platform: MessagingPlatform
+  platform: MessagingPlatform,
+  /** /start's policy links: an invite link can be someone's first message, so its reply ends with them. */
+  footer?: string
 ): Promise<void> {
-  await handlePairAccept(chatId, acceptingUserId, inviteTokenFromStart(payload), locale, platform);
+  await handlePairAccept(chatId, acceptingUserId, inviteTokenFromStart(payload), locale, platform, footer);
 }
 
 /**
@@ -160,12 +162,16 @@ export async function handlePairAccept(
   acceptingUserId: number,
   token: string,
   locale: string,
-  platform: MessagingPlatform
+  platform: MessagingPlatform,
+  /** Appended to every reply (with no link preview): /start's policy links, for an invite that is a first message. */
+  footer?: string
 ): Promise<void> {
   const service = messagingFor(platform);
+  const reply = (text: string) =>
+    service.sendMessage(chatId, footer ? `${text}\n\n${footer}` : text, { format: MessageFormat.HTML, ...(footer ? { disablePreview: true } : {}) });
 
   if (!token || token.length < 8) {
-    await service.sendMessage(chatId, pairingErrorMessage('INVITE_NOT_FOUND', locale), { format: MessageFormat.HTML });
+    await reply(pairingErrorMessage('INVITE_NOT_FOUND', locale));
     return;
   }
 
@@ -180,17 +186,17 @@ export async function handlePairAccept(
 
     const successMessage = pairCopy(locale).accepted(escapeHtml(inviter?.name));
 
-    await service.sendMessage(chatId, successMessage, { format: MessageFormat.HTML });
+    await reply(successMessage);
 
     // Best-effort notification — does not block the success message above.
     notifyInviterOfAccept(result.inviterUserId, acceptor?.name ?? '').catch(() => {});
   } catch (err) {
     if (err instanceof PairingError) {
-      await service.sendMessage(chatId, pairingErrorMessage(err.code, locale), { format: MessageFormat.HTML });
+      await reply(pairingErrorMessage(err.code, locale));
       return;
     }
     captureError(err, 'pair-accept-handler', { acceptingUserId });
-    await service.sendMessage(chatId, pairingErrorMessage('UNKNOWN_ERROR', locale), { format: MessageFormat.HTML });
+    await reply(pairingErrorMessage('UNKNOWN_ERROR', locale));
   }
 }
 
