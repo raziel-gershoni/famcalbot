@@ -130,7 +130,7 @@ async function main() {
       const plural = {
         en: [['calendars', 1, 'Up to 1 calendar'], ['calendars', 2, 'Up to 2 calendars'], ['price', 1, '1 Star a month'], ['priceA11y', 1, '1 Telegram Star a month']],
         he: [['calendars', 1, 'עד יומן אחד'], ['calendars', 2, 'עד שני יומנים'], ['calendars', 5, 'עד 5 יומנים'], ['price', 1, 'כוכב אחד לחודש'], ['price', 2, 'שני כוכבים לחודש'], ['priceA11y', 2, 'שני כוכבים של טלגרם לחודש']],
-        ru: [['calendars', 1, 'До 1 календаря'], ['calendars', 3, 'До 3 календарей'], ['calendars', 21, 'До 21 календаря'], ['calendars', 22, 'До 22 календарей'], ['price', 21, '21 звезда в месяц']],
+        ru: [['calendars', 1, 'До 1 календаря'], ['calendars', 3, 'До 3 календарей'], ['calendars', 21, 'До 21 календаря'], ['calendars', 22, 'До 22 календарей'], ['price', 21, '21 звезда в\u00a0месяц']],
       }[locale] as [string, number, string][];
       for (const [key, n, want] of plural) {
         const got = key === 'calendars' ? tr('landing.plans.bullets.calendars', { count: n }) : tr(`landing.plans.${key}`, { price: n });

@@ -208,7 +208,10 @@ export function elementsOf(node: ReactNode, out: ReactElement[] = []): ReactElem
   return out;
 }
 
-/** The visible text of server markup: no tags, no style or script bodies, entities decoded, spaces collapsed. */
+/**
+ * The visible text of server markup: no tags, no style or script bodies, entities decoded, spaces collapsed. A no-break
+ * space stays (Russian binds its one-letter words with one), so the text matches the messages it came from.
+ */
 export const textOf = (html: string) =>
   html
     .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/g, ' ')
@@ -219,7 +222,7 @@ export const textOf = (html: string) =>
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
+    .replace(/[ \t\r\n\f\v]+/g, ' ')
     .trim();
 
 /**

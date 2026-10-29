@@ -16,6 +16,8 @@
 //    no landing or how-it-works key; the share page's friend-to-friend templates are the Russian guard's only
 //    exemptions, each with its reason.
 //  - T5 the i18n parity check passes (the same keys and ICU arguments in en, he and ru).
+//  - T6 Russian site strings bind a one-letter word (в, с, к, о, у, и, а, я) to the next with a no-break space, so none
+//    ends a line (the legal texts, owner-approved wording, aside).
 //
 // Nothing is faked: no DB, Redis or network.
 //
@@ -184,6 +186,17 @@ async function main() {
   await check('T5 the i18n parity check passes', () => {
     const out = execFileSync(process.execPath, [...process.execArgv, path.join(ROOT, 'scripts/check-i18n-parity.ts')], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     assert(/i18n parity OK/.test(out), out.slice(-400));
+  });
+
+  await check('T6 Russian typography: no one-letter word (в, с, к, о, у, и, а, я) ends a line, a no-break space binds it to the next in every Russian site string (site, landing, share, blog; the legal texts\' approved wording aside)', () => {
+    const found: string[] = [];
+    for (const ns of ['site', 'landing', 'share', 'blog']) {
+      for (const [key, text] of leaves(messages.ru[ns], ns)) {
+        const loose = text.match(/(?:^|[\s«(„"—])[вскоуиая] /giu);
+        if (loose) found.push(`${key}: ${show(loose.map((x) => x.trim()))}`);
+      }
+    }
+    assert(found.length === 0, show(found));
   });
 
   finish();
