@@ -1948,7 +1948,7 @@
               "**Railway:** our servers and server logs.",
               "**Sentry:** error reports.",
               "**Cloudflare:** our domain’s DNS, and forwarding the mail you send to {email} to our mailbox.",
-              "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”.",
+              "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”. Your browser asks it directly for that, so, like any site you visit, OpenStreetMap sees your IP address and browser.",
               "**Open-Meteo:** your place’s map position, to get the weather, air quality, the place’s height and its time zone.",
               "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. Like any site you visit, Telegram sees your IP address and browser."
             ],

@@ -29,6 +29,7 @@ import { act, createElement, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { buildSettingsBody, defaultsForCulture, toggleSummaryDay, type SettingsValues } from '../app/[locale]/(app)/settings/settings-body';
+import { checkFromHits } from '../src/lib/location-place';
 import { byRole, elements, fakeTelegram, fakeWindow, installWindow, mount, FakeElement, FakeText, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -94,6 +95,7 @@ const fetchCalls: FetchCall[] = [];
 const world = {
   /** What /api/settings answers: a status, or a function that decides (a hanging request is a promise that never settles until released). */
   settings: (): Response | Promise<Response> => new Response('{"success":true}', { status: 200 }),
+  /** What Nominatim's search answers our server's check of a typed place (app/api/location/check). */
   search: (): Response | Promise<Response> => json([{ place_rank: 16, addresstype: 'city' }]),
   reverse: (): Response | Promise<Response> => json({ address: { city: 'Haifa', country: 'Israel' } }),
 };
@@ -102,7 +104,14 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const url = String(input);
   fetchCalls.push({ url, init });
   if (url.startsWith('/api/settings')) return world.settings();
-  if (url.includes('nominatim.openstreetmap.org/search')) return world.search();
+  if (url.startsWith('/api/location/check')) {
+    // Our server's check: it asks Nominatim's search (world.search) and reads the hits as the route does (location-place.ts)
+    const nominatim = await world.search();
+    if (!nominatim.ok) return json({ check: { kind: 'failed' } });
+    const { place } = JSON.parse(String(init.body)) as { place: string };
+    return json({ check: checkFromHits(await nominatim.json(), place) });
+  }
+  // The browser asks OpenStreetMap only for "use my location" (the reverse lookup); never the search
   if (url.includes('nominatim.openstreetmap.org/reverse')) return world.reverse();
   throw new Error(`an unexpected request: ${url}`);
 }) as typeof fetch;
@@ -612,7 +621,7 @@ async function main() {
       close(o);
     }
     // A check that could not be made is retried by closing the sheet again, and Save waits for it
-    const searches = () => fetchCalls.filter((c) => c.url.includes('nominatim.openstreetmap.org/search')).length;
+    const searches = () => fetchCalls.filter((c) => c.url.startsWith('/api/location/check')).length;
     const openLocation = (r: ReturnType<typeof open>) => r.m.click(rowOf(r.m, word('en', 'location.label')) as FakeElement);
     const sheetAlerts = (r: ReturnType<typeof open>) => (dialogs(r.m)[0] ? byRole(dialogs(r.m)[0], 'alert').map(flat) : []);
     const invalid = (r: ReturnType<typeof open>) => elements(r.m.container).find((e) => e.localName === 'input')?.getAttribute('aria-invalid');

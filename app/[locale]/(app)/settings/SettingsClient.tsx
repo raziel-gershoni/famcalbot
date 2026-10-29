@@ -179,7 +179,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
     const check = ++lastCheck.current;
     setLocationProblem(null);
     setLocationChecking(true);
-    const result = await validateLocation(place);
+    const result = await validateLocation(place, userId);
     if (check !== lastCheck.current) return;
     setLocationChecking(false);
     if (result.kind === 'valid') {
