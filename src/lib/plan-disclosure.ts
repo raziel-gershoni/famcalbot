@@ -7,7 +7,8 @@
 //  - the ways to cancel within 14 days and the seller's lines, from SELLER (src/lib/seller.ts). A detail the owner has not
 //    given yet (null) leaves its line out; scripts/smoke-seller.ts keeps a release from shipping without it;
 //  - the invoice's description (Telegram takes 1-255 characters) and the confirmation's text.
-// The words are the caller's: bot.policy, subscription.invoiceDescription and subscription.paymentSuccess. Every value put
+// The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription and
+// subscription.paymentSuccess. Every value put
 // into Telegram's HTML is escaped here. Pure and client-safe: the plan screen reads policyUrl.
 
 import { pageUrl } from '../site/seo';
@@ -81,6 +82,11 @@ export function sellerBlock(words: PolicyWords, locale: string | null | undefine
   ]
     .filter((line): line is string => line !== null)
     .join('\n');
+}
+
+/** A Telegram reply (bot.support.terms, bot.support.payPrompt) with its {cancel} (cancelBlock) and {links} (policyLinks) filled in. */
+export function withPolicy(template: string, words: PolicyWords, locale: string | null | undefined): string {
+  return fill(template, { cancel: cancelBlock(words), links: policyLinks(words, locale, 'html') });
 }
 
 /** The most Telegram takes in an invoice's description. */

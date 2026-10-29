@@ -1405,9 +1405,9 @@
       "tooLong": "❌ Feedback must be less than 1000 characters."
     },
     "support": {
-      "terms": "<b>Terms of use</b>\n\nFamCal is a family calendar assistant on Telegram and WhatsApp. Every new account gets 14 days of Pro. After that you can stay on the Free plan, or choose Basic or Pro, paid monthly with Telegram Stars and never renewed on its own. A payment can be refunded on request within 14 days through /paysupport.\n\nThe AI can make mistakes, so check anything important, and check a halachic time that matters with a reliable source. You are responsible for what you add about your family.",
+      "terms": "<b>Terms of use</b>\n\nFamCal is a family calendar assistant on Telegram and WhatsApp, for people aged 18 or older. Every new account gets 14 days of Pro. After that you can stay on the Free plan, or choose Basic or Pro and pay with Telegram Stars. A paid plan lasts one month from the day you pay, and never renews by itself.\n\n{cancel}\n\nThe AI can make mistakes, so check anything important, and check a halachic time that matters with a reliable source. You are responsible for what you add about your family.\n\n{links}",
       "help": "<b>Help</b>\n\nTo tell us something or ask a question, send /feedback followed by your message. For a payment question or a refund, send /paysupport followed by your message. We answer here in the chat.",
-      "payPrompt": "<b>Payments and refunds</b>\n\nA payment made in the bot can be refunded on request within 14 days. Send /paysupport followed by your question, for example:\n/paysupport I was charged twice for Pro\n\nWe answer here in the chat.",
+      "payPrompt": "<b>Payments and refunds</b>\n\nA paid plan lasts one month from the day you pay, and never renews by itself.\n\n{cancel}\n\nFor example, in the bot:\n/paysupport I was charged twice for Pro\n\nWe answer here in the chat.",
       "paySent": "Thank you, your message reached us. We'll answer here in the chat."
     },
     "policy": {
