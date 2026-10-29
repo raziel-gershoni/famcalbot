@@ -8,8 +8,8 @@
 //    given yet (null) leaves its line out; scripts/smoke-seller.ts keeps a release from shipping without it;
 //  - the invoice's description (Telegram takes 1-255 characters) and the confirmation's text.
 // The words are the caller's: bot.policy, bot.support.terms and .payPrompt, subscription.invoiceDescription and
-// subscription.paymentSuccess. Every value put
-// into Telegram's HTML is escaped here. Pure and client-safe: the plan screen reads policyUrl and sellerName.
+// subscription.paymentSuccess. Every value put into Telegram's HTML is escaped here. Pure and client-safe: the plan
+// screen reads policyUrl and sellerName.
 
 import { pageUrl } from '../site/seo';
 import { escapeHtml } from '../utils/html';
