@@ -2,8 +2,8 @@ import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import SiteHeader from '@/components/Layout/SiteHeader';
-import SiteFooter from '@/components/Layout/Footer';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
 import { getAllPosts } from '@/src/lib/blog';
 
 type Props = {
@@ -23,18 +23,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BlogIndexPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'blog' });
-  const tLanding = await getTranslations({ locale, namespace: 'landing' });
-  const tNav = await getTranslations({ locale, namespace: 'nav' });
   const posts = getAllPosts(locale);
 
-  const navLinks = [
-    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
-    { href: `/${locale}/blog`, label: tNav('blog') },
-  ];
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
+      <SiteHeader locale={locale} path="/blog" />
 
       <main className="mx-auto max-w-4xl px-6 py-16">
         <h1 className="mb-12 text-center text-4xl font-bold text-text-primary">
@@ -92,15 +86,7 @@ export default async function BlogIndexPage({ params }: Props) {
         )}
       </main>
 
-      <SiteFooter
-        locale={locale}
-        tagline={tLanding('footer.tagline')}
-        privacy={tLanding('footer.privacy')}
-        terms={tLanding('footer.terms')}
-        contact={tLanding('footer.contact')}
-        madeIn={tLanding('footer.madeIn')}
-        copyright={tLanding('footer.copyright')}
-      />
+      <SiteFooter locale={locale} path="/blog" />
     </>
   );
 }

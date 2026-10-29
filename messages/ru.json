@@ -1663,7 +1663,8 @@
     "nav": {
       "howItWorks": "Как это работает",
       "plans": "Тарифы",
-      "blog": "Блог"
+      "blog": "Блог",
+      "label": "Главное меню"
     },
     "header": {
       "homeLabel": "FamCal, на главную",
@@ -1935,9 +1936,6 @@
       "calendarFrame": "Календарь FamCal",
       "pingCaption": "Напоминание для вас обоих в Telegram"
     },
-    "header": {
-      "startFree": "Начать бесплатно"
-    },
     "painPoints": {
       "title": "Знакомо?",
       "item1": "Слушай, во сколько Майя сегодня заканчивает?",
@@ -1993,17 +1991,6 @@
       "quote": "Я сделал FamCal, потому что у нас с женой пятеро детей, и мы тонули в календарях. Каждое утро начиналось с «слушай, у кого что сегодня?» Теперь просто слушаем 30-секундную сводку за кофе.",
       "author": "Разиэль, создатель FamCal",
       "readMore": "Читать полностью →"
-    },
-    "footer": {
-      "tagline": "Семейный AI-календарь в Telegram и WhatsApp",
-      "privacy": "Конфиденциальность",
-      "terms": "Условия",
-      "contact": "Контакты",
-      "madeIn": "Сделано с ❤️ в Израиле",
-      "copyright": "© 2025-2026 FamCal",
-      "share": "Поделиться",
-      "startTelegram": "Начать в Telegram",
-      "startWhatsapp": "Начать в WhatsApp"
     }
   },
   "blog": {
@@ -2036,10 +2023,6 @@
     "qrWhatsapp": "WhatsApp",
     "qrWebsite": "Сайт",
     "copy": "Копировать"
-  },
-  "nav": {
-    "howItWorks": "Как это работает",
-    "blog": "Блог"
   },
   "howItWorksPage": {
     "meta": {

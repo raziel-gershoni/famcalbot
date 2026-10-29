@@ -3,8 +3,8 @@ import { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { MDXRemote } from 'next-mdx-remote/rsc';
-import SiteHeader from '@/components/Layout/SiteHeader';
-import SiteFooter from '@/components/Layout/Footer';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
 import { getPostBySlug, getAllSlugs } from '@/src/lib/blog';
 
 type Props = {
@@ -50,17 +50,11 @@ export default async function BlogPostPage({ params }: Props) {
   if (!post) notFound();
 
   const t = await getTranslations({ locale, namespace: 'blog' });
-  const tLanding = await getTranslations({ locale, namespace: 'landing' });
-  const tNav = await getTranslations({ locale, namespace: 'nav' });
 
-  const navLinks = [
-    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
-    { href: `/${locale}/blog`, label: tNav('blog') },
-  ];
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} />
+      <SiteHeader locale={locale} path={`/blog/${slug}`} />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         {/* Back link */}
@@ -101,15 +95,7 @@ export default async function BlogPostPage({ params }: Props) {
         </div>
       </main>
 
-      <SiteFooter
-        locale={locale}
-        tagline={tLanding('footer.tagline')}
-        privacy={tLanding('footer.privacy')}
-        terms={tLanding('footer.terms')}
-        contact={tLanding('footer.contact')}
-        madeIn={tLanding('footer.madeIn')}
-        copyright={tLanding('footer.copyright')}
-      />
+      <SiteFooter locale={locale} path={`/blog/${slug}`} />
     </>
   );
 }

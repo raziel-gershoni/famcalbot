@@ -43,7 +43,6 @@ const EXEMPT_KEYS: Record<string, string> = {
   'share.msgShort': 'a text the person sends a friend, not an address to the person',
   'share.msgMedium': 'a text the person sends a friend, not an address to the person',
   'share.msgParent': 'a text the person sends a friend, not an address to the person',
-  'landing.footer.contact': 'the old site footer shows it until the public website build replaces the footer (plan 2026-10-29, Task 3)',
   'howItWorksPage.step2.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
   'howItWorksPage.daily.voice.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
 };

@@ -2,8 +2,8 @@ import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import SiteHeader from '@/components/Layout/SiteHeader';
-import SiteFooter from '@/components/Layout/Footer';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -57,16 +57,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function LandingPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'landing' });
-  const tNav = await getTranslations({ locale, namespace: 'nav' });
 
   const tBot = await getTranslations({ locale, namespace: 'bot' });
   const waGreeting = tBot('whatsapp.greeting');
   const waUrl = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(waGreeting)}`;
 
-  const navLinks = [
-    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
-    { href: `/${locale}/blog`, label: tNav('blog') },
-  ];
 
   const features = [
     { key: 'voiceSummaries', icon: '🎧' },
@@ -127,7 +122,7 @@ export default async function LandingPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLdOrg) }}
       />
 
-      <SiteHeader locale={locale} ctaText={t('header.startFree')} navLinks={navLinks} waUrl={waUrl} />
+      <SiteHeader locale={locale} path="/" />
 
       {/* ─── HERO ─── */}
       <section
@@ -358,19 +353,7 @@ export default async function LandingPage({ params }: Props) {
         </div>
       </section>
 
-      <SiteFooter
-        locale={locale}
-        tagline={t('footer.tagline')}
-        privacy={t('footer.privacy')}
-        terms={t('footer.terms')}
-        contact={t('footer.contact')}
-        share={t('footer.share')}
-        madeIn={t('footer.madeIn')}
-        copyright={t('footer.copyright')}
-        startTelegram={t('footer.startTelegram')}
-        startWhatsapp={t('footer.startWhatsapp')}
-        waUrl={waUrl}
-      />
+      <SiteFooter locale={locale} path="/" />
     </>
   );
 }

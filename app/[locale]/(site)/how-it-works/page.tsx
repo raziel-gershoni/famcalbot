@@ -1,7 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
-import SiteHeader from '@/components/Layout/SiteHeader';
-import SiteFooter from '@/components/Layout/Footer';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
 
 type Props = {
   params: Promise<{ locale: string }>;
@@ -23,17 +23,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function HowItWorksPage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'howItWorksPage' });
-  const tNav = await getTranslations({ locale, namespace: 'nav' });
-  const tLanding = await getTranslations({ locale, namespace: 'landing' });
 
   const tBot = await getTranslations({ locale, namespace: 'bot' });
   const waGreeting = tBot('whatsapp.greeting');
   const waUrl = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(waGreeting)}`;
 
-  const navLinks = [
-    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
-    { href: `/${locale}/blog`, label: tNav('blog') },
-  ];
 
   const steps = [
     { num: 1, title: t('step1.title'), description: t('step1.description') },
@@ -47,7 +41,7 @@ export default async function HowItWorksPage({ params }: Props) {
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} waUrl={waUrl} />
+      <SiteHeader locale={locale} path="/how-it-works" />
 
       {/* ─── HERO ─── */}
       <section className="bg-bg-light px-6 py-20 text-center">
@@ -162,19 +156,7 @@ export default async function HowItWorksPage({ params }: Props) {
         </div>
       </section>
 
-      <SiteFooter
-        locale={locale}
-        tagline={tLanding('footer.tagline')}
-        privacy={tLanding('footer.privacy')}
-        terms={tLanding('footer.terms')}
-        contact={tLanding('footer.contact')}
-        share={tLanding('footer.share')}
-        madeIn={tLanding('footer.madeIn')}
-        copyright={tLanding('footer.copyright')}
-        startTelegram={tLanding('footer.startTelegram')}
-        startWhatsapp={tLanding('footer.startWhatsapp')}
-        waUrl={waUrl}
-      />
+      <SiteFooter locale={locale} path="/how-it-works" />
     </>
   );
 }

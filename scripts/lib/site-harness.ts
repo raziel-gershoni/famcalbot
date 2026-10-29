@@ -38,13 +38,20 @@ export async function check(name: string, fn: () => void | Promise<void>) {
     await fn();
     results.push({ name, ok: true });
   } catch (err) {
-    results.push({ name, ok: false, reason: err instanceof Error ? err.message : String(err) });
+    const inner = (err as { errors?: unknown[] } | null)?.errors?.[0];
+    const shown = inner instanceof Error ? inner : err;
+    const reason = shown instanceof Error ? shown.message || String(shown.stack ?? shown).split('\n').slice(0, 6).join(' | ') : String(shown);
+    results.push({ name, ok: false, reason });
   }
 }
 export function assert(cond: unknown, message: string): asserts cond {
   if (!cond) throw new Error(message);
 }
 export const show = (value: unknown) => JSON.stringify(value);
+/** An emoji, but not the text symbols © ® ™ (Unicode counts them as pictographs). */
+export const EMOJI = /(?![\u00a9\u00ae\u2122])\p{Extended_Pictographic}/u;
+/** HTML entities React writes in attributes and text, decoded. */
+export const decodeEntities = (s: string) => s.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 /** Prints the results and exits 1 on any failure. */
 export function finish(): never {
   let failed = 0;
@@ -54,6 +61,18 @@ export function finish(): never {
   }
   console.log(`\n${results.length - failed}/${results.length} passed`);
   process.exit(failed ? 1 : 0);
+}
+
+// ---- React's warnings ----
+
+// The smokes render with react-dom/static and mount with react-dom/client in one process, so React (in development) sees
+// two renderers on next-intl's context and says so: that is the harness, not the page. Any other warning is printed.
+for (const level of ['error', 'warn'] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    if (String(args[0]).startsWith('Detected multiple renderers concurrently rendering the same context provider')) return;
+    original(...args);
+  };
 }
 
 // ---- Boundaries ----

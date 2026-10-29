@@ -1,7 +1,7 @@
 import { getTranslations } from 'next-intl/server';
 import { Metadata } from 'next';
-import SiteHeader from '@/components/Layout/SiteHeader';
-import SiteFooter from '@/components/Layout/Footer';
+import { SiteHeader } from '@/components/site/SiteHeader';
+import { SiteFooter } from '@/components/site/SiteFooter';
 import { CopyButton, QRSection } from './ShareClient';
 
 type Props = {
@@ -26,16 +26,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function SharePage({ params }: Props) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: 'share' });
-  const tLanding = await getTranslations({ locale, namespace: 'landing' });
-  const tNav = await getTranslations({ locale, namespace: 'nav' });
   const tBot = await getTranslations({ locale, namespace: 'bot' });
 
   const waUrl = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(tBot('whatsapp.greeting'))}`;
 
-  const navLinks = [
-    { href: `/${locale}/how-it-works`, label: tNav('howItWorks') },
-    { href: `/${locale}/blog`, label: tNav('blog') },
-  ];
 
   const messages = [
     { label: t('shortLabel'), text: t('msgShort') },
@@ -45,7 +39,7 @@ export default async function SharePage({ params }: Props) {
 
   return (
     <>
-      <SiteHeader locale={locale} ctaText={tLanding('header.startFree')} navLinks={navLinks} waUrl={waUrl} />
+      <SiteHeader locale={locale} path="/share" />
 
       <main className="mx-auto max-w-3xl px-6 py-16">
         <div className="mb-14 text-center">
@@ -119,18 +113,7 @@ export default async function SharePage({ params }: Props) {
         </section>
       </main>
 
-      <SiteFooter
-        locale={locale}
-        tagline={tLanding('footer.tagline')}
-        privacy={tLanding('footer.privacy')}
-        terms={tLanding('footer.terms')}
-        contact={tLanding('footer.contact')}
-        madeIn={tLanding('footer.madeIn')}
-        copyright={tLanding('footer.copyright')}
-        startTelegram={tLanding('footer.startTelegram')}
-        startWhatsapp={tLanding('footer.startWhatsapp')}
-        waUrl={waUrl}
-      />
+      <SiteFooter locale={locale} path="/share" />
     </>
   );
 }
