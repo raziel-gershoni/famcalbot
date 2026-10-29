@@ -194,6 +194,9 @@ async function main() {
     const row = /min-block-size:\s*(\d+)px/.exec(rule('.site-header-row') ?? '');
     assert(/position:\s*sticky/.test(rule('.site-header') ?? '') && row && pad && Number(pad[1]) >= Number(row[1]) + 1 + 8, `the scroll padding ${pad?.[1]} px under a ${row?.[1]} px sticky header`);
     assert(!/scroll-margin/.test(own), 'a scroll margin on top of the scroll padding');
+    // Nothing is clipped to hide an overflow (it would cut text off, and hide it from a 320 px check)
+    assert(!/overflow-x:\s*(?:clip|hidden)/.test(own) && !/overflow:\s*clip/.test(rule('.site') ?? ''), 'the site clips its overflow');
+    assert(/overflow-wrap:\s*break-word/.test(rule('.site-page-title') ?? ''), 'a page title\'s long word can overflow');
   });
 
   finish();

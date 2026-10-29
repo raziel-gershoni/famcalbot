@@ -9,7 +9,7 @@
 // - The two start buttons are the brands' colours in shades that keep 4.5:1 under their white label (#0088cc and
 //   #25D366 do not): --site-telegram and --site-whatsapp.
 // - Logical properties only, so Hebrew needs no overrides; nothing under 13 px; every tap target at least 44 px; no
-//   hover styles (nothing depends on a pointer); no horizontal overflow at 320 px.
+//   hover styles (nothing depends on a pointer); no horizontal overflow at 320 px, with nothing clipped to hide one.
 // - One motion on the whole site, the hero's (its own rules); prefers-reduced-motion stops it.
 // - The kit's BottomSheet slides in, a second motion: on the site it just appears.
 
@@ -113,7 +113,6 @@ body {
 }
 .site {
   min-height: 100vh;
-  overflow-x: clip;
   background: var(--ch-bg);
   font-size: 17px;
   -webkit-text-size-adjust: 100%;
@@ -1089,6 +1088,9 @@ const PAGES_CSS = `
 }
 .site-page-title {
   font-size: 36px;
+  /* A word longer than a phone's line (Russian's "конфиденциальности" at 320 px) breaks, hyphenated where the browser can */
+  overflow-wrap: break-word;
+  hyphens: auto;
 }
 @media (min-width: 720px) {
   .site-page-main {
