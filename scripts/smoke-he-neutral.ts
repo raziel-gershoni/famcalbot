@@ -43,8 +43,6 @@ const EXEMPT_KEYS: Record<string, string> = {
   'share.msgShort': 'a text the person sends a friend, not an address to the person',
   'share.msgMedium': 'a text the person sends a friend, not an address to the person',
   'share.msgParent': 'a text the person sends a friend, not an address to the person',
-  'howItWorksPage.step2.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
-  'howItWorksPage.daily.voice.description': 'the old how-it-works page shows it until the public website build deletes the page (plan 2026-10-29, Task 5)',
 };
 
 /** Source files whose Hebrew is not copy for the person, with the reason. */

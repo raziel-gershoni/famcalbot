@@ -28,6 +28,17 @@ const nextConfig = {
   },
 
   poweredByHeader: false,
+
+  // The old How it works page is now the landing's section (public website spec 2026-10-28 §3.3): a permanent redirect
+  // in the visitor's language, in one hop (English unprefixed). Before the proxy, so no locale redirect comes first.
+  // The locales are i18n/routing.ts's; scripts/smoke-site-pages.ts keeps this list equal to them.
+  async redirects() {
+    return [
+      { source: '/how-it-works', destination: '/#how', permanent: true },
+      { source: '/en/how-it-works', destination: '/#how', permanent: true },
+      { source: '/:locale(he|ru)/how-it-works', destination: '/:locale#how', permanent: true },
+    ];
+  },
 };
 
 const sentryWebpackPluginOptions = {
