@@ -1,99 +1,85 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
+import { Check, Copy, Download } from 'lucide-react';
+import { APP_TOKENS } from '@/components/app-ui/tokens';
 
-export function CopyButton({ text, copiedLabel }: { text: string; copiedLabel: string }) {
+// The share page's two client parts (spec 2026-10-28-public-website §3.3): a Copy button, and the QR codes with their
+// downloads. The words come in already translated. A QR code is dark on light in both themes (a scanner needs it):
+// the app's light text and page colours.
+
+/** How long the button says Copied. */
+const COPIED_MS = 2000;
+
+export function CopyButton({ text, copyLabel, copiedLabel }: { text: string; copyLabel: string; copiedLabel: string }) {
   const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(async () => {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = async () => {
     try {
+      if (!navigator.clipboard) throw new Error('navigator.clipboard is not available');
       await navigator.clipboard.writeText(text);
-    } catch {
-      // Fallback for older browsers
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
+    } catch (error) {
+      // Nothing was copied: the text stays on the page to select by hand, and the button never says Copied
+      console.warn('[share] clipboard unavailable:', error);
+      return;
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [text]);
-
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), COPIED_MS);
+  };
   return (
-    <button
-      onClick={handleCopy}
-      className="shrink-0 rounded-lg bg-brand-primary px-4 py-2 text-sm font-medium text-white transition-all hover:bg-brand-primary-dark active:scale-95"
-    >
-      {copied ? copiedLabel : 'Copy'}
+    <button type="button" className="site-copy" onClick={copy}>
+      {copied ? <Check aria-hidden="true" focusable="false" /> : <Copy aria-hidden="true" focusable="false" />}
+      <span aria-live="polite">{copied ? copiedLabel : copyLabel}</span>
     </button>
   );
 }
 
-export function QRSection({
-  botUrl,
-  waUrl,
-  siteUrl,
-  downloadLabel,
-  labelTelegram,
-  labelWhatsapp,
-  labelWebsite,
-}: {
-  botUrl: string;
-  waUrl: string;
-  siteUrl: string;
-  downloadLabel: string;
-  labelTelegram: string;
-  labelWhatsapp: string;
-  labelWebsite: string;
-}) {
-  const telegramRef = useRef<HTMLDivElement>(null);
-  const whatsappRef = useRef<HTMLDivElement>(null);
-  const websiteRef = useRef<HTMLDivElement>(null);
+export interface QrCode {
+  label: string;
+  value: string;
+  filename: string;
+}
 
-  const handleDownload = useCallback((ref: React.RefObject<HTMLDivElement | null>, filename: string) => {
-    const canvas = ref.current?.querySelector('canvas');
-    if (!canvas) return;
-    const url = canvas.toDataURL('image/png');
+export function QrCodes({ codes, downloadLabel }: { codes: QrCode[]; downloadLabel: string }) {
+  const boxes = useRef<(HTMLDivElement | null)[]>([]);
+  const download = (i: number, filename: string) => {
+    const canvas = boxes.current[i]?.querySelector('canvas');
+    if (!canvas) {
+      console.warn('[share] no QR canvas to download for', filename);
+      return;
+    }
     const link = document.createElement('a');
     link.download = filename;
-    link.href = url;
+    link.href = canvas.toDataURL('image/png');
     link.click();
-  }, []);
-
-  const qrCodes = [
-    { label: labelTelegram, value: botUrl, ref: telegramRef, filename: 'famcal-qr-telegram.png' },
-    { label: labelWhatsapp, value: waUrl, ref: whatsappRef, filename: 'famcal-qr-whatsapp.png' },
-    { label: labelWebsite, value: siteUrl, ref: websiteRef, filename: 'famcal-qr-website.png' },
-  ];
-
+  };
   return (
-    <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
-      {qrCodes.map(({ label, value, ref, filename }) => (
-        <div key={label} className="flex flex-col items-center gap-4">
-          <span className="text-sm font-semibold text-text-primary">{label}</span>
-          <div ref={ref} className="rounded-2xl bg-white p-4 shadow-lg">
-            <QRCodeCanvas
-              value={value}
-              size={160}
-              bgColor="#ffffff"
-              fgColor="#1a1a2e"
-              level="H"
-              marginSize={1}
-            />
-          </div>
-          <button
-            onClick={() => handleDownload(ref, filename)}
-            className="rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-brand-primary-dark active:scale-95"
+    <ul className="site-qrs">
+      {codes.map((code, i) => (
+        <li key={code.filename} className="site-qr">
+          <h3 className="site-qr-label">{code.label}</h3>
+          <div
+            className="site-qr-code"
+            ref={(el) => {
+              boxes.current[i] = el;
+            }}
           >
-            {downloadLabel}
+            <QRCodeCanvas value={code.value} size={160} bgColor={APP_TOKENS.light.bg} fgColor={APP_TOKENS.light.text} level="H" marginSize={1} />
+          </div>
+          <button type="button" className="site-copy" onClick={() => download(i, code.filename)}>
+            <Download aria-hidden="true" focusable="false" />
+            <span>{downloadLabel}</span>
           </button>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }

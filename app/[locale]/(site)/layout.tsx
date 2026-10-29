@@ -6,13 +6,12 @@ import { routing } from '@/i18n/routing';
 import { SITE_URL } from '@/src/site/config';
 import { SITE_CLIENT_NAMESPACES, pickMessages } from '@/src/site/messages';
 import { SITE_CSS_HREF } from '@/src/site/site-css';
-// The public pages that still use Tailwind classes, until each is rebuilt on the site's own style sheet.
-import '../../globals.css';
 
 // The public site's root layout (spec 2026-10-28-public-website §6.1): the landing, the blog, Privacy, Terms and the
 // share page. The Mini App has its own root layout (../(app)/layout.tsx); moving between the two is a full page load.
 //
-// - Zoom is allowed (a document, read by anyone): the viewport sets no maximum and no userScalable.
+// - Zoom is allowed (a document, read by anyone): the viewport sets no maximum and no userScalable. Light and dark
+//   follow the device (color-scheme: light dark, and the style sheet's prefers-color-scheme); no script decides it.
 // - No Telegram SDK: nothing here runs inside Telegram, and a visitor's browser has no use for it.
 // - No web font: the app's system font stack, so there is no third party to load and none to name in the privacy policy.
 // - Only the namespaces the site's client components read reach the client (SITE_CLIENT_NAMESPACES); the pages
@@ -23,6 +22,7 @@ import '../../globals.css';
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  colorScheme: 'light dark',
 };
 
 const OG_LOCALE: Record<string, string> = { en: 'en_US', he: 'he_IL', ru: 'ru_RU' };

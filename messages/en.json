@@ -1722,6 +1722,9 @@
       "description": "A family calendar assistant in Telegram and WhatsApp. Add events by voice note, get morning and evening summaries with a two-host voice show, and keep Hebrew dates, Jewish holidays, zmanim and a Shabbat and Yom Tov pause in one place. Reminders work on Telegram.",
       "offer": "Free plan. Basic and Pro are monthly, paid with Telegram Stars.",
       "features": ["Family calendar with several coloured calendars", "Adding events by voice note", "Adding events from photos and PDFs on Telegram", "Morning and evening summaries", "Voice summary as a two-host radio show", "Reminders with Done and Snooze on Telegram", "Reminders by zman on Telegram", "Hebrew dates, Jewish holidays and Israel’s national days", "Shabbat and Yom Tov pause", "Partner calendar sharing", "Optional Google Calendar connection", "Hebrew, English and Russian"]
+    },
+    "notFound": {
+      "home": "Back to the home page"
     }
   },
   "legal": {

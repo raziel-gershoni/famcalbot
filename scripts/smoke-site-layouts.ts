@@ -6,7 +6,7 @@
 //    (site), every Mini App page with PageGate, the 404 and the catch-all in (app); nothing else sits at the top.
 //  - L2 the Mini App's layout as it was: the Telegram SDK before the app (beforeInteractive), no zoom, the 16 px input
 //    rule and touch-action: manipulation, the whole message catalogue, and noindex for every page under it.
-//  - L3 the site's layout: no Telegram SDK, zoom allowed, no web font, only the site's client namespaces reach the
+//  - L3 the site's layout: no Telegram SDK, zoom allowed, light and dark from the device (color-scheme), no Tailwind sheet, no web font, only the site's client namespaces reach the
 //    client, the page's language and direction on <html>, it renders statically (setRequestLocale), and it links the
 //    site's one style sheet (/site.css, versioned by its content, cached for good).
 //  - L4 the site's metadata comes from messages, per language: the title, its template, the description, the keywords
@@ -92,6 +92,8 @@ async function main() {
     assert(!/telegram-web-app|next\/script/.test(src), 'the site layout loads the Telegram SDK');
     assert(!/fonts\.(googleapis|gstatic)\.com|next\/font/.test(src), 'the site layout loads a web font');
     assert(!('maximumScale' in siteViewport) && !('userScalable' in siteViewport), `viewport ${show(siteViewport)}`);
+    assert(siteViewport.colorScheme === 'light dark', `color-scheme ${siteViewport.colorScheme}`);
+    assert(!/globals\.css|tailwind/i.test(src), 'the site layout loads the app\'s Tailwind sheet');
     assert(show(generateStaticParams()) === show(LOCALES.map((locale) => ({ locale }))), `static params ${show(generateStaticParams())}`);
     for (const locale of LOCALES) {
       request.locale = 'en';

@@ -1,119 +1,86 @@
-import { getTranslations } from 'next-intl/server';
-import { Metadata } from 'next';
-import { SiteHeader } from '@/components/site/SiteHeader';
-import { SiteFooter } from '@/components/site/SiteFooter';
-import { CopyButton, QRSection } from './ShareClient';
+import type { Metadata } from 'next';
+import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { SitePage } from '@/components/site/SitePage';
+import { SITE_URL, TELEGRAM_BOT_URL, whatsappStartUrl } from '@/src/site/config';
+import { CopyButton, QrCodes } from './ShareClient';
 
-type Props = {
-  params: Promise<{ locale: string }>;
-};
+// The share page (spec 2026-10-28-public-website §3.3): ready-made messages a parent sends a friend or a group, QR
+// codes, and the three links, in the site's chrome. Reached by its own link only, and kept out of search (noindex).
 
-const BOT_URL = 'https://t.me/family_calendar_telegram_bot';
-const SITE_URL = 'https://famcal.bot';
-const WA_PHONE = '972548524687';
+type Props = { params: Promise<{ locale: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: 'share' });
-
-  return {
-    title: t('pageTitle'),
-    description: t('pageSubtitle'),
-    robots: { index: false, follow: false },
-  };
+  const t = await getTranslations({ locale });
+  return { title: t('site.meta.share.title'), description: t('site.meta.share.description'), robots: { index: false, follow: false } };
 }
 
 export default async function SharePage({ params }: Props) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: 'share' });
-  const tBot = await getTranslations({ locale, namespace: 'bot' });
-
-  const waUrl = `https://wa.me/${WA_PHONE}?text=${encodeURIComponent(tBot('whatsapp.greeting'))}`;
-
-
-  const messages = [
-    { label: t('shortLabel'), text: t('msgShort') },
-    { label: t('mediumLabel'), text: t('msgMedium') },
-    { label: t('parentLabel'), text: t('msgParent') },
+  setRequestLocale(locale);
+  const t = await getTranslations({ locale });
+  const waUrl = whatsappStartUrl(String(t.raw('bot.whatsapp.greeting')));
+  const copy = { copyLabel: t('share.copy'), copiedLabel: t('share.copied') };
+  const pitches = [
+    { label: t('share.shortLabel'), text: t('share.msgShort') },
+    { label: t('share.mediumLabel'), text: t('share.msgMedium') },
+    { label: t('share.parentLabel'), text: t('share.msgParent') },
   ];
-
+  const links = [
+    { title: t('share.botLinkTitle'), url: TELEGRAM_BOT_URL },
+    { title: t('share.whatsappLinkTitle'), url: waUrl },
+    { title: t('share.siteLinkTitle'), url: SITE_URL },
+  ];
   return (
-    <>
-      <SiteHeader locale={locale} path="/share" />
+    <SitePage locale={locale} path="/share">
+      <main id="main" className="site-section site-page-main">
+        <div className="site-wrap site-narrow">
+          <h1 className="site-h1 site-page-title">{t('share.pageTitle')}</h1>
+          <p className="site-lead">{t('share.pageSubtitle')}</p>
 
-      <main className="mx-auto max-w-3xl px-6 py-16">
-        <div className="mb-14 text-center">
-          <h1 className="mb-3 text-4xl font-bold text-text-primary">{t('pageTitle')}</h1>
-          <p className="text-lg text-text-secondary">{t('pageSubtitle')}</p>
-        </div>
+          <section className="site-share-block" aria-labelledby="share-messages">
+            <h2 id="share-messages" className="site-h2">
+              {t('share.messagesTitle')}
+            </h2>
+            <ul className="site-pitches">
+              {pitches.map((pitch) => (
+                <li key={pitch.label} className="site-pitch">
+                  <div className="site-pitch-head">
+                    <h3 className="site-pitch-label">{pitch.label}</h3>
+                    <CopyButton text={pitch.text} {...copy} />
+                  </div>
+                  <p dir="auto">{pitch.text}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
 
-        {/* ─── PITCH MESSAGES ─── */}
-        <section className="mb-16">
-          <h2 className="mb-6 text-2xl font-bold text-text-primary">{t('messagesTitle')}</h2>
-          <div className="space-y-6">
-            {messages.map(({ label, text }) => (
-              <div
-                key={label}
-                className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm"
-              >
-                <div className="mb-3 flex items-center justify-between gap-4">
-                  <span className="text-sm font-semibold text-text-muted">{label}</span>
-                  <CopyButton text={text} copiedLabel={t('copied')} />
-                </div>
-                <p className="whitespace-pre-line text-[15px] leading-relaxed text-text-secondary">
-                  {text}
-                </p>
+          <section className="site-share-block" aria-labelledby="share-qr">
+            <h2 id="share-qr" className="site-h2">
+              {t('share.qrTitle')}
+            </h2>
+            <p className="site-lead">{t('share.qrSubtitle')}</p>
+            <QrCodes
+              downloadLabel={t('share.downloadQr')}
+              codes={[
+                { label: t('share.qrTelegram'), value: TELEGRAM_BOT_URL, filename: 'famcal-qr-telegram.png' },
+                { label: t('share.qrWhatsapp'), value: waUrl, filename: 'famcal-qr-whatsapp.png' },
+                { label: t('share.qrWebsite'), value: SITE_URL, filename: 'famcal-qr-website.png' },
+              ]}
+            />
+          </section>
+
+          {links.map((link) => (
+            <section key={link.url} className="site-share-block site-share-link" aria-label={link.title}>
+              <h2 className="site-h3">{link.title}</h2>
+              <div className="site-link-row">
+                <code dir="ltr">{link.url}</code>
+                <CopyButton text={link.url} {...copy} />
               </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ─── QR CODE ─── */}
-        <section className="mb-16">
-          <h2 className="mb-2 text-center text-2xl font-bold text-text-primary">
-            {t('qrTitle')}
-          </h2>
-          <p className="mb-8 text-center text-sm text-text-muted">{t('qrSubtitle')}</p>
-          <QRSection
-            botUrl={BOT_URL}
-            waUrl={waUrl}
-            siteUrl={SITE_URL}
-            downloadLabel={t('downloadQr')}
-            labelTelegram={t('qrTelegram')}
-            labelWhatsapp={t('qrWhatsapp')}
-            labelWebsite={t('qrWebsite')}
-          />
-        </section>
-
-        {/* ─── BOT LINK ─── */}
-        <section className="mb-10">
-          <h2 className="mb-4 text-xl font-bold text-text-primary">{t('botLinkTitle')}</h2>
-          <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-            <code className="min-w-0 flex-1 truncate text-sm text-brand-primary">{BOT_URL}</code>
-            <CopyButton text={BOT_URL} copiedLabel={t('copied')} />
-          </div>
-        </section>
-
-        {/* ─── WHATSAPP BOT LINK ─── */}
-        <section className="mb-10">
-          <h2 className="mb-4 text-xl font-bold text-text-primary">{t('whatsappLinkTitle')}</h2>
-          <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-            <code className="min-w-0 flex-1 truncate text-sm text-brand-primary">{waUrl}</code>
-            <CopyButton text={waUrl} copiedLabel={t('copied')} />
-          </div>
-        </section>
-
-        {/* ─── WEBSITE LINK ─── */}
-        <section className="mb-10">
-          <h2 className="mb-4 text-xl font-bold text-text-primary">{t('siteLinkTitle')}</h2>
-          <div className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-            <code className="min-w-0 flex-1 truncate text-sm text-brand-primary">{SITE_URL}</code>
-            <CopyButton text={SITE_URL} copiedLabel={t('copied')} />
-          </div>
-        </section>
+            </section>
+          ))}
+        </div>
       </main>
-
-      <SiteFooter locale={locale} path="/share" />
-    </>
+    </SitePage>
   );
 }
