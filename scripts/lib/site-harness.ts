@@ -102,6 +102,14 @@ for (const level of ['error', 'warn'] as const) {
 const stubs: Record<string, Row> = {};
 (globalThis as Row).__siteSmokeStubs = stubs;
 if (typeof Module.registerHooks !== 'function') throw new Error('The site smokes need Node 22.15+ (module.registerHooks)');
+// @hebcal/core ships ESM only (its exports have no require condition), and tsx compiles the smokes to CommonJS: a
+// require() of it (the sample week's Yom Tov test, src/services/zmanim/compute.ts) is pointed at its ESM file, which
+// Node 22 requires as a module.
+const resolveFilename = Module._resolveFilename;
+Module._resolveFilename = function (request: string, ...rest: unknown[]) {
+  if (request === '@hebcal/core') return path.join(ROOT, 'node_modules/@hebcal/core/dist/esm/index.js');
+  return resolveFilename.call(this, request, ...rest);
+};
 Module.registerHooks({
   load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
     const file = url.startsWith('file:') ? fileURLToPath(url.split('?')[0]) : '';

@@ -1,7 +1,8 @@
 // The landing's sample family (spec 2026-10-28-public-website §4, §5.3; copy deck §3.2): the week the hero's live app
 // parts show, built on the server in the visitor's language. The people are made up per language (landing.sample.*),
 // never a real user. The days are relative to the day the page is rendered, so the weekdays and the Hebrew dates are
-// always right: the coming Thursday (never today) and the Friday after it.
+// always right: the coming Thursday (never today) and the Friday after it, a week on (and on) when either is a Yom Tov
+// in Israel (no dentist on Shavuot).
 //
 // - Thursday 16:00-17:00: the dentist, on the kids' calendar: the event the voice note makes.
 // - Thursday 17:30-18:15: swimming, on the kids' calendar, every week.
@@ -15,6 +16,7 @@
 import type { AgendaDay, AgendaModel, AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { addDaysToKey } from '@/src/lib/calendar-view/store';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
+import { isYomTovAt, type Place } from '@/src/services/zmanim/compute';
 import { instantToWallTime, wallTimeToInstant } from '@/src/utils/wall-time';
 
 export const SAMPLE_TZ = 'Asia/Jerusalem';
@@ -67,6 +69,16 @@ export function comingThursday(today: DayKey): DayKey {
 
 const at = (day: DayKey, hhmm: string) => wallTimeToInstant(`${day}T${hhmm}`, SAMPLE_TZ).toISOString();
 
+/** Where the sample family lives, for the Yom Tov test (Israel's schedule: only the zone counts). Jerusalem. */
+const SAMPLE_PLACE: Place = { latitude: 31.778, longitude: 35.235, elevationM: null, timeZone: SAMPLE_TZ };
+
+/** The sample's Thursday: the coming one, or the first after it when it or its Friday is a Yom Tov. */
+export function sampleThursday(today: DayKey): DayKey {
+  let thursday = comingThursday(today);
+  while (isYomTovAt(thursday, SAMPLE_PLACE) || isYomTovAt(addDaysToKey(thursday, 1), SAMPLE_PLACE)) thursday = addDaysToKey(thursday, 7);
+  return thursday;
+}
+
 function item(over: Partial<ItemDTO> & Pick<ItemDTO, 'key' | 'title' | 'start' | 'end' | 'calendar'>): ItemDTO {
   return {
     source: 'famcal',
@@ -92,7 +104,7 @@ const mine = { mine: true, person: null, relation: null } as const;
 
 export function buildSampleWeek(words: SampleWords, now: Date = new Date()): SampleWeek {
   const today = instantToWallTime(now, SAMPLE_TZ).slice(0, 10);
-  const thursday = comingThursday(today);
+  const thursday = sampleThursday(today);
   const friday = addDaysToKey(thursday, 1);
   const cal = (name: string, color: string) => ({ id: `sample:${color}`, name, color, mine: true, inLegend: true });
   const kids = cal(words.kids, COLOURS.kids);

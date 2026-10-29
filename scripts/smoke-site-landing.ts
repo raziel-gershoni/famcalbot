@@ -345,6 +345,27 @@ async function main() {
     }
   });
 
+  await check('G12 the sample week is never on Yom Tov (Israel): a coming Thursday or Friday that is one moves the week on, as often as it takes; any other week is the coming one', () => {
+    const words = sampleWords(nodeRequire('next-intl').createTranslator({ locale: 'en', messages: messages.en }));
+    // [now (Israel noon), the Thursday the week must be on]: Pesach I on a Thursday; Shavuot on the Friday; Rosh
+    // Hashana on Thursday and Friday; Sukkot I and then Shemini Atzeret on two Thursdays running; an ordinary week
+    const cases: [string, string][] = [
+      ['2027-04-18', '2027-04-29'],
+      ['2027-06-07', '2027-06-17'],
+      ['2028-09-18', '2028-09-28'],
+      ['2028-10-02', '2028-10-19'],
+      ['2026-10-29', '2026-11-05'],
+    ];
+    for (const [today, want] of cases) {
+      const week = buildSampleWeek(words, new Date(`${today}T09:00:00Z`));
+      const [thursday, friday] = week.agenda.entries.map((e: Row) => e.date);
+      assert(week.thursday === want && thursday === want, `from ${today}: the week is on ${week.thursday}, want ${want}`);
+      assert(new Date(`${friday}T12:00:00Z`).getTime() - new Date(`${thursday}T12:00:00Z`).getTime() === 86_400_000, `from ${today}: Friday ${friday}`);
+      assert(week.agenda.today === today && week.agenda.end > friday, `from ${today}: today ${week.agenda.today}, end ${week.agenda.end}`);
+      assert(week.dentist.start.startsWith(want), `from ${today}: the dentist on ${week.dentist.start}`);
+    }
+  });
+
   finish();
 }
 
