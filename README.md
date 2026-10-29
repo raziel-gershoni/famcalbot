@@ -33,7 +33,8 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Event reminders** — pre-event nudges that respect each event's own reminder settings, including separate start and pickup reminders for kids' events.
 - **Zmanim** — a reminder's time can be a zman plus an offset ("10 min before sof zman Shema (GRA)"), worked out daily at each person's own place, in the Sephardi (Zmanei Yosef), Ashkenazi or Chabad set; one switch pauses every scheduled message on Shabbat and Yom Tov. The bot makes the same reminder from a voice note or typed text ("remind me 10 minutes before sof zman Shema"); when the zman has several opinions in the person's set and none was said, the card offers a button per opinion with its time. For the Jewish calendar, a sun button in the home's header opens the day's zmanim at the person's place (with candle lighting and the end of Shabbat or Yom Tov on their days, and the halachic hour), a day at a time.
 - **Subscriptions and usage limits** — trials, plans, and usage counters billed in-app through Telegram Stars.
-- **Web dashboard** — Next.js app for settings, calendar selection, pairing, a blog, and an admin panel with moderation, a persistent blocklist, and analytics.
+- **Public website** — famcal.bot in Hebrew, English and Russian, in the app's own look (light and dark follow the device): the landing shows the bot's confirm card and the calendar home's real Agenda with a sample family, plus the plans (read from the plan table), the blog, Privacy and Terms. It has its own root layout (`app/[locale]/(site)`): static pages, no Telegram SDK, one cached style sheet built from the app's colour tokens (`components/app-ui/tokens.ts`).
+- **Web dashboard** — the Mini App's pages (`app/[locale]/(app)`, their own root layout with the Telegram SDK) for settings, calendar selection, pairing, and an admin panel with moderation, a persistent blocklist, and analytics.
 
 ## 🏗️ How it works
 

@@ -1,6 +1,6 @@
 # Public website (famcal.bot): the product as it is, in the app's look
 
-Status: approved by the owner, 2026-10-28 (§10 holds the answers). Owner queue item 5. Item 6 (web login, and anonymous access to the calendar and zmanim) is a separate spec after this one; this spec only leaves room for it.
+Status: approved by the owner, 2026-10-28 (§10 holds the answers); built 2026-10-29 by plan `docs/superpowers/plans/2026-10-29-public-website.md`, except the Privacy and Terms wording, which carries marked placeholders until the owner-approved texts (en, he, ru) replace it (§7.3). Owner queue item 5. Item 6 (web login, and anonymous access to the calendar and zmanim) is a separate spec after this one; this spec only leaves room for it.
 
 ## 1. Why
 
