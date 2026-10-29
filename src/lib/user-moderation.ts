@@ -7,9 +7,10 @@
 
 import { prisma } from '../utils/prisma';
 import { redis } from '../utils/redis';
-import { REDIS_KEYS } from '../config/redis-keys';
+import { REDIS_KEYS, subscriptionReminderKeys } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
+import { setupTrackKeys } from '../services/setup-tracks';
 import { captureError } from './error-capture';
 import { readStoredToken } from '../utils/encryption';
 
@@ -120,6 +121,9 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     captureError(error, 'google-hard-delete-revoke', { user_id: userId });
   }
 
+  // The person's cache keys that need their rows to be named (read before the rows go)
+  const cacheKeys = await personalCacheKeys(userId);
+
   await prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id: userId }, select: { pairingId: true } });
 
@@ -157,35 +161,74 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     await tx.userActivity.deleteMany({ where: { userId } });
     await tx.userFeedback.deleteMany({ where: { userId } });
     await tx.usageCounter.deleteMany({ where: { userId } });
+    // Our payment records go with the account (the Privacy Policy keeps only Telegram's own after a deletion)
+    await tx.payment.deleteMany({ where: { userId } });
     await tx.subscription.deleteMany({ where: { userId } });
     await tx.userFeatureOverride.deleteMany({ where: { userId } });
     await tx.oAuthState.deleteMany({ where: { userId: BigInt(userId) } });
     await tx.user.delete({ where: { id: userId } });
   });
 
-  await clearDeletedUserCaches(userId);
+  await clearDeletedUserCaches(userId, cacheKeys);
 
   console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
+}
+
+/**
+ * The person's Redis keys that only their rows can name: the subscription reminders (keyed by the Telegram id, or the
+ * user id, and a month's end: the current month's and each payment's). Read before an account goes (hard delete, the
+ * WhatsApp-only half of a merge) and handed to clearDeletedUserCaches. A read that fails is logged; the keys then
+ * expire within their 30 days.
+ */
+export async function personalCacheKeys(userId: number): Promise<string[]> {
+  try {
+    const [user, subscription, payments] = await Promise.all([
+      prisma.user.findUnique({ where: { id: userId }, select: { telegramId: true } }),
+      prisma.subscription.findUnique({ where: { userId }, select: { currentPeriodEnd: true } }),
+      prisma.payment.findMany({ where: { userId }, select: { periodEnd: true } }),
+    ]);
+    return subscriptionReminderKeys([user?.telegramId, userId], [subscription?.currentPeriodEnd, ...payments.map((p) => p.periodEnd)]);
+  } catch (err) {
+    console.error(`[Moderation] Reading the cache keys of user ${userId} failed; they expire within 30 days:`, err);
+    captureError(err, 'moderation-cache-keys', { user_id: userId }, 'warning');
+    return [];
+  }
 }
 
 /**
  * Best-effort cleanup of the Redis state keyed by a user id that no longer
  * exists: after a hard delete, and for the WhatsApp-only half of an account
  * merge. Drops them from the reminder cache too, so the reminder run stops
- * reading a user that is gone before the next hourly sync.
+ * reading a user that is gone before the next hourly sync. Every key of the
+ * person goes (the account's deletion clears them, not only their 30 days): the
+ * access cache, the timezone, the voice flows' state, the setup tracks, the
+ * copy-to-Google markers and the Google cache stamps by their id, the kid-name
+ * notes by a scan of their prefix, and `extraKeys` (personalCacheKeys, read
+ * before the rows went).
  */
-export async function clearDeletedUserCaches(userId: number): Promise<void> {
+export async function clearDeletedUserCaches(userId: number, extraKeys: string[] = []): Promise<void> {
   try {
     await Promise.all([
       invalidateFeatureAccessCache(userId),
       removeUserFromCache(userId),
-      redis.del(REDIS_KEYS.userTimezone(userId)),
-      redis.del(REDIS_KEYS.lastCreatedEvent(userId)),
-      redis.del(REDIS_KEYS.storyImage(userId)),
-      redis.del(REDIS_KEYS.recentEvents(userId)),
+      redis.del(
+        REDIS_KEYS.userTimezone(userId),
+        REDIS_KEYS.lastCreatedEvent(userId),
+        REDIS_KEYS.storyImage(userId),
+        REDIS_KEYS.recentEvents(userId),
+        REDIS_KEYS.googleSyncOrphans(userId),
+        REDIS_KEYS.googleSyncDisconnect(userId),
+        REDIS_KEYS.gcalStamp(userId),
+        REDIS_KEYS.gcalColours(userId),
+        REDIS_KEYS.gcalGoneWarned(userId),
+        ...setupTrackKeys(userId),
+        ...extraKeys,
+      ),
+      import('../services/google-disconnect').then(({ deleteMatching }) => deleteMatching(`kidname:asked:${userId}:*`)),
     ]);
   } catch (err) {
     console.warn(`[Moderation] Redis cleanup failed for deleted user ${userId}:`, err);
+    captureError(err, 'moderation-cache-cleanup', { user_id: userId }, 'warning');
   }
 }
 

@@ -19,7 +19,7 @@ import { syncReminderCacheEntry } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { markSyncDirty, unlinkSync, type SyncSeries } from './google-sync/marks';
 import { openSyncGate } from './google-sync/gate';
-import { clearDeletedUserCaches } from '../lib/user-moderation';
+import { clearDeletedUserCaches, personalCacheKeys } from '../lib/user-moderation';
 import { setUserMenuButton } from './telegram/bot';
 import { clearOtherPrimaries } from './calendar-provider/primary';
 import { hasGoogleChoices } from './native-calendar/onboarding';
@@ -408,6 +408,9 @@ async function mergeWhatsAppUser(
     await tx.subscription.delete({ where: { id: wSub.id } });
   }
 
+  // Payment records are the person's, whichever account paid: W's move to T (refunds and the Privacy Policy's records go by them).
+  await tx.payment.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
+
   // Usage counter and override are one per user: T's stays, W's moves only into
   // a gap. With an override on both sides their grants merge (mergeOverrides).
   const tUsage = await tx.usageCounter.findUnique({ where: { userId: t.id } });
@@ -531,8 +534,8 @@ async function mergeWhatsAppUser(
  * has already happened. T's feature access is invalidated by the caller, as for
  * a plain link.
  */
-async function afterMerge(wUserId: number, tUserId: number, languageChanged: boolean): Promise<void> {
-  await clearDeletedUserCaches(wUserId);
+async function afterMerge(wUserId: number, tUserId: number, languageChanged: boolean, wCacheKeys: string[]): Promise<void> {
+  await clearDeletedUserCaches(wUserId, wCacheKeys);
   invalidateDueGate();
   // The merge may have marked copies to Google (moved events, turned-off copies).
   openSyncGate();
@@ -594,11 +597,13 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
     let reconnectGoogle = false;
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
+      // W's cache keys that only its rows can name, read before the merge moves or deletes them
+      const wCacheKeys = await personalCacheKeys(waOnlyUser.id);
       const merged = await prisma.$transaction((tx) =>
         mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
       );
       reconnectGoogle = merged.reconnectGoogle;
-      await afterMerge(waOnlyUser.id, telegramUser.id, merged.languageChanged);
+      await afterMerge(waOnlyUser.id, telegramUser.id, merged.languageChanged, wCacheKeys);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {

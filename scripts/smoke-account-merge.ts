@@ -122,6 +122,7 @@ const FKS: FK[] = [
   { from: 'pairingInvite', field: 'inviterUserId', to: 'user', onDelete: 'Cascade' },
   { from: 'pairingInvite', field: 'acceptedByUserId', to: 'user', onDelete: 'SetNull' },
   { from: 'subscription', field: 'userId', to: 'user', onDelete: 'Restrict' },
+  { from: 'payment', field: 'userId', to: 'user', onDelete: 'Cascade' },
   { from: 'usageCounter', field: 'userId', to: 'user', onDelete: 'Restrict' },
   { from: 'userActivity', field: 'userId', to: 'user', onDelete: 'Restrict' },
   { from: 'userFeatureOverride', field: 'userId', to: 'user', onDelete: 'Restrict' },
@@ -133,6 +134,7 @@ const FKS: FK[] = [
 const UNIQUE: Record<string, string[]> = {
   user: ['telegramId', 'whatsappPhone', 'whatsappBsuid'],
   subscription: ['userId'],
+  payment: ['telegramPaymentChargeId'],
   usageCounter: ['userId'],
   userFeatureOverride: ['userId'],
   pairingInvite: ['token'],
@@ -424,7 +426,11 @@ const redisImpl: Row = {
     return 'OK';
   },
   del: async (...ks: unknown[]) => ks.flat().reduce((n: number, k) => n + (redisStore.delete(String(k)) ? 1 : 0), 0),
-  scan: async () => [0, []],
+  /** One pass over every key, with match read as Redis's glob (only * here). */
+  scan: async (_cursor: unknown, o?: Row) => {
+    const glob = new RegExp(`^${String(o?.match ?? '*').split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+    return [0, [...redisStore.keys()].filter((k) => glob.test(k))];
+  },
   expire: async () => 1,
 };
 const fakeRedis = new Proxy(redisImpl, {
@@ -1856,6 +1862,53 @@ async function main() {
     assert(left.length === 0, `still pointing at W: ${show(left)}`);
     const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').map((u: Row) => u.id);
     assert(!cached.includes(W) && cached.includes(P), `reminder cache ${show(cached)}`);
+  });
+
+  // ---- Account deletion: payment records and the person's cache keys (the final review's I-1 and M-2) ----
+
+  const eq = (got: unknown, want: unknown, label: string) => assert(show(got) === show(want), `${label}: ${show(got)}, want ${show(want)}`);
+
+  const payment = (id: string, userId: number, paidDaysAgo: number, o: Row = {}): Row => ({
+    id, userId, telegramPaymentChargeId: `charge-${id}`, plan: 'PRO', amount: 5000, currency: 'XTR', paidAt: days(-paidDaysAgo),
+    periodStart: days(-paidDaysAgo), periodEnd: days(30 - paidDaysAgo), refundedAt: null, createdAt: days(-paidDaysAgo), ...o,
+  });
+  /** Every key FamCal keeps for a person, by their user id or Telegram id (src/config/redis-keys.ts). */
+  const personKeys = (userId: number, telegramId: string | null, periodEnds: Date[]): string[] => [
+    `setup:reminder:${userId}:location:0`, `setup:reminder:${userId}:calendars:2`, `setup:start:${userId}:calendars`,
+    ...periodEnds.flatMap((end) => ['3day', 'lastday', 'expired'].flatMap((type) => [telegramId, String(userId)].filter(Boolean).map((id) => `subscription_reminder:${id}:${end.toISOString().split('T')[0]}:${type}`))),
+    `kidname:asked:${userId}:noam`, `kidname:asked:${userId}:maya`,
+    `google-sync:orphans:${userId}`, `google-sync:disconnect:${userId}`,
+    `gcal:stamp:${userId}`, `gcal:colours:${userId}`, `gcal:gone_warned:${userId}`,
+    `tz:user:${userId}`, `feature:access:${userId}:reminders`,
+  ];
+
+  await check('#62 hardDeleteUser deletes the person\'s payment records (the Privacy Policy keeps only Telegram\'s after deletion) and every cache key that holds them: setup tracks, subscription reminders (by Telegram id and by user id, for the month and each payment), kid-name notes, the copy-to-Google markers, the Google cache stamps; another person\'s stay', async () => {
+    seed();
+    const tId = '5550010';
+    DB.subscription = [paid('sub-t', T, 2), trial('sub-w', W, 3)];
+    DB.payment = [payment('pay-t1', T, 28), payment('pay-t2', T, 40, { refundedAt: days(-35) }), payment('pay-p', P, 3)];
+    const ends = [rowOf('subscription', 'sub-t')!.currentPeriodEnd, rowOf('payment', 'pay-t1')!.periodEnd, rowOf('payment', 'pay-t2')!.periodEnd];
+    const tKeys = personKeys(T, tId, ends);
+    const pKeys = personKeys(P, '5550030', [days(27)]);
+    for (const k of [...tKeys, ...pKeys]) redisStore.set(k, '1');
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(T, 1);
+    assert(!userRow(T), 'T still exists');
+    eq(DB.payment.map((r: Row) => r.id), ['pay-p'], 'the payments left');
+    eq(tKeys.filter((k) => redisStore.has(k)), [], 'T\'s keys left');
+    eq(pKeys.filter((k) => !redisStore.has(k)), [], 'P\'s keys gone');
+  });
+
+  await check('#63 the merge moves W\'s payment records to T (they are the same person\'s) and clears W\'s cache keys; T\'s own payments stay', async () => {
+    seed();
+    DB.subscription = [trial('sub-t', T, 10), paid('sub-w', W, 20)];
+    DB.payment = [payment('pay-w', W, 10), payment('pay-t', T, 50)];
+    const wKeys = personKeys(W, null, [rowOf('subscription', 'sub-w')!.currentPeriodEnd, rowOf('payment', 'pay-w')!.periodEnd]);
+    for (const k of wKeys) redisStore.set(k, '1');
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    eq(DB.payment.map((r: Row) => [r.id, r.userId]), [['pay-w', T], ['pay-t', T]], 'the payments');
+    eq(wKeys.filter((k) => redisStore.has(k)), [], 'W\'s keys left');
   });
 
   await check('#14 hardDeleteUser on the invitee of a pairing: the partner is unpaired and the pairing stays as UNLINKED history', async () => {

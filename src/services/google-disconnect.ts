@@ -116,8 +116,8 @@ export async function revokeGoogleToken(refreshToken: string, extra: Record<stri
   }
 }
 
-/** Delete these Redis keys' matches, a page of the scan at a time. */
-async function deleteMatching(pattern: string): Promise<void> {
+/** Delete every key that matches a pattern (Redis SCAN's glob), a page of the scan at a time: the account deletion's kid-name notes use it too. */
+export async function deleteMatching(pattern: string): Promise<void> {
   let cursor: number | string = 0;
   do {
     const [next, keys] = (await redis.scan(cursor, { match: pattern, count: 100 })) as [number | string, string[]];
