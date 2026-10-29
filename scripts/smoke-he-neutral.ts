@@ -39,7 +39,6 @@ const ROOT = path.resolve(__dirname, '..');
 const NOT_HELD: Record<string, string> = {
   landing: 'the public website build rewrites it',
   howItWorksPage: 'the public website build rewrites it',
-  calendars: 'the Select calendars page, redesigned by W4 (the old Google screens), which rewrites its copy',
   refreshToken: 'the refresh-token page, redesigned by W4 (the old Google screens), which rewrites its copy',
   oauth: 'the OAuth pages, redesigned by W4 (the old Google screens), which rewrites its copy',
 };

@@ -4,7 +4,8 @@
 // panel, calendars, share-story), and 21 route reads took it from there. Now the
 // clients send the X-Telegram-Init-Data header (initDataHeaders), and every route reads
 // the header, then a string initData in the JSON body, and never the query
-// (requestInitData).
+// (requestInitData). The Select calendars save used to put window.Telegram.WebApp.initData in
+// its body; it sends the header now like the other clients (#10).
 //
 // The calendar home's GET /api/calendar/range reads the header only, and
 // /api/execute-command now reads the header too, then the body (it used to read only the
@@ -389,6 +390,7 @@ const CASES: Case[] = [
   { route: 'app/api/native-calendars/route.ts', method: 'POST', url: `/api/native-calendars?user_id=${TG_ID}`, body: { name: 'Kids' } },
   { route: 'app/api/native-calendars/[id]/route.ts', method: 'PATCH', url: `/api/native-calendars/cal-9?user_id=${TG_ID}`, body: { name: 'Home' }, params: { id: 'cal-9' } },
   { route: 'app/api/native-calendars/[id]/route.ts', method: 'DELETE', url: `/api/native-calendars/cal-9?user_id=${TG_ID}`, body: {}, params: { id: 'cal-9' } },
+  { route: 'app/api/select-calendars/route.ts', method: 'POST', url: `/api/select-calendars?user_id=${TG_ID}`, body: { calendarAssignments: [{ calendarId: 'dana@example.com', labels: ['yours'], name: 'Dana', color: '#4285f4' }], globalRules: [] } },
   { route: 'app/api/pair/route.ts', method: 'GET', url: `/api/pair?user_id=${TG_ID}` },
   { route: 'app/api/pair/route.ts', method: 'DELETE', url: `/api/pair?user_id=${TG_ID}`, body: {} },
   { route: 'app/api/pair/invite/route.ts', method: 'POST', url: `/api/pair/invite?user_id=${TG_ID}`, body: {} },
@@ -534,6 +536,14 @@ async function main() {
       if (fn !== 'return readInitData();') bad.push(`${rel}: ${fn}`);
     }
     assert(bad.length === 0, bad.join('; '));
+  });
+
+  await check('#10 select-calendars: the screen sends the credential in the header (initDataHeaders) and never in the body, and the route reads it through requestInitData', () => {
+    const client = readSource('app/[locale]/select-calendars/SelectCalendarsClient.tsx').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    assert(/headers: \{ 'Content-Type': 'application\/json', \.\.\.initDataHeaders\(\) \}/.test(client), 'the save does not send initDataHeaders()');
+    assert(!/window\.Telegram|readInitData|initData:|\binitData\b\s*[,}]/.test(client), 'the screen reads initData itself or puts it in a body');
+    const route = readSource('app/api/select-calendars/route.ts');
+    assert(/requestInitData\(request, body\)/.test(route), 'the route does not read the credential through requestInitData(request, body)');
   });
 
   Object.assign(console, quiet);

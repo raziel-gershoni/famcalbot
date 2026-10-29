@@ -6,6 +6,8 @@
 // a Save bar (sticky on a screen that scrolls).
 // The classes are ch-form-*; FORM_CSS draws them from the app's tokens (./theme.ts). It also draws CopyField's
 // (./CopyField.tsx: ch-copy-field*) and dims a disabled row button (button.ch-form-row:disabled).
+// A radio card's option can carry a hint (what it means) and be off by itself (RadioCardOption.hint, .disabled); a switch row's
+// label can be more than text (a dot and a name), and a hint wraps an unbroken word (a person's own text can be one).
 // A calendar's colour: .ch-swatch-dot is the dot beside a name (.is-lg: 12 px; in a list row's title it sits
 // before the name), and ColorSwatches is the picker (a radiogroup of 44 px swatches, a check on the chosen one; its
 // classes are .ch-color-swatch*: the home's Agenda has a .ch-swatch of its own, and smoke-app-ui keeps the kit's names apart).
@@ -102,6 +104,8 @@ export const FORM_CSS = `
 .ch-form-hint {
   font-size: 13px;
   color: var(--ch-muted);
+  /* A hint can be a person's own text (a Google calendar's description): an unbroken address wraps instead of widening the row. */
+  overflow-wrap: anywhere;
 }
 .ch-form-hint.is-danger {
   color: var(--ch-danger);
@@ -330,6 +334,9 @@ button.ch-form-row:disabled {
 }
 .ch-choice[aria-checked='true'] {
   font-weight: 600;
+}
+.ch-choice .ch-form-hint {
+  font-weight: 400;
 }
 .ch-choice-check {
   flex: none;
@@ -692,7 +699,7 @@ export function SwitchRow({
   onChange,
   disabled,
 }: {
-  label: string;
+  label: ReactNode;
   hint?: string;
   note?: string;
   checked: boolean;
@@ -762,6 +769,10 @@ export function ButtonRow({ label, hint, value, onClick, error, valueDir }: { la
 export interface RadioCardOption {
   value: string;
   text: string;
+  /** What the option means, under its text. */
+  hint?: string;
+  /** This option takes no tap (the card's own `disabled` turns every option off). */
+  disabled?: boolean;
 }
 
 /** A card of radio rows, one chosen (a check at its end): the whole row is the target. */
@@ -769,9 +780,10 @@ export function RadioCard({ label, value, options, onChange, disabled }: { label
   return (
     <div className="ch-form-card" role="radiogroup" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-form-row ch-choice" data-value={o.value} disabled={disabled} onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" role="radio" aria-checked={o.value === value} className="ch-form-row ch-choice" data-value={o.value} disabled={disabled || o.disabled} onClick={() => onChange(o.value)}>
           <span className="ch-form-label">
             <span dir="auto">{o.text}</span>
+            {o.hint ? <span className="ch-form-hint">{o.hint}</span> : null}
           </span>
           {o.value === value ? <Check className="ch-choice-check" /> : null}
         </button>

@@ -5,6 +5,7 @@ import { CalendarAssignment } from '@/src/types';
 import { prisma } from '@/src/utils/prisma';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
 import { syncReminderCacheEntry } from '@/src/services/reminder-cache';
 import { calendarTotal, checkCalendarLimit, countCalendars } from '@/src/services/subscription-service';
@@ -55,14 +56,13 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { calendarAssignments, globalRules, initData } = body as {
+    const { calendarAssignments, globalRules } = body as {
       calendarAssignments: CalendarAssignment[];
       globalRules?: string[];
-      initData?: string;
     };
 
-    // Authentication and rate limiting
-    const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'select-calendars');
+    // Authentication and rate limiting. The Telegram credential is the X-Telegram-Init-Data header (a body's initData still works, as on every route).
+    const auth = await verifyUserAuth(request, userId, requestInitData(request, body), settingsRateLimiter, 'select-calendars');
     if (!auth.success) {
       return auth.response;
     }

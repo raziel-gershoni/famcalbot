@@ -12,8 +12,8 @@
 //  - no slash or bracket gender forms in the Hebrew or Russian copy;
 //  - calendarHome as its own top-level object between dashboard and admin, away from the
 //    bot.errors keys Plan C adds;
-//  - spec §9's fixes on the old screens: the Header's aria-labels and admin badge (also
-//    on Subscription and Select calendars) and the dashboard loader's "Loading Dashboard...";
+//  - spec §9's fix on the old screens: the dashboard loader's "Loading Dashboard..." (the old Header, whose
+//    aria-labels and admin badge it also checked, went with the Select calendars redesign);
 //  - scripts/check-i18n-parity.ts's ICU check, run on fixture files in a temp directory,
 //    with E1's three fixes: bot.* read as getBotMessage fills it, '' inside a quoted
 //    literal, and =N forms standing in for a category that holds N alone.
@@ -742,7 +742,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#6 no slash or bracket gender forms in the Hebrew or Russian copy (calendarHome and common.header)', () => {
+  await check('#6 no slash or bracket gender forms in the Hebrew or Russian copy (calendarHome)', () => {
     const problems: string[] = [];
     const rules: [Locale, RegExp][] = [
       ['he', /[א-ת]\s?\/\s?[א-ת]/],
@@ -751,38 +751,12 @@ async function main() {
     for (const [locale, gendered] of rules) {
       const messages = messagesOf(locale);
       if (!messages.calendarHome) problems.push(`${locale}: no calendarHome`);
-      if (!messages.common?.header) problems.push(`${locale}: no common.header`);
-      const strings = [...leavesOf(messages.calendarHome ?? {}).entries(), ...leavesOf(messages.common?.header ?? {}).entries()];
+      const strings = [...leavesOf(messages.calendarHome ?? {}).entries()];
       for (const [key, value] of strings) {
         for (const s of Array.isArray(value) ? value : [value]) {
           if (typeof s === 'string' && gendered.test(s)) problems.push(`${locale} ${key}: "${s}"`);
         }
       }
-    }
-    assert(problems.length === 0, problems.join('; '));
-  });
-
-  await check('#7 Header (Subscription, Select calendars): translated aria-labels and admin badge in en/he/ru, no English left in he/ru', async () => {
-    const React = nodeRequire('react');
-    const Header = (await load('components/Layout/Header.tsx')).default;
-    const noop = () => undefined;
-    const problems: string[] = [];
-    for (const locale of LOCALES) {
-      const labels = messagesOf(locale).common?.header;
-      if (!labels) { problems.push(`${locale}: no common.header`); continue; }
-      const html = renderHtml(React.createElement(Header, {
-        title: 'FamCal', userName: 'Dana', isAdmin: true, onBackClick: noop, onAdminClick: noop, onSettingsClick: noop,
-      }), locale);
-      for (const key of ['back', 'adminPanel', 'settings']) {
-        if (!html.includes(`aria-label="${asHtml(labels[key])}"`)) problems.push(`${locale}: no aria-label for ${key}`);
-      }
-      if (!html.includes(`>${asHtml(labels.adminBadge)}</div>`)) problems.push(`${locale}: no ${labels.adminBadge} badge`);
-      if (locale !== 'en') {
-        for (const english of ['Go Back', 'Admin Panel', '"Settings"', '>ADMIN<']) {
-          if (html.includes(english)) problems.push(`${locale}: still ${english}`);
-        }
-      }
-      if (!html.includes('text-transform: uppercase')) problems.push(`${locale}: the badge is no longer upper-case`);
     }
     assert(problems.length === 0, problems.join('; '));
   });

@@ -9109,7 +9109,7 @@ async function main() {
     }
   });
 
-  await check('#111a select-calendars: ticking primary on a Google calendar while a FamCal calendar holds the default says "New events will go to <name>" (once, in en, he and ru); with no FamCal primary, or on a calendar that already had it, the old "set as primary" line stays', async () => {
+  await check('#111a select-calendars: turning primary on for a Google calendar (in its sheet) while a FamCal calendar holds the default says "New events will go to <name>" (once, in en, he and ru); with no FamCal primary, or on a calendar that already had it, the status says Saved', async () => {
     const calendars = [
       { id: 'avi@gmail.com', name: 'Avi', backgroundColor: '#039BE5', primary: true },
       { id: GOOGLE_FAMILY_ID, name: 'Google Family', backgroundColor: '#7986CB' },
@@ -9124,16 +9124,10 @@ async function main() {
       calendarRules: new Map<string, string>(),
       globalRules: [],
     });
-    // The page's <style jsx> is rewritten by Next's compiler; under tsx React sees the bare attribute and warns. Those two warnings are not the page's.
-    const warnedBefore = reactWarnings.length;
-    const dropStyledJsx = () => {
-      const mine = reactWarnings.splice(warnedBefore);
-      reactWarnings.push(...mine.filter((w) => !(w.includes('non-boolean attribute') && /(?:jsx|global)$/.test(w))));
-    };
     const wants: [Locale, string][] = [
       ['en', 'New events will go to Google Family'],
-      ['he', 'אירועים חדשים יתווספו ליומן Google Family'],
-      ['ru', 'Новые события будут добавляться в календарь «Google Family»'],
+      ['he', 'מעכשיו אירועים חדשים יירשמו ב־Google Family'],
+      ['ru', 'Новые события теперь будут попадать в «Google Family»'],
     ];
     const mountPage = async (locale: Locale, famcalPrimaryName: string | null, primary = false) => {
       resetHome();
@@ -9142,15 +9136,22 @@ async function main() {
       await settle();
       return m;
     };
+    // The calendar's row opens its sheet; Primary on, Save
     const tapPrimary = async (m: Awaited<ReturnType<typeof mountPage>>, calendarName: string) => {
-      const row = elements(m.container).filter((e) => e.className.includes('calendar-item') && e.textContent.includes(calendarName))[0];
+      const row = elements(m.container).filter((e) => e.localName === 'button' && e.className.includes('ch-list-row') && e.textContent.includes(calendarName))[0];
       assert(row, `no row for ${calendarName}`);
-      const icon = elements(row).filter((e) => e.getAttribute('aria-label')?.toLowerCase().includes('primary') || e.getAttribute('title')?.toLowerCase().includes('primary'))[0];
-      assert(icon, `no primary icon in ${calendarName}'s row: ${htmlOf(row).slice(0, 400)}`);
-      m.click(icon);
+      m.click(row);
+      await settle();
+      const primary = byRole(byRole(m.container, 'dialog')[0], 'switch')[0];
+      assert(primary, `no primary switch in ${calendarName}'s sheet`);
+      m.click(primary);
+      const save = elements(byRole(m.container, 'dialog')[0]).filter((e) => e.localName === 'button' && e.className.includes('ch-save'))[0];
+      assert(save, `no Save in ${calendarName}'s sheet`);
+      m.click(save);
       await settle();
     };
-    const textNow = (m: Awaited<ReturnType<typeof mountPage>>) => textOf(innerHtml(m.container));
+    // The name sits in a direction isolate inside the sentence; what a reader sees has none
+    const textNow = (m: Awaited<ReturnType<typeof mountPage>>) => textOf(innerHtml(m.container)).replace(/[\u2066-\u2069]/g, '');
     for (const [locale, line] of wants) {
       const m = await mountPage(locale, 'Family');
       try {
@@ -9165,20 +9166,25 @@ async function main() {
     const none = await mountPage('en', null);
     try {
       await tapPrimary(none, 'Google Family');
-      assertHas(textNow(none), ['Google Family set as primary'], 'no FamCal primary: the old line');
+      assertHas(textNow(none), ['Saved'], 'no FamCal primary: Saved');
       assertLacks(textNow(none), ['New events will go to'], 'no note');
     } finally {
       none.unmount();
     }
     const same = await mountPage('en', 'Family', true);
     try {
-      await tapPrimary(same, 'Avi');
-      assertHas(textNow(same), ['Avi set as primary'], 'already primary: the old line');
+      // Avi already holds primary: its sheet has the switch on, so a tap turns it off and a second turns it back on, which is no change from the saved state
+      const row = elements(same.container).filter((e) => e.localName === 'button' && e.className.includes('ch-list-row') && e.textContent.includes('Avi'))[0];
+      same.click(row);
+      await settle();
+      const save = elements(byRole(same.container, 'dialog')[0]).filter((e) => e.localName === 'button' && e.className.includes('ch-save'))[0];
+      same.click(save);
+      await settle();
+      assertHas(textNow(same), ['Saved'], 'already primary: Saved');
       assertLacks(textNow(same), ['New events will go to'], 'no note');
     } finally {
       same.unmount();
     }
-    dropStyledJsx();
   });
 
   await check('#112 React logged no warning in #108-#111 (keys, nesting, attributes, act)', () => {
