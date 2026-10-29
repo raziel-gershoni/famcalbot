@@ -1,4 +1,5 @@
 import OAuthCompleteClient from './OAuthCompleteClient';
+import { ConnectShell } from '../ConnectShell';
 import { normalizeLocale } from '@/src/utils/locale';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER } from '@/src/lib/gate-links';
 import enMessages from '@/messages/en.json';
@@ -26,5 +27,9 @@ export default async function OAuthCompletePage({ searchParams }: PageProps) {
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
   const t = messages.oauthComplete;
 
-  return <OAuthCompleteClient locale={locale} botUsername={botUsername} waNumber={waNumber} translations={t} />;
+  return (
+    <ConnectShell locale={locale} namespaces={['oauthComplete']} title={t.title}>
+      <OAuthCompleteClient locale={locale} botUsername={botUsername} waNumber={waNumber} translations={t} />
+    </ConnectShell>
+  );
 }

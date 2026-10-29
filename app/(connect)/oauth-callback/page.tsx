@@ -1,10 +1,9 @@
 import { redirect } from 'next/navigation';
 import { prisma } from '@/src/utils/prisma';
 import { getUserById } from '@/src/services/user-service';
-import { normalizeLocale } from '@/src/utils/locale';
+import { normalizeLocale, type Locale } from '@/src/utils/locale';
 import { XCircle, AlertTriangle } from 'lucide-react';
 import { buildUrl } from '@/src/config/urls';
-import { getTranslations } from 'next-intl/server';
 import { captureError } from '@/src/lib/error-capture';
 import { OAUTH_STATE_PREFIX } from '@/src/lib/oauth-state';
 import { createPendingGoogleToken, finishPageUrl, type GoogleGrant } from '@/src/services/google-connect';
@@ -13,6 +12,12 @@ import { googleAccountOf } from '@/src/services/google-sync/account';
 import { googleFetch } from '@/src/services/google-retry';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
+import { ConnectShell } from '../ConnectShell';
+import enMessages from '@/messages/en.json';
+import heMessages from '@/messages/he.json';
+import ruMessages from '@/messages/ru.json';
+
+const OAUTH = { en: enMessages.oauth, he: heMessages.oauth, ru: ruMessages.oauth };
 
 interface PageProps {
   searchParams: Promise<{
@@ -34,19 +39,15 @@ function retryHrefFor(user: UserConfig): string {
 
 // Error page component. retryHref is the "Try again" link (retryHrefFor). The title, the
 // button's text and the direction default to the English page.
-function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Again', dir = 'ltr' }: {
+function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Again', locale = 'en' }: {
   message: string;
   retryHref?: string;
   title?: string;
   buttonText?: string;
-  dir?: 'ltr' | 'rtl';
+  locale?: Locale;
 }) {
   return (
-    <html dir={dir}>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <ConnectShell locale={locale} namespaces={['oauth']} title={title}>
         <style>{`
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
@@ -79,8 +80,6 @@ function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Agai
             border-radius: 8px;
           }
         `}</style>
-      </head>
-      <body>
         <div className="container">
           <div className="icon"><XCircle size={64} color="#ef4444" /></div>
           <h2>{title}</h2>
@@ -91,15 +90,14 @@ function ErrorPage({ message, retryHref, title = 'Error', buttonText = 'Try Agai
             </a>
           )}
         </div>
-      </body>
-    </html>
+    </ConnectShell>
   );
 }
 
 // Google refused to exchange the code (exchangeRefusal): the sign-in starts again from FamCal
-async function ExchangeFailedPage({ locale, retryHref }: { locale: string; retryHref: string }) {
-  const t = await getTranslations({ locale, namespace: 'oauth.exchangeFailed' });
-  return <ErrorPage title={t('title')} message={t('message')} buttonText={t('tryAgain')} retryHref={retryHref} dir={locale === 'he' ? 'rtl' : 'ltr'} />;
+function ExchangeFailedPage({ locale, retryHref }: { locale: Locale; retryHref: string }) {
+  const t = OAUTH[locale].exchangeFailed;
+  return <ErrorPage title={t.title} message={t.message} buttonText={t.tryAgain} retryHref={retryHref} locale={locale} />;
 }
 
 /** Google's token endpoint answer, as far as the callback reads it. */
@@ -126,11 +124,7 @@ function exchangeRefusal(status: number, ok: boolean, answer: TokenAnswer | null
 // No refresh token error page
 function NoRefreshTokenPage({ retryHref }: { retryHref: string }) {
   return (
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <ConnectShell locale="en" namespaces={['oauth']} title="One More Step">
         <style>{`
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
@@ -163,8 +157,6 @@ function NoRefreshTokenPage({ retryHref }: { retryHref: string }) {
             border-radius: 8px;
           }
         `}</style>
-      </head>
-      <body>
         <div className="container">
           <div className="icon"><AlertTriangle size={64} color="#f59e0b" /></div>
           <h2>One More Step</h2>
@@ -177,24 +169,20 @@ function NoRefreshTokenPage({ retryHref }: { retryHref: string }) {
             Try Again
           </a>
         </div>
-      </body>
-    </html>
+    </ConnectShell>
   );
 }
 
 // Insufficient scopes error page - shown when user deselects permissions on Google consent screen
-async function InsufficientScopesPage({ retryHref, missingScopes, locale }: { retryHref: string; missingScopes: string[]; locale: string }) {
-  const t = await getTranslations({ locale, namespace: 'oauth.insufficientScopes' });
+function InsufficientScopesPage({ retryHref, missingScopes, locale }: { retryHref: string; missingScopes: string[]; locale: Locale }) {
+  const m = OAUTH[locale].insufficientScopes;
+  const t = (key: keyof typeof m) => m[key];
   const missingRead = missingScopes.some(s => s.includes('readonly'));
   const missingWrite = missingScopes.some(s => s.includes('events'));
   const isRtl = locale === 'he';
 
   return (
-    <html dir={isRtl ? 'rtl' : 'ltr'}>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* eslint-disable-next-line @next/next/no-sync-scripts -- the Telegram WebApp SDK loads synchronously so window.Telegram exists before page code runs */}
-        <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <ConnectShell locale={locale} namespaces={['oauth']} title={m.title}>
         <style>{`
           body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
@@ -245,8 +233,6 @@ async function InsufficientScopesPage({ retryHref, missingScopes, locale }: { re
             font-weight: 600;
           }
         `}</style>
-      </head>
-      <body>
         <div className="container">
           <div style={{ fontSize: '48px', marginBottom: '15px' }}>&#9888;&#65039;</div>
           <h2>{t('title')}</h2>
@@ -272,8 +258,7 @@ async function InsufficientScopesPage({ retryHref, missingScopes, locale }: { re
             {t('tryAgain')}
           </a>
         </div>
-      </body>
-    </html>
+    </ConnectShell>
   );
 }
 

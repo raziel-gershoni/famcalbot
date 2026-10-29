@@ -596,7 +596,7 @@ async function main() {
         if (!html.startsWith(`<div class="ch-app ch-screen" data-theme="light" dir="${locale === 'he' ? 'rtl' : 'ltr'}" lang="${locale}">`) || !html.includes('<h1 class="ch-home-card-title">')) problems.push(`${locale} ${name}: not an AppScreen with the card's h1`);
       }
       // refresh-token sits outside [locale]: its page brings its own provider, in English
-      const refresh = await callPage('app/refresh-token/page.tsx', locale);
+      const refresh = await callPage('app/(connect)/refresh-token/page.tsx', locale);
       const html = renderToString(refresh);
       const en = JSON.parse(readSource('messages/en.json')).ui.missingParameter;
       if (!html.includes(asHtml(en.title)) || !html.includes(asHtml(en.body)) || old(html) || !html.includes('lang="en"')) problems.push(`refresh-token: ${html.slice(0, 200)}`);

@@ -519,7 +519,7 @@ type CallbackEnd = { redirect?: string; element?: Row; threw?: string };
 
 /** Run the OAuth callback page as Next does; its success path ends in a redirect, which throws. */
 async function runCallback(state: string): Promise<CallbackEnd> {
-  const page = (await load('app/oauth-callback/page.tsx')).default;
+  const page = (await load('app/(connect)/oauth-callback/page.tsx')).default;
   try {
     const element = await page({ searchParams: Promise.resolve({ code: 'test-code', state }) });
     return { element: element as Row };
@@ -530,13 +530,29 @@ async function runCallback(state: string): Promise<CallbackEnd> {
   }
 }
 
-/** Every element of a server-rendered tree, sync components expanded. */
+/**
+ * Every element of a server-rendered tree, sync components expanded. A component that needs React's runtime (a hook:
+ * the kit's screen, next-intl's provider, next/script) is not called; its children are walked instead.
+ */
 function elementsOf(node: unknown, out: Row[] = []): Row[] {
   if (Array.isArray(node)) { node.forEach(n => elementsOf(n, out)); return out; }
   if (!node || typeof node !== 'object') return out;
   const el = node as Row;
   if (typeof el.type === 'function') {
-    const rendered = el.type(el.props);
+    const internals = nodeRequire('react').__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE as Row;
+    const saved = internals.H;
+    // A hook throws; a library may wrap what its hook threw (next-intl does), so the hook's call is what counts
+    let hooked = false;
+    internals.H = new Proxy({}, { get: () => () => { hooked = true; throw new Error('needs React'); } });
+    let rendered;
+    try {
+      rendered = el.type(el.props);
+    } catch (err) {
+      if (!hooked) throw err;
+      rendered = el.props?.children;
+    } finally {
+      internals.H = saved;
+    }
     if (rendered && typeof rendered.then !== 'function') elementsOf(rendered, out);
     return out;
   }
@@ -544,6 +560,8 @@ function elementsOf(node: unknown, out: Row[] = []): Row[] {
   elementsOf(el.props?.children, out);
   return out;
 }
+/** The page's own element inside the document its page draws (ConnectShell, app/(connect)/ConnectShell.tsx). */
+const pageClient = (el: Row): Row => (el?.type?.name === 'ConnectShell' ? el.props.children : el);
 const textOf = (els: Row[]) => els.flatMap(e => ([] as unknown[]).concat(e.props?.children ?? []))
   .filter(c => typeof c === 'string' || typeof c === 'number').join(' ');
 
@@ -758,7 +776,7 @@ async function main() {
   // ---- B2: the finish page ----
 
   await check('#5 the finish page: Telegram and WhatsApp links carry gc_<pendingId>; no fragment = incomplete', async () => {
-    const mod = await load('app/oauth-complete/OAuthCompleteClient.tsx');
+    const mod = await load('app/(connect)/oauth-complete/OAuthCompleteClient.tsx');
     assert(typeof mod.parseFinishFragment === 'function' && typeof mod.finishLinks === 'function', 'OAuthCompleteClient exports no parseFinishFragment/finishLinks');
     const id = 'A'.repeat(16) + '_-'.repeat(8);
     const parsed = mod.parseFinishFragment(`#p=${id}&n=${encodeURIComponent('נועה')}&b=tg%2Cwa`);
@@ -775,8 +793,8 @@ async function main() {
       const l = p ? mod.finishLinks(p, 'famcal_test_bot', '15550001111', en.oauthComplete.whatsappText) : {};
       assert(!l.telegram && !l.whatsapp, `fragment ${show(bad)} gave links ${show(l)}`);
     }
-    const page = (await load('app/oauth-complete/page.tsx')).default;
-    const el = (await page({ searchParams: Promise.resolve({ locale: 'he' }) })) as Row;
+    const page = (await load('app/(connect)/oauth-complete/page.tsx')).default;
+    const el = pageClient((await page({ searchParams: Promise.resolve({ locale: 'he' }) })) as Row);
     assert(el.props.botUsername === 'famcal_test_bot' && el.props.waNumber === '15550001111' && el.props.locale === 'he', `props ${show(el.props)}`);
   });
 
@@ -948,24 +966,24 @@ async function main() {
   });
 
   await check('#15 RefreshTokenClient polls on an interval for 3 minutes, calls ready(), sends initData in the header', async () => {
-    const src = fs.readFileSync(path.join(ROOT, 'app/refresh-token/RefreshTokenClient.tsx'), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, 'app/(connect)/refresh-token/RefreshTokenClient.tsx'), 'utf8');
     assert(/setInterval\(/.test(src) && /POLL_INTERVAL_MS\s*=\s*2000/.test(src) && /POLL_WINDOW_MS\s*=\s*3\s*\*\s*60_?000/.test(src), 'no 2 s / 3 min poll');
     assert(/WebApp\??\.ready\(\)/.test(src) && /WebApp\??\.expand\(\)/.test(src), 'no ready() next to expand()');
     assert(src.includes("'X-Telegram-Init-Data'"), 'initData header gone');
-    const page = (await load('app/refresh-token/page.tsx')).default;
+    const page = (await load('app/(connect)/refresh-token/page.tsx')).default;
     seed();
-    const el = (await page({ searchParams: Promise.resolve({ user_id: String(TAL_TG) }) })) as Row;
+    const el = pageClient((await page({ searchParams: Promise.resolve({ user_id: String(TAL_TG) }) })) as Row);
     assert(el.props.translations.waitingTelegram && el.props.translations.waitingWhatsApp, 'no waiting copy passed to the client');
   });
 
   await check("#15b /refresh-token's copy follows the Google state: a first connect (state 'none', stale choices too) is told to connect, never that access expired; a legacy Google user's cleared token with stored calendars keeps the reconnect copy", async () => {
-    const page = (await load('app/refresh-token/page.tsx')).default;
+    const page = (await load('app/(connect)/refresh-token/page.tsx')).default;
     const messages: Record<string, Row> = {
       en: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/en.json'), 'utf8')).refreshToken,
       he: JSON.parse(fs.readFileSync(path.join(ROOT, 'messages/he.json'), 'utf8')).refreshToken,
     };
     const copyOf = async (userId: number) => {
-      const el = (await page({ searchParams: Promise.resolve({ user_id: String(userId) }) })) as Row;
+      const el = pageClient((await page({ searchParams: Promise.resolve({ user_id: String(userId) }) })) as Row);
       const t = el.props.translations;
       return [t.title, t.subtitle, t.step3];
     };
@@ -1182,7 +1200,7 @@ async function main() {
     assert(fresh.status === 200 && fresh.body.refreshed === true, `after the new commit: ${show(fresh)}`);
     const noSince = await askRefreshed();
     assert(noSince.status === 400, `no since: ${show(noSince)}`);
-    const src = fs.readFileSync(path.join(ROOT, 'app/refresh-token/RefreshTokenClient.tsx'), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, 'app/(connect)/refresh-token/RefreshTokenClient.tsx'), 'utf8');
     const poll = src.match(/fetch\(`\/api\/check-token-refresh[^`]*`/)?.[0] ?? '';
     assert(/&since=\$\{/.test(poll), `the client's poll URL sends no since: ${poll || '(not found)'}`);
   });
@@ -1257,11 +1275,11 @@ async function main() {
     process.env.TELEGRAM_BOT_USERNAME = '';
     process.env.WHATSAPP_PHONE_NUMBER = '';
     try {
-      const page = (await load('app/oauth-complete/page.tsx')).default;
-      const el = (await page({ searchParams: Promise.resolve({ locale: 'en' }) })) as Row;
+      const page = (await load('app/(connect)/oauth-complete/page.tsx')).default;
+      const el = pageClient((await page({ searchParams: Promise.resolve({ locale: 'en' }) })) as Row);
       assert(el.props.botUsername === 'family_calendar_telegram_bot' && el.props.waNumber === '972548524687', `props ${show(el.props)}`);
       // A WhatsApp-only owner still gets the only button that can finish
-      const mod = await load('app/oauth-complete/OAuthCompleteClient.tsx');
+      const mod = await load('app/(connect)/oauth-complete/OAuthCompleteClient.tsx');
       const links = mod.finishLinks(mod.parseFinishFragment(`#p=${'A'.repeat(32)}&b=wa`), el.props.botUsername, el.props.waNumber, en.oauthComplete.whatsappText);
       assert(String(links.whatsapp).startsWith('https://wa.me/972548524687?text='), `WhatsApp-only links ${show(links)}`);
       seed();
@@ -1289,7 +1307,7 @@ async function main() {
   });
 
   await check('#25 the finish page tells a WhatsApp owner to send the prefilled message (en/he/ru); a Telegram-only one gets no hint', async () => {
-    const mod = await load('app/oauth-complete/OAuthCompleteClient.tsx');
+    const mod = await load('app/(connect)/oauth-complete/OAuthCompleteClient.tsx');
     assert(typeof mod.FinishButtons === 'function', 'OAuthCompleteClient exports no FinishButtons');
     const SEND = { en: /send it/i, he: /לשלוח/, ru: /отправьте/ };
     for (const locale of ['en', 'he', 'ru'] as const) {
@@ -1302,7 +1320,7 @@ async function main() {
       const tgOnly = elementsOf(mod.FinishButtons({ links: { telegram: 'https://t.me/x' }, translations: t, arrow: null }));
       assert(tgOnly.some(e => e.type === 'a') && !textOf(tgOnly).includes(t.whatsappHint), `${locale}: Telegram-only shows the WhatsApp hint`);
     }
-    const src = fs.readFileSync(path.join(ROOT, 'app/oauth-complete/OAuthCompleteClient.tsx'), 'utf8');
+    const src = fs.readFileSync(path.join(ROOT, 'app/(connect)/oauth-complete/OAuthCompleteClient.tsx'), 'utf8');
     assert(/<FinishButtons\b/.test(src), 'the page does not render FinishButtons');
   });
 
@@ -1329,7 +1347,7 @@ async function main() {
   });
 
   await check('#27 the poll\'s since is the tap on Connect on the server\'s clock: with the phone 5 min ahead or behind, a commit after the tap is reported, an earlier one or one since the page opened is not', async () => {
-    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const client = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
     for (const skew of [5 * 60_000, -5 * 60_000]) {
       const label = skew > 0 ? 'phone 5 min ahead' : 'phone 5 min behind';
@@ -1845,7 +1863,7 @@ async function main() {
   });
 
   await check('#49 every Connect tap opens a Google URL of its own: after a consent used the first state, a second tap on the same page opens a new one, whose consent reaches the finish page instead of "Invalid or expired state token"; a URL left unused 9 minutes is replaced, not opened', async () => {
-    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const client = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
     const stateOf = (url: unknown) => new URL(String(url)).searchParams.get('state') ?? '';
     seed();
@@ -1882,7 +1900,7 @@ async function main() {
   });
 
   await check('#51 a failed oauth/start after a tap (429) leaves Connect working: no final error beside the waiting text; the tap prepares a new URL (opening nothing), the next tap opens it', async () => {
-    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const client = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
     seed();
     await onPhone(0, initDataFor(TAL_TG), async phone => {
@@ -1906,7 +1924,7 @@ async function main() {
   });
 
   await check('#52 the page\'s own Connect is the only button: Telegram\'s bottom MainButton (an English label under a Hebrew page) is never shown, whether the URL is ready, just used or failed to refresh', async () => {
-    const client = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const client = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     const TRANSLATIONS = new Proxy({}, { get: (_t, key) => (key === 'gate' ? new Proxy({}, { get: (_g, k) => String(k) }) : String(key)) });
     seed();
     await onPhone(0, initDataFor(TAL_TG), async phone => {

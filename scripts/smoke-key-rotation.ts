@@ -457,7 +457,7 @@ type CallbackEnd = { redirect?: string; element?: Row; threw?: string };
 
 /** Run the OAuth callback page as Next does; its success path ends in a redirect, which throws. */
 async function runCallback(state: string): Promise<CallbackEnd> {
-  const page = (await load('app/oauth-callback/page.tsx')).default;
+  const page = (await load('app/(connect)/oauth-callback/page.tsx')).default;
   try {
     const element = await page({ searchParams: Promise.resolve({ code: 'test-code', state }) });
     return { element: element as Row };

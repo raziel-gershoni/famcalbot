@@ -105,10 +105,7 @@ export default function OAuthCompleteClient({ locale, botUsername, waNumber, tra
   const arrow = <ArrowRight size={20} style={isRTL ? { transform: 'scaleX(-1)' } : undefined} />;
 
   return (
-    <html lang={locale} dir={isRTL ? 'rtl' : 'ltr'}>
-      <head>
-        <title>{t.title}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <>
         <style>{`
           * {
             box-sizing: border-box;
@@ -215,8 +212,6 @@ export default function OAuthCompleteClient({ locale, botUsername, waNumber, tra
             line-height: 1.6;
           }
         `}</style>
-      </head>
-      <body>
         <div className="container">
           {incomplete ? (
             <>
@@ -239,7 +234,6 @@ export default function OAuthCompleteClient({ locale, botUsername, waNumber, tra
             </>
           )}
         </div>
-      </body>
-    </html>
+    </>
   );
 }

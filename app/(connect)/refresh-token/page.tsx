@@ -1,8 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
-import { NextIntlClientProvider } from 'next-intl';
 import { MissingParameterCard } from '@/components/app-ui/StateCard';
 import { googleStateOf } from '@/src/lib/google-state';
+import { normalizeLocale } from '@/src/utils/locale';
+import { ConnectShell } from '../ConnectShell';
 import RefreshTokenClient from './RefreshTokenClient';
 import enMessages from '@/messages/en.json';
 import heMessages from '@/messages/he.json';
@@ -27,19 +28,18 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
 
   // Otherwise → show auth initiation page
   if (!user_id) {
-    // This page sits outside app/[locale]: it brings the provider the card reads its text from, in English
-    // (no user, no language yet). The card formats no date, so the zone is only there to be set.
+    // No user, no language yet: the card in English
     return (
-      <NextIntlClientProvider locale="en" messages={{ ui: enMessages.ui }} timeZone="UTC">
+      <ConnectShell locale="en" namespaces={[]} title={enMessages.ui.missingParameter.title} telegram>
         <MissingParameterCard />
-      </NextIntlClientProvider>
+      </ConnectShell>
     );
   }
 
   // Get user's language preference (already normalized to 'he'/'ru'/'en')
   const user = await getUserByTelegramId(parseInt(user_id)) ?? await getUserById(parseInt(user_id));
-  const locale = user?.language || 'en';
-  const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale] ?? enMessages;
+  const locale = normalizeLocale(user?.language);
+  const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale];
   // A user who never connected Google (the menu's Connect entry) is asked to connect; everyone
   // else is reconnecting, so the page says their access expired.
   const rt = messages.refreshToken;
@@ -51,5 +51,9 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   // No OAuth state here: the client asks POST /api/oauth/start for the Google URL with
   // its credential (initData or the WhatsApp session), and the state is bound to the
   // user that credential proves, not to this URL's user_id.
-  return <RefreshTokenClient userId={user_id} locale={locale} translations={t} />;
+  return (
+    <ConnectShell locale={locale} namespaces={['refreshToken']} title={copy.title} telegram>
+      <RefreshTokenClient userId={user_id} locale={locale} translations={t} />
+    </ConnectShell>
+  );
 }

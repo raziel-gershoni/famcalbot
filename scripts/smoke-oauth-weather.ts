@@ -408,7 +408,7 @@ async function bodyOf(res: Response): Promise<string> {
 
 /** Run the OAuth callback page as Next does; its success path ends in a redirect, which throws. */
 async function runCallback(state: string): Promise<string> {
-  const page = (await load('app/oauth-callback/page.tsx')).default;
+  const page = (await load('app/(connect)/oauth-callback/page.tsx')).default;
   try {
     await page({ searchParams: Promise.resolve({ code: 'test-code', state }) });
     return 'rendered a page';
@@ -446,7 +446,7 @@ async function main() {
 
   await check('#1 the /refresh-token page creates no OAuth state', async () => {
     seed();
-    const page = (await load('app/refresh-token/page.tsx')).default;
+    const page = (await load('app/(connect)/refresh-token/page.tsx')).default;
     await page({ searchParams: Promise.resolve({ user_id: '111111111' }) });
     const creates = prismaCalls.filter(c => c === 'oAuthState.create');
     assert(creates.length === 0 && DB.oAuthState.length === 0, `OAuth states created: ${show(DB.oAuthState)}`);
@@ -555,9 +555,12 @@ async function main() {
   const SDK = 'https://telegram.org/js/telegram-web-app.js';
   const readSource = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
-  await check('#10 /refresh-token has a root layout that loads the Telegram SDK before hydration; no inline-URL <script>', async () => {
-    const layout = (await load('app/refresh-token/layout.tsx')).default;
-    const tree = layout({ children: 'PAGE' }) as Row;
+  await check('#10 /refresh-token\'s document (ConnectShell) loads the Telegram SDK before hydration; no inline-URL <script>', async () => {
+    seed();
+    const page = (await load('app/(connect)/refresh-token/page.tsx')).default;
+    const shell = (await page({ searchParams: Promise.resolve({ user_id: '111111111' }) })) as Row;
+    assert(shell?.type?.name === 'ConnectShell', `the page's root: ${String(shell?.type?.name ?? shell?.type)}`);
+    const tree = shell.type(shell.props) as Row;
     const elements: Row[] = [];
     const walk = (node: unknown) => {
       if (Array.isArray(node)) return node.forEach(walk);
@@ -566,11 +569,11 @@ async function main() {
       walk((node as Row).props?.children);
     };
     walk(tree);
-    assert(tree.type === 'html' && elements.some(e => e.type === 'body'), `layout root: ${String(tree.type)}`);
+    assert(tree.type === 'html' && elements.some(e => e.type === 'body'), `document root: ${String(tree.type)}`);
     const sdk = elements.find(e => e.props?.src === SDK);
     assert(sdk && sdk.props.strategy === 'beforeInteractive', `SDK script: ${show(sdk?.props ?? null)}`);
     // The old tag: a <script> whose body was the URL text, which loads nothing
-    assert(!/__html:\s*`https:\/\/telegram\.org/.test(readSource('app/refresh-token/RefreshTokenClient.tsx')),
+    assert(!/__html:\s*`https:\/\/telegram\.org/.test(readSource('app/(connect)/refresh-token/RefreshTokenClient.tsx')),
       'RefreshTokenClient still renders the inline <script> whose body is the SDK URL');
   });
 
@@ -606,7 +609,7 @@ async function main() {
     const res = await oauthStart({ user_id: '111111111', initData: reads.afterFullLoad });
     assert(res.status === 200, `oauth/start: status ${res.status} ${await bodyOf(res)}`);
     assert(DB.oAuthState.length === 1 && String(DB.oAuthState[0].userId) === '9', `OAuth states: ${show(DB.oAuthState)}`);
-    for (const rel of ['app/refresh-token/RefreshTokenClient.tsx', 'app/[locale]/PageGate.tsx']) {
+    for (const rel of ['app/(connect)/refresh-token/RefreshTokenClient.tsx', 'app/[locale]/PageGate.tsx']) {
       assert(readSource(rel).includes("from '@/src/lib/read-init-data'"), `${rel} does not use the shared initData reader`);
     }
   });
@@ -621,18 +624,19 @@ async function main() {
     assert((await viaHeader.clone().json()).refreshed === true, `header: ${await bodyOf(viaHeader)}`);
     const viaQuery: Response = await GET(new NextRequest(`${url}&initData=${encodeURIComponent(initDataFor(111111111))}`));
     assert(viaQuery.status === 401, `initData in the query string: status ${viaQuery.status} (want 401)`);
-    const poll = readSource('app/refresh-token/RefreshTokenClient.tsx').match(/fetch\(`\/api\/check-token-refresh[^`]*`/)?.[0] ?? '';
+    const poll = readSource('app/(connect)/refresh-token/RefreshTokenClient.tsx').match(/fetch\(`\/api\/check-token-refresh[^`]*`/)?.[0] ?? '';
     assert(poll && !poll.includes('initData'), `the client's poll URL: ${poll || '(not found)'}`);
   });
 
   await check('#13 /refresh-token with no credential says what the gate says: browser = expired link + Telegram hint; Telegram = reopen from the bot', async () => {
     seed();
     (DB.user.find(u => u.id === 9) as Row).language = 'he';
-    const page = (await load('app/refresh-token/page.tsx')).default;
-    const el = (await page({ searchParams: Promise.resolve({ user_id: '111111111' }) })) as Row;
-    const t = el?.props?.translations as Row;
+    const page = (await load('app/(connect)/refresh-token/page.tsx')).default;
+    const shell = (await page({ searchParams: Promise.resolve({ user_id: '111111111' }) })) as Row;
+    // The page draws its document (ConnectShell) around the client
+    const t = shell?.props?.children?.props?.translations as Row;
     const he = JSON.parse(readSource('messages/he.json'));
-    const { startErrorLines } = await load('app/refresh-token/RefreshTokenClient.tsx');
+    const { startErrorLines } = await load('app/(connect)/refresh-token/RefreshTokenClient.tsx');
     assert(typeof startErrorLines === 'function', 'RefreshTokenClient exports no startErrorLines');
     const browser: string[] = startErrorLines(401, '', t);
     assert(browser.includes(he.pageGate.browserBody) && browser.includes(he.pageGate.browserTelegramHint),
