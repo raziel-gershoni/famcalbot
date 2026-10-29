@@ -925,12 +925,14 @@ async function fix7() {
     }
   });
 
-  await check('7: every /start deep link that can be someone\'s first message ends with the links too, with no link preview: feedback, connect (WhatsApp not linked yet) and a partner\'s invite (a bad token and one the pairing refuses)', async () => {
+  await check('7: every first contact ends with the links too, with no link preview: the /start deep links feedback, connect (WhatsApp not linked yet) and a partner\'s invite (a bad token and one the pairing refuses), and a typed "accept <token>" (from a stranger, whose account it creates, and from a known person)', async () => {
     const cases: [string, string, Lang, number][] = [
       ['feedback', '/start feedback', 'en', TG_EN],
       ['connect', '/start connect', 'he', TG_HE],
       ['invite, a bad token', '/start invite_abc', 'ru', TG_RU],
       ['invite, refused', `/start invite_${'f'.repeat(32)}`, 'en', TG_STRANGER],
+      ['accept, a stranger', `accept ${'e'.repeat(32)}`, 'en', TG_STRANGER],
+      ['accept, a known person', `accept ${'a'.repeat(16)}`, 'he', TG_HE],
     ];
     for (const [what, text, lang, id] of cases) {
       if (id === TG_STRANGER) DB.user = DB.user.filter(u => Number(u.telegramId) !== TG_STRANGER);

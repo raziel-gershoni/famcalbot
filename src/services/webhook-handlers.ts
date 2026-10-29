@@ -574,7 +574,11 @@ export async function handleTelegramWebhook(
     if (token) {
       const { getOrCreateUser } = await import('./user-service');
       const user = await getOrCreateUser(textUserId, update.message.from);
-      await handlePairAccept(chatId, user.id, token, user.language || 'en', MessagingPlatform.TELEGRAM);
+      // It can be someone's first message (it creates the account): every reply ends with the Privacy Policy and the Terms, as /start's do
+      const locale = user.language || 'en';
+      const [{ getBotMessages }, { policyLinks }] = await Promise.all([import('../lib/bot-messages'), import('../lib/plan-disclosure')]);
+      const links = policyLinks((await getBotMessages(locale)).policy, locale, 'html');
+      await handlePairAccept(chatId, user.id, token, locale, MessagingPlatform.TELEGRAM, links);
     } else {
       await routeTypedReminderText(chatId, textUserId, text, update.message.message_id);
     }
