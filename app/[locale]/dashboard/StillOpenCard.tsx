@@ -3,7 +3,8 @@
 // The "Still open" card (spec §7.3): today's past-due reminders and the carry-overs, as
 // buildAgenda orders them. It shows 5, then "N more", which opens the rest in place. Each
 // row says since when it is open, and who set it when that wasn't the viewer ("From
-// Noa"), or whom the viewer set it for ("For Noa"). A tap opens the item sheet.
+// Noa"), or whom the viewer set it for ("For Noa"); a reminder where each marks their own Done
+// shows the partner's status in place of "For both of you". A tap opens the item sheet.
 
 import { useEffect, useRef, useState, type Ref } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -50,7 +51,7 @@ function OpenRow({ row, today, tz, onOpen, buttonRef }: { row: StillOpenRow; but
           </span>
           <span className="ch-meta ch-indent">
             <span className="ch-meta-text">{since}</span>
-            <PersonChip whose={row.whose} />
+            <PersonChip whose={row.whose} item={row.item} />
           </span>
         </span>
       </button>

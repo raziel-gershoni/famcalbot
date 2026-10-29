@@ -162,7 +162,9 @@
       "snoozedLabel": "Отложено до {time}",
       "birthday": "День рождения",
       "anniversary": "{n, plural, one {# год} few {# года} many {# лет} other {# лет}}",
-      "googleCalendar": "Google · {calendar}"
+      "googleCalendar": "Google · {calendar}",
+      "partnerDone": "{name}: готово",
+      "partnerNotYet": "{name}: ещё нет"
     },
     "person": {
       "from": "От: {name}",

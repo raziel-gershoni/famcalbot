@@ -14,6 +14,9 @@
 //   badge while snoozed; a bell for later ones.
 // - The person chip carries the partner's name (Ruling R7): "From Noa", "For Noa", or
 //   the bare name on a partner's event. Calendar ids never reach the markup.
+// - On a "remind us both" reminder where each marks their own Done, the "For both of you" chip gives
+//   way to the partner's status: the open circle or the check-circle (small, decorative) and
+//   "Dana: not yet" / "Dana: done", the name isolated and the chip following the page's direction.
 // - A stripe at the row's start in the calendar's colour (spec 2026-10-19 §3.3): solid
 //   for the viewer's item, hollow for the partner's, so whose it is never rests on
 //   colour alone. No usable colour keeps today's tones (the accent, or orange).
@@ -28,6 +31,7 @@ import { calendarVars } from '@/src/lib/calendar-view/colours';
 import type { ItemDrag } from './DragSurface';
 import { allDayLastDay, formatDayShort, formatTime, formatWeekdayTime, instantDay } from '@/src/lib/calendar-view/format';
 import { zmanRuleWords } from '@/src/lib/calendar-view/zman-words';
+import { isolate } from '@/src/lib/isolate';
 
 export interface ItemRowProps {
   row: AgendaRow;
@@ -101,8 +105,39 @@ export function usePersonText(whose: Whose): string | null {
   return whose.person;
 }
 
-export function PersonChip({ whose }: { whose: Whose }) {
+/**
+ * The partner's Done on a reminder where each marks their own (the "Each of us marks it done" switch):
+ * their name and whether they are done. Null for any other row, and for one without the partner's name.
+ */
+export function partnerStatusOf(item: ItemDTO, whose: Whose): { name: string; done: boolean } | null {
+  const r = item.reminder;
+  if (whose.relation !== 'both' || !r?.eachMarksDone || !r.partnerName) return null;
+  return { name: r.partnerName, done: r.partnerDone === true };
+}
+
+/**
+ * The partner's status as a chip: the viewer's own state's icon shapes (a check-circle when they are done, an open
+ * circle when not; small, decorative) and "Dana: done" / "Dana: not yet". The name is isolated and the chip follows the
+ * page's direction (no dir="auto"), so a Latin name in a Hebrew row reads right to left.
+ */
+function PartnerStatusChip({ name, done }: { name: string; done: boolean }) {
+  const t = useTranslations('calendarHome');
+  return (
+    <span className={`ch-chip ch-chip-partner${done ? ' ch-chip-partner-done' : ''}`}>
+      <ReminderIcon mark={done ? 'done' : 'open'} />
+      <span className="ch-chip-label">{t(done ? 'row.partnerDone' : 'row.partnerNotYet', { name: isolate(name) })}</span>
+    </span>
+  );
+}
+
+/**
+ * The person chip. With the item given (the Agenda and Month rows, the Still open card), a reminder where each
+ * marks their own Done shows the partner's status in place of "For both of you".
+ */
+export function PersonChip({ whose, item }: { whose: Whose; item?: ItemDTO }) {
   const text = usePersonText(whose);
+  const partner = item ? partnerStatusOf(item, whose) : null;
+  if (partner) return <PartnerStatusChip name={partner.name} done={partner.done} />;
   if (!text) return null;
   return (
     <span className="ch-chip" dir="auto">
@@ -249,7 +284,7 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
                   <span className="ch-visually-hidden">{t('row.snoozedLabel', { time: snoozeTime })}</span>
                 </>
               ) : null}
-              <PersonChip whose={whose} />
+              <PersonChip whose={whose} item={item} />
               {item.source === 'google' ? <GoogleChip item={item} mine={whose.mine} /> : null}
             </span>
           ) : null}

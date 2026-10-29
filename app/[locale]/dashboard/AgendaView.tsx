@@ -400,6 +400,25 @@ export const AGENDA_CSS = `
   color: var(--ch-accent);
   font-weight: 600;
 }
+.ch-chip.ch-chip-partner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ch-chip-partner .ch-icon {
+  inline-size: 14px;
+  block-size: 14px;
+  color: currentColor;
+}
+.ch-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ch-chip.ch-chip-partner-done {
+  background: var(--ch-surface);
+  color: var(--ch-muted);
+}
 .ch-badge {
   padding: 0 6px;
   border-radius: 6px;

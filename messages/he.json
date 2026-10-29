@@ -162,7 +162,9 @@
       "snoozedLabel": "נדחתה עד {time}",
       "birthday": "יום הולדת",
       "anniversary": "{n, plural, one {שנה} two {שנתיים} other {# שנים}}",
-      "googleCalendar": "Google · {calendar}"
+      "googleCalendar": "Google · {calendar}",
+      "partnerDone": "{name}: בוצע",
+      "partnerNotYet": "{name}: עוד לא"
     },
     "person": {
       "from": "מאת {name}",

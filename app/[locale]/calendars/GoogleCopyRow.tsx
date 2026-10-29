@@ -35,8 +35,8 @@ export interface GoogleCopyRowProps {
   onOpenGoogle: () => void;
 }
 
-/** First-strong isolation, so a Hebrew name keeps its place inside a sentence of either direction. */
-export const isolate = (name: string) => `⁨${name}⁩`;
+// First-strong isolation of a name (src/lib/isolate.ts, the one definition: the home's rows use it too).
+export { isolate } from '@/src/lib/isolate';
 
 const LINE_NEEDS_USER = new Set<CopyStatus>(['approve', 'reconnect', 'gone', 'otherAccount', 'error']);
 const STATUS_LINE: Partial<Record<CopyStatus, string>> = {

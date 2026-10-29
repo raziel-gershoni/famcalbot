@@ -18,6 +18,9 @@
 //  - accessibility: buttons for every tap, icons hidden, times dir="ltr", titles
 //    dir="auto", the sheet a modal dialog; the CSS has no text under 11 px, no tap
 //    target under 44 px, logical properties only and a reduced-motion rule;
+//  - the partner's status at a glance (2026-10-29): on a reminder where each marks their own Done, the
+//    row's and the Still open card's person chip says "Dana: not yet" / "Dana: done" in place of "For
+//    both of you" (#129-#135);
 //  - the item sheet's details (§7.5), and, in real React (react-dom/client with act on a
 //    small fake DOM), that a tap selects the row through the container's onSelect and
 //    the sheet opens, AgendaView never touches Telegram's BackButton (the container's
@@ -122,6 +125,9 @@ import { addDaysToKey, daysInWindow, emptyStore, reduceStore, type CalendarStore
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type WeekStart } from '../src/lib/calendar-view/types';
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
 import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
+import { isolate } from '../src/lib/isolate';
+import { ItemRow } from '../app/[locale]/dashboard/ItemRow';
+import bidiFactory from 'bidi-js';
 import { hebrewFullDate } from '../src/lib/calendar-view/hebrew-date';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/dashboard/HomeErrorBoundary';
 import { HomeChunkBoundary } from '../app/[locale]/PageGate';
@@ -7204,7 +7210,7 @@ async function main() {
     }
   });
 
-  await check('each: the item sheet adds the partner\'s status under the viewer\'s own state, for both states, in en/he/ru; the row and a reminder without the switch keep their text', () => {
+  await check('each: the item sheet adds the partner\'s status under the viewer\'s own state, for both states, in en/he/ru; the row keeps the viewer\'s own state and shows the partner\'s status in place of the Both chip (#129-#133 check the chip itself)', () => {
     for (const locale of LOCALES) {
       const sheet = messages[locale].calendarHome.sheet as Row;
       const done = sheetWith(locale, ACT({ open: true, forBoth: true, eachMarksDone: true, partnerDone: true, partnerName: 'Dana' }), IDLE);
@@ -7224,12 +7230,17 @@ async function main() {
       assertHas(textOf(mine), [(sheet.partnerNotDone as string).replace('{name}', 'Dana')], `${locale} own done, partner not yet`);
       assertLacks(textOf(mine), [sheet.stateOpen as string], `${locale} own done: not open`);
     }
-    // The agenda row keeps the viewer's own state: the same text with or without the partner's status.
+    // The agenda row keeps the viewer's own state: the same text with or without the partner's status, but for the Both chip, which the partner's status replaces.
     const withPartner = item('both-each', { kind: 'reminder', title: 'Book the flights', start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true, eachMarksDone: true, partnerDone: true, partnerName: 'Dana' }) });
     const without = item('both-each', { kind: 'reminder', title: 'Book the flights', start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true }) });
     const week = (it: ItemDTO) => model([ok(answer({ items: { ...WEEK, [day(1)]: [...(WEEK[day(1)] ?? []), it] }, carryOvers: [] }))]);
     for (const locale of LOCALES) {
-      assert(textOf(renderAgenda(locale, week(withPartner))) === textOf(renderAgenda(locale, week(without))), `${locale}: the row reads the viewer's own state only`);
+      const rowWords = messages[locale].calendarHome.row as Row;
+      const bothText = (messages[locale].calendarHome.person as Row).both as string;
+      const partnerText = (rowWords.partnerDone as string).replace('{name}', isolate('Dana'));
+      const plainText = textOf(renderAgenda(locale, week(without)));
+      assert(plainText.includes(bothText), `${locale}: the plain reminder keeps its Both chip`);
+      assert(textOf(renderAgenda(locale, week(withPartner))) === plainText.replace(bothText, partnerText), `${locale}: the row reads the viewer's own state, with the partner's status in place of the Both chip`);
     }
   });
 
@@ -9921,6 +9932,191 @@ async function main() {
 
   await check('#128 React logged no warning in #126-#127a (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
     assert(reactWarnings.length === warnedBeforeSun, `React warned: ${show(reactWarnings.slice(warnedBeforeSun, warnedBeforeSun + 3))}`);
+  });
+
+  // ---- The partner's status at a glance (owner-approved 2026-10-29) ----
+  // On a "remind us both" reminder whose "Each of us marks it done" switch is on, the row's and the Still open card's person chip
+  // says "Dana: not yet" / "Dana: done" (with the viewer's own icon shapes, small) in place of "For both of you". The Month's list
+  // rows are the same ItemRow; the Month grid's chips are not touched.
+
+  const warnedBeforePartner = reactWarnings.length;
+  const bidi = bidiFactory();
+  const fsi = (name: string) => `⁨${name}⁩`;
+  /** What the owner approved after "{name}: ", verbatim. */
+  const PARTNER_WORDS: Record<Locale, { done: string; notYet: string }> = {
+    en: { done: 'done', notYet: 'not yet' },
+    he: { done: 'בוצע', notYet: 'עוד לא' },
+    ru: { done: 'готово', notYet: 'ещё нет' },
+  };
+  const partnerText = (locale: Locale, name: string, done: boolean) => `${fsi(name)}: ${done ? PARTNER_WORDS[locale].done : PARTNER_WORDS[locale].notYet}`;
+  const BOTH_TEXT: Record<Locale, string> = { en: 'For both of you', he: 'לשניכם', ru: 'Для вас обоих' };
+  const bothChipOf = (locale: Locale) => `<span class="ch-chip" dir="auto">${BOTH_TEXT[locale]}</span>`;
+  const DONE_PATH = 'd="M8 12.5l2.5 2.5L16 9.5"';
+
+  const EACH_TITLE = 'Book the flights';
+  const eachItem = (o: Partial<ItemReminderDTO> = {}): ItemDTO =>
+    item('each-row', { kind: 'reminder', title: EACH_TITLE, start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true, eachMarksDone: true, partnerName: 'Dana', partnerDone: false, ...o }) });
+  /** The same reminder with the switch off: "remind us both" with one shared Done. */
+  const sharedItem = (o: Partial<ItemReminderDTO> = {}): ItemDTO =>
+    item('each-row', { kind: 'reminder', title: EACH_TITLE, start: at(1, '10:00'), reminder: rem({ open: true, forBoth: true, ...o }) });
+  const weekWith = (it: ItemDTO): AgendaModel => model([ok(answer({ items: { ...WEEK, [day(1)]: [...(WEEK[day(1)] ?? []), it] }, carryOvers: [] }))]);
+
+  const CARRY_TITLE = 'Renew the car licence';
+  const carryEach = (o: Partial<ItemReminderDTO> = {}): ItemDTO =>
+    item('carry-each', { kind: 'reminder', title: CARRY_TITLE, start: at(-1, '09:00'), reminder: rem({ open: true, openSince: day(-1), forBoth: true, eachMarksDone: true, partnerName: 'Dana', partnerDone: false, ...o }) });
+  const carryShared = (): ItemDTO =>
+    item('carry-each', { kind: 'reminder', title: CARRY_TITLE, start: at(-1, '09:00'), reminder: rem({ open: true, openSince: day(-1), forBoth: true }) });
+  const withCarry = (it: ItemDTO): AgendaModel => model([ok(answer({ items: WEEK, carryOvers: [it] }))]);
+
+  /** The <li> of the one row whose markup holds `title`. */
+  const rowLi = (html: string, title: string): string => {
+    const found = markup(html)
+      .split('<li class="ch-row-li">')
+      .slice(1)
+      .map((part) => part.split('</li>')[0])
+      .filter((part) => part.includes(title));
+    assert(found.length === 1, `${found.length} rows hold ${show(title)}`);
+    return found[0];
+  };
+  /** The Still open card's markup. */
+  const stillOpenCard = (html: string): string => {
+    const card = /<section class="ch-card" aria-labelledby="ch-still-open">.*?<\/section>/s.exec(markup(html));
+    assert(card, 'no Still open card');
+    return card[0];
+  };
+  const CHIP_RE = /<span class="(ch-chip ch-chip-partner[^"]*)"([^>]*)>(<svg[^>]*>.*?<\/svg>)<span class="ch-chip-label"([^>]*)>([^<]*)<\/span><\/span>/s;
+  const partnerChip = (li: string) => {
+    const m = CHIP_RE.exec(li);
+    return m ? { whole: m[0], cls: m[1], attrs: m[2], svg: m[3], labelAttrs: m[4], text: m[5] } : null;
+  };
+  /** The chip's words, icon shape (the viewer's own state's), tone and direction, the same wherever it shows. */
+  function assertPartnerChip(li: string, locale: Locale, name: string, done: boolean, where: string) {
+    const chip = partnerChip(li);
+    assert(chip, `${where}: no partner chip in ${show(li.slice(-600))}`);
+    assert(chip.text === partnerText(locale, name, done), `${where}: the chip reads ${show(chip.text)}, wanted ${show(partnerText(locale, name, done))}`);
+    assert(chip.attrs === '' && chip.labelAttrs === '', `${where}: no dir (or any attribute) on the chip, which follows the page: ${show([chip.attrs, chip.labelAttrs])}`);
+    assert(chip.svg.includes('aria-hidden="true"') && chip.svg.includes('focusable="false"'), `${where}: the icon is hidden from readers`);
+    assert(chip.svg.includes('<circle cx="12" cy="12" r="9"'), `${where}: the icon is the circle`);
+    assert(chip.svg.includes(DONE_PATH) === done, `${where}: the check mark is ${done ? 'missing' : 'there'}`);
+    assert(chip.svg.includes(done ? 'ch-icon-done' : 'ch-icon-open') && !chip.svg.includes(done ? 'ch-icon-open' : 'ch-icon-done'), `${where}: the icon is the ${done ? 'done' : 'open'} one`);
+    assert(chip.cls.includes('ch-chip-partner-done') === done, `${where}: the done tone is ${done ? 'missing' : 'there'}: ${chip.cls}`);
+    assert(!li.includes(BOTH_TEXT[locale]), `${where}: "${BOTH_TEXT[locale]}" is still on the row`);
+    assert(!li.includes('<span class="ch-chip" dir="auto">'), `${where}: a person chip of today's kind is still on the row`);
+    return chip;
+  }
+
+  await check('#129 the Agenda row of a reminder where each marks their own Done shows the partner\'s status in place of "For both of you", in en/he/ru, partner done and not yet: the viewer\'s own icon shapes (small, hidden from readers), the approved words with the name isolated, no dir on the chip; nothing else on the row changes', () => {
+    for (const locale of LOCALES) {
+      assert(messages[locale].calendarHome.row.partnerDone === `{name}: ${PARTNER_WORDS[locale].done}` && messages[locale].calendarHome.row.partnerNotYet === `{name}: ${PARTNER_WORDS[locale].notYet}`, `${locale}: the messages are not the approved words`);
+      const plain = rowLi(renderAgenda(locale, weekWith(sharedItem())), EACH_TITLE);
+      assert(plain.includes(bothChipOf(locale)), `${locale}: the plain reminder's chip`);
+      for (const done of [true, false]) {
+        const where = `${locale} partner ${done ? 'done' : 'not yet'}`;
+        const li = rowLi(renderAgenda(locale, weekWith(eachItem({ partnerDone: done }))), EACH_TITLE);
+        const chip = assertPartnerChip(li, locale, 'Dana', done, where);
+        // The viewer's own state, the title, the stripe and the time are the plain reminder's, chip aside.
+        assert(li.replace(chip.whole, '@') === plain.replace(bothChipOf(locale), '@'), `${where}: the rest of the row changed\n     got  ${show(li.replace(chip.whole, '@'))}\n     want ${show(plain.replace(bothChipOf(locale), '@'))}`);
+      }
+    }
+  });
+
+  await check('#130 a plain "remind us both" reminder (switch off) and one with the switch on but no partner name keep today\'s chip; both done still shows the chip, with "done", under the viewer\'s own done row', () => {
+    for (const locale of LOCALES) {
+      const off = rowLi(renderAgenda(locale, weekWith(sharedItem())), EACH_TITLE);
+      assert(off.includes(bothChipOf(locale)) && partnerChip(off) === null, `${locale}: the switch off keeps "${BOTH_TEXT[locale]}"`);
+      const noName = rowLi(renderAgenda(locale, weekWith(eachItem({ partnerName: undefined }))), EACH_TITLE);
+      assert(noName === off, `${locale}: no partner name keeps today's chip, row for row\n     got  ${show(noName)}\n     want ${show(off)}`);
+      // The switch is the gate: a partner's name and status without it change nothing
+      assert(rowLi(renderAgenda(locale, weekWith(sharedItem({ partnerName: 'Dana', partnerDone: true }))), EACH_TITLE) === off, `${locale}: without the switch the row keeps today's chip`);
+      // Both done: the viewer's row is the done one (struck title, "done"), and the partner's chip says done
+      const bothDone = renderAgenda(locale, weekWith(eachItem({ open: false, done: true, doneAt: at(0, '12:00'), partnerDone: true })));
+      const doneRow = rowLi(bothDone, EACH_TITLE);
+      assertPartnerChip(doneRow, locale, 'Dana', true, `${locale} both done`);
+      assertHas(textOf(doneRow), [(messages[locale].calendarHome.row as Row).done as string], `${locale} both done: the row's own "done"`);
+      assert(markup(bothDone).includes('class="ch-row ch-tap is-done"'), `${locale} both done: the row is the done one`);
+      // Viewer done, partner not yet: the chip is still the partner's, not yet
+      assertPartnerChip(rowLi(renderAgenda(locale, weekWith(eachItem({ open: false, done: true, doneAt: at(0, '12:00'), partnerDone: false }))), EACH_TITLE), locale, 'Dana', false, `${locale} own done, partner not yet`);
+    }
+  });
+
+  await check('#131 the Still open card shows the partner\'s status chip on such a reminder (both states, en/he/ru), and a plain "remind us both" carry-over keeps its chip', () => {
+    for (const locale of LOCALES) {
+      const plain = rowLi(stillOpenCard(renderAgenda(locale, withCarry(carryShared()))), CARRY_TITLE);
+      assert(plain.includes(bothChipOf(locale)) && partnerChip(plain) === null, `${locale}: the plain carry-over keeps "${BOTH_TEXT[locale]}"`);
+      for (const done of [true, false]) {
+        const where = `${locale} still open, partner ${done ? 'done' : 'not yet'}`;
+        const li = rowLi(stillOpenCard(renderAgenda(locale, withCarry(carryEach({ partnerDone: done })))), CARRY_TITLE);
+        const chip = assertPartnerChip(li, locale, 'Dana', done, where);
+        assert(li.replace(chip.whole, '@') === plain.replace(bothChipOf(locale), '@'), `${where}: the rest of the row changed`);
+      }
+    }
+  });
+
+  await check('#132 a Latin name in a Hebrew row reads right to left, and a Hebrew name in an English or Russian row keeps its place: the name is isolated (FSI ... PDI), the chip has no dir of its own and sits inside the page\'s dir, in the row and in the Still open card', () => {
+    const visual = (text: string, base: 'ltr' | 'rtl') => bidi.getReorderedString(text, bidi.getEmbeddingLevels(text, base)).replace(/[⁨⁩]/g, '');
+    const reversed = (text: string) => [...text].reverse().join('');
+    const NAME = 'Dana B.';
+    // Hebrew page: the section is dir="rtl"; the chip (no dir) takes it. Dana is the rightmost word, the colon to her left, then the Hebrew.
+    for (const done of [true, false]) {
+      const cases = [
+        { html: renderAgenda('he', weekWith(eachItem({ partnerName: NAME, partnerDone: done }))), title: EACH_TITLE, card: false },
+        { html: renderAgenda('he', withCarry(carryEach({ partnerName: NAME, partnerDone: done }))), title: CARRY_TITLE, card: true },
+      ];
+      for (const { html, title, card } of cases) {
+        const where = `he ${title} ${done ? 'done' : 'not yet'}`;
+        assert(markup(html).includes('<section class="ch-agenda" dir="rtl"'), `${where}: the page is rtl`);
+        const chip = assertPartnerChip(rowLi(card ? stillOpenCard(html) : html, title), 'he', NAME, done, where);
+        assert(chip.text.startsWith(`⁨${NAME}⁩`), `${where}: the name is isolated: ${show(chip.text)}`);
+        const want = `${reversed(done ? 'בוצע' : 'עוד לא')} :${NAME}`;
+        assert(visual(chip.text, 'rtl') === want, `${where}: on screen ${show(visual(chip.text, 'rtl'))}, wanted ${show(want)}`);
+        // Without the isolation the period would jump to the other side of the name
+        assert(visual(`${NAME}: ${done ? 'בוצע' : 'עוד לא'}`, 'rtl') !== want, `${where}: the isolation makes no difference here: the check proves nothing`);
+      }
+    }
+    // English and Russian pages are ltr; a Hebrew name stays in one piece at the start of the chip
+    for (const locale of ['en', 'ru'] as const) {
+      const html = renderAgenda(locale, weekWith(eachItem({ partnerName: 'דנה', partnerDone: true })));
+      assert(markup(html).includes('<section class="ch-agenda" dir="ltr"'), `${locale}: the page is ltr`);
+      const chip = assertPartnerChip(rowLi(html, EACH_TITLE), locale, 'דנה', true, `${locale} Hebrew name`);
+      assert(visual(chip.text, 'ltr') === `${reversed('דנה')}: ${PARTNER_WORDS[locale].done}`, `${locale}: on screen ${show(visual(chip.text, 'ltr'))}`);
+    }
+  });
+
+  await check('#133 the Month list\'s row is the same ItemRow: a reminder where each marks their own Done shows the partner\'s status there too (en/he/ru), and the plain one keeps its chip', () => {
+    const monthRow = (locale: Locale, it: ItemDTO) => {
+      const row = rowOf(weekWith(it), it.key);
+      return rowLi(renderToString(inHome(locale, createElement('ul', { className: 'ch-list' }, createElement(ItemRow, { row, day: day(1), tz: TZ, onOpen: noop })))), EACH_TITLE);
+    };
+    for (const locale of LOCALES) {
+      assert(monthRow(locale, sharedItem()).includes(bothChipOf(locale)), `${locale}: the plain reminder keeps its chip`);
+      for (const done of [true, false]) assertPartnerChip(monthRow(locale, eachItem({ partnerDone: done })), locale, 'Dana', done, `${locale} Month list, partner ${done ? 'done' : 'not yet'}`);
+    }
+    // The Month's list renders ItemRow itself, so there is one chip for the Agenda, the Month list and the card
+    assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/dashboard/MonthPicked.tsx'), 'utf8')), 'MonthPicked no longer renders ItemRow');
+  });
+
+  await check('#134 the chip\'s CSS: a small inline row (icon and label) on the existing chip, the icon 14 px in the chip\'s own colour, the label ellipsised, the done tone the muted one; logical properties and no hover', () => {
+    const rule = (selector: string) => {
+      const m = new RegExp(`(?:^|\\n)${selector.replace(/[.\\[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(AGENDA_CSS);
+      assert(m, `no rule for ${selector}`);
+      return m[1];
+    };
+    const chip = rule('.ch-chip.ch-chip-partner');
+    assert(/display:\s*inline-flex/.test(chip) && /align-items:\s*center/.test(chip) && /gap:\s*4px/.test(chip), `the chip lays out icon and label in a row: ${chip}`);
+    const icon = rule('.ch-chip-partner .ch-icon');
+    assert(/inline-size:\s*14px/.test(icon) && /block-size:\s*14px/.test(icon) && /color:\s*currentColor/.test(icon), `the icon is small and takes the chip's colour: ${icon}`);
+    const label = rule('.ch-chip-label');
+    assert(/overflow:\s*hidden/.test(label) && /text-overflow:\s*ellipsis/.test(label) && /min-width:\s*0/.test(label), `a long name is cut with an ellipsis, not the row: ${label}`);
+    const doneTone = rule('.ch-chip.ch-chip-partner-done');
+    assert(/background:\s*var\(--ch-surface\)/.test(doneTone) && /color:\s*var\(--ch-muted\)/.test(doneTone), `the done tone is the muted one: ${doneTone}`);
+    for (const body of [chip, icon, label, doneTone]) {
+      assert(!/(?:^|[;\s])(?:width|height|margin-left|margin-right|padding-left|padding-right|left|right|float|text-align):/.test(body), `a physical property: ${body}`);
+    }
+    assert(!/ch-chip-partner[^{]*:hover/.test(AGENDA_CSS), 'hover styling on the chip');
+  });
+
+  await check('#135 React logged no warning in #129-#134 (keys, nesting, attributes)', () => {
+    assert(reactWarnings.length === warnedBeforePartner, `React warned: ${show(reactWarnings.slice(warnedBeforePartner, warnedBeforePartner + 3))}`);
   });
 
   let failed = 0;

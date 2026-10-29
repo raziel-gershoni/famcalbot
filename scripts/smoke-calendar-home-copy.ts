@@ -163,6 +163,9 @@ const KEYS: Record<string, readonly string[]> = {
   'row.birthday': [],
   'row.anniversary': ['n'],
   'row.googleCalendar': ['calendar'],
+  // The partner's status chip on a reminder where each marks their own Done (replaces "For both of you")
+  'row.partnerDone': ['name'],
+  'row.partnerNotYet': ['name'],
   // Whose an item is (D5: rows, the still-open card, the item sheet), spec §7.3
   'person.from': ['name'],
   'person.for': ['name'],

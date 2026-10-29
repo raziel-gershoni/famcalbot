@@ -162,7 +162,9 @@
       "snoozedLabel": "Snoozed until {time}",
       "birthday": "Birthday",
       "anniversary": "{n, plural, one {# year} other {# years}}",
-      "googleCalendar": "Google · {calendar}"
+      "googleCalendar": "Google · {calendar}",
+      "partnerDone": "{name}: done",
+      "partnerNotYet": "{name}: not yet"
     },
     "person": {
       "from": "From {name}",
