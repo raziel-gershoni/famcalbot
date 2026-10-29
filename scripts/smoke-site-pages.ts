@@ -186,6 +186,10 @@ async function main() {
     } finally {
       Object.assign(SELLER, real);
     }
+    // Hebrew names the zmanim setting with Settings' own word (its label), in the Privacy Policy and the Terms alike
+    const heLegal = JSON.stringify(messages.he.legal);
+    const setting = `הגדרת ״${messages.he.settings.zmanim.label}״`;
+    assert(!/שיט[הת]/.test(heLegal) && heLegal.split(setting).length - 1 === 4, `he: the zmanim setting is not named "${setting}" in all four places`);
     const parts = linkParts('Write to privacy@famcal.bot or https://famcal.bot/privacy, or t.me/family_calendar_telegram_bot?start=feedback.');
     assert(show(parts.filter((p: Row) => p.href).map((p: Row) => p.href)) === show(['mailto:privacy@famcal.bot', 'https://famcal.bot/privacy', 'https://t.me/family_calendar_telegram_bot?start=feedback']), `the links ${show(parts)}`);
     const kinds = inlineParts('**Email:** {email}, see [Privacy Policy](/privacy), send /paysupport over HTTPS/TLS, `NEXT_LOCALE`.').map((p: Row) => p.kind + (p.name ? `:${p.name}` : ''));
