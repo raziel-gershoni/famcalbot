@@ -8,8 +8,13 @@
 //    text then voice summaries then calendars (an unlimited one is words, never a number).
 //  - N3 each plan's features: its last three lines are reminders, adding events (voice, photo, PDF, a forward) and Copy
 //    to Google, each one "no ..." exactly when the plan table leaves it off.
+//  - N4 the bot's copy that states the trial (the /terms reply) says TRIAL_DURATION_DAYS, and the trial's end notice
+//    lists the Free plan's limits, in each language (the final review's M-6).
+//  - N5 the refund window is one constant, REFUND_WINDOW_DAYS (src/lib/refund-eligibility.ts): every text that states it
+//    (the Terms' cancelling paragraph, the bot's ways to cancel, the plan screen's line, the Stars invoice) says that
+//    number, and no code counts 14 days of its own.
 //
-// Nothing is faked: the messages and the plan table only. No network, no DB.
+// Nothing is faked: the messages, the plan table and the refund rule only. No network, no DB.
 //
 // Run with the fake env (never the real one), from the repo root:
 //   bash <scratchpad>/run-smoke.sh scripts/smoke-terms-plans.ts
@@ -17,6 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PLAN_CONFIGS, TRIAL_DURATION_DAYS, type PlanId } from '../src/config/plans';
+import { REFUND_WINDOW_DAYS } from '../src/lib/refund-eligibility';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Locale = 'en' | 'he' | 'ru';
@@ -87,6 +93,42 @@ check('N3 each plan\'s features in the Terms (reminders, adding events, Copy to 
       });
     });
   }
+});
+
+check('N4 the bot\'s copy that states the trial says the plan table\'s length (the /terms reply), and the trial\'s end notice lists the Free plan\'s limits, in en, he and ru', () => {
+  const TRIAL: Record<Locale, RegExp> = { en: /gets (\d+) days of Pro/, he: /מקבל (\d+) יום של Pro/, ru: /получает (\d+) дн\S* Pro/ };
+  for (const locale of LOCALES) {
+    const terms = messages[locale].bot.support.terms as string;
+    const said = TRIAL[locale].exec(terms);
+    assert(said && Number(said[1]) === TRIAL_DURATION_DAYS, `${locale}: /terms says ${said?.[1] ?? 'no trial length'}, the table ${TRIAL_DURATION_DAYS} days`);
+    const ended = messages[locale].bot.subscription.trialExpired.message as string;
+    const { textSummaries, voiceSummaries, calendars } = PLAN_CONFIGS.FREE.limits;
+    assert(show(numbers(ended)) === show([textSummaries, voiceSummaries, calendars]), `${locale}: the trial's end notice says ${show(numbers(ended))}, Free is ${show([textSummaries, voiceSummaries, calendars])}`);
+  }
+});
+
+check('N5 the refund window is REFUND_WINDOW_DAYS everywhere it is stated (the Terms\' cancelling paragraph, the bot\'s ways to cancel, the plan screen, the invoice), in en, he and ru; no code counts 14 days of its own', () => {
+  const WITHIN: Record<Locale, RegExp> = { en: /within (\d+) days/g, he: /תוך (\d+) יום/g, ru: /в\s+течение (\d+) дн/g };
+  for (const locale of LOCALES) {
+    const m = messages[locale];
+    const blocks = m.legal.terms.sections.plans.blocks as unknown[];
+    const cancelAt = blocks.findIndex((b) => b !== null && typeof b === 'object' && !Array.isArray(b) && (b as Row).id === 'cancel');
+    const cancelling = (blocks[cancelAt + 1] as unknown[])[0] as string;
+    const texts: [string, string][] = [
+      ['legal.terms (cancelling)', cancelling],
+      ['bot.policy.cancel', m.bot.policy.cancel],
+      ['subscription.screen.refund', m.subscription.screen.refund],
+      ['subscription.invoiceDescription', m.subscription.invoiceDescription],
+    ];
+    for (const [key, text] of texts) {
+      const said = [...text.matchAll(WITHIN[locale])].map((x) => Number(x[1]));
+      assert(said.length === 1 && said[0] === REFUND_WINDOW_DAYS, `${locale} ${key}: says ${show(said)}, the rule ${REFUND_WINDOW_DAYS} days: ${text}`);
+    }
+  }
+  const SRC = path.join(ROOT, 'src');
+  const walk = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [path.join(dir, e.name)] : []));
+  const own = walk(SRC).filter((file) => /refund/i.test(fs.readFileSync(file, 'utf8')) && /\b14\s*\*|\b14 \* (?:24|DAY)|\b1_?209_?600\b/.test(fs.readFileSync(file, 'utf8').replace(/^\s*(?:\/\/|\*).*$/gm, '')));
+  assert(own.length === 0, `code that counts 14 days of its own beside a refund: ${show(own.map((f) => path.relative(ROOT, f)))}`);
 });
 
 let failed = 0;
