@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MessagingPlatform, MessageFormat } from '../src/services/messaging/types';
 import type { MessageOptions } from '../src/services/messaging/types';
+import { policyLinks, type PolicyWords } from '../src/lib/plan-disclosure';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -509,14 +510,15 @@ function forecast(): Row {
 
 async function fix1() {
   for (const lang of LANGS) {
-    await check(`1: the first /start of a person with no location is the onboarding welcome in ${lang}, with its button`, async () => {
+    await check(`1: the first /start of a person with no location is the onboarding welcome in ${lang}, then the policy links (the legal review of 2026-10-29), with its button`, async () => {
       const { tg, uid } = PEOPLE[lang];
       userRow(uid).location = '';
       const { handleStartCommand } = await import('../src/services/telegram/commands');
       await withLogs(() => handleStartCommand(tg, tg, MessagingPlatform.TELEGRAM));
       const out = sentTo('telegram');
       assert(out.length === 1, `expected one message, got ${out.length}`);
-      const want = botText(lang, 'onboarding.nativeWelcome').replace('{platform}', 'Telegram').replace('{name}', String(userRow(uid).name));
+      const welcome = botText(lang, 'onboarding.nativeWelcome').replace('{platform}', 'Telegram').replace('{name}', String(userRow(uid).name));
+      const want = `${welcome}\n\n${policyLinks(MSG[lang].policy as PolicyWords, lang, 'html')}`;
       assertSame(out[0].text, want, `${lang}: the welcome`);
       const buttons = (out[0].options?.replyMarkup as Row | undefined)?.inline_keyboard?.[0];
       assertSame(buttons?.map((b: Row) => b.text), [botText(lang, 'onboarding.nativeLocationButton')], `${lang}: the button`);
