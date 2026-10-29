@@ -222,8 +222,32 @@ async function main() {
     }
   });
 
+  await check('P5 a post that doesn\'t exist: the page calls notFound(), and the site\'s 404 shows "Page not found" in the page\'s language with the way home', async () => {
+    const { default: Post } = await load('app/[locale]/(site)/blog/[slug]/page.tsx');
+    const { default: SiteNotFound } = await load('app/[locale]/(site)/not-found.tsx');
+    for (const locale of LOCALES) {
+      let thrown: unknown = null;
+      try {
+        await Post({ params: Promise.resolve({ locale, slug: 'no-such-post' }) });
+      } catch (err) {
+        thrown = err;
+      }
+      assert(thrown instanceof NotFound, `${locale}: no notFound() for a missing post`);
+      request.locale = locale;
+      const html = await wrap(locale, (await SiteNotFound()) as ReactElement);
+      common(locale, html, '404');
+      const text = decodeEntities(textOf(html));
+      assert(text.includes(messages[locale].ui.notFound.title) && text.includes(messages[locale].site.notFound.home), `${locale}: the 404's words`);
+      const more = html.slice(html.indexOf('<p class="site-more">'));
+      assert(attrs(more, 'a').some((a) => attr(a, 'href') === (prefix(locale) || '/')), `${locale}: the way home`);
+    }
+  });
+
   await check('P6 the share page\'s Copy (real React, fake DOM): a copy that works says Copied; one that fails (no clipboard, or a refusal) says so, from messages, and logs why', async () => {
     const { installWindow, mount, elements } = await import('./lib/fake-dom');
+    // The fake DOM's window and document are global: put back what was there before, so no later page renders in them
+    const globals = globalThis as unknown as Row;
+    const before = { window: globals.window, document: globals.document, act: globals.IS_REACT_ACT_ENVIRONMENT };
     installWindow();
     const React = nodeRequire('react');
     const { CopyButton } = await load('app/[locale]/(site)/share/ShareClient.tsx');
@@ -259,27 +283,7 @@ async function main() {
     } finally {
       console.warn = warn;
       setClipboard(undefined);
-    }
-  });
-
-  await check('P5 a post that doesn\'t exist: the page calls notFound(), and the site\'s 404 shows "Page not found" in the page\'s language with the way home', async () => {
-    const { default: Post } = await load('app/[locale]/(site)/blog/[slug]/page.tsx');
-    const { default: SiteNotFound } = await load('app/[locale]/(site)/not-found.tsx');
-    for (const locale of LOCALES) {
-      let thrown: unknown = null;
-      try {
-        await Post({ params: Promise.resolve({ locale, slug: 'no-such-post' }) });
-      } catch (err) {
-        thrown = err;
-      }
-      assert(thrown instanceof NotFound, `${locale}: no notFound() for a missing post`);
-      request.locale = locale;
-      const html = await wrap(locale, (await SiteNotFound()) as ReactElement);
-      common(locale, html, '404');
-      const text = decodeEntities(textOf(html));
-      assert(text.includes(messages[locale].ui.notFound.title) && text.includes(messages[locale].site.notFound.home), `${locale}: the 404's words`);
-      const more = html.slice(html.indexOf('<p class="site-more">'));
-      assert(attrs(more, 'a').some((a) => attr(a, 'href') === (prefix(locale) || '/')), `${locale}: the way home`);
+      Object.assign(globals, { window: before.window, document: before.document, IS_REACT_ACT_ENVIRONMENT: before.act });
     }
   });
 
