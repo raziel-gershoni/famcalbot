@@ -1,5 +1,6 @@
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
+import { TELEGRAM_BOT_URL } from '@/src/site/config';
 import { LanguageLinks } from './LanguageLinks';
 
 // The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Privacy, Terms,
@@ -7,7 +8,8 @@ import { LanguageLinks } from './LanguageLinks';
 // chat), the language switcher, "Made in Israel" and the years. The years stay left to right in Hebrew
 // (<bdi dir="ltr">).
 
-const CONTACT_URL = 'https://t.me/family_calendar_telegram_bot?start=feedback';
+/** The bot's feedback chat (its /start feedback deep link). */
+const CONTACT_URL = `${TELEGRAM_BOT_URL}?start=feedback`;
 
 export async function SiteFooter({ locale, path }: { locale: string; path: string }) {
   const t = await getTranslations({ locale });

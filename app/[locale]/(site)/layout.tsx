@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata, Viewport } from 'next';
 import { routing } from '@/i18n/routing';
 import { SITE_URL } from '@/src/site/config';
-import { OG_SIZE } from '@/src/site/seo';
+import { OG_LOCALE, OG_SIZE } from '@/src/site/seo';
 import { SITE_CLIENT_NAMESPACES, pickMessages } from '@/src/site/messages';
 import { SITE_CSS_HREF } from '@/src/site/site-css';
 
@@ -26,7 +26,6 @@ export const viewport: Viewport = {
   colorScheme: 'light dark',
 };
 
-const OG_LOCALE: Record<string, string> = { en: 'en_US', he: 'he_IL', ru: 'ru_RU' };
 // next-intl's zone for the client components (they format no date; without one, development logs a fallback warning)
 const SITE_TIME_ZONE = 'Asia/Jerusalem';
 

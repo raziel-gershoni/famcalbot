@@ -212,6 +212,7 @@ async function main() {
       const site = messages[locale].site.jsonLd;
       assert(Array.isArray(ld) && ld[0].description === site.description && ld[0].offers.description === site.offer && show(ld[0].featureList) === show(site.features), `${locale}: the JSON-LD ${show(ld?.[0])?.slice(0, 200)}`);
       assert(ld[1]['@type'] === 'Organization' && ld[1].url === 'https://famcal.bot', `${locale}: the Organization block`);
+      assert(ld[0].url === { en: 'https://famcal.bot', he: 'https://famcal.bot/he', ru: 'https://famcal.bot/ru' }[locale], `${locale}: the app's url ${ld[0].url}`);
     }
   });
 

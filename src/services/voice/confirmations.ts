@@ -28,6 +28,7 @@ import { hebrewRepeatCard } from './hebrew-repeat-card';
 import { targetOf } from '../recurrence-fields';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { openUser, sealUser } from './pending-seal';
+import { eventCardWhen } from '../../lib/event-card-when';
 
 // Voice modules import escapeHtml from here; anything outside voice imports src/utils/html.
 export { escapeHtml } from '../../utils/html';
@@ -378,38 +379,20 @@ export async function hebrewCardParts(
 }
 
 /**
- * Format ParsedEvent date/time for display
+ * Format ParsedEvent date/time for display: the date and time lines come from eventCardWhen (src/lib/event-card-when.ts),
+ * the one formatter the site's picture of this card draws with too
  */
 export function formatEventDateTime(event: ParsedEvent, language: string, allDayText: string, timezone: string): string {
-  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
-
-  const dateOptions: Intl.DateTimeFormatOptions = {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    timeZone: timezone
-  };
-
-  const timeOptions: Intl.DateTimeFormatOptions = {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: timezone
-  };
-
-  const dateStr = event.startTime.toLocaleDateString(locale, dateOptions);
-  const startTimeStr = event.startTime.toLocaleTimeString(locale, timeOptions);
-  const endTimeStr = event.endTime.toLocaleTimeString(locale, timeOptions);
-
+  const when = eventCardWhen(event.startTime, event.endTime, language, timezone);
   const recurrenceStr = formatRecurrence(event.recurrence, language);
 
   if (event.allDay) {
     return recurrenceStr
-      ? `📆 ${dateStr} (${allDayText})\n${recurrenceStr}`
-      : `📆 ${dateStr} (${allDayText})`;
+      ? `📆 ${when.date} (${allDayText})\n${recurrenceStr}`
+      : `📆 ${when.date} (${allDayText})`;
   }
 
-  const base = `📆 ${dateStr}\n🕐 ${startTimeStr} - ${endTimeStr}`;
+  const base = `📆 ${when.date}\n🕐 ${when.time}`;
   return recurrenceStr ? `${base}\n${recurrenceStr}` : base;
 }
 

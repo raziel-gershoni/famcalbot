@@ -8,7 +8,8 @@ import { routing } from '@/i18n/routing';
 import { SITE_URL } from './config';
 
 export const OG_SIZE = { width: 1200, height: 630 } as const;
-const OG_LOCALE: Record<string, string> = { en: 'en_US', he: 'he_IL', ru: 'ru_RU' };
+/** Open Graph's locale for a page's language. */
+export const OG_LOCALE: Record<string, string> = { en: 'en_US', he: 'he_IL', ru: 'ru_RU' };
 
 /** A page's absolute URL in a language: English unprefixed ("https://famcal.bot/blog"), the home with no slash. */
 export function pageUrl(locale: string, path: string): string {

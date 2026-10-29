@@ -1,5 +1,6 @@
 import { CalendarDays, Clock, Folder, Play } from 'lucide-react';
 import type { AbstractIntlMessages } from 'next-intl';
+import { eventCardWhen } from '@/src/lib/event-card-when';
 import { pickMessages } from '@/src/site/messages';
 import { botWords } from '@/src/site/bot-words';
 import type { SampleWeek } from '@/src/site/sample-week';
@@ -17,25 +18,14 @@ import { DemoAgenda } from './DemoAgenda';
 
 type Translate = ((key: string, values?: Record<string, string | number>) => string) & { raw: (key: string) => unknown };
 
-const INTL: Record<string, string> = { en: 'en-US', he: 'he-IL', ru: 'ru-RU' };
-
-/** The card's date and time lines as formatEventDateTime writes them (src/services/voice/confirmations.ts). */
-function cardWhen(start: string, end: string, locale: string, tz: string) {
-  const intl = INTL[locale] ?? INTL.en;
-  const time = (iso: string) => new Date(iso).toLocaleTimeString(intl, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-  return {
-    date: new Date(start).toLocaleDateString(intl, { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz }),
-    time: `${time(start)} - ${time(end)}`,
-  };
-}
-
 /** The words of the calendar home the Agenda's rows read. */
 const AGENDA_KEYS = ['agenda', 'row', 'person', 'hebrewMonthGenitive'];
 
 export function HeroDemo({ t, locale, week, messages }: { t: Translate; locale: string; week: SampleWeek; messages: Record<string, unknown> }) {
   // The bot's strings carry Telegram's HTML (and {name}-style slots, not ICU): read raw, then the words alone
   const bot = (key: string) => botWords(String(t.raw(key)));
-  const when = cardWhen(week.dentist.start, week.dentist.end, locale, week.agenda.tz);
+  // The card's date and time lines from the bot's own formatter (formatEventDateTime reads it too)
+  const when = eventCardWhen(new Date(week.dentist.start), new Date(week.dentist.end), locale, week.agenda.tz);
   const calendarHome = pickMessages(messages.calendarHome as Record<string, unknown>, AGENDA_KEYS) as AbstractIntlMessages;
   return (
     <figure className="site-demo" aria-label={t('landing.demo.label')}>

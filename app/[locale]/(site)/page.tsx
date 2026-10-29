@@ -5,7 +5,7 @@ import { Channels, Features, Founder, HowItWorks, Plans, StartAgain } from '@/co
 import { SitePage } from '@/components/site/SitePage';
 import { HonestLine, StartButtons, startWords } from '@/components/site/StartButtons';
 import { SITE_URL } from '@/src/site/config';
-import { siteMetadata } from '@/src/site/seo';
+import { pageUrl, siteMetadata } from '@/src/site/seo';
 import { buildSampleWeek, sampleWords } from '@/src/site/sample-week';
 
 // The landing (spec 2026-10-28-public-website §3.2): the hero (the headline, the line under it, the two start buttons
@@ -52,7 +52,7 @@ export default async function LandingPage({ params }: Props) {
       applicationCategory: 'LifestyleApplication',
       operatingSystem: 'Telegram, WhatsApp',
       description: t('site.jsonLd.description'),
-      url: locale === 'en' ? SITE_URL : `${SITE_URL}/${locale}`,
+      url: pageUrl(locale, '/'),
       author: { '@type': 'Person', name: 'Raziel' },
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD', description: t('site.jsonLd.offer') },
       featureList: t.raw('site.jsonLd.features'),

@@ -1,4 +1,5 @@
 import { getTranslations } from 'next-intl/server';
+import { intlLocale } from '@/src/lib/calendar-view/format';
 import { LEGAL_UPDATED, type LegalDoc, type LegalItem, type LegalSection, type SellerArg } from '@/src/site/legal';
 import { LegalInline, sellerView } from './LegalInline';
 import { SitePage } from './SitePage';
@@ -39,7 +40,7 @@ export async function LegalPage({ locale, doc }: { locale: string; doc: LegalDoc
   const t = await getTranslations({ locale });
   const sections = t.raw(`legal.${doc}.sections`) as Record<string, LegalSection>;
   const line: Line = { seller: sellerView(locale), missing: t('legal.sellerMissing') };
-  const updated = new Date(`${LEGAL_UPDATED[doc]}T12:00:00Z`).toLocaleDateString(locale === 'he' ? 'he-IL' : locale === 'ru' ? 'ru-RU' : 'en-GB', {
+  const updated = new Date(`${LEGAL_UPDATED[doc]}T12:00:00Z`).toLocaleDateString(intlLocale(locale), {
     day: 'numeric',
     month: 'long',
     year: 'numeric',
