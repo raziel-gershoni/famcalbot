@@ -32,7 +32,7 @@
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
 import { contrast, type Rgb } from './lib/css-resolve';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, readSource, render, show, stub, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, readSource, render, show, stub, strayLtrTokens, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -267,6 +267,8 @@ async function main() {
       const ways = [...block.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((x) => x[1]);
       assert(ways.length === 4, `${locale}: ${ways.length} ways`);
       assert(ways[0].includes('<bdi dir="ltr">/paysupport</bdi>') && !/<a[^>]*paysupport/.test(ways[0]), `${locale}: /paysupport ${ways[0]}`);
+      // No command or @handle anywhere on the page (the cancel ways and the footer included) outside its isolate
+      assert(strayLtrTokens(pages[locale]).length === 0, `${locale}: not kept left to right: ${show(strayLtrTokens(pages[locale]))}`);
       assert(ways[1].includes(`<a href="mailto:${SELLER.email}" dir="ltr">${SELLER.email}</a>`), `${locale}: the email ${ways[1]}`);
       for (const [i, field] of [[2, 'postalAddress'], [3, 'phone']] as const) {
         const words = decodeEntities(textOf(ways[i]));

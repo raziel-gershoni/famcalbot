@@ -204,4 +204,11 @@ export const textOf = (html: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+/**
+ * The bot commands (/paysupport) and @handles in server markup that sit outside a left-to-right isolate (<bdi>, <code>,
+ * or a link, each kept left to right): in Hebrew, the slash or the @ of such a token jumps to the word's other side.
+ */
+export const strayLtrTokens = (html: string): string[] =>
+  textOf(html.replace(/<(bdi|code|a)\b[^>]*>[\s\S]*?<\/\1>/g, ' ')).match(/(?<![\w.:/@+-])[/@][A-Za-z]\w*/g) ?? [];
+
 export { createElement };

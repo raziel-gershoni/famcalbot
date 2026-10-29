@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, request, render, ROOT, show, stub, stubIntlServer, stubMdx, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -149,6 +149,8 @@ async function main() {
         assert(!/\*\*|`|\]\(|[{}]/.test(text), `${doc} ${locale}: a mark left raw: ${text.match(/.{0,30}(?:\*\*|`|\]\(|[{}]).{0,30}/)?.[0]}`);
         assert(/<li>(?:(?!<\/li>).)*?<ul class="site-legal-list">/.test(body) && body.includes('<strong>'), `${doc} ${locale}: no nested list or no bold`);
         for (const command of ['/feedback', ...(doc === 'terms' ? ['/paysupport'] : [])]) assert(body.includes(`<bdi dir="ltr">${command}</bdi>`), `${doc} ${locale}: ${command} is not plain text kept left to right`);
+        // Every command and @handle, each time it appears: inside its isolate, so its slash or @ stays on its own side in Hebrew
+        assert(strayLtrTokens(body).length === 0, `${doc} ${locale}: not kept left to right: ${show(strayLtrTokens(body))}`);
         assert(!attrs(body, 'a').some((a) => /paysupport|feedback/.test(attr(a, 'href') ?? '')), `${doc} ${locale}: a bot command became a link`);
         const hrefs = attrs(body, 'a').map((a) => decodeEntities(attr(a, 'href') ?? ''));
         assert(hrefs.includes(`mailto:${SELLER.email}`), `${doc} ${locale}: the email isn't linked`);
@@ -184,6 +186,8 @@ async function main() {
     assert(show(parts.filter((p: Row) => p.href).map((p: Row) => p.href)) === show(['mailto:privacy@famcal.bot', 'https://famcal.bot/privacy', 'https://t.me/family_calendar_telegram_bot?start=feedback']), `the links ${show(parts)}`);
     const kinds = inlineParts('**Email:** {email}, see [Privacy Policy](/privacy), send /paysupport over HTTPS/TLS, `NEXT_LOCALE`.').map((p: Row) => p.kind + (p.name ? `:${p.name}` : ''));
     assert(show(kinds) === show(['strong', 'text', 'arg:email', 'text', 'link', 'text', 'command', 'text', 'code', 'text']), `the marks ${show(kinds)}`);
+    const handle = inlineParts('the name (@username), not privacy@famcal.bot').map((p: Row) => `${p.kind}:${p.text}`);
+    assert(show(handle) === show(['text:the name (', 'handle:@username', 'text:), not ', 'link:privacy@famcal.bot']), `an @handle ${show(handle)}`);
     let thrown = false;
     try {
       inlineParts('call {nobody}');

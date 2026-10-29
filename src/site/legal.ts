@@ -54,12 +54,14 @@ export type InlinePart =
   | { kind: 'link'; text: string; href: string; address: boolean }
   /** A bot command (/paysupport): plain text, kept left to right, never a link. */
   | { kind: 'command'; text: string }
+  /** A Telegram @handle (@username): plain text, kept left to right, so its @ stays on its side in Hebrew. */
+  | { kind: 'handle'; text: string }
   | { kind: 'arg'; name: SellerArg };
 
 /** The marks a legal string may use: **bold**, `code`, [words](href) and {sellerArg}. */
 const MARKS = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|\{(\w+)\}/g;
-/** A bot command in running text: a slash and a word, not inside a path or an address. */
-const COMMAND = /(?<![\p{L}\p{N}_/.:@-])\/[a-z][a-z_]*(?![\p{L}\p{N}_/])/gu;
+/** A bot command (a slash and a word) or an @handle in running text, not inside a path or an address. */
+const COMMAND = /(?<![\p{L}\p{N}_/.:@+-])(?:\/[a-z][a-z_]*|@[A-Za-z_]\w*)(?![\p{L}\p{N}_/])/gu;
 
 function plainParts(text: string): InlinePart[] {
   const parts: InlinePart[] = [];
@@ -72,7 +74,7 @@ function plainParts(text: string): InlinePart[] {
     for (const m of piece.text.matchAll(COMMAND)) {
       const at = m.index ?? 0;
       if (at > last) parts.push({ kind: 'text', text: piece.text.slice(last, at) });
-      parts.push({ kind: 'command', text: m[0] });
+      parts.push({ kind: m[0].startsWith('@') ? 'handle' : 'command', text: m[0] });
       last = at + m[0].length;
     }
     if (last < piece.text.length) parts.push({ kind: 'text', text: piece.text.slice(last) });
@@ -82,7 +84,7 @@ function plainParts(text: string): InlinePart[] {
 
 /**
  * A legal string cut into what the page draws: plain text, bold, code, links (marked ones, and web and email addresses
- * in the text), bot commands and the seller's arguments. Throws on an argument that isn't one of SELLER_ARGS.
+ * in the text), bot commands, @handles and the seller's arguments. Throws on an argument that isn't one of SELLER_ARGS.
  */
 export function inlineParts(text: string): InlinePart[] {
   const parts: InlinePart[] = [];
