@@ -653,10 +653,11 @@ async function main() {
     assert(renderToString(createElement(LabelProbe, {}, 'Summaries')) === '<h2 class="ch-section-label">Summaries</h2>', 'the label');
   });
 
-  await check('K3 Notice: role="status" by default, role="alert" for an error (the danger tone); its action is a button that calls onClick', () => {
+  await check('K3 Notice: role="status" by default, role="alert" for an error (the danger tone), no role when it is static text that was there from the start (live={false}: the plan screen\'s terms); its action is a button that calls onClick', () => {
     const html = (props: Omit<ComponentProps<typeof Notice>, 'children'>) => renderToString(createElement(NoticeProbe, props, 'Heads up'));
     assert(html({}) === '<div class="ch-notice" role="status"><p class="ch-notice-text">Heads up</p></div>', `info: ${html({})}`);
     assert(html({ tone: 'info' }) === html({}), 'info is the default');
+    assert(html({ live: false }) === '<div class="ch-notice"><p class="ch-notice-text">Heads up</p></div>', `static: ${html({ live: false })}`);
     assert(html({ tone: 'error' }) === '<div class="ch-notice ch-notice-error" role="alert"><p class="ch-notice-text">Heads up</p></div>', `error: ${html({ tone: 'error' })}`);
     let taps = 0;
     const m = mount(createElement(NoticeProbe, { action: { label: 'See plans', onClick: () => void taps++ } }, 'Heads up'));

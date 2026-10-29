@@ -14,6 +14,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand, startTypingInterval } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages } from '../../lib/bot-messages';
+import { policyLinks, withPolicy } from '../../lib/plan-disclosure';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
 import { captureError } from '../../lib/error-capture';
@@ -160,13 +161,17 @@ export async function handleStartCommand(
 
   const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
   const welcome = t.start.welcome.replace('{name}', name);
+  // Every welcome below ends with the Privacy Policy and the Terms (the notice that comes with the first request for data),
+  // with no link preview: the preview would be the policy page's card
+  const links = policyLinks(t.policy, locale, 'html');
 
   if (user.isAdmin) {
     const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId ?? user.id}`);
-    const message = `${welcome}\n\n${t.start.chooseBoard}`;
+    const message = `${welcome}\n\n${t.start.chooseBoard}\n\n${links}`;
 
     await service.sendMessage(chatId, message, {
       format: MessageFormat.HTML,
+      disablePreview: true,
       replyMarkup: {
         inline_keyboard: [
           [{ text: t.start.userDashboard, web_app: { url: dashboardUrl } }],
@@ -188,8 +193,9 @@ export async function handleStartCommand(
     const nativeWelcome = t.onboarding.nativeWelcome
       .replace('{platform}', platformName)
       .replace('{name}', name);
-    await service.sendMessage(chatId, nativeWelcome, {
+    await service.sendMessage(chatId, `${nativeWelcome}\n\n${links}`, {
       format: MessageFormat.HTML,
+      disablePreview: true,
       replyMarkup: {
         inline_keyboard: [[
           { text: t.onboarding.nativeLocationButton, web_app: { url: settingsUrl } }
@@ -200,10 +206,11 @@ export async function handleStartCommand(
   }
 
   // Returning user: simple dashboard button
-  const message = `${welcome}\n\n${t.start.tapButton}`;
+  const message = `${welcome}\n\n${t.start.tapButton}\n\n${links}`;
 
   await service.sendMessage(chatId, message, {
     format: MessageFormat.HTML,
+    disablePreview: true,
     replyMarkup: {
       inline_keyboard: [[
         { text: t.start.dashboard, web_app: { url: dashboardUrl } }
@@ -781,7 +788,9 @@ export async function handleFeedbackCommand(
 
 /**
  * Handle /terms, /support and /paysupport (Telegram's rules for a bot that takes Stars payments: it must answer
- * /terms and /paysupport). Each answers a person the bot does not know yet too, in English. /paysupport with words
+ * /terms and /paysupport). Each answers a person the bot does not know yet too, in English. /terms and /paysupport carry
+ * the ways to cancel within 14 days, and /terms the links to the Privacy Policy and the Terms (src/lib/plan-disclosure.ts),
+ * in the person's language, with no link preview. /paysupport with words
  * is a payment question: it goes through handleFeedbackCommand under its own source, and needs a known person (the
  * admins answer in the chat), who is told to /start first when it is not.
  */
@@ -792,14 +801,15 @@ export async function handleSupportCommand(
   args?: string
 ): Promise<void> {
   const user = await getUserByTelegramId(userId);
-  const t = await getBotMessages(user?.language || 'en');
+  const locale = user?.language || 'en';
+  const t = await getBotMessages(locale);
   const messagingService = getMessagingService();
-  const reply = (text: string) => messagingService.sendMessage(chatId, text, { format: MessageFormat.HTML });
+  const reply = (text: string) => messagingService.sendMessage(chatId, text, { format: MessageFormat.HTML, disablePreview: true });
 
   if (command === 'terms') {
-    await reply(t.support.terms);
+    await reply(withPolicy(t.support.terms, t.policy, locale));
   } else if (command === 'support' || (command === 'paysupport' && !args)) {
-    await reply(command === 'support' ? t.support.help : t.support.payPrompt);
+    await reply(command === 'support' ? t.support.help : withPolicy(t.support.payPrompt, t.policy, locale));
   } else if (!user) {
     console.error(`[paysupport] unknown user: Telegram id ${userId} wrote a payment question before /start`);
     await reply(t.support.help);

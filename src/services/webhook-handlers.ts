@@ -858,9 +858,11 @@ export async function handleWhatsAppWebhook(
     const t = await getBotMessages(locale);
     const wa = t.whatsapp || {};
 
-    // New user: send welcome + start onboarding + link TG prompt
+    // New user: send welcome + start onboarding + link TG prompt. The welcome ends with the Privacy Policy and the Terms
+    // (the notice that comes with the first request for data), as plain "label: url" lines: it is sent as plain text
     if (isNewUser) {
-      const welcomeMsg = (wa.welcome || 'Welcome to FamCal, {name}! 👋').replace('{name}', user.name);
+      const { policyLinks } = await import('../lib/plan-disclosure');
+      const welcomeMsg = `${(wa.welcome || 'Welcome to FamCal, {name}! 👋').replace('{name}', user.name)}\n\n${policyLinks(t.policy, locale, 'text')}`;
       await waService.sendMessage(from, welcomeMsg);
 
       const { startOnboarding } = await import('./whatsapp-onboarding');

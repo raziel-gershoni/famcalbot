@@ -13,6 +13,10 @@
 //   5. A scheduled summary that goes only to WhatsApp sends just the tap-to-open template: it is not generated or counted
 //      (the tap does both), but it is marked sent; a person on Telegram and WhatsApp is unchanged.
 //   6. The WhatsApp "not understood" reply says "I heard" in the person's language.
+//   7. The legal review of 2026-10-29 (issues 3, 5 and 20): /terms and /paysupport follow the new Terms (18+, one month
+//      that never renews, the 14-day full refund and the ways to cancel, "give your name and the payment date"), and
+//      /terms, every /start welcome and the WhatsApp welcome link the Privacy Policy and the Terms in the person's
+//      language (Telegram's anchors with no link preview; plain "label: url" lines on WhatsApp).
 //
 // The real webhook handlers, command handlers, user-service, summary delivery, confirmations, the admin notifier and the
 // zman card run. Faked: Prisma (in memory), Redis (in memory), both messaging services and the bot (every send is
@@ -29,6 +33,7 @@ import { MessagingPlatform, MessageFormat } from '../src/services/messaging/type
 import type { MessageOptions } from '../src/services/messaging/types';
 import type { ParsedEvent } from '../src/services/event-parser';
 import type { ZmanSpecValue } from '../src/lib/calendar-view/zman-spec';
+import type { PolicyWords } from '../src/lib/plan-disclosure';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -85,6 +90,12 @@ const LANGS: Lang[] = ['en', 'he', 'ru'];
 const MSG: Record<Lang, Row> = Object.fromEntries(
   LANGS.map(l => [l, JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8')).bot])
 ) as Record<Lang, Row>;
+
+/** The disclosure's pieces (src/lib/plan-disclosure.ts, pure: loaded as it is), set in main(). */
+let disclosure: typeof import('../src/lib/plan-disclosure');
+const policyWords = (lang: Lang) => MSG[lang].policy as PolicyWords;
+/** /terms and /paysupport as the person reads them: the template with the ways to cancel and the links filled in. */
+const supportText = (lang: Lang, key: 'terms' | 'payPrompt') => disclosure.withPolicy(botText(lang, `support.${key}`), policyWords(lang), lang);
 
 /** A bot text by path in a language, failing the check by name when the key is missing. */
 function botText(lang: Lang, keyPath: string): string {
@@ -497,7 +508,7 @@ async function fix1() {
       await telegramText(id, '/support');
       await telegramText(id, '/paysupport');
       const texts = sentTo('telegram').map(s => s.text);
-      assertSame(texts, [botText(lang, 'support.terms'), botText(lang, 'support.help'), botText(lang, 'support.payPrompt')], `${lang}: the three replies`);
+      assertSame(texts, [supportText(lang, 'terms'), botText(lang, 'support.help'), supportText(lang, 'payPrompt')], `${lang}: the three replies`);
       assert(sentTo('telegram').every(s => s.options?.format === MessageFormat.HTML && s.chatId === id), `${lang}: HTML to the person's chat: ${show(sentTo('telegram').map(s => [s.chatId, s.options?.format]))}`);
     }
   });
@@ -509,7 +520,7 @@ async function fix1() {
     }
     assertSame(
       sentTo('telegram').map(s => s.text),
-      [botText('en', 'support.terms'), botText('en', 'support.help'), botText('en', 'support.payPrompt')],
+      [supportText('en', 'terms'), botText('en', 'support.help'), supportText('en', 'payPrompt')],
       'the three replies for a stranger'
     );
     assertSame(feedbackRows(), [], 'nothing was saved');
@@ -636,8 +647,8 @@ async function fix3() {
       const row = DB.user.find(u => u.whatsappPhone === phone);
       assert(row, `no user was created for ${phone}`);
       assertSame(row.language, lang, `the language of ${phone}`);
-      const welcome = botText(lang, 'whatsapp.welcome').replace('{name}', 'Newcomer');
-      assertSame(sentTo('whatsapp')[0]?.text, welcome, `${lang}: the first reply is the welcome in the person's language`);
+      const welcome = `${botText(lang, 'whatsapp.welcome').replace('{name}', 'Newcomer')}\n\n${disclosure.policyLinks(policyWords(lang), lang, 'text')}`;
+      assertSame(sentTo('whatsapp')[0]?.text, welcome, `${lang}: the first reply is the welcome in the person's language, then the policy links`);
       assert(sentTo('whatsapp').some(s => s.options?.whatsappButtons), `${lang}: the language buttons still follow the welcome`);
     }
   });
@@ -864,7 +875,66 @@ async function fix6() {
   }
 }
 
+// ---- Fix 7 ----
+
+const NEVER_RENEWS: Record<Lang, RegExp> = { en: /never renews/i, he: /לא מתחדשת/, ru: /не продлевается/ };
+const ADULTS: Record<Lang, RegExp> = { en: /18 or older/, he: /מגיל 18/, ru: /с 18 лет/ };
+
+async function fix7() {
+  await check('7: /terms follows the new Terms in en, he and ru: 18+, one month that never renews, the 14-day full refund with the ways to cancel and what to give, and the links to the Privacy Policy and the Terms in the person\'s language, with no link preview', async () => {
+    for (const [lang, id] of [['en', TG_EN], ['he', TG_HE], ['ru', TG_RU]] as [Lang, number][]) {
+      sent.length = 0;
+      await telegramText(id, '/terms');
+      const [reply] = sentTo('telegram');
+      assert(reply, `${lang}: no reply`);
+      const w = policyWords(lang);
+      assert(ADULTS[lang].test(reply.text) && NEVER_RENEWS[lang].test(reply.text), `${lang}: 18+ or never renews:\n${reply.text}`);
+      assert(reply.text.includes(disclosure.cancelBlock(w)), `${lang}: not the ways to cancel:\n${reply.text}`);
+      assert(reply.text.includes(`href="${disclosure.policyUrl('privacy', lang)}"`) && reply.text.includes(`href="${disclosure.policyUrl('terms', lang)}"`), `${lang}: the links:\n${reply.text}`);
+      assert(!/\{\w+\}|null/.test(reply.text), `${lang}: a hole:\n${reply.text}`);
+      assert(reply.options?.format === MessageFormat.HTML && reply.options?.disablePreview === true, `${lang}: the options ${show(reply.options)}`);
+    }
+  });
+
+  await check('7: /paysupport with no words: one month that never renews, the 14-day full refund with the ways to cancel and what to give', async () => {
+    for (const [lang, id] of [['en', TG_EN], ['he', TG_HE], ['ru', TG_RU]] as [Lang, number][]) {
+      sent.length = 0;
+      await telegramText(id, '/paysupport');
+      const [reply] = sentTo('telegram');
+      assert(reply && NEVER_RENEWS[lang].test(reply.text) && reply.text.includes(disclosure.cancelBlock(policyWords(lang))), `${lang}:\n${reply?.text}`);
+      assert(!/\{\w+\}|null/.test(reply.text), `${lang}: a hole:\n${reply.text}`);
+    }
+  });
+
+  await check('7: every /start welcome ends with the links to the Privacy Policy and the Terms in the person\'s language, with no link preview: a returning person, one with no place yet, and an admin', async () => {
+    DB.user.find(u => u.id === 3)!.location = '';
+    const cases: [string, Lang, number, string][] = [
+      ['returning', 'en', TG_EN, botText('en', 'start.tapButton')],
+      ['returning', 'he', TG_HE, botText('he', 'start.tapButton')],
+      ['no place', 'ru', TG_RU, botText('ru', 'onboarding.nativeLocationButton') && botText('ru', 'onboarding.nativeWelcome').split('{')[0]],
+      ['admin', 'en', TG_ADMIN, botText('en', 'start.chooseBoard')],
+    ];
+    for (const [who, lang, id, body] of cases) {
+      sent.length = 0;
+      await withLogs(() => telegramText(id, '/start'));
+      const welcome = sentTo('telegram').find(s => s.options?.replyMarkup);
+      assert(welcome, `${who} ${lang}: no welcome in ${show(sentTo('telegram').map(s => s.text.slice(0, 50)))}`);
+      assert(welcome.text.includes(body), `${who} ${lang}: not the welcome:\n${welcome.text}`);
+      assert(welcome.text.endsWith(`\n\n${disclosure.policyLinks(policyWords(lang), lang, 'html')}`), `${who} ${lang}: the links are not at the end:\n${welcome.text}`);
+      assert(welcome.options?.format === MessageFormat.HTML && welcome.options?.disablePreview === true, `${who} ${lang}: the options ${show(welcome.options)}`);
+    }
+  });
+
+  await check('7: the WhatsApp welcome sends the links as plain URLs, with no HTML and no format to convert', async () => {
+    await waText(WA_NEW, 'שלום', 'Newcomer');
+    const [welcome] = sentTo('whatsapp');
+    assert(welcome && welcome.text.includes(`${policyWords('he').privacy}: ${disclosure.policyUrl('privacy', 'he')}`) && welcome.text.includes(`${policyWords('he').terms}: ${disclosure.policyUrl('terms', 'he')}`), `the links:\n${welcome?.text}`);
+    assert(!/[<>]/.test(welcome.text) && welcome.options?.format === undefined, `markup or a format: ${show(welcome.options)}`);
+  });
+}
+
 async function main() {
+  disclosure = await import('../src/lib/plan-disclosure');
   const original = { log: console.log, warn: console.warn, error: console.error, info: console.info };
   const keep = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
   Object.assign(console, { log: keep, warn: keep, error: keep, info: keep });
@@ -875,6 +945,7 @@ async function main() {
     await fix4();
     await fix5();
     await fix6();
+    await fix7();
   } finally {
     Object.assign(console, original);
   }
