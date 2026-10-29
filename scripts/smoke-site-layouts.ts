@@ -8,7 +8,8 @@
 //    rule and touch-action: manipulation, the whole message catalogue, and noindex for every page under it.
 //  - L3 the site's layout: no Telegram SDK, zoom allowed, light and dark from the device (color-scheme), no Tailwind sheet, no web font, only the site's client namespaces reach the
 //    client, the page's language and direction on <html>, it renders statically (setRequestLocale), and it links the
-//    site's one style sheet (/site.css, versioned by its content, cached for good).
+//    site's one style sheet (/site.css, versioned by its content, cached for good under its own version, never under
+//    another).
 //  - L4 the site's metadata comes from messages, per language: the title, its template, the description, the keywords
 //    and the share image's alt text.
 //  - L5 a partner's invite link unfurls: the invite page's own title and words, the share image of its language, noindex.
@@ -113,12 +114,17 @@ async function main() {
       const sheets = els.filter((e) => e.type === 'link' && (e.props as Row).rel === 'stylesheet').map((e) => String((e.props as Row).href));
       assert(sheets.length === 1 && /^\/site\.css\?v=[0-9a-f]{12}$/.test(sheets[0]), `${locale}: the style sheets ${show(sheets)}`);
     }
-    // The sheet itself: the site's CSS, as CSS, cached for good (its URL changes with its content)
+    // The sheet itself: the site's CSS, as CSS, cached for good under its own version only (its URL changes with its
+    // content); any other version (a deploy's overlap: the other build's hash) is never stored
     const { GET, dynamic } = await load('app/site.css/route.ts');
     const { SITE_CSS, SITE_CSS_HREF } = await load('src/site/site-css.ts');
-    const res: Response = GET();
-    assert(dynamic === 'force-static' && res.headers.get('content-type') === 'text/css; charset=utf-8' && /immutable/.test(res.headers.get('cache-control') ?? ''), `the sheet's headers: ${res.headers.get('content-type')}, ${res.headers.get('cache-control')}`);
+    const res: Response = GET(new Request(`https://famcal.bot${SITE_CSS_HREF}`));
+    assert(dynamic !== 'force-static' && res.headers.get('content-type') === 'text/css; charset=utf-8' && res.headers.get('cache-control') === 'public, max-age=31536000, immutable', `the sheet's headers: ${dynamic}, ${res.headers.get('content-type')}, ${res.headers.get('cache-control')}`);
     assert((await res.text()) === SITE_CSS, 'the sheet is not SITE_CSS');
+    for (const url of ['https://famcal.bot/site.css?v=000000000000', 'https://famcal.bot/site.css', `https://famcal.bot${SITE_CSS_HREF}0`]) {
+      const other: Response = GET(new Request(url));
+      assert(other.headers.get('cache-control') === 'no-store' && (await other.text()) === SITE_CSS, `${url}: ${other.headers.get('cache-control')}`);
+    }
     const { createHash } = await import('node:crypto');
     assert(SITE_CSS_HREF === `/site.css?v=${createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12)}`, `the sheet's version ${SITE_CSS_HREF}`);
   });

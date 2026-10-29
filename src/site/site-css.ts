@@ -1343,5 +1343,8 @@ const PAGES_CSS = `
 /** The whole style sheet: the kit's theme (the sheet, the buttons, the demo's .ch-app scope), then the site's own. */
 export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS;
 
-/** The sheet's address (app/site.css/route.ts), versioned by its content: a new sheet is a new URL. */
-export const SITE_CSS_HREF = `/site.css?v=${createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12)}`;
+/** The sheet's version: its content's hash, so a new sheet is a new URL. */
+export const SITE_CSS_VERSION = createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12);
+
+/** The sheet's address (app/site.css/route.ts), versioned by its content. */
+export const SITE_CSS_HREF = `/site.css?v=${SITE_CSS_VERSION}`;
