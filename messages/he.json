@@ -911,6 +911,8 @@
     "delete": "מחיקת היומן",
     "deleteTitle": "למחוק את {name}?",
     "deleteBody": "האירועים שבו יימחקו איתו. אי אפשר לבטל.",
+    "deleteBoth": "למחוק כאן וגם ב־Google",
+    "deleteKeepGoogle": "למחוק כאן ולהשאיר ב־Google",
     "onlyOne": "אי אפשר למחוק את היומן היחיד.",
     "errors": {
       "save": "לא הצלחנו לשמור את היומן. נסו שוב.",

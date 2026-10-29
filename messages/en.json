@@ -911,6 +911,8 @@
     "delete": "Delete calendar",
     "deleteTitle": "Delete {name}?",
     "deleteBody": "Its events are deleted with it. This can't be undone.",
+    "deleteBoth": "Delete here and in Google",
+    "deleteKeepGoogle": "Delete here, keep it in Google",
     "onlyOne": "Your only calendar can't be deleted.",
     "errors": {
       "save": "Couldn't save the calendar. Try again.",

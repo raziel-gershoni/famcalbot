@@ -12,7 +12,8 @@
 // - Google Calendar: one row that leads to where the person is with Google (choose calendars, connect, reconnect).
 //
 // The edit sheet holds the name, colour, categories and who sees the calendar; Delete turns the same sheet into its confirm
-// step (named for the calendar), which asks Remove or Keep when the calendar's Google copy is on. No browser pop-up.
+// step (named for the calendar), which, when the calendar's Google copy is on, asks about the copy and answers with two
+// buttons that say both halves (delete here and in Google, delete here and keep it in Google). No browser pop-up.
 //
 // - One request at a time (the Partner screen's pattern): the one that runs shows a spinner and the other actions are off.
 //   Every failure is said in the page's language, in the sheet whose request it was (a sheet covers the page), and logged.
@@ -670,31 +671,33 @@ export default function CalendarsClient(props: Props) {
   };
 
   const deleteSheet = (c: Calendar) => {
+    // What is deleted comes first; a calendar whose Google copy is on then asks the Google question, and each answer is a button that says both halves
     const copyOn = copyOf(c.rawId)?.on === true;
     return (
-      <BottomSheet label={copyOn ? tc('unlink.question', { name: isolate(c.name) }) : t('deleteTitle', { name: isolate(c.name) })} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
-        {copyOn ? (
-          <>
-            {question(c, (choice) => void deleteCalendar(c, choice), { remove: busy === 'delete-remove', keep: busy === 'delete-keep' })}
-            {sheetError ? (
-              <div className="ch-sheet-stack">
-                <Notice tone="error">{failureText(sheetError)}</Notice>
-              </div>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <h2 className="ch-sheet-heading">{sentenceWithName((name) => t('deleteTitle', { name }), c.name)}</h2>
-            <p className="ch-sheet-sub">{t('deleteBody')}</p>
-            <div className="ch-sheet-stack">
-              {sheetError ? <Notice tone="error">{failureText(sheetError)}</Notice> : null}
-              <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={busy === 'delete-plain' || undefined} onClick={() => void deleteCalendar(c, null)}>
-                {busy === 'delete-plain' ? <Spinner /> : null}
-                {t('delete')}
+      <BottomSheet label={t('deleteTitle', { name: isolate(c.name) })} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
+        <h2 className="ch-sheet-heading">{sentenceWithName((name) => t('deleteTitle', { name }), c.name)}</h2>
+        <p className="ch-sheet-sub">{t('deleteBody')}</p>
+        <div className="ch-sheet-stack">
+          {copyOn ? <p className="ch-sheet-question">{tc('unlink.question', { name: isolate(c.name) })}</p> : null}
+          {sheetError ? <Notice tone="error">{failureText(sheetError)}</Notice> : null}
+          {copyOn ? (
+            <>
+              <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={busy === 'delete-remove' || undefined} onClick={() => void deleteCalendar(c, 'remove')}>
+                {busy === 'delete-remove' ? <Spinner /> : null}
+                {t('deleteBoth')}
               </button>
-            </div>
-          </>
-        )}
+              <button type="button" className="ch-btn ch-btn-outline ch-save" disabled={locked} aria-busy={busy === 'delete-keep' || undefined} onClick={() => void deleteCalendar(c, 'keep')}>
+                {busy === 'delete-keep' ? <Spinner /> : null}
+                {t('deleteKeepGoogle')}
+              </button>
+            </>
+          ) : (
+            <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={busy === 'delete-plain' || undefined} onClick={() => void deleteCalendar(c, null)}>
+              {busy === 'delete-plain' ? <Spinner /> : null}
+              {t('delete')}
+            </button>
+          )}
+        </div>
       </BottomSheet>
     );
   };

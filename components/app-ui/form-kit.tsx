@@ -195,8 +195,9 @@ button.ch-form-row:focus-visible {
   vertical-align: middle;
 }
 .ch-swatches {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
   padding: 4px 6px;
 }
 .ch-swatch {
@@ -574,6 +575,8 @@ button.ch-form-row:disabled {
 }
 .ch-sheet:not(.ch-sheet-full) .ch-form-card {
   background: var(--ch-surface);
+  /* Where a theme's section and secondary colours are one, the card would vanish into the sheet: the switch's off outline keeps it. */
+  box-shadow: inset 0 0 0 1px var(--ch-done);
 }
 .ch-sheet:not(.ch-sheet-full) .ch-save-bar,
 .ch-app[data-theme='dark'] .ch-sheet:not(.ch-sheet-full) .ch-save-bar {
@@ -585,6 +588,10 @@ button.ch-form-row:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.ch-sheet-question {
+  margin: 0;
+  font-size: 15px;
 }
 .ch-sheet-stack.is-roomy .ch-form-row {
   padding-block: 8px;

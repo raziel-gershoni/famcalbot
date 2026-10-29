@@ -821,6 +821,20 @@ async function main() {
     assert(!/\.ch-day\b(?!chip)|\.ch-days\b/.test(FORM_CSS), "no .ch-day or .ch-days (the Agenda's day sections have those names)");
   });
 
+  await check("K12 a boundary where the grounds are the same: a sheet's card and a muted tag draw a 1px inset ring in the token the switch's off track uses (--ch-done, which #2b holds to 3:1 against --ch-section in every look), so they stay visible under a Telegram theme whose section and secondary colours are one; the ring is on the sheet's card only (the page's cards, the full-screen editor's cards and the other tags are as they were); #2's lint covers the new CSS", () => {
+    const ring = /box-shadow:\s*inset 0 0 0 1px var\((--[\w-]+)\)/;
+    const off = /box-shadow:\s*inset 0 0 0 1\.5px var\((--[\w-]+)\)/.exec(rule(FORM_CSS, '.ch-switch'))?.[1];
+    const sheetCard = rule(FORM_CSS, '.ch-sheet:not(.ch-sheet-full) .ch-form-card');
+    const sheetRing = ring.exec(sheetCard)?.[1];
+    const tagRing = ring.exec(rule(APP_SCREEN_CSS, '.ch-tag-muted'))?.[1];
+    assert(off && sheetRing === off && tagRing === off, `the rings: sheet ${sheetRing}, tag ${tagRing}, switch ${off}`);
+    assert(MARK_PAIRS.some(([a, b]) => a === off && b === '--ch-section'), `${off} on --ch-section is not one of #2b's mark pairs`);
+    assert(/background:\s*var\(--ch-surface\)/.test(sheetCard), "the sheet's card keeps its ground");
+    assert(!/box-shadow/.test(rule(FORM_CSS, '.ch-form-card')) && !/box-shadow/.test(rule(APP_SCREEN_CSS, '.ch-tag')) && !/box-shadow/.test(rule(APP_SCREEN_CSS, '.ch-tag-danger')), 'a page card, a plain tag and a danger tag carry no ring');
+    const ringed = [...FORM_CSS.matchAll(/(?:^|\n)([^\n{}]*\.ch-form-card[^\n{}]*) \{([^}]*)\}/g)].filter((m) => /box-shadow/.test(m[2])).map((m) => m[1]);
+    assert(show(ringed) === show(['.ch-sheet:not(.ch-sheet-full) .ch-form-card']), `the rules that ring a card: ${show(ringed)} (the full-screen editor's cards are not among them)`);
+  });
+
   await check("K11 the fake DOM's selectors: it matches what the app passes (BottomSheet's TABBABLE finds only the enabled controls, a [attr] list, [attr=\"v\"], [attr^=\"v\"]) and throws \"fake-dom: unsupported selector\" on the rest, so a check that reaches one can't pass on nothing; BottomSheet's Tab trap, which runs on TABBABLE, wraps over the enabled button only", () => {
     installWindow();
     const m = mount(

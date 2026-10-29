@@ -421,7 +421,9 @@ async function main() {
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(FORM_CSS)?.[1] ?? '';
     assert(/inline-size:\s*44px/.test(rule('.ch-swatch')) && /block-size:\s*44px/.test(rule('.ch-swatch')), `.ch-swatch: ${rule('.ch-swatch')}`);
     assert(/inline-size:\s*28px/.test(rule('.ch-swatch-color')) && /block-size:\s*28px/.test(rule('.ch-swatch-color')), `.ch-swatch-color: ${rule('.ch-swatch-color')}`);
-    assert(/flex-wrap:\s*wrap/.test(rule('.ch-swatches')), `.ch-swatches: ${rule('.ch-swatches')}`);
+    // Two even rows of four for the palette's eight, never a 7 + 1 wrap; the targets stay 44 px
+    assert(/display:\s*grid/.test(rule('.ch-swatches')) && /grid-template-columns:\s*repeat\(4,\s*1fr\)/.test(rule('.ch-swatches')), `.ch-swatches: ${rule('.ch-swatches')}`);
+    assert(CALENDAR_PALETTE.length === 8 && !/flex-wrap/.test(rule('.ch-swatches')), 'the palette is eight colours: two rows of four');
     assert(rule('.ch-swatch-dot') !== '', 'FORM_CSS does not draw .ch-swatch-dot');
     const problems = lintCss(FORM_CSS);
     assert(problems.length === 0, `FORM_CSS: ${show(problems)}`);
@@ -433,7 +435,7 @@ async function main() {
     const page = (l: Locale) => new Map(leaves(messages[l].calendarsPage));
     const keys = (l: Locale) => [...page(l).keys()].sort();
     for (const l of ['he', 'ru'] as Locale[]) assert(show(keys(l)) === show(keys('en')), `${l}: the keys differ from en: ${show(keys(l).filter((k) => !keys('en').includes(k)))} / ${show(keys('en').filter((k) => !keys(l).includes(k)))}`);
-    for (const need of ['title', 'yours', 'sharedBy', 'sharedByPartner', 'newCalendar', 'name', 'namePlaceholder', 'create', 'color', 'categories', 'privacy', 'privacyPrivate', 'privacyViewer', 'privacyEditor', 'delete', 'deleteTitle', 'deleteBody', 'onlyOne', 'seePlans', 'google', 'googleHint', 'googleChosen', 'googleChosenCount', 'googleChoose', 'googleConnect', 'googleReconnect', 'sharedAccess.view', 'sharedAccess.edit', 'colors.unknown']) assert(page('en').has(need), `en: no ${need}`);
+    for (const need of ['title', 'yours', 'sharedBy', 'sharedByPartner', 'newCalendar', 'name', 'namePlaceholder', 'create', 'color', 'categories', 'privacy', 'privacyPrivate', 'privacyViewer', 'privacyEditor', 'delete', 'deleteTitle', 'deleteBody', 'deleteBoth', 'deleteKeepGoogle', 'onlyOne', 'seePlans', 'google', 'googleHint', 'googleChosen', 'googleChosenCount', 'googleChoose', 'googleConnect', 'googleReconnect', 'sharedAccess.view', 'sharedAccess.edit', 'colors.unknown']) assert(page('en').has(need), `en: no ${need}`);
     for (const k of ['primary', 'yours', 'spouse', 'kids', 'birthdays']) assert(page('en').has(`categoryHint.${k}`), `no categoryHint.${k}`);
     for (const k of ['save', 'create', 'delete', 'notFound', 'tooMany', 'reopen', 'limit']) assert(page('en').has(`errors.${k}`), `no errors.${k}`);
     for (const colour of CALENDAR_PALETTE) assert(page('en').has(`colors.${colour.name.toLowerCase()}`), `no name for the palette colour ${colour.name}`);
@@ -680,6 +682,8 @@ async function main() {
       await openRow(o, 'Home');
       const sheet = sheetOf(o.m) as FakeElement;
       assert(sheet.getAttribute('aria-label') === 'Home', `the sheet's name: ${sheet.getAttribute('aria-label')}`);
+      // The field sits on a form card, as Settings' location sheet's does: that card is its visible box
+      assert(classes(nameField(o.m).parentNode as FakeElement).includes('ch-form-card'), `the name field is not on a form card: ${(nameField(o.m).parentNode as FakeElement).className}`);
       assert(nameField(o.m).value === 'Home' && nameField(o.m).getAttribute('maxLength') === '60' && nameField(o.m).getAttribute('aria-label') === word('en', 'name'), `the name field: ${show([nameField(o.m).value, [...nameField(o.m).attributes.entries()]])}`);
       const colours = groupOf(o.m, word('en', 'color'));
       assert(show(radiosOf(colours).map((r) => r.getAttribute('aria-label'))) === show(swatchLabels('en')) && show(checkedOf(colours).map((r) => r.getAttribute('aria-label'))) === show(['Blue']), `the swatches: ${show(checkedOf(colours).map((r) => r.getAttribute('aria-label')))}`);
@@ -841,7 +845,7 @@ async function main() {
     }
   });
 
-  await check('S10 delete of a calendar whose Google copy is on: the confirm step asks the Remove / Keep question (the name isolated in it) with no plain Delete button, each answer reaches the DELETE body as googleCopy, the copy rows are asked again after it, Cancel and Back send nothing; copies not loaded yet (a failed first answer, or one still in flight) are loaded first and a delete never goes without them', async () => {
+  await check('S10 delete of a calendar whose Google copy is on: the confirm step says what is deleted (the title with the name in a <bdi>, the body), then asks the Google question, then offers two explicit buttons, "Delete here and in Google" (danger, googleCopy remove) and "Delete here, keep it in Google" (outline, googleCopy keep), with no plain Delete button and no bare Remove / Keep; each reaches the DELETE body, the copy rows are asked again after it, a refusal keeps the step with its error, Cancel and Back send nothing; copies not loaded yet (a failed first answer, or one still in flight) are loaded first and a delete never goes without them', async () => {
     for (const locale of LOCALES) {
       for (const choice of ['remove', 'keep'] as const) {
         resetWorld(locale);
@@ -852,14 +856,33 @@ async function main() {
           o.m.click(mustButton(sheetOf(o.m) as FakeNode, word(locale, 'delete')));
           await settle();
           const sheet = sheetOf(o.m) as FakeElement;
-          assert(flat(sheet).includes(tc(locale, 'unlink.question', { name })), `${locale}: the question in ${flat(sheet)}`);
-          assert(show(buttonsOf(sheet).filter((b) => !classes(b).includes('ch-sheet-close')).map(flat)) === show([tc(locale, 'unlink.remove'), tc(locale, 'unlink.keep')]), `${locale}: the answers ${show(buttonsOf(sheet).map(flat))}`);
-          assert(classes(mustButton(sheet, tc(locale, 'unlink.remove'))).includes('ch-btn-danger') && !classes(mustButton(sheet, tc(locale, 'unlink.keep'))).includes('ch-btn-danger'), `${locale}: Remove is the danger one`);
+          const heading = elements(sheet).find((e) => e.localName === 'h2' && classes(e).includes('ch-sheet-heading'));
+          assert(labelOf(sheet) === word(locale, 'deleteTitle', { name }) && heading && flat(heading) === word(locale, 'deleteTitle', { name }) && elements(heading).some((e) => e.localName === 'bdi'), `${locale}: the title: ${labelOf(sheet)}`);
+          const text = flat(sheet);
+          const at = (part: string) => text.indexOf(part);
+          assert(at(word(locale, 'deleteTitle', { name })) === 0 && at(word(locale, 'deleteBody')) > 0 && at(tc(locale, 'unlink.question', { name })) > at(word(locale, 'deleteBody')) && at(word(locale, 'deleteBoth')) > at(tc(locale, 'unlink.question', { name })), `${locale}: the order title, body, question, buttons in ${text}`);
+          const answers = buttonsOf(sheet).filter((b) => !classes(b).includes('ch-sheet-close'));
+          assert(show(answers.map(flat)) === show([word(locale, 'deleteBoth'), word(locale, 'deleteKeepGoogle')]), `${locale}: the answers ${show(buttonsOf(sheet).map(flat))}`);
+          assert(!buttonsOf(sheet).some((b) => [tc(locale, 'unlink.remove'), tc(locale, 'unlink.keep'), word(locale, 'delete')].includes(flat(b))), `${locale}: a bare Remove, Keep or Delete`);
+          assert(classes(answers[0]).includes('ch-btn-danger') && classes(answers[1]).includes('ch-btn-outline') && !classes(answers[1]).includes('ch-btn-danger') && !classes(answers[1]).includes('ch-btn-primary'), `${locale}: the danger one and the outline one`);
+          assert(flat(cancelButton(o.m)) === ui(locale, 'cancel'), `${locale}: the sheet's Cancel`);
           assert(deletes().length === 0, `${locale}: a DELETE before the answer`);
           const gets = copyGets().length;
-          o.m.click(mustButton(sheet, tc(locale, `unlink.${choice}`)));
+          if (choice === 'remove') {
+            // A refusal keeps the step with its error; the answer pressed again goes through
+            srv.del = () => json({ error: 'Failed to delete calendar' }, 500);
+            o.m.click(answers[0]);
+            await settle();
+            assert(dialogs(o.m).length === 1 && labelOf(sheetOf(o.m)) === word(locale, 'deleteTitle', { name }) && show(alertsIn(sheetOf(o.m) as FakeNode)) === show([word(locale, 'errors.delete')]) && deletes().length === 1, `${locale}: a refused delete: ${show(alertsIn(o.m.container))}`);
+            assert(show(buttonsOf(sheetOf(o.m) as FakeNode).filter((b) => !classes(b).includes('ch-sheet-close')).map(flat)) === show([word(locale, 'deleteBoth'), word(locale, 'deleteKeepGoogle')]) && buttonsOf(sheetOf(o.m) as FakeNode).every((b) => !b.hasAttribute('disabled')), `${locale}: the step is not usable again`);
+            srv.del = (c) => {
+              srv.list = srv.list.filter((x) => x.rawId !== c.id);
+              return json({ success: true });
+            };
+          }
+          o.m.click(mustButton(sheetOf(o.m) as FakeNode, word(locale, choice === 'remove' ? 'deleteBoth' : 'deleteKeepGoogle')));
           await settle();
-          assert(deletes().length === 1 && show(deletes()[0].body) === show({ initData: initDataOf(o), googleCopy: choice }), `${locale} ${choice}: ${show(deletes()[0])}`);
+          assert(deletes().length === (choice === 'remove' ? 2 : 1) && show(deletes().at(-1)?.body) === show({ initData: initDataOf(o), googleCopy: choice }), `${locale} ${choice}: ${show(deletes().map((d) => d.body))}`);
           assert(!sheetOf(o.m) && !listRows(o.m).some((r) => flat(r).startsWith(name)) && copyGets().length === gets + 1, `${locale} ${choice}: after: ${dialogs(o.m).length} dialogs, copy GETs ${copyGets().length - gets}`);
         } finally {
           close(o);
@@ -892,7 +915,7 @@ async function main() {
       tap(late, 'Delete calendar');
       await settle();
       assert(gets === 2 && deletes().length === 0 && flat(sheetOf(late.m) as FakeNode).includes('from Google too'), `asked again (${gets}) and the question: ${flat(sheetOf(late.m) as FakeNode)}`);
-      late.m.click(mustButton(sheetOf(late.m) as FakeNode, 'Keep'));
+      late.m.click(mustButton(sheetOf(late.m) as FakeNode, word('en', 'deleteKeepGoogle')));
       await settle();
       assert(deletes().length === 1 && deletes()[0].body?.googleCopy === 'keep', `the DELETE ${show(deletes()[0])}`);
     } finally {
@@ -1010,6 +1033,7 @@ async function main() {
         await settle();
         const sheet = sheetOf(o.m) as FakeElement;
         assert(sheet.getAttribute('aria-label') === word(locale, 'newCalendar'), `${locale}: the sheet's name`);
+        assert(classes(nameField(o.m).parentNode as FakeElement).includes('ch-form-card'), `${locale}: the name field is not on a form card`);
         assert(nameField(o.m).value === '' && nameField(o.m).getAttribute('placeholder') === word(locale, 'namePlaceholder') && nameField(o.m).getAttribute('aria-label') === word(locale, 'name') && nameField(o.m).getAttribute('maxLength') === '60', `${locale}: the field ${show([nameField(o.m).value, [...nameField(o.m).attributes.entries()]])}`);
         assert(flat(saveButton(o.m)) === word(locale, 'create') && saveButton(o.m).hasAttribute('disabled'), `${locale}: Create is on for a blank name`);
         o.m.input(nameField(o.m), '   ');
@@ -1210,13 +1234,13 @@ async function main() {
       await settle();
       const hold = holdNext('del');
       await act(async () => {
-        o.m.click(mustButton(sheetOf(o.m) as FakeNode, 'Keep'));
-        o.m.click(mustButton(sheetOf(o.m) as FakeNode, 'Remove'));
+        o.m.click(mustButton(sheetOf(o.m) as FakeNode, word('en', 'deleteKeepGoogle')));
+        o.m.click(mustButton(sheetOf(o.m) as FakeNode, word('en', 'deleteBoth')));
       });
       await settle();
       assert(deletes().length === 1 && deletes()[0].body?.googleCopy === 'keep', `two answers in one frame: ${show(deletes().map((d) => d.body))}`);
-      const [remove, keep] = ['Remove', 'Keep'].map((text) => mustButton(sheetOf(o.m) as FakeNode, text));
-      assert(keep.getAttribute('aria-busy') === 'true' && elements(keep).some((e) => classes(e).includes('ch-form-spinner')) && !remove.hasAttribute('aria-busy') && !elements(remove).some((e) => classes(e).includes('ch-form-spinner')) && remove.hasAttribute('disabled') && keep.hasAttribute('disabled'), 'only Keep shows it works, both are off');
+      const [remove, keep] = [word('en', 'deleteBoth'), word('en', 'deleteKeepGoogle')].map((text) => mustButton(sheetOf(o.m) as FakeNode, text));
+      assert(keep.getAttribute('aria-busy') === 'true' && elements(keep).some((e) => classes(e).includes('ch-form-spinner')) && !remove.hasAttribute('aria-busy') && !elements(remove).some((e) => classes(e).includes('ch-form-spinner')) && remove.hasAttribute('disabled') && keep.hasAttribute('disabled'), 'only the pressed answer shows it works, both are off');
       await hold(json({ success: true }));
       await settle();
       assert(!sheetOf(o.m), 'the sheet stays after the delete');
@@ -1294,7 +1318,7 @@ async function main() {
         await openRow(o, 'Work 2');
         o.m.click(mustButton(sheetOf(o.m) as FakeNode, word('en', 'delete')));
         await settle();
-        o.m.click(dangerButtons(o.m).length ? dangerButtons(o.m)[0] : mustButton(sheetOf(o.m) as FakeNode, 'Keep'));
+        o.m.click(dangerButtons(o.m).length ? dangerButtons(o.m)[0] : mustButton(sheetOf(o.m) as FakeNode, word('en', 'deleteKeepGoogle')));
         await settle();
         assert(!sheetOf(o.m) && !listRows(o.m).some((r) => flat(r).startsWith('Work 2')) && listRows(o.m).some((r) => flat(r).startsWith('Soccer')), `${what}: after the delete: ${show(listRows(o.m).map(flat))}`);
       } finally {

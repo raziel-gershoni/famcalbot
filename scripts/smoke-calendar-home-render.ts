@@ -9516,7 +9516,7 @@ async function main() {
     }
   });
 
-  await check('#123 calendars page: deleting a calendar whose copy is on asks Remove or Keep in the delete sheet and sends the choice in the calendar DELETE; a calendar with no copy on is deleted as before, with no googleCopy; neither goes through window.confirm', async () => {
+  await check('#123 calendars page: deleting a calendar whose copy is on says what is deleted, then asks the Google question with two buttons (Delete here and in Google, Delete here, keep it in Google), in the delete sheet, and sends the choice in the calendar DELETE; a calendar with no copy on is deleted as before, with no googleCopy; neither goes through window.confirm', async () => {
     serveCopies = () => ok200(VIEW);
     const { m } = await mountCalendars('en');
     try {
@@ -9525,8 +9525,8 @@ async function main() {
       m.click(buttonIn(sheetIn(m), 'Delete calendar'));
       await settle();
       assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own'), 'deleted before the question');
-      assertHas(textOf(htmlOf(sheetIn(m))), ['from Google too, including anything you added to it?'], 'the question');
-      m.click(buttonIn(sheetIn(m), 'Remove'));
+      assertHas(textOf(htmlOf(sheetIn(m))), ['Delete Home ?', 'from Google too, including anything you added to it?'], 'the title and the question');
+      m.click(buttonIn(sheetIn(m), 'Delete here and in Google'));
       await settle();
       const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
       assert(del && del.body?.googleCopy === 'remove', `DELETE ${show(del)}`);
@@ -9614,7 +9614,7 @@ async function main() {
       await settle();
       assert(gets === 2, `GETs ${gets}`);
       assert(!fetchCalls.some((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE'), 'deleted before the question');
-      a.m.click(buttonIn(sheetIn(a.m), 'Keep'));
+      a.m.click(buttonIn(sheetIn(a.m), 'Delete here, keep it in Google'));
       await settle();
       const del = fetchCalls.find((c) => c.path === '/api/native-calendars/own' && c.method === 'DELETE');
       assert(del && del.body?.googleCopy === 'keep', `DELETE ${show(del)}`);
