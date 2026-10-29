@@ -262,6 +262,8 @@ async function main() {
       assert(block.startsWith('<div class="site-cancel">'), `${locale}: no cancel block in the plans`);
       const href = locale === 'en' ? '/terms#cancel' : `/${locale}/terms#cancel`;
       assert(block.includes(`<a class="site-cancel-link" href="${href}">${m.landing.plans.cancel.link}</a>`), `${locale}: the link ${block.slice(0, 200)}`);
+      // Clearly labelled: the words name the cancelling, in the page's language
+      assert({ en: /^Cancel a payment$/, he: /^ביטול /, ru: /^Отменить / }[locale].test(m.landing.plans.cancel.link) && m.site.footer.cancel === m.landing.plans.cancel.link, `${locale}: the label ${m.landing.plans.cancel.link}`);
       const ways = [...block.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((x) => x[1]);
       assert(ways.length === 4, `${locale}: ${ways.length} ways`);
       assert(ways[0].includes('<bdi dir="ltr">/paysupport</bdi>') && !/<a[^>]*paysupport/.test(ways[0]), `${locale}: /paysupport ${ways[0]}`);
