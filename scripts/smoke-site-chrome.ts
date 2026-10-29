@@ -14,7 +14,7 @@
 //    moves into it, and Escape, the scrim, the Close button and a link each close it with focus back on the button;
 //    the sheet holds the links and the switcher.
 //  - H5 the chrome's CSS: the kit's lint (sizes in px, logical properties only, no hover, colours only in token
-//    blocks), every tap target at least 44 px, the wide and phone parts swap at one width, and the sheet doesn't slide.
+//    blocks), every tap target (the chrome's and the pages' links and buttons) at least 44 px, the wide and phone parts swap at one width, and the sheet doesn't slide.
 //
 // The chrome runs as Next runs it on the server (next-intl's server API over the real messages), and the menu as a
 // browser runs it. No network, no DB.
@@ -174,7 +174,7 @@ async function main() {
     const problems = lintCss(own);
     assert(problems.length === 0, show(problems));
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(own)?.[1];
-    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a']) {
+    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy']) {
       const body = rule(selector);
       assert(body, `no rule ${selector}`);
       const min = /min-block-size:\s*(\d+)px/.exec(body);

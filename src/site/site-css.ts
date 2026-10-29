@@ -1080,6 +1080,9 @@ const PAGES_CSS = `
   background: var(--ch-surface);
 }
 .site-post-card a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
   text-decoration: none;
 }
 .site-post-card p {

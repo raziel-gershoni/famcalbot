@@ -2,8 +2,8 @@
 // (plan docs/superpowers/plans/2026-10-29-public-website.md, Task 7; spec 2026-10-28-public-website §4).
 //
 //  - T1 the truth list (UNTRUE in scripts/lib/site-harness.ts: "never stored", feature parity, early access, OpenAI,
-//    OpenWeatherMap, Google as a step, two-way sync, events by zman, WhatsApp reminders, auto-renewal, a scheduled
-//    weekly summary) over every public string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and
+//    OpenWeatherMap, Google as a step, two-way sync, events by zman, typed events, WhatsApp photo capture, WhatsApp
+//    reminders, auto-renewal, a scheduled weekly summary) over every public string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and
 //    greeting, and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
 //    something.
 //  - T2 no emoji in the site's strings or posts (the WhatsApp greeting, which the visitor sends, is the bot's).
@@ -55,6 +55,8 @@ async function main() {
       'Weather from OpenWeatherMap',
       'Connect your Google Calendars, pick which ones to track',
       'two-way sync with Google',
+      'Type events in the chat',
+      'Send photos on WhatsApp too',
       'Add events by zman',
       'Get reminders on WhatsApp',
       'Plans renew automatically',

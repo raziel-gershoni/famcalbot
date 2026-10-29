@@ -63,6 +63,8 @@ export const UNTRUE: [string, RegExp][] = [
   ['Google as a step', /connect your google calendars?|sign in with google|מחברים את יומני Google|подключаете google календари/i],
   ['two-way Google sync', /two-way|דו[- ]כיווני|двусторонн/i],
   ['events by zman', /events? by zman|אירועים לפי זמני היום|событи\S* по зманим/i],
+  ['typed events', /\btype (?:an |your )?events?\b|typed events|מקלידים אירוע|набира\S* событи/i],
+  ['WhatsApp photo capture', /(?:photos?|pdfs?) (?:on|in|via|through) whatsapp|whatsapp (?:photos?|pdfs?)\b|תמונ\S* בוואטסאפ|фото в whatsapp/i],
   ['WhatsApp reminders', /reminders? (?:on|in|via) whatsapp|תזכורות בוואטסאפ|напоминания в whatsapp/i],
   ['auto-renewal', /auto-?renew|renews? automatically|מתחדש(?:ים)? אוטומטית|автоматически продлева|автопродлен/i],
   ['a scheduled weekly summary', /weekly summary every|every (?:sunday|week) (?:you get|it sends)|סיכום שבועי (?:בכל|כל)|еженедельн\S* сводк/i],
