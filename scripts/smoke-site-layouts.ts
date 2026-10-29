@@ -11,6 +11,7 @@
 //    site's one style sheet (/site.css, versioned by its content, cached for good).
 //  - L4 the site's metadata comes from messages, per language: the title, its template, the description, the keywords
 //    and the share image's alt text.
+//  - L5 a partner's invite link unfurls: the invite page's own title and words, the share image of its language, noindex.
 //
 // The layouts run as Next runs them (the layout as a function), with next-intl's server API over the real messages.
 // No network, no DB.
@@ -131,6 +132,21 @@ async function main() {
       assert(m.keywords === l.site.meta.keywords, `${locale}: keywords ${m.keywords}`);
       assert(m.openGraph?.images?.[0]?.alt === l.landing.meta.ogImageAlt, `${locale}: og alt ${show(m.openGraph?.images)}`);
       assert(String(m.metadataBase) === 'https://famcal.bot/', `${locale}: metadataBase ${m.metadataBase}`);
+    }
+  });
+
+  await check('L5 a partner\'s invite link unfurls where it is pasted: the invite page\'s title and words from messages and the site\'s share image in the page\'s language (absolute), with nothing about the inviter, and still noindex', async () => {
+    const { generateMetadata: inviteMetadata } = await load(`${LOCALE_DIR}/(app)/invite/[token]/page.tsx`);
+    for (const locale of LOCALES) {
+      const m = await inviteMetadata({ params: Promise.resolve({ locale, token: 'a'.repeat(32) }) });
+      const l = messages[locale];
+      assert(m.title === l.invite.metaTitle && m.description === l.invite.subtitle, `${locale}: title ${show(m.title)}, description ${show(m.description)}`);
+      assert(m.robots?.index === false && m.robots?.follow === false, `${locale}: robots ${show(m.robots)}`);
+      for (const card of [m.openGraph, m.twitter]) {
+        const image = card?.images?.[0];
+        assert(card?.title === m.title && image?.url === `https://famcal.bot/og/${locale}.png` && image?.alt === l.landing.meta.ogImageAlt, `${locale}: the card ${show(card)}`);
+      }
+      assert(m.twitter?.card === 'summary_large_image' && m.openGraph?.images?.[0]?.width === 1200, `${locale}: the image's size or card ${show(m.twitter)}`);
     }
   });
 

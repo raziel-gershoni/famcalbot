@@ -8,6 +8,7 @@
 // renders preview state from that result. The acceptance routes (TG /start,
 // API POST, WA accept text) all converge on pairing-service.acceptInvite.
 
+import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
 import { AppScreen } from '@/components/app-ui/AppScreen';
@@ -17,9 +18,32 @@ import InviteClient from './InviteClient';
 import { INVITE_CSS } from './invite-css';
 import { normalizeLocale } from '@/src/utils/locale';
 import { inviteStartParam } from '@/src/lib/invite-link';
+import { SITE_URL } from '@/src/site/config';
+import { OG_SIZE } from '@/src/site/seo';
 
 interface PageProps {
   params: Promise<{ locale: string; token: string }>;
+}
+
+/**
+ * The link's preview where it is pasted (a chat, a group): the invite's title and words, and the site's share image in
+ * the page's language. Nothing about the inviter, and still kept out of search, as every page in the app is.
+ */
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { locale: rawLocale } = await params;
+  const locale = normalizeLocale(rawLocale);
+  const t = await getTranslations({ locale, namespace: 'invite' });
+  const share = await getTranslations({ locale, namespace: 'landing.meta' });
+  const title = t('metaTitle');
+  const description = t('subtitle');
+  const image = { url: `${SITE_URL}/og/${locale}.png`, ...OG_SIZE, alt: share('ogImageAlt') };
+  return {
+    title,
+    description,
+    robots: { index: false, follow: false },
+    openGraph: { type: 'website', siteName: 'FamCal', title, description, images: [image] },
+    twitter: { card: 'summary_large_image', title, description, images: [image] },
+  };
 }
 
 export default async function InvitePage({ params }: PageProps) {

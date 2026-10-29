@@ -2682,6 +2682,7 @@
     "expires": "Link expires {when}",
     "errorGeneric": "Could not accept the invite. Try the bot directly.",
     "someone": "Someone",
+    "metaTitle": "An invite to pair calendars on FamCal",
     "errors": {
       "notFound": "This invite link is not valid.",
       "expired": "This invite has expired.",
