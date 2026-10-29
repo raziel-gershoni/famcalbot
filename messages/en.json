@@ -1617,6 +1617,7 @@
       "seller": "Sold by {name}.",
       "oneMonth": "One month from the day you pay. It never renews by itself.",
       "refund": "Cancel within 14 days for a full refund.",
+      "renewNote": "If you pay again before your month ends, the new month starts on the day you pay. The days left aren’t added to it.",
       "termsLink": "Terms of Use",
       "starsNote": "You pay with Telegram Stars in your chat with FamCal.",
       "invoiceSent": "The invoice is in your Telegram chat with FamCal. Pay there to switch plans.",

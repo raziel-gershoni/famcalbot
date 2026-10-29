@@ -165,7 +165,7 @@ const posts = () => fetchCalls.filter((c) => c.url === '/api/subscription/upgrad
 // ---- Fixtures ----
 
 const PERIOD_END = '2026-11-20T10:00:00.000Z';
-type State = 'free' | 'trial' | 'basic' | 'pro' | 'comped' | 'early' | 'whatsapp';
+type State = 'free' | 'trial' | 'basic' | 'pro' | 'comped' | 'early' | 'whatsapp' | 'canceled' | 'lapsed';
 function propsOf(state: State, over: Row = {}): Row {
   const base: Row = {
     userId: 1,
@@ -202,6 +202,14 @@ function propsOf(state: State, over: Row = {}): Row {
       break;
     case 'whatsapp':
       base.telegramLinked = false;
+      break;
+    case 'canceled':
+      // A cancelled Basic that still runs: paid until its end
+      base.subscription = { ...paid('BASIC', PERIOD_END), status: 'CANCELED', cancelAtPeriodEnd: true };
+      break;
+    case 'lapsed':
+      // Pro's month ended an hour ago and the 03:00 expiry has not run yet: the last-day reminder's "Renew" lands here
+      base.subscription = paid('PRO', new Date(Date.now() - 3_600_000).toISOString());
       break;
   }
   return { ...base, ...over };
@@ -383,7 +391,7 @@ async function main() {
     assert(used.size >= 8 && undefinedClasses.length === 0, `classes with no rule: ${show(undefinedClasses)} (of ${used.size})`);
   });
 
-  await check('U2 the state matrix: Free gets Basic and Pro; a trial gets both and a day count in the language\'s plural forms (the home\'s banner line: 1 and 2 days in he); Basic gets Pro and a Current tag on its own card; Pro and a comped Pro get no button (a Pro user is never offered Basic); a comped Pro has no "active until"; early access has no Plans section at all; a user with no Telegram gets no button and the note that paying needs it; the prices are the plan\'s', () => {
+  await check('U2 the state matrix: Free gets Basic and Pro; a trial gets both and a day count in the language\'s plural forms (the home\'s banner line: 1 and 2 days in he); a paid plan while it runs (Basic, a cancelled Basic, Pro, a Pro whose month ended before the expiry ran) gets its own card\'s button (paying again renews it; the reminders\' Renew lands here) and the higher plan\'s, with the renewal line in the terms; a Current tag on its own card; a comped Pro gets no button and Pro is never offered Basic; a comped Pro has no "active until"; early access has no Plans section at all; a user with no Telegram gets no button and the note that paying needs it; the prices are the plan\'s', () => {
     assert(PLAN_CONFIGS.BASIC.priceStars === 2500 && PLAN_CONFIGS.PRO.priceStars === 5000, `the prices are ${PLAN_CONFIGS.BASIC.priceStars} and ${PLAN_CONFIGS.PRO.priceStars} Stars`);
     for (const locale of LOCALES) {
       const w = (key: string) => word(locale, key);
@@ -391,7 +399,7 @@ async function main() {
       const render = (state: State, over: Row = {}) => renderToString(tree(locale, propsOf(state, over))).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
       const both = [planName(locale, 'basic'), planName(locale, 'pro')];
       // Which cards have a pay button, and what else each state says
-      const cases: [State, string[]][] = [['free', both], ['trial', both], ['basic', [planName(locale, 'pro')]], ['pro', []], ['comped', []], ['early', []], ['whatsapp', []]];
+      const cases: [State, string[]][] = [['free', both], ['trial', both], ['basic', both], ['canceled', both], ['pro', [planName(locale, 'pro')]], ['lapsed', [planName(locale, 'pro')]], ['comped', []], ['early', []], ['whatsapp', []]];
       for (const [state, want] of cases) {
         const html = render(state);
         const paying = cardsOf(html).filter(([, card]) => chooseOf(card).length > 0).map(([name]) => name);
@@ -400,12 +408,15 @@ async function main() {
         const note = textOf(w('screen.starsNote'));
         assert(text.includes(note) === (want.length > 0), `${locale} ${state}: the Stars note ${want.length > 0 ? 'is missing' : 'shows with no button'}`);
         assert(text.includes(textOf(w('screen.needsTelegram'))) === (state === 'whatsapp'), `${locale} ${state}: the needs-Telegram note`);
+        // The Terms' line on paying again before the month ends, for the person whose paid month runs (and only with a button)
+        const renewing = ['basic', 'canceled', 'pro', 'lapsed'].includes(state);
+        assert(text.includes(textOf(w('screen.renewNote'))) === renewing, `${locale} ${state}: the renewal line ${renewing ? 'is missing' : 'shows'}`);
         // The d1b90de fix: the reminders row is its own translated label, never the bot's reminders object
         assert(!text.includes('[object Object]') && !/subscription\.reminders/.test(text), `${locale} ${state}: the reminders key`);
         // The current plan's tag: one, by state
         const tags = [...html.matchAll(/<span class="ch-tag">([^<]*)<\/span>/g)].map((m) => m[1]);
-        const tag = { free: w('screen.badge.current'), trial: w('screen.badge.trial'), basic: w('screen.badge.current'), pro: w('screen.badge.current'), comped: w('screen.badge.current'), early: w('screen.badge.earlyAccess'), whatsapp: w('screen.badge.current') }[state];
-        const planTag = state === 'basic' || state === 'pro' || state === 'comped' ? [w('screen.badge.current')] : [];
+        const tag = { free: w('screen.badge.current'), trial: w('screen.badge.trial'), basic: w('screen.badge.current'), pro: w('screen.badge.current'), comped: w('screen.badge.current'), early: w('screen.badge.earlyAccess'), whatsapp: w('screen.badge.current'), canceled: w('screen.badge.current'), lapsed: w('screen.badge.current') }[state];
+        const planTag = ['basic', 'pro', 'comped', 'canceled', 'lapsed'].includes(state) ? [w('screen.badge.current')] : [];
         assert(show(tags) === show([tag, ...planTag]), `${locale} ${state}: the tags ${show(tags)}`);
       }
       // The current plan: the effective plan's name
@@ -665,7 +676,7 @@ async function main() {
     for (const locale of LOCALES) {
       const screen = messages[locale].subscription.screen as Row;
       const keys = leaves(screen);
-      assert(keys.length === 31, `${locale}: ${keys.length} keys in subscription.screen`);
+      assert(keys.length === 32, `${locale}: ${keys.length} keys in subscription.screen`);
       // The trial's days left is the home's banner line, said once: the screen has no copy of it, and reads the home's with { count }
       assert(!('trialLeft' in screen), `${locale}: subscription.screen.trialLeft is back (the home's calendarHome.banner.trial says it)`);
       assert(typeof (messages[locale].calendarHome as Row).banner.trial === 'string' && (messages[locale].calendarHome as Row).banner.trial.includes('{count, plural'), `${locale}: calendarHome.banner.trial`);
@@ -690,7 +701,7 @@ async function main() {
     for (const locale of LOCALES) {
       const w = (key: string) => word(locale, key);
       assert(!/\bread\b|прочит|קראתי|קראנו|שקראתי/i.test(w('screen.agreeAndPay')), `${locale}: the button says it was read: ${w('screen.agreeAndPay')}`);
-      for (const state of ['free', 'trial', 'basic', 'pro', 'comped', 'early', 'whatsapp'] as State[]) {
+      for (const state of ['free', 'trial', 'basic', 'pro', 'comped', 'early', 'whatsapp', 'canceled', 'lapsed'] as State[]) {
         const html = renderToString(tree(locale, propsOf(state))).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
         const buttons = chooseOf(html);
         const block = html.indexOf(textOf(w('screen.oneMonth')));
@@ -703,7 +714,8 @@ async function main() {
         const start = html.lastIndexOf('<div class="ch-notice', block);
         assert(start > 0 && html.slice(start, html.indexOf('>', start) + 1) === '<div class="ch-notice">', `${locale} ${state}: the terms are not a static notice: ${html.slice(start, start + 60)}`);
         const notice = textOf(html.slice(start, html.indexOf('</div>', start)));
-        const lines = [w('screen.seller').replace('{name}', SELLER.name[locale]), w('screen.oneMonth'), w('screen.refund'), w('screen.termsLink')].map(textOf);
+        const renewing = ['basic', 'canceled', 'pro', 'lapsed'].includes(state);
+        const lines = [w('screen.seller').replace('{name}', SELLER.name[locale]), w('screen.oneMonth'), w('screen.refund'), ...(renewing ? [w('screen.renewNote')] : []), w('screen.termsLink')].map(textOf);
         assert(show(lines.filter((line) => !notice.includes(line))) === show([]), `${locale} ${state}: the notice ${show(notice)} lacks ${show(lines.filter((line) => !notice.includes(line)))}`);
         assert(buttons.every((label) => label === w('screen.agreeAndPay')), `${locale} ${state}: the buttons ${show(buttons)}`);
       }

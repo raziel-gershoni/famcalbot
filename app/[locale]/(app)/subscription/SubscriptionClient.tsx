@@ -8,11 +8,15 @@
 //   Early access) and one status line (early access, the trial's days left, or when a paid plan runs until). The
 //   limits come from PLAN_CONFIGS, the same constants that enforce them; the calendar count arrives as a prop.
 // - Only Basic and Pro have a card. A card offers its button when it is above the user's plan (a Pro user is never
-//   offered Basic) and Telegram is linked: paying is a Telegram Stars invoice the bot sends to the user's chat. A user
-//   with no Telegram is told that, in place of the buttons. Early access shows no plans at all.
+//   offered Basic), or when it is the user's own paid plan while its month runs (ACTIVE or CANCELED with a period end,
+//   until the expiry run moves them to Free): paying again renews it, and the new month starts that day, as the Terms
+//   say (the renewal reminders' Renew lands here). Telegram must be linked: paying is a Telegram Stars invoice the bot
+//   sends to the user's chat. A user with no Telegram is told that, in place of the buttons. A free gift has no period
+//   end, so it offers nothing. Early access shows no plans at all.
 // - Before the first pay button (Consumer Protection Law s.14C; Telegram's Stars checklist; the legal review of
 //   2026-10-29, issue 4): the seller, one month that never renews, the 14-day full refund and the Terms, as a static
-//   notice wherever a button shows; each card's price stands above its button. The button agrees to the Terms ("I agree
+//   notice wherever a button shows (with the Terms' line on paying again before the month ends, for a paid month that
+//   runs); each card's price stands above its button. The button agrees to the Terms ("I agree
 //   to the Terms, pay"), never "I have read" (Standard Contracts Law s.4(12)). The Terms open in the person's language
 //   outside the Mini App: Telegram's openLink, or a new tab in a browser (openExternalLink).
 // - Choosing sends the request the upgrade route has always read; the invoice itself waits in the chat. In Telegram
@@ -98,9 +102,12 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
 
   // A plan above the user's own can be chosen (Pro is never offered Basic); the user's own is marked Current, unless it is a trial
   const canUpgrade = (id: PlanId) => PLAN_ORDER.indexOf(subscription.plan as PlanId) < PLAN_ORDER.indexOf(id);
+  // The user's own paid month runs (a free gift has no period end): its card renews it
+  const runningPaid = subscription.plan !== 'FREE' && subscription.currentPeriodEnd !== null && (subscription.status === 'ACTIVE' || subscription.status === 'CANCELED');
+  const canPay = (id: PlanId) => canUpgrade(id) || (runningPaid && id === subscription.plan);
   const isCurrent = (id: PlanId) => id === subscription.plan && !trial.isTrialing;
-  const anyUpgrade = CARD_PLANS.some(canUpgrade);
-  const showButtons = anyUpgrade && telegramLinked;
+  const anyPay = CARD_PLANS.some(canPay);
+  const showButtons = anyPay && telegramLinked;
 
   const choose = async (plan: PlanId) => {
     if (inFlight.current) return;
@@ -193,6 +200,12 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
                 {t('oneMonth')}
                 <br />
                 {t('refund')}
+                {runningPaid ? (
+                  <>
+                    <br />
+                    {t('renewNote')}
+                  </>
+                ) : null}
               </Notice>
             ) : null}
             {CARD_PLANS.map((id) => (
@@ -214,7 +227,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
-                {showButtons && canUpgrade(id) ? (
+                {showButtons && canPay(id) ? (
                   <button
                     type="button"
                     className={id === 'PRO' ? 'ch-btn ch-btn-primary ch-plan-choose ch-plan-choose-pro' : 'ch-btn ch-btn-outline ch-plan-choose'}
@@ -231,7 +244,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
             {outcome === 'sent' ? <Notice>{t('invoiceSent')}</Notice> : null}
             {outcome === 'failed' ? <Notice tone="error">{t('upgradeFailed')}</Notice> : null}
             {showButtons ? <p className="ch-plan-fine">{t('starsNote')}</p> : null}
-            {anyUpgrade && !telegramLinked ? <Notice>{t('needsTelegram')}</Notice> : null}
+            {anyPay && !telegramLinked ? <Notice>{t('needsTelegram')}</Notice> : null}
           </>
         )}
       </div>
