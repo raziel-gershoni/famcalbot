@@ -628,13 +628,25 @@ async function main() {
       assert(show(pageSwitches(o.m).map(isOn)) === show([true, true, true, true]), `the final state: ${show(pageSwitches(o.m).map(isOn))}`);
       // A sheet's save in flight: the page behind it takes no tap either
       await openRow(o, 'Dana');
+      // Two Saves in one frame (the button is not disabled yet): one request
+      const sheetFrame = holdNext();
+      await act(async () => {
+        o.m.click(saveButton(o.m));
+        o.m.click(saveButton(o.m));
+      });
+      await settle();
+      assert(saves().length === 3, `two Saves in one frame sent ${saves().length - 2} request(s)`);
+      await sheetFrame(json({ success: true }));
+      await settle();
+      assert(!sheetOf(o.m), 'the sheet stays after the first answer');
+      await openRow(o, 'Dana');
       const sheetRelease = holdNext();
       o.m.click(saveButton(o.m));
       await settle();
       assert(saveButton(o.m).hasAttribute('disabled') && saveButton(o.m).getAttribute('aria-busy') === 'true' && cancelButton(o.m).hasAttribute('disabled'), 'the sheet does not show the request');
       o.m.click(saveButton(o.m));
       o.m.click(switchOf(o.m, 'Noa'));
-      assert(saves().length === 3, `a tap while the sheet saved sent ${saves().length - 2} more`);
+      assert(saves().length === 4, `a tap while the sheet saved sent ${saves().length - 3} more`);
       await sheetRelease(json({ success: true }));
       await settle();
       assert(!sheetOf(o.m), 'the sheet stays after the answer');
@@ -1071,6 +1083,40 @@ async function main() {
     assert(/\.ch-choice\[aria-checked='true'\] \{\s*font-weight:\s*600;/.test(FORM_CSS) && /\.ch-choice \.ch-form-hint \{\s*font-weight:\s*400;/.test(FORM_CSS), 'the chosen option\'s hint is bold with it');
     const html = renderToString(createElement(SwitchRow, { label: createElement('span', { className: 'x' }, 'Rich'), checked: true, onChange: () => undefined }));
     assert(html.includes('<span class="x">Rich</span>') && /role="switch"/.test(html), `a node as the label: ${html.slice(0, 160)}`);
+  });
+
+  await check('S19 the pure rules (selection.ts): a change never touches the selection it started from (a refused save puts it back); primary is always also yours and only yours; a category leaves the other categories out; turning a calendar on gives yours only to a selection with none; edits to the spouse details of a calendar that is not a spouse calendar are dropped; the notes are trimmed and padded to three', async () => {
+    const sel = await import('../app/[locale]/select-calendars/selection');
+    const set = (...l: string[]) => new Set(l) as Set<never>;
+    const names = (labels: Iterable<string>) => [...labels].sort().join();
+    assert(names(sel.withCategory(set('primary', 'yours'), 'kids')) === 'primary,yours', 'a category replaced yours under primary');
+    assert(names(sel.withCategory(set('kids'), 'spouse')) === 'spouse' && names(sel.withCategory(set('primary', 'yours'), null)) === 'primary,yours' && names(sel.withCategory(set('spouse'), null)) === '', 'withCategory');
+    assert(names(sel.withPrimary(set('kids'), true)) === 'primary,yours' && names(sel.withPrimary(set('primary', 'yours'), false)) === 'yours', 'withPrimary');
+    assert(sel.categoryOf(set('primary', 'kids', 'birthdays')) === 'kids' && sel.categoriesOf(set('primary', 'kids', 'birthdays')).join() === 'kids,birthdays' && sel.categoryOf(set('primary')) === null, 'categoryOf');
+    const start = sel.selectionFrom({
+      selectedCalendars: new Set([ME, KIDS]),
+      calendarLabels: new Map([[ME, set('primary', 'yours')], [KIDS, set('kids')]]),
+      spouseInfo: { personName: 'Noa' },
+      calendarRules: new Map([[KIDS, 'rule']]),
+      globalRules: ['a'],
+    });
+    const frozen = () => JSON.stringify({ s: [...start.selected], l: [...start.labels].map(([k, v]) => [k, [...v]]), r: [...start.rules], sp: start.spouse, g: start.globalRules });
+    const before = frozen();
+    const draft = { labels: set('primary', 'yours'), note: ' x ', spouse: { name: 'Dana', englishName: '', gender: '' as const } };
+    const applied = sel.applyCalendar(start, KIDS, draft);
+    sel.toggleShown(start, ME);
+    sel.toggleShown(start, FAMILY);
+    sel.withNotes(start, ['q', 'w']);
+    assert(frozen() === before, `a change touched the selection it started from:\n${before}\n${frozen()}`);
+    assert(applied.labels.get(ME)?.has('primary') === false && applied.labels.get(KIDS)?.has('primary') === true && applied.rules.get(KIDS) === 'x', 'applyCalendar');
+    assert(applied.spouse?.personName === 'Noa', 'the spouse details of a calendar that is not a spouse calendar changed the set');
+    const asSpouse = sel.applyCalendar(start, KIDS, { ...draft, labels: set('spouse') });
+    assert(asSpouse.spouse?.personName === 'Dana' && asSpouse.spouse?.personEnglishName === undefined && asSpouse.spouse?.personGender === undefined, `the spouse details: ${show(asSpouse.spouse)}`);
+    assert(sel.applyCalendar(start, KIDS, { ...draft, labels: set('spouse'), spouse: { name: ' ', englishName: '', gender: '' } }).spouse === null, 'emptied spouse details are none');
+    assert(names(sel.toggleShown(start, FAMILY).labels.get(FAMILY) ?? []) === '' && names(sel.toggleShown(sel.toggleShown(start, ME), KIDS).selected) === '' && names(sel.toggleShown(sel.toggleShown(sel.toggleShown(start, ME), KIDS), FAMILY).labels.get(FAMILY) ?? []) === 'yours', 'yours goes to the first calendar only');
+    const noYours = sel.selectionFrom({ selectedCalendars: new Set([KIDS]), calendarLabels: new Map([[KIDS, set('kids')]]), spouseInfo: null, calendarRules: new Map(), globalRules: [] });
+    assert(names(sel.toggleShown(noYours, FAMILY).labels.get(FAMILY) ?? []) === 'yours', 'a selection with no yours: the new calendar is yours');
+    assert(show(sel.withNotes(start, [' a ', '', 'c', 'd']).globalRules) === show(['a', '', 'c']) && show(sel.withNotes(start, ['a']).globalRules) === show(['a', '', '']) && sel.noteCount(sel.withNotes(start, ['a', ' ', 'c'])) === 2, 'the notes');
   });
 
   await check('S18 window.confirm was never called on any path above, and React logged no warning (keys, nesting, attributes, act)', () => {
