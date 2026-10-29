@@ -15,7 +15,7 @@ import { TIMEZONE } from '../config/constants';
 import { buildUrl } from '../config/urls';
 import { captureError } from '../lib/error-capture';
 import { invoiceDescription, paymentConfirmation } from '../lib/plan-disclosure';
-import { resolveUserTimezone } from '../lib/timezone';
+import { timezoneWithin, TZ_LOOKUP_MS } from '../lib/timezone';
 import type { UserConfig } from '../types';
 
 interface PreCheckoutQuery {
@@ -112,12 +112,20 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
   }
 }
 
-/** The person's zone for the confirmation's end date. A lookup that throws is logged and the default zone answers. */
-async function confirmationZone(user: UserConfig): Promise<string> {
+/**
+ * The person's zone for the paid month's end and its confirmation, as the lookup gives it within TZ_LOOKUP_MS (the
+ * screens' own wait): the webhook answers Telegram only when this handler returns, so a cold cache and a slow place
+ * search must not hold it. Past that wait the lookup carries on and caches its answer for next time, and the month is
+ * counted in Israel's zone (TIMEZONE); a lookup that fails does the same. Either is logged.
+ */
+async function paymentZone(user: UserConfig): Promise<string> {
   try {
-    return await resolveUserTimezone(user);
+    const zone = await timezoneWithin(user, TZ_LOOKUP_MS);
+    if (zone) return zone;
+    console.warn(`[Payment] The timezone of user ${user.id} took over ${TZ_LOOKUP_MS} ms; the paid month and its confirmation use ${TIMEZONE}`);
+    return TIMEZONE;
   } catch (error) {
-    console.error(`[Payment] Could not read the timezone of user ${user.id}; the confirmation uses ${TIMEZONE}:`, error);
+    console.error(`[Payment] Could not read the timezone of user ${user.id}; the paid month and its confirmation use ${TIMEZONE}:`, error);
     captureError(error, 'payment-confirmation-timezone', { user_id: user.id }, 'warning');
     return TIMEZONE;
   }
@@ -127,6 +135,8 @@ async function confirmationZone(user: UserConfig): Promise<string> {
  * Handle successful payment
  * Activate or renew subscription, then send the one confirmation (src/lib/plan-disclosure.ts): the plan, the price, when
  * the month ends in the person's zone, that it never renews, the seller and the ways to cancel within 14 days.
+ * Once per charge: Telegram delivers the update again when the webhook's answer is late or fails, and a charge already
+ * credited credits nothing and sends nothing.
  */
 export async function handleSuccessfulPayment(
   chatId: number,
@@ -171,10 +181,16 @@ export async function handleSuccessfulPayment(
     const language = user.language || 'en';
     const [t, botMessages] = await Promise.all([getSubscriptionMessages(language), getBotMessages(language)]);
 
-    // Activate subscription (use internal DB user.id, not Telegram userId)
-    const subscription = payload.action === 'renew'
-      ? await renewSubscription(user.id, payment.telegram_payment_charge_id)
-      : await upgradeSubscription(user.id, payload.plan, payment.telegram_payment_charge_id);
+    // Activate subscription (use internal DB user.id, not Telegram userId), the month on the person's clock
+    const chargeId = payment.telegram_payment_charge_id;
+    const timeZone = await paymentZone(user);
+    const { subscription, credited } = payload.action === 'renew'
+      ? await renewSubscription(user.id, chargeId, timeZone)
+      : await upgradeSubscription(user.id, payload.plan, chargeId, timeZone);
+    if (!credited) {
+      console.log(`[Payment] Charge ${chargeId} for user ${user.id} was already credited: a repeated update, so no second confirmation`);
+      return;
+    }
     if (!subscription.currentPeriodEnd) {
       throw new Error(`The subscription of user ${user.id} has no period end after a payment`);
     }
@@ -203,7 +219,7 @@ export async function handleSuccessfulPayment(
       planName: localizedPlanName,
       price: payment.total_amount,
       periodEnd: subscription.currentPeriodEnd,
-      timeZone: await confirmationZone(user),
+      timeZone,
     });
 
     await messagingService.sendMessage(chatId, successMessage, {

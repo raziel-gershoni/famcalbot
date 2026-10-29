@@ -216,14 +216,15 @@ const stubs: Record<string, object> = {
   [`${SRC}/services/user-service.ts`]: { getUserByTelegramId: async (id: number) => USERS.find((u) => Number(u.telegramId) === Number(id)) ?? null },
   [`${SRC}/services/subscription-service.ts`]: {
     getSubscription: async () => null,
-    upgradeSubscription: async (userId: number, plan: string) => ({ userId, plan, status: 'ACTIVE', currentPeriodEnd: PERIOD_END }),
-    renewSubscription: async (userId: number) => ({ userId, plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: PERIOD_END }),
+    upgradeSubscription: async (userId: number, plan: string) => ({ subscription: { userId, plan, status: 'ACTIVE', currentPeriodEnd: PERIOD_END }, credited: true }),
+    renewSubscription: async (userId: number) => ({ subscription: { userId, plan: 'PRO', status: 'ACTIVE', currentPeriodEnd: PERIOD_END }, credited: true }),
   },
   [`${SRC}/utils/prisma.ts`]: { prisma: { user: { findUnique: async ({ where }: Row) => USERS.find((u) => u.id === where.id) ?? null } } },
   [`${SRC}/services/analytics-service.ts`]: { trackActivity: async () => undefined, addBreadcrumb: () => undefined, setUserContext: () => undefined },
   [`${SRC}/lib/error-capture.ts`]: { captureError: (e: unknown, context: string) => void captured.push(`${context}: ${e instanceof Error ? e.message : String(e)}`) },
   [`${SRC}/lib/timezone.ts`]: {
-    resolveUserTimezone: async (u: Row) => {
+    TZ_LOOKUP_MS: 2000,
+    timezoneWithin: async (u: Row) => {
       if (zoneFails) throw new Error('redis down (smoke)');
       return u.id === 11 ? 'America/New_York' : 'Asia/Jerusalem';
     },

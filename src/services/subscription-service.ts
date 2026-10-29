@@ -14,6 +14,8 @@ import { captureError } from '../lib/error-capture';
 import { liveGoogleChoices } from '../lib/google-state';
 import { isPaused } from './zmanim/pause';
 import { holdsPaidPlan } from '../lib/comp-eligibility';
+import { TIMEZONE } from '../config/constants';
+import { instantToWallTime, instantToWallTimeMs, wallTimeToInstant } from '../utils/wall-time';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
@@ -46,18 +48,32 @@ export interface SubscriptionWithUsage {
 // ============================================
 
 /**
- * Calculate subscription end date (same day next month)
- * Handles month-length differences: Jan 31 → Feb 28, etc.
- * JS Date constructor handles year rollover (month 12 → Jan next year)
+ * When a month that starts at `from` ends: one calendar month later at the same wall time on `timeZone`'s clock (the
+ * person's zone for a paid month). The day is kept, or is the next month's last when that month is shorter (31 October
+ * → 30 November, 31 January → 28 or 29 February). The wall time becomes an instant only through wallTimeToInstant
+ * (CLAUDE.md), so a time the clocks skip that day moves forward by the jump, and the server's own zone changes nothing.
  */
-export function getSubscriptionEndDate(fromDate: Date = new Date()): Date {
-  const day = fromDate.getDate();
-  const targetMonth = fromDate.getMonth() + 1;
-  const targetYear = fromDate.getFullYear();
-  // Last day of target month (handles Feb, 30-day months, year rollover)
-  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-  const resultDay = Math.min(day, lastDayOfTargetMonth);
-  return new Date(targetYear, targetMonth, resultDay);
+export function getSubscriptionEndDate(from: Date, timeZone: string): Date {
+  const wall = instantToWallTimeMs(from, timeZone); // yyyy-MM-ddTHH:mm:ss.SSS
+  const [year, month, day] = [Number(wall.slice(0, 4)), Number(wall.slice(5, 7)), Number(wall.slice(8, 10))];
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  // Day 0 of the month after next, in UTC: the next month's last day (a calendar count, no clock involved)
+  const lastDay = new Date(Date.UTC(nextYear, nextMonth, 0)).getUTCDate();
+  const pad = (n: number, width = 2) => String(n).padStart(width, '0');
+  return wallTimeToInstant(`${pad(nextYear, 4)}-${pad(nextMonth)}-${pad(Math.min(day, lastDay))}T${wall.slice(11)}`, timeZone);
+}
+
+/**
+ * The usage counters' months (getOrCreateUsageCounter) are counted on Israel's clock: a counter is read on every feature
+ * check, which looks up no one's zone. A paid month (upgrade, renew) is counted on the person's own.
+ */
+const USAGE_ZONE = TIMEZONE;
+
+/** What a payment did: the subscription after it, and whether this call credited it (false: that charge was already). */
+export interface PaymentCredit {
+  subscription: Subscription;
+  credited: boolean;
 }
 
 // ============================================
@@ -158,39 +174,43 @@ export async function getSubscriptionWithUsage(userId: number, isEarlyAdopter?: 
 }
 
 /**
- * Upgrade subscription to a new plan
- * Subscription runs until the same day next month
+ * Writes a payment's month to the subscription once per charge: the row is updated only while it doesn't hold
+ * `chargeId` yet, in one statement. Postgres reads that condition again under the row's lock, so two deliveries of the
+ * same charge (Telegram sending the update again, even at the same time) can't both match. False when the charge was
+ * already credited; throws when the row is missing.
  */
-export async function upgradeSubscription(
-  userId: number,
-  newPlan: PlanId,
-  telegramPaymentChargeId?: string
-): Promise<Subscription> {
-  const existing = await getOrCreateSubscription(userId);
-  const fromPlan = existing.plan;
-
-  const now = new Date();
-  const periodEnd = getSubscriptionEndDate(now);
-
-  const updated = await prisma.subscription.update({
-    where: { userId },
-    data: {
-      plan: newPlan,
-      status: 'ACTIVE',
-      telegramPaymentChargeId,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: false,
-      // A payment ends a comp. Leaving these set would make the paid period
-      // invisible to expireSubscriptions() (which skips compedBy != null) and
-      // would let the admin Revoke button downgrade a genuinely paying customer.
-      compedBy: null,
-      compedAt: null,
-      compReason: null,
-    },
+async function creditCharge(userId: number, chargeId: string, data: Prisma.SubscriptionUpdateManyMutationInput): Promise<boolean> {
+  const { count } = await prisma.subscription.updateMany({
+    where: { userId, OR: [{ telegramPaymentChargeId: null }, { telegramPaymentChargeId: { not: chargeId } }] },
+    data: { ...data, telegramPaymentChargeId: chargeId },
   });
+  if (count > 0) return true;
+  const current = await prisma.subscription.findUnique({ where: { userId } });
+  if (current?.telegramPaymentChargeId === chargeId) {
+    console.log(`[Subscription] Charge ${chargeId} was already credited to user ${userId}: nothing changes`);
+    return false;
+  }
+  throw new Error(`The subscription of user ${userId} did not take charge ${chargeId}`);
+}
 
-  // Reset usage counters for the new billing period
+/** A paid month's fields: from now to one calendar month on, on the person's clock (getSubscriptionEndDate). */
+function paidMonth(now: Date, timeZone: string) {
+  return {
+    status: 'ACTIVE' as const,
+    currentPeriodStart: now,
+    currentPeriodEnd: getSubscriptionEndDate(now, timeZone),
+    cancelAtPeriodEnd: false,
+    // A payment ends a comp. Leaving these set would make the paid period
+    // invisible to expireSubscriptions() (which skips compedBy != null) and
+    // would let the admin Revoke button downgrade a genuinely paying customer.
+    compedBy: null,
+    compedAt: null,
+    compReason: null,
+  };
+}
+
+/** A new paid month resets the usage counters. */
+async function resetUsage(userId: number, now: Date): Promise<void> {
   await prisma.usageCounter.upsert({
     where: { userId },
     update: {
@@ -205,6 +225,28 @@ export async function upgradeSubscription(
       cycleStartDate: now,
     },
   });
+}
+
+/**
+ * Upgrade subscription to a new plan, once per charge (a repeated delivery credits nothing). The month runs until the
+ * same wall time one calendar month later in `timeZone`, the person's zone.
+ */
+export async function upgradeSubscription(
+  userId: number,
+  newPlan: PlanId,
+  telegramPaymentChargeId: string,
+  timeZone: string
+): Promise<PaymentCredit> {
+  const existing = await getOrCreateSubscription(userId);
+  const fromPlan = existing.plan;
+
+  const now = new Date();
+  const month = paidMonth(now, timeZone);
+  if (!(await creditCharge(userId, telegramPaymentChargeId, { plan: newPlan, ...month }))) {
+    return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: false };
+  }
+
+  await resetUsage(userId, now);
 
   // Track upgrade
   await trackActivity(userId, 'subscription_upgraded', {
@@ -215,9 +257,9 @@ export async function upgradeSubscription(
   // Invalidate feature access cache so new limits take effect immediately
   await invalidateFeatureAccessCache(userId);
 
-  console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}, valid until ${periodEnd.toISOString()}`);
+  console.log(`[Subscription] User ${userId} upgraded from ${fromPlan} to ${newPlan}, valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
 
-  return updated;
+  return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: true };
 }
 
 // ============================================
@@ -481,53 +523,26 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
 }
 
 /**
- * Renew subscription (called on successful manual payment)
- * Subscription runs until the same day next month
+ * Renew subscription (called on successful manual payment), once per charge (a repeated delivery credits nothing). The
+ * month runs until the same wall time one calendar month later in `timeZone`, the person's zone.
  */
 export async function renewSubscription(
   userId: number,
-  telegramPaymentChargeId: string
-): Promise<Subscription> {
+  telegramPaymentChargeId: string,
+  timeZone: string
+): Promise<PaymentCredit> {
   const existing = await getSubscription(userId);
   if (!existing) {
     throw new Error('No subscription found');
   }
 
   const now = new Date();
-  const periodEnd = getSubscriptionEndDate(now);
+  const month = paidMonth(now, timeZone);
+  if (!(await creditCharge(userId, telegramPaymentChargeId, month))) {
+    return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: false };
+  }
 
-  const updated = await prisma.subscription.update({
-    where: { userId },
-    data: {
-      status: 'ACTIVE',
-      telegramPaymentChargeId,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: false,
-      // A payment ends a comp. Leaving these set would make the paid period
-      // invisible to expireSubscriptions() (which skips compedBy != null) and
-      // would let the admin Revoke button downgrade a genuinely paying customer.
-      compedBy: null,
-      compedAt: null,
-      compReason: null,
-    },
-  });
-
-  // Reset usage counters for the new billing period
-  await prisma.usageCounter.upsert({
-    where: { userId },
-    update: {
-      textSummariesUsed: 0,
-      voiceSummariesUsed: 0,
-      voiceEventsCreated: 0,
-      remindersTriggered: 0,
-      cycleStartDate: now,
-    },
-    create: {
-      userId,
-      cycleStartDate: now,
-    },
-  });
+  await resetUsage(userId, now);
 
   await trackActivity(userId, 'subscription_renewed', {
     plan: existing.plan,
@@ -536,9 +551,9 @@ export async function renewSubscription(
   // Invalidate feature access cache
   await invalidateFeatureAccessCache(userId);
 
-  console.log(`[Subscription] Subscription renewed for user ${userId}, valid until ${periodEnd.toISOString()}`);
+  console.log(`[Subscription] Subscription renewed for user ${userId}, valid until ${month.currentPeriodEnd.toISOString()} (${timeZone})`);
 
-  return updated;
+  return { subscription: await prisma.subscription.findUniqueOrThrow({ where: { userId } }), credited: true };
 }
 
 // ============================================
@@ -556,13 +571,13 @@ export async function getOrCreateUsageCounter(userId: number): Promise<UsageCoun
   if (existing) {
     const cycleStart = existing.cycleStartDate;
     const now = new Date();
-    const cycleEnd = getSubscriptionEndDate(cycleStart);
+    const cycleEnd = getSubscriptionEndDate(cycleStart, USAGE_ZONE);
 
     if (now >= cycleEnd) {
       // Walk forward to find the latest valid cycle start
       let newCycleStart = cycleEnd;
-      while (getSubscriptionEndDate(newCycleStart) <= now) {
-        newCycleStart = getSubscriptionEndDate(newCycleStart);
+      while (getSubscriptionEndDate(newCycleStart, USAGE_ZONE) <= now) {
+        newCycleStart = getSubscriptionEndDate(newCycleStart, USAGE_ZONE);
       }
 
       return prisma.usageCounter.update({
@@ -580,11 +595,12 @@ export async function getOrCreateUsageCounter(userId: number): Promise<UsageCoun
     return existing;
   }
 
-  // Create new counter
+  // Create new counter: its first month starts on the 1st of this month at 00:00 on Israel's clock
+  const thisMonth = instantToWallTime(new Date(), USAGE_ZONE).slice(0, 7);
   return prisma.usageCounter.create({
     data: {
       userId,
-      cycleStartDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+      cycleStartDate: wallTimeToInstant(`${thisMonth}-01T00:00`, USAGE_ZONE),
     },
   });
 }
