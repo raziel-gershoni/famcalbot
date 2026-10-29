@@ -1729,6 +1729,7 @@
   },
   "legal": {
     "lastUpdated": "עודכן לאחרונה: {date}",
+    "sellerMissing": "בקרוב",
     "privacy": {
       "intro": "[Privacy policy: legal text pending review]",
       "sections": {

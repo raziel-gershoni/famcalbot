@@ -1729,6 +1729,7 @@
   },
   "legal": {
     "lastUpdated": "Последнее обновление: {date}",
+    "sellerMissing": "будет указан позже",
     "privacy": {
       "intro": "[Privacy policy: legal text pending review]",
       "sections": {

@@ -1729,6 +1729,7 @@
   },
   "legal": {
     "lastUpdated": "Last updated: {date}",
+    "sellerMissing": "to be added",
     "privacy": {
       "intro": "[Privacy policy: legal text pending review]",
       "sections": {
