@@ -261,11 +261,13 @@ async function main() {
     }
   });
 
-  await check('every holidays.names entry is used by some holiday of the year, and en, he and ru hold the same ids', () => {
+  await check('every holidays.names entry is used by some holiday of the year (on either schedule), and en, he and ru hold the same ids', () => {
     // The countdown's base names (nextHoliday) read the same table: by the base name's id, or "<id>Base".
     // The portions and special Shabbatot too, over several years (the doubled weeks move with the year).
     const portions = [2026, 2027, 2028, 2029, 2030].flatMap(year => HebrewCalendar.calendar({ year, isHebrewYear: false, il: true, sedrot: true }).filter(ev => ev.getFlags() & (flags.PARSHA_HASHAVUA | flags.SPECIAL_SHABBAT)));
-    const used = new Set([...hebcalYear(), ...portions].flatMap(ev => {
+    // The diaspora's days too (holidaysInRange with { il: false }, the public zmanim pages abroad): Pesach II and VIII.
+    const diaspora = [2026, 2027, 2028, 2029, 2030].flatMap(year => HebrewCalendar.calendar({ year, isHebrewYear: false, il: false, sedrot: true }));
+    const used = new Set([...hebcalYear(), ...portions, ...diaspora].flatMap(ev => {
       const base = holidayNameKey((ev as unknown as { basename(): string }).basename(), 'en').id;
       const id = holidayNameKey(ev.getDesc(), 'en').id;
       // Only a portion reads "<id>Brief".

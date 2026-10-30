@@ -1,8 +1,10 @@
 /**
- * The holidays of a day, computed in-process on @hebcal/core with the Israel schedule.
+ * The holidays of a day, computed in-process on @hebcal/core with the Israel schedule, or the
+ * diaspora's where a caller asks for it ({ il: false }: the public zmanim pages of a city abroad,
+ * docs/superpowers/specs/2026-10-30-public-zmanim-design.md §6.2).
  *
  * One definition serves the bot's summaries (getHolidaysForDate) and the calendar home
- * (holidaysInRange, behind GET /api/calendar/holidays). Spec:
+ * (holidaysInRange, behind GET /api/calendar/holidays), both on the Israel schedule. Spec:
  * docs/superpowers/specs/2026-10-19-hebrew-holidays-design.md
  *
  * Server only: @hebcal/core must never reach a client bundle (the home gets holidays as data).
@@ -17,6 +19,12 @@ import { joinTitles } from '../lib/join-titles';
 import enMessages from '../../messages/en.json';
 import heMessages from '../../messages/he.json';
 import ruMessages from '../../messages/ru.json';
+
+/**
+ * Which schedule: `il` true (the default) is the Israel one, false the diaspora's (the second days of
+ * Pesach, Shavuot and Sukkot, Simchat Torah, and the portions that follow from them).
+ */
+export type HolidayOptions = { il?: boolean };
 
 export type HolidayKind = 'chag' | 'fast' | 'erev' | 'cholHamoed' | 'minor' | 'modern' | 'roshChodesh' | 'parasha' | 'specialShabbat';
 
@@ -178,11 +186,11 @@ function parashaBrief(ev: ParshaEvent, locale: string, language: string): string
 }
 
 /**
- * The holidays of each day from `from` to `to` (inclusive, yyyy-MM-dd, civil days), in a language.
- * Only days with a holiday have a key; a day's holidays are sorted by kind priority, then in
- * hebcal's order. A bad or reversed range gives {}.
+ * The holidays of each day from `from` to `to` (inclusive, yyyy-MM-dd, civil days), in a language,
+ * on the Israel schedule unless `options.il` is false. Only days with a holiday have a key; a day's
+ * holidays are sorted by kind priority, then in hebcal's order. A bad or reversed range gives {}.
  */
-export function holidaysInRange(from: string, to: string, lang: string): Record<string, Holiday[]> {
+export function holidaysInRange(from: string, to: string, lang: string, options: HolidayOptions = {}): Record<string, Holiday[]> {
   const start = parseDayKey(from);
   const end = parseDayKey(to);
   if (!start || !end || start > end) return {};
@@ -190,7 +198,7 @@ export function holidaysInRange(from: string, to: string, lang: string): Record<
   const locale = LOCALES[language];
 
   const days: Record<string, Holiday[]> = {};
-  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: true, sedrot: true })) {
+  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: options.il ?? true, sedrot: true })) {
     const kind = kindOf(ev);
     if (!kind) continue;
     const key = dayKeyOf(ev);
@@ -230,10 +238,10 @@ export interface NextHoliday {
 /**
  * The next holiday worth counting down to, strictly after `after` (yyyy-MM-dd): a yom tov,
  * Chanukah, Purim, Tu BiShvat, Lag BaOmer, Tu B'Av or one of the four national days, on
- * the Israel schedule, looking ahead at most `maxDays` days. null when there is none, or
- * for a bad date.
+ * the Israel schedule unless `options.il` is false, looking ahead at most `maxDays` days.
+ * null when there is none, or for a bad date.
  */
-export function nextHoliday(after: string, lang: string, maxDays: number = NEXT_HOLIDAY_DAYS): NextHoliday | null {
+export function nextHoliday(after: string, lang: string, maxDays: number = NEXT_HOLIDAY_DAYS, options: HolidayOptions = {}): NextHoliday | null {
   const from = parseDayKey(after);
   if (!from) return null;
   const language = Object.hasOwn(LOCALES, lang) ? lang : 'en';
@@ -244,7 +252,7 @@ export function nextHoliday(after: string, lang: string, maxDays: number = NEXT_
 
   const rank = (kind: HolidayKind) => KINDS.findIndex(k => k.kind === kind);
   let best: { ev: Event; key: string; rank: number } | null = null;
-  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: true })) {
+  for (const ev of HebrewCalendar.calendar({ start: new HDate(start), end: new HDate(end), il: options.il ?? true })) {
     const kind = kindOf(ev);
     if (!kind) continue;
     if (kind === 'minor' && !COUNTDOWN_MINOR_BASENAMES.has(ev.basename())) continue;
