@@ -261,7 +261,8 @@ There are no new cookies, no storage and no new processor: the city and height d
   - the start and end times of fasts (which nightfall ends a fast, per community, is a ruling the bot hasn't made). On a fast day, the day's own dawn and nightfall rows show as usual.
 - **Changes to the bot.** None, except these, each pinned by a smoke:
   - the opt-in `{ il }` on the holiday functions (no behaviour change);
-  - candle lighting on an eve whose window has no computable end (a fix for the far north; the pause is unchanged);
+  - candle lighting on an eve whose window has no computable end, in the list and for reminders at candle lighting (a fix for the far north; the pause is unchanged);
+  - an end of Shabbat or Yom Tov that falls after midnight (Riga in June) shown on its block's last day, not on the next day;
   - the no-break spaces in four Russian strings.
 - **Separate tasks:**
   - replacing Open-Meteo in the bot (a separate task, approved);
