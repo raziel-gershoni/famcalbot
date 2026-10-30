@@ -7,7 +7,8 @@
 //  - L2 the Mini App's layout as it was: the Telegram SDK before the app (beforeInteractive), no zoom, the 16 px input
 //    rule and touch-action: manipulation, the whole message catalogue, and noindex for every page under it.
 //  - L3 the site's layout: no Telegram SDK, zoom allowed, light and dark from the device (color-scheme), no Tailwind sheet, no web font, only the site's client namespaces reach the
-//    client, the page's language and direction on <html>, it renders statically (setRequestLocale), and it links the
+//    client, the page's language and direction on <html> and its data-surface="site" (the browser's Sentry reads it to
+//    trace no public page; the Mini App's <html> never sets it), it renders statically (setRequestLocale), and it links the
 //    site's one style sheet (/site.css, versioned by its content, cached for good under its own version, never under
 //    another).
 //  - L4 the site's metadata comes from messages, per language: the title, its template, the description, the keywords
@@ -107,7 +108,7 @@ async function main() {
     assert(dead.length === 0, `tokens nothing reads: ${show(dead)}`);
   });
 
-  await check('L3 the site layout: no Telegram SDK and no web font (in its source or its tree), zoom allowed, only the site\'s client namespaces reach the client, <html> in the page\'s language and direction, the request locale set for static rendering, a static page per locale', async () => {
+  await check('L3 the site layout: no Telegram SDK and no web font (in its source or its tree), zoom allowed, only the site\'s client namespaces reach the client, <html> in the page\'s language and direction and data-surface="site" (the Mini App\'s has none), the request locale set for static rendering, a static page per locale', async () => {
     const src = readSource(`${LOCALE_DIR}/(site)/layout.tsx`).replace(/^\s*\/\/.*$/gm, '');
     assert(!/telegram-web-app|next\/script/.test(src), 'the site layout loads the Telegram SDK');
     assert(!/fonts\.(googleapis|gstatic)\.com|next\/font/.test(src), 'the site layout loads a web font');
@@ -115,12 +116,14 @@ async function main() {
     assert(siteViewport.colorScheme === 'light dark', `color-scheme ${siteViewport.colorScheme}`);
     assert(!/globals\.css|tailwind/i.test(src), 'the site layout loads the app\'s Tailwind sheet');
     assert(show(generateStaticParams()) === show(LOCALES.map((locale) => ({ locale }))), `static params ${show(generateStaticParams())}`);
+    assert(!/data-surface/.test(readSource(`${LOCALE_DIR}/(app)/layout.tsx`)), 'the Mini App\'s layout sets data-surface');
     for (const locale of LOCALES) {
       request.locale = 'en';
       const els = await tree(SiteLayout, locale);
       assert((request.locale as string) === locale, `${locale}: setRequestLocale was not called`);
       const html = els[0];
       assert(html.type === 'html' && (html.props as Row).lang === locale && (html.props as Row).dir === (locale === 'he' ? 'rtl' : 'ltr'), `${locale}: <html> ${show(html.props)}`);
+      assert((html.props as Row)['data-surface'] === 'site', `${locale}: <html> data-surface ${show((html.props as Row)['data-surface'])}`);
       assert(!els.some((e) => isScript(e) || (e.type === 'script' && /telegram/.test(String((e.props as Row).src ?? '')))), `${locale}: a script in the layout`);
       assert(!els.some((e) => e.type === 'link' && /fonts\./.test(String((e.props as Row).href ?? ''))), `${locale}: a font link`);
       const provider = providerOf(els);

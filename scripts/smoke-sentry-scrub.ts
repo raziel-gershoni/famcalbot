@@ -12,6 +12,10 @@
 //
 // Every check here fails until the fix lands.
 //
+// #8 to #10: what the public site's pages send Sentry (the privacy policy says error reports only). The browser traces
+// no page of the public site (its <html> carries data-surface="site") and sends no client reports; the server traces
+// no zmanim page, whose address names a city, a day and a custom. The Mini App and the API keep their 1%.
+//
 // Run: npx tsx scripts/smoke-sentry-scrub.ts
 
 import fs from 'fs';
@@ -209,9 +213,9 @@ async function main() {
     if (!tx || leaks(tx).length) problems.push(`client beforeSendTransaction: ${tx ? leaks(tx).join(', ') : 'missing'}`);
     const crumb = typeof client.beforeBreadcrumb === 'function' ? client.beforeBreadcrumb({ category: 'navigation', data: { from: launch, to: '/en/settings' } }) : null;
     if (!crumb || leaks(crumb).length) problems.push(`client beforeBreadcrumb: ${crumb ? leaks(crumb).join(', ') : 'missing'}`);
-    // What the configs set before keeps its value
-    if (server.tracesSampleRate !== 0.01 || client.replaysOnErrorSampleRate !== 1.0 || !Array.isArray(client.ignoreErrors)) {
-      problems.push(`other options changed: ${show({ server: server.tracesSampleRate, client: client.replaysOnErrorSampleRate })}`);
+    // What the configs set before keeps its value (the server's 1% is now a sampler: #9; the edge keeps its rate)
+    if (typeof server.tracesSampler !== 'function' || edge.tracesSampleRate !== 0.01 || client.replaysOnErrorSampleRate !== 1.0 || !Array.isArray(client.ignoreErrors)) {
+      problems.push(`other options changed: ${show({ server: typeof server.tracesSampler, edge: edge.tracesSampleRate, client: client.replaysOnErrorSampleRate })}`);
     }
     assert(problems.length === 0, problems.join('; '));
   });
@@ -236,6 +240,108 @@ async function main() {
         ? opts.beforeSendTransaction({ type: 'transaction', transaction: plain, contexts: { trace: { data: {} } } }, {})
         : null;
       if (!tx || tx.transaction !== want) problems.push(`${label} beforeSendTransaction: ${tx ? tx.transaction : 'missing'}`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  /** A sampling context as the SDK hands it to a tracesSampler: the root span's name and attributes, and inheritOrSampleWith. */
+  const context = (extra: Row = {}, parent?: number): Row => ({
+    name: 'pageload',
+    attributes: {},
+    inheritOrSampleWith: (fallback: number) => parent ?? fallback,
+    ...extra,
+  });
+  /** Runs `fn` with `document` as a browser page whose <html> carries the given data-surface (none: undefined). */
+  const onPage = <T>(surface: string | undefined, fn: () => T): T => {
+    const shared = globalThis as Row;
+    shared.document = { documentElement: { dataset: surface === undefined ? {} : { surface } } };
+    try {
+      return fn();
+    } finally {
+      delete shared.document;
+    }
+  };
+
+  await check('#8 the browser samples no page of the public site (data-surface="site"), not even one whose trace is already sampled, and the Mini App at 1% unless its trace has decided; with no document it is the 1%', async () => {
+    const { browserTracesSampler } = await load('src/lib/sentry-sampling.ts');
+    const problems: string[] = [];
+    const rate = (label: string, got: unknown, want: number) => { if (got !== want) problems.push(`${label}: ${show(got)}, want ${want}`); };
+    rate('site', onPage('site', () => browserTracesSampler(context())), 0);
+    rate('site, parent sampled', onPage('site', () => browserTracesSampler(context({}, 1))), 0);
+    rate('site, soft navigation', onPage('site', () => browserTracesSampler(context({ name: '/he/zmanim/haifa' }))), 0);
+    rate('app', onPage(undefined, () => browserTracesSampler(context())), 0.01);
+    rate('another surface', onPage('app', () => browserTracesSampler(context())), 0.01);
+    rate('app, parent sampled', onPage(undefined, () => browserTracesSampler(context({}, 1))), 1);
+    rate('app, parent not sampled', onPage(undefined, () => browserTracesSampler(context({}, 0))), 0);
+    rate('no document', browserTracesSampler(context()), 0.01);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#9 the server samples no zmanim page (any language, with or without a query, by name, route, path or URL) and everything else at 1%, a parent\'s decision honoured outside zmanim', async () => {
+    const { serverTracesSampler } = await load('src/lib/sentry-sampling.ts');
+    const problems: string[] = [];
+    const zmanim: [string, Row][] = [
+      ['name /zmanim/jerusalem', { name: 'GET /zmanim/jerusalem' }],
+      ['name /he/zmanim/jerusalem', { name: 'GET /he/zmanim/jerusalem' }],
+      ['name /ru/zmanim/new-york', { name: 'GET /ru/zmanim/new-york' }],
+      ['name /zmanim', { name: 'GET /zmanim' }],
+      ['name /he/zmanim', { name: 'GET /he/zmanim' }],
+      ['name with a query', { name: 'GET /zmanim/jerusalem?date=2027-04-22&community=chabad' }],
+      ['name with a slash', { name: 'GET /ru/zmanim/moscow/' }],
+      ['route name', { name: 'GET /[locale]/zmanim/[city]' }],
+      ['route name, index', { name: 'GET /[locale]/zmanim' }],
+      ['an unknown city', { name: 'GET /zmanim/no-such-city' }],
+      ['bare name, url.path', { name: 'GET', attributes: { 'url.path': '/he/zmanim/haifa' } }],
+      ['bare name, http.target', { name: 'GET', attributes: { 'http.target': '/zmanim/haifa?date=2027-04-22' } }],
+      ['bare name, http.route', { name: 'GET', attributes: { 'http.route': '/[locale]/zmanim/[city]' } }],
+      ['bare name, next.route', { name: 'GET', attributes: { 'next.route': '/[locale]/zmanim/[city]' } }],
+      ['bare name, url.full', { name: 'GET', attributes: { 'url.full': 'https://famcal.bot/ru/zmanim/moscow?community=ashkenazi' } }],
+      ['bare name, http.url', { name: 'GET', attributes: { 'http.url': 'http://famcal.bot/zmanim/eilat' } }],
+      ['bare name, the request', { name: 'GET', normalizedRequest: { url: 'https://famcal.bot/he/zmanim/eilat?date=2027-04-22' } }],
+    ];
+    for (const [label, extra] of zmanim) {
+      const got = serverTracesSampler(context(extra));
+      if (got !== 0) problems.push(`${label}: ${show(got)}, want 0`);
+    }
+    const parentSampled = serverTracesSampler(context({ name: 'GET /he/zmanim/jerusalem' }, 1));
+    if (parentSampled !== 0) problems.push(`a zmanim page whose parent trace is sampled: ${show(parentSampled)}`);
+    const others: [string, Row][] = [
+      ['an API route', { name: 'POST /api/pair' }],
+      ['the zmanim API', { name: 'GET /api/zmanim' }],
+      ['the dashboard', { name: 'GET /he/dashboard' }],
+      ['the landing', { name: 'GET /' }],
+      ['a post that says zmanim', { name: 'GET /blog/zmanim-and-the-sun' }],
+      ['a path that only starts with the word', { name: 'GET /zmanimx/jerusalem' }],
+      ['a query that says zmanim', { name: 'GET /dashboard?next=/zmanim/jerusalem' }],
+      ['a job', { name: 'cron.reminders', attributes: { 'sentry.op': 'cron' } }],
+    ];
+    for (const [label, extra] of others) {
+      const got = serverTracesSampler(context(extra));
+      if (got !== 0.01) problems.push(`${label}: ${show(got)}, want 0.01`);
+    }
+    const inherited = serverTracesSampler(context({ name: 'GET /api/pair' }, 1));
+    if (inherited !== 1) problems.push(`a parent's sampled decision outside zmanim: ${show(inherited)}, want 1`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#10 the configs use them: the browser init sets sendClientReports false and a tracesSampler for the site and no tracesSampleRate (in its source too); the server init\'s sampler skips zmanim pages', async () => {
+    const [server, , client] = inits;
+    assert(server && client, `Sentry.init calls: ${inits.length}`);
+    const clientSource = fs.readFileSync(path.join(ROOT, 'instrumentation-client.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    const problems: string[] = [];
+    if (client.sendClientReports !== false || !/\bsendClientReports:\s*false\b/.test(clientSource)) problems.push(`sendClientReports ${show(client.sendClientReports)}`);
+    if ('tracesSampleRate' in client || /tracesSampleRate/.test(clientSource)) problems.push('the browser init still sets tracesSampleRate');
+    if (typeof client.tracesSampler !== 'function') problems.push('the browser init has no tracesSampler');
+    else {
+      const onSite = onPage('site', () => client.tracesSampler(context()));
+      const onApp = onPage(undefined, () => client.tracesSampler(context()));
+      if (onSite !== 0 || onApp !== 0.01) problems.push(`the browser init's sampler: site ${show(onSite)}, app ${show(onApp)}`);
+    }
+    if ('tracesSampleRate' in server || typeof server.tracesSampler !== 'function') problems.push('the server init has no tracesSampler');
+    else {
+      const zmanimPage = server.tracesSampler(context({ name: 'GET /he/zmanim/jerusalem' }));
+      const apiRoute = server.tracesSampler(context({ name: 'POST /api/pair' }));
+      if (zmanimPage !== 0 || apiRoute !== 0.01) problems.push(`the server init's sampler: zmanim ${show(zmanimPage)}, API ${show(apiRoute)}`);
     }
     assert(problems.length === 0, problems.join('; '));
   });

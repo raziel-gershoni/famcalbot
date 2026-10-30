@@ -19,6 +19,7 @@ import { SITE_CSS_HREF } from '@/src/site/site-css';
 //   themselves read their words on the server.
 // - Static: every page is rendered per locale at build time (generateStaticParams, setRequestLocale).
 // - The site's one style sheet (/site.css, versioned: the app's colour values, light and dark from the device's setting).
+// - <html data-surface="site"> tells the browser's Sentry this is a public page: it traces none (src/lib/sentry-sampling.ts).
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -62,7 +63,7 @@ export default async function SiteLayout({ children, params }: { children: React
   const messages = pickMessages(await getMessages({ locale }), SITE_CLIENT_NAMESPACES);
 
   return (
-    <html lang={locale} dir={locale === 'he' ? 'rtl' : 'ltr'}>
+    <html lang={locale} dir={locale === 'he' ? 'rtl' : 'ltr'} data-surface="site">
       <head>
         <link rel="stylesheet" href={SITE_CSS_HREF} />
       </head>
