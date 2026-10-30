@@ -10,12 +10,13 @@
 //   #25D366 do not): --site-telegram and --site-whatsapp.
 // - Logical properties only, so Hebrew needs no overrides; nothing under 13 px; every tap target at least 44 px; no
 //   hover styles (nothing depends on a pointer); no horizontal overflow at 320 px, with nothing clipped to hide one.
-// - One motion on the whole site, the hero's (its own rules); prefers-reduced-motion stops it.
+// - One motion on the whole site, the hero's (its own rules), and Near me's loading spinner (the zmanim index); prefers-reduced-motion stops both.
 // - The kit's BottomSheet slides in, a second motion: on the site it just appears.
 
 import { createHash } from 'node:crypto';
 import { APP_TOKENS } from '@/components/app-ui/tokens';
 import { APP_THEME_CSS } from '@/components/app-ui/theme';
+import { ZMANIM_SHEET_CSS } from '@/src/lib/calendar-view/zmanim-sheet-css';
 
 const L = APP_TOKENS.light;
 const D = APP_TOKENS.dark;
@@ -1342,8 +1343,251 @@ const PAGES_CSS = `
 }
 `;
 
+/**
+ * The zmanim pages (spec 2026-10-30-public-zmanim §4, §6.3): a city's day card (the sun sheet's own rows and nav,
+ * ZMANIM_SHEET_CSS, set on the page as a card), the community switch, the Shabbat and Yom Tov ahead, the month's table and
+ * list, the note and the sources. Token colours only, logical properties, nothing under 13 px, every link 44 px.
+ */
+export const ZMANIM_PAGE_CSS = `
+.site-zm-card {
+  margin-block-start: 24px;
+  padding: 8px 20px 20px;
+  border-radius: 20px;
+  background: var(--ch-card);
+}
+.site-zm-arrow {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  border-radius: 12px;
+  color: var(--ch-accent);
+  text-decoration: none;
+}
+.site-zm-arrow svg {
+  inline-size: 22px;
+  block-size: 22px;
+}
+[dir='rtl'] .site-zm-arrow .ch-flip {
+  transform: scaleX(-1);
+}
+.site-zm-today {
+  text-align: center;
+}
+.site-zm-today a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: 12px;
+  color: var(--ch-accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+.site-zm-switch {
+  display: flex;
+  gap: 4px;
+  margin-block-start: 12px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--ch-surface);
+}
+.site-zm-switch li {
+  flex: 1;
+  min-inline-size: 0;
+}
+.site-zm-switch a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 44px;
+  padding-inline: 6px;
+  border-radius: 10px;
+  color: var(--ch-text);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+}
+.site-zm-switch a[aria-current='true'] {
+  background: var(--ch-accent-soft);
+  color: var(--ch-accent);
+}
+.site-zm-method {
+  margin-block-start: 10px;
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.site-zm-dash,
+.site-zm-failed {
+  margin-block-start: 12px;
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.site-zm-section {
+  margin-block-start: 48px;
+}
+.site-zm-window {
+  margin-block-start: 16px;
+  padding: 4px 20px 16px;
+  border-radius: 18px;
+  background: var(--ch-surface);
+}
+.site-zm-window .site-h3 {
+  padding-block: 14px 2px;
+}
+.site-zm-wdate {
+  margin-block-start: 10px;
+  color: var(--ch-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+.site-zm-wday .ch-zl-rows {
+  margin-block-start: 0;
+}
+.site-zm-month-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.site-zm-month-nav {
+  display: flex;
+  gap: 4px;
+}
+.site-zm-hmonths {
+  margin-block-start: 4px;
+  color: var(--ch-muted);
+  font-size: 16px;
+}
+.site-zm-grid {
+  inline-size: 100%;
+  margin-block-start: 16px;
+  border-collapse: separate;
+  border-spacing: 2px;
+  table-layout: fixed;
+}
+.site-zm-grid th {
+  padding-block: 6px;
+  color: var(--ch-muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+.site-zm-grid td {
+  padding: 0;
+  vertical-align: top;
+}
+.site-zm-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-block-size: 56px;
+  padding-block: 6px 4px;
+  border-radius: 12px;
+  color: var(--ch-text);
+  text-decoration: none;
+}
+.site-zm-cell.is-out {
+  color: var(--ch-muted);
+}
+.site-zm-cell.is-shown {
+  background: var(--ch-accent-soft);
+}
+.site-zm-cell.is-today {
+  box-shadow: inset 0 0 0 2px var(--ch-accent);
+}
+.site-zm-gday {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.site-zm-cell.is-yomtov .site-zm-gday {
+  color: var(--ch-accent);
+}
+.site-zm-hday,
+.site-zm-hmonth {
+  max-inline-size: 100%;
+  overflow: hidden;
+  color: var(--ch-muted);
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.site-zm-mark {
+  inline-size: 6px;
+  block-size: 6px;
+  margin-block-start: 2px;
+  border-radius: 50%;
+  background: var(--ch-muted);
+}
+.site-zm-cell.is-yomtov .site-zm-mark {
+  background: var(--ch-accent);
+}
+.site-zm-sub {
+  margin-block-start: 28px;
+}
+.site-zm-mlist {
+  margin-block-start: 8px;
+}
+.site-zm-entry {
+  padding-block: 12px;
+  border-block-start: 1px solid var(--ch-separator);
+}
+.site-zm-entry:first-child {
+  border-block-start: 0;
+}
+.site-zm-entry-date {
+  font-size: 16px;
+  font-weight: 650;
+}
+.site-zm-entry-hebrew {
+  margin-inline-start: 8px;
+  color: var(--ch-muted);
+  font-weight: 400;
+}
+.site-zm-entry-names {
+  margin-block-start: 2px;
+  font-size: 16px;
+}
+.site-zm-entry .ch-zl-rows {
+  margin-block-start: 4px;
+}
+.site-zm-note {
+  margin-block-start: 40px;
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.site-zm-sources {
+  margin-block-start: 40px;
+  color: var(--ch-muted);
+  font-size: 14px;
+}
+.site-zm-sources ul {
+  display: grid;
+  gap: 6px;
+  margin-block-start: 8px;
+}
+.site-zm-sources a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--ch-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+`;
+
 /** The whole style sheet: the kit's theme (the sheet, the buttons, the demo's .ch-app scope), then the site's own. */
-export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS;
+export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS + ZMANIM_SHEET_CSS + ZMANIM_PAGE_CSS;
 
 /** The sheet's version: its content's hash, so a new sheet is a new URL. */
 export const SITE_CSS_VERSION = createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12);

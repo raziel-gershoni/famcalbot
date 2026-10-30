@@ -6,7 +6,8 @@
 //   the candle lighting, the candle lighting "not before", the end of Shabbat, of Yom Tov or of both) in the accent
 //   (is-key); its time in 24 hours in the list's zone, left to right inside Hebrew;
 // - a zman the sun does not make that day shows a dash, with "No time this day" for a reader (is-none);
-// - under the rows, the halachic hour under each opinion the set counts by, when the list has any.
+// - under the rows, the halachic hour under each opinion the set counts by, when the list has any (a no-break space after
+//   each middle dot, so a dash for an hour the sun does not make never starts a line: smoke-site-truth T6's rule).
 //
 // A plain component: no 'use client', no hooks and no next-intl import. The caller gives it calendarHome's translator
 // (useTranslations in the sheet, getTranslations on a server page) and a list in the shape both the Mini App's answer
@@ -66,7 +67,7 @@ export function ZmanimRows({ list, locale, t }: ZmanimRowsProps): ReactElement {
       {list.hours.length > 0 ? (
         <p className="ch-zl-hours">
           {t('zmanimList.hourLabel')}{' '}
-          {list.hours.map((hour) => t('zmanim.withOpinion', { name: formatHalachicHour(hour.ms), opinion: t(`zmanim.opinions.${hour.opinion}`) })).join(' · ')}
+          {list.hours.map((hour) => t('zmanim.withOpinion', { name: formatHalachicHour(hour.ms), opinion: t(`zmanim.opinions.${hour.opinion}`) })).join(' ·\u00a0')}
         </p>
       ) : null}
     </>

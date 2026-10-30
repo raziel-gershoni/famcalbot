@@ -2712,6 +2712,78 @@
     "loadFailed": "Couldn't prepare the image. Try again.",
     "shareFailed": "Couldn't share. Try again."
   },
+  "zmanimSite": {
+    "index": {
+      "metaTitle": "Shabbat times and zmanim by city",
+      "description": "Candle lighting, the end of Shabbat and Yom Tov, the week’s parasha, the Hebrew calendar and the day’s zmanim for {count, plural, one {# city} other {# cities}} in Israel and around the world.",
+      "title": "Zmanim and Shabbat times",
+      "lead": "Today’s zmanim, Shabbat and Yom Tov times and the month’s holidays for {count, plural, one {# city} other {# cities}}, by Sephardi, Ashkenazi or Chabad custom.",
+      "listTitle": "Cities"
+    },
+    "near": {
+      "title": "Near me",
+      "button": "Find the nearest city",
+      "locating": "Finding your city…",
+      "privacy": "Your position stays in your browser. Only the city’s page is opened.",
+      "opening": "Opening {city}…",
+      "near": "The nearest city we list is {city}, {km} km away. Times there can differ from yours by a few minutes.",
+      "none": "We don’t list a city near you yet. Pick a city from the list.",
+      "denied": "This site isn’t allowed to see your location. To find the nearest city, allow location for famcal.bot in your browser’s site settings, or pick a city from the list.",
+      "unavailable": "Your device couldn’t find its position. Pick a city from the list.",
+      "unsupported": "This browser can’t share a position. Pick a city from the list.",
+      "toList": "Go to the list of cities"
+    },
+    "city": {
+      "metaTitle": "Shabbat times and zmanim in {city}",
+      "description": "Candle lighting, the end of Shabbat and Yom Tov, the week’s parasha and the Hebrew calendar in {city}, with the day’s zmanim by Sephardi, Ashkenazi or Chabad custom.",
+      "heading": "Zmanim and Shabbat times in {city}",
+      "back": "All cities"
+    },
+    "day": {
+      "title": "The day’s zmanim",
+      "navLabel": "Choose a day",
+      "previous": "Previous day",
+      "next": "Next day",
+      "today": "Back to today",
+      "communityLabel": "Custom",
+      "method": {
+        "sephardi": "As Zmanei Yosef (Ohr HaChaim) counts them, at the city’s height.",
+        "sephardiAbroad": "As Zmanei Yosef (Ohr HaChaim) counts them, at sea level.",
+        "ashkenazi": "At sea level, with dawn at 16.1° and nightfall at 8.5°.",
+        "chabad": "As the Baal HaTanya counts them."
+      },
+      "dashNote": "A dash means the sun doesn’t go deep enough below the horizon here at this time of year for that zman. Follow your community’s fixed times.",
+      "failed": "The zmanim for this day couldn’t be computed. Try another day."
+    },
+    "ahead": {
+      "title": "Shabbat and Yom Tov ahead",
+      "shabbat": "Shabbat",
+      "noEnd": "This time the sun doesn’t go deep enough below the horizon here to mark the end. Follow your community’s fixed time.",
+      "failed": "The Shabbat and Yom Tov times couldn’t be computed. Try another day."
+    },
+    "month": {
+      "navLabel": "Choose a month",
+      "previous": "Previous month",
+      "next": "Next month",
+      "cell": "{date}, {hebrew}",
+      "cellHoliday": "{date}, {hebrew}: {holidays}",
+      "listTitle": "Holidays and Shabbat this month",
+      "failed": "This month’s calendar couldn’t be computed. Try another month."
+    },
+    "note": {
+      "height": "Times are computed for the centre of {city}, at a height of {height} m. Candle lighting is 20 minutes before sunset. For a halachic time that matters, check a reliable source.",
+      "plain": "Times are computed for the centre of {city}. Candle lighting is 20 minutes before sunset. For a halachic time that matters, check a reliable source."
+    },
+    "famcal": {
+      "title": "Reminders by zman in FamCal"
+    },
+    "sources": {
+      "title": "Sources",
+      "geonames": "City positions: <link>GeoNames</link>, under CC BY 4.0.",
+      "osm": "Town outlines for the heights: © <link>OpenStreetMap</link> contributors.",
+      "copernicus": "Heights: Copernicus DEM GLO-90."
+    }
+  },
   "ui": {
     "missingParameter": {
       "title": "Something's missing in this link",
