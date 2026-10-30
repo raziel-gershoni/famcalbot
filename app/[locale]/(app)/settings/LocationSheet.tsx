@@ -11,7 +11,8 @@ import { useTranslations } from 'next-intl';
 import { Loader2, MapPin } from 'lucide-react';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { FormCard, TextField } from '@/components/app-ui/form-kit';
-import { devicePosition, reverseLookup } from './location-lookup';
+import { currentPosition } from '@/src/lib/geolocation';
+import { reverseLookup } from './location-lookup';
 
 /** What the check of the page's last place came to (shown here too, while the field still holds that place). */
 export type LocationProblem = 'notFound' | 'failed';
@@ -36,15 +37,20 @@ export function LocationSheet({ draft, onDraft, checking, problem, onClose }: Lo
   const [deviceProblem, setDeviceProblem] = useState<'noDeviceLocation' | 'deviceFailed' | null>(null);
 
   const useCurrent = async () => {
-    if (!navigator.geolocation) {
-      setDeviceProblem('noDeviceLocation');
-      return;
-    }
     setLocating(true);
     setDeviceProblem(null);
     try {
-      const position = await devicePosition();
-      const place = await reverseLookup(position.coords.latitude, position.coords.longitude);
+      const found = await currentPosition();
+      if (found.kind === 'unsupported') {
+        setDeviceProblem('noDeviceLocation');
+        return;
+      }
+      if (found.kind !== 'ok') {
+        console.error(`[settings] current location failed: the position is ${found.kind}`);
+        setDeviceProblem('deviceFailed');
+        return;
+      }
+      const place = await reverseLookup(found.latitude, found.longitude);
       if (place) onDraft(place);
       else setDeviceProblem('deviceFailed');
     } catch (error) {

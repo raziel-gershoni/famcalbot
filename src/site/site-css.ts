@@ -1584,6 +1584,107 @@ export const ZMANIM_PAGE_CSS = `
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.site-zm-near {
+  margin-block-start: 32px;
+  padding: 20px 24px;
+  border-radius: 20px;
+  background: var(--ch-card);
+}
+.site-zm-near-body {
+  margin-block-start: 12px;
+}
+.site-zm-near-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-block-size: 48px;
+  padding-inline: 18px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--ch-button);
+  color: var(--ch-button-text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 650;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-zm-near-button:disabled {
+  cursor: progress;
+}
+.site-zm-near-privacy {
+  margin-block-start: 10px;
+  color: var(--ch-muted);
+  font-size: 15px;
+}
+.site-zm-near-status p {
+  margin-block-start: 12px;
+  font-size: 16px;
+}
+.site-zm-near-status a {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--ch-accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.site-zm-near-list {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+}
+.site-zm-countries {
+  display: grid;
+  gap: 16px;
+  margin-block-start: 20px;
+}
+.site-zm-country {
+  padding: 6px 20px 12px;
+  border-radius: 18px;
+  background: var(--ch-surface);
+}
+.site-zm-country .site-h3 {
+  padding-block: 12px 4px;
+}
+.site-zm-cities {
+  columns: 2;
+  column-gap: 16px;
+}
+.site-zm-cities li {
+  break-inside: avoid;
+}
+.site-zm-cities a {
+  display: flex;
+  align-items: center;
+  min-block-size: 44px;
+  color: var(--ch-text);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 720px) {
+  .site-zm-countries {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .site-zm-country:first-child {
+    grid-column: 1 / -1;
+  }
+  .site-zm-country:first-child .site-zm-cities {
+    columns: 3;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .site-zm-spin {
+    animation: site-zm-turn 900ms linear infinite;
+  }
+}
+@keyframes site-zm-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
 `;
 
 /** The whole style sheet: the kit's theme (the sheet, the buttons, the demo's .ch-app scope), then the site's own. */

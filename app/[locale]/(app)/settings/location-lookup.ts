@@ -1,8 +1,9 @@
-// Settings' location: checking a typed place, and finding the place the device is in.
+// Settings' location: checking a typed place, and naming the place the device is in.
 // - The typed place is checked by our server (POST /api/location/check), so OpenStreetMap sees our server's address and
 //   never the person's; the answer's meaning is src/lib/location-place.ts's, shared with the server.
-// - "Use my location" asks OpenStreetMap's reverse lookup from the browser: the Privacy Policy promises the device's
-//   position never reaches our servers, and names OpenStreetMap's receipt of the browser's IP address for it.
+// - "Use my location" takes the device's position from src/lib/geolocation.ts (shared with the zmanim pages' Near me) and
+//   asks OpenStreetMap's reverse lookup from the browser: the Privacy Policy promises the device's position never reaches
+//   our servers, and names OpenStreetMap's receipt of the browser's IP address for it.
 // A failure is logged.
 
 import { readInitData } from '@/src/lib/read-init-data';
@@ -63,15 +64,4 @@ export async function reverseLookup(lat: number, lon: number): Promise<string> {
     locationString = parts.slice(0, 2).join(',').trim();
   }
   return locationString;
-}
-
-/** The device's position (browser geolocation; rejects when it is refused, unavailable or slow). */
-export function devicePosition(): Promise<GeolocationPosition> {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
-      timeout: 10000,
-      maximumAge: 300000, // 5 minutes cache
-    });
-  });
 }

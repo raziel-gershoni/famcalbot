@@ -50,7 +50,7 @@ const RAW_KEY = /\b(?:landing|site|blog|share|legal|ui|zmanimSite|cities|countri
 /** smoke-site-truth's T6: a one-letter Russian word followed by a plain space. */
 const T6_LOOSE = /(?<![^\s«(„"—*])[вскоуиая] /iu;
 /** The tap targets the zmanim pages add; Task 7 adds Near me's and the city list's. */
-const TAPS = ['.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-zm-cell', '.site-zm-sources a'];
+const TAPS = ['.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-zm-cell', '.site-zm-sources a', '.site-zm-near-button', '.site-zm-near-list', '.site-zm-near-status a', '.site-zm-cities a'];
 
 async function main() {
   stubIntlServer();
@@ -417,6 +417,37 @@ async function main() {
       assert(client === (file === 'NearMe.tsx'), `${file}: ${client ? 'a client component' : 'Near me is not a client component'}`);
     }
     assert(!/['"]use client['"]/.test(readSource('app/[locale]/(site)/zmanim/[city]/page.tsx')), 'the city page is a client component');
+  });
+
+  await check('Z11 /zmanim in en, he and ru: the title and its line, Near me\'s button and privacy line, every city once (Israel first, then the countries by name, each country\'s cities by name in the page\'s language), plain links to the clean pages; the metadata', async () => {
+    const { default: IndexPage, generateMetadata: indexMetadata } = await load('app/[locale]/(site)/zmanim/page.tsx');
+    const { CITIES } = await load('src/site/cities.ts');
+    const { intlLocale } = await load('src/lib/calendar-view/format.ts');
+    for (const locale of LOCALES) {
+      request.locale = locale;
+      const html = await wrap(locale, (await IndexPage({ params: Promise.resolve({ locale }) })) as ReactElement);
+      common(locale, html, 'index');
+      const z = messages[locale].zmanimSite;
+      const t = nodeRequire('next-intl').createTranslator({ locale, messages: messages[locale] });
+      const text = decodeEntities(textOf(html));
+      assert(text.includes(z.index.title) && text.includes(t('zmanimSite.index.lead', { count: CITIES.length })), `${locale}: the title and its line`);
+      assert(text.includes(z.near.button) && text.includes(z.near.privacy), `${locale}: Near me`);
+      const collator = new Intl.Collator(intlLocale(locale));
+      const groups = [...html.matchAll(/<section class="site-zm-country"[^>]*>([\s\S]*?)<\/section>/g)].map((m) => ({
+        name: decodeEntities(textOf(between(m[1], '<h3', '</h3>'))),
+        hrefs: attrs(m[1], 'a').map((a) => decodeEntities(attr(a, 'href') ?? '')),
+        names: [...m[1].matchAll(/<a [^>]*>([^<]*)<\/a>/g)].map((x) => decodeEntities(x[1])),
+      }));
+      assert(groups[0]?.name === messages[locale].countries.IL, `${locale}: the first group is ${groups[0]?.name}`);
+      const rest = groups.slice(1).map((g) => g.name);
+      assert(show(rest) === show([...rest].sort(collator.compare)), `${locale}: the countries' order ${show(rest)}`);
+      for (const g of groups) assert(show(g.names) === show([...g.names].sort(collator.compare)), `${locale}: ${g.name}'s cities ${show(g.names)}`);
+      const hrefs = groups.flatMap((g) => g.hrefs);
+      assert(show([...hrefs].sort()) === show(CITIES.map((c: Row) => `${prefix(locale)}/zmanim/${c.slug}`).sort()), `${locale}: the city links`);
+      assert(html.includes('id="cities"'), `${locale}: the list has no anchor for Near me`);
+      const meta = await indexMetadata({ params: Promise.resolve({ locale }) });
+      assert(meta.title === z.index.metaTitle && meta.alternates.canonical === pageUrl(locale, '/zmanim'), `${locale}: the metadata ${show([meta.title, meta.alternates?.canonical])}`);
+    }
   });
 
   finish();
