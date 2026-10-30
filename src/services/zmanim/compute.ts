@@ -5,7 +5,8 @@
  *
  *   zmanimForDay    every zman of a community's set on a civil day, rounded to the minute as the set says
  *   zmanInstant     a reminder's zman plus an offset (or N halachic hours after sunrise) as one instant
- *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from sunset on the eve to the end of the day
+ *   restDayBlocks          every run of Shabbat and Yom Tov days, with its eve, its last day and its edges (null where the sun makes none)
+ *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from sunset on the eve to the end of the day: the complete blocks
  *   isYomTovAt             whether a civil day is a Yom Tov at the place (the windows' own test)
  *
  * Pure: no database, Redis or network. Server only: @hebcal/core must never reach the Mini App
@@ -35,6 +36,21 @@ export type ZmanSpec = { zman: ZmanKey; offsetMin: number } | { halachicHours: n
 
 /** A zman on a day: null where it does not exist (the sun never reaches that angle, or never rises or sets). */
 export type ZmanimDay = Partial<Record<ZmanKey, Date | null>>;
+
+/**
+ * What a caller asks of the calculator besides the answer. `quiet`: no console.warn for a zman the sun does not make
+ * that day, nor for a block of rest days left out of the windows; for a caller that shows the gap itself (the public
+ * zmanim pages, where a dash and a note say why). A rule, an offset or a number of hours that is not one is still logged.
+ */
+export type ZmanOptions = { quiet?: boolean };
+
+/**
+ * A run of rest days next to each other (Shabbat, Yom Tov, or both: Yom Tov on a Friday into Shabbat, Rosh Hashana's two
+ * days). `eve` (yyyy-MM-dd in the place's zone) is the day whose sunset starts it, `last` its last rest day; `start` is
+ * the eve's sunset (the set's SHKIA) and `end` the last day's end of Shabbat (the set's SHABBAT_ENDS), each null where
+ * the sun does not make it that day (the far north in summer). The calendar gives the days, the sun only the edges.
+ */
+export type RestDayBlock = { eve: string; last: string; start: Date | null; end: Date | null };
 
 const MINUTE_MS = 60_000;
 const SECOND_MS = 1000;
@@ -74,9 +90,9 @@ function roundToMinute(exact: Date, round: Round): Date {
   return new Date((round === 'earlier' ? Math.floor(minutes) : Math.ceil(minutes)) * MINUTE_MS);
 }
 
-/** Where the zman could not be found: one log line a call, never one per zman. */
-function logMissing(day: string, place: Place, keys: string[]): void {
-  if (keys.length === 0) return;
+/** Where the zman could not be found: one log line a call, never one per zman, and none for a quiet caller. */
+function logMissing(day: string, place: Place, keys: string[], options: ZmanOptions = {}): void {
+  if (keys.length === 0 || options.quiet) return;
   console.warn(`[zmanim] no ${keys.join(', ')} on ${day} at ${place.latitude.toFixed(3)},${place.longitude.toFixed(3)} (the sun does not reach it that day): skipped`);
 }
 
@@ -221,7 +237,7 @@ function dayOf(date: string, place: Place, community: ZmanimCommunity): Day {
 }
 
 /** Every zman of the set on `date`, exact to the second and not rounded. A zman that does not exist is null. */
-export function exactZmanimForDay(date: string, place: Place, community: ZmanimCommunity): ZmanimDay {
+export function exactZmanimForDay(date: string, place: Place, community: ZmanimCommunity, options: ZmanOptions = {}): ZmanimDay {
   const day = dayOf(date, place, community);
   const out: ZmanimDay = {};
   const missing: string[] = [];
@@ -230,16 +246,16 @@ export function exactZmanimForDay(date: string, place: Place, community: ZmanimC
     out[key] = ms === null ? null : new Date(ms);
     if (ms === null) missing.push(key);
   }
-  logMissing(date, place, missing);
+  logMissing(date, place, missing, options);
   return out;
 }
 
 /**
  * Every zman of the community's set on `date` (a civil date, 'yyyy-MM-dd', in the person's zone),
  * rounded to the minute in the direction the set gives that zman. A zman that does not exist that
- * day (the sun never reaches that angle at a polar place) is null, and the call logs it once.
+ * day (the sun never reaches that angle at a polar place) is null, and the call logs it once (unless quiet).
  */
-export function zmanimForDay(date: string, place: Place, community: ZmanimCommunity): ZmanimDay {
+export function zmanimForDay(date: string, place: Place, community: ZmanimCommunity, options: ZmanOptions = {}): ZmanimDay {
   const day = dayOf(date, place, community);
   const out: ZmanimDay = {};
   const missing: string[] = [];
@@ -248,7 +264,7 @@ export function zmanimForDay(date: string, place: Place, community: ZmanimCommun
     out[key] = shown;
     if (shown === null) missing.push(key);
   }
-  logMissing(date, place, missing);
+  logMissing(date, place, missing, options);
   return out;
 }
 
@@ -267,10 +283,10 @@ export function halachicHourMs(date: string, place: Place, community: ZmanimComm
 /**
  * A reminder's time on `date`: the zman as shown (rounded the set's way) plus the offset in clock
  * minutes, or the sunrise plus N halachic hours (rounded earlier, as a deadline is) plus the
- * offset. Null, and logged, where the zman does not exist that day, the set has no such zman, or
- * the spec is not one.
+ * offset. Null, and logged, where the zman does not exist that day (unless quiet), the set has no
+ * such zman, or the spec is not one.
  */
-export function zmanInstant(date: string, spec: ZmanSpec, place: Place, community: ZmanimCommunity): Date | null {
+export function zmanInstant(date: string, spec: ZmanSpec, place: Place, community: ZmanimCommunity, options: ZmanOptions = {}): Date | null {
   if (!Number.isFinite(spec.offsetMin)) {
     console.warn(`[zmanim] zmanInstant: the offset ${String(spec.offsetMin)} is not a number of minutes: skipped`);
     return null;
@@ -283,7 +299,7 @@ export function zmanInstant(date: string, spec: ZmanSpec, place: Place, communit
       return null;
     }
     base = day.shown(spec.zman);
-    if (base === null) logMissing(date, place, [spec.zman]);
+    if (base === null) logMissing(date, place, [spec.zman], options);
   } else {
     if (!Number.isFinite(spec.halachicHours) || spec.halachicHours < 0 || spec.halachicHours > 12) {
       console.warn(`[zmanim] zmanInstant: ${String(spec.halachicHours)} halachic hours is not between 0 and 12: skipped`);
@@ -291,7 +307,7 @@ export function zmanInstant(date: string, spec: ZmanSpec, place: Place, communit
     }
     const { sunrise, hour } = day;
     base = sunrise === null || hour === null ? null : roundToMinute(toSecond(sunrise + Math.round(hour * spec.halachicHours)), 'earlier');
-    if (base === null) logMissing(date, place, [`${spec.halachicHours} halachic hours after sunrise`]);
+    if (base === null) logMissing(date, place, [`${spec.halachicHours} halachic hours after sunrise`], options);
   }
   return base === null ? null : new Date(base.getTime() + spec.offsetMin * MINUTE_MS);
 }
@@ -317,18 +333,14 @@ export function isYomTovAt(day: string, place: Place): boolean {
 }
 
 /**
- * When Shabbat and Yom Tov hold at the place, for the days that touch `range`: each window runs
- * from sunset on the evening before the first rest day (the set's SHKIA, the sunset its list shows
- * as the plain sunset row, 20 minutes after its candle lighting: the owner's ruling, 2026-10-28) to
- * the end of the last one (the set's end of Shabbat, rounded later), and rest days next to each
- * other make one window (Yom Tov on a Friday into Shabbat, Shabbat into a Yom Tov on Sunday, the
- * two days of Rosh Hashana). Yom Tov follows the Israel schedule in Israel and the diaspora's
- * elsewhere. A window is the half-open [start, end): at its start the pause holds, at its end it
- * no longer does. A window whose sunset or end does not exist (polar) is left out and logged.
- *
- * `range` is two instants; the windows returned are those that overlap it.
+ * The blocks of rest days at the place for the days around `range` (two instants): every block with a rest day from
+ * three days before the range's first civil day to four days after its last, in order, each whole (a block the scan
+ * starts or stops inside is still listed from its first rest day to its last). So every block whose window overlaps
+ * the range is among them, with a few around it; a caller picks by day (the day list) or by instant (the windows).
+ * Yom Tov follows the Israel schedule in Israel and the diaspora's elsewhere, by the place's zone. A block is listed
+ * even where the sun makes no edge: its `start` or `end` is null then. Logs nothing.
  */
-export function shabbatYomTovWindows(range: { from: Date; to: Date }, place: Place, community: ZmanimCommunity): Array<[Date, Date]> {
+export function restDayBlocks(range: { from: Date; to: Date }, place: Place, community: ZmanimCommunity): RestDayBlock[] {
   const il = inIsrael(place.timeZone);
   const fromDay = localDate(range.from, place.timeZone);
   const toDay = localDate(range.to, place.timeZone);
@@ -337,24 +349,46 @@ export function shabbatYomTovWindows(range: { from: Date; to: Date }, place: Pla
   const first = addDaysToDate(fromDay, -3);
   const last = addDaysToDate(toDay, 4);
 
-  const windows: Array<[Date, Date]> = [];
-  for (let day = first; day <= last; ) {
+  const blocks: RestDayBlock[] = [];
+  let day = first;
+  // A block that began before the scan is listed from its own first rest day.
+  while (isRestDay(day, il) && isRestDay(addDaysToDate(day, -1), il)) day = addDaysToDate(day, -1);
+  while (day <= last) {
     if (!isRestDay(day, il)) {
       day = addDaysToDate(day, 1);
       continue;
     }
-    // A block of rest days, day to blockEnd.
+    // A block of rest days, day to blockEnd (past the scan's last day too: a block is never cut).
     let blockEnd = day;
-    while (blockEnd < last && isRestDay(addDaysToDate(blockEnd, 1), il)) blockEnd = addDaysToDate(blockEnd, 1);
+    while (isRestDay(addDaysToDate(blockEnd, 1), il)) blockEnd = addDaysToDate(blockEnd, 1);
     const eve = addDaysToDate(day, -1);
-    const start = dayOf(eve, place, community).shown('SHKIA');
-    const end = dayOf(blockEnd, place, community).shown('SHABBAT_ENDS');
+    blocks.push({ eve, last: blockEnd, start: dayOf(eve, place, community).shown('SHKIA'), end: dayOf(blockEnd, place, community).shown('SHABBAT_ENDS') });
+    day = addDaysToDate(blockEnd, 1);
+  }
+  return blocks;
+}
+
+/**
+ * When Shabbat and Yom Tov hold at the place, for the days that touch `range`: each window runs
+ * from sunset on the evening before the first rest day (the set's SHKIA, the sunset its list shows
+ * as the plain sunset row, 20 minutes after its candle lighting: the owner's ruling, 2026-10-28) to
+ * the end of the last one (the set's end of Shabbat, rounded later), and rest days next to each
+ * other make one window (Yom Tov on a Friday into Shabbat, Shabbat into a Yom Tov on Sunday, the
+ * two days of Rosh Hashana). Yom Tov follows the Israel schedule in Israel and the diaspora's
+ * elsewhere. A window is the half-open [start, end): at its start the pause holds, at its end it
+ * no longer does. The windows are the complete blocks of restDayBlocks: a block whose sunset or end
+ * does not exist (polar) is left out and logged (unless quiet).
+ *
+ * `range` is two instants; the windows returned are those that overlap it.
+ */
+export function shabbatYomTovWindows(range: { from: Date; to: Date }, place: Place, community: ZmanimCommunity, options: ZmanOptions = {}): Array<[Date, Date]> {
+  const windows: Array<[Date, Date]> = [];
+  for (const { eve, last, start, end } of restDayBlocks(range, place, community)) {
     if (start && end) {
       if (start.getTime() <= range.to.getTime() && end.getTime() > range.from.getTime()) windows.push([start, end]);
-    } else {
-      console.warn(`[zmanim] no ${start ? 'end of Shabbat' : 'sunset'} for the rest days ${day} to ${blockEnd}: that window is left out`);
+    } else if (!options.quiet) {
+      console.warn(`[zmanim] no ${start ? 'end of Shabbat' : 'sunset'} for the rest days ${addDaysToDate(eve, 1)} to ${last}: that window is left out`);
     }
-    day = addDaysToDate(blockEnd, 1);
   }
   return windows;
 }

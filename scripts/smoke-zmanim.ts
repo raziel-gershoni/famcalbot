@@ -748,7 +748,7 @@ async function runChecks(): Promise<void> {
 
   // ============ Server only ============
 
-  await check('server only: no client component or Mini App module imports src/services/zmanim, and the module loads nothing client-side (hebcal, the day and wall-time helpers, no React)', () => {
+  await check('server only: no client component or Mini App module imports src/services/zmanim, and the module loads nothing client-side (hebcal, the day and wall-time helpers, no React); the day list (day-list.ts) imports only pure modules', () => {
     const offenders: string[] = [];
     const scan = (dir: string) => {
       for (const name of readdirSync(dir)) {
@@ -763,11 +763,17 @@ async function runChecks(): Promise<void> {
     };
     for (const dir of ['app', 'components', 'src/lib/calendar-view']) scan(path.join(ROOT, dir));
     assertSame(offenders, [], "'use client' files that import the zmanim module");
-    for (const file of ['sets.ts', 'compute.ts']) {
+    for (const file of ['sets.ts', 'compute.ts', 'day-list.ts']) {
       const text = readFileSync(path.join(ROOT, 'src/services/zmanim', file), 'utf8');
       assert(!/from ['"](react|next|@prisma|@upstash)/.test(text) && !/utils\/(prisma|redis)/.test(text), `${file} imports no database, Redis or React`);
     }
-    assert(!/fromZonedTime|\.set(Hours|Date|Month|FullYear|Minutes|Seconds)\(/.test(readFileSync(path.join(ROOT, 'src/services/zmanim/compute.ts'), 'utf8')), 'compute.ts builds no instant from local fields');
+    // The day list is what the public pages import: only the calculator, the sets, the spec reader, the day helpers and
+    // the client-safe list types, never the place lookups (place.ts: Prisma, Redis, Nominatim) or the reminder clock.
+    const dayListImports = [...readFileSync(path.join(ROOT, 'src/services/zmanim/day-list.ts'), 'utf8').matchAll(/^import .* from '([^']+)';$/gm)].map(m => m[1]);
+    assertSame(dayListImports, ['./compute', './sets', './spec', '../../lib/calendar-view/zman-spec', '../../lib/calendar-view/zmanim-list', '../../utils/day-events'], 'day-list.ts imports');
+    for (const file of ['compute.ts', 'day-list.ts']) {
+      assert(!/fromZonedTime|\.set(Hours|Date|Month|FullYear|Minutes|Seconds)\(/.test(readFileSync(path.join(ROOT, 'src/services/zmanim', file), 'utf8')), `${file} builds no instant from local fields`);
+    }
   });
 
   // ============ The schema and the migration ============

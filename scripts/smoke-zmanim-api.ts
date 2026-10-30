@@ -18,7 +18,10 @@
 //     days in Israel and in New York for the rules a person reads the list by;
 //   - no saved place: the zone's main city and source 'zone', at once, without waiting for the place lookup; a zone with
 //     no main city and no place: place null and no rows;
-//   - a polar day: null times and a null hour, never a failure;
+//   - a polar day: null times and a null hour, never a failure; in the far north an eve whose window the sun gives no
+//     end still lights its candles and the last day has its end row with no time (the pause still holds no such window);
+//   - one code path: the sheet's list is day-list.ts zmanDayForPlace at the person's point, height and community, plus
+//     the place label;
 //   - the community sets (Chabad has no Magen Avraham hour and names the Baal HaTanya);
 //   - the request: no date means today in the person's zone, a bad or out-of-range date is 400, no initData is 401,
 //     every answer is private and not stored, a failure is 500 and reported.
@@ -300,6 +303,9 @@ async function runChecks(): Promise<void> {
     shabbatYomTovWindows: (range: { from: Date; to: Date }, place: Row, community: string) => Array<[Date, Date]>;
     halachicHourMs: (date: string, place: Row, community: string) => { day: number | null; mga: number | null };
   };
+  const dayList = nodeRequire(path.join(ROOT, 'src/services/zmanim/day-list.ts')) as {
+    zmanDayForPlace: (place: Row, community: string, day: string, options?: { memo?: Map<string, number | null>; quiet?: boolean }) => Row;
+  };
   const route = (await import(path.join(ROOT, 'app/api/zmanim/route.ts'))) as Row;
 
   // The routes log; keep the output to the results, and keep what they write.
@@ -337,6 +343,7 @@ async function runChecks(): Promise<void> {
   const atOf = (list: Row, key: string): string => hm(rowOf(list, key).at, list.tz);
   const HARISH_PLACE = { latitude: 32.46182, longitude: 35.04555, elevationM: 270, timeZone: IL };
   const NY_PLACE = { latitude: 40.7127, longitude: -74.006, elevationM: 10, timeZone: NY };
+  const REYKJAVIK_PLACE = { latitude: 64.1466, longitude: -21.9426, elevationM: 20, timeZone: 'Atlantic/Reykjavik' };
   const NOT_STORED = 'private, no-store';
 
   // ================= Harish =================
@@ -594,6 +601,8 @@ async function runChecks(): Promise<void> {
   // ================= Polar days =================
 
   await check('a day the sun does not make a zman is null, never a failure: Reykjavik in June (Ashkenazi) has a sunrise but no 16.1 or 8.5 degree dawn and nightfall, the rest are times', async () => {
+    // 2026-06-21 is a Sunday that no rest-day block touches, so the far-north fix (the rest-day blocks, 6a) leaves its
+    // 13 rows as they were; the Friday and the Saturday around it are pinned in the next check.
     seed();
     const list = await listOf(TG.polar, '2026-06-21');
     assert(rowOf(list, 'ALOT').at === null && rowOf(list, 'TZEIT').at === null, 'no dawn, no nightfall');
@@ -604,7 +613,19 @@ async function runChecks(): Promise<void> {
     assert(consoleLines.some((l) => l.startsWith('[zmanim] no ')), 'the missing times are logged');
   });
 
+  await check('the far north (6a): Reykjavik on Friday 2026-06-19 (Ashkenazi: a sunset, no 8.5 degree nightfall) lights its candles at the day\'s own time, before the sunset row; Saturday the 20th has its end of Shabbat with no time; the pause\'s windows hold neither day, as before', async () => {
+    seed();
+    const friday = await listOf(TG.polar, '2026-06-19');
+    const saturday = await listOf(TG.polar, '2026-06-20');
+    assert(rowOf(friday, 'CANDLE_LIGHTING').at === compute.zmanimForDay('2026-06-19', REYKJAVIK_PLACE, 'ashkenazi').CANDLE_LIGHTING!.toISOString(), 'the Friday\'s own candle lighting');
+    assert(keysOf(friday).indexOf('CANDLE_LIGHTING') === keysOf(friday).indexOf('SHKIA') - 1 && keysOf(friday).length === 14, `Friday ${show(keysOf(friday))}`);
+    assertSame(rowsOf(saturday).filter((r) => END_KEYS.includes(r.key) || r.key.startsWith('CANDLE')), [{ key: 'SHABBAT_ENDS', opinion: null, at: null }], 'Saturday: the end, no time');
+    assertSame(keysOf(saturday).slice(-2), ['SHABBAT_ENDS', 'CHATZOT_HALAYLA'], 'where the end stands');
+    assertSame(compute.shabbatYomTovWindows({ from: new Date('2026-06-19T00:00:00Z'), to: new Date('2026-06-21T00:00:00Z') }, REYKJAVIK_PLACE, 'ashkenazi'), [], 'no window for the pause');
+  });
+
   await check('a day with no sunrise or sunset at all (Svalbard in June): every row is null and the hour is null, still 200', async () => {
+    // A Sunday, as above: no rest-day row, unchanged by the far-north fix.
     seed();
     users.get(ID.polar)!.latitude = 78.22;
     users.get(ID.polar)!.longitude = 15.65;
@@ -614,6 +635,22 @@ async function runChecks(): Promise<void> {
     const list = await listOf(TG.polar, '2026-06-21');
     assert(list.rows.length === SEPHARDI_ORDER.length && list.rows.every((r: Row) => r.at === null), `rows ${show(list.rows.filter((r: Row) => r.at !== null))}`);
     assertSame(list.hours, [{ opinion: 'gra', ms: null }, { opinion: 'mga', ms: null }], 'the hours');
+  });
+
+  // ================= One code path =================
+
+  await check('the sheet\'s list is day-list.ts zmanDayForPlace at the person\'s point, height and community, with only the place label added: Harish on a Wednesday, a Friday, a Saturday and Sukkot, New York on the two days of Shemini Atzeret and Simchat Torah', async () => {
+    seed();
+    const cases: Array<[number, Row, string, string]> = [
+      [TG.harish, HARISH_PLACE, 'sephardi', '2026-10-28'], [TG.harish, HARISH_PLACE, 'sephardi', '2026-10-30'], [TG.harish, HARISH_PLACE, 'sephardi', '2026-10-31'],
+      [TG.harish, HARISH_PLACE, 'sephardi', '2026-09-26'], [TG.ny, NY_PLACE, 'sephardi', '2026-10-03'], [TG.ny, NY_PLACE, 'sephardi', '2026-10-04'],
+    ];
+    for (const [tg, place, community, date] of cases) {
+      const list = await listOf(tg, date);
+      const { place: label, ...rest } = list;
+      assert(label && typeof label === 'object', `${date}: a place label`);
+      assertSame(rest, dayList.zmanDayForPlace(place, community, date, { memo: new Map() }), `${date}`);
+    }
   });
 
   // ================= The communities =================

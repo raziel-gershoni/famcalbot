@@ -9,8 +9,9 @@ import { initDataHeaders } from '../read-init-data';
 import type { ZmanOpinion } from './zman-spec';
 
 /**
- * The rows a day's list carries besides the set's own zmanim: the Shabbat and Yom Tov windows (the pause's, from
- * shabbatYomTovWindows) say on which days they fall, so the list and the pause agree on the days. The sheet draws them in
+ * The rows a day's list carries besides the set's own zmanim: the Shabbat and Yom Tov blocks (restDayBlocks, whose
+ * complete ones are the pause's windows) say on which days they fall, so the list and the pause agree on the days; where
+ * the sun makes no end (the far north in summer) the rows are still there and the end has no time. The sheet draws them in
  * the accent. The pause begins at the eve's sunset (the set's plain sunset row) and ends at the end row; the candle
  * lighting is the day's own time, 20 minutes before that sunset, not the window's start.
  *  - CANDLE_LIGHTING: on the day a window begins (a Friday, the eve of a Yom Tov) and on every Friday, a Friday inside a
