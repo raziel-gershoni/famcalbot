@@ -120,7 +120,7 @@ async function main() {
     assert(refused.length === 0, show(refused));
   });
 
-  await check('heights: every Israeli row has a whole number of metres from the heights script (Tiberias may be below sea level), no row abroad has one', () => {
+  await check('heights: every Israeli row has a whole number of metres from the heights script (a negative one would be kept as read), no row abroad has one', () => {
     const missing = CITIES.filter((c) => c.country === 'IL' && !(Number.isInteger(c.elevationM) && (c.elevationM as number) >= -430 && (c.elevationM as number) <= 1200)).map((c) => `${c.slug}: ${c.elevationM}`);
     assert(missing.length === 0, `Israeli rows without a height (run npx tsx scripts/build-city-heights.ts): ${show(missing)}`);
     const abroad = CITIES.filter((c) => c.country !== 'IL' && c.elevationM !== null).map((c) => c.slug);

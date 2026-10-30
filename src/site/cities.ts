@@ -12,7 +12,7 @@
 // - country: the ISO 3166 code; 'IL' for every Israeli city (GeoNames files Ma'ale Adumim and Beitar Illit under PS).
 // - elevationM: the highest ground in an Israeli town, in whole metres, written by scripts/build-city-heights.ts by the
 //   bot's own rule (elevationGrid over the town's OpenStreetMap box, read from the Copernicus DEM GLO-90). Null abroad,
-//   where every set counts at sea level. A negative height (Tiberias) is kept as read; the engine clamps it to 0.
+//   where every set counts at sea level. A negative height, if one ever appears, is kept as read; the engine clamps it to 0.
 //
 // The names are in messages: cities.<slug> and countries.<country>, in en, he and ru.
 
