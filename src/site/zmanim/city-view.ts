@@ -7,7 +7,7 @@
 // - Each view has its own memo and asks quietly: a crawler can never flush the bot's process memo, and a zman the sun does
 //   not make is shown as a dash, not logged.
 // - Holidays follow the city: il = inIsrael(city.timeZone), the same flag the engine's windows read, for the labels too.
-// - "Today" is the city's own (instantToWallTime: the repo's wall-time rule), and the range a URL may ask for is a year
+// - "Today" is the city's own (localDate, over instantToWallTime: the repo's wall-time rule), and the range a URL may ask for is a year
 //   back to three years ahead of it.
 // - A section that fails (a hebcal error) is caught and returned as a failure: the page logs it and words it, and the
 //   rest of the page still renders.
@@ -16,6 +16,7 @@
 // no database, Redis, network or clock (the page hands it `now`).
 
 import { addMonths, monthFirstDay, monthGrid, monthLastDay, monthOf } from '@/src/lib/calendar-view/grid';
+import { isDayKey } from '@/src/lib/calendar-view/picker-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { WINDOW_ROW_KEYS, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
 import { holidaysInRange, type Holiday } from '@/src/services/hebrew-holidays';
@@ -23,11 +24,8 @@ import { inIsrael, restDayBlocks, type Place } from '@/src/services/zmanim/compu
 import { zmanDayForPlace, type ZmanDayList, type ZmanMemo } from '@/src/services/zmanim/day-list';
 import { isCommunity, type ZmanimCommunity } from '@/src/services/zmanim/sets';
 import type { City } from '@/src/site/cities';
-import { addDaysToDate, startOfLocalDay } from '@/src/utils/day-events';
+import { addDaysToDate, localDate, startOfLocalDay } from '@/src/utils/day-events';
 import { weekStartFor } from '@/src/utils/locale-rules';
-import { instantToWallTime } from '@/src/utils/wall-time';
-
-const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A Shabbat or Yom Tov listed ahead begins at most this many days after the day shown (spec §4.2.3). */
 const AHEAD_DAYS = 8;
@@ -104,20 +102,14 @@ export function defaultCommunity(city: City): ZmanimCommunity {
 
 /** Today in the city, yyyy-MM-dd, by the city's own clock. */
 export function cityToday(city: City, now: Date): string {
-  return instantToWallTime(now, city.timeZone).slice(0, 10);
-}
-
-function isRealDay(day: string): boolean {
-  if (!DAY_KEY.test(day)) return false;
-  const ms = Date.parse(`${day}T00:00:00Z`);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === day;
+  return localDate(now, city.timeZone);
 }
 
 /** The same month and day `years` years on; 29 February is 28 February in a year without one. */
 function yearsOn(day: string, years: number): string {
   const year = String(Number(day.slice(0, 4)) + years).padStart(4, '0');
   const moved = `${year}${day.slice(4)}`;
-  return isRealDay(moved) ? moved : `${year}-02-28`;
+  return isDayKey(moved) ? moved : `${year}-02-28`;
 }
 
 function rangeOf(today: string): { first: string; last: string } {
@@ -141,7 +133,7 @@ export function readCityParams(city: City, search: Record<string, string | strin
   const today = cityToday(city, now);
   const range = rangeOf(today);
   const asked = single(search.date);
-  const day = asked !== undefined && isRealDay(asked) && asked >= range.first && asked <= range.last ? asked : null;
+  const day = asked !== undefined && isDayKey(asked) && asked >= range.first && asked <= range.last ? asked : null;
   const fallback = defaultCommunity(city);
   const wanted = single(search.community);
   const community = isCommunity(wanted) && wanted !== fallback ? wanted : null;
@@ -191,13 +183,16 @@ export function buildCityView(city: City, params: CityParams, locale: string): C
 
   const ahead = attempt('ahead', (): AheadWindow[] => {
     const until = addDaysToDate(day, AHEAD_DAYS);
+    const dayStart = startOfLocalDay(day, city.timeZone);
     const blocks = restDayBlocks(
       { from: startOfLocalDay(addDaysToDate(day, -LONGEST_BLOCK), city.timeZone), to: startOfLocalDay(addDaysToDate(until, LONGEST_BLOCK + 1), city.timeZone) },
       place,
       community,
     )
-      // The one under way on the day shown (it ends on it or later), and every one that begins within AHEAD_DAYS
-      .filter((block) => block.last >= day && block.eve <= until)
+      // The one under way on the day shown: its last day is that day or later, or its end is still after the day's start (a
+      // Shabbat that ends at 00:21 on the Sunday in the far north in summer has its last day on the Saturday). And every one
+      // that begins within AHEAD_DAYS
+      .filter((block) => (block.last >= day || (block.end !== null && block.end.getTime() > dayStart.getTime())) && block.eve <= until)
       .sort((a, b) => (a.eve < b.eve ? -1 : a.eve > b.eve ? 1 : 0));
     if (blocks.length === 0) return [];
     const holidays = holidaysInRange(blocks[0].eve, blocks[blocks.length - 1].last, locale, { il });

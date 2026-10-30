@@ -20,7 +20,9 @@
 //  - V14 (review focus b) a summer/winter time change day in the city's zone (New York 2026-11-01, Jerusalem 2026-10-25,
 //    Sydney 2026-10-04): the rows in the order of the day, none twice and none an hour off, and the previous and next
 //    days neither skip nor repeat a day;
-//  - V15 (review focus d) repeated or odd query values are ignored, and nothing throws.
+//  - V15 (review focus d) repeated or odd query values are ignored, and nothing throws;
+//  - V16 a Shabbat that ends after midnight stays in "ahead" while its end is after the start of the day shown (Riga,
+//    Ashkenazi, 20 June 2027 at 00:10: Shabbat 19 June ends at 00:21), and goes the day after.
 //
 // The whole smoke runs twice: first as a child under TZ=UTC (prod's zone, review focus a), then in the zone it was started
 // in (ci-smokes.sh: Asia/Jerusalem). Nothing here may read the process's own zone.
@@ -325,6 +327,26 @@ async function main() {
       assert(p.day === '2026-10-30' && p.today === '2026-10-30' && !p.dayFromParam && p.community === 'sephardi' && !p.communityFromParam, `${label}: ${show(p)}`);
       ok(v.buildCityView(jlm, p, 'en'), label);
     }
+  });
+
+  await check('V16 a Shabbat that ends after midnight stays in "ahead" while its end is after the start of the day shown: Riga, Ashkenazi, at 00:10 on Sunday 20 June 2027 (21:10 UTC) Shabbat 19 June is still listed with its end at 00:21; on the Monday it is gone', () => {
+    const justAfterMidnight = new Date('2027-06-19T21:10:00Z');
+    const sunday = build('riga', {}, 'en', justAfterMidnight);
+    ok(sunday, 'Riga');
+    assert(sunday.day === '2027-06-20' && sunday.isToday && sunday.community === 'ashkenazi', show({ day: sunday.day, community: sunday.community }));
+    assert(show(spans(sunday)) === show([['2027-06-18', '2027-06-19'], ['2027-06-25', '2027-06-26']]), `the windows ${show(spans(sunday))}`);
+    const [under] = sunday.ahead;
+    const end = under.days[1].rows.find((r: Row) => r.key === 'SHABBAT_ENDS');
+    assert(!under.endMissing && end && instantToWallTime(new Date(end.at), 'Europe/Riga') === '2027-06-20T00:21:00', `the end ${show(end)}`);
+    assert(show(keysOf(under)) === show([['CANDLE_LIGHTING'], ['SHABBAT_ENDS']]), show(keysOf(under)));
+    // The Sunday's own list has no end row (the end row stays on the Saturday: spec §8)
+    assert(!sunday.list.rows.some((r: Row) => WINDOW.includes(r.key)), 'the Sunday lists a window row');
+    // The Monday starts after it ended: it is no longer ahead
+    const monday = build('riga', { date: '2027-06-21' }, 'en', justAfterMidnight);
+    assert(show(spans(monday)) === show([['2027-06-25', '2027-06-26']]), `Monday's windows ${show(spans(monday))}`);
+    // A Shabbat that ends before midnight (Jerusalem, 31 October 2026 after dark) leaves with its day, as before
+    const jerusalemSunday = build('jerusalem', { date: '2026-11-01' });
+    assert(show(spans(jerusalemSunday)) === show([['2026-11-06', '2026-11-07']]), `Jerusalem's Sunday ${show(spans(jerusalemSunday))}`);
   });
 
   finish();
