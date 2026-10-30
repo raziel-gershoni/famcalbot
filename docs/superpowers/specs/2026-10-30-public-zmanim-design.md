@@ -89,7 +89,7 @@ From top to bottom:
    - **A zman the sun doesn't make that day** (dawn in London in June, for example) shows a dash. One note under the rows explains: at this time of year the sun doesn't go deep enough here for that zman, so follow your community's fixed times.
    - **The halachic hour** is at the bottom, under each opinion the set counts by.
 3. **Shabbat and Yom Tov ahead.**
-   - **Which windows:** the window under way or the next one, plus any other window that starts within 8 days of the day shown.
+   - **Which windows:** the window under way or the next one, plus any other window that starts within 8 days of the day shown. A window is under way while its last day is the day shown or later, or its end is after the day's start in the city's zone (a Shabbat that ends at 00:21 on the Sunday, in the far north in summer, is still listed on that Sunday).
    - **Each window** is named by its parasha or holiday, with one line per day: the eve's candle lighting, "not before" on a middle night, and the end. These are the same rows the day list shows for those days.
    - **A window whose end the sun doesn't make** (Saint Petersburg for weeks around June) still shows its candle lighting. Its end shows a dash with the same note.
 4. **The month.**
@@ -229,7 +229,9 @@ The README names the sources and the script.
 ### 6.4 Guards for the shared process
 
 - **The date range** (§4.3) bounds the distinct pages.
-- **A request limit.** The proxy counts city-page requests per client address (`x-real-ip`; famcal.bot is not behind a proxy that sets another header) in process memory. Past 60 requests in a minute, it answers 429 with `Retry-After`.
+- **A request limit.** The proxy counts city-page requests per client address (`x-real-ip`; famcal.bot is not behind a proxy that sets another header) in process memory. Past 60 requests in a minute, it answers 429 with `Retry-After` and a tiny static page with one line in the visitor's language (`zmanimSite.limit`; he and ru by the path prefix, else English).
+  - The path is counted as the routes read it: percent-decoded until it stops changing (three rounds at most) and case-insensitively, so an encoded or double-encoded path counts against the same address.
+  - No address outlives its minute: the first counted request of a minute schedules one unref'd cleanup timer for the minute's end, which clears the addresses (the Privacy Policy says "for one minute").
   - No person reading pages comes near that. A scraper that ignores robots.txt can't hold up the bot's webhooks and cron.
   - The limit is logged as a count per minute, never with the address.
 
@@ -321,7 +323,7 @@ There are no new cookies, no storage and no new processor: the city and height d
   - **The chrome:** the header, the menu (the link closes the sheet) and the footer carry the Zmanim link, and the landing has its row.
   - **Copy:** the rendered text passes the truth list, the no-emoji rule, T6 and the raw-key check.
   - **No external requests:** no page under `(site)` fetches anything or loads a third-party script.
-- **The request limit:** the 61st city-page request in a minute from one address gets 429, and other addresses and the other site pages are unaffected.
+- **The request limit:** the 61st city-page request in a minute from one address gets 429 with a one-line page in the visitor's language, an encoded, double-encoded or upper-case path counts against the same address, the minute's cleanup timer clears the addresses, and other addresses and the other site pages are unaffected.
 - **"Near me"** (fake DOM):
   - The nearest city is found, and each of the three distance bands gives its answer.
   - A point in another UTC offset gets "no city near you".
