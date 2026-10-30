@@ -2722,6 +2722,10 @@
       "lead": "Today’s zmanim, Shabbat and Yom Tov times and the month’s holidays for {count, plural, one {# city} other {# cities}}, by Sephardi, Ashkenazi or Chabad custom.",
       "listTitle": "Cities"
     },
+    "limit": {
+      "title": "Too many pages were opened from your network in the last minute.",
+      "body": "Please try again in a minute."
+    },
     "near": {
       "title": "Near me",
       "button": "Find the nearest city",
