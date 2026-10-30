@@ -612,10 +612,12 @@ async function main() {
     assert(sql === 'ALTER TABLE "NativeEvent" ADD COLUMN IF NOT EXISTS "zmanSpec" JSONB;', `the migration: ${sql}`);
   });
 
-  await check('server only: no file the Mini App bundles imports the zmanim module (the client gets computed times in the DTO)', () => {
+  await check('server only: no file the Mini App (or the public index\'s Near me island) bundles imports the zmanim module (the client gets computed times in the DTO)', () => {
     const files = ['app/[locale]/(app)/dashboard/EditorSheet.tsx', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'app/[locale]/(app)/dashboard/ItemSheet.tsx', 'src/lib/calendar-view/zman-words.ts', 'app/[locale]/(app)/dashboard/CalendarHome.tsx',
       'src/lib/calendar-view/editor-model.ts', 'src/lib/calendar-view/editor-types.ts', 'src/lib/calendar-view/editor-client.ts', 'src/lib/calendar-view/types.ts', 'src/lib/calendar-view/zman-spec.ts',
-      'components/app-ui/ZmanimRows.tsx', 'src/lib/calendar-view/zmanim-sheet-css.ts'];
+      'components/app-ui/ZmanimRows.tsx', 'src/lib/calendar-view/zmanim-sheet-css.ts',
+      // The public zmanim index's "Near me" island is a client component: it bundles these three, so none may reach the engine
+      'src/lib/geolocation.ts', 'src/site/zmanim/near-words.ts', 'src/site/near-city.ts'];
     for (const file of files) {
       const text = readFileSync(path.join(ROOT, file), 'utf8');
       assert(!/services\/zmanim|@hebcal/.test(text.split('\n').filter((l) => /^\s*(import|export)\b.*from/.test(l)).join('\n')), `${file} imports the zmanim module`);

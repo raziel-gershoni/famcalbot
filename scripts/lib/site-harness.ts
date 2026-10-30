@@ -80,6 +80,13 @@ export const OFF_SITE: [string, RegExp][] = [
   ['event alerts', /event alerts?|alerts? before (?:an |the |your |each |every )?events?|התרא(?:ה|ות) לפני (?:ה)?אירוע|(?:оповещени|уведомлени)\S* (?:о|перед) событи/i],
 ];
 
+/**
+ * A message key left in rendered text (next-intl prints the key where a message is missing): a namespace and its path
+ * (zmanimSite.city.back, cities.petah-tikva), or a country code (countries.IL, the one namespace keyed by capitals).
+ * Every site smoke that renders pages checks its visible text against it.
+ */
+export const RAW_KEY = /\b(?:(?:landing|site|blog|share|legal|ui|zmanimSite|cities|calendarHome|holidays|zmanim)\.[a-z]+[A-Za-z.]*|countries\.[A-Z]{2})\b/;
+
 /** HTML entities React writes in attributes and text, decoded. */
 export const decodeEntities = (s: string) => s.replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 /** Prints the results and exits 1 on any failure. */

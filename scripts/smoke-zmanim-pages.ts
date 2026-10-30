@@ -35,7 +35,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
 import { lintCss } from './lib/css-lint';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, readSource, request, render, ROOT, show, stub, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, readSource, request, render, ROOT, show, stub, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -46,8 +46,6 @@ const router = { push() {}, replace() {}, prefetch() {}, back() {}, forward() {}
 const attrs = (html: string, tag: string) => [...html.matchAll(new RegExp(`<${tag}\\b([^>]*)>`, 'g'))].map((m) => m[1]);
 const attr = (a: string, name: string) => new RegExp(`(?:^|\\s)${name}="([^"]*)"`, 'i').exec(a)?.[1];
 const prefix = (l: Locale) => (l === 'en' ? '' : `/${l}`);
-/** A message key left in the text, for every namespace the zmanim pages read. */
-const RAW_KEY = /\b(?:landing|site|blog|share|legal|ui|zmanimSite|cities|countries|calendarHome|holidays|zmanim)\.[a-z]+[A-Za-z.]*\b/;
 /** smoke-site-truth's T6: a one-letter Russian word followed by a plain space. */
 const T6_LOOSE = /(?<![^\s«(„"—*])[вскоуиая] /iu;
 /** The tap targets the zmanim pages add; Task 7 adds Near me's and the city list's. */
@@ -413,7 +411,7 @@ async function main() {
     assert(![...outside.matchAll(/animation:\s*([^;]+);/g)].some((m) => m[1].trim() !== 'none'), 'an animation outside the no-preference block');
   });
 
-  await check('Z10 no request leaves the server while a page renders; no file under app/[locale]/(site) or components/site calls fetch, loads a script by src or imports next/script; no component of the city page is a client one (only Near me is)', () => {
+  await check('Z10 no request leaves the server while a page renders; no file under app/[locale]/(site) or components/site calls fetch, loads a script by src or imports next/script; no component of the city page is a client one (only Near me is); no link the pages draw is a Next <Link> (it would be prefetched, and the limit counts a prefetch): the back link is the one', () => {
     assert(fetched.length === 0, `requests: ${show(fetched)}`);
     const walk = (rel: string): string[] =>
       fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(`${rel}/${entry.name}`) : /\.(?:tsx?|mdx?)$/.test(entry.name) ? [`${rel}/${entry.name}`] : []));
@@ -430,6 +428,19 @@ async function main() {
       assert(client === (file === 'NearMe.tsx'), `${file}: ${client ? 'a client component' : 'Near me is not a client component'}`);
     }
     assert(!/['"]use client['"]/.test(readSource('app/[locale]/(site)/zmanim/[city]/page.tsx')), 'the city page is a client component');
+    // Plain anchors, never prefetched (contract note 23): a Next <Link> renders the same <a href rel> on the server, so the
+    // rendered checks can't tell it from an anchor, yet in the browser every visible one prefetches its page, and the proxy
+    // counts a prefetch (the index's 135 city links would spend a reader's 60 a minute). So no component imports a link
+    // (next/link or the i18n navigation's), and of the two pages only the city page's back link is one.
+    const LINK_IMPORT = /from\s+['"](?:next\/link|[^'"]*\/i18n\/navigation)['"]/;
+    for (const file of fs.readdirSync(path.join(ROOT, 'components/site/zmanim'))) {
+      assert(!LINK_IMPORT.test(readSource(`components/site/zmanim/${file}`)), `components/site/zmanim/${file} imports a Next Link`);
+    }
+    const indexSource = readSource('app/[locale]/(site)/zmanim/page.tsx');
+    const citySource = readSource('app/[locale]/(site)/zmanim/[city]/page.tsx');
+    assert(!LINK_IMPORT.test(indexSource) && !/<Link\b/.test(indexSource), 'the index draws a Next Link');
+    const links = citySource.match(/<Link\b[^>]*>/g) ?? [];
+    assert(show(links) === show(['<Link href="/zmanim">']), `the city page's Links: ${show(links)} (only the back link may be one)`);
   });
 
   await check('Z11 /zmanim in en, he and ru: the title and its line, Near me\'s button and privacy line, every city once (Israel first, then the countries by name, each country\'s cities by name in the page\'s language), plain links to the clean pages; the metadata', async () => {
@@ -460,6 +471,15 @@ async function main() {
       assert(html.includes('id="cities"'), `${locale}: the list has no anchor for Near me`);
       const meta = await indexMetadata({ params: Promise.resolve({ locale }) });
       assert(meta.title === z.index.metaTitle && meta.alternates.canonical === pageUrl(locale, '/zmanim'), `${locale}: the metadata ${show([meta.title, meta.alternates?.canonical])}`);
+    }
+  });
+
+  await check('Z14 the raw-key guard (the harness\'s RAW_KEY, shared with smoke-site-pages) sees every shape of key a page could print: a nested key, a country code (countries.IL, the one family the index renders), a city slug; and not ordinary text', () => {
+    for (const raw of ['zmanimSite.city.back', 'countries.IL', 'countries.HK', 'cities.tel-aviv', 'cities.petah-tikva', 'holidays.names.pesachIi', 'calendarHome.zmanimList.noTime', 'landing.hero.title']) {
+      assert(RAW_KEY.test(`Times in ${raw} today`), `${raw} is not seen as a raw key`);
+    }
+    for (const fine of ['Israel', 'Candle lighting in Tel Aviv.', 'famcal.bot', 'Countries IL', 'the countries. IL', 'zmanim and Shabbat times']) {
+      assert(!RAW_KEY.test(fine), `${fine} is seen as a raw key`);
     }
   });
 

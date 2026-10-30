@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -74,7 +74,7 @@ async function main() {
     // The legal texts may name what the site's own copy never offers (OFF_SITE)
     const legal = where === 'privacy' || where === 'terms';
     for (const [claim, pattern] of [...UNTRUE, ...(legal ? [] : OFF_SITE)]) assert(!pattern.test(text), `${where} ${locale}: ${claim}: ${text.match(pattern)?.[0]}`);
-    assert(!/\b(?:(?:landing|site|blog|share|legal|ui|zmanimSite|cities|calendarHome|holidays|zmanim)\.[a-z]+[A-Za-z.]*|countries\.[A-Z]{2})\b/.test(textOf(html).replace(/famcal\.bot|t\.me\/\S+|wa\.me\/\S+/g, '')), `${where} ${locale}: a raw key`);
+    assert(!RAW_KEY.test(textOf(html).replace(/famcal\.bot|t\.me\/\S+|wa\.me\/\S+/g, '')), `${where} ${locale}: a raw key`);
   };
 
   await check('P1 /how-it-works: a permanent redirect to the landing\'s #how per language in one hop (English unprefixed, /en too), for every locale; the page and its messages are gone', async () => {
