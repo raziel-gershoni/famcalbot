@@ -7,7 +7,9 @@
 //    messages, no raw key, no emoji.
 //  - H2 the language switcher on a page (the blog post): the same page in each language, each name in its own
 //    language and lang; the current one marked and unprefixed for English; the others carry their prefix (English's
-//    too: the proxy stores the choice, then lands on the unprefixed page).
+//    too: the proxy stores the choice, then lands on the unprefixed page). No language link prefetches (prefetch={false},
+//    in the header, the menu and the footer alike): a view of a city page would otherwise prefetch it in the other two
+//    languages and spend the visitor's 60-a-minute allowance of the zmanim request limit.
 //  - H3 the footer: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment (the Terms' #cancel) and Contact (the
 //    bot's feedback chat), the switcher, "Made in Israel" and the years kept left to right in Hebrew.
 //  - H4 the phone menu in real React on the small fake DOM: closed at first; the button opens the app's sheet, focus
@@ -77,7 +79,7 @@ async function main() {
     }
   });
 
-  await check('H2 the language switcher on the blog post: the same page in each language, the names in their own language and lang, the current one marked (English unprefixed), the others carrying their prefix', async () => {
+  await check('H2 the language switcher on the blog post: the same page in each language, the names in their own language and lang, the current one marked (English unprefixed), the others carrying their prefix; none prefetches', async () => {
     const path = '/blog/why-i-built-famcal';
     for (const locale of LOCALES) {
       const html = await header(locale, path);
@@ -93,6 +95,18 @@ async function main() {
       for (const l of LOCALES) {
         const name = messages[locale].site.language.names[l];
         assert(html.includes(`<span lang="${l}" dir="${l === 'he' ? 'rtl' : 'ltr'}">${name}</span>`), `${locale}: ${l}'s name ${name} with its lang`);
+      }
+    }
+    // The header, the footer and the menu all draw their language links with LanguageLinks: its elements, as it returns
+    // them, in both variants and for each current language. A Link with no prefetch prop prefetches in production.
+    const { LanguageLinks } = await load('components/site/LanguageLinks.tsx');
+    const walk = (node: unknown): Row[] => (Array.isArray(node) ? node.flatMap(walk) : node && typeof node === 'object' && 'props' in node ? [node as Row, ...walk((node as Row).props.children)] : []);
+    for (const variant of ['inline', 'list']) {
+      for (const locale of LOCALES) {
+        const names = Object.fromEntries(LOCALES.map((l) => [l, messages[locale].site.language.names[l]]));
+        const links = walk(LanguageLinks({ locale, path: '/zmanim/jerusalem', names, label: 'x', variant })).filter((el) => el.props.href !== undefined);
+        assert(links.length === LOCALES.length, `${variant} ${locale}: ${links.length} language links`);
+        assert(links.every((el) => el.props.prefetch === false), `${variant} ${locale}: a language link prefetches: ${show(links.map((el) => [el.props.locale ?? 'current', el.props.prefetch]))}`);
       }
     }
   });

@@ -6,6 +6,9 @@ import { routing } from '@/i18n/routing';
 // own language and marked with its lang. The current language is marked aria-current and links to the page as it is; the
 // others are next-intl Links with a locale, which carry the prefix (English's too) so the proxy stores the choice before
 // it lands on the page. Used by the header and the footer (server) and the phone menu (client): no server-only import.
+// No link prefetches: a city page open in one language would otherwise prefetch itself in the other two, and each of
+// those is a request the zmanim request limit counts against the visitor (src/lib/page-limit.ts). A language switch is
+// rare, so it costs no speed worth having.
 
 export interface LanguageLinksProps {
   locale: string;
@@ -31,12 +34,12 @@ export function LanguageLinks({ locale, path, names, label, variant = 'inline', 
     return (
       <li key={l}>
         {current ? (
-          <Link href={path} aria-current="true" onClick={onNavigate}>
+          <Link href={path} prefetch={false} aria-current="true" onClick={onNavigate}>
             {name}
             {variant === 'list' ? <Check className="site-icon" aria-hidden="true" focusable="false" /> : null}
           </Link>
         ) : (
-          <Link href={path} locale={l} onClick={onNavigate}>
+          <Link href={path} locale={l} prefetch={false} onClick={onNavigate}>
             {name}
           </Link>
         )}
