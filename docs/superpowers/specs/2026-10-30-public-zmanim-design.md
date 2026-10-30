@@ -11,7 +11,7 @@ The owner wants famcal.bot to be a public tool: a visitor with no account sees t
 **Success:**
 - For the same place, height, community and day, the page and the bot's sun sheet show the same times (one code path, §6.1).
 - Holidays and the parasha follow the city: two-day Yom Tov abroad, the Israel schedule in Israel. The bot's users see no change, beyond the fixes named in §8.
-- No visitor account or profile is kept, no device position reaches the server, and no third party is called at runtime.
+- No visitor account or profile is kept, no device position reaches the server, and no third party is called at runtime beyond the error reports every page already sends to Sentry. The public pages send Sentry no performance traces (§7).
 - Every page works without JavaScript, except "Near me".
 - Search engines see one clean URL per city per language, titled with what people search for: Shabbat times.
 
@@ -240,12 +240,15 @@ The README names the sources and the script.
 
 ## 7. Privacy and Terms
 
-Four short additions keep the texts true for a public tool. They go into all three languages at once, with a new `LEGAL_UPDATED`, after the lawyer agent's check, as the last legal update did:
+Five short changes keep the texts true for a public tool. They go into all three languages at once, with a new `LEGAL_UPDATED`, after the lawyer agent's check, as the last legal update did. The wording below was revised by that check (2026-10-30):
 
 1. **Terms, who can use FamCal:** the age and account rules apply to the bot and the web app; anyone may read famcal.bot's public pages.
 2. **Terms, the halachic clause:** on a city's page, the times are computed for that city's centre, so "check a reliable source" covers it too.
-3. **Privacy, server logs:** the address of a page you open reaches our host's logs with your IP address, as it already says, including a city's page and any day or community you pick there. FamCal keeps no account or profile of visitors.
-4. **Privacy, your device's location:** on the public zmanim pages, "Near me" finds the nearest city on your device, and your position isn't sent to us.
+3. **Privacy, server logs:** the address of a page you open reaches our host's logs with your IP address, as it already says, including a city's page and any day or community you pick there. To keep automated overuse off the site, the server counts each address's requests to these pages, in memory only and for one minute (§6.4). FamCal keeps no account or profile of visitors.
+4. **Privacy, your device's location:** on the public zmanim pages, "Near me" finds the nearest city on your device, and your position isn't sent to us; we receive only the request for that city's page.
+5. **Privacy, children:** "You must be 18 or older to use it" becomes "to use the bots or the web app", matching the Terms change in point 1.
+
+**Sentry on the public pages (code, not text).** The site's pages already load Sentry's browser SDK, which sent a performance trace with the page address on 1 load in 100, and a count-only client report when the tab closed. The policy says Sentry gets error reports. So on every public site page (`<html data-surface="site">`, set by the site layout), the browser SDK samples no traces and sends no client reports, and the server samples no trace for a zmanim page request. Sentry then gets only error reports from these pages, as the policy says. The Mini App and the API keep their current 1% sampling.
 
 There are no new cookies, no storage and no new processor: the city and height data are committed files, not services. 6c rewrites the texts for accounts without a messenger.
 
