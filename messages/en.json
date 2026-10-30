@@ -1678,6 +1678,7 @@
       "howItWorks": "How it works",
       "plans": "Plans",
       "blog": "Blog",
+      "zmanim": "Zmanim",
       "label": "Main menu"
     },
     "header": {
@@ -2368,6 +2369,7 @@
         "sunList": "A sun button with the day’s zmanim for your city, including candle lighting and when Shabbat or Yom Tov ends.",
         "zmanReminders": "Reminders by zman, like “ten minutes before sunset”, timed for each person’s own place, by Sephardi, Ashkenazi or Chabad custom.",
         "pause": "An optional pause on Shabbat and Yom Tov: nothing scheduled is sent from sunset until nightfall.",
+        "zmanimPages": "Zmanim and Shabbat times for cities in Israel and abroad, right here on the site, with no sign-up.",
         "setting": "In Settings, set Calendar culture to Jewish: it turns on the sun button, holidays in the summaries and the Shabbat and Yom Tov pause."
       },
       "adding": {

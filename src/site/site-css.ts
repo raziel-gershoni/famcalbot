@@ -837,6 +837,21 @@ const LANDING_CSS = `
   margin-block-start: 1px;
   color: var(--ch-accent);
 }
+/* The Jewish calendar group's last row: a link to the public zmanim pages, the whole row tall */
+.site-list-row-link {
+  align-items: center;
+  padding-block: 0;
+}
+.site-list-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 48px;
+  padding-block: 8px;
+  color: var(--ch-accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 /* What a group needs in Settings (the Jewish calendar's culture), under its list */
 .site-group-note {
   display: flex;

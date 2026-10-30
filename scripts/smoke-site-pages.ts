@@ -68,7 +68,7 @@ async function main() {
     // The legal texts may name what the site's own copy never offers (OFF_SITE)
     const legal = where === 'privacy' || where === 'terms';
     for (const [claim, pattern] of [...UNTRUE, ...(legal ? [] : OFF_SITE)]) assert(!pattern.test(text), `${where} ${locale}: ${claim}: ${text.match(pattern)?.[0]}`);
-    assert(!/\b(?:landing|site|blog|share|legal|ui)\.[a-z]+[A-Za-z.]*\b/.test(textOf(html).replace(/famcal\.bot|t\.me\/\S+|wa\.me\/\S+/g, '')), `${where} ${locale}: a raw key`);
+    assert(!/\b(?:(?:landing|site|blog|share|legal|ui|zmanimSite|cities|calendarHome|holidays|zmanim)\.[a-z]+[A-Za-z.]*|countries\.[A-Z]{2})\b/.test(textOf(html).replace(/famcal\.bot|t\.me\/\S+|wa\.me\/\S+/g, '')), `${where} ${locale}: a raw key`);
   };
 
   await check('P1 /how-it-works: a permanent redirect to the landing\'s #how per language in one hop (English unprefixed, /en too), for every locale; the page and its messages are gone', async () => {

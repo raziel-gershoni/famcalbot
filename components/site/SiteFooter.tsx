@@ -3,10 +3,10 @@ import { Link } from '@/i18n/navigation';
 import { TELEGRAM_BOT_URL } from '@/src/site/config';
 import { LanguageLinks } from './LanguageLinks';
 
-// The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Privacy, Terms,
-// Cancel a payment (the Terms' cancellation part, Consumer Protection Law s.14I) and Contact (the bot's feedback
-// chat), the language switcher, "Made in Israel" and the years. The years stay left to right in Hebrew
-// (<bdi dir="ltr">).
+// The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Zmanim (spec
+// 2026-10-30-public-zmanim §6.3), Privacy, Terms, Cancel a payment (the Terms' cancellation part, Consumer Protection
+// Law s.14I) and Contact (the bot's feedback chat), the language switcher, "Made in Israel" and the years. The years
+// stay left to right in Hebrew (<bdi dir="ltr">).
 
 /** The bot's feedback chat (its /start feedback deep link). */
 const CONTACT_URL = `${TELEGRAM_BOT_URL}?start=feedback`;
@@ -27,6 +27,9 @@ export async function SiteFooter({ locale, path }: { locale: string; path: strin
             </li>
             <li>
               <Link href="/blog">{t('site.nav.blog')}</Link>
+            </li>
+            <li>
+              <Link href="/zmanim">{t('site.nav.zmanim')}</Link>
             </li>
             <li>
               <Link href="/privacy">{t('site.footer.privacy')}</Link>

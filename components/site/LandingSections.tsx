@@ -13,6 +13,7 @@ import {
   Info,
   Languages,
   Link2,
+  MapPin,
   Mic,
   Minus,
   Palette,
@@ -163,6 +164,15 @@ export function Features({ t }: { t: Translate }) {
                     </span>
                   </li>
                 ))}
+                {/* The public zmanim pages (spec 2026-10-30-public-zmanim §2.13): the list's last row, so the Settings line still follows the list (G11) */}
+                {group === 'jewish' ? (
+                  <li className="site-list-row site-list-row-link">
+                    {icon(MapPin, 'site-icon site-list-icon')}
+                    <Link href="/zmanim" className="site-list-link">
+                      {t('landing.features.jewish.zmanimPages')}
+                    </Link>
+                  </li>
+                ) : null}
               </ul>
               {group === 'jewish' ? (
                 <p className="site-group-note">

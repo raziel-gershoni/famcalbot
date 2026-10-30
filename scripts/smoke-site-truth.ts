@@ -32,7 +32,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import { assert, check, EMOJI, finish, LOCALES, messages, OFF_SITE, readSource, ROOT, show, UNTRUE, type Row } from './lib/site-harness';
 
-const SITE_NAMESPACES = ['site', 'landing', 'legal', 'blog', 'share'];
+const SITE_NAMESPACES = ['site', 'landing', 'legal', 'blog', 'share', 'zmanimSite', 'cities', 'countries'];
 
 /**
  * What T6 holds to Russian typography: the site's namespaces, and the app's strings the zmanim pages show on the site

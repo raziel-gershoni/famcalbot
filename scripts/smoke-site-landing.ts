@@ -22,6 +22,8 @@
 //  - G9 the plans end with a clearly labelled "Cancel a payment" link to the Terms' #cancel, the four ways to cancel
 //    right next to it (the bot's /paysupport kept as plain text, the email linked, the postal address and the phone
 //    from src/lib/seller.ts, or the "to be added" words while one is missing) (Consumer Protection Law s.14I(b), (e)(2)).
+//  - G14 the Jewish calendar group's list ends with a row that links to the zmanim pages (/zmanim in the page's
+//    language), in its own words, right before the Settings line (G11's anchor holds).
 //
 // The page runs as Next runs it on the server (the page as a function, next-intl's server API over the real messages,
 // the plan table stood in for where a check changes it). No network, no DB.
@@ -377,6 +379,19 @@ async function main() {
         assert(buttons.length >= 2 && buttons.every((b) => real.includes(b)), `${locale}: ${show(buttons)} are not all the ping's buttons ${show(real)}: ${line}`);
         assert(real.every((b) => buttons.includes(b)), `${locale}: not every button of the ping is named: ${line}`);
       }
+    }
+  });
+
+  await check('G14 the Jewish calendar group\'s list ends with a row that links to the zmanim pages (/zmanim in the page\'s language) in its own words, right before the Settings line', () => {
+    for (const locale of LOCALES) {
+      const html = pages[locale];
+      const group = html.slice(html.indexOf('<h3 id="features-jewish"'), html.indexOf('<h3 id="features-adding"'));
+      const row = /<li class="site-list-row site-list-row-link">((?:(?!<\/li>)[\s\S])*)<\/li><\/ul><p class="site-group-note">/.exec(group)?.[1];
+      assert(row !== undefined, `${locale}: no zmanim row at the end of the list`);
+      const link = attrs(row, 'a').find((a) => attr(a, 'class') === 'site-list-link');
+      const want = `${locale === 'en' ? '' : `/${locale}`}/zmanim`;
+      assert(link && decodeEntities(attr(link, 'href') ?? '') === want, `${locale}: the row's link ${link}`);
+      assert(textOf(row) === messages[locale].landing.features.jewish.zmanimPages, `${locale}: the row's words ${textOf(row)}`);
     }
   });
 

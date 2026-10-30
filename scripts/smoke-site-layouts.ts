@@ -27,7 +27,7 @@ import { createElement as h, type ReactElement } from 'react';
 import { assert, check, elementsOf, expand, finish, LOCALES, load, messages, readSource, request, ROOT, show, stubIntlServer, type Row } from './lib/site-harness';
 
 const LOCALE_DIR = 'app/[locale]';
-const SITE_PAGES = ['page.tsx', 'blog', 'privacy', 'terms', 'share'];
+const SITE_PAGES = ['page.tsx', 'blog', 'privacy', 'terms', 'share', 'zmanim'];
 const APP_PAGES = ['PageGate.tsx', 'not-found.tsx', '[...rest]', 'admin-panel', 'calendars', 'dashboard', 'feedback', 'invite', 'pair', 'select-calendars', 'settings', 'share-story', 'subscription'];
 /** The namespaces the spec lets reach the site's client (§6.1, plan Task 2): the site's own, and what the live parts read. */
 const SITE_NAMESPACES = ['site', 'landing', 'legal', 'blog', 'share'];

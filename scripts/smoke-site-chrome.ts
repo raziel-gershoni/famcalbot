@@ -1,20 +1,20 @@
 // Smoke test for the public site's header, phone menu and footer (plan docs/superpowers/plans/2026-10-29-public-website.md,
 // Task 3; spec 2026-10-28-public-website §3.1, §3.4, §6.2).
 //
-//  - H1 the header in en, he and ru: the logo to the home, How it works and Plans to the landing's sections, Blog, the
+//  - H1 the header in en, he and ru: the logo to the home, How it works and Plans to the landing's sections, Blog, Zmanim, the
 //    two compact start buttons (one class list, Telegram first, the full words as their name), the phone's Start to
 //    the start section and its menu button; English links unprefixed, Hebrew and Russian prefixed; every word from
 //    messages, no raw key, no emoji.
 //  - H2 the language switcher on a page (the blog post): the same page in each language, each name in its own
 //    language and lang; the current one marked and unprefixed for English; the others carry their prefix (English's
 //    too: the proxy stores the choice, then lands on the unprefixed page).
-//  - H3 the footer: How it works, Plans, Blog, Privacy, Terms, Cancel a payment (the Terms' #cancel) and Contact (the
+//  - H3 the footer: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment (the Terms' #cancel) and Contact (the
 //    bot's feedback chat), the switcher, "Made in Israel" and the years kept left to right in Hebrew.
 //  - H4 the phone menu in real React on the small fake DOM: closed at first; the button opens the app's sheet, focus
-//    moves into it, and Escape, the scrim, the Close button and a link each close it with focus back on the button;
+//    moves into it, and Escape, the scrim, the Close button and a link (Plans, and Zmanim to another page) each close it with focus back on the button;
 //    the sheet holds the links and the switcher.
 //  - H5 the chrome's CSS: the kit's lint (sizes in px, logical properties only, no hover, colours only in token
-//    blocks), every tap target (the chrome's and the pages' links and buttons) at least 44 px, the wide and phone parts
+//    blocks), every tap target (the chrome's, the landing's zmanim row and the pages' links and buttons, the zmanim pages' too) at least 44 px, the wide and phone parts
 //    swap at one width, the sheet doesn't slide, and the page's scroll padding keeps an anchor or a focused element
 //    clear of the sticky header.
 //
@@ -56,7 +56,7 @@ async function main() {
       const anchors = attrs(html, 'a');
       const hrefs = anchors.map((a) => decode(attr(a, 'href') ?? ''));
       const p = prefix(locale);
-      for (const want of [p || '/', `${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p || '/'}#start`]) assert(hrefs.includes(want), `${locale}: no link to ${want} in ${show(hrefs)}`);
+      for (const want of [p || '/', `${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p || '/'}#start`]) assert(hrefs.includes(want), `${locale}: no link to ${want} in ${show(hrefs)}`);
       assert(!hrefs.some((href) => href.startsWith('/en')) || locale !== 'en', `${locale}: an /en link in ${show(hrefs)}`);
       const logo = anchors.find((a) => attr(a, 'class') === 'site-logo');
       assert(logo && attr(logo, 'aria-label') === site.header.homeLabel && attr(logo, 'href') === (p || '/'), `${locale}: the logo ${logo}`);
@@ -69,7 +69,7 @@ async function main() {
       const wa = decode(attr(starts[1], 'href') ?? '');
       assert(wa === `https://wa.me/972548524687?text=${encodeURIComponent(messages[locale].bot.whatsapp.greeting)}`, `${locale}: WhatsApp's link ${wa}`);
       const text = textOf(html);
-      for (const word of [site.nav.howItWorks, site.nav.plans, site.nav.blog, site.cta.telegramShort, site.cta.whatsappShort, site.header.start]) assert(text.includes(word), `${locale}: no "${word}" in ${text}`);
+      for (const word of [site.nav.howItWorks, site.nav.plans, site.nav.blog, site.nav.zmanim, site.cta.telegramShort, site.cta.whatsappShort, site.header.start]) assert(text.includes(word), `${locale}: no "${word}" in ${text}`);
       const menuButton = attrs(html, 'button').find((b) => /site-menu-button/.test(attr(b, 'class') ?? ''));
       assert(menuButton && attr(menuButton, 'aria-label') === site.menu.open && attr(menuButton, 'aria-expanded') === 'false', `${locale}: the menu button ${menuButton}`);
       assert(!/\b(?:site|landing)\.[a-z]+\.[a-zA-Z]/.test(text), `${locale}: a raw key in ${text}`);
@@ -97,16 +97,16 @@ async function main() {
     }
   });
 
-  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Privacy, Terms, Cancel a payment and Contact, the switcher, "Made in Israel", the years left to right; no emoji', async () => {
+  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment and Contact, the switcher, "Made in Israel", the years left to right; no emoji', async () => {
     const year = new Date().getFullYear();
     for (const locale of LOCALES) {
       const html = await footer(locale, '/privacy');
       const site = messages[locale].site;
       const p = prefix(locale);
       const hrefs = attrs(html, 'a').map((a) => decode(attr(a, 'href') ?? ''));
-      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
+      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
       const text = textOf(html);
-      for (const word of [site.footer.privacy, site.footer.terms, site.footer.cancel, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
+      for (const word of [site.nav.zmanim, site.footer.privacy, site.footer.terms, site.footer.cancel, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
       const cancel = attrs(html, 'a').findIndex((a) => decode(attr(a, 'href') ?? '') === `${p}/terms#cancel`);
       const link = html.split('<a ').slice(1)[cancel] ?? '';
       assert(cancel >= 0 && textOf(link.slice(link.indexOf('>') + 1)).startsWith(site.footer.cancel), `${locale}: the cancel link's words`);
@@ -149,7 +149,7 @@ async function main() {
       const links = elements(d).filter((e) => e.localName === 'a');
       const p = prefix(locale);
       const hrefs = links.map((a) => a.getAttribute('href'));
-      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, '/en/blog', '/he/blog', '/ru/blog'].filter((href) => href !== `/${locale}/blog`)) assert(hrefs.includes(want), `${locale}: the sheet has no ${want}: ${show(hrefs)}`);
+      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, '/en/blog', '/he/blog', '/ru/blog'].filter((href) => href !== `/${locale}/blog`)) assert(hrefs.includes(want), `${locale}: the sheet has no ${want}: ${show(hrefs)}`);
       assert(links.some((a) => a.getAttribute('aria-current') === 'true' && a.getAttribute('href') === `${p}/blog`), `${locale}: the current language`);
       step = 'escape';
       m.key(d, 'Escape');
@@ -166,6 +166,10 @@ async function main() {
       d = open();
       m.click(elements(d).find((e) => e.localName === 'a' && e.textContent === site.nav.plans) as FakeElement);
       closed('a link');
+      step = 'zmanim link';
+      d = open();
+      m.click(elements(d).find((e) => e.localName === 'a' && e.textContent === site.nav.zmanim) as FakeElement);
+      closed('the Zmanim link');
       } catch (err) {
         throw new Error(`${locale} at ${step}: ${err instanceof Error ? err.message : err} [${elements(m.container).map((e) => e.localName).join(' ')}]`);
       }
@@ -179,7 +183,7 @@ async function main() {
     const problems = lintCss(own);
     assert(problems.length === 0, show(problems));
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(own)?.[1];
-    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-cancel-link', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy']) {
+    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-cancel-link', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy', '.site-list-link', '.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-zm-cell', '.site-zm-sources a', '.site-zm-near-button', '.site-zm-near-list', '.site-zm-near-status a', '.site-zm-cities a']) {
       const body = rule(selector);
       assert(body, `no rule ${selector}`);
       const min = /min-block-size:\s*(\d+)px/.exec(body);

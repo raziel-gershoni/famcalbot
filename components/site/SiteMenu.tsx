@@ -8,9 +8,10 @@ import { Link } from '@/i18n/navigation';
 import { LanguageLinks } from './LanguageLinks';
 
 // The phone's menu (spec 2026-10-28-public-website §3.1): a 44 px button that opens the app's own bottom sheet with the
-// site's links and the language switcher. The sheet is the kit's BottomSheet, so it behaves as every sheet in the app
-// does: focus moves into it and back to this button, Tab stays inside, and Escape, a tap on the scrim and its Close
-// button close it. A link closes it too (a link to a section of the same page would leave it open over the page).
+// site's links (How it works, Plans, Blog, Zmanim) and the language switcher. The sheet is the kit's BottomSheet, so it
+// behaves as every sheet in the app does: focus moves into it and back to this button, Tab stays inside, and Escape, a
+// tap on the scrim and its Close button close it. A link closes it too (a link to a section of the same page would leave
+// it open over the page).
 
 export function SiteMenu({ path }: { path: string }) {
   const t = useTranslations('site');
@@ -40,6 +41,11 @@ export function SiteMenu({ path }: { path: string }) {
               <li>
                 <Link href="/blog" onClick={close}>
                   {t('nav.blog')}
+                </Link>
+              </li>
+              <li>
+                <Link href="/zmanim" onClick={close}>
+                  {t('nav.zmanim')}
                 </Link>
               </li>
             </ul>
