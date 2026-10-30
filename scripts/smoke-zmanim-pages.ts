@@ -17,8 +17,9 @@
 //  - Z7 a section that fails is logged (captureError, with the city, the day and the community) and says so, and the rest
 //    of the page renders;
 //  - Z8 every rendered page passes the truth list, the no-emoji rule, the raw-key check and, in Russian, T6;
-//  - Z9 the CSS: the kit's lint, every tap target at least 44 px, no hover, motion only under no-preference; the sheet's
-//    rows and the page's CSS are each in the site's sheet once;
+//  - Z9 the CSS: the kit's lint, every tap target at least 44 px, no hover, motion only under no-preference; the community
+//    switch's labels wrap inside their pills and step down on narrow screens (no label spills at 320 px); the sheet's rows and
+//    the page's CSS are each in the site's sheet once;
 //  - Z10 no request leaves the server while a page renders; no file under app/[locale]/(site) or components/site calls
 //    fetch, loads a script by src or imports next/script; and no component of the city page is a client one (only Near
 //    me is);
@@ -202,7 +203,7 @@ async function main() {
   });
 
   await check('Z3 the metadata: the titles of §6.3, the description, the clean canonical and the four languages; none for an unknown city', async () => {
-    const want: Record<Locale, string> = { en: 'Shabbat times and zmanim in Jerusalem', he: 'זמני שבת וזמני היום בירושלים', ru: 'Время шаббата и зманим: Иерусалим' };
+    const want: Record<Locale, string> = { en: 'Shabbat times and zmanim in Jerusalem', he: 'זמני שבת וזמני היום בירושלים', ru: 'Время Шаббата и зманим: Иерусалим' };
     for (const locale of LOCALES) {
       request.locale = locale;
       const meta = await generateMetadata({ params: Promise.resolve({ locale, city: 'jerusalem' }) });
@@ -383,7 +384,7 @@ async function main() {
     }
   });
 
-  await check('Z9 the CSS: the kit\'s lint, every tap target at least 44 px, no hover, motion only under no-preference; the sheet\'s rows and the page\'s CSS each in the site\'s sheet once', async () => {
+  await check('Z9 the CSS: the kit\'s lint, every tap target at least 44 px, no hover, motion only under no-preference; the community switch\'s labels wrap inside their pills and step down on narrow screens; the sheet\'s rows and the page\'s CSS each in the site\'s sheet once', async () => {
     const { SITE_CSS, ZMANIM_PAGE_CSS } = await load('src/site/site-css.ts');
     const { ZMANIM_SHEET_CSS } = await load('src/lib/calendar-view/zmanim-sheet-css.ts');
     const problems = lintCss(ZMANIM_PAGE_CSS);
@@ -396,6 +397,18 @@ async function main() {
       assert(min && Number(min[1]) >= 44, `${selector}: ${body?.trim().replace(/\s+/g, ' ')}`);
     }
     assert(!/hover/.test(ZMANIM_PAGE_CSS), 'a hover rule');
+    // The community switch holds three labels in one row: «Ашкеназский» at 15px is wider than a third of a 320 px card, so a pill
+    // lets its label wrap (a long word breaks, with a hyphen where the language has the rule), and the labels step down on narrow
+    // screens (never under 13px). Measured in Chrome at 320, 340, 360, 375, 390, 400, 414 and 430 px in en, he and ru: no label spills
+    const pillRules = (selector: string) => rule(selector) ?? '';
+    for (const [selector, needs] of [
+      ['.site-zm-switch li', [/flex:\s*1\b/, /min-inline-size:\s*0\b/]],
+      ['.site-zm-switch a', [/min-inline-size:\s*0\b/, /overflow-wrap:\s*anywhere/, /hyphens:\s*auto/, /text-align:\s*center/]],
+    ] as const) {
+      for (const need of needs) assert(need.test(pillRules(selector)), `${selector} lacks ${need}: ${pillRules(selector).trim().replace(/\s+/g, ' ')}`);
+    }
+    const steps = [...ZMANIM_PAGE_CSS.matchAll(/@media \(max-width: (\d+)px\) \{\s*\.site-zm-switch a \{([^}]*)\}\s*\}/g)].map((m) => ({ width: Number(m[1]), size: Number(/font-size:\s*(\d+)px/.exec(m[2])?.[1]) }));
+    assert(steps.length >= 2 && steps.every((x) => x.size >= 13 && x.size <= 14) && Math.max(...steps.map((x) => x.width)) >= 400 && Math.min(...steps.map((x) => x.size)) === 13, `the switch's narrow-screen steps: ${show(steps)}`);
     const outside = ZMANIM_PAGE_CSS.replace(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/g, '');
     assert(![...outside.matchAll(/animation:\s*([^;]+);/g)].some((m) => m[1].trim() !== 'none'), 'an animation outside the no-preference block');
   });

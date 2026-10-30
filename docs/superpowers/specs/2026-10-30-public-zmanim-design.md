@@ -201,7 +201,7 @@ The README names the sources and the script.
 - **Titles,** written in `zmanimSite`:
   - en: "Shabbat times and zmanim in {city}";
   - he: "זמני שבת וזמני היום ב{city}";
-  - ru: "Время шаббата и зманим: {city}".
+  - ru: "Время Шаббата и зманим: {city}".
 
   Each description names candle lighting, the end of Shabbat, the parasha and the Hebrew calendar.
 - **Words.**

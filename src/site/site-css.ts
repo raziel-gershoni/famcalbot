@@ -1402,18 +1402,32 @@ export const ZMANIM_PAGE_CSS = `
   align-items: center;
   justify-content: center;
   min-block-size: 44px;
+  min-inline-size: 0;
   padding-inline: 6px;
   border-radius: 10px;
   color: var(--ch-text);
   font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
+  overflow-wrap: anywhere;
+  hyphens: auto;
   text-align: center;
   text-decoration: none;
 }
 .site-zm-switch a[aria-current='true'] {
   background: var(--ch-accent-soft);
   color: var(--ch-accent);
+}
+@media (max-width: 430px) {
+  .site-zm-switch a {
+    padding-inline: 3px;
+    font-size: 14px;
+  }
+}
+@media (max-width: 395px) {
+  .site-zm-switch a {
+    font-size: 13px;
+  }
 }
 .site-zm-method {
   margin-block-start: 10px;
