@@ -20,6 +20,12 @@
 //    way home.
 //  - P6 the share page's Copy in real React on the fake DOM: Copied when the copy works, and the failure words from
 //    messages (logged) when there is no clipboard or it refuses.
+//  - P7 the Privacy Policy and the Terms cover the public zmanim pages (spec 2026-10-30-public-zmanim §7), in en, he and
+//    ru: the age and account rules are for the bots and the web app, and anyone may use the public pages; a city page's
+//    times are for the city's centre; a page's address (its city, day and custom) reaches the host with the IP address,
+//    the server counts each address's requests for a minute in memory, and a visit makes no account or profile; the
+//    nearest city is found on the device and only that city's page is requested; the Privacy Policy's age rule names
+//    the bots and the web app too.
 //
 // The pages run as Next runs them on the server (the page as a function, next-intl's server API over the real
 // messages). No network, no DB.
@@ -287,6 +293,41 @@ async function main() {
       console.warn = warn;
       setClipboard(undefined);
       Object.assign(globals, { window: before.window, document: before.document, IS_REACT_ACT_ENVIRONMENT: before.act });
+    }
+  });
+
+  await check('P7 the Privacy Policy and the Terms cover the public zmanim pages in en, he and ru: the age and account rules are for the bots and the web app and anyone may use the public pages; a city page\'s times are for its centre; a page\'s address reaches the host with the IP address, the counting is said, and a visit makes no profile; the nearest city is found on the device', () => {
+    const all = (node: unknown): string[] => (typeof node === 'string' ? [node] : node && typeof node === 'object' ? Object.values(node).flatMap(all) : []);
+    // Russian binds its one-letter words with a no-break space (smoke-site-truth T6): read here as a plain one
+    const read = (locale: Locale, doc: 'privacy' | 'terms', section: string) => all(messages[locale].legal[doc].sections[section]).join(' ').replace(/\u00a0/g, ' ');
+    const want: Record<Locale, ['privacy' | 'terms', string, string][]> = {
+      en: [
+        ['terms', 'eligibility', 'To use the bots or the web app, you must be 18 or older'],
+        ['terms', 'eligibility', 'Anyone may use famcal.bot’s public pages, such as the zmanim pages, without an account.'],
+        ['terms', 'ai', 'On famcal.bot’s zmanim pages, they are computed for the centre of each city, so they can differ from the times where you are. **For a halachic time that matters, check a reliable source.**'],
+        ['privacy', 'keep', 'The request includes the page’s address: on the zmanim pages, that is the city, and any day or custom you pick there. To keep automated overuse off the site, our server counts each IP address’s requests to these pages, in memory only and for one minute. Visiting the site creates no account or profile.'],
+        ['privacy', 'notKeep', 'On the zmanim pages, the city nearest you is found on your device, and your device’s position isn’t sent to us. We receive only the request for that city’s page.'],
+        ['privacy', 'children', 'You must be 18 or older to use the bots or the web app.'],
+      ],
+      he: [
+        ['terms', 'eligibility', 'כדי להשתמש בבוטים או באפליקציית הרשת צריך להיות בגיל 18 ומעלה'],
+        ['terms', 'eligibility', 'הדפים הציבוריים של famcal.bot, כמו דפי זמני היום, פתוחים לכולם, גם בלי חשבון.'],
+        ['terms', 'ai', 'בדפי זמני היום ב־famcal.bot הם מחושבים לפי מרכז העיר, ולכן הם עלולים להיות שונים מהזמנים במקום שבו אתם נמצאים. **זמן הלכתי שחשוב לכם, בדקו מול מקור אמין.**'],
+        ['privacy', 'keep', 'הבקשה כוללת את כתובת הדף: בדפי זמני היום זו העיר, וגם היום או המנהג שבחרתם שם. כדי להגן על האתר מעומס אוטומטי, השרת שלנו סופר את הבקשות לדפים האלה מכל כתובת IP, בזיכרון בלבד ולמשך דקה. ביקור באתר לא יוצר חשבון או פרופיל.'],
+        ['privacy', 'notKeep', 'בדפי זמני היום, העיר הקרובה אליכם מחושבת במכשיר שלכם, והמיקום של המכשיר לא נשלח אלינו. אלינו מגיעה רק הבקשה לדף של העיר הזו.'],
+        ['privacy', 'children', 'השימוש בבוטים או באפליקציית הרשת מותר רק מגיל 18 ומעלה.'],
+      ],
+      ru: [
+        ['terms', 'eligibility', 'Чтобы пользоваться ботами или веб-приложением, вам должно быть не меньше 18 лет'],
+        ['terms', 'eligibility', 'Публичные страницы famcal.bot, например страницы зманим, открыты для всех, и аккаунт для них не нужен.'],
+        ['terms', 'ai', 'На страницах зманим сайта famcal.bot они рассчитываются для центра каждого города, поэтому могут отличаться от времени там, где вы находитесь. **Важное галахическое время проверяйте по надёжному источнику.**'],
+        ['privacy', 'keep', 'В запросе есть адрес страницы: на страницах зманим это город, а также день или обычай, если вы их выбрали. Чтобы защитить сайт от автоматической перегрузки, наш сервер считает запросы к этим страницам с каждого IP-адреса, только в памяти и в течение минуты. Посещение сайта не создаёт ни аккаунта, ни профиля.'],
+        ['privacy', 'notKeep', 'На страницах зманим ближайший к вам город определяется на вашем устройстве, и координаты устройства нам не отправляются. К нам приходит только запрос страницы этого города.'],
+        ['privacy', 'children', 'Пользоваться ботами или веб-приложением можно только с 18 лет.'],
+      ],
+    };
+    for (const locale of LOCALES) {
+      for (const [doc, section, sentence] of want[locale]) assert(read(locale, doc, section).includes(sentence), `${locale} ${doc}.${section}: no "${sentence}"`);
     }
   });
 

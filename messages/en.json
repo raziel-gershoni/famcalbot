@@ -1858,7 +1858,7 @@
             },
             [
               "Our server logs record what happened and when. A log line carries your FamCal or Telegram id, and sometimes your name or WhatsApp number. Secret values, such as keys and passwords, are removed before anything is written. Our host deletes logs after 90 days.",
-              "When you open famcal.bot or the web app, our host receives your request, with your IP address and browser, as any website does.",
+              "When you open famcal.bot or the web app, our host receives your request, with your IP address and browser, as any website does. The request includes the page’s address: on the zmanim pages, that is the city, and any day or custom you pick there. To keep automated overuse off the site, our server counts each IP address’s requests to these pages, in memory only and for one minute. Visiting the site creates no account or profile.",
               "When something breaks, an error report goes to Sentry. It carries your id, your first name and technical details, such as the features you used just before. Sometimes it also carries the content of the request that failed, which can include a message you sent or an event’s details. Sentry deletes reports after at most 90 days."
             ]
           ]
@@ -1870,7 +1870,7 @@
               "**Voice notes.** We send them to the AI to understand them, then drop them. What the AI understood is held for 10 minutes while you confirm it. If the AI couldn’t make sense of a voice note, we hold the note for 5 minutes so your next message can complete it.",
               "**Photos, PDFs and forwarded messages** (Telegram only). We send them to the AI to find events, and we don’t store them.",
               "**Audio we make for you**: voice briefings, the voice show and spoken replies. Each file is deleted as soon as it’s sent.",
-              "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name.",
+              "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name. On the zmanim pages, the city nearest you is found on your device, and your device’s position isn’t sent to us. We receive only the request for that city’s page.",
               "**Card or bank details.**"
             ],
             "Your messages and the bot’s replies also stay in your chat on Telegram or WhatsApp. That app’s own privacy policy covers them there."
@@ -2064,7 +2064,7 @@
         "children": {
           "heading": "Children",
           "blocks": [
-            "FamCal is for adults who run a family. You must be 18 or older to use it. Parents may add their children’s names, schedules and birthdays, but children don’t use FamCal themselves.",
+            "FamCal is for adults who run a family. You must be 18 or older to use the bots or the web app. Parents may add their children’s names, schedules and birthdays, but children don’t use FamCal themselves.",
             "We don’t ask anyone’s age. If you think someone under 18 is using FamCal, tell us and we’ll delete the account."
           ]
         },
@@ -2143,7 +2143,7 @@
         "eligibility": {
           "heading": "Who can use FamCal",
           "blocks": [
-            "You must be 18 or older, and you need your own Telegram or WhatsApp account. A partner you link with needs their own account, and must be 18 or older too."
+            "To use the bots or the web app, you must be 18 or older, and you need your own Telegram or WhatsApp account. A partner you link with needs their own account, and must be 18 or older too. Anyone may use famcal.bot’s public pages, such as the zmanim pages, without an account."
           ]
         },
         "account": {
@@ -2249,7 +2249,7 @@
               "read them aloud. The voices in voice briefings, the voice show and spoken replies are made by AI."
             ],
             "AI makes mistakes. It can mishear a name, get a date or a time wrong, or leave something out. Check what the bot made of your message, and check anything important against its source.",
-            "Zmanim, candle lighting, Hebrew dates, holidays and the times of the Shabbat and Yom Tov pause are all computed from your place and your community’s set. They can be off, for example when your place is set wrong. **For a halachic time that matters, check a reliable source.**",
+            "Zmanim, candle lighting, Hebrew dates, holidays and the times of the Shabbat and Yom Tov pause are all computed from your place and your community’s set. They can be off, for example when your place is set wrong. On famcal.bot’s zmanim pages, they are computed for the centre of each city, so they can differ from the times where you are. **For a halachic time that matters, check a reliable source.**",
             "Weather is a forecast."
           ]
         },
