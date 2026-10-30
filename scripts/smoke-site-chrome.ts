@@ -17,7 +17,7 @@
 //    the sheet holds the links and the switcher.
 //  - H5 the chrome's CSS: the kit's lint (sizes in px, logical properties only, no hover, colours only in token
 //    blocks), every tap target (the chrome's, the landing's zmanim row and the pages' links and buttons, the zmanim pages' too) at least 44 px, the wide and phone parts
-//    swap at one width, the header tightens its spacing (only) between 960 and 1100 px so its four links, the switcher
+//    swap at one width, the header tightens its spacing (only) between 960 and 1140 px so its four links, the switcher
 //    and the two buttons fit on one row, the sheet doesn't slide, and the page's scroll padding keeps an anchor or a
 //    focused element clear of the sticky header.
 //

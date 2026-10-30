@@ -1,5 +1,5 @@
 // Smoke test for the public zmanim pages' city data (spec docs/superpowers/specs/2026-10-30-public-zmanim-design.md §5,
-// §4.1 and §9 "The city table"; plan docs/superpowers/plans/2026-10-30-public-zmanim.md, Task 3):
+// §4.1 and §9 "The city table"):
 //   - src/site/cities.ts: the 135 rows of Appendix A, Israel first; unique lowercase ASCII slugs that no route takes;
 //     a name for every slug and every country in en, he and ru (messages cities.* and countries.*); the zone is the
 //     Israel flag (IL <=> inIsrael) and every zone is one Intl knows; an integer height in every Israeli row (written by
