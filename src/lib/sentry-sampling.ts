@@ -4,6 +4,9 @@
 // - The browser traces no page of the public site. The site's root layout marks its <html> data-surface="site"
 //   (app/[locale]/(site)/layout.tsx); the Mini App's never does, so it keeps its 1% (instrumentation-client.ts). The
 //   two groups have a root layout each, so moving between them is a full page load and the mark never changes in a session.
+// - The browser starts no session on them either: @sentry/nextjs's browser defaults include BrowserSession, which sends a
+//   session (with the user agent) on each page load and navigation once a release is set (it is, on Railway), so the
+//   site's init drops it from the defaults (browserIntegrations).
 // - The server traces no zmanim page (sentry.server.config.ts), found by the root span's name or by the path in its
 //   attributes or request, in any language and with or without a query. Every other route keeps its 1%.
 // - Everything else is as it was with a plain 1% rate: a parent trace's decision is inherited (inheritOrSampleWith, the
@@ -25,10 +28,23 @@ export type SamplerContext = {
 /** The parent trace's decision when there is one, else the rate. */
 const inherit = (context: SamplerContext): number => (context.inheritOrSampleWith ? context.inheritOrSampleWith(TRACES_SAMPLE_RATE) : TRACES_SAMPLE_RATE);
 
+/** Whether this browser page is one of the public site's (its <html> carries data-surface="site"); false outside a browser. */
+export function isSiteSurface(): boolean {
+  return typeof document !== 'undefined' && document.documentElement?.dataset?.surface === 'site';
+}
+
 /** The browser's sampler: no trace on a page of the public site. */
 export function browserTracesSampler(context: SamplerContext): number {
-  if (typeof document !== 'undefined' && document.documentElement?.dataset?.surface === 'site') return 0;
+  if (isSiteSurface()) return 0;
   return inherit(context);
+}
+
+/** The integration that starts a session on each page load and navigation (@sentry/browser's browserSessionIntegration). */
+const BROWSER_SESSION = 'BrowserSession';
+
+/** The browser's integrations: the SDK's defaults, without the session tracker on a page of the public site. */
+export function browserIntegrations<T extends { name: string }>(defaults: T[]): T[] {
+  return isSiteSurface() ? defaults.filter((integration) => integration.name !== BROWSER_SESSION) : defaults;
 }
 
 /** A zmanim page's path, after its locale (the segment, or Next's route name for it): /zmanim, /he/zmanim/haifa, /[locale]/zmanim/[city]. */

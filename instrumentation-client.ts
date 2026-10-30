@@ -1,7 +1,7 @@
 // The browser's Sentry init. Next 16 builds on Turbopack, which loads this file (and ignores
 // the old sentry.client.config.ts). The DSN is the NEXT_PUBLIC_SENTRY_DSN env var, inlined at build.
 import * as Sentry from '@sentry/nextjs';
-import { browserTracesSampler } from './src/lib/sentry-sampling';
+import { browserIntegrations, browserTracesSampler } from './src/lib/sentry-sampling';
 import { scrubBreadcrumb, scrubBrowserEvent } from './src/lib/sentry-scrub';
 
 Sentry.init({
@@ -14,8 +14,10 @@ Sentry.init({
   // data-surface="site" on <html> (src/lib/sentry-sampling.ts; the Privacy Policy says error reports only)
   tracesSampler: browserTracesSampler,
 
-  // No count-only client reports either (what the SDK dropped): nothing is sent from a public page but an error
+  // No count-only client reports either (what the SDK dropped), and no session (the SDK's page-load tracker, with the
+  // user agent) on the public site's pages: nothing is sent from one but an error (src/lib/sentry-sampling.ts)
   sendClientReports: false,
+  integrations: browserIntegrations,
 
   // Session replay for debugging user issues
   replaysSessionSampleRate: 0.01,

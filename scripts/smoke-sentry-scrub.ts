@@ -14,7 +14,8 @@
 //
 // #8 to #10: what the public site's pages send Sentry (the privacy policy says error reports only). The browser traces
 // no page of the public site (its <html> carries data-surface="site") and sends no client reports; the server traces
-// no zmanim page, whose address names a city, a day and a custom. The Mini App and the API keep their 1%.
+// no zmanim page, whose address names a city, a day and a custom. The Mini App and the API keep their 1%. The browser
+// starts no session on a public page either (the SDK's BrowserSession integration sends one per page load).
 //
 // Run: npx tsx scripts/smoke-sentry-scrub.ts
 
@@ -298,6 +299,9 @@ async function main() {
       ['bare name, url.full', { name: 'GET', attributes: { 'url.full': 'https://famcal.bot/ru/zmanim/moscow?community=ashkenazi' } }],
       ['bare name, http.url', { name: 'GET', attributes: { 'http.url': 'http://famcal.bot/zmanim/eilat' } }],
       ['bare name, the request', { name: 'GET', normalizedRequest: { url: 'https://famcal.bot/he/zmanim/eilat?date=2027-04-22' } }],
+      // The two shapes Next 16.1.1's server really produces: the proxy's span, and a page span whose target carries the query
+      ['the proxy span, target', { name: 'middleware GET', attributes: { 'http.target': '/he/zmanim/haifa' } }],
+      ['a page name, target with a query', { name: 'GET /zmanim/x', attributes: { 'http.target': '/zmanim/x?date=2027-04-22&community=chabad' } }],
     ];
     for (const [label, extra] of zmanim) {
       const got = serverTracesSampler(context(extra));
@@ -324,13 +328,24 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#10 the configs use them: the browser init sets sendClientReports false and a tracesSampler for the site and no tracesSampleRate (in its source too); the server init\'s sampler skips zmanim pages', async () => {
+  await check('#10 the configs use them: the browser init sets sendClientReports false, a tracesSampler for the site and no tracesSampleRate (in its source too), and drops the BrowserSession integration on a public page only; the server init\'s sampler skips zmanim pages', async () => {
     const [server, , client] = inits;
     assert(server && client, `Sentry.init calls: ${inits.length}`);
     const clientSource = fs.readFileSync(path.join(ROOT, 'instrumentation-client.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
     const problems: string[] = [];
     if (client.sendClientReports !== false || !/\bsendClientReports:\s*false\b/.test(clientSource)) problems.push(`sendClientReports ${show(client.sendClientReports)}`);
     if ('tracesSampleRate' in client || /tracesSampleRate/.test(clientSource)) problems.push('the browser init still sets tracesSampleRate');
+    // The SDK's default list goes through the init's integrations function (BrowserSession is one of the browser defaults)
+    if (typeof client.integrations !== 'function') problems.push('the browser init has no integrations function');
+    else {
+      const defaults = () => ['Breadcrumbs', 'BrowserSession', 'BrowserTracing', 'GlobalHandlers'].map((name) => ({ name }));
+      const names = (list: Row[]) => list.map((i) => i.name);
+      const onSiteList = names(onPage('site', () => client.integrations(defaults())));
+      const onAppList = names(onPage(undefined, () => client.integrations(defaults())));
+      const noDocumentList = names(client.integrations(defaults()));
+      if (show(onSiteList) !== show(['Breadcrumbs', 'BrowserTracing', 'GlobalHandlers'])) problems.push(`the integrations on a public page: ${show(onSiteList)}`);
+      if (show(onAppList) !== show(names(defaults())) || show(noDocumentList) !== show(names(defaults()))) problems.push(`the integrations in the Mini App: ${show(onAppList)}, with no document ${show(noDocumentList)}`);
+    }
     if (typeof client.tracesSampler !== 'function') problems.push('the browser init has no tracesSampler');
     else {
       const onSite = onPage('site', () => client.tracesSampler(context()));
