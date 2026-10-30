@@ -143,6 +143,8 @@ const byLabel = (node: FakeNode, label: string): FakeElement => {
 };
 /** The text a reader sees under a node (the markup's text nodes, joined). */
 const textOf = (node: FakeNode): string => node.textContent.replace(/\s+/g, ' ').trim();
+/** A message as textOf reads the page: Russian's no-break spaces (smoke-site-truth T6) read as plain ones. */
+const flat = (text: string): string => text.replace(/\s+/g, ' ').trim();
 async function settle(): Promise<void> {
   await React.act(async () => {
     for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
@@ -365,7 +367,7 @@ async function runChecks(): Promise<void> {
         const time = byClass(alot, 'ch-zl-time')[0];
         const dash = elements(time).filter((e) => e.getAttribute('aria-hidden') === 'true')[0];
         const spoken = byClass(time, 'ch-visually-hidden')[0];
-        assert(alot.className.includes('is-none') && dash.textContent === '—' && textOf(spoken) === messages[locale].calendarHome.zmanimList.noTime, `${locale}: ${textOf(alot)}`);
+        assert(alot.className.includes('is-none') && dash.textContent === '—' && textOf(spoken) === flat(messages[locale].calendarHome.zmanimList.noTime), `${locale}: ${textOf(alot)}`);
         assert(timeOfRow(m, 'NETZ').startsWith('02:51'), 'the rest keep their times');
         const hours = textOf(byClass(m.container, 'ch-zl-hours')[0]);
         assert(hours.includes('105:45') && hours.includes('—'), `${locale}: the hour line ${hours}`);
@@ -505,7 +507,7 @@ async function runChecks(): Promise<void> {
       try {
         const copy = messages[locale].calendarHome;
         const card = byClass(m.container, 'ch-home-card')[0];
-        assert(card && textOf(card).includes(copy.zmanimList.failedTitle) && textOf(card).includes(copy.zmanimList.failedBody), `${locale}: ${card ? textOf(card) : 'no card'}`);
+        assert(card && textOf(card).includes(flat(copy.zmanimList.failedTitle)) && textOf(card).includes(flat(copy.zmanimList.failedBody)), `${locale}: ${card ? textOf(card) : 'no card'}`);
         assert(rowsOf(m).length === 0, 'rows with a failure');
         const retry = elements(card).filter((e) => e.localName === 'button' && textOf(e) === copy.actions.retry)[0];
         assert(retry, 'no Retry');

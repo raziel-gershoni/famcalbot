@@ -16,7 +16,8 @@
 //    no landing or how-it-works key; the share page's friend-to-friend templates are the Russian guard's only
 //    exemptions, each with its reason.
 //  - T5 the i18n parity check passes (the same keys and ICU arguments in en, he and ru).
-//  - T6 Russian site and legal strings (site, landing, share, blog, legal) bind a one-letter word (в, с, к, о, у, и, а, я)
+//  - T6 Russian site and legal strings (the site's namespaces), and the app's strings the zmanim pages show (the
+//    zmanim's names and opinions, the day list's words, the holidays), bind a one-letter word (в, с, к, о, у, и, а, я)
 //    to the next with a no-break space, so none ends a line, and put a no-break space, never a plain one, before an em
 //    dash "—", so none starts a line.
 //
@@ -32,6 +33,12 @@ import ts from 'typescript';
 import { assert, check, EMOJI, finish, LOCALES, messages, OFF_SITE, readSource, ROOT, show, UNTRUE, type Row } from './lib/site-harness';
 
 const SITE_NAMESPACES = ['site', 'landing', 'legal', 'blog', 'share'];
+
+/**
+ * What T6 holds to Russian typography: the site's namespaces, and the app's strings the zmanim pages show on the site
+ * (spec 2026-10-30-public-zmanim §6.3): the zmanim's names and opinions, the day list's words and the holidays.
+ */
+const RU_TYPOGRAPHY = [...SITE_NAMESPACES, 'calendarHome.zmanim.names', 'calendarHome.zmanim.opinions', 'calendarHome.zmanim.withOpinion', 'calendarHome.zmanimList', 'holidays'];
 
 function leaves(node: unknown, prefix = ''): [string, string][] {
   if (typeof node === 'string') return [[prefix, node]];
@@ -189,10 +196,12 @@ async function main() {
     assert(/i18n parity OK/.test(out), out.slice(-400));
   });
 
-  await check('T6 Russian typography: in every Russian site and legal string (site, landing, share, blog, legal), no one-letter word (в, с, к, о, у, и, а, я) is followed by a plain space and no plain space comes before an em dash "—": a no-break space (U+00A0) binds them, so a line never ends on the word or starts with the dash', () => {
+  await check('T6 Russian typography: in every Russian site and legal string (the site\'s namespaces) and in the app\'s strings the zmanim pages show (the zmanim\'s names and opinions, the day list\'s words, the holidays), no one-letter word (в, с, к, о, у, и, а, я) is followed by a plain space and no plain space comes before an em dash "—": a no-break space (U+00A0) binds them, so a line never ends on the word or starts with the dash', () => {
     const found: string[] = [];
-    for (const ns of ['site', 'landing', 'share', 'blog', 'legal']) {
-      for (const [key, text] of leaves(messages.ru[ns], ns)) {
+    for (const at of RU_TYPOGRAPHY) {
+      const node = at.split('.').reduce<unknown>((n, k) => (n && typeof n === 'object' ? (n as Row)[k] : undefined), messages.ru);
+      assert(node !== undefined, `no ${at} in the Russian messages`);
+      for (const [key, text] of leaves(node, at)) {
         const loose = text.match(/(?<![^\s«(„"—*])[вскоуиая] /giu);
         if (loose) found.push(`${key}: ${show(loose.map((x) => x.trim()))}`);
         if (text.includes(' —')) found.push(`${key}: a plain space before "—": ${show(text.slice(Math.max(0, text.indexOf(' —') - 12), text.indexOf(' —') + 3))}`);
