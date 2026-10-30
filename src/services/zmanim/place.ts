@@ -12,8 +12,8 @@
  *   getUserPlace           a Place for compute.ts: coordinates (filled if need be) + the person's zone
  *
  * The elevation is the highest point in the place (Rav Ovadia's rule): a 5 x 5 grid over the
- * place's Nominatim bounding box, capped at 3 km around the centre, sampled with Open-Meteo's free
- * elevation API in one request; the highest of the 25 is kept. A failure of that request is
+ * place's Nominatim bounding box, capped at 3 km around the centre (elevationGrid, in the pure
+ * elevation-grid.ts), sampled with Open-Meteo's free elevation API in one request; the highest of the 25 is kept. A failure of that request is
  * logged and leaves the elevation null: it never blocks saving the place.
  *
  * The lookups are resolveLocation's (src/lib/timezone.ts) and the same 3 s, no-retry policy.
@@ -23,24 +23,18 @@ import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError, captureWarning } from '../../lib/error-capture';
-import { LOOKUP_TIMEOUT_MS, TIMEZONE_CACHE_TTL, resolveLocation, resolveUserTimezone, type BoundingBox } from '../../lib/timezone';
+import { LOOKUP_TIMEOUT_MS, TIMEZONE_CACHE_TTL, resolveLocation, resolveUserTimezone } from '../../lib/timezone';
 import { fetchWithTimeout } from '../weather/geocoding';
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { inIsrael } from '../../utils/locale-rules';
 import type { Place } from './compute';
+import { elevationGrid, type Coordinates } from './elevation-grid';
 
-/** The grid is this many points on a side: 5 x 5 = 25, well under Open-Meteo's 100 per request. */
-const GRID_SIDE = 5;
-/** The grid reaches at most this far from the place's centre, in metres. */
-const MAX_REACH_M = 3000;
-const METRES_PER_DEGREE_LATITUDE = 111_320;
+// The grid lives in the pure elevation-grid.ts, so scripts/build-city-heights.ts counts the public cities' heights by the same rule.
+export { elevationGrid, type Coordinates } from './elevation-grid';
+
 /** After a lazy fill finds nothing, the same person and place are not looked up again for this long. */
 const RETRY_AFTER_MS = 60 * 60 * 1000;
-
-export interface Coordinates {
-  latitude: number;
-  longitude: number;
-}
 
 /** The fields of a user the place is read from. `UserConfig` has all of them. */
 export interface PlaceUser {
@@ -58,31 +52,6 @@ export interface SavedPlace extends Coordinates {
   elevationM: number | null;
   /** The zone the lookup found; null when that request failed. */
   timeZone: string | null;
-}
-
-/**
- * The 25 points to ask the elevation of: a 5 x 5 grid over the place's bounding box, each edge
- * pulled in to at most 3 km from the centre. Just the centre where Nominatim sent no box.
- */
-export function elevationGrid(centre: Coordinates, box: BoundingBox | null): Coordinates[] {
-  if (!box) return [centre];
-  const reachLatitude = MAX_REACH_M / METRES_PER_DEGREE_LATITUDE;
-  const reachLongitude = MAX_REACH_M / (METRES_PER_DEGREE_LATITUDE * Math.max(Math.cos((centre.latitude * Math.PI) / 180), 0.01));
-  const south = Math.max(box[0], centre.latitude - reachLatitude);
-  const north = Math.min(box[1], centre.latitude + reachLatitude);
-  const west = Math.max(box[2], centre.longitude - reachLongitude);
-  const east = Math.min(box[3], centre.longitude + reachLongitude);
-  if (!(south <= north && west <= east)) return [centre];
-  const points: Coordinates[] = [];
-  for (let row = 0; row < GRID_SIDE; row++) {
-    for (let column = 0; column < GRID_SIDE; column++) {
-      points.push({
-        latitude: south + ((north - south) * row) / (GRID_SIDE - 1),
-        longitude: west + ((east - west) * column) / (GRID_SIDE - 1),
-      });
-    }
-  }
-  return points;
 }
 
 /**

@@ -60,6 +60,7 @@ const EXEMPT_DIRS: Record<string, string> = {
  */
 const ALLOWED: Record<string, string> = {
   'bot.imageEvent.partsUnreadable': '"השאר" is the noun "the rest" ("עברתי על השאר", I went over the rest), not the imperative "leave"',
+  'cities.petah-tikva': '"פתח" is the first word of the city\'s name, Petah Tikva, not the imperative "open"',
 };
 
 const H = '\\u05D0-\\u05EA';
