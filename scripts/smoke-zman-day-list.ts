@@ -371,6 +371,21 @@ async function runChecks(): Promise<void> {
     assert(processMemo().size === 0, 'reset');
   });
 
+  await check('a quiet call with no memo of its own leaves the process memo alone, so the bot\'s later read of the same zman still logs it: Saint Petersburg on 21 June 2027 (Ashkenazi, no 16.1 degree dawn), called quiet, adds nothing to the process memo, and the same call not quiet then logs the missing dawn', () => {
+    dayList.__resetZmanClockForTests();
+    logged(() => dayList.zmanDayForPlace(HARISH, 'sephardi', '2027-06-21'));
+    const before = processMemo().size;
+    assert(before > 0, 'the process memo holds an answer to compare with');
+    const quiet = logged(() => dayList.zmanDayForPlace(SAINT_PETERSBURG, 'ashkenazi', '2027-06-21', { quiet: true }));
+    assert(processMemo().size === before, `the process memo went from ${before} to ${processMemo().size} answers`);
+    assertSame(quiet.lines, [], 'nothing logged');
+    assert(rowOf(quiet.value, 'ALOT').at === null, 'dawn is a dash');
+    const bot = logged(() => dayList.zmanDayForPlace(SAINT_PETERSBURG, 'ashkenazi', '2027-06-21'));
+    assertSame(bot.value, quiet.value, 'the same list');
+    assert(bot.lines.some(l => l.startsWith('[zmanim] no ALOT')), `the bot\'s read logs: ${show(bot.lines)}`);
+    dayList.__resetZmanClockForTests();
+  });
+
   report();
 }
 

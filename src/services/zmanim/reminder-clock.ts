@@ -7,7 +7,7 @@
  *
  *   zmanClockFor(user, zone)   the person's clock, or null where no place can be had at all
  *   zmanClockIfNeeded(...)     the same, only when something read has a zman rule (the caller's yes/no)
- *   candleLightingDaysFor(...) the days from a day on that the person lights candles (the pause's windows)
+ *   candleLightingDaysFor(...) the days from a day on that the person lights candles (the rest-day blocks, day-list.ts lightsCandles)
  *
  * Never throws: a failure is logged and captured, and read as no clock (the reminder is then shown at the
  * person's reminder time and the pass skips it, both logged).

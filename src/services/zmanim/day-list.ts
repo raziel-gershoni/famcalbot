@@ -29,7 +29,11 @@ export type ZmanMemo = Map<string, number | null>;
 /** A day's list without the person's place label (zmanDayList adds it for the sun sheet). */
 export type ZmanDayList = Omit<ZmanimListResponse, 'place'>;
 
-/** `memo`: where answers are kept (the process's by default). `quiet`: no log for a zman the sun does not make (compute.ts ZmanOptions). */
+/**
+ * `memo`: where answers are kept (the process's by default; a quiet call with no memo of its own gets a throwaway one, never
+ * the process's: a silent null left there would stop the bot's later read of that zman from logging it). `quiet`: no log for
+ * a zman the sun does not make (compute.ts ZmanOptions).
+ */
 export type ZmanListOptions = { memo?: ZmanMemo; quiet?: boolean };
 
 /** The answers kept in a memo; past this it starts over (a few thousand small entries, never a leak). */
@@ -41,6 +45,11 @@ const answers: ZmanMemo = (shared.__zmanReminderAnswers ??= new Map());
 /** Smoke scripts only: back to a fresh process. */
 export function __resetZmanClockForTests(): void {
   answers.clear();
+}
+
+/** The options a call works with: a quiet call with no memo gets one throwaway memo, shared by its zmanim (never the process memo). */
+function withOwnMemo(options: ZmanListOptions): ZmanListOptions {
+  return options.memo || !options.quiet ? options : { ...options, memo: new Map() };
 }
 
 /** A reminder's rule as an instant at the place on `day`, counted by the reader's community (or the nearest set that has the zman). */
@@ -56,7 +65,7 @@ export function instantAt(place: Place, community: ZmanimCommunity, day: string,
     console.warn(`[zmanim] no set has ${'zman' in valid ? valid.zman : 'this rule'}: no time`);
     return null;
   }
-  const memo = options.memo ?? answers;
+  const memo = withOwnMemo(options).memo ?? answers;
   const key = [place.latitude, place.longitude, place.elevationM ?? '', place.timeZone, counting, day, JSON.stringify(valid)].join('|');
   if (memo.has(key)) {
     const known = memo.get(key) ?? null;
@@ -121,7 +130,8 @@ const orderOf = (key: string): number => ZMAN_KEYS.indexOf((STANDS_AT[key] ?? ke
  *          north in summer) the eve still has its candle lighting and the last day its end row, with no time.
  *   hours  the halachic hour: the GRA's and the Magen Avraham's, or the Baal HaTanya's for Chabad.
  */
-export function zmanDayForPlace(place: Place, community: ZmanimCommunity, day: string, options: ZmanListOptions = {}): ZmanDayList {
+export function zmanDayForPlace(place: Place, community: ZmanimCommunity, day: string, listOptions: ZmanListOptions = {}): ZmanDayList {
+  const options = withOwnMemo(listOptions);
   const zone = place.timeZone;
   const set = zmanimSet(community);
 

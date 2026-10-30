@@ -266,8 +266,8 @@ const EVE_SPAN_DAYS = 15;
 /**
  * The days a reminder by zman can start on, in order, from `from` (a civil day in the creator's zone): the days its
  * repeat has an occurrence on (the store's own rrule expansion), else the days that have the zman (candle lighting:
- * the eves, from the pause's own windows), else every day. Never a day the series would not fire on, so the card and
- * the reply name the first time that will ping.
+ * the eves, from the rest-day blocks the sun sheet's candle row reads too), else every day. Never a day the series would
+ * not fire on, so the card and the reply name the first time that will ping.
  */
 async function startDays(spec: ZmanSpecValue, timing: ZmanTiming, event: ParsedEvent, timezone: string, from: string): Promise<string[]> {
   if (event.recurrence && event.recurrence.calendar !== 'hebrew') {

@@ -101,8 +101,10 @@ const IL = 'Asia/Jerusalem';
 const NY = 'America/New_York';
 const TOKYO = 'Asia/Tokyo'; // no main city: with no saved place, nothing to count from
 const OSLO = 'Europe/Oslo';
+const MOSCOW = 'Europe/Moscow';
 const HARISH = { location: 'Harish', latitude: 32.46182, longitude: 35.04555, elevationM: 270 };
 const NEW_YORK = { location: 'New York', latitude: 40.7128, longitude: -74.006, elevationM: 10 };
+const SAINT_PETERSBURG = { location: 'Saint Petersburg', latitude: 59.93863, longitude: 30.31413, elevationM: 10 }; // in June the sun never reaches 8.5 degrees below the horizon: no end of Shabbat
 const TROMSO = { location: 'Tromso', latitude: 69.6492, longitude: 18.9553, elevationM: 10 }; // polar night in December
 const NOWHERE = { location: '', latitude: null, longitude: null, elevationM: null };
 
@@ -339,7 +341,8 @@ async function main() {
   const resolve = await import('../src/services/native-reminders/resolve');
   const { resolveReminderIntents, refreshReminderNotice, reminderCreateFields, withZmanChoice, zmanAnalytics, zmanTimingFor, zmanTimeOn } = resolve;
   const { isPaused } = await import('../src/services/zmanim/pause');
-  const { zmanClockFor } = await import('../src/services/zmanim/reminder-clock');
+  const { zmanClockFor, candleLightingDaysFor } = await import('../src/services/zmanim/reminder-clock');
+  const { zmanimForDay } = await import('../src/services/zmanim/compute');
   const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
   const { anchorQuestion, formatReminderCard, reminderCreatedLine } = await import('../src/services/voice/confirmations');
 
@@ -498,6 +501,31 @@ async function main() {
     // The other zmanim keep today / tomorrow
     const sunset = await resolveOne(zmanReminder(SHKIA(), { now: wed }), wed);
     assert(sunset.event && dayOf(sunset.event.startTime) === '2026-10-28', show(sunset.event));
+  });
+
+  const FAR_NORTH_ZMAN_USER = () => user({ id: 9, ...SAINT_PETERSBURG, zmanimCommunity: 'ashkenazi' }) as unknown as import('../src/services/zmanim/reminder-clock').ZmanUser;
+
+  await check('the days that light candles in the far north (6a): Saint Petersburg in June (Ashkenazi, no end of Shabbat for the pause) still lights candles on its Fridays, 19 and 26 June', async () => {
+    zones[9] = MOSCOW;
+    const days = await candleLightingDaysFor(FAR_NORTH_ZMAN_USER(), MOSCOW, '2026-06-15', 15);
+    assert(show(days) === show(['2026-06-19', '2026-06-26']), `the days that light candles: ${show(days)}`);
+  });
+
+  await check('"candle lighting" with no day said in the far north (6a): Saint Petersburg on Monday 15 June is the next Friday, 19 June, at that day\'s own candle lighting, and not today', async () => {
+    zones[9] = MOSCOW;
+    const north = user({ id: 9, ...SAINT_PETERSBURG, zmanimCommunity: 'ashkenazi' });
+    const now = at('2026-06-15 06:00', MOSCOW);
+    clock = now.getTime();
+    const { event, failure } = await resolveOne(zmanReminder(CANDLES(), { now, tz: MOSCOW }), now, north, MOSCOW);
+    assert(event && !failure, show(failure));
+    assert(dayOf(event.startTime, MOSCOW) === '2026-06-19' && event.reminderNotice === undefined, `${dayOf(event.startTime, MOSCOW)} ${event.reminderNotice}`);
+    assert(!logs.some((l) => l.includes('no candle lighting day')), `the fallback to today: ${show(logs)}`);
+    // Its time is that Friday's own (the calculator's candle lighting, 20 minutes before the sunset), on the card
+    const own = zmanimForDay('2026-06-19', { ...SAINT_PETERSBURG, timeZone: MOSCOW }, 'ashkenazi', { quiet: true }).CANDLE_LIGHTING;
+    const clockAt = await clockTime(FAR_NORTH_ZMAN_USER(), MOSCOW, '2026-06-19', { zman: 'CANDLE_LIGHTING', offsetMin: 0 });
+    assert(own && clockAt && own.getTime() === clockAt.getTime(), `the clock's ${show(clockAt)} is not the calculator's ${show(own)}`);
+    const card = await formatReminderCard(event, 'en', MOSCOW, 'html', north);
+    assert(card.includes('Fri, Jun 19') && card.includes(hm(own, MOSCOW)) && !card.includes('Jun 15'), card);
   });
 
   // ---- Whose place ----
