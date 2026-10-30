@@ -17,8 +17,9 @@
 //    the sheet holds the links and the switcher.
 //  - H5 the chrome's CSS: the kit's lint (sizes in px, logical properties only, no hover, colours only in token
 //    blocks), every tap target (the chrome's, the landing's zmanim row and the pages' links and buttons, the zmanim pages' too) at least 44 px, the wide and phone parts
-//    swap at one width, the sheet doesn't slide, and the page's scroll padding keeps an anchor or a focused element
-//    clear of the sticky header.
+//    swap at one width, the header tightens its spacing (only) between 960 and 1100 px so its four links, the switcher
+//    and the two buttons fit on one row, the sheet doesn't slide, and the page's scroll padding keeps an anchor or a
+//    focused element clear of the sticky header.
 //
 // The chrome runs as Next runs it on the server (next-intl's server API over the real messages), and the menu as a
 // browser runs it. No network, no DB.
@@ -206,6 +207,24 @@ async function main() {
     const button = rule('.site-menu-button');
     assert(button && /inline-size:\s*44px/.test(button) && /block-size:\s*44px/.test(button), `the menu button: ${button}`);
     assert(/@media \(max-width: 959\.98px\) \{\s*\.site-wide-only \{\s*display: none !important;/.test(own) && /@media \(min-width: 960px\) \{\s*\.site-phone-only \{\s*display: none !important;/.test(own), 'the swap');
+    // The wide header holds four links, the language switcher and two buttons: between 960 and 1100 px it tightens its
+    // gaps and inline padding so the row fits on one line (the Russian one is the longest; measured on a real render,
+    // plan Task 8 Step 11), the links never wrap (a wrapped label is a cut one), and nothing else changes: the tap targets
+    // keep their 44 px block size, and the one hidden thing is the switcher's decorative globe
+    const band = /@media \(min-width: 960px\) and \(max-width: 1099\.98px\) \{\n([\s\S]*?)\n\}\n/.exec(own)?.[1];
+    assert(band, 'no tightened header band between 960 and 1100 px');
+    const bandRule = (selector: string) => new RegExp(`\\n  ${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(`\n${band}`)?.[1];
+    const px = (body: string | undefined, property: string) => Number(new RegExp(`(?:^|[\\s;])${property}:\\s*(\\d+)(?:px)?\\b`).exec(body ?? '')?.[1] ?? NaN);
+    // [the band's selector, the wide header's rule it tightens, the property]: the footer's switcher shares the language rules, so the band's are the header's
+    for (const [selector, wideSelector, property] of [['.site-header-row', '.site-header-row', 'gap'], ['.site-nav', '.site-nav', 'margin-inline-start'], ['.site-nav a', '.site-nav a', 'padding-inline'], ['.site-header .site-langs a', '.site-langs a', 'padding-inline'], ['.site-header-end', '.site-header-end', 'gap'], ['.site-starts-compact .site-start', '.site-starts-compact .site-start', 'padding-inline'], ['.site-starts-compact .site-start', '.site-starts-compact .site-start', 'gap']]) {
+      const tight = px(bandRule(selector), property);
+      const wide = px(rule(wideSelector), property);
+      assert(tight < wide, `the band's ${selector} ${property} ${tight} px is not under the wide header's ${wideSelector} ${wide} px`);
+    }
+    assert(!/block-size|inline-size/.test(band), `the band changes a size: ${band.trim().replace(/\s+/g, ' ')}`);
+    assert(/white-space:\s*nowrap/.test(bandRule('.site-nav a') ?? ''), 'a header link can wrap in the band');
+    assert(px(bandRule('.site-nav a'), 'font-size') >= 14, `the band's link size ${px(bandRule('.site-nav a'), 'font-size')} px`);
+    assert(show(band.match(/display:\s*\w+/g)) === show(['display: none']) && /display:\s*none/.test(bandRule('.site-header .site-langs-icon') ?? ''), 'the band hides more than the switcher\'s globe');
     assert(/\.site \.ch-sheet \{[^}]*animation: none;/.test(own), 'the sheet slides');
     // The sticky header (its row's height and a 1 px border) never covers an anchor's heading or a focused element
     const pad = /scroll-padding-block-start:\s*(\d+)px/.exec(rule('html:has(.site)') ?? '');

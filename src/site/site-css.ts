@@ -354,6 +354,35 @@ const CHROME_CSS = `
   inline-size: 18px;
   block-size: 18px;
 }
+/* The wide header (four links, the language switcher, two buttons) is longest in Russian: between 960 and 1100 px it
+   tightens its spacing so the row fits on one line with no label wrapping: smaller gaps and inline padding, the links
+   at 15 px (the switcher's size), and no globe. Every tap target keeps its 44 px block size. */
+@media (min-width: 960px) and (max-width: 1099.98px) {
+  .site-header-row {
+    gap: 4px;
+  }
+  .site-nav {
+    margin-inline-start: 4px;
+  }
+  .site-nav a {
+    padding-inline: 6px;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .site-header-end {
+    gap: 2px;
+  }
+  .site-header .site-langs a {
+    padding-inline: 4px;
+  }
+  .site-header .site-langs-icon {
+    display: none;
+  }
+  .site-starts-compact .site-start {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+}
 @media (max-width: 559.98px) {
   .site-starts:not(.site-starts-compact) {
     flex-direction: column;
