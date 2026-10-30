@@ -1,5 +1,6 @@
 // Smoke test for the home's sun sheet (the zmanim list): the header's sun button (HomeHeader), the sheet
-// (app/[locale]/(app)/dashboard/ZmanimSheet.tsx) and its request (src/lib/calendar-view/zmanim-list.ts), with the real
+// (app/[locale]/(app)/dashboard/ZmanimSheet.tsx, its rows drawn by components/app-ui/ZmanimRows.tsx and its CSS in
+// src/lib/calendar-view/zmanim-sheet-css.ts) and its request (src/lib/calendar-view/zmanim-list.ts), with the real
 // messages in en, he (RTL) and ru, in real React (react-dom/client with act on scripts/lib/fake-dom.ts). The route behind
 // it is smoke-zmanim-api.ts's; the container's gate (the button only for the Jewish calendar, the sheet opened from it) is
 // smoke-calendar-home-render.ts's #126-#128.
@@ -19,6 +20,8 @@
 //   - the states: a request that fails (an answer, a network error, a thrown error) says so with Retry, which asks again;
 //     no saved place shows the editor's note with its way to Settings; no place at all shows the other note and no rows;
 //   - the request: the URL, the init data in the header only, and every way it can fail read as `failed` and logged;
+//   - the rows are one plain component (no 'use client', no hook), shared with the public city pages: rendered with a
+//     server's translator it gives the sheet's own markup, and the sheet re-exports the CSS module's string;
 //   - the sheet's CSS: nothing under 11 px, logical properties only, no hover, no colour literal, and only the contrast
 //     pairs the app's design smoke already holds; the header's room: the usual three buttons beside the day from 320 px.
 // React must log no warning. No network, no DB. Run under three process zones (this file re-runs itself as child
@@ -31,10 +34,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
-import { NextIntlClientProvider } from 'next-intl';
+import { NextIntlClientProvider, createTranslator } from 'next-intl';
 import { HomeHeader } from '../app/[locale]/(app)/dashboard/HomeHeader';
 import { HOME_SHELL_CSS } from '../app/[locale]/(app)/dashboard/home-shell';
 import { ZMANIM_SHEET_CSS, ZmanimSheet } from '../app/[locale]/(app)/dashboard/ZmanimSheet';
+import { ZmanimRows } from '../components/app-ui/ZmanimRows';
+import { ZMANIM_SHEET_CSS as PLAIN_SHEET_CSS } from '../src/lib/calendar-view/zmanim-sheet-css';
+import type { ZmanWordsT } from '../src/lib/calendar-view/zman-words';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { APP_SCREEN_CSS } from '../components/app-ui/screen';
 import { formatDayLong } from '../src/lib/calendar-view/format';
@@ -196,6 +202,15 @@ async function openSheet(locale: Locale, answer: (day: string) => ZmanimListOutc
   return { m: Object.assign(m, { closed, settings }) as Sheet, ...l };
 }
 const rowsOf = (m: Mounted) => byClass(m.container, 'ch-zl-row');
+/** React's escaping in renderToString, for text and attribute values. */
+const escapeHtml = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+/** A mounted node as markup, in the form renderToString writes it (attributes in the order React set them). */
+const markupOfNode = (node: FakeNode): string => {
+  if (node.nodeType === 3) return escapeHtml(node.textContent);
+  const e = node as FakeElement;
+  const attributes = [...e.attributes].map(([name, value]) => ` ${name}="${escapeHtml(value)}"`).join('');
+  return `<${e.localName}${attributes}>${e.childNodes.map(markupOfNode).join('')}</${e.localName}>`;
+};
 const rowKeys = (m: Mounted) => rowsOf(m).map((r) => r.getAttribute('data-zman'));
 const dateLine = (m: Mounted) => textOf(byClass(m.container, 'ch-zl-date')[0]);
 const titleOf = (m: Mounted) => textOf(elements(m.container).filter((e) => e.localName === 'h2')[0]);
@@ -632,6 +647,31 @@ async function runChecks(): Promise<void> {
     assert(messages.he.calendarHome.zmanimList.community.chabad === 'חב״ד' && messages.he.settings.zmanim.chabad === 'חב״ד', 'Hebrew Chabad');
     assert(messages.ru.settings.zmanim.sephardi.startsWith(messages.ru.calendarHome.zmanimList.community.sephardi) && messages.he.settings.zmanim.sephardi.startsWith(messages.he.calendarHome.zmanimList.community.sephardi), 'Sephardi');
     assert(messages.en.settings.zmanim.ashkenazi.startsWith(messages.en.calendarHome.zmanimList.community.ashkenazi), 'Ashkenazi');
+  });
+
+  await check('the rows are one plain component, shared with the public city pages: components/app-ui/ZmanimRows.tsx has no "use client", no hook and no next-intl import, the sheet draws its rows only through it, the CSS lives in src/lib/calendar-view/zmanim-sheet-css.ts (the sheet re-exports the same string), and rendered on a server with createTranslator over calendarHome it gives the markup the sheet shows (a window row, a dash, the hour line) in en, he and ru', async () => {
+    const plain = fs.readFileSync(path.join(ROOT, 'components/app-ui/ZmanimRows.tsx'), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+    assert(!/['"]use client['"]/.test(plain) && !/\buse[A-Z]\w*\(/.test(plain) && !/from 'next-intl'/.test(plain), 'ZmanimRows is not a plain component');
+    const sheet = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/ZmanimSheet.tsx'), 'utf8');
+    assert(/<ZmanimRows list=\{current\.list\} locale=\{locale\} t=\{t\} \/>/.test(sheet), 'the sheet does not draw ZmanimRows');
+    assert(!/ch-zl-rows|ch-zl-row\b|ch-zl-hours|zmanName\(/.test(sheet) && !/`\n\.ch-zl-/.test(sheet), 'the sheet still draws rows or holds CSS of its own');
+    assert(ZMANIM_SHEET_CSS === PLAIN_SHEET_CSS && PLAIN_SHEET_CSS.includes('.ch-zl-row {'), 'the sheet re-exports another string');
+    const friday = '2026-10-30';
+    const list = harish(friday, { rows: [row(friday, 'ALOT', null), row(friday, 'SOF_SHMA_GRA', '08:37', 'gra'), row(friday, 'CANDLE_LIGHTING', '16:33'), row(friday, 'SHKIA', '16:53')] });
+    for (const locale of LOCALES) {
+      const t = createTranslator({ locale, messages: messages[locale], namespace: 'calendarHome' }) as unknown as ZmanWordsT;
+      const server = renderToString(createElement(ZmanimRows, { list, locale, t })).replace(/<!-- -->/g, '');
+      const { m } = await openSheet(locale, () => ok(list), friday);
+      try {
+        const rows = byClass(m.container, 'ch-zl-rows')[0];
+        const hours = byClass(m.container, 'ch-zl-hours')[0];
+        const mounted = markupOfNode(rows) + markupOfNode(hours);
+        assert(server === mounted, `${locale}: the server's rows differ from the sheet's:\n${server}\n${mounted}`);
+        assert(/data-zman="CANDLE_LIGHTING"/.test(server) && /is-none/.test(server) && /ch-zl-hours/.test(server), `${locale}: the probe lacks a window row, a dash or the hour line`);
+      } finally {
+        m.unmount();
+      }
+    }
   });
 
   await check('the sheet\'s CSS: nothing under 11 px, every size in px, logical properties only, no hover, no colour literal; every colour is a theme token that exists, and its text pairs are ones the design smoke holds to 4.5:1', () => {

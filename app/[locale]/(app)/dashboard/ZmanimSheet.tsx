@@ -18,22 +18,25 @@
 //   is also a Yom Tov;
 // - the halachic hour at the bottom, as minutes and seconds under each opinion the set counts by.
 //
-// The server counts and sends instants; every word and format is here. Client component: it never imports the zmanim
-// service (the list's shapes are src/lib/calendar-view/zmanim-list.ts).
+// The server counts and sends instants; every word and format is here, and the rows and the hour line are ZmanimRows
+// (components/app-ui/ZmanimRows.tsx, shared with the public city pages). Client component: it never imports the zmanim
+// service (the list's shapes are src/lib/calendar-view/zmanim-list.ts). Its CSS lives in
+// src/lib/calendar-view/zmanim-sheet-css.ts and is re-exported here.
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
-import { formatDayLong, formatTime } from '@/src/lib/calendar-view/format';
+import { formatDayLong } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import { addDaysToKey } from '@/src/lib/calendar-view/store';
 import type { DayKey } from '@/src/lib/calendar-view/types';
-import { WINDOW_ROW_KEYS, formatHalachicHour, type ZmanimApi, type ZmanimListResponse, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
+import type { ZmanimApi, ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
+import { ZMANIM_SHEET_CSS } from '@/src/lib/calendar-view/zmanim-sheet-css';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Notice } from '@/components/app-ui/Notice';
 import { StateCard } from '@/components/app-ui/StateCard';
-import { zmanName } from '@/src/lib/calendar-view/zman-words';
+import { ZmanimRows } from '@/components/app-ui/ZmanimRows';
 
 export interface ZmanimSheetProps {
   /** The page's own user_id, as CalendarHomeProps carries it (never swapped). */
@@ -50,97 +53,7 @@ export interface ZmanimSheetProps {
 
 type Load = { status: 'loading' } | { status: 'failed' } | { status: 'ok'; list: ZmanimListResponse };
 
-export const ZMANIM_SHEET_CSS = `
-.ch-zl-place {
-  margin: 0;
-  font-size: 14px;
-  color: var(--ch-muted);
-}
-.ch-zl-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-block: 12px 4px;
-}
-.ch-zl-date {
-  flex: 1;
-  min-inline-size: 0;
-  text-align: center;
-}
-.ch-zl-day {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.ch-zl-day::first-letter {
-  text-transform: uppercase;
-}
-.ch-zl-hebrew {
-  margin: 2px 0 0;
-  font-size: 14px;
-  color: var(--ch-muted);
-}
-.ch-zl-note {
-  margin-block: 8px 4px;
-}
-.ch-zl-note .ch-notice {
-  background: var(--ch-surface);
-}
-.ch-zl-rows {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-}
-.ch-zl-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-block-size: 44px;
-  padding-block: 6px;
-  border-block-end: 1px solid var(--ch-separator);
-}
-.ch-zl-row:last-child {
-  border-block-end: 0;
-}
-.ch-zl-name {
-  flex: 1;
-  min-inline-size: 0;
-  font-size: 15px;
-  line-height: 1.3;
-}
-.ch-zl-time {
-  flex: none;
-  font-size: 16px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.ch-zl-row.is-key .ch-zl-name,
-.ch-zl-row.is-key .ch-zl-time {
-  color: var(--ch-accent);
-  font-weight: 600;
-}
-.ch-zl-row.is-none .ch-zl-time {
-  color: var(--ch-muted);
-  font-weight: 400;
-}
-.ch-zl-hours {
-  margin: 12px 0 0;
-  font-size: 14px;
-  color: var(--ch-muted);
-}
-.ch-zl-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-block-size: 280px;
-  color: var(--ch-accent);
-}
-.ch-zl .ch-home-card {
-  margin: 8px 0 0;
-}
-`;
+export { ZMANIM_SHEET_CSS };
 
 export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClose }: ZmanimSheetProps) {
   const t = useTranslations('calendarHome');
@@ -179,22 +92,6 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
   const title = day === today ? t('zmanimList.title') : t('zmanimList.titleOther');
   const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const hebrew = hebrewFullDate(day, locale, genitive);
-
-  const rowText = (row: ZmanimListRow): string => {
-    switch (row.key) {
-      case 'SHABBAT_ENDS':
-        return t('zmanimList.shabbatEnds');
-      case 'YOM_TOV_ENDS':
-        return t('zmanimList.yomTovEnds');
-      case 'SHABBAT_YOM_TOV_ENDS':
-        return t('zmanimList.shabbatYomTovEnds');
-      case 'CANDLE_LIGHTING_NOT_BEFORE':
-        return t('zmanimList.candlesNotBefore');
-      default:
-        return zmanName(t, row.key, row.opinion);
-    }
-  };
-  const isKey = (row: ZmanimListRow) => WINDOW_ROW_KEYS.includes(row.key);
 
   // The place and the set, from the latest list (they do not change from day to day).
   const place = last?.place ?? null;
@@ -239,33 +136,7 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
         {current.status === 'failed' ? (
           <StateCard title={t('zmanimList.failedTitle')} body={t('zmanimList.failedBody')} action={{ label: t('actions.retry'), onClick: retry }} />
         ) : null}
-        {current.status === 'ok' ? (
-          <>
-            <ul className="ch-zl-rows" role="list">
-              {current.list.rows.map((row) => (
-                <li key={row.key} className={`ch-zl-row${isKey(row) ? ' is-key' : ''}${row.at === null ? ' is-none' : ''}`} data-zman={row.key}>
-                  <span className="ch-zl-name">{rowText(row)}</span>
-                  <span className="ch-zl-time">
-                    {row.at === null ? (
-                      <>
-                        <span aria-hidden="true">—</span>
-                        <span className="ch-visually-hidden">{t('zmanimList.noTime')}</span>
-                      </>
-                    ) : (
-                      <bdi dir="ltr">{formatTime(row.at, current.list.tz, locale)}</bdi>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {current.list.hours.length > 0 ? (
-              <p className="ch-zl-hours">
-                {t('zmanimList.hourLabel')}{' '}
-                {current.list.hours.map((hour) => t('zmanim.withOpinion', { name: formatHalachicHour(hour.ms), opinion: t(`zmanim.opinions.${hour.opinion}`) })).join(' · ')}
-              </p>
-            ) : null}
-          </>
-        ) : null}
+        {current.status === 'ok' ? <ZmanimRows list={current.list} locale={locale} t={t} /> : null}
       </div>
     </BottomSheet>
   );

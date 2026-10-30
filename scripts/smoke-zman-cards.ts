@@ -458,8 +458,9 @@ async function main() {
     let gone = false;
     try { readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/zman-words.ts'), 'utf8'); } catch { gone = true; }
     assert(gone, 'app/[locale]/(app)/dashboard/zman-words.ts is still there');
-    for (const file of ['EditorSheet', 'ItemRow', 'ItemSheet', 'ZmanimSheet']) {
-      const text = readFileSync(path.join(ROOT, `app/[locale]/(app)/dashboard/${file}.tsx`), 'utf8');
+    // The sun sheet's rows moved into components/app-ui/ZmanimRows.tsx (shared with the public city pages): it is the one that words them
+    for (const file of ['app/[locale]/(app)/dashboard/EditorSheet.tsx', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'app/[locale]/(app)/dashboard/ItemSheet.tsx', 'components/app-ui/ZmanimRows.tsx']) {
+      const text = readFileSync(path.join(ROOT, file), 'utf8');
       assert(text.includes("@/src/lib/calendar-view/zman-words") && !text.includes("'./zman-words'"), `${file} imports the old path`);
     }
     // One words path in the services: only the view helper builds a rule's words

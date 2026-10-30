@@ -6,13 +6,16 @@
 //
 // Client-safe and pure apart from the translation function it is given.
 
-import type { useTranslations } from 'next-intl';
 import type { ZmanOpinion, ZmanSpecValue } from './zman-spec';
 
-type CalendarHomeT = ReturnType<typeof useTranslations<'calendarHome'>>;
+/**
+ * A translator over calendarHome, by its shape: useTranslations('calendarHome') in the Mini App, getTranslations({ locale,
+ * namespace: 'calendarHome' }) on a server page and createTranslator in the bot all fit.
+ */
+export type ZmanWordsT = (key: string, values?: Record<string, string | number>) => string;
 
 /** A zman's name with the opinion it is counted by, as a list names it. */
-export function zmanName(t: CalendarHomeT, key: string, opinion: ZmanOpinion | null, afterOffset = false): string {
+export function zmanName(t: ZmanWordsT, key: string, opinion: ZmanOpinion | null, afterOffset = false): string {
   const name = t(afterOffset ? `zmanim.namesAfter.${key}` : `zmanim.names.${key}`);
   return opinion ? t('zmanim.withOpinion', { name, opinion: t(`zmanim.opinions.${opinion}`) }) : name;
 }
@@ -22,7 +25,7 @@ export function zmanName(t: CalendarHomeT, key: string, opinion: ZmanOpinion | n
  * "2 halachic hours after sunrise". `opinion` is the one the person's set names the zman with (the DTO's and the
  * editor info's); it is ignored for halachic hours.
  */
-export function zmanRuleWords(t: CalendarHomeT, spec: ZmanSpecValue, opinion: ZmanOpinion | null): string {
+export function zmanRuleWords(t: ZmanWordsT, spec: ZmanSpecValue, opinion: ZmanOpinion | null): string {
   const minutes = Math.abs(spec.offsetMin);
   if (minutes === 0) return 'zman' in spec ? zmanName(t, spec.zman, opinion) : t('zmanim.hours', { count: spec.halachicHours });
   const name = 'zman' in spec ? zmanName(t, spec.zman, opinion, true) : t('zmanim.hoursAfter', { count: spec.halachicHours });
