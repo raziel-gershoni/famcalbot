@@ -42,7 +42,7 @@ The owner's answers on 2026-10-28 ("go with recommendations"):
 ### 3.1 Header (every public page)
 
 - **Logo.**
-- **Links:** How it works (`#how`), Plans (`#plans`), Blog.
+- **Links:** How it works (`#how`), Plans (`#plans`), Blog, Zmanim (`/zmanim`, added by `2026-10-30-public-zmanim-design.md` §6.3; the phone menu has it too).
 - **Language switcher.**
 - **Start control:**
   - On a wide screen, two compact buttons, Telegram and WhatsApp, equal in size.
@@ -100,7 +100,7 @@ In order:
 
 ### 3.4 Footer
 
-Links (How it works, Plans, Blog, Privacy, Terms, Contact), the language switcher, "Made in Israel" (no emoji), and the copyright years.
+Links (How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment, Contact), the language switcher, "Made in Israel" (no emoji), and the copyright years. Zmanim was added by `2026-10-30-public-zmanim-design.md` §6.3; Cancel a payment by the Terms' cancellation part.
 
 ## 4. Words
 
@@ -246,7 +246,7 @@ The full facts with file references are in the session notes (`web/data.md`, che
 
 ## 8. Non-goals
 
-- Web login, and anonymous access to the calendar or zmanim (item 6).
+- Web login (item 6b). Anonymous access to the zmanim and the Jewish calendar is no longer a non-goal: item 6a built it as public city pages (`2026-10-30-public-zmanim-design.md`), with no account, cookie or storage.
 - A self-service "Delete my account" or data export. Requests are handled by the contact for now. A self-service flow is a later decision.
 - Closing WhatsApp's feature gaps. The site states them; it doesn't fix them.
 - New blog posts, analytics or tracking, a cookie banner (only essential cookies are used), and A/B tests.
