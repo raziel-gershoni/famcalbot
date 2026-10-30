@@ -207,12 +207,13 @@ async function main() {
     const button = rule('.site-menu-button');
     assert(button && /inline-size:\s*44px/.test(button) && /block-size:\s*44px/.test(button), `the menu button: ${button}`);
     assert(/@media \(max-width: 959\.98px\) \{\s*\.site-wide-only \{\s*display: none !important;/.test(own) && /@media \(min-width: 960px\) \{\s*\.site-phone-only \{\s*display: none !important;/.test(own), 'the swap');
-    // The wide header holds four links, the language switcher and two buttons: between 960 and 1100 px it tightens its
-    // gaps and inline padding so the row fits on one line (the Russian one is the longest; measured on a real render,
-    // plan Task 8 Step 11), the links never wrap (a wrapped label is a cut one), and nothing else changes: the tap targets
-    // keep their 44 px block size, and the one hidden thing is the switcher's decorative globe
-    const band = /@media \(min-width: 960px\) and \(max-width: 1099\.98px\) \{\n([\s\S]*?)\n\}\n/.exec(own)?.[1];
-    assert(band, 'no tightened header band between 960 and 1100 px');
+    // The wide header holds four links, the language switcher and two buttons: between 960 and 1140 px it tightens its
+    // gaps and inline padding so the row fits on one line (the Russian one is the longest: its "Как это работает" wrapped
+    // from 1100 to 1119 px at the base spacing, measured on a real render, final review F5), the links never wrap (a
+    // wrapped label is a cut one), and nothing else changes: the tap targets keep their 44 px block size, and the one
+    // hidden thing is the switcher's decorative globe
+    const band = /@media \(min-width: 960px\) and \(max-width: 1139\.98px\) \{\n([\s\S]*?)\n\}\n/.exec(own)?.[1];
+    assert(band, 'no tightened header band between 960 and 1140 px');
     const bandRule = (selector: string) => new RegExp(`\\n  ${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(`\n${band}`)?.[1];
     const px = (body: string | undefined, property: string) => Number(new RegExp(`(?:^|[\\s;])${property}:\\s*(\\d+)(?:px)?\\b`).exec(body ?? '')?.[1] ?? NaN);
     // [the band's selector, the wide header's rule it tightens, the property]: the footer's switcher shares the language rules, so the band's are the header's
