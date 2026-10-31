@@ -1,15 +1,23 @@
+import type { ReactNode } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { TELEGRAM_BOT_URL } from '@/src/site/config';
+import { OPEN_METEO_CREDIT, SOURCE_LINKS, camsNotice } from '@/src/site/data-sources';
 import { LanguageLinks } from './LanguageLinks';
 
 // The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Zmanim (spec
 // 2026-10-30-public-zmanim §6.3), Privacy, Terms, Cancel a payment (the Terms' cancellation part, Consumer Protection
-// Law s.14I) and Contact (the bot's feedback chat), the language switcher, "Made in Israel" and the years. The years
-// stay left to right in Hebrew (<bdi dir="ltr">).
+// Law s.14I) and Contact (the bot's feedback chat), the language switcher, the data sources and their licences (spec
+// 2026-10-31-open-meteo-replacement, decision 3), "Made in Israel" and the years. The years stay left to right in Hebrew
+// (<bdi dir="ltr">).
 
 /** The bot's feedback chat (its /start feedback deep link). */
 const CONTACT_URL = `${TELEGRAM_BOT_URL}?start=feedback`;
+
+/** The data-sources line's tags as links (the addresses live in src/site/data-sources.ts, not in this TSX). */
+const sourceLinks = Object.fromEntries(
+  Object.entries(SOURCE_LINKS).map(([tag, href]) => [tag, (chunks: ReactNode) => <a href={href}>{chunks}</a>]),
+);
 
 export async function SiteFooter({ locale, path }: { locale: string; path: string }) {
   const t = await getTranslations({ locale });
@@ -46,6 +54,12 @@ export async function SiteFooter({ locale, path }: { locale: string; path: strin
           </ul>
         </nav>
         <LanguageLinks locale={locale} path={path} names={names} label={t('site.language.choose')} />
+        <p className="site-footer-sources">
+          {t.rich('site.footer.dataSources', { omCredit: OPEN_METEO_CREDIT, ...sourceLinks })}{' '}
+          <span lang="en" dir="ltr">
+            {camsNotice(new Date().getFullYear())}
+          </span>
+        </p>
         <div className="site-footer-meta">
           <p>{t('site.footer.madeIn')}</p>
           <p>

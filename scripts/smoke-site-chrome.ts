@@ -11,7 +11,9 @@
 //    in the header, the menu and the footer alike): a view of a city page would otherwise prefetch it in the other two
 //    languages and spend the visitor's 60-a-minute allowance of the zmanim request limit.
 //  - H3 the footer: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment (the Terms' #cancel) and Contact (the
-//    bot's feedback chat), the switcher, "Made in Israel" and the years kept left to right in Hebrew.
+//    bot's feedback chat), the switcher, the data sources with their licence links and the two English credits the
+//    licences ask for (spec 2026-10-31-open-meteo-replacement, decision 3), "Made in Israel" and the years kept left to
+//    right in Hebrew.
 //  - H4 the phone menu in real React on the small fake DOM: closed at first; the button opens the app's sheet, focus
 //    moves into it, and Escape, the scrim, the Close button and a link (Plans, and Zmanim to another page) each close it with focus back on the button;
 //    the sheet holds the links and the switcher.
@@ -112,15 +114,20 @@ async function main() {
     }
   });
 
-  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment and Contact, the switcher, "Made in Israel", the years left to right; no emoji', async () => {
+  await check('H3 the footer in en, he and ru: How it works, Plans, Blog, Zmanim, Privacy, Terms, Cancel a payment and Contact, the switcher, the data sources (their licence links, Open-Meteo\'s credit and the Copernicus notice), "Made in Israel", the years left to right; no emoji', async () => {
     const year = new Date().getFullYear();
     for (const locale of LOCALES) {
       const html = await footer(locale, '/privacy');
       const site = messages[locale].site;
       const p = prefix(locale);
       const hrefs = attrs(html, 'a').map((a) => decode(attr(a, 'href') ?? ''));
-      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
+      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback',
+        'https://api.met.no/', 'https://creativecommons.org/licenses/by/4.0/', 'https://opendatacommons.org/licenses/odbl/1-0/', 'https://open-meteo.com/']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
       const text = textOf(html);
+      for (const credit of ['Weather data by Open-Meteo.com', `Contains modified Copernicus Atmosphere Monitoring Service information ${year}`, 'Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.']) assert(text.includes(credit), `${locale}: no "${credit}" in the footer`);
+      // The licences' words stay English, left to right, on every page; the line's tags all resolved into links
+      assert(html.includes('<span lang="en" dir="ltr">Contains modified Copernicus'), `${locale}: the Copernicus notice is not in its own English, left-to-right span`);
+      assert(!/[<>]\/?(met|nlod|ccby|cams|om|osm|odbl)>/.test(html) && !text.includes('{omCredit}'), `${locale}: a tag or a placeholder of the data-sources line shows`);
       for (const word of [site.nav.zmanim, site.footer.privacy, site.footer.terms, site.footer.cancel, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
       const cancel = attrs(html, 'a').findIndex((a) => decode(attr(a, 'href') ?? '') === `${p}/terms#cancel`);
       const link = html.split('<a ').slice(1)[cancel] ?? '';
@@ -206,6 +213,10 @@ async function main() {
     }
     const button = rule('.site-menu-button');
     assert(button && /inline-size:\s*44px/.test(button) && /block-size:\s*44px/.test(button), `the menu button: ${button}`);
+    // The data sources' links are inside a sentence (like .site-legal a): left inline, so the sentence stays whole (as flex boxes
+    // of 44 px they cut it into pieces on a phone, seen on a real render)
+    const sources = rule('.site-footer-sources a');
+    assert(sources && !/display:|min-block-size/.test(sources), `the data sources' links are not plain inline links: ${sources}`);
     assert(/@media \(max-width: 959\.98px\) \{\s*\.site-wide-only \{\s*display: none !important;/.test(own) && /@media \(min-width: 960px\) \{\s*\.site-phone-only \{\s*display: none !important;/.test(own), 'the swap');
     // The wide header holds four links, the language switcher and two buttons: between 960 and 1140 px it tightens its
     // gaps and inline padding so the row fits on one line (the Russian one is the longest: its "Как это работает" wrapped

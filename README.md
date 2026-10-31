@@ -29,7 +29,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **FamCal calendar, with Google as an optional connection** — everyone has the built-in recurring FamCal calendar; connect Google and its calendars appear beside the FamCal ones. Move an event between FamCal and Google from its Calendar row (whole series only). Copy any FamCal calendar you own to Google as its own "FamCal · <name>" calendar, kept up to date one way.
 - **Couple pairing** — invite a partner to share calendars, with an auditable pairing lifecycle.
 - **Multilingual** — Hebrew, English, and Russian throughout, including a right-to-left dashboard, Hebrew dates/holidays (Hebcal), and localized voice.
-- **Weather in context** — Open-Meteo forecasts woven into the daily briefing, with air-quality and regional dust-storm (Sharav) awareness.
+- **Weather in context** — MET Norway forecasts woven into the daily briefing, with Copernicus dust-storm and regional heatwave (sharav) awareness.
 - **Event reminders** — pre-event nudges that respect each event's own reminder settings, including separate start and pickup reminders for kids' events.
 - **Zmanim** — a reminder's time can be a zman plus an offset ("10 min before sof zman Shema (GRA)"), worked out daily at each person's own place, in the Sephardi (Zmanei Yosef), Ashkenazi or Chabad set; one switch pauses every scheduled message on Shabbat and Yom Tov. The bot makes the same reminder from a voice note or typed text ("remind me 10 minutes before sof zman Shema"); when the zman has several opinions in the person's set and none was said, the card offers a button per opinion with its time. For the Jewish calendar, a sun button in the home's header opens the day's zmanim at the person's place (with candle lighting and the end of Shabbat or Yom Tov on their days, and the halachic hour), a day at a time.
 - **Subscriptions and usage limits** — trials, plans, and usage counters billed in-app through Telegram Stars; one month per payment, never renewing by itself; every payment kept with its Telegram charge id, so an admin can refund any of the last 14 days from the admin panel.
@@ -57,7 +57,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Backend/API:** TypeScript on Node 22, Next.js route handlers, node-telegram-bot-api, WhatsApp Business Cloud API, node-cron.
 - **Data:** Prisma ORM, Neon Postgres, Upstash Redis (distributed locks, caching, rate limiting).
 - **AI:** Google Gemini behind a unified provider layer, for text, voice transcription, photo parsing, and TTS.
-- **Integrations:** Google Calendar API, Open-Meteo (weather/air quality), Hebcal (Hebrew dates/holidays, zmanim), `rrule` (RFC-5545 recurrence); GeoNames, OpenStreetMap and Copernicus DEM for the public pages' city table (built once, never called at runtime).
+- **Integrations:** Google Calendar API, MET Norway (forecast), Copernicus CAMS via Open-Meteo's open data on S3 (dust; read with `@openmeteo/file-reader`, GPL-2.0, server only), `geo-tz` (time zones, © OpenStreetMap contributors, ODbL), the Copernicus DEM GLO-90 (heights in Israel, `data/israel-heights-3s.i16.br`, rebuilt with `scripts/build-israel-heights.ts`), Hebcal (Hebrew dates/holidays, zmanim), `rrule` (RFC-5545 recurrence); GeoNames, OpenStreetMap and Copernicus DEM for the public pages' city table (built once, never called at runtime).
 - **Infra:** Railway hosting, node-cron for scheduled work, Sentry monitoring.
 
 ## 🚀 Getting started
@@ -137,6 +137,8 @@ npm run start
 ```
 
 Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Google refresh token) and `npm run setup-webhook` (register the Telegram webhook).
+
+Dev-only data scripts: `scripts/build-israel-heights.ts` (the height map), `scripts/build-city-heights.ts` (the public cities), `scripts/record-cams-fixture.ts` (the dust smoke's recording); none runs in CI. MET Norway and the dust data need no env var.
 
 ## 📦 Deployment
 

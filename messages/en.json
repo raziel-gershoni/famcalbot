@@ -1178,6 +1178,7 @@
       "today": "No events planned for today. Enjoy your free time!",
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
     },
+    "weatherCredit": "Weather: MET Norway · Dust: Copernicus",
     "weatherOnly": {
       "title": "Weather",
       "current": "Current",
@@ -1706,7 +1707,8 @@
       "cancel": "Cancel a payment",
       "contact": "Contact",
       "madeIn": "Made in Israel",
-      "copyright": "© 2025–{year} FamCal"
+      "copyright": "© 2025–{year} FamCal",
+      "dataSources": "Data sources: weather from <met>MET Norway</met> (<nlod>NLOD 2.0</nlod> and <ccby>CC BY 4.0</ccby>); dust from the <cams>Copernicus Atmosphere Monitoring Service</cams>, <om>{omCredit}</om> (<ccby>CC BY 4.0</ccby>); time zones © <osm>OpenStreetMap</osm> contributors (<odbl>ODbL</odbl>). FamCal changes the data: units, local times and daily figures."
     },
     "language": {
       "label": "Language",
@@ -1952,7 +1954,7 @@
               "**Sentry:** error reports.",
               "**Cloudflare:** our domain’s DNS, and forwarding the mail you send to {email} to our mailbox.",
               "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”. Your browser asks it directly for that, so, like any site you visit, OpenStreetMap sees your IP address and browser.",
-              "**Open-Meteo:** your place’s map position, to get the weather, air quality, the place’s height and its time zone.",
+              "**MET Norway:** your place’s map position, rounded to about 1 km, to get the weather.",
               "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. Like any site you visit, Telegram sees your IP address and browser."
             ],
             {
@@ -1962,7 +1964,7 @@
               "These services may store or process data in countries other than Israel.",
               "Google Gemini, Neon, Upstash, Railway, Sentry and Cloudflare handle data for us. Their terms commit them to protect it and to use it only to provide their service to us.",
               "Telegram, Meta and Google run their own apps under their own privacy policies.",
-              "OpenStreetMap and Open-Meteo get only what’s listed above."
+              "OpenStreetMap and MET Norway get only what’s listed above."
             ],
             {
               "title": "The people who run FamCal"
@@ -2788,7 +2790,7 @@
     "sources": {
       "title": "Sources",
       "geonames": "City positions: <link>GeoNames</link>, under CC BY 4.0.",
-      "osm": "Town outlines for the heights: © <link>OpenStreetMap</link> contributors.",
+      "osm": "Town outlines for the heights, and time zones: © <link>OpenStreetMap</link> contributors.",
       "copernicus": "Heights: Copernicus DEM GLO-90."
     }
   },

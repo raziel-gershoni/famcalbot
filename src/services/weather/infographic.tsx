@@ -226,6 +226,7 @@ function buildInfographicJsx(
   globalMax: number,
   conditionText: string,
   rainToday: string,
+  credit: string,
 ): React.ReactElement {
   const [gradFrom, gradTo] = getBackgroundGradient(config.weather.current.weatherCode);
   const isRTL = config.language === 'he';
@@ -539,6 +540,11 @@ function buildInfographicJsx(
             );
           })}
         </div>
+
+        {/* The data sources' credit (spec 2026-10-31-open-meteo-replacement, decision 3), small, at the foot */}
+        <div style={{ display: 'flex', justifyContent: 'center', fontSize: 22, opacity: 0.55, marginTop: 12 }}>
+          {isRTL ? toVisualOrder(credit) : credit}
+        </div>
       </div>
     </div>
   );
@@ -571,7 +577,7 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
 
     const conditionText = describeWeather(config.weather.current.weatherCode, t);
     const rainToday = formatRainAmount(config.weather.today.precipitation, t, config.language);
-    const jsx = buildInfographicJsx(config, rows, globalMin, globalMax, conditionText, rainToday);
+    const jsx = buildInfographicJsx(config, rows, globalMin, globalMax, conditionText, rainToday, t.weatherCredit);
     const satoriStartMs = Date.now();
     const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });
     console.log('[Infographic] Satori render:', { durationMs: Date.now() - satoriStartMs });

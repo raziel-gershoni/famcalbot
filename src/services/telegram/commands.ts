@@ -14,6 +14,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand, startTypingInterval } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages } from '../../lib/bot-messages';
+import { escapeHtml } from '../../utils/html';
 import { policyLinks, withPolicy } from '../../lib/plan-disclosure';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
@@ -408,7 +409,9 @@ export async function handleWeatherCommand(
           } : undefined,
         });
       } else if (result.brief) {
-        await messagingService.sendMessage(chatId, result.brief, { format: MessageFormat.HTML });
+        const t = await getBotMessages(userLanguage);
+        // The credit MET Norway's and Copernicus's licences ask for, under the text reply (the photo has it drawn)
+        await messagingService.sendMessage(chatId, `${result.brief}\n\n<i>${escapeHtml(t.weatherCredit)}</i>`, { format: MessageFormat.HTML });
       }
 
       // Voice with typing indicator. On Telegram, "recording" shows while the forecast is

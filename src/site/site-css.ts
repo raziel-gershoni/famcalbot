@@ -443,6 +443,19 @@ const CHROME_CSS = `
 .site-footer-meta p + p {
   margin-block-start: 2px;
 }
+.site-footer-sources {
+  margin-block-start: 16px;
+  color: var(--ch-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+/* Its links stay inline, in the sentence, as .site-legal a and .site-article a do (a link inside a sentence is not a 44 px
+   target: a block or a flex box would break the sentence into pieces) */
+.site-footer-sources a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 `;
 
 

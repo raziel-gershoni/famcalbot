@@ -137,11 +137,14 @@ const AIR: AirQualityData = { hourly: { time: ['2026-10-13T22:00'], pm10: [12], 
 const USER_TZ = 'America/New_York';
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 const AI_TEXT = '<b>Today & Tomorrow</b>\nGood evening Dana, a cloudy night ahead.';
+/** What the text reply carries under the brief: the credit MET Norway's and Copernicus's licences ask for (bot.weatherCredit, in the person's language). */
+const CREDIT = { en: 'Weather: MET Norway · Dust: Copernicus', he: 'מזג האוויר: MET Norway · אבק: Copernicus', ru: 'Погода: MET Norway · Пыль: Copernicus' };
+const creditFor = (language: keyof typeof CREDIT) => `\n\n<i>${CREDIT[language]}</i>`;
 
 let user: UserConfig;
-function makeUser(voice: boolean, admin = true): UserConfig {
+function makeUser(voice: boolean, admin = true, language = 'en'): UserConfig {
   return {
-    id: 7, telegramId: 5551, name: 'Dana', language: 'en', location: 'Brooklyn', culture: 'jewish', isAdmin: admin,
+    id: 7, telegramId: 5551, name: 'Dana', language, location: 'Brooklyn', culture: 'jewish', isAdmin: admin,
     voiceSummaryEnabled: voice, googleRefreshToken: 'refresh-token', calendarSource: 'GOOGLE', suspendedAt: null,
     calendarAssignments: [{ calendarId: 'primary', labels: ['primary'], name: 'Dana', color: '#000' }],
   } as unknown as UserConfig;
@@ -351,6 +354,7 @@ async function runWeather(opts: {
   infographic?: { kind: 'buffer' | 'null' | 'throw'; delayMs?: number };
   aiDelayMs?: number;
   aiText?: string;
+  language?: string;
   forecast?: { kind: 'real' } | { kind: 'reject'; delayMs: number };
 }): Promise<Run> {
   const { handleWeatherCommand } = await import('../src/services/telegram/commands');
@@ -372,7 +376,7 @@ async function runWeather(opts: {
   adminNotices = [];
   aiCalls = [];
   logs = [];
-  user = makeUser(opts.voice, opts.admin);
+  user = makeUser(opts.voice, opts.admin, opts.language);
   infographicMode = { kind: opts.infographic?.kind ?? 'buffer', delayMs: opts.infographic?.delayMs ?? 0 };
   aiDelayMs = opts.aiDelayMs ?? 0;
   aiText = opts.aiText ?? AI_TEXT;
@@ -463,7 +467,7 @@ async function main() {
     assert(sentBy('sendPhoto').length === 0, 'a photo went out');
     const messages = sentBy('sendMessage');
     assert(messages.length === 1, `text messages ${messages.length}`);
-    assert(messages[0].text === forecastCalls[0].result?.brief && messages[0].text!.startsWith(AI_TEXT), `reply ${JSON.stringify(messages[0].text)}`);
+    assert(messages[0].text === `${forecastCalls[0].result?.brief}${creditFor('en')}` && messages[0].text!.startsWith(AI_TEXT), `reply ${JSON.stringify(messages[0].text)}`);
     assert((messages[0].options as MessageOptions | undefined)?.format === MessageFormat.HTML, 'reply is not HTML');
     assert(voiceCalls.length === 0 && indicators('audio').length === 0, `voice ${voiceCalls.length}, audio indicators ${indicators('audio').length}`);
   });
@@ -477,7 +481,7 @@ async function main() {
     const forecast = forecastCalls[0].result!;
     const messages = sentBy('sendMessage');
     assert(sentBy('sendPhoto').length === 0, 'a photo went out');
-    assert(messages.length === 1 && messages[0].text === forecast.brief, `reply ${JSON.stringify(messages.map(m => m.text))}`);
+    assert(messages.length === 1 && messages[0].text === `${forecast.brief}${creditFor('en')}`, `reply ${JSON.stringify(messages.map(m => m.text))}`);
     assert(voiceCalls.length === 1 && voiceCalls[0].summary === forecast.detailed && forecast.detailed === AI_TEXT, `voice ${JSON.stringify(voiceCalls.map(v => v.summary))}`);
     assert(voiceCalls[0].kind === 'weather', `voice kind ${voiceCalls[0].kind}`);
     assert(errorsMatching('[Weather] Infographic generation failed').length === 1, 'infographic failure not logged');
@@ -575,6 +579,21 @@ async function main() {
     assert(sentBy('sendPhoto').length === 0 && sentBy('sendMessage').length === 1, `replies ${JSON.stringify(sentBy('sendMessage').map(r => r.text))}`);
     assert(sentBy('sendMessage')[0].text === errorReply, `the reply is ${JSON.stringify(sentBy('sendMessage')[0].text)}, not the error reply ${JSON.stringify(errorReply)}`);
     assert(adminNotices.length === 1 && adminNotices[0].commandName === 'Weather Command' && !/Brooklyn/i.test(`${adminNotices[0].message} ${adminNotices[0].context}`), `reported ${JSON.stringify(adminNotices)}`);
+  });
+
+  await check('12. the text reply carries the credit in the person\'s language (he, ru), once, under the brief, as HTML; the photo goes out with no text (its credit is drawn in the image)', async () => {
+    for (const language of ['he', 'ru'] as const) {
+      await runWeather({ voice: false, infographic: { kind: 'null' }, language });
+      await sleep(150);
+      const messages = sentBy('sendMessage');
+      assert(messages.length === 1 && forecastCalls.length === 1, `${language}: ${messages.length} replies, ${forecastCalls.length} forecasts`);
+      assert(messages[0].text === `${forecastCalls[0].result?.brief}${creditFor(language)}`, `${language}: reply ${JSON.stringify(messages[0].text)}`);
+      assert((messages[0].options as MessageOptions | undefined)?.format === MessageFormat.HTML, `${language}: the reply is not HTML`);
+      assert(messages[0].text!.split(CREDIT[language]).length === 2, `${language}: the credit is not there exactly once`);
+    }
+    await runWeather({ voice: false, language: 'he' });
+    await sleep(100);
+    assert(sentBy('sendPhoto').length === 1 && sentBy('sendMessage').length === 0, `photo path: ${sentBy('sendPhoto').length} photos, ${sentBy('sendMessage').length} texts`);
   });
 
   await check('nothing left running: every interval cleared, no network', async () => {

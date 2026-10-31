@@ -6,7 +6,7 @@
 export const SITE_URL = 'https://famcal.bot';
 
 /** The day the public pages' content last changed (yyyy-MM-dd): the sitemap's date for the landing, the blog and the zmanim pages. */
-export const SITE_CONTENT_UPDATED = '2026-10-30';
+export const SITE_CONTENT_UPDATED = '2026-11-01';
 
 /** The bot on Telegram: the start button opens the chat. */
 export const TELEGRAM_BOT_URL = 'https://t.me/family_calendar_telegram_bot';
