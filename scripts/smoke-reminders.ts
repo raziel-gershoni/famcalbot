@@ -189,6 +189,10 @@ let failingCalendars: string[] = [];
 let listFailingFor: number[] = [];
 /** When set, the access check throws with it (a missed feature-access key recomputed while the database is down). */
 let accessFailure: Error | null = null;
+/** The users whose access check throws (their cached answer ended, and the recompute can't reach the database). */
+let accessFailingFor: number[] = [];
+/** The users the plan denies reminders to, beside remindersAllowedByPlan for everyone. */
+let deniedUsers: number[] = [];
 
 /** A Google calendar event, as events.list returns it with singleEvents; `reminder` is its own popup lead(s). */
 type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; location?: string; reminder?: number | number[] };
@@ -334,9 +338,10 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
   // The rest is real: invalidateFeatureAccessCache (a plan regained) opens the event alerts gate.
   [`${SRC}/services/subscription-service.ts`]: real => fakeOver(real, {
-    checkFeatureAccess: async () => {
+    checkFeatureAccess: async (userId: number) => {
       if (accessFailure) throw accessFailure;
-      return { allowed: remindersAllowedByPlan };
+      if (accessFailingFor.includes(userId)) throw new Error('database down (smoke): computeFeatureAccess');
+      return { allowed: remindersAllowedByPlan && !deniedUsers.includes(userId) };
     },
     incrementUsage: async () => {},
   }),
@@ -440,6 +445,8 @@ function reset(row: Partial<UserRow> & { id: number }) {
   failingCalendars = [];
   listFailingFor = [];
   accessFailure = null;
+  accessFailingFor = [];
+  deniedUsers = [];
   afterCacheRead = null;
   userRows = [{
     telegramId: BigInt(1000 + row.id),
@@ -1557,6 +1564,43 @@ async function main() {
     assert(captured.filter(c => c === 'event-alerts-gate-held').length === 1 && captured.filter(c => c === 'event-alerts-gate-hold-dropped').length === 1, `captured ${captured.join(', ')}`);
     assert((await passAt(at('2026-10-13 14:00', IL))).includes('fetchEventsInCalendars'), 'the :00 pass after the outage did not read');
     assert((await passAt(at('2026-10-13 14:05', IL))).length === 0, 'the clean pass did not close the gate');
+  });
+
+  await check('gate: the hour of an outage is counted from its start, not per user: a denied user whose recompute starts throwing at 13:00 does not keep it open past 13:00', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    // The database is down from 12:00: user 50's FamCal read fails; user 51 is denied by a cached answer (no read, no failure).
+    storeFailure = new Error('database down (smoke)');
+    deniedUsers = [51];
+    try {
+      const firstHour = await quietReadingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 13:00', IL));
+      assert(firstHour.length === 12, `of the 12 passes from 12:00 to 12:55, ${firstHour.length} read`);
+      // 51's cached denial ended at 12:59: its recompute throws from the 13:00 pass on.
+      accessFailingFor = [51];
+      assert((await quietReadingPasses(at('2026-10-13 13:00', IL), at('2026-10-13 13:05', IL))).length === 1, 'the 13:00 pass did not read');
+      const after = await quietReadingPasses(at('2026-10-13 13:05', IL), at('2026-10-13 14:00', IL));
+      assert(after.length === 0, `the gate kept holding past the outage's hour for a user who failed later: ${after.map(r => r.slice(0, 5)).join(' ')}`);
+    } finally {
+      storeFailure = null;
+    }
+  });
+
+  await check('gate: a user who is neither failing nor read (denied) keeps no stale failure clock: failing again later, they hold the gate their full 15 minutes', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    failingCalendars = ['cal50'];
+    assert((await quietReadingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 12:05', IL))).length === 1, 'the 12:00 pass did not read');
+    // 50 is denied from 12:05 (no read, no failure); the 12:05 pass still reads (the 12:00 failure held the gate), then closes it.
+    failingCalendars = [];
+    deniedUsers = [50];
+    assert((await quietReadingPasses(at('2026-10-13 12:05', IL), at('2026-10-13 12:10', IL))).length === 1, 'the 12:05 pass did not read');
+    // Allowed again at 13:00 (the ceiling read), and its read fails once: a fresh clock, so 13:05 still reads.
+    deniedUsers = [];
+    failingCalendars = ['cal50'];
+    const again = await quietReadingPasses(at('2026-10-13 12:10', IL), at('2026-10-13 13:10', IL));
+    assert(again.length === 2 && again[0].startsWith('13:00') && again[1].startsWith('13:05'), `passes that read: ${again.map(r => r.slice(0, 5)).join(' ') || '(none)'}`);
   });
 
   await check('gate: a cache write that lands right after the pass read the cached users (a settings save) keeps that pass from closing the gate', async () => {

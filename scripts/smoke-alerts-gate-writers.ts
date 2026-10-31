@@ -210,6 +210,8 @@ async function runAudit(): Promise<void> {
     assert(/const famcal = shouldReadFamcal\(tick\);\n  const famcalToken = famcal \? startFamcalPass\(\) : 0;/.test(handlers), 'handleReminders does not take the gate once per pass');
     assert(/processUserReminders\(user, windowMinutes, \{ famcal \}\)/.test(handlers), 'the users are not processed with the gate\'s answer');
     assert(/setNextFamcalAlert\([^;]*famcalToken\)/.test(handlers), 'the gate is not closed with the pass\'s token');
+    const stale = pass.indexOf('if (famcal && !isLatestFamcalPass(famcalToken))');
+    assert(stale >= 0 && stale < pass.indexOf('settleFamcalFailures(') && stale < pass.indexOf('holdReportDue('), 'an older overlapping pass settles the failures or uses up a report');
     assert(/'event-alerts-gate-held'/.test(handlers), 'a held gate is not captured');
   });
 }
@@ -280,6 +282,25 @@ async function runGate(): Promise<void> {
     sync.__resetSyncGateForTests();
   });
 
+  await check('alerts: one clock for an incident with no clean read (a later failure does not restart it), each user\'s own 15 minutes beside a clean read, and no clock kept for a user who is not failing', () => {
+    alerts.__resetEventAlertsGateForTests();
+    const t = (hhmm: string) => iso(`2026-10-31T${hhmm}:00.000Z`);
+    // Everyone fails from 12:00; user 2 starts failing at 12:30: the hour still ends at 13:00 for both.
+    assert(alerts.settleFamcalFailures({ failed: [1], ok: [] }, t('12:00')).held.join() === '1', '12:00');
+    const later = alerts.settleFamcalFailures({ failed: [1, 2], ok: [] }, t('12:30'));
+    assert(later.held.join() === '1,2' && later.stopsHoldingAt?.toISOString() === t('13:00').toISOString(), `12:30 ${JSON.stringify(later)}`);
+    const hour = alerts.settleFamcalFailures({ failed: [1, 2], ok: [] }, t('13:00'));
+    assert(hour.held.length === 0 && hour.dropped.join() === '1,2', `13:00 ${JSON.stringify(hour)}`);
+    // A clean read ends the incident; user 2's own clock (12:30) then counts its 15 minutes, user 1 is not failing and is cleared.
+    const clean = alerts.settleFamcalFailures({ failed: [2], ok: [3] }, t('13:05'));
+    assert(clean.incidentSince === null && clean.dropped.join() === '2', `13:05 ${JSON.stringify(clean)}`);
+    const fresh = alerts.settleFamcalFailures({ failed: [1], ok: [3] }, t('13:10'));
+    assert(fresh.held.join() === '1' && fresh.stopsHoldingAt?.toISOString() === t('13:25').toISOString(), `13:10, user 1 failing afresh: ${JSON.stringify(fresh)}`);
+    const restarted = alerts.settleFamcalFailures({ failed: [1], ok: [] }, t('13:15'));
+    assert(restarted.incidentSince?.toISOString() === t('13:15').toISOString() && restarted.held.join() === '1', `a new incident after a clean read: ${JSON.stringify(restarted)}`);
+    alerts.__resetEventAlertsGateForTests();
+  });
+
   await check('alerts: a fresh process reads at once; only the latest pass that read FamCal may close the gate (a stale token cannot)', () => {
     alerts.__resetEventAlertsGateForTests();
     const t = iso('2026-10-31T12:00:00.000Z');
@@ -292,6 +313,7 @@ async function runGate(): Promise<void> {
     alerts.setNextFamcalAlert(null, t, first);
     const state = (globalThis as unknown as { __eventAlertsGate: { nextAt: number } }).__eventAlertsGate;
     assert(state.nextAt === 0, `a stale pass closed the gate until ${new Date(state.nextAt).toISOString()}`);
+    assert(!alerts.isLatestFamcalPass(first) && alerts.isLatestFamcalPass(second), 'isLatestFamcalPass does not name the latest pass');
     alerts.setNextFamcalAlert(iso('2026-10-31T12:15:00.000Z'), t, second);
     assert(!alerts.shouldReadFamcal(iso('2026-10-31T12:14:59.999Z')) && alerts.shouldReadFamcal(iso('2026-10-31T12:15:00.000Z')), 'the latest pass did not close it until its next alert');
     alerts.__resetEventAlertsGateForTests();
