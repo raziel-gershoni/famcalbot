@@ -58,12 +58,12 @@ Module.registerHooks({
   load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
     const file = url.startsWith('file:') ? fileURLToPath(url.split('?')[0]) : '';
     if (!file.includes(`${path.sep}@sentry${path.sep}nextjs${path.sep}`)) return nextLoad(url, context);
-    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); };', shortCircuit: true };
+    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); }; export const httpIntegration = (o) => ({ name: "Http", options: o });', shortCircuit: true };
   },
 });
 const sentryEntry = nodeRequire.resolve('@sentry/nextjs');
 const sentryStub = new Module(sentryEntry);
-Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); } } });
+Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); }, httpIntegration: (o: Row) => ({ name: 'Http', options: o }) } });
 Module._cache[sentryEntry] = sentryStub;
 
 // ---- Network guard: every https.request is recorded and refused ----

@@ -15,7 +15,8 @@
 // #8 to #10: Sentry gets error reports and nothing else, from every surface (the privacy policy says error reports).
 // No init traces (no tracesSampleRate or tracesSampler, in any source file), none sends client reports, the browser
 // drops the SDK's tracer and session tracker (BrowserTracing, BrowserSession: the names come from the SDK itself), and
-// the server counts no request into a session.
+// the server drops the process session and counts no request into a session. smoke-sentry-envelopes.ts runs the real
+// server SDK and checks that only error events leave it.
 //
 // Run: npx tsx scripts/smoke-sentry-scrub.ts
 
@@ -266,7 +267,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#9 the three inits trace nothing, send no client reports or replays, the browser\'s integrations drop its tracer and sessions, and the server counts no request into a session', async () => {
+  await check('#9 the three inits trace nothing, send no client reports or replays, the browser\'s integrations drop its tracer and sessions, and the server\'s drop the process session and count no request into a session', async () => {
     const [server, edge, client] = inits;
     assert(server && edge && client, `Sentry.init calls: ${inits.length}`);
     const problems: string[] = [];
@@ -275,9 +276,18 @@ async function main() {
       if (opts.sendClientReports !== false) problems.push(`the ${label} init's sendClientReports ${show(opts.sendClientReports)}`);
     }
     if (client.integrations !== (await load('src/lib/sentry-errors-only.ts')).browserIntegrations) problems.push('the browser init\'s integrations are not browserIntegrations');
-    const http = Array.isArray(server.integrations) ? server.integrations.find((i: Row) => i.name === 'Http') : undefined;
-    if (!http) problems.push(`the server init has no Http integration: ${show(server.integrations)}`);
-    else if (http.options?.trackIncomingRequestsAsSessions !== false || http.options?.disableIncomingRequestSpans !== true) problems.push(`the server's Http integration ${show(http.options)}`);
+    // The server's list from the SDK's own defaults (@sentry/nextjs hands its init @sentry/node's, with its own Http)
+    if (typeof server.integrations !== 'function') problems.push(`the server init's integrations are not a function: ${show(server.integrations)}`);
+    else {
+      const defaults = nodeRequire('@sentry/node').getDefaultIntegrations({}) as Row[];
+      const list = server.integrations(defaults) as Row[];
+      const names = list.map((i) => i.name);
+      const want = [...defaults.map((i) => i.name).filter((name) => name !== 'Http' && name !== 'ProcessSession'), 'Http'];
+      if (!defaults.some((i) => i.name === 'ProcessSession')) problems.push('the SDK\'s server defaults no longer hold ProcessSession: recheck what they send');
+      if (show(names) !== show(want)) problems.push(`the server's integrations ${show(names)}, want ${show(want)}`);
+      const http = list.find((i) => i.name === 'Http');
+      if (http?.options?.trackIncomingRequestsAsSessions !== false || http?.options?.disableIncomingRequestSpans !== true) problems.push(`the server's Http integration ${show(http?.options)}`);
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 

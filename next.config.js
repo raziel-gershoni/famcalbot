@@ -47,6 +47,8 @@ const sentryWebpackPluginOptions = {
   // Upload source maps to Sentry (only in production)
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
+  // Nothing is traced (src/lib/sentry-errors-only.ts), so instrumentation-client.ts exports no onRouterTransitionStart
+  suppressOnRouterTransitionStartWarning: true,
 };
 
 const sentryOptions = {

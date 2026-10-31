@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { serverIntegrations } from './src/lib/sentry-errors-only';
 import { scrubServerBreadcrumb, scrubServerEvent, scrubServerTransaction } from './src/lib/sentry-scrub';
 
 Sentry.init({
@@ -8,9 +9,9 @@ Sentry.init({
   enabled: process.env.NODE_ENV === 'production',
 
   // Error reports only (src/lib/sentry-errors-only.ts; the Privacy Policy says error reports): no tracesSampleRate or
-  // tracesSampler, no session aggregate of the requests (the Http integration is the SDK's own, as @sentry/nextjs sets
-  // it up, with sessions off), no count-only client reports
-  integrations: [Sentry.httpIntegration({ disableIncomingRequestSpans: true, trackIncomingRequestsAsSessions: false })],
+  // tracesSampler, no session (the SDK's defaults without ProcessSession, and the Http integration as @sentry/nextjs
+  // sets it up, with request sessions off), no count-only client reports
+  integrations: serverIntegrations(Sentry.httpIntegration({ disableIncomingRequestSpans: true, trackIncomingRequestsAsSessions: false })),
   sendClientReports: false,
 
   // Set environment

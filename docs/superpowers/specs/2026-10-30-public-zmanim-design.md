@@ -252,7 +252,7 @@ Five short changes keep the texts true for a public tool. They go into all three
 
 **Sentry on the public pages (code, not text).** The site's pages already load Sentry's browser SDK, which sent a performance trace with the page address on 1 load in 100, and a count-only client report when the tab closed. The policy says Sentry gets error reports. So on every public site page (`<html data-surface="site">`, set by the site layout), the browser SDK samples no traces and sends no client reports, and the server samples no trace for a zmanim page request. Sentry then gets only error reports from these pages, as the policy says. The Mini App and the API keep their current 1% sampling.
 
-*Amended 2026-10-31:* on the owner's "decide on sentry", every surface now sends Sentry error reports only (`src/lib/sentry-errors-only.ts`): no init traces, none sends client reports, the browser drops the SDK's tracer and session tracker, and the server counts no request into a session. The `data-surface` mark is gone, as nothing reads it.
+*Amended 2026-10-31:* on the owner's "decide on sentry", every surface now sends Sentry error reports only (`src/lib/sentry-errors-only.ts`): no init traces, none sends client reports, the browser drops the SDK's tracer and session tracker, and the server sends no process session and counts no request into a session. The `data-surface` mark is gone, as nothing reads it.
 
 There are no new cookies, no storage and no new processor: the city and height data are committed files, not services. 6c rewrites the texts for accounts without a messenger.
 
