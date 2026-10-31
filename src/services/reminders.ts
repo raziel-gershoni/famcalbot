@@ -178,11 +178,13 @@ export interface DueAlerts {
   due: DueReminder[];
   /** The earliest FamCal alert at or after the window's end, when FamCal was read; null for none. */
   nextFamcalAt: Date | null;
-  /** FamCal was asked and its half failed: the event alerts gate must stay open. */
+  /** A FamCal read failed (the calendars, or the FamCal half of the fetch): the event alerts gate stays open. */
   famcalFailed: boolean;
+  /** FamCal was read for this user and nothing failed: the database answered (settleFamcalFailures). */
+  famcalRead: boolean;
 }
 
-const noAlerts = (): DueAlerts => ({ due: [], nextFamcalAt: null, famcalFailed: false });
+const noAlerts = (famcalRead = false): DueAlerts => ({ due: [], nextFamcalAt: null, famcalFailed: false, famcalRead });
 
 /**
  * Calculate due reminders for a user within a time window
@@ -199,22 +201,35 @@ export async function getDueReminders(
   options: { famcal?: boolean } = {}
 ): Promise<DueAlerts> {
   const famcal = options.famcal ?? true;
+  // The Google choices (pure, from the cached user), never a FamCal id: all a closed gate reads,
+  // and what is left when the calendars can't be read.
+  const googleOnly = () => liveGoogleChoices(user).filter(a => !isFamcalId(a.calendarId));
   let assignments: CalendarAssignment[];
+  let calendarsFailed = false;
   if (famcal) {
-    // One read of the user's calendars: the FamCal ones they see and the Google choices. With
-    // none at all, hasUsableCalendar makes the FamCal main (lazily), and the list is read again.
-    assignments = await getCalendarAssignmentsForUser(user);
-    if (assignments.length === 0) {
-      if (!(await hasUsableCalendar(user))) return noAlerts();
+    try {
+      // One read of the user's calendars: the FamCal ones they see and the Google choices. With
+      // none at all, hasUsableCalendar makes the FamCal main (lazily), and the list is read again.
       assignments = await getCalendarAssignmentsForUser(user);
+      if (assignments.length === 0) {
+        if (!(await hasUsableCalendar(user))) return noAlerts(true);
+        assignments = await getCalendarAssignmentsForUser(user);
+      }
+    } catch (error) {
+      // The database did not answer (an outage, a failed wake): the FamCal half is failed, and
+      // the Google alerts still go out, as the split fetch keeps them through a FamCal failure.
+      console.error(`[Reminders] user ${user.id}: the calendars could not be read; Google alerts only this run:`, error);
+      captureError(error, 'reminders-calendars-read', { user_id: user.id }, 'warning');
+      calendarsFailed = true;
+      assignments = googleOnly();
     }
   } else {
-    // The gate is closed: the Google choices only (pure, from the cached user), never a FamCal id.
-    assignments = liveGoogleChoices(user).filter(a => !isFamcalId(a.calendarId));
+    // The gate is closed: the Google choices only.
+    assignments = googleOnly();
   }
   const calendarIds = assignments.map(a => a.calendarId);
   if (calendarIds.length === 0) {
-    return noAlerts();
+    return { ...noAlerts(famcal && !calendarsFailed), famcalFailed: calendarsFailed };
   }
   const famcalAsked = calendarIds.some(isFamcalId);
 
@@ -239,7 +254,7 @@ export async function getDueReminders(
   // Split by calendar id (spec §4 Providers): a failed half is logged and reported by the
   // fetch itself, and the other half's alerts still go out (a Google outage keeps FamCal's).
   let events: CalendarEvent[];
-  let famcalFailed = false;
+  let famcalFailed = calendarsFailed;
   try {
     const fetched = await fetchEventsInRange(
       user,
@@ -248,12 +263,12 @@ export async function getDueReminders(
       new Date(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000 + reach)
     );
     events = fetched.events;
-    famcalFailed = fetched.failed.includes('famcal');
+    famcalFailed ||= fetched.failed.includes('famcal');
     if (fetched.failed.length > 0) console.warn(`[Reminders] user ${user.id}: no alerts this run from ${fetched.failed.join(', ')} (the fetch failed)`);
   } catch (error) {
     console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
     captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
-    return { due: [], nextFamcalAt: null, famcalFailed: famcalAsked };
+    return { due: [], nextFamcalAt: null, famcalFailed: calendarsFailed || famcalAsked, famcalRead: false };
   }
 
   let nextFamcalAt: Date | null = null;
@@ -296,7 +311,7 @@ export async function getDueReminders(
     }
   }
 
-  return { due: dueReminders, nextFamcalAt: famcal ? nextFamcalAt : null, famcalFailed };
+  return { due: dueReminders, nextFamcalAt: famcal ? nextFamcalAt : null, famcalFailed, famcalRead: famcal && !famcalFailed };
 }
 
 /**
@@ -455,6 +470,7 @@ export interface UserAlertsResult {
   sent: number;
   nextFamcalAt: Date | null;
   famcalFailed: boolean;
+  famcalRead: boolean;
 }
 
 /**
@@ -468,12 +484,14 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
   const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
     // If user had reminders enabled, send one-time downgrade notification
-    // Shabbat and Yom Tov (the pause): the notice waits; it is not marked sent, so the next run after the window sends it.
-    if (user.remindersEnabled && user.telegramId && !(await isPaused(user, new Date(), 'reminders downgrade notice'))) {
+    if (user.remindersEnabled && user.telegramId) {
       const redisKey = REDIS_KEYS.reminderDowngradeNotified(user.id);
       try {
         const alreadyNotified = await redis.get(redisKey);
-        if (!alreadyNotified) {
+        // Shabbat and Yom Tov (the pause): the notice waits; it is not marked sent, so the next run after the window sends it.
+        // Asked only for a notice still to send: the pause may fill the person's place (a database read), and a
+        // pass for a user who was told already must read none.
+        if (!alreadyNotified && !(await isPaused(user, new Date(), 'reminders downgrade notice'))) {
           const { sendReminderDowngradeNotification } = await import('./telegram');
           await sendReminderDowngradeNotification(user.telegramId, user.language || 'en');
           await redis.set(redisKey, '1', { ex: 30 * 24 * 60 * 60 }); // 30-day TTL
@@ -486,11 +504,11 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
     }
     // No alert of theirs goes out, so none is waited for. Access regained clears the cache, which
     // opens the gate (invalidateFeatureAccessCache), and the cached answer ends just before a :00.
-    return { sent: 0, nextFamcalAt: null, famcalFailed: false };
+    return { sent: 0, nextFamcalAt: null, famcalFailed: false, famcalRead: false };
   }
 
   const timezone = await resolveUserTimezone(user);
-  const { due: dueReminders, nextFamcalAt, famcalFailed } = await getDueReminders(user, windowMinutes, timezone, options);
+  const { due: dueReminders, nextFamcalAt, famcalFailed, famcalRead } = await getDueReminders(user, windowMinutes, timezone, options);
   let sentCount = 0;
 
   for (const reminder of dueReminders) {
@@ -502,5 +520,5 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
     if (success) sentCount++;
   }
 
-  return { sent: sentCount, nextFamcalAt, famcalFailed };
+  return { sent: sentCount, nextFamcalAt, famcalFailed, famcalRead };
 }

@@ -36,7 +36,7 @@ New `src/utils/pass-gate.ts`, holding exactly the logic of `due-gate.ts`/`gate.t
 New `src/services/event-alerts-gate.ts` = `createPassGate('__eventAlertsGate')`:
 - `openEventAlertsGate()`
 - `shouldReadFamcal(now)`
-- `setNextFamcalAlert(next, now, token)`: `next` is the earliest FamCal alert time minus the window, so the tick whose window holds it opens.
+- `setNextFamcalAlert(next, now, token)`: `next` is the earliest FamCal alert time minus the window, plus 1 ms, so the tick whose window holds it opens. (Review I1: without the 1 ms, the tick at exactly alert − window, whose window [alert − 5, alert) misses the alert, opened too and read for nothing, about 5 extra awake minutes per alert.)
 - `__resetEventAlertsGateForTests()`
 
 Only the latest open pass may close the gate: it keeps a start token on `globalThis.__eventAlertsCron`, the way handleNativeReminders uses startedAt.
@@ -45,8 +45,11 @@ Only the latest open pass may close the gate: it keeps a start token on `globalT
 In `handlers.ts handleReminders`:
 - `famcal = shouldReadFamcal(tick)`, taken once per pass.
 - Each user goes through `processUserReminders(user, window, { famcal })`, which returns `{ sent, nextFamcalAt, famcalFailed }`.
-- After the loop, only if `famcal && !anyFamcalFailed && cachedUsers.length > 0`: `setNextFamcalAlert(min nextFamcalAt, tick, token)`.
-- No users cached, a failed FamCal half, or a user who threw: the gate stays open, so the next tick reads again. The failure is already logged and captured (`calendar-provider-fetch`, `cron-reminders-process-user`). When the gate is held for that reason, also send one `captureError('event-alerts-gate-held', …, 'warning')`.
+- After the loop, only if `famcal` and no user holds the gate (below) and `cachedUsers.length > 0`: `setNextFamcalAlert(min nextFamcalAt − window + 1 ms, tick, token)`.
+- No users cached, a failed FamCal read (the calendars or the FamCal half), or a user who threw: the gate stays open, so the next tick reads again. The failure is already logged and captured (`reminders-calendars-read`, `calendar-provider-fetch`, `cron-reminders-process-user`). When the gate is held for that reason, also send `captureError('event-alerts-gate-held', …, 'warning')`, at most once an hour.
+- A user who keeps failing does not hold the gate forever (review I2): their first failure starts a clock on `globalThis.__eventAlertsCron`, their next clean read clears it, and after 15 minutes they stop holding when another user's FamCal read succeeded in the same pass (`event-alerts-gate-hold-dropped`, at most once an hour). When every read fails (the database is down, which costs no compute), every failure keeps holding.
+- The gate is taken before the cached users are read (review M1), so a cache write in between opens it for the next pass.
+- On an open pass, a failed calendar read (`getCalendarAssignmentsForUser`) is caught: captured, the FamCal half counts as failed, and the user's Google alerts still go out (review M8).
 
 In `reminders.ts getDueReminders`:
 - Open: as today, `hasUsableCalendar` then the union list (reuse the list from hasUsableCalendar instead of reading it twice), and the fetch range end extended to `windowEnd + MAX_LEAD + (nextTopOfHour - now)`.
@@ -57,7 +60,7 @@ In `reminders.ts getDueReminders`:
 ### 3. What opens the gate (after commit)
 1. `event-store.ts`: `createNativeEvent`, `createNativeSeries`, `updateNativeEvent`, `deleteNativeEvent` open it at their end, for both kinds (harmless for reminders). Every FamCal event writer goes through these, calendar-move included.
 2. `app/api/native-calendars/[id]/route.ts` PATCH: a kids label adds pickups; privacy shared shows the partner's events.
-3. `pairing-service.ts acceptInvite` (and `unlink`, for uniformity).
+3. `pairing-service.ts acceptInvite` and `unlink`, for uniformity: the pass reads the pairing from the reminder cache, so it sees a new one at the next hourly sync, which opens the gate itself (item 5).
 4. `account-linking.ts afterMerge`, next to invalidateDueGate and openSyncGate.
 5. `reminder-cache.ts updateUserInCache`: covers the settings saves (default minutes, pickup switch, alerts on), OAuth, select-calendars and the merge.
    `syncReminderCache` opens only when an entry was added, or its `(id, pairingId, defaultReminderMinutes, pickupRemindersEnabled)` changed against the previous cache. This covers a pairing, an unsuspend or a reachable-again user that reaches the cache only through the hourly rebuild, without forcing a :05 read every hour.

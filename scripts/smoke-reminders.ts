@@ -64,8 +64,18 @@ globalThis.Date = ClockDate as unknown as DateConstructor;
 
 /** Redis as Upstash behaves: values round-trip through JSON. */
 const store = new Map<string, string>();
+/** Called once, right after the next read of the reminder cache returns (a write landing just then). */
+let afterCacheRead: (() => void) | null = null;
 const fakeRedis = {
-  get: async (key: string) => (store.has(key) ? JSON.parse(store.get(key)!) : null),
+  get: async (key: string) => {
+    const value = store.has(key) ? JSON.parse(store.get(key)!) : null;
+    if (key === 'reminders:users:v2' && afterCacheRead) {
+      const hook = afterCacheRead;
+      afterCacheRead = null;
+      hook();
+    }
+    return value;
+  },
   set: async (key: string, value: unknown) => {
     store.set(key, JSON.stringify(value));
     return 'OK';
@@ -173,6 +183,12 @@ const recordingPrisma = new Proxy(fakePrisma as Record<string, unknown>, {
 const storeCalls: string[] = [];
 /** When set, the FamCal events read fails with it (the FamCal half of the split fetch fails). */
 let storeFailure: Error | null = null;
+/** The FamCal calendars whose events read fails (one user's FamCal half fails, the others' do not). */
+let failingCalendars: string[] = [];
+/** The users whose calendar list read fails (the store's first query: listVisibleCalendars). */
+let listFailingFor: number[] = [];
+/** When set, the access check throws with it (a missed feature-access key recomputed while the database is down). */
+let accessFailure: Error | null = null;
 
 /** A Google calendar event, as events.list returns it with singleEvents; `reminder` is its own popup lead(s). */
 type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; location?: string; reminder?: number | number[] };
@@ -318,12 +334,16 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
   // The rest is real: invalidateFeatureAccessCache (a plan regained) opens the event alerts gate.
   [`${SRC}/services/subscription-service.ts`]: real => fakeOver(real, {
-    checkFeatureAccess: async () => ({ allowed: remindersAllowedByPlan }),
+    checkFeatureAccess: async () => {
+      if (accessFailure) throw accessFailure;
+      return { allowed: remindersAllowedByPlan };
+    },
     incrementUsage: async () => {},
   }),
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, {
     listVisibleCalendars: async (userId: number) => {
       storeCalls.push('listVisibleCalendars');
+      if (listFailingFor.includes(userId)) throw new Error('database down (smoke): listVisibleCalendars');
       return nativeCalendars
         .filter(c => !c.visibleTo || c.visibleTo.includes(userId))
         .map(({ visibleTo: _visibleTo, privacy: _privacy, ...c }) => ({ ...c, color: '#000000', personName: null, personEnglishName: null, personGender: null, rules: [] }));
@@ -332,6 +352,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     fetchEventsInCalendars: async (cuids: string[], range: { from: Date; to: Date }) => {
       storeCalls.push('fetchEventsInCalendars');
       if (storeFailure) throw storeFailure;
+      if (cuids.some(c => failingCalendars.includes(c))) throw new Error('database down (smoke): fetchEventsInCalendars');
       return nativeEvents
         .filter(e => !e.isDeleted && cuids.includes(e.calendarId) && e.startsAt < range.to && (e.startsAt >= range.from || e.endsAt > range.from))
         .map(e => ({
@@ -416,6 +437,10 @@ function reset(row: Partial<UserRow> & { id: number }) {
   nativeCalendars = [];
   nativeEvents = [];
   pairings = [];
+  failingCalendars = [];
+  listFailingFor = [];
+  accessFailure = null;
+  afterCacheRead = null;
   userRows = [{
     telegramId: BigInt(1000 + row.id),
     googleRefreshToken: 'refresh-token',
@@ -1193,6 +1218,15 @@ async function main() {
   // cached user on every run, so it never slept; now the FamCal half is read only while the gate is open.
 
   const meCal = 'me@group.calendar.google.com';
+  /** Passes every 5 minutes over [from, to): "HH:mm calls" for each that made a Prisma or store call. */
+  async function readingPasses(from: Date, to: Date): Promise<string[]> {
+    const out: string[] = [];
+    for (let t = from.getTime(); t < to.getTime(); t += 5 * 60_000) {
+      const calls = await passAt(new RealDate(t));
+      if (calls.length > 0) out.push(`${formatInTimeZone(new RealDate(t), IL, 'HH:mm')} ${[...new Set(calls)].join(', ')}`);
+    }
+    return out;
+  }
   /** One 5-minute pass at `when`, and the Prisma and store calls it made. */
   async function passAt(when: Date): Promise<string[]> {
     const p = prismaCalls.length;
@@ -1228,7 +1262,11 @@ async function main() {
     }
     assert(reads.length === 0, `idle passes that read: ${reads.join(' | ')}`);
     assert(googleAsked === 11, `Google asked in ${googleAsked} of the 11 idle passes`);
-    await runTicks(handlers, at('2026-10-13 13:00', IL), at('2026-10-13 13:30', IL));
+    // 13:00, the hour's ceiling, reads; then only the pass whose window holds 13:20 reads (13:20), not the one before it (13:15).
+    assert((await passAt(at('2026-10-13 13:00', IL))).includes('listVisibleCalendars'), 'the 13:00 pass did not read');
+    const before = await readingPasses(at('2026-10-13 13:05', IL), at('2026-10-13 13:20', IL));
+    assert(before.length === 0, `passes before the 13:20 alert read: ${before.join(' | ')}`);
+    assert((await passAt(at('2026-10-13 13:20', IL))).includes('fetchEventsInCalendars'), 'the 13:20 pass did not read');
     assert(sentLines(IL).join(' | ') === '12:30 🤖 Auto-Reminder: Soccer | 13:20 🤖 Auto-Reminder: Dentist', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
   });
 
@@ -1385,6 +1423,119 @@ async function main() {
     assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'a pass that read without a failure did not close the gate');
   });
 
+  await check('gate: a pass that throws for a user (the access check, recomputed while the database is down) holds it through the handler\'s catch alone; the next pass reads, a clean one closes it', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    accessFailure = new Error('database down (smoke): computeFeatureAccess');
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await passAt(at('2026-10-13 12:00', IL));
+    } finally {
+      console.error = error;
+      accessFailure = null;
+    }
+    assert(captured.includes('cron-reminders-process-user') && captured.includes('event-alerts-gate-held'), `captured ${captured.join(', ') || '(nothing)'}`);
+    assert((await passAt(at('2026-10-13 12:05', IL))).includes('listVisibleCalendars'), 'the pass after the throw did not read FamCal');
+    assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'a pass that read without a failure did not close the gate');
+  });
+
+  await check('gate: the calendars of a Google user can\'t be read (the store\'s first query fails): captured, the gate stays open, and their Google alert still goes out', async () => {
+    reset({ id: 51, googleRefreshToken: 'refresh-token', calendarSource: 'GOOGLE', calendarAssignments: [{ calendarId: meCal, labels: [], name: 'Me', color: '#00f' }] });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(51), IL);
+    nativeCalendars = [{ id: 'cal51', name: 'Ron', labels: ['yours'], ownerUserId: 51 }];
+    googleEvents = [{ calendarId: meCal, id: 'g51', summary: 'Soccer', start: at('2026-10-13 12:15', IL), end: at('2026-10-13 13:00', IL) }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    listFailingFor = [51];
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await passAt(at('2026-10-13 12:00', IL));
+    } finally {
+      console.error = error;
+      listFailingFor = [];
+    }
+    assert(sentLines(IL).join(' | ') === '12:00 🤖 Auto-Reminder: Soccer', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+    assert(captured.includes('reminders-calendars-read') && captured.includes('event-alerts-gate-held') && !captured.includes('cron-reminders-process-user'), `captured ${captured.join(', ') || '(nothing)'}`);
+    assert((await passAt(at('2026-10-13 12:05', IL))).includes('listVisibleCalendars'), 'the pass after the failure did not read FamCal');
+    assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'a pass that read without a failure did not close the gate');
+  });
+
+  await check('gate: one user whose FamCal read fails on every pass holds it 15 minutes while another reads cleanly, then not; reported once each, not every pass', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    failingCalendars = ['cal50'];
+    const error = console.error;
+    const warn = console.warn;
+    console.error = () => {};
+    console.warn = () => {};
+    let held: string[];
+    let after: string[];
+    try {
+      held = await readingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 12:20', IL));
+      after = await readingPasses(at('2026-10-13 12:20', IL), at('2026-10-13 12:45', IL));
+    } finally {
+      console.error = error;
+      console.warn = warn;
+    }
+    // 12:00, 12:05 and 12:10 hold it; 12:15 (15 minutes failing) reads, then closes: nothing reads before 13:00.
+    assert(held.length === 4, `passes that read from 12:00: ${held.join(' | ')}`);
+    assert(after.length === 0, `the gate stayed open for the failing user: ${after.join(' | ')}`);
+    assert(captured.filter(c => c === 'event-alerts-gate-held').length === 1 && captured.filter(c => c === 'event-alerts-gate-hold-dropped').length === 1, `captured ${captured.join(', ')}`);
+    // The user reads cleanly again: their clock is cleared, so a later failure holds the gate again.
+    failingCalendars = [];
+    alertsGate.openEventAlertsGate();
+    assert((await passAt(at('2026-10-13 12:50', IL))).includes('fetchEventsInCalendars'), 'the opened gate did not read');
+    failingCalendars = ['cal50'];
+    console.error = () => {};
+    console.warn = () => {};
+    try {
+      // 12:55 is closed (the clean 12:50 pass closed it until 13:00); 13:00 fails afresh, so 13:05 reads again.
+      const again = await readingPasses(at('2026-10-13 12:55', IL), at('2026-10-13 13:10', IL));
+      assert(again.length === 2 && again[0].startsWith('13:00') && again[1].startsWith('13:05'), `a new failure after a clean read: ${again.join(' | ')}`);
+    } finally {
+      console.error = error;
+      console.warn = warn;
+    }
+  });
+
+  await check('gate: when every user\'s read fails (the database is down) it keeps holding, reported once an hour; once the database answers, a clean pass closes it', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    storeFailure = new Error('database down (smoke)');
+    const error = console.error;
+    const warn = console.warn;
+    console.error = () => {};
+    console.warn = () => {};
+    let reads: string[];
+    try {
+      reads = await readingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 13:10', IL));
+    } finally {
+      console.error = error;
+      console.warn = warn;
+      storeFailure = null;
+    }
+    assert(reads.length === 14, `of the 14 passes from 12:00 to 13:05, ${reads.length} read`);
+    assert(captured.filter(c => c === 'event-alerts-gate-held').length === 2 && !captured.includes('event-alerts-gate-hold-dropped'), `captured ${captured.join(', ')}`);
+    assert((await passAt(at('2026-10-13 13:10', IL))).includes('fetchEventsInCalendars'), 'the pass after the outage did not read');
+    assert((await passAt(at('2026-10-13 13:15', IL))).length === 0, 'the clean pass did not close the gate');
+  });
+
+  await check('gate: a cache write that lands right after the pass read the cached users (a settings save) keeps that pass from closing the gate', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    afterCacheRead = () => alertsGate.openEventAlertsGate();
+    await passAt(at('2026-10-13 12:00', IL));
+    assert((await passAt(at('2026-10-13 12:05', IL))).includes('listVisibleCalendars'), 'the pass closed the gate over a write that landed after its cache read');
+    assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'the gate did not close again');
+  });
+
   await check('gate: a reset gate (a fresh process) reads at once; a pass with no users cached leaves it as it was', async () => {
     await closedAtNoon();
     alertsGate.__resetEventAlertsGateForTests();
@@ -1485,6 +1636,21 @@ async function main() {
     assert(!store.has(REDIS_KEYS.reminderDowngradeNotified(45)), 'marked sent while paused');
     await runTicks(handlers, at('2026-10-18 09:00', IL), at('2026-10-18 09:05', IL));
     assert(notices() === 1 && store.has(REDIS_KEYS.reminderDowngradeNotified(45)), `after Shabbat: ${notices()} notices`);
+  });
+
+  await check('pause: a user told already of the downgrade is not asked about the pause (it may read the database to fill their place); one not told yet still waits for after Shabbat', async () => {
+    reset({ id: 46, ...JERUSALEM_ON });
+    remindersAllowedByPlan = false;
+    await fakeRedis.set(REDIS_KEYS.reminderDowngradeNotified(46), '1');
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    // Read through functions: the checks narrow the module-level counters.
+    const notices = () => downgradeNotices;
+    const skipped = () => pauseLines.length;
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 09:10', IL));
+    assert(skipped() === 0 && notices() === 0, `told already: ${notices()} notices, ${pauseLines.join('|') || 'no pause lines'}`);
+    await fakeRedis.del(REDIS_KEYS.reminderDowngradeNotified(46));
+    await runTicks(handlers, at('2026-10-17 09:10', IL), at('2026-10-17 09:15', IL));
+    assert(skipped() === 1 && notices() === 0, `not told yet, in Shabbat: ${notices()} notices, ${pauseLines.join('|')}`);
   });
 
   let failed = 0;

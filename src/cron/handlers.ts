@@ -181,12 +181,14 @@ export async function handleTomorrowSummary(): Promise<CronResult> {
  * (src/services/event-alerts-gate.ts), so an idle pass makes no database query and Neon can
  * sleep. A pass that read FamCal for every user without a failure closes the gate until the
  * tick whose window holds the next FamCal alert, or the next whole UTC hour; a failed FamCal
- * half or a user who threw leaves it open, so the next tick reads again.
+ * read or a user who threw leaves it open, so the next tick reads again (a user who keeps
+ * failing while others read cleanly stops holding it after 15 minutes: settleFamcalFailures).
  */
 export async function handleReminders(windowMinutes: number = 5): Promise<CronResult> {
   // The pass's minute, on the epoch as getDueReminders takes its window's start.
   const tick = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   const { getCachedReminderUsers, getGlobalRemindersEnabled } = await import('../services/reminder-cache');
+  const { shouldReadFamcal, startFamcalPass, setNextFamcalAlert, settleFamcalFailures, holdReportDue, FAMCAL_FAILURE_HOLD_MS } = await import('../services/event-alerts-gate');
 
   const remindersEnabled = await getGlobalRemindersEnabled();
   if (!remindersEnabled) {
@@ -197,6 +199,12 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
       remindersSent: 0,
     };
   }
+
+  // Taken once per pass, before the cached users are read: a cache write after this (a settings
+  // save) opens the gate again, so this pass cannot close it over an entry it read stale. The
+  // early return below leaves the gate open.
+  const famcal = shouldReadFamcal(tick);
+  const famcalToken = famcal ? startFamcalPass() : 0;
 
   const cachedUsers = await getCachedReminderUsers();
   if (!cachedUsers || cachedUsers.length === 0) {
@@ -210,14 +218,11 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 
   const { processUserReminders } = await import('../services/reminders');
   const { openSecret, reportUndecryptable, UndecryptableError, keyFingerprint } = await import('../utils/encryption');
-  const { shouldReadFamcal, startFamcalPass, setNextFamcalAlert } = await import('../services/event-alerts-gate');
 
-  // Taken once per pass: a write during the pass reopens the gate for the next one.
-  const famcal = shouldReadFamcal(tick);
-  const famcalToken = famcal ? startFamcalPass() : 0;
   let nextFamcalAt: number | null = null;
-  /** Why the gate stays open after this pass: each user whose FamCal half failed, or who threw. */
-  const holds: string[] = [];
+  /** The users whose FamCal read failed this pass, or whose pass threw, and those whose FamCal read succeeded. */
+  const famcalFailed: number[] = [];
+  const famcalRead: number[] = [];
 
   let totalRemindersSent = 0;
   let usersProcessed = 0;
@@ -266,7 +271,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
       } as import('../types').UserConfig;
       const result = await processUserReminders(user, windowMinutes, { famcal });
       totalRemindersSent += result.sent;
-      if (result.famcalFailed) holds.push(`user ${cachedUser.id}: the FamCal fetch failed`);
+      if (result.famcalFailed) famcalFailed.push(cachedUser.id);
+      else if (result.famcalRead) famcalRead.push(cachedUser.id);
       if (result.nextFamcalAt && (nextFamcalAt === null || result.nextFamcalAt.getTime() < nextFamcalAt)) nextFamcalAt = result.nextFamcalAt.getTime();
       usersProcessed++;
     } catch (error) {
@@ -274,18 +280,29 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
       console.error(`[Event Reminders] Error processing user:`, errorMsg);
       captureError(error, 'cron-reminders-process-user', { telegramId: cachedUser.telegramId });
       errors.push(errorMsg);
-      holds.push(`user ${cachedUser.id}: failed`);
+      famcalFailed.push(cachedUser.id);
     }
   }
 
   if (famcal) {
-    if (holds.length === 0) {
-      // Open on the tick whose window holds the next FamCal alert (its time minus the window).
-      setNextFamcalAlert(nextFamcalAt === null ? null : new Date(nextFamcalAt - windowMinutes * 60 * 1000), tick, famcalToken);
+    // Each failure was logged and captured where it happened. A failing user holds the gate open
+    // (the next pass reads again), but not for good: see settleFamcalFailures.
+    const { held, dropped, oldestFailingMs } = settleFamcalFailures({ failed: famcalFailed, ok: famcalRead, seen: cachedUsers.map(u => u.id) }, tick);
+    if (dropped.length > 0) {
+      console.warn(`[Event Reminders] The FamCal alerts gate no longer waits for users ${dropped.join(', ')}: they have failed for ${FAMCAL_FAILURE_HOLD_MS / 60_000}+ minutes while others read cleanly`);
+      if (holdReportDue('dropped', tick)) {
+        captureError(new Error('Event alerts gate no longer held open by users who keep failing'), 'event-alerts-gate-hold-dropped', { users: dropped.slice(0, 20), count: dropped.length, oldestFailingMinutes: Math.round(oldestFailingMs / 60_000) }, 'warning');
+      }
+    }
+    if (held.length === 0) {
+      // Open on the first tick after the next FamCal alert minus the window: the tick whose window
+      // holds it (the tick at exactly that time covers the window before, and would read for nothing).
+      setNextFamcalAlert(nextFamcalAt === null ? null : new Date(nextFamcalAt - windowMinutes * 60 * 1000 + 1), tick, famcalToken);
     } else {
-      // Each failure was logged and captured where it happened; this says the gate stays open for it.
-      console.warn(`[Event Reminders] The FamCal alerts gate stays open (the next pass reads again): ${holds.join('; ')}`);
-      captureError(new Error('Event alerts gate held open by a failed FamCal read'), 'event-alerts-gate-held', { holds: holds.slice(0, 20), count: holds.length }, 'warning');
+      console.warn(`[Event Reminders] The FamCal alerts gate stays open (the next pass reads again): users ${held.join(', ')} failed, the oldest for ${Math.round(oldestFailingMs / 60_000)} min`);
+      if (holdReportDue('held', tick)) {
+        captureError(new Error('Event alerts gate held open: a user\'s FamCal read failed or their pass threw'), 'event-alerts-gate-held', { users: held.slice(0, 20), count: held.length, oldestFailingMinutes: Math.round(oldestFailingMs / 60_000) }, 'warning');
+      }
     }
   }
 
