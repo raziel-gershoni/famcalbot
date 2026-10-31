@@ -12,10 +12,10 @@
 //
 // Every check here fails until the fix lands.
 //
-// #8 to #10: what the public site's pages send Sentry (the privacy policy says error reports only). The browser traces
-// no page of the public site (its <html> carries data-surface="site") and sends no client reports; the server traces
-// no zmanim page, whose address names a city, a day and a custom. The Mini App and the API keep their 1%. The browser
-// starts no session on a public page either (the SDK's BrowserSession integration sends one per page load).
+// #8 to #10: Sentry gets error reports and nothing else, from every surface (the privacy policy says error reports).
+// No init traces (no tracesSampleRate or tracesSampler, in any source file), none sends client reports, the browser
+// drops the SDK's tracer and session tracker (BrowserTracing, BrowserSession: the names come from the SDK itself), and
+// the server counts no request into a session.
 //
 // Run: npx tsx scripts/smoke-sentry-scrub.ts
 
@@ -58,12 +58,12 @@ Module.registerHooks({
   load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
     const file = url.startsWith('file:') ? fileURLToPath(url.split('?')[0]) : '';
     if (!file.includes(`${path.sep}@sentry${path.sep}nextjs${path.sep}`)) return nextLoad(url, context);
-    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); }; export const captureRouterTransitionStart = () => {};', shortCircuit: true };
+    return { format: 'module', source: 'export const init = (o) => { globalThis.__sentryInits.push(o); }; export const httpIntegration = (o) => ({ name: "Http", options: o });', shortCircuit: true };
   },
 });
 const sentryEntry = nodeRequire.resolve('@sentry/nextjs');
 const sentryStub = new Module(sentryEntry);
-Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); }, captureRouterTransitionStart: () => {} } });
+Object.assign(sentryStub, { filename: sentryEntry, loaded: true, exports: { init: (o: Row) => { inits.push(o); }, httpIntegration: (o: Row) => ({ name: 'Http', options: o }) } });
 Module._cache[sentryEntry] = sentryStub;
 
 const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
@@ -193,8 +193,9 @@ async function main() {
     inits.length = 0;
     await load('sentry.server.config.ts');
     await load('sentry.edge.config.ts');
+    // No onRouterTransitionStart export: it only starts navigation traces, and nothing is traced (#9, #10)
     const clientModule = await load('instrumentation-client.ts');
-    assert(typeof clientModule.onRouterTransitionStart === 'function', 'instrumentation-client.ts must export onRouterTransitionStart (Sentry docs, Next 15.3+)');
+    assert(!('onRouterTransitionStart' in clientModule), 'instrumentation-client.ts exports onRouterTransitionStart, a navigation-trace hook');
     assert(!fs.existsSync(path.join(ROOT, 'sentry.client.config.ts')), 'sentry.client.config.ts is ignored by Turbopack: the browser init lives in instrumentation-client.ts only');
     assert(inits.length === 3, `Sentry.init calls: ${inits.length}`);
     const [server, edge, client] = inits;
@@ -214,9 +215,9 @@ async function main() {
     if (!tx || leaks(tx).length) problems.push(`client beforeSendTransaction: ${tx ? leaks(tx).join(', ') : 'missing'}`);
     const crumb = typeof client.beforeBreadcrumb === 'function' ? client.beforeBreadcrumb({ category: 'navigation', data: { from: launch, to: '/en/settings' } }) : null;
     if (!crumb || leaks(crumb).length) problems.push(`client beforeBreadcrumb: ${crumb ? leaks(crumb).join(', ') : 'missing'}`);
-    // What the configs set before keeps its value (the server's 1% is now a sampler: #9; the edge keeps its rate)
-    if (typeof server.tracesSampler !== 'function' || edge.tracesSampleRate !== 0.01 || client.replaysOnErrorSampleRate !== 1.0 || !Array.isArray(client.ignoreErrors)) {
-      problems.push(`other options changed: ${show({ server: typeof server.tracesSampler, edge: edge.tracesSampleRate, client: client.replaysOnErrorSampleRate })}`);
+    // What the configs set before keeps its value (what they no longer send is #9's)
+    if (!Array.isArray(client.ignoreErrors) || [server, edge, client].some((opts) => typeof opts.enabled !== 'boolean')) {
+      problems.push(`other options changed: ${show({ ignoreErrors: client.ignoreErrors, enabled: [server, edge, client].map((opts) => opts.enabled) })}`);
     }
     assert(problems.length === 0, problems.join('; '));
   });
@@ -245,120 +246,56 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  /** A sampling context as the SDK hands it to a tracesSampler: the root span's name and attributes, and inheritOrSampleWith. */
-  const context = (extra: Row = {}, parent?: number): Row => ({
-    name: 'pageload',
-    attributes: {},
-    inheritOrSampleWith: (fallback: number) => parent ?? fallback,
-    ...extra,
-  });
-  /** Runs `fn` with `document` as a browser page whose <html> carries the given data-surface (none: undefined). */
-  const onPage = <T>(surface: string | undefined, fn: () => T): T => {
-    const shared = globalThis as Row;
-    shared.document = { documentElement: { dataset: surface === undefined ? {} : { surface } } };
-    try {
-      return fn();
-    } finally {
-      delete shared.document;
-    }
-  };
+  /** A file's source without its comment lines. */
+  const code = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+  /** The keys that would send something but an error: traces, profiles, replays. */
+  const NON_ERROR_OPTIONS = ['tracesSampleRate', 'tracesSampler', 'profilesSampleRate', 'profilesSampler', 'replaysSessionSampleRate', 'replaysOnErrorSampleRate'];
 
-  await check('#8 the browser samples no page of the public site (data-surface="site"), not even one whose trace is already sampled, and the Mini App at 1% unless its trace has decided; with no document it is the 1%', async () => {
-    const { browserTracesSampler } = await load('src/lib/sentry-sampling.ts');
+  await check('#8 the browser\'s integrations are the SDK\'s defaults without its tracer and its session tracker, named as the SDK names them', async () => {
+    const { browserIntegrations, BROWSER_NON_ERROR_INTEGRATIONS } = await load('src/lib/sentry-errors-only.ts');
+    const sdk = nodeRequire('@sentry/browser');
+    const real = [sdk.browserSessionIntegration().name, sdk.browserTracingIntegration().name];
     const problems: string[] = [];
-    const rate = (label: string, got: unknown, want: number) => { if (got !== want) problems.push(`${label}: ${show(got)}, want ${want}`); };
-    rate('site', onPage('site', () => browserTracesSampler(context())), 0);
-    rate('site, parent sampled', onPage('site', () => browserTracesSampler(context({}, 1))), 0);
-    rate('site, soft navigation', onPage('site', () => browserTracesSampler(context({ name: '/he/zmanim/haifa' }))), 0);
-    rate('app', onPage(undefined, () => browserTracesSampler(context())), 0.01);
-    rate('another surface', onPage('app', () => browserTracesSampler(context())), 0.01);
-    rate('app, parent sampled', onPage(undefined, () => browserTracesSampler(context({}, 1))), 1);
-    rate('app, parent not sampled', onPage(undefined, () => browserTracesSampler(context({}, 0))), 0);
-    rate('no document', browserTracesSampler(context()), 0.01);
+    if (show([...BROWSER_NON_ERROR_INTEGRATIONS].sort()) !== show([...real].sort())) problems.push(`the dropped names ${show(BROWSER_NON_ERROR_INTEGRATIONS)}, the SDK's ${show(real)}`);
+    const defaults = [...sdk.getDefaultIntegrations({}), sdk.browserTracingIntegration()] as Row[];
+    const names = (list: Row[]) => list.map((i) => i.name);
+    const kept = names(browserIntegrations(defaults));
+    const want = names(defaults).filter((name) => !real.includes(name));
+    if (show(kept) !== show(want)) problems.push(`kept ${show(kept)}, want ${show(want)}`);
+    if (!names(defaults).includes('BrowserSession')) problems.push('the SDK\'s defaults no longer hold BrowserSession: recheck what they send');
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#9 the server samples no zmanim page (any language, with or without a query, by name, route, path or URL) and everything else at 1%, a parent\'s decision honoured outside zmanim', async () => {
-    const { serverTracesSampler } = await load('src/lib/sentry-sampling.ts');
+  await check('#9 the three inits trace nothing, send no client reports or replays, the browser\'s integrations drop its tracer and sessions, and the server counts no request into a session', async () => {
+    const [server, edge, client] = inits;
+    assert(server && edge && client, `Sentry.init calls: ${inits.length}`);
     const problems: string[] = [];
-    const zmanim: [string, Row][] = [
-      ['name /zmanim/jerusalem', { name: 'GET /zmanim/jerusalem' }],
-      ['name /he/zmanim/jerusalem', { name: 'GET /he/zmanim/jerusalem' }],
-      ['name /ru/zmanim/new-york', { name: 'GET /ru/zmanim/new-york' }],
-      ['name /zmanim', { name: 'GET /zmanim' }],
-      ['name /he/zmanim', { name: 'GET /he/zmanim' }],
-      ['name with a query', { name: 'GET /zmanim/jerusalem?date=2027-04-22&community=chabad' }],
-      ['name with a slash', { name: 'GET /ru/zmanim/moscow/' }],
-      ['route name', { name: 'GET /[locale]/zmanim/[city]' }],
-      ['route name, index', { name: 'GET /[locale]/zmanim' }],
-      ['an unknown city', { name: 'GET /zmanim/no-such-city' }],
-      ['bare name, url.path', { name: 'GET', attributes: { 'url.path': '/he/zmanim/haifa' } }],
-      ['bare name, http.target', { name: 'GET', attributes: { 'http.target': '/zmanim/haifa?date=2027-04-22' } }],
-      ['bare name, http.route', { name: 'GET', attributes: { 'http.route': '/[locale]/zmanim/[city]' } }],
-      ['bare name, next.route', { name: 'GET', attributes: { 'next.route': '/[locale]/zmanim/[city]' } }],
-      ['bare name, url.full', { name: 'GET', attributes: { 'url.full': 'https://famcal.bot/ru/zmanim/moscow?community=ashkenazi' } }],
-      ['bare name, http.url', { name: 'GET', attributes: { 'http.url': 'http://famcal.bot/zmanim/eilat' } }],
-      ['bare name, the request', { name: 'GET', normalizedRequest: { url: 'https://famcal.bot/he/zmanim/eilat?date=2027-04-22' } }],
-      // The two shapes Next 16.1.1's server really produces: the proxy's span, and a page span whose target carries the query
-      ['the proxy span, target', { name: 'middleware GET', attributes: { 'http.target': '/he/zmanim/haifa' } }],
-      ['a page name, target with a query', { name: 'GET /zmanim/x', attributes: { 'http.target': '/zmanim/x?date=2027-04-22&community=chabad' } }],
-    ];
-    for (const [label, extra] of zmanim) {
-      const got = serverTracesSampler(context(extra));
-      if (got !== 0) problems.push(`${label}: ${show(got)}, want 0`);
+    for (const [label, opts] of [['server', server], ['edge', edge], ['browser', client]] as [string, Row][]) {
+      for (const key of NON_ERROR_OPTIONS) if (key in opts) problems.push(`the ${label} init sets ${key}`);
+      if (opts.sendClientReports !== false) problems.push(`the ${label} init's sendClientReports ${show(opts.sendClientReports)}`);
     }
-    const parentSampled = serverTracesSampler(context({ name: 'GET /he/zmanim/jerusalem' }, 1));
-    if (parentSampled !== 0) problems.push(`a zmanim page whose parent trace is sampled: ${show(parentSampled)}`);
-    const others: [string, Row][] = [
-      ['an API route', { name: 'POST /api/pair' }],
-      ['the zmanim API', { name: 'GET /api/zmanim' }],
-      ['the dashboard', { name: 'GET /he/dashboard' }],
-      ['the landing', { name: 'GET /' }],
-      ['a post that says zmanim', { name: 'GET /blog/zmanim-and-the-sun' }],
-      ['a path that only starts with the word', { name: 'GET /zmanimx/jerusalem' }],
-      ['a query that says zmanim', { name: 'GET /dashboard?next=/zmanim/jerusalem' }],
-      ['a job', { name: 'cron.reminders', attributes: { 'sentry.op': 'cron' } }],
-    ];
-    for (const [label, extra] of others) {
-      const got = serverTracesSampler(context(extra));
-      if (got !== 0.01) problems.push(`${label}: ${show(got)}, want 0.01`);
-    }
-    const inherited = serverTracesSampler(context({ name: 'GET /api/pair' }, 1));
-    if (inherited !== 1) problems.push(`a parent's sampled decision outside zmanim: ${show(inherited)}, want 1`);
+    if (client.integrations !== (await load('src/lib/sentry-errors-only.ts')).browserIntegrations) problems.push('the browser init\'s integrations are not browserIntegrations');
+    const http = Array.isArray(server.integrations) ? server.integrations.find((i: Row) => i.name === 'Http') : undefined;
+    if (!http) problems.push(`the server init has no Http integration: ${show(server.integrations)}`);
+    else if (http.options?.trackIncomingRequestsAsSessions !== false || http.options?.disableIncomingRequestSpans !== true) problems.push(`the server's Http integration ${show(http.options)}`);
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#10 the configs use them: the browser init sets sendClientReports false, a tracesSampler for the site and no tracesSampleRate (in its source too), and drops the BrowserSession integration on a public page only; the server init\'s sampler skips zmanim pages', async () => {
-    const [server, , client] = inits;
-    assert(server && client, `Sentry.init calls: ${inits.length}`);
-    const clientSource = fs.readFileSync(path.join(ROOT, 'instrumentation-client.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-    const problems: string[] = [];
-    if (client.sendClientReports !== false || !/\bsendClientReports:\s*false\b/.test(clientSource)) problems.push(`sendClientReports ${show(client.sendClientReports)}`);
-    if ('tracesSampleRate' in client || /tracesSampleRate/.test(clientSource)) problems.push('the browser init still sets tracesSampleRate');
-    // The SDK's default list goes through the init's integrations function (BrowserSession is one of the browser defaults)
-    if (typeof client.integrations !== 'function') problems.push('the browser init has no integrations function');
-    else {
-      const defaults = () => ['Breadcrumbs', 'BrowserSession', 'BrowserTracing', 'GlobalHandlers'].map((name) => ({ name }));
-      const names = (list: Row[]) => list.map((i) => i.name);
-      const onSiteList = names(onPage('site', () => client.integrations(defaults())));
-      const onAppList = names(onPage(undefined, () => client.integrations(defaults())));
-      const noDocumentList = names(client.integrations(defaults()));
-      if (show(onSiteList) !== show(['Breadcrumbs', 'BrowserTracing', 'GlobalHandlers'])) problems.push(`the integrations on a public page: ${show(onSiteList)}`);
-      if (show(onAppList) !== show(names(defaults())) || show(noDocumentList) !== show(names(defaults()))) problems.push(`the integrations in the Mini App: ${show(onAppList)}, with no document ${show(noDocumentList)}`);
-    }
-    if (typeof client.tracesSampler !== 'function') problems.push('the browser init has no tracesSampler');
-    else {
-      const onSite = onPage('site', () => client.tracesSampler(context()));
-      const onApp = onPage(undefined, () => client.tracesSampler(context()));
-      if (onSite !== 0 || onApp !== 0.01) problems.push(`the browser init's sampler: site ${show(onSite)}, app ${show(onApp)}`);
-    }
-    if ('tracesSampleRate' in server || typeof server.tracesSampler !== 'function') problems.push('the server init has no tracesSampler');
-    else {
-      const zmanimPage = server.tracesSampler(context({ name: 'GET /he/zmanim/jerusalem' }));
-      const apiRoute = server.tracesSampler(context({ name: 'POST /api/pair' }));
-      if (zmanimPage !== 0 || apiRoute !== 0.01) problems.push(`the server init's sampler: zmanim ${show(zmanimPage)}, API ${show(apiRoute)}`);
-    }
-    assert(problems.length === 0, problems.join('; '));
+  await check('#10 no source file turns tracing, profiling or replay on: no non-error option and no replay or tracing integration outside comments', async () => {
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const rel = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(rel);
+        else if (/\.(ts|tsx|js|mjs|cjs)$/.test(entry.name)) files.push(rel);
+      }
+    };
+    for (const dir of ['app', 'components', 'src', 'lib', 'i18n']) if (fs.existsSync(path.join(ROOT, dir))) walk(dir);
+    for (const file of fs.readdirSync(ROOT)) if (/\.(ts|js|mjs|cjs)$/.test(file)) files.push(file);
+    const pattern = new RegExp(`\\b(${NON_ERROR_OPTIONS.join('|')}|replayIntegration|replayCanvasIntegration|browserTracingIntegration|browserProfilingIntegration|captureRouterTransitionStart)\\b`);
+    const offenders = files.filter((file) => pattern.test(code(file))).map((file) => `${file}: ${code(file).match(pattern)?.[0]}`);
+    assert(files.length > 100, `only ${files.length} files scanned`);
+    assert(offenders.length === 0, offenders.join('; '));
   });
 
   let failed = 0;

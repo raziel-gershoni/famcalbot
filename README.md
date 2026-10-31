@@ -90,7 +90,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The WhatsApp session cookie and the share-story image links are signed with keys derived from it; unset, both are refused and production startup logs an error. Changing it signs WhatsApp web users out once |
 | `ENCRYPTION_KEY` | Encrypts the stored Google tokens: 64 hex characters (`openssl rand -hex 32`). See [Rotating `ENCRYPTION_KEY`](#rotating-encryption_key) |
 | `ENCRYPTION_KEY_PREVIOUS` | Optional and decrypt-only: the old `ENCRYPTION_KEY` while a rotation runs; delete it once the key sweep logs SAFE |
-| `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error tracking |
+| `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error reports only (`src/lib/sentry-errors-only.ts`: no traces, sessions or replays) |
 | `NODE_ENV` | Runtime environment |
 
 The models are not configurable: text and TTS are fixed in `src/config/ai-models.ts` and `src/config/tts-models.ts`, and the voices per language in `src/services/voice-generator.ts`.
