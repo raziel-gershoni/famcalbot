@@ -654,9 +654,9 @@ async function main() {
 
   await check('gate: it lives on globalThis, shared by the scheduler bundle and the route bundles', async () => {
     const state = (globalThis as Row).__googleSyncGate;
-    assert(state && typeof state.nextRunAt === 'number', `globalThis.__googleSyncGate ${show(state)}`);
+    assert(state && typeof state.nextAt === 'number', `globalThis.__googleSyncGate ${show(state)}`);
     closeGate();
-    state.nextRunAt = 0;
+    state.nextAt = 0;
     assert(gateOpen(), 'the module does not read the shared object');
   });
 

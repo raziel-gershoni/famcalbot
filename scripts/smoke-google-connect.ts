@@ -1750,9 +1750,9 @@ async function main() {
     }];
     closeGate();
     const seen: string[] = [];
-    const gateState = (globalThis as { __googleSyncGate?: { nextRunAt: number } }).__googleSyncGate!;
+    const gateState = (globalThis as { __googleSyncGate?: { nextAt: number } }).__googleSyncGate!;
     beforePrismaCall = () => {
-      if (gateState.nextRunAt > Date.now()) return;
+      if (gateState.nextAt > Date.now()) return;
       const l = DB.googleSyncLink.find(x => x.id === 'l-off');
       if (l && !l.enabled && l.unlinkChoice && l.state === 'ok') seen.push(show({ enabled: l.enabled, state: l.state, unlinkChoice: l.unlinkChoice }));
     };
