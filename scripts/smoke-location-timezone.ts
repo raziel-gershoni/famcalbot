@@ -2,13 +2,17 @@
 // lookup in src/lib/timezone.ts and the saved place in src/services/zmanim/place.ts). A
 // settings save wrote the new location but left the old zone cached under tz:user:{id} for up
 // to 24 h, so the summaries, reminders and voice kept the old city's clock that long. A save
-// that changes the location now looks the place up after the response: one Nominatim request,
-// one Open-Meteo request for the zone and one for the highest ground (zmanim), 3 s each, no
-// retries, no geocode cache and no Asia/Jerusalem fallback. Only a lookup that finds a valid
+// that changes the location now looks the place up after the response: one Nominatim request
+// (3 s, no retry), the zone from our own map (zoneForCoords, geo-tz) and the highest ground
+// (zmanim), no geocode cache and no Asia/Jerusalem fallback. Only a lookup that finds a valid
 // zone replaces the cached one, and only while the stored location is still the one it looked
 // up: two quick saves each schedule a lookup, and the older one can land last. The same save
 // clears the old place's coordinates in the same write as the location, and the lookup stores
 // the new place's coordinates and highest ground (zmanim, Task 1).
+//
+// The zone map runs for real: the spec's places (Ariel, Ma'ale Adumim, Eilat, Katzrin, Hebron,
+// Gaza, Kyiv, a sea point), the West Bank rule, the bounded tile cache, and (in a child
+// process) the map's data file missing.
 //
 // The route, resolveTimezoneForLocation and REDIS_KEYS run for real. Faked: auth (a
 // Telegram user), the user row (written through updateUserById, its location read back
@@ -21,13 +25,37 @@
 // Run with the fake env from the plan:
 //   TZ=UTC npx tsx scripts/smoke-location-timezone.ts
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'path';
 import { createRequire } from 'module';
+import { spawnSync } from 'node:child_process';
 
 type Row = Record<string, unknown>;
 
 const ROOT = path.resolve(__dirname, '..');
 const nodeRequire = createRequire(__filename);
+
+/** Set in the child that runs with the zone map's data folder empty (check u). */
+const MISSING_DATA_CHILD = 'ZONE_SMOKE_MISSING_DATA';
+
+/** The child: zoneForCoords with geo-tz pointed at an empty folder. Prints one JSON line: the zone and what was captured. */
+function missingDataChild(): void {
+  const Module = nodeRequire('module');
+  const got: { context: string; severity: string }[] = [];
+  const filename = path.join(ROOT, 'src/lib/error-capture.ts');
+  const mod = new Module(filename);
+  Object.assign(mod, {
+    filename, loaded: true, exports: {
+      captureError: (_e: unknown, context: string, _x?: unknown, severity: string = 'error') => { got.push({ context, severity }); },
+      captureWarning: (_m: string, context: string) => { got.push({ context, severity: 'warning' }); },
+      captureInfo: () => {},
+    },
+  });
+  Module._cache[filename] = mod;
+  const { zoneForCoords } = nodeRequire(path.join(ROOT, 'src/lib/zone-for-coords.ts')) as { zoneForCoords: (a: number, b: number) => string | null };
+  console.log(JSON.stringify({ zone: zoneForCoords(32.0853, 34.7818), captured: got }));
+}
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -76,9 +104,8 @@ const fakeRedis = {
 type LookupRequest = { url: string; options: unknown; timeoutMs: unknown; maxRetries: unknown };
 const requests: LookupRequest[] = [];
 /** How each host answers a request in the current scenario: a Response, or a thrown error. */
-let answers: { nominatim: (url: URL) => Response; openMeteo: (url: URL) => Response; elevation: (url: URL) => Response } = {
+let answers: { nominatim: (url: URL) => Response; elevation: (url: URL) => Response } = {
   nominatim: () => { throw new Error('no scenario'); },
-  openMeteo: () => { throw new Error('no scenario'); },
   elevation: () => { throw new Error('no scenario'); },
 };
 /** Nominatim queries whose answer waits for its release: a lookup still in flight. */
@@ -96,18 +123,20 @@ async function fakeFetchWithTimeout(url: string, options?: unknown, timeoutMs?: 
     await held.get(parsed.searchParams.get('q') ?? '');
     return answers.nominatim(parsed);
   }
+  // Task 2 removes the elevation request (the height comes from the stored map)
   if (parsed.host === 'api.open-meteo.com' && parsed.pathname === '/v1/elevation') return answers.elevation(parsed);
-  if (parsed.host === 'api.open-meteo.com') return answers.openMeteo(parsed);
   throw new Error(`unexpected request: ${url}`);
 }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-/** The places the fake geocoder knows: Nominatim's coordinates, and Open-Meteo's zone for them. */
-const PLACES: Record<string, { lat: string; lon: string; zone: string }> = {
+/** The places the fake geocoder knows: Nominatim's coordinates, and the zone the real zone map gives them (null: none). */
+const PLACES: Record<string, { lat: string; lon: string; zone: string | null }> = {
   'New York': { lat: '40.7127281', lon: '-74.0060152', zone: 'America/New_York' },
   'London': { lat: '51.5074456', lon: '-0.1277653', zone: 'Europe/London' },
   'Tel Aviv': { lat: '32.0852997', lon: '34.7818064', zone: 'Asia/Jerusalem' },
   'תל אביב': { lat: '32.0852997', lon: '34.7818064', zone: 'Asia/Jerusalem' },
   'Москва': { lat: '55.7505412', lon: '37.6174782', zone: 'Europe/Moscow' },
+  // 35 km off Haifa: the zone map answers Etc/GMT-2, which is no one's zone
+  'Out at sea': { lat: '33.0', lon: '34.5', zone: null },
 };
 
 /** Nominatim's boundingbox for a place: [south, north, west, east] as strings, 0.05 degrees each way. */
@@ -247,12 +276,6 @@ function seed() {
       const place = PLACES[url.searchParams.get('q') ?? ''];
       return json(place ? [{ lat: place.lat, lon: place.lon, boundingbox: boxAround(place) }] : []);
     },
-    openMeteo: url => {
-      const place = Object.values(PLACES).find(p => String(parseFloat(p.lat)) === url.searchParams.get('latitude'));
-      return place
-        ? json({ timezone: place.zone, latitude: Number(place.lat), longitude: Number(place.lon) })
-        : json({ error: true, reason: 'unknown place' }, 400);
-    },
     // 25 sampled points, rising from 100 m: the highest is the last, ELEVATION_MAX.
     elevation: url => json({ elevation: (url.searchParams.get('latitude') ?? '').split(',').map((_lat, index) => 100 + index) }),
   };
@@ -282,8 +305,8 @@ async function main() {
 
   /** Each request, as "host timeout/retries". */
   const shape = () => requests.map(r => `${new URL(r.url).host}${new URL(r.url).pathname === '/v1/elevation' ? '/elevation' : ''} ${String(r.timeoutMs)}/${String(r.maxRetries)}`);
-  /** The three requests a full lookup makes: the place, its zone and its highest ground, each 3 s with no retry. */
-  const FULL_LOOKUP = ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com 3000/0', 'api.open-meteo.com/elevation 3000/0'];
+  /** The requests a full lookup makes: the place (3 s, no retry) and its highest ground; the zone is local. Task 2 drops the second. */
+  const FULL_LOOKUP = ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com/elevation 3000/0'];
 
   await check('(a) a new location: the save answers at once, then tz:user:{id} becomes the new zone for 24 h', async () => {
     seed();
@@ -338,7 +361,7 @@ async function main() {
     gate.__resetDueGateForTests();
   });
 
-  await check('(a) the lookup: one Nominatim, one Open-Meteo zone and one Open-Meteo elevation request, each with a 3 s timeout and no retries, no geocode cache', async () => {
+  await check('(a) the lookup: one Nominatim request (3 s, no retry), no zone request, no geocode cache', async () => {
     seed();
     await save({ location: 'New York' });
     await drainAfter();
@@ -347,56 +370,25 @@ async function main() {
     assert(search.pathname === '/search' && search.searchParams.get('q') === 'New York' && search.searchParams.get('format') === 'json' && search.searchParams.get('limit') === '1', `Nominatim url ${requests[0].url}`);
     const headers = (requests[0].options as { headers?: Record<string, string> } | undefined)?.headers;
     assert(headers?.['User-Agent'] === 'FamilyCalendarBot/1.0', `Nominatim headers ${show(headers)}`);
-    const forecast = new URL(requests[1].url);
-    assert(forecast.searchParams.get('latitude') === '40.7127281' && forecast.searchParams.get('longitude') === '-74.0060152' && forecast.searchParams.get('timezone') === 'auto', `Open-Meteo url ${requests[1].url}`);
     assert(cachedPathCalls.length === 0, `cached path used: ${show(cachedPathCalls)}`);
   });
 
-  await check('(b) Open-Meteo fails: the cached zone stays, nothing is written, no retry', async () => {
+  await check('(b) the zone map has no zone for the place (Nominatim\'s point is at sea): the cached zone stays, nothing is written to tz:user, one warning under location-lookup without the place\'s name; the coordinates are still saved', async () => {
     seed();
-    answers.openMeteo = () => { throw new TypeError('fetch failed'); };
-    const res = await save({ location: 'New York' });
-    assert(res.status === 200, `status ${res.status}`);
+    await save({ location: 'Out at sea' });
     await drainAfter();
-    // The zone request fails; the place is still saved with its elevation, which is its own request (no retry of either).
-    assert(show(shape()) === show(FULL_LOOKUP), `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-    assert(userRow.latitude === 40.7127281 && userRow.elevationM === ELEVATION_MAX, `the place is kept: ${show([userRow.latitude, userRow.elevationM])}`);
+    assert(userRow.latitude === 33 && userRow.longitude === 34.5, `the place is kept: ${show([userRow.latitude, userRow.longitude])}`);
+    const lookups = captured.filter(c => c.context === 'location-lookup');
+    assert(lookups.length === 1 && lookups[0].severity === 'warning' && lookups[0].message.includes('Etc/GMT-2') && !lookups[0].message.includes('Out at sea'), `captured ${show(captured)}`);
   });
 
-  await check('(b) Open-Meteo answers 503: the cached zone stays', async () => {
-    seed();
-    answers.openMeteo = () => json({ error: true, reason: 'busy' }, 503);
-    await save({ location: 'New York' });
-    await drainAfter();
-    assert(requests.length === 3, `requests ${show(shape())}`);
-    assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-  });
-
-  await check('(c) Nominatim finds nothing: the cached zone stays, Open-Meteo is not asked', async () => {
+  await check('(c) Nominatim finds nothing: the cached zone stays, nothing else is asked', async () => {
     seed();
     answers.nominatim = () => json([]);
     await save({ location: 'Atlantis' });
     await drainAfter();
     assert(show(shape()) === show(['nominatim.openstreetmap.org 3000/0']), `requests ${show(shape())}`);
-    assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-  });
-
-  await check('(d) Open-Meteo sends a zone Intl does not know: the cached zone stays', async () => {
-    seed();
-    answers.openMeteo = () => json({ timezone: 'Mars/Olympus_Mons' });
-    await save({ location: 'New York' });
-    await drainAfter();
-    assert(requests.length === 3, `requests ${show(shape())}`);
-    assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-  });
-
-  await check('(e) Open-Meteo sends no zone: the cached zone stays (no Asia/Jerusalem default)', async () => {
-    seed();
-    answers.openMeteo = () => json({ latitude: 40.71, longitude: -74.0 });
-    await save({ location: 'New York' });
-    await drainAfter();
-    assert(requests.length === 3, `requests ${show(shape())}`);
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
   });
 
@@ -443,8 +435,7 @@ async function main() {
     answers.nominatim = () => json([], 500);
     assert(await resolveTimezoneForLocation('New York') === null, 'Nominatim 500');
     seed();
-    answers.openMeteo = () => json({ timezone: '' });
-    assert(await resolveTimezoneForLocation('New York') === null, 'empty zone');
+    assert(await resolveTimezoneForLocation('Out at sea') === null, 'a place at sea');
     assert(cachedPathCalls.length === 0, `cached path used: ${show(cachedPathCalls)}`);
   });
 
@@ -464,9 +455,9 @@ async function main() {
     const asked = requests.map(r => {
       const url = new URL(r.url);
       if (url.pathname === '/v1/elevation') return 'elevation';
-      return url.host === 'nominatim.openstreetmap.org' ? `place ${url.searchParams.get('q')}` : `zone ${url.searchParams.get('latitude')}`;
+      return `place ${url.searchParams.get('q')}`;
     });
-    assert(show(asked) === show(['place Tel Aviv', 'place London', 'zone 51.5074456', 'elevation', 'zone 32.0852997', 'elevation']), `asked ${show(asked)}`);
+    assert(show(asked) === show(['place Tel Aviv', 'place London', 'elevation', 'elevation']), `asked ${show(asked)}`);
     assert(show(redisSets) === show([{ key: TZ_KEY, value: 'Europe/London', opts: { ex: 86400 } }]), `redis sets ${show(redisSets)}`);
     assert(redisStore.get(TZ_KEY) === 'Europe/London', `cached zone ${show(redisStore.get(TZ_KEY))}`);
     // Each lookup found a zone, so each read the location back before writing.
@@ -488,7 +479,7 @@ async function main() {
         userGone = true;
       }
       await drainAfter();
-      assert(requests.length === 3, `${change}: requests ${show(shape())}`);
+      assert(requests.length === 2, `${change}: requests ${show(shape())}`);
       assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `${change}: zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
       assert(locationReads.length === 1 && placeWrites.length === 0, `${change}: ${locationReads.length} location reads, ${placeWrites.length} place writes`);
     }
@@ -500,7 +491,7 @@ async function main() {
       seed();
       await save({ location });
       await drainAfter();
-      assert(requests.length === 3, `"${location}": requests ${show(shape())}`);
+      assert(requests.length === 2, `"${location}": requests ${show(shape())}`);
       const url = requests[0].url;
       assert(url.includes(`?q=${encodeURIComponent(location)}&`) && /^[\x21-\x7e]+$/.test(url), `"${location}": Nominatim url ${url}`);
       assert(new URL(url).searchParams.get('q') === location, `"${location}": q reads back as ${show(new URL(url).searchParams.get('q'))}`);
@@ -519,7 +510,7 @@ async function main() {
     assert(show([userRow.latitude, userRow.longitude, userRow.elevationM]) === show([40.7127281, -74.0060152, ELEVATION_MAX]), `stored ${show([userRow.latitude, userRow.longitude, userRow.elevationM])}`);
     assert(show(placeWrites) === show([{ where: { id: USER_ID, location: 'New York' }, data: { latitude: 40.7127281, longitude: -74.0060152, elevationM: ELEVATION_MAX } }]), `place writes ${show(placeWrites)}`);
     // The 25 points are one request, within 3 km of the centre on each axis.
-    const url = new URL(requests[2].url);
+    const url = new URL(requests[1].url);
     const lats = url.searchParams.get('latitude')!.split(',').map(Number), lons = url.searchParams.get('longitude')!.split(',').map(Number);
     assert(lats.length === 25 && lons.length === 25, `${lats.length} points`);
     assert(lats.every(lat => Math.abs(lat - 40.7127281) * 111_320 <= 3000.5), 'held to 3 km north-south');
@@ -551,14 +542,12 @@ async function main() {
     assert(userRow.latitude === 40.7127281, 'stored');
   });
 
-  await check('(p) [logging] every failure of the lookup is logged under location-lookup and never with the place\'s name: Nominatim throwing, answering 500 or sending bad coordinates, and the zone request failing, answering 503 or sending no zone', async () => {
+  await check('(p) [logging] every failure of the lookup is logged under location-lookup and never with the place\'s name: Nominatim throwing, answering 500 or sending bad coordinates, and a place at sea', async () => {
     const cases: Array<[string, (a: typeof answers) => void]> = [
       ['Nominatim throws', a => { a.nominatim = () => { throw new Error('timeout'); }; }],
       ['Nominatim 500', a => { a.nominatim = () => json([], 500); }],
       ['Nominatim bad coordinates', a => { a.nominatim = () => json([{ lat: 'x', lon: 'y' }]); }],
-      ['zone throws', a => { a.openMeteo = () => { throw new Error('timeout'); }; }],
-      ['zone 503', a => { a.openMeteo = () => json({ error: true }, 503); }],
-      ['zone not one Intl knows', a => { a.openMeteo = () => json({ timezone: 'Mars/Olympus_Mons' }); }],
+      ['the place is at sea', a => { a.nominatim = () => json([{ lat: '33.0', lon: '34.5' }]); }],
     ];
     const { resolveLocation } = (await import(path.join(ROOT, 'src/lib/timezone.ts'))) as { resolveLocation: (location: string) => Promise<unknown> };
     for (const [name, change] of cases) {
@@ -598,6 +587,98 @@ async function main() {
     assert(untouched.status === 200 && userRow.zmanimCommunity === 'chabad', 'a save without the field leaves it');
   });
 
+  const zones = nodeRequire(path.join(ROOT, 'src/lib/zone-for-coords.ts')) as {
+    zoneForCoords: (latitude: number, longitude: number) => string | null;
+    pickZone: (zones: readonly string[]) => string | null;
+    tileCacheStats: () => { size: number; stored: number };
+    TILE_CACHE_MAX: number;
+  };
+
+  await check('(r) the zone map on the spec\'s places: Ariel, Ma\'ale Adumim, Eilat and Katzrin are Asia/Jerusalem (the first two are over the Green Line, where the map also lists Hebron), Hebron and Gaza keep their own zones, Kyiv is Europe/Kyiv (not the "now" data set\'s Europe/Athens), and the open sea is no zone', () => {
+    const SPEC_PLACES: Array<[string, number, number, string | null]> = [
+      ['Ariel', 32.106, 35.174, 'Asia/Jerusalem'],
+      ["Ma'ale Adumim", 31.777, 35.298, 'Asia/Jerusalem'],
+      ['Eilat', 29.557, 34.952, 'Asia/Jerusalem'],
+      ['Katzrin', 32.993, 35.692, 'Asia/Jerusalem'],
+      ['Hebron', 31.532, 35.099, 'Asia/Hebron'],
+      ['Gaza', 31.5017, 34.4668, 'Asia/Gaza'],
+      ['Kyiv', 50.45, 30.5236, 'Europe/Kyiv'],
+      ['New York', 40.7127, -74.006, 'America/New_York'],
+      ['the sea off Haifa', 33.0, 34.5, null],
+    ];
+    captured.length = 0;
+    for (const [name, lat, lon, want] of SPEC_PLACES) {
+      const got = zones.zoneForCoords(lat, lon);
+      assert(got === want, `${name}: ${show(got)}, want ${show(want)}`);
+    }
+    assert(captured.length === 1 && captured[0].context === 'location-lookup' && captured[0].severity === 'warning', `only the sea is logged: ${show(captured)}`);
+  });
+
+  await check('(s) the West Bank rule: Asia/Jerusalem when the map lists it, wherever it is in the list; otherwise the first; nothing for no answer', () => {
+    assert(zones.pickZone(['Asia/Jerusalem', 'Asia/Hebron']) === 'Asia/Jerusalem', 'Jerusalem first');
+    assert(zones.pickZone(['Asia/Hebron', 'Asia/Jerusalem']) === 'Asia/Jerusalem', 'Jerusalem second');
+    assert(zones.pickZone(['Asia/Hebron', 'Asia/Gaza']) === 'Asia/Hebron', 'no Jerusalem: the first');
+    assert(zones.pickZone(['Asia/Gaza']) === 'Asia/Gaza', 'one zone');
+    assert(zones.pickZone([]) === null, 'no zone');
+  });
+
+  await check('(t) the zone map\'s tile cache stays bounded: lookups over the whole world store more tiles than the bound, and at most TILE_CACHE_MAX stay in memory', () => {
+    const before = captured.length;
+    for (let lat = -60; lat <= 70; lat += 5) for (let lon = -175; lon <= 175; lon += 5) zones.zoneForCoords(lat, lon);
+    captured.length = before; // the open-sea warnings are expected here
+    const stats = zones.tileCacheStats();
+    assert(stats.stored > zones.TILE_CACHE_MAX, `only ${stats.stored} tiles were read: the bound was never reached`);
+    assert(stats.size > 0 && stats.size <= zones.TILE_CACHE_MAX, `${stats.size} tiles kept (max ${zones.TILE_CACHE_MAX})`);
+  });
+
+  await check('(u) the zone map\'s data file missing from the image (GEO_TZ_DATA_PATH at an empty folder, in a child process): the lookup answers null and reports an error under location-lookup, never a default zone', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'geo-tz-empty-'));
+    try {
+      // process.execArgv carries tsx's loader flags, so the child compiles TypeScript the same way (as smoke-dst.ts does)
+      const run = spawnSync(process.execPath, [...process.execArgv, process.argv[1]], {
+        env: { ...process.env, [MISSING_DATA_CHILD]: '1', GEO_TZ_DATA_PATH: empty },
+        encoding: 'utf8',
+      });
+      const last = run.stdout.trim().split('\n').pop() ?? '';
+      const out = JSON.parse(last) as { zone: unknown; captured: { context: string; severity: string }[] };
+      assert(out.zone === null, `zone ${show(out.zone)}`);
+      assert(show(out.captured) === show([{ context: 'location-lookup', severity: 'error' }]), `captured ${show(out.captured)} (stderr ${run.stderr.slice(0, 300)})`);
+    } finally {
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  await check('(v) the cached path (geocodeLocation / getTimezone, the summaries\' and /weather\'s) takes its zone from the same map with no Asia/Jerusalem fallback: Ariel is Jerusalem, a point at sea has none, and getTimezone rejects it', async () => {
+    const Module = nodeRequire('module');
+    const file = path.join(ROOT, 'src/services/weather/geocoding.ts');
+    const stubbed = Module._cache[file];
+    delete Module._cache[file];
+    const realFetch = globalThis.fetch;
+    let place = { lat: '32.106', lon: '35.174' };
+    globalThis.fetch = (async () => json([place])) as typeof fetch;
+    const log = console.log;
+    console.log = () => {};
+    try {
+      const real = nodeRequire(file) as {
+        geocodeLocation: (location: string) => Promise<{ timezone: string | null }>;
+        getTimezone: (location: string) => Promise<string>;
+        clearGeocodeCache: () => void;
+      };
+      real.clearGeocodeCache();
+      assert((await real.geocodeLocation('Ariel')).timezone === 'Asia/Jerusalem', 'Ariel');
+      place = { lat: '33.0', lon: '34.5' };
+      assert((await real.geocodeLocation('Out at sea')).timezone === null, 'the sea point got a zone');
+      let rejected = false;
+      try { await real.getTimezone('Out at sea'); } catch { rejected = true; }
+      assert(rejected, 'getTimezone answered a zone for a place with none');
+    } finally {
+      console.log = log;
+      globalThis.fetch = realFetch;
+      delete Module._cache[file];
+      Module._cache[file] = stubbed;
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
@@ -607,7 +688,11 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+if (process.env[MISSING_DATA_CHILD] === '1') {
+  missingDataChild();
+} else {
+  main().catch(err => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -9,21 +9,16 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { getUserCalendarTimezone } from '../services/calendar';
 import { fetchWithTimeout, geocodeLocation } from '../services/weather/geocoding';
 import { captureError, captureInfo, captureWarning } from './error-capture';
+import { zoneForCoords } from './zone-for-coords';
+
+// A place's zone from its coordinates: one function, in a leaf module so geocoding.ts can use it without importing this
+// file (which imports geocoding.ts). Re-exported here.
+export { pickZone, zoneForCoords } from './zone-for-coords';
 
 /** How long a resolved zone stays in Redis (resolveUserTimezone, and a saved location's). */
 export const TIMEZONE_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
-/** Every lookup of a place (Nominatim, Open-Meteo's zone and elevation) waits this long, with no retry. */
+/** Nominatim's lookup of a place waits this long, with no retry (spec 2026-10-31 §7 leaves it as it is). */
 export const LOOKUP_TIMEOUT_MS = 3000;
-
-/** True when Intl accepts `tz` as an IANA zone. */
-function isValidTimeZone(tz: string): boolean {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Nominatim's bounding box of a place: [south, north, west, east], in degrees. */
 export type BoundingBox = [number, number, number, number];
@@ -34,7 +29,7 @@ export interface ResolvedLocation {
   longitude: number;
   /** Null when Nominatim sent no box we can read. */
   boundingBox: BoundingBox | null;
-  /** Open-Meteo's zone for the coordinates; null when that request failed or sent none Intl accepts. */
+  /** The zone our map gives the coordinates (zoneForCoords); null when it has none (at sea) or its data is missing, logged there. */
   timezone: string | null;
 }
 
@@ -46,12 +41,10 @@ function readBoundingBox(raw: unknown): BoundingBox | null {
 }
 
 /**
- * A place looked up fresh: one Nominatim request for the place (its coordinates and bounding box)
- * and one Open-Meteo request for its zone, each with a 3 s timeout and no retries. Unlike
- * geocodeLocation it neither reads nor fills the in-process geocode cache, and it has no fallback
- * zone. Null when Nominatim fails or does not find the place; the zone alone is null when
- * Open-Meteo fails or sends none Intl accepts, as the coordinates are good without it. Every
- * failure is logged (never with the place's name). Never throws.
+ * A place looked up fresh: one Nominatim request for the place (its coordinates and bounding box, 3 s, no retry), and
+ * its zone from our own map (zoneForCoords). Unlike geocodeLocation it neither reads nor fills the in-process geocode
+ * cache. Null when Nominatim fails or does not find the place; the zone alone is null when the map has none, as the
+ * coordinates are good without it. Every failure is logged (never with the place's name). Never throws.
  */
 export async function resolveLocation(location: string): Promise<ResolvedLocation | null> {
   try {
@@ -73,7 +66,7 @@ export async function resolveLocation(location: string): Promise<ResolvedLocatio
       return null;
     }
 
-    const timezone = await lookUpZone(latitude, longitude);
+    const timezone = zoneForCoords(latitude, longitude);
     return { latitude, longitude, boundingBox: readBoundingBox(results[0].boundingbox), timezone };
   } catch (error) {
     captureError(error, 'location-lookup', { service: 'timezone' }, 'warning');
@@ -81,29 +74,9 @@ export async function resolveLocation(location: string): Promise<ResolvedLocatio
   }
 }
 
-/** Open-Meteo's zone for coordinates, or null (logged) when it fails or sends none Intl accepts. */
-async function lookUpZone(latitude: number, longitude: number): Promise<string | null> {
-  try {
-    const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&timezone=auto`;
-    const forecast = await fetchWithTimeout(forecastUrl, {}, LOOKUP_TIMEOUT_MS, 0);
-    if (!forecast.ok) {
-      captureWarning(`Open-Meteo's zone lookup answered ${forecast.status}`, 'location-lookup', { service: 'timezone' });
-      return null;
-    }
-    const { timezone } = await forecast.json() as { timezone?: unknown };
-    if (typeof timezone === 'string' && timezone !== '' && isValidTimeZone(timezone)) return timezone;
-    captureWarning('Open-Meteo sent no zone Intl accepts', 'location-lookup', { service: 'timezone' });
-    return null;
-  } catch (error) {
-    captureError(error, 'location-lookup', { service: 'timezone' }, 'warning');
-    return null;
-  }
-}
-
 /**
- * The timezone of a location, looked up fresh (resolveLocation's two requests). Null when
- * either request fails, the place is not found, or Open-Meteo sends no zone Intl accepts.
- * Never throws.
+ * The timezone of a location, looked up fresh (resolveLocation's). Null when Nominatim fails, the place is not found,
+ * or the map has no zone for it. Never throws.
  */
 export async function resolveTimezoneForLocation(location: string): Promise<string | null> {
   return (await resolveLocation(location))?.timezone ?? null;
@@ -156,7 +129,7 @@ export async function resolveUserTimezone(user: TimezoneUser): Promise<string> {
 /**
  * How long a screen waits for the user's timezone (the calendar home's range answer, and
  * Settings, which shows the week start). A tz:user miss (once a day per user) asks
- * Nominatim and Open-Meteo, or Google's settings, with retries that take about 48 s when
+ * Nominatim, or Google's settings, with retries that take about 48 s when
  * those are slow. Past this the answer goes out in the fallback zone.
  */
 export const TZ_LOOKUP_MS = 2000;

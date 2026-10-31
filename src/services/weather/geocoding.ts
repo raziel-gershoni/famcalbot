@@ -1,10 +1,11 @@
 /**
  * Geocoding Service
- * Converts location strings to coordinates and timezone
- * Uses Nominatim (OpenStreetMap) for geocoding and Open-Meteo for timezone
+ * Converts location strings to coordinates and timezone.
+ * Uses Nominatim (OpenStreetMap) for the coordinates and our own zone map (zoneForCoords) for the zone.
  * FREE, no API key needed
  */
 
+import { zoneForCoords } from '../../lib/zone-for-coords';
 import { Coordinates } from '../../types';
 
 /**
@@ -27,7 +28,8 @@ export async function fetchWithTimeout(url: string, options: RequestInit = {}, t
 }
 
 export interface GeoLocation extends Coordinates {
-  timezone: string;
+  /** The zone our map gives the coordinates (zoneForCoords); null when it has none, logged there. Never a default. */
+  timezone: string | null;
 }
 
 // Simple in-memory cache for 24h
@@ -37,7 +39,7 @@ const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Geocode a location string to coordinates and timezone
- * Uses Nominatim (OpenStreetMap) for geocoding, Open-Meteo for timezone
+ * Uses Nominatim (OpenStreetMap) for the coordinates and our own zone map (zoneForCoords) for the zone
  *
  * @param location - Human-readable location (e.g., "Harish, Israel")
  * @returns GeoLocation {latitude, longitude, timezone}
@@ -77,8 +79,8 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
     const latitude = parseFloat(results[0].lat);
     const longitude = parseFloat(results[0].lon);
 
-    // Get timezone from Open-Meteo using the coordinates
-    const timezone = await getTimezoneFromCoords(latitude, longitude);
+    // The zone from our own map; null (logged there) for a point at sea, never Asia/Jerusalem by default
+    const timezone = zoneForCoords(latitude, longitude);
 
     const geoLocation: GeoLocation = { latitude, longitude, timezone };
 
@@ -95,32 +97,13 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
 }
 
 /**
- * Get timezone from coordinates using Open-Meteo
- */
-async function getTimezoneFromCoords(latitude: number, longitude: number): Promise<string> {
-  try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&timezone=auto`;
-    const response = await fetchWithTimeout(url);
-
-    if (!response.ok) {
-      console.warn('Failed to get timezone from Open-Meteo, using default');
-      return 'Asia/Jerusalem';
-    }
-
-    const data = await response.json() as { timezone?: string };
-    return data.timezone || 'Asia/Jerusalem';
-  } catch (error) {
-    console.warn('Error getting timezone:', error);
-    return 'Asia/Jerusalem';
-  }
-}
-
-/**
- * Get timezone for a location (convenience wrapper)
+ * The zone of a location (geocodeLocation's). Rejects when the place has none (the zone lookup logged why): a caller
+ * never falls back to another zone's clock.
  */
 export async function getTimezone(location: string): Promise<string> {
-  const geoLocation = await geocodeLocation(location);
-  return geoLocation.timezone;
+  const { timezone } = await geocodeLocation(location);
+  if (!timezone) throw new Error('No time zone for the place (the zone lookup logged why)');
+  return timezone;
 }
 
 /**

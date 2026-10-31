@@ -10,7 +10,7 @@
 // recorded), the rate limiter (records each key), the reader's two halves readFamcal and readGoogle (recording fakes; their
 // own smokes cover them), the carry-over query fetchOpenReminderItems, error capture,
 // Next's after() (queued), and fetch (blocked and recorded; #24 answers or stalls
-// Nominatim and Open-Meteo for the timezone resolver). No network, no DB.
+// Nominatim for the timezone resolver). No network, no DB.
 //
 // Until the route and readRange exist, the smoke stops at their import
 // (ERR_MODULE_NOT_FOUND).
@@ -834,7 +834,6 @@ async function main() {
           init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
         });
       }
-      if (url.startsWith('https://api.open-meteo.com/')) return json({ timezone: 'Europe/Moscow' });
       throw new Error(`network blocked in smoke: ${url}`);
     }) as typeof fetch;
     try {

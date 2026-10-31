@@ -17,7 +17,7 @@
 //   - the location save (coordinates, the highest of the 25 sampled points, logged) and the lazy fill (once).
 //
 // Pure for the computation. The place's lookups run with Redis, Prisma, the geocoding fetch and
-// error capture faked (the Nominatim and Open-Meteo answers are stubbed), so nothing reaches the network or a
+// error capture faked (the Nominatim and elevation answers are stubbed; the zone comes from the real zone map), so nothing reaches the network or a
 // database. Process zone: this file re-runs itself once per server zone (UTC, Asia/Jerusalem,
 // America/New_York) as child processes, so a plain `npx tsx scripts/smoke-zmanim.ts` and
 // `bash scripts/ci-smokes.sh` both cover all three; nothing here may depend on the one the process has.
@@ -247,7 +247,7 @@ type Request = { url: string; timeoutMs: unknown; maxRetries: unknown };
 const requests: Request[] = [];
 const captured: { kind: string; context: string; message: string }[] = [];
 
-type Answers = { nominatim: () => Response; zone: () => Response; elevation: (lats: number[], lons: number[]) => Response };
+type Answers = { nominatim: () => Response; elevation: (lats: number[], lons: number[]) => Response };
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 /** Harish as Nominatim sends it: a 4 km box around the centre. */
 const HARISH_BOX = ['32.4418', '32.4818', '35.0255', '35.0655'];
@@ -259,7 +259,6 @@ let beforeWrite: (() => void) | null = null;
 function seedAnswers(): void {
   answers = {
     nominatim: () => json([{ lat: '32.46182', lon: '35.04555', boundingbox: HARISH_BOX }]),
-    zone: () => json({ timezone: 'Asia/Jerusalem' }),
     // Rising ground: the last of the 25 points is the highest, 289.6 m.
     elevation: lats => json({ elevation: lats.map((_lat, index) => 265 + index + (index === lats.length - 1 ? 0.6 : 0)) }),
   };
@@ -277,7 +276,6 @@ async function fakeFetchWithTimeout(url: string, _options?: unknown, timeoutMs?:
     const lons = (parsed.searchParams.get('longitude') ?? '').split(',').map(Number);
     return answers.elevation(lats, lons);
   }
-  if (parsed.host === 'api.open-meteo.com') return answers.zone();
   throw new Error(`unexpected request: ${url}`);
 }
 
@@ -836,11 +834,11 @@ async function runChecks(): Promise<void> {
     assertSame(place.elevationGrid(centre, [40, 41, 10, 11]), [centre], 'a box that does not hold the centre gives just the centre');
   });
 
-  await check('a saved location: one Nominatim, one zone and one elevation request (3 s, no retry, the elevation in one call of 25 points), the coordinates and the HIGHEST of the 25 are stored once, the zone is cached, and the centre and the maximum are logged', async () => {
+  await check('a saved location: one Nominatim and one elevation request, the zone from our map (3 s, no retry, the elevation in one call of 25 points), the coordinates and the HIGHEST of the 25 are stored once, the zone is cached, and the centre and the maximum are logged', async () => {
     resetWorld();
     userRow(7, 'Harish, Israel');
     const out = await logged(() => place.saveUserPlace(7, 'Harish, Israel'));
-    assertSame(shape(), ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com 3000/0', 'api.open-meteo.com/elevation 3000/0'], 'requests');
+    assertSame(shape(), ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com/elevation 3000/0'], 'requests');
     const url = new URL(elevationRequest()!.url);
     assert(url.origin + url.pathname === 'https://api.open-meteo.com/v1/elevation', url.toString());
     assert(url.searchParams.get('latitude')!.split(',').length === 25 && url.searchParams.get('longitude')!.split(',').length === 25, '25 points in one call');
@@ -872,13 +870,13 @@ async function runChecks(): Promise<void> {
     }
   });
 
-  await check('the zone request failing still saves the coordinates and the elevation, and leaves the cached zone alone; Nominatim finding nothing writes nothing and asks for no elevation', async () => {
+  await check('a place the zone map puts at sea still saves its coordinates and leaves the cached zone alone; Nominatim finding nothing writes nothing and asks for no elevation', async () => {
     resetWorld();
     userRow(7, 'Harish, Israel');
     stubbed.redis.set('tz:user:7', 'Europe/London');
-    answers.zone = () => json({ error: true }, 503);
+    answers.nominatim = () => json([{ lat: '33.0', lon: '34.5', boundingbox: HARISH_BOX }]);
     const saved = await place.saveUserPlace(7, 'Harish, Israel');
-    assert(saved !== null && saved.timeZone === null && saved.elevationM === 290, `saved ${show(saved)}`);
+    assert(saved !== null && saved.timeZone === null && saved.latitude === 33, `saved ${show(saved)}`);
     assert(nWrites() === 1 && nRedisSets() === 0 && stubbed.redis.get('tz:user:7') === 'Europe/London', 'coordinates written, zone untouched');
     resetWorld();
     userRow(7, 'Atlantis');
@@ -914,19 +912,19 @@ async function runChecks(): Promise<void> {
     const stale = { ...userRow(11, 'Harish, Israel') };
     const first = await logged(() => place.ensureUserCoordinates({ ...stale }));
     assertSame(first.value, { latitude: 32.46182, longitude: 35.04555, elevationM: 290 }, 'filled');
-    assert(nRequests() === 3 && nWrites() === 1, `first need: ${shape().length} requests, ${nWrites()} writes`);
+    assert(nRequests() === 2 && nWrites() === 1, `first need: ${shape().length} requests, ${nWrites()} writes`);
     assert(first.lines.some(l => l.startsWith('[zmanim]') && l.includes('user 11') && l.includes('filling')), `logged: ${show(first.lines)}`);
     const again = await place.ensureUserCoordinates({ ...stale }); // the caller still holds the user as it was
     assertSame(again, first.value, 'the same answer');
-    assert(nRequests() === 3 && nWrites() === 1, 'the second need asks nothing');
+    assert(nRequests() === 2 && nWrites() === 1, 'the second need asks nothing');
     const fresh = await place.ensureUserCoordinates({ ...stale, latitude: 32.46182, longitude: 35.04555, elevationM: 290 });
-    assert(fresh !== null && nRequests() === 3, 'a user that has coordinates asks nothing');
+    assert(fresh !== null && nRequests() === 2, 'a user that has coordinates asks nothing');
     assertSame([users.get(11)!.latitude, users.get(11)!.longitude, users.get(11)!.elevationM], [32.46182, 35.04555, 290], 'cached in the database');
     // A user read from a cache that predates the columns has them missing, not null: that is no coordinates either.
     resetWorld();
     userRow(13, 'Harish, Israel');
     const cached = await place.ensureUserCoordinates({ id: 13, location: 'Harish, Israel' } as never);
-    assert(cached !== null && cached.latitude === 32.46182 && nRequests() === 3, `a user with the columns missing is filled: ${show(cached)}`);
+    assert(cached !== null && cached.latitude === 32.46182 && nRequests() === 2, `a user with the columns missing is filled: ${show(cached)}`);
     assert(place.placeOf({} as never, 'Asia/Jerusalem') === null, 'placeOf with the columns missing');
     assert(stale.latitude === null, 'the caller\'s copy is still the stale one');
 
@@ -934,7 +932,7 @@ async function runChecks(): Promise<void> {
     const racer = userRow(12, 'Harish, Israel');
     const both = await Promise.all([place.ensureUserCoordinates({ ...racer }), place.ensureUserCoordinates({ ...racer })]);
     assert(both[0] !== null && both[0] === both[1], 'one answer');
-    assert(nRequests() === 3 && nWrites() === 1, `two needs at once: ${nRequests()} requests`);
+    assert(nRequests() === 2 && nWrites() === 1, `two needs at once: ${nRequests()} requests`);
   });
 
   await check('the lazy fill leaves out a user with no place name (nothing asked), and a place the lookup does not find is not looked up again within the hour (null, logged, retried after)', async () => {
@@ -988,21 +986,21 @@ async function runChecks(): Promise<void> {
     assert(first.lines.some(l => l.startsWith('[zmanim]') && l.includes('user 41') && l.includes('no height')), `logged: ${show(first.lines)}`);
     place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem'); // while it runs
     await backgroundDone(41, 'Harish, Israel');
-    assert(nRequests() === 3 && nWrites() === 1, `one lookup: ${nRequests()} requests, ${nWrites()} writes`);
+    assert(nRequests() === 2 && nWrites() === 1, `one lookup: ${nRequests()} requests, ${nWrites()} writes`);
     // It failed again (503): nothing is asked again within the hour.
     place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
     await backgroundDone(41, 'Harish, Israel');
-    assert(nRequests() === 3, `asked again within the hour: ${nRequests()} requests`);
+    assert(nRequests() === 2, `asked again within the hour: ${nRequests()} requests`);
     // An hour later, with the elevation answering: the height is found, saved, and read by a caller still holding the stale row.
     fillState().failedAt.set('41|Harish, Israel', performance.now() - 61 * 60 * 1000);
     seedAnswers();
     place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
     await backgroundDone(41, 'Harish, Israel');
-    assert(nRequests() === 6 && users.get(41)!.elevationM === 290, `retried after the hour: ${nRequests()} requests, stored ${show(users.get(41)!.elevationM)}`);
+    assert(nRequests() === 4 && users.get(41)!.elevationM === 290, `retried after the hour: ${nRequests()} requests, stored ${show(users.get(41)!.elevationM)}`);
     assertSame(await place.ensureUserCoordinates({ ...stale }), { latitude: 32.46182, longitude: 35.04555, elevationM: 290 }, 'the stale row reads the height');
     place.retryMissingElevation({ ...stale }, 'Asia/Jerusalem');
     await backgroundDone(41, 'Harish, Israel');
-    assert(nRequests() === 6, 'with the height found it is never looked up again');
+    assert(nRequests() === 4, 'with the height found it is never looked up again');
   });
 
   await check('the missing height is looked up again only where the height is used: not abroad (sea level there), not for a row that has it, not for a person with no place name', async () => {
@@ -1048,7 +1046,7 @@ async function runChecks(): Promise<void> {
       release();
     }
     await backgroundDone(71, 'Harish, Israel');
-    assert(nRequests() === 3 && nWrites() === 1 && users.get(71)!.latitude === 32.46182, `saved once: ${nRequests()} requests, ${nWrites()} writes`);
+    assert(nRequests() === 2 && nWrites() === 1 && users.get(71)!.latitude === 32.46182, `saved once: ${nRequests()} requests, ${nWrites()} writes`);
     assertSame(await place.ensureUserCoordinates({ ...row }, { background: true }), { latitude: 32.46182, longitude: 35.04555, elevationM: 290 }, 'the next need has it');
   });
 

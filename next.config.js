@@ -7,8 +7,15 @@ const withNextIntl = require('next-intl/plugin')();
 const nextConfig = {
   output: 'standalone',
 
-  // Exclude opusscript from bundling — it loads a .wasm binary from disk at runtime
-  serverExternalPackages: ['opusscript', '@resvg/resvg-js'],
+  // Kept out of the bundle: opusscript loads a .wasm binary from disk at runtime, and geo-tz reads its zone map from its
+  // own data/ folder (bundled, it looks in the wrong folder and throws ENOENT)
+  serverExternalPackages: ['opusscript', '@resvg/resvg-js', 'geo-tz'],
+
+  // geo-tz ships three zone maps; FamCal reads only the default "1970" one (src/lib/zone-for-coords.ts), so the other two
+  // (46 MB) stay out of the image
+  outputFileTracingExcludes: {
+    '/*': ['./node_modules/geo-tz/data/timezones-now.*', './node_modules/geo-tz/data/timezones.geojson.*'],
+  },
 
   // Enable experimental features for App Router
   experimental: {

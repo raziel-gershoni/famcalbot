@@ -132,7 +132,6 @@ async function fakeFetchWithTimeout(url: string): Promise<Response> {
     const points = (parsed.searchParams.get('latitude') ?? '').split(',').length;
     return json({ elevation: Array.from({ length: points }, () => 290) });
   }
-  if (parsed.host === 'api.open-meteo.com') return json({ timezone: 'Asia/Jerusalem' });
   throw new Error(`unexpected request: ${url}`);
 }
 
