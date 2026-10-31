@@ -23,10 +23,10 @@
 //     holding it: that user's read fails on every retry, and holding it kept the database awake;
 //   - when nobody reads cleanly (the database is down, or the only cached user fails for any
 //     cause), the hold lasts an hour from the first such pass (one clock for the whole incident,
-//     so a user who starts failing later does not restart it), and any pass with a clean read
-//     ends the incident. After the hour a failing pass closes the gate to the usual ceiling, so
-//     the next :00 pass retries: an outage costs one read an hour, alerts are back within the
-//     hour after it, and any write still opens the gate at once.
+//     so a user who starts failing later does not restart it), and any pass with a clean read,
+//     or with no failure at all, ends the incident. After the hour a failing pass closes the
+//     gate to the usual ceiling, so the next :00 pass retries: an outage costs one read an hour,
+//     alerts are back within the hour after it, and any write still opens the gate at once.
 //
 // The state is on globalThis (src/utils/pass-gate.ts says why), and so is the pass token: two
 // passes can overlap (a manual run beside a scheduled one, or one slower than 5 minutes), and
@@ -122,6 +122,8 @@ export interface FamcalHolds {
  * a failure (a clean read, or no read at all: no access, no calendar) clears it.
  *   - Someone read cleanly: the incident clock is cleared, and a failing user stops holding
  *     (dropped) once their own clock reaches FAMCAL_FAILURE_HOLD_MS.
+ *   - No failure (and no clean read: every user denied): the incident clock is cleared too, so a
+ *     later failure starts a new one and holds the gate.
  *   - Failures and no clean read: the incident clock starts if it is not running, and every
  *     failure holds until it reaches FAMCAL_FAILURE_MAX_HOLD_MS, then every one is dropped.
  */
@@ -134,7 +136,7 @@ export function settleFamcalFailures(outcome: FamcalPassOutcome, now: Date): Fam
   }
   for (const id of outcome.failed) passes.failingSince[id] ??= at;
   const othersRead = outcome.ok.length > 0;
-  if (othersRead) passes.allFailingSince = 0;
+  if (othersRead || outcome.failed.length === 0) passes.allFailingSince = 0;
   else if (outcome.failed.length > 0 && passes.allFailingSince === 0) passes.allFailingSince = at;
   const held: number[] = [];
   const dropped: number[] = [];

@@ -298,6 +298,10 @@ async function runGate(): Promise<void> {
     assert(fresh.held.join() === '1' && fresh.stopsHoldingAt?.toISOString() === t('13:25').toISOString(), `13:10, user 1 failing afresh: ${JSON.stringify(fresh)}`);
     const restarted = alerts.settleFamcalFailures({ failed: [1], ok: [] }, t('13:15'));
     assert(restarted.incidentSince?.toISOString() === t('13:15').toISOString() && restarted.held.join() === '1', `a new incident after a clean read: ${JSON.stringify(restarted)}`);
+    // A pass with no failure and no clean read (every user denied) ends the incident too: the next failure holds afresh.
+    assert(alerts.settleFamcalFailures({ failed: [], ok: [] }, t('14:30')).incidentSince === null, 'a pass with no failure kept the incident');
+    const afterQuiet = alerts.settleFamcalFailures({ failed: [1], ok: [] }, t('20:00'));
+    assert(afterQuiet.held.join() === '1', `a failure after a pass with no failure: ${JSON.stringify(afterQuiet)}`);
     alerts.__resetEventAlertsGateForTests();
   });
 

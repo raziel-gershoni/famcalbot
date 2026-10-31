@@ -1603,6 +1603,36 @@ async function main() {
     assert(again.length === 2 && again[0].startsWith('13:00') && again[1].startsWith('13:05'), `passes that read: ${again.map(r => r.slice(0, 5)).join(' ') || '(none)'}`);
   });
 
+  await check('gate: a pass where every cached user is denied (no failure, no read) ends the outage\'s clock: a later one-off failure holds the gate, so the next pass retries and the alert goes out', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    // Due at 13:07 (the default 15 minutes before 13:22): the 13:05 pass's window.
+    nativeEvents = [{ calendarId: 'cal50', id: 'o50', title: 'Dentist', startsAt: at('2026-10-13 13:22', IL), endsAt: at('2026-10-13 14:00', IL), timeZone: IL }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    // 1. The outage starts at 12:00: the only user's read fails.
+    storeFailure = new Error('database down (smoke)');
+    try {
+      assert((await quietReadingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 12:05', IL))).length === 1, 'the 12:00 pass did not read');
+    } finally {
+      storeFailure = null;
+    }
+    // 2. 12:05: the user's plan has lapsed (their recompute now answers "denied"): no failure, no read; the gate closes.
+    deniedUsers = [50];
+    await quietReadingPasses(at('2026-10-13 12:05', IL), at('2026-10-13 12:10', IL));
+    assert((await quietReadingPasses(at('2026-10-13 12:10', IL), at('2026-10-13 13:00', IL))).length === 0, 'the gate did not close after the pass with nobody to read');
+    // 3. Allowed again, the 13:00 read fails once: it holds the gate, so 13:05 retries and sends the 13:07 alert.
+    deniedUsers = [];
+    storeFailure = new Error('database blip (smoke)');
+    try {
+      assert((await quietReadingPasses(at('2026-10-13 13:00', IL), at('2026-10-13 13:05', IL))).length === 1, 'the 13:00 pass did not read');
+    } finally {
+      storeFailure = null;
+    }
+    assert((await quietReadingPasses(at('2026-10-13 13:05', IL), at('2026-10-13 13:10', IL))).length === 1, 'the one-off failure did not hold the gate: the 13:05 pass did not retry');
+    assert(sentLines(IL).join(' | ') === '13:05 🤖 Auto-Reminder: Dentist', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
   await check('gate: a cache write that lands right after the pass read the cached users (a settings save) keeps that pass from closing the gate', async () => {
     reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
     await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
