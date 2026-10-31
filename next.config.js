@@ -8,8 +8,9 @@ const nextConfig = {
   output: 'standalone',
 
   // Kept out of the bundle: opusscript loads a .wasm binary from disk at runtime, and geo-tz reads its zone map from its
-  // own data/ folder (bundled, it looks in the wrong folder and throws ENOENT)
-  serverExternalPackages: ['opusscript', '@resvg/resvg-js', 'geo-tz'],
+  // own data/ folder (bundled, it looks in the wrong folder and throws ENOENT), and the CAMS reader loads its WebAssembly
+  // from its own package folder (GPL-2.0: it stays on the server)
+  serverExternalPackages: ['opusscript', '@resvg/resvg-js', 'geo-tz', '@openmeteo/file-reader', '@openmeteo/file-format-wasm'],
 
   // The Israel height map (src/services/zmanim/heights.ts reads it from data/ at run time): traced into the standalone image
   outputFileTracingIncludes: {

@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     const [weatherData, airQualityData] = await Promise.all([
       fetchWeather(user.location, timezone),
-      fetchAirQuality(user.location, timezone).catch(() => null),
+      fetchAirQuality(user.location, timezone),
     ]);
 
     const config = buildInfographicConfig(weatherData, user.language, timezone, user.culture, airQualityData);

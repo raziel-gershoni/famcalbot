@@ -739,7 +739,7 @@ async function sendWeatherOnlyToUser(
   const timezone = await getTimezone(user.location);
   const [weatherData, airQualityData] = await Promise.all([
     fetchWeather(user.location, timezone),
-    fetchAirQuality(user.location, timezone).catch(() => null),
+    fetchAirQuality(user.location, timezone),
   ]);
 
   const t = await getBotMessages(user.language || 'en');

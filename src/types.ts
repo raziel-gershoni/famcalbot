@@ -198,11 +198,12 @@ export interface WeatherData {
   summary?: string;  // AI-generated summary
 }
 
+/** Copernicus CAMS air quality at the place (air-quality.ts): hourly from today's 00:00 at the place, µg/m³. */
 export interface AirQualityData {
   hourly: {
+    /** 'yyyy-MM-ddTHH:mm' at the place. */
     time: string[];
     pm10: (number | null)[];
-    pm2_5: (number | null)[];
     dust: (number | null)[];
   };
 }

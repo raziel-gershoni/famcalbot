@@ -364,7 +364,7 @@ export async function handleWeatherCommand(
 
       const [weatherData, airQualityData] = await Promise.all([
         fetchWeather(user.location, timezone),
-        fetchAirQuality(user.location, timezone).catch(() => null),
+        fetchAirQuality(user.location, timezone),
       ]);
 
       // The photo is drawn from the weather data alone. The AI forecast (20-30s at MEDIUM

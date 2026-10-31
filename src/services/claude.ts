@@ -278,7 +278,7 @@ export async function generateSummary(
       // Fetch weather and air quality data in parallel
       const [weatherData, airQualityData] = await Promise.all([
         fetchWeather(location, weatherTimezone),
-        fetchAirQuality(location, weatherTimezone).catch(() => null),
+        fetchAirQuality(location, weatherTimezone),
       ]);
 
       // Build weather summary for prompt

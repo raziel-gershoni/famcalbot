@@ -133,7 +133,7 @@ const WEATHER: WeatherData = {
     sunrise: `2026-10-${d}T07:05`, sunset: `2026-10-${d}T18:20`, uvIndexMax: 3, windSpeedMax: 15, windDirection: 200, humidity: 70,
   })),
 };
-const AIR: AirQualityData = { hourly: { time: ['2026-10-13T22:00'], pm10: [12], pm2_5: [6], dust: [0] } };
+const AIR: AirQualityData = { hourly: { time: ['2026-10-13T22:00'], pm10: [12], dust: [0] } };
 const USER_TZ = 'America/New_York';
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 const AI_TEXT = '<b>Today & Tomorrow</b>\nGood evening Dana, a cloudy night ahead.';
