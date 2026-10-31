@@ -1417,7 +1417,7 @@ async function main() {
     assertTime(due.tomorrowMorning(today('10:00'), IL), at('2026-10-16 09:00'), 'unset');
   });
 
-  await check('reminder time: two recipients of date-only reminders each ping at their own time; the gate sleeps to the earliest of them', async () => {
+  await check('reminder time: two recipients of date-only reminders each ping at their own time; the gate sleeps to the earliest of them, waking only at the hour\'s :00 on the way', async () => {
     reset();
     gate.__resetDueGateForTests();
     db.users[0].reminderTime = '07:30';
@@ -1430,7 +1430,12 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === '1001', `07:30: ${sentLines()}`);
     assert(!!stateOf(mine.id, mine.startsAt as Date), 'state row for the 07:30 reminder');
     queries.length = 0;
-    await tick(today('08:00')); // gate: next due is 09:00 (Dana), so this tick reads nothing
+    await tick(today('07:59')); // gate: next due is 09:00 (Dana), so this tick reads nothing
+    assert(!queries.includes('nativeEvent.findMany'), `woke before 08:00: ${queries.join(', ')}`);
+    await tick(today('08:00')); // the ceiling: the next whole hour after the 07:30 read
+    assert(queries.includes('nativeEvent.findMany'), 'did not wake at the :00 ceiling');
+    queries.length = 0;
+    await tick(today('08:30'));
     assert(!queries.includes('nativeEvent.findMany'), `woke before 09:00: ${queries.join(', ')}`);
     await tick(today('09:00'));
     assert(sent.length === 2 && sent[1].chatId === '1002', `09:00: ${sentLines()}`);
@@ -1489,7 +1494,7 @@ async function main() {
     assert((await pass(today('10:00'))).nextDue === null, 'nothing in the window');
   });
 
-  await check('handler: the first tick reads; later ones sleep until the next due or the 60-minute ceiling; a write wakes it', async () => {
+  await check('handler: the first tick reads; later ones sleep until the next due or the ceiling at the next whole hour; a write wakes it', async () => {
     reset();
     gate.__resetDueGateForTests();
     reminder({ startsAt: today('10:20') });
@@ -1505,9 +1510,9 @@ async function main() {
     await tick(today('10:20'));
     assert(sent.length === 1, sentLines());
     queries.length = 0;
-    await tick(today('11:19')); // nothing ahead: wakes at the ceiling
+    await tick(today('10:59')); // nothing ahead: wakes at the ceiling, 11:00 (not 11:20, an hour after the read)
     assert(queries.length === 0, `woke early: ${queries.join(', ')}`);
-    await tick(today('11:20'));
+    await tick(today('11:00'));
     assert(queries.includes('nativeEvent.findMany'), 'did not wake at the ceiling');
   });
 

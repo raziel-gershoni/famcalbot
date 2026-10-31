@@ -3,8 +3,8 @@
 // settings copy of the reminder run lives as long as the account, and the Policy names it.
 //
 //  - C1 every expiry the code gives a Redis key (`{ ex: … }` on a set, `expire(key, …)`) is 30 days or less: a number,
-//    a product of numbers, or a constant (of any file in src/) that is one. A TTL the check can't read fails it, so a
-//    new one is added in a form it can.
+//    a product of numbers, or a constant (of any file in src/) that is one, or one of the computed expiries in COMPUTED,
+//    read by running it. A TTL the check can't read fails it, so a new one is added in a form it can.
 //  - C2 the two that were longer are capped and still guard what they guard: the subscription reminders' marks
 //    outlive the windows that read them (the 3-day reminder looks 4 days ahead), and a Google setup track's attempt marks
 //    outlive its window; the track's start is account data now (User.googleNudgeStartedAt), not a cache key.
@@ -44,6 +44,20 @@ function files(dir: string): string[] {
   });
 }
 
+/**
+ * The expiries the code computes, each with its longest value, read by running it: the feature-access answer ends at an
+ * hh:59 UTC 23 to 24 hours ahead (featureAccessTtlSeconds), so it is asked from every second of an hour.
+ */
+const COMPUTED: Record<string, () => Promise<number>> = {
+  'featureAccessTtlSeconds()': async () => {
+    const { featureAccessTtlSeconds } = await import('../src/services/subscription-service');
+    const hour = Date.UTC(2026, 9, 31, 12);
+    let longest = 0;
+    for (let s = 0; s < 3600; s++) longest = Math.max(longest, featureAccessTtlSeconds(hour + s * 1000));
+    return longest;
+  },
+};
+
 /** A product of numbers ("30 * 24 * 60 * 60", "86_400"), or null. */
 function product(expr: string): number | null {
   const clean = expr.replace(/_/g, '').trim();
@@ -68,7 +82,7 @@ async function main() {
     return constants.get(name) ?? null;
   };
 
-  await check('C1 every Redis expiry in src/ is 30 days or less (a number, a product of numbers, or a constant that is one)', () => {
+  await check('C1 every Redis expiry in src/ is 30 days or less (a number, a product of numbers, a constant that is one, or a computed one read by running it)', async () => {
     const found: { at: string; expr: string; seconds: number | null }[] = [];
     for (const { file, text } of sources) {
       const lineOf = (index: number) => text.slice(0, index).split('\n').length;
@@ -80,6 +94,7 @@ async function main() {
     const passed = [...handlers.matchAll(/sendSetupReminder\([^;]*?,\s*(tracks\.[A-Z_]+)\)/g)].map((m) => m[1]);
     assert(passed.length >= 3, `the setup reminders' callers: ${show(passed)}`);
     for (const expr of passed) found.push({ at: 'src/cron/handlers.ts (sendSetupReminder)', expr, seconds: resolve(expr) });
+    for (const f of found) if (f.seconds === null && COMPUTED[f.expr]) f.seconds = await COMPUTED[f.expr]();
     const unread = found.filter((f) => f.seconds === null && f.expr !== 'ttlSeconds');
     assert(unread.length === 0, `expiries the check can't read (write them as a number or a constant): ${show(unread)}`);
     const long = found.filter((f) => f.seconds !== null && f.seconds > LIMIT_S);
