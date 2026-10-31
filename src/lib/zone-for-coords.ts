@@ -12,7 +12,8 @@
  *
  * Its own leaf module: geocoding.ts and timezone.ts both use it, and timezone.ts imports geocoding.ts (timezone.ts
  * re-exports it). Server only (it reads its data from disk): never in a 'use client' file, the proxy or the edge.
- * next.config.js keeps geo-tz out of the bundle (serverExternalPackages) and its two unused data sets out of the image.
+ * next.config.js keeps geo-tz out of the bundle (serverExternalPackages). All three of its data sets sit in node_modules
+ * (about 75 MB), which is what `next start` on Railway runs from; this file reads the "1970" one.
  */
 
 import { find, setCache } from 'geo-tz';

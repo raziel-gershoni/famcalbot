@@ -113,7 +113,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 - **Data:** the "1970" data set, as the library uses by default. Its "now" set labels Ariel as Asia/Gaza and Kyiv as Europe/Athens.
 - **`next.config.js`:**
   - `geo-tz` joins `serverExternalPackages` (bundled, it looks in the wrong folder and throws);
-  - `outputFileTracingExcludes` leaves its two unused data sets (46 MB) out, which adds 27 MB to the image.
+  - The package with its three data sets (about 75 MB) sits in `node_modules`, which is what `next start` on Railway runs from; the 1970 set is the one read. No `outputFileTracingExcludes`: Turbopack keeps every set in the instrumentation trace, so it would remove nothing.
 - **Memory:** its tile cache gets a bounded store, since RAM is 1 GB.
 - **Client code:** never imported into a `'use client'` file.
 - **Build check:** a fresh-clone build confirms the data file is in the standalone output.
