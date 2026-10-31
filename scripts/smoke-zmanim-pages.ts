@@ -382,6 +382,22 @@ async function main() {
     }
   });
 
+  await check('Z15 the Sources at the foot of a city page in en, he and ru (the lawyer\'s opinion of 2026-11-01): GeoNames linked, OpenStreetMap for the town outlines only (these pages take no zone from it), and the Copernicus WorldDEM notice for adapted data with its liability sentence, in English and left to right, the same on every page', async () => {
+    const { COPERNICUS_NOTICE } = await load('src/site/zmanim/sources.ts');
+    assert(COPERNICUS_NOTICE.startsWith('Produced using Copernicus WorldDEM™-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.') && COPERNICUS_NOTICE.endsWith('do not incur any liability for any use of the Copernicus WorldDEM™-90.'), `the notice: ${COPERNICUS_NOTICE}`);
+    for (const locale of LOCALES) {
+      const html = await cityPage(locale, 'jerusalem');
+      const start = html.indexOf('<section class="site-zm-sources"');
+      assert(start >= 0, `${locale}: no Sources section`);
+      const section = html.slice(start, html.indexOf('</section>', start));
+      const text = decodeEntities(textOf(section));
+      const z = messages[locale].zmanimSite.sources;
+      assert(section.includes('<a href="https://www.geonames.org/">') && section.includes('<a href="https://www.openstreetmap.org/copyright">'), `${locale}: the GeoNames or OpenStreetMap link`);
+      assert(text.includes(z.copernicus) && decodeEntities(section).includes(`<span lang="en" dir="ltr">${COPERNICUS_NOTICE}</span>`), `${locale}: the Copernicus line or its notice in its English span`);
+      assert(!/time zone|אזורי הזמן|часовые пояса/i.test(text), `${locale}: the Sources credit OpenStreetMap for time zones, which these pages do not take from it: ${text}`);
+    }
+  });
+
   await check('Z9 the CSS: the kit\'s lint, every tap target at least 44 px, no hover, motion only under no-preference; the community switch\'s labels wrap inside their pills and step down on narrow screens; the sheet\'s rows and the page\'s CSS each in the site\'s sheet once', async () => {
     const { SITE_CSS, ZMANIM_PAGE_CSS } = await load('src/site/site-css.ts');
     const { ZMANIM_SHEET_CSS } = await load('src/lib/calendar-view/zmanim-sheet-css.ts');

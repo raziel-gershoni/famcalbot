@@ -10,8 +10,8 @@
  */
 
 import { HDate, months } from '@hebcal/hdate';
-import { HEBREW_MONTHS } from '../lib/calendar-view/hebrew-date';
-import { instantToWallTime } from '../utils/wall-time';
+import { HEBREW_MONTHS, hebrewDateOf } from '../lib/calendar-view/hebrew-date';
+import { localDate } from '../utils/day-events';
 
 /** The month names the prompt offers the model, Adar I and Adar II apart. */
 export type HebrewMonthName = (typeof HEBREW_MONTHS)[number];
@@ -116,12 +116,15 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 /**
  * The Hebrew date of the day `at` falls on in `timezone`: the daytime date, no sunset shift, as the home reads it. The zone's
- * own clock gives the day (instantToWallTime), and hebcal reads it off a Date at local midnight of that civil day, so the
- * server's own zone never enters (a Date made from the zone's locale string and read back by hebcal let it in).
+ * own clock gives the day (localDate) and the home's own reader its Hebrew date (hebrewDateOf), so the server's own zone
+ * never enters (a Date made from the zone's locale string and read back by hebcal let it in).
  */
 export function hebrewDateAt(at: Date, timezone: string): HDate {
-  const [y, m, d] = instantToWallTime(at, timezone).slice(0, 10).split('-').map(Number);
-  return new HDate(new Date(y, m - 1, d));
+  const day = localDate(at, timezone);
+  const hebrew = hebrewDateOf(day);
+  // localDate answers a real yyyy-MM-dd for any valid instant; anything else (an Invalid Date) is the caller's bug, not a day to guess
+  if (!hebrew) throw new RangeError(`[hebrew-date] ${JSON.stringify(day)} is not a civil day (instant ${String(at.getTime())}, zone ${timezone})`);
+  return hebrew;
 }
 
 /**

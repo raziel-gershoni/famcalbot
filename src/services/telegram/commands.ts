@@ -15,6 +15,7 @@ import { executeCommand, startTypingInterval } from './command-pipeline';
 import { VALID_LOCALES } from '../../utils/locale';
 import { getBotMessages } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
+import { SOURCE_LINKS } from '../../site/data-sources';
 import { policyLinks, withPolicy } from '../../lib/plan-disclosure';
 import { trackActivityAsync, addBreadcrumb } from '../analytics-service';
 import { incrementUsage } from '../subscription-service';
@@ -410,8 +411,11 @@ export async function handleWeatherCommand(
         });
       } else if (result.brief) {
         const t = await getBotMessages(userLanguage);
-        // The credit MET Norway's and Copernicus's licences ask for, under the text reply (the photo has it drawn)
-        await messagingService.sendMessage(chatId, `${result.brief}\n\n<i>${escapeHtml(t.weatherCredit)}</i>`, { format: MessageFormat.HTML });
+        // The credit MET Norway's, Copernicus's and Open-Meteo's licences ask for, under the text reply (the photo has it
+        // drawn, as plain text): Open-Meteo.com, whose files carry the dust, is the link its licence asks for
+        const credit = escapeHtml(t.weatherCredit).replace('Open-Meteo.com', `<a href="${SOURCE_LINKS.om}">Open-Meteo.com</a>`);
+        // No link preview: the credit's link is not the reply
+        await messagingService.sendMessage(chatId, `${result.brief}\n\n<i>${credit}</i>`, { format: MessageFormat.HTML, disablePreview: true });
       }
 
       // Voice with typing indicator. On Telegram, "recording" shows while the forecast is

@@ -6,7 +6,7 @@ import { buildCalendarSummaryPrompt, SummaryPromptData } from '../prompts/calend
 import { buildWeekLookaheadPrompt, WeekLookaheadPromptData, LookaheadDayData, LookaheadEventData } from '../prompts/week-lookahead';
 import { formatEventList, hasAnniversaryMarker, isReminderEvent, reminderAttribution } from '../utils/event-formatter';
 import { localDate, startOfLocalDay } from '../utils/day-events';
-import { timeOfDayGreeting } from '../utils/greeting';
+import { localHour, timeOfDayGreeting } from '../utils/greeting';
 import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
@@ -26,7 +26,7 @@ export function formatDateHeader(
   culture?: string,
   timezone: string = TIMEZONE
 ): string {
-  const currentHour = parseInt(new Date().toLocaleString('en-US', { timeZone: timezone, hour: '2-digit', hour12: false }));
+  const currentHour = localHour(new Date(), timezone);
   const greeting = `${timeOfDayGreeting(currentHour, language)}!`;
 
   // Format gregorian date based on locale
@@ -124,11 +124,7 @@ function buildPromptData(
   });
 
   // Determine greeting based on current time and user's language
-  const currentHour = parseInt(currentDate.toLocaleTimeString('en-US', {
-    timeZone: timezone,
-    hour: '2-digit',
-    hour12: false
-  }));
+  const currentHour = localHour(currentDate, timezone);
   const greeting = `${timeOfDayGreeting(currentHour, language)}!`;
 
   // Get summary date and Hebrew date information

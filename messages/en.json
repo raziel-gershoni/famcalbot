@@ -1178,7 +1178,7 @@
       "today": "No events planned for today. Enjoy your free time!",
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
     },
-    "weatherCredit": "Weather: MET Norway · Dust: Copernicus",
+    "weatherCredit": "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)",
     "weatherOnly": {
       "title": "Weather",
       "current": "Current",
@@ -1708,7 +1708,7 @@
       "contact": "Contact",
       "madeIn": "Made in Israel",
       "copyright": "© 2025–{year} FamCal",
-      "dataSources": "Data sources: weather from <met>MET Norway</met> (<nlod>NLOD 2.0</nlod> and <ccby>CC BY 4.0</ccby>); dust from the <cams>Copernicus Atmosphere Monitoring Service</cams>, <om>{omCredit}</om> (<ccby>CC BY 4.0</ccby>); time zones © <osm>OpenStreetMap</osm> contributors (<odbl>ODbL</odbl>). FamCal changes the data: units, local times and daily figures."
+      "dataSources": "Data sources: weather from <met>MET Norway</met> (<nlod>NLOD 2.0</nlod> and <ccby>CC BY 4.0</ccby>); dust from the <cams>Copernicus Atmosphere Monitoring Service</cams>, in files from <om>Open-Meteo.com</om> (<ccby>CC BY 4.0</ccby>); time zones © <osm>OpenStreetMap</osm> contributors (<odbl>ODbL</odbl>). FamCal changes the data: units, local times and daily figures."
     },
     "language": {
       "label": "Language",
@@ -2790,7 +2790,7 @@
     "sources": {
       "title": "Sources",
       "geonames": "City positions: <link>GeoNames</link>, under CC BY 4.0.",
-      "osm": "Town outlines for the heights, and time zones: © <link>OpenStreetMap</link> contributors.",
+      "osm": "Town outlines for the heights: © <link>OpenStreetMap</link> contributors.",
       "copernicus": "Heights: Copernicus DEM GLO-90."
     }
   },

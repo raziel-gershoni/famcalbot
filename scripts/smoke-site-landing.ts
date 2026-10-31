@@ -62,8 +62,8 @@ async function main() {
   const { SITE_CSS, SITE_PALETTE, BRAND } = await load('src/site/site-css.ts');
   const { APP_THEME_CSS } = await load('components/app-ui/theme.ts');
   const { buildSampleWeek, sampleWords, comingThursday } = await load('src/site/sample-week.ts');
-  // The footer's two licence credits stay English on every page (src/site/data-sources.ts), so G1 does not read them as words
-  const { OPEN_METEO_CREDIT, camsNotice } = await load('src/site/data-sources.ts');
+  // The footer's Copernicus notice stays English on every page (src/site/data-sources.ts), so G1 does not read it as words
+  const { camsNotice } = await load('src/site/data-sources.ts');
 
   const page = async (locale: Locale): Promise<string> => {
     const el = (await LandingPage({ params: Promise.resolve({ locale }) })) as ReactElement;
@@ -94,9 +94,9 @@ async function main() {
       assert(!EMOJI.test(html.replace(/https:\/\/wa\.me\/[^"]+/g, '')), `${locale}: an emoji: ${html.match(EMOJI)?.[0]}`);
       // An email address and a bot command (the cancel line's ways) are not words
       const words = text.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|(?<![\w/])\/[a-z]+/g, '');
-      // The footer's data sources: the licences' own English (the two credits) and the sources' proper names
-      const unlicensed = words.replace(OPEN_METEO_CREDIT, '').replace(camsNotice(new Date().getFullYear()), '');
-      if (locale !== 'en') assert(!/[A-Za-z]{4,}/.test(unlicensed.replace(/FamCal|Telegram|WhatsApp|Google|Shabbat|Pro|PDF|English|Русский|Yom Tov|QR|MET Norway|Copernicus Atmosphere Monitoring Service|OpenStreetMap|Open-Meteo|NLOD|CC BY|ODbL/g, '')) || locale === 'ru', `${locale}: English words in the page`);
+      // The footer's data sources: the Copernicus notice in the licence's own English, and the sources' proper names
+      const unlicensed = words.replace(camsNotice(new Date().getFullYear()), '');
+      if (locale !== 'en') assert(!/[A-Za-z]{4,}/.test(unlicensed.replace(/FamCal|Telegram|WhatsApp|Google|Shabbat|Pro|PDF|English|Русский|Yom Tov|QR|MET Norway|Copernicus Atmosphere Monitoring Service|OpenStreetMap|Open-Meteo\.com|NLOD|CC BY|ODbL/g, '')) || locale === 'ru', `${locale}: English words in the page`);
     }
   });
 

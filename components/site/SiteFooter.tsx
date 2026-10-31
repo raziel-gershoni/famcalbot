@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { TELEGRAM_BOT_URL } from '@/src/site/config';
-import { OPEN_METEO_CREDIT, SOURCE_LINKS, camsNotice } from '@/src/site/data-sources';
+import { SOURCE_LINKS, camsNotice } from '@/src/site/data-sources';
 import { LanguageLinks } from './LanguageLinks';
 
 // The footer of every public page (spec 2026-10-28-public-website §3.4): How it works, Plans, Blog, Zmanim (spec
@@ -55,8 +55,8 @@ export async function SiteFooter({ locale, path }: { locale: string; path: strin
         </nav>
         <LanguageLinks locale={locale} path={path} names={names} label={t('site.language.choose')} />
         <p className="site-footer-sources">
-          {t.rich('site.footer.dataSources', { omCredit: OPEN_METEO_CREDIT, ...sourceLinks })}{' '}
-          <span lang="en" dir="ltr">
+          {t.rich('site.footer.dataSources', sourceLinks)}
+          <span className="site-footer-notice" lang="en" dir="ltr">
             {camsNotice(new Date().getFullYear())}
           </span>
         </p>

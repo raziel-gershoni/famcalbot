@@ -1178,7 +1178,7 @@
       "today": "На сегодня нет запланированных событий. Наслаждайтесь свободным днём!",
       "tomorrow": "На завтра нет запланированных событий. Наслаждайтесь свободным днём!"
     },
-    "weatherCredit": "Погода: MET Norway · Пыль: Copernicus",
+    "weatherCredit": "Погода: MET Norway · Пыль: Copernicus (Open-Meteo.com)",
     "weatherOnly": {
       "title": "Погода",
       "current": "Сейчас",
@@ -1708,7 +1708,7 @@
       "contact": "Контакты",
       "madeIn": "Сделано в Израиле",
       "copyright": "© 2025–{year} FamCal",
-      "dataSources": "Источники данных: погода — <met>MET Norway</met> (<nlod>NLOD 2.0</nlod> и <ccby>CC BY 4.0</ccby>); пыль — <cams>Copernicus Atmosphere Monitoring Service</cams>, <om>{omCredit}</om> (<ccby>CC BY 4.0</ccby>); часовые пояса — © участники <osm>OpenStreetMap</osm> (<odbl>ODbL</odbl>). FamCal обрабатывает эти данные: единицы измерения, местное время и сводки по дням."
+      "dataSources": "Источники данных: погода — <met>MET Norway</met> (<nlod>NLOD 2.0</nlod> и <ccby>CC BY 4.0</ccby>); пыль — <cams>Copernicus Atmosphere Monitoring Service</cams>, из файлов <om>Open-Meteo.com</om> (<ccby>CC BY 4.0</ccby>); часовые пояса — © участники <osm>OpenStreetMap</osm> (<odbl>ODbL</odbl>). FamCal изменяет эти данные: единицы измерения, местное время и суточные значения."
     },
     "language": {
       "label": "Язык",
@@ -2790,7 +2790,7 @@
     "sources": {
       "title": "Источники",
       "geonames": "Координаты городов: <link>GeoNames</link>, лицензия CC BY 4.0.",
-      "osm": "Границы населённых пунктов для расчёта высоты и часовые пояса: © участники <link>OpenStreetMap</link>.",
+      "osm": "Границы населённых пунктов для расчёта высоты: © участники <link>OpenStreetMap</link>.",
       "copernicus": "Высоты: Copernicus DEM GLO-90."
     }
   },

@@ -84,7 +84,7 @@ async function main() {
   };
   const { formatWeatherAI } = await import('../src/services/weather/formatter');
   const { formatDateHeader } = await import('../src/services/claude');
-  const { timeOfDayGreeting } = await import('../src/utils/greeting');
+  const { localHour, timeOfDayGreeting } = await import('../src/utils/greeting');
 
   const dust = loadFixture('weather-en-dust-storm.json');
   const sharav = loadFixture('weather-he-sharav-heatwave.json');
@@ -188,6 +188,22 @@ async function main() {
   });
 
   // ---- The digest header ----
+  check('localHour reads the zone\'s own clock: midnight is 0 (never "24"), the hours either side of both 2026 changes are the clock\'s, and the greeting header follows it at each edge', () => {
+    const hour = (utc: string, zone: string) => localHour(new RealDate(utc), zone);
+    assert(hour('2026-11-01T22:00:00Z', TZ) === 0 && hour('2026-11-01T21:59:00Z', TZ) === 23, `Jerusalem at midnight: ${hour('2026-11-01T22:00:00Z', TZ)} and ${hour('2026-11-01T21:59:00Z', TZ)}`);
+    // Israel springs forward at 02:00 on 2026-03-27 (23:59Z on the 26th Israel is in UTC+2 until 00:00Z on the 27th)
+    assert(hour('2026-03-26T23:59:00Z', TZ) === 1 && hour('2026-03-27T00:00:00Z', TZ) === 3, `Jerusalem over the jump: ${hour('2026-03-26T23:59:00Z', TZ)} and ${hour('2026-03-27T00:00:00Z', TZ)}`);
+    // New York falls back on 2026-11-01: 01:30 happens twice
+    assert(hour('2026-11-01T05:30:00Z', 'America/New_York') === 1 && hour('2026-11-01T06:30:00Z', 'America/New_York') === 1 && hour('2026-11-01T07:00:00Z', 'America/New_York') === 2, 'New York over the fall back');
+    assert(hour('2026-10-31T10:30:00Z', 'Pacific/Kiritimati') === 0, `Kiritimati (UTC+14): ${hour('2026-10-31T10:30:00Z', 'Pacific/Kiritimati')}`);
+    // The header's greeting at the edges of the night (NIGHT_END_HOUR 5), the morning (12) and the afternoon (18)
+    for (const [hhmm, want] of [['00:00', 'Hello'], ['04:59', 'Hello'], ['05:00', 'Good morning'], ['11:59', 'Good morning'], ['12:00', 'Good afternoon'], ['17:59', 'Good afternoon'], ['18:00', 'Good evening'], ['23:59', 'Good evening']] as const) {
+      frozen = at(hhmm).getTime();
+      const header = formatDateHeader(new Date(), 'en', undefined, TZ).split('\n')[0];
+      assert(header === `<b>${want}!</b>`, `${hhmm} header ${header}`);
+    }
+  });
+
   check('formatDateHeader: "Hello" at 00:32, "Good evening!" at 22:30', () => {
     frozen = at('00:32').getTime();
     const night = formatDateHeader(new Date(), 'en', undefined, TZ).split('\n')[0];

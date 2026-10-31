@@ -456,6 +456,12 @@ const CHROME_CSS = `
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* The Copernicus notice is English, so it is a block of its own, left to right and flush left in every language (its dir
+   makes the default text-align: start the left edge, in the Hebrew page too) */
+.site-footer-notice {
+  display: block;
+  margin-block-start: 8px;
+}
 `;
 
 

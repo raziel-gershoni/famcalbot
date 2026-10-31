@@ -122,12 +122,15 @@ async function main() {
       const p = prefix(locale);
       const hrefs = attrs(html, 'a').map((a) => decode(attr(a, 'href') ?? ''));
       for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p}/privacy`, `${p}/terms`, `${p}/terms#cancel`, 'https://t.me/family_calendar_telegram_bot?start=feedback',
-        'https://api.met.no/', 'https://creativecommons.org/licenses/by/4.0/', 'https://opendatacommons.org/licenses/odbl/1-0/', 'https://open-meteo.com/']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
+        'https://api.met.no/', 'https://creativecommons.org/licenses/by/4.0/', 'https://opendatacommons.org/licenses/odbl/1-0/', 'https://open-meteo.com/', 'https://doi.org/10.24381/04a0b097']) assert(hrefs.includes(want), `${locale}: no ${want} in ${show(hrefs)}`);
       const text = textOf(html);
-      for (const credit of ['Weather data by Open-Meteo.com', `Contains modified Copernicus Atmosphere Monitoring Service information ${year}`, 'Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.']) assert(text.includes(credit), `${locale}: no "${credit}" in the footer`);
+      // Open-Meteo's credit is a link on its name (the dust comes from its files, not the weather), and the weather is not credited to it
+      assert(/<a href="https:\/\/open-meteo\.com\/">Open-Meteo\.com<\/a>/.test(html), `${locale}: Open-Meteo.com is not the text of its link`);
+      assert(!text.includes('Weather data by Open-Meteo.com'), `${locale}: the footer credits Open-Meteo for the weather`);
+      for (const credit of [`Contains modified Copernicus Atmosphere Monitoring Service information ${year}`, 'Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.']) assert(text.includes(credit), `${locale}: no "${credit}" in the footer`);
       // The licences' words stay English, left to right, on every page; the line's tags all resolved into links
-      assert(html.includes('<span lang="en" dir="ltr">Contains modified Copernicus'), `${locale}: the Copernicus notice is not in its own English, left-to-right span`);
-      assert(!/[<>]\/?(met|nlod|ccby|cams|om|osm|odbl)>/.test(html) && !text.includes('{omCredit}'), `${locale}: a tag or a placeholder of the data-sources line shows`);
+      assert(html.includes('<span class="site-footer-notice" lang="en" dir="ltr">Contains modified Copernicus'), `${locale}: the Copernicus notice is not a block of its own in English, left to right`);
+      assert(!/<\/?(met|nlod|ccby|cams|om|osm|odbl)>/.test(html) && !/[{}]/.test(text), `${locale}: a tag or a placeholder of the data-sources line shows`);
       for (const word of [site.nav.zmanim, site.footer.privacy, site.footer.terms, site.footer.cancel, site.footer.contact, site.footer.madeIn]) assert(text.includes(word), `${locale}: no "${word}"`);
       const cancel = attrs(html, 'a').findIndex((a) => decode(attr(a, 'href') ?? '') === `${p}/terms#cancel`);
       const link = html.split('<a ').slice(1)[cancel] ?? '';
@@ -217,6 +220,9 @@ async function main() {
     // of 44 px they cut it into pieces on a phone, seen on a real render)
     const sources = rule('.site-footer-sources a');
     assert(sources && !/display:|min-block-size/.test(sources), `the data sources' links are not plain inline links: ${sources}`);
+    // The English notice is a block, and says nothing about its alignment: its dir="ltr" makes the default start the left edge
+    const notice = rule('.site-footer-notice');
+    assert(notice && /display:\s*block/.test(notice) && !/text-align/.test(notice), `the Copernicus notice's block: ${notice}`);
     assert(/@media \(max-width: 959\.98px\) \{\s*\.site-wide-only \{\s*display: none !important;/.test(own) && /@media \(min-width: 960px\) \{\s*\.site-phone-only \{\s*display: none !important;/.test(own), 'the swap');
     // The wide header holds four links, the language switcher and two buttons: between 960 and 1140 px it tightens its
     // gaps and inline padding so the row fits on one line (the Russian one is the longest: its "Как это работает" wrapped

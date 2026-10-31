@@ -876,6 +876,29 @@ async function fix4() {
     }
   });
 
+  await check('4: the infographic draws bot.weatherCredit at the foot of its content column, in en, he (in visual order) and ru, once, and it names Open-Meteo.com', async () => {
+    const { buildInfographicJsx, computeRows } = await import('../src/services/weather/infographic');
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    const bidi = (await import('bidi-js')).default();
+    type Node = { props?: { children?: unknown } } | string | number | null | undefined | Node[];
+    const texts = (node: Node): string[] => {
+      if (typeof node === 'string') return [node];
+      if (Array.isArray(node)) return node.flatMap(texts);
+      return node && typeof node === 'object' ? texts(node.props?.children as Node) : [];
+    };
+    for (const lang of LANGS) {
+      const t = await getBotMessages(lang);
+      const config = { weather: forecast() as never, language: lang, dateStr: '', timezone: 'Asia/Jerusalem' };
+      const { rows, globalMin, globalMax } = computeRows(config, t);
+      const tree = buildInfographicJsx(config, rows, globalMin, globalMax, 'Clear', '0 mm', t.weatherCredit) as unknown as Node;
+      const want = lang === 'he' ? bidi.getReorderedString(t.weatherCredit, bidi.getEmbeddingLevels(t.weatherCredit, 'rtl')) : t.weatherCredit;
+      const all = texts(tree);
+      assert(t.weatherCredit.includes('Open-Meteo.com'), `${lang}: bot.weatherCredit does not name Open-Meteo.com: ${t.weatherCredit}`);
+      assert(all.filter(x => x === want).length === 1, `${lang}: the credit ${JSON.stringify(want)} is drawn ${all.filter(x => x === want).length} times`);
+      assert(all[all.length - 1] === want, `${lang}: the credit is not the last text of the image (${JSON.stringify(all[all.length - 1])})`);
+    }
+  });
+
   await check('4: the infographic reads the conditions from the messages, not from a table of its own', () => {
     const code = fs.readFileSync(path.join(SRC, 'services/weather/infographic.tsx'), 'utf8');
     assert(!code.includes('getLocalizedWeatherDescription'), 'the infographic still has its own table');

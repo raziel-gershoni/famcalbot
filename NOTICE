@@ -1,0 +1,31 @@
+Third-party data in this repository
+
+FamCal's own code is under the MIT licence in LICENSE. The data files below are not covered by that
+licence: each keeps its own licence, and anyone who copies or redistributes one must keep its notice
+and follow its licence.
+
+1. data/israel-heights-3s.i16.br, and the heights (elevationM) in src/site/cities.ts
+   produced using Copernicus WorldDEM™-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH
+   2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.
+   The organisations in charge of the Copernicus programme by law or by delegation do not incur any
+   liability for any use of the Copernicus WorldDEM™-90.
+   Licence: Licence for the use of the Copernicus WorldDEM™-90,
+   https://dataspace.copernicus.eu/sites/default/files/media/files/2025-06/copernicus_contributing_mission_data_access_v2_cop_dem_licenses.pdf
+   Changed by FamCal: cut to Israel (29.4-33.5 N, 34.2-35.95 E) and re-encoded; each city height is
+   the highest of 25 points over the town.
+
+2. src/site/cities.ts: the city ids, positions and time zones
+   From GeoNames (https://www.geonames.org/), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+   Changed by FamCal: a selection of cities, positions kept to 4 decimals, every Israeli city set to
+   Asia/Jerusalem.
+
+3. scripts/fixtures/met-tel-aviv.json
+   Data from MET Norway (https://api.met.no/), under NLOD 2.0 (https://data.norge.no/nlod/en/2.0) and
+   CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). A recorded forecast, used as a test input.
+
+4. scripts/fixtures/cams-tel-aviv.json
+   Contains modified Copernicus Atmosphere Monitoring Service information 2026. Neither the European
+   Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or
+   data it contains. Read from Open-Meteo's open data (https://open-meteo.com/, s3://openmeteo),
+   CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Recorded requests and answers, used as a
+   test input.

@@ -5,6 +5,8 @@
  * instead: before NIGHT_END_HOUR it is still night, not morning.
  */
 
+import { instantToWallTime } from './wall-time';
+
 /** Hours before this (0-4) count as night. */
 export const NIGHT_END_HOUR = 5;
 
@@ -13,6 +15,14 @@ const GREETINGS: Record<string, { night: string; morning: string; afternoon: str
   en: { night: 'Hello', morning: 'Good morning', afternoon: 'Good afternoon', evening: 'Good evening' },
   ru: { night: 'Здравствуйте', morning: 'Доброе утро', afternoon: 'Добрый день', evening: 'Добрый вечер' },
 };
+
+/**
+ * The hour (0-23) on the clock in `timezone` at `at`, read from the zone's own clock (instantToWallTime). Never a
+ * formatted string read back with parseInt: an en-US hour12: false string writes midnight as "24" on some ICU builds.
+ */
+export function localHour(at: Date, timezone: string): number {
+  return Number(instantToWallTime(at, timezone).slice(11, 13));
+}
 
 /**
  * Greeting for a local hour (0-23): night < 5, morning < 12, afternoon < 18, evening

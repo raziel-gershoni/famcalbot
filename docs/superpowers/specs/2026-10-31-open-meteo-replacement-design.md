@@ -129,8 +129,9 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 - **Saved heights:** none needs a fix, as it is the same data. The hourly fill for missing heights stays.
 
 **Attribution:**
-- The site's Sources already credit OpenStreetMap for the town outlines; they add "and time zones".
-- The credit lines of decision 3 go in all three languages, in messages.
+- The site's Sources (the zmanim pages) keep crediting OpenStreetMap for the town outlines only. They once said "and time zones", which the lawyer's opinion of 2026-11-01 took back: those pages take their zones from GeoNames and the Israel rule, not from geo-tz. The bot's time zones are credited in the site footer.
+- The credit lines of decision 3 go in all three languages, in messages. After the same opinion, the in-product line reads "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)" (the owner's choice of option A; Open-Meteo.com is linked in the text reply), and the footer line says the dust comes "in files from Open-Meteo.com" (it no longer says "Weather data by Open-Meteo.com", which credited Open-Meteo for the weather).
+- The height notice on the zmanim pages is the Copernicus WorldDEM™-90 notice for adapted data with its liability sentence; the repo's `NOTICE` file carries the licences of the data it holds (the height map, the city table, two recorded fixtures).
 
 ## 6. Tests
 

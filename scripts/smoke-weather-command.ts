@@ -137,8 +137,12 @@ const AIR: AirQualityData = { hourly: { time: ['2026-10-13T22:00'], pm10: [12], 
 const USER_TZ = 'America/New_York';
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 const AI_TEXT = '<b>Today & Tomorrow</b>\nGood evening Dana, a cloudy night ahead.';
-/** What the text reply carries under the brief: the credit MET Norway's and Copernicus's licences ask for (bot.weatherCredit, in the person's language). */
-const CREDIT = { en: 'Weather: MET Norway · Dust: Copernicus', he: 'מזג האוויר: MET Norway · אבק: Copernicus', ru: 'Погода: MET Norway · Пыль: Copernicus' };
+/** What the text reply carries under the brief: the credit MET Norway's, Copernicus's and Open-Meteo's licences ask for (bot.weatherCredit, in the person's language), with "Open-Meteo.com" linked to its site. */
+const CREDIT = {
+  en: 'Weather: MET Norway · Dust: Copernicus (<a href="https://open-meteo.com/">Open-Meteo.com</a>)',
+  he: 'מזג האוויר: MET Norway · אבק: Copernicus (<a href="https://open-meteo.com/">Open-Meteo.com</a>)',
+  ru: 'Погода: MET Norway · Пыль: Copernicus (<a href="https://open-meteo.com/">Open-Meteo.com</a>)',
+};
 const creditFor = (language: keyof typeof CREDIT) => `\n\n<i>${CREDIT[language]}</i>`;
 
 let user: UserConfig;
@@ -589,6 +593,7 @@ async function main() {
       assert(messages.length === 1 && forecastCalls.length === 1, `${language}: ${messages.length} replies, ${forecastCalls.length} forecasts`);
       assert(messages[0].text === `${forecastCalls[0].result?.brief}${creditFor(language)}`, `${language}: reply ${JSON.stringify(messages[0].text)}`);
       assert((messages[0].options as MessageOptions | undefined)?.format === MessageFormat.HTML, `${language}: the reply is not HTML`);
+      assert((messages[0].options as MessageOptions | undefined)?.disablePreview === true, `${language}: the credit's link shows a preview`);
       assert(messages[0].text!.split(CREDIT[language]).length === 2, `${language}: the credit is not there exactly once`);
     }
     await runWeather({ voice: false, language: 'he' });

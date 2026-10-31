@@ -219,7 +219,8 @@ export function computeRows(config: InfographicConfig, t: BotMessages): { rows: 
 // Build satori JSX
 // ---------------------------------------------------------------------------
 
-function buildInfographicJsx(
+/** The image's element tree (exported for the smokes, which walk it for the credit). */
+export function buildInfographicJsx(
   config: InfographicConfig,
   rows: RowData[],
   globalMin: number,
