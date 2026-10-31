@@ -55,13 +55,16 @@ internals._resolveFilename = function (request, parent, isMain) {
 
 const redisStore = new Map<string, unknown>();
 let redisDown = false;
+/** What @upstash/redis throws: its message ends with "command was:" and the whole command, key and value included. */
+const upstashError = (command: unknown[]) =>
+  Object.assign(new Error(`Command failed: ERR max daily request limit exceeded, command was: ${JSON.stringify(command)}`), { name: 'UpstashError' });
 const fakeRedis = {
   get: async (key: string) => {
-    if (redisDown) throw new Error('redis down');
+    if (redisDown) throw upstashError(['get', key]);
     return redisStore.has(key) ? structuredClone(redisStore.get(key)) : null;
   },
-  set: async (key: string, value: unknown) => {
-    if (redisDown) throw new Error('redis down');
+  set: async (key: string, value: unknown, options?: unknown) => {
+    if (redisDown) throw upstashError(['set', key, JSON.stringify(value), options]);
     redisStore.set(key, structuredClone(value));
     return 'OK';
   },
@@ -114,7 +117,11 @@ function installStubs(): void {
     captureInfo: () => {},
   });
   stub('src/services/weather/geocoding.ts', {
-    geocodeLocation: async () => ({ latitude: 32.0853, longitude: 34.7818, timezone: 'Asia/Jerusalem' }),
+    // 'Nowhere' is a lookup that fails the way the real one's used to: with an error that names the place
+    geocodeLocation: async (location: string) => {
+      if (location === 'Nowhere') throw new Error('Could not geocode location: Nowhere');
+      return { latitude: 32.0853, longitude: 34.7818, timezone: 'Asia/Jerusalem' };
+    },
   });
 }
 
@@ -127,6 +134,27 @@ const step = (time: string, over: { temperature?: number; mm?: number; symbol?: 
   },
 });
 const body = (...steps: unknown[]) => ({ type: 'Feature', properties: { timeseries: steps } });
+/** A step that has only a 6-hour period (MET's far steps), with the rain it gives for the 6 hours. */
+const sixHourStep = (time: string, mm: number) => ({
+  time,
+  data: {
+    instant: { details: { air_temperature: 20, relative_humidity: 50, wind_speed: 2, wind_from_direction: 90 } },
+    next_6_hours: { summary: { symbol_code: 'rain' }, details: { precipitation_amount: mm, air_temperature_max: 21, air_temperature_min: 19 } },
+  },
+});
+
+/** The console lines written while a check ran quiet(): the code logs a lot, and a check may want to read a line. */
+const logged: string[] = [];
+async function quiet<T>(fn: () => Promise<T>): Promise<T> {
+  const saved = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+  const take = (...args: unknown[]) => { logged.push(args.map(String).join(' ')); };
+  Object.assign(console, { log: take, warn: take, error: take, info: take });
+  try {
+    return await fn();
+  } finally {
+    Object.assign(console, saved);
+  }
+}
 
 async function main(): Promise<void> {
   installStubs();
@@ -134,6 +162,7 @@ async function main(): Promise<void> {
   const retry = nodeRequire(path.join(ROOT, 'src/utils/fetch-retry.ts')) as typeof import('../src/utils/fetch-retry');
   met.__useMetForTests({ now: () => clock });
   retry.__useRetryForTests({ now: () => clock, sleep: async (ms: number) => { waits.push(ms); }, random: () => 0.5 });
+  const ask = (location = 'Tel Aviv') => quiet(() => met.fetchWeather(location, 'Asia/Jerusalem'));
   const warnings: string[] = [];
   const map = (forecast: unknown, timezone = 'Asia/Jerusalem', now = new Date(clock)) =>
     met.mapMetForecast({ location: 'Tel Aviv', forecast: forecast as never, timezone, now, sun: met.sunFor(32.0853, 34.7818, timezone), warn: m => warnings.push(m) });
@@ -202,7 +231,7 @@ async function main(): Promise<void> {
   await check('MET\'s rules: one request with FamCal\'s User-Agent, the place at 2 decimals and no timeout of our own; none while the answer is fresh (Expires); after it, If-Modified-Since with its Last-Modified, and a 304 keeps the stored answer with its new Expires; one Redis key per rounded place', async () => {
     reset();
     answer = () => metOk(MET_TLV, 'Sat, 31 Oct 2026 18:00:00 GMT');
-    const first = await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+    const first = await ask();
     assert(nRequests() === 1, `${nRequests()} requests`);
     const url = new URL(requests[0].url);
     assert(url.origin + url.pathname === 'https://api.met.no/weatherapi/locationforecast/2.0/complete' && url.searchParams.get('lat') === '32.09' && url.searchParams.get('lon') === '34.78' && [...url.searchParams.keys()].length === 2, `url ${requests[0].url}`);
@@ -210,15 +239,15 @@ async function main(): Promise<void> {
     assert(requests[0].signal === undefined, 'the request carries a signal: a timeout of our own');
     assert(show([...redisStore.keys()]) === show(['weather:met:32.09,34.78']), `keys ${show([...redisStore.keys()])}`);
     clock = Date.parse('2026-10-31T17:59:00Z');
-    await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+    await ask();
     assert(nRequests() === 1, 'asked MET again before Expires');
     clock = Date.parse('2026-10-31T18:01:00Z');
     answer = () => new Response(null, { status: 304, headers: { expires: 'Sat, 31 Oct 2026 18:30:00 GMT' } });
-    const again = await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+    const again = await ask();
     assert(nRequests() === 2 && requests[1].headers['if-modified-since'] === LAST_MODIFIED, `refetch headers ${show(requests[1]?.headers)}`);
     assert(again.daily!.length === first.daily!.length, 'the 304 lost the stored answer');
     clock = Date.parse('2026-10-31T18:20:00Z');
-    await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+    await ask();
     assert(nRequests() === 2, 'the 304\'s new Expires was not kept');
     assert(nCaptured() === 0, `captured ${show(captured)}`);
   });
@@ -232,7 +261,7 @@ async function main(): Promise<void> {
         return a.clone();
       };
       try {
-        await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+        await ask();
         return 'ok';
       } catch {
         return 'threw';
@@ -260,16 +289,81 @@ async function main(): Promise<void> {
     assert(await run([new TypeError('fetch failed')]) === 'threw' && nRequests() === 4, `4 x no answer: ${nRequests()} requests`);
   });
 
-  await check('Redis down: the forecast still comes, straight from MET, and both Redis failures (the read, the write) are logged to Sentry as warnings', async () => {
+  await check('Redis down (answering as @upstash/redis does, with the command in its message): the forecast still comes, straight from MET, and both Redis failures (the read, the write) are logged to Sentry as warnings that hold no key, no forecast and no coordinate: only that the step failed and the error\'s name', async () => {
     reset();
     redisDown = true;
     answer = () => metOk(MET_TLV);
-    const w = await met.fetchWeather('Tel Aviv', 'Asia/Jerusalem');
+    const w = await ask();
     redisDown = false;
     assert(w.daily!.length === 9 && nRequests() === 1, `days ${w.daily?.length}, requests ${nRequests()}`);
     const redisFailures = captured.filter(c => c.context === 'weather-forecast' && c.kind === 'error' && c.severity === 'warning');
     assert(redisFailures.length === 2 && nCaptured() === 2, `captured ${show(captured)}`);
     assert(show(redisFailures.map(c => JSON.parse(c.extra).step)) === show(['cache-read', 'cache-write']), `steps ${show(redisFailures.map(c => c.extra))}`);
+    assert(show(redisFailures.map(c => c.message)) === show(['Redis cache-read failed: UpstashError', 'Redis cache-write failed: UpstashError']), `messages ${show(redisFailures.map(c => c.message))}`);
+    const everything = captured.map(c => `${c.message} ${c.extra}`).join(' ');
+    assert(!/\d{2}\.\d{2}|weather:met|command was|geometry|coordinates/.test(everything), `a key or a coordinate reached Sentry: ${everything.slice(0, 300)}`);
+  });
+
+  await check('a place the lookup cannot find: fetchWeather throws an error that does not name it, sends one placeless warning, and asks MET for nothing', async () => {
+    reset();
+    answer = () => metOk(MET_TLV);
+    let thrown: unknown;
+    await ask('Nowhere').catch(error => { thrown = error; });
+    assert(thrown instanceof Error && thrown.message === 'No forecast: the place lookup failed', `thrown ${String(thrown)}`);
+    assert(nRequests() === 0, `${nRequests()} requests for a place with no coordinates`);
+    assert(nCaptured() === 1 && captured[0].context === 'weather-forecast' && captured[0].severity === 'warning' && !/Nowhere/.test(`${captured[0].message} ${captured[0].extra} ${thrown.stack}`), `captured ${show(captured)}`);
+  });
+
+  await check('MET\'s Expires is missing: the answer is still kept, for 30 minutes, and the gap is logged (a line, not Sentry: MET always sends it)', async () => {
+    reset();
+    logged.length = 0;
+    answer = () => new Response(JSON.stringify(MET_TLV), { status: 200, headers: { 'content-type': 'application/json', 'last-modified': LAST_MODIFIED } });
+    await ask();
+    assert(logged.some(line => line.includes('MET sent no Expires') && line.includes('30 minutes')), `log ${show(logged)}`);
+    assert(nCaptured() === 0, `captured ${show(captured)}`);
+    clock += 29 * 60_000;
+    await ask();
+    assert(nRequests() === 1, `asked again after 29 minutes: ${nRequests()} requests`);
+    clock += 2 * 60_000;
+    await ask();
+    assert(nRequests() === 2, `not asked after 31 minutes: ${nRequests()} requests`);
+  });
+
+  await check('a 304 when nothing is stored (it cannot answer a request with no If-Modified-Since): fetchWeather throws, stores nothing, and does not ask twice', async () => {
+    reset();
+    answer = () => new Response(null, { status: 304, headers: { expires: 'Sat, 31 Oct 2026 18:00:00 GMT' } });
+    let thrown: unknown;
+    await ask().catch(error => { thrown = error; });
+    assert(thrown instanceof Error && thrown.message.includes('304') && !/Tel Aviv|32\.0|34\.7/.test(thrown.message), `thrown ${String(thrown)}`);
+    assert(nRequests() === 1 && redisStore.size === 0, `${nRequests()} requests, ${redisStore.size} stored`);
+  });
+
+  await check('an unknown symbol is one warning per mapping however many steps carry it, and one Sentry warning per process however many forecasts do', async () => {
+    const odd = structuredClone(MET_TLV);
+    const series = odd.properties.timeseries as Array<{ data: { next_1_hours?: { summary: { symbol_code: string } } } }>;
+    let changed = 0;
+    for (const s of series) if (s.data.next_1_hours && changed < 4) { s.data.next_1_hours.summary.symbol_code = 'purplerain_day'; changed++; }
+    warnings.length = 0;
+    map(odd);
+    assert(warnings.filter(m => m.includes('purplerain_day')).length === 1 && changed === 4, `${warnings.filter(m => m.includes('purplerain_day')).length} warnings for ${changed} steps`);
+    reset();
+    met.__forgetMetWarningsForTests();
+    answer = () => metOk(odd);
+    await ask();
+    clock += 61 * 60_000;
+    await ask();
+    assert(nRequests() === 2, `${nRequests()} requests`);
+    const sent = captured.filter(c => c.kind === 'warning' && c.message.includes('purplerain_day'));
+    assert(sent.length === 1 && nCaptured() === 1, `captured ${show(captured)}`);
+  });
+
+  await check('the rain hours and the amount agree: a stretch whose millimetres round to 0 is no rain (not in the hours, not in the total), a real one beside it stays', async () => {
+    // 08:00Z is 10:00 in Israel. A 6-hour-only step followed one hour later by another has 1/6 of its 0.1 mm: 0.017 mm
+    const tiny = map(body(step('2026-11-01T08:00:00Z'), sixHourStep('2026-11-01T09:00:00Z', 0.1), step('2026-11-01T10:00:00Z')), 'Asia/Jerusalem', new Date('2026-11-01T08:10:00Z'));
+    assert(tiny.today.precipitation === 0 && show(tiny.today.rainHours) === show([]), `tiny ${show(tiny.today)}`);
+    const mixed = map(body(step('2026-11-01T08:00:00Z'), sixHourStep('2026-11-01T09:00:00Z', 0.1), step('2026-11-01T10:00:00Z'), step('2026-11-01T11:00:00Z', { mm: 0.4 }), step('2026-11-01T12:00:00Z')), 'Asia/Jerusalem', new Date('2026-11-01T08:10:00Z'));
+    assert(mixed.today.precipitation === 0.4 && show(mixed.today.rainHours) === show([{ start: '13:00', end: '14:00', mm: 0.4 }]), `mixed ${show(mixed.today)}`);
+    assert(mixed.hourly!.precipitation.every(mm => mm === 0 || mm === 0.4), `hourly ${show(mixed.hourly!.precipitation)}`);
   });
 
   await check('[gaps] a forecast with holes (no UV after about 2.5 days, a last step with no period, a step without humidity, an unknown symbol, no apparent temperature) maps with no NaN, Infinity or undefined anywhere; the bad step is dropped with one warning', () => {
@@ -297,6 +391,17 @@ async function main(): Promise<void> {
     assert(polar.sunrise === '' && polar.sunset === '', `Murmansk ${show(polar)}`);
     const summer = met.sunFor(32.0853, 34.7818, 'Asia/Jerusalem')('2026-06-21');
     assert(/^2026-06-21T05:[2-4]\d$/.test(summer.sunrise) && /^2026-06-21T19:[4-5]\d$/.test(summer.sunset), `Tel Aviv midsummer ${show(summer)}`);
+  });
+
+  await check('[polar] the midnight sun (Longyearbyen, 21 June) has no sunrise or sunset either: both empty in the forecast and "—" in the text the model reads', () => {
+    const formatter = nodeRequire(path.join(ROOT, 'src/services/weather/formatter.ts')) as typeof import('../src/services/weather/formatter');
+    const zone = 'Arctic/Longyearbyen';
+    const sun = met.sunFor(78.22, 15.65, zone)('2026-06-21');
+    assert(sun.sunrise === '' && sun.sunset === '', `Longyearbyen ${show(sun)}`);
+    const w = met.mapMetForecast({ location: 'Longyearbyen', forecast: body(step('2026-06-21T10:00:00Z'), step('2026-06-21T11:00:00Z')) as never, timezone: zone, now: new Date('2026-06-21T10:10:00Z'), sun: met.sunFor(78.22, 15.65, zone), warn: m => warnings.push(m) });
+    assert(w.today.sunrise === '' && w.today.sunset === '', `today ${show(w.today)}`);
+    const payload = formatter.buildWeatherAIPayload(w) as { today: { sunrise: string; sunset: string } };
+    assert(payload.today.sunrise === '—' && payload.today.sunset === '—', `the model's text ${show(payload.today)}`);
   });
 
   await check('a forecast with no step for today at the place, or no timeseries, is refused (the caller logs it), never shown as today', () => {

@@ -13,6 +13,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-weather-command.ts
 
 import Module from 'node:module';
+import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -208,6 +209,8 @@ let forecastCalls: ForecastCall[] = [];
 let weatherCalls: { location: string; zone: string }[] = [];
 /** Whether the zone lookup finds no zone for the place (getTimezone rejects). */
 let zoneFails = false;
+/** What the command reported to the admin (and Sentry) when it failed. */
+let adminNotices: { commandName: string; message: string; context: string }[] = [];
 const wrapFormatter = (real: Record<string, unknown>) => ({
   ...real,
   formatWeatherAI: (...args: Parameters<FormatWeatherAI>) => {
@@ -270,7 +273,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/utils/redis.ts`]: {
     redis: { set: async (...args: unknown[]) => { redisSets.push(args); return 'OK'; }, get: async () => null, del: async () => 0 },
   },
-  [`${SRC}/utils/error-notifier.ts`]: { notifyAdminError: async () => {} },
+  [`${SRC}/utils/error-notifier.ts`]: { notifyAdminError: async (commandName: string, error: unknown, context?: string) => { adminNotices.push({ commandName, message: error instanceof Error ? error.message : String(error), context: context ?? '' }); } },
   [`${SRC}/services/magic-link.ts`]: { generateMagicLink: async () => 'https://famcal.test/magic' },
   [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: fakeAI },
   [`${SRC}/services/weather/infographic.tsx`]: { generateWeatherInfographic: fakeInfographic },
@@ -366,6 +369,7 @@ async function runWeather(opts: {
   infographicConfigs = [];
   forecastCalls = [];
   weatherCalls = [];
+  adminNotices = [];
   aiCalls = [];
   logs = [];
   user = makeUser(opts.voice, opts.admin);
@@ -557,7 +561,7 @@ async function main() {
     assert(weatherCalls.length === 1 && weatherCalls[0].zone === USER_TZ && weatherCalls[0].location === 'Brooklyn', `forecast calls ${JSON.stringify(weatherCalls)}`);
   });
 
-  await check('11. the place has no zone (the lookup found none): the error reply goes out, and no forecast is asked on another zone\'s clock', async () => {
+  await check('11. the place has no zone (the lookup found none): the one message that goes out is the error reply (bot.errors.weatherFetch, in the person\'s language), no forecast is asked on another zone\'s clock, and what is reported to the admin and Sentry names no place', async () => {
     zoneFails = true;
     try {
       await runWeather({ voice: false });
@@ -566,7 +570,11 @@ async function main() {
       zoneFails = false;
     }
     assert(weatherCalls.length === 0, `forecast asked anyway: ${JSON.stringify(weatherCalls)}`);
+    const errorReply = JSON.parse(fs.readFileSync(path.join(__dirname, '../messages/en.json'), 'utf8')).bot.errors.weatherFetch as string;
+    assert(typeof errorReply === 'string' && errorReply.length > 0, 'no bot.errors.weatherFetch');
     assert(sentBy('sendPhoto').length === 0 && sentBy('sendMessage').length === 1, `replies ${JSON.stringify(sentBy('sendMessage').map(r => r.text))}`);
+    assert(sentBy('sendMessage')[0].text === errorReply, `the reply is ${JSON.stringify(sentBy('sendMessage')[0].text)}, not the error reply ${JSON.stringify(errorReply)}`);
+    assert(adminNotices.length === 1 && adminNotices[0].commandName === 'Weather Command' && !/Brooklyn/i.test(`${adminNotices[0].message} ${adminNotices[0].context}`), `reported ${JSON.stringify(adminNotices)}`);
   });
 
   await check('nothing left running: every interval cleared, no network', async () => {

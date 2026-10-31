@@ -308,6 +308,22 @@ async function main() {
     assert(offenders.length === 0, offenders.join('; '));
   });
 
+  await check('#11 an outgoing request to the forecast or to the place lookup loses its query in the breadcrumb (it holds the person\'s coordinates, or the place\'s name); the same breadcrumb of another host, and the rest of these, are kept', async () => {
+    const { scrubServerBreadcrumb } = await load('src/lib/sentry-scrub.ts');
+    const crumb = (url: string, query: string) => ({ category: 'http', type: 'http', data: { url, 'http.method': 'GET', 'http.query': query, status_code: 200 } });
+    const met = scrubServerBreadcrumb(crumb('https://api.met.no/weatherapi/locationforecast/2.0/complete', '?lat=32.09&lon=34.78'));
+    const nominatim = scrubServerBreadcrumb(crumb('https://nominatim.openstreetmap.org/search', '?q=Tel%20Aviv&format=json&limit=1'));
+    const withQueryOnUrl = scrubServerBreadcrumb({ category: 'http', data: { url: 'https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=32.09&lon=34.78' } });
+    for (const [label, c] of [['MET', met], ['Nominatim', nominatim], ['MET with the query on the url', withQueryOnUrl]] as [string, Row][]) {
+      assert(!JSON.stringify(c).match(/32\.09|34\.78|Tel|lat=|q=/), `${label} breadcrumb still has the place: ${show(c)}`);
+    }
+    assert(met.data.url === 'https://api.met.no/weatherapi/locationforecast/2.0/complete' && met.data['http.method'] === 'GET' && met.data.status_code === 200, `the rest of MET's breadcrumb: ${show(met)}`);
+    const other = scrubServerBreadcrumb(crumb('https://example.test/path', '?page=2'));
+    assert(other.data['http.query'] === '?page=2', `another host lost its query: ${show(other)}`);
+    const telegram = scrubServerBreadcrumb(crumb('https://api.telegram.org/bot123456789:AAE-x_Yz/sendMessage', ''));
+    assert(!JSON.stringify(telegram).includes('AAE-x_Yz'), 'the bot token scrub still holds');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

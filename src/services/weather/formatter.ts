@@ -11,7 +11,7 @@ import '@hebcal/locales';
 import type { AirQualityData, WeatherData, WeatherDay } from '../../types';
 import { detectDustStorm } from './dust-storm';
 import { describeWeather, getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './forecast';
-import { formatRainMm, rainHoursForModel, rainHoursForPerson } from './rain';
+import { formatNumber, formatRainAmount, rainHoursForModel, rainHoursForPerson } from './rain';
 import { detectSharav } from './sharav';
 import { timeOfDayGreeting } from '../../utils/greeting';
 import { escapeHtml } from '../../utils/html';
@@ -291,14 +291,14 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
   output += `\n`;
 
   output += `💧 ${f.humidity}: ${weather.current.humidity}%\n`;
-  output += `☀️ ${f.uvIndex}: ${weather.current.uvIndex} (${getUVDescription(weather.current.uvIndex, f)})\n\n`;
+  output += `☀️ ${f.uvIndex}: ${formatNumber(weather.current.uvIndex, language)} (${getUVDescription(weather.current.uvIndex, f)})\n\n`;
 
   // ========== TODAY ==========
   output += section(w.today);
   output += `📈 ${w.high}: ${weather.today.tempMax}°C | 📉 ${w.low}: ${weather.today.tempMin}°C\n`;
   output += `${getWeatherEmoji(weather.today.weatherCode)} ${describeWeather(weather.today.weatherCode, t)}\n`;
   output += `🌅 ${f.sunrise}: ${formatTime(weather.today.sunrise)} | 🌇 ${f.sunset}: ${formatTime(weather.today.sunset)}\n`;
-  output += `☀️ ${f.maxUv}: ${weather.today.uvIndexMax} (${getUVDescription(weather.today.uvIndexMax, f)})`;
+  output += `☀️ ${f.maxUv}: ${formatNumber(weather.today.uvIndexMax, language)} (${getUVDescription(weather.today.uvIndexMax, f)})`;
 
   if (weather.today.uvIndexMax >= 6) {
     output += ` - ${f.sunscreen}`;
@@ -306,7 +306,7 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
   output += `\n`;
 
   if (weather.today.precipitation > 0) {
-    output += `🌧️ ${f.rain}: ${formatRainMm(weather.today.precipitation, language)} ${w.mm}\n`;
+    output += `🌧️ ${f.rain}: ${formatRainAmount(weather.today.precipitation, t, language)}\n`;
   }
   if (weather.today.rainHours.length > 0) {
     output += `⏰ ${f.rainExpected}: ${rainHoursForPerson(weather.today.rainHours)}\n`;
@@ -326,17 +326,17 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
       // Only show future hours
       if (wallTime <= nowAtPlace) continue;
 
-      const hour = Number(wallTime.slice(11, 13));
       const temp = Math.round(weather.hourly.temperature[i]);
       const weatherCode = weather.hourly.weatherCode[i];
       const wind = Math.round(weather.hourly.windSpeed[i]);
       const precip = weather.hourly.precipitation[i];
 
-      const timeStr = `${hour.toString().padStart(2, '0')}:00`;
+      // The step's own time, read from the text: a place on a half hour (India, Nepal) has steps at 05:30, not 05:00
+      const timeStr = wallTime.slice(11, 16);
       output += `${timeStr}: ${temp}°C ${getWeatherEmoji(weatherCode)}`;
 
       if (precip > 0) {
-        output += ` 💧${formatRainMm(precip, language)} ${w.mm}`;
+        output += ` 💧${formatRainAmount(precip, t, language)}`;
       }
 
       if (wind > 20) {
@@ -354,10 +354,10 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
     output += `📈 ${w.high}: ${weather.tomorrow.tempMax}°C | 📉 ${w.low}: ${weather.tomorrow.tempMin}°C\n`;
     output += `${getWeatherEmoji(weather.tomorrow.weatherCode)} ${describeWeather(weather.tomorrow.weatherCode, t)}\n`;
     output += `🌅 ${f.sunrise}: ${formatTime(weather.tomorrow.sunrise)} | 🌇 ${f.sunset}: ${formatTime(weather.tomorrow.sunset)}\n`;
-    output += `☀️ ${f.maxUv}: ${weather.tomorrow.uvIndexMax} (${getUVDescription(weather.tomorrow.uvIndexMax, f)})\n`;
+    output += `☀️ ${f.maxUv}: ${formatNumber(weather.tomorrow.uvIndexMax, language)} (${getUVDescription(weather.tomorrow.uvIndexMax, f)})\n`;
 
     if (weather.tomorrow.precipitation > 0) {
-      output += `🌧️ ${f.rain}: ${formatRainMm(weather.tomorrow.precipitation, language)} ${w.mm}\n`;
+      output += `🌧️ ${f.rain}: ${formatRainAmount(weather.tomorrow.precipitation, t, language)}\n`;
     }
     if (weather.tomorrow.rainHours.length > 0) {
       output += `⏰ ${f.rainExpected}: ${rainHoursForPerson(weather.tomorrow.rainHours)}\n`;
@@ -375,11 +375,11 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
       output += `${dayName}: ${day.tempMin}-${day.tempMax}°C ${getWeatherEmoji(day.weatherCode)}`;
 
       if (day.precipitation > 0) {
-        output += ` 💧${formatRainMm(day.precipitation, language)} ${w.mm}`;
+        output += ` 💧${formatRainAmount(day.precipitation, t, language)}`;
       }
 
       if (day.uvIndexMax !== null && day.uvIndexMax >= 7) {
-        output += ` ☀️${day.uvIndexMax}`;
+        output += ` ☀️${formatNumber(day.uvIndexMax, language)}`;
       }
 
       output += `\n`;

@@ -783,24 +783,31 @@ async function fix4() {
     assert(firstHour?.startsWith('07:00'), `the first hour is not 07:00: ${firstHour}\n${result.brief}`);
   });
 
-  await check('4: [bidi] the weather-only message in Hebrew on a rainy day says the rain\'s hours left to right inside the line (14:00–17:00, isolated), with its millimetres in Hebrew', async () => {
-    const { uid, tg } = PEOPLE.he;
-    Object.assign(userRow(uid), { location: 'Beersheba', weatherEnabled: true });
-    noCalendars = true;
-    scheduled = [uid];
-    const mine = () => sentTo('telegram').filter(s => String(s.chatId) === String(tg));
-    const before = mine().length;
-    rainyToday = true;
-    try {
-      const { sendDailySummaryToAll } = await import('../src/services/telegram/summary');
-      await withLogs(() => sendDailySummaryToAll());
-    } finally {
-      rainyToday = false;
-    }
-    const out = mine().slice(before);
-    assert(out.length === 1, `expected one weather message, got ${out.length}`);
-    assert(out[0].text.includes('גשם \u206614:00–17:00\u2069, 3 מ״מ'), `the rain line:\n${out[0].text}`);
-  });
+  const RAIN_LINE: Record<Lang, string> = {
+    en: 'rain \u206614:00–17:00\u2069, 3\u00A0mm',
+    he: 'גשם \u206614:00–17:00\u2069, 3\u00A0מ״מ',
+    ru: 'дождь \u206614:00–17:00\u2069, 3\u00A0мм',
+  };
+  for (const lang of LANGS) {
+    await check(`4: [bidi] the weather-only message in ${lang} on a rainy day says the rain's hours as one left-to-right range (14:00–17:00, isolated, so a Hebrew line never reads 17:00–14:00), then the millimetres joined to their unit by a no-break space`, async () => {
+      const { uid, tg } = PEOPLE[lang];
+      Object.assign(userRow(uid), { location: 'Beersheba', weatherEnabled: true });
+      noCalendars = true;
+      scheduled = [uid];
+      const mine = () => sentTo('telegram').filter(s => String(s.chatId) === String(tg));
+      const before = mine().length;
+      rainyToday = true;
+      try {
+        const { sendDailySummaryToAll } = await import('../src/services/telegram/summary');
+        await withLogs(() => sendDailySummaryToAll());
+      } finally {
+        rainyToday = false;
+      }
+      const out = mine().slice(before);
+      assert(out.length === 1, `expected one weather message, got ${out.length}`);
+      assert(out[0].text.includes(RAIN_LINE[lang]), `the rain line:\n${out[0].text}`);
+    });
+  }
 
   await check('4: [polar] the fallback forecast for a place where the sun does not rise that day shows a dash for sunrise and sunset, in every language', async () => {
     const { formatWeatherAI } = await import('../src/services/weather/formatter');
@@ -812,6 +819,35 @@ async function fix4() {
       const rise = `${botText(lang, 'weatherFallback.sunrise')}: —`;
       const set = `${botText(lang, 'weatherFallback.sunset')}: —`;
       assert(result.brief.includes(rise) && result.brief.includes(set), `${lang}:\n${result.brief}`);
+    }
+  });
+
+  await check('4: the fallback\'s next 12 hours name each step by its own time, so a place on a half hour (India: UTC+5:30) reads 06:30, 07:30 and not 06:00, 07:00', async () => {
+    const weather = forecast();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    weather.hourly.time = (weather.hourly.time as string[]).map((_t, i) => `2026-10-${pad(29 + Math.floor(i / 24))}T${pad(i % 24)}:30`);
+    const { formatWeatherAI } = await import('../src/services/weather/formatter');
+    // 05:40 in Kolkata (00:10 UTC): the next step is 06:30
+    const result = await withLogs(() => formatWeatherAI(weather as never, 'en', 'Dana', 'Asia/Kolkata', 'default', false, false, null, new Date('2026-10-29T00:10:00Z')));
+    const after = result.brief.split(botText('en', 'weatherFallback.next12Hours'))[1] ?? '';
+    const hours = after.split('\n').filter((l) => /^\d\d:\d\d: /.test(l)).slice(0, 3).map((l) => l.slice(0, 5));
+    assertSame(hours, ['06:30', '07:30', '08:30'], 'the first three steps');
+  });
+
+  await check('4: every decimal a person reads uses their language\'s separator: the UV (5.1, 5,1 in Russian) and the rain (0.4, 0,4) in the fallback text and in the infographic\'s rows, and a day with no UV has an empty cell, not "null"', async () => {
+    const { formatWeatherAI } = await import('../src/services/weather/formatter');
+    const { computeRows } = await import('../src/services/weather/infographic');
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    const want: Record<Lang, { uv: string; rain: string }> = { en: { uv: '4.1', rain: '0.4\u00A0mm' }, he: { uv: '4.1', rain: '0.4\u00A0מ״מ' }, ru: { uv: '4,1', rain: '0,4\u00A0мм' } };
+    for (const lang of LANGS) {
+      const weather = forecast();
+      (weather.daily as Row[])[1].precipitation = 0.4;
+      (weather.daily as Row[])[1].rainHours = [{ start: '09:00', end: '12:00', mm: 0.4 }];
+      const text = (await withLogs(() => formatWeatherAI(weather as never, lang, 'Dana', 'Asia/Jerusalem', 'default', false, false, null, new Date()))).brief;
+      assert(text.includes(`${botText(lang, 'weatherFallback.maxUv')}: ${want[lang].uv} (`), `${lang}: the UV in the text:\n${text}`);
+      const { rows } = computeRows({ weather: weather as never, language: lang, dateStr: '', timezone: 'Asia/Jerusalem' }, await getBotMessages(lang));
+      assert(rows.length === 9 && rows[0].uvIndex === want[lang].uv && rows[1].rain === want[lang].rain, `${lang}: rows ${show([rows[0].uvIndex, rows[1].rain])}`);
+      assert(rows.slice(3).every(r => r.uvIndex === '' && r.uvValue === null) && rows.slice(0, 3).every(r => r.uvValue !== null), `${lang}: UV cells ${show(rows.map(r => [r.uvIndex, r.uvValue]))}`);
     }
   });
 

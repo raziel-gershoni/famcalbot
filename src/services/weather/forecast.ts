@@ -148,6 +148,13 @@ const round1 = (value: number) => Math.round(value * 10) / 10;
 function readSteps(series: readonly MetStep[], timezone: string, warn: (message: string) => void): Step[] {
   const steps: Step[] = [];
   let dropped = 0;
+  // An unknown symbol is the same news in every step it fills: said once per mapping
+  const told = new Set<string>();
+  const warnOnce = (message: string): void => {
+    if (told.has(message)) return;
+    told.add(message);
+    warn(message);
+  };
   for (let i = 0; i < series.length; i++) {
     const s = series[i];
     const at = Date.parse(s?.time ?? '');
@@ -174,7 +181,7 @@ function readSteps(series: readonly MetStep[], timezone: string, warn: (message:
       windKmh: d.wind_speed * 3.6,
       windFrom: d.wind_from_direction,
       uv: isNumber(d.ultraviolet_index_clear_sky) ? d.ultraviolet_index_clear_sky : undefined,
-      code: wmoForSymbol(symbol, warn),
+      code: wmoForSymbol(symbol, warnOnce),
       mm: isNumber(amount) ? (hourly ? amount : (amount * hours) / 6) : 0,
       max: hourly || !isNumber(six?.air_temperature_max) ? undefined : six.air_temperature_max,
       min: hourly || !isNumber(six?.air_temperature_min) ? undefined : six.air_temperature_min,
@@ -184,12 +191,20 @@ function readSteps(series: readonly MetStep[], timezone: string, warn: (message:
   return steps;
 }
 
-/** The day's wet stretches: back-to-back steps with rain, 'HH:mm' at the place; one that runs past midnight ends at 24:00. */
-function rainSpells(steps: readonly Step[], dayEnd: number, timezone: string): RainSpell[] {
+/**
+ * The day's wet stretches: back-to-back steps with rain, 'HH:mm' at the place; one that runs past midnight ends at 24:00.
+ * A stretch whose millimetres round to 0 is no rain and is left out, so the hours and the amount agree: `mm` is the
+ * unrounded total of the stretches kept, the day's amount.
+ */
+function rainSpells(steps: readonly Step[], dayEnd: number, timezone: string): { spells: RainSpell[]; mm: number } {
   const spells: RainSpell[] = [];
+  let total = 0;
   let open: { start: string; endAt: number; mm: number } | null = null;
   const close = (): void => {
-    if (open) spells.push({ start: open.start, end: open.endAt >= dayEnd ? '24:00' : instantToWallTime(new Date(open.endAt), timezone).slice(11, 16), mm: round1(open.mm) });
+    if (open && round1(open.mm) > 0) {
+      spells.push({ start: open.start, end: open.endAt >= dayEnd ? '24:00' : instantToWallTime(new Date(open.endAt), timezone).slice(11, 16), mm: round1(open.mm) });
+      total += open.mm;
+    }
     open = null;
   };
   for (const step of steps) {
@@ -207,7 +222,7 @@ function rainSpells(steps: readonly Step[], dayEnd: number, timezone: string): R
     }
   }
   close();
-  return spells;
+  return { spells, mm: total };
 }
 
 /** The day's main wind direction: the speed-weighted mean of its steps' directions (350° and 10° make 0°, not 180°). */
@@ -229,12 +244,13 @@ function buildDay(date: string, steps: readonly Step[], timezone: string, sun: S
   const uv = steps.map(s => s.uv).filter(isNumber);
   const dayEnd = wallTimeToInstant(`${addDaysToDate(date, 1)}T00:00`, timezone).getTime();
   const { sunrise, sunset } = sun(date);
+  const rain = rainSpells(steps, dayEnd, timezone);
   return {
     date,
     tempMax: Math.round(Math.max(...temps)),
     tempMin: Math.round(Math.min(...temps)),
-    precipitation: round1(steps.reduce((sum, s) => sum + s.mm, 0)),
-    rainHours: rainSpells(steps, dayEnd, timezone),
+    precipitation: round1(rain.mm),
+    rainHours: rain.spells,
     // Open-Meteo's daily code was the day's most severe; the WMO codes rise with severity, so it is the highest.
     weatherCode: Math.max(...steps.map(s => s.code)),
     sunrise,
@@ -339,6 +355,15 @@ function expiresOf(response: Response, now: number): number {
   return now + FALLBACK_FRESH_MS;
 }
 
+/**
+ * A Redis failure as it is reported: the error's name only. The Upstash client's own message ends with "command was:" and
+ * the whole command, which holds the key (the rounded coordinates) and, for a write, the forecast with its coordinates:
+ * none of that goes to Sentry.
+ */
+function redisFailure(step: string, error: unknown): Error {
+  return new Error(`Redis ${step} failed: ${error instanceof Error ? error.name : typeof error}`);
+}
+
 /** MET's answer for a rounded place: the stored one while it is fresh, else asked again (If-Modified-Since when one is stored). */
 async function metForecast(lat: string, lon: string): Promise<MetForecast> {
   const key = REDIS_KEYS.metForecast(lat, lon);
@@ -346,7 +371,7 @@ async function metForecast(lat: string, lon: string): Promise<MetForecast> {
   try {
     cached = await redis.get<CachedForecast>(key);
   } catch (error) {
-    captureError(error, 'weather-forecast', { service: 'weather', step: 'cache-read' }, 'warning');
+    captureError(redisFailure('cache-read', error), 'weather-forecast', { service: 'weather', step: 'cache-read' }, 'warning');
   }
   const now = seam().now();
   if (cached && now < cached.expiresAt) return cached.body;
@@ -367,9 +392,21 @@ async function metForecast(lat: string, lon: string): Promise<MetForecast> {
   try {
     await redis.set(key, fresh, { ex: CACHE_KEEP_S });
   } catch (error) {
-    captureError(error, 'weather-forecast', { service: 'weather', step: 'cache-write' }, 'warning');
+    captureError(redisFailure('cache-write', error), 'weather-forecast', { service: 'weather', step: 'cache-write' }, 'warning');
   }
   return fresh.body;
+}
+
+const warned = ((globalThis as { __famcalMetWarned?: Set<string> }).__famcalMetWarned ??= new Set<string>());
+/** Tests only: forgets which warnings were sent. */
+export function __forgetMetWarningsForTests(): void {
+  warned.clear();
+}
+/** A mapping warning (an unknown symbol, a dropped step) is sent to Sentry once per process: MET repeats it in every answer. */
+function warnOncePerProcess(message: string): void {
+  if (warned.has(message)) return;
+  warned.add(message);
+  captureWarning(message, 'weather-forecast', { service: 'weather' });
 }
 
 /**
@@ -377,7 +414,15 @@ async function metForecast(lat: string, lon: string): Promise<MetForecast> {
  * place, mapped. Throws when the place, MET or the mapping fails; each caller logs it and does as before.
  */
 export async function fetchWeather(location: string, timezone: string): Promise<WeatherData> {
-  const { latitude, longitude } = await geocodeLocation(location);
+  let latitude: number;
+  let longitude: number;
+  try {
+    ({ latitude, longitude } = await geocodeLocation(location));
+  } catch {
+    // geocodeLocation logged why, and its error is the lookup's: nothing of the place goes further
+    captureWarning('The place lookup failed: no forecast', 'weather-forecast', { service: 'weather' });
+    throw new Error('No forecast: the place lookup failed');
+  }
   const forecast = await metForecast(roundedCoordinate(latitude), roundedCoordinate(longitude));
   const weather = mapMetForecast({
     location,
@@ -385,7 +430,7 @@ export async function fetchWeather(location: string, timezone: string): Promise<
     timezone,
     now: new Date(seam().now()),
     sun: sunFor(latitude, longitude, timezone),
-    warn: message => captureWarning(message, 'weather-forecast', { service: 'weather' }),
+    warn: message => warnOncePerProcess(message),
   });
   console.log(`${LOG} forecast ready: ${weather.daily?.length ?? 0} days in ${timezone}`);
   return weather;

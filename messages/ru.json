@@ -1189,7 +1189,7 @@
       "windSpeed": "км/ч",
       "mm": "мм",
       "noRain": "без дождя",
-      "rainPhrase": "дождь {hours}, {mm} мм",
+      "rainPhrase": "дождь {hours}, {mm}",
       "sharav": "Шарав",
       "dustStorm": "Пылевая буря",
       "severityMild": "слабый",

@@ -352,7 +352,7 @@ export async function handleWeatherCommand(
     errorKey: 'weatherFetch',
     userId: user.id,
     commandName: 'Weather Command',
-    context: `User: ${userId}, Location: ${user.location}`,
+    context: `User: ${userId}`, // never the place: the context goes to Sentry and the admin's chat
     typingType: 'photo',
     operation: async () => {
       const { fetchWeather } = await import('../weather/forecast');

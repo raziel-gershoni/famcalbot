@@ -28,14 +28,27 @@ export function rainHoursForPerson(spells: readonly RainSpell[]): string {
   return spells.map(s => isolateLtr(`${s.start}–${s.end}`)).join(', ');
 }
 
+/** A number in the person's numerals, at most one decimal ('5.1', '5,1' in Russian): every decimal a person reads goes through here. */
+export function formatNumber(value: number, language: string): string {
+  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
+}
+
 /** Millimetres in the person's numerals, at most one decimal ('3', '0.4', '0,4' in Russian). */
 export function formatRainMm(mm: number, language: string): string {
-  const locale = language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US';
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(mm);
+  return formatNumber(mm, language);
+}
+
+/**
+ * An amount of rain with its unit, the one place the unit is joined: the number, a no-break space (so a line never ends on
+ * the number and starts the next with "mm"), and the unit's word in the person's language. '0.4 mm', '0,4 мм'.
+ */
+export function formatRainAmount(mm: number, t: BotMessages, language: string): string {
+  return `${formatRainMm(mm, language)}\u00A0${t.weatherOnly.mm}`;
 }
 
 /** A day's rain in one phrase of the person's message: "no rain", or "rain 14:00–17:00, 3 mm". */
 export function rainPhrase(day: RainDay, t: BotMessages, language: string): string {
   if (!hasRain(day)) return t.weatherOnly.noRain;
-  return t.weatherOnly.rainPhrase.replace('{hours}', rainHoursForPerson(day.rainHours)).replace('{mm}', formatRainMm(day.precipitation, language));
+  return t.weatherOnly.rainPhrase.replace('{hours}', rainHoursForPerson(day.rainHours)).replace('{mm}', formatRainAmount(day.precipitation, t, language));
 }

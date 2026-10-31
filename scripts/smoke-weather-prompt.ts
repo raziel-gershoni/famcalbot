@@ -125,6 +125,24 @@ async function main() {
     }
   }
 
+  // ---- The rain and the UV the model is given (MET Norway's forecast: an amount and its hours, no chance of rain, no UV after about 2.5 days) ----
+  for (const lang of ['en', 'he', 'ru']) {
+    check(`${lang}: the prompt gives the rain as millimetres and hours and no chance of rain, and a day with no UV carries no uvMax (so the model has none to repeat)`, async () => {
+      const prompt = await promptFor(dust, lang, at('12:00'));
+      assert(prompt.includes('rainHours and rainMm, in millimetres') && prompt.includes('never give one as a percentage'), 'the rain rule is not in the prompt');
+      assert(prompt.includes('days 8 and 9') && !/days 8-16|rainPct/.test(prompt), 'the prompt still speaks of 16 days or a rain percentage');
+      const payload = JSON.parse(prompt.split('**Weather Data:**\n')[1]) as Record<string, Array<Record<string, unknown>> | Record<string, unknown>>;
+      const days = [payload.today as Record<string, unknown>, payload.tomorrow as Record<string, unknown>, ...(payload.thisWeek as Array<Record<string, unknown>>), ...(payload.extended as Array<Record<string, unknown>>)];
+      assert(days.length === 9, `${days.length} days in the payload`);
+      days.forEach((day, i) => {
+        assert(typeof day.rainMm === 'number', `day ${i + 1} has no rainMm`);
+        // The fixture's days 1-3 have a UV and days 4-9 have none (null), as a real MET answer does
+        assert(i < 3 ? typeof day.uvMax === 'number' : !('uvMax' in day), `day ${i + 1}: uvMax ${JSON.stringify(day.uvMax)}`);
+      });
+      assert(!prompt.includes('null') && !prompt.includes('NaN'), 'a null or NaN reached the prompt');
+    });
+  }
+
   // ---- The greeting the weather prompt hands the model ----
   const HELLO: Record<string, string> = { en: 'Hello', he: 'שלום', ru: 'Здравствуйте' };
   for (const lang of ['en', 'he', 'ru']) {

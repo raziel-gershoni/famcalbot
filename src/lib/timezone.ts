@@ -152,10 +152,9 @@ export async function timezoneWithin(user: TimezoneUser, ms: number): Promise<st
 }
 
 /**
- * An error for the log with the place cut out. geocodeLocation's own error names the place it
- * could not find ("Could not geocode location: <place>"), and a place is the user's free text:
- * it reaches neither the console lines written here nor Sentry. The place goes out of the
- * message and the stack, in its plain and its URL-encoded form.
+ * An error for the log with the place cut out. A place is the user's free text: it reaches neither the console lines
+ * written here nor Sentry. geocodeLocation's own error no longer names it, but a lookup that fails below it (a library,
+ * a URL in a message) might, so the place goes out of the message and the stack, in its plain and its URL-encoded form.
  */
 function withoutPlace(error: unknown, place: string): Error {
   const cut = (text: string): string => text.split(place).join('[place]').split(encodeURIComponent(place)).join('[place]');

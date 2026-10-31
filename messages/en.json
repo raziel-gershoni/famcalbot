@@ -1189,7 +1189,7 @@
       "windSpeed": "km/h",
       "mm": "mm",
       "noRain": "no rain",
-      "rainPhrase": "rain {hours}, {mm} mm",
+      "rainPhrase": "rain {hours}, {mm}",
       "sharav": "Sharav",
       "dustStorm": "Dust Storm",
       "severityMild": "mild",

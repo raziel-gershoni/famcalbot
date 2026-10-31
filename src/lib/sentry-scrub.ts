@@ -157,10 +157,24 @@ export function scrubServerTransaction<E extends ScrubbableEvent>(event: E): E {
   return event;
 }
 
+/** Outgoing requests whose query names the person's place: MET's forecast (lat, lon) and Nominatim (q). */
+const PLACE_QUERY_HOSTS = new Set(['api.met.no', 'nominatim.openstreetmap.org']);
+
+/** The host of a breadcrumb's url, or '' when it is not a URL. */
+function breadcrumbHost(url: unknown): string {
+  if (typeof url !== 'string') return '';
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Server `beforeBreadcrumb`: outgoing http and fetch breadcrumbs carry the full URL, and a
  * Telegram Bot API call has the bot token in its path. Scrubs the message and every string
- * in the data.
+ * in the data. A request to a place lookup or the forecast loses its query (`http.query`, and
+ * any query left on the url): it holds the person's place, by name or by coordinates.
  */
 export function scrubServerBreadcrumb<B extends ScrubbableBreadcrumb>(breadcrumb: B): B {
   if (typeof breadcrumb.message === 'string') breadcrumb.message = scrubSecrets(breadcrumb.message);
@@ -168,6 +182,10 @@ export function scrubServerBreadcrumb<B extends ScrubbableBreadcrumb>(breadcrumb
   if (data) {
     for (const key of Object.keys(data)) {
       if (typeof data[key] === 'string') data[key] = scrubSecrets(data[key] as string);
+    }
+    if (PLACE_QUERY_HOSTS.has(breadcrumbHost(data.url))) {
+      delete data['http.query'];
+      data.url = (data.url as string).split(/[?#]/)[0];
     }
   }
   return breadcrumb;

@@ -13,7 +13,7 @@ import { detectSharav } from './sharav';
 import { getLocalizedLocationName } from './geocoding';
 import { getWeatherIcon, getWindArrowIcon, getWindCalmIcon, getUvIcon, getHumidityIcon, getUmbrellaIcon } from './weather-icons';
 import { describeWeather, FORECAST_DAYS, getWindDirectionLabel } from './forecast';
-import { formatRainMm } from './rain';
+import { formatNumber, formatRainAmount } from './rain';
 import { getBotMessages, type BotMessages } from '../../lib/bot-messages';
 import bidiFactory from 'bidi-js';
 
@@ -173,7 +173,10 @@ interface RowData {
   rain: string;
   windDeg: number;
   windSpeed: string;
+  /** The UV as the person reads it ('5,1' in Russian); '' where MET gives none. */
   uvIndex: string;
+  /** The UV as a number, for its colour; null where MET gives none. */
+  uvValue: number | null;
   humidity: string;
   sharavSeverity?: string;
   sharavBreakHour?: number;
@@ -181,7 +184,8 @@ interface RowData {
   dustClearingHour?: number;
 }
 
-function computeRows(config: InfographicConfig, t: BotMessages): { rows: RowData[]; globalMin: number; globalMax: number } {
+/** The forecast's rows as the image draws them (exported for the smokes). */
+export function computeRows(config: InfographicConfig, t: BotMessages): { rows: RowData[]; globalMin: number; globalMax: number } {
   const daily = (config.weather.daily || []).slice(0, FORECAST_DAYS);
   const sharavDays = detectSharav(config.weather);
   const sharavByDate = new Map(sharavDays.map(s => [s.date, s]));
@@ -193,10 +197,11 @@ function computeRows(config: InfographicConfig, t: BotMessages): { rows: RowData
     weatherCode: d.weatherCode,
     tempMin: d.tempMin,
     tempMax: d.tempMax,
-    rain: d.precipitation > 0 ? `${formatRainMm(d.precipitation, config.language)} ${t.weatherOnly.mm}` : '',
+    rain: d.precipitation > 0 ? formatRainAmount(d.precipitation, t, config.language) : '',
     windDeg: d.windDirection,
     windSpeed: `${Math.round(d.windSpeedMax)}`,
-    uvIndex: d.uvIndexMax === null ? '' : `${d.uvIndexMax}`,
+    uvIndex: d.uvIndexMax === null ? '' : formatNumber(d.uvIndexMax, config.language),
+    uvValue: d.uvIndexMax,
     humidity: `${Math.round(d.humidity)}%`,
     sharavSeverity: sharavByDate.get(d.date)?.severity,
     sharavBreakHour: sharavByDate.get(d.date)?.sharavBreakHour,
@@ -356,7 +361,7 @@ function buildInfographicJsx(
             <div style={{ display: 'flex', flexDirection: isRTL ? 'row-reverse' : 'row', alignItems: 'center', gap: 6 }}>
               <div style={{ display: 'flex' }}>{getUvIcon(28, getUvColor(config.weather.current.uvIndex))}</div>
               <div style={{ display: 'flex', fontSize: 30, color: getUvColor(config.weather.current.uvIndex) }}>
-                UV {config.weather.current.uvIndex}
+                UV {formatNumber(config.weather.current.uvIndex, config.language)}
               </div>
             </div>
           </div>
@@ -480,9 +485,9 @@ function buildInfographicJsx(
                   {/* UV column: icon + index; empty where MET's UV does not reach (past about 2.5 days) */}
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 56, gap: 2 }}>
                     <div style={{ display: 'flex', height: 44, alignItems: 'center', justifyContent: 'center' }}>
-                      {row.uvIndex ? getUvIcon(30, getUvColor(parseFloat(row.uvIndex))) : null}
+                      {row.uvValue !== null ? getUvIcon(30, getUvColor(row.uvValue)) : null}
                     </div>
-                    <div style={{ display: 'flex', fontSize: 26, color: getUvColor(parseFloat(row.uvIndex)) }}>
+                    <div style={{ display: 'flex', fontSize: 26, color: row.uvValue !== null ? getUvColor(row.uvValue) : undefined }}>
                       {row.uvIndex || '\u00A0'}
                     </div>
                   </div>
@@ -564,7 +569,7 @@ export async function generateWeatherInfographic(config: InfographicConfig): Pro
     }
 
     const conditionText = describeWeather(config.weather.current.weatherCode, t);
-    const rainToday = `${formatRainMm(config.weather.today.precipitation, config.language)} ${t.weatherOnly.mm}`;
+    const rainToday = formatRainAmount(config.weather.today.precipitation, t, config.language);
     const jsx = buildInfographicJsx(config, rows, globalMin, globalMax, conditionText, rainToday);
     const satoriStartMs = Date.now();
     const svg = await satori(jsx, { width: WIDTH, height: HEIGHT, fonts });

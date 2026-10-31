@@ -691,6 +691,41 @@ async function main() {
     }
   });
 
+  await check('(x) a place the lookup cannot find or reach: geocodeLocation\'s error (it reaches Sentry through the callers) never names the place, in its message or its stack, whether Nominatim finds nothing, answers 503 or is unreachable', async () => {
+    const Module = nodeRequire('module');
+    const file = path.join(ROOT, 'src/services/weather/geocoding.ts');
+    const stubbed = Module._cache[file];
+    delete Module._cache[file];
+    const realFetch = globalThis.fetch;
+    const PLACE = 'Qwertyland Secretville';
+    let answerWith: () => Response = () => json([]);
+    globalThis.fetch = (async () => answerWith()) as typeof fetch;
+    const { log, error, warn } = console;
+    console.log = () => {};
+    console.error = () => {};
+    console.warn = () => {};
+    try {
+      const real = nodeRequire(file) as { geocodeLocation: (location: string) => Promise<unknown>; getTimezone: (location: string) => Promise<string>; clearGeocodeCache: () => void };
+      real.clearGeocodeCache();
+      const failures: Array<[string, () => Response]> = [['finds nothing', () => json([])], ['answers 503', () => new Response('busy', { status: 503 })], ['is unreachable', () => { throw new TypeError('fetch failed'); }]];
+      for (const [why, how] of failures) {
+        answerWith = how;
+        for (const ask of [() => real.geocodeLocation(PLACE), () => real.getTimezone(PLACE)]) {
+          let thrown: unknown;
+          await ask().catch(e => { thrown = e; });
+          assert(thrown instanceof Error, `${why}: nothing thrown`);
+          const text = `${thrown.message}\n${thrown.stack}\n${JSON.stringify(thrown)}`;
+          assert(!/Qwerty|Secretville/i.test(text) && !text.includes(encodeURIComponent(PLACE)), `${why}: the error names the place: ${thrown.message}`);
+        }
+      }
+    } finally {
+      Object.assign(console, { log, error, warn });
+      globalThis.fetch = realFetch;
+      delete Module._cache[file];
+      Module._cache[file] = stubbed;
+    }
+  });
+
   await check('(w) zoneForCoords never trusts or leaks its input: NaN, Infinity and out-of-range coordinates answer null with one fixed warning that holds no coordinate; a throw from the map is reported by its name only, never its message (which can hold the coordinate)', () => {
     captured.length = 0;
     const BAD: Array<[number, number]> = [[NaN, 35.1], [32.1, NaN], [Infinity, 35.1], [32.1, -Infinity], [95.123456, 35.1], [-90.5, 35.1], [32.1, 200.654321], [32.1, -180.5]];

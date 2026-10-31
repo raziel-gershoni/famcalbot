@@ -1189,7 +1189,7 @@
       "windSpeed": "קמ״ש",
       "mm": "מ״מ",
       "noRain": "בלי גשם",
-      "rainPhrase": "גשם {hours}, {mm} מ״מ",
+      "rainPhrase": "גשם {hours}, {mm}",
       "sharav": "שרב",
       "dustStorm": "סופת אבק",
       "severityMild": "קל",

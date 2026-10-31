@@ -92,7 +92,8 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
     return geoLocation;
   } catch (error) {
     console.error(`Geocoding failed for "${location}":`, error);
-    throw new Error(`Could not geocode location: ${location}`);
+    // The place is the person's free text: it stays in the console line above and out of the error, which callers report to Sentry
+    throw new Error('Could not geocode the location (the lookup logged why)');
   }
 }
 
