@@ -22,6 +22,9 @@ import { markUnreachableAfterSendFailure } from '../lib/user-reachability';
 import { isAllDayEvent } from '../utils/event-formatter';
 import { localDate, nextDate } from '../utils/day-events';
 import { escapeHtml } from '../utils/html';
+import { isFamcalId } from '../utils/calendar-helpers';
+import { nextTopOfHourUtc } from '../utils/pass-gate';
+import { liveGoogleChoices } from '../lib/google-state';
 import { MAX_LEAD_MINUTES, defaultLeadOf, nearestReminderLead } from '../lib/calendar-view/alert-leads';
 
 
@@ -126,24 +129,94 @@ function getCalendarAssignment(event: CalendarEvent, assignments?: CalendarAssig
   return assignments.find(a => a.calendarId === event.calendarId);
 }
 
+/** An alert an event gives: at its start, or at its end (a pickup), `reminderTime` being when it goes out. */
+interface AlertCandidate {
+  type: ReminderType;
+  reminderTime: Date;
+  eventTime: Date;
+  isAuto: boolean;
+}
+
+/**
+ * Every alert an event gives, whenever it is due: the one rule for the alerts due in a pass's
+ * window and for when the next FamCal alert is (the event alerts gate). None for an event with no
+ * id, a built-in calendar reminder (it pings through its own pass, src/services/native-reminders;
+ * an alert here would ping it again, a pickup one on a kids calendar too, and for both partners),
+ * an all-day event (no start or pickup time: its date alone would become an alert at midnight
+ * UTC, 3 AM in Israel), or one set to no alert. Otherwise the start at the event's lead, and, on
+ * a kids calendar with pickup reminders on, the end at the same lead; a lead past
+ * MAX_LEAD_MINUTES is skipped (isSendable).
+ */
+function alertCandidates(event: CalendarEvent, user: UserConfig, assignments: CalendarAssignment[]): AlertCandidate[] {
+  if (!event.eventId) return [];
+  if (event.eventType === 'reminder') return [];
+  if (isAllDayEvent(event)) return [];
+  const lead = getReminderMinutes(event, user);
+  // An event set to no alert pings neither at its start nor at its pickup.
+  if (!lead) return [];
+  const leadMs = lead.minutes * 60 * 1000;
+  const candidates: AlertCandidate[] = [];
+  const startTime = new Date(event.start);
+  const startReminderTime = new Date(startTime.getTime() - leadMs);
+  if (isSendable(startReminderTime, startTime)) {
+    candidates.push({ type: 'start', reminderTime: startReminderTime, eventTime: startTime, isAuto: lead.isAuto });
+  }
+  // The pickup: only for kids' events, when pickup reminders are enabled
+  if (isKidsEvent(event, assignments) && user.pickupRemindersEnabled !== false) {
+    const endTime = new Date(event.end);
+    const pickupReminderTime = new Date(endTime.getTime() - leadMs);
+    if (isSendable(pickupReminderTime, endTime)) {
+      candidates.push({ type: 'pickup', reminderTime: pickupReminderTime, eventTime: endTime, isAuto: lead.isAuto });
+    }
+  }
+  return candidates;
+}
+
+/** What a pass finds for one user. */
+export interface DueAlerts {
+  /** The alerts due in the window and not sent yet. */
+  due: DueReminder[];
+  /** The earliest FamCal alert at or after the window's end, when FamCal was read; null for none. */
+  nextFamcalAt: Date | null;
+  /** FamCal was asked and its half failed: the event alerts gate must stay open. */
+  famcalFailed: boolean;
+}
+
+const noAlerts = (): DueAlerts => ({ due: [], nextFamcalAt: null, famcalFailed: false });
+
 /**
  * Calculate due reminders for a user within a time window
  * @param user - User configuration
  * @param windowMinutes - Time window in minutes (e.g., 5 for 5-minute cron interval)
+ * @param options.famcal - Whether this pass reads FamCal (the event alerts gate is open). When
+ *   false, only the Google choices are read, from the cached user (no database), and a user with
+ *   none fetches nothing. Defaults to true: read everything.
  */
 export async function getDueReminders(
   user: UserConfig,
   windowMinutes: number = 5,
-  timezone?: string
-): Promise<DueReminder[]> {
-  if (!(await hasUsableCalendar(user))) {
-    return [];
+  timezone?: string,
+  options: { famcal?: boolean } = {}
+): Promise<DueAlerts> {
+  const famcal = options.famcal ?? true;
+  let assignments: CalendarAssignment[];
+  if (famcal) {
+    // One read of the user's calendars: the FamCal ones they see and the Google choices. With
+    // none at all, hasUsableCalendar makes the FamCal main (lazily), and the list is read again.
+    assignments = await getCalendarAssignmentsForUser(user);
+    if (assignments.length === 0) {
+      if (!(await hasUsableCalendar(user))) return noAlerts();
+      assignments = await getCalendarAssignmentsForUser(user);
+    }
+  } else {
+    // The gate is closed: the Google choices only (pure, from the cached user), never a FamCal id.
+    assignments = liveGoogleChoices(user).filter(a => !isFamcalId(a.calendarId));
   }
-  const assignments = await getCalendarAssignmentsForUser(user);
   const calendarIds = assignments.map(a => a.calendarId);
   if (calendarIds.length === 0) {
-    return [];
+    return noAlerts();
   }
+  const famcalAsked = calendarIds.some(isFamcalId);
 
   // Truncate to minute boundary to avoid millisecond edge cases
   // e.g., now = 12:35:06 → 12:35:00, so window is [12:35:00, 12:40:00)
@@ -157,95 +230,73 @@ export async function getDueReminders(
   // up to MAX_LEAD_MINUTES after it. Fetching "today" dropped every reminder whose event
   // lay past the user's midnight (23:55 for a 00:10 start). Both providers return what
   // overlaps the range; it opens a minute early because an event ending exactly at its
-  // opening is left out, and a pickup at 0 minutes falls on that end.
+  // opening is left out, and a pickup at 0 minutes falls on that end. When FamCal is read,
+  // the range reaches further, by as much as the next whole UTC hour is away: every alert
+  // due before the gate's ceiling (and a window after it) is then seen, so nextFamcalAt is
+  // the earliest one.
+  const reach = famcalAsked ? nextTopOfHourUtc(now).getTime() - now.getTime() : 0;
   const tz = timezone ?? (await resolveUserTimezone(user));
   // Split by calendar id (spec §4 Providers): a failed half is logged and reported by the
   // fetch itself, and the other half's alerts still go out (a Google outage keeps FamCal's).
   let events: CalendarEvent[];
+  let famcalFailed = false;
   try {
     const fetched = await fetchEventsInRange(
       user,
       calendarIds,
       new Date(now.getTime() - 60 * 1000),
-      new Date(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000)
+      new Date(windowEnd.getTime() + MAX_LEAD_MINUTES * 60 * 1000 + reach)
     );
     events = fetched.events;
+    famcalFailed = fetched.failed.includes('famcal');
     if (fetched.failed.length > 0) console.warn(`[Reminders] user ${user.id}: no alerts this run from ${fetched.failed.join(', ')} (the fetch failed)`);
   } catch (error) {
     console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
     captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
-    return [];
+    return { due: [], nextFamcalAt: null, famcalFailed: famcalAsked };
   }
 
+  let nextFamcalAt: Date | null = null;
+  const hhmm = (d: Date) => d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
   for (const event of events) {
-    if (!event.eventId) continue;
-    // A built-in calendar reminder pings through its own pass (src/services/native-reminders).
-    // An alert here would ping it again, a pickup one on a kids calendar too, and for both partners.
-    if (event.eventType === 'reminder') continue;
-    // An all-day event has no start or pickup time; its date alone would become a
-    // reminder at midnight UTC (3 AM in Israel).
-    if (isAllDayEvent(event)) continue;
-
-    const startTime = new Date(event.start);
-    const endTime = new Date(event.end);
-    const lead = getReminderMinutes(event, user);
-    // An event set to no alert pings neither at its start nor at its pickup.
-    if (!lead) continue;
-    const { minutes: reminderMinutes, isAuto } = lead;
+    const candidates = alertCandidates(event, user, assignments);
+    if (candidates.length === 0) continue;
 
     // Debug logging with actual times
-    const startTimeStr = startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-    const endTimeStr = endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-    const nowStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-    const windowEndStr = windowEnd.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-    console.log(`[Reminders] Event: ${event.summary}, start: ${startTimeStr}, end: ${endTimeStr}, window: [${nowStr}-${windowEndStr}), reminderMin: ${reminderMinutes}`);
+    const reminderMinutes = (candidates[0].eventTime.getTime() - candidates[0].reminderTime.getTime()) / 60_000;
+    console.log(`[Reminders] Event: ${event.summary}, start: ${hhmm(new Date(event.start))}, end: ${hhmm(new Date(event.end))}, window: [${hhmm(now)}-${hhmm(windowEnd)}), reminderMin: ${reminderMinutes}`);
 
-    // Check START reminder
-    const startReminderTime = new Date(startTime.getTime() - reminderMinutes * 60 * 1000);
-    if (startReminderTime >= now && startReminderTime < windowEnd && isSendable(startReminderTime, startTime)) {
+    for (const candidate of candidates) {
+      const { type, reminderTime, eventTime, isAuto } = candidate;
+      if (type === 'pickup') {
+        console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${hhmm(eventTime)}, reminderTime: ${hhmm(reminderTime)}, inWindow: ${reminderTime >= now && reminderTime < windowEnd}`);
+      }
+      if (reminderTime >= windowEnd) {
+        // Not due yet: the earliest such FamCal alert is when the gate opens again.
+        if (isFamcalId(event.calendarId) && (nextFamcalAt === null || reminderTime < nextFamcalAt)) nextFamcalAt = reminderTime;
+        continue;
+      }
+      if (reminderTime < now) continue;
       // Check if already sent. The key's date is the reminder's own, not the server's
       // today: a run whose window overlaps the last one must find its mark even when the
       // server's date turned in between (20:00 in New York on a UTC server).
-      const sentKeyDate = localDate(startReminderTime, tz);
-      const alreadySent = await isReminderSent(user.id, event.eventId, 'start', sentKeyDate);
+      const sentKeyDate = localDate(reminderTime, tz);
+      const alreadySent = await isReminderSent(user.id, event.eventId!, type, sentKeyDate);
       if (!alreadySent) {
         dueReminders.push({
           event,
-          type: 'start',
-          reminderTime: startReminderTime,
-          eventTime: startTime,
+          type,
+          reminderTime,
+          eventTime,
           calendarAssignment: getCalendarAssignment(event, assignments),
           isAutoReminder: isAuto,
           sentKeyDate,
         });
       }
     }
-
-    // Check PICKUP reminder (only for kids' events, when pickup reminders are enabled)
-    if (isKidsEvent(event, assignments) && user.pickupRemindersEnabled !== false) {
-      const pickupReminderTime = new Date(endTime.getTime() - reminderMinutes * 60 * 1000);
-      const pickupReminderTimeStr = pickupReminderTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz });
-      console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${endTimeStr}, reminderTime: ${pickupReminderTimeStr}, inWindow: ${pickupReminderTime >= now && pickupReminderTime < windowEnd}`);
-      if (pickupReminderTime >= now && pickupReminderTime < windowEnd && isSendable(pickupReminderTime, endTime)) {
-        // Check if already sent
-        const sentKeyDate = localDate(pickupReminderTime, tz);
-        const alreadySent = await isReminderSent(user.id, event.eventId, 'pickup', sentKeyDate);
-        if (!alreadySent) {
-          dueReminders.push({
-            event,
-            type: 'pickup',
-            reminderTime: pickupReminderTime,
-            eventTime: endTime,
-            calendarAssignment: getCalendarAssignment(event, assignments),
-            isAutoReminder: isAuto,
-            sentKeyDate,
-          });
-        }
-      }
-    }
   }
 
-  return dueReminders;
+  return { due: dueReminders, nextFamcalAt: famcal ? nextFamcalAt : null, famcalFailed };
 }
 
 /**
@@ -399,12 +450,20 @@ export async function sendReminder(
   }
 }
 
+/** What the pass did for one user: how many alerts went out, and what the event alerts gate needs (DueAlerts). */
+export interface UserAlertsResult {
+  sent: number;
+  nextFamcalAt: Date | null;
+  famcalFailed: boolean;
+}
+
 /**
  * Process reminders for a single user
  * @param user - User configuration
  * @param windowMinutes - Time window in minutes (should match cron interval)
+ * @param options.famcal - Whether this pass reads FamCal (the event alerts gate is open)
  */
-export async function processUserReminders(user: UserConfig, windowMinutes: number = 5): Promise<number> {
+export async function processUserReminders(user: UserConfig, windowMinutes: number, options: { famcal: boolean }): Promise<UserAlertsResult> {
   // Check subscription feature access for reminders (Pro feature)
   const reminderAccess = await checkFeatureAccess(user.id, 'reminders');
   if (!reminderAccess.allowed) {
@@ -425,11 +484,13 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
         captureError(error, 'reminders-downgrade-notify', { telegramId: user.telegramId }, 'warning');
       }
     }
-    return 0;
+    // No alert of theirs goes out, so none is waited for. Access regained clears the cache, which
+    // opens the gate (invalidateFeatureAccessCache), and the cached answer ends just before a :00.
+    return { sent: 0, nextFamcalAt: null, famcalFailed: false };
   }
 
   const timezone = await resolveUserTimezone(user);
-  const dueReminders = await getDueReminders(user, windowMinutes, timezone);
+  const { due: dueReminders, nextFamcalAt, famcalFailed } = await getDueReminders(user, windowMinutes, timezone, options);
   let sentCount = 0;
 
   for (const reminder of dueReminders) {
@@ -441,5 +502,5 @@ export async function processUserReminders(user: UserConfig, windowMinutes: numb
     if (success) sentCount++;
   }
 
-  return sentCount;
+  return { sent: sentCount, nextFamcalAt, famcalFailed };
 }

@@ -92,10 +92,87 @@ const fakePrisma = {
       for (const row of rows) Object.assign(row, data);
       return { count: rows.length };
     },
+    // The event store's writes read the actor (its id and pairing), and the partner lookup reads the partner.
+    findUnique: async ({ where }: { where: { id: number } }) => {
+      const row = userRows.find(r => r.id === where.id);
+      return row ? { id: row.id, name: row.name, pairingId: row.pairingId ?? null, telegramId: row.telegramId ?? null } : null;
+    },
   },
   adminSettings: { findUnique: async () => ({ remindersEnabled: true }) },
   oAuthState: { deleteMany: async () => ({ count: 0 }) },
+  // ---- What the real event store's writes (createNativeEvent, updateNativeEvent, deleteNativeEvent) touch ----
+  nativeCalendar: {
+    findUnique: async ({ where }: { where: { id: string } }) => {
+      const c = nativeCalendars.find(x => x.id === where.id);
+      return c ? { id: c.id, name: c.name, labels: c.labels, ownerUserId: c.ownerUserId ?? 0, privacy: c.privacy ?? 'PRIVATE', isDeleted: false } : null;
+    },
+  },
+  nativeEvent: {
+    create: async ({ data }: { data: Record<string, unknown> }) => {
+      const row: NativeRow = {
+        calendarId: data.calendarId as string, id: `new${nativeEvents.length + 1}`, title: data.title as string,
+        startsAt: data.startsAt as Date, endsAt: data.endsAt as Date, timeZone: data.timeZone as string,
+        kind: (data.kind as NativeRow['kind']) ?? 'EVENT', allDay: data.allDay as boolean,
+        ownAlerts: data.ownAlerts as boolean, alertMinutes: data.alertMinutes as number[],
+      };
+      nativeEvents.push(row);
+      return seriesRow(row);
+    },
+    findUnique: async ({ where }: { where: { id: string } }) => {
+      const row = nativeEvents.find(e => e.id === where.id);
+      return row ? seriesRow(row) : null;
+    },
+    update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+      const row = nativeEvents.find(e => e.id === where.id)!;
+      for (const key of ['title', 'startsAt', 'endsAt', 'allDay', 'ownAlerts', 'alertMinutes', 'isDeleted', 'calendarId'] as const) {
+        if (data[key] !== undefined) (row as Record<string, unknown>)[key] = data[key];
+      }
+      return seriesRow(row);
+    },
+  },
+  nativeEventInstance: {
+    findUnique: async () => null,
+    deleteMany: async () => ({ count: 0 }),
+    updateMany: async () => ({ count: 0 }),
+  },
+  // No calendar here is copied to Google: markSyncDirty finds no link and marks nothing.
+  googleSyncLink: { findMany: async () => [] },
+  pairing: { findUnique: async ({ where }: { where: { id: string } }) => pairings.find(p => p.id === where.id) ?? null },
+  $transaction: async (write: (tx: unknown) => Promise<unknown>) => write(recordingPrisma),
 };
+/** The pairings the store's partner lookups read. */
+let pairings: { id: string; status: string; inviterUserId: number; inviteeUserId: number }[] = [];
+/** A NativeRow as the store reads a series row (prisma.nativeEvent.findUnique). */
+function seriesRow(row: NativeRow) {
+  return {
+    id: row.id, calendarId: row.calendarId, kind: row.kind ?? 'EVENT', creatorUserId: 0, forUserId: null, forBoth: false, eachMarksDone: false,
+    title: row.title, description: null, location: null, startsAt: row.startsAt, endsAt: row.endsAt, allDay: row.allDay ?? false,
+    timeZone: row.timeZone, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: row.ownAlerts ?? false,
+    alertMinutes: row.alertMinutes ?? [], zmanSpec: null, isDeleted: row.isDeleted ?? false,
+  };
+}
+/** Every Prisma call the code under test made, as "model.method" (the recording proxy below). */
+const prismaCalls: string[] = [];
+/** fakePrisma as the code sees it: each call is recorded, then answered by the fake (or fails as a missing fake did). */
+const recordingPrisma = new Proxy(fakePrisma as Record<string, unknown>, {
+  get(target, model) {
+    const delegate = Reflect.get(target, model);
+    if (typeof model !== 'string') return delegate;
+    if (typeof delegate === 'function') return (...args: unknown[]) => { prismaCalls.push(model); return (delegate as (...a: unknown[]) => unknown)(...args); };
+    if (!delegate || typeof delegate !== 'object') { prismaCalls.push(model); return delegate; }
+    return new Proxy(delegate as Record<string, unknown>, {
+      get(methods, method) {
+        const fn = Reflect.get(methods, method);
+        if (typeof method !== 'string' || typeof fn !== 'function') return fn;
+        return (...args: unknown[]) => { prismaCalls.push(`${model}.${method}`); return (fn as (...a: unknown[]) => unknown)(...args); };
+      },
+    });
+  },
+});
+/** The faked store reads the alert pass made (listVisibleCalendars, fetchEventsInCalendars, fetchReminderStates, loadViewerContext). */
+const storeCalls: string[] = [];
+/** When set, the FamCal events read fails with it (the FamCal half of the split fetch fails). */
+let storeFailure: Error | null = null;
 
 /** A Google calendar event, as events.list returns it with singleEvents; `reminder` is its own popup lead(s). */
 type GoogleEvent = { calendarId: string; id: string; summary: string; start: Date; end: Date; location?: string; reminder?: number | number[] };
@@ -103,8 +180,9 @@ let googleEvents: GoogleEvent[] = [];
 /** Whether the user's plan allows reminders (checkFeatureAccess). */
 let remindersAllowedByPlan = true;
 /** Real milliseconds each Google request takes, the requests in flight, and calendars whose requests fail. */
-const googleCalls = { latencyMs: 0, inFlight: 0, maxInFlight: 0, failing: {} as Record<string, Error> };
+const googleCalls = { latencyMs: 0, inFlight: 0, maxInFlight: 0, requests: 0, failing: {} as Record<string, Error> };
 async function googleRequest<T>(calendarId: string, respond: () => T): Promise<T> {
+  googleCalls.requests++;
   googleCalls.inFlight++;
   googleCalls.maxInFlight = Math.max(googleCalls.maxInFlight, googleCalls.inFlight);
   try {
@@ -147,8 +225,9 @@ const fakeGoogle = {
 };
 
 /** A native calendar event (one-off), as the event store hands it to the native provider; a REMINDER has no length. */
-type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER'; allDay?: boolean; ownAlerts?: boolean; alertMinutes?: number[]; recurring?: boolean };
-let nativeCalendars: { id: string; name: string; labels: string[] }[] = [];
+type NativeRow = { calendarId: string; id: string; title: string; startsAt: Date; endsAt: Date; timeZone: string; kind?: 'EVENT' | 'REMINDER'; allDay?: boolean; ownAlerts?: boolean; alertMinutes?: number[]; recurring?: boolean; isDeleted?: boolean };
+/** A FamCal calendar; `visibleTo` lists who sees it (everyone when unset), `ownerUserId` its owner. */
+let nativeCalendars: { id: string; name: string; labels: string[]; ownerUserId?: number; visibleTo?: number[]; privacy?: string }[] = [];
 let nativeEvents: NativeRow[] = [];
 
 const geocodedTimezones: Record<string, string> = { 'Tel Aviv': 'Asia/Jerusalem', 'New York': 'America/New_York' };
@@ -216,7 +295,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/lib/api-auth.ts`]: { verifyUserAuth: fakeVerifyUserAuth },
   [`${SRC}/lib/rate-limit.ts`]: { settingsRateLimiter: {} },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
-  [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma },
+  [`${SRC}/utils/prisma.ts`]: { prisma: recordingPrisma, withRetry: (fn: () => unknown) => fn() },
   [`${SRC}/lib/error-capture.ts`]: {
     captureError: (error: unknown, context: string, extra?: unknown) => { captured.push(context); capturedDetail.push(`${error instanceof Error ? error.message : String(error)} ${JSON.stringify(extra ?? {})}`); },
     captureWarning: () => {},
@@ -237,16 +316,24 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   },
   [`${SRC}/services/user-service.ts`]: { getWhatsAppChatId: () => null, updateUserById: fakeUpdateUserById },
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
-  [`${SRC}/services/subscription-service.ts`]: {
+  // The rest is real: invalidateFeatureAccessCache (a plan regained) opens the event alerts gate.
+  [`${SRC}/services/subscription-service.ts`]: real => fakeOver(real, {
     checkFeatureAccess: async () => ({ allowed: remindersAllowedByPlan }),
     incrementUsage: async () => {},
-  },
+  }),
   [`${SRC}/services/native-calendar/event-store.ts`]: real => fakeOver(real, {
-    listVisibleCalendars: async () => nativeCalendars.map(c => ({ ...c, color: '#000000', personName: null, personEnglishName: null, personGender: null, rules: [] })),
+    listVisibleCalendars: async (userId: number) => {
+      storeCalls.push('listVisibleCalendars');
+      return nativeCalendars
+        .filter(c => !c.visibleTo || c.visibleTo.includes(userId))
+        .map(({ visibleTo: _visibleTo, privacy: _privacy, ...c }) => ({ ...c, color: '#000000', personName: null, personEnglishName: null, personGender: null, rules: [] }));
+    },
     // One-off events overlapping the range, as the real store takes them.
-    fetchEventsInCalendars: async (cuids: string[], range: { from: Date; to: Date }) =>
-      nativeEvents
-        .filter(e => cuids.includes(e.calendarId) && e.startsAt < range.to && (e.startsAt >= range.from || e.endsAt > range.from))
+    fetchEventsInCalendars: async (cuids: string[], range: { from: Date; to: Date }) => {
+      storeCalls.push('fetchEventsInCalendars');
+      if (storeFailure) throw storeFailure;
+      return nativeEvents
+        .filter(e => !e.isDeleted && cuids.includes(e.calendarId) && e.startsAt < range.to && (e.startsAt >= range.from || e.endsAt > range.from))
         .map(e => ({
           calendar: nativeCalendars.find(c => c.id === e.calendarId)!,
           series: { id: e.id, kind: e.kind ?? 'EVENT', creatorUserId: 0, forUserId: null, ownAlerts: e.ownAlerts ?? false, alertMinutes: e.alertMinutes ?? [] },
@@ -254,9 +341,16 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
             title: e.title, startsAt: e.startsAt, endsAt: e.endsAt, allDay: e.allDay ?? false, timeZone: e.timeZone,
             seriesEventId: e.id, instanceStartsAt: e.startsAt, isRecurringInstance: e.recurring ?? false,
           },
-        })),
+        }));
+    },
     // Nothing done or snoozed.
-    fetchReminderStates: async () => [],
+    fetchReminderStates: async () => { storeCalls.push('fetchReminderStates'); return []; },
+    // The partner's reminders for the viewer (paired users): none.
+    fetchRemindersForUserInRange: async () => { storeCalls.push('fetchRemindersForUserInRange'); return []; },
+  }),
+  // The real one, counted.
+  [`${SRC}/services/native-reminders/ownership.ts`]: real => fakeOver(real, {
+    loadViewerContext: (...args: unknown[]) => { storeCalls.push('loadViewerContext'); return (real.loadViewerContext as (...a: unknown[]) => unknown)(...args); },
   }),
 };
 
@@ -303,7 +397,12 @@ Module.registerHooks({
 
 const at = (local: string, tz: string) => fromZonedTime(local, tz);
 
+/** The event alerts gate, as the code under test shares it (on globalThis). */
+let alertsGate: typeof import('../src/services/event-alerts-gate');
+
 function reset(row: Partial<UserRow> & { id: number }) {
+  // A fresh process: each check sets its data directly, not through a writer that opens the gate.
+  alertsGate.__resetEventAlertsGateForTests();
   remindersAllowedByPlan = true;
   store.clear();
   downgradeNotices = 0;
@@ -316,6 +415,7 @@ function reset(row: Partial<UserRow> & { id: number }) {
   googleEvents = [];
   nativeCalendars = [];
   nativeEvents = [];
+  pairings = [];
   userRows = [{
     telegramId: BigInt(1000 + row.id),
     googleRefreshToken: 'refresh-token',
@@ -406,6 +506,7 @@ async function foreignCipher(text: string): Promise<string> {
 
 async function main() {
   const handlers = await import('../src/cron/handlers');
+  alertsGate = await import('../src/services/event-alerts-gate');
   const IL = 'Asia/Jerusalem';
   const NY = 'America/New_York';
   const kidsCal = 'kids@group.calendar.google.com';
@@ -1085,6 +1186,232 @@ async function main() {
     assert(!store.has('reminders:users'), 'the legacy key is still there');
     const entry = cacheV2().entries.find(u => u.id === 26);
     assert(!!entry && entry.googleToken !== 'refresh-token', `v2 ${cacheV2().raw || '(missing)'}`);
+  });
+
+  // ---- The event alerts gate (spec docs/superpowers/specs/2026-10-31-event-alerts-gate-design.md) ----
+  // Neon suspends the database after 5 minutes without a query. The 5-minute pass read the FamCal store for every
+  // cached user on every run, so it never slept; now the FamCal half is read only while the gate is open.
+
+  const meCal = 'me@group.calendar.google.com';
+  /** One 5-minute pass at `when`, and the Prisma and store calls it made. */
+  async function passAt(when: Date): Promise<string[]> {
+    const p = prismaCalls.length;
+    const s = storeCalls.length;
+    await runTicks(handlers, when, new RealDate(when.getTime() + 1));
+    return [...prismaCalls.slice(p), ...storeCalls.slice(s)];
+  }
+  /** Two users cached, feature access and timezones cached: 50 on FamCal only, 51 with Google too. */
+  function twoUsers() {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    userRows.push({ ...userRows[0], id: 51, telegramId: BigInt(1051), googleRefreshToken: 'refresh-token', calendarSource: 'GOOGLE', calendarAssignments: [{ calendarId: meCal, labels: [], name: 'Me', color: '#00f' }] });
+    nativeCalendars = [
+      { id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50, visibleTo: [50] },
+      { id: 'cal51', name: 'Ron', labels: ['yours'], ownerUserId: 51, visibleTo: [51] },
+    ];
+  }
+
+  await check('gate: after the 12:00 pass, the 12:05 ... 12:55 passes make no Prisma or store call; Google is still asked on each and its 12:30 alert goes out; the FamCal alert at 13:20 goes out on time', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    // The next FamCal alert: 13:20 (the default 15 minutes before 13:35).
+    nativeEvents = [{ calendarId: 'cal50', id: 'n50', title: 'Dentist', startsAt: at('2026-10-13 13:35', IL), endsAt: at('2026-10-13 14:00', IL), timeZone: IL }];
+    googleEvents = [{ calendarId: meCal, id: 'g51', summary: 'Soccer', start: at('2026-10-13 12:45', IL), end: at('2026-10-13 13:30', IL) }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    await passAt(at('2026-10-13 12:00', IL)); // may read
+    let googleAsked = 0;
+    const reads: string[] = [];
+    for (let t = at('2026-10-13 12:05', IL).getTime(); t < at('2026-10-13 13:00', IL).getTime(); t += 5 * 60_000) {
+      const before = googleCalls.requests;
+      const calls = await passAt(new RealDate(t));
+      if (calls.length > 0) reads.push(`${formatInTimeZone(new RealDate(t), IL, 'HH:mm')} ${calls.join(', ')}`);
+      if (googleCalls.requests > before) googleAsked++;
+    }
+    assert(reads.length === 0, `idle passes that read: ${reads.join(' | ')}`);
+    assert(googleAsked === 11, `Google asked in ${googleAsked} of the 11 idle passes`);
+    await runTicks(handlers, at('2026-10-13 13:00', IL), at('2026-10-13 13:30', IL));
+    assert(sentLines(IL).join(' | ') === '12:30 🤖 Auto-Reminder: Soccer | 13:20 🤖 Auto-Reminder: Dentist', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  /** A store write at `when`, through the real event store (its fakes are the Prisma calls above). */
+  async function storeWrite<T>(when: Date, write: (store: typeof import('../src/services/native-calendar/event-store')) => Promise<T>): Promise<T> {
+    const store = await import('../src/services/native-calendar/event-store');
+    clock = when.getTime();
+    const log = console.log;
+    console.log = () => {};
+    try {
+      return await write(store);
+    } finally {
+      console.log = log;
+    }
+  }
+  /** User 50 alone, cached, its timezone cached, with its own calendar cal50; the 12:00 pass has read and closed the gate. */
+  async function closedAtNoon(row: Partial<UserRow> = {}, labels: string[] = ['yours']) {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null, ...row });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels, ownerUserId: 50 }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    await passAt(at('2026-10-13 12:00', IL));
+    const idle = await passAt(at('2026-10-13 12:05', IL));
+    assert(idle.length === 0, `the gate did not close after 12:00: ${idle.join(', ')}`);
+  }
+
+  /** The 12:00 and 12:05 passes again, with the events the check put in place: the gate reads them at 12:00 and closes. */
+  async function closedAtNoonAgain() {
+    alertsGate.__resetEventAlertsGateForTests();
+    await passAt(at('2026-10-13 12:00', IL));
+    const idle = await passAt(at('2026-10-13 12:05', IL));
+    assert(idle.length === 0, `the gate did not close after 12:00: ${idle.join(', ')}`);
+  }
+
+  await check('gate: an alert between two ticks (12:22) opens the tick whose window holds it (12:20), not the next one', async () => {
+    await closedAtNoon();
+    nativeEvents = [{ calendarId: 'cal50', id: 'b50', title: 'Between', startsAt: at('2026-10-13 12:37', IL), endsAt: at('2026-10-13 13:00', IL), timeZone: IL }];
+    await closedAtNoonAgain();
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 13:00', IL));
+    assert(sentLines(IL).join(' | ') === '12:20 🤖 Auto-Reminder: Between', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: the 12:00 pass sees an alert due before 13:00 whose event is past the day\'s reach (tomorrow 12:30, a day before: today 12:30)', async () => {
+    await closedAtNoon();
+    nativeEvents = [{ calendarId: 'cal50', id: 'f50', title: 'Far', startsAt: at('2026-10-14 12:30', IL), endsAt: at('2026-10-14 13:00', IL), timeZone: IL, ownAlerts: true, alertMinutes: [1440] }];
+    await closedAtNoonAgain();
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 13:00', IL));
+    assert(sentLines(IL).join(' | ') === '12:30 🔔 Reminder: Far', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: an event created at 12:07 for 12:20 with a 10-minute alert is sent by the 12:10 pass', async () => {
+    await closedAtNoon();
+    await storeWrite(at('2026-10-13 12:07', IL), store => store.createNativeEvent({
+      calendarCuid: 'cal50', creatorUserId: 50, title: 'Call', startsAt: at('2026-10-13 12:20', IL), endsAt: at('2026-10-13 12:40', IL), timeZone: IL, alert: 10,
+    }));
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 12:30', IL));
+    assert(sentLines(IL).join(' | ') === '12:10 🔔 Reminder: Call', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: an event moved earlier is sent at its new time; a deleted one is never sent', async () => {
+    await closedAtNoon();
+    // 13:00 with the default 15 minutes: due at 12:45 (the 12:00 pass already saw it: the gate opens at 12:40).
+    nativeEvents = [
+      { calendarId: 'cal50', id: 'm50', title: 'Moved', startsAt: at('2026-10-13 13:00', IL), endsAt: at('2026-10-13 13:30', IL), timeZone: IL },
+      { calendarId: 'cal50', id: 'd50', title: 'Deleted', startsAt: at('2026-10-13 13:00', IL), endsAt: at('2026-10-13 13:30', IL), timeZone: IL },
+    ];
+    await closedAtNoonAgain();
+    await storeWrite(at('2026-10-13 12:07', IL), store => store.updateNativeEvent({
+      seriesCuid: 'm50', scope: 'all', actingUserId: 50, startsAt: at('2026-10-13 12:25', IL), endsAt: at('2026-10-13 12:55', IL),
+    }));
+    await storeWrite(at('2026-10-13 12:08', IL), store => store.deleteNativeEvent({ seriesCuid: 'd50', scope: 'all', actingUserId: 50 }));
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 13:30', IL));
+    assert(sentLines(IL).join(' | ') === '12:10 🤖 Auto-Reminder: Moved', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: the partner creates on their shared calendar at 12:07, and the viewer is alerted at 12:15', async () => {
+    reset({ id: 52, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null, pairingId: 'p52' });
+    userRows.push({ ...userRows[0], id: 53, telegramId: BigInt(1053), name: 'Ron' });
+    pairings = [{ id: 'p52', status: 'ACTIVE', inviterUserId: 52, inviteeUserId: 53 }];
+    for (const id of [52, 53]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    nativeCalendars = [
+      { id: 'cal52', name: 'Dana', labels: ['yours'], ownerUserId: 52, visibleTo: [52] },
+      { id: 'cal53', name: 'Ron', labels: ['kids'], ownerUserId: 53, visibleTo: [52, 53], privacy: 'SHARED_EDITOR' },
+    ];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    await passAt(at('2026-10-13 12:00', IL));
+    assert((await passAt(at('2026-10-13 12:05', IL))).length === 0, 'the gate did not close after 12:00');
+    await storeWrite(at('2026-10-13 12:07', IL), store => store.createNativeEvent({
+      calendarCuid: 'cal53', creatorUserId: 53, title: 'Swim', startsAt: at('2026-10-13 12:30', IL), endsAt: at('2026-10-13 13:30', IL), timeZone: IL,
+    }));
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 12:20', IL));
+    const toViewer = sent.filter(x => x.chatId === 1052).map(x => `${formatInTimeZone(new RealDate(x.at), IL, 'HH:mm')} ${x.text.split('\n')[0].replace(/<\/?b>/g, '')}`);
+    assert(toViewer.join(' | ') === '12:15 🤖 Auto-Reminder: Swim', `the viewer got ${toViewer.join(' | ') || '(nothing)'}; all: ${sentLines(IL).join(' | ')}`);
+  });
+
+  await check('gate: a settings save that moves the default lead earlier is honoured at once (12:40 with 30 minutes: 12:10, not 12:25)', async () => {
+    await closedAtNoon();
+    nativeEvents = [{ calendarId: 'cal50', id: 'l50', title: 'Lesson', startsAt: at('2026-10-13 12:40', IL), endsAt: at('2026-10-13 13:00', IL), timeZone: IL }];
+    await closedAtNoonAgain();
+    await saveSettings(at('2026-10-13 12:07', IL), 1050, { defaultReminderMinutes: 30 });
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 13:00', IL));
+    assert(sentLines(IL).join(' | ') === '12:10 🤖 Auto-Reminder: Lesson', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: a settings save that turns pickups on is honoured at once (a 12:30 end: the pickup at 12:15)', async () => {
+    await closedAtNoon({ pickupRemindersEnabled: false }, ['kids']);
+    nativeEvents = [{ calendarId: 'cal50', id: 'p50', title: 'Kindergarten', startsAt: at('2026-10-13 08:00', IL), endsAt: at('2026-10-13 12:30', IL), timeZone: IL }];
+    await closedAtNoonAgain();
+    await saveSettings(at('2026-10-13 12:07', IL), 1050, { pickupRemindersEnabled: true });
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 13:00', IL));
+    assert(sentLines(IL).join(' | ') === '12:15 🤖🚗 Auto-Pickup Reminder: Dana', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: a plan regained at 12:07 (invalidateFeatureAccessCache) brings the 12:10 alert back', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    nativeEvents = [{ calendarId: 'cal50', id: 'r50', title: 'Dentist', startsAt: at('2026-10-13 12:25', IL), endsAt: at('2026-10-13 13:00', IL), timeZone: IL }];
+    remindersAllowedByPlan = false;
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    await passAt(at('2026-10-13 12:00', IL));
+    assert((await passAt(at('2026-10-13 12:05', IL))).length === 0, 'the gate did not close after 12:00');
+    remindersAllowedByPlan = true;
+    const { invalidateFeatureAccessCache } = await import('../src/services/subscription-service');
+    clock = at('2026-10-13 12:07', IL).getTime();
+    const log = console.log;
+    console.log = () => {};
+    try {
+      await invalidateFeatureAccessCache(50);
+    } finally {
+      console.log = log;
+    }
+    await runTicks(handlers, at('2026-10-13 12:10', IL), at('2026-10-13 12:30', IL));
+    assert(sentLines(IL).join(' | ') === '12:10 🤖 Auto-Reminder: Dentist', `got ${sentLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('gate: a failed FamCal half leaves it open and is captured (event-alerts-gate-held); the next pass reads, and one that succeeds closes it', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    storeFailure = new Error('database down (smoke)');
+    const error = console.error;
+    console.error = () => {};
+    try {
+      await passAt(at('2026-10-13 12:00', IL));
+    } finally {
+      console.error = error;
+      storeFailure = null;
+    }
+    assert(captured.includes('calendar-provider-fetch') && captured.includes('event-alerts-gate-held'), `captured ${captured.join(', ') || '(nothing)'}`);
+    assert((await passAt(at('2026-10-13 12:05', IL))).includes('fetchEventsInCalendars'), 'the pass after the failure did not read FamCal');
+    assert(captured.filter(c => c === 'event-alerts-gate-held').length === 1, `captured ${captured.join(', ')}`);
+    assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'a pass that read without a failure did not close the gate');
+  });
+
+  await check('gate: a reset gate (a fresh process) reads at once; a pass with no users cached leaves it as it was', async () => {
+    await closedAtNoon();
+    alertsGate.__resetEventAlertsGateForTests();
+    assert((await passAt(at('2026-10-13 12:10', IL))).includes('listVisibleCalendars'), 'a fresh gate did not read');
+    assert((await passAt(at('2026-10-13 12:15', IL))).length === 0, 'the gate did not close again');
+    alertsGate.__resetEventAlertsGateForTests();
+    store.set(REDIS_KEYS.REMINDER_USERS, JSON.stringify([]));
+    await passAt(at('2026-10-13 12:20', IL));
+    assert(alertsGate.shouldReadFamcal(at('2026-10-13 12:20', IL)), 'a pass with nobody cached closed the gate');
+  });
+
+  await check('gate: the hourly sync opens it only when a user is added or their pairing, default lead or pickup switch changed', async () => {
+    const { syncAddsAlerts } = await import('../src/services/reminder-cache');
+    const entry = (over: Record<string, unknown> = {}) => ({ id: 1, telegramId: '1', googleToken: '', calendarAssignments: null, defaultReminderMinutes: 15, language: 'en', name: 'D', pickupRemindersEnabled: true, pairingId: null, ...over });
+    assert(!syncAddsAlerts([entry()], [entry({ name: 'Other', language: 'he', location: 'Haifa' })]), 'a change that adds no alert opened it');
+    assert(!syncAddsAlerts([entry(), entry({ id: 2 })], [entry()]), 'a user who left opened it');
+    for (const [label, over] of [['pairing', { pairingId: 'p' }], ['default lead', { defaultReminderMinutes: 30 }], ['pickup switch', { pickupRemindersEnabled: false }], ['added user', { id: 3 }]] as const) {
+      assert(syncAddsAlerts([entry()], [entry(over)]), `${label} did not open it`);
+    }
+    assert(syncAddsAlerts(null, [entry()]), 'no previous list did not open it');
+    // Through the real sync: an unchanged hourly sync leaves the gate closed.
+    await closedAtNoon();
+    await syncCache(handlers, at('2026-10-13 12:06', IL));
+    assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'an unchanged hourly sync opened the gate');
+    userRows[0].defaultReminderMinutes = 30;
+    await syncCache(handlers, at('2026-10-13 12:11', IL));
+    assert((await passAt(at('2026-10-13 12:15', IL))).includes('listVisibleCalendars'), 'a sync that changed the default lead did not open the gate');
   });
 
   // ---- The Shabbat and Yom Tov pause (plan 2026-10-28-zmanim-reminders, Task 2) ----

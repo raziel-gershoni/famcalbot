@@ -16,12 +16,28 @@ import { isPaused } from './zmanim/pause';
 import { holdsPaidPlan } from '../lib/comp-eligibility';
 import { TIMEZONE } from '../config/constants';
 import { instantToWallTime, instantToWallTimeMs, wallTimeToInstant } from '../utils/wall-time';
+import { openEventAlertsGate } from './event-alerts-gate';
 
 // ============================================
 // REDIS CACHE FOR FEATURE ACCESS
 // ============================================
 
-const FEATURE_ACCESS_CACHE_TTL = 86400; // 24 hours (invalidated on subscription change)
+const HOUR_MS = 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+
+/**
+ * How long a feature-access answer is cached (invalidated on subscription change): a day, ending
+ * at the last hh:59 UTC no more than 24 hours ahead, so 23 to 24 hours. The 5-minute event alerts
+ * pass reads this key for every user, and recomputing it reads the database; ending each key just
+ * before an hour's :00 puts that read on the :00 pass, where the hourly jobs wake the database
+ * anyway, instead of a wake of its own at whatever minute the answer was first cached
+ * (event alerts gate spec, "Other wakers" 2). By the epoch, never by local fields.
+ */
+export function featureAccessTtlSeconds(now: number = Date.now()): number {
+  const latest = now + 24 * HOUR_MS;
+  const endsAt = Math.floor((latest - 59 * MINUTE_MS) / HOUR_MS) * HOUR_MS + 59 * MINUTE_MS;
+  return Math.ceil((endsAt - now) / 1000);
+}
 
 // ============================================
 // TYPES
@@ -684,6 +700,9 @@ export async function invalidateFeatureAccessCache(userId: number): Promise<void
   } catch (error) {
     console.error('[Feature Access] Cache invalidation error:', error);
     captureError(error, 'subscription-cache-invalidate', { user_id: userId }, 'warning');
+  } finally {
+    // A plan regained (or an override, early adoption) brings the user's event alerts back.
+    openEventAlertsGate();
   }
 }
 
@@ -708,6 +727,9 @@ export async function invalidateAllFeatureAccessCaches(): Promise<void> {
   } catch (error) {
     console.error('[Feature Access] Bulk cache invalidation error:', error);
     captureError(error, 'subscription-cache-invalidate-all', undefined, 'warning');
+  } finally {
+    // Early adoption turned on, or another global change, can bring event alerts back.
+    openEventAlertsGate();
   }
 }
 
@@ -740,7 +762,7 @@ export async function checkFeatureAccess(
 /**
  * The same answer as checkFeatureAccess, for a caller that only shows a hint: a miss
  * that finds the plan lacking the feature does not log feature_blocked (nothing was
- * blocked). Same cache key and value, so the two share the 24h cache.
+ * blocked). Same cache key and value, so the two share the day's cache (featureAccessTtlSeconds).
  */
 export async function peekFeatureAccess(
   userId: number,
@@ -775,7 +797,7 @@ async function readFeatureAccess(
   // answer is never logged, so a hint cached here would hide the next real block's
   // feature_blocked for a day.
   if (!track) return result;
-  redis.set(cacheKey, result, { ex: FEATURE_ACCESS_CACHE_TTL }).catch(error => {
+  redis.set(cacheKey, result, { ex: featureAccessTtlSeconds() }).catch(error => {
     console.error('[Feature Access] Cache write error:', error);
     captureError(error, 'subscription-cache-write', { user_id: userId, feature }, 'warning');
   });

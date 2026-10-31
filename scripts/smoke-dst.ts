@@ -681,7 +681,7 @@ async function runChecks(): Promise<void> {
     providerEvents.length = 0;
     providerEvents.push(...events);
     setClock(at);
-    return (await getDueReminders(alertUser, 5, tz)).map(d => `${d.event.eventId}:${d.type}`).sort();
+    return (await getDueReminders(alertUser, 5, tz)).due.map(d => `${d.event.eventId}:${d.type}`).sort();
   }
 
   await check('the 5-minute alert pass at 23:30:30Z on 2026-10-24 (the second 01:30 in Israel) finds the alerts due in the second 01:xx hour: a start, a pickup and a "1 hour before"', async () => {

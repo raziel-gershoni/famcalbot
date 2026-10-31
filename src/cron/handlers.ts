@@ -175,10 +175,17 @@ export async function handleTomorrowSummary(): Promise<CronResult> {
 }
 
 /**
- * Event reminders handler
- * Reads from Redis cache (zero DB queries), processes reminders for each user
+ * Event reminders handler: the 5-minute pass, run by the scheduler and by POST /api/reminders.
+ * The users come from the Redis cache. Google is read for its users on every pass (network, no
+ * database); the FamCal half reads the database only while the event alerts gate is open
+ * (src/services/event-alerts-gate.ts), so an idle pass makes no database query and Neon can
+ * sleep. A pass that read FamCal for every user without a failure closes the gate until the
+ * tick whose window holds the next FamCal alert, or the next whole UTC hour; a failed FamCal
+ * half or a user who threw leaves it open, so the next tick reads again.
  */
 export async function handleReminders(windowMinutes: number = 5): Promise<CronResult> {
+  // The pass's minute, on the epoch as getDueReminders takes its window's start.
+  const tick = new Date(Math.floor(Date.now() / 60_000) * 60_000);
   const { getCachedReminderUsers, getGlobalRemindersEnabled } = await import('../services/reminder-cache');
 
   const remindersEnabled = await getGlobalRemindersEnabled();
@@ -203,6 +210,14 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 
   const { processUserReminders } = await import('../services/reminders');
   const { openSecret, reportUndecryptable, UndecryptableError, keyFingerprint } = await import('../utils/encryption');
+  const { shouldReadFamcal, startFamcalPass, setNextFamcalAlert } = await import('../services/event-alerts-gate');
+
+  // Taken once per pass: a write during the pass reopens the gate for the next one.
+  const famcal = shouldReadFamcal(tick);
+  const famcalToken = famcal ? startFamcalPass() : 0;
+  let nextFamcalAt: number | null = null;
+  /** Why the gate stays open after this pass: each user whose FamCal half failed, or who threw. */
+  const holds: string[] = [];
 
   let totalRemindersSent = 0;
   let usersProcessed = 0;
@@ -249,18 +264,32 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         remindersEnabled: true,
         // No messagingPlatform on purpose: reminders go to Telegram only.
       } as import('../types').UserConfig;
-      const sentCount = await processUserReminders(user, windowMinutes);
-      totalRemindersSent += sentCount;
+      const result = await processUserReminders(user, windowMinutes, { famcal });
+      totalRemindersSent += result.sent;
+      if (result.famcalFailed) holds.push(`user ${cachedUser.id}: the FamCal fetch failed`);
+      if (result.nextFamcalAt && (nextFamcalAt === null || result.nextFamcalAt.getTime() < nextFamcalAt)) nextFamcalAt = result.nextFamcalAt.getTime();
       usersProcessed++;
     } catch (error) {
       const errorMsg = `User ${cachedUser.telegramId}: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(`[Event Reminders] Error processing user:`, errorMsg);
       captureError(error, 'cron-reminders-process-user', { telegramId: cachedUser.telegramId });
       errors.push(errorMsg);
+      holds.push(`user ${cachedUser.id}: failed`);
     }
   }
 
-  console.log(`[Event Reminders] Processed ${usersProcessed} users, sent ${totalRemindersSent} reminders (window: ${windowMinutes}min)`);
+  if (famcal) {
+    if (holds.length === 0) {
+      // Open on the tick whose window holds the next FamCal alert (its time minus the window).
+      setNextFamcalAlert(nextFamcalAt === null ? null : new Date(nextFamcalAt - windowMinutes * 60 * 1000), tick, famcalToken);
+    } else {
+      // Each failure was logged and captured where it happened; this says the gate stays open for it.
+      console.warn(`[Event Reminders] The FamCal alerts gate stays open (the next pass reads again): ${holds.join('; ')}`);
+      captureError(new Error('Event alerts gate held open by a failed FamCal read'), 'event-alerts-gate-held', { holds: holds.slice(0, 20), count: holds.length }, 'warning');
+    }
+  }
+
+  console.log(`[Event Reminders] Processed ${usersProcessed} users, sent ${totalRemindersSent} reminders (window: ${windowMinutes}min, FamCal ${famcal ? 'read' : 'skipped: gate closed'})`);
 
   return {
     success: true,
@@ -268,6 +297,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
     usersProcessed,
     remindersSent: totalRemindersSent,
     windowMinutes,
+    famcalRead: famcal,
     errors: errors.length > 0 ? errors : undefined,
   };
 }

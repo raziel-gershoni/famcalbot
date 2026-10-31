@@ -1,6 +1,10 @@
 /**
  * Redis cache for reminder users
- * Eliminates DB queries from 5-minute reminder cron to allow Neon auto-suspend
+ * The 5-minute event alerts pass takes its users from here, not from the database, so Neon can
+ * auto-suspend: with the event alerts gate (src/services/event-alerts-gate.ts) closed, an idle
+ * pass makes no database query. A write here that can change a user's FamCal alerts opens the
+ * gate: every updateUserInCache, and a sync that adds a user or changes their pairing, default
+ * lead or pickup switch.
  *
  * Each Google token is cached sealed (sealSecret: ciphertext), never in plain form, and the
  * reminder run opens it per user (handlers.ts handleReminders). The pre-v2 key held the
@@ -12,6 +16,7 @@ import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
 import { normalizeStored, sealSecret } from '../utils/encryption';
 import type { UserConfig } from '../types';
+import { openEventAlertsGate } from './event-alerts-gate';
 
 /** The reminder users, each Google token sealed: 'reminders:users:v2'. */
 export const REMINDER_CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
@@ -89,11 +94,28 @@ export async function getCachedReminderUsers(): Promise<CachedReminderUser[] | n
   }
 }
 
+/** The fields of an entry that change which FamCal alerts the user gets, or when. */
+const alertsOf = (u: CachedReminderUser) => [u.pairingId ?? null, u.defaultReminderMinutes ?? null, u.pickupRemindersEnabled].join('|');
+
+/**
+ * Whether a sync from `previous` to `next` can add a FamCal alert: a user who was not cached
+ * (a new user, an unsuspended or reachable-again one, alerts turned back on), or whose pairing,
+ * default lead or pickup switch changed (a pairing reaches the cache only through the sync).
+ * A user who left adds none. With no previous list (missing or unreadable), every user is new.
+ */
+export function syncAddsAlerts(previous: CachedReminderUser[] | null, next: CachedReminderUser[]): boolean {
+  const before = new Map((previous ?? []).map(u => [u.id, alertsOf(u)]));
+  return next.some(u => before.get(u.id) !== alertsOf(u));
+}
+
 /**
  * Sync full user list to cache (called by daily-summary, the boot step and the key sweep)
- * No TTL - the cache is rebuilt hourly. Entries come from toEntry.
+ * No TTL - the cache is rebuilt hourly. Entries come from toEntry. Opens the event alerts gate
+ * after the write when the new list can add an alert (syncAddsAlerts), so the hourly sync
+ * forces no extra FamCal read when nothing changed.
  */
 export async function syncReminderCache(users: CachedReminderUser[]): Promise<void> {
+  const previous = await getCachedReminderUsers();
   try {
     await redis.set(CACHE_KEY, users);
     console.log(`[Reminder Cache] Synced ${users.length} users to cache`);
@@ -101,11 +123,14 @@ export async function syncReminderCache(users: CachedReminderUser[]): Promise<vo
     console.error('[Reminder Cache] Redis write error:', error);
     captureError(error, 'reminder-cache', {}, 'warning');
   }
+  if (syncAddsAlerts(previous, users)) openEventAlertsGate();
 }
 
 /**
  * Update single user in cache (called on settings/oauth changes)
  * Adds user if not in cache, updates if exists. The entry is built by toEntry (token sealed).
+ * Then opens the event alerts gate: a settings save (the default lead, the pickup switch, alerts
+ * on), a Google connect, the calendar choices or a merge can each add an alert.
  */
 export async function updateUserInCache(user: ReminderCacheSource): Promise<void> {
   try {
@@ -122,6 +147,9 @@ export async function updateUserInCache(user: ReminderCacheSource): Promise<void
   } catch (error) {
     console.error('[Reminder Cache] Redis update error:', error);
     captureError(error, 'reminder-cache', {}, 'warning');
+  } finally {
+    // Also when the write failed: the row behind it may have changed, and a read costs one pass.
+    openEventAlertsGate();
   }
 }
 

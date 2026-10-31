@@ -30,7 +30,9 @@ export function startScheduler(): void {
       captureError(error, 'boot-reminder-cache');
     });
 
-  // Event reminders — every 5 minutes
+  // Event reminders — every 5 minutes. Google is read for its users on every run (network, no
+  // database); the FamCal half reads the database only while the event alerts gate is open (a
+  // FamCal write, the next FamCal alert's tick, or the hour's :00), so an idle run lets Neon sleep.
   cron.schedule('*/5 * * * *', async () => {
     try {
       const { handleReminders } = await import('./handlers');
@@ -154,7 +156,7 @@ export function startScheduler(): void {
   });
 
   console.log('[Scheduler] Cron jobs registered:');
-  console.log('  */5 * * * *  Event reminders');
+  console.log('  */5 * * * *  Event reminders (FamCal gated: reads the DB only when an alert may be due or after a write)');
   console.log('  * * * * *    Native reminders (gated: reads the DB only when one may be due)');
   console.log('  * * * * *    Copy to Google (gated: reads the DB only while a copy may have work)');
   console.log('  0 * * * *    Daily summary (hourly, filters by user preferred hour)');

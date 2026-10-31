@@ -17,6 +17,7 @@ import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { syncReminderCacheEntry } from './reminder-cache';
 import { invalidateDueGate } from './native-reminders/due-gate';
+import { openEventAlertsGate } from './event-alerts-gate';
 import { markSyncDirty, unlinkSync, type SyncSeries } from './google-sync/marks';
 import { openSyncGate } from './google-sync/gate';
 import { clearDeletedUserCaches, personalCacheKeys } from '../lib/user-moderation';
@@ -529,7 +530,8 @@ async function mergeWhatsAppUser(
  * the location T may have taken from W), T's reminder-cache entry is rebuilt
  * from T as it is now (the reminder run reads the pairing, calendar source,
  * token and language from there until the hourly sync), the reminder pass
- * wakes for the reminders T took over, and a language T took from W relabels
+ * wakes for the reminders T took over and the event alerts pass for the events,
+ * and a language T took from W relabels
  * T's Telegram menu button, as a settings change does. Best effort: the merge
  * has already happened. T's feature access is invalidated by the caller, as for
  * a plain link.
@@ -539,6 +541,8 @@ async function afterMerge(wUserId: number, tUserId: number, languageChanged: boo
   invalidateDueGate();
   // The merge may have marked copies to Google (moved events, turned-off copies).
   openSyncGate();
+  // T took W's calendars, events and pairing: their alerts are T's now.
+  openEventAlertsGate();
   try {
     await redis.del(REDIS_KEYS.userTimezone(tUserId));
     const t = await getUserById(tUserId);

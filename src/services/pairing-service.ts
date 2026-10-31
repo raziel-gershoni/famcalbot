@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import { Prisma } from '@prisma/client';
 import type { Pairing, PairingInvite, User } from '@prisma/client';
 import { prisma } from '../utils/prisma';
+import { openEventAlertsGate } from './event-alerts-gate';
 
 export const INVITE_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
 
@@ -176,7 +177,7 @@ async function unavailableFor(
  * does the acceptor re-tapping this invite instead of INVITE_ALREADY_USED.
  */
 export async function acceptInvite(token: string, acceptingUserId: number): Promise<AcceptResult> {
-  return prisma.$transaction(async (tx) => {
+  const accepted = await prisma.$transaction(async (tx) => {
     const invite = await tx.pairingInvite.findUnique({ where: { token } });
     if (!invite) throw new PairingError('INVITE_NOT_FOUND');
     const unavailable = await unavailableFor(tx, invite, acceptingUserId);
@@ -248,6 +249,9 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
 
     return { pairing, inviterUserId: inviter.id, inviteeUserId: invitee.id };
   });
+  // After the commit: each partner now sees the other's shared calendars, with their alerts.
+  openEventAlertsGate();
+  return accepted;
 }
 
 // --- Unlink -----------------------------------------------------------------
@@ -265,7 +269,7 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
  * partner's side).
  */
 export async function unlink(actingUserId: number): Promise<{ partnerUserId: number }> {
-  return prisma.$transaction(async (tx) => {
+  const unlinked = await prisma.$transaction(async (tx) => {
     const actor = await tx.user.findUnique({
       where: { id: actingUserId },
       select: { id: true, pairingId: true },
@@ -303,6 +307,9 @@ export async function unlink(actingUserId: number): Promise<{ partnerUserId: num
 
     return { partnerUserId };
   });
+  // After the commit, as acceptInvite does (the partner's calendars only go, so this adds no alert).
+  openEventAlertsGate();
+  return unlinked;
 }
 
 // --- Lookups ----------------------------------------------------------------

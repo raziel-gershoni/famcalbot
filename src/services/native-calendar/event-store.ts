@@ -19,6 +19,7 @@ import { TIMEZONE } from '../../config/constants';
 import { alertChoiceOf, alertColumns, type AlertChoice } from '../../lib/calendar-view/alert-leads';
 import { addDaysToDate, localDate, startOfLocalDay } from '../../utils/day-events';
 import { invalidateDueGate } from '../native-reminders/due-gate';
+import { openEventAlertsGate } from '../event-alerts-gate';
 import { readZmanSpec, sameZmanSpec, type ZmanSpecValue } from '../../lib/calendar-view/zman-spec';
 import { asZmanSpec } from '../zmanim/spec';
 import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
@@ -517,7 +518,27 @@ function eventWrite<T>(kind: string, write: (db: Prisma.TransactionClient) => Pr
   return kind === 'REMINDER' ? write(prisma) : markedTransaction(write);
 }
 
+/**
+ * Every FamCal event write goes through the four exported writes below (createNativeEvent,
+ * createNativeSeries, updateNativeEvent, deleteNativeEvent), and each opens the event alerts gate
+ * (src/services/event-alerts-gate.ts) once its write is done, for events and reminders alike, so
+ * the next 5-minute pass reads FamCal again: a new event's alert, or one moved earlier, goes out
+ * on time. Also when the write threw (a part of it may have committed): an extra read costs one
+ * pass's queries, a missed one could cost an alert.
+ */
+async function opensEventAlerts<T>(write: Promise<T>): Promise<T> {
+  try {
+    return await write;
+  } finally {
+    openEventAlertsGate();
+  }
+}
+
 export async function createNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
+  return opensEventAlerts(writeNewNativeEvent(input));
+}
+
+async function writeNewNativeEvent(input: CreateNativeEventInput): Promise<NativeEvent> {
   // A rule every reader can expand, with its Hebrew kind if any, or nothing is written (3b spec
   // §3.1, hebrew-repeats §2).
   assertStorableRule(input.rrule || null, input.hebrewRule);
@@ -622,6 +643,10 @@ export interface CreateNativeSeriesInput {
  * none). Exceptions need a rule.
  */
 export async function createNativeSeries(input: CreateNativeSeriesInput): Promise<NativeEvent> {
+  return opensEventAlerts(writeNewNativeSeries(input));
+}
+
+async function writeNewNativeSeries(input: CreateNativeSeriesInput): Promise<NativeEvent> {
   assertStorableRule(input.rrule, null);
   if (!input.rrule && (input.exdates.length > 0 || input.overrides.length > 0)) throw new NativeRuleError('Exceptions need a repeat rule');
   const calendar = await prisma.nativeCalendar.findUnique({
@@ -1270,6 +1295,10 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
  * and, for a reminder whose time changed, the live pings to strip the buttons from.
  */
 export async function updateNativeEvent(given: UpdateNativeEventInput): Promise<UpdateNativeEventResult> {
+  return opensEventAlerts(writeNativeEventUpdate(given));
+}
+
+async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<UpdateNativeEventResult> {
   let input: OwnTimes = given;
   const series = await prisma.nativeEvent.findUnique({ where: { id: input.seriesCuid } });
   if (!series || series.isDeleted) throw new NativeNotFoundError();
@@ -1930,6 +1959,10 @@ export async function getNativeSeriesRrule(seriesCuid: string): Promise<string |
 }
 
 export async function deleteNativeEvent(input: DeleteNativeEventInput): Promise<void> {
+  return opensEventAlerts(writeNativeEventDelete(input));
+}
+
+async function writeNativeEventDelete(input: DeleteNativeEventInput): Promise<void> {
   const series = await prisma.nativeEvent.findUnique({ where: { id: input.seriesCuid } });
   if (!series || series.isDeleted) throw new NativeNotFoundError();
 

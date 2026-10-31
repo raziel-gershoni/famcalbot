@@ -7,6 +7,9 @@
 // The copy to Google (google-sync spec §2): a rename marks the calendar's copy, so the
 // worker renames its Google calendar; a delete turns the copy off, with body
 // `googleCopy: 'remove' | 'keep'` (absent = keep) for the worker to carry out.
+//
+// A PATCH opens the event alerts gate (src/services/event-alerts-gate.ts): a kids label adds
+// pickup alerts, and sharing shows the partner the calendar's events, with their alerts.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
@@ -16,6 +19,7 @@ import { prisma } from '@/src/utils/prisma';
 import { captureError } from '@/src/lib/error-capture';
 import { addsPrimary, clearOtherPrimaries } from '@/src/services/calendar-provider/primary';
 import { markSyncDirty, markedTransaction, unlinkSync, type UnlinkChoice } from '@/src/services/google-sync/marks';
+import { openEventAlertsGate } from '@/src/services/event-alerts-gate';
 
 const VALID_LABELS = new Set(['primary', 'yours', 'spouse', 'kids', 'birthdays']);
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -117,6 +121,8 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
     if (update.labels && addsPrimary(calendar.labels, update.labels)) {
       await clearOtherPrimaries(user.id, { famcalId: calendar.id });
     }
+    // After the write: the next 5-minute pass reads FamCal again.
+    openEventAlertsGate();
     return NextResponse.json({ success: true, calendar: updated });
   } catch (error) {
     captureError(error, 'native-calendar-patch', { calendarId });
