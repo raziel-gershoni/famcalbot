@@ -81,9 +81,10 @@ function getBackgroundGradient(code: number): [string, string] {
 function getDayLabel(index: number, date: string, language: string): string {
   if (index === 0) return language === 'he' ? 'היום' : language === 'ru' ? 'Сегодня' : 'Today';
   if (index === 1) return language === 'he' ? 'מחר' : language === 'ru' ? 'Завтра' : 'Tomorrow';
+  // The day is a plain date: read it as the UTC day it names, not as the server's local day
   return new Date(date).toLocaleDateString(
     language === 'he' ? 'he-IL' : language === 'ru' ? 'ru-RU' : 'en-US',
-    { weekday: 'short' },
+    { weekday: 'short', timeZone: 'UTC' },
   );
 }
 

@@ -1,4 +1,4 @@
-import { HDate, Locale, gematriya } from '@hebcal/core';
+import { Locale, gematriya } from '@hebcal/core';
 import '@hebcal/locales';
 import { CalendarEvent, CalendarAssignment, UserConfig } from '../types';
 import { TIMEZONE } from '../config/constants';
@@ -11,6 +11,7 @@ import { generateAICompletion, streamAICompletion } from './ai-provider';
 import { captureError } from '../lib/error-capture';
 import { formatAdminFooter } from '../utils/ai-footer';
 import { getHolidaysForDate, weekParashaFor } from './hebrew-holidays';
+import { hebrewDateAt } from './hebrew-date-resolve';
 import type { WeekLookahead, LookaheadEvent } from './week-lookahead';
 import { liveGoogleChoices } from '../lib/google-state';
 
@@ -41,8 +42,7 @@ export function formatDateHeader(
 
   // Add Hebrew date for Jewish culture
   if (culture === 'jewish') {
-    const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
-    const hdate = new HDate(localDate);
+    const hdate = hebrewDateAt(date, timezone);
     const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
     const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
     const hebrewDate = `${hebDay} ${hebMonth}`;
@@ -78,9 +78,8 @@ export interface SummaryUserContext {
  * Get Hebrew date information
  */
 function getHebrewDateInfo(date: Date = new Date(), timezone: string = TIMEZONE): { hebrewDate: string; hebrewDateFormatted: string } {
-  // Convert to user's timezone to get correct Hebrew date (server runs in UTC)
-  const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
-  const hdate = new HDate(localDate);
+  // The day in the user's timezone gives the Hebrew date, whatever zone the server runs in
+  const hdate = hebrewDateAt(date, timezone);
 
   const day = hdate.getDate();
   const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
@@ -418,8 +417,7 @@ function formatLookaheadDate(
  * Get Hebrew date string for a given date
  */
 function getHebrewDateString(date: Date, language: string, timezone: string = TIMEZONE): string {
-  const localDate = new Date(date.toLocaleString('en-US', { timeZone: timezone }));
-  const hdate = new HDate(localDate);
+  const hdate = hebrewDateAt(date, timezone);
   const hebDay = language === 'he' ? gematriya(hdate.getDate()) : hdate.getDate();
   const hebMonth = Locale.lookupTranslation(hdate.getMonthName(), language) || hdate.getMonthName();
   return `${hebDay} ${hebMonth}`;

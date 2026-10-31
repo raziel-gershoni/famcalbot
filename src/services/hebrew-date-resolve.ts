@@ -11,6 +11,7 @@
 
 import { HDate, months } from '@hebcal/hdate';
 import { HEBREW_MONTHS } from '../lib/calendar-view/hebrew-date';
+import { instantToWallTime } from '../utils/wall-time';
 
 /** The month names the prompt offers the model, Adar I and Adar II apart. */
 export type HebrewMonthName = (typeof HEBREW_MONTHS)[number];
@@ -112,6 +113,16 @@ function monthNumber(name: HebrewMonthName, year: number): number | null {
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
+
+/**
+ * The Hebrew date of the day `at` falls on in `timezone`: the daytime date, no sunset shift, as the home reads it. The zone's
+ * own clock gives the day (instantToWallTime), and hebcal reads it off a Date at local midnight of that civil day, so the
+ * server's own zone never enters (a Date made from the zone's locale string and read back by hebcal let it in).
+ */
+export function hebrewDateAt(at: Date, timezone: string): HDate {
+  const [y, m, d] = instantToWallTime(at, timezone).slice(0, 10).split('-').map(Number);
+  return new HDate(new Date(y, m - 1, d));
+}
 
 /**
  * The day a Hebrew date falls on in one Hebrew year, as 'yyyy-MM-dd', or null when that year has no such day (30 Cheshvan in a

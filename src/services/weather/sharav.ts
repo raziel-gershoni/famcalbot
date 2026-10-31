@@ -37,7 +37,8 @@ function computeDaytimeHumidity(
     const timeStr = hourly.time[i];
     if (!timeStr.startsWith(dayDate)) continue;
 
-    const hour = new Date(timeStr).getHours();
+    // The hour as the text writes it ('yyyy-MM-ddTHH:mm', the place's own clock), never a Date read in the server's zone
+    const hour = Number(timeStr.slice(11, 13));
     if (hour >= 8 && hour <= 18) {
       sum += hourly.humidity[i];
       count++;
@@ -66,7 +67,7 @@ function detectSharavBreakHour(
     const timeStr = hourly.time[i];
     if (!timeStr.startsWith(dayDate)) continue;
 
-    const hour = new Date(timeStr).getHours();
+    const hour = Number(timeStr.slice(11, 13));
     if (hour < 12) continue; // Only scan from noon onward
 
     if (hourly.humidity[i] >= 40) {

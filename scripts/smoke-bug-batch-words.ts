@@ -851,6 +851,31 @@ async function fix4() {
     }
   });
 
+  await check('4: a plain date names its own weekday on a server west of Greenwich and east of it: the AI payload\'s day names and the infographic\'s row labels (the process zone switched to New York and to Kiritimati)', async () => {
+    const { buildWeatherAIPayload } = await import('../src/services/weather/formatter');
+    const { computeRows } = await import('../src/services/weather/infographic');
+    const { getBotMessages } = await import('../src/lib/bot-messages');
+    const SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const weather = forecast();
+    const days = (weather.daily as Row[]).map(d => d.date as string);
+    const weekday = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
+    const saved = process.env.TZ;
+    try {
+      for (const zone of ['America/New_York', 'Pacific/Kiritimati']) {
+        process.env.TZ = zone;
+        const payload = buildWeatherAIPayload(weather as never) as { today: { day: string }; tomorrow: { day: string }; thisWeek: { day: string }[]; extended: { day: string }[] };
+        const named = [payload.today.day, payload.tomorrow.day, ...payload.thisWeek.map(d => d.day), ...payload.extended.map(d => d.day)];
+        assertSame(named, days.map(d => LONG[weekday(d)]), `${zone}: the AI payload's weekday names`);
+        const { rows } = computeRows({ weather: weather as never, language: 'en', dateStr: '', timezone: 'Asia/Jerusalem' }, await getBotMessages('en'));
+        assertSame(rows.slice(2).map(r => r.label), days.slice(2, rows.length).map(d => SHORT[weekday(d)]), `${zone}: the infographic's row labels`);
+      }
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
+  });
+
   await check('4: the infographic reads the conditions from the messages, not from a table of its own', () => {
     const code = fs.readFileSync(path.join(SRC, 'services/weather/infographic.tsx'), 'utf8');
     assert(!code.includes('getLocalizedWeatherDescription'), 'the infographic still has its own table');

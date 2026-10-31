@@ -803,6 +803,82 @@ async function runChecks(): Promise<void> {
     assertSame(offenders, [], 'server files that still use a local-field setter (use epoch arithmetic or setUTC*)');
   });
 
+  await check('no server code (src/, app/, components/) reads a Date made from a wall-time or date string through the server\'s own zone: not a local getter straight off new Date(<string>) (getHours, getMinutes, getSeconds, getMilliseconds, getDate, getDay, getMonth, getFullYear), not the new Date(x.toLocaleString(..., { timeZone })) trick, and not toLocale(Date|Time)String without a timeZone off new Date(<string>). Read the hour from the text (\'yyyy-MM-ddTHH:mm\'.slice(11, 13)), a date as the UTC day it names (timeZone: \'UTC\'), or a zone\'s clock with instantToWallTime; a \'use client\' file runs on the viewer\'s own clock and is not scanned', () => {
+    const LOCAL_GETTER = /^\s*\.(getHours|getMinutes|getSeconds|getMilliseconds|getDate|getDay|getMonth|getFullYear)\(/;
+    // The index just after the parenthesis that closes the one at `open`
+    const closing = (text: string, open: number): number => {
+      let depth = 0;
+      for (let i = open; i < text.length; i++) {
+        if (text[i] === '(') depth++;
+        else if (text[i] === ')' && --depth === 0) return i + 1;
+      }
+      return -1;
+    };
+    const hasTopLevelComma = (arg: string): boolean => {
+      let depth = 0;
+      for (const c of arg.replace(/`[^`]*`|'[^']*'|"[^"]*"/g, 'S')) {
+        if ('([{'.includes(c)) depth++;
+        else if (')]}'.includes(c)) depth--;
+        else if (c === ',' && depth === 0) return true;
+      }
+      return false;
+    };
+    /** What the scan finds in one file's text: where each Date built from an argument is read through the server's zone. */
+    const readsThroughServerZone = (text: string): string[] => {
+      const found: string[] = [];
+      for (const m of text.matchAll(/new Date\(/g)) {
+        const open = m.index! + 'new Date'.length;
+        const end = closing(text, open);
+        if (end < 0) continue;
+        const arg = text.slice(open + 1, end - 1).trim();
+        if (arg === '' || hasTopLevelComma(arg)) continue; // new Date() is now, and new Date(y, m, d) is local fields read back by the local getters
+        const line = text.slice(0, m.index).split('\n').length;
+        const after = text.slice(end);
+        if (LOCAL_GETTER.test(after)) found.push(`${line}: a local getter off new Date(${arg.slice(0, 40)})`);
+        if (/\.toLocaleString\(/.test(arg)) found.push(`${line}: the toLocaleString zone trick, new Date(${arg.slice(0, 40)})`);
+        const format = /^\s*\.toLocale(?:Date|Time)?String\(/.exec(after);
+        if (format) {
+          const argsOpen = end + format[0].length - 1;
+          const args = text.slice(argsOpen, closing(text, argsOpen));
+          if (!/timeZone/.test(args)) found.push(`${line}: toLocale*String without a timeZone off new Date(${arg.slice(0, 40)})`);
+        }
+      }
+      return found;
+    };
+    // The scanner finds each shape (so an empty list means something) and lets the right readings be
+    for (const bad of ['new Date(timeStr).getHours()', "new Date(d.toLocaleString('en-US', { timeZone: tz }))", "new Date(day.date).toLocaleDateString('en-US', { weekday: 'long' })", "new Date(date).toLocaleDateString(\n    locale,\n    { weekday: 'short' },\n  )"]) {
+      assert(readsThroughServerZone(bad).length > 0, `the scanner misses ${bad}`);
+    }
+    for (const fine of ["new Date(day.date).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })", 'new Date(Date.UTC(y, m, 0)).getUTCDate()', 'new Date(y, m - 1, d).getDate()', 'new Date().getFullYear()', "new Date(`${day}T00:00:00Z`).getUTCDay()", "new Date(x).toISOString()"]) {
+      assert(readsThroughServerZone(fine).length === 0, `the scanner flags ${fine}`);
+    }
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const file = path.join(dir, name);
+        if (statSync(file).isDirectory()) {
+          if (name !== 'node_modules' && name !== '.next') walk(file);
+        } else if (/\.(ts|tsx)$/.test(name)) {
+          const text = readFileSync(file, 'utf8');
+          if (/^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*['"]use client['"]/.test(text)) continue;
+          for (const found of readsThroughServerZone(text)) offenders.push(`${path.relative(ROOT, file)}:${found}`);
+        }
+      }
+    };
+    for (const dir of ['src', 'app', 'components']) walk(path.join(ROOT, dir));
+    assertSame(offenders, [], 'server code that reads a string-made Date through the server\'s zone (see the check\'s name for the readings to use)');
+  });
+
+  await check('an instant\'s Hebrew date is the day it falls on in the person\'s zone, whatever the server zone (hebrewDateAt: the summaries\' and the weather\'s Hebrew date; a Date made from the zone\'s locale string and read back in the server\'s zone was the way it went wrong)', async () => {
+    const { hebrewDateAt } = await import('../src/services/hebrew-date-resolve');
+    const hebrew = (at: string, zone: string) => { const h = hebrewDateAt(iso(at), zone); return `${h.getDate()} ${h.getMonthName()} ${h.getFullYear()}`; };
+    assertSame(hebrew('2026-10-31T21:30:00Z', 'Asia/Jerusalem'), '20 Cheshvan 5787', 'Jerusalem at 23:30 on 2026-10-31');
+    assertSame(hebrew('2026-10-31T22:30:00Z', 'Asia/Jerusalem'), '21 Cheshvan 5787', 'Jerusalem at 00:30 on 2026-11-01');
+    assertSame(hebrew('2026-11-01T03:30:00Z', 'America/New_York'), '20 Cheshvan 5787', 'New York at 23:30 on 2026-10-31');
+    assertSame(hebrew('2026-10-31T10:30:00Z', 'Pacific/Kiritimati'), '21 Cheshvan 5787', 'Kiritimati (UTC+14) at 00:30 on 2026-11-01');
+    assertSame(hebrew('2026-10-31T09:30:00Z', 'Pacific/Kiritimati'), '20 Cheshvan 5787', 'Kiritimati at 23:30 on 2026-10-31');
+  });
+
   // ---- Summaries: the hour a clock change skips ----
 
   /** Fresh Redis; every hourly tick from `from` to `to` runs the real filter, and an eligible user is sent and marked, as the batch does. Returns the local time of each send. */

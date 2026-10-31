@@ -3,8 +3,9 @@
  * AI-powered weather forecast formatting with rule-based fallback
  */
 
-import { HDate, Locale } from '@hebcal/core';
+import { Locale } from '@hebcal/core';
 import { instantToWallTime } from '../../utils/wall-time';
+import { hebrewDateAt } from '../hebrew-date-resolve';
 import { gematriya } from '@hebcal/hdate';
 import { formatInTimeZone } from 'date-fns-tz';
 import '@hebcal/locales';
@@ -43,7 +44,8 @@ function formatTime(isoString: string): string {
 export function buildWeatherAIPayload(weather: WeatherData, airQuality?: AirQualityData | null): object {
   const buildDaySummary = (day: WeatherDay, withHours: boolean) => {
     const result: Record<string, unknown> = {
-      day: new Date(day.date).toLocaleDateString('en-US', { weekday: 'long' }),
+      // The day is a plain date: read it as the UTC day it names, not as the server's local day
+      day: new Date(day.date).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }),
       date: day.date,
       high: day.tempMax,
       low: day.tempMin,
@@ -155,8 +157,7 @@ export function buildInfographicConfig(
 ): InfographicConfig {
   let hebrewDateStr: string | undefined;
   if (culture === 'jewish') {
-    const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    const hdate = new HDate(localDate);
+    const hdate = hebrewDateAt(now, timezone);
     if (language === 'he') {
       hebrewDateStr = `${gematriya(hdate.getDate())} ב${Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName()} ${gematriya(hdate.getFullYear())}`;
     } else {
@@ -191,8 +192,7 @@ export async function formatWeatherAI(
   // Hebrew date for Jewish culture users
   let hebrewDateStr = '';
   if (culture === 'jewish') {
-    const localDate = new Date(now.toLocaleString('en-US', { timeZone: timezone }));
-    const hdate = new HDate(localDate);
+    const hdate = hebrewDateAt(now, timezone);
     const day = hdate.getDate();
     const monthName = Locale.lookupTranslation(hdate.getMonthName(), 'he') || hdate.getMonthName();
     const year = hdate.getFullYear();
