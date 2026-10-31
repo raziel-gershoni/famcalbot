@@ -46,7 +46,7 @@ export function detectDustStorm(airQuality: AirQualityData | null): DustStormDay
     const day = dayMap.get(date)!;
     day.pm10.push(pm10[i] ?? 0);
     day.dust.push(dust[i] ?? 0);
-    day.hours.push(new Date(time[i]).getHours());
+    day.hours.push(Number(time[i].slice(11, 13))); // the label is the place's wall time: read the hour from the text, never through the server's zone
   }
 
   // Get ordered dates to compute dayIndex

@@ -7,10 +7,11 @@
  *
  * - The rolling layout data/<model>/<variable>/chunk_N.om, hourly, overwritten in place at each run.
  * - meta.json per model (chunk length, grid, data end, run times), read at most every 10 minutes.
- * - An open reader belongs to one run (last_run_modification_time): a new run retires the old readers. A stale reader
- *   reads S3's 412 as a short read, so any failed read retires the readers, refreshes the metas and retries.
+ * - An open reader belongs to one chunk file and one run (last_run_modification_time): a new run retires the old readers,
+ *   and a window that has moved into a newer chunk retires the older chunks' (a reader closes when its last read ends).
+ *   A stale reader reads S3's 412 as a short read, so any failed read retires the readers, refreshes the metas and retries.
  * - A point's series is cached per (model, variable, cell, run, window), never per user, on globalThis: the scheduler and
- *   the routes are separate bundles, each with its own WebAssembly.
+ *   the routes are separate bundles, each with its own WebAssembly. Users of one cell arriving together read it once.
  * - @openmeteo/file-reader 0.0.21 (GPL-2.0: server only, never a 'use client' file): its plain HTTP backend at one
  *   attempt, the shared retry loop (src/utils/fetch-retry.ts) around the whole read, never its block cache.
  * - Failure: reported once, placeless, and null, and no dust alert goes out. A run over 36 h old is a warning (the
@@ -85,6 +86,9 @@ function dataError(model: Model | 'cams', step: Step, error: unknown): AirDataEr
 
 interface ReaderEntry {
   reader: Promise<OmFileReader>;
+  /** The model and variable the chunk belongs to ('cams_global/dust'), and its number: what a chunk rollover retires by. */
+  group: string;
+  idx: number;
   users: number;
   retired: boolean;
   disposed: boolean;
@@ -94,10 +98,12 @@ interface AirState {
   metaLoads: Map<Model, Promise<ModelMeta>>;
   readers: Map<string, ReaderEntry>;
   series: Map<string, number[] | null>;
+  /** A series being read, by series key: callers asking for the same cell meanwhile wait for it instead of reading again. */
+  flights: Map<string, Promise<number[] | null>>;
   warnedRun: Map<Model, number>;
 }
 const shared = globalThis as { __famcalAir?: AirState };
-const state: AirState = (shared.__famcalAir ??= { metas: new Map(), metaLoads: new Map(), readers: new Map(), series: new Map(), warnedRun: new Map() });
+const state: AirState = (shared.__famcalAir ??= { metas: new Map(), metaLoads: new Map(), readers: new Map(), series: new Map(), flights: new Map(), warnedRun: new Map() });
 
 interface Seam {
   now: () => number;
@@ -116,7 +122,12 @@ export function __resetAirForTests(): void {
   state.metas.clear();
   state.metaLoads.clear();
   state.series.clear();
+  state.flights.clear();
   state.warnedRun.clear();
+}
+/** Tests only: the readers that are open (a retired one is gone from the list; it closes when its last read ends). */
+export function __openReadersForTests(): string[] {
+  return [...state.readers.keys()];
 }
 const nowMs = (): number => seamState.__airForTests?.now?.() ?? Date.now();
 
@@ -140,7 +151,8 @@ async function loadMeta(model: Model): Promise<ModelMeta> {
   } catch (error) {
     throw dataError(model, 'meta', error);
   }
-  if (!Number.isFinite(meta?.chunk_time_length) || !Number.isFinite(meta?.data_end_time) || !Number.isFinite(meta?.last_run_modification_time) || typeof meta?.crs_wkt !== 'string') {
+  const numbers = [meta?.chunk_time_length, meta?.data_end_time, meta?.last_run_modification_time, meta?.last_run_initialisation_time];
+  if (!numbers.every(Number.isFinite) || typeof meta?.crs_wkt !== 'string') {
     throw new AirDataError(model, 'meta', 'meta.json is not one FamCal can read');
   }
   return meta;
@@ -217,6 +229,15 @@ function retireAllReaders(): void {
   for (const [key, entry] of [...state.readers]) retire(key, entry);
 }
 
+/**
+ * The window moves forward, so the chunks before its first are done with (a day-long window starts in a new chunk every
+ * 9 days or so): their readers are closed now when idle, else when their last read ends.
+ */
+function retireOlderChunks(model: Model, variable: Variable, first: number): void {
+  const group = `${model}/${variable}`;
+  for (const [key, entry] of [...state.readers]) if (entry.group === group && entry.idx < first) retire(key, entry);
+}
+
 /** Runs `fn` with the open reader of a chunk for this run (opened once); a failed open or read retires the reader. */
 async function withChunk<T>(meta: ModelMeta, model: Model, variable: Variable, idx: number, fn: (reader: OmFileReader) => T | Promise<T>): Promise<T> {
   const url = `${OPEN_DATA}/data/${model}/${variable}/chunk_${idx}.om`;
@@ -224,7 +245,7 @@ async function withChunk<T>(meta: ModelMeta, model: Model, variable: Variable, i
   let entry = state.readers.get(key);
   if (!entry) {
     for (const [k, e] of [...state.readers]) if (k.startsWith(`${url}@`)) retire(k, e); // an older run's reader
-    entry = { reader: OmFileReader.create(new OmHttpBackend({ url, retries: 1, timeoutMs: FETCH_CEILING_MS })), users: 0, retired: false, disposed: false };
+    entry = { reader: OmFileReader.create(new OmHttpBackend({ url, retries: 1, timeoutMs: FETCH_CEILING_MS })), group: `${model}/${variable}`, idx, users: 0, retired: false, disposed: false };
     state.readers.set(key, entry);
   }
   entry.users++;
@@ -261,6 +282,7 @@ async function modelSeries(model: Model, variable: Variable, latitude: number, l
   if (end <= fromSec) return out;
   const first = Math.floor(fromSec / chunkSec);
   const last = Math.floor((end - 1) / chunkSec);
+  retireOlderChunks(model, variable, first);
   const cell = await withChunk(meta, model, variable, first, reader => cellOf(meta, model, reader.getDimensions(), latitude, longitude));
   const key = `${model}|${variable}|${cell ? `${cell.iy},${cell.ix}` : 'outside'}|${meta.last_run_modification_time}|${fromSec}|${toSec}`;
   if (state.series.has(key)) return state.series.get(key)!;
@@ -268,24 +290,32 @@ async function modelSeries(model: Model, variable: Variable, latitude: number, l
     remember(key, null);
     return null;
   }
-  await Promise.all(
-    Array.from({ length: last - first + 1 }, (_, k) => first + k).map(idx =>
-      withChunk(meta, model, variable, idx, async reader => {
-        const nt = reader.getDimensions()[2];
-        const t0 = idx * chunkSec;
-        const a = Math.max(fromSec, t0);
-        const b = Math.min(end, t0 + nt * 3600);
-        if (b <= a) return;
-        const values = (await reader.read({
-          type: OmDataType.FloatArray,
-          ranges: [{ start: cell.iy, end: cell.iy + 1 }, { start: cell.ix, end: cell.ix + 1 }, { start: (a - t0) / 3600, end: (b - t0) / 3600 }],
-        })) as Float32Array;
-        values.forEach((v, i) => { out[(a - fromSec) / 3600 + i] = v; });
-      }),
-    ),
-  );
-  remember(key, out);
-  return out;
+  // Users of the same cell arriving together read it once
+  let flight = state.flights.get(key);
+  if (!flight) {
+    flight = (async () => {
+      await Promise.all(
+        Array.from({ length: last - first + 1 }, (_, k) => first + k).map(idx =>
+          withChunk(meta, model, variable, idx, async reader => {
+            const nt = reader.getDimensions()[2];
+            const t0 = idx * chunkSec;
+            const a = Math.max(fromSec, t0);
+            const b = Math.min(end, t0 + nt * 3600);
+            if (b <= a) return;
+            const values = (await reader.read({
+              type: OmDataType.FloatArray,
+              ranges: [{ start: cell.iy, end: cell.iy + 1 }, { start: cell.ix, end: cell.ix + 1 }, { start: (a - t0) / 3600, end: (b - t0) / 3600 }],
+            })) as Float32Array;
+            values.forEach((v, i) => { out[(a - fromSec) / 3600 + i] = v; });
+          }),
+        ),
+      );
+      remember(key, out);
+      return out;
+    })().finally(() => state.flights.delete(key));
+    state.flights.set(key, flight);
+  }
+  return flight;
 }
 
 /** A variable at the point, the API's "auto" way, from fromSec to cams_global's end. */

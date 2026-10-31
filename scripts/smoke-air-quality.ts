@@ -2,9 +2,10 @@
 // plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 4; the dust spike's rulings R1-R8). The real
 // reader (@openmeteo/file-reader and its WebAssembly) reads S3 exchanges recorded once for Tel Aviv
 // (scripts/fixtures/cams-tel-aviv.json, by scripts/record-cams-fixture.ts) and replayed through a mocked fetch: the
-// recorded series again, today's 00:00 first, the API's "auto" domains, the cell and run caches, a new run, a file
-// replaced under an open reader (S3's 412), the retries of the shared loop, a stale run, and each failure as null with
-// a report that names no place. Faked: fetch (the replay), the geocoder, error capture, the clock and the waits (the
+// recorded series again, today's 00:00 first, the API's "auto" domains, the cell and run caches (also across the
+// scheduler's bundle and the routes'), one read for users of a cell arriving together, a new run, a chunk rollover, a
+// cams_europe that has ended or does not hold the place, a file replaced under an open reader (S3's 412), the retries of
+// the shared loop, a stale run, and each failure as null with a report that names no place. Faked: fetch (the replay), the geocoder, error capture, the clock and the waits (the
 // module's seam, which forwards them to the shared retry loop). No network.
 //
 //   TZ=UTC npx tsx scripts/smoke-air-quality.ts
@@ -43,7 +44,9 @@ const FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/fixtures/cam
 const asked: Request[] = [];
 let served = 0;
 /** A scenario's change: a Response to send in place of the recording's, or undefined for the recording. */
-let override: (request: Request, n: number) => Response | undefined = () => undefined;
+let override: (request: Request, n: number) => Response | Promise<Response> | undefined = () => undefined;
+/** The bytes a range request asks for. */
+const rangeSize = (r: Request) => { const [a, b] = (r.range ?? '').replace('bytes=', '').split('-').map(Number); return b - a + 1; };
 const exchangeOf = (request: Request): Exchange => {
   const e = FIXTURE.exchanges.find(x => x.method === request.method && x.url === request.url && x.range === request.range);
   if (!e) throw new Error(`not in the recording: ${request.method} ${request.url} ${request.range ?? ''}`);
@@ -92,6 +95,26 @@ async function main(): Promise<void> {
   const air = nodeRequire(path.join(ROOT, 'src/services/weather/air-quality.ts')) as typeof import('../src/services/weather/air-quality');
   const { instantToWallTime } = nodeRequire(path.join(ROOT, 'src/utils/wall-time.ts')) as typeof import('../src/utils/wall-time');
   const { detectDustStorm } = nodeRequire(path.join(ROOT, 'src/services/weather/dust-storm.ts')) as typeof import('../src/services/weather/dust-storm');
+  const airPath = path.join(ROOT, 'src/services/weather/air-quality.ts');
+  /** The series with cams_europe left out (the clamp check keeps it for the out-of-grid check). */
+  let globalOnly: { time: string[]; pm10: (number | null)[]; dust: (number | null)[] } | null = null;
+  // The reader's closing, seen from outside: which file each reader was opened on, and which were disposed
+  const lib = nodeRequire('@openmeteo/file-reader') as { OmFileReader: { create: (backend: { url: string }) => Promise<object>; prototype: { dispose: () => void } } };
+  const urlOf = new WeakMap<object, string>();
+  const disposedUrls: string[] = [];
+  const realCreate = lib.OmFileReader.create;
+  lib.OmFileReader.create = async (backend: { url: string }) => {
+    const reader = await realCreate.call(lib.OmFileReader, backend);
+    urlOf.set(reader, backend.url);
+    return reader;
+  };
+  const realDispose = lib.OmFileReader.prototype.dispose;
+  lib.OmFileReader.prototype.dispose = function (this: object) {
+    disposedUrls.push(urlOf.get(this) ?? '?');
+    return realDispose.call(this);
+  };
+  /** Lets the readers' asynchronous closing run. */
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise<void>(resolve => setImmediate(resolve)); };
   let clock = FIXTURE.recordedAt;
   const waits: number[] = [];
   // The module forwards the waits and the jitter to the shared retry loop (src/utils/fetch-retry.ts): none sleeps for real.
@@ -108,6 +131,7 @@ async function main(): Promise<void> {
     waits.length = 0;
     captured.length = 0;
     logged.length = 0;
+    disposedUrls.length = 0;
     served = 0;
     override = () => undefined;
     clock = FIXTURE.recordedAt;
@@ -175,9 +199,12 @@ async function main(): Promise<void> {
     assert(asked.length === 0 && show(again) === show(FIXTURE.expected), `${asked.length} requests: ${show(asked.slice(0, 5))}`);
   });
 
-  await check('a new run of cams_global (its last_run_modification_time moves): after the meta\'s 10 minutes its readers are opened again (HEAD) and its series read again; cams_europe\'s, of the same run, stay', async () => {
+  await check('a new run of cams_global (its last_run_modification_time moves): after the meta\'s 10 minutes its readers are opened again (HEAD) and its series is read again (the same range requests as the first time, the data among them: the run is in the series key); cams_europe\'s, of the same run, stay: no request to it at all', async () => {
     fresh();
     await read();
+    const rangesOf = (model: string) => asked.filter(r => r.range && r.url.includes(`/data/${model}/`)).map(r => `${r.url} ${r.range}`).sort();
+    const firstGlobal = rangesOf('cams_global');
+    assert(firstGlobal.length > 0, 'the first read asked no range of cams_global');
     const bumped = { ...metaOf('cams_global'), last_run_modification_time: Number(metaOf('cams_global').last_run_modification_time) + 60 };
     override = request => (request.url.endsWith('/data/cams_global/static/meta.json') ? json(bumped) : undefined);
     asked.length = 0;
@@ -185,7 +212,128 @@ async function main(): Promise<void> {
     const again = await read();
     assert(show(again) === show(FIXTURE.expected), 'the series changed');
     assert(asked.some(r => r.method === 'HEAD' && r.url.includes('/data/cams_global/')), 'cams_global\'s readers were not opened again');
-    assert(!asked.some(r => r.method === 'HEAD' && r.url.includes('/data/cams_europe/')), 'cams_europe\'s readers were opened again');
+    assert(show(rangesOf('cams_global')) === show(firstGlobal), `cams_global\'s series was not read again: ${rangesOf('cams_global').length} range requests, ${firstGlobal.length} the first time`);
+    assert(!asked.some(r => r.url.includes('/data/cams_europe/') && !r.url.endsWith('meta.json')), `cams_europe was asked: ${show(asked.filter(r => r.url.includes('/data/cams_europe/') && !r.url.endsWith('meta.json')).slice(0, 3))}`);
+  });
+
+  await check('the caches are shared across bundles: the module loaded a second time (the scheduler\'s bundle beside the routes\') keeps its readers, metas and series on globalThis, so a warm read through the second copy asks S3 nothing', async () => {
+    fresh();
+    await read();
+    delete internals._cache[airPath];
+    const air2 = nodeRequire(airPath) as typeof air;
+    assert(air2 !== air && air2.fetchAirQuality !== air.fetchAirQuality, 'not a second copy of the module');
+    asked.length = 0;
+    clock += 5 * 60 * 1000;
+    const again = await quietly(() => air2.fetchAirQuality('Tel Aviv', FIXTURE.zone));
+    assert(asked.length === 0 && show(again) === show(FIXTURE.expected), `${asked.length} requests: ${show(asked.slice(0, 3))}`);
+  });
+
+  await check('users of one cell arriving together read it once: two concurrent calls make the requests of one', async () => {
+    fresh();
+    await read();
+    const single = asked.length;
+    fresh();
+    const [a, b] = await Promise.all([read(), read()]);
+    assert(show(a) === show(FIXTURE.expected) && show(b) === show(FIXTURE.expected), 'a series differs');
+    assert(asked.length === single, `${asked.length} requests for two calls, ${single} for one`);
+  });
+
+  await check('cams_europe\'s window is clamped to its data_end_time: a Europe that ended before the day starts is never asked for a chunk, and the series is cams_global\'s alone (the spike\'s reader over the same recording: peak dust 144, pm10 136)', async () => {
+    fresh();
+    const fromSec = air.dayStartSec(FIXTURE.recordedAt, FIXTURE.zone);
+    const ended = { ...metaOf('cams_europe'), data_end_time: fromSec - 3600 };
+    override = request => (request.url.endsWith('/data/cams_europe/static/meta.json') ? json(ended) : undefined);
+    const got = await read();
+    assert(got !== null, 'no series');
+    const europe = asked.filter(r => r.url.includes('/data/cams_europe/') && !r.url.endsWith('meta.json'));
+    assert(europe.length === 0, `a Europe chunk was asked: ${show(europe.slice(0, 3))}`);
+    assert(show(got.hourly.time) === show(FIXTURE.expected.hourly.time) && show(got.hourly) !== show(FIXTURE.expected.hourly), 'not the same hours, or the same values as with Europe');
+    assert(Math.round(Math.max(...got.hourly.dust.map(Number))) === 144 && Math.round(Math.max(...got.hourly.pm10.map(Number))) === 136, `peaks ${Math.max(...got.hourly.dust.map(Number))} / ${Math.max(...got.hourly.pm10.map(Number))}`);
+    globalOnly = got.hourly;
+  });
+
+  await check('a place outside cams_europe\'s grid, end to end (its BBOX moved north of Tel Aviv): cams_global\'s series alone, none of Europe\'s data read (only the file\'s opening), and a warm read asks nothing', async () => {
+    fresh();
+    const wkt = String(metaOf('cams_europe').crs_wkt);
+    const north = wkt.replace('BBOX[71.95,-24.95,30.049995,44.95]', 'BBOX[71.95,-24.95,40.049995,44.95]');
+    assert(north !== wkt, 'the BBOX to move is not in the recorded meta');
+    override = request => (request.url.endsWith('/data/cams_europe/static/meta.json') ? json({ ...metaOf('cams_europe'), crs_wkt: north }) : undefined);
+    const got = await read();
+    assert(got !== null && globalOnly !== null, 'no series');
+    assert(show(got.hourly) === show(globalOnly), 'not the global-only series');
+    const dataReads = FIXTURE.exchanges.filter(e => e.url.includes('/data/cams_europe/') && e.range && Buffer.from(e.body, 'base64').length > 500).map(e => `${e.url} ${e.range}`);
+    assert(dataReads.length >= 2, 'the recording holds no Europe data reads');
+    assert(!asked.some(r => dataReads.includes(`${r.url} ${r.range}`)), 'a Europe data read was asked');
+    asked.length = 0;
+    clock += 5 * 60 * 1000;
+    const again = await read();
+    assert(asked.length === 0 && show(again) === show(got), `${asked.length} requests on the warm read`);
+  });
+
+  await check('a chunk rollover: when the day\'s window starts in the next chunk, the older chunk\'s readers are retired and closed, an idle one at once and one still reading when its read ends (the read in flight finishes, no retry); the current chunk\'s readers stay open', async () => {
+    fresh();
+    await settle(); // the previous check's readers close asynchronously
+    disposedUrls.length = 0;
+    const global = metaOf('cams_global');
+    const chunkSec = Number(global.chunk_time_length) * 3600;
+    const fromSec = air.dayStartSec(FIXTURE.recordedAt, FIXTURE.zone);
+    const old = Math.floor(fromSec / chunkSec);
+    const rollover = (old + 1) * chunkSec;
+    assert(Number(global.data_end_time) > rollover + 36 * 3600, 'the recording does not reach into the next chunk');
+    // A whole-hour zone whose midnight is the next chunk\'s first hour: its day then reads exactly the ranges of the recording
+    const east = (24 - ((rollover / 3600) % 24)) % 24;
+    const offset = east > 12 ? east - 24 : east;
+    const zone = offset === 0 ? 'Etc/GMT' : `Etc/GMT${offset > 0 ? '-' : '+'}${Math.abs(offset)}`;
+    const nextClock = (rollover + 3600) * 1000;
+    assert(air.dayStartSec(nextClock, zone) === rollover, `${zone} does not start its day at the rollover`);
+    const europeEnded = { ...metaOf('cams_europe'), data_end_time: rollover - 3600 };
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let heldSeen!: () => void;
+    const held = new Promise<void>(resolve => { heldSeen = resolve; });
+    let holding = false;
+    let nextDay = false;
+    const oldDust = `/data/cams_global/dust/chunk_${old}.om`;
+    override = request => {
+      if (nextDay && request.url.endsWith('/data/cams_europe/static/meta.json')) return json(europeEnded);
+      if (!holding && request.method === 'GET' && request.range && request.url.endsWith(oldDust) && rangeSize(request) > 1000) {
+        holding = true; // the first data read of the older chunk's dust reader is held: that reader is in use
+        heldSeen();
+        return gate.then(() => recorded(request));
+      }
+      return undefined;
+    };
+    const today1 = read();
+    await held;
+    clock = nextClock;
+    nextDay = true;
+    const today2 = await quietly(() => air.fetchAirQuality('Tel Aviv', zone));
+    await settle();
+    assert(today2 !== null && today2.hourly.time.length === (Number(global.data_end_time) - rollover) / 3600, `the rollover day: ${today2?.hourly.time.length} hours`);
+    assert(show(today2.hourly.dust.slice(-36)) === show(FIXTURE.expected.hourly.dust.slice(-36)), 'the values past Europe\'s end differ from the first read\'s');
+    const open = air.__openReadersForTests();
+    assert(!open.some(k => k.includes('/data/cams_global/') && k.includes(`/chunk_${old}.om@`)), `an older chunk\'s reader is still open: ${show(open.filter(k => k.includes(`chunk_${old}.`)))}`);
+    assert(open.some(k => k.includes(`/data/cams_global/dust/chunk_${old + 1}.om@`)) && open.some(k => k.includes(`/data/cams_global/pm10/chunk_${old + 1}.om@`)), 'the current chunk\'s readers are not open');
+    assert(!disposedUrls.some(u => u.endsWith(oldDust)), 'the reader still in use was closed under its read');
+    release();
+    const day1 = await today1;
+    await settle();
+    assert(show(day1) === show(FIXTURE.expected) && waits.length === 0, `the read in flight: ${show(day1)?.slice(0, 80)}, waits ${show(waits)}`);
+    assert(!captured.some(c => c.kind === 'error'), `captured ${show(captured)}`);
+    assert(disposedUrls.some(u => u.endsWith(oldDust)) && disposedUrls.some(u => u.endsWith(`/data/cams_global/pm10/chunk_${old}.om`)), `the older chunk\'s readers were not closed: ${show(disposedUrls)}`);
+    assert(!disposedUrls.some(u => u.includes('/cams_global/') && u.includes(`chunk_${old + 1}.om`)), 'the current chunk\'s reader was closed');
+  });
+
+  await check('a meta.json without its run time (last_run_initialisation_time) is not one FamCal can read: three retries, then null and one placeless report, never an age of NaN', async () => {
+    fresh();
+    const broken: Row = { ...metaOf('cams_global') };
+    delete broken.last_run_initialisation_time;
+    override = request => (request.url.endsWith('/data/cams_global/static/meta.json') ? json(broken) : undefined);
+    const got = await read();
+    assert(got === null, `got ${show(got)?.slice(0, 80)}`);
+    assert(show(waits) === show([250, 500, 1000]), `waits ${show(waits)}`);
+    assert(captured.length === 1 && captured[0].message === 'cams_global meta failed: meta.json is not one FamCal can read', `captured ${show(captured)}`);
+    assert(traces().length === 0, `a trace of the place: ${show(traces())}`);
   });
 
   await check('S3\'s 412 (a file replaced under a reader that is already open, while meta.json still names the old run): the stale reader is retired, a new one is opened (HEAD with the new etag) and the read succeeds on the retry after one backoff wait, with nothing captured', async () => {
@@ -193,11 +341,10 @@ async function main(): Promise<void> {
     const NEW = '"replaced-by-a-new-run"';
     let replaced = false;
     let stale412 = 0;
-    const size = (r: Request) => { const [a, b] = (r.range ?? '').replace('bytes=', '').split('-').map(Number); return b - a + 1; };
     override = request => {
       if (!request.url.includes('/data/cams_global/dust/')) return undefined;
       if (request.method === 'HEAD') return replaced ? recorded(request, { etag: NEW }) : undefined;
-      if (request.range && !replaced && size(request) > 1000) replaced = true; // the files change under the first data read of an open reader
+      if (request.range && !replaced && rangeSize(request) > 1000) replaced = true; // the files change under the first data read of an open reader
       if (request.range && replaced && request.ifMatch !== NEW) {
         stale412++;
         return new Response('<Error><Code>PreconditionFailed</Code></Error>', { status: 412 }); // S3's answer to a reader of the old file
@@ -261,6 +408,13 @@ async function main(): Promise<void> {
     fresh();
     const bad = await quietly(() => air.fetchAirQuality('Tel Aviv', 'Not/AZone'));
     assert(bad === null && captured.length === 1 && captured[0].context === 'air-quality' && !show(captured).includes('AZone') && asked.length === 0, `captured ${show(captured)}, asked ${asked.length}`);
+  });
+
+  await check('the dust days read an hour from the label\'s text, never through the process zone: a clearing hour of 02:00 on the day the clocks of Israel skip it (2026-03-27) is still 02, in whatever zone the process runs', () => {
+    const time = Array.from({ length: 24 }, (_, h) => `2026-03-27T${String(h).padStart(2, '0')}:00`);
+    const pm10 = time.map((_, h) => (h === 1 ? 300 : h === 0 ? 40 : 20));
+    const days = detectDustStorm({ hourly: { time, pm10, dust: time.map(() => 0) } });
+    assert(days.length === 1 && days[0].severity === 'severe' && days[0].clearingHour === 2, `days ${show(days)}`);
   });
 
   await check('the reader as the spike ruled: the plain HTTP backend at one attempt with the library\'s race at Node\'s own ceiling, no block cache or pool imported or used (comments aside), the retries from the shared loop and no loop of its own, and @openmeteo/file-reader pinned to 0.0.21', () => {
