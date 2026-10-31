@@ -24,7 +24,7 @@ export const HEADER_BYTES = 36;
 /**
  * A point on a cell's edge is in the cell that edge opens (west and north edges are the cell's own), but the division
  * that finds it can land a hair under the whole number: (35.5 - 34.2) / (1 / 1200) is 1559.9999999999966, so a plain
- * floor reads the neighbouring cell. This much of a cell (a millionth: about 10 cm) is added before the floor, here and in
+ * floor reads the neighbouring cell. This much of a cell (a millionth: about a tenth of a millimetre) is added before the floor, here and in
  * scripts/build-israel-heights.ts, so a point is in a cell by the same rule on both sides.
  */
 export const EDGE_EPSILON = 1e-6;

@@ -26,9 +26,11 @@
 //   npx tsx scripts/smoke-zmanim.ts
 
 import { spawn } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
+import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 
 const ROOT = path.resolve(__dirname, '..');
 const ZONES = ['UTC', 'Asia/Jerusalem', 'America/New_York'] as const;
@@ -343,10 +345,11 @@ function resetWorld(): void {
   terrain = points => 265 + points.length;
   seedAnswers();
   // The lazy fill's memory is on globalThis; each scenario starts without it.
-  const fills = (globalThis as unknown as { __zmanimPlaceFill?: { running: Map<string, unknown>; filled: Map<string, unknown>; failedAt: Map<string, number> } }).__zmanimPlaceFill;
+  const fills = (globalThis as unknown as { __zmanimPlaceFill?: { running: Map<string, unknown>; filled: Map<string, unknown>; failedAt: Map<string, number>; noIsraeliZone: Set<string> } }).__zmanimPlaceFill;
   fills?.running.clear();
   fills?.filled.clear();
   fills?.failedAt.clear();
+  fills?.noIsraeliZone.clear();
 }
 
 // The golden tables --------------------------------------------------------------------------------------
@@ -1033,6 +1036,27 @@ async function runChecks(): Promise<void> {
     assert(nRequests() === 0 && fillState().running.size === 0, `looked up: ${show(shape())}`);
   });
 
+  await check('a place whose own zone is not Israel\'s (at sea: the zone map has none) is saved with no height and is not looked up again for one, though the person\'s own zone is Israel\'s by fallback: no hourly retry is started on it (a retry there can never find a height)', async () => {
+    resetWorld();
+    answers.nominatim = () => json([{ lat: '33.0', lon: '34.5', boundingbox: HARISH_BOX }]);
+    const row = userRow(91, 'Out at sea');
+    const first = await logged(() => place.ensureUserCoordinates({ ...row }));
+    assertSame(first.value, { latitude: 33, longitude: 34.5, elevationM: null }, 'the place is saved without a height');
+    assert(nRequests() === 1 && heightReads.length === 0 && nWrites() === 1, `one lookup, no height read: ${nRequests()} requests, ${heightReads.length} reads, ${nWrites()} writes`);
+    // The row as the next request reads it: coordinates, no height, and the person's zone Israel's. An hour on, the retry would ask again.
+    const saved = { ...users.get(91)! } as never;
+    fillState().failedAt.set('91|Out at sea', performance.now() - 61 * 60 * 1000);
+    place.retryMissingElevation(saved, 'Asia/Jerusalem');
+    await settleMicrotasks();
+    assert(nRequests() === 1 && fillState().running.size === 0, `a retry was started for a place at sea: ${show(shape())}`);
+    // The lookup's log line tells why no height was read.
+    resetWorld();
+    answers.nominatim = () => json([{ lat: '33.0', lon: '34.5', boundingbox: HARISH_BOX }]);
+    userRow(92, 'Out at sea');
+    const out = await logged(() => place.saveUserPlace(92, 'Out at sea'));
+    assert(out.lines.some(l => l.startsWith('[zmanim] place saved for user 92') && l.includes('not read (no Israeli zone)')), `logged: ${show(out.lines)}`);
+  });
+
   await check('getUserPlace gives a Place with no height at once for a row in Israel that lacks it and looks the height up in the background; the pause\'s windows and the clock then read it', async () => {
     resetWorld();
     stubbed.redis.set('tz:user:61', 'Asia/Jerusalem');
@@ -1119,21 +1143,97 @@ async function runChecks(): Promise<void> {
     const edge = { rows: 1, cols: 1561, north: 33, west: 34.2, cell: 1 / 1200, heights: Int16Array.from({ length: 1561 }, (_none, i) => i) };
     assertSame(hm.heightAt(edge, 32.9999, 35.5), 1560, 'a point on a cell\'s west edge reads that cell, not the one before it');
     assertSame(hm.heightAt(edge, 32.9999, 35.5 - 1e-3 / 1200), 1559, 'a point just inside the cell before it still reads the cell before it');
-    let refused = false;
-    try { hm.decodeHeightMap(Buffer.from('not a height map at all, really')); } catch { refused = true; }
-    assert(refused, 'decoded a file that is not a height map');
+    const refusal = (what: () => unknown): string => {
+      try { what(); } catch (error) { return error instanceof Error ? error.message : String(error); }
+      return '';
+    };
+    assert(refusal(() => hm.decodeHeightMap(Buffer.from('not a height map at all, really'))).includes('not a FamCal height map'), 'decoded a file that is not a height map');
+    assert(refusal(() => hm.decodeHeightMap(Buffer.from('FCHM'))).includes('not a FamCal height map'), 'decoded a file shorter than the header');
+    const bytes = hm.encodeHeightMap(map);
+    const newer = Buffer.from(bytes);
+    newer.writeUInt16LE(2, 4);
+    assert(refusal(() => hm.decodeHeightMap(newer)).includes('height map version 2, this code reads 1'), 'decoded a map of another version');
+    assert(refusal(() => hm.decodeHeightMap(bytes.subarray(0, bytes.length - 2))).includes(`${bytes.length - 2} bytes for a 3 x 4 map`), 'decoded a map with a height missing');
+    assert(refusal(() => hm.decodeHeightMap(Buffer.concat([bytes, Buffer.alloc(2)]))).includes(`${bytes.length + 2} bytes for a 3 x 4 map`), 'decoded a map with a height too many');
+    assert(refusal(() => hm.encodeHeightMap({ ...map, rows: 4 })).includes('12 heights for a 4 x 4 map'), 'encoded heights that do not fill the map');
   });
 
-  await check('the Israel height map (data/israel-heights-3s.i16.br, Copernicus GLO-90): Jerusalem 741 m and 32.8 N 35.5 E 41 m as Open-Meteo read the same pixels, 31.2 N 35.1 E 467 m (a pixel corner: Open-Meteo answered 465, the value of the pixel north of the one that holds the point); points off the map, in the sea\'s missing tile and no points read nothing; the file is read from disk once', () => {
-    const real = loadReal<{ highestHeight: (points: { latitude: number; longitude: number }[]) => number | null; heightMapLoads: () => number }>('src/services/zmanim/heights.ts');
-    assertSame(real.highestHeight([{ latitude: 31.7768, longitude: 35.2358 }]), 741, 'Jerusalem');
-    assertSame(real.highestHeight([{ latitude: 32.8, longitude: 35.5 }]), 41, '32.8 N 35.5 E');
-    assertSame(real.highestHeight([{ latitude: 31.2, longitude: 35.1 }]), 467, '31.2 N 35.1 E');
-    assertSame(real.highestHeight([{ latitude: 40.7127, longitude: -74.006 }]), null, 'New York');
-    assertSame(real.highestHeight([{ latitude: 33.3, longitude: 34.5 }]), null, 'the sea tile N33 E034 GLO-90 does not have');
-    assertSame(real.highestHeight([]), null, 'no points');
-    assertSame(real.highestHeight([{ latitude: 40.7127, longitude: -74.006 }, { latitude: 31.7768, longitude: 35.2358 }]), 741, 'a point off the map is skipped');
-    assertSame(real.heightMapLoads(), 1, 'reads of the file');
+  /** The real heights.ts, and the real place.ts built on it (a fresh instance of each; the stubbed ones are put back). */
+  const loadPlaceOnRealHeights = () => {
+    const files = ['src/services/zmanim/heights.ts', 'src/services/zmanim/place.ts'].map(rel => path.join(ROOT, rel));
+    const stubbedModules = files.map(file => internals._cache[file]);
+    files.forEach(file => { delete internals._cache[file]; });
+    try {
+      return {
+        heights: nodeRequire(files[0]) as RealHeights,
+        place: nodeRequire(files[1]) as { fetchHighestElevation: (points: { latitude: number; longitude: number }[], userId: number) => number | null },
+      };
+    } finally {
+      files.forEach((file, i) => { internals._cache[file] = stubbedModules[i]; });
+    }
+  };
+  type RealHeights = {
+    highestHeight: (points: { latitude: number; longitude: number }[]) => number | null;
+    heightMapLoads: () => number;
+    __setHeightMapPathForTests: (file: string | null) => void;
+  };
+  const JERUSALEM_POINT = { latitude: 31.7768, longitude: 35.2358 };
+  const keptMap = () => (globalThis as { __israelHeightMap?: unknown }).__israelHeightMap;
+
+  await check('the real loader meets a file it can\'t use (missing, cut short, or not a height map): highestHeight throws, the place keeps its coordinates with a null height (fetchHighestElevation answers null and reports one error under zmanim-elevation), and nothing is cached: no read is counted and no map is kept, so the next read goes to the file again (the check after this one loads it)', () => {
+    assert(keptMap() === undefined && (globalThis as { __israelHeightMapLoads?: number }).__israelHeightMapLoads === undefined, 'a map was loaded before this check');
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'heights-smoke-'));
+    try {
+      const cut = path.join(dir, 'cut.br');
+      writeFileSync(cut, readFileSync(path.join(ROOT, 'data/israel-heights-3s.i16.br')).subarray(0, 4096));
+      const notAMap = path.join(dir, 'not-a-map.br');
+      writeFileSync(notAMap, zlib.brotliCompressSync(Buffer.from('brotli all right, but no height map inside')));
+      const cases: Array<[string, string, string]> = [
+        ['missing', path.join(dir, 'missing.br'), 'ENOENT'],
+        ['cut short', cut, ''],
+        ['not a height map', notAMap, 'not a FamCal height map'],
+      ];
+      for (const [name, file, message] of cases) {
+        const { heights, place: realPlace } = loadPlaceOnRealHeights();
+        heights.__setHeightMapPathForTests(file);
+        let thrown = '';
+        try { heights.highestHeight([JERUSALEM_POINT]); } catch (error) { thrown = error instanceof Error ? error.message : String(error); }
+        assert(thrown !== '' && thrown.includes(message), `${name}: highestHeight threw ${show(thrown)}`);
+        captured.length = 0;
+        assert(realPlace.fetchHighestElevation([JERUSALEM_POINT], 7) === null, `${name}: the place got a height`);
+        assert(captured.length === 1 && captured[0].kind === 'error' && captured[0].context === 'zmanim-elevation' && captured[0].message.includes(message), `${name}: captured ${show(captured)}`);
+        assert(heights.heightMapLoads() === 0 && keptMap() === undefined, `${name}: cached a failure (${heights.heightMapLoads()} reads, map ${typeof keptMap()})`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  await check('the Israel height map (data/israel-heights-3s.i16.br, Copernicus GLO-90): Jerusalem 741 m and 32.8 N 35.5 E 41 m as Open-Meteo read the same pixels, 31.2 N 35.1 E 467 m (a pixel corner: Open-Meteo answered 465, the value of the pixel north of the one that holds the point); points off the map, in the sea\'s missing tile and no points read nothing; the file is read from disk once (and says so in one log line)', async () => {
+    const out = await logged(() => {
+      const real = loadReal<RealHeights>('src/services/zmanim/heights.ts');
+      assertSame(real.highestHeight([JERUSALEM_POINT]), 741, 'Jerusalem');
+      assertSame(real.highestHeight([{ latitude: 32.8, longitude: 35.5 }]), 41, '32.8 N 35.5 E');
+      assertSame(real.highestHeight([{ latitude: 31.2, longitude: 35.1 }]), 467, '31.2 N 35.1 E');
+      assertSame(real.highestHeight([{ latitude: 40.7127, longitude: -74.006 }]), null, 'New York');
+      assertSame(real.highestHeight([{ latitude: 33.3, longitude: 34.5 }]), null, 'the sea tile N33 E034 GLO-90 does not have');
+      assertSame(real.highestHeight([]), null, 'no points');
+      assertSame(real.highestHeight([{ latitude: 40.7127, longitude: -74.006 }, JERUSALEM_POINT]), 741, 'a point off the map is skipped');
+      assertSame(real.heightMapLoads(), 1, 'reads of the file');
+    });
+    assert(out.lines.length === 1 && /^\[heights\] the Israel height map is loaded: 4920 x 2100 cells in \d+ ms$/.test(out.lines[0]), `logged: ${show(out.lines)}`);
+  });
+
+  await check('a second module instance of the loader (Next 16 gives the scheduler and the routes one each) reuses the map kept on globalThis: it answers without opening the file (it is pointed at a missing one), reads nothing more and logs nothing', async () => {
+    const out = await logged(() => {
+      const first = loadReal<RealHeights>('src/services/zmanim/heights.ts');
+      const second = loadReal<RealHeights>('src/services/zmanim/heights.ts');
+      assert(first !== second, 'the same module instance twice');
+      second.__setHeightMapPathForTests(path.join(os.tmpdir(), 'heights-smoke-no-such-file.br'));
+      assertSame(second.highestHeight([JERUSALEM_POINT]), 741, 'Jerusalem, from the map the first read kept');
+      assertSame([first.heightMapLoads(), second.heightMapLoads()], [1, 1], 'reads of the file, seen from both instances');
+    });
+    assertSame(out.lines, [], 'logged');
   });
 
   report();

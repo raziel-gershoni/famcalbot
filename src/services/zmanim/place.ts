@@ -106,7 +106,7 @@ export async function saveUserPlace(userId: number, location: string): Promise<S
     console.warn(`[zmanim] the location of user ${userId} changed while it was saved: nothing saved`);
     return null;
   }
-  console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${israeli ? `${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)` : 'not read (abroad)'}`);
+  console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${israeli ? `${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)` : 'not read (no Israeli zone)'}`);
   // Every zman time counted from this place has moved: the due gate holds the earliest due time of the old one for up to
   // an hour, so a reminder whose new time is earlier would wait for it.
   invalidateDueGate();
@@ -124,15 +124,17 @@ function hasCoordinates(user: Pick<PlaceUser, 'latitude' | 'longitude'>): user i
  * The lazy fills, on globalThis (Next 16 gives the scheduler and the routes separate module
  * instances), keyed `${userId}|${location}`: the ones running, the ones that found a place (so a
  * caller holding the user as it was before the fill gets it without another lookup), and when
- * each that found nothing last tried.
+ * each that found nothing last tried, and the places whose own zone is not Israel's (or none): saveUserPlace reads no
+ * height there, so a height retry on the person's own zone could never find one.
  */
 interface FillState {
   running: Map<string, Promise<(Coordinates & { elevationM: number | null }) | null>>;
   filled: Map<string, Coordinates & { elevationM: number | null }>;
   failedAt: Map<string, number>;
+  noIsraeliZone: Set<string>;
 }
 const shared = globalThis as { __zmanimPlaceFill?: FillState };
-const fills: FillState = (shared.__zmanimPlaceFill ??= { running: new Map(), filled: new Map(), failedAt: new Map() });
+const fills: FillState = (shared.__zmanimPlaceFill ??= { running: new Map(), filled: new Map(), failedAt: new Map(), noIsraeliZone: new Set() });
 
 /** What the lookups give a place: its coordinates and highest ground (null where the map had none or could not be read, and abroad). */
 type FilledPlace = Coordinates & { elevationM: number | null };
@@ -154,6 +156,10 @@ function startFill(userId: number, location: string, key: string): Promise<Fille
       }
       const place = { latitude: saved.latitude, longitude: saved.longitude, elevationM: saved.elevationM };
       fills.filled.set(key, place);
+      // The place's own zone decides whether a height was read (saveUserPlace), not the person's: at sea, or with the
+      // zone data missing, it is null and no retry on the person's zone (an Israeli fallback) can ever find a height.
+      if (saved.timeZone !== null && inIsrael(saved.timeZone)) fills.noIsraeliZone.delete(key);
+      else fills.noIsraeliZone.add(key);
       if (place.elevationM === null) fills.failedAt.set(key, performance.now());
       return place;
     })
@@ -205,7 +211,9 @@ export async function ensureUserCoordinates(user: PlaceUser, options: { backgrou
  * A place saved in Israel without a height (the map had none, or could not be read, when it was saved) is looked up again, in the
  * background and at most once an hour per person and place: the Sephardi times and the pause's windows there are cut at
  * the elevation, so a missing height is a few minutes off for good otherwise. Nothing waits for it, and nothing is asked
- * where the height is not used (abroad, sea level), where the row has it, or for a person with no place name. The height
+ * where the height is not used (abroad, sea level), where the row has it, for a person with no place name, or for a
+ * place whose own zone, found when it was saved, is not Israel's (the person's zone can be Israel's by fallback while the
+ * place is at sea: no height is read there, so the retry would only repeat every hour). The height
  * found is saved (saveUserPlace) and read by callers still holding the row as they read it (ensureUserCoordinates).
  */
 export function retryMissingElevation(user: PlaceUser, zone: string): void {
@@ -213,7 +221,7 @@ export function retryMissingElevation(user: PlaceUser, zone: string): void {
   const location = (user.location ?? '').trim();
   if (location === '') return;
   const key = fillKey(user);
-  if (typeof fills.filled.get(key)?.elevationM === 'number' || fills.running.has(key)) return;
+  if (fills.noIsraeliZone.has(key) || typeof fills.filled.get(key)?.elevationM === 'number' || fills.running.has(key)) return;
   const failedAt = fills.failedAt.get(key);
   if (failedAt !== undefined && performance.now() - failedAt < RETRY_AFTER_MS) return;
   console.log(`[zmanim] user ${user.id} has a place in Israel and no height: looking it up again, in the background`);

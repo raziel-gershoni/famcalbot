@@ -14,14 +14,25 @@ import type { Coordinates } from './elevation-grid';
  * folder, and the standalone server (`node .next/standalone/server.js`) changes into its own folder, where next.config.js
  * traces the file to. The module's own path is no help: the server bundles this file into a chunk under .next/.
  */
-export const HEIGHT_MAP_PATH = path.join(process.cwd(),'data', 'israel-heights-3s.i16.br');
+export const HEIGHT_MAP_PATH = path.join(process.cwd(), 'data', 'israel-heights-3s.i16.br');
+
+/** The file the next read opens: HEIGHT_MAP_PATH, unless a smoke pointed it elsewhere. */
+let mapPath = HEIGHT_MAP_PATH;
+
+/**
+ * For the smokes only (as the other __...ForTests functions): the next read of the map opens `file` instead of the real
+ * one (null: the real one again), to see the loader meet a missing or a corrupt file. Nothing in the app calls it.
+ */
+export function __setHeightMapPathForTests(file: string | null): void {
+  mapPath = file ?? HEIGHT_MAP_PATH;
+}
 
 const shared = globalThis as { __israelHeightMap?: HeightMap; __israelHeightMapLoads?: number };
 
 function heightMap(): HeightMap {
   if (!shared.__israelHeightMap) {
     const started = performance.now();
-    const map = decodeHeightMap(zlib.brotliDecompressSync(fs.readFileSync(HEIGHT_MAP_PATH)));
+    const map = decodeHeightMap(zlib.brotliDecompressSync(fs.readFileSync(mapPath)));
     shared.__israelHeightMap = map;
     shared.__israelHeightMapLoads = (shared.__israelHeightMapLoads ?? 0) + 1;
     console.log(`[heights] the Israel height map is loaded: ${map.rows} x ${map.cols} cells in ${Math.round(performance.now() - started)} ms`);
