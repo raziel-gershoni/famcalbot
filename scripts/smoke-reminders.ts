@@ -1502,27 +1502,61 @@ async function main() {
     }
   });
 
-  await check('gate: when every user\'s read fails (the database is down) it keeps holding, reported once an hour; once the database answers, a clean pass closes it', async () => {
-    twoUsers();
-    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
-    await syncCache(handlers, at('2026-10-13 11:00', IL));
-    storeFailure = new Error('database down (smoke)');
+  /** Passes from `from` to `to` with the console quiet (the failures log every pass); "HH:mm calls" for each that read. */
+  async function quietReadingPasses(from: Date, to: Date): Promise<string[]> {
     const error = console.error;
     const warn = console.warn;
     console.error = () => {};
     console.warn = () => {};
-    let reads: string[];
     try {
-      reads = await readingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 13:10', IL));
+      return await readingPasses(from, to);
     } finally {
       console.error = error;
       console.warn = warn;
+    }
+  }
+
+  await check('gate: one cached user whose FamCal read fails on every pass: it holds through the first hour, then the pass after the hour closes it to the next :00, one read an hour; a write still opens it at once', async () => {
+    reset({ id: 50, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(50), IL);
+    nativeCalendars = [{ id: 'cal50', name: 'Dana', labels: ['yours'], ownerUserId: 50 }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    storeFailure = new Error('database down (smoke)');
+    try {
+      const firstHour = await quietReadingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 13:00', IL));
+      assert(firstHour.length === 12, `of the 12 passes from 12:00 to 12:55, ${firstHour.length} read`);
+      assert((await quietReadingPasses(at('2026-10-13 13:00', IL), at('2026-10-13 13:05', IL))).length === 1, 'the 13:00 pass did not read');
+      const closed = await quietReadingPasses(at('2026-10-13 13:05', IL), at('2026-10-13 14:00', IL));
+      assert(closed.length === 0, `the gate kept holding after the hour: ${closed.join(' | ')}`);
+      assert((await quietReadingPasses(at('2026-10-13 14:00', IL), at('2026-10-13 14:05', IL))).length === 1, 'the next :00 pass did not retry');
+      assert((await quietReadingPasses(at('2026-10-13 14:05', IL), at('2026-10-13 14:35', IL))).length === 0, 'the retry at 14:00 held the gate again');
+    } finally {
       storeFailure = null;
     }
-    assert(reads.length === 14, `of the 14 passes from 12:00 to 13:05, ${reads.length} read`);
-    assert(captured.filter(c => c === 'event-alerts-gate-held').length === 2 && !captured.includes('event-alerts-gate-hold-dropped'), `captured ${captured.join(', ')}`);
-    assert((await passAt(at('2026-10-13 13:10', IL))).includes('fetchEventsInCalendars'), 'the pass after the outage did not read');
-    assert((await passAt(at('2026-10-13 13:15', IL))).length === 0, 'the clean pass did not close the gate');
+    const held = capturedDetail.filter((_d, i) => captured[i] === 'event-alerts-gate-held');
+    assert(held.length === 1 && held[0].includes(`"stopsHoldingAt":"${at('2026-10-13 13:00', IL).toISOString()}"`), `held reports: ${JSON.stringify(held)}`);
+    assert(captured.filter(c => c === 'event-alerts-gate-hold-dropped').length === 2, `captured ${captured.join(', ')}`);
+    // The database answers again; a write opens the gate at once, and the clean pass closes it.
+    alertsGate.openEventAlertsGate();
+    assert((await passAt(at('2026-10-13 14:35', IL))).includes('fetchEventsInCalendars'), 'the write did not open the gate');
+    assert((await passAt(at('2026-10-13 14:40', IL))).length === 0, 'the clean pass did not close the gate');
+  });
+
+  await check('gate: when every user\'s read fails (the database is down) it holds for an hour, reported once, then retries at each :00; once the database answers, that pass reads cleanly and closes it', async () => {
+    twoUsers();
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    storeFailure = new Error('database down (smoke)');
+    let reads: string[];
+    try {
+      reads = await quietReadingPasses(at('2026-10-13 12:00', IL), at('2026-10-13 14:00', IL));
+    } finally {
+      storeFailure = null;
+    }
+    assert(reads.length === 13 && reads[12].startsWith('13:00'), `of the passes from 12:00 to 13:55, these read: ${reads.map(r => r.slice(0, 5)).join(' ')}`);
+    assert(captured.filter(c => c === 'event-alerts-gate-held').length === 1 && captured.filter(c => c === 'event-alerts-gate-hold-dropped').length === 1, `captured ${captured.join(', ')}`);
+    assert((await passAt(at('2026-10-13 14:00', IL))).includes('fetchEventsInCalendars'), 'the :00 pass after the outage did not read');
+    assert((await passAt(at('2026-10-13 14:05', IL))).length === 0, 'the clean pass did not close the gate');
   });
 
   await check('gate: a cache write that lands right after the pass read the cached users (a settings save) keeps that pass from closing the gate', async () => {

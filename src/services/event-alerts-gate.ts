@@ -19,8 +19,11 @@
 // A pass whose FamCal read failed for a user keeps the gate open, so the next tick reads again
 // (settleFamcalFailures). Not for good: a user who has failed for 15 minutes while another
 // user's read succeeds in the same pass stops holding it (that user's read fails on every retry,
-// and holding it kept the database awake all day). When every read fails, the database is down,
-// which costs no compute, and the gate stays open until it answers.
+// and holding it kept the database awake all day), and no failure holds it for more than an
+// hour, even when every read fails (prod may have a single cached user, failing for any cause).
+// After that a failing pass closes the gate to the usual ceiling, so the next :00 pass retries:
+// an outage costs one read an hour, alerts are back within the hour after it, and any write
+// still opens the gate at once.
 //
 // The state is on globalThis (src/utils/pass-gate.ts says why), and so is the pass token: two
 // passes can overlap (a manual run beside a scheduled one, or one slower than 5 minutes), and
@@ -32,6 +35,8 @@ import { createPassGate } from '../utils/pass-gate';
 
 /** How long a user whose FamCal read keeps failing holds the gate open, while others read cleanly. */
 export const FAMCAL_FAILURE_HOLD_MS = 15 * 60 * 1000;
+/** The longest any failure holds the gate open, also when every read fails: then the next :00 retries. */
+export const FAMCAL_FAILURE_MAX_HOLD_MS = 60 * 60 * 1000;
 /** A held or dropped hold is reported to Sentry at most this often (each pass still logs it). */
 export const FAMCAL_HOLD_REPORT_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -87,14 +92,25 @@ export interface FamcalPassOutcome {
   seen: number[];
 }
 
+/** What settleFamcalFailures decided for a pass. */
+export interface FamcalHolds {
+  /** The failing users who still hold the gate open. */
+  held: number[];
+  /** The failing users who no longer do. */
+  dropped: number[];
+  /** How long the oldest failure has lasted (ms). */
+  oldestFailingMs: number;
+  /** When the held users stop holding, if they keep failing (null with none held). */
+  stopsHoldingAt: Date | null;
+}
+
 /**
  * Which failures hold the gate open after an open pass. A user's first failure starts their
- * clock and their next clean read clears it. A user who has failed for FAMCAL_FAILURE_HOLD_MS
- * stops holding (dropped) when another user's read succeeded in the same pass; when no read
- * succeeded, every failure holds. Returns the held and dropped user ids, and how long the
- * oldest failure has lasted.
+ * clock and their next clean read clears it. A failing user stops holding (dropped) after
+ * FAMCAL_FAILURE_HOLD_MS when another user's read succeeded in the same pass, and after
+ * FAMCAL_FAILURE_MAX_HOLD_MS in any case; until then they hold it.
  */
-export function settleFamcalFailures(outcome: FamcalPassOutcome, now: Date): { held: number[]; dropped: number[]; oldestFailingMs: number } {
+export function settleFamcalFailures(outcome: FamcalPassOutcome, now: Date): FamcalHolds {
   const at = now.getTime();
   const seen = new Set(outcome.seen);
   for (const id of Object.keys(passes.failingSince).map(Number)) {
@@ -102,17 +118,22 @@ export function settleFamcalFailures(outcome: FamcalPassOutcome, now: Date): { h
   }
   for (const id of outcome.ok) delete passes.failingSince[id];
   for (const id of outcome.failed) passes.failingSince[id] ??= at;
-  const othersRead = outcome.ok.length > 0;
+  const limitMs = outcome.ok.length > 0 ? FAMCAL_FAILURE_HOLD_MS : FAMCAL_FAILURE_MAX_HOLD_MS;
   const held: number[] = [];
   const dropped: number[] = [];
   let oldestFailingMs = 0;
+  let stopsHoldingAt = 0;
   for (const id of outcome.failed) {
     const failingMs = at - passes.failingSince[id];
     oldestFailingMs = Math.max(oldestFailingMs, failingMs);
-    if (othersRead && failingMs >= FAMCAL_FAILURE_HOLD_MS) dropped.push(id);
-    else held.push(id);
+    if (failingMs >= limitMs) {
+      dropped.push(id);
+    } else {
+      held.push(id);
+      stopsHoldingAt = Math.max(stopsHoldingAt, passes.failingSince[id] + limitMs);
+    }
   }
-  return { held, dropped, oldestFailingMs };
+  return { held, dropped, oldestFailingMs, stopsHoldingAt: held.length > 0 ? new Date(stopsHoldingAt) : null };
 }
 
 /** True at most once per FAMCAL_HOLD_REPORT_INTERVAL_MS for each kind: whether this pass sends that report to Sentry. */
