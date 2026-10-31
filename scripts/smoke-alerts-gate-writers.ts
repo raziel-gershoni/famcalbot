@@ -47,12 +47,12 @@ function assert(cond: unknown, message: string): asserts cond {
 
 // ---- The audit of every FamCal writer ----
 
-/** An exported function's text, from its line to the closing brace at the start of a line. */
+/** A top-level async function's text (exported or not), from its line to the closing brace at the start of a line. */
 function functionBody(source: string, name: string): string {
-  const start = source.indexOf(`export async function ${name}(`);
-  assert(start >= 0, `no export async function ${name}`);
-  const end = source.indexOf('\n}\n', start);
-  return source.slice(start, end + 2);
+  const match = new RegExp(`^(?:export )?async function ${name}\\(`, 'm').exec(source);
+  assert(match, `no async function ${name}`);
+  const end = source.indexOf('\n}\n', match.index);
+  return source.slice(match.index, end + 2);
 }
 
 /** Every .ts/.tsx file under src/ and app/. */
@@ -83,7 +83,7 @@ const OPENS: Record<string, string> = {
   'src/services/calendar-write/write.ts': 'the Mini App\'s writes, through the store\'s writes',
   'src/services/calendar-move/move.ts': 'a move between calendars is a create and a delete, through the store\'s writes',
   'app/api/native-calendars/[id]/route.ts': 'PATCH: a kids label adds pickups, and sharing shows the partner the calendar\'s events',
-  'src/services/pairing-service.ts': 'acceptInvite: each partner now sees the other\'s shared calendars (and unlink, for uniformity)',
+  'src/services/pairing-service.ts': 'acceptInvite and unlink, for uniformity: the pass reads the pairing from the reminder cache, so it sees it at the next hourly sync, which opens the gate itself',
   'src/services/account-linking.ts': 'afterMerge: T takes W\'s calendars, events and pairing',
 };
 
@@ -94,6 +94,32 @@ const NO_NEW_ALERT: Record<string, string> = {
   'src/services/kid-name-callbacks.ts': 'a calendar\'s person name or rule (and a Google choice\'s rule): no alert reads them',
   'src/services/calendar-provider/primary.ts': 'the primary label only: no alert reads it',
   'src/lib/user-moderation.ts': 'removes a user and their data: fewer alerts, never a new one',
+};
+
+/**
+ * In the files with several write paths, the functions that must open the gate themselves, so a
+ * second path in the same file can't stand in for one that lost its open. Checked by name.
+ */
+const OPENING_FUNCTIONS: Record<string, string[]> = {
+  'app/api/native-calendars/[id]/route.ts': ['PATCH'],
+  'src/services/pairing-service.ts': ['acceptInvite', 'unlink'],
+  'src/services/account-linking.ts': ['afterMerge'],
+};
+
+/** The event store's exported async functions: its four writes (each opens the gate), and the rest, each with why it needs no open. */
+const STORE_WRITES = ['createNativeEvent', 'createNativeSeries', 'updateNativeEvent', 'deleteNativeEvent'];
+const STORE_OTHERS: Record<string, string> = {
+  getPartnerUserId: 'a read',
+  getCalendarAccess: 'a read',
+  listVisibleCalendars: 'a read',
+  getMainNativeCalendar: 'makes the main calendar when there is none: an empty calendar',
+  fetchEventsInCalendars: 'a read',
+  fetchRemindersForUserInRange: 'a read',
+  fetchReminderStates: 'a read',
+  isFirstOccurrence: 'a read',
+  refusesFixedDays: 'a read',
+  getNativeSeriesRrule: 'a read',
+  mayDeleteReminder: 'a read',
 };
 
 /** Files outside the audit's tables that open the gate, each for a write the pass reads elsewhere. */
@@ -130,9 +156,33 @@ async function runAudit(): Promise<void> {
     assert(unimported.length === 0, `call openEventAlertsGate without importing the event alerts gate: ${unimported.join(', ')}`);
   });
 
+  await check('in the files with several write paths, each writing function opens the gate itself, after its commit (the calendar PATCH before anything after the update can fail)', () => {
+    for (const [file, names] of Object.entries(OPENING_FUNCTIONS)) {
+      for (const name of names) {
+        const body = functionBody(text.get(file)!, name);
+        assert(OPENS_CALL.test(body), `${file} ${name} does not open the gate`);
+      }
+    }
+    const patch = functionBody(text.get('app/api/native-calendars/[id]/route.ts')!, 'PATCH');
+    const opened = patch.indexOf('openEventAlertsGate()');
+    assert(opened > patch.lastIndexOf('nativeCalendar.update(') && opened < patch.indexOf('clearOtherPrimaries('), 'the PATCH does not open the gate right after its update, before clearOtherPrimaries');
+    for (const name of ['acceptInvite', 'unlink']) {
+      const body = functionBody(text.get('src/services/pairing-service.ts')!, name);
+      assert(body.indexOf('openEventAlertsGate()') > body.lastIndexOf('});'), `${name} opens the gate before its transaction commits`);
+    }
+  });
+
+  await check('the event store\'s exported async functions are classified: its four writes, and the rest with why they need no open; a new one fails here until it is', () => {
+    const store = text.get('src/services/native-calendar/event-store.ts')!;
+    const exported = [...store.matchAll(/^export async function (\w+)\(/gm)].map(m => m[1]).sort();
+    const known = [...STORE_WRITES, ...Object.keys(STORE_OTHERS)].sort();
+    assert(JSON.stringify(exported) === JSON.stringify(known), `exported: ${exported.join(', ')}; classified: ${known.join(', ')}`);
+    assert(!/^export const \w+ = async/m.test(store), 'an exported async arrow function: export it as a function and classify it');
+  });
+
   await check('each of the event store\'s four writes opens the gate when its write is done, also when it threw (opensEventAlerts, try/finally)', () => {
     const store = text.get('src/services/native-calendar/event-store.ts')!;
-    for (const name of ['createNativeEvent', 'createNativeSeries', 'updateNativeEvent', 'deleteNativeEvent']) {
+    for (const name of STORE_WRITES) {
       const body = new RegExp(`export async function ${name}\\([^)]*\\): Promise<[^>]+>+ \\{\\n  return opensEventAlerts\\(\\w+\\([^)]*\\)\\);\\n\\}`);
       assert(body.test(store), `${name} does not go through opensEventAlerts`);
     }
@@ -153,8 +203,10 @@ async function runAudit(): Promise<void> {
     assert(/openEventAlertsGate\(\);\n\s*return handleReminders\(windowMinutes\);/.test(route), 'the manual run does not open the gate before the pass');
   });
 
-  await check('the 5-minute pass reads FamCal only through the gate, once per pass, and closes it only with its own token', () => {
+  await check('the 5-minute pass reads FamCal only through the gate, once per pass, before it reads the cached users, and closes it only with its own token', () => {
     const handlers = text.get('src/cron/handlers.ts')!;
+    const pass = functionBody(handlers, 'handleReminders');
+    assert(pass.indexOf('shouldReadFamcal(tick)') >= 0 && pass.indexOf('shouldReadFamcal(tick)') < pass.indexOf('await getCachedReminderUsers()'), 'the gate is taken after the cached users are read');
     assert(/const famcal = shouldReadFamcal\(tick\);\n  const famcalToken = famcal \? startFamcalPass\(\) : 0;/.test(handlers), 'handleReminders does not take the gate once per pass');
     assert(/processUserReminders\(user, windowMinutes, \{ famcal \}\)/.test(handlers), 'the users are not processed with the gate\'s answer');
     assert(/setNextFamcalAlert\([^;]*famcalToken\)/.test(handlers), 'the gate is not closed with the pass\'s token');
