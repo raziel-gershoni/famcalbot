@@ -1,5 +1,7 @@
 # Replacing Open-Meteo (design, 2026-10-31)
 
+**Approved by the owner on 2026-10-31 ("Open-Meteo go"): every recommendation in §3, including the Privacy Policy sentences in decision 4.**
+
 The owner's queue, after item 6a. The direction was approved on 2026-10-30 ("go"): sources that are free for commercial use, namely MET Norway for the weather, a time-zone library on our own server, and stored heights. This spec covers all four uses, what the research found, and the one new fork it found.
 
 Research reports (scratch, not committed): the call inventory, weather, air quality, time zone, elevation and Open-Meteo pricing.
