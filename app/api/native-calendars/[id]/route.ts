@@ -116,13 +116,13 @@ export async function PATCH(request: NextRequest, { params }: PathProps) {
           return row;
         })
       : await prisma.nativeCalendar.update({ where: { id: calendar.id }, data: update });
+    // The update has committed: the next 5-minute pass reads FamCal again (before anything below can fail).
+    openEventAlertsGate();
     // One primary across both lists, only when this save adds it (spec §3): a rename or a
     // label toggle that resends primary as it was touches nothing else.
     if (update.labels && addsPrimary(calendar.labels, update.labels)) {
       await clearOtherPrimaries(user.id, { famcalId: calendar.id });
     }
-    // After the write: the next 5-minute pass reads FamCal again.
-    openEventAlertsGate();
     return NextResponse.json({ success: true, calendar: updated });
   } catch (error) {
     captureError(error, 'native-calendar-patch', { calendarId });

@@ -249,7 +249,8 @@ export async function acceptInvite(token: string, acceptingUserId: number): Prom
 
     return { pairing, inviterUserId: inviter.id, inviteeUserId: invitee.id };
   });
-  // After the commit: each partner now sees the other's shared calendars, with their alerts.
+  // The alerts pass reads the pairing from the reminder cache, so it sees this one at the next hourly
+  // sync, which opens the gate itself (the entry's pairingId changed). This open is for uniformity.
   openEventAlertsGate();
   return accepted;
 }
@@ -307,7 +308,7 @@ export async function unlink(actingUserId: number): Promise<{ partnerUserId: num
 
     return { partnerUserId };
   });
-  // After the commit, as acceptInvite does (the partner's calendars only go, so this adds no alert).
+  // After the commit, as acceptInvite does, for uniformity (the partner's calendars only go, so this adds no alert).
   openEventAlertsGate();
   return unlinked;
 }

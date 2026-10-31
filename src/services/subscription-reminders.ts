@@ -319,8 +319,8 @@ async function expireSubscriptions(): Promise<void> {
       },
     });
 
-    // The 24h feature-access cache would otherwise keep serving paid access
-    // after the downgrade.
+    // The feature-access cache (up to a day: featureAccessTtlSeconds) would otherwise keep
+    // serving paid access after the downgrade.
     await invalidateFeatureAccessCache(sub.userId);
 
     // Shabbat and Yom Tov (the pause): the plan is downgraded on time whatever the day, but the notice is not sent
