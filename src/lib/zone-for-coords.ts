@@ -6,8 +6,9 @@
  *
  * - The map overlaps over the Green Line: Ariel and Ma'ale Adumim get Jerusalem, then Hebron. pickZone: Asia/Jerusalem
  *   when it is among the answers, else the first. Hebron, Ramallah and Gaza keep their own zones.
- * - The open sea answers Etc/GMT±n, and a lookup throws when the data file is missing from the image: each is logged
- *   under location-lookup and answers null, never a default zone. No coordinates in a log.
+ * - Coordinates that are not numbers in range, the open sea (Etc/GMT±n) and a lookup that throws (the data file missing
+ *   from the image): each is logged under location-lookup and answers null, never a default zone. No coordinates and no
+ *   thrown message in a log.
  * - geo-tz caches the map tiles it reads; the cache holds at most TILE_CACHE_MAX of them (the server has 1 GB).
  *
  * Its own leaf module: geocoding.ts and timezone.ts both use it, and timezone.ts imports geocoding.ts (timezone.ts
@@ -58,16 +59,32 @@ export function pickZone(zones: readonly string[]): string | null {
 }
 
 /**
- * The IANA zone at the coordinates, or null (logged under location-lookup) when the map throws (an error: its data is
- * missing), has no zone, puts the place at sea (Etc/…) or answers a zone Intl does not know (warnings). Sync and local.
+ * What a throw from the map is reported as. geo-tz's own messages can carry the coordinate ("Invalid latitude: 32.1"),
+ * and a place is the person's: only the error's name goes out, plus its errno code when it has one (ENOENT tells a
+ * missing data file from a bug).
+ */
+function describeThrow(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^[A-Z0-9_]{1,24}$/.test(code) ? `${name}, ${code}` : name;
+}
+
+/**
+ * The IANA zone at the coordinates, or null (logged under location-lookup, never with the coordinates) when they are not
+ * numbers in range or the map has no zone, puts the place at sea (Etc/…) or answers a zone Intl does not know
+ * (warnings), or when the map throws (an error: most likely its data file is missing from the image). Sync and local.
  */
 export function zoneForCoords(latitude: number, longitude: number): string | null {
   const context = { service: 'timezone' };
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    captureWarning('The zone lookup was given coordinates that are not valid', 'location-lookup', context);
+    return null;
+  }
   let zones: string[];
   try {
     zones = find(latitude, longitude);
   } catch (error) {
-    captureError(error, 'location-lookup', context);
+    captureError(new Error(`The zone map lookup threw (${describeThrow(error)})`), 'location-lookup', context);
     return null;
   }
   const zone = pickZone(zones);

@@ -107,7 +107,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 - **Failure:** logged to Sentry; it returns null and no alert goes out, as today.
 
 **Time zone: `geo-tz` 8.1** (MIT; its data is © OpenStreetMap contributors, ODbL). No network call.
-- **One function:** `zoneForCoords(lat, lon)` in `src/lib/timezone.ts` replaces `getTimezoneFromCoords` (`geocoding.ts`) and `lookUpZone`.
+- **One function:** `zoneForCoords(lat, lon)` lives in `src/lib/zone-for-coords.ts` (a leaf module, so `geocoding.ts` can use it without a cycle) and is re-exported by `src/lib/timezone.ts`; it replaces `getTimezoneFromCoords` (`geocoding.ts`) and `lookUpZone`.
   - It applies the West Bank rule and checks the answer with `isValidTimeZone`.
   - A null or `Etc/…` (open sea) answer is logged to Sentry, never defaulted.
 - **Data:** the "1970" data set, as the library uses by default. Its "now" set labels Ariel as Asia/Gaza and Kyiv as Europe/Athens.

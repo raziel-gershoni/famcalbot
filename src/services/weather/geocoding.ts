@@ -84,8 +84,8 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
 
     const geoLocation: GeoLocation = { latitude, longitude, timezone };
 
-    // Cache the result
-    geocodeCache.set(location, { location: geoLocation, timestamp: Date.now() });
+    // Cache the result, unless it has no zone: the next call asks again (and logs why) instead of repeating the gap for a day
+    if (timezone !== null) geocodeCache.set(location, { location: geoLocation, timestamp: Date.now() });
 
     console.log(`Geocoded "${location}" to ${latitude}, ${longitude} (${timezone})`);
 

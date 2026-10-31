@@ -42,13 +42,13 @@ const MISSING_DATA_CHILD = 'ZONE_SMOKE_MISSING_DATA';
 /** The child: zoneForCoords with geo-tz pointed at an empty folder. Prints one JSON line: the zone and what was captured. */
 function missingDataChild(): void {
   const Module = nodeRequire('module');
-  const got: { context: string; severity: string }[] = [];
+  const got: { context: string; severity: string; message: string }[] = [];
   const filename = path.join(ROOT, 'src/lib/error-capture.ts');
   const mod = new Module(filename);
   Object.assign(mod, {
     filename, loaded: true, exports: {
-      captureError: (_e: unknown, context: string, _x?: unknown, severity: string = 'error') => { got.push({ context, severity }); },
-      captureWarning: (_m: string, context: string) => { got.push({ context, severity: 'warning' }); },
+      captureError: (e: unknown, context: string, _x?: unknown, severity: string = 'error') => { got.push({ context, severity, message: e instanceof Error ? e.message : String(e) }); },
+      captureWarning: (message: string, context: string) => { got.push({ context, severity: 'warning', message }); },
       captureInfo: () => {},
     },
   });
@@ -640,9 +640,12 @@ async function main() {
         encoding: 'utf8',
       });
       const last = run.stdout.trim().split('\n').pop() ?? '';
-      const out = JSON.parse(last) as { zone: unknown; captured: { context: string; severity: string }[] };
+      const out = JSON.parse(last) as { zone: unknown; captured: { context: string; severity: string; message: string }[] };
       assert(out.zone === null, `zone ${show(out.zone)}`);
-      assert(show(out.captured) === show([{ context: 'location-lookup', severity: 'error' }]), `captured ${show(out.captured)} (stderr ${run.stderr.slice(0, 300)})`);
+      assert(show(out.captured.map(c => [c.context, c.severity])) === show([['location-lookup', 'error']]), `captured ${show(out.captured)} (stderr ${run.stderr.slice(0, 300)})`);
+      // The thrown message (it holds the data folder's path, and for a bad point the coordinate) never goes out: a fixed text, the error's name and its errno code
+      const message = out.captured[0].message;
+      assert(/^The zone map lookup threw \(Error(, ENOENT)?\)$/.test(message) && !message.includes(empty) && !message.includes('32.08') && !message.includes('34.78'), `reported message ${show(message)}`);
     } finally {
       fs.rmSync(empty, { recursive: true, force: true });
     }
@@ -655,7 +658,9 @@ async function main() {
     delete Module._cache[file];
     const realFetch = globalThis.fetch;
     let place = { lat: '32.106', lon: '35.174' };
-    globalThis.fetch = (async () => json([place])) as typeof fetch;
+    let fetches = 0;
+    globalThis.fetch = (async () => { fetches++; return json([place]); }) as typeof fetch;
+    captured.length = 0;
     const log = console.log;
     console.log = () => {};
     try {
@@ -671,12 +676,49 @@ async function main() {
       let rejected = false;
       try { await real.getTimezone('Out at sea'); } catch { rejected = true; }
       assert(rejected, 'getTimezone answered a zone for a place with none');
+      // A place with no zone is not cached: the second ask went to Nominatim again and logged again; a place with a zone is cached
+      assert(fetches === 3, `Ariel, the sea point and the sea point again are three requests, got ${fetches}`);
+      assert(captured.filter(c => c.context === 'location-lookup').length === 2, `one log per ask: ${show(captured)}`);
+      assert((await real.geocodeLocation('Ariel')).timezone === 'Asia/Jerusalem' && fetches === 3, `Ariel is cached: ${fetches} requests`);
     } finally {
       console.log = log;
       globalThis.fetch = realFetch;
       delete Module._cache[file];
       Module._cache[file] = stubbed;
     }
+  });
+
+  await check('(w) zoneForCoords never trusts or leaks its input: NaN, Infinity and out-of-range coordinates answer null with one fixed warning that holds no coordinate; a throw from the map is reported by its name only, never its message (which can hold the coordinate)', () => {
+    captured.length = 0;
+    const BAD: Array<[number, number]> = [[NaN, 35.1], [32.1, NaN], [Infinity, 35.1], [32.1, -Infinity], [95.123456, 35.1], [-90.5, 35.1], [32.1, 200.654321], [32.1, -180.5]];
+    for (const [lat, lon] of BAD) assert(zones.zoneForCoords(lat, lon) === null, `${lat},${lon} got a zone`);
+    assert(captured.length === BAD.length && captured.every(c => c.context === 'location-lookup' && c.severity === 'warning'), `captured ${show(captured)}`);
+    assert(captured.every(c => !/\d{2}\.\d|NaN|Infinity/.test(c.message)), `a coordinate in a message: ${show(captured)}`);
+    captured.length = 0;
+    zones.zoneForCoords(90, 0); zones.zoneForCoords(-90, 180); // the limits themselves are asked of the map, not refused
+    assert(!captured.some(c => c.message.includes('not valid')), `a limit was refused: ${show(captured)}`);
+    captured.length = 0;
+    // A map that throws with the coordinate in its message (geo-tz's own "Invalid latitude: 32.123456"): swap geo-tz for a stub, load a fresh copy of the leaf module
+    const Module = nodeRequire('module');
+    const geoFile = nodeRequire.resolve('geo-tz');
+    const leaf = path.join(ROOT, 'src/lib/zone-for-coords.ts');
+    const savedGeo = Module._cache[geoFile], savedLeaf = Module._cache[leaf];
+    const geoStub = new Module(geoFile);
+    Object.assign(geoStub, { filename: geoFile, loaded: true, exports: {
+      setCache: () => {},
+      find: (lat: number) => { throw Object.assign(new RangeError(`Invalid latitude: ${lat} at /secret/path`), { code: 'ERR_BAD' }); },
+    } });
+    Module._cache[geoFile] = geoStub;
+    delete Module._cache[leaf];
+    try {
+      const fresh = nodeRequire(leaf) as { zoneForCoords: (a: number, b: number) => string | null };
+      assert(fresh.zoneForCoords(32.123456, 35.654321) === null, 'a throwing map gave a zone');
+    } finally {
+      Module._cache[geoFile] = savedGeo;
+      Module._cache[leaf] = savedLeaf;
+    }
+    assert(captured.length === 1 && captured[0].context === 'location-lookup' && captured[0].severity === 'error', `captured ${show(captured)}`);
+    assert(captured[0].message === 'The zone map lookup threw (RangeError, ERR_BAD)', `reported ${show(captured[0].message)}`);
   });
 
   let failed = 0;
