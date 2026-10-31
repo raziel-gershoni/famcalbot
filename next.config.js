@@ -11,6 +11,11 @@ const nextConfig = {
   // own data/ folder (bundled, it looks in the wrong folder and throws ENOENT)
   serverExternalPackages: ['opusscript', '@resvg/resvg-js', 'geo-tz'],
 
+  // The Israel height map (src/services/zmanim/heights.ts reads it from data/ at run time): traced into the standalone image
+  outputFileTracingIncludes: {
+    '/*': ['./data/israel-heights-3s.i16.br'],
+  },
+
   // Enable experimental features for App Router
   experimental: {
     serverActions: {

@@ -3,12 +3,12 @@
 // settings save wrote the new location but left the old zone cached under tz:user:{id} for up
 // to 24 h, so the summaries, reminders and voice kept the old city's clock that long. A save
 // that changes the location now looks the place up after the response: one Nominatim request
-// (3 s, no retry), the zone from our own map (zoneForCoords, geo-tz) and the highest ground
-// (zmanim), no geocode cache and no Asia/Jerusalem fallback. Only a lookup that finds a valid
+// (3 s, no retry), the zone from our own map (zoneForCoords, geo-tz) and, for a place in Israel
+// only, the highest ground from the stored height map (zmanim), no geocode cache and no Asia/Jerusalem fallback. Only a lookup that finds a valid
 // zone replaces the cached one, and only while the stored location is still the one it looked
 // up: two quick saves each schedule a lookup, and the older one can land last. The same save
 // clears the old place's coordinates in the same write as the location, and the lookup stores
-// the new place's coordinates and highest ground (zmanim, Task 1).
+// the new place's coordinates and, in Israel, highest ground (zmanim, Tasks 1 and 2).
 //
 // The zone map runs for real: the spec's places (Ariel, Ma'ale Adumim, Eilat, Katzrin, Hebron,
 // Gaza, Kyiv, a sea point), the West Bank rule, the bounded tile cache, and (in a child
@@ -18,7 +18,8 @@
 // Telegram user), the user row (written through updateUserById, its location read back
 // through prisma.user.findUnique), the reminder cache, Telegram, error capture, Redis (in
 // memory), the geocoding module (its fetchWithTimeout records every request, can hold a
-// Nominatim answer back, and answers from the scenario), the Google calendar service, and
+// Nominatim answer back, and answers from the scenario), the stored height map (records the
+// points it is asked), the Google calendar service, and
 // Next's after() (queued, then run by the test, since it needs a live request scope). No
 // network, no DB.
 //
@@ -104,10 +105,11 @@ const fakeRedis = {
 type LookupRequest = { url: string; options: unknown; timeoutMs: unknown; maxRetries: unknown };
 const requests: LookupRequest[] = [];
 /** How each host answers a request in the current scenario: a Response, or a thrown error. */
-let answers: { nominatim: (url: URL) => Response; elevation: (url: URL) => Response } = {
+let answers: { nominatim: (url: URL) => Response } = {
   nominatim: () => { throw new Error('no scenario'); },
-  elevation: () => { throw new Error('no scenario'); },
 };
+/** The points of each read the stored height map was asked for (stubbed: it answers ELEVATION_MAX). */
+const heightReads: { latitude: number; longitude: number }[][] = [];
 /** Nominatim queries whose answer waits for its release: a lookup still in flight. */
 const held = new Map<string, Promise<void>>();
 /** Holds Nominatim's answer to `query` back until the returned function is called. */
@@ -123,8 +125,6 @@ async function fakeFetchWithTimeout(url: string, options?: unknown, timeoutMs?: 
     await held.get(parsed.searchParams.get('q') ?? '');
     return answers.nominatim(parsed);
   }
-  // Task 2 removes the elevation request (the height comes from the stored map)
-  if (parsed.host === 'api.open-meteo.com' && parsed.pathname === '/v1/elevation') return answers.elevation(parsed);
   throw new Error(`unexpected request: ${url}`);
 }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -144,7 +144,7 @@ const boxAround = (place: { lat: string; lon: string }): string[] => {
   const lat = parseFloat(place.lat), lon = parseFloat(place.lon);
   return [String(lat - 0.05), String(lat + 0.05), String(lon - 0.05), String(lon + 0.05)];
 };
-/** The highest ground the fake terrain has at the 25 sampled points: rising with the point's index, 100 m for the first. */
+/** The highest ground the stubbed height map answers for a place in Israel. */
 const ELEVATION_MAX = 124;
 
 /** Prisma, for the one read the route makes itself: the stored location, before the zone is written. */
@@ -232,6 +232,9 @@ function installStubs() {
     captureInfo: () => {},
   });
   stub('src/services/calendar.ts', { getUserCalendarTimezone: async () => null });
+  stub('src/services/zmanim/heights.ts', {
+    highestHeight: (points: { latitude: number; longitude: number }[]) => { heightReads.push(points); return ELEVATION_MAX; },
+  });
   stub('src/services/weather/geocoding.ts', {
     fetchWithTimeout: fakeFetchWithTimeout,
     geocodeLocation: async (location: string) => {
@@ -262,6 +265,7 @@ function seed() {
   redisSets.length = 0;
   redisSetError = null;
   requests.length = 0;
+  heightReads.length = 0;
   cachedPathCalls.length = 0;
   captured.length = 0;
   afterQueue.length = 0;
@@ -276,8 +280,6 @@ function seed() {
       const place = PLACES[url.searchParams.get('q') ?? ''];
       return json(place ? [{ lat: place.lat, lon: place.lon, boundingbox: boxAround(place) }] : []);
     },
-    // 25 sampled points, rising from 100 m: the highest is the last, ELEVATION_MAX.
-    elevation: url => json({ elevation: (url.searchParams.get('latitude') ?? '').split(',').map((_lat, index) => 100 + index) }),
   };
 }
 
@@ -304,9 +306,11 @@ async function main() {
   };
 
   /** Each request, as "host timeout/retries". */
-  const shape = () => requests.map(r => `${new URL(r.url).host}${new URL(r.url).pathname === '/v1/elevation' ? '/elevation' : ''} ${String(r.timeoutMs)}/${String(r.maxRetries)}`);
-  /** The requests a full lookup makes: the place (3 s, no retry) and its highest ground; the zone is local. Task 2 drops the second. */
-  const FULL_LOOKUP = ['nominatim.openstreetmap.org 3000/0', 'api.open-meteo.com/elevation 3000/0'];
+  const shape = () => requests.map(r => `${new URL(r.url).host} ${String(r.timeoutMs)}/${String(r.maxRetries)}`);
+  /** Function reads: TypeScript would otherwise keep a length narrowed by an earlier assert across seed(). */
+  const nHeightReads = () => heightReads.length;
+  /** The requests a full lookup makes: the place (3 s, no retry); the zone and the height are local. */
+  const FULL_LOOKUP = ['nominatim.openstreetmap.org 3000/0'];
 
   await check('(a) a new location: the save answers at once, then tz:user:{id} becomes the new zone for 24 h', async () => {
     seed();
@@ -322,13 +326,13 @@ async function main() {
     assert(captured.length === 0, `captured ${show(captured)}`);
   });
 
-  await check('(a) the reminder cache gets the looked-up place once the lookup has run (the pause counts Shabbat from it): the save syncs the entry with the old place cleared, the lookup syncs it again with the new coordinates and highest ground; a lookup that finds nothing syncs nothing more', async () => {
+  await check('(a) the reminder cache gets the looked-up place once the lookup has run (the pause counts Shabbat from it): the save syncs the entry with the old place cleared, the lookup syncs it again with the new coordinates (no height abroad); a lookup that finds nothing syncs nothing more', async () => {
     seed();
     await save({ location: 'New York' });
     const syncs = () => cacheSyncs.length;
     assert(syncs() === 1 && cacheSyncs[0].location === 'New York' && cacheSyncs[0].latitude === null, `the save's own sync: ${show(cacheSyncs)}`);
     await drainAfter();
-    assert(syncs() === 2 && cacheSyncs[1].location === 'New York' && cacheSyncs[1].latitude === 40.7127281 && cacheSyncs[1].longitude === -74.0060152 && cacheSyncs[1].elevationM === ELEVATION_MAX, `after the lookup: ${show(cacheSyncs)}`);
+    assert(syncs() === 2 && cacheSyncs[1].location === 'New York' && cacheSyncs[1].latitude === 40.7127281 && cacheSyncs[1].longitude === -74.0060152 && cacheSyncs[1].elevationM === null && heightReads.length === 0, `after the lookup: ${show(cacheSyncs)}`);
     seed();
     await save({ location: 'Nowhere At All' });
     await drainAfter();
@@ -361,7 +365,7 @@ async function main() {
     gate.__resetDueGateForTests();
   });
 
-  await check('(a) the lookup: one Nominatim request (3 s, no retry), no zone request, no geocode cache', async () => {
+  await check('(a) the lookup: one Nominatim request (3 s, no retry), no zone request, no height request, no geocode cache', async () => {
     seed();
     await save({ location: 'New York' });
     await drainAfter();
@@ -378,7 +382,7 @@ async function main() {
     await save({ location: 'Out at sea' });
     await drainAfter();
     assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
-    assert(userRow.latitude === 33 && userRow.longitude === 34.5, `the place is kept: ${show([userRow.latitude, userRow.longitude])}`);
+    assert(userRow.latitude === 33 && userRow.longitude === 34.5 && heightReads.length === 0, `the place is kept, with no height read: ${show([userRow.latitude, userRow.longitude, heightReads.length])}`);
     const lookups = captured.filter(c => c.context === 'location-lookup');
     assert(lookups.length === 1 && lookups[0].severity === 'warning' && lookups[0].message.includes('Etc/GMT-2') && !lookups[0].message.includes('Out at sea'), `captured ${show(captured)}`);
   });
@@ -452,12 +456,8 @@ async function main() {
     await london();
     releaseTelAviv();
     await telAvivLanded;
-    const asked = requests.map(r => {
-      const url = new URL(r.url);
-      if (url.pathname === '/v1/elevation') return 'elevation';
-      return `place ${url.searchParams.get('q')}`;
-    });
-    assert(show(asked) === show(['place Tel Aviv', 'place London', 'elevation', 'elevation']), `asked ${show(asked)}`);
+    const asked = requests.map(r => `place ${new URL(r.url).searchParams.get('q')}`);
+    assert(show(asked) === show(['place Tel Aviv', 'place London']), `asked ${show(asked)}`);
     assert(show(redisSets) === show([{ key: TZ_KEY, value: 'Europe/London', opts: { ex: 86400 } }]), `redis sets ${show(redisSets)}`);
     assert(redisStore.get(TZ_KEY) === 'Europe/London', `cached zone ${show(redisStore.get(TZ_KEY))}`);
     // Each lookup found a zone, so each read the location back before writing.
@@ -479,7 +479,7 @@ async function main() {
         userGone = true;
       }
       await drainAfter();
-      assert(requests.length === 2, `${change}: requests ${show(shape())}`);
+      assert(requests.length === 1, `${change}: requests ${show(shape())}`);
       assert(redisStore.get(TZ_KEY) === OLD_ZONE && redisSets.length === 0, `${change}: zone ${show(redisStore.get(TZ_KEY))}, sets ${show(redisSets)}`);
       assert(locationReads.length === 1 && placeWrites.length === 0, `${change}: ${locationReads.length} location reads, ${placeWrites.length} place writes`);
     }
@@ -491,7 +491,7 @@ async function main() {
       seed();
       await save({ location });
       await drainAfter();
-      assert(requests.length === 2, `"${location}": requests ${show(shape())}`);
+      assert(requests.length === 1, `"${location}": requests ${show(shape())}`);
       const url = requests[0].url;
       assert(url.includes(`?q=${encodeURIComponent(location)}&`) && /^[\x21-\x7e]+$/.test(url), `"${location}": Nominatim url ${url}`);
       assert(new URL(url).searchParams.get('q') === location, `"${location}": q reads back as ${show(new URL(url).searchParams.get('q'))}`);
@@ -499,7 +499,7 @@ async function main() {
     }
   });
 
-  await check('(m) [place] a changed location clears the old place\'s coordinates and highest ground in the same write, the lookup then stores the new place\'s coordinates and the highest of its 25 sampled points, and settings_changed names the location only', async () => {
+  await check('(m) [place] a changed location clears the old place\'s coordinates and highest ground in the same write, the lookup then stores the new place\'s coordinates (abroad: no height is read and none stored; in Israel: the highest of its 25 points), and settings_changed names the location only', async () => {
     seed();
     Object.assign(userRow, { latitude: 51.5074456, longitude: -0.1277653, elevationM: 11 }); // London\'s, as saved before
     const res = await save({ location: 'New York' });
@@ -507,14 +507,17 @@ async function main() {
     assert(userRow.location === 'New York' && userRow.latitude === null && userRow.longitude === null && userRow.elevationM === null, `before the lookup: ${show([userRow.location, userRow.latitude, userRow.longitude, userRow.elevationM])}`);
     assert(show(activities) === show([{ type: 'settings_changed', meta: { changed_fields: ['location'] } }]), `activity ${show(activities)}`);
     await drainAfter();
-    assert(show([userRow.latitude, userRow.longitude, userRow.elevationM]) === show([40.7127281, -74.0060152, ELEVATION_MAX]), `stored ${show([userRow.latitude, userRow.longitude, userRow.elevationM])}`);
-    assert(show(placeWrites) === show([{ where: { id: USER_ID, location: 'New York' }, data: { latitude: 40.7127281, longitude: -74.0060152, elevationM: ELEVATION_MAX } }]), `place writes ${show(placeWrites)}`);
-    // The 25 points are one request, within 3 km of the centre on each axis.
-    const url = new URL(requests[1].url);
-    const lats = url.searchParams.get('latitude')!.split(',').map(Number), lons = url.searchParams.get('longitude')!.split(',').map(Number);
-    assert(lats.length === 25 && lons.length === 25, `${lats.length} points`);
-    assert(lats.every(lat => Math.abs(lat - 40.7127281) * 111_320 <= 3000.5), 'held to 3 km north-south');
-    assert(lons.every(lon => Math.abs(lon + 74.0060152) * 111_320 * Math.cos((40.7127281 * Math.PI) / 180) <= 3000.5), 'held to 3 km east-west');
+    assert(show([userRow.latitude, userRow.longitude, userRow.elevationM]) === show([40.7127281, -74.0060152, null]), `stored ${show([userRow.latitude, userRow.longitude, userRow.elevationM])}`);
+    assert(show(placeWrites) === show([{ where: { id: USER_ID, location: 'New York' }, data: { latitude: 40.7127281, longitude: -74.0060152, elevationM: null } }]), `place writes ${show(placeWrites)}`);
+    assert(nHeightReads() === 0, `a height was read abroad: ${show(heightReads)}`);
+    // In Israel the 25 points are one read of the map, within 3 km of the centre on each axis.
+    seed();
+    await save({ location: 'Tel Aviv' });
+    await drainAfter();
+    assert(nHeightReads() === 1 && heightReads[0].length === 25, `height reads ${show(heightReads.map(p => p.length))}`);
+    assert(heightReads[0].every(p => Math.abs(p.latitude - 32.0852997) * 111_320 <= 3000.5), 'held to 3 km north-south');
+    assert(heightReads[0].every(p => Math.abs(p.longitude - 34.7818064) * 111_320 * Math.cos((32.0852997 * Math.PI) / 180) <= 3000.5), 'held to 3 km east-west');
+    assert(userRow.elevationM === ELEVATION_MAX, `Tel Aviv's height ${show(userRow.elevationM)}`);
   });
 
   await check('(n) [guard] a save that leaves the location as it is leaves the saved place alone: nothing cleared, nothing looked up, nothing written', async () => {

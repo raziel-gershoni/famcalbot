@@ -5,7 +5,7 @@
 
 import type { BoundingBox } from '../../lib/timezone';
 
-/** The grid is this many points on a side: 5 x 5 = 25, well under Open-Meteo's 100 per request. */
+/** The grid is this many points on a side: 5 x 5 = 25 lookups in the stored height map. */
 const GRID_SIDE = 5;
 /** The grid reaches at most this far from the place's centre, in metres. */
 const MAX_REACH_M = 3000;

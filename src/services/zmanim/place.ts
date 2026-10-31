@@ -7,28 +7,29 @@
  *                          the lazy fill and the height's retry all go through it); a saved place wakes the
  *                          native reminders' due gate, because every time counted from it has moved
  *   ensureUserCoordinates  the lazy fill: once per person and place, logged (`background`: started, not waited for)
- *   retryMissingElevation  a place in Israel saved without a height (its request failed) is looked up again in
+ *   retryMissingElevation  a place in Israel saved without a height (the map had none, or could not be read) is looked up again in
  *                          the background, at most once an hour
  *   getUserPlace           a Place for compute.ts: coordinates (filled if need be) + the person's zone
  *
  * The elevation is the highest point in the place (Rav Ovadia's rule): a 5 x 5 grid over the
  * place's Nominatim bounding box, capped at 3 km around the centre (elevationGrid, in the pure
- * elevation-grid.ts), sampled with Open-Meteo's free elevation API in one request; the highest of the 25 is kept. A failure of that request is
+ * elevation-grid.ts), read from the stored Israel height map (heights.ts, Copernicus GLO-90); the highest of the 25 is kept.
+ * It is read only for a place whose zone is Israel's, the only places whose height is used (compute.ts); a failure is
  * logged and leaves the elevation null: it never blocks saving the place.
  *
- * The lookups are resolveLocation's (src/lib/timezone.ts) and the same 3 s, no-retry policy.
+ * The place lookup is resolveLocation's (src/lib/timezone.ts): Nominatim, 3 s, no retry; the zone and the height are local.
  */
 
 import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError, captureWarning } from '../../lib/error-capture';
-import { LOOKUP_TIMEOUT_MS, TIMEZONE_CACHE_TTL, resolveLocation, resolveUserTimezone } from '../../lib/timezone';
-import { fetchWithTimeout } from '../weather/geocoding';
+import { TIMEZONE_CACHE_TTL, resolveLocation, resolveUserTimezone } from '../../lib/timezone';
 import { invalidateDueGate } from '../native-reminders/due-gate';
 import { inIsrael } from '../../utils/locale-rules';
 import type { Place } from './compute';
 import { elevationGrid, type Coordinates } from './elevation-grid';
+import { highestHeight } from './heights';
 
 // The grid lives in the pure elevation-grid.ts, so scripts/build-city-heights.ts counts the public cities' heights by the same rule.
 export { elevationGrid, type Coordinates } from './elevation-grid';
@@ -50,34 +51,23 @@ export interface PlaceUser {
 /** What a saved place holds. */
 export interface SavedPlace extends Coordinates {
   elevationM: number | null;
-  /** The zone the lookup found; null when that request failed. */
+  /** The zone our map gives the place; null when it has none (at sea). */
   timeZone: string | null;
 }
 
 /**
- * The highest ground among `points`, in whole metres, from one Open-Meteo request
- * (https://api.open-meteo.com/v1/elevation?latitude=a,b&longitude=x,y answers {"elevation":[m, m]}).
- * Null, and logged, when the request fails or answers no numbers.
+ * The highest ground among `points`, in whole metres, from the stored Israel height map (heights.ts). Null, and logged
+ * under zmanim-elevation, when no point is on the map (a warning) or the map can't be read (an error): the place is
+ * kept without an elevation.
  */
-export async function fetchHighestElevation(points: Coordinates[], userId: number): Promise<number | null> {
+export function fetchHighestElevation(points: Coordinates[], userId: number): number | null {
   const context = { service: 'zmanim', user_id: userId };
   try {
-    const latitudes = points.map(point => point.latitude.toFixed(5)).join(',');
-    const longitudes = points.map(point => point.longitude.toFixed(5)).join(',');
-    const response = await fetchWithTimeout(`https://api.open-meteo.com/v1/elevation?latitude=${latitudes}&longitude=${longitudes}`, {}, LOOKUP_TIMEOUT_MS, 0);
-    if (!response.ok) {
-      captureWarning(`Open-Meteo's elevation answered ${response.status}: the place is kept without an elevation`, 'zmanim-elevation', context);
-      return null;
-    }
-    const { elevation } = await response.json() as { elevation?: unknown };
-    const metres = Array.isArray(elevation) ? elevation.filter((value): value is number => typeof value === 'number' && Number.isFinite(value)) : [];
-    if (metres.length === 0) {
-      captureWarning("Open-Meteo's elevation sent no numbers: the place is kept without an elevation", 'zmanim-elevation', context);
-      return null;
-    }
-    return Math.round(Math.max(...metres));
+    const metres = highestHeight(points);
+    if (metres === null) captureWarning('No point of the place is on the Israel height map: the place is kept without an elevation', 'zmanim-elevation', context);
+    return metres;
   } catch (error) {
-    captureError(error, 'zmanim-elevation', context, 'warning');
+    captureError(error, 'zmanim-elevation', context);
     return null;
   }
 }
@@ -96,8 +86,10 @@ export async function saveUserPlace(userId: number, location: string): Promise<S
     console.warn(`[zmanim] no coordinates for user ${userId}: the lookup found no place`);
     return null;
   }
-  const points = elevationGrid(resolved, resolved.boundingBox);
-  const elevationM = await fetchHighestElevation(points, userId);
+  // The height is read only where it is used: the Sephardi times in Israel (compute.ts). Abroad the place has none.
+  const israeli = resolved.timezone !== null && inIsrael(resolved.timezone);
+  const points = israeli ? elevationGrid(resolved, resolved.boundingBox) : [];
+  const elevationM = israeli ? fetchHighestElevation(points, userId) : null;
 
   // A row that is gone reads as ''. Compared trimmed, as the save compares it.
   const stored = await prisma.user.findUnique({ where: { id: userId }, select: { location: true } });
@@ -114,7 +106,7 @@ export async function saveUserPlace(userId: number, location: string): Promise<S
     console.warn(`[zmanim] the location of user ${userId} changed while it was saved: nothing saved`);
     return null;
   }
-  console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)`);
+  console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${israeli ? `${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)` : 'not read (abroad)'}`);
   // Every zman time counted from this place has moved: the due gate holds the earliest due time of the old one for up to
   // an hour, so a reminder whose new time is earlier would wait for it.
   invalidateDueGate();
@@ -142,7 +134,7 @@ interface FillState {
 const shared = globalThis as { __zmanimPlaceFill?: FillState };
 const fills: FillState = (shared.__zmanimPlaceFill ??= { running: new Map(), filled: new Map(), failedAt: new Map() });
 
-/** What the lookups give a place: its coordinates and highest ground (null where that request failed). */
+/** What the lookups give a place: its coordinates and highest ground (null where the map had none or could not be read, and abroad). */
 type FilledPlace = Coordinates & { elevationM: number | null };
 
 /** The key of a person and their place name in the lazy fills (a row from a cache that predates the columns may lack the name). */
@@ -184,7 +176,7 @@ function startFill(userId: number, location: string, key: string): Promise<Fille
  * again after an hour). Never throws: a failure is logged and reads as no place.
  *
  * `background`: a lookup this call would have to wait for is started (or joined) and the answer is null at once, for a
- * caller that has a stand-in for this one time and must not be held up for up to three 3 s requests (the editor's info).
+ * caller that has a stand-in for this one time and must not be held up for the 3 s place lookup (the editor's info).
  */
 export async function ensureUserCoordinates(user: PlaceUser, options: { background?: boolean } = {}): Promise<FilledPlace | null> {
   const key = fillKey(user);
@@ -210,7 +202,7 @@ export async function ensureUserCoordinates(user: PlaceUser, options: { backgrou
 }
 
 /**
- * A place saved in Israel without a height (the elevation request failed when it was saved) is looked up again, in the
+ * A place saved in Israel without a height (the map had none, or could not be read, when it was saved) is looked up again, in the
  * background and at most once an hour per person and place: the Sephardi times and the pause's windows there are cut at
  * the elevation, so a missing height is a few minutes off for good otherwise. Nothing waits for it, and nothing is asked
  * where the height is not used (abroad, sea level), where the row has it, or for a person with no place name. The height

@@ -149,10 +149,6 @@ async function fakeFetchWithTimeout(url: string): Promise<Response> {
     if (heldNominatim) await heldNominatim;
     return respond([{ lat: '32.46182', lon: '35.04555', boundingbox: ['32.4418', '32.4818', '35.0255', '35.0655'] }]);
   }
-  if (parsed.host === 'api.open-meteo.com' && parsed.pathname === '/v1/elevation') {
-    const lats = (parsed.searchParams.get('latitude') ?? '').split(',');
-    return respond({ elevation: lats.map(() => 270) });
-  }
   throw new Error(`unexpected request: ${url}`);
 }
 
@@ -203,6 +199,7 @@ function installStubs(): void {
   });
   put('src/services/weather/geocoding.ts', { fetchWithTimeout: fakeFetchWithTimeout, geocodeLocation: async () => { throw new Error('the cached geocode path was used'); } });
   put('src/services/calendar.ts', { getUserCalendarTimezone: async () => null });
+  put('src/services/zmanim/heights.ts', { highestHeight: () => 270 });
 }
 
 // ---- Fixtures ----

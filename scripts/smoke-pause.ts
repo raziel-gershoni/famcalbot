@@ -117,6 +117,8 @@ let redisReads = 0;
 const dbUsers = new Map<number, Row>();
 let dbCalls = 0;
 const requests: string[] = [];
+/** How many times the stored height map was read (stubbed: it answers 290 m). */
+let heightReads = 0;
 const captured: { kind: string; context: string; message: string }[] = [];
 const logs: string[] = [];
 
@@ -128,10 +130,6 @@ async function fakeFetchWithTimeout(url: string): Promise<Response> {
   requests.push(url);
   const parsed = new URL(url);
   if (parsed.host === 'nominatim.openstreetmap.org') return nominatim();
-  if (parsed.host === 'api.open-meteo.com' && parsed.pathname === '/v1/elevation') {
-    const points = (parsed.searchParams.get('latitude') ?? '').split(',').length;
-    return json({ elevation: Array.from({ length: points }, () => 290) });
-  }
   throw new Error(`unexpected request: ${url}`);
 }
 
@@ -177,6 +175,7 @@ function installStubs(): void {
     fetchWithTimeout: fakeFetchWithTimeout,
     geocodeLocation: async () => { throw new Error('the cached geocode path was used'); },
   });
+  stub('src/services/zmanim/heights.ts', { highestHeight: () => { heightReads++; return 290; } });
 }
 
 function resetWorld(): void {
@@ -185,6 +184,7 @@ function resetWorld(): void {
   dbUsers.clear();
   dbCalls = 0;
   requests.length = 0;
+  heightReads = 0;
   captured.length = 0;
   logs.length = 0;
   nominatim = () => json([{ lat: '32.46182', lon: '35.04555', boundingbox: HARISH_BOX }]);
@@ -511,7 +511,7 @@ async function runChecks(): Promise<void> {
     const minuteAfterSeaEnd = new Date(endSea.getTime() + 60_000);
     const state = (globalThis as unknown as { __zmanimPlaceFill: { running: Map<string, Promise<unknown>> } }).__zmanimPlaceFill;
     await state.running.get('41|Harish, Israel');
-    assert(dbUsers.get(41)!.elevationM === 290 && requests.filter(r => r.includes('/v1/elevation')).length === 1, `the height was looked up once and saved: ${show(dbUsers.get(41))}`);
+    assert(dbUsers.get(41)!.elevationM === 290 && heightReads === 1, `the height was looked up once and saved: ${show(dbUsers.get(41))}`);
     // The same stale row, an hour and a minute after the first count (the same UTC day): counted again, with the height.
     assert(Date.parse(SATURDAY_NOON) + 60 * 60_000 < minuteAfterSeaEnd.getTime() && minuteAfterSeaEnd.getTime() < endHigh.getTime(), 'the minutes are in order, more than an hour after the first count');
     assert(await pause.isPaused(user, minuteAfterSeaEnd) === true, 'with the height found, the minute the sea-level end let out is paused again');

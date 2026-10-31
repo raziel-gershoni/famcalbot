@@ -18,13 +18,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fromUrl, type GeoTIFFImage } from 'geotiff';
 import { CITIES, type City } from '../src/site/cities';
 import { haversineKm } from '../src/site/near-city';
 import { SELLER } from '../src/lib/seller';
 import { SITE_URL } from '../src/site/config';
 import { elevationGrid, type Coordinates } from '../src/services/zmanim/elevation-grid';
 import type { BoundingBox } from '../src/lib/timezone';
+import { openTile, pause, tileName, withRetry } from './lib/glo90';
 
 const ROOT = path.resolve(__dirname, '..');
 const TABLE = path.join(ROOT, 'src/site/cities.ts');
@@ -35,15 +35,12 @@ const NOMINATIM_GAP_MS = 1100;
 const MAX_DRIFT_KM = 10;
 /** The search box around the city's point, in degrees each way. */
 const SEARCH_REACH_DEG = 0.15;
-const TILES = 'https://copernicus-dem-90m.s3.amazonaws.com';
 /** The kinds of result that are the town itself: a search may rank one of its neighbourhoods first (Kiryat Ata's). */
 const TOWN_TYPES: ReadonlySet<string> = new Set(['city', 'town', 'village', 'municipality']);
 
 type Names = { cities: Record<string, string> };
 const names = (locale: 'en' | 'he'): Record<string, string> =>
   (JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${locale}.json`), 'utf8')) as Names).cities;
-
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Nominatim's `boundingbox` ([south, north, west, east] as strings), or null when it is missing or not four numbers. */
 function readBox(raw: unknown): BoundingBox | null {
@@ -71,42 +68,13 @@ async function searchBox(city: City, query: string): Promise<{ box: BoundingBox 
   return { box: readBox(town.boundingbox), driftKm: haversineKm(city, found), name: `${town.display_name ?? ''} (${town.addresstype})` };
 }
 
-/** A network step that failed for no fault of the request (a reset, a closed socket): tried again after 2, 4 and 8 s. */
-async function withRetry<T>(what: string, step: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await step();
-    } catch (error) {
-      if (attempt === 4) throw error;
-      console.warn(`[city-heights] ${what} failed (attempt ${attempt}), trying again:`, error instanceof Error ? error.message : error);
-      await pause(1000 * 2 ** attempt);
-    }
-  }
-}
-
-const tiles = new Map<string, GeoTIFFImage>();
-
-/** The name of the GLO-90 tile that holds `point` (Israel only: north and east). */
-function tileName(point: Coordinates): string {
-  if (point.latitude < 0 || point.longitude < 0) throw new Error(`no tile rule for ${point.latitude},${point.longitude}`);
-  return `Copernicus_DSM_COG_30_N${String(Math.floor(point.latitude)).padStart(2, '0')}_00_E${String(Math.floor(point.longitude)).padStart(3, '0')}_00_DEM`;
-}
-
-async function tile(name: string): Promise<GeoTIFFImage> {
-  const known = tiles.get(name);
-  if (known) return known;
-  const image = await withRetry(`opening ${name}`, async () => (await fromUrl(`${TILES}/${name}/${name}.tif`)).getImage());
-  tiles.set(name, image);
-  return image;
-}
-
 /** The model's height at each point, in metres (the pixel that holds it): one window read per tile the points touch. */
 async function heightsAt(points: Coordinates[]): Promise<number[]> {
   const byTile = new Map<string, number[]>();
   points.forEach((point, index) => byTile.set(tileName(point), [...(byTile.get(tileName(point)) ?? []), index]));
   const heights: number[] = new Array(points.length).fill(NaN);
   for (const [name, indexes] of byTile) {
-    const image = await tile(name);
+    const image = await openTile(name);
     const [originX, originY] = image.getOrigin();
     const [resolutionX, resolutionY] = image.getResolution();
     const pixel = (index: number) => ({

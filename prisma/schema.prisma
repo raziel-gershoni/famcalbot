@@ -59,7 +59,7 @@ model User {
   // lazily, once, for a user who has a place name and none of these.
   latitude        Float?
   longitude       Float?
-  elevationM      Int? // Highest point in the place, metres (Open-Meteo); null = unknown, read as sea level
+  elevationM      Int? // Highest point in the place, metres (the Israel height map, Copernicus GLO-90); null = unknown or abroad, read as sea level
   zmanimCommunity String  @default("sephardi") // 'sephardi' | 'ashkenazi' | 'chabad': which set of zmanim
   pauseOnShabbat  Boolean @default(false) // No scheduled message from candle lighting to nightfall on Shabbat and Yom Tov
 
