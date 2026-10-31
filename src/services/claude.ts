@@ -266,7 +266,8 @@ export async function generateSummary(
   if (location && weatherEnabled) {
     try {
       const { getTimezone } = await import('./weather/geocoding');
-      const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('./weather/open-meteo');
+      const { fetchWeather, getWeatherDescription, getWindDirectionLabel } = await import('./weather/forecast');
+      const { rainForModel } = await import('./weather/rain');
       const { detectSharav } = await import('./weather/sharav');
       const { fetchAirQuality } = await import('./weather/air-quality');
       const { detectDustStorm } = await import('./weather/dust-storm');
@@ -285,8 +286,8 @@ export async function generateSummary(
         ? `\nWind: ${getWindDirectionLabel(weatherData.current.windDirection)} ${weatherData.current.windSpeed} km/h`
         : '';
       weatherSummary = `Current: ${weatherData.current.temperature}°C (feels like ${weatherData.current.feelsLike}°C), ${getWeatherDescription(weatherData.current.weatherCode)}${currentWind}
-Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${weatherData.today.precipitationProbability}% chance of rain
-${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${weatherData.tomorrow.precipitationProbability}% chance of rain` : ''}`;
+Today: High ${weatherData.today.tempMax}°C, Low ${weatherData.today.tempMin}°C, ${rainForModel(weatherData.today)}
+${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low ${weatherData.tomorrow.tempMin}°C, ${rainForModel(weatherData.tomorrow)}` : ''}`;
 
       // Add sharav warning if detected for today or tomorrow
       const sharavDays = detectSharav(weatherData);
@@ -300,7 +301,7 @@ ${weatherData.tomorrow ? `Tomorrow: High ${weatherData.tomorrow.tempMax}°C, Low
       }
 
       // Add dust storm warning if detected for today or tomorrow
-      const dustDays = detectDustStorm(airQualityData, weatherData);
+      const dustDays = detectDustStorm(airQualityData);
       const nearDust = dustDays.filter(d => d.dayIndex <= 1);
       if (nearDust.length > 0) {
         const dustWarnings = nearDust.map(d => {

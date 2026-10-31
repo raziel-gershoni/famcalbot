@@ -32,8 +32,9 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
   - the infographic's big number;
   - the AI's prompt.
 - **Forecast length**: 16 days become 9. The infographic shows up to 9 days instead of 12.
-- **Hourly detail**: hourly for about 2.5 days, then every 3 hours, then every 6.
-- **UV** is the clear-sky value, so it reads high on cloudy days.
+- **Hourly detail**: hourly for about 2.5 days, then every 6 hours.
+- **"Today"** covers the hours left in the day, because MET sends no past hours: today's high, low and rain are those of the rest of the day.
+- **UV** is the clear-sky value, so it reads high on cloudy days. It is blank for the days past about 2.5 days (days 4 to 9), where MET gives none.
 - **Dust alerts**: they look about 4.5 days ahead instead of 7. "Visibility under 1 km makes it severe" goes, because MET gives no visibility. The dust level alone sets the severity.
 - **New credit lines** (decision 3).
 

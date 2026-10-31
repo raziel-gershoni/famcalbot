@@ -1186,8 +1186,10 @@
       "tomorrow": "Завтра",
       "high": "Макс",
       "low": "Мин",
-      "rain": "дождь",
       "windSpeed": "км/ч",
+      "mm": "мм",
+      "noRain": "без дождя",
+      "rainPhrase": "дождь {hours}, {mm} мм",
       "sharav": "Шарав",
       "dustStorm": "Пылевая буря",
       "severityMild": "слабый",
@@ -1244,7 +1246,7 @@
       "sunscreen": "рекомендуется солнцезащитный крем",
       "sunrise": "Восход",
       "sunset": "Закат",
-      "rainProbability": "Вероятность дождя",
+      "rain": "Дождь",
       "rainExpected": "Ожидается дождь"
     },
     "setupReminders": {

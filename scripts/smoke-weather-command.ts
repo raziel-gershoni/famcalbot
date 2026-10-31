@@ -116,20 +116,19 @@ process.on('unhandledRejection', reason => { unhandled.push(reason); });
 const WEATHER: WeatherData = {
   location: 'Brooklyn, United States',
   current: { temperature: 14, feelsLike: 12, humidity: 70, weatherCode: 3, windSpeed: 12, windDirection: 200, uvIndex: 0 },
-  today: { tempMax: 18, tempMin: 11, precipitationProbability: 10, weatherCode: 3, sunrise: '2026-10-13T07:05', sunset: '2026-10-13T18:20', uvIndexMax: 3 },
-  tomorrow: { tempMax: 17, tempMin: 10, precipitationProbability: 60, weatherCode: 61, sunrise: '2026-10-14T07:06', sunset: '2026-10-14T18:19', uvIndexMax: 2 },
+  today: { tempMax: 18, tempMin: 11, precipitation: 0, rainHours: [], weatherCode: 3, sunrise: '2026-10-13T07:05', sunset: '2026-10-13T18:20', uvIndexMax: 3 },
+  tomorrow: { tempMax: 17, tempMin: 10, precipitation: 4.2, rainHours: [{ start: '06:00', end: '12:00', mm: 4.2 }], weatherCode: 61, sunrise: '2026-10-14T07:06', sunset: '2026-10-14T18:19', uvIndexMax: 2 },
   hourly: {
     time: Array.from({ length: 48 }, (_, h) => `2026-10-${13 + Math.floor(h / 24)}T${String(h % 24).padStart(2, '0')}:00`),
     temperature: Array.from({ length: 48 }, () => 14),
-    precipitation_probability: Array.from({ length: 48 }, (_, h) => (h >= 30 && h < 36 ? 60 : 5)),
-    precipitation: Array.from({ length: 48 }, () => 0),
+    precipitation: Array.from({ length: 48 }, (_, h) => (h >= 30 && h < 36 ? 0.7 : 0)),
     weatherCode: Array.from({ length: 48 }, () => 3),
     windSpeed: Array.from({ length: 48 }, () => 12),
     humidity: Array.from({ length: 48 }, () => 70),
     windDirection: Array.from({ length: 48 }, () => 200),
   },
   daily: [13, 14, 15].map(d => ({
-    date: `2026-10-${d}`, tempMax: 18, tempMin: 11, precipitationProbability: d === 14 ? 60 : 10, weatherCode: 3,
+    date: `2026-10-${d}`, tempMax: 18, tempMin: 11, precipitation: d === 14 ? 4.2 : 0, rainHours: d === 14 ? [{ start: '06:00', end: '12:00', mm: 4.2 }] : [], weatherCode: 3,
     sunrise: `2026-10-${d}T07:05`, sunset: `2026-10-${d}T18:20`, uvIndexMax: 3, windSpeedMax: 15, windDirection: 200, humidity: 70,
   })),
 };
@@ -205,6 +204,10 @@ type FormatWeatherAI = typeof import('../src/services/weather/formatter').format
 let forecastMode: { kind: 'real' } | { kind: 'reject'; delayMs: number } = { kind: 'real' };
 type ForecastCall = { at: number; args: unknown[]; settledAt?: number; result?: WeatherFormatResult; error?: unknown };
 let forecastCalls: ForecastCall[] = [];
+/** The calls fetchWeather got: the place and the zone it was asked in. */
+let weatherCalls: { location: string; zone: string }[] = [];
+/** Whether the zone lookup finds no zone for the place (getTimezone rejects). */
+let zoneFails = false;
 const wrapFormatter = (real: Record<string, unknown>) => ({
   ...real,
   formatWeatherAI: (...args: Parameters<FormatWeatherAI>) => {
@@ -272,8 +275,8 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/ai-provider.ts`]: { generateAICompletion: fakeAI },
   [`${SRC}/services/weather/infographic.tsx`]: { generateWeatherInfographic: fakeInfographic },
   [`${SRC}/services/weather/air-quality.ts`]: { fetchAirQuality: async () => AIR },
-  [`${SRC}/services/weather/open-meteo.ts`]: real => ({ ...real, fetchWeather: async () => WEATHER }),
-  [`${SRC}/services/weather/geocoding.ts`]: real => ({ ...real, getTimezone: async () => USER_TZ }),
+  [`${SRC}/services/weather/forecast.ts`]: real => ({ ...real, fetchWeather: async (location: string, zone: string) => { weatherCalls.push({ location, zone }); return WEATHER; } }),
+  [`${SRC}/services/weather/geocoding.ts`]: real => ({ ...real, getTimezone: async () => { if (zoneFails) throw new Error('No time zone for the place (the zone lookup logged why)'); return USER_TZ; } }),
   [`${SRC}/services/weather/formatter.ts`]: wrapFormatter,
 };
 
@@ -362,6 +365,7 @@ async function runWeather(opts: {
   redisSets = [];
   infographicConfigs = [];
   forecastCalls = [];
+  weatherCalls = [];
   aiCalls = [];
   logs = [];
   user = makeUser(opts.voice, opts.admin);
@@ -546,6 +550,23 @@ async function main() {
     assert(forecastCalls.length === 1 && forecastCalls[0].result?.brief === '', `forecast ${JSON.stringify(forecastCalls[0]?.result)}`);
     const replies = calls.filter(c => c.method !== 'sendTypingIndicator');
     assert(replies.length > 0, `nothing was delivered: no photo, no text, no error message (brief ${JSON.stringify(forecastCalls[0].result?.brief)}, usage counted ${usageCalls.length}x)`);
+  });
+
+  await check('10. the forecast is asked in the place\'s own zone (getTimezone\'s), as the air quality is: never Israel\'s by default', async () => {
+    await runWeather({ voice: false });
+    assert(weatherCalls.length === 1 && weatherCalls[0].zone === USER_TZ && weatherCalls[0].location === 'Brooklyn', `forecast calls ${JSON.stringify(weatherCalls)}`);
+  });
+
+  await check('11. the place has no zone (the lookup found none): the error reply goes out, and no forecast is asked on another zone\'s clock', async () => {
+    zoneFails = true;
+    try {
+      await runWeather({ voice: false });
+      await sleep(100);
+    } finally {
+      zoneFails = false;
+    }
+    assert(weatherCalls.length === 0, `forecast asked anyway: ${JSON.stringify(weatherCalls)}`);
+    assert(sentBy('sendPhoto').length === 0 && sentBy('sendMessage').length === 1, `replies ${JSON.stringify(sentBy('sendMessage').map(r => r.text))}`);
   });
 
   await check('nothing left running: every interval cleared, no network', async () => {

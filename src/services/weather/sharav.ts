@@ -1,10 +1,10 @@
 /**
  * Sharav (hot dry desert wind) detection heuristic
- * Uses temperature, wind direction, humidity, and weather code from Open-Meteo data.
+ * Uses temperature, wind direction and humidity from the forecast (forecast.ts).
  */
 
 import { WeatherData } from '../../types';
-import { getWindDirectionLabel } from './open-meteo';
+import { getWindDirectionLabel } from './forecast';
 
 export interface SharavDay {
   dayIndex: number;

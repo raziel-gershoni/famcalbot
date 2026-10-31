@@ -1186,8 +1186,10 @@
       "tomorrow": "מחר",
       "high": "גבוה",
       "low": "נמוך",
-      "rain": "גשם",
       "windSpeed": "קמ״ש",
+      "mm": "מ״מ",
+      "noRain": "בלי גשם",
+      "rainPhrase": "גשם {hours}, {mm} מ״מ",
       "sharav": "שרב",
       "dustStorm": "סופת אבק",
       "severityMild": "קל",
@@ -1244,7 +1246,7 @@
       "sunscreen": "מומלץ קרם הגנה",
       "sunrise": "זריחה",
       "sunset": "שקיעה",
-      "rainProbability": "סיכוי לגשם",
+      "rain": "גשם",
       "rainExpected": "צפוי גשם"
     },
     "setupReminders": {

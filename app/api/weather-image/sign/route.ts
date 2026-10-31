@@ -61,18 +61,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'No location set' }, { status: 404 });
     }
 
-    const { fetchWeather } = await import('@/src/services/weather/open-meteo');
+    const { fetchWeather } = await import('@/src/services/weather/forecast');
     const { fetchAirQuality } = await import('@/src/services/weather/air-quality');
     const { getTimezone } = await import('@/src/services/weather/geocoding');
     const { buildInfographicConfig } = await import('@/src/services/weather/formatter');
     const { generateWeatherInfographic } = await import('@/src/services/weather/infographic');
-    const { TIMEZONE } = await import('@/src/config/constants');
 
-    let timezone = TIMEZONE;
-    try { timezone = await getTimezone(user.location); } catch { /* fallback */ }
+    const timezone = await getTimezone(user.location); // no zone: the route fails (Sentry via onRequestError), never Israel's clock
 
     const [weatherData, airQualityData] = await Promise.all([
-      fetchWeather(user.location),
+      fetchWeather(user.location, timezone),
       fetchAirQuality(user.location, timezone).catch(() => null),
     ]);
 

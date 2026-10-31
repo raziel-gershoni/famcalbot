@@ -134,6 +134,41 @@ export interface Coordinates {
   longitude: number;
 }
 
+/** A stretch of a day when rain falls, read on the place's clock, and how much falls in it. */
+export interface RainSpell {
+  /** 'HH:mm': when the first wet step starts. */
+  start: string;
+  /** 'HH:mm': when the last wet step ends; '24:00' when it runs past the day's midnight. */
+  end: string;
+  /** Millimetres in the stretch, to one decimal. */
+  mm: number;
+}
+
+/** What a forecast says of one day, as the place's clock divides the days. */
+export interface WeatherDaySummary {
+  tempMax: number;
+  tempMin: number;
+  /** Millimetres of rain (snow as its water) in the day, to one decimal. MET gives no rain chance outside the Nordics. */
+  precipitation: number;
+  rainHours: RainSpell[];
+  weatherCode: number;
+  /** 'yyyy-MM-ddTHH:mm' at the place; '' where the sun does not rise (or set) that day. */
+  sunrise: string;
+  sunset: string;
+  /** The clear-sky UV index (MET's), so it reads high on cloudy days. */
+  uvIndexMax: number;
+}
+
+/** One day of the forecast's list. */
+export interface WeatherDay extends Omit<WeatherDaySummary, 'uvIndexMax'> {
+  date: string;
+  /** The clear-sky UV; null past MET's UV horizon (about 2.5 days ahead). */
+  uvIndexMax: number | null;
+  windSpeedMax: number;
+  windDirection: number;
+  humidity: number;
+}
+
 export interface WeatherData {
   location: string;  // "Harish, Israel"
   current: {
@@ -145,48 +180,21 @@ export interface WeatherData {
     windDirection: number;
     uvIndex: number;
   };
-  today: {
-    tempMax: number;
-    tempMin: number;
-    precipitationProbability: number;
-    weatherCode: number;
-    sunrise: string;
-    sunset: string;
-    uvIndexMax: number;
-  };
-  tomorrow?: {
-    tempMax: number;
-    tempMin: number;
-    precipitationProbability: number;
-    weatherCode: number;
-    sunrise: string;
-    sunset: string;
-    uvIndexMax: number;
-  };
+  today: WeatherDaySummary;
+  tomorrow?: WeatherDaySummary;
+  /** MET's steps: hourly for about 2.5 days, then 6-hourly; the times are 'yyyy-MM-ddTHH:mm' at the place. */
   hourly?: {
     time: string[];
     temperature: number[];
-    precipitation_probability: number[];
+    /** Millimetres in the step. */
     precipitation: number[];
     weatherCode: number[];
     windSpeed: number[];
     humidity: number[];
     windDirection: number[];
-    visibility?: number[];
   };
-  daily?: Array<{
-    date: string;
-    tempMax: number;
-    tempMin: number;
-    precipitationProbability: number;
-    weatherCode: number;
-    sunrise: string;
-    sunset: string;
-    uvIndexMax: number;
-    windSpeedMax: number;
-    windDirection: number;
-    humidity: number;
-  }>;
+  /** Up to 9 days, today first. */
+  daily?: WeatherDay[];
   summary?: string;  // AI-generated summary
 }
 

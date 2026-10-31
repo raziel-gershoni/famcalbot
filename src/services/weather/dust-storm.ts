@@ -1,10 +1,10 @@
 /**
- * Dust storm detection using Open-Meteo Air Quality data.
- * Separate from thermal sharav — catches Saharan dust transport events
- * that arrive via upper-level winds with moderate temperatures.
+ * Dust storm detection from Copernicus CAMS air quality (air-quality.ts). Separate from thermal sharav: catches Saharan
+ * dust transport events that arrive via upper-level winds with moderate temperatures. The peak dust or PM10 alone sets
+ * the severity: the forecast has no visibility since MET Norway replaced Open-Meteo.
  */
 
-import { AirQualityData, WeatherData } from '../../types';
+import { AirQualityData } from '../../types';
 
 export interface DustStormDay {
   dayIndex: number;
@@ -12,7 +12,6 @@ export interface DustStormDay {
   severity: 'mild' | 'moderate' | 'severe';
   peakPM10: number;
   peakDust: number;
-  minVisibility?: number;
   clearingHour?: number;
 }
 
@@ -27,40 +26,10 @@ function getDustSeverity(peak: number): 'mild' | 'moderate' | 'severe' {
 }
 
 /**
- * Compute minimum daytime visibility (06:00–22:00) for a given day.
- */
-function computeMinVisibility(
-  hourly: NonNullable<WeatherData['hourly']>,
-  dayDate: string
-): number | undefined {
-  if (!hourly.visibility) return undefined;
-
-  let min = Infinity;
-  let found = false;
-
-  for (let i = 0; i < hourly.time.length; i++) {
-    if (!hourly.time[i].startsWith(dayDate)) continue;
-    const hour = new Date(hourly.time[i]).getHours();
-    if (hour >= 6 && hour <= 22) {
-      const v = hourly.visibility[i];
-      if (v != null && v < min) {
-        min = v;
-        found = true;
-      }
-    }
-  }
-
-  return found ? Math.round(min) : undefined;
-}
-
-/**
  * Detect dust storm days from air quality data.
  * Returns [] if airQuality is null (graceful degradation).
  */
-export function detectDustStorm(
-  airQuality: AirQualityData | null,
-  weather?: WeatherData
-): DustStormDay[] {
+export function detectDustStorm(airQuality: AirQualityData | null): DustStormDay[] {
   if (!airQuality) return [];
 
   const { time, pm10, dust } = airQuality.hourly;
@@ -95,16 +64,7 @@ export function detectDustStorm(
 
     if (peak < 50) continue;
 
-    let severity = getDustSeverity(peak);
-
-    // Check visibility from weather data — upgrade severity if very low
-    let minVisibility: number | undefined;
-    if (weather?.hourly) {
-      minVisibility = computeMinVisibility(weather.hourly, date);
-      if (minVisibility != null && minVisibility < 1000 && severity !== 'severe') {
-        severity = 'severe';
-      }
-    }
+    const severity = getDustSeverity(peak);
 
     // Compute clearing hour for today/tomorrow only
     let clearingHour: number | undefined;
@@ -133,7 +93,6 @@ export function detectDustStorm(
       severity,
       peakPM10,
       peakDust,
-      minVisibility,
       clearingHour,
     });
   }

@@ -8,101 +8,15 @@ import { instantToWallTime } from '../../utils/wall-time';
 import { gematriya } from '@hebcal/hdate';
 import { formatInTimeZone } from 'date-fns-tz';
 import '@hebcal/locales';
-import { AirQualityData, WeatherData } from '../../types';
+import type { AirQualityData, WeatherData, WeatherDay } from '../../types';
 import { detectDustStorm } from './dust-storm';
-import { describeWeather, getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './open-meteo';
+import { describeWeather, getWeatherDescription, getWeatherEmoji, getWindDirectionLabel } from './forecast';
+import { formatRainMm, rainHoursForModel, rainHoursForPerson } from './rain';
 import { detectSharav } from './sharav';
 import { timeOfDayGreeting } from '../../utils/greeting';
 import { escapeHtml } from '../../utils/html';
 import { getBotMessages, type BotMessages } from '../../lib/bot-messages';
 import type { InfographicConfig } from './infographic';
-
-interface RainHours {
-  startTime: string;
-  endTime: string;
-  probability: number;
-}
-
-/**
- * Extract rain hours from hourly data for a specific day
- *
- * @param hourly - Hourly weather data
- * @param dayDate - Date string (YYYY-MM-DD) to analyze
- * @returns Array of rain periods with start/end times and probability
- */
-function extractRainHours(
-  hourly: { time: string[]; precipitation_probability: number[]; precipitation: number[] },
-  dayDate: string
-): RainHours[] {
-  const rainPeriods: RainHours[] = [];
-  let currentPeriod: RainHours | null = null;
-
-  for (let i = 0; i < hourly.time.length; i++) {
-    const timeStr = hourly.time[i];
-    const date = timeStr.split('T')[0];
-
-    // Only process hours for the specified day
-    if (date !== dayDate) {
-      // If we were tracking a period and day changed, close it
-      if (currentPeriod) {
-        rainPeriods.push(currentPeriod);
-        currentPeriod = null;
-      }
-      continue;
-    }
-
-    const probability = hourly.precipitation_probability[i];
-    const precipitation = hourly.precipitation[i];
-
-    // Consider it "rain" if probability >= 40% or actual precipitation > 0
-    if (probability >= 40 || precipitation > 0) {
-      const hour = Number(timeStr.slice(11, 13)); // the place's wall hour, whatever zone the server runs in
-      const timeDisplay = `${hour.toString().padStart(2, '0')}:00`;
-
-      if (!currentPeriod) {
-        // Start new rain period
-        currentPeriod = {
-          startTime: timeDisplay,
-          endTime: timeDisplay,
-          probability: probability
-        };
-      } else {
-        // Extend current period
-        currentPeriod.endTime = timeDisplay;
-        currentPeriod.probability = Math.max(currentPeriod.probability, probability);
-      }
-    } else {
-      // No rain, close current period if exists
-      if (currentPeriod) {
-        rainPeriods.push(currentPeriod);
-        currentPeriod = null;
-      }
-    }
-  }
-
-  // Close any remaining period
-  if (currentPeriod) {
-    rainPeriods.push(currentPeriod);
-  }
-
-  return rainPeriods;
-}
-
-/**
- * Format rain hours for display
- */
-function formatRainHours(rainPeriods: RainHours[]): string {
-  if (rainPeriods.length === 0) return '';
-
-  return rainPeriods
-    .map(period => {
-      if (period.startTime === period.endTime) {
-        return `${period.startTime} (${period.probability}%)`;
-      }
-      return `${period.startTime} - ${period.endTime} (${period.probability}%)`;
-    })
-    .join(', ');
-}
 
 /**
  * Get UV index description, in the language of the fallback messages
@@ -116,42 +30,32 @@ function getUVDescription(uvIndex: number, f: BotMessages['weatherFallback']): s
 }
 
 /**
- * HH:MM of an Open-Meteo time, a wall time at the place ('yyyy-MM-ddTHH:mm'): read from the text, never through a Date
- * parsed in the server's zone.
+ * HH:MM of a forecast time, a wall time at the place ('yyyy-MM-ddTHH:mm'): read from the text, never through a Date
+ * parsed in the server's zone. A dash where there is none (no sunrise or sunset that day, in the far north).
  */
 function formatTime(isoString: string): string {
-  return isoString.slice(11, 16);
+  return isoString === '' ? '—' : isoString.slice(11, 16);
 }
 
 /**
  * Build a compact, token-efficient payload for AI weather generation
  */
 export function buildWeatherAIPayload(weather: WeatherData, airQuality?: AirQualityData | null): object {
-  const todayDate = weather.daily?.[0]?.date || new Date().toISOString().split('T')[0];
-  const tomorrowDate = weather.daily?.[1]?.date || '';
-
-  const todayRainHours = weather.hourly
-    ? formatRainHours(extractRainHours(weather.hourly, todayDate))
-    : '';
-  const tomorrowRainHours = weather.hourly && tomorrowDate
-    ? formatRainHours(extractRainHours(weather.hourly, tomorrowDate))
-    : '';
-
-  const buildDaySummary = (day: NonNullable<WeatherData['daily']>[number], rainHoursStr?: string) => {
+  const buildDaySummary = (day: WeatherDay, withHours: boolean) => {
     const result: Record<string, unknown> = {
       day: new Date(day.date).toLocaleDateString('en-US', { weekday: 'long' }),
       date: day.date,
       high: day.tempMax,
       low: day.tempMin,
-      rainPct: day.precipitationProbability,
+      rainMm: day.precipitation,
       condition: getWeatherDescription(day.weatherCode),
       sunrise: formatTime(day.sunrise),
       sunset: formatTime(day.sunset),
-      uvMax: day.uvIndexMax,
       windMax: day.windSpeedMax,
       windDir: getWindDirectionLabel(day.windDirection),
     };
-    if (rainHoursStr) result.rainHours = rainHoursStr;
+    if (day.uvIndexMax !== null) result.uvMax = day.uvIndexMax;
+    if (withHours && day.rainHours.length > 0) result.rainHours = rainHoursForModel(day.rainHours);
     return result;
   };
 
@@ -169,10 +73,10 @@ export function buildWeatherAIPayload(weather: WeatherData, airQuality?: AirQual
       uvIndex: weather.current.uvIndex,
       condition: getWeatherDescription(weather.current.weatherCode),
     },
-    today: daily[0] ? buildDaySummary(daily[0], todayRainHours) : null,
-    tomorrow: daily[1] ? buildDaySummary(daily[1], tomorrowRainHours) : null,
-    thisWeek: daily.slice(2, 7).map(d => buildDaySummary(d)),
-    extended: daily.slice(7, 16).map(d => buildDaySummary(d)),
+    today: daily[0] ? buildDaySummary(daily[0], true) : null,
+    tomorrow: daily[1] ? buildDaySummary(daily[1], true) : null,
+    thisWeek: daily.slice(2, 7).map(d => buildDaySummary(d, false)),
+    extended: daily.slice(7).map(d => buildDaySummary(d, false)),
   };
 
   if (sharavDays.length > 0) {
@@ -185,14 +89,13 @@ export function buildWeatherAIPayload(weather: WeatherData, airQuality?: AirQual
     }));
   }
 
-  const dustDays = detectDustStorm(airQuality ?? null, weather);
+  const dustDays = detectDustStorm(airQuality ?? null);
   if (dustDays.length > 0) {
     payload.dustStorm = dustDays.map(d => ({
       date: d.date,
       severity: d.severity,
       peakPM10: d.peakPM10,
       peakDust: d.peakDust,
-      ...(d.minVisibility != null && { minVisibility: d.minVisibility }),
     }));
   }
 
@@ -322,7 +225,7 @@ ${culture === 'jewish' ? (language === 'he' ? '- השתמש בגימטריה ל�
 - Use weather emojis naturally throughout
 - Mention UV warnings when UV index ≥ 6
 - Mention wind (direction + speed) only when > 20 km/h
-- Mention rain timing when relevant (use rainHours data if available)
+- Mention rain timing and amount when relevant (rainHours and rainMm, in millimetres). The data has no chance of rain, so never give one as a percentage
 - When sharav data is present in the weather data, warn about it prominently with severity and practical advice (stay hydrated, avoid outdoor exertion, keep windows closed). ${sharavRule}
 - When dustStorm data is present, warn about it prominently with health advice (close windows, avoid outdoor activity, use air purifier if available, N95 mask outdoors). Call it "${terms.dustStorm}", and never add another language's word for it. It can occur in cool, humid weather — it is NOT the same as ${terms.sharav}.
 - Write in flowing paragraphs, NOT bullet lists or one-line-per-day format
@@ -339,7 +242,7 @@ Current conditions, today's and tomorrow's forecast with temperatures, precipita
 Days 3-7 in flowing prose. Group similar days, highlight changes and notable conditions.
 
 <b>${headers.extended}</b>
-2-3 sentences on the general trend for days 8-16. These are rough estimates — use hedging language ("likely", "expected to", "may") and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily numbers.
+2-3 sentences on the general trend for days 8 and 9. These are rough estimates — use hedging language ("likely", "expected to", "may") and focus on general trends (warming/cooling, wet/dry pattern) rather than specific daily numbers.
 
 **Weather Data:**
 ${JSON.stringify(payload, null, 2)}`;
@@ -402,24 +305,18 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
   }
   output += `\n`;
 
-  if (weather.today.precipitationProbability > 0) {
-    output += `🌧️ ${f.rainProbability}: ${weather.today.precipitationProbability}%\n`;
+  if (weather.today.precipitation > 0) {
+    output += `🌧️ ${f.rain}: ${formatRainMm(weather.today.precipitation, language)} ${w.mm}\n`;
   }
-
-  // Rain hours for today
-  if (weather.today.precipitationProbability >= 40 && weather.hourly) {
-    const todayDate = weather.daily?.[0]?.date || instantToWallTime(now, timezone).slice(0, 10);
-    const rainHours = extractRainHours(weather.hourly, todayDate);
-    if (rainHours.length > 0) {
-      output += `⏰ ${f.rainExpected}: ${formatRainHours(rainHours)}\n`;
-    }
+  if (weather.today.rainHours.length > 0) {
+    output += `⏰ ${f.rainExpected}: ${rainHoursForPerson(weather.today.rainHours)}\n`;
   }
 
   // ========== 12-HOUR HOURLY BREAKDOWN ==========
   if (weather.hourly) {
     output += `\n${section(f.next12Hours)}`;
-    // Open-Meteo's hourly times are wall times at the place ('yyyy-MM-ddTHH:mm', asked in the person's zone), so they
-    // compare with the place's own clock, never with a Date parsed in the server's zone
+    // The forecast's times are wall times at the place ('yyyy-MM-ddTHH:mm', in the person's zone), so they compare with
+    // the place's own clock, never with a Date parsed in the server's zone
     const nowAtPlace = instantToWallTime(now, timezone).slice(0, 16);
 
     let hoursShown = 0;
@@ -433,13 +330,13 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
       const temp = Math.round(weather.hourly.temperature[i]);
       const weatherCode = weather.hourly.weatherCode[i];
       const wind = Math.round(weather.hourly.windSpeed[i]);
-      const precip = weather.hourly.precipitation_probability[i];
+      const precip = weather.hourly.precipitation[i];
 
       const timeStr = `${hour.toString().padStart(2, '0')}:00`;
       output += `${timeStr}: ${temp}°C ${getWeatherEmoji(weatherCode)}`;
 
-      if (precip > 30) {
-        output += ` 💧${precip}%`;
+      if (precip > 0) {
+        output += ` 💧${formatRainMm(precip, language)} ${w.mm}`;
       }
 
       if (wind > 20) {
@@ -459,19 +356,11 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
     output += `🌅 ${f.sunrise}: ${formatTime(weather.tomorrow.sunrise)} | 🌇 ${f.sunset}: ${formatTime(weather.tomorrow.sunset)}\n`;
     output += `☀️ ${f.maxUv}: ${weather.tomorrow.uvIndexMax} (${getUVDescription(weather.tomorrow.uvIndexMax, f)})\n`;
 
-    if (weather.tomorrow.precipitationProbability > 0) {
-      output += `🌧️ ${f.rainProbability}: ${weather.tomorrow.precipitationProbability}%\n`;
+    if (weather.tomorrow.precipitation > 0) {
+      output += `🌧️ ${f.rain}: ${formatRainMm(weather.tomorrow.precipitation, language)} ${w.mm}\n`;
     }
-
-    // Rain hours for tomorrow
-    if (weather.tomorrow.precipitationProbability >= 40 && weather.hourly) {
-      const tomorrowDate = weather.daily?.[1]?.date || '';
-      if (tomorrowDate) {
-        const rainHours = extractRainHours(weather.hourly, tomorrowDate);
-        if (rainHours.length > 0) {
-          output += `⏰ ${f.rainExpected}: ${formatRainHours(rainHours)}\n`;
-        }
-      }
+    if (weather.tomorrow.rainHours.length > 0) {
+      output += `⏰ ${f.rainExpected}: ${rainHoursForPerson(weather.tomorrow.rainHours)}\n`;
     }
   }
 
@@ -485,11 +374,11 @@ async function formatWeatherDetailed(weather: WeatherData, language: string, tim
 
       output += `${dayName}: ${day.tempMin}-${day.tempMax}°C ${getWeatherEmoji(day.weatherCode)}`;
 
-      if (day.precipitationProbability > 20) {
-        output += ` 💧${day.precipitationProbability}%`;
+      if (day.precipitation > 0) {
+        output += ` 💧${formatRainMm(day.precipitation, language)} ${w.mm}`;
       }
 
-      if (day.uvIndexMax >= 7) {
+      if (day.uvIndexMax !== null && day.uvIndexMax >= 7) {
         output += ` ☀️${day.uvIndexMax}`;
       }
 

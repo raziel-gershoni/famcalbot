@@ -199,6 +199,8 @@ const deniedFeatures = new Set<string>();
 let pausedIds = new Set<number>();
 /** The person has no calendar, so the scheduled pass sends weather alone. */
 let noCalendars = false;
+/** Whether the forecast has rain today (3 mm, 14:00 to 17:00). */
+let rainyToday = false;
 let scheduled: number[] = [];
 let voiceIntents: Row[] = [];
 let voiceTranscription = '';
@@ -352,7 +354,7 @@ Object.assign(stubs, {
   [`${SRC}/services/week-lookahead.ts`]: { getWeekLookahead: async () => ({ events: [] }), formatTomorrowLookahead: () => '' },
   // The weather pass and the forecast: the data comes from a fixture, the model is down (so the fallback text is what is sent)
   [`${SRC}/services/weather/geocoding.ts`]: (real: Record<string, unknown>) => fakeOver(real, { getTimezone: async () => 'Asia/Jerusalem' }),
-  [`${SRC}/services/weather/open-meteo.ts`]: (real: Record<string, unknown>) => fakeOver(real, { fetchWeather: async () => forecast() }),
+  [`${SRC}/services/weather/forecast.ts`]: (real: Record<string, unknown>) => fakeOver(real, { fetchWeather: async () => forecast() }),
   [`${SRC}/services/weather/air-quality.ts`]: { fetchAirQuality: async () => null },
   [`${SRC}/services/ai-provider.ts`]: (real: Record<string, unknown>) =>
     fakeOver(real, { generateAICompletion: async () => { throw new Error('the model is down (smoke)'); } }),
@@ -491,7 +493,7 @@ async function withLogs<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** English phrases the old code wrote into a Hebrew or Russian person's message. */
-const ENGLISH_WORDS = /Weather for|Current Conditions|Temperature|feels like|Humidity|Sunrise|Sunset|Rain probability|Rain expected|Next 12 Hours|7-Day|Forecast|Tomorrow|Today|\bHigh\b|\bLow\b|Moderate|Breezy|Strong winds|Sunscreen|\bWind\b|Max UV|UV Index|km\/h/;
+const ENGLISH_WORDS = /Weather for|Current Conditions|Temperature|feels like|Humidity|Sunrise|Sunset|Rain probability|Rain expected|Next 12 Hours|7-Day|Forecast|Tomorrow|Today|\bHigh\b|\bLow\b|Moderate|Breezy|Strong winds|Sunscreen|\bWind\b|Max UV|UV Index|km\/h|\bmm\b|no rain/;
 
 /** The forecast of the fixture, with its hours moved to the coming hours so the fallback lists them. */
 function forecast(): Row {
@@ -503,6 +505,7 @@ function forecast(): Row {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`;
   });
   weather.hourly.windSpeed = (weather.hourly.windSpeed as number[]).map(() => 30);
+  if (rainyToday) Object.assign(weather.today as object, { precipitation: 3, rainHours: [{ start: '14:00', end: '17:00', mm: 3 }] });
   return weather;
 }
 
@@ -722,7 +725,7 @@ const WMO_CODES = [0, 1, 2, 3, 45, 48, 51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 7
 
 async function fix4() {
   await check('4: describeWeather: English is the old wording, Hebrew and Russian name every code in their own letters, no two codes alike', async () => {
-    const { describeWeather, getWeatherDescription } = await import('../src/services/weather/open-meteo');
+    const { describeWeather, getWeatherDescription } = await import('../src/services/weather/forecast');
     const { getBotMessages } = await import('../src/lib/bot-messages');
     const t = { en: await getBotMessages('en'), he: await getBotMessages('he'), ru: await getBotMessages('ru') };
     for (const code of WMO_CODES) assertSame(describeWeather(code, t.en), getWeatherDescription(code), `en, code ${code}`);
@@ -778,6 +781,38 @@ async function fix4() {
     const after = result.brief.split(botText('en', 'weatherFallback.next12Hours'))[1] ?? '';
     const firstHour = after.split('\n').find((l) => /^\d\d:00/.test(l));
     assert(firstHour?.startsWith('07:00'), `the first hour is not 07:00: ${firstHour}\n${result.brief}`);
+  });
+
+  await check('4: [bidi] the weather-only message in Hebrew on a rainy day says the rain\'s hours left to right inside the line (14:00–17:00, isolated), with its millimetres in Hebrew', async () => {
+    const { uid, tg } = PEOPLE.he;
+    Object.assign(userRow(uid), { location: 'Beersheba', weatherEnabled: true });
+    noCalendars = true;
+    scheduled = [uid];
+    const mine = () => sentTo('telegram').filter(s => String(s.chatId) === String(tg));
+    const before = mine().length;
+    rainyToday = true;
+    try {
+      const { sendDailySummaryToAll } = await import('../src/services/telegram/summary');
+      await withLogs(() => sendDailySummaryToAll());
+    } finally {
+      rainyToday = false;
+    }
+    const out = mine().slice(before);
+    assert(out.length === 1, `expected one weather message, got ${out.length}`);
+    assert(out[0].text.includes('גשם \u206614:00–17:00\u2069, 3 מ״מ'), `the rain line:\n${out[0].text}`);
+  });
+
+  await check('4: [polar] the fallback forecast for a place where the sun does not rise that day shows a dash for sunrise and sunset, in every language', async () => {
+    const { formatWeatherAI } = await import('../src/services/weather/formatter');
+    for (const lang of LANGS) {
+      const weather = forecast();
+      Object.assign(weather.today as object, { sunrise: '', sunset: '' });
+      Object.assign(weather.tomorrow as object, { sunrise: '', sunset: '' });
+      const result = await withLogs(() => formatWeatherAI(weather as never, lang, 'Dana', 'Europe/Moscow', 'default', false, false, null, new Date()));
+      const rise = `${botText(lang, 'weatherFallback.sunrise')}: —`;
+      const set = `${botText(lang, 'weatherFallback.sunset')}: —`;
+      assert(result.brief.includes(rise) && result.brief.includes(set), `${lang}:\n${result.brief}`);
+    }
   });
 
   await check('4: the infographic reads the conditions from the messages, not from a table of its own', () => {

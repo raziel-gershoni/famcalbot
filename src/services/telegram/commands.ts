@@ -355,20 +355,15 @@ export async function handleWeatherCommand(
     context: `User: ${userId}, Location: ${user.location}`,
     typingType: 'photo',
     operation: async () => {
-      const { fetchWeather } = await import('../weather/open-meteo');
+      const { fetchWeather } = await import('../weather/forecast');
       const { fetchAirQuality } = await import('../weather/air-quality');
-
-      const { TIMEZONE } = await import('../../config/constants');
-      let timezone = TIMEZONE;
-      try {
-        const { getTimezone } = await import('../weather/geocoding');
-        timezone = await getTimezone(user.location);
-      } catch {
-        // Fall back to default timezone
-      }
+      const { getTimezone } = await import('../weather/geocoding');
+      // The place's own zone, for the forecast's hours and dates. No zone (the lookup logged why) is the error reply,
+      // never Israel's clock.
+      const timezone = await getTimezone(user.location);
 
       const [weatherData, airQualityData] = await Promise.all([
-        fetchWeather(user.location),
+        fetchWeather(user.location, timezone),
         fetchAirQuality(user.location, timezone).catch(() => null),
       ]);
 

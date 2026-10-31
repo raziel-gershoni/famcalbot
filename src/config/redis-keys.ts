@@ -75,6 +75,9 @@ export const REDIS_KEYS = {
   storyImage: (userId: number | string) => `story:img:${userId}`,
   storyText: (userId: number | string, msgId: number | string) => `story:text:${userId}:${msgId}`,
 
+  // MET Norway's forecast of a rounded place (2 decimals) with its Expires and Last-Modified (src/services/weather/forecast.ts)
+  metForecast: (lat: string, lon: string) => `weather:met:${lat},${lon}`,
+
   // Kid name detection (interactive follow-up after summary delivery)
   kidNameAsked: (userId: number, name: string) => `kidname:asked:${userId}:${name}`,
   kidNamePending: (pendingId: string) => `kidname:pending:${pendingId}`,

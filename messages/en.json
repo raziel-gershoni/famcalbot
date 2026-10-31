@@ -1186,8 +1186,10 @@
       "tomorrow": "Tomorrow",
       "high": "High",
       "low": "Low",
-      "rain": "rain",
       "windSpeed": "km/h",
+      "mm": "mm",
+      "noRain": "no rain",
+      "rainPhrase": "rain {hours}, {mm} mm",
       "sharav": "Sharav",
       "dustStorm": "Dust Storm",
       "severityMild": "mild",
@@ -1244,7 +1246,7 @@
       "sunscreen": "Sunscreen recommended",
       "sunrise": "Sunrise",
       "sunset": "Sunset",
-      "rainProbability": "Rain probability",
+      "rain": "Rain",
       "rainExpected": "Rain expected"
     },
     "setupReminders": {

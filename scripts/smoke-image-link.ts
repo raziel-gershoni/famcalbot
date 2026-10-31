@@ -13,6 +13,7 @@
 // Run with the fake env from the task brief (no dotenv):
 //   npx tsx scripts/smoke-image-link.ts
 
+import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
@@ -110,6 +111,8 @@ const redisStore = new Map<string, string>();
 const captured: { ctx: string; extra?: Row; message: string }[] = [];
 /** Every weather image build step that ran. */
 const builds: string[] = [];
+/** Whether the zone lookup finds no zone for the place (getTimezone rejects). */
+let zoneFails = false;
 
 const USER = { id: 9, telegramId: 111111111, location: 'Tel Aviv', language: 'en', culture: 'default', name: 'Tal' };
 
@@ -136,9 +139,16 @@ function installStubs() {
     captured.push({ ctx, extra, message: e instanceof Error ? e.message : String(e) });
   };
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
-  stub('src/services/weather/open-meteo.ts', { fetchWeather: async () => { builds.push('fetchWeather'); return {}; } });
-  stub('src/services/weather/air-quality.ts', { fetchAirQuality: async () => { builds.push('fetchAirQuality'); return null; } });
-  stub('src/services/weather/geocoding.ts', { getTimezone: async () => { builds.push('getTimezone'); return 'Asia/Jerusalem'; } });
+  stub('src/services/weather/forecast.ts', { fetchWeather: async (_location: string, zone: string) => { builds.push(`fetchWeather ${zone}`); return {}; } });
+  stub('src/services/weather/air-quality.ts', { fetchAirQuality: async (_location: string, zone: string) => { builds.push(`fetchAirQuality ${zone}`); return null; } });
+  stub('src/services/weather/geocoding.ts', {
+    getTimezone: async () => {
+      builds.push('getTimezone');
+      // The lookup's own failure for a place with no zone (it logged why); the route must not turn it into a zone
+      if (zoneFails) throw new Error('No time zone for the place (the zone lookup logged why)');
+      return 'Europe/Kyiv';
+    },
+  });
   stub('src/services/weather/formatter.ts', { buildInfographicConfig: () => { builds.push('buildInfographicConfig'); return {}; } });
   stub('src/services/weather/infographic.tsx', {
     generateWeatherInfographic: async () => { builds.push('generateWeatherInfographic'); return Buffer.from('built image'); },
@@ -310,6 +320,37 @@ async function main() {
     assert(signed.status === 500, `sign: ${signed.status}`);
     assert(builds.length === 0, `an image was built for a link that can't be signed: ${show(builds)}`);
     assert(signCaptures === 1, `sign's app-key-missing reports: ${signCaptures} (${show(captured)})`);
+  });
+
+  await check('#8 a fresh image asks the forecast and the air in the place\'s own zone (getTimezone\'s), never Israel\'s by default', async () => {
+    resetState();
+    const res = await quiet(() => sign('user_id=9&source=fresh'));
+    assert(res.status === 200, `sign: ${res.status}`);
+    assert(builds.includes('fetchWeather Europe/Kyiv') && builds.includes('fetchAirQuality Europe/Kyiv'), `builds ${show(builds)}`);
+  });
+
+  await check('#9 a place with no zone fails loudly: the route throws (Next answers 500 and reports it to Sentry through instrumentation.ts\'s onRequestError), and builds no image, caches none and signs no link, never falling back to Israel\'s clock', async () => {
+    resetState();
+    redisStore.delete('story:img:9');
+    zoneFails = true;
+    let thrown: unknown;
+    let answered: Response | undefined;
+    try {
+      answered = await quiet(() => sign('user_id=9&source=fresh'));
+    } catch (error) {
+      thrown = error;
+    } finally {
+      zoneFails = false;
+    }
+    assert(answered === undefined, `the route answered ${answered?.status} instead of failing`);
+    assert(thrown instanceof Error && thrown.message.includes('No time zone'), `thrown ${String(thrown)}`);
+    assert(show(builds) === show(['getTimezone']), `builds after the lookup failed: ${show(builds)}`);
+    assert(!redisStore.has('story:img:9'), 'an image was cached');
+    // The throw is what reaches Sentry: Next calls onRequestError for an uncaught route error, and instrumentation.ts hands it to Sentry
+    const instrumentation = fs.readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8');
+    assert(/export const onRequestError = Sentry\.captureRequestError;/.test(instrumentation), 'instrumentation.ts no longer reports request errors to Sentry');
+    const route = fs.readFileSync(path.join(ROOT, 'app/api/weather-image/sign/route.ts'), 'utf8');
+    assert(/const timezone = await getTimezone\(user\.location\);/.test(route) && !/TIMEZONE/.test(route), 'the route no longer takes the zone straight from getTimezone, or names a default zone');
   });
 
   let failed = 0;

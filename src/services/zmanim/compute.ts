@@ -5,6 +5,7 @@
  *
  *   zmanimForDay    every zman of a community's set on a civil day, rounded to the minute as the set says
  *   zmanInstant     a reminder's zman plus an offset (or N halachic hours after sunrise) as one instant
+ *   seaLevelSun     the plain sea-level sunrise and sunset of a day: the forecast's sun times (MET sends none)
  *   restDayBlocks          every run of Shabbat and Yom Tov days, with its eve, its last day and its edges (null where the sun makes none)
  *   shabbatYomTovWindows   when Shabbat and Yom Tov hold, from sunset on the eve to the end of the day: the complete blocks
  *   isYomTovAt             whether a civil day is a Yom Tov at the place (the windows' own test)
@@ -248,6 +249,18 @@ export function exactZmanimForDay(date: string, place: Place, community: ZmanimC
   }
   logMissing(date, place, missing, options);
   return out;
+}
+
+/**
+ * The plain sea-level sunrise and sunset of a civil day at a place: the forecast's sun times (MET sends none). No set
+ * and no height: hebcal's seaLevelSunrise and seaLevelSunset, as Open-Meteo's sunrise and sunset were. Null where the
+ * sun does not rise or set that day.
+ */
+export function seaLevelSun(date: string, place: Pick<Place, 'latitude' | 'longitude' | 'timeZone'>): { sunrise: Date | null; sunset: Date | null } {
+  const sun = new Zmanim(new GeoLocation(null, place.latitude, place.longitude, 0, place.timeZone), hdateOf(date), false);
+  const rise = msOf(sun.seaLevelSunrise());
+  const set = msOf(sun.seaLevelSunset());
+  return { sunrise: rise === null ? null : new Date(rise), sunset: set === null ? null : new Date(set) };
 }
 
 /**
