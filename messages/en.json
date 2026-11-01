@@ -2095,8 +2095,8 @@
           "heading": "Contact",
           "blocks": [
             [
-              "**Email:** {email}. This address works from 1 November 2026.",
-              "**In the bot,** which works today: on Telegram, send /feedback followed by your message. On WhatsApp, send “feedback” followed by your message."
+              "**Email:** {email}.",
+              "**In the bot:** on Telegram, send /feedback followed by your message. On WhatsApp, send “feedback” followed by your message."
             ]
           ]
         }
@@ -2119,7 +2119,7 @@
             [
               "Postal address: {postalAddress}",
               "Phone: {phone}",
-              "Email: {email} (from 1 November 2026)",
+              "Email: {email}",
               "In the Telegram bot: /feedback, and /paysupport for payments."
             ]
           ]
@@ -2223,7 +2223,7 @@
                 "text": "To cancel, tell us in any of these ways:",
                 "items": [
                   "in the Telegram bot, send /paysupport followed by your message;",
-                  "email {email} (from 1 November 2026);",
+                  "email {email};",
                   "write to the postal address above;",
                   "call the phone number above."
                 ]
@@ -2320,8 +2320,8 @@
           "heading": "Contact",
           "blocks": [
             [
-              "**Email:** {email}. This address works from 1 November 2026.",
-              "**In the bot,** which works today: on Telegram, send /feedback followed by your message. For payments, send /paysupport followed by your message. On WhatsApp, send “feedback” followed by your message.",
+              "**Email:** {email}.",
+              "**In the bot:** on Telegram, send /feedback followed by your message. For payments, send /paysupport followed by your message. On WhatsApp, send “feedback” followed by your message.",
               "**By post or phone:** see “Who runs FamCal” above."
             ]
           ]
