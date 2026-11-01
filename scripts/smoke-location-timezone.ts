@@ -632,6 +632,9 @@ async function main() {
     const stats = zones.tileCacheStats();
     assert(stats.stored > zones.TILE_CACHE_MAX, `only ${stats.stored} tiles were read: the bound was never reached`);
     assert(stats.size > 0 && stats.size <= zones.TILE_CACHE_MAX, `${stats.size} tiles kept (max ${zones.TILE_CACHE_MAX})`);
+    // The bound is the 256 MB heap's: the 32 largest decoded tiles measure about 93 MB, so the cache keeps 8 (about 25 MB)
+    assert(zones.TILE_CACHE_MAX <= 8, `TILE_CACHE_MAX is ${zones.TILE_CACHE_MAX}: more than 8 decoded tiles is more of the 256 MB heap than a zone map should hold`);
+    assert(/--max-old-space-size=256/.test(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')), 'the heap cap this bound is sized for is gone: size the bound again');
   });
 
   await check('(u) the zone map\'s data file missing from the image (GEO_TZ_DATA_PATH at an empty folder, in a child process): the lookup answers null and reports an error under location-lookup, never a default zone', () => {
@@ -724,6 +727,42 @@ async function main() {
       delete Module._cache[file];
       Module._cache[file] = stubbed;
     }
+  });
+
+  await check('(y) geocodeLocation\'s console lines (fresh, cached, found nothing, 503, unreachable) say which way it went and the zone or the status, and never the place\'s name or its coordinates: Sentry attaches console lines to later error reports', async () => {
+    const Module = nodeRequire('module');
+    const file = path.join(ROOT, 'src/services/weather/geocoding.ts');
+    const stubbed = Module._cache[file];
+    delete Module._cache[file];
+    const realFetch = globalThis.fetch;
+    const PLACE = 'Arielton Secretville';
+    let answerWith: () => Response = () => json([{ lat: '32.106123', lon: '35.174987' }]);
+    globalThis.fetch = (async () => answerWith()) as typeof fetch;
+    const lines: string[] = [];
+    const saved = { log: console.log, error: console.error, warn: console.warn, info: console.info };
+    const take = (...args: unknown[]) => { lines.push(args.map(a => (a instanceof Error ? `${a.name}: ${a.message}\n${a.stack}` : String(a))).join(' ')); };
+    Object.assign(console, { log: take, error: take, warn: take, info: take });
+    try {
+      const real = nodeRequire(file) as { geocodeLocation: (location: string) => Promise<unknown>; clearGeocodeCache: () => void };
+      real.clearGeocodeCache();
+      await real.geocodeLocation(PLACE); // fresh
+      await real.geocodeLocation(PLACE); // cached
+      for (const how of [() => json([]), () => new Response('busy', { status: 503 }), (): Response => { throw new TypeError('fetch failed'); }]) {
+        answerWith = how;
+        real.clearGeocodeCache();
+        await real.geocodeLocation(PLACE).catch(() => undefined);
+      }
+    } finally {
+      Object.assign(console, saved);
+      globalThis.fetch = realFetch;
+      delete Module._cache[file];
+      Module._cache[file] = stubbed;
+    }
+    const all = lines.join('\n');
+    assert(lines.length >= 7, `the lines: ${show(lines)}`);
+    assert(!/Ariel|Secretville|32\.1|35\.17/i.test(all) && !all.includes(encodeURIComponent(PLACE)), `a console line names the place or its coordinates: ${all}`);
+    assert(lines.some(l => l.startsWith('[geocode] fresh') && l.includes('Asia/Jerusalem')) && lines.some(l => l.startsWith('[geocode] cached') && l.includes('Asia/Jerusalem')), `no fresh and cached lines with the zone: ${show(lines)}`);
+    assert(lines.some(l => l.includes('Nominatim API error: 503')) && lines.some(l => l.includes('Location not found')) && lines.some(l => l.includes('fetch failed')), `the failures do not say why: ${show(lines)}`);
   });
 
   await check('(w) zoneForCoords never trusts or leaks its input: NaN, Infinity and out-of-range coordinates answer null with one fixed warning that holds no coordinate; a throw from the map is reported by its name only, never its message (which can hold the coordinate)', () => {

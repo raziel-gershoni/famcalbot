@@ -114,6 +114,15 @@ check('the credits are shown where weather is drawn: the infographic (the /weath
   assert(['WorldDEM™-90', 'GeoNames', 'scripts/fixtures/met-tel-aviv.json', 'scripts/fixtures/cams-tel-aviv.json'].every(w => notice.includes(w)), 'NOTICE lost a data source');
 });
 
+check('no console line of the app interpolates a place or its coordinates (Sentry attaches console lines to later error reports): the user id, the zone, a flag or the status say what happened', () => {
+  // A coordinate word anywhere in an interpolation, or an interpolation that ends in a place word (${location}, ${user.location}: not ${place.timeZone})
+  const PLACE_IN_LINE = /console\.(?:log|info|warn|error|debug)\([^\n]*(?:\$\{[^}\n]*\b(?:latitude|longitude|lat|lon|lng)\b[^}\n]*\}|\$\{\s*(?:[\w$]+\.)*(?:location|place|city|town|centre)\s*\})/i;
+  for (const probe of ['console.log(`Geocoded "${location}" to ${latitude}`)', 'console.warn(`[x] at ${place.latitude.toFixed(3)}`)', 'console.error(`failed for ${user.location}`, e)']) assert(PLACE_IN_LINE.test(probe), `the scanner misses ${probe}`);
+  for (const fine of ['console.log(`[geocode] fresh place found, zone ${timezone}`)', 'console.log(`user ${user.id} has a place name`)', 'console.warn(`[zmanim] no ${keys} in ${place.timeZone}`)']) assert(!PLACE_IN_LINE.test(fine), `the scanner flags ${fine}`);
+  const hits = CODE_FILES.flatMap(f => read(f).split('\n').map((line, i) => (PLACE_IN_LINE.test(line) ? `${f}:${i + 1}` : '')).filter(Boolean));
+  assert(hits.length === 0, `console lines with a place or coordinates: ${show(hits)}`);
+});
+
 let failed = 0;
 for (const r of results) {
   console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

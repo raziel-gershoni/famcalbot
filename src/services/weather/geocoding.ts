@@ -48,11 +48,12 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
   // Check cache first
   const cached = geocodeCache.get(location);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log(`Using cached location for "${location}"`);
+    // The place (its name, its coordinates) never goes into a console line: Sentry attaches console lines to later error reports
+    console.log(`[geocode] cached place, zone ${cached.location.timezone}`);
     return cached.location;
   }
 
-  console.log(`Geocoding location: "${location}"`);
+  console.log('[geocode] fresh lookup');
 
   try {
     // Nominatim API (OpenStreetMap)
@@ -73,7 +74,7 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
     const results = await response.json() as Array<{ lat: string; lon: string }>;
 
     if (!results || results.length === 0) {
-      throw new Error(`Location not found: "${location}"`);
+      throw new Error('Location not found');
     }
 
     const latitude = parseFloat(results[0].lat);
@@ -87,12 +88,12 @@ export async function geocodeLocation(location: string): Promise<GeoLocation> {
     // Cache the result, unless it has no zone: the next call asks again (and logs why) instead of repeating the gap for a day
     if (timezone !== null) geocodeCache.set(location, { location: geoLocation, timestamp: Date.now() });
 
-    console.log(`Geocoded "${location}" to ${latitude}, ${longitude} (${timezone})`);
+    console.log(`[geocode] fresh place found, zone ${timezone}`);
 
     return geoLocation;
   } catch (error) {
-    console.error(`Geocoding failed for "${location}":`, error);
-    // The place is the person's free text: it stays in the console line above and out of the error, which callers report to Sentry
+    // The place is the person's free text: it is in no console line and no error (callers report the error to Sentry); the status or the error's name says why
+    console.error('[geocode] lookup failed:', error);
     throw new Error('Could not geocode the location (the lookup logged why)');
   }
 }

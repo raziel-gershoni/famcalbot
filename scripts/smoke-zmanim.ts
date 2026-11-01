@@ -856,7 +856,7 @@ async function runChecks(): Promise<void> {
     assertSame(place.elevationGrid(centre, [40, 41, 10, 11]), [centre], 'a box that does not hold the centre gives just the centre');
   });
 
-  await check('a saved location: one Nominatim request (3 s, no retry), the zone from our map, the height from the stored map: the HIGHEST of the 25 points is stored once, the zone is cached, and the centre and the maximum are logged', async () => {
+  await check('a saved location: one Nominatim request (3 s, no retry), the zone from our map, the height from the stored map: the HIGHEST of the 25 points is stored once, the zone is cached, and the zone and the maximum are logged (not the centre: Sentry attaches console lines to later error reports)', async () => {
     resetWorld();
     userRow(7, 'Harish, Israel');
     const out = await logged(() => place.saveUserPlace(7, 'Harish, Israel'));
@@ -866,7 +866,8 @@ async function runChecks(): Promise<void> {
     assertSame(writes.map(w => w.data), [{ latitude: 32.46182, longitude: 35.04555, elevationM: 290 }], 'one write of the coordinates and the maximum');
     assertSame(writes[0].where, { id: 7, location: 'Harish, Israel' }, 'compare and set on the location');
     assertSame(redisSets, [{ key: 'tz:user:7', value: 'Asia/Jerusalem', opts: { ex: 86400 } }], 'the zone is cached for 24 h');
-    assert(out.lines.some(l => l.startsWith('[zmanim]') && l.includes('user 7') && l.includes('32.4618,35.0455') && l.includes('290 m')), `logged centre and maximum: ${show(out.lines)}`);
+    assert(out.lines.some(l => l.startsWith('[zmanim]') && l.includes('user 7') && l.includes('zone Asia/Jerusalem') && l.includes('290 m')), `logged zone and maximum: ${show(out.lines)}`);
+    assert(out.lines.every(l => !/32\.46|35\.04/.test(l)), `a console line holds the centre: ${show(out.lines)}`);
     assert(!out.lines.some(l => l.includes('Harish')), 'the place\'s name is never logged');
     assert(nCaptured() === 0, `captured ${show(captured)}`);
   });
@@ -1055,6 +1056,9 @@ async function runChecks(): Promise<void> {
     userRow(92, 'Out at sea');
     const out = await logged(() => place.saveUserPlace(92, 'Out at sea'));
     assert(out.lines.some(l => l.startsWith('[zmanim] place saved for user 92') && l.includes('not read (no Israeli zone)')), `logged: ${show(out.lines)}`);
+    // No place and no coordinate in the line (Sentry attaches console lines to later error reports): the user id and the zone say enough
+    const savedLine = out.lines.find(l => l.startsWith('[zmanim] place saved for user 92'))!;
+    assert(!/33(\.0+)?[,\s]|34\.5|centre|Out at sea/.test(savedLine) && /zone (none|[A-Z][A-Za-z_]+\/[A-Za-z_]+)/.test(savedLine), `the place-saved line: ${savedLine}`);
   });
 
   await check('getUserPlace gives a Place with no height at once for a row in Israel that lacks it and looks the height up in the background; the pause\'s windows and the clock then read it', async () => {

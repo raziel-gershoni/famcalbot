@@ -106,7 +106,7 @@ export async function saveUserPlace(userId: number, location: string): Promise<S
     console.warn(`[zmanim] the location of user ${userId} changed while it was saved: nothing saved`);
     return null;
   }
-  console.log(`[zmanim] place saved for user ${userId}: centre ${resolved.latitude.toFixed(4)},${resolved.longitude.toFixed(4)}, highest ground ${israeli ? `${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)` : 'not read (no Israeli zone)'}`);
+  console.log(`[zmanim] place saved for user ${userId}: zone ${resolved.timezone ?? 'none'}, highest ground ${israeli ? `${elevationM === null ? 'unknown' : `${elevationM} m`} over ${points.length} point(s)` : 'not read (no Israeli zone)'}`);
   // Every zman time counted from this place has moved: the due gate holds the earliest due time of the old one for up to
   // an hour, so a reminder whose new time is earlier would wait for it.
   invalidateDueGate();

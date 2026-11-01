@@ -35,7 +35,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 - **Hourly detail**: hourly for about 2.5 days, then every 6 hours.
 - **"Today"** covers the hours left in the day, because MET sends no past hours: today's high, low and rain are those of the rest of the day.
 - **UV** is the clear-sky value, so it reads high on cloudy days. It is blank for the days past about 2.5 days (days 4 to 9), where MET gives none.
-- **Dust alerts**: they look about 4.5 days ahead instead of 7. "Visibility under 1 km makes it severe" goes, because MET gives no visibility. The dust level alone sets the severity.
+- **Dust alerts**: they look about 5 days ahead instead of 7 (cams_global's 120 hours). "Visibility under 1 km makes it severe" goes, because MET gives no visibility. The dust level alone sets the severity.
 - **New credit lines** (decision 3).
 
 **Fixed along the way:**
@@ -72,7 +72,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 ## 4. Rulings I made (any can be undone)
 
 - **West Bank zones.** The zone library returns two zones for Israeli towns over the Green Line (Ariel, Ma'ale Adumim: Jerusalem, then Hebron), because its map has overlapping areas. Rule: if Asia/Jerusalem is among the answers, use it; otherwise use the first. Hebron, Ramallah and Gaza keep their own zones.
-- **Height map in full detail:** 5.2 MB in the repo, giving the same answers as today. A coarser 0.76 MB file reads about 12 m high on average, which is about 2 s of sunset.
+- **Height map in full detail:** 4.9 MB in the repo, giving the same answers as today. A coarser 0.76 MB file reads about 12 m high on average, which is about 2 s of sunset.
 - **Rounding for MET:** coordinates rounded to 2 decimals (about 1 km; MET's model grid is about 9 km). The cache keys on the rounded point.
 - **Sunrise and sunset** come from our own hebcal code, not another call.
 - **Daily values** (highs, lows, max wind, main direction, mean humidity, the day's condition) are summed up in the place's own zone.
@@ -92,6 +92,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
   - at most 4 decimals (we send 2);
   - no request before the `Expires` header;
   - `If-Modified-Since` on a refetch, held in one Redis key per rounded place.
+  - one request at a time per rounded place: users of one town whose stored answer has expired, arriving together, share it (a promise per key; a failure is never kept). MET asks that requests not all start on the hour; the hourly summary batches do start at :00, but each user's request happens inside a 4-wide pool, which is accepted as a small, natural spread.
 - **Failure:**
   - no artificial timeout;
   - 429, 5xx and network errors retried with backoff, honouring `Retry-After`;
@@ -130,7 +131,7 @@ Research reports (scratch, not committed): the call inventory, weather, air qual
 
 **Attribution:**
 - The site's Sources (the zmanim pages) keep crediting OpenStreetMap for the town outlines only. They once said "and time zones", which the lawyer's opinion of 2026-11-01 took back: those pages take their zones from GeoNames and the Israel rule, not from geo-tz. The bot's time zones are credited in the site footer.
-- The credit lines of decision 3 go in all three languages, in messages. After the same opinion, the in-product line reads "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)" (the owner's choice of option A; Open-Meteo.com is linked in the text reply), and the footer line says the dust comes "in files from Open-Meteo.com" (it no longer says "Weather data by Open-Meteo.com", which credited Open-Meteo for the weather).
+- The credit lines of decision 3 go in all three languages, in messages. After the same opinion, the in-product line reads "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)" (the controller's ruling T5-f after the lawyer's O1, a compliance refinement on top of the owner-approved line and revertible on the owner's word; Open-Meteo.com is linked in the text reply), and the footer line says the dust comes "in files from Open-Meteo.com" (it no longer says "Weather data by Open-Meteo.com", which credited Open-Meteo for the weather).
 - The height notice on the zmanim pages is the Copernicus WorldDEM™-90 notice for adapted data with its liability sentence; the repo's `NOTICE` file carries the licences of the data it holds (the height map, the city table, two recorded fixtures).
 
 ## 6. Tests

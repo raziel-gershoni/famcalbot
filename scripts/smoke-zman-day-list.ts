@@ -367,6 +367,8 @@ async function runChecks(): Promise<void> {
     assertSame(bot.value, page.value, 'the same list');
     assert(processMemo().size > 0, 'the process path remembers');
     assert(bot.lines.some(l => l.startsWith('[zmanim] no ALOT')), `the process path logs: ${show(bot.lines)}`);
+    // The line names the zone and holds no coordinate (Sentry attaches console lines to later error reports)
+    assert(bot.lines.every(l => !/-?\d+\.\d{2,}/.test(l)) && bot.lines.some(l => l.includes('Europe/London')), `the log line has a coordinate or no zone: ${show(bot.lines)}`);
     dayList.__resetZmanClockForTests();
     assert(processMemo().size === 0, 'reset');
   });

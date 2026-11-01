@@ -364,9 +364,26 @@ function redisFailure(step: string, error: unknown): Error {
   return new Error(`Redis ${step} failed: ${error instanceof Error ? error.name : typeof error}`);
 }
 
-/** MET's answer for a rounded place: the stored one while it is fresh, else asked again (If-Modified-Since when one is stored). */
-async function metForecast(lat: string, lon: string): Promise<MetForecast> {
+/**
+ * The requests running now, one per rounded place, on globalThis (Next 16 gives the scheduler and the routes separate
+ * module instances): users of one town whose stored answer has expired, arriving together (a summary batch runs four at a
+ * time, the hourly batches start together), share one request, as MET's terms ask. A flight is forgotten when it settles:
+ * the answer lives in Redis, a failure is never kept.
+ */
+const metFlights = ((globalThis as { __famcalMetFlights?: Map<string, Promise<MetForecast>> }).__famcalMetFlights ??= new Map<string, Promise<MetForecast>>());
+
+/** MET's answer for a rounded place: the stored one while it is fresh, else asked again (If-Modified-Since when one is stored), once at a time. */
+function metForecast(lat: string, lon: string): Promise<MetForecast> {
   const key = REDIS_KEYS.metForecast(lat, lon);
+  let flight = metFlights.get(key);
+  if (!flight) {
+    flight = askMet(lat, lon, key).finally(() => metFlights.delete(key));
+    metFlights.set(key, flight);
+  }
+  return flight;
+}
+
+async function askMet(lat: string, lon: string, key: string): Promise<MetForecast> {
   let cached: CachedForecast | null = null;
   try {
     cached = await redis.get<CachedForecast>(key);
@@ -379,6 +396,9 @@ async function metForecast(lat: string, lon: string): Promise<MetForecast> {
   const headers: Record<string, string> = { 'User-Agent': MET_USER_AGENT };
   if (cached?.lastModified) headers['If-Modified-Since'] = cached.lastModified;
   const response = await metRequest(`${MET_URL}?lat=${lat}&lon=${lon}`, headers);
+  // 203: "the version you use is deprecated or in beta, and should not be used in production". It still answers, so it is
+  // read as a success, and the warning (once per process) is the signal that the endpoint is going away.
+  if (response.status === 203) warnOncePerProcess(DEPRECATED_WARNING);
   const expiresAt = expiresOf(response, now);
   let fresh: CachedForecast;
   if (response.status === 304) {
@@ -396,6 +416,9 @@ async function metForecast(lat: string, lon: string): Promise<MetForecast> {
   }
   return fresh.body;
 }
+
+/** What MET's 203 means for this endpoint (api.met.no/doc/StatusCodes). */
+const DEPRECATED_WARNING = 'MET says Locationforecast 2.0 complete is deprecated (203)';
 
 const warned = ((globalThis as { __famcalMetWarned?: Set<string> }).__famcalMetWarned ??= new Set<string>());
 /** Tests only: forgets which warnings were sent. */

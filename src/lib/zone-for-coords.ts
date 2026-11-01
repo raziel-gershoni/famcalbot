@@ -9,7 +9,7 @@
  * - Coordinates that are not numbers in range, the open sea (Etc/GMT±n) and a lookup that throws (the data file missing
  *   from the image): each is logged under location-lookup and answers null, never a default zone. No coordinates and no
  *   thrown message in a log.
- * - geo-tz caches the map tiles it reads; the cache holds at most TILE_CACHE_MAX of them (the server has 1 GB).
+ * - geo-tz caches the map tiles it reads; the cache holds at most TILE_CACHE_MAX of them (bounded by the 256 MB heap, see there).
  *
  * Its own leaf module: geocoding.ts and timezone.ts both use it, and timezone.ts imports geocoding.ts (timezone.ts
  * re-exports it). Server only (it reads its data from disk): never in a 'use client' file, the proxy or the edge.
@@ -21,8 +21,14 @@ import { find, setCache } from 'geo-tz';
 import { LRUCache } from 'lru-cache';
 import { captureError, captureWarning } from './error-capture';
 
-/** The most zone-map tiles kept in memory at once: FamCal's places fall in a handful of them. */
-export const TILE_CACHE_MAX = 32;
+/**
+ * The most zone-map tiles kept in memory at once. A decoded tile is a JS object in the V8 heap, and the app's heap is
+ * capped at 256 MB (`--max-old-space-size=256`, package.json "start"): measured on the 1970 data set, the 32 largest tiles
+ * take about 93 MB, the three Israeli ones about 1.2 MB. FamCal's places fall in a handful of tiles and Israel's three are
+ * read at once, so 8 hold the people in practice and, even if all 8 were large ones, stay near 25 MB (a tenth of the heap);
+ * a place whose tile was dropped is read from disk again.
+ */
+export const TILE_CACHE_MAX = 8;
 
 const tiles = new LRUCache<string, object>({ max: TILE_CACHE_MAX });
 let stored = 0;

@@ -120,6 +120,7 @@ function installStubs(): void {
     // 'Nowhere' is a lookup that fails the way the real one's used to: with an error that names the place
     geocodeLocation: async (location: string) => {
       if (location === 'Nowhere') throw new Error('Could not geocode location: Nowhere');
+      if (location === 'Haifa') return { latitude: 32.794, longitude: 34.9896, timezone: 'Asia/Jerusalem' };
       return { latitude: 32.0853, longitude: 34.7818, timezone: 'Asia/Jerusalem' };
     },
   });
@@ -163,6 +164,8 @@ async function main(): Promise<void> {
   met.__useMetForTests({ now: () => clock });
   retry.__useRetryForTests({ now: () => clock, sleep: async (ms: number) => { waits.push(ms); }, random: () => 0.5 });
   const ask = (location = 'Tel Aviv') => quiet(() => met.fetchWeather(location, 'Asia/Jerusalem'));
+  /** Several callers at once, under one quiet() (two overlapping ones would restore each other's console). */
+  const askTogether = (locations: string[]) => quiet(() => Promise.allSettled(locations.map(location => met.fetchWeather(location, 'Asia/Jerusalem'))));
   const warnings: string[] = [];
   const map = (forecast: unknown, timezone = 'Asia/Jerusalem', now = new Date(clock)) =>
     met.mapMetForecast({ location: 'Tel Aviv', forecast: forecast as never, timezone, now, sun: met.sunFor(32.0853, 34.7818, timezone), warn: m => warnings.push(m) });
@@ -327,6 +330,47 @@ async function main(): Promise<void> {
     clock += 2 * 60_000;
     await ask();
     assert(nRequests() === 2, `not asked after 31 minutes: ${nRequests()} requests`);
+  });
+
+  await check('users of one rounded place asking together share one MET request (one Redis write), another place is its own request, and a failure is shared by the callers but never kept: the next ask makes a new request', async () => {
+    reset();
+    // Three callers, two spellings of the same town (one rounded place), and a different town: two requests, three answers
+    answer = () => metOk(MET_TLV);
+    const answers = await askTogether(['Tel Aviv', 'Tel Aviv, Israel', 'Tel Aviv', 'Haifa']);
+    assert(nRequests() === 2 && answers.length === 4 && answers.every(a => a.status === 'fulfilled'), `${nRequests()} requests for two rounded places, ${show(answers.map(a => a.status))}`);
+    const asked = requests.map(r => new URL(r.url).searchParams.get('lat')).sort();
+    assert(show(asked) === show(['32.09', '32.79']), `the places asked: ${show(asked)}`);
+    assert(show([...redisStore.keys()].sort()) === show(['weather:met:32.09,34.78', 'weather:met:32.79,34.99']), `keys ${show([...redisStore.keys()])}`);
+    // A failure: both callers are told, and the flight is gone
+    reset();
+    answer = () => new Response('no', { status: 403 });
+    const failed = await askTogether(['Tel Aviv', 'Tel Aviv']);
+    assert(failed.every(r => r.status === 'rejected') && nRequests() === 1, `${show(failed.map(r => r.status))}, ${nRequests()} requests`);
+    answer = () => metOk(MET_TLV);
+    assert((await ask()).daily!.length === 9 && nRequests() === 2, `the failure was kept: ${nRequests()} requests`);
+    // The flights are on globalThis and empty once everything has settled
+    assert((globalThis as { __famcalMetFlights?: Map<string, unknown> }).__famcalMetFlights?.size === 0, 'a flight is left over');
+  });
+
+  await check('MET\'s 203 ("this version is deprecated") is a success: the forecast comes and is kept, and one Sentry warning is sent per process however many answers say it', async () => {
+    reset();
+    met.__forgetMetWarningsForTests();
+    answer = () => new Response(JSON.stringify(MET_TLV), { status: 203, headers: { 'content-type': 'application/json', expires: 'Sat, 31 Oct 2026 18:00:00 GMT', 'last-modified': LAST_MODIFIED } });
+    const first = await ask();
+    assert(first.daily!.length === 9 && nRequests() === 1 && redisStore.size === 1, `${first.daily?.length} days, ${nRequests()} requests, ${redisStore.size} stored`);
+    clock += 61 * 60_000;
+    await ask('Haifa');
+    clock += 61 * 60_000;
+    await ask();
+    assert(nRequests() === 3, `${nRequests()} requests`);
+    const sent = captured.filter(c => c.kind === 'warning' && c.message.includes('(203)'));
+    assert(sent.length === 1 && nCaptured() === 1 && sent[0].message === 'MET says Locationforecast 2.0 complete is deprecated (203)' && !/Tel Aviv|32\.0|34\.7/.test(`${sent[0].message}${sent[0].extra}`), `captured ${show(captured)}`);
+    // A plain 200 says nothing
+    reset();
+    met.__forgetMetWarningsForTests();
+    answer = () => metOk(MET_TLV);
+    await ask();
+    assert(nCaptured() === 0, `a 200 was reported: ${show(captured)}`);
   });
 
   await check('a 304 when nothing is stored (it cannot answer a request with no If-Modified-Since): fetchWeather throws, stores nothing, and does not ask twice', async () => {

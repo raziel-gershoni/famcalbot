@@ -2,7 +2,9 @@
  * Air quality for the dust alerts: Copernicus CAMS dust and pm10 from Open-Meteo's public open data on S3 (CC BY 4.0,
  * https://github.com/open-meteo/open-data): the same hourly series Open-Meteo's API serves, with its default "auto"
  * domains: cams_europe (0.1°) inside its grid for its hours (about 4 days), cams_global (0.4°) elsewhere and after, no
- * cross-fade. About 5 days ahead. No user data leaves the server: the files are public and the cell is found here.
+ * cross-fade. About 5 days ahead. No identifier and no coordinates leave the server: the files are public and the cell is
+ * found here. What S3 sees is which block of a file is read: one grid cell, about 11 km in the European 0.1° grid that
+ * covers most of Israel (north of about 30 N) and about 44 km in the global 0.4° one, shared by everyone in it and cached per run.
  * Spec 2026-10-31-open-meteo-replacement §5; the dust spike's rulings R1-R8; plan Task 4.
  *
  * - The rolling layout data/<model>/<variable>/chunk_N.om, hourly, overwritten in place at each run.

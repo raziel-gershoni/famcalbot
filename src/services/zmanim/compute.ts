@@ -94,7 +94,7 @@ function roundToMinute(exact: Date, round: Round): Date {
 /** Where the zman could not be found: one log line a call, never one per zman, and none for a quiet caller. */
 function logMissing(day: string, place: Place, keys: string[], options: ZmanOptions = {}): void {
   if (keys.length === 0 || options.quiet) return;
-  console.warn(`[zmanim] no ${keys.join(', ')} on ${day} at ${place.latitude.toFixed(3)},${place.longitude.toFixed(3)} (the sun does not reach it that day): skipped`);
+  console.warn(`[zmanim] no ${keys.join(', ')} on ${day} in ${place.timeZone} (the sun does not reach it that day): skipped`);
 }
 
 /**
