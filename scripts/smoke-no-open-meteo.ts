@@ -114,13 +114,130 @@ check('the credits are shown where weather is drawn: the infographic (the /weath
   assert(['WorldDEM™-90', 'GeoNames', 'scripts/fixtures/met-tel-aviv.json', 'scripts/fixtures/cams-tel-aviv.json'].every(w => notice.includes(w)), 'NOTICE lost a data source');
 });
 
-check('no console line of the app interpolates a place or its coordinates (Sentry attaches console lines to later error reports): the user id, the zone, a flag or the status say what happened', () => {
-  // A coordinate word anywhere in an interpolation, or an interpolation that ends in a place word (${location}, ${user.location}: not ${place.timeZone})
-  const PLACE_IN_LINE = /console\.(?:log|info|warn|error|debug)\([^\n]*(?:\$\{[^}\n]*\b(?:latitude|longitude|lat|lon|lng)\b[^}\n]*\}|\$\{\s*(?:[\w$]+\.)*(?:location|place|city|town|centre)\s*\})/i;
-  for (const probe of ['console.log(`Geocoded "${location}" to ${latitude}`)', 'console.warn(`[x] at ${place.latitude.toFixed(3)}`)', 'console.error(`failed for ${user.location}`, e)']) assert(PLACE_IN_LINE.test(probe), `the scanner misses ${probe}`);
-  for (const fine of ['console.log(`[geocode] fresh place found, zone ${timezone}`)', 'console.log(`user ${user.id} has a place name`)', 'console.warn(`[zmanim] no ${keys} in ${place.timeZone}`)']) assert(!PLACE_IN_LINE.test(fine), `the scanner flags ${fine}`);
-  const hits = CODE_FILES.flatMap(f => read(f).split('\n').map((line, i) => (PLACE_IN_LINE.test(line) ? `${f}:${i + 1}` : '')).filter(Boolean));
-  assert(hits.length === 0, `console lines with a place or coordinates: ${show(hits)}`);
+check('no console call of the app holds a place or its coordinates, in a template, an object or an argument (Sentry attaches console lines to later error reports): the user id, the zone, a flag or the status say what happened', () => {
+  /**
+   * The text with comments dropped and the words of strings and templates blanked, newlines kept (so a line number stays
+   * true); a template's ${...} expressions stay, read the same way. A quote ends at its line (a stray one in a regex cannot
+   * swallow the file); a template is read to its closing backtick.
+   */
+  const mask = (text: string): string => {
+    let out = '';
+    const template = (from: number): number => {
+      // text[from - 1] is the opening backtick; returns the index after the closing one, writing the ${} expressions only
+      let i = from;
+      out += '`';
+      while (i < text.length && text[i] !== '`') {
+        if (text[i] === '\\') i += 2;
+        else if (text[i] === '$' && text[i + 1] === '{') {
+          out += '${';
+          i = code(i + 2, true);
+          out += '}';
+        } else {
+          if (text[i] === '\n') out += '\n';
+          i++;
+        }
+      }
+      out += '`';
+      return i + 1;
+    };
+    // Writes the code from `from` to the end of the text, or to the } that closes a ${ (when `inTemplate`); returns where it stopped
+    const code = (from: number, inTemplate: boolean): number => {
+      let i = from;
+      let braces = 0;
+      while (i < text.length) {
+        const c = text[i];
+        if (c === '/' && text[i + 1] === '/') {
+          while (i < text.length && text[i] !== '\n') i++;
+        } else if (c === '/' && text[i + 1] === '*') {
+          const close = text.indexOf('*/', i + 2);
+          const stop = close < 0 ? text.length : close + 2;
+          out += text.slice(i, stop).replace(/[^\n]/g, '');
+          i = stop;
+        } else if (c === '`') i = template(i + 1);
+        else if (c === "'" || c === '"') {
+          i++;
+          while (i < text.length && text[i] !== c && text[i] !== '\n') i += text[i] === '\\' ? 2 : 1;
+          out += `${c}${c}`;
+          i++;
+        } else {
+          if (inTemplate && c === '{') braces++;
+          if (inTemplate && c === '}') {
+            if (braces === 0) return i + 1;
+            braces--;
+          }
+          out += c;
+          i++;
+        }
+      }
+      return i;
+    };
+    code(0, false);
+    return out;
+  };
+  /** The index just after the parenthesis that closes the one at `open`, in masked text. */
+  const closing = (text: string, open: number): number => {
+    let depth = 0;
+    for (let i = open; i < text.length; i++) {
+      if (text[i] === '(') depth++;
+      else if (text[i] === ')' && --depth === 0) return i + 1;
+    }
+    return -1;
+  };
+  const COORDINATE = new Set(['latitude', 'longitude', 'lat', 'lon', 'lng']);
+  const PLACE = new Set(['location', 'place', 'city', 'town', 'centre', 'center']);
+  /** Where the console calls of a text hold a coordinate word (as a key, a property, a value or inside a ${}) or a place word that is itself the value (not `place.timeZone`, not `location.length`). */
+  const placesInConsole = (text: string): string[] => {
+    const masked = mask(text);
+    const found: string[] = [];
+    for (const m of masked.matchAll(/\bconsole\s*\.\s*(?:log|info|warn|error|debug)\s*\(/g)) {
+      const open = m.index! + m[0].length - 1;
+      const end = closing(masked, open);
+      if (end < 0) continue;
+      const call = masked.slice(open, end);
+      const line = masked.slice(0, m.index).split('\n').length;
+      for (const word of call.matchAll(/[A-Za-z_$][\w$]*/g)) {
+        const after = call.slice(word.index! + word[0].length).trimStart();
+        const holdsPlace = COORDINATE.has(word[0]) || (PLACE.has(word[0]) && !(after.startsWith('.') && !after.startsWith('...')));
+        if (holdsPlace) {
+          found.push(`line ${line}: ${word[0]}`);
+          break;
+        }
+      }
+    }
+    return found;
+  };
+  // The scanner finds each shape: a template, an object (key, shorthand, value), a bare argument, a call over several lines, coordinates
+  for (const probe of [
+    "console.log('[Infographic] Generating with satori+resvg:', {\n    location: config.weather.location,\n    language: config.language,\n  });",
+    'console.log(`Geocoded "${location}" to ${latitude}`)',
+    'console.warn(`[x] at ${place.latitude.toFixed(3)}`)',
+    'console.error(`failed for ${user.location}`, e)',
+    "console.log('x', { location, language })",
+    "console.info('x', location)",
+    "console.log(\n  'a',\n  { lat: a, lon: b },\n)",
+    'console.log(`line one\n  ${\n  city\n  }`)',
+    "console.warn('x', { place: p })",
+  ]) assert(placesInConsole(probe).length === 1, `the scanner misses ${show(probe)}`);
+  // and lets the right ones be: ids, zones, flags, a place word in a string, the place's zone, a length, other calls
+  for (const fine of [
+    'console.log(`[geocode] fresh place found, zone ${timezone}`)',
+    'console.log(`user ${user.id} has a place name`)',
+    'console.warn(`[zmanim] no ${keys} in ${place.timeZone}`)',
+    "console.log('[Infographic] Generating with satori+resvg:', { language: config.language })",
+    "console.warn('the location of user', userId, 'changed')",
+    'console.log(`${location.length} characters`)',
+    "console.log('(', x, ')') // location",
+    "/* console.log(location) */ console.log('x')",
+    'const place = 1; foo(place)',
+  ]) assert(placesInConsole(fine).length === 0, `the scanner flags ${show(fine)}: ${show(placesInConsole(fine))}`);
+  let calls = 0;
+  const hits = CODE_FILES.flatMap(f => {
+    const text = read(f);
+    calls += (mask(text).match(/\bconsole\s*\.\s*(?:log|info|warn|error|debug)\s*\(/g) ?? []).length;
+    return placesInConsole(text).map(h => `${f}:${h}`);
+  });
+  assert(calls > 300, `the scanner read only ${calls} console calls: it is broken`);
+  assert(hits.length === 0, `console calls with a place or coordinates: ${show(hits)}`);
 });
 
 let failed = 0;

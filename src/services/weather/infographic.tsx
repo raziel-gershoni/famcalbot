@@ -558,9 +558,11 @@ export function buildInfographicJsx(
 export async function generateWeatherInfographic(config: InfographicConfig): Promise<Buffer | null> {
   const startMs = Date.now();
 
+  // Never the place: Sentry attaches console lines to later error reports (the zone, the language and the size say enough)
   console.log('[Infographic] Generating with satori+resvg:', {
-    location: config.weather.location,
     language: config.language,
+    timezone: config.timezone,
+    days: config.weather.daily?.length ?? 0,
   });
 
   try {
