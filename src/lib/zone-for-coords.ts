@@ -1,8 +1,7 @@
 /**
  * A place's IANA time zone from its coordinates, on our own server: geo-tz (MIT) over timezone-boundary-builder's map
  * (© OpenStreetMap contributors, ODbL), its default "1970" data set (the "now" set calls Ariel Asia/Gaza and Kyiv
- * Europe/Athens). No network. Spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md §5 (time zone);
- * plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 1.
+ * Europe/Athens). No network. Spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md §5 (time zone).
  *
  * - The map overlaps over the Green Line: Ariel and Ma'ale Adumim get Jerusalem, then Hebron. pickZone: Asia/Jerusalem
  *   when it is among the answers, else the first. Hebron, Ramallah and Gaza keep their own zones.

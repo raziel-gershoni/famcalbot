@@ -1,5 +1,5 @@
-// Smoke test for the shared retry loop (src/utils/fetch-retry.ts; plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md,
-// Task 3, ruling T3-b): the one place that retries a call to a third party (MET Norway's forecast, Copernicus's dust files)
+// Smoke test for the shared retry loop (src/utils/fetch-retry.ts; spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md,
+// one code path for non-Google retries): the one place that retries a call to a third party (MET Norway's forecast, Copernicus's dust files)
 // with backoff. Checked here: the loop (counts, waits, the server's ask, the give-up, the hooks), and fetch on top of it
 // (429, 5xx and no answer retried; Retry-After in seconds and as a date; one over the cap, 403 and 404 not retried; the
 // accepted extra statuses; no signal of our own on the request). Faked: fetch, the waits, the jitter and the clock (the

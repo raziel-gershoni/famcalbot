@@ -1,6 +1,6 @@
 // The Israel height map's file layout (data/israel-heights-3s.i16.br): written once by scripts/build-israel-heights.ts,
 // read by heights.ts. Pure (node:buffer only), so the script, the loader and the smoke share one encoder and decoder.
-// Plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 2.
+// Spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md §5 (height).
 //
 // The file is brotli over: a 36-byte header, then rows x cols heights in whole metres (int16, little-endian), row by
 // row from the north-west corner, each row stored as its difference from the row above (wrapping at 16 bits; the first

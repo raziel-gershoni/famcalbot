@@ -1,6 +1,6 @@
 /**
  * The one retry loop for calls to a third party FamCal has no policy of its own for: MET Norway's forecast, Copernicus's
- * dust files. Plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 3.
+ * dust files. Spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md.
  *
  *   retryWithBackoff   any async step: a failure is retried up to 3 times after max(what the server asked, a full-jitter
  *                      backoff from 500 ms); an ask over 10 s, or a failure the caller calls not retryable, is thrown at

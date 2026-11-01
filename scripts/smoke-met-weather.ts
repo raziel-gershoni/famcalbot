@@ -1,5 +1,5 @@
-// Smoke test for the forecast on MET Norway (src/services/weather/forecast.ts; plan
-// docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 3): the 41 symbols, the units, a real Tel Aviv
+// Smoke test for the forecast on MET Norway (src/services/weather/forecast.ts; spec
+// docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md §5): the 41 symbols, the units, a real Tel Aviv
 // answer mapped onto Israel's days, UTC to the place's wall clock across both clock changes, the days in the place's own
 // zone, MET's rules (User-Agent, 2 decimals, Expires, If-Modified-Since), the retries, Redis down, and the holes a real
 // answer has. Faked: Redis (in memory), error capture, the geocoder, fetch (scenarios), the waits and the jitter

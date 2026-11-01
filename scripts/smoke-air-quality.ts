@@ -1,5 +1,5 @@
 // Smoke test for the dust alerts' air quality from Open-Meteo's open data on S3 (src/services/weather/air-quality.ts;
-// plan docs/superpowers/plans/2026-10-31-open-meteo-replacement.md, Task 4; the dust spike's rulings R1-R8). The real
+// spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md §5; the dust spike's rulings R1-R8). The real
 // reader (@openmeteo/file-reader and its WebAssembly) reads S3 exchanges recorded once for Tel Aviv
 // (scripts/fixtures/cams-tel-aviv.json, by scripts/record-cams-fixture.ts) and replayed through a mocked fetch: the
 // recorded series again, today's 00:00 first, the API's "auto" domains, the cell and run caches (also across the
