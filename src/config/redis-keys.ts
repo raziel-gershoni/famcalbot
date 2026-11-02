@@ -141,6 +141,12 @@ export const REDIS_KEYS = {
   googleSyncOrphans: (userId: number) => `google-sync:orphans:${userId}`,
   googleSyncAlert: (linkId: string, day: string) => `google-sync:alert:${linkId}:${day}`,
   googleSyncLinkRetry: (linkId: string) => `google-sync:link-retry:${linkId}`,
+
+  // Web sign-in (src/services/web-signin): a sign-in's one-time record (state, nonce, PKCE verifier, or the email
+  // flow's address key) under the sha256 of its famcal_signin cookie, 10 minutes; and the limits' counters, each
+  // under a keyed hash (never an address, an IP or a user id) and kept at most a day (limits.ts).
+  signinFlow: (cookieHash: string) => `signin:flow:${cookieHash}`,
+  signinLimit: (what: string, id: string) => `signin:lim:${what}:${id}`,
 } as const;
 
 /** The subscription reminders' kinds (src/services/subscription-reminders.ts). */
