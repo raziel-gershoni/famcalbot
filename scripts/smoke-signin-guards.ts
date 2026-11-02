@@ -1,7 +1,7 @@
 // Smoke test for web sign-in's guards (plan 6b, Task 3; spec docs/superpowers/specs/2026-11-02-web-sign-in-design.md
 // §3 and §5): the same-origin check on sign-in and Settings POSTs, the client address the limits count by, the
 // famcal_signin flow (one use, bound to the browser, 10 minutes), the email address's one normal form (the Kelvin sign
-// and other non-ASCII refused, an IDN as punycode), every email limit, and (Task 3b) Sign out / Sign out on all devices.
+// and other non-ASCII refused, an IDN as punycode), every email limit, and Sign out / Sign out on all devices.
 // (Tries per code, counted before the compare, are the code's own: smoke-signin-email.ts.)
 //
 // same-origin, client-address, flow, email-address, limits, the two sign-out routes, session-auth, api-auth,
@@ -289,6 +289,20 @@ function reset() {
     baseUser({ id: 42, name: 'Dana', messagingPlatform: 'whatsapp', whatsappPhone: '972500000042' }),
   ];
 }
+
+/** Valid Telegram initData for a Telegram user id, signed with the bot token. */
+function initDataFor(tgId: number): string {
+  const params: Record<string, string> = {
+    auth_date: String(Math.floor(Date.now() / 1000)),
+    query_id: 'AAH-smoke',
+    user: JSON.stringify({ id: tgId, first_name: 'Test' }),
+  };
+  const checkString = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join('\n');
+  const secret = crypto.createHmac('sha256', 'WebAppData').update(process.env.TELEGRAM_BOT_TOKEN ?? '').digest();
+  const hash = crypto.createHmac('sha256', secret).update(checkString).digest('hex');
+  return [...Object.entries(params), ['hash', hash]].map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+}
+
 
 const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel)).catch((err) => {
   throw new Error(`cannot load ${rel}: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
@@ -665,7 +679,81 @@ async function main() {
     assert(captured.length === 0, `countWithin captured an error itself: ${show(captured)}`);
   });
 
-  // ---- Sign out (Task 3b adds its checks here) ----
+  // ---- Sign out ----
+
+  const sessionHeader = (res: Response, name: string) => (res.headers.getSetCookie?.() ?? []).find((c: string) => c.startsWith(`${name}=`)) ?? '';
+  const cleared = (header: string) => /=;/.test(header) && /Path=\//.test(header) && /(Max-Age=0|Expires=Thu, 01 Jan 1970)/i.test(header);
+
+  await check('#26 POST /api/auth/signout clears this browser\'s session cookie (200 { ok: true }) and reads no account', async () => {
+    reset();
+    const { SESSION_COOKIE_NAME, createSessionToken } = await load('src/lib/session-auth.ts');
+    const { POST } = await load('app/api/auth/signout/route.ts');
+    const cookie = `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'email', Date.now())}`;
+    const res: Response = await POST(req('/api/auth/signout', { cookie }));
+    assert(res.status === 200 && show(await res.json()) === show({ ok: true }), `status ${res.status}`);
+    assert(cleared(sessionHeader(res, SESSION_COOKIE_NAME)), `set-cookie ${show(res.headers.getSetCookie())}`);
+    assert(prismaCalls.length === 0, `database: ${show(prismaCalls)}`);
+    assert(logLines.some((l) => l.includes('[signout] user 42 (email)')), `log ${show(logLines)}`);
+  });
+
+  await check('#27 sign out from another Origin is 403 and clears nothing', async () => {
+    reset();
+    const { SESSION_COOKIE_NAME, createSessionToken } = await load('src/lib/session-auth.ts');
+    const { POST } = await load('app/api/auth/signout/route.ts');
+    const res: Response = await POST(req('/api/auth/signout', { origin: 'https://evil.example', cookie: `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'email', Date.now())}` }));
+    assert(res.status === 403 && sessionHeader(res, SESSION_COOKIE_NAME) === '', `status ${res.status} ${show(res.headers.getSetCookie())}`);
+  });
+
+  await check('#28 sign out on all devices (the web cookie): sessionsValidAfter is now, this cookie is cleared, and a cookie signed in earlier is refused afterwards', async () => {
+    reset();
+    const { SESSION_COOKIE_NAME, createSessionToken } = await load('src/lib/session-auth.ts');
+    const { POST } = await load('app/api/auth/signout-all/route.ts');
+    const { verifyUserAuth } = await load('src/lib/api-auth.ts');
+    const cookie = `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'google', Date.now() - 1000)}`;
+    const before = Date.now();
+    const res: Response = await POST(req('/api/auth/signout-all?user_id=42', { cookie }));
+    assert(res.status === 200 && show(await res.json()) === show({ ok: true }), `status ${res.status}`);
+    const row = DB.user.find((u) => u.id === 42)!;
+    assert(row.sessionsValidAfter instanceof Date && row.sessionsValidAfter.getTime() >= before - 5, `sessionsValidAfter ${show(row.sessionsValidAfter)}`);
+    assert(DB.user.find((u) => u.id === 9)!.sessionsValidAfter === null, 'another account was signed out');
+    assert(cleared(sessionHeader(res, SESSION_COOKIE_NAME)), `set-cookie ${show(res.headers.getSetCookie())}`);
+    const again = await verifyUserAuth(req('/api/page-data?user_id=42', { method: 'GET', cookie }), '42', null, { name: 'general' }, 'smoke');
+    assert(again.success === false, 'the old cookie still works');
+  });
+
+  await check('#29 sign out on all devices from the Mini App (initData, user_id in the body) works too', async () => {
+    reset();
+    const { POST } = await load('app/api/auth/signout-all/route.ts');
+    const res: Response = await POST(req('/api/auth/signout-all', { body: JSON.stringify({ user_id: 111111111, initData: initDataFor(111111111) }) }));
+    assert(res.status === 200, `status ${res.status}`);
+    assert(DB.user.find((u) => u.id === 9)!.sessionsValidAfter instanceof Date, 'row 9 not signed out');
+  });
+
+  await check('#30 sign out on all devices refuses another Origin (403), a form body (415), no credential (401) and another account\'s cookie (401), writing nothing', async () => {
+    reset();
+    const { SESSION_COOKIE_NAME, createSessionToken } = await load('src/lib/session-auth.ts');
+    const { POST } = await load('app/api/auth/signout-all/route.ts');
+    const cookie = `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'email', Date.now())}`;
+    const cases: [string, Row, number][] = [
+      ['another Origin', { origin: 'https://evil.example', cookie }, 403],
+      ['a form body', { type: 'application/x-www-form-urlencoded', body: 'user_id=42', cookie }, 415],
+      ['no credential', {}, 401],
+      ['42\'s cookie for user 9', { cookie, url: '/api/auth/signout-all?user_id=9' }, 401],
+    ];
+    for (const [label, o, status] of cases) {
+      const res: Response = await POST(req(o.url ?? '/api/auth/signout-all?user_id=42', o));
+      assert(res.status === status, `${label}: ${res.status}, want ${status}`);
+    }
+    assert(DB.user.every((u) => u.sessionsValidAfter === null), `written: ${show(DB.user.map((u) => [u.id, u.sessionsValidAfter]))}`);
+  });
+
+  await check('#31 a body that is not JSON is 400, and its text is never logged', async () => {
+    reset();
+    const { POST } = await load('app/api/auth/signout-all/route.ts');
+    const res: Response = await POST(req('/api/auth/signout-all?user_id=42', { body: 'email=dana@gmail.com&code=123456' }));
+    assert(res.status === 400, `status ${res.status}`);
+    assert(!logLines.some((l) => l.includes('dana') || l.includes('123456')), `the body in the log: ${show(logLines)}`);
+  });
 
   let failed = 0;
   for (const r of results) {
