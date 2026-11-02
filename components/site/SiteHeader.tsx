@@ -6,10 +6,11 @@ import { SiteMenu } from './SiteMenu';
 import { StartButtons, startWords } from './StartButtons';
 
 // The header of every public page (spec 2026-10-28-public-website §3.1): the logo; How it works, Plans, Blog and Zmanim
-// (spec 2026-10-30-public-zmanim §6.3); the language switcher; and the two start buttons, compact and equal. On a phone
-// the links and the switcher sit behind the menu button (SiteMenu), and one Start button jumps to the landing's start
-// section. Every tap target is 44 px. The end of the row has room for a later "Sign in" (spec §3.1, item 6b); nothing
-// is built for it.
+// (spec 2026-10-30-public-zmanim §6.3); the language switcher; Sign in (spec 2026-11-02-web-sign-in §2.11: a plain link to
+// /signin, which sends a signed-in browser on to its calendar, so the header stays static and reads no cookie; never
+// prefetched, so a page view asks nothing of the server); and the two start buttons, compact and equal. On a phone the
+// links, the switcher and Sign in sit behind the menu button (SiteMenu), and one Start button jumps to the landing's
+// start section. Every tap target is 44 px.
 
 export async function SiteHeader({ locale, path }: { locale: string; path: string }) {
   const t = await getTranslations({ locale });
@@ -31,6 +32,9 @@ export async function SiteHeader({ locale, path }: { locale: string; path: strin
           <div className="site-wide-only">
             <LanguageLinks locale={locale} path={path} names={names} label={t('site.language.choose')} />
           </div>
+          <Link href="/signin" prefetch={false} className="site-signin-header site-wide-only">
+            {t('site.header.signIn')}
+          </Link>
           <div className="site-wide-only">
             <StartButtons words={startWords(t)} compact />
           </div>

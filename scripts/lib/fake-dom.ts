@@ -312,6 +312,8 @@ export type Mounted = {
   change: (el: FakeNode, value: string) => void;
   /** Typing `value` into a text field. */
   input: (el: FakeNode, value: string) => void;
+  /** A form's submit (Enter in a field, or its submit button), as the browser fires it on the form. */
+  submit: (el: FakeNode) => void;
   unmount: () => void;
 };
 
@@ -363,6 +365,7 @@ export function mount(el: ReactElement, rootOptions?: Row): Mounted {
       Object.getOwnPropertyDescriptor(FakeElement.prototype, 'value')?.set?.call(target, value);
       dispatch(target, 'input', {});
     },
+    submit: (target) => void dispatch(target, 'submit', {}),
     unmount: () => React.act(() => root.unmount()),
   };
 }

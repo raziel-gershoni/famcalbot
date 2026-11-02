@@ -21,8 +21,8 @@
 //    switch's labels wrap inside their pills and step down on narrow screens (no label spills at 320 px); the sheet's rows and
 //    the page's CSS are each in the site's sheet once;
 //  - Z10 no request leaves the server while a page renders; no file under app/[locale]/(site) or components/site calls
-//    fetch, loads a script by src or imports next/script; and no component of the city page is a client one (only Near
-//    me is);
+//    fetch (but the two sign-in form clients, which post when a person acts), loads a script by src or imports
+//    next/script; and no component of the city page is a client one (only Near me is);
 //  - Z12 (review focus c) the Hebrew page: every time of day in <bdi dir="ltr">, the arrows with the app's RTL-flipped
 //    icon, and the month grid from Sunday at the start (right) edge;
 //  - Z13 (review focus d) repeated or odd query values are ignored without a throw: today and the default community.
@@ -433,9 +433,13 @@ async function main() {
       fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(`${rel}/${entry.name}`) : /\.(?:tsx?|mdx?)$/.test(entry.name) ? [`${rel}/${entry.name}`] : []));
     const siteFiles = [...walk('app/[locale]/(site)'), ...walk('components/site')];
     assert(['app/[locale]/(site)/page.tsx', 'app/[locale]/(site)/zmanim/[city]/page.tsx', 'components/site/SiteHeader.tsx'].every((f) => siteFiles.includes(f)), `the walk missed the site: ${show(siteFiles)}`);
+    // The sign-in pages' two client components post their forms when a person acts (never while a page renders, and nothing
+    // of the zmanim limit is spent): the only files that may call fetch, and only as client components (web sign-in Task 8)
+    const FORM_CLIENTS = ['app/[locale]/(site)/signin/SignInClient.tsx', 'app/[locale]/(site)/signin/add-google/AddGoogleClient.tsx'];
+    for (const file of FORM_CLIENTS) assert(siteFiles.includes(file) && /^\s*['"]use client['"]/m.test(readSource(file)), `${file} is not a client component`);
     for (const file of siteFiles) {
       const text = readSource(file);
-      assert(!/\bfetch\s*\(/.test(text), `${file} calls fetch`);
+      assert(FORM_CLIENTS.includes(file) || !/\bfetch\s*\(/.test(text), `${file} calls fetch`);
       assert(!/<script\b[^>]*\bsrc\s*=/i.test(text), `${file} loads a script by src`);
       assert(!/['"]next\/script['"]/.test(text), `${file} imports next/script`);
     }

@@ -1,0 +1,296 @@
+'use client';
+
+// /signin's ways and the email code form (spec 2026-11-02-web-sign-in §3), the page's only script. The server says which
+// ways are configured (no button for one whose keys aren't set) and passes the bot's link and the page's address.
+//
+// - Telegram and Google are plain links to their start routes (/api/auth/<way>/start?locale=): the server makes the
+//   one-time checks and redirects to the provider. Tapping one shows that it is opening; coming back with the browser's
+//   Back (the page restored from the back-forward cache) makes the ways usable again.
+// - Inside Telegram, in its own browser (window.TelegramWebviewProxy, iOS and Android) or in the Mini App's webview
+//   (window.Telegram.WebApp.initData is not empty; Telegram Web and Desktop have no bridge object), Telegram's login can't
+//   finish and Google refuses to sign in: no OIDC flow starts. The Telegram way is Telegram's own app link instead (the
+//   bot's chat, whose dashboard button opens the Mini App), and Google's place says to open this page in a browser, with
+//   its address.
+// - Email: the address, then one answer for every address ("If this email is on a FamCal account, we sent a code"), then
+//   the 6-digit code. A right code goes where the server says (this site only); a wrong one says so; a code the server
+//   can't use any more goes back to the address; a blocked or suspended account goes to its page. "Send a new code" asks
+//   again for the same address.
+// - Every request waits with its button busy and the others off, and clears on failure with the reason in words. A log
+//   line holds the status and the error only: never the address or the code.
+// - The words are site.signin.* (the site namespace reaches the client). Inputs are 16 px (no zoom on iOS) and read left
+//   to right in every language.
+
+import { useEffect, useId, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
+import { Loader2, Mail, Send } from 'lucide-react';
+import { GoogleMark } from '@/components/site/GoogleMark';
+import { readJsonBody } from '@/src/lib/read-json';
+import { signInHref } from '@/src/site/signin';
+
+export interface SignInWays {
+  telegram: boolean;
+  google: boolean;
+  email: boolean;
+}
+
+type Step = 'choose' | 'email' | 'code';
+type Busy = 'telegram' | 'google' | 'email' | 'code';
+/** What the form says went wrong: a key of site.signin. */
+type Problem = 'requestFailed' | 'codeWrong' | 'codeLimited' | 'codeRestart';
+
+const TAG = '[signin]';
+const subscribe = () => () => {};
+/**
+ * Inside Telegram: its own browser defines the TelegramWebviewProxy bridge, and the Mini App's webview (also on Telegram
+ * Web and Desktop, which have no bridge) has Telegram.WebApp with the initData it was opened with. A normal browser has
+ * neither. No sign-in flow of ours can finish in either place.
+ */
+const inTelegram = () => {
+  if (typeof window === 'undefined') return false;
+  if ('TelegramWebviewProxy' in window) return true;
+  const webApp = (window as unknown as { Telegram?: { WebApp?: { initData?: unknown } } }).Telegram?.WebApp;
+  return typeof webApp?.initData === 'string' && webApp.initData !== '';
+};
+const onServer = () => false;
+
+export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: SignInWays; telegramAppUrl: string; pageAddress: string }) {
+  const t = useTranslations('site.signin');
+  const locale = useLocale();
+  const inApp = useSyncExternalStore(subscribe, inTelegram, onServer);
+  const [step, setStep] = useState<Step>('choose');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState<Busy | null>(null);
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const emailId = useId();
+  const codeId = useId();
+  const problemId = useId();
+
+  // Back from Telegram's or Google's page restores this one as it was left: its ways work again
+  useEffect(() => {
+    const reset = (event: PageTransitionEvent) => {
+      if (event.persisted) setBusy(null);
+    };
+    window.addEventListener('pageshow', reset);
+    return () => window.removeEventListener('pageshow', reset);
+  }, []);
+
+  const goTo = (next: Step) => {
+    setProblem(null);
+    setStep(next);
+  };
+
+  const requestCode = async (event?: FormEvent) => {
+    event?.preventDefault();
+    const address = email.trim();
+    if (busy || address === '') return;
+    setBusy('email');
+    setProblem(null);
+    try {
+      const res = await fetch('/api/auth/email/request', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: address, locale }),
+      });
+      const body = await readJsonBody(res, `${TAG} code request`);
+      if (res.ok && body?.ok === true) {
+        setEmail(address);
+        setCode('');
+        setStep('code');
+        return;
+      }
+      console.warn(`${TAG} the code request answered ${res.status}`);
+      setProblem('requestFailed');
+    } catch (error) {
+      console.error(`${TAG} the code request failed:`, error instanceof Error ? error.name : typeof error);
+      setProblem('requestFailed');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const checkCode = async (event?: FormEvent) => {
+    event?.preventDefault();
+    if (busy || code.length !== 6) return;
+    setBusy('code');
+    setProblem(null);
+    let leaving = false;
+    try {
+      const res = await fetch('/api/auth/email/verify', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const body = await readJsonBody(res, `${TAG} code check`);
+      if (res.ok && body?.ok === true && typeof body.redirect === 'string') {
+        // The server names the page; it is always this site's
+        if (new URL(body.redirect, window.location.origin).origin === window.location.origin) {
+          leaving = true;
+          window.location.assign(body.redirect);
+          return;
+        }
+        console.error(`${TAG} the code check named a page off this site`);
+        setProblem('requestFailed');
+        return;
+      }
+      const error = body?.error;
+      if (error === 'wrong') return void setProblem('codeWrong');
+      if (error === 'limited') return void setProblem('codeLimited');
+      if (error === 'restart') {
+        setStep('email');
+        setProblem('codeRestart');
+        return;
+      }
+      if (error === 'blocked' || error === 'suspended') {
+        leaving = true;
+        window.location.assign(signInHref(locale, error));
+        return;
+      }
+      // 'failed' and an answer this page doesn't know: the request failed
+      console.warn(`${TAG} the code check answered ${res.status}`);
+      setProblem('requestFailed');
+    } catch (error) {
+      console.error(`${TAG} the code check failed:`, error instanceof Error ? error.name : typeof error);
+      setProblem('requestFailed');
+    } finally {
+      if (!leaving) setBusy(null);
+    }
+  };
+
+  const spinner = <Loader2 className="site-icon site-spin" aria-hidden="true" focusable="false" />;
+  const problemLine = problem ? (
+    <p id={problemId} className="site-field-error" role="alert">
+      {t(problem)}
+    </p>
+  ) : null;
+
+  if (step === 'choose') {
+    return (
+      <div className="site-signin-panel">
+        <ul className="site-signin-ways">
+          {ways.telegram ? (
+            <li>
+              {inApp ? (
+                <a className="site-signin-way" data-way="telegram" href={telegramAppUrl}>
+                  <Send aria-hidden="true" focusable="false" />
+                  {t('telegramInApp')}
+                </a>
+              ) : (
+                <a className="site-signin-way" data-way="telegram" href={`/api/auth/telegram/start?locale=${locale}`} aria-busy={busy === 'telegram' || undefined} onClick={() => setBusy('telegram')}>
+                  {busy === 'telegram' ? spinner : <Send aria-hidden="true" focusable="false" />}
+                  {busy === 'telegram' ? t('opening') : t('telegram')}
+                </a>
+              )}
+              <p className="site-signin-note">{inApp ? t('telegramInAppNote') : t('telegramNote')}</p>
+            </li>
+          ) : null}
+          {ways.google ? (
+            <li>
+              {inApp ? (
+                <p className="site-signin-notice">
+                  {t('googleInApp')}
+                  <code dir="ltr">{pageAddress}</code>
+                </p>
+              ) : (
+                <a className="site-signin-way" data-way="google" href={`/api/auth/google/start?locale=${locale}`} aria-busy={busy === 'google' || undefined} onClick={() => setBusy('google')}>
+                  {busy === 'google' ? spinner : <GoogleMark />}
+                  {busy === 'google' ? t('opening') : t('google')}
+                </a>
+              )}
+            </li>
+          ) : null}
+          {ways.email ? (
+            <li>
+              <button type="button" className="site-signin-way" data-way="email" onClick={() => goTo('email')}>
+                <Mail aria-hidden="true" focusable="false" />
+                {t('email')}
+              </button>
+            </li>
+          ) : null}
+        </ul>
+      </div>
+    );
+  }
+
+  if (step === 'email') {
+    return (
+      <div className="site-signin-panel">
+        <form onSubmit={requestCode} noValidate>
+          <label className="site-field-label" htmlFor={emailId}>
+            {t('emailLabel')}
+          </label>
+          <input
+            id={emailId}
+            className="site-field"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            enterKeyHint="send"
+            dir="ltr"
+            value={email}
+            disabled={busy !== null}
+            aria-describedby={problem ? problemId : undefined}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          {problemLine}
+          <button type="submit" className="site-signin-way" data-way="submit" disabled={busy !== null || email.trim() === ''} aria-busy={busy === 'email' || undefined}>
+            {busy === 'email' ? spinner : null}
+            {busy === 'email' ? t('emailSending') : t('emailSend')}
+          </button>
+        </form>
+        <div className="site-signin-links">
+          <button type="button" className="site-signin-link" disabled={busy !== null} onClick={() => goTo('choose')}>
+            {t('otherWays')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="site-signin-panel">
+      <p className="site-signin-sent" role="status">
+        {t('emailSent')}
+      </p>
+      <form onSubmit={checkCode} noValidate>
+        <label className="site-field-label" htmlFor={codeId}>
+          {t('codeLabel')}
+        </label>
+        <input
+          id={codeId}
+          className="site-field site-field-code"
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          autoCapitalize="none"
+          spellCheck={false}
+          enterKeyHint="done"
+          dir="ltr"
+          maxLength={6}
+          value={code}
+          disabled={busy !== null}
+          aria-invalid={problem === 'codeWrong' || undefined}
+          aria-describedby={problem ? problemId : undefined}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+        />
+        {problemLine}
+        <button type="submit" className="site-signin-way" data-way="submit" disabled={busy !== null || code.length !== 6} aria-busy={busy === 'code' || undefined}>
+          {busy === 'code' ? spinner : null}
+          {busy === 'code' ? t('codeChecking') : t('codeSubmit')}
+        </button>
+      </form>
+      <div className="site-signin-links">
+        <button type="button" className="site-signin-link" disabled={busy !== null} onClick={() => void requestCode()}>
+          {t('codeAgain')}
+        </button>
+        <button type="button" className="site-signin-link" disabled={busy !== null} onClick={() => goTo('choose')}>
+          {t('otherWays')}
+        </button>
+      </div>
+    </div>
+  );
+}

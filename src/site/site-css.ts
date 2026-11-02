@@ -10,8 +10,11 @@
 //   #25D366 do not): --site-telegram and --site-whatsapp.
 // - Logical properties only, so Hebrew needs no overrides; nothing under 13 px; every tap target at least 44 px; no
 //   hover styles (nothing depends on a pointer); no horizontal overflow at 320 px, with nothing clipped to hide one.
-// - One motion on the whole site, the hero's (its own rules), and Near me's loading spinner (the zmanim index); prefers-reduced-motion stops both.
+// - One motion on the whole site, the hero's (its own rules), and the loading spinners (Near me's on the zmanim index, the
+//   sign-in ways'); prefers-reduced-motion stops them all.
 // - The kit's BottomSheet slides in, a second motion: on the site it just appears.
+// - The sign-in pages (/signin, /signin/add-google: SIGNIN_CSS) draw Google's button in Google's own colours
+//   (GOOGLE_BUTTON), as its branding rules ask, as tokens like the brands' start buttons.
 
 import { createHash } from 'node:crypto';
 import { APP_TOKENS } from '@/components/app-ui/tokens';
@@ -23,6 +26,15 @@ const D = APP_TOKENS.dark;
 
 /** The start buttons' brand shades (white label at 5.4:1 and 5.1:1; at least 3:1 against the dark page). */
 export const BRAND = { telegram: '#1b6fa8', whatsapp: '#0b7d5e', onBrand: '#ffffff' } as const;
+
+/**
+ * "Continue with Google" in Google's own button colours (its Sign in with Google branding: the light and the dark
+ * theme's fill, label and 1 px stroke), so the button reads as Google's in both. Read by smoke-signin-page as they are.
+ */
+export const GOOGLE_BUTTON = {
+  light: { bg: '#ffffff', text: '#1f1f1f', border: '#747775' },
+  dark: { bg: '#131314', text: '#e3e3e3', border: '#8e918f' },
+} as const;
 
 /** The site's colours, light and dark, as the app's token names. Read by the contrast smoke as they are. */
 export const SITE_PALETTE = {
@@ -81,6 +93,9 @@ const TOKENS_CSS = `
   --site-telegram: ${BRAND.telegram};
   --site-whatsapp: ${BRAND.whatsapp};
   --site-on-brand: ${BRAND.onBrand};
+  --site-google-bg: ${GOOGLE_BUTTON.light.bg};
+  --site-google-text: ${GOOGLE_BUTTON.light.text};
+  --site-google-border: ${GOOGLE_BUTTON.light.border};
   --site-shadow-bubble: 0 6px 20px rgba(26, 26, 46, 0.08);
   --site-shadow-phone: 0 18px 48px rgba(26, 26, 46, 0.14);
 ${declarations(SITE_PALETTE.light)}
@@ -89,6 +104,9 @@ ${declarations(SITE_PALETTE.light)}
   :root {
     --ch-scrim: ${D.scrim};
     --ch-sheet-shadow: ${D.sheetShadow};
+    --site-google-bg: ${GOOGLE_BUTTON.dark.bg};
+    --site-google-text: ${GOOGLE_BUTTON.dark.text};
+    --site-google-border: ${GOOGLE_BUTTON.dark.border};
 ${declarations(SITE_PALETTE.dark)}
   }
 }
@@ -253,6 +271,18 @@ const CHROME_CSS = `
   font-weight: 600;
   text-decoration: none;
 }
+.site-signin-header {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding-inline: 12px;
+  border-radius: 10px;
+  color: var(--ch-text);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
 .site-menu-button {
   display: inline-flex;
   align-items: center;
@@ -382,6 +412,10 @@ const CHROME_CSS = `
   .site-starts-compact .site-start {
     gap: 6px;
     padding-inline: 8px;
+  }
+  .site-signin-header {
+    padding-inline: 6px;
+    font-size: 15px;
   }
 }
 @media (max-width: 559.98px) {
@@ -1765,8 +1799,186 @@ export const ZMANIM_PAGE_CSS = `
 }
 `;
 
+/**
+ * The sign-in pages (spec 2026-11-02-web-sign-in §3): one narrow column with a panel (the zmanim index's Near me card),
+ * three full-width ways (Telegram in its brand shade, Google in Google's colours with its stroke, email on the page
+ * colour with an outline), the fields at 16 px and more (no zoom on iOS) with a 3:1 edge, an error line in the danger
+ * colour, and text buttons for the way back. Token colours only, logical properties, every target 44 px or more, no hover.
+ */
+export const SIGNIN_CSS = `
+.site-signin {
+  max-inline-size: 560px;
+}
+.site-signin-panel {
+  margin-block-start: 24px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--ch-card);
+}
+.site-signin-panel p {
+  font-size: 16px;
+  line-height: 1.5;
+}
+.site-signin-ways {
+  display: grid;
+  gap: 16px;
+}
+.site-signin-way {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  inline-size: 100%;
+  min-block-size: 52px;
+  padding-inline: 18px;
+  border: 0;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-signin-way svg {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+}
+.site-signin-way[data-way='telegram'] {
+  background: var(--site-telegram);
+  color: var(--site-on-brand);
+}
+.site-signin-way[data-way='google'] {
+  background: var(--site-google-bg);
+  color: var(--site-google-text);
+  box-shadow: inset 0 0 0 1px var(--site-google-border);
+}
+.site-signin-way[data-way='email'] {
+  background: var(--ch-bg);
+  color: var(--ch-text);
+  box-shadow: inset 0 0 0 1px var(--ch-outline);
+}
+.site-signin-way[data-way='email'] svg {
+  color: var(--ch-accent);
+}
+.site-signin-way[data-way='submit'] {
+  margin-block-start: 16px;
+  background: var(--ch-button);
+  color: var(--ch-button-text);
+}
+.site-signin-continue {
+  margin-block-start: 16px;
+}
+.site-signin-way:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.site-signin-note {
+  margin-block-start: 8px;
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.site-signin-notice {
+  margin-block-start: 20px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--ch-surface);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.site-signin-panel .site-signin-notice {
+  margin-block-start: 0;
+  background: var(--ch-bg);
+}
+.site-signin-notice code {
+  display: block;
+  margin-block-start: 6px;
+  color: var(--ch-accent);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.site-signin-sent {
+  margin-block-end: 12px;
+}
+.site-field-label {
+  display: block;
+  margin-block-end: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.site-field {
+  display: block;
+  inline-size: 100%;
+  min-block-size: 52px;
+  padding-inline: 14px;
+  border: 1px solid var(--ch-hint);
+  border-radius: 12px;
+  background: var(--ch-bg);
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 16px;
+}
+.site-field:disabled {
+  opacity: 0.6;
+}
+.site-field-code {
+  font-size: 22px;
+  letter-spacing: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.site-field-error {
+  margin-block-start: 8px;
+  color: var(--ch-danger);
+  font-size: 15px;
+}
+.site-signin-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 20px;
+  margin-block-start: 12px;
+}
+.site-signin-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ch-accent);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-signin-link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.site-signin-starts {
+  margin-block-start: 14px;
+}
+.site-signin-again {
+  margin-block-start: 24px;
+}
+.site-signin .site-lead a {
+  color: var(--ch-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .site-spin {
+    animation: site-zm-turn 900ms linear infinite;
+  }
+}
+`;
+
 /** The whole style sheet: the kit's theme (the sheet, the buttons, the demo's .ch-app scope), then the site's own. */
-export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS + ZMANIM_SHEET_CSS + ZMANIM_PAGE_CSS;
+export const SITE_CSS = APP_THEME_CSS + TOKENS_CSS + BASE_CSS + CHROME_CSS + LANDING_CSS + PAGES_CSS + ZMANIM_SHEET_CSS + ZMANIM_PAGE_CSS + SIGNIN_CSS;
 
 /** The sheet's version: its content's hash, so a new sheet is a new URL. */
 export const SITE_CSS_VERSION = createHash('sha256').update(SITE_CSS).digest('hex').slice(0, 12);

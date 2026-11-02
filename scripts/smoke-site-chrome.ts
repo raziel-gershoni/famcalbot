@@ -61,7 +61,9 @@ async function main() {
       const anchors = attrs(html, 'a');
       const hrefs = anchors.map((a) => decode(attr(a, 'href') ?? ''));
       const p = prefix(locale);
-      for (const want of [p || '/', `${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p || '/'}#start`]) assert(hrefs.includes(want), `${locale}: no link to ${want} in ${show(hrefs)}`);
+      for (const want of [p || '/', `${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p || '/'}#start`, `${p}/signin`]) assert(hrefs.includes(want), `${locale}: no link to ${want} in ${show(hrefs)}`);
+      const signIn = anchors.find((a) => /\bsite-signin-header\b/.test(attr(a, 'class') ?? ''));
+      assert(signIn && attr(signIn, 'href') === `${p}/signin` && /\bsite-wide-only\b/.test(attr(signIn, 'class') ?? ''), `${locale}: the header's Sign in ${signIn}`);
       assert(!hrefs.some((href) => href.startsWith('/en')) || locale !== 'en', `${locale}: an /en link in ${show(hrefs)}`);
       const logo = anchors.find((a) => attr(a, 'class') === 'site-logo');
       assert(logo && attr(logo, 'aria-label') === site.header.homeLabel && attr(logo, 'href') === (p || '/'), `${locale}: the logo ${logo}`);
@@ -74,7 +76,7 @@ async function main() {
       const wa = decode(attr(starts[1], 'href') ?? '');
       assert(wa === `https://wa.me/972548524687?text=${encodeURIComponent(messages[locale].bot.whatsapp.greeting)}`, `${locale}: WhatsApp's link ${wa}`);
       const text = textOf(html);
-      for (const word of [site.nav.howItWorks, site.nav.plans, site.nav.blog, site.nav.zmanim, site.cta.telegramShort, site.cta.whatsappShort, site.header.start]) assert(text.includes(word), `${locale}: no "${word}" in ${text}`);
+      for (const word of [site.nav.howItWorks, site.nav.plans, site.nav.blog, site.nav.zmanim, site.cta.telegramShort, site.cta.whatsappShort, site.header.start, site.header.signIn]) assert(text.includes(word), `${locale}: no "${word}" in ${text}`);
       const menuButton = attrs(html, 'button').find((b) => /site-menu-button/.test(attr(b, 'class') ?? ''));
       assert(menuButton && attr(menuButton, 'aria-label') === site.menu.open && attr(menuButton, 'aria-expanded') === 'false', `${locale}: the menu button ${menuButton}`);
       assert(!/\b(?:site|landing)\.[a-z]+\.[a-zA-Z]/.test(text), `${locale}: a raw key in ${text}`);
@@ -174,7 +176,7 @@ async function main() {
       const links = elements(d).filter((e) => e.localName === 'a');
       const p = prefix(locale);
       const hrefs = links.map((a) => a.getAttribute('href'));
-      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, '/en/blog', '/he/blog', '/ru/blog'].filter((href) => href !== `/${locale}/blog`)) assert(hrefs.includes(want), `${locale}: the sheet has no ${want}: ${show(hrefs)}`);
+      for (const want of [`${p || '/'}#how`, `${p || '/'}#plans`, `${p}/blog`, `${p}/zmanim`, `${p}/signin`, '/en/blog', '/he/blog', '/ru/blog'].filter((href) => href !== `/${locale}/blog`)) assert(hrefs.includes(want), `${locale}: the sheet has no ${want}: ${show(hrefs)}`);
       assert(links.some((a) => a.getAttribute('aria-current') === 'true' && a.getAttribute('href') === `${p}/blog`), `${locale}: the current language`);
       step = 'escape';
       m.key(d, 'Escape');
@@ -208,7 +210,7 @@ async function main() {
     const problems = lintCss(own);
     assert(problems.length === 0, show(problems));
     const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(own)?.[1];
-    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-cancel-link', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy', '.site-list-link', '.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-zm-cell', '.site-zm-sources a', '.site-zm-near-button', '.site-zm-near-list', '.site-zm-near-status a', '.site-zm-cities a']) {
+    for (const selector of ['.site-logo', '.site-nav a', '.site-langs a', '.site-jump', '.site-signin-header', '.site-start', '.site-starts-compact .site-start', '.site-menu-list a', '.site-footer-links a', '.site-cancel-link', '.site-back a', '.site-post-card a', '.site-more a', '.site-copy', '.site-list-link', '.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-zm-cell', '.site-zm-sources a', '.site-zm-near-button', '.site-zm-near-list', '.site-zm-near-status a', '.site-zm-cities a', '.site-signin-way', '.site-signin-link', '.site-field']) {
       const body = rule(selector);
       assert(body, `no rule ${selector}`);
       const min = /min-block-size:\s*(\d+)px/.exec(body);

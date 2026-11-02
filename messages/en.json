@@ -1686,7 +1686,8 @@
     },
     "header": {
       "homeLabel": "FamCal home",
-      "start": "Start"
+      "start": "Start",
+      "signIn": "Sign in"
     },
     "menu": {
       "button": "Menu",
@@ -1745,6 +1746,80 @@
     },
     "notFound": {
       "home": "Back to the home page"
+    },
+    "signin": {
+      "metaTitle": "Sign in",
+      "metaDescription": "Sign in to FamCal on the web with Telegram, Google or a code sent to your email.",
+      "title": "Sign in to FamCal",
+      "lead": "Open your family calendar in any browser. It’s the same calendar you use in Telegram or WhatsApp.",
+      "telegram": "Continue with Telegram",
+      "telegramNote": "Telegram asks you to approve the sign-in in a Telegram app, on this phone or on another device.",
+      "telegramInApp": "Open FamCal in Telegram",
+      "telegramInAppNote": "You’re in Telegram’s own browser, so FamCal opens right here in Telegram.",
+      "google": "Continue with Google",
+      "googleInApp": "Google doesn’t allow signing in from Telegram’s browser. To use Google, open this page in Safari or Chrome:",
+      "email": "Email me a code",
+      "emailLabel": "Your email address",
+      "emailSend": "Send me a code",
+      "emailSending": "Sending…",
+      "emailSent": "If this email is on a FamCal account, we sent a code to it. The code works for 10 minutes.",
+      "codeLabel": "The 6-digit code",
+      "codeSubmit": "Sign in",
+      "codeChecking": "Checking the code…",
+      "codeWrong": "That code is wrong or has expired.",
+      "codeRestart": "That code can’t be used any more. Ask for a new one.",
+      "codeLimited": "Too many wrong codes. Try again tomorrow, or sign in another way.",
+      "codeAgain": "Send a new code",
+      "otherWays": "Other ways to sign in",
+      "requestFailed": "That didn’t go through. Check your connection and try again.",
+      "opening": "Opening…",
+      "existingOnly": "Signing in works for FamCal accounts made in Telegram or WhatsApp. New here? Start in one of them.",
+      "none": "Signing in on the web isn’t available yet. FamCal works in Telegram and WhatsApp.",
+      "retry": "Try another way",
+      "status": {
+        "noAccount": {
+          "title": "No FamCal account found",
+          "body": "We couldn’t find a FamCal account for this sign-in. Your Telegram account, and the Google account your calendar is connected from, work right away. Another Google account or an email works once you add it in Settings → Sign in on the web.",
+          "whatsapp": "Use FamCal on WhatsApp? Send “settings” to FamCal there to get a link to your Settings, then add Google or email under Sign in on the web.",
+          "whatsappButton": "Get a link on WhatsApp",
+          "newHere": "New to FamCal? Start in Telegram or WhatsApp."
+        },
+        "several": {
+          "title": "This Google account is on more than one FamCal account",
+          "body": "So we can’t tell which one to open. Open FamCal in the account you want, then add Google in Settings → Sign in on the web."
+        },
+        "suspended": {
+          "title": "This account is suspended",
+          "body": "Signing in is turned off for this FamCal account. To ask about it, write to <mail>{email}</mail>."
+        },
+        "blocked": {
+          "title": "This account can’t sign in",
+          "body": "Signing in isn’t possible for this FamCal account. To ask about it, write to <mail>{email}</mail>."
+        },
+        "taken": {
+          "title": "This Google account is already in use",
+          "body": "This Google account already signs in to another FamCal account. Remove it there first, or add a different Google account."
+        },
+        "hasOne": {
+          "title": "This account already has a Google sign-in",
+          "body": "This FamCal account already has a Google account for signing in. Remove it in Settings → Sign in on the web first."
+        },
+        "restart": "The sign-in didn’t finish. It has to end in the same browser it started in, within 10 minutes. Start again below.",
+        "failed": "The sign-in didn’t work. Try again, or pick another way.",
+        "unavailable": "That way of signing in isn’t available right now. Pick another way."
+      },
+      "addGoogle": {
+        "metaTitle": "Add Google sign-in",
+        "title": "Add Google sign-in to {name}’s FamCal",
+        "titleNoName": "Add Google sign-in to your FamCal",
+        "body": "Next, choose the Google account you want to use. This browser is then signed in to FamCal.",
+        "continue": "Continue with Google",
+        "expiredTitle": "This link can’t be used any more",
+        "expired": "It was used already, or its 5 minutes are up. Start again in FamCal: Settings → Sign in on the web → Add Google.",
+        "failed": "Couldn’t open Google. Try again.",
+        "loadFailed": "Couldn’t open this link. Try again in a moment.",
+        "unavailable": "Google sign-in isn’t available right now."
+      }
     }
   },
   "legal": {
