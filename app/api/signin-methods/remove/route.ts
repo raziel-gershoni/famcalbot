@@ -1,7 +1,8 @@
 // Settings → Sign in on the web → Remove (web sign-in spec §4, §2.13, §2.17).
 //
 // POST /api/signin-methods/remove?user_id=…  body { which: 'google' | 'email' | 'calendar-google' }
-//   → { ok: true, methods }. Every web session of the account ends (sessionsValidAfter); the device this came from, when
+//   → { ok: true, methods }. When something was removed (or the calendar switch turned off), every web session of the
+//     account ends (sessionsValidAfter); a removal that found nothing changes nothing. The device this came from, when
 //     it is a web session, gets a fresh cookie with the same method and a sign-in time of now, so it stays signed in.
 //     A WhatsApp link's cookie keeps its own expiry (spec §2.4: never renewed); a web session gets a full new life.
 //     Any Google removal turns the calendar's Google account off (googleCalendarSignIn).

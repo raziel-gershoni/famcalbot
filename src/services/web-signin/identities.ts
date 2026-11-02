@@ -136,17 +136,24 @@ export async function addIdentity(
 
 /**
  * Remove a way (spec §4, §2.13, §2.17). Any Google removal, the calendar's row included, turns googleCalendarSignIn off,
- * so the calendar match doesn't make it again (Add Google still works). Every removal ends every web session:
- * sessionsValidAfter is now (the route gives the device it came from a fresh cookie).
+ * so the calendar match doesn't make it again (Add Google still works). A removal that changed something ends every web
+ * session: sessionsValidAfter is now (the route gives the device it came from a fresh cookie). One that found nothing
+ * to remove (no such way, the calendar switch already off) changes nothing and signs nobody out. Returns whether
+ * something changed.
  */
-export async function removeSignInMethod(userId: number, which: RemovableWay): Promise<void> {
-  const now = new Date();
-  await prisma.$transaction([
-    ...(which === 'calendar-google' ? [] : [prisma.signInIdentity.deleteMany({ where: { userId, kind: which } })]),
-    prisma.user.update({
+export async function removeSignInMethod(userId: number, which: RemovableWay): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    const deleted = which === 'calendar-google' ? 0 : (await tx.signInIdentity.deleteMany({ where: { userId, kind: which } })).count;
+    const user = await tx.user.findUnique({ where: { id: userId }, select: { googleCalendarSignIn: true } });
+    const switchWasOn = which !== 'email' && user?.googleCalendarSignIn === true;
+    if (deleted === 0 && !switchWasOn) return false;
+    await tx.user.update({
       where: { id: userId },
-      data: { sessionsValidAfter: now, ...(which === 'email' ? {} : { googleCalendarSignIn: false }) },
-    }),
-  ]);
-  console.log(`[signin] user ${userId}: the ${which} way was removed; every web session ends`);
+      data: { sessionsValidAfter: new Date(), ...(which === 'email' ? {} : { googleCalendarSignIn: false }) },
+    });
+    return true;
+  }).then(changed => {
+    console.log(`[signin] user ${userId}: the ${which} way was ${changed ? 'removed; every web session ends' : 'not there; nothing changed'}`);
+    return changed;
+  });
 }

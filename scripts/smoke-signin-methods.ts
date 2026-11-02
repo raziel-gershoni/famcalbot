@@ -549,9 +549,81 @@ async function main() {
     assert(logs.some(l => l.includes('[signin-methods] the body is not JSON')) && !logs.some(l => /unexpected end of json|json input/i.test(l)), `logs ${show(logs)}`);
   });
 
-  await check('#34 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {
+  await check('#34 [guard] a code issued to another account for the same address does not add the way here: Tal and Noa both start Add email for one address, Noa asks second, so Tal posting the code (Noa\'s) gets 410 restart, with no email way and no notice for Tal', async () => {
+    seed();
+    DB.signInIdentity = DB.signInIdentity.filter(i => !(i.userId === NOA && i.kind === 'email'));
+    await startAdd(TAL_TG, 'shared@example.com', tal);
+    aMinutePasses();
+    const noasCode = await startAdd(NOA_TG, 'shared@example.com', noa);
+    const res = await confirm(TAL_TG, noasCode, tal);
+    assert(res.status === 410 && (await body(res)).error === 'restart', `Tal with Noa's code: ${res.status} ${show(await body(res))}`);
+    assert(identitiesOf(TAL).length === 0 && sent.length === 0, `Tal's ways ${show(identitiesOf(TAL))}, notices ${show(sent)}`);
+    assert(!identitiesOf(NOA).some(i => i.kind === 'email'), "the code was used up for Noa's way by Tal's request");
+  });
+
+  await check('#35 [guard] email/confirm from another site or with no Origin is refused (403): the way is not made, no notice, the pending Add email stays, and the code still works from this site', async () => {
+    seed();
+    const code = await startAdd(TAL_TG, 'tal@example.com', tal);
+    const evil = await confirmRoute.POST(request(`/api/signin-methods/email/confirm?user_id=${TAL_TG}`, { ...tal, body: { code }, origin: 'https://evil.example' }));
+    const none = await confirmRoute.POST(request(`/api/signin-methods/email/confirm?user_id=${TAL_TG}`, { ...tal, body: { code }, origin: null }));
+    assert(evil.status === 403 && none.status === 403, `confirm: ${evil.status}, ${none.status}`);
+    assert(identitiesOf(TAL).length === 0 && sent.length === 0, `made ${show(identitiesOf(TAL))} sent ${show(sent)}`);
+    assert(redisStore.has(`signin:add-email:${TAL}`), 'the pending Add email was taken by a refused request');
+    const ok = await confirm(TAL_TG, code, tal);
+    assert(ok.status === 200 && identitiesOf(TAL).length === 1, `from this site ${ok.status} ${show(await body(ok))}`);
+  });
+
+  await check('#36 the wrong-code limits count on email/confirm and block it: each wrong code moves the address\'s and the IP\'s counters; after 10 wrong for the address, even the right code is 429 (limit) and makes no way', async () => {
+    seed();
+    const wrongOf = (code: string) => (code === '000000' ? '111111' : '000000');
+    const counter = (prefix: string): number => {
+      const keys = [...redisStore.keys()].filter(k => k.startsWith(prefix));
+      return keys.length === 0 ? 0 : Number(redisStore.get(keys[0]));
+    };
+    assert(counter('signin:lim:wrong-email-day:') === 0 && counter('signin:lim:wrong-ip-hour:') === 0, 'counters before');
+    let code = '';
+    let wrong = 0;
+    for (const tries of [4, 4, 2]) {
+      aMinutePasses();
+      code = await startAdd(TAL_TG, 'limit@example.com', tal);
+      for (let i = 0; i < tries; i++) {
+        const res = await confirm(TAL_TG, wrongOf(code), tal);
+        assert(res.status === 400 && (await body(res)).error === 'wrong', `wrong ${wrong + 1}: ${res.status} ${show(await body(res))}`);
+        wrong++;
+        assert(counter('signin:lim:wrong-email-day:') === wrong && counter('signin:lim:wrong-ip-hour:') === wrong, `counters after ${wrong}: ${counter('signin:lim:wrong-email-day:')}, ${counter('signin:lim:wrong-ip-hour:')}`);
+      }
+    }
+    const blocked = await confirm(TAL_TG, code, tal);
+    assert(blocked.status === 429 && (await body(blocked)).error === 'limit', `right code after 10 wrong: ${blocked.status} ${show(await body(blocked))}`);
+    assert(identitiesOf(TAL).length === 0 && sent.length === 0, `made ${show(identitiesOf(TAL))} sent ${show(sent)}`);
+  });
+
+  await check('#37 [guard] removing a way the account does not hold (or the calendar switch already off) changes nothing and signs nobody out; one that removes something still does', async () => {
+    seed();
+    const noEmail = await remove(TAL_TG, 'email', tal);
+    assert(noEmail.status === 200 && userRow(TAL).sessionsValidAfter === null, `email with none: ${noEmail.status}, sessionsValidAfter ${show(userRow(TAL).sessionsValidAfter)}`);
+    userRow(TAL).googleCalendarSignIn = false;
+    const off = await remove(TAL_TG, 'calendar-google', tal);
+    const noGoogle = await remove(TAL_TG, 'google', tal);
+    assert(off.status === 200 && noGoogle.status === 200 && userRow(TAL).sessionsValidAfter === null, `switch off: sessionsValidAfter ${show(userRow(TAL).sessionsValidAfter)}`);
+    assert(logs.some(l => l.includes('[signin] user 9: the email way was not there')), `logs ${show(logs)}`);
+    userRow(TAL).googleCalendarSignIn = true;
+    const on = await remove(TAL_TG, 'calendar-google', tal);
+    assert(on.status === 200 && userRow(TAL).googleCalendarSignIn === false && userRow(TAL).sessionsValidAfter instanceof Date, `switch on: ${show(userRow(TAL))}`);
+  });
+
+  await check('#38 a mail that fails to send answers failed (500) and leaves no pending Add email behind', async () => {
+    seed();
+    world.resendFails = true;
+    const res = await addEmail(TAL_TG, 'down@example.com', tal);
+    assert(res.status === 500 && (await body(res)).error === 'failed', `status ${res.status} ${show(await body(res))}`);
+    assert(![...redisStore.keys()].some(k => k.startsWith('signin:add-email:')), 'a pending Add email points at an address with no code');
+    assert(![...redisStore.keys()].some(k => k.startsWith('signin:code:')), 'a code was kept that never reached the person');
+  });
+
+  await check('#39 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {
     const text = [...everyLog, ...everyCapture.map(c => `${c.context} ${c.message} ${show(c.extra)}`)].join('\n').toLowerCase();
-    const addresses = ['tal@example.com', 'noa@example.com', 'dana@example.com', 'takl@example.com', 'tal@gmail.com', 'noa@gmail.com', 'old@gmail.com', 'nobody@gmail.com', 'noa2@example.com'];
+    const addresses = ['tal@example.com', 'noa@example.com', 'dana@example.com', 'takl@example.com', 'tal@gmail.com', 'noa@gmail.com', 'old@gmail.com', 'nobody@gmail.com', 'noa2@example.com', 'shared@example.com', 'limit@example.com', 'down@example.com'];
     const found = addresses.filter(a => text.includes(a));
     const codes = everyMail.map(codeIn).filter(code => new RegExp(`\\b${code}\\b`).test(text));
     const tokens = addTokens.filter(t => t && text.includes(t.toLowerCase()));

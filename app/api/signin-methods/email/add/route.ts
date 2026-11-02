@@ -67,8 +67,9 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin-methods] user ${user.id}: Add email code refused (${allowed.reason})`);
       return answer({ ok: false, error: 'limit' }, 429);
     }
-    await redis.set(REDIS_KEYS.signinAddEmail(user.id), JSON.stringify({ emailKey: key }), { ex: PENDING_TTL_SECONDS });
     await issueCode({ purpose: 'add', emailKey: key, address, userId: user.id, locale: normalizeLocale(user.language) });
+    // After the code is out: a mail that fails to send leaves no pending Add email pointing at an address with no code
+    await redis.set(REDIS_KEYS.signinAddEmail(user.id), JSON.stringify({ emailKey: key }), { ex: PENDING_TTL_SECONDS });
     console.log(`[signin-methods] user ${user.id}: an Add email code was issued`);
     return answer({ ok: true });
   } catch (error) {

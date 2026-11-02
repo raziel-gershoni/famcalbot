@@ -364,6 +364,8 @@ export const everyMail: { to: string[]; body: Row; idempotencyKey: string | null
 export const world = {
   telegramFails: false,
   whatsappFails: false,
+  /** Resend refuses the mail (422: no retry), after recording it */
+  resendFails: false,
   oidc: { telegram: true, google: true } as Record<string, boolean>,
   /** What Google's token says (finishAuthorization's answer) */
   claims: null as Row | null,
@@ -383,7 +385,7 @@ export function resetWorld(): void {
   captured.length = 0;
   mails.length = 0;
   logs.length = 0;
-  Object.assign(world, { telegramFails: false, whatsappFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [] });
+  Object.assign(world, { telegramFails: false, whatsappFails: false, resendFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [] });
 }
 
 function chatService(platform: 'telegram' | 'whatsapp'): Row {
@@ -586,6 +588,7 @@ export async function installSigninWorld(): Promise<void> {
       const mail = { to: ([] as string[]).concat(parsed.to ?? []), body: parsed, idempotencyKey: headers.get('idempotency-key') };
       mails.push(mail);
       everyMail.push(mail);
+      if (world.resendFails) return new Response(JSON.stringify({ message: 'refused (smoke)' }), { status: 422, headers: { 'content-type': 'application/json' } });
       return new Response(JSON.stringify({ id: `re_smoke_${everyMail.length}` }), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     throw new Error(`network blocked in smoke: ${url}`);
