@@ -11,7 +11,10 @@
 //    the US transfers line, the cookies (`__Host-famcal_session` 30 days on famcal.bot and 24 hours from a WhatsApp
 //    link, `famcal_signin` 10 minutes), how long sign-in data is kept, the session cookie check, removing a way and
 //    deleting the ways with the account; the Terms' account security names the Google account and the mailbox. The
-//    old WhatsApp-only cookie line and "keep that account safe" are gone.
+//    old WhatsApp-only cookie line and "keep that account safe" are gone. The owner's approval of lawyer findings 2, 3b, 7,
+//    8 and 9 (2026-11-02) is pinned too: when the primary calendar id is read (at connect or Turn on, and at sign-in), the
+//    chat notice among the uses, the legal grounds naming the sign-in methods and counters, what stays after deletion
+//    (the counters, Resend's copies), and Telegram's and Google's sign-in pages seeing the IP address.
 //  - L3 LEGAL_UPDATED moved for both pages to the day the text changed (2026-11-02 or later), and is not a day that has
 //    not come yet in Israel.
 //  - L4 the cookies the Policy names are the code's, with the code's lengths: SESSION_COOKIE_NAME and SESSION_TTL_SEC
@@ -66,10 +69,15 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'if you add email sign-in: that email address;'],
     ['privacy', 'for each, when you added it and last used it;'],
     ['privacy', 'if you connected Google Calendar: a scrambled form of that Google account’s address, so we can recognise it when you sign in with it.'],
-    ['privacy', 'We use them only to sign you in and to send you sign-in codes.'],
+    ['privacy', 'We use them only to sign you in, to send you sign-in codes, and to tell you in your chat when a way to sign in is added.'],
     ['privacy', 'To stop misuse of sign-in, we also count sign-in attempts in Upstash per IP address, per email address and, when you add an email, per account, under scrambled keys, for up to a day.'],
     ['privacy', '**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address.'],
-    ['privacy', 'we check it is the same account by reading your primary calendar’s id (its address) with the calendar permission you gave.'],
+    ['privacy', 'we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account.'],
+    ['privacy', 'To run FamCal for you (your account and its sign-in methods, calendar, settings,'],
+    ['privacy', 'the activity log, the sign-in counters, and the record of banned accounts): our legitimate interest'],
+    ['privacy', 'cache copies, until they expire (up to 30 days);'],
+    ['privacy', 'sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);'],
+    ['privacy', 'When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser.'],
     ['privacy', 'We use these only to sign you in, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.'],
     ['privacy', 'What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.'],
     ['privacy', 'the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.'],
@@ -95,10 +103,15 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'אם הוספתם כניסה עם מייל: כתובת המייל הזו;'],
     ['privacy', 'לכל אחת מדרכי הכניסה: מתי הוספתם אותה ומתי השתמשתם בה לאחרונה;'],
     ['privacy', 'אם חיברתם את יומן Google: הכתובת של חשבון ה־Google הזה בצורה מעורבלת (hash), כדי שנזהה אותו כשתיכנסו איתו.'],
-    ['privacy', 'אנחנו משתמשים בהם רק כדי להכניס אתכם ולשלוח לכם קודי כניסה.'],
+    ['privacy', 'אנחנו משתמשים בהם רק כדי להכניס אתכם, לשלוח לכם קודי כניסה, ולהודיע לכם בצ׳אט כשנוספת דרך כניסה.'],
     ['privacy', 'כדי למנוע שימוש לרעה בכניסה, אנחנו גם סופרים ב־Upstash את ניסיונות הכניסה מכל כתובת IP, לכל כתובת מייל ולכל חשבון (כשמוסיפים כתובת מייל), למשך יום לכל היותר, והמזהים נשמרים שם רק בצורה מעורבלת (hash).'],
     ['privacy', '**כניסה.** אם נכנסים עם Google, FamCal מבקש מ־Google רק את המזהה של החשבון שלכם ואת כתובת המייל שלו.'],
-    ['privacy', 'אנחנו קוראים את המזהה של היומן הראשי שלכם (הכתובת שלו) בעזרת ההרשאה ליומן שנתתם.'],
+    ['privacy', 'אנחנו קוראים את המזהה של היומן הראשי שלכם (הכתובת שלו) בעזרת ההרשאה ליומן שנתתם: כשמחברים את יומן Google, או מפעילים את זה בהגדרות, כדי לשמור אותו בצורה מעורבלת, וכשנכנסים, כדי לוודא שזה אותו חשבון.'],
+    ['privacy', 'להפעלת FamCal בשבילכם (החשבון ודרכי הכניסה אליו, היומן, ההגדרות,'],
+    ['privacy', 'רישום הפעילות, ספירת ניסיונות הכניסה, ורשימת החשבונות החסומים): האינטרס הלגיטימי שלנו'],
+    ['privacy', 'עותקים בזיכרון המטמון, עד שתוקפם פג (עד 30 יום);'],
+    ['privacy', 'ספירת ניסיונות הכניסה, עד שתוקפה פג (יום לכל היותר), והעותקים של מיילי הכניסה אצל Resend (עד 30 יום);'],
+    ['privacy', 'כשנכנסים עם טלגרם או עם Google, הדפדפן שלכם פותח את דף הכניסה שלהם. כמו כל אתר שנכנסים אליו, טלגרם ו־Google רואות את כתובת ה־IP ואת הדפדפן שלכם.'],
     ['privacy', 'אנחנו משתמשים במידע הזה רק כדי להכניס אתכם, לא מעבירים אותו לאף אחד אחר, ומוחקים אותו כשמסירים את הכניסה עם Google, כשמנתקים את יומן Google (את הכתובת המעורבלת) או כשמוחקים את החשבון.'],
     ['privacy', 'מה אנחנו שומרים כדי להכניס אתכם עם Google מפורט תחת ״החשבון שלכם״, ובסעיף ״כניסה״ למעלה מפורט מתי אנחנו מוחקים אותו.'],
     ['privacy', 'ההתחברות לאפליקציית הרשת, הכניסה ל־famcal.bot עם טלגרם, ותשלומים בכוכבים.'],
@@ -124,10 +137,15 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'если вы добавили вход по электронной почте: этот адрес;'],
     ['privacy', 'для каждого способа входа: когда вы его добавили и когда в последний раз им пользовались;'],
     ['privacy', 'если вы подключили Google Календарь: адрес этого аккаунта Google в преобразованном виде (хеш), чтобы мы узнали этот аккаунт, когда вы войдёте через него.'],
-    ['privacy', 'Мы используем эти данные только для входа и для отправки вам кодов входа.'],
+    ['privacy', 'Мы используем эти данные только для входа, для отправки вам кодов входа и для уведомления в вашем чате, когда добавлен способ входа.'],
     ['privacy', 'Чтобы не допустить злоупотреблений при входе, мы также считаем в Upstash попытки входа с каждого IP-адреса, для каждого адреса электронной почты и — при добавлении адреса — для каждого аккаунта, не дольше суток, причём сами идентификаторы хранятся там только в преобразованном виде (хеш).'],
     ['privacy', '**Вход.** Если вы входите через Google, FamCal запрашивает у Google только идентификатор вашего аккаунта и адрес электронной почты.'],
-    ['privacy', 'мы читаем идентификатор вашего основного календаря (его адрес) с помощью разрешения на доступ к календарю, которое вы дали.'],
+    ['privacy', 'мы читаем идентификатор вашего основного календаря (его адрес) с помощью разрешения на доступ к календарю, которое вы дали: при подключении Google Календаря или при включении этого входа в «Настройках» — чтобы сохранить его в преобразованном виде, и при входе — чтобы убедиться, что это тот же аккаунт.'],
+    ['privacy', 'Чтобы FamCal работал для вас (ваш аккаунт и способы входа в него, календарь, настройки,'],
+    ['privacy', 'журнал действий, счётчики попыток входа и записи о заблокированных аккаунтах): наш законный интерес'],
+    ['privacy', 'копии в кеше — до истечения их срока (до 30 дней);'],
+    ['privacy', 'счётчики попыток входа — до истечения их срока (не дольше суток) и копии писем с кодами для входа у Resend (до 30 дней);'],
+    ['privacy', 'Когда вы входите через Telegram или Google, ваш браузер открывает их страницу входа. Как и любой сайт, который вы посещаете, Telegram и Google видят ваш IP-адрес и данные о браузере.'],
     ['privacy', 'Мы используем эти данные только для входа, больше никому их не передаём и удаляем их, когда вы удаляете вход через Google, отключаете Google Календарь (адрес в преобразованном виде) или удаляете аккаунт.'],
     ['privacy', 'Что мы храним для входа через Google, описано в разделе «Ваш аккаунт», а когда мы это удаляем — выше, в пункте «Вход».'],
     ['privacy', 'вход в веб-приложение, вход на famcal.bot через Telegram и платежи звёздами.'],
