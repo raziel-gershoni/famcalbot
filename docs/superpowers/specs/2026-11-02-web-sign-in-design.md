@@ -1,6 +1,6 @@
 # Web sign-in on famcal.bot (item 6b)
 
-Status: draft for the owner's approval, 2026-11-02. Item 6 is 6a (public zmanim pages, live), 6b (this spec) and 6c (FamCal with no messenger). The facts were checked against the code at a5cb6ef6 and against the providers' live pages on 2026-11-02. Two independent reviews (security, and code facts with product and legal) are folded in.
+Status: approved by the owner, 2026-11-02, with §2.17 (Google Calendar connections sign in) added at the owner's request. Item 6 is 6a (public zmanim pages, live), 6b (this spec) and 6c (FamCal with no messenger). The facts were checked against the code at a5cb6ef6 and against the providers' live pages on 2026-11-02. Two independent reviews (security, and code facts with product and legal) are folded in.
 
 ## 1. Why
 
@@ -10,7 +10,7 @@ Today a browser gets into FamCal only through a one-time link that the WhatsApp 
 
 **Success:**
 - A Telegram user signs in on famcal.bot with Telegram and lands on their calendar.
-- Once added in Settings, Google and an email code sign the same person in.
+- A person who connected Google Calendar signs in with that Google account at once. Another Google account or an email code works once added in Settings.
 - They stay signed in for 30 days of use. They can sign out on this device or on every device.
 - An idle FamCal makes no more database queries than today (Neon's free plan, CLAUDE.md). A signed-in request costs the same one user-row query as today. A sign-in costs a few queries (the account, the ban list, the last-used date), and only when a person acts.
 - No sign-in secret (code, token, one-time check) or email address reaches a log line or Sentry.
@@ -20,7 +20,7 @@ Today a browser gets into FamCal only through a one-time link that the WhatsApp 
 For the owner:
 
 1. **Who can sign in: existing accounts only.**
-   - The person must already have FamCal through Telegram or WhatsApp. Telegram works at once. Google and email work after the person adds them in Settings (§4).
+   - The person must already have FamCal through Telegram or WhatsApp. Telegram works at once, and so does the Google account their calendar is connected from (§2.17). Another Google account and email work after the person adds them in Settings (§4).
    - A sign-in that matches no account gets a page saying so. If they use FamCal on WhatsApp, the page says to send "settings" there to get a link, then add Google or email in Settings. If they're new, it says to start FamCal in Telegram or WhatsApp.
    - New accounts made on the web are 6c.
    - Alternative: let a Telegram sign-in create a new account directly. The bot then can't message that person until they press Start, so their summaries and reminders would silently not arrive.
@@ -66,7 +66,7 @@ Rulings (small choices; the owner can change any):
     - unique on (kind, subject) and on (user, kind), so one Google account and one email per person, each on one account only;
     - it is deleted with the account;
     - a WhatsApp-into-Telegram merge moves the WhatsApp row's sign-in ways to the Telegram row in the same transaction, keeping the Telegram row's where both have one;
-    - we never match a person by email address, name or phone number.
+    - we never match a person by an address they typed, a name or a phone number. The one address match is Google's own (§2.17): the connected calendar's account, confirmed live with Google.
 13. **Ending sessions: one date on the user, `sessionsValidAfter`.**
     - It is read in the row every request already reads, so it costs no extra query.
     - These move it: **Sign out on all devices**, removing a sign-in way, a suspension, and a ban. A ban finds the row by the Telegram id or WhatsApp number it names. The device you removed a way from gets a fresh cookie.
@@ -80,6 +80,13 @@ Rulings (small choices; the owner can change any):
     - The admin entry in the menu is hidden outside Telegram.
 15. **These stay in the chat:** paying with Stars and finishing a Google Calendar connection, as today. The admin panel stays Telegram-only.
 16. **The session cookie is renamed `__Host-famcal_session`** (Secure, Path=/, no Domain), so no famcal.bot subdomain can plant one. The cost: WhatsApp users with a session open at deploy (24 hours at most) sign in once more.
+17. **The Google account a calendar is connected from also signs in** (the owner's request). The person already proved that account is theirs when they connected it.
+    - **What we keep:** on the user, a keyed hash of the connected account's address (`googleAccountKey`, its key derived from `SESSION_SECRET` with its own label and stored with a key version), never the address itself, and `googleCalendarSignIn` (default on). The calendar consent has no `openid`, so the address is the account's primary calendar id (`googleAccountOf`, already used by the copy to Google).
+    - **When it's written:** in `commitGoogleToken` on every connect and reconnect (one more Google call), and cleared by the disconnect. A WhatsApp-into-Telegram merge moves it with the Google connection. Accounts connected before 6b are filled once by a pass at startup: one query per boot, and one Google call per connected account until it is filled (a failure is logged and retried on the next boot). A new `SESSION_SECRET` refills it the same way.
+    - **At sign-in:** when (google, sub) has no `SignInIdentity`, the hash of the token's verified email is looked up. Exactly one account with `googleCalendarSignIn` on, a live Google connection and no Google sign-in way yet → Google is asked again with that account's calendar token, and its primary calendar id must equal the verified email right now. Then a Google `SignInIdentity` is made for that sub, the person is signed in, and the chat gets a notice: "You signed in to FamCal on the web with Google d•••@gmail.com, the account your calendar is connected from. Not you? Settings → Sign in on the web → Remove."
+    - **No match, a dead connection, or several FamCal accounts on the same Google account** (a shared family account) → the no-account page. For several, it says to add Google in Settings on the account they want.
+    - **In Settings:** before its first use, the Google row reads "The Google account your calendar is connected from" (no address, since we keep none), with **Remove**. Removing it, or removing a Google sign-in way later, turns `googleCalendarSignIn` off, so it isn't made again; **Add Google** still works. Disconnecting Google Calendar stops the match; a sign-in way already made stays, listed in Settings like any other.
+    - **Google's data rules:** the address is used only for a feature the person sees (signing in with that Google account), and the Policy says so (§7).
 
 ## 3. Pages and flows
 
@@ -93,7 +100,7 @@ Rulings (small choices; the owner can change any):
   - The nonce is checked when Telegram returns it. The first live sign-in records whether it does.
 - **Google:** the same shape, on its own OAuth client, without `include_granted_scopes`, on `/api/auth/google/callback`.
   - `openid-client` checks the token: signature, issuer, audience (only the sign-in client), expiry and nonce. `email_verified` must be true.
-  - The account is found by (google, sub).
+  - The account is found by (google, sub), or else by the connected calendar's account (§2.17).
 - **Email:**
   - **The address:** accepted only as ASCII after trimming; an IDN domain is turned into punycode first. Anything else gets the generic answer.
   - **Where the code goes:** to the address stored on the row, never to the typed text.
@@ -126,7 +133,7 @@ Rulings (small choices; the owner can change any):
 
 A new group in Settings (Mini App and web app):
 - **Telegram:** shown as on for Telegram accounts. Nothing to add.
-- **Google:** **Add** starts Google's sign-in (§2.9), then shows the address. **Remove** asks first.
+- **Google:** **Add** starts Google's sign-in (§2.9), then shows the address. **Remove** asks first. With Google Calendar connected and no Google way yet, the row shows the calendar's account (§2.17).
 - **Email:** **Add** asks for the address, mails a code, then asks for the code. An address already on another account is refused only after its code is right. **Remove** asks first.
 - Adding sends the chat notice (§2.10). Removing signs out every web session (§2.13).
 - **Sign out** (web only) and **Sign out on all devices**.
@@ -172,8 +179,8 @@ A new group in Settings (Mini App and web app):
   - After you sign in on famcal.bot with Telegram, Google or an email code, it lasts 30 days from your last visit.
   - After you open the web app from a WhatsApp link, it lasts 24 hours.
   - While you sign in, `famcal_signin` holds a one-time check for 10 minutes."
-- **What we keep:** "If you add Google sign-in: your Google account id and its email address. If you add email sign-in: that email address. For each, when you added it and last used it. We use them only to sign you in and to send you sign-in codes."
-- **Google user data:** "If you add Google sign-in, FamCal asks Google only for your account id and email address. We use them only to sign you in, never share them, and delete them when you remove Google sign-in or your account. This is separate from connecting Google Calendar."
+- **What we keep:** "If you add Google sign-in, or sign in with the Google account your calendar is connected from: your Google account id and its email address. If you add email sign-in: that email address. For each, when you added it and last used it. If you connected Google Calendar: a scrambled form of that Google account's address, so we can recognise it when you sign in with it. We use them only to sign you in and to send you sign-in codes."
+- **Google user data:** "If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal: we check it is the same account by reading your primary calendar's id (its address) with the calendar permission you gave. We use these only to sign you in, never share them, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account."
 - **Processors:**
   - Telegram's line adds "signing in to famcal.bot with Telegram".
   - New: "**Google**, if you sign in with Google: your Google account id and email address, to sign you in."
@@ -187,7 +194,7 @@ A new group in Settings (Mini App and web app):
   - Deleting an account also deletes its sign-in methods.
 
 **Terms:**
-- **Account security:** "Anyone who can use your Telegram or WhatsApp account, or a Google account or mailbox you added for signing in, can use FamCal as you."
+- **Account security:** "Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you added for signing in, can use FamCal as you."
 - **Eligibility** is unchanged: an account still needs Telegram or WhatsApp.
 
 ## 8. Testing
@@ -196,6 +203,7 @@ A new group in Settings (Mini App and web app):
   - State, nonce and PKCE are refused when wrong, reused or late.
   - A Telegram sign-in finds the person by `id`, never by `sub`.
   - A Google sign-in is refused when `email_verified` is false or the audience is the calendar client.
+  - The calendar match (§2.17): one account with a live check that agrees signs in and gets the notice; a live check that disagrees, a dead connection, two accounts on one Google account, `googleCalendarSignIn` off, or an account that already has a Google way each fall back to the no-account page; removing the way turns the match off; disconnecting clears the hash; the startup pass fills only empty or old-version rows and makes no query beyond its one select when all are filled.
   - An unknown identity, a suspended account and a banned account each get their page.
   - The WhatsApp link still opens Select calendars.
   - A POST from another Origin is refused.
@@ -228,6 +236,6 @@ A new group in Settings (Mini App and web app):
 - Passkeys and Apple sign-in. Apple's rule applies to App Store apps, not websites.
 - The brief light flash before dark mode in the web app.
 
-## 10. Questions for the owner
+## 10. Answered
 
-1. In Google Cloud → Google Auth Platform → Audience: is the app **In production** or **Testing**? In Testing only listed test users can sign in with Google, and calendar connections expire after 7 days. The repo doesn't record it.
+1. Google Auth Platform → Audience is **In production** (the owner, 2026-11-02), so any Google user can sign in.
