@@ -4,10 +4,12 @@
 // with Today's summary, Tomorrow's summary, This week, Next week and Weather. A tap asks
 // the bot to post it in the user's chat (D4's sendToChat), one send at a time:
 // - Telegram, 2xx: the app closes, so the spinner stays until it does;
-// - a 2xx where the page stays: "Sent to WhatsApp" in a browser, or "Sent. Check your
-//   chat" when Telegram couldn't close the app;
-// - 429: try again in a minute; 401/403: reopen from the chat; no answer: no connection;
-//   anything else: couldn't send. The sheet stays open and says so.
+// - a 2xx where the page stays names the chat the route used (its `platform`): "Sent to
+//   WhatsApp" or "Sent to Telegram", also when Telegram couldn't close the app; "Sent. Check
+//   your chat" when the answer names none;
+// - 400 wa_link_needed (a WhatsApp-only account signed in another way): open FamCal from
+//   WhatsApp first; 429: try again in a minute; 401/403: reopen from the chat; no answer: no
+//   connection; anything else: couldn't send. The sheet stays open and says so.
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -44,10 +46,13 @@ export function sendResultKey(result: SendResult): { key: string; problem: boole
     case 'closing':
       return null;
     case 'sent':
-      return { key: result.chat === 'whatsapp' ? 'send.sentWhatsApp' : 'send.sent', problem: false };
+      if (result.chat === 'whatsapp') return { key: 'send.sentWhatsApp', problem: false };
+      if (result.chat === 'telegram') return { key: 'send.sentTelegram', problem: false };
+      return { key: 'send.sent', problem: false };
     case 'busy':
       return { key: 'send.busy', problem: true };
     case 'failed':
+      if (result.reason === 'wa_link_needed') return { key: 'send.waLinkNeeded', problem: true };
       if (result.status === null) return { key: 'send.offline', problem: true };
       if (result.status === 401 || result.status === 403) return { key: 'send.signedOut', problem: true };
       return { key: 'send.failed', problem: true };

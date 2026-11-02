@@ -13,7 +13,7 @@
 import { Component, useEffect, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { notFound, useRouter } from 'next/navigation';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { StateCard } from '@/components/app-ui/StateCard';
@@ -22,6 +22,7 @@ import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
 import type { GateLinks } from '@/src/lib/gate-links';
 import { enableTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { readInitData } from '@/src/lib/read-init-data';
+import { signInHref } from '@/src/site/signin';
 import { CHUNK_RELOAD_KEY, isChunkLoadError, reloadOnce } from '@/src/lib/calendar-view/reload-guard';
 
 /**
@@ -102,6 +103,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
     googleConnected: p.googleConnected ?? false,
     googleState: p.googleState ?? 'none',
     hints: p.hints,
+    hasTelegram: p.hasTelegram,
     trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
     hasLocation: Boolean(p.user.location),
     lookahead7: p.lookahead7,
@@ -192,25 +194,27 @@ interface GateActionSpec {
   onClick?: () => void;
 }
 
-/** A gate's card: the app's StateCard inside its own screen. The first action is its filled one, the second its quieter one. */
+/** A gate's card: the app's StateCard inside its own screen. The first action is its filled one, the second and third its quieter ones. */
 function Gate({ title, body, actions }: { title: string; body: string; actions: GateActionSpec[] }) {
-  const [first, second] = actions;
+  const [first, second, third] = actions;
   return (
     <AppScreen>
-      <StateCard tone="crash" title={title} body={body} action={first} secondary={second} />
+      <StateCard tone="crash" title={title} body={body} action={first} secondary={second} tertiary={third} />
     </AppScreen>
   );
 }
 
 /**
  * The card for a page nobody has proved they may see. Inside Telegram the chat's buttons
- * reopen it with fresh initData, so it closes the Mini App. In a browser it leads with
- * WhatsApp ("settings" brings a fresh magic link); a WhatsApp-only user who tapped the
- * Telegram link would get a second, unlinked account from /start, so that link comes
- * second and says who it is for.
+ * reopen it with fresh initData, so it closes the Mini App. In a browser it leads with Sign in
+ * (the web sign-in page, in the page's language), then WhatsApp ("settings" brings a fresh
+ * magic link); a WhatsApp-only user who tapped the Telegram link would get a second, unlinked
+ * account from /start, so that link comes last and says who it is for. The calendar home's own
+ * 401 card is this same card.
  */
 export function NoCredentialCard({ inTelegram, links }: { inTelegram: boolean; links: GateLinks }) {
   const t = useTranslations('pageGate');
+  const locale = useLocale();
   if (inTelegram) {
     return (
       <Gate
@@ -225,7 +229,8 @@ export function NoCredentialCard({ inTelegram, links }: { inTelegram: boolean; l
       title={t('browserTitle')}
       body={t('browserBody')}
       actions={[
-        { label: t('openWhatsApp'), primary: true, href: links.whatsapp },
+        { label: t('signIn'), primary: true, href: signInHref(locale) },
+        { label: t('openWhatsApp'), href: links.whatsapp },
         { label: t('openTelegram'), href: links.telegram },
       ]}
     />

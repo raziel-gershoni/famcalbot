@@ -7,8 +7,11 @@
  *   and in the JSON body as the fallback the route also reads.
  * - Inside Telegram the app closes only on a 2xx. Any other answer, or none, keeps it
  *   open, and the caller says why (429: try again in a minute).
- * - In a browser (the WhatsApp magic-link session cookie) the page always stays. A 2xx
- *   there means the answer went to WhatsApp, where every magic link comes from.
+ * - In a browser (a session cookie, however the person signed in) the page always stays. A
+ *   2xx there names the chat the answer went to in its `platform` field (a WhatsApp-link
+ *   session answers on WhatsApp, a Telegram, Google or email one on Telegram).
+ * - 400 `wa_link_needed`: a WhatsApp-only account signed in another way; WhatsApp refuses
+ *   free replies after 24 hours, so the sheet says to open FamCal from WhatsApp.
  *
  * No imports beyond read-init-data, so it stays a small client module.
  */
@@ -32,16 +35,29 @@ export const SEND_COMMANDS: Record<SendItem, SendCommand> = {
 
 /**
  * - closing: Telegram answered 2xx and the app was asked to close. Keep the spinner.
- * - sent: a 2xx and the page stays. `chat` is where the answer went: WhatsApp in a
- *   browser; Telegram when the SDK couldn't close the app (blocked script, a throw).
+ * - sent: a 2xx and the page stays. `chat` is where the answer went, as the route says in
+ *   `platform`; Telegram when the SDK couldn't close the app (blocked script, a throw);
+ *   'unknown' when a 2xx names no chat (the sheet then says only "Sent").
  * - busy: 429, try again in a minute.
  * - failed: any other status, or null when no answer came (offline, blocked request).
+ *   `reason` is set for the one 400 the person can fix.
  */
 export type SendResult =
   | { outcome: 'closing' }
-  | { outcome: 'sent'; chat: 'whatsapp' | 'telegram' }
+  | { outcome: 'sent'; chat: 'whatsapp' | 'telegram' | 'unknown' }
   | { outcome: 'busy' }
-  | { outcome: 'failed'; status: number | null };
+  | { outcome: 'failed'; status: number | null; reason?: 'wa_link_needed' };
+
+/** The body of an answer, or null (logged) when it isn't a JSON object. */
+async function readJson(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await res.json();
+    return body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : null;
+  } catch (err) {
+    console.error('[command-client] The answer was not JSON:', err);
+    return null;
+  }
+}
 
 /**
  * Asks the bot to post `item` in the user's chat. `userId` is the page's own user_id as
@@ -52,23 +68,33 @@ export async function sendToChat(userId: number, item: SendItem, locale: string)
   const initData = readInitData();
   const { command, args } = SEND_COMMANDS[item];
 
-  let status: number;
+  let res: Response;
   try {
-    const res = await fetch('/api/execute-command', {
+    res = await fetch('/api/execute-command', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', ...(initData ? { [INIT_DATA_HEADER]: initData } : {}) },
       body: JSON.stringify({ user_id: userId, command, args, language: locale, ...(initData ? { initData } : {}) }),
     });
-    status = res.status;
   } catch (err) {
     console.error('[command-client] The send got no answer:', err);
     return { outcome: 'failed', status: null };
   }
 
+  const status = res.status;
   if (status === 429) return { outcome: 'busy' };
-  if (status < 200 || status > 299) return { outcome: 'failed', status };
-  if (!initData) return { outcome: 'sent', chat: 'whatsapp' };
+  if (status < 200 || status > 299) {
+    if (status === 400 && (await readJson(res))?.error === 'wa_link_needed') {
+      return { outcome: 'failed', status, reason: 'wa_link_needed' };
+    }
+    return { outcome: 'failed', status };
+  }
+  if (!initData) {
+    const platform = (await readJson(res))?.platform;
+    if (platform === 'whatsapp' || platform === 'telegram') return { outcome: 'sent', chat: platform };
+    console.error('[command-client] The answer named no chat:', platform);
+    return { outcome: 'sent', chat: 'unknown' };
+  }
 
   try {
     const tg = window.Telegram?.WebApp;

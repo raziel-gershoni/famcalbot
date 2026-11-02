@@ -465,7 +465,7 @@ async function main() {
     assert(/--ch-bg:\s*var\(--tg-theme-bg-color,\s*var\(--bg-white\)\)/.test(root) && /background:\s*var\(--ch-bg\)/.test(root), `the root's background: ${root}`);
   });
 
-  await check("#7c PageGate's gate card in the app look (NoCredentialCard): in Telegram its button closes the Mini App; in a browser it links to WhatsApp first and Telegram second, filled then quiet; both are an AppScreen with the card's h1 and no BackButton", () => {
+  await check("#7c PageGate's gate card in the app look (NoCredentialCard): in Telegram its button closes the Mini App; in a browser it links to Sign in first (filled), then WhatsApp and Telegram (quiet); both are an AppScreen with the card's h1 and no BackButton", () => {
     installWindow();
     const links = { whatsapp: 'https://wa.me/972500000000?text=settings', telegram: 'https://t.me/test_bot?start=dashboard' };
     const calls: string[] = [];
@@ -486,7 +486,7 @@ async function main() {
     const browser = mount(card(false));
     try {
       const anchors = elements(browser.container).filter((e) => e.localName === 'a');
-      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([[links.whatsapp, 'ch-btn ch-btn-primary ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card's links: ${show(anchors.map((a) => [a.getAttribute('href'), a.className]))}`);
+      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([['/he/signin', 'ch-btn ch-btn-primary ch-home-card-action'], [links.whatsapp, 'ch-btn ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card's links: ${show(anchors.map((a) => [a.getAttribute('href'), a.className]))}`);
     } finally {
       browser.unmount();
     }
@@ -547,7 +547,7 @@ async function main() {
     try {
       assert(show(colourCalls(browser.calls)) === show([]), `colours: ${show(browser.calls)}`);
       const anchors = elements(browser.m.container).filter((e) => e.localName === 'a');
-      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([[links.whatsapp, 'ch-btn ch-btn-primary ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card: ${show(anchors.map((a) => a.getAttribute('href')))}`);
+      assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([['/he/signin', 'ch-btn ch-btn-primary ch-home-card-action'], [links.whatsapp, 'ch-btn ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card: ${show(anchors.map((a) => a.getAttribute('href')))}`);
       assert(elements(browser.m.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.browserTitle) && pushes.length === 0, 'the browser title, no push');
       assert(!elements(browser.m.container).some((e) => e.className === 'ch-loader'), 'the loader is gone');
     } finally {

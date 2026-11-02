@@ -6,7 +6,9 @@
 // Telegram.WebApp there. sendToChat treats a call as Telegram only when readInitData() is non-empty, closes only on a 2xx,
 // answers busy on a 429 and failed otherwise, and in a browser stays open with "sent".
 // The initData goes in the X-Telegram-Init-Data header, with the body copy as the
-// fallback the route also reads.
+// fallback the route also reads. In a browser the chat comes from the route's `platform`
+// (web sign-in spec §2.14): a Telegram session is not "Sent to WhatsApp"; a 2xx that names
+// no chat is a plain "sent"; the 400 `wa_link_needed` is its own outcome.
 //
 // Faked at the boundaries: fetch (records each call, answers a set status or rejects)
 // and the browser window (with and without the Telegram SDK). No network.
@@ -67,7 +69,7 @@ function fakeWebApp(log: string[], initData: string, closeThrows = false): Row {
  * `answer` (a status) or rejects ('reject'). console.error is collected, not printed.
  */
 async function scenario(
-  o: { webApp?: (log: string[]) => Row | null; hash?: string; answer: number | 'reject' },
+  o: { webApp?: (log: string[]) => Row | null; hash?: string; answer: number | 'reject'; json?: Row; raw?: string },
   fn: (env: Env) => Promise<void>
 ): Promise<void> {
   const g = globalThis as Row;
@@ -88,7 +90,7 @@ async function scenario(
     env.log.push('fetch');
     if (o.answer === 'reject') throw new TypeError('Failed to fetch');
     const noBody = [204, 205, 304].includes(o.answer);
-    return new Response(noBody ? null : JSON.stringify({ success: o.answer < 300 }), {
+    return new Response(noBody ? null : (o.raw ?? JSON.stringify({ success: o.answer < 300, ...(o.json ?? {}) })), {
       status: o.answer,
       headers: { 'content-type': 'application/json' },
     });
@@ -176,9 +178,9 @@ async function main() {
     });
   });
 
-  await check('#6 a browser with the SDK loaded (initData \'\'): no header, no initData in the body, 200 → sent to WhatsApp, and close() is never called', async () => {
+  await check('#6 a browser with the SDK loaded (initData \'\'): no header, no initData in the body, 200 naming WhatsApp → sent to WhatsApp, and close() is never called', async () => {
     const { sendToChat } = await client();
-    await scenario({ webApp: browserSdk, answer: 200 }, async env => {
+    await scenario({ webApp: browserSdk, answer: 200, json: { platform: 'whatsapp' } }, async env => {
       const result = await sendToChat(42, 'nextWeek', 'en');
       assert(show(result) === show({ outcome: 'sent', chat: 'whatsapp' }), show(result));
       assert(show(env.log) === show(['fetch']), `calls: ${show(env.log)}`);
@@ -207,9 +209,9 @@ async function main() {
     assert(wrong.length === 0, wrong.join('; '));
   });
 
-  await check('#8 a browser with no SDK at all: 200 → sent to WhatsApp', async () => {
+  await check('#8 a browser with no SDK at all: 200 naming WhatsApp → sent to WhatsApp', async () => {
     const { sendToChat } = await client();
-    await scenario({ webApp: () => null, answer: 200 }, async env => {
+    await scenario({ webApp: () => null, answer: 200, json: { platform: 'whatsapp' } }, async env => {
       const result = await sendToChat(42, 'weather', 'en');
       assert(show(result) === show({ outcome: 'sent', chat: 'whatsapp' }), show(result));
       assert(env.sent.length === 1 && !('x-telegram-init-data' in env.sent[0].headers), `headers ${show(env.sent[0]?.headers)}`);
@@ -234,6 +236,47 @@ async function main() {
       assert(show(result) === show({ outcome: 'sent', chat: 'telegram' }), show(result));
       assert(show(env.log) === show(['fetch', 'close()']), `calls: ${show(env.log)}`);
       assert(env.errors.some(e => e.includes('close: not now')), `logged: ${show(env.errors)}`);
+    });
+  });
+
+  await check('#11 a browser session answered on Telegram (a Telegram, Google or email sign-in): 200 naming Telegram → sent to Telegram, never WhatsApp', async () => {
+    const { sendToChat } = await client();
+    await scenario({ webApp: browserSdk, answer: 200, json: { platform: 'telegram' } }, async env => {
+      const result = await sendToChat(42, 'today', 'en');
+      assert(show(result) === show({ outcome: 'sent', chat: 'telegram' }), show(result));
+      assert(!env.log.includes('close()'), `closed: ${show(env.log)}`);
+    });
+  });
+
+  await check('#12 a browser, 200 that names no chat (no platform, an unknown one, or a body that is not JSON): sent to an unknown chat, logged', async () => {
+    const { sendToChat } = await client();
+    const cases: [string, Row][] = [
+      ['no platform', {}],
+      ['an unknown platform', { json: { platform: 'signal' } }],
+      ['not JSON', { raw: '<html>' }],
+    ];
+    for (const [name, extra] of cases) {
+      await scenario({ webApp: browserSdk, answer: 200, ...extra }, async env => {
+        const result = await sendToChat(42, 'today', 'en');
+        assert(show(result) === show({ outcome: 'sent', chat: 'unknown' }), `${name}: ${show(result)}`);
+        assert(env.errors.some(e => e.includes('named no chat')), `${name} logged: ${show(env.errors)}`);
+      });
+    }
+  });
+
+  await check('#13 400 wa_link_needed (a WhatsApp-only account signed in another way): failed with that reason; any other 400 has none', async () => {
+    const { sendToChat } = await client();
+    await scenario({ webApp: browserSdk, answer: 400, json: { error: 'wa_link_needed' } }, async () => {
+      const result = await sendToChat(42, 'today', 'en');
+      assert(show(result) === show({ outcome: 'failed', status: 400, reason: 'wa_link_needed' }), show(result));
+    });
+    await scenario({ webApp: browserSdk, answer: 400, json: { error: 'no_channel' } }, async () => {
+      const result = await sendToChat(42, 'today', 'en');
+      assert(show(result) === show({ outcome: 'failed', status: 400 }), show(result));
+    });
+    await scenario({ webApp: browserSdk, answer: 400, raw: 'Bad Request' }, async () => {
+      const result = await sendToChat(42, 'today', 'en');
+      assert(show(result) === show({ outcome: 'failed', status: 400 }), show(result));
     });
   });
 

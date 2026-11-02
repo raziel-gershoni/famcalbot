@@ -1735,6 +1735,13 @@ async function main() {
 
   // ---- CalendarHome (Task D6): the container, in real React with a fake fetch ----
 
+  /**
+   * src/utils/locale.ts (the language codes and normalizeLocale, which the gate card's Sign in link reaches through
+   * src/site/signin.ts) is the one src/utils file the client graph may hold: it imports nothing, so it holds no
+   * server module. The exemption lasts only while that stays true.
+   */
+  const importsNothing = (p: string) => /[\\/]src[\\/]utils[\\/]locale\.ts$/.test(p) && !/^\s*(import|export [^\n]* from)\b/m.test(fs.readFileSync(p, 'utf8'));
+
   await check('#21 the container is client-safe: CalendarHome and its parts load no server module', () => {
     const root = path.join(ROOT, 'app/[locale]/(app)/dashboard/CalendarHome.tsx');
     assert(require.cache[root] !== undefined, 'CalendarHome is not in require.cache: the check would be empty');
@@ -1752,7 +1759,7 @@ async function main() {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
     const forbidden = [...loaded].filter((p) =>
-      /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
+      !importsNothing(p) && /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
     assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
   });
@@ -2043,6 +2050,52 @@ async function main() {
     assert(delay > 30 * 60_000 && delay <= 31 * 60_000 && isPastDay(santiago + delay, 'America/Santiago', '2026-09-05'), `Santiago: ${delay} ms`);
   });
 
+  await check('#27b a hidden tab asks nothing at midnight: the day check waits for the tab to show (web sign-in spec §2.14), so an open background tab cannot keep Neon awake; on show the day is checked once and the home moves on', async () => {
+    resetHome();
+    const clock = fakeClock('2026-10-15T20:59:30Z'); // the device's 23:59:30, Thursday
+    answerFetch = (c) => {
+      const today = isPastDay(clock.deps.now(), TZ, TODAY) ? day(1) : TODAY;
+      const from = c.query.get('from') ?? today;
+      return ok200(answer({ today, from, to: c.query.get('to') ?? addDaysToKey(from, 7), items: today === TODAY ? WEEK : { [day(1)]: [GRANDMA] } }));
+    };
+    const m = await mountHome('en', {}, clock);
+    try {
+      assert(show(ranges()) === show(['famcal default']), `the first load: ${show(ranges())}`);
+      fakeDocument.visibilityState = 'hidden';
+      await clock.advance(31_000); // the device's midnight, in a hidden tab
+      assert(show(ranges()) === show(['famcal default']), `a hidden tab asks nothing: ${show(ranges())}`);
+      assert(clock.pending().length === 0, `and sets no timer: ${show(clock.pending())}`);
+      await clock.advance(3 * 3_600_000);
+      assert(ranges().length === 1, `hours later, still nothing: ${show(ranges())}`);
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show(['famcal default', 'famcal default']), `on show: one reset and one new load, no second request: ${show(ranges())}`);
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header moved on: ${m.text().slice(0, 80)}`);
+      assert(clock.pending().length === 1, `the day check runs again from then on: ${show(clock.pending())}`);
+    } finally {
+      fakeDocument.visibilityState = 'visible';
+      m.unmount();
+    }
+    // The day has not ended when the hidden tab's check comes due: nothing asked, and the check starts over on show.
+    resetHome();
+    const early = fakeClock('2026-10-15T07:00:00Z'); // 10:00, the next check in an hour
+    answerFetch = () => ok200(answer({ items: WEEK }));
+    const e = await mountHome('en', {}, early);
+    try {
+      fakeDocument.visibilityState = 'hidden';
+      await early.advance(3_600_001);
+      assert(ranges().length === 1 && early.pending().length === 0, `hidden at the hourly check: ${show({ r: ranges(), p: early.pending() })}`);
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(early.pending().length === 1, `shown: the hourly check is armed again: ${show(early.pending())}`);
+    } finally {
+      fakeDocument.visibilityState = 'visible';
+      e.unmount();
+    }
+  });
+
   await check('#28 401, 403 and any 404 show PageGate\'s card and nothing more is asked', async () => {
     for (const [status, error] of [[401, 'Unauthorized'], [403, 'Account suspended'], [404, 'User not found']] as const) {
       resetHome();
@@ -2053,6 +2106,7 @@ async function main() {
       try {
         assertHas(m.text(), ['Please open this from the bot', 'Back to the chat'], `${status} in Telegram`);
         assertLacks(m.text(), ['Show next week', 'Today'], `${status}: no Agenda`);
+        assertLacks(m.html(), ['/signin'], `${status}: inside Telegram the card has no Sign in`);
         m.click(button(m.container, 'Back to the chat'));
         assert(tg.calls.includes('close()'), `${status}: its button closes the Mini App`);
         fireDocument('visibilitychange');
@@ -2069,6 +2123,11 @@ async function main() {
     try {
       const html = web.html();
       assert(html.includes('href="https://wa.me/972548524687?text=settings"') && html.includes('href="https://t.me/family_calendar_telegram_bot?start=dashboard"'), `the browser card's links: ${textOf(html).slice(0, 160)}`);
+      // Sign in leads (the web sign-in page in the page's language); the chat links stay under it
+      assert(html.indexOf('href="/he/signin"') > 0 && html.indexOf('href="/he/signin"') < html.indexOf('href="https://wa.me/'), `Sign in first: ${html.slice(0, 400)}`);
+      assert(html.includes(messages.he.pageGate.signIn), 'its label');
+      // A dead cookie (Review Focus RF4): the link carries no user_id, redirect or return address, so Sign in opens the plain page and cannot lead back to the gate; nothing more was asked of the server
+      assert(/href="\/he\/signin"/.test(html) && !/href="\/he\/signin[?#]/.test(html), `Sign in is the bare page: ${html.slice(0, 400)}`);
     } finally {
       web.unmount();
     }
@@ -2110,7 +2169,7 @@ async function main() {
     }
   });
 
-  await check('#30 the send sheet (R5): five options in order; a tap posts its command for the page\'s user_id; in Telegram a 2xx closes the app with the spinner kept, one send at a time; in a browser "Sent to WhatsApp"; 429, 403, no answer and a 500 each say why, and the sheet stays', async () => {
+  await check('#30 the send sheet (R5): five options in order; a tap posts its command for the page\'s user_id; in Telegram a 2xx closes the app with the spinner kept, one send at a time; in a browser the line names the chat the route used ("Sent to WhatsApp", "Sent to Telegram", or "Sent. Check your chat" when none is named); a WhatsApp-only account signed in another way is told to open FamCal from WhatsApp; 429, 403, no answer and a 500 each say why, and the sheet stays', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -2145,7 +2204,10 @@ async function main() {
     }
 
     const replies: [string, FetchAnswer, 'today' | 'tomorrow' | 'weather', string, Row][] = [
-      ['browser 200', { status: 200, body: { success: true } }, 'tomorrow', 'Sent to WhatsApp', { command: 'summary', args: 'tmrw' }],
+      ['browser 200 (WhatsApp)', { status: 200, body: { success: true, platform: 'whatsapp' } }, 'tomorrow', 'Sent to WhatsApp', { command: 'summary', args: 'tmrw' }],
+      ['browser 200 (Telegram)', { status: 200, body: { success: true, platform: 'telegram' } }, 'today', 'Sent to Telegram', { command: 'summary' }],
+      ['browser 200 (no chat named)', { status: 200, body: { success: true } }, 'today', 'Sent. Check your chat', { command: 'summary' }],
+      ['400 wa_link_needed', { status: 400, body: { success: false, error: 'wa_link_needed' } }, 'weather', 'To send to WhatsApp, open FamCal from the link in WhatsApp. Send “settings” there and tap the link.', { command: 'weather' }],
       ['429', { status: 429, body: {} }, 'weather', 'Lots of requests right now. Try again in a minute.', { command: 'weather' }],
       ['403', { status: 403, body: {} }, 'today', 'Please reopen FamCal from the chat and try again.', { command: 'summary' }],
       ['no answer', 'throw', 'today', 'No connection. Check your internet and try again.', { command: 'summary' }],
@@ -2172,27 +2234,27 @@ async function main() {
     resetHome();
     const stuck = fakeTelegramHome({ closeThrows: true });
     fakeWindow.Telegram = { WebApp: stuck.webApp };
-    answerFetch = (c) => (c.path === '/api/execute-command' ? { status: 200, body: { success: true } } : ok200(answer({ items: WEEK })));
+    answerFetch = (c) => (c.path === '/api/execute-command' ? { status: 200, body: { success: true, platform: 'telegram' } } : ok200(answer({ items: WEEK })));
     const s = await mountHome('he');
     try {
       s.click(byLabel(s.container, 'שליחה לצ׳אט'));
       s.click(byData(s.container, 'send', 'nextWeek'));
       await settle();
       assert(sendCalls()[0]?.body?.command === 'nextweek', 'nextweek');
-      assertHas(dialogText(s.container), ['נשלח. אפשר להציץ בצ׳אט'], 'Telegram couldn\'t close the app: the answer is in the chat');
+      assertHas(dialogText(s.container), ['נשלח לטלגרם'], 'Telegram couldn\'t close the app: the answer is in the Telegram chat');
     } finally {
       s.unmount();
     }
   });
 
   await check('#31 the ⋯ menu (R6, Google as a connection §2): everyone gets Calendars and Partner; a user who never connected gets Connect Google, one with a token Choose calendars and Reconnect Google, one with a cleared token only Reconnect Google; admins the Admin panel; each opens its page with the page\'s user_id, and the sheet closes', async () => {
-    const famcal = menuEntries({ googleState: 'none', isAdmin: false, locale: 'en', userId: 5550001 });
+    const famcal = menuEntries({ googleState: 'none', isAdmin: false, inTelegram: true, locale: 'en', userId: 5550001 });
     assert(show(famcal.map((e) => [e.id, e.href])) === show([['settings', '/en/settings?user_id=5550001'], ['calendars', '/en/calendars?user_id=5550001'], ['partner', '/en/pair?user_id=5550001'], ['connectGoogle', '/refresh-token?user_id=5550001'], ['subscription', '/en/subscription?user_id=5550001'], ['refresh', null], ['feedback', '/en/feedback?user_id=5550001']]), `never connected: ${show(famcal)}`);
-    const idsFor = (googleState: 'none' | 'choose' | 'reconnect' | 'connected') => menuEntries({ googleState, isAdmin: false, locale: 'en', userId: 1 }).map((e) => e.id);
+    const idsFor = (googleState: 'none' | 'choose' | 'reconnect' | 'connected') => menuEntries({ googleState, isAdmin: false, inTelegram: true, locale: 'en', userId: 1 }).map((e) => e.id);
     assert(show(idsFor('choose')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `choose: ${show(idsFor('choose'))}`);
     assert(show(idsFor('reconnect')) === show(['settings', 'calendars', 'partner', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `a cleared token: ${show(idsFor('reconnect'))}`);
     assert(show(idsFor('connected')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `connected: ${show(idsFor('connected'))}`);
-    const google = menuEntries({ googleState: 'connected', isAdmin: true, locale: 'ru', userId: 5550002 });
+    const google = menuEntries({ googleState: 'connected', isAdmin: true, inTelegram: true, locale: 'ru', userId: 5550002 });
     const want = [
       ['settings', '/ru/settings?user_id=5550002'],
       ['calendars', '/ru/calendars?user_id=5550002'],
@@ -2205,6 +2267,9 @@ async function main() {
       ['admin', '/ru/admin-panel?user_id=5550002'],
     ];
     assert(show(google.map((e) => [e.id, e.href])) === show(want), `Google admin: ${show(google)}`);
+    // The admin panel is Telegram-only: an admin in a browser does not get the entry.
+    const webAdmin = menuEntries({ googleState: 'connected', isAdmin: true, inTelegram: false, locale: 'ru', userId: 5550002 });
+    assert(!webAdmin.some((e) => e.id === 'admin') && webAdmin.length === want.length - 1, `an admin in a browser: ${show(webAdmin.map((e) => e.id))}`);
 
     resetHome();
     answerFetch = () => ok200(answer({ items: WEEK }));
@@ -2222,6 +2287,8 @@ async function main() {
     }
     resetHome();
     answerFetch = () => ok200(googleAnswer({ items: { [day(0)]: [DINNER] } }));
+    const gtg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: gtg.webApp };
     const g = await mountHome('ru', GOOGLE_HOME);
     try {
       g.click(byLabel(g.container, 'Меню'));
@@ -2230,6 +2297,17 @@ async function main() {
       assert(show(pushes) === show(['/ru/admin-panel?user_id=5550002']), `push: ${show(pushes)}`);
     } finally {
       g.unmount();
+      fakeWindow.Telegram = undefined;
+    }
+    resetHome();
+    answerFetch = () => ok200(googleAnswer({ items: { [day(0)]: [DINNER] } }));
+    const web = await mountHome('ru', GOOGLE_HOME);
+    try {
+      web.click(byLabel(web.container, 'Меню'));
+      assertHas(dialogText(web.container), ['Настройки Календари Партнёр'], 'the same admin in a browser: the menu opens');
+      assertLacks(dialogText(web.container), ['Панель администратора'], 'the same admin in a browser: no admin entry');
+    } finally {
+      web.unmount();
     }
   });
 
@@ -2237,7 +2315,11 @@ async function main() {
     const base: BannerFacts = { googleState: 'none', googleConnected: false, reconnect: null, inTelegram: true };
     const cases: [Partial<BannerFacts>, string[]][] = [
       [{}, []],
-      [{ trialDaysLeft: 5, hasLocation: false, inTelegram: false }, ['trial', 'location', 'openInTelegram']],
+      [{ trialDaysLeft: 5, hasLocation: false, inTelegram: false, hasTelegram: false }, ['trial', 'location', 'openInTelegram']],
+      // Open FamCal in Telegram is for a WhatsApp-only account in a browser: not for one with Telegram, not when unknown, not inside Telegram.
+      [{ inTelegram: false, hasTelegram: true }, []],
+      [{ inTelegram: false }, []],
+      [{ inTelegram: true, hasTelegram: false }, []],
       [{ trialDaysLeft: 0, hasLocation: true }, []],
       [{ trialDaysLeft: null }, []],
       [{ reconnect: 'token' }, []],
@@ -2252,7 +2334,7 @@ async function main() {
       // Connected: a Google answer's reconnect.
       [{ googleState: 'connected', googleConnected: true, hasLocation: false }, []],
       [{ googleState: 'connected', googleConnected: true, reconnect: 'token' }, ['reconnect']],
-      [{ googleState: 'connected', googleConnected: true, reconnect: 'scopes', inTelegram: false }, ['reconnectScopes', 'openInTelegram']],
+      [{ googleState: 'connected', googleConnected: true, reconnect: 'scopes', inTelegram: false, hasTelegram: false }, ['reconnectScopes', 'openInTelegram']],
     ];
     for (const [facts, want] of cases) {
       const got = homeBanners({ ...base, ...facts });
@@ -2261,7 +2343,7 @@ async function main() {
 
     resetHome();
     answerFetch = () => ok200(answer({ items: WEEK }));
-    const m = await mountHome('en', { trialDaysLeft: 5, hasLocation: false });
+    const m = await mountHome('en', { trialDaysLeft: 5, hasLocation: false, hasTelegram: false });
     try {
       assertHas(m.text(), ['5 days left in your trial See plans Set your location for the right times Set location Open FamCal in Telegram Reminders, voice summaries and more are waiting there.'], 'en, in a browser');
       const link = byData(m.container, 'banner', 'openInTelegram');
@@ -2271,6 +2353,18 @@ async function main() {
       assert(show(pushes) === show(['/en/subscription?user_id=5550001', '/en/settings?user_id=5550001']), `pushes: ${show(pushes)}`);
     } finally {
       m.unmount();
+    }
+    // A Telegram account in a browser (hasTelegram true, or not told) gets no Telegram banner.
+    for (const hasTelegram of [true, undefined]) {
+      resetHome();
+      answerFetch = () => ok200(answer({ items: WEEK }));
+      const w = await mountHome('en', { trialDaysLeft: 5, hasLocation: false, hasTelegram });
+      try {
+        assertHas(w.text(), ['5 days left in your trial'], `hasTelegram ${hasTelegram}: the other banners stay`);
+        assertLacks(w.html(), ['data-banner="openInTelegram"', 'Open FamCal in Telegram'], `hasTelegram ${hasTelegram}: no Telegram banner`);
+      } finally {
+        w.unmount();
+      }
     }
     resetHome();
     const tg = fakeTelegramHome();
@@ -2742,7 +2836,7 @@ async function main() {
     assert(!home.has(dashboard('DragSurface.tsx')) && ![...home].some((p) => /@dnd-kit/.test(p)), `dnd-kit in CalendarHome's own chunk: ${show([...home].filter((p) => /@dnd-kit|DragSurface/.test(p)).map((p) => path.relative(ROOT, p)))}`);
     assert(view.has(dashboard('DragSurface.tsx')) && [...view].some((p) => /@dnd-kit[\\/]core/.test(p)), 'the Month views load the drag surface');
     const forbidden = [...home, ...view].filter((p) =>
-      /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
+      !importsNothing(p) && /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
     assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
   });

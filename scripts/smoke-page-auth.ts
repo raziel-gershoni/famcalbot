@@ -757,7 +757,7 @@ async function main() {
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
   /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
-  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'lookahead7', 'jewish'];
+  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'hasTelegram', 'lookahead7', 'jewish'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
@@ -789,6 +789,8 @@ async function main() {
     if (gina.lookahead7 !== false) problems.push(`lookahead7 ${show(gina.lookahead7)}`);
     // The calendar setting rides along for the header's sun button: false for the default calendar
     if (gina.jewish !== false) problems.push(`jewish ${show(gina.jewish)}`);
+    // Telegram's own user has a Telegram id: the browser's "Open FamCal in Telegram" banner stays away
+    if (gina.hasTelegram !== true) problems.push(`hasTelegram ${show(gina.hasTelegram)}`);
     // A Google user gets reminders too (they live in FamCal): the same feature checks as anyone
     if (hintsOf(gina) !== 'reminders=true voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
     if (show([...featureChecks].sort()) !== show(['reminders(4)', 'voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);

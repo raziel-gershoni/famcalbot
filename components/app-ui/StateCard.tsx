@@ -8,7 +8,8 @@
 // - tone 'plain' is a state inside a screen: role="status", the title a paragraph.
 //   tone 'crash' is a screen that cannot show: role="alert", the title the page's h1.
 // - The action is a link when it has an href, else a button; both read as the primary
-//   button. A second, quieter action sits under it (the browser card's "Open the bot").
+//   button. A second, quieter action sits under it (the browser card's "Open the bot"), and a
+//   third under that (the browser card: Sign in, then WhatsApp, then the bot).
 // - A card needs the app's tokens above it: inside an AppScreen. MissingParameterCard and
 //   NotFoundCard bring their own.
 //
@@ -31,6 +32,8 @@ export interface StateCardProps {
   action?: StateAction;
   /** A quieter action under the first. */
   secondary?: StateAction;
+  /** One more quiet action under the second. */
+  tertiary?: StateAction;
   tone?: 'plain' | 'crash';
 }
 
@@ -47,7 +50,7 @@ function ActionButton({ action, primary }: { action: StateAction; primary: boole
   );
 }
 
-export function StateCard({ title, body, action, secondary, tone = 'plain' }: StateCardProps) {
+export function StateCard({ title, body, action, secondary, tertiary, tone = 'plain' }: StateCardProps) {
   const crash = tone === 'crash';
   const Title = crash ? 'h1' : 'p';
   const primary = action ? <ActionButton action={action} primary /> : null;
@@ -59,6 +62,7 @@ export function StateCard({ title, body, action, secondary, tone = 'plain' }: St
         <div className="ch-home-card-actions">
           {primary}
           <ActionButton action={secondary} primary={false} />
+          {tertiary ? <ActionButton action={tertiary} primary={false} /> : null}
         </div>
       ) : (
         primary

@@ -85,6 +85,8 @@ const KEYS: Record<string, readonly string[]> = {
   'send.sending': [],
   'send.sent': [],
   'send.sentWhatsApp': [],
+  'send.sentTelegram': [],
+  'send.waLinkNeeded': [],
   'send.busy': [],
   'send.failed': [],
   'send.signedOut': [],

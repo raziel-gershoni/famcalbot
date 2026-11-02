@@ -24,6 +24,11 @@ export type CalendarHomeProps = {
   googleState: GoogleState;
   hints: HomeHints;
   /**
+   * The account has a Telegram id. The "Open FamCal in Telegram" banner shows in a browser only when this is false (a
+   * WhatsApp-only account). Absent means unknown: no banner.
+   */
+  hasTelegram?: boolean;
+  /**
    * The trial's days left, for the home's trial banner (spec §7.2); null when there is no
    * trial (or the user is an early adopter). Absent means unknown: no banner.
    */

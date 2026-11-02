@@ -30,6 +30,7 @@ import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
 import { CALENDAR_PALETTE, displayColours } from '@/src/lib/calendar-colours';
 import type { GoogleState } from '@/src/lib/google-state';
 import { openExternalLink, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { startVisiblePoll } from '@/src/lib/visibility-timers';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Chevron, ColorSwatches, FORM_CSS, FieldError, FormCard, RadioCard, SaveBar, SwitchRow, TextField } from '@/components/app-ui/form-kit';
@@ -45,7 +46,7 @@ import {
   type ConsentWait, type CopyErrorCode,
 } from './google-copy-client';
 
-/** How often the copy rows are asked again while a copy is being made or a consent waits. */
+/** How often the copy rows are asked again while a copy is being made or a consent waits (and the tab shows). */
 const COPY_POLL_MS = 10_000;
 
 interface Calendar {
@@ -261,8 +262,9 @@ export default function CalendarsClient(props: Props) {
   const polling = needsPolling(copies?.rows ?? [], Object.keys(waiting).length);
   useEffect(() => {
     if (!polling) return;
-    const timer = setInterval(() => { void refreshCopies(); }, COPY_POLL_MS);
-    return () => clearInterval(timer);
+    // A hidden tab stops asking (an open background tab would keep Neon awake); the visibilitychange
+    // handler above refreshes once when it shows, and the poll takes up again after that.
+    return startVisiblePoll(() => { void refreshCopies(); }, COPY_POLL_MS);
   }, [polling, refreshCopies]);
 
   /** Turn a copy on, or start Google's consent when the permission is missing. */

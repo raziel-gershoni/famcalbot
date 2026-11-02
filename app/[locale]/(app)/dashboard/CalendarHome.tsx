@@ -121,6 +121,7 @@ import type { DropEvent } from './DragSurface';
 import { EditorSheet, type MoveNote, type SaveOutcome } from './EditorSheet';
 import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
+import { DOM_VISIBILITY, afterShown } from '@/src/lib/visibility-timers';
 import { ConfirmSheet, ScopeSheet, type SubmitError } from './ScopeSheet';
 import { SendSheet } from './SendSheet';
 import { ZmanimSheet } from './ZmanimSheet';
@@ -350,7 +351,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -523,7 +524,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // server named; the loader then starts over. A device clock that runs ahead gets the
   // same today back from that reset: from then on the check only asks the visible
   // windows again, soon rather than in an hour, and the server's new today drops the
-  // store as any other mismatch does.
+  // store as any other mismatch does. A hidden tab asks nothing: its timer waits for the tab
+  // to show (the foreground handler above checks the day then), so an open background tab
+  // cannot keep Neon awake all night.
   const tz = store.facts?.tz ?? null;
   const today = store.facts?.today ?? null;
   useEffect(() => {
@@ -534,6 +537,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       const now = deps.now();
       const ms = isPastDay(now, tz, today) ? msUntilAheadCheck(ahead++) : msUntilDayCheck(now, tz);
       cancel = deps.setTimer(() => {
+        if (DOM_VISIBILITY.isHidden()) {
+          cancel = afterShown(arm);
+          return;
+        }
         if (isPastDay(deps.now(), tz, today)) {
           if (resetFor.current !== today) {
             resetFor.current = today;
@@ -1122,6 +1129,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         hasLocation={hasLocation}
         reconnect={notices.reconnect}
         inTelegram={inTelegram}
+        hasTelegram={hasTelegram}
         userId={userId}
         locale={locale}
         onNavigate={navigate}
@@ -1155,6 +1163,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         <MenuSheet
           googleState={googleState}
           isAdmin={user.isAdmin}
+          inTelegram={inTelegram}
           locale={locale}
           userId={userId}
           onNavigate={navigate}

@@ -364,17 +364,18 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#7 the browser card (he): the WhatsApp link first, then the Telegram one labelled for Telegram users', async () => {
+  await check('#7 the browser card (he): Sign in first, then the WhatsApp link, then the Telegram one labelled for Telegram users', async () => {
     const React = nodeRequire('react');
     const { NoCredentialCard } = await load('app/[locale]/(app)/PageGate.tsx');
     assert(typeof NoCredentialCard === 'function', 'PageGate exports no NoCredentialCard');
     const problems: string[] = [];
     {
       const html = renderHtml(React.createElement(NoCredentialCard, { inTelegram: false, links: LINKS }), 'he');
+      const signIn = html.indexOf('href="/he/signin"');
       const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
       const tg = html.indexOf(`href="${LINKS.telegram}"`);
-      if (wa < 0 || tg < 0 || wa > tg) problems.push(`WhatsApp link at ${wa}, Telegram link at ${tg}`);
-      for (const key of ['browserTitle', 'browserBody', 'openWhatsApp', 'openTelegram']) {
+      if (signIn < 0 || wa < 0 || tg < 0 || signIn > wa || wa > tg) problems.push(`Sign in link at ${signIn}, WhatsApp link at ${wa}, Telegram link at ${tg}`);
+      for (const key of ['browserTitle', 'browserBody', 'signIn', 'openWhatsApp', 'openTelegram']) {
         if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`no pageGate.${key}`);
       }
     }
@@ -388,7 +389,7 @@ async function main() {
     const html = renderHtml(React.createElement(NoCredentialCard, { inTelegram: true, links: LINKS }), 'he');
     assert(html.includes(asHtml(he.pageGate.telegramBody)) && he.pageGate.close && html.includes(asHtml(he.pageGate.close)),
       `the card: ${html.slice(0, 300)}`);
-    assert(!html.includes('wa.me') && !html.includes('t.me/'), 'the in-Telegram card links out');
+    assert(!html.includes('wa.me') && !html.includes('t.me/') && !html.includes('/signin'), 'the in-Telegram card links out');
     // The card's action is data for the gate (Gate renders it as the card's button)
     {
       const card = treeOf(NoCredentialCard, { inTelegram: true, links: LINKS }, 'he') as Row;
@@ -414,7 +415,7 @@ async function main() {
     for (const [locale, expired] of Object.entries(titles)) {
       const gate = JSON.parse(readSource(`messages/${locale}.json`)).pageGate;
       if (expired.test(gate.browserTitle)) problems.push(`${locale} title: ${gate.browserTitle}`);
-      for (const key of ['openWhatsApp', 'openTelegram', 'close']) {
+      for (const key of ['signIn', 'openWhatsApp', 'openTelegram', 'close']) {
         if (typeof gate[key] !== 'string' || !gate[key].trim()) problems.push(`${locale} has no pageGate.${key}`);
       }
     }

@@ -4,7 +4,8 @@ import { getUserByTelegramId, getUserById } from '@/src/services/user-service';
 import { MessagingPlatform, getMessagingService as getPlatformService } from '@/src/services/messaging';
 import { verifyUserAuth, type AuthVia } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
-import { resolveCommandTarget } from '@/src/lib/command-target';
+import { resolveCommandTargetOrReason } from '@/src/lib/command-target';
+import type { SignInMethod } from '@/src/lib/session-auth';
 import { commandRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { matchesSecret } from '@/src/lib/secret-compare';
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     const hasServerSecret = matchesSecret(secret, process.env.CRON_SECRET);
     let user: UserConfig | null;
     let via: AuthVia | 'server';
+    let method: SignInMethod | null = null;
 
     if (hasServerSecret) {
       // Operator path, no rate limit: user_id is a telegramId, or else a DB id
@@ -46,6 +48,8 @@ export async function POST(request: NextRequest) {
       }
       user = auth.user;
       via = auth.via;
+      // How the person signed in picks the chat: a WhatsApp link answers on WhatsApp, anything else on Telegram
+      method = auth.via === 'session' ? auth.session.method : null;
     }
 
     if (!user) {
@@ -56,14 +60,15 @@ export async function POST(request: NextRequest) {
     }
 
     // The answer goes to the proved user's own chat, never to a chat named by a DB id
-    const target = resolveCommandTarget(user, via);
-    if (!target) {
+    const resolved = resolveCommandTargetOrReason(user, via, method);
+    if (!resolved.ok) {
+      console.warn(`[execute-command] No chat for user ${user.id} (${via}${method ? `/${method}` : ''}): ${resolved.reason}`);
       return NextResponse.json(
-        { success: false, error: 'no_channel' },
+        { success: false, error: resolved.reason },
         { status: 400 }
       );
     }
-    const { platform, chatId } = target;
+    const { platform, chatId } = resolved.target;
 
     // Dynamically import to avoid build-time initialization
     const {
@@ -178,6 +183,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Command started',
+      // The chat the answer goes to, so the web app names it ("Sent to Telegram")
+      platform,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

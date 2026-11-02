@@ -419,6 +419,12 @@ function initDataFor(tgId: number, ageSec = 0): string {
 
 const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 
+/** A session cookie as web sign-in mints it: the user, how they signed in, and now. */
+async function sessionCookie(userId: number, method: 'tg' | 'google' | 'email' | 'wa'): Promise<string> {
+  const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
+  return `${SESSION_COOKIE_NAME}=${createSessionToken(userId, method, Date.now())}`;
+}
+
 async function fullBody(res: Response): Promise<string> {
   try { return JSON.stringify(await res.clone().json()); } catch { return '(non-json)'; }
 }
@@ -564,6 +570,48 @@ async function main() {
     const run = commandRuns.find(r => r.command === 'summary');
     assert(run?.chatId === 'IL.123' && run.platform === 'whatsapp', `summary ran as ${show(run)}; status ${res.status} ${await bodyOf(res)}`);
     assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
+    // The answer names the chat it used, so the web app can say "Sent to WhatsApp"
+    assert(JSON.parse(await fullBody(res)).platform === 'whatsapp', `the answer names no WhatsApp chat: ${await bodyOf(res)}`);
+  });
+
+  await check('#12b execute-command: a Telegram, Google or email session answers on Telegram, whatever the account also has, and the answer says so', async () => {
+    const { POST } = await load('app/api/execute-command/route.ts');
+    for (const method of ['tg', 'google', 'email'] as const) {
+      seed();
+      const res = await POST(req('/api/execute-command', { body: { user_id: 9, command: 'summary' }, cookie: await sessionCookie(9, method) }));
+      await drainAfter();
+      const run = commandRuns.find(r => r.command === 'summary');
+      assert(res.status === 200, `${method}: status ${res.status} ${await bodyOf(res)}`);
+      assert(run?.chatId === 111111111 && run.platform === 'telegram', `${method}: summary ran as ${show(run)}`);
+      assert(JSON.parse(await fullBody(res)).platform === 'telegram', `${method}: the answer names ${await bodyOf(res)}`);
+    }
+    // An account with both chats, signed in with Google: Telegram, not the WhatsApp number it also has
+    seed();
+    DB.user.find((u: Row) => u.id === 9)!.whatsappPhone = '972500000009';
+    const both = await POST(req('/api/execute-command', { body: { user_id: 9, command: 'summary' }, cookie: await sessionCookie(9, 'google') }));
+    await drainAfter();
+    assert(commandRuns.length === 1 && commandRuns[0].platform === 'telegram', `both chats, Google session: ${show(commandRuns)}`);
+    assert(JSON.parse(await fullBody(both)).platform === 'telegram', `named ${await bodyOf(both)}`);
+  });
+
+  await check('#12c execute-command: a WhatsApp-only account signed in with Google or email gets 400 wa_link_needed and nothing runs or is sent; an account with no chat gets no_channel', async () => {
+    const { POST } = await load('app/api/execute-command/route.ts');
+    for (const method of ['tg', 'google', 'email'] as const) {
+      seed();
+      const res = await POST(req('/api/execute-command', { body: { user_id: 42, command: 'summary' }, cookie: await sessionCookie(42, method) }));
+      await drainAfter();
+      assert(res.status === 400 && JSON.parse(await fullBody(res)).error === 'wa_link_needed', `${method}: status ${res.status} ${await bodyOf(res)}`);
+      assert(commandRuns.length === 0 && sent.length === 0, `${method}: ran ${show(commandRuns)}, sent ${show(sent)}`);
+    }
+    seed();
+    const none = await POST(req('/api/execute-command', { body: { user_id: 3, command: 'summary' }, cookie: await sessionCookie(3, 'email') }));
+    await drainAfter();
+    assert(none.status === 400 && JSON.parse(await fullBody(none)).error === 'no_channel' && commandRuns.length === 0, `no chat: status ${none.status} ${await bodyOf(none)}`);
+    // The WhatsApp link's own session still answers on WhatsApp for the same account
+    seed();
+    const wa = await POST(req('/api/execute-command', { body: { user_id: 42, command: 'summary' }, cookie: await sessionCookie(42, 'wa') }));
+    await drainAfter();
+    assert(wa.status === 200 && commandRuns[0]?.platform === 'whatsapp', `wa link: status ${wa.status} ${show(commandRuns)}`);
   });
 
   // ---- Feedback, subscription ----

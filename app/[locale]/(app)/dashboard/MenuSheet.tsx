@@ -5,7 +5,8 @@
 // "Google as a connection" §2): Connect Google Calendar for a user who never connected,
 // Choose calendars and Reconnect Google with a token, Reconnect Google alone for a cleared
 // token; Subscription; Refresh (fresh=1 on every visible window); Feedback; and Admin panel
-// for admins. Calendars and Partner open the existing pages as they are.
+// for admins inside Telegram (the admin panel is Telegram-only, so a browser never lists it).
+// Calendars and Partner open the existing pages as they are.
 
 import { useTranslations } from 'next-intl';
 import type { GoogleState } from '@/src/lib/google-state';
@@ -20,7 +21,7 @@ export interface MenuEntry {
 }
 
 /** The menu's entries, in order. `userId` is the page's own user_id (never swapped). */
-export function menuEntries(o: { googleState: GoogleState; isAdmin: boolean; locale: string; userId: number }): MenuEntry[] {
+export function menuEntries(o: { googleState: GoogleState; isAdmin: boolean; inTelegram: boolean; locale: string; userId: number }): MenuEntry[] {
   const page = (name: string) => `/${o.locale}/${name}?user_id=${o.userId}`;
   const token = `/refresh-token?user_id=${o.userId}`;
   const out: MenuEntry[] = [{ id: 'settings', href: page('settings') }, { id: 'calendars', href: page('calendars') }, { id: 'partner', href: page('pair') }];
@@ -29,7 +30,7 @@ export function menuEntries(o: { googleState: GoogleState; isAdmin: boolean; loc
   else if (o.googleState === 'reconnect') out.push({ id: 'reconnectGoogle', href: token });
   else out.push({ id: 'chooseCalendars', href: page('select-calendars') }, { id: 'reconnectGoogle', href: token });
   out.push({ id: 'subscription', href: page('subscription') }, { id: 'refresh', href: null }, { id: 'feedback', href: page('feedback') });
-  if (o.isAdmin) out.push({ id: 'admin', href: page('admin-panel') });
+  if (o.isAdmin && o.inTelegram) out.push({ id: 'admin', href: page('admin-panel') });
   return out;
 }
 
@@ -65,6 +66,8 @@ const LABELS: Record<MenuEntryId, string> = {
 export interface MenuSheetProps {
   googleState: GoogleState;
   isAdmin: boolean;
+  /** readInitData() is non-empty: the admin entry shows only inside Telegram. */
+  inTelegram: boolean;
   locale: string;
   userId: number;
   /** A page: the container closes the sheet and moves there. */
@@ -74,9 +77,9 @@ export interface MenuSheetProps {
   onClose: () => void;
 }
 
-export function MenuSheet({ googleState, isAdmin, locale, userId, onNavigate, onRefresh, onClose }: MenuSheetProps) {
+export function MenuSheet({ googleState, isAdmin, inTelegram, locale, userId, onNavigate, onRefresh, onClose }: MenuSheetProps) {
   const t = useTranslations('calendarHome');
-  const entries = menuEntries({ googleState, isAdmin, locale, userId });
+  const entries = menuEntries({ googleState, isAdmin, inTelegram, locale, userId });
   return (
     <BottomSheet label={t('header.menu')} closeLabel={t('actions.close')} onClose={onClose}>
       <ul className="ch-options" role="list">

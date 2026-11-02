@@ -10,7 +10,9 @@
 //   the range read has no Google half then), or, once a Google answer in this epoch asked
 //   for it (it holds until the store drops), a dead token or missing permission (the
 //   scopes copy);
-// - in a browser, "Open FamCal in Telegram" (WhatsApp stays secondary to Telegram).
+// - in a browser, "Open FamCal in Telegram", only for an account with no Telegram (WhatsApp stays
+//   secondary to Telegram); an account that has Telegram already never sees it, and its link
+//   starts WhatsApp linking.
 // Each banner is one button (or, for Telegram, a link) with a 44 px or taller target.
 // Google is a connection beside FamCal (spec "Google as a connection" §2): a user who never
 // connected sees no Google banner at all, and Connect Google lives in the ⋯ menu only.
@@ -34,6 +36,8 @@ export interface BannerFacts {
   reconnect: 'token' | 'scopes' | null;
   /** readInitData() is non-empty. */
   inTelegram: boolean;
+  /** The account has a Telegram id. false: WhatsApp-only, who gets the Telegram banner in a browser. Absent means unknown: no banner. */
+  hasTelegram?: boolean;
 }
 
 /** Which banners show, in order. */
@@ -46,7 +50,7 @@ export function homeBanners(f: BannerFacts): BannerId[] {
   // A cleared token has no Google half in the read, so the page's state says it; otherwise a Google answer does.
   if (f.googleState === 'reconnect') out.push('reconnect');
   else if (f.googleState !== 'none' && f.reconnect) out.push(f.reconnect === 'scopes' ? 'reconnectScopes' : 'reconnect');
-  if (!f.inTelegram) out.push('openInTelegram');
+  if (!f.inTelegram && f.hasTelegram === false) out.push('openInTelegram');
   return out;
 }
 

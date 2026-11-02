@@ -75,6 +75,8 @@ export interface DashboardPageProps {
   trial: { isTrialing: boolean; daysRemaining: number; trialEndsAt: string | null };
   isEarlyAdopter: boolean;
   hints: HomeHints;
+  /** The account has a Telegram id (the browser's Telegram banner is for WhatsApp-only accounts). */
+  hasTelegram: boolean;
   lookahead7: boolean;
   /** The calendar setting is Jewish: the home shows the zmanim button. */
   jewish: boolean;
@@ -176,6 +178,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
     trial: { ...trialStatus, trialEndsAt: trialStatus.trialEndsAt?.toISOString() ?? null },
     isEarlyAdopter,
     jewish: user.culture === 'jewish',
+    hasTelegram: user.telegramId !== null,
     ...home,
   };
   // One open of the calendar home (spec §7.1), under the DB id like every activity
