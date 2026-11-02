@@ -59,7 +59,7 @@ Rulings (small choices; the owner can change any):
    - Google refuses to sign in inside in-app browsers, so from the Mini App, **Add Google** opens a one-time link (5 minutes) in your browser.
    - That link opens a famcal.bot page that names the account ("Add Google sign-in to Dana's FamCal"), with a **Continue** button. Only that press uses up the link and starts Google.
    - Afterwards that browser is signed in.
-10. **Every added way sends a notice in your chat:** "Google d•••@gmail.com can now sign in to your FamCal. Not you? Settings → Sign in on the web → Remove." It's a reply to your own action, so the Shabbat pause doesn't hold it. A stolen session can't add a way quietly.
+10. **Every added way sends a notice in your chat:** "Google d•••@gmail.com can now sign in to your FamCal. Not you? Settings → Sign in on the web → Remove." It's a reply to your own action, so the Shabbat pause doesn't hold it. A stolen session can't add a way quietly. One limit: a WhatsApp-only account gets the notice only inside WhatsApp's 24-hour window, since Meta refuses free-form messages outside it (the refusal is logged); a WhatsApp template for it is a backlog item.
 11. **The site header** gets **Sign in** (header and phone menu), linking to `/signin`. When you're already signed in, `/signin` takes you straight to your calendar. The site stays static, and there's no extra cookie for this.
 12. **One sign-in table**, `SignInIdentity`:
     - columns: kind (`google` or `email`); subject (Google's account id, or the email); the address to show; the user; when it was added and last used;
