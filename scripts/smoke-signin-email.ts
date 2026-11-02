@@ -19,7 +19,9 @@
 //   - the finish: the session cookie for method 'email', the flow cookie cleared, the last-used date; a suspended or
 //     banned account, a removed email way and a missing flow each get their answer and no session;
 //   - the send: a refusal, a 5xx and no answer are logged with the user id and the status, never the address or the
-//     code; a spent day's budget stores and mails nothing and leaves the last code working;
+//     code; a spent day's budget stores and mails nothing and leaves the last code working; a failed send puts the
+//     earlier code back (with its tries), a delivered new code starts its tries again but not the day's wrong codes;
+//     a finish that fails answers 'failed' with HTTP 500;
 //   - no console line or error report holds an address, a code or the Resend key.
 //
 // Real: both routes, email-code, email-send, the account lookups (identities.ts), fetch-retry, the flow cookie
@@ -814,6 +816,63 @@ async function main() {
     }
     const newer = await verify(b.cookie, b.code);
     assert(newer.body?.ok === true && sessionOf(newer.res)?.userId === 4, `the newer code: ${show(newer.body)}`);
+  });
+
+  await check('#18 a failed send puts the earlier code back (with its tries) and leaves none when there was none; a delivered new code starts its tries again while the wrong codes of the day keep counting', async () => {
+    seed();
+    const kim = emailKey('kim@example.com');
+    const codeKey = REDIS_KEYS.signinCode('signin', kim);
+    const triesKey = REDIS_KEYS.signinCodeTries('signin', kim);
+    const a = await codeFor('kim@example.com');
+    assert(a.code && a.cookie, 'no first code');
+    for (let i = 0; i < 3; i++) await verify(a.cookie, wrongOf(a.code));
+    assert(redisStore.get(triesKey) === '3', `tries before: ${redisStore.get(triesKey)}`);
+    redisTtl.set(codeKey, 421);
+    resendScript = [() => new Response('{"name":"validation_error"}', { status: 422 })];
+    const reports = captured.length;
+    const failed = await codeFor('kim@example.com');
+    assert(failed.code && failed.code !== a.code, 'the failed send was not attempted with a new code');
+    assert(captured.length > reports, 'the failed send was not reported');
+    assert(redisTtl.get(codeKey) === 421, `the earlier code's time was not kept: ${redisTtl.get(codeKey)}`);
+    assert(redisStore.get(triesKey) === '3', `the earlier code's tries were reset: ${redisStore.get(triesKey)}`);
+    const undelivered = await verify(a.cookie, failed.code);
+    assert(undelivered.body?.ok === false, 'the code that was never mailed signs in');
+    const back = await verify(a.cookie, a.code);
+    assert(back.body?.ok === true, `the earlier code does not work after a failed send: ${show(back.body)}`);
+    // Nothing before it: a failed send leaves no code behind.
+    seed();
+    resendScript = [() => new Response('{}', { status: 422 })];
+    await codeFor('kim@example.com');
+    assert(!redisStore.has(codeKey), 'a code stored by a failed send was left');
+    // A delivered new code starts its tries again; the day's wrong codes (limits) are not reset by it.
+    seed();
+    const c = await codeFor('kim@example.com');
+    assert(c.code && c.cookie, 'no code');
+    for (let i = 0; i < 3; i++) await verify(c.cookie, wrongOf(c.code));
+    const d = await codeFor('kim@example.com');
+    assert(d.code, 'no new code');
+    assert(!redisStore.has(triesKey), 'a delivered new code kept the old tries');
+    assert(calls('recordWrongCode').length === 3, `wrong codes recorded: ${calls('recordWrongCode').length}`);
+    const ok = await verify(d.cookie, d.code);
+    assert(ok.body?.ok === true, `the new code: ${show(ok.body)}`);
+  });
+
+  await check('#19 a sign-in the finish step could not complete answers error "failed" with HTTP 500, as the route\'s own failure does, and clears the flow', async () => {
+    seed();
+    const k = await codeFor('kim@example.com');
+    assert(k.code && k.cookie, 'no code');
+    const blocklist = (fakePrisma as Row).blockedIdentifier;
+    const real = blocklist.findFirst;
+    blocklist.findFirst = async () => { throw new Error('the blocklist read failed'); };
+    let r;
+    try {
+      r = await verify(k.cookie, k.code);
+    } finally {
+      blocklist.findFirst = real;
+    }
+    assert(r.status === 500 && r.body?.ok === false && r.body.error === 'failed', `status ${r.status} ${show(r.body)}`);
+    assert(!r.res.cookies.get(SESSION_COOKIE_NAME)?.value, 'a session cookie was set');
+    assert(r.res.cookies.get(SIGNIN_COOKIE_NAME)?.value === '', 'the flow cookie was not cleared');
   });
 
   await check('#17 no console line, error report or admin message holds an address, a code or the Resend key', () => {

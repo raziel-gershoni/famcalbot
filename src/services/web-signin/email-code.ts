@@ -3,8 +3,12 @@
  *
  *   issueCode   a 6-digit code (crypto.randomInt), kept in Upstash only as a keyed hash (HMAC-SHA256 with
  *               appKey('signin')) with its user and address, for 10 minutes, one per purpose and address: a new code
- *               replaces the old one and its tries start again. The day's send budget (takeDailySend) is asked before
- *               the code is stored, so a spent day never replaces a code that still works. Then it is mailed.
+ *               replaces the old one and, once it is mailed, its tries start again. That reset is safe because the
+ *               new code is a fresh secret and the guesses are capped apart from it: 10 wrong codes a day per address
+ *               pause the checks (recordWrongCode, limits.ts), and that count is not reset. The day's send budget
+ *               (takeDailySend) is asked before the code is stored, so a spent day never replaces a code that still
+ *               works. Then it is mailed; when the send fails (sendCodeEmail throws), the code that worked before is
+ *               put back with its remaining time and tries, so a failed send never leaves the person with no code.
  *   checkCode   counts the try with countWithin (limits.ts: one Lua call, INCR and the expiry together, so a count is
  *               never left without one) before it compares; the fifth wrong try voids the code; a right one is used up
  *               at once (GETDEL). A missing code is 'expired', with the same work as a wrong one.
@@ -22,10 +26,15 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { redis } from '../../utils/redis';
 import { countWithin, takeDailySend } from './limits';
 import { sendCodeEmail, type CodePurpose } from './email-send';
-import { SafeSignInError } from './safe-error';
+import { SafeSignInError, safeErrorSummary } from './safe-error';
 
 /** How long a code works, and how long its tries are counted (s). */
 export const CODE_TTL_SEC = 10 * 60;
+/** What is left of a stored code's time, from Redis's TTL answer (-1 no expiry, -2 no key), never past a code's 10 minutes. */
+export function codeTimeLeftSec(ttl: number): number {
+  return ttl > 0 ? Math.min(ttl, CODE_TTL_SEC) : 0;
+}
+
 /** Tries per code: the fifth wrong one voids it. */
 export const CODE_MAX_TRIES = 5;
 
@@ -56,9 +65,46 @@ export async function issueCode(args: { purpose: CodePurpose; emailKey: string; 
     console.warn(`[signin-email] the day's send budget is spent: no ${purpose} code for user ${userId}`);
     return;
   }
-  await redis.set(REDIS_KEYS.signinCode(purpose, emailKey), record, { ex: CODE_TTL_SEC });
+  const codeKey = REDIS_KEYS.signinCode(purpose, emailKey);
+  const previous = await redis.get<CodeRecord>(codeKey);
+  const previousSec = isCodeRecord(previous) ? await redis.ttl(codeKey) : -2;
+  await redis.set(codeKey, record, { ex: CODE_TTL_SEC });
+  try {
+    await sendCodeEmail({ to: address, code, locale, purpose, userId });
+  } catch (error) {
+    await restoreAfterFailedSend(codeKey, record, isCodeRecord(previous) ? previous : null, previousSec, purpose, userId);
+    throw error;
+  }
+  // The tries start again only for a code that reached the person (a failed send keeps the old code's count).
   await redis.del(REDIS_KEYS.signinCodeTries(purpose, emailKey));
-  await sendCodeEmail({ to: address, code, locale, purpose, userId });
+}
+
+/**
+ * The send failed, so the new code was never delivered: put the code that worked before back with the time it had left,
+ * or drop the new one when there was none. Only while the stored code is still this one (a newer request may have
+ * replaced it). A failure here is logged and the send's own error is still the one thrown.
+ */
+async function restoreAfterFailedSend(
+  codeKey: string,
+  issued: CodeRecord,
+  previous: CodeRecord | null,
+  previousSec: number,
+  purpose: CodePurpose,
+  userId: number
+): Promise<void> {
+  try {
+    const current = await redis.get<CodeRecord>(codeKey);
+    if (!isCodeRecord(current) || current.hash !== issued.hash) return;
+    const codeLeftSec = codeTimeLeftSec(previousSec);
+    if (previous && codeLeftSec > 0) {
+      await redis.set(codeKey, previous, { ex: codeLeftSec });
+      console.warn(`[signin-email] the ${purpose} code for user ${userId} was not sent: the earlier code works again`);
+    } else {
+      await redis.del(codeKey);
+    }
+  } catch (restoreError) {
+    console.error(`[signin-email] the ${purpose} code for user ${userId} was not sent, and the earlier code could not be put back: ${safeErrorSummary(restoreError)}`);
+  }
 }
 
 /** Checks `code` against the address's current code (see the file comment). */

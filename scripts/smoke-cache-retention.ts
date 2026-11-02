@@ -64,6 +64,11 @@ const COMPUTED: Record<string, () => Promise<number>> = {
     for (let s = -5; s <= 700; s++) longest = Math.max(longest, flowTimeLeftSec(start, start + s * 1000));
     return longest;
   },
+  // A sign-in code put back after a failed send keeps what was left of its 10 minutes, whatever Redis answered
+  codeLeftSec: async () => {
+    const { codeTimeLeftSec } = await import('../src/services/web-signin/email-code');
+    return Math.max(...[-2, -1, 0, 1, 599, 600, 601, 86_400, 1e9].map(codeTimeLeftSec));
+  },
 };
 
 /** A product of numbers ("30 * 24 * 60 * 60", "86_400"), or null. */

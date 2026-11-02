@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     if (!outcome.ok) {
       console.log(`[signin-email] user ${checked.userId} refused at the finish (${outcome.status ?? 'no status'})`);
       const error: VerifyError = outcome.status === 'suspended' || outcome.status === 'blocked' ? outcome.status : 'failed';
-      return refusal(error, { clearFlow: true });
+      return refusal(error, { clearFlow: true, status: error === 'failed' ? 500 : 200 });
     }
     try {
       await touchEmailSignIn(account.identityId);
