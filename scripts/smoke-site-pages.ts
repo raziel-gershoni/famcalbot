@@ -167,7 +167,7 @@ async function main() {
         if (doc === 'privacy') {
           assert(hrefs.includes('https://developers.google.com/terms/api-services-user-data-policy'), `privacy ${locale}: the Google policy isn't linked`);
           assert(html.includes('<section id="google" class="site-legal-section"'), `privacy ${locale}: no #google`);
-          assert(/<code dir="ltr">famcal_session<\/code>/.test(body), `privacy ${locale}: the cookie's name isn't code`);
+          assert(/<code dir="ltr">__Host-famcal_session<\/code>/.test(body) && /<code dir="ltr">famcal_signin<\/code>/.test(body), `privacy ${locale}: the cookies' names aren't code`);
         } else {
           assert(hrefs.filter((h) => h === `${prefix(locale)}/privacy`).length === 2, `terms ${locale}: "Privacy Policy" is not linked twice to ${prefix(locale)}/privacy: ${show(hrefs)}`);
           const cancel = html.indexOf('<h3 id="cancel" class="site-legal-h3">');

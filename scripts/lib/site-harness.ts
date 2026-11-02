@@ -60,7 +60,9 @@ export const UNTRUE: [string, RegExp][] = [
   ['early access', /early access|early adopter|גישה מוקדמת|תקופת ההשקה|ранн\S* доступ/i],
   ['OpenAI', /openai/i],
   ['OpenWeatherMap', /openweather/i],
-  ['Google as a step', /connect your google calendars?|sign in with google|מחברים את יומני Google|חברו את Google Calendar|подключаете google календари|подключите google calendar/i],
+  // "Sign in with Google" is true since web sign-in (6b): a Google account signs in on famcal.bot, and the Privacy
+  // Policy says so. What stays untrue is Google as a step to start: connecting it is optional.
+  ['Google as a step', /connect your google calendars?|מחברים את יומני Google|חברו את Google Calendar|подключаете google календари|подключите google calendar/i],
   ['two-way Google sync', /two-way|דו[- ]כיווני|двусторонн/i],
   ['events by zman', /events? by zman|אירועים לפי זמני היום|событи\S* по зманим/i],
   ['typed events', /\btype (?:an |your )?events?\b|typed events|מקלידים אירוע|набира\S* событи/i],
