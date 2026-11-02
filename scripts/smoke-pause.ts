@@ -236,8 +236,11 @@ function sourceFiles(): string[] {
   return out.sort();
 }
 
-/** A call that puts a message in front of a person (Telegram or WhatsApp), or the sender helpers the files use. */
-const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification)\(|\bwhatsappTemplate\b/;
+/**
+ * A call that puts a message in front of a person (Telegram, WhatsApp or email), or the sender helpers the files use.
+ * Email goes only through Resend's API (src/services/web-signin/email-send.ts) and the code helpers that call it.
+ */
+const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|issueCode)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
 
 /** The files that send on a schedule (cron, or a pass a cron runs): each calls isPaused before it sends. */
 const PAUSED: Record<string, string> = {
@@ -280,6 +283,9 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/native-reminders/actions.ts': 'the quiet note to the partner after a person marks a reminder done (their own action, sent without a sound)',
   'src/services/native-reminders/typed-route.ts': 'the answer to a reminder the person typed',
   'src/services/native-reminders/ping.ts': 'the ping text and the edits of a ping that is already on screen; the one send, sendPing, is called by the paused pass',
+  'src/services/web-signin/email-send.ts': 'the sign-in code email: mailed only when the person asks for a code (on famcal.bot or in Settings)',
+  'src/services/web-signin/email-code.ts': 'makes and mails the code the person just asked for',
+  'app/api/auth/email/request/route.ts': 'the code the person asked for on /signin, sent right after the answer',
   // To the admin
   'app/api/admin/send-reminder/route.ts': 'the admin pressing "send a reminder" for one person',
   'src/services/admin-refund.ts': 'the note to the person that an admin refunded their payment: the answer to their own /paysupport request, sent when the admin acts',

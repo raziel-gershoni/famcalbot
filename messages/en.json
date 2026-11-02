@@ -2810,6 +2810,23 @@
     "done": "Done",
     "cancel": "Cancel"
   },
+  "signinEmail": {
+    "signin": {
+      "subject": "Your FamCal sign-in code: {code}",
+      "heading": "Sign in to FamCal",
+      "body": "Enter this code on famcal.bot to sign in:",
+      "ignore": "If you didn’t try to sign in, you can ignore this email. No one can sign in without the code."
+    },
+    "add": {
+      "subject": "Your code to add this email to FamCal: {code}",
+      "heading": "Add this email to FamCal",
+      "body": "Enter this code in FamCal, and from then on you can sign in with this email too:",
+      "ignore": "If you didn’t ask for this, you can ignore this email. Nothing is added without the code."
+    },
+    "expiry": "The code works once, for the next 10 minutes.",
+    "warning": "Don’t share it with anyone. FamCal will never ask you for it.",
+    "footer": "FamCal · famcal.bot"
+  },
   "cities": {
     "jerusalem": "Jerusalem",
     "tel-aviv": "Tel Aviv",

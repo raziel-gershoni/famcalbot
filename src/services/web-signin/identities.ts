@@ -20,3 +20,26 @@ export async function findUserByIdentity(kind: 'google' | 'email', subject: stri
   await prisma.signInIdentity.update({ where: { id: identity.id }, data: { lastUsedAt: new Date() } });
   return convertPrismaUserToConfig(identity.user);
 }
+
+/** The account that signs in with this (normalised) address: its user, the address as stored, the person's language. */
+export async function findEmailSignIn(normalized: string): Promise<{ userId: number; address: string; language: string } | null> {
+  const row = await prisma.signInIdentity.findUnique({
+    where: { kind_subject: { kind: 'email', subject: normalized } },
+    select: { userId: true, address: true, user: { select: { language: true } } },
+  });
+  return row ? { userId: row.userId, address: row.address, language: row.user.language } : null;
+}
+
+/** The account a right code signs in, while it still has that email way (it may have been removed since the code). */
+export async function emailSignInAccount(userId: number, address: string): Promise<{ identityId: number; user: UserConfig } | null> {
+  const row = await prisma.signInIdentity.findFirst({
+    where: { kind: 'email', userId, address },
+    select: { id: true, user: true },
+  });
+  return row ? { identityId: row.id, user: convertPrismaUserToConfig(row.user) } : null;
+}
+
+/** Marks the email way used now (Settings shows it). */
+export async function touchEmailSignIn(identityId: number): Promise<void> {
+  await prisma.signInIdentity.update({ where: { id: identityId }, data: { lastUsedAt: new Date() } });
+}

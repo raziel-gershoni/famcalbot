@@ -86,6 +86,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
 | `DATABASE_URL`, `DIRECT_URL` | Postgres connection (pooled + direct for migrations) |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
+| `RESEND_API_KEY` | Optional. Resend's API key for the email sign-in codes (from `FamCal <signin@famcal.bot>`, replies to `privacy@famcal.bot`); unset, email sign-in is not offered and its routes answer 503 |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
 | `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The WhatsApp session cookie and the share-story image links are signed with keys derived from it; unset, both are refused and production startup logs an error. Changing it signs WhatsApp web users out once |
 | `ENCRYPTION_KEY` | Encrypts the stored Google tokens: 64 hex characters (`openssl rand -hex 32`). See [Rotating `ENCRYPTION_KEY`](#rotating-encryption_key) |
