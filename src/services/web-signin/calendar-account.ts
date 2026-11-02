@@ -31,7 +31,7 @@ import { getUserById } from '../user-service';
 import { signInRefusal } from '../../lib/web-session';
 import { syncGoogle } from '../google-sync/client';
 import type { UserConfig } from '../../types';
-import type { GoogleClaims } from './oidc';
+import { providerConfigured, type GoogleClaims } from './oidc';
 import { addIdentity, calendarSignInState, hasIdentity } from './identities';
 import { sendSignInNotice } from './notice';
 import { classifyGoogleError } from '../calendar-read/google-map';
@@ -139,6 +139,8 @@ export async function turnOnCalendarAccount(userId: number): Promise<TurnOnResul
 }
 
 async function turnOn(userId: number): Promise<TurnOnResult> {
+  // Settings offers Turn on only while Google sign-in is set up; a direct request keeps no key with no use
+  if (!providerConfigured('google')) return 'not-offered';
   const row = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, googleCalendarSignIn: true, googleRefreshToken: true, googleAccountKey: true },

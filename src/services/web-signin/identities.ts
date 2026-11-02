@@ -22,9 +22,9 @@ import { googleAccountKeyId } from './account-key';
 
 export type IdentityKind = 'google' | 'email';
 /** What Settings can remove: a Google way, the email way, or the calendar's Google account before its first use. */
+export type RemovableWay = 'google' | 'email' | 'calendar-google';
 /** See SignInMethodsView.googleFromCalendar. */
 export type CalendarSignInState = 'on' | 'off' | null;
-export type RemovableWay = 'google' | 'email' | 'calendar-google';
 
 /** Settings → Sign in on the web, as GET /api/signin-methods answers it (plus the session's method). */
 export interface SignInMethodsView {

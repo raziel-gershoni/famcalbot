@@ -764,7 +764,7 @@ async function main() {
     assert(imports.length > 0 && bad.length === 0, `src/site/signin.ts imports ${show(bad)}`);
   });
 
-  await check('#19 [RF5] every absolute landing is in the person\'s language with an explicit locale prefix for every language, English included (/en/...; an unknown language is English), so next-intl redirects once and pins NEXT_LOCALE: the dashboard and Select calendars after a sign-in, the JSON redirect, a refusal\'s /signin?status=, and the WhatsApp link\'s fresh landing; the page\'s own redirect for /dashboard with no user_id and a stale link\'s card are not these builders', async () => {
+  await check('#19 [RF5] every absolute landing is in the person\'s language with an explicit locale prefix for every language, English included (/en/...; an unknown language is English), so next-intl redirects once and pins NEXT_LOCALE: the dashboard and Select calendars after a sign-in, the JSON redirect, a refusal\'s /signin?status=, and the WhatsApp link\'s fresh landing and a stale link\'s card (the page\'s own redirect for /dashboard with no user_id stays in the locale the request already has)', async () => {
     seed();
     const acct = (language: string, suspendedAt: Date | null = null) => ({ id: 5, language, suspendedAt, telegramId: null, whatsappPhone: null });
     const places: [string, string][] = [['he', '/he'], ['en', '/en'], ['ru', '/ru'], ['xx', '/en'], ['', '/en']];
@@ -796,7 +796,7 @@ async function main() {
     const tap = async (link: string) => (await magicRoute.GET(new NextRequest(link))).headers.get('location');
     assert((await tap(await generateMagicLink(5, 'ru'))) === `${BASE}/en/dashboard?user_id=5`, 'the link of an English-speaking person');
     assert((await tap(await generateMagicLink(5, 'en', 'select-calendars'))) === `${BASE}/en/select-calendars?user_id=5`, 'Select calendars in English');
-    assert((await tap(`${BASE}/api/auth/magic?token=stale&locale=en`)) === `${BASE}/dashboard`, 'the card of a stale English link');
+    assert((await tap(`${BASE}/api/auth/magic?token=stale&locale=en`)) === `${BASE}/en/dashboard`, 'the card of a stale English link');
     assert((await tap(`${BASE}/api/auth/magic?token=stale&locale=he`)) === `${BASE}/he/dashboard`, 'the card of a stale Hebrew link');
     // /dashboard with no user_id and a valid cookie.
     jar.set(NAME, S.createSessionToken(42, 'google', Date.now() - 1000));

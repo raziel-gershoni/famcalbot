@@ -6,12 +6,12 @@ import { finishSignIn } from '@/src/lib/web-session';
 import { getUserById } from '@/src/services/user-service';
 import { getBaseUrl } from '@/src/config/urls';
 import { VALID_LOCALES, localeFromAcceptLanguage } from '@/src/utils/locale';
-import { localeHref } from '@/src/site/zmanim/links';
 
 /**
  * Invalid, expired or already used, or no key to sign a session with: the dashboard with
  * no user_id shows the card that offers a fresh link, in the language the link carries,
- * else the browser's (English has no prefix, as everywhere else). A browser still signed in
+ * else the browser's, with the prefix for every language (English too, as appPageUrl does, so next-intl keeps that
+ * language and pins it in its cookie instead of choosing by Accept-Language). A browser still signed in
  * goes to its own dashboard instead (page-data re-checks the cookie).
  */
 function freshLinkCard(request: NextRequest): NextResponse {
@@ -20,8 +20,8 @@ function freshLinkCard(request: NextRequest): NextResponse {
     ? linkLocale
     : localeFromAcceptLanguage(request.headers.get('accept-language'));
   const session = readSession(request);
-  const to = localeHref(locale, session !== null ? `/dashboard?user_id=${session.userId}` : '/dashboard');
-  return NextResponse.redirect(new URL(to, getBaseUrl()));
+  const page = session !== null ? `/dashboard?user_id=${session.userId}` : '/dashboard';
+  return NextResponse.redirect(new URL(`/${locale}${page}`, getBaseUrl()));
 }
 
 /**

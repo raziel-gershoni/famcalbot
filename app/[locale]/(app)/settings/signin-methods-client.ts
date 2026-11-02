@@ -15,9 +15,9 @@ export type RemoveWhich = 'google' | 'email' | 'calendar-google';
 export type RequestError = 'failed' | 'busy';
 export type AddEmailError = RequestError | 'invalid' | 'limit' | 'has-one';
 /** 'codeLimit' is the confirm route's `limit` (too many wrong codes): Add's own `limit` is the day's codes. */
+export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
 /** Turn on's answers besides success: 'shared' and 'reconnect' have words of their own; 'not-offered' reads as 'failed'. */
 export type TurnOnError = RequestError | 'shared' | 'reconnect';
-export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
 
 const TAG = '[signin-methods]';
 const SESSION_METHODS: readonly string[] = ['tg', 'google', 'email', 'wa'];

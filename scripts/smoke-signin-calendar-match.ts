@@ -323,6 +323,14 @@ async function main() {
     assert(world.googleAsks.length === 0, `asked Google ${show(world.googleAsks)}`);
   });
 
+  await check('#16e Turn on keeps nothing while Google sign-in is not set up (a direct request, since Settings hides it): not-offered, no Google call', async () => {
+    seed();
+    userRow(TAL).googleAccountKey = null;
+    world.oidc.google = false;
+    assert((await account.turnOnCalendarAccount(TAL)) === 'not-offered' && userRow(TAL).googleAccountKey === null, 'Google sign-in off');
+    assert(world.googleAsks.length === 0, `asked Google ${show(world.googleAsks)}`);
+  });
+
   await check('#16c Turn on writes only over the token it read: a reconnect while Google was asked keeps the key its own connect wrote (failed), and a switch turned off meanwhile gets no key', async () => {
     seed();
     userRow(TAL).googleAccountKey = null;

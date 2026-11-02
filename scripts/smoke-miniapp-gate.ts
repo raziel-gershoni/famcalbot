@@ -422,7 +422,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#11 a stale or used magic link lands on /<locale>/dashboard (the link\'s locale, else Accept-Language among en/he/ru; English unprefixed), with no user_id and no cookie', async () => {
+  await check('#11 a stale or used magic link lands on /<locale>/dashboard (the link\'s locale, else Accept-Language among en/he/ru; English with its /en prefix too, so next-intl keeps it and pins it in its cookie), with no user_id and no cookie', async () => {
     const { NextRequest } = nodeRequire('next/server');
     const { GET } = await load('app/api/auth/magic/route.ts');
     const cases: [string, string | null, string][] = [
@@ -430,8 +430,9 @@ async function main() {
       ['token=stale', 'ru-RU,ru;q=0.9,en;q=0.8', '/ru/dashboard'],
       ['token=stale', 'fr-FR,fr;q=0.9,he;q=0.5', '/he/dashboard'],
       ['token=stale', 'en;q=0.5, he', '/he/dashboard'],
-      ['token=stale&locale=xx', 'de-DE', '/dashboard'],
-      ['token=stale', null, '/dashboard'],
+      ['token=stale&locale=en', 'he-IL,he;q=0.9', '/en/dashboard'],
+      ['token=stale&locale=xx', 'de-DE', '/en/dashboard'],
+      ['token=stale', null, '/en/dashboard'],
     ];
     const problems: string[] = [];
     for (const [query, acceptLanguage, want] of cases) {
