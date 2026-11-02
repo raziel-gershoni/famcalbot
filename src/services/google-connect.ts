@@ -55,6 +55,8 @@ const PENDING_ID_IN_TEXT = /(?:^|[^A-Za-z0-9_-])gc_([A-Za-z0-9_-]{32})(?![A-Za-z
 export interface GoogleGrant {
   scopes: string[];
   sync?: SyncConsent;
+  /** The keyed hash of the token's account (googleAccountKey, web sign-in spec §2.17); absent when Google didn't tell it */
+  accountKey?: string;
 }
 
 interface PendingGoogleToken {
@@ -64,6 +66,8 @@ interface PendingGoogleToken {
   /** Absent on an entry parked before the scopes were carried: its commit leaves googleScopes as they are. */
   scopes?: string[];
   sync?: SyncConsent;
+  /** The account's keyed hash, never the address (GoogleGrant.accountKey) */
+  accountKey?: string;
 }
 
 /** A FamCal calendar id is a cuid; anything longer is not one */
@@ -138,7 +142,9 @@ export async function createPendingGoogleToken(ownerUserId: number, refreshToken
   const entry: PendingGoogleToken = {
     ownerUserId,
     refreshToken: encrypt(refreshToken),
-    ...(grant ? { scopes: grant.scopes, ...(grant.sync ? { sync: grant.sync } : {}) } : {}),
+    ...(grant
+      ? { scopes: grant.scopes, ...(grant.sync ? { sync: grant.sync } : {}), ...(grant.accountKey ? { accountKey: grant.accountKey } : {}) }
+      : {}),
   };
   await redis.set(pendingKey(pendingId), JSON.stringify(entry), { ex: PENDING_TTL_SECONDS });
   return pendingId;
@@ -203,7 +209,9 @@ export async function claimPendingGoogleToken(
     (sender.userId !== undefined && owner.id === sender.userId);
   if (!isOwner) return { status: 'not_owner' };
 
-  const grant = Array.isArray(entry.scopes) ? { scopes: entry.scopes, ...(entry.sync ? { sync: entry.sync } : {}) } : undefined;
+  const grant: GoogleGrant | undefined = Array.isArray(entry.scopes)
+    ? { scopes: entry.scopes, ...(entry.sync ? { sync: entry.sync } : {}), ...(entry.accountKey ? { accountKey: entry.accountKey } : {}) }
+    : undefined;
   let refreshToken: string;
   try {
     refreshToken = decrypt(entry.refreshToken);
@@ -227,6 +235,10 @@ export async function claimPendingGoogleToken(
  * user (an empty list means calendar.app.created is missing) and the outage notice resets;
  * a 'sync' consent turns its copy on first, then the user's copies stopped on the token or
  * the permission go back to work. Without one (an entry from before), googleScopes stay.
+ *
+ * The account's key (web sign-in spec §2.17) is the grant's, or null: this token may be of
+ * another account than the one before, and the startup pass keys a null one on the next boot.
+ * googleCalendarSignIn is the person's choice and stays as it is.
  */
 export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<{ sync?: SyncCommit }> {
   const user = await getUserById(ownerUserId);
@@ -242,6 +254,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // Save new refresh token on the owner, by DB id (updateUserById encrypts it)
   await updateUserById(user.id, {
     googleRefreshToken: refreshToken,
+    googleAccountKey: grant?.accountKey ?? null,
     ...(stale ? { calendarAssignments: Prisma.DbNull as unknown as null } : {}),
     ...(grant ? { googleScopes: grant.scopes, googleSyncNotifiedAt: null } : {}),
   });

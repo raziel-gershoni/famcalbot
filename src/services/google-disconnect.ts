@@ -298,9 +298,11 @@ async function disconnectNow(userId: number, options: { deleteCopies: boolean })
 
   // c. Local state, always.
   await prisma.$transaction(async (tx) => {
+    // The account's key goes with the token (web sign-in spec §2.17): the calendar's Google account no longer signs
+    // in. A Google sign-in way already made stays (Settings lists it), and so does googleCalendarSignIn, the person's choice.
     await tx.user.update({
       where: { id: userId },
-      data: { googleRefreshToken: '', googleScopes: [], googleSyncNotifiedAt: null, calendarAssignments: Prisma.DbNull },
+      data: { googleRefreshToken: '', googleScopes: [], googleSyncNotifiedAt: null, calendarAssignments: Prisma.DbNull, googleAccountKey: null },
     });
     // The rest stay, turned off with nothing queued: the worker stops, and FamCal keeps
     // hiding their Google calendars from its Google lists if the user connects again. That

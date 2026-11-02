@@ -9,6 +9,7 @@ import { loggable, OAUTH_RETURN_MISSING_CODE, OAUTH_RETURN_MISSING_STATE, OAUTH_
 import { createPendingGoogleToken, finishPageUrl, type GoogleGrant } from '@/src/services/google-connect';
 import { GOOGLE_CONNECT_SCOPES, parseGrantedScopes } from '@/src/services/google-sync/scopes';
 import { googleAccountOf } from '@/src/services/google-sync/account';
+import { googleAccountKey } from '@/src/services/web-signin/account-key';
 import { googleFetch } from '@/src/services/google-retry';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { UserConfig } from '@/src/types';
@@ -232,18 +233,23 @@ export default async function OAuthCallbackPage({ searchParams }: PageProps) {
   // who started it, and anyone can start one and send the Google URL to someone else. So
   // the token waits in Redis until the state's owner claims it from their own Telegram or
   // WhatsApp (src/services/google-connect.ts).
-  // What the commit saves with the token: the granted scopes, and for a 'sync' consent the
-  // calendar to copy and the account it goes to (googleAccountOf: the token carries no id
-  // token). An account Google doesn't tell stays unknown, logged; the copy still starts.
+  // What the commit saves with the token: the granted scopes; the account's keyed hash, so
+  // a Google sign-in with that account finds this person (web sign-in spec §2.17); and for a
+  // 'sync' consent the calendar to copy and the account it goes to. The account is asked for
+  // every consent (googleAccountOf: the token carries no id token). One Google doesn't tell
+  // stays unknown, logged: the connect and the copy still go ahead, with no key (the startup
+  // pass makes it on the next boot).
   const grant: GoogleGrant = { scopes: grantedScopes };
+  let googleAccount: string | null = null;
+  try {
+    googleAccount = await googleAccountOf(String(tokens.access_token ?? ''));
+  } catch (error) {
+    console.warn(`[oauth-callback] user ${user.id}: the Google account of the consent is unknown:`, error instanceof Error ? error.message : String(error));
+    captureError(error, 'oauth-callback-account', { user_id: user.id, purpose: stateRecord.purpose ?? 'connect' }, 'warning');
+  }
+  const accountKey = googleAccount ? googleAccountKey(googleAccount) : null;
+  if (accountKey) grant.accountKey = accountKey;
   if (stateRecord.purpose === 'sync' && stateRecord.nativeCalendarId) {
-    let googleAccount: string | null = null;
-    try {
-      googleAccount = await googleAccountOf(String(tokens.access_token ?? ''));
-    } catch (error) {
-      console.warn(`[oauth-callback] user ${user.id}: the Google account of a sync consent is unknown:`, error instanceof Error ? error.message : String(error));
-      captureError(error, 'google-sync-account', { user_id: user.id }, 'warning');
-    }
     grant.sync = { nativeCalendarId: stateRecord.nativeCalendarId, googleAccount };
   }
 

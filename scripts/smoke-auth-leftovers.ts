@@ -111,6 +111,10 @@ function installStubs() {
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: capture });
   stub('sentry.server.config.ts', {});
   stub('src/cron/scheduler.ts', { startScheduler: () => { schedulerStarts.push(Date.now()); } });
+  // register() starts the Google account key pass (web sign-in spec §2.17) without awaiting it: stubbed, so it makes no
+  // Prisma call and loads no sign-in modules behind the check (Google sign-in is off here, so the pass would not run)
+  stub('src/services/web-signin/oidc.ts', { providerConfigured: () => false });
+  stub('src/services/web-signin/calendar-account.ts', { fillGoogleAccountKeys: async () => undefined });
 }
 
 /** Source files under app/, src/ and scripts/ (this smoke excluded), for caller searches. */

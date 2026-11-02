@@ -1561,7 +1561,7 @@ async function main() {
     assert(DB.oAuthState.length === 0, `states ${show(DB.oAuthState)}`);
   });
 
-  await check('#34 S2 callback (connect): the pending entry carries the granted scopes from the token response; no identity call', async () => {
+  await check('#34 S2 callback (connect): the pending entry carries the granted scopes from the token response, and the key of the token\'s account (calendars.get(primary) with the exchange\'s access token), never the address', async () => {
     seed();
     googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };
     const { value: end } = await quietly(() => runCallback(addState(9)));
@@ -1569,7 +1569,10 @@ async function main() {
     const entry = pendingEntry();
     assert(show(entry.scopes) === show([...BOTH_SCOPES.split(' '), SYNC_SCOPE]), `scopes ${show(entry.scopes)}`);
     assert(entry.sync === undefined, `sync ${show(entry.sync)}`);
-    assert(primaryAuth.length === 0 && googleCalls.every(u => u === GOOGLE_TOKEN_URL), `Google calls ${show(googleCalls)}`);
+    const { googleAccountKey } = await load('src/services/web-signin/account-key.ts');
+    assert(entry.accountKey === googleAccountKey('tal@gmail.com'), `accountKey ${show(entry.accountKey)}`);
+    assert(!JSON.stringify(entry).includes('tal@gmail.com'), `the entry holds the address: ${show(entry)}`);
+    assert(show(primaryAuth) === show(['Bearer at-1']), `identity calls ${show(primaryAuth)}`);
     assert(userWrites.length === 0, 'the callback wrote the user');
   });
 
@@ -1584,7 +1587,7 @@ async function main() {
     assert(userWrites.length === 0 && DB.googleSyncLink.length === 0, 'the callback saved something');
   });
 
-  await check('#35b S2 callback (sync): an identity call that fails is logged and captured; the consent still parks, with no account', async () => {
+  await check('#35b S2 callback (sync): an identity call that fails is logged and captured; the consent still parks, with no account and no account key', async () => {
     seed();
     googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-sync' };
     primaryAnswer = { status: 503 };
@@ -1592,7 +1595,8 @@ async function main() {
     assert(end.redirect, `callback ${show(end.threw ?? end)}`);
     const entry = pendingEntry();
     assert(show(entry.sync) === show({ nativeCalendarId: 'cal-9', googleAccount: null }), `sync ${show(entry.sync)}`);
-    assert(captured.some(c => c.startsWith('google-sync-account')), `captured ${show(captured)}`);
+    assert(entry.accountKey === undefined, `accountKey ${show(entry.accountKey)}`);
+    assert(captured.some(c => c.startsWith('oauth-callback-account')), `captured ${show(captured)}`);
   });
 
   await check('#36 S2 commit (connect): googleScopes saved from the entry; the user\'s links in token/scopes go back (ok, or creating with no calendar yet) with nextAttemptAt cleared; the outage notice resets; the gate opens; nobody else\'s links move', async () => {
@@ -1777,6 +1781,20 @@ async function main() {
     await tgWebhook(tgText(TAL_TG, `/start gc_${id}`));
     assert(await savedToken(9) === 'google-rt-new', `token; ${captured.join(' | ')}`);
     assert(show(userRow(9).googleScopes) === show(['https://www.googleapis.com/auth/calendar.readonly']), `googleScopes ${show(userRow(9).googleScopes)}`);
+  });
+
+  await check('#41b the commit saves the account key the entry carries; a consent whose account Google did not tell clears the old key (it may be another account\'s); the calendar sign-in switch is left as it is', async () => {
+    seed();
+    const { googleAccountKey } = await load('src/services/web-signin/account-key.ts');
+    userRow(9).googleCalendarSignIn = false;
+    googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'at-1' };
+    primaryAnswer = { id: 'Tal@Gmail.com' };
+    await consentAndClaim(addState(9));
+    assert(userRow(9).googleAccountKey === googleAccountKey('tal@gmail.com'), `key ${show(userRow(9).googleAccountKey)}; ${captured.join(' | ')}`);
+    assert(userRow(9).googleCalendarSignIn === false, 'the commit changed the switch');
+    primaryAnswer = { status: 401 };
+    await consentAndClaim(addState(9));
+    assert(userRow(9).googleAccountKey === null, `an unknown account kept the old key: ${show(userRow(9).googleAccountKey)}`);
   });
 
   // The privacy text lives in messages (legal.privacy) since the public website build, in the approved wording (its

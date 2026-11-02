@@ -594,6 +594,14 @@ async function main() {
     assert(!T('oAuthState').some((s) => String(s.userId) === String(ME)), 'the user\'s OAuth state is still there');
   });
 
+  await check('database: the key of the connected Google account is cleared with the token (it no longer signs in); the calendar sign-in switch stays as the person set it', async () => {
+    seed();
+    Object.assign(row('user', ME)!, { googleAccountKey: `abcd1234:${'f'.repeat(64)}`, googleCalendarSignIn: false });
+    await run(true);
+    const u = row('user', ME)!;
+    assert(u.googleAccountKey === null && u.googleCalendarSignIn === false, `user ${show({ googleAccountKey: u.googleAccountKey, googleCalendarSignIn: u.googleCalendarSignIn })}`);
+  });
+
   await check('redis: the read cache, live colours, gone warning, fresh limit, connected flag, timezone, feature caches, link retries and setup tracks are cleared', async () => {
     seed();
     await run(true);
