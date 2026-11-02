@@ -6,6 +6,7 @@
  */
 
 import { isUsableEncryptionKey } from '../utils/encryption';
+import { googleSignInUsesCalendarClient } from '../services/web-signin/client-ids';
 
 export interface StartupProblem {
   /** The variable at fault */
@@ -60,7 +61,7 @@ export function signInSetupWarnings(env: Record<string, string | undefined>): st
     const unset = names.filter((name) => !env[name]);
     if (unset.length > 0) warnings.push(`web sign-in with ${way} is off: ${unset.join(' and ')} ${unset.length > 1 ? 'are' : 'is'} not set`);
   }
-  if (env.GOOGLE_SIGNIN_CLIENT_ID && env.GOOGLE_SIGNIN_CLIENT_SECRET && env.GOOGLE_SIGNIN_CLIENT_ID === env.GOOGLE_CLIENT_ID) {
+  if (env.GOOGLE_SIGNIN_CLIENT_SECRET && googleSignInUsesCalendarClient(env.GOOGLE_SIGNIN_CLIENT_ID, env.GOOGLE_CLIENT_ID)) {
     warnings.push('web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client');
   }
   return warnings;

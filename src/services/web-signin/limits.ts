@@ -179,13 +179,21 @@ export async function codeChecksBlocked(args: { emailKey: string; ip: string | n
  * restarted, so no record lives past a day of being made (the Privacy Policy says "up to a day").
  */
 export async function recordWrongCode(args: { emailKey: string; ip: string | null }): Promise<void> {
+  // Each count has its own try: a failure of one (the pause marker's write, say) must not skip the other. One report
+  // for the call, so a dead Redis is one line in Sentry, not two.
+  const failures: unknown[] = [];
+  try {
+    await count(limitKey('wrong-ip-hour', addressId(args.ip)), HOUR_SEC);
+  } catch (error) {
+    failures.push(error);
+  }
   try {
     const wrong = await count(limitKey('wrong-email-day', args.emailKey), DAY_SEC);
     if (wrong === LIMIT.wrongCodesPerEmailDay) await redis.set(limitKey('wrong-email-pause', args.emailKey), 1, { ex: DAY_SEC });
-    await count(limitKey('wrong-ip-hour', addressId(args.ip)), HOUR_SEC);
   } catch (error) {
-    captureError(error, 'signin-limits', { step: 'wrong code' });
+    failures.push(error);
   }
+  if (failures.length > 0) captureError(failures[0], 'signin-limits', { step: 'wrong code', failed: failures.length });
 }
 
 /** The one admin message when the day's budget is spent. */

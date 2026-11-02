@@ -66,6 +66,12 @@ async function main() {
       if (show(got) !== show(want)) problems.push(`${label}: ${show(got)}`);
       if (/VALUE-|8000000001/.test(show(got))) problems.push(`${label}: a value in ${show(got)}`);
     }
+    // One rule, two readers: the warning and oidc.ts's refusal both decide through client-ids.ts
+    const ids = (await import(path.join(ROOT, 'src/services/web-signin/client-ids.ts'))) as Row;
+    const rule: [string | undefined, string | undefined, boolean][] = [['a', 'a', true], ['a', 'b', false], ['a', undefined, false], [undefined, undefined, false], ['', '', false]];
+    for (const [signIn, calendar, want] of rule) if (ids.googleSignInUsesCalendarClient(signIn, calendar) !== want) problems.push(`client-ids: ${show([signIn, calendar])} is not ${want}`);
+    if (!/googleSignInUsesCalendarClient\(/.test(read('src/services/web-signin/oidc.ts'))) problems.push('oidc.ts does not decide through client-ids.ts');
+    if (!/googleSignInUsesCalendarClient\(/.test(read('src/lib/startup-checks.ts'))) problems.push('startup-checks.ts does not decide through client-ids.ts');
     // The names the sign-in code reads: a renamed variable here would warn about one nobody reads
     const code = read('src/services/web-signin/oidc.ts') + read('src/services/web-signin/email-send.ts');
     for (const name of FIVE) if (!code.includes(`process.env.${name}`)) problems.push(`the sign-in code never reads process.env.${name}`);

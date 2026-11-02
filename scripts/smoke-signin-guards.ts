@@ -114,6 +114,7 @@ const fakePrisma: Row = new Proxy({} as Row, {
 type Entry = { value: string | Set<string>; expiresAt: number | null };
 const store = new Map<string, Entry>();
 let redisDown = false;
+let failKeyPrefix: string | null = null; // a write of a key with this prefix fails (the rest of Redis is up)
 const live = (k: string): Entry | undefined => {
   const e = store.get(k);
   if (e && e.expiresAt !== null && e.expiresAt <= Date.now()) {
@@ -142,6 +143,7 @@ const redisImpl: Row = {
   get: async (k: string) => decode(live(k)),
   mget: async (...ks: unknown[]) => ks.flat().map((k) => decode(live(String(k)))),
   set: async (k: string, v: unknown, o?: Row) => {
+    if (failKeyPrefix && k.startsWith(failKeyPrefix)) throw new Error('smoke: this write fails');
     if (o?.nx && live(k)) return null;
     store.set(k, { value: encode(v), expiresAt: o?.ex ? Date.now() + o.ex * 1000 : null });
     return 'OK';
@@ -619,6 +621,25 @@ async function main() {
     assert(left > 0 && left <= 24 * 3600 - 18 * 3600, `the count was renewed at the tenth: ${left} s left, 18 h after the first`);
     const pause = ttlOf(pauseKey);
     assert(pause > 23 * 3600 && pause <= 24 * 3600, `the pause marker should last a day from the tenth: ${pause} s`);
+  });
+
+  await check('#20c [Task 11 review] the pause marker\'s write failing does not lose the per-address wrong-code count (nor the email\'s): the failure is captured, the email stays blocked', async () => {
+    reset();
+    const { recordWrongCode, codeChecksBlocked } = await limits();
+    const emailKey = await keyFor('dana@gmail.com');
+    for (let i = 1; i <= 9; i++) await recordWrongCode({ emailKey, ip: '203.0.113.9' });
+    failKeyPrefix = 'signin:lim:wrong-email-pause:';
+    try {
+      await recordWrongCode({ emailKey, ip: '203.0.113.9' });
+    } finally {
+      failKeyPrefix = null;
+    }
+    const ipKeys = [...store.keys()].filter((k) => k.startsWith('signin:lim:wrong-ip-hour:'));
+    assert(ipKeys.length === 1 && Number(store.get(ipKeys[0])?.value) === 10, `the address count: ${show(ipKeys.map((k) => store.get(k)?.value))}`);
+    assert(Number(store.get(`signin:lim:wrong-email-day:${emailKey}`)?.value) === 10, 'the email count after the tenth');
+    assert(!store.has(`signin:lim:wrong-email-pause:${emailKey}`), 'the marker was written although its write failed');
+    assert(captured.filter((c) => c.startsWith('signin-limits')).length === 1, `captured ${show(captured)}`);
+    assert((await codeChecksBlocked({ emailKey, ip: '203.0.113.50' })) === true, 'the email is not blocked at ten wrong codes without the marker');
   });
 
   await check('#21 twenty wrong codes from one address in an hour block its checks, for any email; free an hour later', async () => {

@@ -12,7 +12,8 @@
 //    link, `famcal_signin` 10 minutes), how long sign-in data is kept, the session cookie check, removing a way and
 //    deleting the ways with the account; the Terms' account security names the Google account and the mailbox. The
 //    old WhatsApp-only cookie line and "keep that account safe" are gone.
-//  - L3 LEGAL_UPDATED moved for both pages to the day the text changed (2026-11-03 or later).
+//  - L3 LEGAL_UPDATED moved for both pages to the day the text changed (2026-11-02 or later), and is not a day that has
+//    not come yet in Israel.
 //  - L4 the cookies the Policy names are the code's, with the code's lengths: SESSION_COOKIE_NAME and SESSION_TTL_SEC
 //    (src/lib/session-auth.ts: 30 days on famcal.bot, 24 hours from a WhatsApp link), SIGNIN_COOKIE_NAME and
 //    FLOW_TTL_SEC (src/services/web-signin/flow.ts: 10 minutes), read as text, in every language.
@@ -176,9 +177,11 @@ async function main() {
     assert(problems.length === 0, problems.join('\n'));
   });
 
-  await check('L3 LEGAL_UPDATED moved for both pages to the day the text changed (2026-11-03 or later)', async () => {
+  await check('L3 LEGAL_UPDATED moved for both pages to the day the text changed (2026-11-02 or later, not in the future)', async () => {
     const { LEGAL_UPDATED } = (await import(path.join(ROOT, 'src/site/legal.ts'))) as Row;
-    assert(LEGAL_UPDATED.privacy >= '2026-11-03' && LEGAL_UPDATED.terms >= '2026-11-03', `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    assert(LEGAL_UPDATED.privacy >= '2026-11-02' && LEGAL_UPDATED.terms >= '2026-11-02', `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
+    assert(LEGAL_UPDATED.privacy <= today && LEGAL_UPDATED.terms <= today, `LEGAL_UPDATED ${show(LEGAL_UPDATED)} is after today in Israel (${today})`);
   });
 
   await check('L4 the cookies the Policy names are the code\'s, with its lengths (the session 30 days on famcal.bot and 24 hours from a WhatsApp link, the sign-in check 10 minutes), in en, he and ru', () => {

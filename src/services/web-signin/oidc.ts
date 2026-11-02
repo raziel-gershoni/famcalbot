@@ -26,6 +26,7 @@ import * as client from 'openid-client';
 import { buildUrl, getBaseUrl } from '../../config/urls';
 import { fetchWithRetry, HttpStatusError } from '../../utils/fetch-retry';
 import { googleFetch } from '../google-retry';
+import { googleSignInUsesCalendarClient } from './client-ids';
 import type { OidcFlow } from './flow';
 
 export type OidcProvider = 'telegram' | 'google';
@@ -77,7 +78,7 @@ function credentials(provider: OidcProvider): { clientId: string; clientSecret: 
       : [process.env.GOOGLE_SIGNIN_CLIENT_ID, process.env.GOOGLE_SIGNIN_CLIENT_SECRET];
   if (!clientId || !clientSecret) return null;
   // Sign-in has its own Google client: a token for the calendar client must never sign anyone in (spec §3).
-  if (provider === 'google' && clientId === process.env.GOOGLE_CLIENT_ID) {
+  if (provider === 'google' && googleSignInUsesCalendarClient(clientId, process.env.GOOGLE_CLIENT_ID)) {
     if (!warned.__famcalSigninSameClientWarned) {
       warned.__famcalSigninSameClientWarned = true;
       console.warn('[signin] GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; Google sign-in stays off until it has its own client');
