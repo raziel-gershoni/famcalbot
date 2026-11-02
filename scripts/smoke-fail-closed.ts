@@ -215,7 +215,7 @@ async function registerWith(vars: Record<string, string>) {
 }
 
 const PROBLEM = {
-  session: 'SESSION_SECRET is not set: WhatsApp sign-in and share-story image links are refused',
+  session: 'SESSION_SECRET is not set: web sign-in and share-story image links are refused',
   app: 'WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused (500)',
   telegram: 'TELEGRAM_WEBHOOK_SECRET is not set: every Telegram update is refused (500)',
   key: "ENCRYPTION_KEY is missing or not 64 hex characters: Google tokens can't be read or saved",
@@ -372,6 +372,36 @@ async function main() {
     assert(show(startup) === show(['SESSION_SECRET', 'WHATSAPP_APP_SECRET', 'TELEGRAM_WEBHOOK_SECRET']), `captures ${show(captured)}`);
     assert(schedulerStarts.length === 1, 'the scheduler did not start');
     assert(![...lines.map(l => l.text), ...captured.map(c => c.message)].some(t => t.includes('VALUE-')), 'a secret value was logged');
+  });
+
+  await check('#8b production register() names each web sign-in way that is off with one [startup] warning (never an error, a capture or "missing" in the deploy message), none once all five are set and none outside production; never a value', async () => {
+    adminIds = async () => [1001];
+    sendFails = false;
+    try {
+      const off = await registerWith({
+        NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567',
+        TELEGRAM_LOGIN_CLIENT_ID: '', TELEGRAM_LOGIN_CLIENT_SECRET: '', GOOGLE_SIGNIN_CLIENT_ID: '', GOOGLE_SIGNIN_CLIENT_SECRET: '', RESEND_API_KEY: '',
+      });
+      await settle(() => sends.length >= 1);
+      const warns = off.lines.filter(l => l.text.startsWith('[startup] web sign-in')).map(l => `${l.level} ${l.text}`);
+      assert(show(warns) === show([
+        'warn [startup] web sign-in with Telegram is off: TELEGRAM_LOGIN_CLIENT_ID and TELEGRAM_LOGIN_CLIENT_SECRET are not set',
+        'warn [startup] web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID and GOOGLE_SIGNIN_CLIENT_SECRET are not set',
+        'warn [startup] web sign-in with an email code is off: RESEND_API_KEY is not set',
+      ]), `warnings ${show(warns)}`);
+      assert(!captured.some(c => /web sign-in/.test(c.message)), `a warning was captured: ${show(captured)}`);
+      assert(sends.length === 1 && sends[0].text === '🚀 FamCal <code>abcdef1</code> deployed', `deploy message ${show(sends)}`);
+      const on = await registerWith({
+        NODE_ENV: 'production',
+        TELEGRAM_LOGIN_CLIENT_ID: '8000000001', TELEGRAM_LOGIN_CLIENT_SECRET: 'VALUE-TGL-fc5', GOOGLE_SIGNIN_CLIENT_ID: 'VALUE-GSI-id', GOOGLE_SIGNIN_CLIENT_SECRET: 'VALUE-GSI-fc6', RESEND_API_KEY: 'VALUE-RESEND-fc7',
+      });
+      assert(!on.lines.some(l => /web sign-in/.test(l.text)), `warned with all five set: ${show(on.lines.filter(l => /web sign-in/.test(l.text)))}`);
+      assert(![...off.lines, ...on.lines].some(l => l.text.includes('VALUE-')), 'a value was logged');
+      const dev = await registerWith({ NODE_ENV: 'development' });
+      assert(!dev.lines.some(l => /web sign-in/.test(l.text)), `warned outside production: ${show(dev.lines.filter(l => /web sign-in/.test(l.text)))}`);
+    } finally {
+      adminIds = async () => [1001, 1002];
+    }
   });
 
   await check('#9 register() logs the key fingerprint line in every environment, names no secret outside production, and survives a missing ENCRYPTION_KEY', async () => {

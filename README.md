@@ -12,7 +12,7 @@
 ![Railway](https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white)
 [![demo · live](https://img.shields.io/badge/demo-live-2ea44f?style=flat-square)](https://famcal.bot)
 
-**🔗 Live demo:** https://famcal.bot  <!-- the public site is reachable directly; the personal dashboard (settings, calendars, pairing, admin) opens from inside the bot via a magic link, so most in-app screens are reached by chatting with the Telegram bot first -->
+**🔗 Live demo:** https://famcal.bot  <!-- the public site is reachable directly; the personal dashboard (settings, calendars, pairing) opens from inside the bot, or at famcal.bot/signin for an existing account (Telegram, Google or an email code); the admin panel opens only inside Telegram -->
 
 FamCal is a multi-platform, multilingual calendar assistant for individuals and families. Use the built-in FamCal calendar, optionally connect Google Calendar too, and the bot writes personalized morning and evening briefings, week-ahead previews, weather, and reminders — and turns voice notes and photos of invitations into calendar events. It runs as one persistent Node process on Railway, and every AI call goes through a single provider layer on Google Gemini.
 
@@ -35,7 +35,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Subscriptions and usage limits** — trials, plans, and usage counters billed in-app through Telegram Stars; one month per payment, never renewing by itself; every payment kept with its Telegram charge id, so an admin can refund any of the last 14 days from the admin panel.
 - **Public website** — famcal.bot in Hebrew, English and Russian, in the app's own look (light and dark follow the device): the landing shows the bot's confirm card and the calendar home's real Agenda with a sample family, plus the plans (read from the plan table), the blog, Privacy and Terms. It has its own root layout (`app/[locale]/(site)`): static pages, no Telegram SDK, one cached style sheet built from the app's colour tokens (`components/app-ui/tokens.ts`).
 - **Public zmanim pages** — `famcal.bot/zmanim` and a page per city (135 cities, 51 of them in Israel) in Hebrew, English and Russian, with no account: the day's zmanim by Sephardi, Ashkenazi or Chabad custom, the coming Shabbat and Yom Tov times, and the month with Hebrew dates, holidays and the parasha (two-day Yom Tov abroad). Each page is computed when it is opened, by the bot's own zmanim code (`zmanDayForPlace`), with no database and no call to anyone; the day and the custom travel in the URL. "Near me" finds the nearest listed city in the browser, and the position never leaves it. The proxy allows one address 60 city pages a minute (`src/lib/page-limit.ts`), so a scraper can't slow the bot that shares the process.
-- **Web dashboard** — the Mini App's pages (`app/[locale]/(app)`, their own root layout with the Telegram SDK) for settings, calendar selection, pairing, and an admin panel with moderation, a persistent blocklist, and analytics.
+- **Web dashboard** — the Mini App's pages (`app/[locale]/(app)`, their own root layout with the Telegram SDK) for settings, calendar selection, pairing, and an admin panel with moderation, a persistent blocklist, and analytics. Outside Telegram, an existing account signs in at famcal.bot/signin with Telegram, Google or an email code (see [Web sign-in](#web-sign-in)); the admin panel stays in Telegram.
 
 ## 🏗️ How it works
 
@@ -47,7 +47,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 
 **A calendar model that stands on its own.** The Prisma schema (~370 lines) models a native recurring calendar with RFC-5545 `RRULE` strings, per-instance overrides and cancellations, and series-level exdates; `src/services/native-calendar/recurrence.ts` expands series into virtual instances for any date range using `rrule`. The same schema carries couple pairing with invites and status history, subscriptions/trials/usage counters, and a blocklist that persists across account deletion for moderation.
 
-**Delivery correctness.** Scheduled jobs (daily and tomorrow summaries, reminders) run in-process on node-cron, and Upstash Redis dedup keys and locks keep a retried or duplicated run from double-sending, with Upstash rate limiting on hot paths. Auth spans magic-link/session flows for the dashboard, Telegram login verification, webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Every call to Google goes through one retry policy (`src/services/google-retry.ts`): a rate limit, a timeout or a 5xx is retried with jittered backoff and Google's `Retry-After`, and a create is never repeated on a failure that may have gone through. Errors flow to Sentry and to admin alerts. Voice replies and the two-host voice show are synthesized in-process with Gemini TTS and encoded from PCM to OGG/Opus.
+**Delivery correctness.** Scheduled jobs (daily and tomorrow summaries, reminders) run in-process on node-cron, and Upstash Redis dedup keys and locks keep a retried or duplicated run from double-sending, with Upstash rate limiting on hot paths. Auth spans the Mini App's signed init data, one session cookie for every web sign-in (the WhatsApp link, Telegram and Google through OpenID Connect, email codes), webhook secret validation, and a `CRON_SECRET` guarding internal endpoints. Every call to Google goes through one retry policy (`src/services/google-retry.ts`): a rate limit, a timeout or a 5xx is retried with jittered backoff and Google's `Retry-After`, and a create is never repeated on a failure that may have gone through. Errors flow to Sentry and to admin alerts. Voice replies and the two-host voice show are synthesized in-process with Gemini TTS and encoded from PCM to OGG/Opus.
 
 **City data, built once.** `src/site/cities.ts` holds each city's GeoNames id, coordinates and IANA zone (from [GeoNames](https://www.geonames.org/), CC BY 4.0), and for an Israeli city its height. `scripts/build-city-heights.ts` makes the heights on a developer machine, once (`npx tsx scripts/build-city-heights.ts`): for each Israeli city it asks OpenStreetMap's Nominatim for the town's outline (one request a second; © OpenStreetMap contributors, ODbL), runs the bot's own `elevationGrid` over it (`src/services/zmanim/elevation-grid.ts`), reads the 25 heights from the Copernicus DEM GLO-90 tiles in AWS's public bucket (produced using Copernicus WorldDEM™-90 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved) and keeps the highest. The values are committed: nothing reads these sources at runtime or in CI, and the zmanim pages credit all three.
 
@@ -81,14 +81,16 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `TELEGRAM_BOT_USERNAME`, `WHATSAPP_PHONE_NUMBER` | The bot's username and the WhatsApp number (digits only) behind the t.me and wa.me links, such as the Google connect finish buttons; unset, they fall back to the public bot and number in `src/lib/gate-links.ts` |
 | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_WEBHOOK_VERIFY_TOKEN` | WhatsApp Business Cloud API (optional) |
 | `WHATSAPP_APP_SECRET` | Required. The Meta app secret, which verifies WhatsApp webhook signatures (`X-Hub-Signature-256`); unset, every WhatsApp webhook is refused (500) and production startup logs an error |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth (the connect client; web sign-in has its own, below) |
+| `TELEGRAM_LOGIN_CLIENT_ID`, `TELEGRAM_LOGIN_CLIENT_SECRET` | Optional. Telegram sign-in on famcal.bot (OpenID Connect): the Client ID and Client Secret from @BotFather → the bot → Login Widget (the secret is not the bot token); unset, the Telegram way is hidden and production startup logs a warning |
+| `GOOGLE_SIGNIN_CLIENT_ID`, `GOOGLE_SIGNIN_CLIENT_SECRET` | Optional. Google sign-in on famcal.bot: a Web client of its own in the Calendar's Google Cloud project, never `GOOGLE_CLIENT_ID`'s, with the redirect URI `https://famcal.bot/api/auth/google/callback`; unset, or the Calendar client's, the Google way is hidden and production startup logs a warning |
 | `GEMINI_API_KEY` | Gemini API key for text and voice |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
 | `DATABASE_URL`, `DIRECT_URL` | Postgres connection (pooled + direct for migrations) |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
-| `RESEND_API_KEY` | Optional. Resend's API key for the email sign-in codes (from `FamCal <signin@famcal.bot>`, replies to `privacy@famcal.bot`); unset, email sign-in is not offered and its routes answer 503 |
+| `RESEND_API_KEY` | Optional. Resend's API key for the email sign-in codes (from `FamCal <signin@famcal.bot>`, replies to `privacy@famcal.bot`); unset, email sign-in is not offered, its routes answer 503 and production startup logs a warning |
 | `CRON_SECRET` | Shared secret guarding internal cron/usage endpoints |
-| `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The WhatsApp session cookie and the share-story image links are signed with keys derived from it; unset, both are refused and production startup logs an error. Changing it signs WhatsApp web users out once |
+| `SESSION_SECRET` | Required, no fallback: its own random value (`openssl rand -hex 32`), never `CRON_SECRET`'s. The web session cookie (every web sign-in), the sign-in hashes (email codes, limit counters, the calendar accounts' keys) and the share-story image links use keys derived from it; unset, they are refused and production startup logs an error. Changing it signs every web user out once, and the next boot re-keys the calendar accounts (one Google call each) |
 | `ENCRYPTION_KEY` | Encrypts the stored Google tokens: 64 hex characters (`openssl rand -hex 32`). See [Rotating `ENCRYPTION_KEY`](#rotating-encryption_key) |
 | `ENCRYPTION_KEY_PREVIOUS` | Optional and decrypt-only: the old `ENCRYPTION_KEY` while a rotation runs; delete it once the key sweep logs SAFE |
 | `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Error reports only (`src/lib/sentry-errors-only.ts`: no traces, sessions or replays) |
@@ -112,6 +114,22 @@ Before rotating, the previous deploy's `[key-sweep] baseline:` line must show `u
 5. Delete `ENCRYPTION_KEY_PREVIOUS` at a later deploy. If it is removed before SAFE, the tokens not yet converted can't be read; put it back and they read again.
 
 To roll back, swap the two values: the sweep converts back. The sweep stops reading the database until the next deploy once SAFE is logged, or, with no `ENCRYPTION_KEY_PREVIOUS`, once nothing is left to encrypt. That way Neon can still scale to zero.
+
+### Web sign-in
+
+An existing account signs in on famcal.bot at `/signin` with Telegram, Google or a 6-digit email code, and gets the same web app as the Mini App (spec `docs/superpowers/specs/2026-11-02-web-sign-in-design.md`). The web makes no accounts: a person starts FamCal in Telegram or WhatsApp, then adds Google or an email address under Settings → Sign in on the web. The Google account a person's Google Calendar is connected from signs in without being added: FamCal keeps a keyed hash of its address (never the address) and confirms it live with Google at sign-in.
+
+- **Telegram:** OpenID Connect through `openid-client`; the account is found by the token's Telegram `id`, never its `sub`.
+- **Google:** a Web client of its own (`openid email`); the account is found by Google's `sub`, never by the address.
+- **Email:** a code mailed through Resend from `FamCal <signin@famcal.bot>` to the address stored on the account, with limits per address, per IP and per day in Upstash.
+
+Every way, the WhatsApp link too, ends in `finishSignIn` (`src/lib/web-session.ts`), which refuses a suspended or banned account and sets `__Host-famcal_session`: 30 days, renewed by `/api/page-data` while the web app is used; a WhatsApp link's session lasts 24 hours and is never renewed. Sign out on all devices, removing a way, a suspension and a ban end every session by moving `User.sessionsValidAfter`. Each way stays hidden until its variables are set, and production startup logs `[startup] web sign-in with … is off` for each one that isn't.
+
+One-time setup:
+
+1. **Telegram:** @BotFather → the bot → Login Widget → Switch to OpenID Connect Login; redirect URI `https://famcal.bot/api/auth/telegram/callback`, trusted origin `https://famcal.bot`. Its Client ID and Client Secret go in `TELEGRAM_LOGIN_CLIENT_ID` and `TELEGRAM_LOGIN_CLIENT_SECRET`.
+2. **Google:** Google Auth Platform (the Calendar's project) → Clients → Create client → Web application "FamCal sign-in", redirect URI `https://famcal.bot/api/auth/google/callback`. Its ID and secret go in `GOOGLE_SIGNIN_CLIENT_ID` and `GOOGLE_SIGNIN_CLIENT_SECRET`; never the Calendar client's.
+3. **Resend:** add the domain `famcal.bot` in region eu-west-1 and let it write its records to Cloudflare (`send.famcal.bot` MX and SPF, `resend._domainkey` DKIM). The apex MX and SPF stay Cloudflare Email Routing's, so mail to privacy@famcal.bot keeps arriving, and Resend's Receiving stays off. An API key with sending access to famcal.bot goes in `RESEND_API_KEY`.
 
 ### Install & run
 

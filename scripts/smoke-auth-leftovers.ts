@@ -205,7 +205,7 @@ async function main() {
     const logged = await registerWith({ NODE_ENV: 'production' });
     const session = logged.filter(l => l.includes('SESSION_SECRET'));
     const app = logged.filter(l => l.includes('WHATSAPP_APP_SECRET'));
-    assert(session.length === 1 && session[0] === '[startup] SESSION_SECRET is not set: WhatsApp sign-in and share-story image links are refused', `SESSION_SECRET lines: ${show(session)}`);
+    assert(session.length === 1 && session[0] === '[startup] SESSION_SECRET is not set: web sign-in and share-story image links are refused', `SESSION_SECRET lines: ${show(session)}`);
     assert(app.length === 1 && app[0] === '[startup] WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused (500)', `WHATSAPP_APP_SECRET lines: ${show(app)}`);
     assert(schedulerStarts.length > 0, 'register() did not start the scheduler');
   });

@@ -22,7 +22,7 @@ export function startupSecretProblems(env: Record<string, string | undefined>): 
     problems.push({ name: 'ENCRYPTION_KEY', message: "ENCRYPTION_KEY is missing or not 64 hex characters: Google tokens can't be read or saved", missing: true });
   }
   if (!env.SESSION_SECRET) {
-    problems.push({ name: 'SESSION_SECRET', message: 'SESSION_SECRET is not set: WhatsApp sign-in and share-story image links are refused', missing: true });
+    problems.push({ name: 'SESSION_SECRET', message: 'SESSION_SECRET is not set: web sign-in and share-story image links are refused', missing: true });
   }
   if (!env.WHATSAPP_APP_SECRET) {
     problems.push({ name: 'WHATSAPP_APP_SECRET', message: 'WHATSAPP_APP_SECRET is not set: every WhatsApp webhook is refused (500)', missing: true });
@@ -35,6 +35,35 @@ export function startupSecretProblems(env: Record<string, string | undefined>): 
     problems.push({ name: 'SESSION_SECRET', message: 'SESSION_SECRET equals CRON_SECRET: give it its own value' });
   }
   return problems;
+}
+
+/**
+ * The web sign-in ways and the variables each one needs (web sign-in spec §6). The owner sets them after the deploy,
+ * and a way stays hidden until its own are set (oidc.ts's providerConfigured, email-send.ts's emailConfigured), so an
+ * unset one is a warning (signInSetupWarnings), never a StartupProblem: no Sentry capture, not "missing" in the deploy
+ * message.
+ */
+export const SIGN_IN_ENV: readonly { way: string; names: readonly string[] }[] = [
+  { way: 'Telegram', names: ['TELEGRAM_LOGIN_CLIENT_ID', 'TELEGRAM_LOGIN_CLIENT_SECRET'] },
+  { way: 'Google', names: ['GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET'] },
+  { way: 'an email code', names: ['RESEND_API_KEY'] },
+];
+
+/**
+ * One line per web sign-in way that is off, naming its unset variables (never a value), and one for a Google sign-in
+ * client that is the calendar client (oidc.ts keeps that way off: a calendar-client token must never sign anyone in).
+ * Pure: env in, lines out.
+ */
+export function signInSetupWarnings(env: Record<string, string | undefined>): string[] {
+  const warnings: string[] = [];
+  for (const { way, names } of SIGN_IN_ENV) {
+    const unset = names.filter((name) => !env[name]);
+    if (unset.length > 0) warnings.push(`web sign-in with ${way} is off: ${unset.join(' and ')} ${unset.length > 1 ? 'are' : 'is'} not set`);
+  }
+  if (env.GOOGLE_SIGNIN_CLIENT_ID && env.GOOGLE_SIGNIN_CLIENT_SECRET && env.GOOGLE_SIGNIN_CLIENT_ID === env.GOOGLE_CLIENT_ID) {
+    warnings.push('web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client');
+  }
+  return warnings;
 }
 
 /**
