@@ -15,6 +15,8 @@ export type RemoveWhich = 'google' | 'email' | 'calendar-google';
 export type RequestError = 'failed' | 'busy';
 export type AddEmailError = RequestError | 'invalid' | 'limit' | 'has-one';
 /** 'codeLimit' is the confirm route's `limit` (too many wrong codes): Add's own `limit` is the day's codes. */
+/** Turn on's answers besides success: 'shared' and 'reconnect' have words of their own; 'not-offered' reads as 'failed'. */
+export type TurnOnError = RequestError | 'shared' | 'reconnect';
 export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
 
 const TAG = '[signin-methods]';
@@ -27,7 +29,7 @@ export function isMethodsView(value: unknown): value is SignInMethodsView {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   const p = v.providers as Record<string, unknown> | null | undefined;
-  return typeof v.telegram === 'boolean' && typeof v.googleFromCalendar === 'boolean' && isAddress(v.google) && isAddress(v.email) && !!p && typeof p.telegram === 'boolean' && typeof p.google === 'boolean' && typeof p.email === 'boolean';
+  return typeof v.telegram === 'boolean' && (v.googleFromCalendar === 'on' || v.googleFromCalendar === 'off' || v.googleFromCalendar === null) && isAddress(v.google) && isAddress(v.email) && !!p && typeof p.telegram === 'boolean' && typeof p.google === 'boolean' && typeof p.email === 'boolean';
 }
 
 /** A 429 is the route's rate limit; anything else is a plain failure. */
@@ -90,6 +92,14 @@ export async function confirmEmail(userId: number, code: string): Promise<{ kind
 export async function removeMethod(userId: number, which: RemoveWhich): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: RequestError }> {
   const r = await post('/api/signin-methods/remove', userId, { which });
   if (r?.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  return { kind: 'error', code: r ? statusError(r.status) : 'failed' };
+}
+
+export async function turnOnCalendar(userId: number): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: TurnOnError }> {
+  const r = await post('/api/signin-methods/calendar-on', userId, {});
+  if (r?.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  const error = r?.body?.error;
+  if (error === 'shared' || error === 'reconnect') return { kind: 'error', code: error };
   return { kind: 'error', code: r ? statusError(r.status) : 'failed' };
 }
 

@@ -10,7 +10,10 @@
 //   Google refuses in-app browsers, so inside Telegram a sheet opens it in the browser with Telegram's openLink on the tap
 //   itself (a link opened after an await may be refused, as on the Calendars screen); in a browser this tab goes there.
 //   Once added, the row is the address. Before its first use, the Google account the calendar is connected from shows
-//   as on, with no address (FamCal keeps none). Removing either asks first ('google' or 'calendar-google').
+//   as on, with no address (FamCal keeps none), when its key is current and no other FamCal account holds it; as off,
+//   with a Turn on button (POST /api/signin-methods/calendar-on: one live read of the calendar's account, the press is
+//   the consent), when it has no usable key yet. Add Google shows whenever that row is not on. Removing either asks
+//   first ('google' or 'calendar-google').
 // - Email: Add asks for the address, mails a code, then asks for the code; an address on another account is refused
 //   only after its code is right ('taken'). Remove asks first.
 // - Every removal signs out the other browsers (the server moves sessionsValidAfter; this device keeps a fresh cookie).
@@ -32,7 +35,7 @@ import { SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { isInTelegram, openExternalLink } from '@/src/lib/telegram-ui';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
 import { signInHref } from '@/src/site/signin';
-import { addEmail, confirmEmail, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, type AddEmailError, type ConfirmEmailError, type MethodsView, type RemoveWhich, type RequestError } from './signin-methods-client';
+import { addEmail, confirmEmail, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type MethodsView, type RemoveWhich, type RequestError, type TurnOnError } from './signin-methods-client';
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; view: MethodsView };
 type EmailError = AddEmailError | ConfirmEmailError;
@@ -40,7 +43,7 @@ type EmailSheet = { kind: 'email'; step: 'address' | 'code'; address: string; co
 type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null; error: RequestError | null; busy: boolean };
 type GoogleSheet = { kind: 'google'; url: string };
 type Sheet = EmailSheet | RemoveSheet | GoogleSheet;
-type Working = 'google' | 'signOut' | 'signOutAll';
+type Working = 'google' | 'turnOn' | 'signOut' | 'signOutAll';
 type Status = { tone: 'info' | 'error'; text: string };
 
 /** Each failure's words: a key of settings.signIn. */
@@ -55,6 +58,9 @@ const ERROR_KEY: Record<EmailError, string> = {
   restart: 'codeRestart',
   codeLimit: 'codeLimit',
 };
+
+/** Turn on's failures: shared and reconnect have words of their own, the rest are the group's plain ones. */
+const TURN_ON_KEY: Record<TurnOnError, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect' };
 
 const noop = () => {};
 
@@ -111,6 +117,20 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     const url = new URL(result.url, window.location.origin).href;
     if (isInTelegram()) setSheet({ kind: 'google', url });
     else window.location.assign(url);
+  };
+
+  const turnOn = async () => {
+    if (working) return;
+    setWorking('turnOn');
+    setStatus(null);
+    const result = await turnOnCalendar(userId);
+    setWorking(null);
+    if (result.kind === 'ok') {
+      showMethods(result.methods);
+      setStatus({ tone: 'info', text: t('turnedOn') });
+      return;
+    }
+    setStatus({ tone: 'error', text: t(TURN_ON_KEY[result.code]) });
   };
 
   const openGoogle = (url: string) => {
@@ -231,9 +251,25 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
             ) : null}
             {view.google ? (
               <ButtonRow label={t('google')} value={view.google.address} valueDir="ltr" disabled={off} onClick={() => openRemove('google', view.google?.address ?? null)} />
-            ) : view.googleFromCalendar && view.providers.google ? (
+            ) : null}
+            {!view.google && view.providers.google && view.googleFromCalendar === 'on' ? (
               <ButtonRow label={t('google')} hint={t('googleFromCalendar')} value={t('on')} disabled={off} onClick={() => openRemove('calendar-google', null)} />
-            ) : view.providers.google ? (
+            ) : null}
+            {!view.google && view.providers.google && view.googleFromCalendar === 'off' ? (
+              <>
+                <FormRow label={t('googleFromCalendar')} hint={t('calendarOffHint')} />
+                <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'turnOn' || undefined} onClick={() => void turnOn()}>
+                  {working === 'turnOn' ? (
+                    <>
+                      {spin} {t('turningOn')}
+                    </>
+                  ) : (
+                    t('turnOn')
+                  )}
+                </button>
+              </>
+            ) : null}
+            {!view.google && view.providers.google && view.googleFromCalendar !== 'on' ? (
               <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'google' || undefined} onClick={() => void addGoogle()}>
                 {working === 'google' ? (
                   <>

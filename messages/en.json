@@ -895,6 +895,12 @@
       "telegramHint": "Your Telegram account always signs you in",
       "google": "Google",
       "googleFromCalendar": "The Google account your calendar is connected from",
+      "calendarOffHint": "Turn it on to sign in on the web with this Google account.",
+      "turnOn": "Turn on",
+      "turningOn": "Turning on…",
+      "turnedOn": "On. This Google account now signs you in on the web.",
+      "turnOnShared": "This Google account is connected to another FamCal account too, so it can’t sign you in on its own. Use Add Google instead.",
+      "turnOnReconnect": "Your Google Calendar connection has expired. Reconnect Google, then turn this on.",
       "googleAdd": "Add Google",
       "googlePreparing": "Preparing…",
       "googleSheetTitle": "Add Google sign-in",
@@ -1833,7 +1839,7 @@
       "status": {
         "noAccount": {
           "title": "No FamCal account found",
-          "body": "We couldn’t find a FamCal account for this sign-in. Your Telegram account, and the Google account your calendar is connected from, work right away. Another Google account or an email works once you add it in Settings → Sign in on the web.",
+          "body": "We couldn’t find a FamCal account for this sign-in. Your Telegram account works right away. The Google account your calendar is connected from works once it’s on in Settings → Sign in on the web, and another Google account or an email once you add it there.",
           "whatsapp": "Use FamCal on WhatsApp? Send “settings” to FamCal there to get a link to your Settings, then add Google or email under Sign in on the web.",
           "whatsappButton": "Get a link on WhatsApp",
           "newHere": "New to FamCal? Start in Telegram or WhatsApp."

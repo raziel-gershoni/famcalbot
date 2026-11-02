@@ -103,7 +103,7 @@ const world = {
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 /** A Telegram account with no web sign-in added, every way configured, opened in the Mini App. */
-const SIGNIN_VIEW = { telegram: true, google: null, googleFromCalendar: false, email: null, providers: { telegram: true, google: true, email: true }, session: null };
+const SIGNIN_VIEW = { telegram: true, google: null, googleFromCalendar: null, email: null, providers: { telegram: true, google: true, email: true }, session: null };
 globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const url = String(input);
   fetchCalls.push({ url, init });

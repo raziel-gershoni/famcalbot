@@ -237,7 +237,7 @@ export async function claimPendingGoogleToken(
  * the permission go back to work. Without one (an entry from before), googleScopes stay.
  *
  * The account's key (web sign-in spec §2.17) is the grant's, or null: this token may be of
- * another account than the one before, and the startup pass keys a null one on the next boot.
+ * another account than the one before, and Settings' Turn on (turnOnCalendarAccount) keys a null one after a live read.
  * googleCalendarSignIn is the person's choice and stays as it is; with it off the key is not kept at all (the hash
  * would serve no purpose: lawyer review, finding 10).
  */

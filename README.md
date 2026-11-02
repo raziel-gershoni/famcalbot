@@ -117,7 +117,7 @@ To roll back, swap the two values: the sweep converts back. The sweep stops read
 
 ### Web sign-in
 
-An existing account signs in on famcal.bot at `/signin` with Telegram, Google or a 6-digit email code, and gets the same web app as the Mini App (spec `docs/superpowers/specs/2026-11-02-web-sign-in-design.md`). The web makes no accounts: a person starts FamCal in Telegram or WhatsApp, then adds Google or an email address under Settings → Sign in on the web. The Google account a person's Google Calendar is connected from signs in without being added: FamCal keeps a keyed hash of its address (never the address) and confirms it live with Google at sign-in.
+An existing account signs in on famcal.bot at `/signin` with Telegram, Google or a 6-digit email code, and gets the same web app as the Mini App (spec `docs/superpowers/specs/2026-11-02-web-sign-in-design.md`). The web makes no accounts: a person starts FamCal in Telegram or WhatsApp, then adds Google or an email address under Settings → Sign in on the web. The Google account a person's Google Calendar is connected from signs in without being added, once it is on: a connection made from now on is on at connect, and one made before this (or keyed under another `SESSION_SECRET`) is on after its owner presses Turn on in Settings → Sign in on the web (nothing keys connections at startup). FamCal keeps a keyed hash of its address (never the address) and confirms it live with Google at sign-in.
 
 - **Telegram:** OpenID Connect through `openid-client`; the account is found by the token's Telegram `id`, never its `sub`.
 - **Google:** a Web client of its own (`openid email`); the account is found by Google's `sub`, never by the address.

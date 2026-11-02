@@ -18,9 +18,12 @@ import { getUserById } from '../user-service';
 import { convertPrismaUserToConfig, type UserConfig } from '../../types';
 import { providerConfigured } from './oidc';
 import { emailConfigured } from './email-send';
+import { googleAccountKeyId } from './account-key';
 
 export type IdentityKind = 'google' | 'email';
 /** What Settings can remove: a Google way, the email way, or the calendar's Google account before its first use. */
+/** See SignInMethodsView.googleFromCalendar. */
+export type CalendarSignInState = 'on' | 'off' | null;
 export type RemovableWay = 'google' | 'email' | 'calendar-google';
 
 /** Settings → Sign in on the web, as GET /api/signin-methods answers it (plus the session's method). */
@@ -28,8 +31,13 @@ export interface SignInMethodsView {
   /** On for a Telegram account; nothing to add or remove */
   telegram: boolean;
   google: { address: string } | null;
-  /** No Google way yet, but the Google account the calendar is connected from would sign in (spec §2.17) */
-  googleFromCalendar: boolean;
+  /**
+   * The Google account the calendar is connected from (spec §2.17), while the account has no Google way: 'on' when it
+   * would sign in (a current key, and this account the only holder); 'off' when the connection has no usable key yet
+   * (Settings offers Turn on); null when there is nothing to show (no connection, a Google way, the switch off, or a
+   * key several accounts hold, where Add Google is the way).
+   */
+  googleFromCalendar: CalendarSignInState;
   email: { address: string } | null;
   /** Which ways this server has set up (their env vars), so Settings offers only those */
   providers: { telegram: boolean; google: boolean; email: boolean };
@@ -88,7 +96,25 @@ export async function hasIdentity(userId: number, kind: IdentityKind): Promise<b
   return row !== null;
 }
 
-/** The account's ways, for Settings. One query (the ways); the rest is on the row already read. */
+/**
+ * The calendar's Google account row of Settings (spec §2.17), from a user row and whether it has a Google way. null with
+ * a Google way, the switch off or no connection. Otherwise 'off' while the key is missing or made under another key id
+ * (no query), and 'on' only when the key is current and this account is its only holder: one count, so a Google account
+ * shared by several FamCal accounts shows no calendar row (it cannot sign anyone in) and Add Google is the way.
+ */
+export async function calendarSignInState(
+  user: { id: number; googleCalendarSignIn: boolean; googleRefreshToken: string; googleAccountKey: string | null },
+  hasGoogleWay: boolean,
+): Promise<CalendarSignInState> {
+  if (hasGoogleWay || !user.googleCalendarSignIn || !user.googleRefreshToken) return null;
+  const keyId = googleAccountKeyId();
+  const key = user.googleAccountKey;
+  if (!key || !keyId || !key.startsWith(`${keyId}:`)) return 'off';
+  const holders = await prisma.user.count({ where: { googleAccountKey: key, googleCalendarSignIn: true, NOT: { googleRefreshToken: '' } } });
+  return holders === 1 ? 'on' : null;
+}
+
+/** The account's ways, for Settings. The ways, and one count when the calendar's account has a current key. */
 export async function listSignInMethods(user: UserConfig): Promise<SignInMethodsView> {
   const rows = await prisma.signInIdentity.findMany({ where: { userId: user.id }, select: { kind: true, address: true } });
   const google = rows.find(r => r.kind === 'google');
@@ -96,7 +122,7 @@ export async function listSignInMethods(user: UserConfig): Promise<SignInMethods
   return {
     telegram: user.telegramId !== null,
     google: google ? { address: google.address } : null,
-    googleFromCalendar: !google && user.googleCalendarSignIn && Boolean(user.googleRefreshToken) && Boolean(user.googleAccountKey),
+    googleFromCalendar: await calendarSignInState(user, Boolean(google)),
     email: email ? { address: email.address } : null,
     providers: { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() },
   };

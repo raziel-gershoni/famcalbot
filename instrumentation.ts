@@ -20,17 +20,8 @@ export async function register() {
 
     const { captureError } = await import('./src/lib/error-capture');
 
-    // The Google account a calendar is connected from signs in on the web (web sign-in spec §2.17): give connections made
-    // before it, or keyed under another SESSION_SECRET, their account key. Only once Google sign-in is set up (until then
-    // the way is hidden and the pass would ask Google about every connected calendar for nothing; the deploy that sets
-    // the GOOGLE_SIGNIN_CLIENT_* variables runs it). One select per boot, one Google call per connection still without a
-    // key; never awaited, never throws (a failure is logged and left for the next boot).
-    Promise.all([import('./src/services/web-signin/oidc'), import('./src/services/web-signin/calendar-account')])
-      .then(([{ providerConfigured }, { fillGoogleAccountKeys }]) =>
-        providerConfigured('google')
-          ? fillGoogleAccountKeys()
-          : console.log('[google-account] Google sign-in is off: the calendar accounts are not keyed yet'))
-      .catch(err => captureError(err, 'google-account-fill'));
+    // The Google account a calendar is connected from signs in on the web only after its owner presses Turn on in Settings
+    // (web sign-in spec §2.17): nothing keys a connection at boot and nothing asks Google about connections in bulk.
 
     // Startup never throws: a crash-looping container would take the bot down for everyone
     let missing: string[] = [];

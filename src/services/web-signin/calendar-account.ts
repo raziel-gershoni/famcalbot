@@ -3,23 +3,25 @@
  * person proved that account is theirs when they connected it).
  *
  * What is kept: User.googleAccountKey, the keyed hash of the connected account's address (account-key.ts), written by
- * the connect's commit (google-connect.ts) and cleared by the disconnect; and User.googleCalendarSignIn (default on,
- * turned off by removing the calendar's row or any Google way in Settings, which also clears the key). The key is made
- * and kept only for an account whose switch is on: the connect, the merge and the startup pass all check it. The calendar consent has no openid, so the
- * address is the account's primary calendar id (googleAccountOf, as the copy to Google reads it).
+ * the connect's commit (google-connect.ts) or by Turn on in Settings (turnOnCalendarAccount below) and cleared by the
+ * disconnect; and User.googleCalendarSignIn (default on, turned off by removing the calendar's row or any Google way in
+ * Settings, which also clears the key). The key is made and kept only for an account whose switch is on: the connect,
+ * the merge and Turn on all check it. The calendar consent has no openid, so the address is the account's primary
+ * calendar id (googleAccountOf, as the copy to Google reads it).
  *
  * At sign-in (matchCalendarAccount, when (google, sub) found nobody): the verified address's key is looked up. Exactly
  * one account holding it with a live connection, its switch on and no Google way yet → Google is asked again with that
  * account's calendar token (syncGoogle(token).account(): getGoogleAuth, then googleAccountOf through googleFetch), and
  * its primary calendar must be the verified address right now. Then a Google way is made for that sub, the chat gets
  * the notice, and the person is signed in. Several accounts on one Google account (a shared family account) → several;
- * anything else → no-account.
+ * a dead token or a different address → no-account; Google not answering → failed ("try again").
  *
- * Connections made before 6b, or keyed under another SESSION_SECRET, and whose switch is on, get their key from
- * fillGoogleAccountKeys, run once per boot from instrumentation.ts: one select, then one Google call per such connection; a failure is logged and left
- * for the next boot.
+ * A connection made before 6b, or keyed under another SESSION_SECRET, has no usable key and signs in only after its
+ * owner presses Turn on in Settings (the owner's decision, 2026-11-02: Google's User Data Policy asks to notify people
+ * and ask them before their data is used in a new way). Nothing keys a connection at startup, and nothing asks Google
+ * about connections in bulk.
  *
- * No log line holds an address: the user id only.
+ * No log line holds an address: the user id and the kind only.
  */
 
 import { prisma } from '../../utils/prisma';
@@ -30,29 +32,42 @@ import { signInRefusal } from '../../lib/web-session';
 import { syncGoogle } from '../google-sync/client';
 import type { UserConfig } from '../../types';
 import type { GoogleClaims } from './oidc';
-import { addIdentity, hasIdentity } from './identities';
+import { addIdentity, calendarSignInState, hasIdentity } from './identities';
 import { sendSignInNotice } from './notice';
-import { googleAccountKey, googleAccountKeyId } from './account-key';
+import { classifyGoogleError } from '../calendar-read/google-map';
+import { googleAccountKey } from './account-key';
 
 export { googleAccountKey, googleAccountKeyId } from './account-key';
 
-export type CalendarMatch = { user: UserConfig } | { status: 'no-account' | 'several' };
+export type CalendarMatch = { user: UserConfig } | { status: 'no-account' | 'several' | 'failed' };
 
 const sameAddress = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
-/** The account a stored calendar token belongs to now, or null (no token, or Google didn't tell: logged and captured). */
-async function liveAccountOf(userId: number, storedToken: string): Promise<string | null> {
+/**
+ * What asking Google about a stored calendar token gave: the account's address; 'token' (the token is dead: no usable
+ * token, or classifyGoogleError says 'token'); or 'unavailable' (anything else: a transient failure, a rate limit, an
+ * unknown error, or no address). Each is logged with the user id and the kind only; a Google failure is captured.
+ */
+type LiveAccount = { address: string } | 'token' | 'unavailable';
+
+async function liveAccountOf(userId: number, storedToken: string): Promise<LiveAccount> {
   const token = readStoredToken(storedToken, { userId, column: 'googleRefreshToken' });
   if (!token) {
-    console.warn(`[google-account] user ${userId}: no usable calendar token to ask Google with`);
-    return null;
+    console.warn(`[google-account] user ${userId}: no usable calendar token to ask Google with (token)`);
+    return 'token';
   }
   try {
-    return await syncGoogle(token).account();
+    const address = await syncGoogle(token).account();
+    if (!address || !address.trim()) {
+      console.warn(`[google-account] user ${userId}: Google named no account (unavailable)`);
+      return 'unavailable';
+    }
+    return { address };
   } catch (error) {
-    console.warn(`[google-account] user ${userId}: Google did not tell the calendar's account: ${error instanceof Error ? error.message : String(error)}`);
+    const kind = classifyGoogleError(error) === 'token' ? 'token' : 'unavailable';
+    console.warn(`[google-account] user ${userId}: Google did not tell the calendar's account (${kind}): ${error instanceof Error ? error.message : String(error)}`);
     captureError(error, 'google-account-check', { user_id: userId }, 'warning');
-    return null;
+    return kind;
   }
 }
 
@@ -82,7 +97,9 @@ export async function matchCalendarAccount(claims: GoogleClaims): Promise<Calend
     return { status: 'no-account' };
   }
   const live = await liveAccountOf(holder.id, holder.googleRefreshToken);
-  if (live === null || !sameAddress(live, claims.email)) {
+  // Google not answering is "try again", not "no account": the account exists and a retry works
+  if (live === 'unavailable') return { status: 'failed' };
+  if (live === 'token' || !sameAddress(live.address, claims.email)) {
     console.warn(`[signin] user ${holder.id}: the live check of the calendar's Google account did not agree`);
     return { status: 'no-account' };
   }
@@ -102,53 +119,52 @@ export async function matchCalendarAccount(claims: GoogleClaims): Promise<Calend
   return { user };
 }
 
+export type TurnOnResult = 'on' | 'shared' | 'reconnect' | 'failed' | 'not-offered';
+
 /**
- * The startup pass: give every connected calendar with no key, or a key of another key id, its account key. One select,
- * then for each such row one Google call and one write; the write is made only over the token the select read, so a
- * reconnect in between keeps its own. Never throws.
+ * Settings → Turn on (spec §2.17): key a calendar connection that has no usable key (connected before 6b, Google did
+ * not name the account at connect, or keyed under another SESSION_SECRET). The press is the person's consent: it reads
+ * the primary calendar id once, live, and keeps its hash.
+ * - 'not-offered': the row, read fresh, is not in the 'off' state (listSignInMethods' rule).
+ * - 'reconnect': the calendar's token is dead. 'failed': Google did not answer, named no account, or the write lost.
+ * - 'shared': another FamCal account with its switch on and a live connection holds the same Google account, so
+ *   nothing is kept (Add Google is the way for either).
+ * - 'on': the key is written by one conditional write over the token that was read, so a reconnect in between keeps
+ *   its own. No chat notice (the first sign-in with it sends the calendar notice) and sessionsValidAfter is untouched.
  */
-export async function fillGoogleAccountKeys(): Promise<void> {
-  const keyId = googleAccountKeyId();
-  if (!keyId) {
-    // Startup names the missing variable once (smoke-auth-leftovers #5 counts the lines that do), so this line does not
-    console.warn('[google-account] no sign-in key, so the calendar accounts are not keyed');
-    return;
+export async function turnOnCalendarAccount(userId: number): Promise<TurnOnResult> {
+  const result = await turnOn(userId);
+  console.log(`[signin] user ${userId}: calendar account turn on: ${result}`);
+  return result;
+}
+
+async function turnOn(userId: number): Promise<TurnOnResult> {
+  const row = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, googleCalendarSignIn: true, googleRefreshToken: true, googleAccountKey: true },
+  });
+  if (!row) return 'not-offered';
+  if ((await calendarSignInState(row, await hasIdentity(userId, 'google'))) !== 'off') return 'not-offered';
+  const live = await liveAccountOf(userId, row.googleRefreshToken);
+  if (live === 'token') return 'reconnect';
+  if (live === 'unavailable') return 'failed';
+  const key = googleAccountKey(live.address);
+  if (!key) {
+    console.warn(`[signin] user ${userId}: turn on has no account key (SESSION_SECRET is unset)`);
+    return 'failed';
   }
-  let rows: { id: number; googleRefreshToken: string }[];
-  try {
-    rows = await prisma.user.findMany({
-      where: {
-        NOT: { googleRefreshToken: '' },
-        // A switch that is off keeps no key: the hash would serve no purpose (lawyer review, finding 10)
-        googleCalendarSignIn: true,
-        OR: [{ googleAccountKey: null }, { NOT: { googleAccountKey: { startsWith: `${keyId}:` } } }],
-      },
-      select: { id: true, googleRefreshToken: true },
-      orderBy: { id: 'asc' },
-    });
-  } catch (error) {
-    captureError(error, 'google-account-fill');
-    return;
+  const other = await prisma.user.findFirst({
+    where: { id: { not: userId }, googleAccountKey: key, googleCalendarSignIn: true, NOT: { googleRefreshToken: '' } },
+    select: { id: true },
+  });
+  if (other) return 'shared';
+  const { count } = await prisma.user.updateMany({
+    where: { id: userId, googleRefreshToken: row.googleRefreshToken, googleCalendarSignIn: true },
+    data: { googleAccountKey: key },
+  });
+  if (count !== 1) {
+    console.warn(`[signin] user ${userId}: the calendar changed while turn on asked Google; it keeps its own key`);
+    return 'failed';
   }
-  if (rows.length === 0) {
-    console.log('[google-account] startup pass: every connected calendar has its account key');
-    return;
-  }
-  let filled = 0;
-  for (const row of rows) {
-    const live = await liveAccountOf(row.id, row.googleRefreshToken);
-    const key = live ? googleAccountKey(live) : null;
-    if (!key) continue;
-    try {
-      const { count } = await prisma.user.updateMany({
-        where: { id: row.id, googleRefreshToken: row.googleRefreshToken, googleCalendarSignIn: true },
-        data: { googleAccountKey: key },
-      });
-      if (count === 1) filled++;
-      else console.log(`[google-account] user ${row.id}: the calendar changed while the pass asked; its connect keeps its own key`);
-    } catch (error) {
-      captureError(error, 'google-account-fill', { user_id: row.id }, 'warning');
-    }
-  }
-  console.log(`[google-account] startup pass: ${filled} filled, ${rows.length - filled} left`);
+  return 'on';
 }

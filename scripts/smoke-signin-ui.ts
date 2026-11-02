@@ -90,7 +90,7 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   return route(call);
 }) as typeof fetch;
 const last = (pathname: string) => calls.filter((c) => c.url.split('?')[0] === pathname).at(-1);
-const VIEW = (over: Row = {}): Row => ({ telegram: true, google: null, googleFromCalendar: false, email: null, providers: { telegram: true, google: true, email: true }, session: null, ...over });
+const VIEW = (over: Row = {}): Row => ({ telegram: true, google: null, googleFromCalendar: null, email: null, providers: { telegram: true, google: true, email: true }, session: null, ...over });
 const methodsOf = (view: Row) => {
   const { session: _session, ...methods } = view;
   return methods;
@@ -176,12 +176,27 @@ async function main() {
       } finally {
         closeAll(added);
       }
-      const calendar = open(l, VIEW({ googleFromCalendar: true }));
+      const calendar = open(l, VIEW({ googleFromCalendar: 'on' }));
       await settle();
       try {
-        assert(page(calendar.m).includes(t.googleFromCalendar) && !button(calendar.m, t.googleAdd), `${l}: the calendar's account`);
+        assert(page(calendar.m).includes(t.googleFromCalendar) && !button(calendar.m, t.googleAdd) && !button(calendar.m, t.turnOn), `${l}: the calendar's account (on): Add Google and Turn on both hide`);
       } finally {
         closeAll(calendar);
+      }
+      const calendarOff = open(l, VIEW({ googleFromCalendar: 'off' }));
+      await settle();
+      try {
+        const text = page(calendarOff.m);
+        assert(text.includes(t.googleFromCalendar) && text.includes(t.calendarOffHint) && button(calendarOff.m, t.turnOn) && button(calendarOff.m, t.googleAdd), `${l}: the calendar's account (off): its title, the hint, Turn on and Add Google ${show(buttons(calendarOff.m).map(flat))}`);
+      } finally {
+        closeAll(calendarOff);
+      }
+      const calendarOffNoGoogle = open(l, VIEW({ googleFromCalendar: 'off', providers: { telegram: true, google: false, email: true } }));
+      await settle();
+      try {
+        assert(!button(calendarOffNoGoogle.m, t.turnOn) && !button(calendarOffNoGoogle.m, t.googleAdd), `${l}: nothing about Google while its sign-in isn't configured`);
+      } finally {
+        closeAll(calendarOffNoGoogle);
       }
       const noTelegramSignIn = open(l, VIEW({ providers: { telegram: false, google: true, email: true } }));
       await settle();
@@ -310,7 +325,7 @@ async function main() {
       const t = w(l);
       for (const [view, which, kind, body] of [
         [VIEW({ google: { address: ADDRESS } }), 'google', 'google', 'removeBody'],
-        [VIEW({ googleFromCalendar: true }), 'calendar-google', 'google', 'removeCalendarBody'],
+        [VIEW({ googleFromCalendar: 'on' }), 'calendar-google', 'google', 'removeCalendarBody'],
         [VIEW({ email: { address: ADDRESS } }), 'email', 'email', 'removeBody'],
       ] as const) {
         const o = open(l, view);
@@ -331,6 +346,50 @@ async function main() {
           assert(!dialog(o.m) && button(o.m, kind === 'google' ? t.googleAdd : t.emailAdd) && statusLine(o.m).includes(t.removed), `${l} ${which}: after`);
         } finally {
           closeAll(o);
+        }
+      }
+    }
+  });
+
+  await check('U5b Turn on: one POST to /api/signin-methods/calendar-on for the account (no body of consequence), a busy label while it runs; on reads the new list (the row becomes the calendar account on, Add Google and Turn on hide) with turnedOn; shared, reconnect, failed and busy each say their own words and keep the off row with Turn on', async () => {
+    for (const l of LOCALES) {
+      const t = w(l);
+      const o = open(l, VIEW({ googleFromCalendar: 'off' }));
+      await settle();
+      try {
+        let release: (() => void) | null = null;
+        routes['POST /api/signin-methods/calendar-on'] = () => new Promise<Response>((resolve) => {
+          release = () => resolve(json({ ok: true, methods: methodsOf(VIEW({ googleFromCalendar: 'on' })) }));
+        });
+        calls.length = 0;
+        o.m.click(button(o.m, t.turnOn) as FakeElement);
+        await settle();
+        assert(page(o.m).includes(t.turningOn) && buttons(o.m).filter((b) => flat(b) === t.googleAdd).every((b) => b.getAttribute('disabled') !== null), `${l}: the busy label ${page(o.m)}`);
+        (release as (() => void) | null)?.();
+        await settle();
+        const post = last('/api/signin-methods/calendar-on');
+        assert(post && post.url === '/api/signin-methods/calendar-on?user_id=7' && post.method === 'POST' && post.credentials === 'same-origin', `${l}: the request ${show(post)}`);
+        assert(statusLine(o.m).includes(t.turnedOn) && page(o.m).includes(t.googleFromCalendar) && !button(o.m, t.turnOn) && !button(o.m, t.googleAdd), `${l}: after on ${page(o.m)}`);
+      } finally {
+        closeAll(o);
+      }
+      for (const [answer, key] of [
+        [() => json({ ok: false, error: 'shared' }, 409), 'turnOnShared'],
+        [() => json({ ok: false, error: 'reconnect' }, 409), 'turnOnReconnect'],
+        [() => json({ ok: false, error: 'failed' }, 502), 'failed'],
+        [() => json({ ok: false, error: 'not-offered' }, 409), 'failed'],
+        [() => json({ error: 'Too many requests. Please wait a minute.' }, 429), 'busy'],
+        [() => Promise.reject(new TypeError('Failed to fetch')), 'failed'],
+      ] as const) {
+        const f = open(l, VIEW({ googleFromCalendar: 'off' }));
+        await settle();
+        try {
+          routes['POST /api/signin-methods/calendar-on'] = answer;
+          f.m.click(button(f.m, t.turnOn) as FakeElement);
+          await settle();
+          assert(alertsIn(f.m.container).includes(t[key]) && button(f.m, t.turnOn) && button(f.m, t.googleAdd), `${l} ${key}: ${page(f.m)}`);
+        } finally {
+          closeAll(f);
         }
       }
     }

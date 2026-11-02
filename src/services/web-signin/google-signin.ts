@@ -9,7 +9,7 @@ import type { GoogleClaims } from './oidc';
 import { findUserByIdentity } from './identities';
 import { matchCalendarAccount } from './calendar-account';
 
-export type GoogleSignInResult = { user: UserConfig } | { status: 'no-account' | 'several' };
+export type GoogleSignInResult = { user: UserConfig } | { status: 'no-account' | 'several' | 'failed' };
 
 export async function resolveGoogleSignIn(claims: GoogleClaims): Promise<GoogleSignInResult> {
   const user = await findUserByIdentity('google', claims.sub);

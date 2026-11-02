@@ -1,8 +1,8 @@
 /**
  * The keyed hash of a Google account's address (web sign-in spec §2.17): what FamCal keeps of the account a calendar
  * is connected from, so that a Google sign-in with that account can find the person. Never the address itself. The key
- * is appKey('google-account') (HKDF from SESSION_SECRET with its own label); the value starts with the key's id, so the
- * startup pass (calendar-account.ts) can tell a key made under another SESSION_SECRET and make it again. Pure, with no
+ * is appKey('google-account') (HKDF from SESSION_SECRET with its own label); the value starts with the key's id, so
+ * Settings (calendarSignInState, identities.ts) can tell a key made under another SESSION_SECRET and offer Turn on again. Pure, with no
  * I/O, so the OAuth callback and google-connect.ts import it without the sign-in modules.
  */
 

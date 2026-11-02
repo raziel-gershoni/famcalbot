@@ -21,11 +21,13 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import {
   assert, baseUser, body, captured, check, DB, drainAfter, everyCapture, everyLog, everyMail, flowCookie, identityRow, initDataFor,
-  installSigninWorld, load, logs, mails, redisStore, report, request, resetWorld, ROOT, sent, sessionCookie, show, world, type Row,
+  installSigninWorld, load, logs, mails, prismaCalls, redisStore, report, request, resetWorld, ROOT, sent, sessionCookie, show, world, type Row,
 } from './lib/signin-world';
 
+const nodeRequire = createRequire(__filename);
 const TAL = 9;
 const TAL_TG = 111111111;
 const NOA = 7;
@@ -68,6 +70,10 @@ async function main() {
   const addRoute = await load('app/api/signin-methods/email/add/route.ts');
   const confirmRoute = await load('app/api/signin-methods/email/confirm/route.ts');
   const removeRoute = await load('app/api/signin-methods/remove/route.ts');
+  const calendarOnRoute = await load('app/api/signin-methods/calendar-on/route.ts');
+  const { googleAccountKey } = await load('src/services/web-signin/account-key.ts');
+  const KEY_TAL: string = googleAccountKey('tal@gmail.com');
+  const KEY_ID: string = KEY_TAL.split(':')[0];
   const addLinkRoute = await load('app/api/auth/google/add-link/route.ts');
   const addStartRoute = await load('app/api/auth/google/add-start/route.ts');
   const callbackRoute = await load('app/api/auth/google/callback/route.ts');
@@ -138,7 +144,7 @@ async function main() {
     const res = await list(TAL_TG, tal);
     const b = await body(res);
     assert(res.status === 200, `status ${res.status} ${show(b)}`);
-    assert(b.telegram === true && b.google === null && b.email === null && b.googleFromCalendar === false && b.session === null, `Tal ${show(b)}`);
+    assert(b.telegram === true && b.google === null && b.email === null && b.googleFromCalendar === null && b.session === null, `Tal ${show(b)}`);
     assert(show(b.providers) === show({ telegram: true, google: true, email: true }), `providers ${show(b.providers)}`);
     const n = await body(await list(NOA_TG, noa));
     assert(n.google?.address === 'noa@gmail.com' && n.email?.address === 'noa@example.com', `Noa ${show(n)}`);
@@ -152,18 +158,36 @@ async function main() {
     assert(wa.session === 'wa' && wa.telegram === false, `wa session ${show(wa)}`);
   });
 
-  await check('#3 googleFromCalendar: on with a connected calendar, its account key and the switch on, and no Google way yet; off otherwise', async () => {
+  await check('#3 googleFromCalendar: "on" with a connected calendar, a current account key held by this account alone and the switch on; "off" with no key or a key of another key id (Turn on); null with the switch off, no connection, a Google way, or a key another account holds too', async () => {
     seed();
-    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: 'k1:abc' });
-    assert((await body(await list(TAL_TG, tal))).googleFromCalendar === true, 'connected, keyed, switch on');
+    const state = async () => (await body(await list(TAL_TG, tal))).googleFromCalendar;
+    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: KEY_TAL });
+    assert((await state()) === 'on', 'connected, keyed, switch on');
     userRow(TAL).googleCalendarSignIn = false;
-    assert((await body(await list(TAL_TG, tal))).googleFromCalendar === false, 'switch off');
+    assert((await state()) === null, 'switch off');
     Object.assign(userRow(TAL), { googleCalendarSignIn: true, googleAccountKey: null });
-    assert((await body(await list(TAL_TG, tal))).googleFromCalendar === false, 'no key yet');
-    userRow(TAL).googleAccountKey = 'k1:abc';
+    assert((await state()) === 'off', 'no key yet');
+    userRow(TAL).googleAccountKey = `${KEY_ID === 'deadbeef' ? 'cafebabe' : 'deadbeef'}:${'0'.repeat(64)}`;
+    assert((await state()) === 'off', 'a key of another key id');
+    userRow(TAL).googleAccountKey = KEY_TAL;
+    DB.user.push(baseUser({ id: 50, name: 'Family', telegramId: BigInt(555555555), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL }));
+    assert((await state()) === null, 'a key another account holds too (a shared Google account)');
+    userRow(50).googleCalendarSignIn = false;
+    assert((await state()) === 'on', 'the other holder turned its switch off');
+    userRow(50).googleCalendarSignIn = true;
+    userRow(50).googleRefreshToken = '';
+    assert((await state()) === 'on', 'the other holder disconnected');
+    userRow(TAL).googleRefreshToken = '';
+    assert((await state()) === null, 'no connection');
+    userRow(TAL).googleRefreshToken = 'rt-tal';
     DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'google', subject: 'g-tal', address: 'tal@gmail.com' }));
     const withWay = await body(await list(TAL_TG, tal));
-    assert(withWay.googleFromCalendar === false && withWay.google?.address === 'tal@gmail.com', `with a Google way ${show(withWay)}`);
+    assert(withWay.googleFromCalendar === null && withWay.google?.address === 'tal@gmail.com', `with a Google way ${show(withWay)}`);
+    seed();
+    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: KEY_TAL });
+    prismaCalls.length = 0;
+    await list(NOA_TG, noa);
+    assert(!prismaCalls.includes('user.count'), 'an account with no calendar connection made the holders count');
   });
 
   await check('#4 [guard] GET needs the proved account: no credential is 401, and a session for Tal cannot read Noa', async () => {
@@ -303,10 +327,10 @@ async function main() {
     assert(identitiesOf(TAL).length === 0 && userRow(TAL).googleCalendarSignIn === false && userRow(TAL).sessionsValidAfter instanceof Date, `row ${show(userRow(TAL))}`);
     assert(!res.cookies.get(SESSION_COOKIE_NAME)?.value, 'a Telegram request got a session cookie');
     seed();
-    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: 'k1:abc' });
+    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: KEY_TAL });
     const cal = await remove(TAL_TG, 'calendar-google', tal);
     const cb = await body(cal);
-    assert(cal.status === 200 && cb.methods?.googleFromCalendar === false && userRow(TAL).googleCalendarSignIn === false, `calendar-google ${cal.status} ${show(cb)}`);
+    assert(cal.status === 200 && cb.methods?.googleFromCalendar === null && userRow(TAL).googleCalendarSignIn === false, `calendar-google ${cal.status} ${show(cb)}`);
     assert(identitiesOf(NOA).length === 2, "another account's ways were touched");
   });
 
@@ -619,6 +643,74 @@ async function main() {
     assert(res.status === 500 && (await body(res)).error === 'failed', `status ${res.status} ${show(await body(res))}`);
     assert(![...redisStore.keys()].some(k => k.startsWith('signin:add-email:')), 'a pending Add email points at an address with no code');
     assert(![...redisStore.keys()].some(k => k.startsWith('signin:code:')), 'a code was kept that never reached the person');
+  });
+
+  // ---- Turn on ----
+
+  const calendarOn = (userId: number, auth: Auth, extra: Row = {}) =>
+    calendarOnRoute.POST(request(`/api/signin-methods/calendar-on?user_id=${userId}`, { ...auth, body: {}, ...extra }));
+  const seedOff = (): void => {
+    seed();
+    Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal', googleAccountKey: null });
+    world.accounts = { 'rt-tal': 'Tal@Gmail.com' };
+  };
+
+  await check('#40 Turn on: the route answers on with the new list (the calendar row on), keys the account by the live address, sends no notice, ends no session and sets no cookie; Google is asked once, with the calendar token', async () => {
+    seedOff();
+    const res = await calendarOn(TAL_TG, tal);
+    const b = await body(res);
+    assert(res.status === 200 && b.ok === true && b.methods?.googleFromCalendar === 'on', `status ${res.status} ${show(b)}`);
+    assert(userRow(TAL).googleAccountKey === KEY_TAL && userRow(TAL).sessionsValidAfter === null && sent.length === 0, `row ${show(userRow(TAL))} sent ${show(sent)}`);
+    assert(!res.cookies.get(SESSION_COOKIE_NAME)?.value && show(world.googleAsks) === show(['rt-tal']), `asks ${show(world.googleAsks)}`);
+    const again = await calendarOn(TAL_TG, tal);
+    assert(again.status === 409 && (await body(again)).error === 'not-offered' && world.googleAsks.length === 1, `second press ${again.status} ${show(await body(again))}`);
+  });
+
+  await check('#41 Turn on: shared (409) keeps nothing; reconnect (409) for a dead token; failed (502) for an unavailable Google; each logged with the user id and the kind only', async () => {
+    seedOff();
+    DB.user.push(baseUser({ id: 50, name: 'Family', telegramId: BigInt(555555555), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL }));
+    const shared = await calendarOn(TAL_TG, tal);
+    assert(shared.status === 409 && (await body(shared)).error === 'shared' && userRow(TAL).googleAccountKey === null, `shared ${shared.status} ${show(await body(shared))}`);
+    seedOff();
+    world.accounts['rt-tal'] = Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant' } } });
+    const dead = await calendarOn(TAL_TG, tal);
+    assert(dead.status === 409 && (await body(dead)).error === 'reconnect' && userRow(TAL).googleAccountKey === null, `dead ${dead.status} ${show(await body(dead))}`);
+    seedOff();
+    world.accounts['rt-tal'] = Object.assign(new Error('backend error'), { response: { status: 503, data: {} } });
+    const down = await calendarOn(TAL_TG, tal);
+    assert(down.status === 502 && (await body(down)).error === 'failed' && userRow(TAL).googleAccountKey === null, `down ${down.status} ${show(await body(down))}`);
+    assert(logs.some(l => l.includes('[signin] user 9: calendar account turn on: failed')), `logs ${show(logs)}`);
+  });
+
+  await check('#42 [guard] Turn on from another site or with no Origin is 403, a form or text body is 415, no credential is 401, another account\'s cookie is 401: no Google call and no key in any of them', async () => {
+    seedOff();
+    const { NextRequest } = nodeRequire('next/server');
+    const evil = await calendarOn(TAL_TG, tal, { origin: 'https://evil.example' });
+    const none = await calendarOn(TAL_TG, tal, { origin: null });
+    assert(evil.status === 403 && none.status === 403, `origin: ${evil.status}, ${none.status}`);
+    const form = await calendarOnRoute.POST(new NextRequest(`https://famcal.bot/api/signin-methods/calendar-on?user_id=${TAL_TG}`, {
+      method: 'POST',
+      headers: { origin: 'https://famcal.bot', 'content-type': 'application/x-www-form-urlencoded', 'x-telegram-init-data': tal.initData ?? '' },
+      body: 'a=b',
+    }));
+    assert(form.status === 415, `form ${form.status}`);
+    assert((await calendarOn(TAL_TG, {})).status === 401, 'no credential');
+    assert((await calendarOn(NOA, { cookie: await sessionCookie(TAL, 'google') })).status === 401, "Tal's cookie for Noa");
+    assert(world.googleAsks.length === 0 && userRow(TAL).googleAccountKey === null, `asked ${show(world.googleAsks)} key ${userRow(TAL).googleAccountKey}`);
+  });
+
+  await check('#43 Turn on acts on the proved account only (the id in the URL is not the account); a body that is not JSON is logged as a fact and the press still works; the route has the settings limiter and the Origin guard its neighbours have', async () => {
+    seedOff();
+    Object.assign(userRow(NOA), { googleRefreshToken: 'rt-noa', googleAccountKey: null });
+    world.accounts['rt-noa'] = 'noa@gmail.com';
+    const res = await calendarOnRoute.POST(request(`/api/signin-methods/calendar-on?user_id=${NOA_TG}`, { method: 'POST', ...tal }));
+    assert(res.status === 401 || res.status === 403, `Tal for Noa's id: ${res.status}`);
+    assert(userRow(NOA).googleAccountKey === null, "Noa's key was written");
+    const ok = await calendarOnRoute.POST(request(`/api/signin-methods/calendar-on?user_id=${TAL_TG}`, { method: 'POST', ...tal }));
+    assert(ok.status === 200 && userRow(TAL).googleAccountKey === KEY_TAL, `tal ${ok.status}`);
+    assert(logs.some(l => l.includes('[signin-methods] the body is not JSON')) && !logs.some(l => /unexpected end of json|json input/i.test(l)), `logs ${show(logs)}`);
+    const src = fs.readFileSync(path.join(ROOT, 'app/api/signin-methods/calendar-on/route.ts'), 'utf8');
+    assert(src.includes('settingsRateLimiter') && src.includes('refuseCrossSite(request)'), 'the route lacks the settings limiter or the Origin guard its neighbours have');
   });
 
   await check('#39 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {

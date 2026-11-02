@@ -4,9 +4,10 @@
 // whose primary calendar must be the verified address right now), the notice, the cases that fall back to the
 // no-account page (a live check that disagrees, a dead token, two accounts, the switch off, a Google way already,
 // no verified address, no key, an account whose switch is off not counting toward "several", a suspended or banned
-// account answered with no way and no notice), removal turning it off, and the startup pass that fills the key of
-// connections made before (one select per boot, one Google call per connection without a key, a failure left for the
-// next boot, and the pass started only once Google sign-in is set up).
+// account answered with no way and no notice), a Google that does not answer being "try again" (failed) and not
+// "no account", removal turning it off, Settings' three states for the calendar's account (on, off, none), and Turn on
+// (turnOnCalendarAccount: the key of a connection made before is made only when its owner presses it, after one live
+// read; no startup pass exists).
 // The connect commit and the disconnect are pinned in smoke-google-connect.ts and smoke-google-disconnect.ts, which
 // fake those paths already; the merge's half is Task 1's (#66 of smoke-account-merge.ts).
 //
@@ -129,6 +130,26 @@ async function main() {
     assert(logs.some(l => l.includes('[google-account] user 9')), `logs ${show(logs)}`);
   });
 
+  await check('#5b Google not answering (a 503, a rate limit, an unknown error) is failed ("try again"), not no-account: no way, no notice, logged and captured with the user id only; the callback lands on status=failed', async () => {
+    for (const err of [
+      Object.assign(new Error('backend error'), { response: { status: 503, data: {} } }),
+      Object.assign(new Error('rate limit'), { response: { status: 429, data: {} } }),
+      new Error('socket hang up'),
+    ]) {
+      seed();
+      world.accounts['rt-tal'] = err;
+      const r = await signin.resolveGoogleSignIn(claims());
+      assert(show(r) === show({ status: 'failed' }) && identitiesOf(TAL).length === 0 && sent.length === 0, `${err.message}: result ${show(r)}`);
+      assert(captured.some(c => c.context === 'google-account-check' && c.extra.user_id === TAL), `captured ${show(captured)}`);
+      assert(logs.some(l => l.includes('[google-account] user 9') && l.includes('(unavailable)')), `logs ${show(logs)}`);
+      assert(location(await signInWithGoogle(claims())).includes('status=failed'), `callback ${err.message}`);
+    }
+    seed();
+    world.accounts['rt-tal'] = Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant' } } });
+    assert(show(await signin.resolveGoogleSignIn(claims())) === show({ status: 'no-account' }), 'a dead token stays no-account');
+    assert(logs.some(l => l.includes('[google-account] user 9') && l.includes('(token)')), `logs ${show(logs)}`);
+  });
+
   await check('#6 two FamCal accounts on one Google account (a shared family account) is several, with no Google call; an account whose calendar is disconnected does not count', async () => {
     seed();
     DB.user.push(baseUser({ id: 10, name: 'Family', telegramId: BigInt(333333333), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL }));
@@ -184,10 +205,10 @@ async function main() {
   await check('#12 Settings shows the calendar row before its first use; removing the way it made, or the row itself, turns the switch off and the match stops', async () => {
     seed();
     const list = async () => body(await methodsRoute.GET(request(`/api/signin-methods?user_id=${TAL_TG}`, { initData: initDataFor(TAL_TG) })));
-    assert((await list()).googleFromCalendar === true, 'before the first use');
+    assert((await list()).googleFromCalendar === 'on', 'before the first use');
     await signin.resolveGoogleSignIn(claims());
     const after = await list();
-    assert(after.google?.address === 'tal@gmail.com' && after.googleFromCalendar === false, `after ${show(after)}`);
+    assert(after.google?.address === 'tal@gmail.com' && after.googleFromCalendar === null, `after ${show(after)}`);
     await identities.removeSignInMethod(TAL, 'google');
     assert(identitiesOf(TAL).length === 0 && userRow(TAL).googleCalendarSignIn === false, `row ${show(userRow(TAL))}`);
     world.googleAsks.length = 0;
@@ -198,77 +219,145 @@ async function main() {
     assert(userRow(TAL).googleCalendarSignIn === false && show(await signin.resolveGoogleSignIn(claims())) === show({ status: 'no-account' }), 'calendar row removed');
   });
 
-  // ---- The startup pass ----
+  // ---- No startup pass; Settings' states; Turn on ----
 
-  function seedFill(): void {
-    resetWorld();
-    DB.user = [
-      baseUser({ id: 9, telegramId: BigInt(901), googleRefreshToken: 'rt-a', googleAccountKey: null }),
-      baseUser({ id: 10, telegramId: BigInt(902), googleRefreshToken: 'rt-b', googleAccountKey: `${OLD_ID}:${'0'.repeat(64)}` }),
-      baseUser({ id: 11, telegramId: BigInt(903), googleRefreshToken: 'rt-c', googleAccountKey: account.googleAccountKey('c@example.net') }),
-      baseUser({ id: 12, telegramId: BigInt(904), googleRefreshToken: '', googleAccountKey: null }),
-    ];
-    world.accounts = { 'rt-a': 'A@Gmail.com', 'rt-b': 'b@example.org', 'rt-c': 'c@example.net' };
-  }
+  const OLD_KEY = `${OLD_ID}:${'0'.repeat(64)}`;
+  const stateOf = async (id: number): Promise<unknown> => {
+    const user = await (await load('src/services/user-service.ts')).getUserById(id);
+    return (await identities.listSignInMethods(user)).googleFromCalendar;
+  };
 
-  await check('#13 the startup pass makes one select and fills only the connected rows with no key or a key of another id; the others are untouched', async () => {
-    seedFill();
-    await account.fillGoogleAccountKeys();
-    assert(prismaCalls[0] === 'user.findMany' && prismaCalls.filter(c => c === 'user.findMany').length === 1, `calls ${show(prismaCalls)}`);
-    assert(show([...world.googleAsks].sort()) === show(['rt-a', 'rt-b']), `asks ${show(world.googleAsks)}`);
-    assert(userRow(9).googleAccountKey === account.googleAccountKey('a@gmail.com') && userRow(10).googleAccountKey === account.googleAccountKey('b@example.org'), `filled ${show([userRow(9).googleAccountKey, userRow(10).googleAccountKey])}`);
-    assert(userRow(11).googleAccountKey === account.googleAccountKey('c@example.net') && userRow(12).googleAccountKey === null, 'an untouched row changed');
-  });
-
-  await check('#14 a row Google fails for is logged and captured and left as it was; the next boot asks for it alone, and a boot after that makes its one select and nothing else', async () => {
-    seedFill();
-    world.accounts['rt-b'] = new Error('calendars.get(primary) answered HTTP 401');
-    await account.fillGoogleAccountKeys();
-    assert(userRow(9).googleAccountKey === account.googleAccountKey('a@gmail.com') && userRow(10).googleAccountKey === `${OLD_ID}:${'0'.repeat(64)}`, `rows ${show([userRow(9).googleAccountKey, userRow(10).googleAccountKey])}`);
-    assert(captured.some(c => c.context === 'google-account-check' && c.extra.user_id === 10), `captured ${show(captured)}`);
-    assert(logs.some(l => l.includes('[google-account] startup pass: 1 filled, 1 left')), `logs ${show(logs)}`);
-    world.accounts['rt-b'] = 'b@example.org';
-    world.googleAsks.length = 0;
-    await account.fillGoogleAccountKeys();
-    assert(show(world.googleAsks) === show(['rt-b']) && userRow(10).googleAccountKey === account.googleAccountKey('b@example.org'), `second boot ${show(world.googleAsks)}`);
-    world.googleAsks.length = 0;
-    prismaCalls.length = 0;
-    await account.fillGoogleAccountKeys();
-    assert(show(prismaCalls) === show(['user.findMany']) && world.googleAsks.length === 0, `all filled: calls ${show(prismaCalls)} asks ${show(world.googleAsks)}`);
-  });
-
-  await check('#15 a calendar reconnected while the pass asked Google keeps the key its own connect wrote (the pass writes only over the token it read)', async () => {
-    seedFill();
-    world.accounts['rt-a'] = () => {
-      Object.assign(userRow(9), { googleRefreshToken: 'rt-a2', googleAccountKey: 'from-the-connect' });
-      return 'a@gmail.com';
+  await check('#13 [guard] no startup pass: instrumentation.ts starts no key pass and nothing in the app calls Google per connection at boot; the pass is gone from calendar-account', () => {
+    const text = fs.readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8');
+    for (const word of ['fillGoogleAccountKeys', 'calendar-account', 'web-signin', 'syncGoogle', 'providerConfigured']) {
+      assert(!text.includes(word), `instrumentation.ts mentions ${word}`);
+    }
+    assert(!('fillGoogleAccountKeys' in account), 'calendar-account still exports the startup pass');
+    const found: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+        const rel = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(rel);
+        else if (/\.(ts|tsx)$/.test(entry.name) && fs.readFileSync(path.join(ROOT, rel), 'utf8').includes('fillGoogleAccountKeys')) found.push(rel);
+      }
     };
-    await account.fillGoogleAccountKeys();
-    assert(userRow(9).googleAccountKey === 'from-the-connect', `key ${userRow(9).googleAccountKey}`);
+    for (const dir of ['src', 'app', 'components']) walk(dir);
+    assert(found.length === 0, `still named in ${show(found)}`);
   });
 
-  await check('#16 without SESSION_SECRET the pass makes no query at all and says so in one line that does not name the variable (startup names it once: smoke-auth-leftovers #5 counts the lines that do)', async () => {
-    seedFill();
+  await check('#14 Settings\' calendar state: on (a current key, this account the only holder), off (no key, or a key of another key id: Turn on), none (a Google way, the switch off, no connection, or a key several accounts hold)', async () => {
+    seed();
+    assert((await stateOf(TAL)) === 'on', 'current key, sole holder');
+    for (const key of [null, OLD_KEY]) {
+      userRow(TAL).googleAccountKey = key;
+      assert((await stateOf(TAL)) === 'off', `key ${key}`);
+    }
+    userRow(TAL).googleAccountKey = KEY_TAL;
+    userRow(TAL).googleCalendarSignIn = false;
+    assert((await stateOf(TAL)) === null, 'switch off');
+    userRow(TAL).googleAccountKey = null;
+    assert((await stateOf(TAL)) === null, 'switch off, no key');
+    Object.assign(userRow(TAL), { googleCalendarSignIn: true, googleAccountKey: KEY_TAL, googleRefreshToken: '' });
+    assert((await stateOf(TAL)) === null, 'no connection');
+    userRow(TAL).googleRefreshToken = 'rt-tal';
+    DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'google', subject: 'g-tal', address: 'tal@gmail.com' }));
+    assert((await stateOf(TAL)) === null, 'a Google way');
+    seed();
+    DB.user.push(baseUser({ id: 10, name: 'Family', telegramId: BigInt(333333333), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL }));
+    assert((await stateOf(TAL)) === null && (await stateOf(10)) === null, 'a shared key shows no calendar row on either account');
+    DB.user[2].googleCalendarSignIn = false;
+    assert((await stateOf(TAL)) === 'on', 'the other holder turned its switch off: not a second holder');
+    DB.user[2].googleCalendarSignIn = true;
+    DB.user[2].googleRefreshToken = '';
+    assert((await stateOf(TAL)) === 'on', 'the other holder disconnected: not a second holder');
+  });
+
+  await check('#15 Turn on: a dead token is reconnect, Google not answering (or naming nobody) is failed, a shared key is shared; each keeps nothing', async () => {
+    const offRows = () => {
+      seed();
+      userRow(TAL).googleAccountKey = null;
+    };
+    offRows();
+    world.accounts['rt-tal'] = Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant' } } });
+    assert((await account.turnOnCalendarAccount(TAL)) === 'reconnect' && userRow(TAL).googleAccountKey === null, 'dead token');
+    assert(logs.some(l => l.includes('[signin] user 9: calendar account turn on: reconnect')), `logs ${show(logs)}`);
+    offRows();
+    world.accounts['rt-tal'] = Object.assign(new Error('backend error'), { response: { status: 503, data: {} } });
+    assert((await account.turnOnCalendarAccount(TAL)) === 'failed' && userRow(TAL).googleAccountKey === null, 'unavailable Google');
+    assert(logs.some(l => l.includes('[signin] user 9: calendar account turn on: failed')), `logs ${show(logs)}`);
+    offRows();
+    world.accounts['rt-tal'] = '';
+    assert((await account.turnOnCalendarAccount(TAL)) === 'failed' && userRow(TAL).googleAccountKey === null, 'Google named nobody');
+    offRows();
+    DB.user.push(baseUser({ id: 10, name: 'Family', telegramId: BigInt(333333333), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL }));
+    assert((await account.turnOnCalendarAccount(TAL)) === 'shared' && userRow(TAL).googleAccountKey === null && userRow(10).googleAccountKey === KEY_TAL, 'shared key');
+    assert(logs.some(l => l.includes('[signin] user 9: calendar account turn on: shared')), `logs ${show(logs)}`);
+  });
+
+  await check('#16 Turn on: success keys the account (the hash of the live address, nothing else changes: no notice, no sessionsValidAfter); a holder whose switch is off or who disconnected is not "shared"; another key id is re-made', async () => {
+    for (const key of [null, OLD_KEY]) {
+      seed();
+      userRow(TAL).googleAccountKey = key;
+      DB.user.push(baseUser({ id: 10, name: 'Family', telegramId: BigInt(333333333), googleRefreshToken: 'rt-family', googleAccountKey: KEY_TAL, googleCalendarSignIn: false }));
+      DB.user.push(baseUser({ id: 11, name: 'Old', telegramId: BigInt(444444444), googleRefreshToken: '', googleAccountKey: KEY_TAL }));
+      const r = await account.turnOnCalendarAccount(TAL);
+      assert(r === 'on' && userRow(TAL).googleAccountKey === KEY_TAL, `key ${key}: ${r} ${userRow(TAL).googleAccountKey}`);
+      assert(sent.length === 0 && userRow(TAL).sessionsValidAfter === null && identitiesOf(TAL).length === 0, `sent ${show(sent)}`);
+      assert(show(world.googleAsks) === show(['rt-tal']) && (await stateOf(TAL)) === 'on', `asks ${show(world.googleAsks)}`);
+    }
+    assert(logs.some(l => l.includes('[signin] user 9: calendar account turn on: on')), `logs ${show(logs)}`);
+  });
+
+  await check('#16b Turn on is offered only in the off state: a keyed account, a Google way, the switch off, no connection, or no such user is not-offered, with no Google call', async () => {
+    seed();
+    assert((await account.turnOnCalendarAccount(TAL)) === 'not-offered', 'already on');
+    userRow(TAL).googleAccountKey = null;
+    DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'google', subject: 'g-tal', address: 'tal@gmail.com' }));
+    assert((await account.turnOnCalendarAccount(TAL)) === 'not-offered', 'a Google way');
+    DB.signInIdentity.length = 0;
+    userRow(TAL).googleCalendarSignIn = false;
+    assert((await account.turnOnCalendarAccount(TAL)) === 'not-offered' && userRow(TAL).googleAccountKey === null, 'switch off');
+    Object.assign(userRow(TAL), { googleCalendarSignIn: true, googleRefreshToken: '' });
+    assert((await account.turnOnCalendarAccount(TAL)) === 'not-offered', 'no connection');
+    assert((await account.turnOnCalendarAccount(999)) === 'not-offered', 'no such user');
+    assert(world.googleAsks.length === 0, `asked Google ${show(world.googleAsks)}`);
+  });
+
+  await check('#16c Turn on writes only over the token it read: a reconnect while Google was asked keeps the key its own connect wrote (failed), and a switch turned off meanwhile gets no key', async () => {
+    seed();
+    userRow(TAL).googleAccountKey = null;
+    world.accounts['rt-tal'] = () => {
+      Object.assign(userRow(TAL), { googleRefreshToken: 'rt-tal2', googleAccountKey: 'from-the-connect' });
+      return 'tal@gmail.com';
+    };
+    assert((await account.turnOnCalendarAccount(TAL)) === 'failed' && userRow(TAL).googleAccountKey === 'from-the-connect', `key ${userRow(TAL).googleAccountKey}`);
+    seed();
+    userRow(TAL).googleAccountKey = null;
+    world.accounts['rt-tal'] = () => {
+      userRow(TAL).googleCalendarSignIn = false;
+      return 'tal@gmail.com';
+    };
+    assert((await account.turnOnCalendarAccount(TAL)) === 'failed' && userRow(TAL).googleAccountKey === null, 'a switch turned off while Google was asked still got a key');
+  });
+
+  await check('#16d without SESSION_SECRET Turn on keeps nothing (failed)', async () => {
+    seed();
+    userRow(TAL).googleAccountKey = null;
     const secret = process.env.SESSION_SECRET;
     try {
       process.env.SESSION_SECRET = '';
-      await account.fillGoogleAccountKeys();
-      assert(prismaCalls.length === 0 && world.googleAsks.length === 0, `calls ${show(prismaCalls)}`);
-      assert(logs.some(l => l.includes('[google-account] no sign-in key, so the calendar accounts are not keyed')), `logs ${show(logs)}`);
-      assert(!logs.some(l => l.includes('SESSION_SECRET')), `a line names SESSION_SECRET: ${show(logs)}`);
+      assert((await account.turnOnCalendarAccount(TAL)) === 'failed' && userRow(TAL).googleAccountKey === null, 'a key without SESSION_SECRET');
     } finally {
       process.env.SESSION_SECRET = secret;
     }
   });
 
-  await check('#17 [guard] instrumentation.ts starts the pass once, after the scheduler; the new modules make no raw fetch (every Google call is getGoogleAuth or googleFetch)', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8');
-    const at = text.indexOf('fillGoogleAccountKeys');
-    assert(text.indexOf('startScheduler()') !== -1 && at > text.indexOf('startScheduler()'), 'the pass is not started after the scheduler');
-    assert((text.match(/fillGoogleAccountKeys\(\)/g) ?? []).length === 1, 'the pass is started more than once');
+  await check('#17 [guard] the sign-in modules make no raw fetch (every Google call is getGoogleAuth or googleFetch) and no timeout or retry of their own', () => {
     for (const file of ['src/services/web-signin/calendar-account.ts', 'src/services/web-signin/account-key.ts']) {
       const source = fs.readFileSync(path.join(ROOT, file), 'utf8');
       assert(!/\bfetch\(/.test(source) && !source.includes('googleapis.com'), `${file} calls Google on its own`);
+      const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      assert(!/setTimeout|AbortSignal\.timeout|retry/i.test(code), `${file} has a timer or a retry of its own`);
     }
   });
 
@@ -293,14 +382,6 @@ async function main() {
     assert(location(res).includes('status=blocked') && !res.cookies.get(SESSION_COOKIE_NAME)?.value && identitiesOf(TAL).length === 0, `callback ${location(res)}`);
   });
 
-  await check('#20 [R3] [guard] the boot pass runs only when Google sign-in is set up: instrumentation.ts asks providerConfigured(\'google\') before fillGoogleAccountKeys(), and logs one line when it is off', () => {
-    const text = fs.readFileSync(path.join(ROOT, 'instrumentation.ts'), 'utf8');
-    const ask = text.indexOf("providerConfigured('google')");
-    const run = text.indexOf('fillGoogleAccountKeys()');
-    assert(ask !== -1 && run !== -1 && ask < run, 'the pass is not behind providerConfigured(\'google\')');
-    assert(text.includes('[google-account] Google sign-in is off: the calendar accounts are not keyed yet'), 'no line when the pass is off');
-  });
-
   await check('#22 [finding 10] removing a Google way or the calendar\'s row clears the calendar account\'s key with the switch (it would serve no purpose); removing the email way touches neither; Add Google still works after', async () => {
     for (const which of ['google', 'calendar-google'] as const) {
       seed();
@@ -314,22 +395,6 @@ async function main() {
     await identities.removeSignInMethod(TAL, 'calendar-google');
     const added = await identities.addIdentity(TAL, 'google', 'g-sub-1', 'tal@gmail.com');
     assert(added === 'added', `Add Google after the calendar row was removed: ${added}`);
-  });
-
-  await check('#23 [finding 10] the startup pass keys only the rows whose switch is on: no Google call and no write for one that is off', async () => {
-    seedFill();
-    userRow(9).googleCalendarSignIn = false;
-    userRow(10).googleCalendarSignIn = false;
-    await account.fillGoogleAccountKeys();
-    assert(world.googleAsks.length === 0, `asked Google for ${show(world.googleAsks)}`);
-    assert(userRow(9).googleAccountKey === null && userRow(10).googleAccountKey === `${OLD_ID}:${'0'.repeat(64)}`, `keys ${show([userRow(9).googleAccountKey, userRow(10).googleAccountKey])}`);
-    userRow(9).googleCalendarSignIn = true;
-    world.accounts['rt-a'] = () => {
-      userRow(9).googleCalendarSignIn = false;
-      return 'a@gmail.com';
-    };
-    await account.fillGoogleAccountKeys();
-    assert(userRow(9).googleAccountKey === null, `a switch turned off while the pass asked still got a key: ${show(userRow(9).googleAccountKey)}`);
   });
 
   await check('#21 no console line and no capture holds an address', () => {
