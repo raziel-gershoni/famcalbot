@@ -24,7 +24,7 @@
 //
 // Client-safe: nothing here reaches a server module, and the labels come in already translated.
 
-import { useId, type ReactNode } from 'react';
+import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 
 export const FORM_CSS = `
 .ch-form-page {
@@ -650,10 +650,22 @@ export interface TextFieldProps {
   describedBy?: string;
   /** The field takes no input (its screen is working); the kit dims it. */
   disabled?: boolean;
+  /**
+   * What a single-line field takes: free text (the default, as it always was), an email address, or a one-time code of
+   * digits. The last two read left to right in every language and bring the keyboard and the autofill for them.
+   */
+  kind?: 'text' | 'email' | 'code';
 }
 
+/** A single-line field's input attributes by its kind (free text keeps exactly the ones it always had). */
+const FIELD_KINDS: Record<NonNullable<TextFieldProps['kind']>, InputHTMLAttributes<HTMLInputElement>> = {
+  text: { type: 'text', enterKeyHint: 'done', autoComplete: 'off' },
+  email: { type: 'email', inputMode: 'email', enterKeyHint: 'send', autoComplete: 'email', autoCapitalize: 'none', spellCheck: false },
+  code: { type: 'text', inputMode: 'numeric', enterKeyHint: 'done', autoComplete: 'one-time-code', autoCapitalize: 'none', spellCheck: false },
+};
+
 /** A single-line field (or notes), labelled for assistive tech; it sits on a FormCard. */
-export function TextField({ label, value, onChange, placeholder, large, multiline, maxLength, rows, describedBy, disabled, error }: TextFieldProps & { error?: string | null }) {
+export function TextField({ label, value, onChange, placeholder, large, multiline, maxLength, rows, describedBy, disabled, error, kind = 'text' }: TextFieldProps & { error?: string | null }) {
   const errorId = useId();
   const common = {
     className: `ch-form-field${large ? ' ch-form-field-title' : ''}${multiline ? ' ch-form-notes' : ''}`,
@@ -661,7 +673,7 @@ export function TextField({ label, value, onChange, placeholder, large, multilin
     'aria-invalid': error ? true : undefined,
     'aria-describedby': [describedBy, error ? errorId : undefined].filter(Boolean).join(' ') || undefined,
     placeholder,
-    dir: 'auto' as const,
+    dir: (kind === 'text' ? 'auto' : 'ltr') as 'auto' | 'ltr',
     value,
     disabled,
   };
@@ -670,7 +682,7 @@ export function TextField({ label, value, onChange, placeholder, large, multilin
       {multiline ? (
         <textarea {...common} rows={rows ?? 3} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
       ) : (
-        <input {...common} type="text" enterKeyHint="done" autoComplete="off" maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
+        <input {...common} {...FIELD_KINDS[kind]} maxLength={maxLength} onChange={(e) => onChange(e.target.value)} />
       )}
       {error ? <FieldError id={errorId} error={error} /> : null}
     </>

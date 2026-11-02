@@ -1,0 +1,480 @@
+// Smoke test for Settings' "Sign in on the web" group (plan 6b Task 9; spec docs/superpowers/specs/2026-11-02-web-sign-in-design.md
+// §4, §2.9, §2.13, §2.17): app/[locale]/(app)/settings/SignInMethods.tsx and its requests (signin-methods-client.ts), in
+// real React on the small fake DOM with a fake Telegram.WebApp and a scripted fetch, over the real messages; and the kit's
+// TextField kinds. No network, no DB.
+//  - U1 loading (the server's render): the section label, a spinner and the loading line, in en, he and ru
+//  - U2 the rows: Telegram on for a Telegram account (when Telegram sign-in is configured); Google's address, the calendar's account before its first use, or
+//    Add Google; the email's address or Add email; nothing to add for a way that isn't configured; Sign out only on a web
+//    session, Sign out on all devices always
+//  - U3 the read: GET /api/signin-methods?user_id= with the initData header inside Telegram (never in the URL) and the
+//    cookie outside it; a failure says so with Try again, which reads again (every other request: user_id in the URL, not
+//    in the body)
+//  - U4 Add email: the address (email keyboard and autofill), the code (digits, one-time-code autofill), the new row and the
+//    notice; invalid, limit, has-one, busy, network, wrong, taken, restart, too many wrong codes and has-one at the code
+//    each said; a new code for the same address; the sheet can't close while a request is out; user_id in the URL only
+//  - (U2 also: Telegram is not shown as a way while Telegram sign-in isn't configured)
+//  - U5 Remove: Google's, the calendar account's (as calendar-google) and the email's, each asked first; the rows after;
+//    a failure keeps the sheet with the reason
+//  - U6 Add Google: inside Telegram a sheet opens the link in the browser with Telegram's openLink on the tap; in a browser
+//    this tab goes there; a failure says so
+//  - U7 Sign out (web) and Sign out on all devices: the routes, then /signin in the page's language (a web session) or
+//    the notice (the Mini App)
+//  - U8 Back: the group hands the screen a closer while a sheet is open and null once it closes
+//  - U9 no log line holds an address, a code or a link
+//  - U10 the words: every key the group reads is in en, he and ru, none is left unread, and the group writes no copy of its own
+//  - U11 TextField: email and code kinds read left to right with their keyboard and autofill; the default is unchanged
+//  - U12 React logged no warning
+//
+// Run with the fake env (never the real one), from the repo root: bash /private/tmp/claude-501/-Users-razielgershoni-development-famcalbot/0d239296-a217-49f9-8833-757c9d9a2df6/scratchpad/6b/run-smoke.sh smoke-signin-ui
+
+import fs from 'fs';
+import path from 'path';
+import { act, createElement, type ReactElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { createTranslator, NextIntlClientProvider } from 'next-intl';
+import { TextField } from '../components/app-ui/form-kit';
+import { elements, fakeTelegram, fakeWindow, FakeElement, FakeText, installWindow, mount, type FakeNode, type Mounted, type Row } from './lib/fake-dom';
+import { jsxCopy } from './lib/jsx-copy';
+
+type Locale = 'en' | 'he' | 'ru';
+const ROOT = path.resolve(__dirname, '..');
+const LOCALES: Locale[] = ['en', 'he', 'ru'];
+const messages = Object.fromEntries(LOCALES.map((l) => [l, JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8'))])) as Record<Locale, Row>;
+const w = (l: Locale) => (messages[l].settings as Row).signIn as Record<string, string>;
+const say = (l: Locale, key: string, values: Row = {}) => createTranslator({ locale: l, messages: messages[l] })(`settings.signIn.${key}`, values) as string;
+const EMOJI = /\p{Extended_Pictographic}/u;
+const ADDRESS = 'dana@gmail.com';
+const LINK_TOKEN = 'Q2hlY2tpbmctdGhlLWFkZC1saW5rMDEy';
+
+const results: { name: string; ok: boolean; reason?: string }[] = [];
+async function check(name: string, fn: () => void | Promise<void>) {
+  try {
+    await fn();
+    results.push({ name, ok: true });
+  } catch (err) {
+    results.push({ name, ok: false, reason: err instanceof Error ? err.message : String(err) });
+  }
+}
+function assert(cond: unknown, message: string): asserts cond {
+  if (!cond) throw new Error(message);
+}
+const show = (v: unknown) => JSON.stringify(v);
+
+// ---- React must not warn; the group's own lines are kept to be asserted ----
+
+const reactWarnings: string[] = [];
+const appLogs: string[] = [];
+for (const level of ['error', 'warn'] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    const text = args.map(String).join(' ');
+    if (text.startsWith('[signin-methods]')) return void appLogs.push(text);
+    if (text.startsWith('[telegram-ui]') || text.startsWith('(node:')) return original(...args);
+    reactWarnings.push(text.slice(0, 300));
+  };
+}
+
+// ---- The world: a scripted fetch ----
+
+type Call = { url: string; method: string; body: Row | null; headers: Record<string, string>; credentials?: string };
+const calls: Call[] = [];
+let routes: Record<string, (call: Call) => Response | Promise<Response>> = {};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
+  const url = String(input);
+  const method = init.method ?? 'GET';
+  const call: Call = { url, method, body: typeof init.body === 'string' ? JSON.parse(init.body) : null, headers: { ...(init.headers as Record<string, string> | undefined) }, credentials: init.credentials };
+  calls.push(call);
+  const route = routes[`${method} ${url.split('?')[0]}`];
+  if (!route) throw new TypeError(`Failed to fetch: an unexpected request ${method} ${url}`);
+  return route(call);
+}) as typeof fetch;
+const last = (pathname: string) => calls.filter((c) => c.url.split('?')[0] === pathname).at(-1);
+const VIEW = (over: Row = {}): Row => ({ telegram: true, google: null, googleFromCalendar: false, email: null, providers: { telegram: true, google: true, email: true }, session: null, ...over });
+const methodsOf = (view: Row) => {
+  const { session: _session, ...methods } = view;
+  return methods;
+};
+
+// ---- Mounting ----
+
+let SignInMethods: (props: Row) => ReactElement;
+const sheetCalls: ((() => void) | null)[] = [];
+const assigned: string[] = [];
+const tree = (locale: Locale) =>
+  createElement(NextIntlClientProvider, { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as never, createElement(SignInMethods, { userId: 7, onSheet: (close: (() => void) | null) => void sheetCalls.push(close) }));
+function open(locale: Locale, view: Row, opts: { telegram?: boolean } = {}) {
+  installWindow();
+  assigned.length = 0;
+  sheetCalls.length = 0;
+  fakeWindow.location = { hash: '', origin: 'https://famcal.bot', assign: (u: string) => void assigned.push(u) };
+  const tgCalls: string[] = [];
+  const tg = opts.telegram ? fakeTelegram(tgCalls, '7.7') : null;
+  if (tg) tg.openLink = (url: string) => void tgCalls.push(`openLink(${url})`);
+  fakeWindow.Telegram = tg ? { WebApp: tg } : undefined;
+  routes = { 'GET /api/signin-methods': () => json(view) };
+  const m = mount(tree(locale));
+  return { m, tgCalls };
+}
+const closeAll = (o: { m: Mounted }) => {
+  o.m.unmount();
+  fakeWindow.Telegram = undefined;
+  fakeWindow.location = { hash: '' };
+};
+const settle = () =>
+  act(async () => {
+    for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0));
+  });
+function visible(node: FakeNode): string {
+  if (node instanceof FakeText) return node.data;
+  if (node instanceof FakeElement && node.localName === 'style') return '';
+  return node.childNodes.map(visible).join('');
+}
+const flat = (node: FakeNode) => visible(node).replace(/\s+/g, ' ').trim();
+const page = (m: Mounted) => flat(m.container);
+const buttons = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'button');
+const button = (m: Mounted, text: string) => buttons(m).find((b) => flat(b) === text);
+const rowStarting = (m: Mounted, text: string) => buttons(m).find((b) => b.className.split(' ').includes('ch-form-row') && flat(b).startsWith(text));
+const dialog = (m: Mounted) => elements(m.container).find((e) => e.getAttribute('role') === 'dialog');
+const inputOf = (m: Mounted) => elements(dialog(m) as FakeElement).find((e) => e.localName === 'input') as FakeElement;
+const formOf = (m: Mounted) => elements(dialog(m) as FakeElement).find((e) => e.localName === 'form') as FakeElement;
+const alertsIn = (node: FakeNode) => elements(node).filter((e) => e.getAttribute('role') === 'alert').map(flat);
+const statusLine = (m: Mounted) => elements(m.container).filter((e) => e.className === 'ch-notice' && e.getAttribute('role') === 'status').map(flat);
+const textOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, ' ').replace(/<!-- -->/g, '').replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+
+async function main() {
+  SignInMethods = (await import('../app/[locale]/(app)/settings/SignInMethods')).default as unknown as (props: Row) => ReactElement;
+
+  await check('U1 loading (the server\'s render): the section label, a spinner and the loading line, in en, he and ru; no raw key, no emoji', () => {
+    for (const l of LOCALES) {
+      const html = renderToString(tree(l));
+      assert(html.includes(`<h2 class="ch-section-label">${w(l).title}</h2>`), `${l}: the label ${html.slice(0, 200)}`);
+      assert(textOf(html).includes(w(l).loading) && /ch-spin/.test(html), `${l}: the loading line`);
+      assert(!/settings\./.test(textOf(html)) && !EMOJI.test(html), `${l}: a raw key or an emoji`);
+    }
+  });
+
+  await check('U2 the rows: Telegram on for a Telegram account; Google\'s address, the calendar account (no address) or Add Google; the email or Add email; nothing to add for a way that isn\'t configured; Sign out only on a web session', async () => {
+    for (const l of LOCALES) {
+      const t = w(l);
+      const fresh = open(l, VIEW());
+      await settle();
+      try {
+        const text = page(fresh.m);
+        assert(text.includes(t.telegram) && text.includes(t.on) && text.includes(t.telegramHint), `${l}: Telegram`);
+        assert(button(fresh.m, t.googleAdd) && button(fresh.m, t.emailAdd) && button(fresh.m, t.signOutAll) && !button(fresh.m, t.signOut), `${l}: the actions ${show(buttons(fresh.m).map(flat))}`);
+      } finally {
+        closeAll(fresh);
+      }
+      const added = open(l, VIEW({ google: { address: ADDRESS }, email: { address: 'd@example.org' }, session: 'google' }));
+      await settle();
+      try {
+        const bdis = elements(added.m.container).filter((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr').map(flat);
+        assert(bdis.includes(ADDRESS) && bdis.includes('d@example.org'), `${l}: the addresses ${show(bdis)}`);
+        assert(rowStarting(added.m, t.google)?.getAttribute('aria-haspopup') === 'dialog' && rowStarting(added.m, t.email)?.getAttribute('aria-haspopup') === 'dialog', `${l}: the rows open a sheet`);
+        assert(!button(added.m, t.googleAdd) && !button(added.m, t.emailAdd) && button(added.m, t.signOut), `${l}: added rows ${show(buttons(added.m).map(flat))}`);
+      } finally {
+        closeAll(added);
+      }
+      const calendar = open(l, VIEW({ googleFromCalendar: true }));
+      await settle();
+      try {
+        assert(page(calendar.m).includes(t.googleFromCalendar) && !button(calendar.m, t.googleAdd), `${l}: the calendar's account`);
+      } finally {
+        closeAll(calendar);
+      }
+      const noTelegramSignIn = open(l, VIEW({ providers: { telegram: false, google: true, email: true } }));
+      await settle();
+      try {
+        assert(!page(noTelegramSignIn.m).includes(t.telegramHint) && button(noTelegramSignIn.m, t.googleAdd), `${l}: Telegram shows as a way while its sign-in isn't configured: ${page(noTelegramSignIn.m)}`);
+      } finally {
+        closeAll(noTelegramSignIn);
+      }
+      const bare = open(l, VIEW({ telegram: false, providers: { telegram: false, google: false, email: false } }));
+      await settle();
+      try {
+        assert(!page(bare.m).includes(t.telegramHint) && !button(bare.m, t.googleAdd) && !button(bare.m, t.emailAdd) && button(bare.m, t.signOutAll), `${l}: nothing configured ${page(bare.m)}`);
+      } finally {
+        closeAll(bare);
+      }
+    }
+  });
+
+  await check('U3 the read: GET with user_id, same-origin, the initData in the header inside Telegram and none in a browser; a failure says so with Try again, which reads again', async () => {
+    calls.length = 0;
+    const tg = open('en', VIEW(), { telegram: true });
+    await settle();
+    try {
+      const get = last('/api/signin-methods');
+      assert(get && get.url === '/api/signin-methods?user_id=7' && get.method === 'GET' && get.credentials === 'same-origin' && typeof get.headers['X-Telegram-Init-Data'] === 'string', `inside Telegram ${show(get)}`);
+    } finally {
+      closeAll(tg);
+    }
+    const web = open('en', VIEW());
+    await settle();
+    try {
+      assert(!('X-Telegram-Init-Data' in (last('/api/signin-methods')?.headers ?? {})), 'a browser sent an initData header');
+    } finally {
+      closeAll(web);
+    }
+    appLogs.length = 0;
+    const broken = open('he', VIEW());
+    routes['GET /api/signin-methods'] = () => json({ error: 'boom' }, 500);
+    broken.m.unmount();
+    const o = { m: mount(tree('he')) };
+    await settle();
+    try {
+      assert(alertsIn(o.m.container).some((line) => line.includes(w('he').loadFailed)) && button(o.m, w('he').retry), `he: the failure ${page(o.m)}`);
+      assert(appLogs.some((line) => line.includes('GET answered 500')), `logged ${show(appLogs)}`);
+      routes['GET /api/signin-methods'] = () => json(VIEW());
+      o.m.click(button(o.m, w('he').retry) as FakeElement);
+      await settle();
+      assert(page(o.m).includes(w('he').telegramHint) && alertsIn(o.m.container).length === 0, 'Try again did not read again');
+    } finally {
+      closeAll(o);
+    }
+  });
+
+  await check('U4 Add email: the address with the email keyboard, the code with digits and one-time-code autofill, then the row and the notice; every failure said; a new code for the same address; the sheet waits while a request is out', async () => {
+    for (const l of LOCALES) {
+      const t = w(l);
+      const o = open(l, VIEW(), { telegram: l === 'he' });
+      await settle();
+      try {
+        o.m.click(button(o.m, t.emailAdd) as FakeElement);
+        assert(dialog(o.m)?.getAttribute('aria-label') === t.emailSheetTitle, `${l}: the sheet`);
+        const field = inputOf(o.m);
+        assert(field.getAttribute('type') === 'email' && field.getAttribute('inputMode') === 'email' && field.getAttribute('autoComplete') === 'email' && field.getAttribute('dir') === 'ltr', `${l}: the email field ${show([...field.attributes])}`);
+        const send = () => button(o.m, t.emailSend) as FakeElement;
+        assert(send().hasAttribute('disabled'), `${l}: Send is on with no address`);
+        o.m.input(field, ` ${ADDRESS} `);
+        for (const [answer, key] of [[() => json({ ok: false, error: 'invalid' }, 400), 'emailInvalid'], [() => json({ ok: false, error: 'limit' }, 429), 'emailLimit'], [() => json({ ok: false, error: 'has-one' }, 409), 'emailHasOne'], [() => json({ error: 'Too many requests. Please wait a minute.' }, 429), 'busy'], [() => Promise.reject(new TypeError('Failed to fetch')), 'failed']] as const) {
+          routes['POST /api/signin-methods/email/add'] = answer as () => Response;
+          o.m.submit(formOf(o.m));
+          await settle();
+          assert(alertsIn(dialog(o.m) as FakeElement).includes(t[key]) && inputOf(o.m).getAttribute('type') === 'email', `${l}: ${key}: ${show(alertsIn(dialog(o.m) as FakeElement))}`);
+        }
+        let release: (r: Response) => void = () => undefined;
+        routes['POST /api/signin-methods/email/add'] = () => new Promise<Response>((resolve) => void (release = resolve));
+        o.m.submit(formOf(o.m));
+        await settle();
+        assert(send().hasAttribute('disabled') && page(o.m).includes(t.emailSending), `${l}: no busy state`);
+        const closer = sheetCalls.at(-1);
+        assert(typeof closer === 'function', `${l}: no closer while busy`);
+        await act(async () => closer?.());
+        assert(dialog(o.m), `${l}: Back closed the sheet while its request was out`);
+        await act(async () => release(json({ ok: true })));
+        await settle();
+        const added = last('/api/signin-methods/email/add');
+        assert(added && added.url === '/api/signin-methods/email/add?user_id=7' && show(added.body) === show({ email: ADDRESS }) && added.headers['Content-Type'] === 'application/json' && added.credentials === 'same-origin', `${l}: the add request ${show(added)}`);
+        if (l === 'he') assert(typeof added.headers['X-Telegram-Init-Data'] === 'string' && !('initData' in (added.body ?? {})), `${l}: the initData is not in the header`);
+        const code = inputOf(o.m);
+        assert(code.getAttribute('inputMode') === 'numeric' && code.getAttribute('autoComplete') === 'one-time-code' && code.getAttribute('maxLength') === '6' && code.getAttribute('dir') === 'ltr', `${l}: the code field ${show([...code.attributes])}`);
+        const bdi = elements(dialog(o.m) as FakeElement).find((e) => e.localName === 'bdi');
+        assert(bdi && flat(bdi) === ADDRESS && bdi.getAttribute('dir') === 'ltr', `${l}: the address in the code step`);
+        o.m.input(code, '12 34-56');
+        assert(code.value === '123456', `${l}: the code is ${code.value}`);
+        for (const [error, key, status] of [['wrong', 'codeWrong', 400], ['taken', 'codeTaken', 409], ['has-one', 'emailHasOne', 409], ['limit', 'codeLimit', 429]] as const) {
+          routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: false, error }, status);
+          o.m.submit(formOf(o.m));
+          await settle();
+          assert(alertsIn(dialog(o.m) as FakeElement).includes(t[key]) && inputOf(o.m).getAttribute('inputMode') === 'numeric', `${l}: ${error}`);
+        }
+        const before = calls.length;
+        routes['POST /api/signin-methods/email/add'] = () => json({ ok: true });
+        o.m.click(button(o.m, t.codeAgain) as FakeElement);
+        await settle();
+        assert(calls.length > before && last('/api/signin-methods/email/add')?.url === '/api/signin-methods/email/add?user_id=7' && show(last('/api/signin-methods/email/add')?.body) === show({ email: ADDRESS }), `${l}: a new code`);
+        o.m.input(inputOf(o.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: false, error: 'restart' }, 400);
+        o.m.submit(formOf(o.m));
+        await settle();
+        assert(inputOf(o.m).getAttribute('type') === 'email' && inputOf(o.m).value === ADDRESS && alertsIn(dialog(o.m) as FakeElement).includes(t.codeRestart), `${l}: restart`);
+        o.m.submit(formOf(o.m));
+        await settle();
+        o.m.input(inputOf(o.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: true, methods: methodsOf(VIEW({ email: { address: ADDRESS } })) });
+        o.m.submit(formOf(o.m));
+        await settle();
+        assert(last('/api/signin-methods/email/confirm')?.url === '/api/signin-methods/email/confirm?user_id=7' && show(last('/api/signin-methods/email/confirm')?.body) === show({ code: '123456' }), `${l}: the confirm request ${show(last('/api/signin-methods/email/confirm'))}`);
+        assert(!dialog(o.m) && rowStarting(o.m, t.email) && !button(o.m, t.emailAdd), `${l}: the row after adding`);
+        assert(statusLine(o.m).includes(say(l, 'added', { kind: 'email' })), `${l}: the notice ${show(statusLine(o.m))}`);
+      } finally {
+        closeAll(o);
+      }
+    }
+  });
+
+  await check('U5 Remove asks first: Google\'s (google), the calendar account\'s (calendar-google) and the email\'s (email), each with its words; the rows after and the notice; a failure keeps the sheet with the reason', async () => {
+    for (const l of LOCALES) {
+      const t = w(l);
+      for (const [view, which, kind, body] of [
+        [VIEW({ google: { address: ADDRESS } }), 'google', 'google', 'removeBody'],
+        [VIEW({ googleFromCalendar: true }), 'calendar-google', 'google', 'removeCalendarBody'],
+        [VIEW({ email: { address: ADDRESS } }), 'email', 'email', 'removeBody'],
+      ] as const) {
+        const o = open(l, view);
+        await settle();
+        try {
+          o.m.click(rowStarting(o.m, kind === 'google' ? t.google : t.email) as FakeElement);
+          const d = dialog(o.m) as FakeElement;
+          assert(d && d.getAttribute('aria-label') === say(l, 'removeTitle', { kind }) && flat(d).includes(t[body]), `${l} ${which}: the sheet ${d && flat(d)}`);
+          if (which !== 'calendar-google') assert(flat(d).includes(ADDRESS), `${l} ${which}: no address in the sheet`);
+          routes['POST /api/signin-methods/remove'] = () => json({ error: 'boom' }, 500);
+          o.m.click(button(o.m, t.remove) as FakeElement);
+          await settle();
+          assert(dialog(o.m) && alertsIn(dialog(o.m) as FakeElement).includes(t.failed), `${l} ${which}: the failure`);
+          routes['POST /api/signin-methods/remove'] = () => json({ ok: true, methods: methodsOf(VIEW()) });
+          o.m.click(button(o.m, t.remove) as FakeElement);
+          await settle();
+          assert(last('/api/signin-methods/remove')?.url === '/api/signin-methods/remove?user_id=7' && show(last('/api/signin-methods/remove')?.body) === show({ which }), `${l} ${which}: the request ${show(last('/api/signin-methods/remove'))}`);
+          assert(!dialog(o.m) && button(o.m, kind === 'google' ? t.googleAdd : t.emailAdd) && statusLine(o.m).includes(t.removed), `${l} ${which}: after`);
+        } finally {
+          closeAll(o);
+        }
+      }
+    }
+  });
+
+  await check('U6 Add Google: inside Telegram a sheet opens the one-time link in the browser on the tap (openLink, absolute); in a browser this tab goes there; a failure says so', async () => {
+    const tg = open('he', VIEW(), { telegram: true });
+    await settle();
+    try {
+      // Task 6 answers the link absolute (buildUrl over localeHref, ?token=)
+      routes['POST /api/auth/google/add-link'] = () => json({ url: `https://famcal.bot/he/signin/add-google?token=${LINK_TOKEN}` });
+      tg.m.click(button(tg.m, w('he').googleAdd) as FakeElement);
+      await settle();
+      assert(last('/api/auth/google/add-link')?.url === '/api/auth/google/add-link?user_id=7' && show(last('/api/auth/google/add-link')?.body) === show({}), `the add-link request ${show(last('/api/auth/google/add-link'))}`);
+      assert(dialog(tg.m)?.getAttribute('aria-label') === w('he').googleSheetTitle && flat(dialog(tg.m) as FakeElement).includes(w('he').googleSheetBody), 'no sheet inside Telegram');
+      assert(!tg.tgCalls.some((c) => c.startsWith('openLink')), 'the link opened before the tap');
+      tg.m.click(button(tg.m, w('he').googleOpen) as FakeElement);
+      assert(tg.tgCalls.includes(`openLink(https://famcal.bot/he/signin/add-google?token=${LINK_TOKEN})`), `openLink ${show(tg.tgCalls)}`);
+      assert(!dialog(tg.m) && statusLine(tg.m).includes(w('he').googleOpened), 'after the tap');
+    } finally {
+      closeAll(tg);
+    }
+    const web = open('en', VIEW());
+    await settle();
+    try {
+      // A site-relative link resolves against the page's origin too
+      routes['POST /api/auth/google/add-link'] = () => json({ url: `/signin/add-google?token=${LINK_TOKEN}` });
+      web.m.click(button(web.m, w('en').googleAdd) as FakeElement);
+      await settle();
+      assert(show(assigned) === show([`https://famcal.bot/signin/add-google?token=${LINK_TOKEN}`]) && !dialog(web.m), `a browser ${show(assigned)}`);
+    } finally {
+      closeAll(web);
+    }
+    const bad = open('ru', VIEW());
+    await settle();
+    try {
+      routes['POST /api/auth/google/add-link'] = () => json({ error: 'boom' }, 500);
+      bad.m.click(button(bad.m, w('ru').googleAdd) as FakeElement);
+      await settle();
+      assert(alertsIn(bad.m.container).includes(w('ru').failed) && !dialog(bad.m) && !(button(bad.m, w('ru').googleAdd) as FakeElement).hasAttribute('disabled'), 'a failure');
+    } finally {
+      closeAll(bad);
+    }
+  });
+
+  await check('U7 Sign out: on a web session the route, then /signin in the page\'s language; Sign out on all devices: the route with user_id, then /signin (web) or the notice (the Mini App); a failure says so', async () => {
+    for (const l of LOCALES) {
+      const signin = l === 'en' ? '/signin' : `/${l}/signin`;
+      const web = open(l, VIEW({ session: 'email' }));
+      await settle();
+      try {
+        routes['POST /api/auth/signout'] = () => json({ ok: true });
+        web.m.click(button(web.m, w(l).signOut) as FakeElement);
+        await settle();
+        assert(last('/api/auth/signout') && show(assigned) === show([signin]), `${l}: sign out ${show(assigned)}`);
+      } finally {
+        closeAll(web);
+      }
+      const webAll = open(l, VIEW({ session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/auth/signout-all'] = () => json({ ok: true });
+        webAll.m.click(button(webAll.m, w(l).signOutAll) as FakeElement);
+        await settle();
+        assert(last('/api/auth/signout-all')?.url === '/api/auth/signout-all?user_id=7' && show(last('/api/auth/signout-all')?.body) === show({}) && show(assigned) === show([signin]), `${l}: all, on the web`);
+      } finally {
+        closeAll(webAll);
+      }
+      const mini = open(l, VIEW(), { telegram: true });
+      await settle();
+      try {
+        routes['POST /api/auth/signout-all'] = () => json({}, 500);
+        mini.m.click(button(mini.m, w(l).signOutAll) as FakeElement);
+        await settle();
+        assert(alertsIn(mini.m.container).includes(w(l).failed), `${l}: a failure`);
+        routes['POST /api/auth/signout-all'] = () => json({ ok: true });
+        mini.m.click(button(mini.m, w(l).signOutAll) as FakeElement);
+        await settle();
+        assert(assigned.length === 0 && statusLine(mini.m).includes(w(l).signedOutAll), `${l}: all, in the Mini App ${show(statusLine(mini.m))}`);
+      } finally {
+        closeAll(mini);
+      }
+    }
+  });
+
+  await check('U8 Back: while a sheet is open the screen holds a closer that closes it; once closed, null', async () => {
+    const o = open('en', VIEW({ google: { address: ADDRESS } }));
+    await settle();
+    try {
+      assert(sheetCalls.at(-1) === null, `closed at first: ${show(sheetCalls.map((c) => typeof c))}`);
+      o.m.click(rowStarting(o.m, w('en').google) as FakeElement);
+      const closer = sheetCalls.at(-1);
+      assert(typeof closer === 'function' && dialog(o.m), 'no closer while the sheet is open');
+      await act(async () => closer?.());
+      assert(!dialog(o.m) && sheetCalls.at(-1) === null, 'the closer did not close it');
+    } finally {
+      closeAll(o);
+    }
+  });
+
+  await check('U9 no log line holds an address, a code or the link\'s token', () => {
+    const leaked = appLogs.filter((line) => line.includes(ADDRESS) || /\b123456\b/.test(line) || line.includes(LINK_TOKEN));
+    assert(appLogs.length > 0 && leaked.length === 0, `${appLogs.length} lines, leaked ${show(leaked)}`);
+  });
+
+  await check('U10 the words: every key the group reads is in en, he and ru; none is left unread; the group writes no copy of its own', () => {
+    const file = 'app/[locale]/(app)/settings/SignInMethods.tsx';
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    const keys = Object.keys(w('en')).sort();
+    for (const l of LOCALES) assert(show(Object.keys(w(l)).sort()) === show(keys), `${l}: other keys than en`);
+    for (const l of LOCALES) for (const k of keys) assert(typeof w(l)[k] === 'string' && w(l)[k].trim() !== '', `${l}: ${k} is empty`);
+    const read = [...src.matchAll(/\bt(?:\.rich)?\('([\w.]+)'/g)].map((m) => m[1]);
+    assert(read.length > 20, `only ${read.length} reads found`);
+    for (const k of read) assert(keys.includes(k), `${k} is read but is not a message`);
+    const unread = keys.filter((k) => !src.includes(`'${k}'`));
+    assert(unread.length === 0, `keys nothing reads: ${show(unread)}`);
+    assert(show(jsxCopy(file, src)) === '[]', `copy in the TSX: ${show(jsxCopy(file, src))}`);
+  });
+
+  await check('U11 TextField: the email and code kinds read left to right with their keyboard and autofill; the default field is exactly what it was', () => {
+    const Field = TextField as unknown as (p: Row) => ReactElement;
+    const html = (p: Row) => renderToString(createElement(Field, { label: 'Notes', value: 'Bring the form', onChange: () => undefined, placeholder: 'Add notes', ...p }));
+    assert(html({}) === '<input class="ch-form-field" aria-label="Notes" placeholder="Add notes" dir="auto" type="text" enterKeyHint="done" autoComplete="off" value="Bring the form"/>', `the default ${html({})}`);
+    const email = html({ kind: 'email' });
+    assert(/dir="ltr"/.test(email) && /type="email"/.test(email) && /inputMode="email"/.test(email) && /autoComplete="email"/.test(email) && /autoCapitalize="none"/.test(email) && /spellCheck="false"/.test(email), `email ${email}`);
+    const code = html({ kind: 'code', maxLength: 6 });
+    assert(/dir="ltr"/.test(code) && /type="text"/.test(code) && /inputMode="numeric"/.test(code) && /autoComplete="one-time-code"/.test(code) && /maxLength="6"/.test(code), `code ${code}`);
+  });
+
+  await check('U12 React logged no warning', () => {
+    assert(reactWarnings.length === 0, show(reactWarnings));
+  });
+
+  let failed = 0;
+  for (const r of results) {
+    console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
+    if (!r.ok) failed++;
+  }
+  console.log(`\n${results.length - failed}/${results.length} passed`);
+  process.exit(failed ? 1 : 0);
+}
+
+main().catch((err) => {
+  // Not console.error: this file's console is intercepted (React's warnings), which would hide the failure
+  process.stderr.write(`${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+  process.exit(1);
+});

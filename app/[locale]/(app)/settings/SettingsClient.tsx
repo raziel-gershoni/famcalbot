@@ -1,8 +1,9 @@
 'use client';
 
 // The Settings screen, in the home's design (spec 2026-10-19 §4, §5; plan W1a): an AppScreen on the
-// grouped ground, a header with its back, five sections of cards (language and place, summaries, when
-// summaries arrive, events and reminders, Google), and a Save bar that stays at the bottom.
+// grouped ground, a header with its back, the sections of cards (language and place, summaries, when
+// summaries arrive, events and reminders, Google while connected, and Sign in on the web: SignInMethods,
+// spec 2026-11-02-web-sign-in §4, which saves each change itself), and a Save bar that stays at the bottom.
 //
 // - Save stays on the page: the bar says "Saved" or what failed, and what was just saved becomes the
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
@@ -37,6 +38,7 @@ import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
+import SignInMethods from './SignInMethods';
 import { LocationSheet, type LocationProblem } from './LocationSheet';
 import { validateLocation } from './location-lookup';
 import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type Gender, type SettingsValues } from './settings-body';
@@ -143,13 +145,14 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const [justSaved, setJustSaved] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
 
-  // The sheets: one is open at a time, and Back closes it. The Google section reports its own.
+  // The sheets: one is open at a time, and Back closes it. The Google and the sign-in sections report their own.
   const [timeOpen, setTimeOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState('');
   const [googleClose, setGoogleClose] = useState<(() => void) | null>(null);
+  const [signInClose, setSignInClose] = useState<(() => void) | null>(null);
   // A wheel dragged down in a sheet must not minimize the app.
-  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null);
+  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null || signInClose !== null);
 
   // The check of a changed place. Save waits for it; a later edit makes an earlier answer stale.
   const [locationChecking, setLocationChecking] = useState(false);
@@ -193,6 +196,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
     if (timeOpen) setTimeOpen(false);
     else if (locationOpen) void closeLocation();
     else if (googleClose) googleClose();
+    else if (signInClose) signInClose();
     else router.push(`/${saved.language}/dashboard?user_id=${userId}`);
   };
 
@@ -352,6 +356,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
         ) : null}
 
         <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
+        <SignInMethods userId={userId} onSheet={(close) => setSignInClose(() => close)} />
       </div>
 
       <SaveBar

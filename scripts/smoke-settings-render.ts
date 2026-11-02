@@ -1,7 +1,7 @@
 // Smoke test for the Settings screen (plan docs/superpowers/plans/2026-10-27-app-ui-W1a-settings.md, Task 3;
 // spec 2026-10-19-screens-and-colours §4, §5): SettingsClient on AppScreen and the form kit, in real React on
 // the small fake DOM, with a fake Telegram.WebApp, a router stub and a fake fetch. No network, no DB.
-//  - S1 the render in en, he and ru, light and dark: the grouped root, the four sections in order, no raw key,
+//  - S1 the render in en, he and ru, light and dark: the grouped root, the four sections and Sign in on the web in order, no raw key,
 //    no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right;
 //  - S2 the state matrix: what the alerts rows show for the saved platform, the plan and the global switch, the
 //    reminder time, the Google section, the usage lines, and that the platform list changes the section only once saved;
@@ -95,15 +95,20 @@ const fetchCalls: FetchCall[] = [];
 const world = {
   /** What /api/settings answers: a status, or a function that decides (a hanging request is a promise that never settles until released). */
   settings: (): Response | Promise<Response> => new Response('{"success":true}', { status: 200 }),
+  /** What GET /api/signin-methods answers: the "Sign in on the web" group's rows (scripts/smoke-signin-ui.ts holds the group itself). */
+  signInMethods: (): Response | Promise<Response> => json(SIGNIN_VIEW),
   /** What Nominatim's search answers our server's check of a typed place (app/api/location/check). */
   search: (): Response | Promise<Response> => json([{ place_rank: 16, addresstype: 'city' }]),
   reverse: (): Response | Promise<Response> => json({ address: { city: 'Haifa', country: 'Israel' } }),
 };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+/** A Telegram account with no web sign-in added, every way configured, opened in the Mini App. */
+const SIGNIN_VIEW = { telegram: true, google: null, googleFromCalendar: false, email: null, providers: { telegram: true, google: true, email: true }, session: null };
 globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const url = String(input);
   fetchCalls.push({ url, init });
   if (url.startsWith('/api/settings')) return world.settings();
+  if (url.startsWith('/api/signin-methods')) return world.signInMethods();
   if (url.startsWith('/api/location/check')) {
     // Our server's check: it asks Nominatim's search (world.search) and reads the hits as the route does (location-place.ts)
     const nominatim = await world.search();
@@ -122,6 +127,7 @@ const reset = () => {
   fetchCalls.length = 0;
   appLogs.length = 0;
   world.settings = () => new Response('{"success":true}', { status: 200 });
+  world.signInMethods = () => json(SIGNIN_VIEW);
   world.search = () => json([{ place_rank: 16, addresstype: 'city' }]);
   world.reverse = () => json({ address: { city: 'Haifa', country: 'Israel' } });
 };
@@ -234,14 +240,14 @@ const close = (opened: ReturnType<typeof open>) => {
 async function main() {
   Settings = (await import('../app/[locale]/(app)/settings/SettingsClient')).default as unknown as (props: Row) => ReactElement;
 
-  await check('S1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the four sections in order, no raw key, no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right', async () => {
+  await check('S1 render in en, he and ru, light (server) and dark (Telegram): a grouped AppScreen root with its direction and language, the four sections and Sign in on the web in order, no raw key, no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right', async () => {
     const places: Record<Locale, string> = { en: 'Tel Aviv', he: 'תל אביב', ru: 'Тель-Авив' };
     for (const locale of LOCALES) {
       const dir = locale === 'he' ? 'rtl' : 'ltr';
       const p = propsOf({}, { language: locale, location: places[locale] });
       const html = renderToString(tree(locale, p));
       assert(html.startsWith(`<div class="ch-app ch-screen ch-grouped" data-theme="light" dir="${dir}" lang="${locale}">`), `${locale}: the root: ${html.slice(0, 140)}`);
-      const sections = ['place', 'summaries', 'timing', 'events'].map((k) => word(locale, `sections.${k}`));
+      const sections = [...['place', 'summaries', 'timing', 'events'].map((k) => word(locale, `sections.${k}`)), word(locale, 'signIn.title')];
       assert(show(sectionLabels(html)) === show(sections), `${locale}: the sections: ${show(sectionLabels(html))}`);
       const text = textOf(html);
       assert(!/settings\.|ui\.|calendarHome\./.test(text), `${locale}: a raw key in ${text}`);
@@ -299,7 +305,7 @@ async function main() {
       assert(!none.includes(w('reminderTime')) && none.includes(w('alerts.label')), `${locale}: the reminder time without FamCal reminders`);
       // Google
       const google = renderToString(tree(locale, propsOf({ googleConnected: true }, { language: locale })));
-      assert(show(sectionLabels(google)) === show([...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('googleDisconnect.sectionTitle')]), `${locale}: the Google section: ${show(sectionLabels(google))}`);
+      assert(show(sectionLabels(google)) === show([...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('googleDisconnect.sectionTitle'), w('signIn.title')]), `${locale}: the Google section: ${show(sectionLabels(google))}`);
       assert(!textOf(renderToString(tree(locale, propsOf({}, { language: locale })))).includes(w('googleDisconnect.sectionTitle')), `${locale}: Google shows when not connected`);
     }
     // The usage lines: text has a limit of 10, voice is unlimited (-1), and a limit of 0 shows none
@@ -1094,17 +1100,18 @@ async function main() {
     }
   });
 
-  await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect is its own section\'s)', () => {
+  await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect and signIn are their own sections\')', () => {
     const dir = path.join(ROOT, 'app/[locale]/(app)/settings');
-    // The Google section reads its own namespace (settings.googleDisconnect), which its own smoke holds.
-    const source = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && f !== 'GoogleDisconnect.tsx').map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+    // The Google and the sign-in sections read their own namespaces (settings.googleDisconnect, settings.signIn), which their own smokes hold.
+    const OWN_SMOKE = ['GoogleDisconnect.tsx', 'SignInMethods.tsx', 'signin-methods-client.ts'];
+    const source = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !OWN_SMOKE.includes(f)).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
     const keysOf = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? keysOf(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
-    const own = keysOf(messages.en.settings as Row).filter((k) => !k.startsWith('googleDisconnect.'));
+    const own = keysOf(messages.en.settings as Row).filter((k) => !k.startsWith('googleDisconnect.') && !k.startsWith('signIn.'));
     for (const locale of LOCALES) assert(show(keysOf(messages[locale].settings as Row).sort()) === show(keysOf(messages.en.settings as Row).sort()), `${locale}: a different set of keys than en`);
     const unread = own.filter((key) => !source.includes(`'${key}'`) && !source.includes(`'${key.split('.').at(-1)}'`) && !source.includes(`\`${key.split('.').slice(0, -1).join('.')}.`));
     assert(unread.length === 0, `keys nothing reads: ${show(unread)}`);
     const read = [...source.matchAll(/\bt\('([\w.]+)'/g)].map((m) => m[1]);
-    for (const key of read) assert(own.includes(key) || key.startsWith('googleDisconnect.'), `${key} is read but is not a message`);
+    for (const key of read) assert(own.includes(key) || key.startsWith('googleDisconnect.') || key.startsWith('signIn.'), `${key} is read but is not a message`);
     for (const key of ['back', 'save', 'saved', 'done']) for (const locale of LOCALES) assert(typeof (messages[locale].ui as Row)[key] === 'string', `${locale}: ui.${key}`);
   });
 
