@@ -484,11 +484,11 @@ async function main() {
 
   // ---- Telegram: who it is ----
 
-  await check('#4 Telegram, `id` as a number: user 9 is signed in (method tg) and lands on /dashboard?user_id=9 (English has no prefix); the code went with the secret and the PKCE verifier; famcal_signin is cleared', async () => {
+  await check('#4 Telegram, `id` as a number: user 9 is signed in (method tg) and lands on /en/dashboard?user_id=9 (the landing carries its locale prefix, English included); the code went with the secret and the PKCE verifier; famcal_signin is cleared', async () => {
     seed();
     const { res } = await signIn('telegram', { sub: '777', id: 111111111 });
     const to = new URL(location(res));
-    assert(to.pathname === '/dashboard' && to.searchParams.get('user_id') === '9', `to ${location(res)}; ${show(captured)}`);
+    assert(to.pathname === '/en/dashboard' && to.searchParams.get('user_id') === '9', `to ${location(res)}; ${show(captured)}`);
     const session = sessionOf(res);
     assert(session?.userId === 9 && session.method === 'tg', `session ${show(session)}`);
     assert(show(tokenCalls) === show([{ p: 'telegram', status: 200 }]), `token calls ${show(tokenCalls)}`);

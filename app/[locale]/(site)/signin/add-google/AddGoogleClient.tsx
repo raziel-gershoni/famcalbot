@@ -3,18 +3,21 @@
 // /signin/add-google's one button (spec 2026-11-02-web-sign-in §2.9): Continue posts the one-time token to
 // /api/auth/google/add-start, which uses it up, ties the Google sign-in to this browser (famcal_signin) and answers
 // Google's URL; then this tab goes there. A link used or late by then (410) says to start again from Settings; any other
-// failure says so and the button works again. The token is never logged.
+// failure says so and the button works again. A suspended account (403) goes to /signin?status=suspended. The token is
+// never logged.
 
 import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { GoogleMark } from '@/components/site/GoogleMark';
 import { readJsonBody } from '@/src/lib/read-json';
+import { signInHref } from '@/src/site/signin';
 
 const TAG = '[add-google]';
 
 export function AddGoogleClient({ token }: { token: string }) {
   const t = useTranslations('site.signin');
+  const locale = useLocale();
   const [state, setState] = useState<'idle' | 'busy' | 'expired' | 'failed'>('idle');
 
   useEffect(() => {
@@ -41,6 +44,11 @@ export function AddGoogleClient({ token }: { token: string }) {
         return;
       }
       console.warn(`${TAG} add-start answered ${res.status}`);
+      // A suspended account gets its own page, as in every other sign-in path
+      if (res.status === 403 && body?.error === 'suspended') {
+        window.location.assign(signInHref(locale, 'suspended'));
+        return;
+      }
       setState(res.status === 410 || res.status === 404 ? 'expired' : 'failed');
     } catch (error) {
       console.error(`${TAG} add-start failed:`, error instanceof Error ? error.name : typeof error);

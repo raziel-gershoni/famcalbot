@@ -548,16 +548,16 @@ async function main() {
 
   // ---- Where a command's answer goes ----
 
-  await check('#11 resolveCommandTarget: WA session -> WhatsApp bsuid, TG -> 111111111, no channel -> null', async () => {
+  await check('#11 resolveCommandTargetOrReason: WA session -> WhatsApp bsuid, TG -> 111111111, no channel -> no_channel', async () => {
     seed();
-    const { resolveCommandTarget } = await load('src/lib/command-target.ts');
+    const { resolveCommandTargetOrReason } = await load('src/lib/command-target.ts');
     const { getUserById } = await load('src/services/user-service.ts');
-    const wa = await resolveCommandTarget(await getUserById(42), 'session');
-    assert(wa?.platform === 'whatsapp' && wa.chatId === 'IL.123', `WA session user: ${show(wa)}`);
-    const tg = await resolveCommandTarget(await getUserById(9), 'telegram');
-    assert(tg?.platform === 'telegram' && tg.chatId === 111111111, `TG user: ${show(tg)}`);
-    const none = await resolveCommandTarget(await getUserById(3), 'session');
-    assert(none === null, `user with no channel: ${show(none)}`);
+    const wa = resolveCommandTargetOrReason(await getUserById(42), 'session');
+    assert(wa.ok && wa.target.platform === 'whatsapp' && wa.target.chatId === 'IL.123', `WA session user: ${show(wa)}`);
+    const tg = resolveCommandTargetOrReason(await getUserById(9), 'telegram');
+    assert(tg.ok && tg.target.platform === 'telegram' && tg.target.chatId === 111111111, `TG user: ${show(tg)}`);
+    const none = resolveCommandTargetOrReason(await getUserById(3), 'session');
+    assert(!none.ok && none.reason === 'no_channel', `user with no channel: ${show(none)}`);
   });
 
   await check('#12 execute-command: a BSUID-only WA session never streams to Telegram chat 42; the summary runs on WA', async () => {

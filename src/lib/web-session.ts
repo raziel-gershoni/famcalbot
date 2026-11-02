@@ -13,7 +13,6 @@ import { isIdentifierBlocked } from './user-moderation';
 import { captureError } from './error-capture';
 import { getBaseUrl } from '../config/urls';
 import { normalizeLocale } from '../utils/locale';
-import { localeHref } from '../site/zmanim/links';
 import { signInHref } from '../site/signin';
 
 /** The app pages a sign-in lands on: the calendar, or Select calendars right after a Google connect on WhatsApp. */
@@ -35,17 +34,29 @@ export interface SignInAccount {
   whatsappPhone?: string | null;
 }
 
-/** /signin on the site in a language, absolute, with the status. The path is signInHref's (src/site/signin.ts), the one builder. */
+/**
+ * An absolute landing URL always carries its locale prefix, English included (/en/dashboard, /en/signin): next-intl
+ * ('as-needed' with detection on, i18n/routing.ts) then redirects /en/... once to the bare path and pins the
+ * NEXT_LOCALE cookie, where a bare path would be routed by the browser's Accept-Language (an English speaker with a
+ * Hebrew browser would land on /he/... and bounce back). Client links stay relative and unprefixed for English
+ * (signInHref).
+ */
+function prefixed(locale: string, href: string): string {
+  const l = normalizeLocale(locale);
+  return href.startsWith(`/${l}/`) ? href : `/${l}${href}`;
+}
+
+/** /signin on the site in a language, absolute, with the status and an explicit locale prefix. The path is signInHref's (src/site/signin.ts), the one builder. */
 export function signInPageUrl(locale: string, status?: SignInStatus): string {
-  return new URL(signInHref(locale, status), getBaseUrl()).toString();
+  return new URL(prefixed(locale, signInHref(locale, status)), getBaseUrl()).toString();
 }
 
 /**
- * An app page of the person's, absolute: /{locale}/{page}?user_id={DB id}, in their language. English has no prefix
- * ('as-needed', i18n/routing.ts: next-intl would redirect /en/... to the bare path), an unknown language is English.
+ * An app page of the person's, absolute: /{locale}/{page}?user_id={DB id}, in their language, with the locale prefix
+ * for every language (an unknown language is English).
  */
 export function appPageUrl(locale: string, page: FinishPage, userId: number): string {
-  return new URL(localeHref(normalizeLocale(locale), `/${page}?user_id=${userId}`), getBaseUrl()).toString();
+  return new URL(prefixed(locale, `/${page}?user_id=${userId}`), getBaseUrl()).toString();
 }
 
 /**

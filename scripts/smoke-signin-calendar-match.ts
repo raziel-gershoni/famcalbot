@@ -56,7 +56,7 @@ async function main() {
   const identitiesOf = (id: number): Row[] => (DB.signInIdentity ?? []).filter(i => i.userId === id);
   const claims = (o: Row = {}): Row => ({ sub: 'g-new', email: 'tal@gmail.com', emailVerified: true, ...o });
   const location = (res: Row): string => res.headers.get('location') ?? '';
-  /** Where a redirect goes, path and query (English has no language prefix: i18n/routing.ts 'as-needed'). */
+  /** Where a redirect goes, path and query (an absolute landing carries its locale prefix, English included: src/lib/web-session.ts). */
   const pathOf = (res: Row): string => {
     const url = new URL(location(res), 'https://famcal.bot');
     return `${url.pathname}${url.search}`;
@@ -94,7 +94,7 @@ async function main() {
   await check('#2 one account on that Google account, live check agreeing: "Continue with Google" signs it in, makes the Google way (used now) and sends the calendar notice, masked; Google asked once with its calendar token', async () => {
     seed();
     const res = await signInWithGoogle(claims());
-    assert(pathOf(res) === '/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
+    assert(pathOf(res) === '/en/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
     const session = validateSessionToken(res.cookies.get(SESSION_COOKIE_NAME)?.value ?? '');
     assert(session?.userId === TAL && session.method === 'google', `session ${show(session)}`);
     const [way] = identitiesOf(TAL);
@@ -109,7 +109,7 @@ async function main() {
     world.googleAsks.length = 0;
     sent.length = 0;
     const res = await signInWithGoogle(claims());
-    assert(pathOf(res) === '/dashboard?user_id=9' && world.googleAsks.length === 0 && sent.length === 0, `location ${location(res)} asks ${show(world.googleAsks)} sent ${show(sent)}`);
+    assert(pathOf(res) === '/en/dashboard?user_id=9' && world.googleAsks.length === 0 && sent.length === 0, `location ${location(res)} asks ${show(world.googleAsks)} sent ${show(sent)}`);
   });
 
   await check('#4 a live check that disagrees (the calendar now on another account) is no-account: no way, no notice, and the callback lands on the no-account page', async () => {

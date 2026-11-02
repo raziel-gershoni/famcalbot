@@ -13,10 +13,14 @@
  * - 400 `wa_link_needed`: a WhatsApp-only account signed in another way; WhatsApp refuses
  *   free replies after 24 hours, so the sheet says to open FamCal from WhatsApp.
  *
- * No imports beyond read-init-data, so it stays a small client module.
+ * Imports only read-init-data and read-json (the shared reader of an answer's JSON body), so it stays a small client
+ * module.
  */
 
 import { INIT_DATA_HEADER, readInitData } from './read-init-data';
+import { readJsonBody } from './read-json';
+
+const TAG = '[command-client]';
 
 /** The send sheet's items, in its order. */
 export const SEND_ITEMS = ['today', 'tomorrow', 'thisWeek', 'nextWeek', 'weather'] as const;
@@ -48,17 +52,6 @@ export type SendResult =
   | { outcome: 'busy' }
   | { outcome: 'failed'; status: number | null; reason?: 'wa_link_needed' };
 
-/** The body of an answer, or null (logged) when it isn't a JSON object. */
-async function readJson(res: Response): Promise<Record<string, unknown> | null> {
-  try {
-    const body: unknown = await res.json();
-    return body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : null;
-  } catch (err) {
-    console.error('[command-client] The answer was not JSON:', err);
-    return null;
-  }
-}
-
 /**
  * Asks the bot to post `item` in the user's chat. `userId` is the page's own user_id as
  * page-data hands it to the dashboard (a telegramId or a DB id; the route accepts either
@@ -84,13 +77,13 @@ export async function sendToChat(userId: number, item: SendItem, locale: string)
   const status = res.status;
   if (status === 429) return { outcome: 'busy' };
   if (status < 200 || status > 299) {
-    if (status === 400 && (await readJson(res))?.error === 'wa_link_needed') {
+    if (status === 400 && (await readJsonBody(res, TAG))?.error === 'wa_link_needed') {
       return { outcome: 'failed', status, reason: 'wa_link_needed' };
     }
     return { outcome: 'failed', status };
   }
   if (!initData) {
-    const platform = (await readJson(res))?.platform;
+    const platform = (await readJsonBody(res, TAG))?.platform;
     if (platform === 'whatsapp' || platform === 'telegram') return { outcome: 'sent', chat: platform };
     console.error('[command-client] The answer named no chat:', platform);
     return { outcome: 'sent', chat: 'unknown' };

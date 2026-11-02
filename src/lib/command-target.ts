@@ -55,9 +55,3 @@ export function resolveCommandTargetOrReason(
   }
   return { ok: false, reason: 'no_channel' };
 }
-
-/** The chat, or null when there is none (the reason: resolveCommandTargetOrReason). */
-export function resolveCommandTarget(user: UserConfig, via: AuthVia | 'server', method?: SignInMethod | null): CommandTarget | null {
-  const resolved = resolveCommandTargetOrReason(user, via, method);
-  return resolved.ok ? resolved.target : null;
-}

@@ -12,8 +12,10 @@
 // - the WhatsApp link still lands on Select calendars;
 // - /dashboard with no user_id opens the signed-in browser's own calendar;
 // - a session's end can be kept (a WhatsApp link's cookie after Remove);
-// - every landing and every /signin?status= is written in the person's language, English unprefixed, an unknown
-//   language as English (localePrefix 'as-needed'), by the one path builder src/site/signin.ts;
+// - every landing and every /signin?status= is written in the person's language by the one path builder src/site/signin.ts,
+//   and the absolute redirects carry an explicit locale prefix for every language, English included (an unknown language
+//   is English), so next-intl redirects /en/... once to the bare path and pins NEXT_LOCALE instead of re-routing by
+//   Accept-Language; client links (signInHref) stay unprefixed for English;
 // - no log line holds a cookie.
 //
 // session-auth, api-auth, web-session, src/site/signin, user-service, user-moderation, subscription-service, magic-link,
@@ -689,9 +691,9 @@ async function main() {
     assert(leaks.length === 0, `leaks: ${show(leaks)}`);
   });
 
-  await check('#15 signInPageUrl: /signin on the site in the person\'s language (English unprefixed), with the status, absolute', () => {
+  await check('#15 signInPageUrl: /signin on the site in the person\'s language with an explicit prefix for every language (English as /en, an unknown language as English), with the status, absolute', () => {
     const got = [signInPageUrl('en'), signInPageUrl('he', 'no-account'), signInPageUrl('ru', 'restart'), signInPageUrl('xx', 'failed')];
-    const want = [`${BASE}/signin`, `${BASE}/he/signin?status=no-account`, `${BASE}/ru/signin?status=restart`, `${BASE}/signin?status=failed`];
+    const want = [`${BASE}/en/signin`, `${BASE}/he/signin?status=no-account`, `${BASE}/ru/signin?status=restart`, `${BASE}/en/signin?status=failed`];
     assert(show(got) === show(want), show(got));
   });
 
@@ -742,13 +744,15 @@ async function main() {
     }
   });
 
-  await check('#18 signInHref is the one /signin path builder (English and an unknown language unprefixed, he and ru under their prefix, the status as ?status=); signInPageUrl is that path on the site\'s address; src/site/signin.ts imports nothing server-side (the sign-in page and Settings are client components)', () => {
+  await check('#18 signInHref is the one /signin path builder (English and an unknown language unprefixed, he and ru under their prefix, the status as ?status=); signInPageUrl is that path on the site\'s address with the locale prefix written out; src/site/signin.ts imports nothing server-side (the sign-in page and Settings are client components)', () => {
     const got = [signInHref('en'), signInHref('he'), signInHref('ru'), signInHref('xx'), signInHref('he', 'taken'), signInHref('ru', 'has-one'), signInHref('en', 'no-account'), signInHref('xx', 'failed')];
     const want = ['/signin', '/he/signin', '/ru/signin', '/signin', '/he/signin?status=taken', '/ru/signin?status=has-one', '/signin?status=no-account', '/signin?status=failed'];
     assert(show(got) === show(want), show(got));
     for (const locale of ['en', 'he', 'ru', 'xx']) {
       for (const status of [undefined, 'suspended', 'taken', 'has-one']) {
-        assert(signInPageUrl(locale, status) === new URL(signInHref(locale, status), BASE).toString(), `signInPageUrl(${locale}, ${status}) is not signInHref on the site`);
+        const href = signInHref(locale, status);
+        const explicit = href.startsWith('/he/') || href.startsWith('/ru/') ? href : `/en${href}`;
+        assert(signInPageUrl(locale, status) === new URL(explicit, BASE).toString(), `signInPageUrl(${locale}, ${status}) is not signInHref on the site with its prefix written out`);
       }
     }
     const webSession = read('src/lib/web-session.ts');
@@ -760,10 +764,10 @@ async function main() {
     assert(imports.length > 0 && bad.length === 0, `src/site/signin.ts imports ${show(bad)}`);
   });
 
-  await check('#19 every landing is in the person\'s language with English unprefixed and an unknown language as English (localePrefix as-needed): the dashboard and Select calendars after a sign-in, the JSON redirect, a refusal\'s /signin?status=, the WhatsApp link (a fresh one and a stale one), and /dashboard with no user_id; /en/ is never written', async () => {
+  await check('#19 [RF5] every absolute landing is in the person\'s language with an explicit locale prefix for every language, English included (/en/...; an unknown language is English), so next-intl redirects once and pins NEXT_LOCALE: the dashboard and Select calendars after a sign-in, the JSON redirect, a refusal\'s /signin?status=, and the WhatsApp link\'s fresh landing; the page\'s own redirect for /dashboard with no user_id and a stale link\'s card are not these builders', async () => {
     seed();
     const acct = (language: string, suspendedAt: Date | null = null) => ({ id: 5, language, suspendedAt, telegramId: null, whatsappPhone: null });
-    const places: [string, string][] = [['he', '/he'], ['en', ''], ['ru', '/ru'], ['xx', ''], ['', '']];
+    const places: [string, string][] = [['he', '/he'], ['en', '/en'], ['ru', '/ru'], ['xx', '/en'], ['', '/en']];
     const seen: string[] = [];
     for (const [language, prefix] of places) {
       const dash = await finishSignIn(acct(language), 'tg');
@@ -787,11 +791,11 @@ async function main() {
       assert(show(got) === show(want), `language ${show(language)}: ${show(got)} (want ${show(want)})`);
       seen.push(...Object.values(got).map(String));
     }
-    assert(seen.every(u => !u.includes('/en/')), `an /en/ path was written: ${show(seen.filter(u => u.includes('/en/')))}`);
+    assert(seen.every(u => /\/(en|he|ru)\/(dashboard|select-calendars|signin)/.test(u)), `a landing without its locale prefix: ${show(seen.filter(u => !/\/(en|he|ru)\//.test(u)))}`);
     // The WhatsApp link: the person's own language (user 5 is English), a stale link's card in the link's language.
     const tap = async (link: string) => (await magicRoute.GET(new NextRequest(link))).headers.get('location');
-    assert((await tap(await generateMagicLink(5, 'ru'))) === `${BASE}/dashboard?user_id=5`, 'the link of an English-speaking person');
-    assert((await tap(await generateMagicLink(5, 'en', 'select-calendars'))) === `${BASE}/select-calendars?user_id=5`, 'Select calendars in English');
+    assert((await tap(await generateMagicLink(5, 'ru'))) === `${BASE}/en/dashboard?user_id=5`, 'the link of an English-speaking person');
+    assert((await tap(await generateMagicLink(5, 'en', 'select-calendars'))) === `${BASE}/en/select-calendars?user_id=5`, 'Select calendars in English');
     assert((await tap(`${BASE}/api/auth/magic?token=stale&locale=en`)) === `${BASE}/dashboard`, 'the card of a stale English link');
     assert((await tap(`${BASE}/api/auth/magic?token=stale&locale=he`)) === `${BASE}/he/dashboard`, 'the card of a stale Hebrew link');
     // /dashboard with no user_id and a valid cookie.
@@ -801,6 +805,19 @@ async function main() {
       assert(r.thrown?.includes(`;${prefix}/dashboard?user_id=42;`) && !r.thrown.includes('/en/'), `/dashboard in ${locale}: ${show(r)}`);
     }
     jar.delete(NAME);
+  });
+
+  await check('#20 [RF5] proxy.ts lets /en/... reach next-intl, which redirects it once to the bare path and pins NEXT_LOCALE=en for a browser whose Accept-Language says another language, where the bare path is routed by Accept-Language (why the landings write /en)', async () => {
+    const proxy = (await load('proxy.ts')).default as (request: InstanceType<typeof NextRequest>) => Response;
+    for (const [path, bare] of [['/en/dashboard?user_id=9', '/dashboard?user_id=9'], ['/en/select-calendars?user_id=9', '/select-calendars?user_id=9'], ['/en/signin?status=failed', '/signin?status=failed']] as const) {
+      for (const language of ['he', 'ru', 'en']) {
+        const res = proxy(new NextRequest(`${BASE}${path}`, { headers: { 'accept-language': language } }));
+        assert(res.status === 307 && res.headers.get('location') === `${BASE}${bare}`, `${path} (${language}): ${res.status} ${res.headers.get('location')}`);
+        assert(language === 'en' || (res.headers.get('set-cookie') ?? '').includes('NEXT_LOCALE=en'), `${path} (${language}): the locale cookie is not pinned: ${res.headers.get('set-cookie')}`);
+      }
+    }
+    const bare = proxy(new NextRequest(`${BASE}/dashboard?user_id=9`, { headers: { 'accept-language': 'he' } }));
+    assert(bare.headers.get('location') === `${BASE}/he/dashboard?user_id=9`, `the bare path is routed by Accept-Language: ${bare.headers.get('location')}`);
   });
 
   let failed = 0;

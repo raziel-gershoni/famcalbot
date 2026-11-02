@@ -74,7 +74,7 @@ const HOME = 'app/[locale]/(app)/dashboard';
 
 async function main() {
   await check('#1 the chat follows the session: a wa session answers on WhatsApp; tg, google and email sessions on Telegram; a WhatsApp-only account signed in another way is told to use WhatsApp\'s link', async () => {
-    const { resolveCommandTargetOrReason: resolve, resolveCommandTarget } = await load('src/lib/command-target.ts');
+    const { resolveCommandTargetOrReason: resolve } = await load('src/lib/command-target.ts');
     const tg = (chatId: number) => ({ ok: true, target: { platform: 'telegram', chatId } });
     const wa = (chatId: string) => ({ ok: true, target: { platform: 'whatsapp', chatId } });
     const no = (reason: string) => ({ ok: false, reason });
@@ -103,9 +103,6 @@ async function main() {
     for (const [name, user, via, method, want] of table) {
       const got = resolve(user, via, method);
       if (show(got) !== show(want)) wrong.push(`${name}: ${show(got)}, want ${show(want)}`);
-      // The older call (target or null) agrees
-      const plain = resolveCommandTarget(user, via, method);
-      if (show(plain) !== show(want.ok ? want.target : null)) wrong.push(`${name}: resolveCommandTarget ${show(plain)}`);
     }
     assert(wrong.length === 0, wrong.join('; '));
   });

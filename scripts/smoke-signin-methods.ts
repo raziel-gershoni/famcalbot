@@ -53,7 +53,7 @@ const sentCount = (): number => sent.length;
 const userRow = (id: number): Row => DB.user.find(u => u.id === id) as Row;
 const identitiesOf = (id: number): Row[] => (DB.signInIdentity ?? []).filter(i => i.userId === id);
 const location = (res: Row): string => res.headers.get('location') ?? '';
-/** Where a redirect goes, path and query (English has no language prefix: i18n/routing.ts 'as-needed'). */
+/** Where a redirect goes, path and query (an absolute landing carries its locale prefix, English included: src/lib/web-session.ts). */
 const pathOf = (res: Row): string => {
   const url = new URL(location(res), 'https://famcal.bot');
   return `${url.pathname}${url.search}`;
@@ -392,7 +392,7 @@ async function main() {
     const { state, cookie } = await continueAddGoogle(TAL_TG, tal);
     world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
     const res = await callback(state, cookie);
-    assert(pathOf(res) === '/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
+    assert(pathOf(res) === '/en/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
     const session = validateSessionToken(res.cookies.get(SESSION_COOKIE_NAME)?.value ?? '');
     assert(session?.userId === TAL && session.method === 'google', `session ${show(session)}`);
     const [way] = identitiesOf(TAL);
@@ -433,7 +433,7 @@ async function main() {
     DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'google', subject: 'g-tal', address: 'tal@gmail.com' }));
     world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
     const res = await callback('st-1', await flowCookie({ kind: 'google', state: 'st-1', nonce: 'n-1', codeVerifier: 'v'.repeat(43), locale: 'en' }));
-    assert(pathOf(res) === '/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
+    assert(pathOf(res) === '/en/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
     assert(identitiesOf(TAL)[0].lastUsedAt instanceof Date && sent.length === 0, `way ${show(identitiesOf(TAL))} sent ${show(sent)}`);
     world.claims = { sub: 'g-nobody', email: 'nobody@gmail.com', emailVerified: true };
     const none = await callback('st-2', await flowCookie({ kind: 'google', state: 'st-2', nonce: 'n-2', codeVerifier: 'w'.repeat(43), locale: 'en' }));
@@ -470,7 +470,7 @@ async function main() {
     world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
     const cookie = await flowCookie({ kind: 'add-google', state: 'st-k', nonce: 'n-k', codeVerifier: 'k'.repeat(43), locale: 'en', userId: TAL });
     const res = await callback('st-k', cookie);
-    assert(pathOf(res) === '/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
+    assert(pathOf(res) === '/en/dashboard?user_id=9', `location ${location(res)}; captured ${show(captured)}`);
     assert(sent.length === 0 && identitiesOf(TAL).length === 1, `sent ${show(sent)} ways ${show(identitiesOf(TAL))}`);
     assert(validateSessionToken(res.cookies.get(SESSION_COOKIE_NAME)?.value ?? '')?.userId === TAL, 'no session');
   });

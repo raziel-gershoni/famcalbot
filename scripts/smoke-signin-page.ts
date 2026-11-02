@@ -554,6 +554,20 @@ async function main() {
           again.unmount();
         }
       }
+      // A suspended account (403) goes to its own page, as in every other sign-in path; any other 403 is the plain failure
+      for (const [answer, goes] of [[{ error: 'suspended' }, true], [{ error: 'forbidden' }, false]] as const) {
+        routes = { 'POST /api/auth/google/add-start': () => json(answer, 403) };
+        assigned.length = 0;
+        const sus = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(AddGoogleClient, { token: TOKEN })) as unknown as ReactElement);
+        try {
+          sus.click(way(sus, 'google') as FakeElement);
+          await settle();
+          if (goes) assert(show(assigned) === show([`${prefix(locale)}/signin?status=suspended`]), `${locale}: a suspended account went to ${show(assigned)}`);
+          else assert(assigned.length === 0 && alerts(sus).includes(a.failed), `${locale}: another 403 ${show(assigned)} ${show(alerts(sus))}`);
+        } finally {
+          sus.unmount();
+        }
+      }
     }
     const leaked = logs.filter((l) => l.includes(TOKEN));
     assert(leaked.length === 0, `a log line holds the token: ${show(leaked)}`);
