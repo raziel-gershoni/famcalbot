@@ -6,7 +6,7 @@
 //  - P1 the ways: only the configured ones (Telegram, Google, email), Telegram's with its approval note and Google's with
 //    Google's G mark, each start a plain link to its /api/auth/<way>/start in the page's language; none configured says so
 //    and offers the start buttons; the page is per request and kept out of search
-//  - P2 a valid session cookie sends /signin to the calendar (/{locale}/dashboard?user_id=); a tampered cookie, the old
+//  - P2 a valid session cookie sends /signin to the calendar (/dashboard?user_id=, with the language's prefix and none for English); a tampered cookie, the old
 //    cookie's name, no cookie, or a status in the query does not
 //  - P3 the outcomes: no account (WhatsApp's settings link, the start buttons, another way), several, suspended and
 //    blocked (the contact address), taken and has-one (a refused Add Google), and restart, failed and unavailable as an
@@ -15,10 +15,12 @@
 //    the code to /api/auth/email/verify, the redirect (same site only); a wrong code, too many wrong codes (limited), a
 //    failed check, a restart, a blocked account, a failed request; the buttons wait while a request is out and work again
 //    after it; no log line holds the address or the code
-//  - P5 inside Telegram, in its own browser (TelegramWebviewProxy) and in the Mini App's webview (Telegram.WebApp.initData
-//    non-empty): no OIDC flow starts (no link to /api/auth/..., nothing fetched or navigated on a tap); the Telegram way
+//  - P5 inside Telegram, in its own browser (TelegramWebviewProxy) and, best effort, with Telegram.WebApp.initData
+//    non-empty (a site page loads no Telegram SDK, so only a client-side navigation from an app page leaves it): no OIDC flow starts (no link to /api/auth/..., nothing fetched or navigated on a tap); the Telegram way
 //    opens Telegram's app link, Google says to open the page in a browser and shows its address, email still works;
 //    outside Telegram the same page links both start routes
+//  - P5b the link ways (Telegram, Google): a plain tap shows "opening", takes the other ways' clicks and disables email; a
+//    ctrl, meta, shift, alt or middle click (a new tab) changes nothing on the page
 //  - P6 /signin/add-google?token=: names the account (read with getUserById) and never uses the link up (the key is the
 //    token's sha256, as Task 6 stores it); Continue posts the token to add-start and goes to Google; a used or late link
 //    (on the page, or at Continue) says to start again from Settings; a token that isn't one is never looked up; Redis
@@ -252,7 +254,7 @@ async function main() {
       jar.clear();
       jar.set(SESSION_COOKIE_NAME, token);
       const r = await pageOf(SignInPage, locale);
-      assert('redirect' in r && r.redirect === `/${locale}/dashboard?user_id=7`, `${locale}: ${show(r)}`);
+      assert('redirect' in r && r.redirect === `${prefix(locale)}/dashboard?user_id=7`, `${locale}: ${show(r)}`);
       assert('html' in (await pageOf(SignInPage, locale, { status: 'no-account' })), `${locale}: a status was redirected away`);
       jar.set(SESSION_COOKIE_NAME, `${token.slice(0, -3)}abc`);
       assert('html' in (await pageOf(SignInPage, locale)), `${locale}: a tampered cookie redirected`);
@@ -399,10 +401,10 @@ async function main() {
         await settle();
         assert(assigned.length === 0 && alerts(m).includes(s.requestFailed), `${locale}: a redirect off the site was followed: ${show(assigned)}`);
 
-        routes = { 'POST /api/auth/email/verify': () => json({ ok: true, redirect: `/${locale}/dashboard?user_id=7` }) };
+        routes = { 'POST /api/auth/email/verify': () => json({ ok: true, redirect: `${prefix(locale)}/dashboard?user_id=7` }) };
         m.submit(formOf(m));
         await settle();
-        assert(show(assigned) === show([`/${locale}/dashboard?user_id=7`]), `${locale}: the redirect ${show(assigned)}`);
+        assert(show(assigned) === show([`${prefix(locale)}/dashboard?user_id=7`]), `${locale}: the redirect ${show(assigned)}`);
       } finally {
         m.unmount();
       }
@@ -488,6 +490,31 @@ async function main() {
       assert(way(plain, 'telegram')?.getAttribute('href') === '/api/auth/telegram/start?locale=en' && way(plain, 'google')?.getAttribute('href') === '/api/auth/google/start?locale=en', 'a plain browser does not link the start routes');
     } finally {
       plain.unmount();
+    }
+  });
+
+  await check('P5b the link ways: a plain tap shows "opening", turns the other ways off (their clicks are taken) and disables email; a ctrl, meta, shift, alt or middle click (a new tab) leaves the page as it was', async () => {
+    for (const locale of LOCALES) {
+      const s = S(locale);
+      const m = openClient(locale);
+      try {
+        const telegram = () => way(m, 'telegram') as FakeElement;
+        const google = () => way(m, 'google') as FakeElement;
+        const email = () => way(m, 'email') as FakeElement;
+        for (const extra of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+          m.click(telegram(), extra);
+          assert(!telegram().hasAttribute('aria-busy') && flat(telegram()) === s.telegram, `${locale}: ${show(extra)} made the page busy: "${flat(telegram())}"`);
+          m.click(google(), extra);
+          assert(!google().hasAttribute('aria-busy') && flat(google()) === s.google, `${locale}: ${show(extra)} on Google made the page busy`);
+        }
+        assert(!email().hasAttribute('disabled'), `${locale}: email disabled with nothing opening`);
+        const plain = m.click(telegram());
+        assert(plain.defaultPrevented === false && telegram().getAttribute('aria-busy') === 'true' && flat(telegram()) === s.opening, `${locale}: a plain tap "${flat(telegram())}"`);
+        assert(m.click(google()).defaultPrevented === true && !google().hasAttribute('aria-busy'), `${locale}: Google could be opened while Telegram was`);
+        assert(email().hasAttribute('disabled'), `${locale}: email stays on while Telegram opens`);
+      } finally {
+        m.unmount();
+      }
     }
   });
 

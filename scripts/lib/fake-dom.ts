@@ -305,7 +305,8 @@ export function installWindow() {
 export type Mounted = {
   container: FakeElement;
   render: (el: ReactElement) => void;
-  click: (el: FakeNode) => void;
+  /** A click on `el` (`extra`: modifiers such as ctrlKey, or button for a middle click); returns the event, to see whether it was taken (defaultPrevented). */
+  click: (el: FakeNode, extra?: Row) => Row;
   /** A keydown on `el` (`extra`: modifiers such as shiftKey); returns the event, to see whether it was taken (defaultPrevented). */
   key: (el: FakeNode, key: string, extra?: Row) => Row;
   /** A select's change to `value`, as the platform's picker makes it. */
@@ -354,7 +355,7 @@ export function mount(el: ReactElement, rootOptions?: Row): Mounted {
   return {
     container,
     render: (next) => React.act(() => root.render(next)),
-    click: (target) => void dispatch(target, 'click', {}),
+    click: (target, extra = {}) => dispatch(target, 'click', extra),
     key: (target, key, extra = {}) => dispatch(target, 'keydown', { key, ...extra }),
     change: (target, value) => {
       (target as FakeElement).value = value;

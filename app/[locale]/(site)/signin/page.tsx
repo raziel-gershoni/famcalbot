@@ -94,7 +94,7 @@ export default async function SignInPage({ params, searchParams }: Props) {
   if (!status) {
     const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
     const session = token ? validateSessionToken(token) : null;
-    if (session) redirect(`/${locale}/dashboard?user_id=${session.userId}`);
+    if (session) redirect(localeHref(locale, `/dashboard?user_id=${session.userId}`));
   }
   const t = await getTranslations({ locale });
   const ways: SignInWays = { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() };

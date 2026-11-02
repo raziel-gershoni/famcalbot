@@ -4,11 +4,13 @@
 // ways are configured (no button for one whose keys aren't set) and passes the bot's link and the page's address.
 //
 // - Telegram and Google are plain links to their start routes (/api/auth/<way>/start?locale=): the server makes the
-//   one-time checks and redirects to the provider. Tapping one shows that it is opening; coming back with the browser's
-//   Back (the page restored from the back-forward cache) makes the ways usable again.
-// - Inside Telegram, in its own browser (window.TelegramWebviewProxy, iOS and Android) or in the Mini App's webview
-//   (window.Telegram.WebApp.initData is not empty; Telegram Web and Desktop have no bridge object), Telegram's login can't
-//   finish and Google refuses to sign in: no OIDC flow starts. The Telegram way is Telegram's own app link instead (the
+//   one-time checks and redirects to the provider. Tapping one shows that it is opening and the other ways are off
+//   (a ctrl/cmd/shift/middle click opens a new tab and leaves this page as it was); coming back with the browser's Back
+//   (the page restored from the back-forward cache) makes the ways usable again.
+// - Inside Telegram, in its own browser (window.TelegramWebviewProxy, iOS and Android), Telegram's login can't finish and
+//   Google refuses to sign in: no OIDC flow starts. A Mini App webview (window.Telegram.WebApp.initData not empty) counts
+//   too, best effort: this site's pages load no Telegram SDK, so it is seen only where a client-side navigation kept the
+//   object from an app page. The Telegram way is Telegram's own app link instead (the
 //   bot's chat, whose dashboard button opens the Mini App), and Google's place says to open this page in a browser, with
 //   its address.
 // - Email: the address, then one answer for every address ("If this email is on a FamCal account, we sent a code"), then
@@ -20,7 +22,7 @@
 // - The words are site.signin.* (the site namespace reaches the client). Inputs are 16 px (no zoom on iOS) and read left
 //   to right in every language.
 
-import { useEffect, useId, useState, useSyncExternalStore, type FormEvent } from 'react';
+import { useEffect, useId, useState, useSyncExternalStore, type FormEvent, type MouseEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Mail, Send } from 'lucide-react';
 import { GoogleMark } from '@/components/site/GoogleMark';
@@ -41,9 +43,10 @@ type Problem = 'requestFailed' | 'codeWrong' | 'codeLimited' | 'codeRestart';
 const TAG = '[signin]';
 const subscribe = () => () => {};
 /**
- * Inside Telegram: its own browser defines the TelegramWebviewProxy bridge, and the Mini App's webview (also on Telegram
- * Web and Desktop, which have no bridge) has Telegram.WebApp with the initData it was opened with. A normal browser has
- * neither. No sign-in flow of ours can finish in either place.
+ * Inside Telegram: its own browser defines the TelegramWebviewProxy bridge (the sure signal). A Mini App webview has
+ * Telegram.WebApp with the initData it was opened with, but a site page loads no SDK, so that is best effort (only a
+ * client-side navigation from an app page leaves the object behind). A normal browser has neither. No sign-in flow of
+ * ours can finish inside Telegram.
  */
 const inTelegram = () => {
   if (typeof window === 'undefined') return false;
@@ -74,6 +77,14 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
     window.addEventListener('pageshow', reset);
     return () => window.removeEventListener('pageshow', reset);
   }, []);
+
+  // A way that is a link: while one is opening the others do nothing; a modified or non-primary click opens a new tab, so
+  // this page stays as it was
+  const startWay = (way: 'telegram' | 'google') => (event: MouseEvent<HTMLAnchorElement>) => {
+    if (busy !== null) return event.preventDefault();
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    setBusy(way);
+  };
 
   const goTo = (next: Step) => {
     setProblem(null);
@@ -178,7 +189,7 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
                   {t('telegramInApp')}
                 </a>
               ) : (
-                <a className="site-signin-way" data-way="telegram" href={`/api/auth/telegram/start?locale=${locale}`} aria-busy={busy === 'telegram' || undefined} onClick={() => setBusy('telegram')}>
+                <a className="site-signin-way" data-way="telegram" href={`/api/auth/telegram/start?locale=${locale}`} aria-busy={busy === 'telegram' || undefined} onClick={startWay('telegram')}>
                   {busy === 'telegram' ? spinner : <Send aria-hidden="true" focusable="false" />}
                   {busy === 'telegram' ? t('opening') : t('telegram')}
                 </a>
@@ -194,7 +205,7 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
                   <code dir="ltr">{pageAddress}</code>
                 </p>
               ) : (
-                <a className="site-signin-way" data-way="google" href={`/api/auth/google/start?locale=${locale}`} aria-busy={busy === 'google' || undefined} onClick={() => setBusy('google')}>
+                <a className="site-signin-way" data-way="google" href={`/api/auth/google/start?locale=${locale}`} aria-busy={busy === 'google' || undefined} onClick={startWay('google')}>
                   {busy === 'google' ? spinner : <GoogleMark />}
                   {busy === 'google' ? t('opening') : t('google')}
                 </a>
@@ -203,7 +214,7 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
           ) : null}
           {ways.email ? (
             <li>
-              <button type="button" className="site-signin-way" data-way="email" onClick={() => goTo('email')}>
+              <button type="button" className="site-signin-way" data-way="email" disabled={busy !== null} onClick={() => goTo('email')}>
                 <Mail aria-hidden="true" focusable="false" />
                 {t('email')}
               </button>

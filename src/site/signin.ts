@@ -7,9 +7,6 @@ import { localeHref } from '@/src/site/zmanim/links';
 import { normalizeLocale } from '@/src/utils/locale';
 import type { SignInStatus } from '@/src/lib/web-session';
 
-/** Every status the sign-in flows send to /signin. */
-export const SIGNIN_STATUSES = ['no-account', 'several', 'suspended', 'blocked', 'restart', 'failed', 'unavailable', 'taken', 'has-one'] as const satisfies readonly SignInStatus[];
-
 /** The answers another try won't change: they stand instead of the ways, with their own words and actions. */
 export type OutcomeStatus = 'no-account' | 'several' | 'suspended' | 'blocked' | 'taken' | 'has-one';
 const OUTCOMES: readonly SignInStatus[] = ['no-account', 'several', 'suspended', 'blocked', 'taken', 'has-one'];
@@ -27,9 +24,12 @@ export const STATUS_KEY: Record<SignInStatus, string> = {
   'has-one': 'hasOne',
 };
 
+/** Every status the sign-in flows send to /signin: STATUS_KEY's keys, so a new SignInStatus member is read by construction (the Record fails to compile without it). */
+export const SIGNIN_STATUSES = Object.keys(STATUS_KEY) as SignInStatus[];
+
 /** The status a query value names, or null for anything else (an unknown value is ignored). */
 export function readSignInStatus(value: unknown): SignInStatus | null {
-  return typeof value === 'string' && (SIGNIN_STATUSES as readonly string[]).includes(value) ? (value as SignInStatus) : null;
+  return typeof value === 'string' && SIGNIN_STATUSES.includes(value as SignInStatus) ? (value as SignInStatus) : null;
 }
 
 export function isOutcome(status: SignInStatus): status is OutcomeStatus {
