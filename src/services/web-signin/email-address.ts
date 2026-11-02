@@ -28,10 +28,23 @@ const TOP_LABEL = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
 /** Upper-case ASCII letters lower-cased, and nothing else touched. */
 const lowerAscii = (text: string) => text.replace(/[A-Z]/g, (c) => c.toLowerCase());
 
+/**
+ * Lower-cases a typed domain: ASCII letters, and a non-ASCII letter only into another non-ASCII one (Б → б, Ü → ü). A
+ * character whose lower case contains ASCII (the Kelvin sign → "k", İ → "i̇") stays as typed, so it still fails the
+ * punycode round trip below and the address is refused.
+ */
+function lowerDomain(typed: string): string {
+  return Array.from(typed, (c) => {
+    if (c.charCodeAt(0) < 0x80) return lowerAscii(c);
+    const lower = c.toLocaleLowerCase('en-US');
+    return /[\x00-\x7f]/.test(lower) ? c : lower;
+  }).join('');
+}
+
 /** The domain in ASCII (punycode for an IDN), lower case, or null. */
 function asciiDomain(typed: string): string | null {
   if (typed.length === 0) return null;
-  const lowered = lowerAscii(typed);
+  const lowered = lowerDomain(typed);
   let domain = lowered;
   if (!PRINTABLE_ASCII.test(lowered)) {
     domain = domainToASCII(lowered);

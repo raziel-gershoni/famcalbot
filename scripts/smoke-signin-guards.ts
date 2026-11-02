@@ -151,8 +151,10 @@ const redisImpl: Row = {
   ttl: async (k: string) => ttlOf(k),
   eval: async (script: string, keys: string[], args: string[]) => {
     const [key] = keys;
-    if (script.includes("'SADD'")) {
-      // ADD_MEMBER_SCRIPT
+    // Only the two exported scripts are run, matched by their whole text: a changed script is "unknown" here, and
+    // check #25b pins what each one says (this fake is TypeScript, not a Lua engine).
+    const { COUNT_SCRIPT, ADD_MEMBER_SCRIPT } = await load('src/services/web-signin/limits.ts');
+    if (script === ADD_MEMBER_SCRIPT) {
       const e = live(key);
       const set = e && e.value instanceof Set ? e.value : new Set<string>();
       const added = !set.has(args[0]);
@@ -162,8 +164,7 @@ const redisImpl: Row = {
       if (added && set.size > Number(args[2])) { set.delete(args[0]); return 0; }
       return 1;
     }
-    if (script.includes("'INCR'")) {
-      // COUNT_SCRIPT
+    if (script === COUNT_SCRIPT) {
       const n = incr(key);
       if (ttlOf(key) < 0 || n === Number(args[1])) expire(key, Number(args[0]));
       return n;
@@ -399,6 +400,8 @@ async function main() {
       ['user@münchen.de', 'user@xn--mnchen-3ya.de'],
       ['user@xn--mnchen-3ya.de', 'user@xn--mnchen-3ya.de'],
       ['user@пример.рф', 'user@xn--e1afmkfd.xn--p1ai'],
+      ['user@MÜNCHEN.de', 'user@xn--mnchen-3ya.de'],
+      ['Dana@ПРИМЕР.РФ', 'dana@xn--e1afmkfd.xn--p1ai'],
     ];
     const wrong = table.filter(([input, want]) => normalizeEmail(input) !== want).map(([input, want]) => `${show(input)}: ${normalizeEmail(input)}, want ${want}`);
     assert(wrong.length === 0, wrong.join('; '));
@@ -408,7 +411,7 @@ async function main() {
     const { normalizeEmail } = await load('src/services/web-signin/email-address.ts');
     const K = 'K';
     const refused: unknown[] = [
-      `dan${K}@gmail.com`, `DAN${K}@gmail.com`, `dana@${K}-mail.com`, 'dana@gmail．com', 'dаna@gmail.com', 'da​na@gmail.com',
+      `dan${K}@gmail.com`, `DAN${K}@gmail.com`, `dana@${K}-mail.com`, `dana@gmai${K}.com`, `dana@${K}.com`, 'dana@İ.com', 'dana@ＧＭＡＩＬ.com', 'dana@gmail．com', 'dаna@gmail.com', 'da​na@gmail.com',
       'dana@gmail', 'dana@@gmail.com', 'da@na@gmail.com', 'da na@gmail.com', '.dana@gmail.com', 'dana.@gmail.com', 'dana..x@gmail.com',
       '"dana"@gmail.com', 'dana@-gmail.com', 'dana@gmail-.com', 'dana@gmail..com', 'dana@gma_il.com', 'dana@1.23', 'dana@gmail.c',
       `${'a'.repeat(65)}@gmail.com`, `a@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(63)}.${'e'.repeat(60)}.com`,
@@ -677,6 +680,28 @@ async function main() {
     try { await countWithin(key, 600); } catch { thrown = true; }
     assert(thrown, 'a Redis failure was swallowed');
     assert(captured.length === 0, `countWithin captured an error itself: ${show(captured)}`);
+  });
+
+  await check('#25b the two Lua scripts say what the fake Redis does (the fake is not a Lua engine, so their load-bearing clauses are pinned): COUNT = INCR, expiry when the key has none (TTL < 0) and again at the restart count; ADD_MEMBER = SADD, expiry when none, a new member past the cap taken out again and refused', async () => {
+    const { COUNT_SCRIPT, ADD_MEMBER_SCRIPT } = await limits();
+    const wantCount = "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
+    const wantAdd = "local added = redis.call('SADD', KEYS[1], ARGV[1]) if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end if added == 1 and redis.call('SCARD', KEYS[1]) > tonumber(ARGV[3]) then redis.call('SREM', KEYS[1], ARGV[1]) return 0 end return 1";
+    assert(COUNT_SCRIPT === wantCount, `COUNT_SCRIPT changed: ${COUNT_SCRIPT}`);
+    assert(ADD_MEMBER_SCRIPT === wantAdd, `ADD_MEMBER_SCRIPT changed: ${ADD_MEMBER_SCRIPT}`);
+    const clauses: [string, string, string][] = [
+      ['COUNT', COUNT_SCRIPT, "local n = redis.call('INCR', KEYS[1]) "],
+      ['COUNT', COUNT_SCRIPT, "if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end"],
+      ['COUNT', COUNT_SCRIPT, ' return n'],
+      ['ADD_MEMBER', ADD_MEMBER_SCRIPT, "local added = redis.call('SADD', KEYS[1], ARGV[1]) "],
+      ['ADD_MEMBER', ADD_MEMBER_SCRIPT, "if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end"],
+      ['ADD_MEMBER', ADD_MEMBER_SCRIPT, "if added == 1 and redis.call('SCARD', KEYS[1]) > tonumber(ARGV[3]) then redis.call('SREM', KEYS[1], ARGV[1]) return 0 end return 1"],
+    ];
+    const missing = clauses.filter(([, text, clause]) => !text.includes(clause)).map(([name, , clause]) => `${name} lacks ${clause}`);
+    assert(missing.length === 0, missing.join('; '));
+    // a script the fake does not know is refused, not guessed at
+    let refusedUnknown = false;
+    try { await fakeRedis.eval(`${COUNT_SCRIPT} --`, ['signin:lim:probe'], ['60', '0']); } catch { refusedUnknown = true; }
+    assert(refusedUnknown, 'the fake ran a script that is not one of the two');
   });
 
   // ---- Sign out ----

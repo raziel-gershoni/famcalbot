@@ -54,15 +54,16 @@ const LIMIT = {
 
 /**
  * INCR KEYS[1] and return the count; set its expiry (ARGV[1] seconds) when it has none, and again when the count
- * reaches ARGV[2] (when > 0), so the pause after a limit is a whole window.
+ * reaches ARGV[2] (when > 0), so the pause after a limit is a whole window. Exported so the smoke pins its text.
  */
-const COUNT_SCRIPT =
+export const COUNT_SCRIPT =
   "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
 /**
  * SADD ARGV[1] to the set KEYS[1], with its expiry (ARGV[2] seconds) when it has none. A new member past ARGV[3]
- * members is taken out again and refused (0); otherwise 1. A member already in the set always passes.
+ * members is taken out again and refused (0); otherwise 1. A member already in the set always passes. Exported so the
+ * smoke pins its text.
  */
-const ADD_MEMBER_SCRIPT =
+export const ADD_MEMBER_SCRIPT =
   "local added = redis.call('SADD', KEYS[1], ARGV[1]) if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end if added == 1 and redis.call('SCARD', KEYS[1]) > tonumber(ARGV[3]) then redis.call('SREM', KEYS[1], ARGV[1]) return 0 end return 1";
 
 /** The key every request without a client address shares. */
