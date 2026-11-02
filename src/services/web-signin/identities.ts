@@ -136,7 +136,9 @@ export async function addIdentity(
 
 /**
  * Remove a way (spec §4, §2.13, §2.17). Any Google removal, the calendar's row included, turns googleCalendarSignIn off,
- * so the calendar match doesn't make it again (Add Google still works). A removal that changed something ends every web
+ * so the calendar match doesn't make it again (Add Google still works), and clears the calendar account's keyed hash:
+ * with the switch off it serves no purpose, so it isn't kept (the Privacy Policy says it is kept only to sign the
+ * person in; the lawyer review, finding 10). A removal that changed something ends every web
  * session: sessionsValidAfter is now (the route gives the device it came from a fresh cookie). One that found nothing
  * to remove (no such way, the calendar switch already off) changes nothing and signs nobody out. Returns whether
  * something changed.
@@ -149,7 +151,7 @@ export async function removeSignInMethod(userId: number, which: RemovableWay): P
     if (deleted === 0 && !switchWasOn) return false;
     await tx.user.update({
       where: { id: userId },
-      data: { sessionsValidAfter: new Date(), ...(which === 'email' ? {} : { googleCalendarSignIn: false }) },
+      data: { sessionsValidAfter: new Date(), ...(which === 'email' ? {} : { googleCalendarSignIn: false, googleAccountKey: null }) },
     });
     return true;
   }).then(changed => {

@@ -449,8 +449,9 @@ async function mergeWhatsAppUser(
         // The scopes describe the token, so they travel with it.
         googleScopes: w.googleScopes,
         // So does the keyed address of the account it was granted from (web sign-in spec §2.17). The match stays off
-        // when either side turned it off (by removing a Google sign-in way), so the merge never makes it again.
-        googleAccountKey: w.googleAccountKey,
+        // when either side turned it off (by removing a Google sign-in way), so the merge never makes it again, and
+        // then keeps no key either (it would serve no purpose).
+        googleAccountKey: w.googleCalendarSignIn && t.googleCalendarSignIn ? w.googleAccountKey : null,
         googleCalendarSignIn: w.googleCalendarSignIn && t.googleCalendarSignIn,
       },
     })).count === 1;

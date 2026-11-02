@@ -166,7 +166,7 @@ const redisImpl: Row = {
     }
     if (script === COUNT_SCRIPT) {
       const n = incr(key);
-      if (ttlOf(key) < 0 || n === Number(args[1])) expire(key, Number(args[0]));
+      if (ttlOf(key) < 0) expire(key, Number(args[0]));
       return n;
     }
     throw new Error(`unknown script in smoke: ${script}`);
@@ -603,6 +603,24 @@ async function main() {
     assert((await codeChecksBlocked({ emailKey, ip: '203.0.113.50' })) === false, 'still paused a day after the tenth');
   });
 
+  await check('#20b [finding 11] no wrong-code record lives past a day of being made: the count is not renewed at the tenth (it ends a day after the first), and the pause is its own marker that ends a day after the tenth', async () => {
+    reset();
+    const { recordWrongCode } = await limits();
+    const emailKey = await keyFor('dana@gmail.com');
+    const countKey = `signin:lim:wrong-email-day:${emailKey}`;
+    const pauseKey = `signin:lim:wrong-email-pause:${emailKey}`;
+    for (let i = 1; i <= 9; i++) {
+      await recordWrongCode({ emailKey, ip: `203.0.113.${i}` });
+      advance(2 * 3600);
+    }
+    assert(!store.has(pauseKey), 'a pause marker before the tenth');
+    await recordWrongCode({ emailKey, ip: '203.0.113.10' });
+    const left = ttlOf(countKey);
+    assert(left > 0 && left <= 24 * 3600 - 18 * 3600, `the count was renewed at the tenth: ${left} s left, 18 h after the first`);
+    const pause = ttlOf(pauseKey);
+    assert(pause > 23 * 3600 && pause <= 24 * 3600, `the pause marker should last a day from the tenth: ${pause} s`);
+  });
+
   await check('#21 twenty wrong codes from one address in an hour block its checks, for any email; free an hour later', async () => {
     reset();
     const { recordWrongCode, codeChecksBlocked } = await limits();
@@ -684,15 +702,15 @@ async function main() {
     assert(captured.length === 0, `countWithin captured an error itself: ${show(captured)}`);
   });
 
-  await check('#25b the two Lua scripts say what the fake Redis does (the fake is not a Lua engine, so their load-bearing clauses are pinned): COUNT = INCR, expiry when the key has none (TTL < 0) and again at the restart count; ADD_MEMBER = SADD, expiry when none, a new member past the cap taken out again and refused', async () => {
+  await check('#25b the two Lua scripts say what the fake Redis does (the fake is not a Lua engine, so their load-bearing clauses are pinned): COUNT = INCR, expiry when the key has none (TTL < 0) and never again; ADD_MEMBER = SADD, expiry when none, a new member past the cap taken out again and refused', async () => {
     const { COUNT_SCRIPT, ADD_MEMBER_SCRIPT } = await limits();
-    const wantCount = "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
+    const wantCount = "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
     const wantAdd = "local added = redis.call('SADD', KEYS[1], ARGV[1]) if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end if added == 1 and redis.call('SCARD', KEYS[1]) > tonumber(ARGV[3]) then redis.call('SREM', KEYS[1], ARGV[1]) return 0 end return 1";
     assert(COUNT_SCRIPT === wantCount, `COUNT_SCRIPT changed: ${COUNT_SCRIPT}`);
     assert(ADD_MEMBER_SCRIPT === wantAdd, `ADD_MEMBER_SCRIPT changed: ${ADD_MEMBER_SCRIPT}`);
     const clauses: [string, string, string][] = [
       ['COUNT', COUNT_SCRIPT, "local n = redis.call('INCR', KEYS[1]) "],
-      ['COUNT', COUNT_SCRIPT, "if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end"],
+      ['COUNT', COUNT_SCRIPT, "if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end"],
       ['COUNT', COUNT_SCRIPT, ' return n'],
       ['ADD_MEMBER', ADD_MEMBER_SCRIPT, "local added = redis.call('SADD', KEYS[1], ARGV[1]) "],
       ['ADD_MEMBER', ADD_MEMBER_SCRIPT, "if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[2]) end"],
@@ -702,7 +720,7 @@ async function main() {
     assert(missing.length === 0, missing.join('; '));
     // a script the fake does not know is refused, not guessed at
     let refusedUnknown = false;
-    try { await fakeRedis.eval(`${COUNT_SCRIPT} --`, ['signin:lim:probe'], ['60', '0']); } catch { refusedUnknown = true; }
+    try { await fakeRedis.eval(`${COUNT_SCRIPT} --`, ['signin:lim:probe'], ['60']); } catch { refusedUnknown = true; }
     assert(refusedUnknown, 'the fake ran a script that is not one of the two');
   });
 

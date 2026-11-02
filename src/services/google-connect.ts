@@ -238,7 +238,8 @@ export async function claimPendingGoogleToken(
  *
  * The account's key (web sign-in spec §2.17) is the grant's, or null: this token may be of
  * another account than the one before, and the startup pass keys a null one on the next boot.
- * googleCalendarSignIn is the person's choice and stays as it is.
+ * googleCalendarSignIn is the person's choice and stays as it is; with it off the key is not kept at all (the hash
+ * would serve no purpose: lawyer review, finding 10).
  */
 export async function commitGoogleToken(ownerUserId: number, refreshToken: string, grant?: GoogleGrant): Promise<{ sync?: SyncCommit }> {
   const user = await getUserById(ownerUserId);
@@ -254,7 +255,7 @@ export async function commitGoogleToken(ownerUserId: number, refreshToken: strin
   // Save new refresh token on the owner, by DB id (updateUserById encrypts it)
   await updateUserById(user.id, {
     googleRefreshToken: refreshToken,
-    googleAccountKey: grant?.accountKey ?? null,
+    googleAccountKey: user.googleCalendarSignIn ? grant?.accountKey ?? null : null,
     ...(stale ? { calendarAssignments: Prisma.DbNull as unknown as null } : {}),
     ...(grant ? { googleScopes: grant.scopes, googleSyncNotifiedAt: null } : {}),
   });

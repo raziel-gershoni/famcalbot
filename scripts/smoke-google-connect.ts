@@ -1783,15 +1783,20 @@ async function main() {
     assert(show(userRow(9).googleScopes) === show(['https://www.googleapis.com/auth/calendar.readonly']), `googleScopes ${show(userRow(9).googleScopes)}`);
   });
 
-  await check('#41b the commit saves the account key the entry carries; a consent whose account Google did not tell clears the old key (it may be another account\'s); the calendar sign-in switch is left as it is', async () => {
+  await check('#41b the commit saves the account key the entry carries only while the calendar sign-in switch is on (off keeps no key: the lawyer review, finding 10); a consent whose account Google did not tell clears the old key (it may be another account\'s); the switch is left as it is', async () => {
     seed();
     const { googleAccountKey } = await load('src/services/web-signin/account-key.ts');
     userRow(9).googleCalendarSignIn = false;
+    userRow(9).googleAccountKey = 'k1:left-over';
     googleAnswer = { refresh_token: 'google-rt-new', scope: BOTH_SCOPES, access_token: 'at-1' };
     primaryAnswer = { id: 'Tal@Gmail.com' };
     await consentAndClaim(addState(9));
-    assert(userRow(9).googleAccountKey === googleAccountKey('tal@gmail.com'), `key ${show(userRow(9).googleAccountKey)}; ${captured.join(' | ')}`);
+    assert(userRow(9).googleAccountKey === null, `a switch that is off kept a key: ${show(userRow(9).googleAccountKey)}; ${captured.join(' | ')}`);
     assert(userRow(9).googleCalendarSignIn === false, 'the commit changed the switch');
+    userRow(9).googleCalendarSignIn = true;
+    await consentAndClaim(addState(9));
+    assert(userRow(9).googleAccountKey === googleAccountKey('tal@gmail.com'), `key ${show(userRow(9).googleAccountKey)}; ${captured.join(' | ')}`);
+    assert(userRow(9).googleCalendarSignIn === true, 'the commit changed the switch');
     primaryAnswer = { status: 401 };
     await consentAndClaim(addState(9));
     assert(userRow(9).googleAccountKey === null, `an unknown account kept the old key: ${show(userRow(9).googleAccountKey)}`);

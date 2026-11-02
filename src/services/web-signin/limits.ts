@@ -7,14 +7,15 @@
  * | Codes to one email                 | 1 a minute, 5 a day                                         |
  * | Code requests from one address     | 20 an hour                                                  |
  * | Add-email codes per account        | 3 addresses a day                                           |
- * | Wrong codes for one email          | 10 a day, then email sign-in for it pauses for a day        |
+ * | Wrong codes for one email          | 10 a day, then email sign-in for it pauses for a day (a marker) |
  * | Wrong codes from one address       | 20 an hour                                                  |
  * | All codes sent                     | 90 a UTC day (Resend allows 100), then one admin message    |
  *
  * (Tries per code, 5 then void, are counted by email-code.ts through countWithin below.)
  *
  * - Keys are `signin:lim:<what>:<keyed hash>` (signinHash: the email's key, the address's, the account's), never an
- *   address, an IP or a user id in clear, and each expires within a day. The day's budget is keyed by its UTC date and
+ *   address, an IP or a user id in clear, and each expires within a day of being made (the count of wrong codes is
+ *   never renewed; the pause after the tenth is its own marker, `wrong-email-pause`, made at the tenth). The day's budget is keyed by its UTC date and
  *   expires at the next 00:00 UTC.
  * - A count and its expiry are set in one Lua call, so no key is ever left without one. A count past its limit is
  *   still counted (an attacker's flood doesn't reset anything).
@@ -53,11 +54,11 @@ const LIMIT = {
 } as const;
 
 /**
- * INCR KEYS[1] and return the count; set its expiry (ARGV[1] seconds) when it has none, and again when the count
- * reaches ARGV[2] (when > 0), so the pause after a limit is a whole window. Exported so the smoke pins its text.
+ * INCR KEYS[1] and return the count; set its expiry (ARGV[1] seconds) when it has none, and never again, so no count
+ * lives past its window. Exported so the smoke pins its text.
  */
 export const COUNT_SCRIPT =
-  "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 or n == tonumber(ARGV[2]) then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
+  "local n = redis.call('INCR', KEYS[1]) if redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end return n";
 /**
  * SADD ARGV[1] to the set KEYS[1], with its expiry (ARGV[2] seconds) when it has none. A new member past ARGV[3]
  * members is taken out again and refused (0); otherwise 1. A member already in the set always passes. Exported so the
@@ -83,8 +84,8 @@ function addressId(ip: string | null): string {
   return signinHash('ip', ip ?? NO_ADDRESS);
 }
 
-async function count(key: string, windowSec: number, restartAt = 0): Promise<number> {
-  return Number(await redis.eval(COUNT_SCRIPT, [key], [String(windowSec), String(restartAt)]));
+async function count(key: string, windowSec: number): Promise<number> {
+  return Number(await redis.eval(COUNT_SCRIPT, [key], [String(windowSec)]));
 }
 
 /**
@@ -122,12 +123,13 @@ export async function allowCodeRequest(args: {
 }): Promise<{ ok: true } | { ok: false; reason: LimitReason }> {
   const step = args.addForUserId !== undefined ? 'add-email code request' : 'code request';
   try {
-    const [sent, wrong] = await redis.mget<(number | string | null)[]>(
+    const [sent, wrong, paused] = await redis.mget<(number | string | null)[]>(
       budget(Date.now()).key,
       limitKey('wrong-email-day', args.emailKey),
+      limitKey('wrong-email-pause', args.emailKey),
     );
     if (Number(sent ?? 0) >= LIMIT.codesSentPerDay) return refused(step, 'daily-budget', args.addForUserId);
-    if (Number(wrong ?? 0) >= LIMIT.wrongCodesPerEmailDay) return refused(step, 'wrong-email-day', args.addForUserId);
+    if (paused !== null || Number(wrong ?? 0) >= LIMIT.wrongCodesPerEmailDay) return refused(step, 'wrong-email-day', args.addForUserId);
     if ((await count(limitKey('ip-hour', addressId(args.ip)), HOUR_SEC)) > LIMIT.codeRequestsPerAddressHour) {
       return refused(step, 'ip-hour', args.addForUserId);
     }
@@ -151,11 +153,12 @@ export async function allowCodeRequest(args: {
 /** Is checking a code paused here: 10 wrong codes for this email today, or 20 from this address this hour? Fails closed. */
 export async function codeChecksBlocked(args: { emailKey: string; ip: string | null }): Promise<boolean> {
   try {
-    const [forEmail, fromAddress] = await redis.mget<(number | string | null)[]>(
+    const [forEmail, paused, fromAddress] = await redis.mget<(number | string | null)[]>(
       limitKey('wrong-email-day', args.emailKey),
+      limitKey('wrong-email-pause', args.emailKey),
       limitKey('wrong-ip-hour', addressId(args.ip)),
     );
-    if (Number(forEmail ?? 0) >= LIMIT.wrongCodesPerEmailDay) {
+    if (paused !== null || Number(forEmail ?? 0) >= LIMIT.wrongCodesPerEmailDay) {
       console.info('[signin-limits] code check refused: wrong-email-day');
       return true;
     }
@@ -170,10 +173,15 @@ export async function codeChecksBlocked(args: { emailKey: string; ip: string | n
   }
 }
 
-/** Counts a wrong (or expired) code for this email (a day, restarted at the 10th) and from this address (an hour). */
+/**
+ * Counts a wrong (or expired) code for this email (a day from the first, never renewed) and from this address (an
+ * hour). The tenth for an email makes the pause marker, which lasts a whole day from then; the count itself is not
+ * restarted, so no record lives past a day of being made (the Privacy Policy says "up to a day").
+ */
 export async function recordWrongCode(args: { emailKey: string; ip: string | null }): Promise<void> {
   try {
-    await count(limitKey('wrong-email-day', args.emailKey), DAY_SEC, LIMIT.wrongCodesPerEmailDay);
+    const wrong = await count(limitKey('wrong-email-day', args.emailKey), DAY_SEC);
+    if (wrong === LIMIT.wrongCodesPerEmailDay) await redis.set(limitKey('wrong-email-pause', args.emailKey), 1, { ex: DAY_SEC });
     await count(limitKey('wrong-ip-hour', addressId(args.ip)), HOUR_SEC);
   } catch (error) {
     captureError(error, 'signin-limits', { step: 'wrong code' });

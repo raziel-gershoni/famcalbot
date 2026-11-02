@@ -4,7 +4,8 @@
  *
  * What is kept: User.googleAccountKey, the keyed hash of the connected account's address (account-key.ts), written by
  * the connect's commit (google-connect.ts) and cleared by the disconnect; and User.googleCalendarSignIn (default on,
- * turned off by removing the calendar's row or any Google way in Settings). The calendar consent has no openid, so the
+ * turned off by removing the calendar's row or any Google way in Settings, which also clears the key). The key is made
+ * and kept only for an account whose switch is on: the connect, the merge and the startup pass all check it. The calendar consent has no openid, so the
  * address is the account's primary calendar id (googleAccountOf, as the copy to Google reads it).
  *
  * At sign-in (matchCalendarAccount, when (google, sub) found nobody): the verified address's key is looked up. Exactly
@@ -14,8 +15,8 @@
  * the notice, and the person is signed in. Several accounts on one Google account (a shared family account) → several;
  * anything else → no-account.
  *
- * Connections made before 6b, or keyed under another SESSION_SECRET, get their key from fillGoogleAccountKeys, run once
- * per boot from instrumentation.ts: one select, then one Google call per such connection; a failure is logged and left
+ * Connections made before 6b, or keyed under another SESSION_SECRET, and whose switch is on, get their key from
+ * fillGoogleAccountKeys, run once per boot from instrumentation.ts: one select, then one Google call per such connection; a failure is logged and left
  * for the next boot.
  *
  * No log line holds an address: the user id only.
@@ -118,6 +119,8 @@ export async function fillGoogleAccountKeys(): Promise<void> {
     rows = await prisma.user.findMany({
       where: {
         NOT: { googleRefreshToken: '' },
+        // A switch that is off keeps no key: the hash would serve no purpose (lawyer review, finding 10)
+        googleCalendarSignIn: true,
         OR: [{ googleAccountKey: null }, { NOT: { googleAccountKey: { startsWith: `${keyId}:` } } }],
       },
       select: { id: true, googleRefreshToken: true },
@@ -138,7 +141,7 @@ export async function fillGoogleAccountKeys(): Promise<void> {
     if (!key) continue;
     try {
       const { count } = await prisma.user.updateMany({
-        where: { id: row.id, googleRefreshToken: row.googleRefreshToken },
+        where: { id: row.id, googleRefreshToken: row.googleRefreshToken, googleCalendarSignIn: true },
         data: { googleAccountKey: key },
       });
       if (count === 1) filled++;

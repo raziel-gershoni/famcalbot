@@ -1955,7 +1955,7 @@ async function main() {
     eq(table('signInIdentity').map((r) => r.id).sort(), ['t-g', 'w-e'], 'the ways left');
   });
 
-  await check('#66 the connected Google account\'s key travels with the connection: T takes W\'s with W\'s token (the match stays off if either side turned it off); a T that keeps its own token keeps its own key', async () => {
+  await check('#66 the connected Google account\'s key travels with the connection: T takes W\'s with W\'s token (the match stays off if either side turned it off, and then no key is kept); a T that keeps its own token keeps its own key', async () => {
     seed();
     freshT();
     googleW();
@@ -1971,7 +1971,14 @@ async function main() {
     userRow(T).googleCalendarSignIn = false;
     result = await link();
     assert(result.success === true && !result.reconnectGoogle, `took W's Google, T's match off: ${show(result)}`);
-    eq([userRow(T).googleAccountKey, userRow(T).googleCalendarSignIn], ['k1:w-key', false], 'T had turned the match off');
+    eq([userRow(T).googleAccountKey, userRow(T).googleCalendarSignIn], [null, false], 'T had turned the match off: no key kept either (lawyer review, finding 10)');
+    seed();
+    freshT();
+    googleW();
+    Object.assign(userRow(W), { googleAccountKey: 'k1:w-key', googleCalendarSignIn: false });
+    result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `took W's Google, W's match off: ${show(result)}`);
+    eq([userRow(T).googleAccountKey, userRow(T).googleCalendarSignIn], [null, false], 'W had turned the match off');
 
     seed();
     googleW();

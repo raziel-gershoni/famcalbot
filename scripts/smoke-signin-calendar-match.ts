@@ -301,6 +301,37 @@ async function main() {
     assert(text.includes('[google-account] Google sign-in is off: the calendar accounts are not keyed yet'), 'no line when the pass is off');
   });
 
+  await check('#22 [finding 10] removing a Google way or the calendar\'s row clears the calendar account\'s key with the switch (it would serve no purpose); removing the email way touches neither; Add Google still works after', async () => {
+    for (const which of ['google', 'calendar-google'] as const) {
+      seed();
+      await identities.removeSignInMethod(TAL, which);
+      assert(userRow(TAL).googleCalendarSignIn === false && userRow(TAL).googleAccountKey === null, `${which}: ${show([userRow(TAL).googleCalendarSignIn, userRow(TAL).googleAccountKey])}`);
+    }
+    seed();
+    const changed = await identities.removeSignInMethod(TAL, 'email');
+    assert(changed === false && userRow(TAL).googleCalendarSignIn === true && userRow(TAL).googleAccountKey === KEY_TAL, `email: ${show([changed, userRow(TAL).googleCalendarSignIn, userRow(TAL).googleAccountKey])}`);
+    seed();
+    await identities.removeSignInMethod(TAL, 'calendar-google');
+    const added = await identities.addIdentity(TAL, 'google', 'g-sub-1', 'tal@gmail.com');
+    assert(added === 'added', `Add Google after the calendar row was removed: ${added}`);
+  });
+
+  await check('#23 [finding 10] the startup pass keys only the rows whose switch is on: no Google call and no write for one that is off', async () => {
+    seedFill();
+    userRow(9).googleCalendarSignIn = false;
+    userRow(10).googleCalendarSignIn = false;
+    await account.fillGoogleAccountKeys();
+    assert(world.googleAsks.length === 0, `asked Google for ${show(world.googleAsks)}`);
+    assert(userRow(9).googleAccountKey === null && userRow(10).googleAccountKey === `${OLD_ID}:${'0'.repeat(64)}`, `keys ${show([userRow(9).googleAccountKey, userRow(10).googleAccountKey])}`);
+    userRow(9).googleCalendarSignIn = true;
+    world.accounts['rt-a'] = () => {
+      userRow(9).googleCalendarSignIn = false;
+      return 'a@gmail.com';
+    };
+    await account.fillGoogleAccountKeys();
+    assert(userRow(9).googleAccountKey === null, `a switch turned off while the pass asked still got a key: ${show(userRow(9).googleAccountKey)}`);
+  });
+
   await check('#21 no console line and no capture holds an address', () => {
     const text = [...everyLog, ...everyCapture.map(c => `${c.context} ${c.message} ${show(c.extra)}`)].join('\n').toLowerCase();
     const found = ['tal@gmail.com', 'other@gmail.com', 'old@gmail.com', 'a@gmail.com', 'b@example.org', 'c@example.net'].filter(a => text.includes(a));
