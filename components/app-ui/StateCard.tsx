@@ -32,7 +32,7 @@ export interface StateCardProps {
   action?: StateAction;
   /** A quieter action under the first. */
   secondary?: StateAction;
-  /** One more quiet action under the second. */
+  /** One more quiet action under the second (or under the first when there is no second). */
   tertiary?: StateAction;
   tone?: 'plain' | 'crash';
 }
@@ -58,10 +58,10 @@ export function StateCard({ title, body, action, secondary, tertiary, tone = 'pl
     <div className={crash ? 'ch-home-card ch-crash' : 'ch-home-card'} role={crash ? 'alert' : 'status'}>
       <Title className="ch-home-card-title">{title}</Title>
       {body ? <p className="ch-home-card-body">{body}</p> : null}
-      {secondary ? (
+      {secondary || tertiary ? (
         <div className="ch-home-card-actions">
           {primary}
-          <ActionButton action={secondary} primary={false} />
+          {secondary ? <ActionButton action={secondary} primary={false} /> : null}
           {tertiary ? <ActionButton action={tertiary} primary={false} /> : null}
         </div>
       ) : (

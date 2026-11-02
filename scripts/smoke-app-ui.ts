@@ -421,6 +421,16 @@ async function main() {
         '<div class="ch-home-card" role="status"><p class="ch-home-card-title">T</p><div class="ch-home-card-actions"><a class="ch-btn ch-btn-primary ch-home-card-action" href="/a">One</a><a class="ch-btn ch-home-card-action" href="/b">Two</a></div></div>',
       'two actions',
     );
+    // A third action alone is not dropped: it stacks under the first like a second would.
+    assert(
+      html({ title: 'T', action: { label: 'One', href: '/a' }, tertiary: { label: 'Three', href: '/c' } }) ===
+        '<div class="ch-home-card" role="status"><p class="ch-home-card-title">T</p><div class="ch-home-card-actions"><a class="ch-btn ch-btn-primary ch-home-card-action" href="/a">One</a><a class="ch-btn ch-home-card-action" href="/c">Three</a></div></div>',
+      'a third action without a second',
+    );
+    assert(
+      html({ title: 'T', action: { label: 'One', href: '/a' }, secondary: { label: 'Two', href: '/b' }, tertiary: { label: 'Three', href: '/c' } }).includes('href="/b">Two</a><a class="ch-btn ch-home-card-action" href="/c">Three</a>'),
+      'three actions in order',
+    );
     assert(/\.ch-home-card-action \{[^}]*text-decoration:\s*none/.test(APP_SCREEN_CSS) && /\.ch-home-card-actions \{[^}]*flex-direction:\s*column/.test(APP_SCREEN_CSS), "a link reads as the card's button, and two stack");
   });
 
