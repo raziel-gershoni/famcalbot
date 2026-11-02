@@ -61,6 +61,7 @@
     "next-mdx-remote": "^6.0.0",
     "node-cron": "^4.2.1",
     "node-telegram-bot-api": "^0.66.0",
+    "openid-client": "6.8.8",
     "opusscript": "^0.1.1",
     "pdf-lib": "^1.17.1",
     "postcss": "^8.5.8",
