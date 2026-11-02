@@ -71,6 +71,11 @@ model User {
   googleSyncNotifiedAt DateTime? // The copy-to-Google reconnect message went out for the current outage (once per outage)
   googleNudgeStartedAt DateTime? // The Google setup nudges' start: when the 07:00 run first saw the Google state (setup-tracks.ts); null = none started
 
+  // Web sign-in on famcal.bot (spec 2026-11-02-web-sign-in §2.13, §2.17)
+  sessionsValidAfter   DateTime? // A web session signed in before this is refused (Sign out on all devices, removing a way, a suspension, a ban); null = none ended
+  googleAccountKey     String? // Keyed hash of the connected Google Calendar account's address ('<keyId>:<hex>'), never the address; null = none yet
+  googleCalendarSignIn Boolean   @default(true) // The connected Google Calendar account may sign in; off once the person removes a Google way
+
   // Pairing (NATIVE only — 1:1 partner)
   pairingId String?
   pairing   Pairing? @relation("UserPairing", fields: [pairingId], references: [id], onDelete: SetNull)
@@ -99,6 +104,7 @@ model User {
   pairingInvitesCreated  PairingInvite[]       @relation("PairingInvitesCreated")
   pairingInvitesAccepted PairingInvite[]       @relation("PairingInvitesAccepted")
   googleSyncLinks        GoogleSyncLink[]
+  signInIdentities       SignInIdentity[]
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -107,6 +113,25 @@ model User {
   @@index([unreachableSince])
   @@index([calendarSource])
   @@index([pairingId])
+  @@index([googleAccountKey])
+}
+
+// A way to sign in on famcal.bot besides Telegram (spec 2026-11-02-web-sign-in §2.12): a Google account (subject is
+// Google's account id, `sub`, never the email) or an email address (subject is the normalised address). One of each
+// kind per person, each on one account only. Deleted with the account; a WhatsApp-into-Telegram merge moves the
+// WhatsApp row's ways to the Telegram row, keeping the Telegram row's where both have one (account-linking.ts).
+model SignInIdentity {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String // 'google' | 'email'
+  subject    String // Google's sub, or the normalised email address
+  address    String // The address shown in Settings and the notices
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@unique([kind, subject])
+  @@unique([userId, kind])
 }
 
 // Persistent blocklist for telegramId / whatsappPhone.

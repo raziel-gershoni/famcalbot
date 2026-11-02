@@ -102,10 +102,11 @@ function runsLonger(a: Subscription, b: Subscription): boolean {
  * location with its coordinates (latitude, longitude, elevationM), have their own rules
  * (setupFromW).
  * Never copied: ids and bookkeeping (id, telegramId, createdAt, updatedAt,
- * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason) and
- * Telegram delivery state (unreachableSince). Set by the merge itself: the WhatsApp ids,
- * messagingPlatform, pairingId, and the Google connection (googleRefreshToken,
- * calendarAssignments; calendarSource is a legacy column the merge leaves). There is
+ * reminderStartAt), admin and moderation state (isAdmin, suspendedAt/By/Reason),
+ * Telegram delivery state (unreachableSince) and T's web sessions (sessionsValidAfter). Set by the merge itself: the
+ * WhatsApp ids, messagingPlatform, pairingId, the Google connection (googleRefreshToken,
+ * calendarAssignments, googleScopes, googleAccountKey, googleCalendarSignIn; calendarSource is a legacy column the
+ * merge leaves) and the web sign-in ways (SignInIdentity rows). There is
  * no timezone column: it is resolved from location.
  */
 const NEW_ACCOUNT = {
@@ -447,6 +448,10 @@ async function mergeWhatsAppUser(
         calendarAssignments: w.calendarAssignments ?? Prisma.DbNull,
         // The scopes describe the token, so they travel with it.
         googleScopes: w.googleScopes,
+        // So does the keyed address of the account it was granted from (web sign-in spec §2.17). The match stays off
+        // when either side turned it off (by removing a Google sign-in way), so the merge never makes it again.
+        googleAccountKey: w.googleAccountKey,
+        googleCalendarSignIn: w.googleCalendarSignIn && t.googleCalendarSignIn,
       },
     })).count === 1;
     reconnectGoogle = !tookGoogle;
@@ -506,6 +511,13 @@ async function mergeWhatsAppUser(
     await tx.googleSyncLink.updateMany({ where: { id: { in: wQueued } }, data: { unlinkToken: w.googleRefreshToken } });
     console.log(`[AccountLink] User ${t.id}: W ${w.id}'s Google token kept on ${wQueued.length} turned-off copies (${wQueued.join(', ')}) for their queued Remove/Keep`);
   }
+
+  // W's ways to sign in on the web (web sign-in spec §2.12): one of each kind per person, so each of W's moves to T
+  // when T has none of its kind; where both have one, T's stays and W's goes with W (it cascades). In this
+  // transaction, before W goes.
+  const tWayKinds = (await tx.signInIdentity.findMany({ where: { userId: t.id }, select: { kind: true } })).map(i => i.kind);
+  const movedWays = await tx.signInIdentity.updateMany({ where: { userId: w.id, kind: { notIn: tWayKinds } }, data: { userId: t.id } });
+  if (movedWays.count > 0) console.log(`[AccountLink] User ${t.id}: ${movedWays.count} web sign-in way(s) of W ${w.id} moved`);
 
   // W goes before T takes its WhatsApp ids: they are unique. W was found by the
   // id the link came from, so W's ids are the ones to take; a BSUID-only W has

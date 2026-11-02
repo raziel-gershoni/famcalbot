@@ -10,7 +10,11 @@
 import crypto from 'crypto';
 import { captureError } from './error-capture';
 
-export type AppKeyPurpose = 'session-cookie' | 'image-link';
+/**
+ * 'signin' keys the web sign-in's hashes (an email's Redis keys, an email code's stored hash); 'google-account' keys the
+ * connected Google Calendar account's address (User.googleAccountKey). Spec 2026-11-02-web-sign-in §3, §2.17.
+ */
+export type AppKeyPurpose = 'session-cookie' | 'image-link' | 'signin' | 'google-account';
 
 /**
  * The purposes already reported missing in this process. On globalThis: the scheduler and

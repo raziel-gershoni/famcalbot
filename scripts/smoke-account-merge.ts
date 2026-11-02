@@ -130,6 +130,7 @@ const FKS: FK[] = [
   { from: 'googleSyncLink', field: 'userId', to: 'user', onDelete: 'Cascade' },
   { from: 'googleSyncLink', field: 'nativeCalendarId', to: 'nativeCalendar', onDelete: 'SetNull' },
   { from: 'googleSyncItem', field: 'linkId', to: 'googleSyncLink', onDelete: 'Cascade' },
+  { from: 'signInIdentity', field: 'userId', to: 'user', onDelete: 'Cascade' },
 ];
 const UNIQUE: Record<string, string[]> = {
   user: ['telegramId', 'whatsappPhone', 'whatsappBsuid'],
@@ -138,6 +139,10 @@ const UNIQUE: Record<string, string[]> = {
   usageCounter: ['userId'],
   userFeatureOverride: ['userId'],
   pairingInvite: ['token'],
+};
+/** Composite unique keys (@@unique), as Postgres checks them: no two rows share every one of the columns. */
+const UNIQUE_TOGETHER: Record<string, string[][]> = {
+  signInIdentity: [['kind', 'subject'], ['userId', 'kind']],
 };
 /** The to-one relations a select can read. */
 const RELATIONS: Record<string, Record<string, (row: Row) => Row | undefined>> = {
@@ -219,6 +224,12 @@ function validate(name: string, row: Row) {
     if (row[col] == null) continue;
     if (table(name).some(r => r !== row && r.id !== row.id && same(r[col], row[col]))) {
       throw dbError('P2002', `Unique constraint failed on ${name}.${col}`);
+    }
+  }
+  for (const cols of UNIQUE_TOGETHER[name] ?? []) {
+    if (cols.some(c => row[c] == null)) continue;
+    if (table(name).some(r => r !== row && r.id !== row.id && cols.every(c => same(r[c], row[c])))) {
+      throw dbError('P2002', `Unique constraint failed on ${name}.(${cols.join(', ')})`);
     }
   }
   for (const fk of FKS.filter(f => f.from === name)) {
@@ -540,6 +551,7 @@ function baseUser(o: Row): Row {
     includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
     pickupRemindersEnabled: true, reminderStartAt: null,
+    sessionsValidAfter: null, googleAccountKey: null, googleCalendarSignIn: true,
     createdAt: days(-30), updatedAt: days(-1),
     ...o,
   };
@@ -1909,6 +1921,78 @@ async function main() {
     assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
     eq(DB.payment.map((r: Row) => [r.id, r.userId]), [['pay-w', T], ['pay-t', T]], 'the payments');
     eq(wKeys.filter((k) => redisStore.has(k)), [], 'W\'s keys left');
+  });
+
+  // ---- Web sign-in ways and the calendar account's key (spec 2026-11-02-web-sign-in §2.12, §2.17) ----
+
+  const way = (id: string, userId: number, kind: 'google' | 'email', subject: string, address: string): Row => ({
+    id, userId, kind, subject, address, createdAt: days(-3), lastUsedAt: null,
+  });
+  const waysOf = (userId: number) => table('signInIdentity').filter((r) => r.userId === userId).map((r) => `${r.kind}:${r.subject}`).sort();
+
+  await check('#64 W\'s web sign-in ways move to T when T has none: W\'s Google and email are T\'s after the merge, and no row holds W', async () => {
+    seed();
+    DB.signInIdentity = [
+      way('w-g', W, 'google', 'sub-w', 'dana@gmail.com'),
+      way('w-e', W, 'email', 'dana@example.com', 'dana@example.com'),
+    ];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    eq(waysOf(T), ['email:dana@example.com', 'google:sub-w'], 'T\'s ways');
+    eq(referencesTo(W), [], 'rows that still hold W');
+  });
+
+  await check('#65 both have a Google way: T keeps its own and W\'s goes with W (one of each kind per person); W\'s email still moves', async () => {
+    seed();
+    DB.signInIdentity = [
+      way('t-g', T, 'google', 'sub-t', 'dana.cohen@gmail.com'),
+      way('w-g', W, 'google', 'sub-w', 'dana@gmail.com'),
+      way('w-e', W, 'email', 'dana@example.com', 'dana@example.com'),
+    ];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    eq(waysOf(T), ['email:dana@example.com', 'google:sub-t'], 'T\'s ways');
+    eq(table('signInIdentity').map((r) => r.id).sort(), ['t-g', 'w-e'], 'the ways left');
+  });
+
+  await check('#66 the connected Google account\'s key travels with the connection: T takes W\'s with W\'s token (the match stays off if either side turned it off); a T that keeps its own token keeps its own key', async () => {
+    seed();
+    freshT();
+    googleW();
+    Object.assign(userRow(W), { googleAccountKey: 'k1:w-key', googleCalendarSignIn: true });
+    let result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `took W's Google: ${show(result)}; captured ${show(captured)}`);
+    eq([userRow(T).googleAccountKey, userRow(T).googleCalendarSignIn], ['k1:w-key', true], 'T after taking W\'s Google');
+
+    seed();
+    freshT();
+    googleW();
+    Object.assign(userRow(W), { googleAccountKey: 'k1:w-key', googleCalendarSignIn: true });
+    userRow(T).googleCalendarSignIn = false;
+    result = await link();
+    assert(result.success === true && !result.reconnectGoogle, `took W's Google, T's match off: ${show(result)}`);
+    eq([userRow(T).googleAccountKey, userRow(T).googleCalendarSignIn], ['k1:w-key', false], 'T had turned the match off');
+
+    seed();
+    googleW();
+    userRow(W).googleAccountKey = 'k1:w-key';
+    Object.assign(userRow(T), { googleRefreshToken: TOKENS.t, googleAccountKey: 'k1:t-key' });
+    result = await link();
+    assert(result.success === true && result.reconnectGoogle === true, `T keeps its own Google: ${show(result)}`);
+    eq(userRow(T).googleAccountKey, 'k1:t-key', 'T\'s key');
+  });
+
+  await check('#67 [guard] hardDeleteUser takes the person\'s sign-in ways with the account (they cascade); another person\'s stay', async () => {
+    seed();
+    DB.signInIdentity = [
+      way('t-g', T, 'google', 'sub-t', 'a@gmail.com'),
+      way('t-e', T, 'email', 'a@example.com', 'a@example.com'),
+      way('p-e', P, 'email', 'p@example.com', 'p@example.com'),
+    ];
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(T, 1);
+    assert(!userRow(T), 'T still exists');
+    eq(table('signInIdentity').map((r) => r.id), ['p-e'], 'the ways left');
   });
 
   await check('#14 hardDeleteUser on the invitee of a pairing: the partner is unpaired and the pairing stays as UNLINKED history', async () => {
