@@ -536,8 +536,8 @@ async function main() {
   installStubs();
 
   const { NextRequest } = nodeRequire('next/server');
-  const { createSessionToken } = await load('src/lib/session-auth.ts');
-  const waCookie = `famcal_session=${createSessionToken(42)}`;
+  const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
+  const waCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'wa', Date.now())}`;
 
   const req = (url: string, o: { body?: unknown; cookie?: string } = {}) =>
     new NextRequest(`http://localhost${url}`, {

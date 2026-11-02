@@ -2,7 +2,7 @@
  * GET /api/calendar/range: the calendar home's days (calendar home spec §4).
  *
  *   ?user_id=<id>[&from=yyyy-MM-dd&to=yyyy-MM-dd][&sources=famcal|google|famcal,google][&fresh=1]
- *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * The facts (timezone, today, week start, Hebrew dates) are worked out here, never taken
  * from the client, and so are the calendars: the legend is the reader's. The answer is built field by field, so the

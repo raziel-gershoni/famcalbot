@@ -4,7 +4,7 @@
  *
  *   body { user_id, initData?, seriesId, originalStart, action }, action being
  *   done | undo | snooze15 | snooze60 | snoozeTomorrow
- *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * The route acts for the authenticated user only; the body never says whose reminder it
  * is. The answer is { status, reminder? }: reminder is the occurrence's new state as the

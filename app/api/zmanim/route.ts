@@ -2,7 +2,7 @@
  * GET /api/zmanim: the home's sun sheet, a day's zmanim at the person's place.
  *
  *   ?user_id=<id>&date=<yyyy-MM-dd>      (no date: today in the person's zone)
- *   X-Telegram-Init-Data: <initData>     (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>     (or the __Host-famcal_session cookie in a browser)
  *
  * The answer is a ZmanimListResponse (src/lib/calendar-view/zmanim-list.ts): the day, the zone, the community, where the
  * times are counted (the saved place, the zone's main city, or none), the rows in the order of the day (the candle

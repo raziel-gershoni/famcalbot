@@ -135,8 +135,26 @@ function installStubs() {
     getTranslations: async ({ locale, namespace }: { locale: string; namespace: string }) =>
       createTranslator({ locale, namespace, messages: JSON.parse(readSource(`messages/${locale}.json`)) }),
   });
-  // The magic route's only DB read: is the user suspended?
-  stub('src/utils/prisma.ts', { prisma: { user: { findUnique: async () => ({ suspendedAt: null }) } } });
+  // The magic route's only DB read: the account the link names (WhatsApp-only by BSUID, in Russian: no Telegram id or
+  // number, so the blocklist has nothing to look up, and a link lands in the person's language).
+  stub('src/utils/prisma.ts', {
+    prisma: {
+      user: {
+        findUnique: async ({ where }: Row) => ({
+          id: where.id, name: 'WA', language: 'ru', suspendedAt: null, telegramId: null, whatsappPhone: null,
+          whatsappBsuid: 'IL.42', messagingPlatform: 'whatsapp', gender: 'male', googleRefreshToken: '',
+          calendarAssignments: null, defaultReminderMinutes: null, sessionsValidAfter: null,
+        }),
+      },
+      blockedIdentifier: { findFirst: async () => null },
+    },
+  });
+  // /dashboard with no user_id reads the session cookie through next/headers, which refuses outside a request: no cookie.
+  stub(path.relative(ROOT, nodeRequire.resolve('next/headers')), {
+    __esModule: true,
+    cookies: async () => ({ get: () => undefined }),
+    headers: async () => new Headers(),
+  });
 }
 
 const he = JSON.parse(readSource('messages/he.json'));
@@ -403,7 +421,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('#11 a stale or used magic link lands on /<locale>/dashboard (the link\'s locale, else Accept-Language among en/he/ru), with no user_id and no cookie', async () => {
+  await check('#11 a stale or used magic link lands on /<locale>/dashboard (the link\'s locale, else Accept-Language among en/he/ru; English unprefixed), with no user_id and no cookie', async () => {
     const { NextRequest } = nodeRequire('next/server');
     const { GET } = await load('app/api/auth/magic/route.ts');
     const cases: [string, string | null, string][] = [
@@ -411,8 +429,8 @@ async function main() {
       ['token=stale', 'ru-RU,ru;q=0.9,en;q=0.8', '/ru/dashboard'],
       ['token=stale', 'fr-FR,fr;q=0.9,he;q=0.5', '/he/dashboard'],
       ['token=stale', 'en;q=0.5, he', '/he/dashboard'],
-      ['token=stale&locale=xx', 'de-DE', '/en/dashboard'],
-      ['token=stale', null, '/en/dashboard'],
+      ['token=stale&locale=xx', 'de-DE', '/dashboard'],
+      ['token=stale', null, '/dashboard'],
     ];
     const problems: string[] = [];
     for (const [query, acceptLanguage, want] of cases) {
@@ -435,7 +453,7 @@ async function main() {
     const res: Response = await GET(new NextRequest(`http://localhost${link.pathname}${link.search}`, { headers: { 'accept-language': 'he' } }));
     const to = new URL(res.headers.get('location') ?? 'http://x/none');
     assert(`${to.pathname}${to.search}` === '/ru/dashboard?user_id=42', `redirect: ${to.pathname}${to.search}`);
-    assert((res.headers.get('set-cookie') ?? '').includes('famcal_session='), 'no session cookie');
+    assert((res.headers.get('set-cookie') ?? '').includes('__Host-famcal_session='), 'no session cookie');
   });
 
   await check('#13 TelegramDashboardRedirect shows the shared card when there is no Telegram user (no hard-coded English), and keeps pushing Telegram users on', () => {
@@ -446,21 +464,21 @@ async function main() {
     assert(src.includes('router.push(`/${locale}/dashboard?user_id=${userId}`)'), 'Telegram users are no longer pushed to their dashboard');
   });
 
-  await check('#15 a stale or used magic link in a browser still signed in (valid famcal_session) goes to that user\'s dashboard; a bad cookie still gets the card', async () => {
+  await check('#15 a stale or used magic link in a browser still signed in (a valid session cookie) goes to that user\'s dashboard; a bad cookie still gets the card', async () => {
     const { NextRequest } = nodeRequire('next/server');
-    const { createSessionToken } = await load('src/lib/session-auth.ts');
+    const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
     const { GET } = await load('app/api/auth/magic/route.ts');
     const call = async (cookie: string) => {
       const res: Response = await GET(new NextRequest('http://localhost/api/auth/magic?token=stale&locale=he', {
-        headers: { 'accept-language': 'ru', cookie: `famcal_session=${cookie}` },
+        headers: { 'accept-language': 'ru', cookie: `${SESSION_COOKIE_NAME}=${cookie}` },
       }));
       const to = new URL(res.headers.get('location') ?? 'http://x/none');
       return { to: `${to.pathname}${to.search}`, setCookie: res.headers.get('set-cookie') };
     };
-    const signedIn = await call(createSessionToken(7));
+    const signedIn = await call(createSessionToken(7, 'wa', Date.now()));
     assert(signedIn.to === '/he/dashboard?user_id=7', `valid session: ${signedIn.to}`);
     assert(!signedIn.setCookie, 'a stale link must not mint or touch a cookie');
-    const [payload] = createSessionToken(7).split('.');
+    const [payload] = createSessionToken(7, 'wa', Date.now()).split('.');
     const forged = await call(`${payload}.forged`);
     assert(forged.to === '/he/dashboard', `forged session: ${forged.to}`);
   });

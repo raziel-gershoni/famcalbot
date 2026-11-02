@@ -24,13 +24,19 @@ export function isUserSuspended(user: { suspendedAt: Date | null } | null | unde
   return !!user?.suspendedAt;
 }
 
+/**
+ * Suspends the account and ends its web sessions (web sign-in spec §2.13): sessionsValidAfter moves to the suspension's
+ * moment, so a cookie from before it stays refused after an unsuspend too (unsuspendUser leaves it).
+ */
 export async function suspendUser(userId: number, adminId: number, reason: string | null): Promise<void> {
+  const now = new Date();
   await prisma.user.update({
     where: { id: userId },
     data: {
-      suspendedAt: new Date(),
+      suspendedAt: now,
       suspendedBy: adminId,
       suspendedReason: reason,
+      sessionsValidAfter: now,
     },
   });
 
@@ -254,13 +260,17 @@ export async function isIdentifierBlocked({ telegramId, whatsappPhone }: BlockAr
     try {
       const cached = await redis.get<string>(REDIS_KEYS.blockedTelegramId(telegramId.toString()));
       if (cached === '1') return true;
-    } catch { /* fall through to DB */ }
+    } catch (err) {
+      console.warn('[Moderation] Reading the blocklist cache failed; asking the database', err);
+    }
   }
   if (whatsappPhone) {
     try {
       const cached = await redis.get<string>(REDIS_KEYS.blockedWhatsAppPhone(whatsappPhone));
       if (cached === '1') return true;
-    } catch { /* fall through to DB */ }
+    } catch (err) {
+      console.warn('[Moderation] Reading the blocklist cache failed; asking the database', err);
+    }
   }
 
   // DB fallback
@@ -275,11 +285,12 @@ export async function isIdentifierBlocked({ telegramId, whatsappPhone }: BlockAr
 
   if (blocked) {
     // Re-prime cache
+    const reprimeFailed = (err: unknown) => console.warn('[Moderation] Re-priming the blocklist cache failed', err);
     if (blocked.telegramId !== null) {
-      redis.set(REDIS_KEYS.blockedTelegramId(blocked.telegramId.toString()), '1', { ex: BLOCK_CACHE_TTL }).catch(() => {});
+      redis.set(REDIS_KEYS.blockedTelegramId(blocked.telegramId.toString()), '1', { ex: BLOCK_CACHE_TTL }).catch(reprimeFailed);
     }
     if (blocked.whatsappPhone) {
-      redis.set(REDIS_KEYS.blockedWhatsAppPhone(blocked.whatsappPhone), '1', { ex: BLOCK_CACHE_TTL }).catch(() => {});
+      redis.set(REDIS_KEYS.blockedWhatsAppPhone(blocked.whatsappPhone), '1', { ex: BLOCK_CACHE_TTL }).catch(reprimeFailed);
     }
     return true;
   }
@@ -318,6 +329,15 @@ export async function banIdentifier(
     }));
     ops.push(redis.set(REDIS_KEYS.blockedWhatsAppPhone(args.whatsappPhone), '1', { ex: BLOCK_CACHE_TTL }));
   }
+
+  // A ban ends the web sessions of the accounts it names (web sign-in spec §2.13): their sessionsValidAfter moves to
+  // now, in the row every request already reads, so a live cookie is refused at its next request.
+  const owners: Array<{ telegramId: bigint } | { whatsappPhone: string }> = [];
+  if (args.telegramId) owners.push({ telegramId: BigInt(args.telegramId) });
+  if (args.whatsappPhone) owners.push({ whatsappPhone: args.whatsappPhone });
+  ops.push(prisma.user.updateMany({ where: { OR: owners }, data: { sessionsValidAfter: new Date() } }).then(({ count }) => {
+    console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web`);
+  }));
 
   await Promise.all(ops);
   console.log(`[Moderation] Admin ${adminId} banned identifier`, args);

@@ -803,10 +803,10 @@ async function main() {
     assertSame([viaRoute.status, viaRoute.body.sources], [200, { famcal: { status: 'error' } }], 'route');
   });
 
-  await check('#23 the famcal_session cookie (WhatsApp, a browser): 200 for its own DB id with no header; 401 for another id, also with that user\'s init data in the query', async () => {
+  await check('#23 the session cookie (a browser): 200 for its own DB id with no header; 401 for another id, also with that user\'s init data in the query', async () => {
     seed();
-    const { createSessionToken } = await load('src/lib/session-auth.ts');
-    const cookie = `famcal_session=${createSessionToken(9)}`;
+    const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
+    const cookie = `${SESSION_COOKIE_NAME}=${createSessionToken(9, 'wa', Date.now())}`;
     const own = await get('', { userId: '9', header: false, cookie });
     assert(own.status === 200, `own id: ${own.status} ${own.text}`);
     assertSame(keysOn(own.body, '2026-10-16'), ['famcal|rem-plumber', 'famcal|ev-dentist'], 'today');

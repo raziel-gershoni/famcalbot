@@ -3,7 +3,7 @@
  * ('famcal|…') or Google ('google|<calendarId>|<eventId>', 3b spec §3.3).
  *
  *   ?user_id=<id>&key=<ItemDTO.key>
- *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * Read live (the store, or Google), for the item sheet's pencil and the editor's prefill: what the
  * home's DTO lacks, the series, the permissions and the scopes (ItemEditInfoResponse in

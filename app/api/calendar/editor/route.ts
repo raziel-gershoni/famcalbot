@@ -2,7 +2,7 @@
  * GET /api/calendar/editor: what the calendar home's "+" needs (home editing spec §3).
  *
  *   ?user_id=<id>
- *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * The answer is { kinds: { event, reminder }, calendars, partner, tz } (EditorInfoResponse
  * in src/lib/calendar-view/editor-types.ts): what the user can add, to which of the

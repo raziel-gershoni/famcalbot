@@ -1,31 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateMagicToken } from '@/src/services/magic-link';
-import { createSessionToken, SESSION_COOKIE, validateSessionFromRequest } from '@/src/lib/session-auth';
+import { readSession } from '@/src/lib/session-auth';
 import { appKey } from '@/src/lib/app-keys';
+import { finishSignIn } from '@/src/lib/web-session';
+import { getUserById } from '@/src/services/user-service';
 import { getBaseUrl } from '@/src/config/urls';
-import { prisma } from '@/src/utils/prisma';
 import { VALID_LOCALES, localeFromAcceptLanguage } from '@/src/utils/locale';
+import { localeHref } from '@/src/site/zmanim/links';
 
 /**
  * Invalid, expired or already used, or no key to sign a session with: the dashboard with
  * no user_id shows the card that offers a fresh link, in the language the link carries,
- * else the browser's. A browser still signed in goes to its own dashboard instead
- * (page-data re-checks the cookie).
+ * else the browser's (English has no prefix, as everywhere else). A browser still signed in
+ * goes to its own dashboard instead (page-data re-checks the cookie).
  */
 function freshLinkCard(request: NextRequest): NextResponse {
   const linkLocale = request.nextUrl.searchParams.get('locale') ?? '';
   const locale = (VALID_LOCALES as readonly string[]).includes(linkLocale)
     ? linkLocale
     : localeFromAcceptLanguage(request.headers.get('accept-language'));
-  const sessionUserId = validateSessionFromRequest(request);
-  const to = sessionUserId !== null ? `/${locale}/dashboard?user_id=${sessionUserId}` : `/${locale}/dashboard`;
+  const session = readSession(request);
+  const to = localeHref(locale, session !== null ? `/dashboard?user_id=${session.userId}` : '/dashboard');
   return NextResponse.redirect(new URL(to, getBaseUrl()));
 }
 
 /**
- * Magic link auth handler
- * Validates token, sets session cookie, redirects to the link's page (the dashboard,
- * or select-calendars right after a Google connect)
+ * The WhatsApp magic link (the bot's "settings", the WhatsApp Google connect): one use, then the finishing step every
+ * sign-in shares (src/lib/web-session.ts). It refuses a suspended or banned account with its /signin page, sets the
+ * WhatsApp-link session (24 hours, never renewed) and lands on the link's page (the dashboard, or Select calendars
+ * right after a Google connect) in the person's language.
  */
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get('token');
@@ -48,22 +51,11 @@ export async function GET(request: NextRequest) {
     return freshLinkCard(request);
   }
 
-  // Refuse to grant a session to a suspended user.
-  const user = await prisma.user.findUnique({
-    where: { id: data.userId },
-    select: { suspendedAt: true },
-  });
-  if (user?.suspendedAt) {
-    return NextResponse.redirect(new URL('/', getBaseUrl()));
+  const user = await getUserById(data.userId);
+  if (!user) {
+    console.warn(`[magic] the link names user ${data.userId}, who has no account; fresh-link card`);
+    return freshLinkCard(request);
   }
 
-  // Create session cookie and redirect to the link's page with user_id (DB primary key)
-  const sessionToken = createSessionToken(data.userId);
-  const page = data.page === 'select-calendars' ? 'select-calendars' : 'dashboard';
-  const pageUrl = new URL(`/${data.locale}/${page}?user_id=${data.userId}`, getBaseUrl());
-
-  const response = NextResponse.redirect(pageUrl);
-  response.cookies.set(SESSION_COOKIE.name, sessionToken, SESSION_COOKIE.options);
-
-  return response;
+  return finishSignIn(user, 'wa', { page: data.page === 'select-calendars' ? 'select-calendars' : 'dashboard' });
 }

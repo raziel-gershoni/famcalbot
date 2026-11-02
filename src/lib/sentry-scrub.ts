@@ -1,6 +1,6 @@
 /**
  * Credentials out of Sentry. Telegram initData (the X-Telegram-Init-Data header, or a body
- * field) and the WhatsApp famcal_session cookie both stay valid for 24h, and the SDK copies
+ * field, 24h) and the __Host-famcal_session cookie (up to 30 days) stay valid, and the SDK copies
  * every request header, the cookies, the URL with its query and the body into server
  * events. Root spans carry each header as an `http.request.header.<name>` attribute, and
  * the SDK's name filter misses x-telegram-init-data. In the browser, request.url and the

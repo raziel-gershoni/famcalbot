@@ -172,10 +172,10 @@ async function main() {
 
   // ---- Dead code ----
 
-  await check('#3 getSessionUserId is gone from session-auth, and nothing calls it', async () => {
+  await check('#3 getSessionUserId and validateSessionFromRequest are gone from session-auth (readSession replaced the second), and nothing calls getSessionUserId', async () => {
     const mod = await load('src/lib/session-auth.ts');
-    assert(!('getSessionUserId' in mod), 'session-auth still exports getSessionUserId');
-    assert(typeof mod.validateSessionFromRequest === 'function' && typeof mod.createSessionToken === 'function',
+    assert(!('getSessionUserId' in mod) && !('validateSessionFromRequest' in mod), 'session-auth still exports a dead reader');
+    assert(typeof mod.readSession === 'function' && typeof mod.createSessionToken === 'function',
       'session-auth lost its live exports');
     const callers = sourceFiles().filter(f => readSource(f).includes('getSessionUserId'));
     assert(callers.length === 0, `still named in ${callers.join(', ')}`);

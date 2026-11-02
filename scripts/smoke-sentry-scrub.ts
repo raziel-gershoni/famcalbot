@@ -1,5 +1,5 @@
 // Smoke test for what reaches Sentry. Telegram initData (the X-Telegram-Init-Data header
-// or a body field) and the WhatsApp famcal_session cookie are both 24h credentials, and
+// or a body field, 24h) and the __Host-famcal_session cookie (up to 30 days) are credentials, and
 // the SDK copied them into every server error event: every header, the cookies, the
 // URL with its query, and the body. Root spans carry every header as a span attribute,
 // and the SDK's name filter does not cover x-telegram-init-data. In the browser,
@@ -72,7 +72,7 @@ const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 // ---- Fixtures ----
 
 const INIT = 'query_id%3DAAH%26user%3D%257B%2522id%2522%253A111111111%257D%26auth_date%3D1%26hash%3Dabc123';
-const SESSION = 'famcal_session=42.1760000000.deadbeef';
+const SESSION = '__Host-famcal_session=42.1760000000.deadbeef';
 
 /** A server error event as the SDK builds it for a request to an API route. */
 function serverEvent(): Row {
@@ -88,7 +88,7 @@ function serverEvent(): Row {
         'X-Telegram-Init-Data': INIT,
         Cookie: SESSION,
       },
-      cookies: { famcal_session: '42.1760000000.deadbeef' },
+      cookies: { '__Host-famcal_session': '42.1760000000.deadbeef' },
       data: { user_id: 9, name: 'Kids', initData: INIT },
     },
     contexts: { nextjs: { request_path: `/api/native-calendars?user_id=9&initData=${INIT}`, router_kind: 'App Router' } },
@@ -103,7 +103,7 @@ function spanData(): Row {
     'http.request.header.x_telegram_init_data': INIT,
     'http.request.header.x-telegram-init-data': INIT,
     'http.request.header.cookie': '[Filtered]',
-    'http.request.header.cookie.famcal_session': '[Filtered]',
+    'http.request.header.cookie.__Host-famcal_session': '[Filtered]',
     'url.full': `https://famcal.bot/api/pair?user_id=9&initData=${INIT}`,
   };
 }

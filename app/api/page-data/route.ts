@@ -8,10 +8,12 @@
 //
 // The pages used to load this during SSR for any ?user_id, with no credential. Now they
 // render no user data and PageGate calls this route, which proves the user first
-// (Telegram initData, else the WhatsApp session cookie).
+// (Telegram initData, else the session cookie). It is also the one route that renews a
+// famcal.bot session (needsRenewal, web sign-in spec §3), on every page the web app opens.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
+import { createSessionToken, needsRenewal, setSessionCookie } from '@/src/lib/session-auth';
 import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { isPageName, loadPageData } from '@/src/lib/page-data';
@@ -39,7 +41,13 @@ export async function POST(request: NextRequest) {
 
     const locale = typeof body.locale === 'string' ? body.locale : '';
     const result = await loadPageData(page, auth.user, parseInt(String(rawUserId)), locale);
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
+    const response = NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
+    // After the row check above accepted it: a famcal.bot sign-in's cookie over a day old gets 30 more days, with its
+    // first sign-in time and method (so Sign out on all devices still ends it). A WhatsApp link's never is renewed.
+    if (auth.via === 'session' && needsRenewal(auth.session, Date.now())) {
+      setSessionCookie(response, createSessionToken(auth.user.id, auth.session.method, auth.session.signedInAt));
+    }
+    return response;
   } catch (error) {
     captureError(error, 'page-data', { api_route: '/api/page-data' });
     return NextResponse.json({ error: 'Failed to load page' }, { status: 500 });

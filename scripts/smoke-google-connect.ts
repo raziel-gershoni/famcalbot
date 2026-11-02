@@ -872,7 +872,7 @@ async function main() {
       return { location: res.headers.get('location') ?? '', cookie: res.headers.get('set-cookie') ?? '' };
     };
     const toCalendars = await go(await generateMagicLink(42, 'he', 'select-calendars'));
-    assert(new URL(toCalendars.location).pathname === '/he/select-calendars' && toCalendars.cookie.includes('famcal_session='), `select-calendars: ${show(toCalendars)}`);
+    assert(new URL(toCalendars.location).pathname === '/he/select-calendars' && toCalendars.cookie.includes('__Host-famcal_session='), `select-calendars: ${show(toCalendars)}`);
     const toDashboard = await go(await generateMagicLink(42, 'he'));
     assert(new URL(toDashboard.location).pathname === '/he/dashboard', `dashboard: ${show(toDashboard)}`);
   });

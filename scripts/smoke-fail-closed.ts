@@ -141,8 +141,19 @@ let adminIds: () => Promise<number[]> = async () => [1001, 1002];
 let sendFails = false;
 
 function installStubs() {
+  // The magic route reads the account the link names (WhatsApp-only by BSUID, in Russian: no Telegram id or number,
+  // so the blocklist has nothing to look up).
   stub('src/utils/prisma.ts', {
-    prisma: { user: { findUnique: async () => ({ suspendedAt: null }) } },
+    prisma: {
+      user: {
+        findUnique: async ({ where }: Row) => ({
+          id: where.id, name: 'WA', language: 'ru', suspendedAt: null, telegramId: null, whatsappPhone: null,
+          whatsappBsuid: 'IL.42', messagingPlatform: 'whatsapp', gender: 'male', googleRefreshToken: '',
+          calendarAssignments: null, defaultReminderMinutes: null, sessionsValidAfter: null,
+        }),
+      },
+      blockedIdentifier: { findFirst: async () => null },
+    },
     withRetry: (fn: () => unknown) => fn(),
   });
   stub('src/utils/redis.ts', { redis: {} });
@@ -224,7 +235,7 @@ async function main() {
 
   await check('#1 the session cookie is signed with the HKDF session-cookie key: a raw-SESSION_SECRET signature is refused', async () => {
     const { createSessionToken, validateSessionToken } = await load('src/lib/session-auth.ts');
-    const made = createSessionToken(42);
+    const made = createSessionToken(42, 'wa', Date.now());
     const [body, sig] = made.split('.');
     assert(sig === crypto.createHmac('sha256', hkdf(SESSION, 'session-cookie')).update(body).digest('base64url'), 'createSessionToken does not sign with the HKDF key');
     assert(validateSessionToken(made)?.userId === 42, 'its own token is refused');
@@ -240,7 +251,7 @@ async function main() {
     const out = await withEnv({ SESSION_SECRET: '' }, () => {
       let thrown = '';
       try {
-        createSessionToken(42);
+        createSessionToken(42, 'wa', Date.now());
       } catch (err) {
         thrown = err instanceof Error ? err.message : String(err);
       }
@@ -279,7 +290,7 @@ async function main() {
     ]);
     for (const tap of taps) {
       assert(tap.to === '/he/dashboard', `redirect ${tap.to}`);
-      assert(!tap.setCookie.includes('famcal_session='), 'a session cookie was set');
+      assert(!tap.setCookie.includes('__Host-famcal_session='), 'a session cookie was set');
     }
     assert(magicUses.length === 0, `the link was used up: ${show(magicUses)}`);
     assert(appKeyCaptures('session-cookie').length === 1, `reports: ${show(captured)}`);
@@ -291,7 +302,7 @@ async function main() {
     const tap = await magic('token=tok-2&locale=ru');
     assert(tap.to === '/ru/dashboard?user_id=42', `redirect ${tap.to}`);
     assert(magicUses.length === 1, `uses ${show(magicUses)}`);
-    const cookie = tap.setCookie.match(/famcal_session=([^;]+)/)?.[1] ?? '';
+    const cookie = tap.setCookie.match(/__Host-famcal_session=([^;]+)/)?.[1] ?? '';
     const [body, sig] = cookie.split('.');
     assert(body && sig === crypto.createHmac('sha256', hkdf(SESSION, 'session-cookie')).update(body).digest('base64url'),
       'the cookie is not signed with the HKDF session-cookie key');

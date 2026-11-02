@@ -4,7 +4,7 @@
  * UpdateItemBody and DeleteItemBody (src/lib/calendar-view/editor-types.ts); times are
  * wall times on the user's clock.
  *
- *   X-Telegram-Init-Data: <initData>   (or the famcal_session cookie in a browser)
+ *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * The route acts for the authenticated user only. The answer is 200 { status: 'ok', key? },
  * or 400 { error: 'invalid', field }, 403 not_allowed, 404 not_found, 409 changed (the

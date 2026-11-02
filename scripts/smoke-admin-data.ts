@@ -140,10 +140,18 @@ function expectCall(call: Call | undefined, method: string, url: string, body?: 
 
 const DB: { user: Row[]; blockedIdentifier: Row[]; userFeatureOverride: Row[] } = { user: [], blockedIdentifier: [], userFeatureOverride: [] };
 const blocked = () => DB.blockedIdentifier;
+const sessionEnds: { where: Row; data: Row }[] = [];
 const same = (a: unknown, b: unknown) => a != null && b != null && String(a) === String(b);
 const fakePrisma = {
   user: {
     findUnique: async ({ where }: Row) => DB.user.find((u) => Object.entries(where).every(([k, v]) => same(u[k], v))) ?? null,
+    // A ban also ends the web sessions of the accounts it names (web sign-in 6b): one updateMany over the ban's identifiers.
+    updateMany: async ({ where, data }: Row) => {
+      sessionEnds.push({ where, data });
+      const hit = DB.user.filter((u) => (where.OR as Row[]).some((c) => Object.entries(c).every(([k, v]) => same(u[k], v))));
+      hit.forEach((u) => Object.assign(u, data));
+      return { count: hit.length };
+    },
   },
   blockedIdentifier: {
     upsert: async ({ where, update, create }: Row) => {
@@ -226,6 +234,7 @@ function seedRoute() {
     { id: 42, name: 'Other', telegramId: BigInt(222222222), whatsappPhone: '+972503334444', whatsappBsuid: null, isAdmin: false, googleRefreshToken: '', language: 'en', messagingPlatform: 'telegram', culture: 'default', calendarSource: 'NATIVE' },
   ];
   DB.blockedIdentifier = [];
+  sessionEnds.length = 0;
   DB.userFeatureOverride = [];
   redisStore.clear();
   captured.length = 0;
@@ -846,11 +855,12 @@ async function main() {
       assert(formatted.status === 400 && formatted.body.error === 'SELF_BAN', `own number, spaced: ${formatted.status}`);
       const mixed = await post({ action: 'ban', telegramId: 222222222, whatsappPhone: ADMIN_PHONE });
       assert(mixed.status === 400 && mixed.body.error === 'SELF_BAN', `someone's id with one's own number: ${mixed.status}`);
-      assert(blocked().length === 0 && redisStore.size === 0, `a refused ban wrote ${canon(DB.blockedIdentifier)} ${redisStore.size} keys`);
+      assert(blocked().length === 0 && redisStore.size === 0 && sessionEnds.slice().length === 0, `a refused ban wrote ${canon(DB.blockedIdentifier)} ${redisStore.size} keys, ${sessionEnds.length} session ends`);
 
       const other = await post({ action: 'ban', telegramId: 222222222, whatsappPhone: '+972503334444', reason: 'spam' });
       assert(other.status === 200 && other.body.success === true, `someone else: ${other.status} ${canon(other.body)} ${captured.join(' | ')}`);
       assert(blocked().length === 2 && DB.blockedIdentifier.every((r) => r.bannedBy === 9 && r.bannedReason === 'spam'), `rows: ${canon(DB.blockedIdentifier)}`);
+      assert(sessionEnds.length === 1 && (sessionEnds[0].where.OR as Row[]).length === 2 && sessionEnds[0].data.sessionsValidAfter instanceof Date, `session ends: ${canon(sessionEnds)}`);
       const unban = await post({ action: 'unban', telegramId: ADMIN_TELEGRAM });
       assert(unban.status === 200, `an unban of one's own: ${unban.status}`);
       const empty = await post({ action: 'ban' });
