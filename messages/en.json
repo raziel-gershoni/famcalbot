@@ -2964,6 +2964,11 @@
     "dubai": "Dubai",
     "hong-kong": "Hong Kong"
   },
+  "signinNotice": {
+    "addedGoogle": "Google {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
+    "addedEmail": "The email {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
+    "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove."
+  },
   "countries": {
     "IL": "Israel",
     "US": "United States",

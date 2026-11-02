@@ -60,6 +60,11 @@ export const REDIS_KEYS = {
   oauthPending: (pendingIdHash: string) => `oauth:pending:${pendingIdHash}`,
   googleConnected: (userId: number) => `googleConnected:${userId}`,
 
+  // Web sign-in, Settings (src/services/web-signin/add-google.ts, app/api/signin-methods/email/*): the Add Google
+  // link (keyed by sha256 of its token, 5 minutes) and an Add email waiting for its code (per account, 10 minutes)
+  signinAddGoogle: (tokenHash: string) => `signin:add-google:${tokenHash}`,
+  signinAddEmail: (userId: number) => `signin:add-email:${userId}`,
+
   // Account linking (Telegram ↔ WhatsApp)
   linkCode: (code: string) => `link:code:${code}`,
   linkUser: (telegramId: number) => `link:user:${telegramId}`,
