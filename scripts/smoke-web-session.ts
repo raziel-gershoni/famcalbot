@@ -242,7 +242,7 @@ function installStubs() {
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
   stub('src/lib/rate-limit.ts', {
-    settingsRateLimiter: { name: 'settings' }, commandRateLimiter: { name: 'command' }, generalRateLimiter: { name: 'general' },
+    settingsRateLimiter: { name: 'settings' }, calendarRateLimiter: { name: 'calendar' }, commandRateLimiter: { name: 'command' }, generalRateLimiter: { name: 'general' },
     checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
     getRateLimitHeaders: () => ({}),
   });
@@ -403,6 +403,7 @@ async function main() {
   const { generateMagicLink } = await load('src/services/magic-link.ts');
   const magicRoute = await load('app/api/auth/magic/route.ts');
   const pageDataRoute = await load('app/api/page-data/route.ts');
+  const subscriptionRoute = await load('app/api/subscription/route.ts');
   const limiter = { name: 'general' };
 
   /** POST /api/page-data for the dashboard, with a session cookie or Telegram initData. */
@@ -496,6 +497,15 @@ async function main() {
     const def = path.join('src', 'lib', 'session-auth.ts');
     const callers = sourceFiles(['app', 'src']).filter(f => f !== def && /\bneedsRenewal\(/.test(read(f)));
     assert(show(callers) === show([path.join('app', 'api', 'page-data', 'route.ts')]), `callers ${show(callers)}`);
+  });
+
+  await check('#5b a session route other than page-data does not renew: a 2-day-old Telegram sign-in\'s cookie is accepted (200) and no Set-Cookie comes back', async () => {
+    seed();
+    const cookie = aged(5, 'tg', Date.now() - 2 * DAY, 2 * DAY, WEB_TTL);
+    assert(S.needsRenewal(S.validateSessionToken(cookie), Date.now()), 'the cookie is not one that page-data would renew');
+    const res = await subscriptionRoute.GET(new NextRequest(`${BASE}/api/subscription?user_id=5`, { headers: { cookie: `${NAME}=${cookie}` } }));
+    assert(res.status === 200, `status ${res.status} ${await fullBody(res)}`);
+    assert(sessionSetCookie(res) === null, `set-cookie ${show(sessionSetCookie(res))}`);
   });
 
   // ---- Ending sessions ----
