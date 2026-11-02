@@ -56,6 +56,14 @@ const COMPUTED: Record<string, () => Promise<number>> = {
     for (let s = 0; s < 3600; s++) longest = Math.max(longest, featureAccessTtlSeconds(hour + s * 1000));
     return longest;
   },
+  // A sign-in flow's expiry is what is left of its 10 minutes (a flow put back keeps its start), asked at every second of them
+  flowTtlSec: async () => {
+    const { flowTimeLeftSec } = await import('../src/services/web-signin/flow');
+    const start = Date.UTC(2026, 10, 2, 12);
+    let longest = 0;
+    for (let s = -5; s <= 700; s++) longest = Math.max(longest, flowTimeLeftSec(start, start + s * 1000));
+    return longest;
+  },
 };
 
 /** A product of numbers ("30 * 24 * 60 * 60", "86_400"), or null. */

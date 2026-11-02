@@ -313,14 +313,14 @@ function providerFetch(url: string, init: RequestInit): Response {
   throw new Error(`network blocked in smoke: ${method} ${url}`);
 }
 
-interface Approval { alg?: 'RS256' | 'ES256'; key?: crypto.KeyObject; nonce?: string | null; aud?: unknown; expIn?: number }
+interface Approval { alg?: 'RS256' | 'ES256'; key?: crypto.KeyObject; nonce?: string | null; aud?: unknown; expIn?: number; iss?: string }
 
 /** The provider's side of an approval: an id_token for this authorization request, and the URL the browser comes back to. */
 function approve(p: P, authUrl: URL, claims: Row, o: Approval = {}): URL {
   const q = authUrl.searchParams;
   const now = Math.floor(Date.now() / 1000);
   const nonce = o.nonce === undefined ? q.get('nonce') : o.nonce;
-  const body: Row = { iss: SERVERS[p].issuer, aud: o.aud ?? q.get('client_id'), iat: now, exp: now + (o.expIn ?? 30), ...(nonce === null ? {} : { nonce }), ...claims };
+  const body: Row = { iss: o.iss ?? SERVERS[p].issuer, aud: o.aud ?? q.get('client_id'), iat: now, exp: now + (o.expIn ?? 30), ...(nonce === null ? {} : { nonce }), ...claims };
   const code = crypto.randomBytes(16).toString('hex');
   const idToken = signJwt(body, o.alg === 'ES256' ? `${SERVERS[p].kid}-es` : SERVERS[p].kid, o);
   codes.set(code, { p, challenge: q.get('code_challenge') ?? '', redirectUri: q.get('redirect_uri') ?? '', idToken, used: false });
@@ -555,6 +555,29 @@ async function main() {
     assert(sessionOf(right)?.userId === 9, `right state under the kept flow ${location(right)}`);
   });
 
+  await check('#10b the flow kept after a wrong state keeps the time it had left: 5 minutes into the sign-in, the kept record and its cookie live for the other 5, not a new 10', async () => {
+    seed();
+    const s = await start('telegram');
+    const back = approve('telegram', s.url, { sub: '1', id: 111111111 });
+    const forged = new URL(back.href);
+    forged.searchParams.set('state', 'not-the-state');
+    const realNow = Date.now;
+    Date.now = () => realNow() + 300_000;
+    try {
+      const wrong = await callback('telegram', forged, s.flowCookie);
+      const maxAge = Number(/Max-Age=(\d+)/i.exec(cookieOf(wrong, SIGNIN_COOKIE_NAME) ?? '')?.[1]);
+      assert(maxAge >= 295 && maxAge <= 300, `the kept cookie lives ${maxAge} s`);
+      const left = [...redisStore.values()].map(e => ((e.expiresAt ?? 0) - Date.now()) / 1000);
+      assert(left.length === 1 && left[0] > 295 && left[0] <= 300, `the kept record lives ${show(left)} s`);
+      // past the 10th minute a wrong state leaves no time, and nothing is kept
+      Date.now = () => realNow() + 601_000;
+      const late = await callback('telegram', forged, `${SIGNIN_COOKIE_NAME}=${valueOf(wrong, SIGNIN_COOKIE_NAME)}`);
+      assert(isSignInPage(late, 'en', 'restart') && valueOf(late, SIGNIN_COOKIE_NAME) === '', `a flow with no time left was kept: ${show(setCookies(late))}`);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   await check('#11 a late callback (over 10 minutes after the start) is status=restart with no exchange', async () => {
     seed();
     const s = await start('telegram');
@@ -606,6 +629,21 @@ async function main() {
   await check('#17 a token signed by a key Telegram didn\'t publish is refused', () => refusedWith('foreign key', 'telegram', tgClaims, { key: FOREIGN_RSA.privateKey }, /signature verification failed/));
   await check('#18 an ES256 token is refused (RS256 only), though its key is published', () => refusedWith('ES256', 'telegram', tgClaims, { alg: 'ES256' }, /"alg"/));
   await check('#19 a token expired 2 minutes ago is refused', () => refusedWith('expired', 'telegram', tgClaims, { expIn: -120 }, /claim exp/));
+
+  await check('#19b a token from another issuer is refused', () => refusedWith('issuer', 'telegram', tgClaims, { iss: 'https://oauth.example.invalid' }, /claim iss/));
+
+  await check('#19c a malformed Telegram `id` signs in nobody (status=failed, "no Telegram user id"): zero, negative, a fraction, text, a number past 2^53, a string past int64, a string of 20 digits', async () => {
+    const bad: unknown[] = [0, -5, 1.5, 'abc', '0123', '12.5', '', 2 ** 60, '9223372036854775808', '12345678901234567890'];
+    for (const id of bad) {
+      seed();
+      const { res } = await signIn('telegram', { sub: '1', id });
+      assert(isSignInPage(res, 'en', 'failed') && !sessionOf(res), `id ${show(id)}: to ${location(res)}`);
+      assert(/no Telegram user id/.test(lastCapture()?.message ?? ''), `id ${show(id)}: capture ${show(lastCapture())}`);
+    }
+    seed();
+    const top = await signIn('telegram', { sub: '1', id: '9223372036854775807' });
+    assert(isSignInPage(top.res, 'en', 'no-account'), `the largest int64 is a valid id with no account: ${location(top.res)}`);
+  });
 
   await check('#20 a token that expired 10 s ago is within the clock tolerance and signs in', async () => {
     seed();

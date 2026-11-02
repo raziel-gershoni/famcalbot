@@ -439,6 +439,8 @@ async function main() {
 
   const flowCookieOf = (res: Response) => (res.headers.getSetCookie?.() ?? []).find((c: string) => c.startsWith('famcal_signin='));
   const oidc = (kind = 'telegram') => ({ kind, state: 'state-1', nonce: 'nonce-1', codeVerifier: 'verifier-1', locale: 'he' });
+  /** A stored flow without its start time (startFlow adds `startedAt`: epoch ms), which is checked on its own. */
+  const bare = (v: unknown) => { const { startedAt, ...rest } = (v ?? {}) as Row; assert(startedAt === undefined || typeof startedAt === 'number', `startedAt ${show(startedAt)}`); return rest; };
   const startOne = async (flow: Row) => {
     const { startFlow } = await load('src/services/web-signin/flow.ts');
     const res = NextResponse.json({ ok: true });
@@ -458,7 +460,7 @@ async function main() {
     assert(keys.length === 1 && keys[0] === want, `keys ${show(keys)}, want ${want}`);
     assert(!keys[0].includes(id), 'the key holds the cookie');
     assert(ttlOf(want) === 600, `ttl ${ttlOf(want)}`);
-    assert(show(decode(live(want))) === show(oidc()), `record ${show(decode(live(want)))}`);
+    assert(show(bare(decode(live(want)))) === show(oidc()) && typeof decode(live(want)).startedAt === 'number', `record ${show(decode(live(want)))}`);
     assert(!logLines.some((l) => l.includes(id) || l.includes('state-1') || l.includes('nonce-1') || l.includes('verifier-1')), `a secret in the log: ${show(logLines)}`);
   });
 
@@ -472,7 +474,7 @@ async function main() {
     assert((await takeFlow(at(`famcal_signin=${'A'.repeat(43)}`), ['telegram'])) === null, 'an unknown id got a flow');
     assert((await takeFlow(at('famcal_signin=not-a-flow-id'), ['telegram'])) === null, 'a malformed id got a flow');
     const first = await takeFlow(at(mine.cookie), ['telegram']);
-    assert(show(first) === show(oidc()), `first take ${show(first)}`);
+    assert(show(bare(first)) === show(oidc()), `first take ${show(first)}`);
     assert((await takeFlow(at(mine.cookie), ['telegram'])) === null, 'a second take got the flow again');
     const other = await takeFlow(at(theirs.cookie), ['telegram']);
     assert(other?.state === 'their-state', `the other browser's flow ${show(other)}`);
@@ -505,9 +507,9 @@ async function main() {
     const email = { kind: 'email', emailKey: 'k'.repeat(32), locale: 'ru' };
     const { cookie } = await startOne(email);
     const at = () => req('/api/auth/email/verify', { cookie });
-    assert(show(await peekFlow(at(), 'email')) === show(email), 'first peek');
-    assert(show(await peekFlow(at(), 'email')) === show(email), 'second peek');
-    assert(show(await takeFlow(at(), ['email'])) === show(email), 'take');
+    assert(show(bare(await peekFlow(at(), 'email'))) === show(email), 'first peek');
+    assert(show(bare(await peekFlow(at(), 'email'))) === show(email), 'second peek');
+    assert(show(bare(await takeFlow(at(), ['email']))) === show(email), 'take');
     assert((await peekFlow(at(), 'email')) === null, 'a peek after the take');
     const tg = await startOne(oidc());
     assert((await peekFlow(req('/api/auth/email/verify', { cookie: tg.cookie }), 'email')) === null, 'peek returned an OIDC flow');

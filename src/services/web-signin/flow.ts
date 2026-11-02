@@ -32,8 +32,10 @@ export type OidcFlow = {
   locale: string;
   /** add-google only: the account the Google sign-in way is added to. */
   userId?: number;
+  /** When the sign-in began (epoch ms, set by startFlow): a flow put back keeps the time it had left. */
+  startedAt?: number;
 };
-export type EmailFlow = { kind: 'email'; emailKey: string; locale: string };
+export type EmailFlow = { kind: 'email'; emailKey: string; locale: string; startedAt?: number };
 export type SignInFlow = OidcFlow | EmailFlow;
 
 const recordKey = (flowId: string) => REDIS_KEYS.signinFlow(crypto.createHash('sha256').update(flowId).digest('hex'));
@@ -44,7 +46,7 @@ function asFlow(value: unknown): SignInFlow | null {
   const v = value as Record<string, unknown>;
   if (typeof v.locale !== 'string') return null;
   if (v.kind === 'email') {
-    return typeof v.emailKey === 'string' ? { kind: 'email', emailKey: v.emailKey, locale: v.locale } : null;
+    return typeof v.emailKey === 'string' ? { kind: 'email', emailKey: v.emailKey, locale: v.locale, ...startedAtOf(v) } : null;
   }
   if (v.kind !== 'telegram' && v.kind !== 'google' && v.kind !== 'add-google') return null;
   if (typeof v.state !== 'string' || typeof v.nonce !== 'string' || typeof v.codeVerifier !== 'string') return null;
@@ -56,8 +58,11 @@ function asFlow(value: unknown): SignInFlow | null {
     codeVerifier: v.codeVerifier,
     locale: v.locale,
     ...(typeof v.userId === 'number' ? { userId: v.userId } : {}),
+    ...startedAtOf(v),
   };
 }
+
+const startedAtOf = (v: Record<string, unknown>) => (typeof v.startedAt === 'number' && Number.isFinite(v.startedAt) ? { startedAt: v.startedAt } : {});
 
 /** The flow id in the request's famcal_signin cookie, or null (logged: which browser it was is the person's question). */
 function flowIdOf(request: NextRequest, step: string): string | null {
@@ -69,15 +74,28 @@ function flowIdOf(request: NextRequest, step: string): string | null {
   return id;
 }
 
+/** Seconds a flow begun at `startedAt` (epoch ms) has left of its 10 minutes: never more than all of them, 0 or less when over. */
+export function flowTimeLeftSec(startedAt: number, now: number): number {
+  return Math.min(FLOW_TTL_SEC, Math.ceil(FLOW_TTL_SEC - (now - startedAt) / 1000));
+}
+
 /**
- * Stores `flow` for 10 minutes under a new random id and sets that id as this response's famcal_signin cookie. A
- * second sign-in in the same browser replaces the cookie; the first record expires unused. Throws when Redis fails
- * (the route catches it and answers that sign-in failed).
+ * Stores `flow` under a new random id and sets that id as this response's famcal_signin cookie, for 10 minutes from
+ * the sign-in's start: a flow with no `startedAt` is new (now), one that has it (put back by the callback after a
+ * state mismatch) keeps the time it had left, so a stale tab's answers cannot stretch it. A flow with no time left is
+ * not stored (the person starts again). A second sign-in in the same browser replaces the cookie; the first record
+ * expires unused. Throws when Redis fails (the route catches it and answers that sign-in failed).
  */
 export async function startFlow(response: NextResponse, flow: SignInFlow): Promise<void> {
+  const startedAt = flow.startedAt ?? Date.now();
+  const flowTtlSec = flowTimeLeftSec(startedAt, Date.now());
+  if (flowTtlSec <= 0) {
+    console.warn(`[signin-flow] a ${flow.kind} sign-in had no time left to keep`);
+    return;
+  }
   const flowId = crypto.randomBytes(32).toString('base64url');
-  await redis.set(recordKey(flowId), flow, { ex: FLOW_TTL_SEC });
-  response.cookies.set(SIGNIN_COOKIE_NAME, flowId, { ...COOKIE_OPTIONS, maxAge: FLOW_TTL_SEC });
+  await redis.set(recordKey(flowId), { ...flow, startedAt }, { ex: flowTtlSec });
+  response.cookies.set(SIGNIN_COOKIE_NAME, flowId, { ...COOKIE_OPTIONS, maxAge: flowTtlSec });
   console.info(`[signin-flow] started a ${flow.kind} sign-in${'userId' in flow && flow.userId !== undefined ? ` for user ${flow.userId}` : ''}`);
 }
 

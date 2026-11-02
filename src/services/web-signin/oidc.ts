@@ -181,11 +181,17 @@ export async function authorizationUrl(provider: OidcProvider, flow: Pick<OidcFl
   return client.buildAuthorizationUrl(config, params);
 }
 
-/** Telegram's user id from the `id` claim: a positive whole number, sent as a JSON number or a string of digits. */
+/** The largest value User.telegramId (a Postgres bigint, int64) can hold. */
+const MAX_TELEGRAM_ID = BigInt('9223372036854775807');
+
+/**
+ * Telegram's user id from the `id` claim: a positive whole number that fits the column, sent as a JSON number or a
+ * string of digits. One that doesn't fit is refused here, so the lookup never meets a number the database rejects.
+ */
 function telegramClaims(claims: client.IDToken): TelegramClaims {
   const id = claims.id;
   if (typeof id === 'number' && Number.isSafeInteger(id) && id > 0) return { telegramId: BigInt(id) };
-  if (typeof id === 'string' && /^[1-9]\d{0,19}$/.test(id)) return { telegramId: BigInt(id) };
+  if (typeof id === 'string' && /^[1-9]\d{0,18}$/.test(id) && BigInt(id) <= MAX_TELEGRAM_ID) return { telegramId: BigInt(id) };
   throw new OidcRefusal('the id_token has no Telegram user id');
 }
 

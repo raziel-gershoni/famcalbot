@@ -68,7 +68,10 @@ export async function startOidcSignIn(provider: OidcProvider, request: NextReque
  *   to the provider, and the cookie left alone (a flow of another kind is another tab's sign-in, which still finishes);
  * - a state that differs from the flow this browser holds (the answer of an older sign-in: a second one was started here
  *   since, say in another tab): status=restart, no request to the provider, and the flow just taken is put back under a
- *   new id with the new cookie on the answer, so the newer sign-in still finishes;
+ *   new id with the new cookie on the answer, so the newer sign-in still finishes, with the time it had left (not a new
+ *   10 minutes). The put-back is not atomic with takeFlow's GETDEL: if the newer sign-in's own answer arrives in that
+ *   instant it finds no flow and is asked to start again once (the cookie is still required, so nothing is gained by
+ *   whoever sent the stale answer);
  * - the provider came back with `error` (the person cancelled, or refused): the plain /signin page, logged by the error
  *   word, not reported (it is not a failure of ours);
  * - a refused exchange or id_token: status=failed, reported to Sentry as a warning by error class and claim name.
@@ -98,7 +101,7 @@ export async function handleOidcCallback<P extends OidcProvider>(
     if (!matchesSecret(request.nextUrl.searchParams.get('state'), flow.state)) {
       console.warn(`[signin] ${provider} callback state differs from this browser's current sign-in; asked to start again`);
       // takeFlow used the flow up (GETDEL), but it is this browser's current one and the answer is an older sign-in's:
-      // keep it, under a new id, so the sign-in the person is in the middle of can still finish.
+      // keep it, under a new id and with the time it had left, so the sign-in the person is in the middle of can still finish.
       const restart = toSignIn(locale, 'restart');
       await startFlow(restart, flow);
       return restart;
