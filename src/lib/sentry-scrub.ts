@@ -11,6 +11,10 @@
  * carries in its path (/bot<id>:<token>/), also in server breadcrumbs, span descriptions and the
  * transaction name.
  *
+ * And sign-in's one-time values and the email address (web sign-in spec §8): code, state,
+ * token, id_token and email leave URLs, queries and JSON or form bodies. That also covers the
+ * Google Calendar connect's code and state and the WhatsApp magic link's token.
+ *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
  */
@@ -42,10 +46,18 @@ interface ScrubbableEvent {
 
 const SCRUBBED = '[scrubbed]';
 const INIT_DATA_PARAM = /initData=[^&#]*/gi;
-const INIT_DATA_JSON = /"initData"\s*:\s*"[^"]*"?/g;
-/** Query names whose value is a secret: the cron secret, image-link signatures, Meta's verify token. */
-const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token'];
-const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token)=[^&#]*/gi;
+/**
+ * Query names whose value is a secret: the cron secret, image-link signatures, Meta's verify token, an OAuth code and
+ * state, a one-time link's token, an id_token, and an email address.
+ */
+const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email'];
+const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email)=[^&#]*/gi;
+/** Body fields dropped from a request body, any case: initData, and sign-in's code, state, token, id_token and email. */
+const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email']);
+/** The same fields as JSON members (a string, or a bare number or word), for JSON the SDK cut off at its size limit. */
+const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
+/** And as fields of a form body. */
+const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email)=[^&]*/gi;
 /** A Telegram Bot API path, /bot<id>:<token> ('%3A' when the colon is encoded). */
 const BOT_TOKEN_PATH = /\/bot\d+(?::|%3A)[A-Za-z0-9_-]+/gi;
 /** Request headers that carry a credential, lower-cased. */
@@ -85,10 +97,11 @@ function scrubQuery(query: unknown): unknown {
   return query;
 }
 
-function withoutInitData(body: Dict): Dict {
-  const rest = { ...body };
-  delete rest.initData;
-  return rest;
+const isSecretField = (name: string) => SECRET_BODY_FIELDS.has(name.toLowerCase());
+const hasSecretField = (body: object) => Object.keys(body).some(isSecretField);
+
+function withoutSecretFields(body: Dict): Dict {
+  return Object.fromEntries(Object.entries(body).filter(([name]) => !isSecretField(name)));
 }
 
 function scrubBody(data: unknown): unknown {
@@ -96,16 +109,19 @@ function scrubBody(data: unknown): unknown {
     try {
       const parsed: unknown = JSON.parse(data);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        if (!('initData' in parsed)) return data;
-        return JSON.stringify(withoutInitData(parsed as Dict));
+        if (!hasSecretField(parsed)) return data;
+        return JSON.stringify(withoutSecretFields(parsed as Dict));
       }
     } catch {
       // A form body, or JSON the SDK cut off at its size limit
     }
-    return data.replace(INIT_DATA_JSON, `"initData":"${SCRUBBED}"`).replace(INIT_DATA_PARAM, `initData=${SCRUBBED}`);
+    return data
+      .replace(SECRET_JSON_MEMBER, `"$1":"${SCRUBBED}"`)
+      .replace(SECRET_FORM_FIELD, `$1$2=${SCRUBBED}`)
+      .replace(INIT_DATA_PARAM, `initData=${SCRUBBED}`);
   }
-  if (data && typeof data === 'object' && !Array.isArray(data) && 'initData' in data) {
-    return withoutInitData(data as Dict);
+  if (data && typeof data === 'object' && !Array.isArray(data) && hasSecretField(data)) {
+    return withoutSecretFields(data as Dict);
   }
   return data;
 }
@@ -122,7 +138,7 @@ function scrubSpanData(data: Dict | undefined) {
   }
 }
 
-/** Server and edge `beforeSend`: no initData or session cookie in the event's request. */
+/** Server and edge `beforeSend`: no initData, session cookie or sign-in secret in the event's request. */
 export function scrubServerEvent<E extends ScrubbableEvent>(event: E): E {
   const request = event.request;
   if (request) {

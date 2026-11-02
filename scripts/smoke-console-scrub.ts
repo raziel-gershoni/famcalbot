@@ -29,6 +29,8 @@ function assert(cond: boolean, message: string): void {
   if (!cond) throw new Error(message);
 }
 
+const show = (value: unknown) => JSON.stringify(value);
+
 const ROOT = path.resolve(__dirname, '..');
 const BOT_TOKEN = '123456789:AAFakeTokenForTheSmokeOnly_abcdefghij';
 const DB_URL = 'postgresql://famcal:sup3r-secret-pw@db.example.test:5432/famcal';
@@ -104,6 +106,40 @@ check('the server installs it at startup, in the Node runtime, before the schedu
   assert(start >= 0 && scheduler > start, 'the Node branch or the scheduler start is not where this check expects it');
   const branch = source.slice(start, scheduler).split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
   assert(/^\s+installConsoleScrub\(\);/m.test(branch), 'the console scrub is not installed in the Node branch before the scheduler');
+});
+
+check('[guard] the web sign-in secrets are named to be scrubbed: TELEGRAM_LOGIN_CLIENT_SECRET, GOOGLE_SIGNIN_CLIENT_SECRET, RESEND_API_KEY; their client ids are not secrets', () => {
+  const env = {
+    TELEGRAM_LOGIN_CLIENT_SECRET: 'tg-login-secret-of-the-smoke',
+    GOOGLE_SIGNIN_CLIENT_SECRET: 'GOCSPX-signin-secret-of-the-smoke',
+    RESEND_API_KEY: 're_resend_key_of_the_smoke_123',
+    TELEGRAM_LOGIN_CLIENT_ID: '1234567890123',
+    GOOGLE_SIGNIN_CLIENT_ID: '123-abc.apps.googleusercontent.com',
+  } as unknown as NodeJS.ProcessEnv;
+  const secrets = secretValues(env);
+  assert(show(secrets.slice().sort()) === show([env.GOOGLE_SIGNIN_CLIENT_SECRET, env.RESEND_API_KEY, env.TELEGRAM_LOGIN_CLIENT_SECRET].sort()), `secrets: ${show(secrets)}`);
+});
+
+check('[guard] every environment variable the app reads that names a credential (…SECRET, …TOKEN, …KEY, …PASSWORD, …CREDENTIALS) is one the scrub covers', () => {
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    if (!fs.existsSync(path.join(ROOT, dir))) return;
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(rel);
+      else if (/\.(ts|tsx)$/.test(entry.name)) files.push(rel);
+    }
+  };
+  for (const dir of ['src', 'app', 'components', 'i18n']) walk(dir);
+  for (const file of fs.readdirSync(ROOT)) if (/\.(ts|js|mjs)$/.test(file)) files.push(file);
+  const names = new Set<string>();
+  for (const file of files) {
+    for (const m of fs.readFileSync(path.join(ROOT, file), 'utf8').matchAll(/process\.env(?:\.|\[\s*['"])([A-Z][A-Z0-9_]*)/g)) names.add(m[1]);
+  }
+  assert(names.size > 10, `only ${names.size} names found`);
+  const credential = /SECRET|TOKEN(?!S)|(^|_)KEY(_|$)|PASSWORD|CREDENTIALS/;
+  const unscrubbed = [...names].filter((name) => credential.test(name) && secretValues({ [name]: 'x'.repeat(24) } as unknown as NodeJS.ProcessEnv).length === 0);
+  assert(unscrubbed.length === 0, `named like a credential but not scrubbed: ${unscrubbed.join(', ')}`);
 });
 
 const failed = results.filter((r) => !r.ok);

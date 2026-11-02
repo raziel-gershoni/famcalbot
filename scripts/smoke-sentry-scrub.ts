@@ -10,7 +10,8 @@
 // Representative events go through the scrub functions, and the configs are loaded with
 // @sentry/nextjs replaced by a recorder of its init options. No network.
 //
-// Every check here fails until the fix lands.
+// Every check here fails until the fix lands. #12 to #14 (and #2's token field) fail until web sign-in's names
+// (code, state, token, id_token, email) are scrubbed too (plan 6b, Task 3c).
 //
 // #8 to #10: Sentry gets error reports and nothing else, from every surface (the privacy policy says error reports).
 // No init traces (no tracesSampleRate or tracesSampler, in any source file), none sends client reports, the browser
@@ -138,8 +139,9 @@ async function main() {
 
   await check('#2 the body as a JSON string, a form string or cut-off JSON: initData dropped or scrubbed, the rest kept', () => {
     const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
-    const json = run(JSON.stringify({ initData: INIT, token: 'invite-1' }));
-    assert(json === JSON.stringify({ token: 'invite-1' }), `JSON string: ${show(json)}`);
+    // A token field goes too since web sign-in (#13): an invite's token is a credential as well
+    const json = run(JSON.stringify({ initData: INIT, token: 'invite-1', name: 'Kids' }));
+    assert(json === JSON.stringify({ name: 'Kids' }), `JSON string: ${show(json)}`);
     const form = run(`user_id=9&initData=${INIT}`);
     assert(form === 'user_id=9&initData=[scrubbed]', `form string: ${show(form)}`);
     const cut = run(`{"name":"Kids","initData":"${decodeURIComponent(INIT)}","rules":["a`);
@@ -322,6 +324,64 @@ async function main() {
     assert(other.data['http.query'] === '?page=2', `another host lost its query: ${show(other)}`);
     const telegram = scrubServerBreadcrumb(crumb('https://api.telegram.org/bot123456789:AAE-x_Yz/sendMessage', ''));
     assert(!JSON.stringify(telegram).includes('AAE-x_Yz'), 'the bot token scrub still holds');
+  });
+
+  // ---- Web sign-in (spec 2026-11-02 §8): code, state, token, id_token and email leave URLs, queries and bodies ----
+
+  const CODE = '4/0AVG7fiQ-oauth-code';
+  const STATE = 'st-9f8e7d6c5b4a';
+  const TOKEN = 'a'.repeat(64);
+  const ID_TOKEN = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.sig';
+  const EMAIL = 'dana@example.test';
+  const OTP = '493817';
+  const signInLeaks = (value: unknown): string[] => {
+    const text = show(value);
+    return [['code', CODE], ['state', STATE], ['token', TOKEN], ['id_token', ID_TOKEN], ['email', EMAIL], ['email (encoded)', encodeURIComponent(EMAIL)], ['the email code', OTP]]
+      .filter(([, secret]) => text.includes(secret)).map(([name]) => name);
+  };
+
+  await check('#12 server event: code, state, token, id_token and email scrubbed from url, query_string (string, object, pairs) and the nextjs request path; names that only contain them (barcode, statement) and the rest kept', () => {
+    const query = `state=${STATE}&code=${encodeURIComponent(CODE)}&scope=openid%20email&authuser=0&token=${TOKEN}&id_token=${ID_TOKEN}&email=${encodeURIComponent(EMAIL)}&barcode=5&statement=x&user_id=9`;
+    const want = 'state=[scrubbed]&code=[scrubbed]&scope=openid%20email&authuser=0&token=[scrubbed]&id_token=[scrubbed]&email=[scrubbed]&barcode=5&statement=x&user_id=9';
+    const out = scrub.scrubServerEvent({
+      request: { url: `https://famcal.bot/api/auth/google/callback?${query}`, query_string: query },
+      contexts: { nextjs: { request_path: `/api/auth/google/callback?${query}` } },
+    });
+    assert(signInLeaks(out).length === 0, `leaks ${signInLeaks(out).join(', ')}: ${show(out)}`);
+    assert(out.request.url === `https://famcal.bot/api/auth/google/callback?${want}`, `url ${out.request.url}`);
+    assert(out.request.query_string === want, `query_string ${out.request.query_string}`);
+    assert(out.contexts.nextjs.request_path === `/api/auth/google/callback?${want}`, `request_path ${out.contexts.nextjs.request_path}`);
+    const obj = scrub.scrubServerEvent({ request: { query_string: { code: CODE, State: STATE, token: TOKEN, email: EMAIL, locale: 'he' } } }).request.query_string;
+    assert(show(obj) === show({ code: '[scrubbed]', State: '[scrubbed]', token: '[scrubbed]', email: '[scrubbed]', locale: 'he' }), `object ${show(obj)}`);
+    const pairs = scrub.scrubServerEvent({ request: { query_string: [['id_token', ID_TOKEN], ['locale', 'ru']] } }).request.query_string;
+    assert(show(pairs) === show([['id_token', '[scrubbed]'], ['locale', 'ru']]), `pairs ${show(pairs)}`);
+  });
+
+  await check('#13 server event body: code, state, token, id_token and email dropped from a JSON object or string (any case) and scrubbed in a form or cut-off JSON; the rest kept', () => {
+    const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
+    const object = run({ email: EMAIL, code: OTP, locale: 'he' });
+    assert(show(object) === show({ locale: 'he' }), `object ${show(object)}`);
+    const json = run(JSON.stringify({ Email: EMAIL, id_token: ID_TOKEN, state: STATE, user_id: 9 }));
+    assert(json === JSON.stringify({ user_id: 9 }), `JSON string ${show(json)}`);
+    const form = run(`email=${encodeURIComponent(EMAIL)}&code=${OTP}&locale=he`);
+    assert(form === 'email=[scrubbed]&code=[scrubbed]&locale=he', `form ${show(form)}`);
+    const cut = run(`{"locale":"he","email":"${EMAIL}","code":${OTP},"token":"${TOKEN}","note":"a`);
+    assert(signInLeaks(cut).length === 0 && String(cut).startsWith('{"locale":"he"'), `cut-off JSON ${show(cut)}`);
+    const plain = run('{"locale":"he"}');
+    assert(plain === '{"locale":"he"}', `JSON without secrets ${show(plain)}`);
+  });
+
+  await check('#14 breadcrumbs, transactions and the browser: sign-in values scrubbed from http.query and urls, the transaction name, request.url and navigation', async () => {
+    const crumb = scrub.scrubServerBreadcrumb({ category: 'http', data: { url: `https://famcal.bot/oauth-callback?code=${CODE}&state=${STATE}`, 'http.query': `?code=${CODE}&state=${STATE}`, status_code: 302 } });
+    assert(signInLeaks(crumb).length === 0 && crumb.data.status_code === 302, `breadcrumb ${show(crumb)}`);
+    const tx = scrub.scrubServerTransaction({ type: 'transaction', transaction: `GET /api/auth/magic?token=${TOKEN}&locale=he`, contexts: { trace: { data: { 'url.full': `https://famcal.bot/api/auth/magic?token=${TOKEN}` } } } });
+    assert(signInLeaks(tx).length === 0 && tx.transaction === 'GET /api/auth/magic?token=[scrubbed]&locale=he', `transaction ${show(tx)}`);
+    const browser = scrub.scrubBrowserEvent({
+      request: { url: `https://famcal.bot/he/signin/add-google?token=${TOKEN}` },
+      breadcrumbs: [{ category: 'navigation', data: { from: `/he/signin/add-google?token=${TOKEN}`, to: '/he/dashboard?user_id=9' } }],
+    });
+    assert(signInLeaks(browser).length === 0, `browser ${show(browser)}`);
+    assert(browser.breadcrumbs[0].data.to === '/he/dashboard?user_id=9', `navigation ${show(browser.breadcrumbs[0])}`);
   });
 
   let failed = 0;
