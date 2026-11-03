@@ -191,10 +191,12 @@ export const HOME_SHELL_CSS = `
 .ch-head-weather-days::before {
   /* A wrapping line always keeps its first item, so with no room for even one column that day would stay on the first line
      and spill past the strip's start edge. This empty first item (0 wide, with the column gap after it) makes the first
-     day need 8 + 30 px like any other, so it wraps to the hidden line when it does not fit. */
+     day need 8 + 30 px like any other, so it wraps to the hidden line when it does not fit. It is a column tall: alone on
+     the first line it still gives that line a column's height, so the second line starts below the strip, where it is hidden. */
   content: '';
   flex: none;
   inline-size: 0;
+  block-size: 52px;
 }
 .ch-head-weather-day {
   display: flex;

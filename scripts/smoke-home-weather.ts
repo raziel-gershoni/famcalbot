@@ -505,6 +505,9 @@ async function runChecks(): Promise<void> {
     assert(/content: '';/.test(spacer) && /flex: none;/.test(spacer) && /inline-size: 0;/.test(spacer), `the strip starts with an empty zero-width item, so the first day can wrap too: ${spacer}`);
     const day = rule('.ch-head-weather-day');
     const strip = /block-size: (\d+)px;/.exec(days)?.[1];
+    // Alone on the first line (no room for a day), a 0-tall spacer would give that line no height, and the "hidden" second
+    // line would start at the top of the strip, in view.
+    assert(strip && new RegExp(`block-size: ${strip}px;`).test(spacer), `the spacer is a column tall, so the second line starts below the strip: ${spacer}`);
     assert(strip && new RegExp(`block-size: ${strip}px;`).test(day) && /inline-size: 30px;/.test(day) && /flex: none;/.test(day), `the strip's height is one column's: ${strip} / ${day}`);
     // one column: 12 px name + 16 px icon + 13 px high, 16 px lines, two 2 px gaps
     assert(Number(strip) === 16 + 16 + 16 + 2 + 2 && /line-height: 16px;/.test(day) && /gap: 2px;/.test(day), `a column is 52 px: ${strip}`);
