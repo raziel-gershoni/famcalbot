@@ -10088,6 +10088,32 @@ async function main() {
     }
   });
 
+  await check('#126z the header\'s weather asks again when a refetch pins a new today without a store drop (the answer\'s facts change, so today goes from one day to the next in one step)', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const clock = fakeClock('2026-10-15T12:00:00Z');
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    let temperature = 22;
+    serveWeather = () => ok200({ weather: { ...WEATHER_OK.weather, now: temperature } });
+    const m = await mountHome('en', { hasLocation: true }, clock);
+    try {
+      assert(weatherCount() === 1 && weatherBlock(m).length === 1, `${weatherCount()} requests before the refetch`);
+      serverToday = day(1);
+      temperature = 9;
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), 'the header moved on');
+      assert(weatherCount() === 2, `${weatherCount()} requests after the new today`);
+      assert(weatherBlock(m)[0]?.getAttribute('aria-label')?.includes('Now 9°'), `${weatherBlock(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#126y the header\'s weather drops a stale answer: a request still on its way when the day moves on does not overwrite the new day\'s weather when it lands late', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
