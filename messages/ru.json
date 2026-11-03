@@ -41,7 +41,8 @@
       "nextHolidayTomorrow": "{name} завтра",
       "weatherNow": "{now}°",
       "weatherRange": "{low}°–{high}°",
-      "weather": "Погода сегодня: {condition}. Сейчас {now}°, от {low}° до {high}°"
+      "weather": "Погода сегодня, {place}: {condition}. Сейчас {now}°, от {low}° до {high}°.",
+      "weatherDay": "{weekday}: {condition}, до {high}°."
     },
     "send": {
       "title": "Отправить в чат",

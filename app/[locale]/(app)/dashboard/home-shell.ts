@@ -10,7 +10,12 @@
 //   stay beside it from a 320 px phone (128 px are left), and with four of them (the sun for the Jewish calendar) on a
 //   360 px phone it would be left 116 px and wrap in three lines, so the buttons drop to a row of their own under the
 //   day, at the end; from 364 px the four stay beside it. That wrap is the side column's (.ch-head-side holds the buttons
-//   and, under them, today's weather block, which is never wider than the buttons' row).
+//   and, under them, the weather block, which is never wider than the buttons' row). The weather block takes the side
+//   column's width and adds nothing to it: inline-size: 0 makes its own width count as nothing when the column is sized
+//   (so the buttons alone set it, 148 px with three, 200 px with four), and min-inline-size: 100% then stretches it to
+//   the column's width. Inside, the place line cuts with an ellipsis and the days strip drops the days that do not fit
+//   (it wraps them to a second line its fixed height hides), the later days first: about three days beside four
+//   buttons, two beside three.
 // - The header's Hebrew date, this week's parasha (and special Shabbat) and the countdown share a
 //   line, joined by dots (.ch-head-line, each part after the date is a .ch-head-next). When
 //   they don't fit, a part starts the next line and its dot falls before the line's
@@ -113,8 +118,43 @@ export const HOME_SHELL_CSS = `
 .ch-head-weather-ghost {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  /* Takes the side column's width and adds nothing to it (see the note at the top): its own width counts as 0 when the
+     column is sized, and the minimum then stretches it to the column's width. */
+  inline-size: 0;
+  min-inline-size: 100%;
   font-variant-numeric: tabular-nums;
+}
+.ch-head-weather {
+  gap: 4px;
+}
+.ch-head-weather-place {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-inline-size: 0;
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--ch-muted);
+}
+.ch-head-weather-place svg {
+  flex: none;
+}
+.ch-head-weather-place bdi {
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ch-head-weather-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ch-head-weather-today {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
 }
 .ch-head-weather-now {
   /* The icon is left of the number in every language (the numbers read left to right): the row does not mirror in Hebrew. */
@@ -135,16 +175,55 @@ export const HOME_SHELL_CSS = `
   font-size: 14px;
   color: var(--ch-muted);
 }
+.ch-head-weather-days {
+  /* As many days as fit: a day that does not fit wraps to a second line the fixed height hides, so the later days drop first. */
+  display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: 8px;
+  min-width: 0;
+  block-size: 52px;
+  overflow: hidden;
+}
+.ch-head-weather-day {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  inline-size: 30px;
+  block-size: 52px;
+  line-height: 16px;
+}
+.ch-head-weather-day-name {
+  font-size: 12px;
+  color: var(--ch-muted);
+}
+.ch-head-weather-day svg {
+  flex: none;
+  color: var(--ch-muted);
+}
+.ch-head-weather-day-high {
+  font-size: 13px;
+  color: var(--ch-text);
+}
 .ch-head-weather-ghost {
+  align-items: flex-end;
   gap: 8px;
   padding-block-start: 4px;
 }
+.ch-head-weather-ghost-place,
 .ch-head-weather-ghost-now,
 .ch-head-weather-ghost-range {
   display: block;
   border-radius: 8px;
   background: var(--ch-surface);
   animation: ch-pulse 1.4s ease-in-out infinite;
+}
+.ch-head-weather-ghost-place {
+  block-size: 13px;
+  inline-size: 90px;
 }
 .ch-head-weather-ghost-now {
   block-size: 22px;

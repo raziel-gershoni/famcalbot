@@ -248,6 +248,26 @@ export function formatWeekdayHeader(weekday: WeekStart, locale: string): string 
   return formatter(locale, { weekday: 'narrow', timeZone: 'UTC' }).format(d);
 }
 
+/**
+ * A forecast column's weekday: "Wed" in English, "ד׳" in Hebrew and "Ср" in Russian (the Month's header forms, except
+ * that English is the three-letter form, as the Month's one letter repeats T and S). The day is a plain date, read as the
+ * UTC day it names. '' for a key that isn't a real day.
+ */
+export function formatForecastWeekday(day: DayKey, locale: string): string {
+  const d = keyDate(day);
+  if (!d) return '';
+  if (intlLocale(locale) === INTL_LOCALES.en) return formatter(locale, { weekday: 'short', timeZone: 'UTC' }).format(d);
+  return formatWeekdayHeader(d.getUTCDay() as WeekStart, locale);
+}
+
+/** A day's long weekday for a spoken label: "Wednesday" / "רביעי" (without "יום ") / "Среда". '' for a key that isn't a real day. */
+export function formatWeekdayLong(day: DayKey, locale: string): string {
+  const d = keyDate(day);
+  if (!d) return '';
+  if (isHebrew(locale)) return hebrewWeekday(d, 'UTC');
+  return capitalise(formatter(locale, { weekday: 'long', timeZone: 'UTC' }).format(d));
+}
+
 const PILL_DAY: Intl.DateTimeFormatOptions = { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' };
 const FULL_DAY: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' };
 

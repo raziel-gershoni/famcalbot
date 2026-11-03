@@ -41,7 +41,8 @@
       "nextHolidayTomorrow": "{name} מחר",
       "weatherNow": "{now}°",
       "weatherRange": "{low}°–{high}°",
-      "weather": "מזג האוויר היום: {condition}. עכשיו {now}°, בין {low}° ל־{high}°"
+      "weather": "מזג האוויר היום, {place}: {condition}. עכשיו {now}°, בין {low}° ל־{high}°.",
+      "weatherDay": "{weekday}: {condition}, עד {high}°."
     },
     "send": {
       "title": "שליחה לצ׳אט",

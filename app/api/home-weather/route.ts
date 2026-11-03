@@ -4,8 +4,10 @@
  *   ?user_id=<id>&locale=<en|he|ru>      (a locale that is none of these reads as en)
  *   X-Telegram-Init-Data: <initData>     (or the __Host-famcal_session cookie in a browser)
  *
- * The answer is { weather: HomeWeather } (src/lib/calendar-view/home-weather.ts): the temperature now, today's low and
- * high, the icon's name and the condition in the person's language (homeWeatherOf, src/services/weather/home-weather.ts).
+ * The answer is { weather: HomeWeather } (src/lib/calendar-view/home-weather.ts): the person's place as they typed it
+ * (for their own screen; it is in the answer and in no log, report or tag), the temperature now, today's low and high, the
+ * icon's name and the condition in the person's language, and up to four days after today with each one's high, icon and
+ * condition (homeWeatherOf, src/services/weather/home-weather.ts). No coordinates are in it.
  * No place saved: { weather: null }, with no geocode and no forecast request. The forecast is fetchWeather's, the same as
  * the /weather command's, at the place's own zone; a failure is 502 { error: 'no_forecast' } and the header shows nothing.
  * The summaries' weather switch does not matter here. Authenticated like the sun sheet's list.
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     // The place's own zone, for the forecast's days (as the /weather command does); no zone is the failure below.
     const zone = await getTimezone(user.location);
     const weather = await fetchWeather(user.location, zone);
-    return json({ weather: homeWeatherOf(weather, await getBotMessages(locale)) });
+    return json({ weather: homeWeatherOf(weather, await getBotMessages(locale), user.location) });
   } catch (err) {
     // The place is the person's free text and the forecast is asked by its coordinates: neither is in a log or a report,
     // and an error's message is not trusted to be free of them. The user id, the error's name and its status say what failed.

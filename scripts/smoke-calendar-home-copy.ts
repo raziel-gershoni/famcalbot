@@ -72,7 +72,8 @@ const KEYS: Record<string, readonly string[]> = {
   // Today's weather under the header's buttons: the label, the temperature now, the low-high (scripts/smoke-home-weather.ts)
   'header.weatherNow': ['now'],
   'header.weatherRange': ['low', 'high'],
-  'header.weather': ['condition', 'now', 'low', 'high'],
+  'header.weather': ['place', 'condition', 'now', 'low', 'high'],
+  'header.weatherDay': ['weekday', 'condition', 'high'],
   // SendSheet (D6), with the send results of Ruling R5 (D4's outcomes)
   'send.title': [],
   'send.subtitle': [],
@@ -501,6 +502,7 @@ const SAMPLES: Record<string, string | number> = {
   low: 15,
   high: 24,
   condition: 'Partly cloudy',
+  place: 'Harish',
 };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 

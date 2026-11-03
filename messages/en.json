@@ -41,7 +41,8 @@
       "nextHolidayTomorrow": "{name} tomorrow",
       "weatherNow": "{now}°",
       "weatherRange": "{low}°–{high}°",
-      "weather": "Weather today: {condition}. Now {now}°, from {low}° to {high}°"
+      "weather": "Weather today, {place}: {condition}. Now {now}°, from {low}° to {high}°.",
+      "weatherDay": "{weekday}: {condition}, up to {high}°."
     },
     "send": {
       "title": "Send to chat",

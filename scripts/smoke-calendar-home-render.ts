@@ -2434,7 +2434,11 @@ async function main() {
     assert(!physical, `physical properties: ${show(physical)}`);
     assert(!/:hover/.test(css), 'no hover styles');
     const frame = rule('.ch-screen');
-    assert(!/overflow:\s*hidden/.test(css) && /overflow-x:\s*clip/.test(frame), 'overflow-x: clip, never overflow: hidden');
+    // The header's weather block is a leaf in the side column: its place line's ellipsis and its days strip's hidden second
+    // line need overflow: hidden, and nothing sticky or scrolling sits inside or above them. Everything else stays clip.
+    const outsideWeather = css.replace(/\n\.ch-head-weather,[\s\S]*?(?=\n\.ch-banners \{)/, '\n');
+    assert(outsideWeather.length < css.length - 500, 'the weather block\'s rules are found');
+    assert(!/overflow:\s*hidden/.test(outsideWeather) && /overflow-x:\s*clip/.test(frame), 'overflow-x: clip, never overflow: hidden');
     assert(frame.includes('min-height: var(--tg-viewport-stable-height, 100dvh)'), 'the stable viewport height');
     for (const v of ['--tg-safe-area-inset-top, 0px', '--tg-content-safe-area-inset-top, 0px', '--tg-safe-area-inset-left, 0px', '--tg-content-safe-area-inset-left, 0px', '--tg-safe-area-inset-right, 0px', '--tg-content-safe-area-inset-right, 0px']) {
       assert(frame.includes(`var(${v})`), `no var(${v}) on the frame`);
@@ -9957,7 +9961,13 @@ async function main() {
   });
 
   const weatherCount = () => weatherCalls.length;
-  const WEATHER_OK = { weather: { now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy' } };
+  // 2026-10-16 is a Friday: the days after today (the Thursday 15th) are Fri, Sat, Sun
+  const WEATHER_DAYS = [
+    { date: '2026-10-16', high: 19, icon: 'cloudRain', condition: 'Slight rain' },
+    { date: '2026-10-17', high: 23, icon: 'cloudSun', condition: 'Overcast' },
+    { date: '2026-10-18', high: 25, icon: 'sun', condition: 'Clear sky' },
+  ];
+  const WEATHER_OK = { weather: { place: 'Harish', now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy', days: WEATHER_DAYS } };
   const weatherBlock = (m: Home) => elements(m.container).filter((e) => e.getAttribute('role') === 'img' && e.className === 'ch-head-weather');
 
   await check('#126w the header\'s weather: one request when the home is usable and a place is saved (user_id and locale in the query, the init data in the header only), then the block under the buttons with its label, in the person\'s words; a ghost while it is on its way; none without a place (no request), none before the first answer or on the retry card (no request), and none, with a warning, when the forecast failed or came in a form this build does not know', async () => {
@@ -9974,8 +9984,8 @@ async function main() {
       assert(!/hash=|auth_date|query_id/.test(call.url) && call.body === null, 'the init data is in no URL or body');
       const block = weatherBlock(ok);
       assert(block.length === 1, `${block.length} weather blocks`);
-      assert(block[0].getAttribute('aria-label') === 'Weather today: Partly cloudy. Now 22°, from 15° to 24°', `${block[0].getAttribute('aria-label')}`);
-      assertHas(ok.text(), ['22°', '15°–24°'], 'the numbers');
+      assert(block[0].getAttribute('aria-label') === 'Weather today, Harish: Partly cloudy. Now 22°, from 15° to 24°. Friday: Slight rain, up to 19°. Saturday: Overcast, up to 23°. Sunday: Clear sky, up to 25°.', `${block[0].getAttribute('aria-label')}`);
+      assertHas(ok.text(), ['Harish', '22°', '15°–24°', 'Fri', 'Sat', 'Sun', '19°', '23°', '25°'], 'the place, the numbers and the days');
       const side = block[0].parentNode as FakeElement;
       assert(side.className === 'ch-head-side' && elements(side).some((e) => e.className === 'ch-head-buttons'), 'the block is under the buttons in the side column');
       assert(elements(block[0]).every((e) => e.localName !== 'button' && e.getAttribute('role') !== 'button'), 'not tappable');
@@ -9986,11 +9996,16 @@ async function main() {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
-    serveWeather = () => ok200({ weather: { ...WEATHER_OK.weather, condition: 'מעונן חלקית' } });
+    serveWeather = () => ok200({ weather: { ...WEATHER_OK.weather, place: 'חריש', condition: 'מעונן חלקית', days: WEATHER_DAYS.map((d) => ({ ...d, condition: 'מעונן חלקית' })) } });
     const he = await mountHome('he', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
     try {
       assert(weatherCalls[0]?.query.get('locale') === 'he', 'the locale is asked');
-      assert(weatherBlock(he)[0]?.getAttribute('aria-label') === 'מזג האוויר היום: מעונן חלקית. עכשיו 22°, בין 15° ל־24°', `${weatherBlock(he)[0]?.getAttribute('aria-label')}`);
+      assert(weatherBlock(he)[0]?.getAttribute('aria-label') === 'מזג האוויר היום, חריש: מעונן חלקית. עכשיו 22°, בין 15° ל־24°. שישי: מעונן חלקית, עד 19°. שבת: מעונן חלקית, עד 23°. ראשון: מעונן חלקית, עד 25°.', `${weatherBlock(he)[0]?.getAttribute('aria-label')}`);
+      const place = elements(weatherBlock(he)[0]).filter((e) => e.className === 'ch-head-weather-place');
+      assert(place.length === 1 && place[0].textContent === 'חריש' && elements(place[0]).some((e) => e.localName === 'bdi'), 'the place line, the place inside a bdi');
+      const names = elements(weatherBlock(he)[0]).filter((e) => e.className === 'ch-head-weather-day-name').map((e) => e.textContent);
+      const highs = elements(weatherBlock(he)[0]).filter((e) => e.className === 'ch-head-weather-day-high').map((e) => e.textContent);
+      assert(show(names) === show(['ו׳', 'ש׳', 'א׳']) && show(highs) === show(['19°', '23°', '25°']), `the columns, tomorrow first: ${show(names)} ${show(highs)}`);
     } finally {
       he.unmount();
     }
@@ -10046,7 +10061,7 @@ async function main() {
     console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
     console.error = () => undefined;
     try {
-      for (const reply of [{ status: 502, body: { error: 'no_forecast' } }, { status: 200, body: { weather: { now: 'warm' } } }] as FetchAnswer[]) {
+      for (const reply of [{ status: 502, body: { error: 'no_forecast' } }, { status: 200, body: { weather: { now: 'warm' } } }, { status: 200, body: { weather: { ...WEATHER_OK.weather, days: undefined } } }] as FetchAnswer[]) {
         resetHome();
         fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
         answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -10063,7 +10078,7 @@ async function main() {
       console.warn = realWarn;
       console.error = realError;
     }
-    assert(warnings.length === 2 && warnings[0].startsWith('[home-weather] no forecast 502') && warnings[1].startsWith('[home-weather] no forecast 200'), `warnings ${show(warnings)}`);
+    assert(warnings.length === 3 && warnings[0].startsWith('[home-weather] no forecast 502') && warnings[1].startsWith('[home-weather] no forecast 200') && warnings[2].startsWith('[home-weather] no forecast 200'), `warnings ${show(warnings)}`);
   });
 
   await check('#126x the header\'s weather asks again when the server\'s today moves on (the midnight reset)', async () => {

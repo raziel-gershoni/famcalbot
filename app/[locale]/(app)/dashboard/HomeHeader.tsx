@@ -5,12 +5,13 @@
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
 // when the user can add one, home editing spec §2), Send to chat, the sun (today's zmanim, only for the Jewish
-// calendar) and the ⋯ menu. Under the buttons, at the header's end edge, today's weather at the person's place (the icon,
-// the temperature now and the low-high; nothing where there is none). Until the first answer the day is a placeholder bar.
+// calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
+// they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
+// the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar.
 
 import { useLocale, useTranslations } from 'next-intl';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, Snowflake, Sun, type LucideIcon } from 'lucide-react';
-import { daysBetween, formatDayLong, shabbatOf } from '@/src/lib/calendar-view/format';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
+import { daysBetween, formatDayLong, formatForecastWeekday, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
@@ -51,13 +52,17 @@ const WEATHER_ICONS: Record<string, LucideIcon> = {
   flame: Flame,
 };
 
-/** Today's weather, not tappable: one image to a screen reader (the label says it all), its parts hidden. */
+/**
+ * The weather at the person's place, not tappable: one image to a screen reader (the label says it all: the place, today and
+ * each day), its parts hidden. The days are in the answer's order, tomorrow first; the strip shows as many as fit (CSS).
+ */
 function WeatherBlock({ weather }: { weather: HomeWeather | 'loading' }) {
   const t = useTranslations('calendarHome.header');
   const locale = useLocale();
   if (weather === 'loading') {
     return (
       <div className="ch-head-weather-ghost" aria-hidden="true">
+        <span className="ch-head-weather-ghost-place" />
         <span className="ch-head-weather-ghost-now" />
         <span className="ch-head-weather-ghost-range" />
       </div>
@@ -68,15 +73,41 @@ function WeatherBlock({ weather }: { weather: HomeWeather | 'loading' }) {
   const low = number.format(weather.low);
   const high = number.format(weather.high);
   const Icon = WEATHER_ICONS[weather.icon] ?? Cloud;
+  const label = [
+    t('weather', { place: weather.place, condition: weather.condition, now, low, high }),
+    ...weather.days.map((day) => t('weatherDay', { weekday: formatWeekdayLong(day.date, locale), condition: day.condition, high: number.format(day.high) })),
+  ].join(' ');
   return (
-    <div className="ch-head-weather" role="img" aria-label={t('weather', { condition: weather.condition, now, low, high })}>
-      <span className="ch-head-weather-now" aria-hidden="true">
-        <Icon size={22} aria-hidden="true" focusable="false" />
-        <bdi dir="ltr">{t('weatherNow', { now })}</bdi>
-      </span>
-      <span className="ch-head-weather-range" aria-hidden="true">
-        <bdi dir="ltr">{t('weatherRange', { low, high })}</bdi>
-      </span>
+    <div className="ch-head-weather" role="img" aria-label={label}>
+      {weather.place ? (
+        <span className="ch-head-weather-place" aria-hidden="true">
+          <MapPin size={14} aria-hidden="true" focusable="false" />
+          <bdi>{weather.place}</bdi>
+        </span>
+      ) : null}
+      <div className="ch-head-weather-row" aria-hidden="true">
+        <div className="ch-head-weather-today">
+          <span className="ch-head-weather-now">
+            <Icon size={22} aria-hidden="true" focusable="false" />
+            <bdi dir="ltr">{t('weatherNow', { now })}</bdi>
+          </span>
+          <span className="ch-head-weather-range">
+            <bdi dir="ltr">{t('weatherRange', { low, high })}</bdi>
+          </span>
+        </div>
+        <div className="ch-head-weather-days">
+          {weather.days.map((day) => {
+            const DayIcon = WEATHER_ICONS[day.icon] ?? Cloud;
+            return (
+              <span key={day.date} className="ch-head-weather-day">
+                <span className="ch-head-weather-day-name">{formatForecastWeekday(day.date, locale)}</span>
+                <DayIcon size={16} aria-hidden="true" focusable="false" />
+                <bdi dir="ltr" className="ch-head-weather-day-high">{t('weatherNow', { now: number.format(day.high) })}</bdi>
+              </span>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
