@@ -194,8 +194,11 @@ export function getHumidityIcon(size = 24, color = '#64b5f6'): React.ReactElemen
   }, ...children);
 }
 
-/** WMO weather code → lucide icon name. Code -1 = flame (sharav). */
-function getIconName(code: number): string {
+/** The names of the lucide weather icons the forecast uses (the keys of ICONS that a WMO code maps to). */
+export type WeatherIconName = 'flame' | 'sun' | 'cloudSun' | 'cloudFog' | 'cloudDrizzle' | 'cloudRain' | 'cloudSnow' | 'cloudRainWind' | 'snowflake' | 'cloudLightning';
+
+/** WMO weather code → lucide icon name: the one mapping (the infographic and the home header's icon). Code -1 = flame (sharav). */
+export function weatherIconName(code: number): WeatherIconName {
   if (code === -1) return 'flame';
   if (code === 0) return 'sun';
   if (code <= 3) return 'cloudSun';
@@ -213,7 +216,7 @@ function getIconName(code: number): string {
  * Use code -1 for the flame (sharav) icon.
  */
 export function getWeatherIcon(code: number, size = 48, color = 'white'): React.ReactElement {
-  const nodes = ICONS[getIconName(code)] || ICONS.sun;
+  const nodes = ICONS[weatherIconName(code)] || ICONS.sun;
   const children = nodes.map(([tag, attrs], i) =>
     React.createElement(tag, { ...attrs, key: String(i) })
   );

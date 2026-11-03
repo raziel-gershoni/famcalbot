@@ -702,7 +702,9 @@ async function runChecks(): Promise<void> {
     assert(/flex-wrap:\s*wrap/.test(rule('.ch-head')), '.ch-head wraps');
     const basis = /flex:\s*1 1 (\d+)px/.exec(rule('.ch-head-text'));
     assert(basis && Number(basis[1]) === 120, `.ch-head-text: ${rule('.ch-head-text')}`);
-    assert(/margin-inline-start:\s*auto/.test(rule('.ch-head-buttons')), 'the wrapped buttons sit at the end');
+    // The buttons and, under them, the weather block are one column (.ch-head-side): it is what sits at the end and wraps
+    assert(/margin-inline-start:\s*auto/.test(rule('.ch-head-side')) && /flex:\s*none/.test(rule('.ch-head-side')), 'the wrapped side column sits at the end');
+    assert(!/margin-inline-start|flex:\s*none/.test(rule('.ch-head-buttons')), 'the buttons row no longer wraps by itself');
     // The arithmetic the CSS makes: padding 16 + 16, the gap of 12, buttons of 44 with gaps of 8
     const gap = Number(/gap:\s*(\d+)px/.exec(rule('.ch-head'))![1]);
     const pad = Number(/padding:\s*\d+px (\d+)px/.exec(rule('.ch-head'))![1]);

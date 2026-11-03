@@ -38,7 +38,10 @@
       "add": "Add",
       "zmanim": "Zmanim",
       "nextHoliday": "{name} in {count, plural, one {# day} other {# days}}",
-      "nextHolidayTomorrow": "{name} tomorrow"
+      "nextHolidayTomorrow": "{name} tomorrow",
+      "weatherNow": "{now}°",
+      "weatherRange": "{low}°–{high}°",
+      "weather": "Weather today: {condition}. Now {now}°, from {low}° to {high}°"
     },
     "send": {
       "title": "Send to chat",

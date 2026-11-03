@@ -145,6 +145,7 @@ import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
 import { REAL_EDITING } from '../src/lib/calendar-view/editor-client';
+import { REAL_HOME_WEATHER } from '../src/lib/calendar-view/home-weather';
 import { REAL_ZMANIM } from '../src/lib/calendar-view/zmanim-list';
 import { liftVerdict } from '../src/lib/calendar-view/drag-model';
 import { resetHolidaysCache } from '../src/lib/calendar-view/holidays-client';
@@ -949,6 +950,12 @@ const holidayCalls: FetchCall[] = [];
  */
 const zmanimCalls: FetchCall[] = [];
 let serveZmanim: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'not served' } });
+/**
+ * The header's weather route (GET /api/home-weather): its calls are kept apart as well, and by default it answers the
+ * no-place shape ({ weather: null }), so a home with a place shows nothing. The weather checks set serveWeather.
+ */
+const weatherCalls: FetchCall[] = [];
+let serveWeather: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 200, body: { weather: null } });
 let serveHolidays: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
 
 async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
@@ -967,8 +974,9 @@ async function fakeFetch(input: unknown, init: Row = {}): Promise<Row> {
   };
   const holidays = call.path === '/api/calendar/holidays';
   const zmanim = call.path === '/api/zmanim';
-  (holidays ? holidayCalls : zmanim ? zmanimCalls : fetchCalls).push(call);
-  const reply = await (holidays ? serveHolidays(call) : zmanim ? serveZmanim(call) : EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
+  const weather = call.path === '/api/home-weather';
+  (holidays ? holidayCalls : zmanim ? zmanimCalls : weather ? weatherCalls : fetchCalls).push(call);
+  const reply = await (holidays ? serveHolidays(call) : zmanim ? serveZmanim(call) : weather ? serveWeather(call) : EDITING_PATHS.includes(call.path) ? serveEditing(call) : answerFetch(call));
   if (reply === 'throw') throw new TypeError('Failed to fetch (smoke)');
   return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, json: async () => reply.body };
 }
@@ -1012,6 +1020,7 @@ function fakeClock(startIso: string, deviceZone: string | null = TZ) {
     reminderAction: postReminderAction,
     editing: REAL_EDITING,
     zmanim: REAL_ZMANIM,
+    weather: REAL_HOME_WEATHER,
     report: (error, context, extra) => void reports.push({ error, context, extra }),
   };
   return {
@@ -1193,6 +1202,8 @@ function resetHome() {
   holidayCalls.length = 0;
   zmanimCalls.length = 0;
   serveZmanim = () => ({ status: 500, body: { error: 'not served' } });
+  weatherCalls.length = 0;
+  serveWeather = () => ({ status: 200, body: { weather: null } });
   serveHolidays = (call) => ({ status: 200, body: call.query.has('next') ? { next: null } : { days: {} } });
   resetHolidaysCache();
   serveEditing = () => ({ status: 500, body: { error: 'not served' } });
@@ -9942,6 +9953,165 @@ async function main() {
       assert(sunButton(failed).length === 0, 'a sun on the retry card');
     } finally {
       failed.unmount();
+    }
+  });
+
+  const weatherCount = () => weatherCalls.length;
+  const WEATHER_OK = { weather: { now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy' } };
+  const weatherBlock = (m: Home) => elements(m.container).filter((e) => e.getAttribute('role') === 'img' && e.className === 'ch-head-weather');
+
+  await check('#126w the header\'s weather: one request when the home is usable and a place is saved (user_id and locale in the query, the init data in the header only), then the block under the buttons with its label, in the person\'s words; a ghost while it is on its way; none without a place (no request), none before the first answer or on the retry card (no request), and none, with a warning, when the forecast failed or came in a form this build does not know', async () => {
+    // A place and a forecast
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveWeather = () => ok200(WEATHER_OK);
+    const ok = await mountHome('en', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(weatherCount() === 1, `${weatherCount()} requests`);
+      const call = weatherCalls[0];
+      assert(call.method === 'GET' && call.path === '/api/home-weather' && call.query.get('user_id') === '5550001' && call.query.get('locale') === 'en' && call.cache === 'no-store' && call.credentials === 'same-origin', `${call.url}`);
+      assert(!/hash=|auth_date|query_id/.test(call.url) && call.body === null, 'the init data is in no URL or body');
+      const block = weatherBlock(ok);
+      assert(block.length === 1, `${block.length} weather blocks`);
+      assert(block[0].getAttribute('aria-label') === 'Weather today: Partly cloudy. Now 22°, from 15° to 24°', `${block[0].getAttribute('aria-label')}`);
+      assertHas(ok.text(), ['22°', '15°–24°'], 'the numbers');
+      const side = block[0].parentNode as FakeElement;
+      assert(side.className === 'ch-head-side' && elements(side).some((e) => e.className === 'ch-head-buttons'), 'the block is under the buttons in the side column');
+      assert(elements(block[0]).every((e) => e.localName !== 'button' && e.getAttribute('role') !== 'button'), 'not tappable');
+    } finally {
+      ok.unmount();
+    }
+    // In Hebrew: the Hebrew label
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveWeather = () => ok200({ weather: { ...WEATHER_OK.weather, condition: 'מעונן חלקית' } });
+    const he = await mountHome('he', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(weatherCalls[0]?.query.get('locale') === 'he', 'the locale is asked');
+      assert(weatherBlock(he)[0]?.getAttribute('aria-label') === 'מזג האוויר היום: מעונן חלקית. עכשיו 22°, בין 15° ל־24°', `${weatherBlock(he)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      he.unmount();
+    }
+    // On its way: the ghost, not the block
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveWeather = () => new Promise<FetchAnswer>(() => undefined);
+    const slow = await mountHome('en', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(weatherCount() === 1 && weatherBlock(slow).length === 0, 'no block yet');
+      assert(slow.html().includes('class="ch-head-weather-ghost"'), 'the ghost');
+    } finally {
+      slow.unmount();
+    }
+    // No place: no request, no ghost, no block
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveWeather = () => ok200(WEATHER_OK);
+    const none = await mountHome('en', { hasLocation: false }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(weatherCount() === 0 && !none.html().includes('class="ch-head-weather'), 'weather without a place');
+    } finally {
+      none.unmount();
+    }
+    // Before the first answer, and on the retry card: no request
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    serveWeather = () => ok200(WEATHER_OK);
+    answerFetch = () => new Promise<FetchAnswer>(() => undefined);
+    const pending = await mountHome('en', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(weatherCount() === 0 && !pending.html().includes('class="ch-head-weather'), 'weather before the first answer');
+    } finally {
+      pending.unmount();
+    }
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    serveWeather = () => ok200(WEATHER_OK);
+    answerFetch = () => ({ status: 500, body: { error: 'internal_error' } });
+    const failedHome = await mountHome('en', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assertHas(failedHome.text(), ['Something went wrong'], 'the retry card');
+      assert(weatherCount() === 0 && !failedHome.html().includes('class="ch-head-weather'), 'weather on the retry card');
+    } finally {
+      failedHome.unmount();
+    }
+    // A failure, and an answer of another shape: nothing shown, one warning each (no place in it)
+    const warnings: string[] = [];
+    const realWarn = console.warn;
+    const realError = console.error;
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    console.error = () => undefined;
+    try {
+      for (const reply of [{ status: 502, body: { error: 'no_forecast' } }, { status: 200, body: { weather: { now: 'warm' } } }] as FetchAnswer[]) {
+        resetHome();
+        fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+        answerFetch = (c) => answerFor(c, { items: WEEK });
+        serveWeather = () => reply;
+        const bad = await mountHome('en', { hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
+        try {
+          assert(weatherCount() === 1 && !bad.html().includes('class="ch-head-weather'), `${show(reply)}: ${weatherCount()} requests, ${bad.html().includes('class="ch-head-weather')}`);
+          assert(byLabel(bad.container, 'Send to chat') && byLabel(bad.container, 'Menu'), 'the buttons stay');
+        } finally {
+          bad.unmount();
+        }
+      }
+    } finally {
+      console.warn = realWarn;
+      console.error = realError;
+    }
+    assert(warnings.length === 2 && warnings[0].startsWith('[home-weather] no forecast 502') && warnings[1].startsWith('[home-weather] no forecast 200'), `warnings ${show(warnings)}`);
+  });
+
+  await check('#126x the header\'s weather asks again when the server\'s today moves on (the midnight reset)', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const clock = fakeClock('2026-10-15T20:59:30Z');
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    let temperature = 22;
+    serveWeather = () => ok200({ weather: { ...WEATHER_OK.weather, now: temperature } });
+    const m = await mountHome('en', { hasLocation: true }, clock);
+    try {
+      assert(weatherCount() === 1 && weatherBlock(m).length === 1, `${weatherCount()} requests before midnight`);
+      serverToday = day(1);
+      temperature = 9;
+      await clock.advance(31_000);
+      assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), 'the header moved on');
+      assert(weatherCount() === 2, `${weatherCount()} requests after midnight`);
+      assert(weatherBlock(m)[0]?.getAttribute('aria-label')?.includes('Now 9°'), `${weatherBlock(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#126y the header\'s weather drops a stale answer: a request still on its way when the day moves on does not overwrite the new day\'s weather when it lands late', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const clock = fakeClock('2026-10-15T20:59:30Z');
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    let release: (a: FetchAnswer) => void = () => undefined;
+    serveWeather = (call) => {
+      if (weatherCount() === 1 && call === weatherCalls[0]) return new Promise<FetchAnswer>((resolve) => { release = resolve; });
+      return ok200({ weather: { ...WEATHER_OK.weather, now: 9 } });
+    };
+    const m = await mountHome('en', { hasLocation: true }, clock);
+    try {
+      assert(weatherCount() === 1 && weatherBlock(m).length === 0, 'the first request is still on its way');
+      serverToday = day(1);
+      await clock.advance(31_000);
+      assert(weatherCount() === 2 && weatherBlock(m)[0]?.getAttribute('aria-label')?.includes('Now 9°'), `${weatherCount()} requests, ${weatherBlock(m)[0]?.getAttribute('aria-label')}`);
+      await React.act(async () => {
+        release(ok200({ weather: { ...WEATHER_OK.weather, now: 22 } }));
+        for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
+      });
+      assert(weatherBlock(m)[0]?.getAttribute('aria-label')?.includes('Now 9°'), `the stale answer won: ${weatherBlock(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
     }
   });
 

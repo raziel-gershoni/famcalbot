@@ -69,6 +69,10 @@ const KEYS: Record<string, readonly string[]> = {
   // The next-holiday countdown under the Hebrew date (count is 2 or more; tomorrow has its own line)
   'header.nextHoliday': ['name', 'count'],
   'header.nextHolidayTomorrow': ['name'],
+  // Today's weather under the header's buttons: the label, the temperature now, the low-high (scripts/smoke-home-weather.ts)
+  'header.weatherNow': ['now'],
+  'header.weatherRange': ['low', 'high'],
+  'header.weather': ['condition', 'now', 'low', 'high'],
   // SendSheet (D6), with the send results of Ruling R5 (D4's outcomes)
   'send.title': [],
   'send.subtitle': [],
@@ -493,6 +497,10 @@ const SAMPLES: Record<string, string | number> = {
   day: 20,
   max: 200,
   title: 'Swimming',
+  now: 22,
+  low: 15,
+  high: 24,
+  condition: 'Partly cloudy',
 };
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 

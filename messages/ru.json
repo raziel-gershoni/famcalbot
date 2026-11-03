@@ -38,7 +38,10 @@
       "add": "Добавить",
       "zmanim": "Зманим",
       "nextHoliday": "{name} через {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
-      "nextHolidayTomorrow": "{name} завтра"
+      "nextHolidayTomorrow": "{name} завтра",
+      "weatherNow": "{now}°",
+      "weatherRange": "{low}°–{high}°",
+      "weather": "Погода сегодня: {condition}. Сейчас {now}°, от {low}° до {high}°"
     },
     "send": {
       "title": "Отправить в чат",

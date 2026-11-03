@@ -9,7 +9,8 @@
 // - The header's day keeps at least 120 px beside the buttons: the usual three (the + for who can add, Send, the menu)
 //   stay beside it from a 320 px phone (128 px are left), and with four of them (the sun for the Jewish calendar) on a
 //   360 px phone it would be left 116 px and wrap in three lines, so the buttons drop to a row of their own under the
-//   day, at the end; from 364 px the four stay beside it.
+//   day, at the end; from 364 px the four stay beside it. That wrap is the side column's (.ch-head-side holds the buttons
+//   and, under them, today's weather block, which is never wider than the buttons' row).
 // - The header's Hebrew date, this week's parasha (and special Shabbat) and the countdown share a
 //   line, joined by dots (.ch-head-line, each part after the date is a .ch-head-next). When
 //   they don't fit, a part starts the next line and its dot falls before the line's
@@ -96,11 +97,62 @@ export const HOME_SHELL_CSS = `
   block-size: 14px;
   inline-size: 40%;
 }
-.ch-head-buttons {
+.ch-head-side {
   display: flex;
   flex: none;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
   margin-inline-start: auto;
+}
+.ch-head-buttons {
+  display: flex;
+  gap: 8px;
+}
+.ch-head-weather,
+.ch-head-weather-ghost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.ch-head-weather-now {
+  /* The icon is left of the number in every language (the numbers read left to right): the row does not mirror in Hebrew. */
+  direction: ltr;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ch-text);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.ch-head-weather-now svg {
+  flex: none;
+  color: var(--ch-muted);
+}
+.ch-head-weather-range {
+  font-size: 14px;
+  color: var(--ch-muted);
+}
+.ch-head-weather-ghost {
+  gap: 8px;
+  padding-block-start: 4px;
+}
+.ch-head-weather-ghost-now,
+.ch-head-weather-ghost-range {
+  display: block;
+  border-radius: 8px;
+  background: var(--ch-surface);
+  animation: ch-pulse 1.4s ease-in-out infinite;
+}
+.ch-head-weather-ghost-now {
+  block-size: 22px;
+  inline-size: 64px;
+}
+.ch-head-weather-ghost-range {
+  block-size: 14px;
+  inline-size: 48px;
 }
 .ch-banners {
   display: flex;

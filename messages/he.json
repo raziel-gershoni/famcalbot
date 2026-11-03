@@ -38,7 +38,10 @@
       "add": "הוספה",
       "zmanim": "זמני היום",
       "nextHoliday": "{name} בעוד {count, plural, =2 {יומיים} one {# יום} other {# ימים}}",
-      "nextHolidayTomorrow": "{name} מחר"
+      "nextHolidayTomorrow": "{name} מחר",
+      "weatherNow": "{now}°",
+      "weatherRange": "{low}°–{high}°",
+      "weather": "מזג האוויר היום: {condition}. עכשיו {now}°, בין {low}° ל־{high}°"
     },
     "send": {
       "title": "שליחה לצ׳אט",

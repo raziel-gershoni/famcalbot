@@ -5,13 +5,16 @@
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
 // when the user can add one, home editing spec §2), Send to chat, the sun (today's zmanim, only for the Jewish
-// calendar) and the ⋯ menu. Until the first answer the day is a placeholder bar.
+// calendar) and the ⋯ menu. Under the buttons, at the header's end edge, today's weather at the person's place (the icon,
+// the temperature now and the low-high; nothing where there is none). Until the first answer the day is a placeholder bar.
 
 import { useLocale, useTranslations } from 'next-intl';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, Snowflake, Sun, type LucideIcon } from 'lucide-react';
 import { daysBetween, formatDayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
+import type { HomeWeather } from '@/src/lib/calendar-view/home-weather';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 
 export interface HomeHeaderProps {
@@ -30,6 +33,52 @@ export interface HomeHeaderProps {
   /** Opens the zmanim sheet; absent for anyone but the Jewish calendar (and before the first answer), and there is no sun. */
   onZmanim?: () => void;
   zmanimOpen?: boolean;
+  /** Today's weather under the buttons: 'loading' is a placeholder; null or absent (no place, no forecast) shows nothing. */
+  weather?: HomeWeather | 'loading' | null;
+}
+
+/** The icon names the server sends (weatherIconName), as lucide icons; a name this build does not know is a cloud. */
+const WEATHER_ICONS: Record<string, LucideIcon> = {
+  sun: Sun,
+  cloudSun: CloudSun,
+  cloudFog: CloudFog,
+  cloudDrizzle: CloudDrizzle,
+  cloudRain: CloudRain,
+  cloudSnow: CloudSnow,
+  cloudRainWind: CloudRainWind,
+  snowflake: Snowflake,
+  cloudLightning: CloudLightning,
+  flame: Flame,
+};
+
+/** Today's weather, not tappable: one image to a screen reader (the label says it all), its parts hidden. */
+function WeatherBlock({ weather }: { weather: HomeWeather | 'loading' }) {
+  const t = useTranslations('calendarHome.header');
+  const locale = useLocale();
+  if (weather === 'loading') {
+    return (
+      <div className="ch-head-weather-ghost" aria-hidden="true">
+        <span className="ch-head-weather-ghost-now" />
+        <span className="ch-head-weather-ghost-range" />
+      </div>
+    );
+  }
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+  const now = number.format(weather.now);
+  const low = number.format(weather.low);
+  const high = number.format(weather.high);
+  const Icon = WEATHER_ICONS[weather.icon] ?? Cloud;
+  return (
+    <div className="ch-head-weather" role="img" aria-label={t('weather', { condition: weather.condition, now, low, high })}>
+      <span className="ch-head-weather-now" aria-hidden="true">
+        <Icon size={22} aria-hidden="true" focusable="false" />
+        <bdi dir="ltr">{t('weatherNow', { now })}</bdi>
+      </span>
+      <span className="ch-head-weather-range" aria-hidden="true">
+        <bdi dir="ltr">{t('weatherRange', { low, high })}</bdi>
+      </span>
+    </div>
+  );
 }
 
 export function SendIcon() {
@@ -68,7 +117,7 @@ function PlusIcon() {
   );
 }
 
-export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen }: HomeHeaderProps) {
+export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: only Russian reads it (Ruling R9).
@@ -118,37 +167,40 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
         ) : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}
       </div>
-      <div className="ch-head-buttons">
-        {onAdd ? (
-          <button type="button" className="ch-icon-btn ch-icon-btn-accent" aria-label={t('header.add')} aria-haspopup="dialog" aria-expanded={addOpen ?? false} onClick={onAdd}>
-            <PlusIcon />
+      <div className="ch-head-side">
+        <div className="ch-head-buttons">
+          {onAdd ? (
+            <button type="button" className="ch-icon-btn ch-icon-btn-accent" aria-label={t('header.add')} aria-haspopup="dialog" aria-expanded={addOpen ?? false} onClick={onAdd}>
+              <PlusIcon />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="ch-icon-btn ch-icon-btn-accent"
+            aria-label={t('header.send')}
+            aria-haspopup="dialog"
+            aria-expanded={sendOpen}
+            onClick={onSend}
+          >
+            <SendIcon />
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="ch-icon-btn ch-icon-btn-accent"
-          aria-label={t('header.send')}
-          aria-haspopup="dialog"
-          aria-expanded={sendOpen}
-          onClick={onSend}
-        >
-          <SendIcon />
-        </button>
-        {onZmanim ? (
-          <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
-            <SunIcon />
+          {onZmanim ? (
+            <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
+              <SunIcon />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="ch-icon-btn"
+            aria-label={t('header.menu')}
+            aria-haspopup="dialog"
+            aria-expanded={menuOpen}
+            onClick={onMenu}
+          >
+            <MoreIcon />
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="ch-icon-btn"
-          aria-label={t('header.menu')}
-          aria-haspopup="dialog"
-          aria-expanded={menuOpen}
-          onClick={onMenu}
-        >
-          <MoreIcon />
-        </button>
+        </div>
+        {weather ? <WeatherBlock weather={weather} /> : null}
       </div>
     </header>
   );

@@ -101,6 +101,7 @@ import { dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type Store
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
 import { REAL_ZMANIM, type ZmanimApi } from '@/src/lib/calendar-view/zmanim-list';
+import { REAL_HOME_WEATHER, type HomeWeather, type HomeWeatherApi } from '@/src/lib/calendar-view/home-weather';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
@@ -155,6 +156,8 @@ export interface HomeDeps {
   editing: EditingApi;
   /** The zmanim sheet's request for a day's list. */
   zmanim: ZmanimApi;
+  /** The header's request for today's weather. */
+  weather: HomeWeatherApi;
   /** A failure worth a report (a drop that could not be saved): to the console and to Sentry, with this context (no titles). */
   report: (error: unknown, context: string, extra: Record<string, unknown>) => void;
 }
@@ -179,6 +182,7 @@ const REAL_DEPS: HomeDeps = {
   reminderAction: postReminderAction,
   editing: REAL_EDITING,
   zmanim: REAL_ZMANIM,
+  weather: REAL_HOME_WEATHER,
   report: reportToSentry,
 };
 
@@ -624,6 +628,35 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null;
   // The sun (today's zmanim) is for the Jewish calendar setting, once the first answer has pinned the day.
   const canZmanim = jewish === true && facts !== null && card === null && blocked === null;
+
+  // Today's weather in the header, for a person with a saved place, once the home is usable (the sun's conditions besides
+  // the Jewish calendar). Asked again when the server's today moves on (the midnight reset); a failure shows nothing.
+  const homeUsable = facts !== null && card === null && blocked === null;
+  const weatherDay = facts?.today ?? null;
+  const [weather, setWeather] = useState<'loading' | HomeWeather | null>('loading');
+  useEffect(() => {
+    if (!hasLocation || !homeUsable) return;
+    let live = true;
+    setWeather('loading');
+    deps.weather
+      .load(userId, locale)
+      .then((outcome) => {
+        if (!live) return;
+        if (outcome.kind === 'ok') {
+          setWeather(outcome.weather);
+        } else {
+          console.warn('[home-weather] no forecast', outcome.status);
+          setWeather(null);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('[home-weather] the request threw:', error);
+        if (live) setWeather(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [hasLocation, homeUsable, weatherDay, userId, locale, deps]);
 
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
   // after an edit of it). An item of either source is one the user may be able to change:
@@ -1119,6 +1152,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           addOpen={editor?.mode === 'create'}
           onZmanim={canZmanim ? () => setSheet('zmanim') : undefined}
           zmanimOpen={sheet === 'zmanim'}
+          weather={hasLocation && homeUsable ? weather : null}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>
