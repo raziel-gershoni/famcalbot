@@ -15,7 +15,9 @@
 //   (so the buttons alone set it, 148 px with three, 200 px with four), and min-inline-size: 100% then stretches it to
 //   the column's width. Inside, the place line cuts with an ellipsis and the days strip drops the days that do not fit
 //   (it wraps them to a second line its fixed height hides), the later days first: about three days beside four
-//   buttons, two beside three.
+//   buttons, two beside three, and none beside two (no event or reminder kind, or no Jewish calendar: 96 px leave the
+//   strip under 38 px). A wrapped line always keeps its first item, so the strip starts with an empty zero-width one
+//   (::before): without it the first day would stay on the line, spilling past the strip's start edge.
 // - The header's Hebrew date, this week's parasha (and special Shabbat) and the countdown share a
 //   line, joined by dots (.ch-head-line, each part after the date is a .ch-head-next). When
 //   they don't fit, a part starts the next line and its dot falls before the line's
@@ -185,6 +187,14 @@ export const HOME_SHELL_CSS = `
   min-width: 0;
   block-size: 52px;
   overflow: hidden;
+}
+.ch-head-weather-days::before {
+  /* A wrapping line always keeps its first item, so with no room for even one column that day would stay on the first line
+     and spill past the strip's start edge. This empty first item (0 wide, with the column gap after it) makes the first
+     day need 8 + 30 px like any other, so it wraps to the hidden line when it does not fit. */
+  content: '';
+  flex: none;
+  inline-size: 0;
 }
 .ch-head-weather-day {
   display: flex;

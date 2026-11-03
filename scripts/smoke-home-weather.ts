@@ -501,6 +501,8 @@ async function runChecks(): Promise<void> {
     assert(/flex: none;/.test(rule('.ch-head-weather-today')) && /gap: 8px;/.test(rule('.ch-head-weather-row')), 'today does not shrink');
     const days = rule('.ch-head-weather-days');
     assert(/flex: 1 1 0;/.test(days) && /min-width: 0;/.test(days) && /display: flex;/.test(days) && /flex-wrap: wrap;/.test(days) && /justify-content: flex-end;/.test(days) && /column-gap: 8px;/.test(days) && /overflow: hidden;/.test(days), days);
+    const spacer = rule('.ch-head-weather-days::before');
+    assert(/content: '';/.test(spacer) && /flex: none;/.test(spacer) && /inline-size: 0;/.test(spacer), `the strip starts with an empty zero-width item, so the first day can wrap too: ${spacer}`);
     const day = rule('.ch-head-weather-day');
     const strip = /block-size: (\d+)px;/.exec(days)?.[1];
     assert(strip && new RegExp(`block-size: ${strip}px;`).test(day) && /inline-size: 30px;/.test(day) && /flex: none;/.test(day), `the strip's height is one column's: ${strip} / ${day}`);
