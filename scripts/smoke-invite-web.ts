@@ -30,6 +30,10 @@
 
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+import { NextIntlClientProvider } from 'next-intl';
 import {
   assert, baseUser, body, check, DB, drainAfter, everyCapture, everyLog, flowCookie, identityRow, initDataFor, installSigninWorld,
   load, logs, mails, redisStore, report, request, resetWorld, ROOT, sent, sessionCookie, show, stubModule, world, type Row,
@@ -106,6 +110,19 @@ async function main() {
   const { emailKey, normalizeEmail } = await load('src/services/web-signin/email-address.ts');
   const scrub = await load('src/lib/sentry-scrub.ts');
   const { getInviteByToken } = await load('src/services/pairing-service.ts');
+  // The invite page itself (W13): its translator and the request's cookies are the only things it takes from Next
+  const nodeRequire = createRequire(__filename);
+  const messages: Row = Object.fromEntries(['en', 'he', 'ru'].map(l => [l, JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${l}.json`), 'utf8'))]));
+  const { createTranslator } = nodeRequire('next-intl');
+  stubModule(path.relative(ROOT, nodeRequire.resolve('next-intl/server')), {
+    __esModule: true,
+    getTranslations: async ({ locale, namespace }: { locale: string; namespace: string }) => createTranslator({ locale, namespace, messages: messages[locale] }),
+  });
+  stubModule(path.relative(ROOT, nodeRequire.resolve('next/headers')), {
+    __esModule: true,
+    cookies: async () => ({ get: () => undefined }),
+  });
+  const InvitePage = (await load('app/[locale]/(app)/invite/[token]/page.tsx')).default as (props: Row) => Promise<import('react').ReactElement>;
 
   const acceptAs = (userId: number, auth: { cookie?: string; initData?: string }, extra: Row = {}) =>
     accept.POST(request(`/api/pair/accept?user_id=${userId}`, { body: { token: TOKEN }, cookie: auth.cookie, initData: auth.initData, ...extra }));
@@ -306,6 +323,12 @@ async function main() {
       assert(fresh.length === 1 && !fresh[0].pairingId, `${ending}: the new account ${show(fresh)}`);
       assert(DB.pairing.length === pairings && !DB.pairing.some(p => p.inviteeUserId === fresh[0].id || p.inviterUserId === fresh[0].id), `${ending}: paired ${show(DB.pairing)}`);
       assert((await getInviteByToken(TOKEN)) === null, `${ending}: the invite page would still offer Accept`);
+      // End to end: the page Create account landed on renders the invalid card, with its way home, and no Accept
+      const el = await InvitePage({ params: Promise.resolve({ locale: 'he', token: TOKEN }) });
+      const html = renderToString(createElement(NextIntlClientProvider, { locale: 'he', messages: messages.he, timeZone: 'Asia/Jerusalem' } as never, el));
+      const invalid = messages.he.invite.invalid;
+      assert(html.includes('role="alert"') && html.includes(invalid.title) && html.includes('href="/he"') && html.includes(invalid.home), `${ending}: the page did not render the invalid card: ${html.slice(0, 300)}`);
+      assert(!html.includes(TOKEN), `${ending}: the invalid page holds the token`);
     }
   });
 

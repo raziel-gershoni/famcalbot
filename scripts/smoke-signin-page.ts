@@ -303,7 +303,6 @@ async function main() {
     jar.clear();
   });
 
-
   await check('P3 the outcomes in en, he and ru: no account (WhatsApp\'s settings link, new here with the start buttons, another way), several, suspended and blocked (the contact address as a mail link), taken and has-one (a refused Add Google) stand instead of the ways; restart, failed and unavailable are an alert above them; an unknown status is ignored', async () => {
     jar.clear();
     configure({ telegram: true, google: true, email: true });
@@ -588,7 +587,6 @@ async function main() {
       }
     }
   });
-
 
   await check('P5 inside Telegram, in its own browser and in the Mini App\'s webview: no OIDC flow starts; the Telegram way is Telegram\'s app link with its own note, Google says to open the page in a browser and shows its address (no Google link), email still works; outside Telegram both start routes are linked', async () => {
     const appLink = 'https://t.me/family_calendar_telegram_bot?start=dashboard';
@@ -1048,7 +1046,6 @@ async function main() {
     const leaked = logs.filter((l) => /tok-\d/.test(l));
     assert(leaked.length === 0, `a log line holds a token: ${show(leaked)}`);
   });
-
 
   await check('P10 sign-up on the email form: with a site key the code screen says to check the inbox (emailSentOpen, every address alike); a right sign-up code goes to the sign-up page the server names', async () => {
     fakeDocument.head ??= fakeDocument.createElement('head');
