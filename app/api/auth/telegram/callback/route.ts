@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleOidcCallback } from '@/src/services/web-signin/oidc-route';
-import { finishSignIn, signInPageUrl } from '@/src/lib/web-session';
+import { finishSignIn, landingPage, signInPageUrl } from '@/src/lib/web-session';
 import { getUserByTelegramId } from '@/src/services/user-service';
 
 /**
@@ -14,6 +14,6 @@ export async function GET(request: NextRequest) {
       console.info('[signin] telegram sign-in matched no account');
       return NextResponse.redirect(signInPageUrl(flow.locale, 'no-account'));
     }
-    return finishSignIn(user, 'tg');
+    return finishSignIn(user, 'tg', { page: landingPage(flow.invite) });
   });
 }

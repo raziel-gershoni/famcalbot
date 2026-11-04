@@ -15,6 +15,7 @@ import { matchesSecret } from '../../lib/secret-compare';
 import { signInPageUrl, type SignInStatus } from '../../lib/web-session';
 import { VALID_LOCALES, localeFromAcceptLanguage, type Locale } from '../../utils/locale';
 import { clearFlowCookie, startFlow, takeFlow, type OidcFlow } from './flow';
+import { cleanInviteToken } from '../../lib/invite-token';
 import {
   authorizationUrl,
   describeOidcError,
@@ -40,9 +41,10 @@ const toSignIn = (locale: string, status?: SignInStatus) => NextResponse.redirec
 const loggable = (word: string) => (/^[a-z_]{1,40}$/.test(word) ? word : 'unrecognised');
 
 /**
- * GET /api/auth/<provider>/start?locale=: a fresh state, nonce and PKCE verifier, kept for this browser for 10 minutes
- * (startFlow), then the provider's page. A way that isn't set up yet, or a provider that can't be reached, goes back to
- * /signin with its status.
+ * GET /api/auth/<provider>/start?locale=&invite=: a fresh state, nonce and PKCE verifier, kept for this browser for 10
+ * minutes (startFlow), then the provider's page. `invite` (the invite page's way in, 64 hex, else dropped) rides in the
+ * same record, never in a return URL, and the finish lands back on it. A way that isn't set up yet, or a provider that
+ * can't be reached, goes back to /signin with its status.
  */
 export async function startOidcSignIn(provider: OidcProvider, request: NextRequest): Promise<NextResponse> {
   const locale = requestLocale(request, request.nextUrl.searchParams.get('locale'));
@@ -52,8 +54,9 @@ export async function startOidcSignIn(provider: OidcProvider, request: NextReque
   }
   try {
     const checks = newOidcChecks();
+    const invite = cleanInviteToken(request.nextUrl.searchParams.get('invite'));
     const response = NextResponse.redirect(await authorizationUrl(provider, checks));
-    await startFlow(response, { kind: provider, ...checks, locale });
+    await startFlow(response, { kind: provider, ...checks, locale, ...(invite ? { invite } : {}) });
     return response;
   } catch (error) {
     captureError(new Error(`${provider} sign-in could not start: ${describeOidcError(error)}`), 'signin-oidc', { service: 'web-signin', provider });

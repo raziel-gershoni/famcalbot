@@ -17,6 +17,7 @@ import { SITE_URL } from '@/src/site/config';
 import { siteMetadata } from '@/src/site/seo';
 import { isOutcome, readSignInStatus, signUpWays, STATUS_KEY, type OutcomeStatus, type SignUpWays } from '@/src/site/signin';
 import { localeHref } from '@/src/site/zmanim/links';
+import { cleanInviteToken } from '@/src/lib/invite-token';
 import { SignInClient, type SignInWays } from './SignInClient';
 
 // /signin (spec 2026-11-02-web-sign-in §3, §2.11), in the site's chrome: Continue with Telegram, Continue with Google and
@@ -99,11 +100,15 @@ async function Outcome({ status, locale, whatsappUrl, signUp }: { status: Outcom
 export default async function SignInPage({ params, searchParams }: Props) {
   const { locale } = await params;
   setRequestLocale(locale);
-  const status = readSignInStatus((await searchParams).status);
+  const query = await searchParams;
+  const status = readSignInStatus(query.status);
+  // ?invite=<token>: the invite page's "Sign in or create an account to accept". Every way carries it in its one-time
+  // flow record (never a return URL) and the finish lands back on the invite; anything but 64 hex characters is dropped.
+  const invite = cleanInviteToken(query.invite);
   if (!status) {
     const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
     const session = token ? validateSessionToken(token) : null;
-    if (session) redirect(localeHref(locale, `/dashboard?user_id=${session.userId}`));
+    if (session) redirect(localeHref(locale, invite ? `/invite/${invite}` : `/dashboard?user_id=${session.userId}`));
   }
   const t = await getTranslations({ locale });
   const ways: SignInWays = { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() };
@@ -132,6 +137,7 @@ export default async function SignInPage({ params, searchParams }: Props) {
                     telegramAppUrl={links.telegram}
                     pageAddress={`${new URL(SITE_URL).host}${localeHref(locale, '/signin')}`}
                     turnstileSiteKey={ways.email ? turnstileSiteKey() : null}
+                    invite={invite}
                   />
                   <p className="site-honest">{signUp ? t('site.signin.newAccount', { ways: signUp }) : t('site.signin.existingOnly')}</p>
                 </>

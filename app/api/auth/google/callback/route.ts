@@ -3,7 +3,7 @@ import { handleOidcCallback } from '@/src/services/web-signin/oidc-route';
 import { resolveGoogleSignIn } from '@/src/services/web-signin/google-signin';
 import { finishAddGoogle } from '@/src/services/web-signin/add-google';
 import { startFlow } from '@/src/services/web-signin/flow';
-import { finishSignIn, signInPageUrl, signUpPageUrl } from '@/src/lib/web-session';
+import { finishSignIn, landingPage, signInPageUrl, signUpPageUrl } from '@/src/lib/web-session';
 
 /**
  * GET /api/auth/google/callback: Google sends the browser back here, for "Continue with Google" on /signin and for
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
     if (flow.kind === 'add-google') return finishAddGoogle(flow, claims);
     const found = await resolveGoogleSignIn(claims);
-    if ('user' in found) return finishSignIn(found.user, 'google');
+    if ('user' in found) return finishSignIn(found.user, 'google', { page: landingPage(flow.invite) });
     if (found.status === 'new') {
       const response = NextResponse.redirect(signUpPageUrl(flow.locale));
       await startFlow(response, {

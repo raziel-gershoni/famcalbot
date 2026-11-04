@@ -5,11 +5,14 @@
 // Token persistence lives in PairingInvite (DB) — see pairing-service.ts.
 // The miniapp renders the URL; the bot accepts the token via /start invite_<packed token> (src/lib/invite-link.ts)
 // (TG) or `accept <t>` (TG+WA), see PR 6.
+// POST and DELETE change state and a session cookie proves the user, so they come only from famcal.bot as JSON
+// (refuseCrossSite, web sign-up spec §3.7).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
+import { refuseCrossSite } from '@/src/lib/same-origin';
 import {
   createInvite,
   getActiveInvite,
@@ -24,6 +27,8 @@ function buildInviteUrl(token: string, locale: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
@@ -79,6 +84,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');

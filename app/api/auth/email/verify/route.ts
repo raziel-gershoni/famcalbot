@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { refuseCrossSite } from '@/src/lib/same-origin';
-import { finishSignIn, signUpPageUrl, type SignInStatus } from '@/src/lib/web-session';
+import { finishSignIn, landingPage, signUpPageUrl, type SignInStatus } from '@/src/lib/web-session';
 import { clientAddress } from '@/src/services/web-signin/client-address';
 import { clearFlowCookie, peekFlow, startFlow, takeFlow, type EmailFlow } from '@/src/services/web-signin/flow';
 import { codeChecksBlocked, recordWrongCode } from '@/src/services/web-signin/limits';
@@ -79,21 +79,24 @@ export async function POST(request: NextRequest) {
       return refusal('wrong');
     }
     if (checked.purpose === 'signup') return await signUpNext(request, flow, checked.address);
-    return await signIn(checked.userId, checked.address);
+    return await signIn(checked.userId, checked.address, flow.invite);
   } catch (error) {
     captureSignInFailure(error, 'signin-email-verify', { api_route: ROUTE });
     return refusal('failed', { status: 500 });
   }
 }
 
-/** A right code for an account's email way: the session as that account, the flow cookie cleared. */
-async function signIn(userId: number, address: string): Promise<NextResponse> {
+/**
+ * A right code for an account's email way: the session as that account, the flow cookie cleared, landing on the invite
+ * the sign-in began on (the email flow's `invite`), else the calendar.
+ */
+async function signIn(userId: number, address: string, invite?: string): Promise<NextResponse> {
   const account = await emailSignInAccount(userId, address);
   if (!account) {
     console.warn(`[signin-email] user ${userId}: the email way was removed after the code was sent; no session`);
     return refusal('restart', { clearFlow: true });
   }
-  const finished = await finishSignIn(account.user, 'email', { respond: 'json' });
+  const finished = await finishSignIn(account.user, 'email', { respond: 'json', page: landingPage(invite) });
   const outcome = (await finished.clone().json()) as { ok?: boolean; status?: SignInStatus };
   if (!outcome.ok) {
     console.log(`[signin-email] user ${userId} refused at the finish (${outcome.status ?? 'no status'})`);
@@ -121,7 +124,7 @@ async function signUpNext(request: NextRequest, flow: EmailFlow, address: string
   const account = await findEmailSignIn(address);
   if (account) {
     console.log(`[signin-email] a right sign-up code for an address user ${account.userId} signs in with now: signing in`);
-    return signIn(account.userId, account.address);
+    return signIn(account.userId, account.address, flow.invite);
   }
   const way = await findWayByAddress(address);
   if (way) {
@@ -133,7 +136,7 @@ async function signUpNext(request: NextRequest, flow: EmailFlow, address: string
     return refusal('restart');
   }
   const response = NextResponse.json({ ok: true, redirect: signUpPageUrl(flow.locale) });
-  await startFlow(response, { kind: 'signup', way: 'email', subject: address, address, locale: flow.locale });
+  await startFlow(response, { kind: 'signup', way: 'email', subject: address, address, locale: flow.locale, ...(flow.invite ? { invite: flow.invite } : {}) });
   console.log('[signin-email] a right sign-up code: the sign-up page is next');
   return response;
 }

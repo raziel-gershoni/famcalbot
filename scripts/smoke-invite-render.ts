@@ -10,10 +10,13 @@
 //    disabled; each of the 8 error codes (and an unknown one, and a failed request) shows its own message in an error notice, with
 //    Accept still there; "already paired together" shows as information and Accept goes; success shows the card, and Close closes
 //    the Mini App;
-//  - V3 in a browser (the SDK with no launch data, or no SDK at all): no Accept, no request; Open in Telegram, then Open in
-//    WhatsApp, with the exact links, each hidden when its link is empty;
+//  - V3 in a browser that is not signed in (the SDK with no launch data, or no SDK at all): no Accept, no request; Sign in or
+//    create an account to accept (to /signin, with the invite), then Open in Telegram and Open in WhatsApp, with the exact
+//    links, each hidden when its link is empty (and their line with them);
 //  - V4 the server page: an invalid token is the crash card with its way home, as wide as the valid card; a valid one hands InviteClient what it always did
-//    (the inviter's name with its fallbacks, the deep links, the expiry);
+//    (the inviter's name with its fallbacks, the deep links, the expiry) and the session cookie's account (signature and age only), or null;
+//  - V7 signed in on famcal.bot (web sign-up spec §3.7): Accept with the cookie (user_id is the DB id, no initData), Open
+//    your calendar after it, a 401 turns the page signed out, the browser's "could not accept"; Telegram still wins inside it;
 //  - V5 the page is made of the kit: no Tailwind class, no emoji, no gradient, none of the old comments, its own CSS passes the lint;
 //    V6 React logs no warning.
 //
@@ -133,6 +136,10 @@ const TOKEN = 'tok-abc123';
 const TG_LINK = `https://t.me/test_bot?start=invite_${TOKEN}`;
 const WA_LINK = `https://wa.me/972500000000?text=accept%20${TOKEN}`;
 const TG_ID = 5550001;
+/** /signin in a language, as signInHref writes it (English has no prefix) */
+const SIGNIN = (l: Locale) => (l === 'en' ? '/signin' : `/${l}/signin`);
+/** The cookies the server page reads (next/headers), by name */
+const jar = new Map<string, string>();
 const propsOf = (locale: Locale, over: Row = {}): Row => ({ token: TOKEN, inviterName: NAMES[locale], locale, tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: local(2026, 11, 3, 15, 45), ...over });
 
 let Invite: (props: Row) => ReactElement;
@@ -255,6 +262,12 @@ async function main() {
     __esModule: true,
     getTranslations: async ({ locale, namespace }: { locale: string; namespace: string }) => createTranslator({ locale, namespace, messages: messages[locale as Locale] }),
   });
+  // The page reads the session cookie: the request's cookies (next/headers), and a key to check its signature
+  stub(path.relative(ROOT, nodeRequire.resolve('next/headers')), {
+    __esModule: true,
+    cookies: async () => ({ get: (name: string) => (jar.has(name) ? { name, value: jar.get(name) as string } : undefined) }),
+  });
+  process.env.SESSION_SECRET ||= 'smoke-invite-render-session-secret';
   process.env.TELEGRAM_BOT_USERNAME = 'test_bot';
   process.env.WHATSAPP_PHONE_NUMBER = '972500000000';
   const clientModule = await import('../app/[locale]/(app)/invite/[token]/InviteClient');
@@ -289,7 +302,7 @@ async function main() {
           assert(elements(o.m.container).some((e) => e.localName === 'h1' && flat(e) === word(locale, 'title', 'invite', { name })), `${where}: the title is the h1`);
           // Inside Telegram the Accept button replaces the links once the page is on the client; elsewhere the links stay
           if (options.telegram) assert(!!acceptOf(o.m) && anchorsOf(o.m).length === 0, `${where}: Accept after mount: ${buttonsOf(o.m).length} button(s), ${anchorsOf(o.m).length} link(s)`);
-          else assert(!acceptOf(o.m) && anchorsOf(o.m).length === 2, `${where}: the two links: ${anchorsOf(o.m).length}`);
+          else assert(!acceptOf(o.m) && anchorsOf(o.m).length === 3, `${where}: Sign in, then the two links: ${anchorsOf(o.m).length}`);
         } finally {
           close(o);
         }
@@ -416,7 +429,8 @@ async function main() {
     }
   });
 
-  await check('V3 in a browser (the SDK with no launch data, or no SDK): no Accept and no request; "open it in Telegram", then Open in Telegram (the filled button) and Open in WhatsApp (the quiet one) with the exact links, in that order; each is hidden when its link is empty; with no link at all the text stands alone', async () => {
+  await check('V3 in a browser that is not signed in (the SDK with no launch data, or no SDK): no Accept and no request; Sign in or create an account to accept (the filled button, to /signin in the page\'s language, with the invite when the token is one), then "already use the bot?" with Open in Telegram and Open in WhatsApp (both quiet) with the exact links, in that order; each is hidden when its link is empty, and with neither their line goes too', async () => {
+    const HEX = 'c3'.repeat(32);
     for (const locale of LOCALES) {
       for (const options of [{}, { sdkOnly: true }] as OpenOptions[]) {
         reset();
@@ -425,26 +439,39 @@ async function main() {
           await settle();
           const where = `${locale} ${show(options)}`;
           assert(!acceptOf(o.m) && buttonsOf(o.m).length === 0 && requestCount() === 0, `${where}: Accept or a request in a browser`);
-          const anchors = anchorsOf(o.m);
-          assert(show(anchors.map((a) => [a.getAttribute('href'), flat(a), a.className])) === show([[TG_LINK, word(locale, 'openTg'), 'ch-btn ch-btn-primary ch-home-card-action'], [WA_LINK, word(locale, 'openWa'), 'ch-btn ch-home-card-action']]), `${where}: the links: ${show(anchors.map((a) => [a.getAttribute('href'), flat(a), a.className]))}`);
+          const anchors = anchorsOf(o.m).map((a) => [a.getAttribute('href'), flat(a), a.className]);
+          const want = [
+            [SIGNIN(locale), word(locale, 'signInToAccept'), 'ch-btn ch-btn-primary ch-home-card-action'],
+            [TG_LINK, word(locale, 'openTg'), 'ch-btn ch-home-card-action'],
+            [WA_LINK, word(locale, 'openWa'), 'ch-btn ch-home-card-action'],
+          ];
+          assert(show(anchors) === show(want), `${where}: the links: ${show(anchors)}`);
           assert(page(o.m).includes(word(locale, 'notInApp')) && noticesOf(o.m).length === 0, `${where}: the text`);
           assert(!o.calls.includes('ready()') && !o.calls.includes('expand()'), `${where}: ready() or expand() with no launch`);
         } finally {
           close(o);
         }
       }
+      reset();
+      const real = open(locale, propsOf(locale, { token: HEX }));
+      try {
+        assert(anchorsOf(real.m)[0]?.getAttribute('href') === `${SIGNIN(locale)}?invite=${HEX}`, `${locale}: the sign-in link does not carry the invite: ${anchorsOf(real.m)[0]?.getAttribute('href')}`);
+      } finally {
+        close(real);
+      }
     }
     for (const [tgLink, waLink, want] of [['', WA_LINK, [WA_LINK]], [TG_LINK, '', [TG_LINK]], ['', '', []]] as const) {
       reset();
       const o = open('en', propsOf('en', { tgDeepLink: tgLink, waDeepLink: waLink }));
       try {
-        assert(show(anchorsOf(o.m).map((a) => a.getAttribute('href'))) === show(want), `links ${show([tgLink, waLink])}: ${show(anchorsOf(o.m).map((a) => a.getAttribute('href')))}`);
-        assert(page(o.m).includes(word('en', 'notInApp')) && requestCount() === 0 && buttonsOf(o.m).length === 0, `links ${show([tgLink, waLink])}: the text, a request or a button`);
+        assert(show(anchorsOf(o.m).map((a) => a.getAttribute('href'))) === show([SIGNIN('en'), ...want]), `links ${show([tgLink, waLink])}: ${show(anchorsOf(o.m).map((a) => a.getAttribute('href')))}`);
+        assert(page(o.m).includes(word('en', 'notInApp')) === (want.length > 0) && requestCount() === 0 && buttonsOf(o.m).length === 0, `links ${show([tgLink, waLink])}: the text, a request or a button`);
       } finally {
         close(o);
       }
     }
   });
+
 
   await check('V4 the server page: an invalid token is the app\'s crash card (an alert, the h1, a link to /<locale> in the card\'s button) in en, he and ru, inside the same capped, centred wrapper as the valid card (with the CSS that caps it), with no Tailwind, no emoji and no gradient; a valid one hands InviteClient the inviter (name, then English name, then "Someone"), the token, the page\'s language, the Telegram and WhatsApp deep links built as always, and the expiry as an ISO string', async () => {
     for (const locale of LOCALES) {
@@ -467,7 +494,19 @@ async function main() {
     };
     for (const [inviter, name] of [[{ name: 'Dana', englishName: 'Dana E' }, 'Dana'], [{ name: '', englishName: 'Dana E' }, 'Dana E'], [{ name: '', englishName: '' }, word('he', 'someone')]] as const) {
       const el = await valid(inviter);
-      assert(el.type === Invite && show(el.props) === show({ token: TOKEN, inviterName: name, locale: 'he', tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: expires.toISOString() }), `the props for ${show(inviter)}: ${show(el.props)}`);
+      assert(el.type === Invite && show(el.props) === show({ token: TOKEN, inviterName: name, locale: 'he', tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: expires.toISOString(), sessionUserId: null }), `the props for ${show(inviter)}: ${show(el.props)}`);
+    }
+    // A browser signed in on famcal.bot: the session's account (the cookie's signature and age only; the accept route
+    // checks the rest); a tampered cookie, or none, is null
+    {
+      const { createSessionToken, SESSION_COOKIE_NAME } = await import('../src/lib/session-auth');
+      jar.set(SESSION_COOKIE_NAME, createSessionToken(42, 'google', Date.now()));
+      const signedIn = await valid({ name: 'Dana' });
+      assert(signedIn.props.sessionUserId === 42, `a signed-in browser: ${show(signedIn.props.sessionUserId)}`);
+      jar.set(SESSION_COOKIE_NAME, `${jar.get(SESSION_COOKIE_NAME)}x`);
+      const tampered = await valid({ name: 'Dana' });
+      assert(tampered.props.sessionUserId === null, `a tampered cookie: ${show(tampered.props.sessionUserId)}`);
+      jar.clear();
     }
     // A real token is 64 hex characters: the Telegram link carries it packed, within Telegram's 64 base64url characters
     {
@@ -493,6 +532,61 @@ async function main() {
       process.env.WHATSAPP_PHONE_NUMBER = number;
     }
   });
+
+  await check('V7 signed in on famcal.bot (sessionUserId, no Telegram): Accept alone; it posts once to /api/pair/accept?user_id=<the DB id> with { token } and the cookie (same-origin), never initData; success shows Open your calendar (the dashboard in the page\'s language), not Close; a 401 means the session ended: its line, then Sign in or create an account to accept (with the invite) and the bot links, no Accept, nothing reported; an unknown code says the browser\'s "could not accept"; inside Telegram the Telegram user still accepts with initData', async () => {
+    const HEX = 'b2'.repeat(32);
+    const prefix = (l: Locale) => (l === 'en' ? '' : `/${l}`);
+    for (const locale of LOCALES) {
+      reset();
+      const o = open(locale, propsOf(locale, { token: HEX, sessionUserId: 42 }));
+      try {
+        await settle();
+        assert(!!acceptOf(o.m) && anchorsOf(o.m).length === 0, `${locale}: Accept alone for a signed-in browser`);
+        o.m.click(acceptOf(o.m) as FakeElement);
+        await settle();
+        const call = fetchCalls[0];
+        assert(requestCount() === 1 && call.url === '/api/pair/accept?user_id=42' && call.init.credentials === 'same-origin' && show(JSON.parse(String(call.init.body))) === show({ token: HEX }), `${locale}: the request ${call?.url} ${String(call?.init.body)}`);
+        const calendar = anchorsOf(o.m).find((a) => flat(a) === word(locale, 'openCalendar'));
+        assert(calendar && calendar.getAttribute('href') === `${prefix(locale)}/dashboard?user_id=42` && !buttonsOf(o.m).some((b) => flat(b) === word(locale, 'closeApp')), `${locale}: Open your calendar ${calendar?.getAttribute('href')}`);
+      } finally {
+        close(o);
+      }
+      reset();
+      const ended = open(locale, propsOf(locale, { token: HEX, sessionUserId: 42 }));
+      try {
+        world.accept = () => json({ error: 'Session ended' }, 401);
+        ended.m.click(acceptOf(ended.m) as FakeElement);
+        await settle();
+        const links = anchorsOf(ended.m).map((a) => [a.getAttribute('href'), flat(a)]);
+        const want = [[`${SIGNIN(locale)}?invite=${HEX}`, word(locale, 'signInToAccept')], [TG_LINK, word(locale, 'openTg')], [WA_LINK, word(locale, 'openWa')]];
+        assert(!acceptOf(ended.m) && page(ended.m).includes(word(locale, 'sessionEnded')) && show(links) === show(want), `${locale}: after a 401 ${show(links)}`);
+        assert(capturedCount() === 0, `${locale}: a 401 was reported`);
+      } finally {
+        close(ended);
+      }
+      reset();
+      const odd = open(locale, propsOf(locale, { token: HEX, sessionUserId: 42 }));
+      try {
+        world.accept = () => json({ success: false, error: 'SOMETHING_NEW' }, 400);
+        odd.m.click(acceptOf(odd.m) as FakeElement);
+        await settle();
+        assert(show(noticesOf(odd.m).map(flat)) === show([word(locale, 'errorGenericWeb')]), `${locale}: an unknown code ${show(noticesOf(odd.m).map(flat))}`);
+      } finally {
+        close(odd);
+      }
+    }
+    reset();
+    const both = open('en', propsOf('en', { token: HEX, sessionUserId: 42 }), { telegram: {} });
+    try {
+      await settle();
+      both.m.click(acceptOf(both.m) as FakeElement);
+      await settle();
+      assert(fetchCalls[0]?.url === `/api/pair/accept?user_id=${TG_ID}` && JSON.parse(String(fetchCalls[0].init.body)).initData === (both.tg as Row).initData, `inside Telegram: ${fetchCalls[0]?.url}`);
+    } finally {
+      close(both);
+    }
+  });
+
 
   await check('V5 the landing is made of the kit: no Tailwind class, emoji or gradient and no mention of Tailwind in InviteClient or the page; the old comments are gone; it logs a failed accept (captureError, no bare catch); its own CSS passes the lint; every key of the invite namespace is read', () => {
     const dir = path.join(ROOT, 'app/[locale]/(app)/invite/[token]');

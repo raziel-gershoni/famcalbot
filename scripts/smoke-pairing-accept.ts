@@ -53,6 +53,8 @@ import { elements, fakeTelegram, fakeWindow, installWindow, mount } from './lib/
 type Row = Record<string, any>;
 
 const ROOT = path.resolve(__dirname, '..');
+/** The app's own origin, as getBaseUrl() reads it: the pair routes refuse a request from any other (refuseCrossSite) */
+const APP_ORIGIN = new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').origin;
 const nodeRequire = createRequire(__filename);
 
 // Test values, used only when the fake env left them unset.
@@ -497,7 +499,7 @@ async function main() {
     const { POST } = await load('app/api/pair/accept/route.ts');
     const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
     }));
     await settle();
@@ -577,7 +579,7 @@ async function main() {
     const { POST } = await load('app/api/pair/accept/route.ts');
     const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
     }));
     await settle();
@@ -711,7 +713,7 @@ async function main() {
     userRow(2).name = '';
     const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
     }));
     await settle();
@@ -790,7 +792,7 @@ async function main() {
     seed();
     const post = (tgId: number, token: string) => POST(new NextRequest(`http://localhost/api/pair/accept?user_id=${tgId}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token, initData: initDataFor(tgId) }),
     })) as Promise<Response>;
     const responses = await Promise.all([post(7770002, TOKEN_1), post(5550001, TOKEN_2)]);
@@ -841,7 +843,7 @@ async function main() {
     pairedSeed();
     const res: Response = await POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
     }));
     await settle();
@@ -952,7 +954,7 @@ async function main() {
     seed();
     const post = () => POST(new NextRequest('http://localhost/api/pair/accept?user_id=7770002', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: APP_ORIGIN },
       body: JSON.stringify({ token: TOKEN_1, initData: initDataFor(7770002) }),
     })) as Promise<Response>;
     const answers: string[] = [];
@@ -988,7 +990,8 @@ async function main() {
       const phone = g.window;
       delete g.window;
       try {
-        return await POST(new NextRequest(`http://localhost${url}`, init));
+        // A browser sends its Origin with a same-origin POST
+        return await POST(new NextRequest(`http://localhost${url}`, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), origin: APP_ORIGIN } }));
       } finally {
         g.window = phone;
       }

@@ -14,14 +14,15 @@ import { captureError } from './error-capture';
 import { getBaseUrl } from '../config/urls';
 import { normalizeLocale } from '../utils/locale';
 import { addGoogleJoinHref, signInHref, signUpHref } from '../site/signin';
+import { cleanInviteToken } from './invite-token';
 
 /**
  * The pages a sign-in or a finish lands on: the calendar; Select calendars right after a Google connect (on WhatsApp,
  * or finished here in the browser: /api/oauth/claim); Calendars after a copy to Google finished here, as the chat
- * claim's button leads; or the Join question an Add Google ended on (web sign-up spec §3.6; `join` is the question's
- * one-time id).
+ * claim's button leads; the partner invite the sign-in began on (web sign-up spec §3.7); or the Join question an Add
+ * Google ended on (§3.6; `join` is the question's one-time id).
  */
-export type FinishPage = 'dashboard' | 'select-calendars' | 'calendars' | { join: string };
+export type FinishPage = 'dashboard' | 'select-calendars' | 'calendars' | { invite: string } | { join: string };
 
 /**
  * The outcomes /signin shows (?status=). 'taken' and 'has-one' are what Add Google answers: the Google account already
@@ -65,11 +66,21 @@ export function signUpPageUrl(locale: string): string {
 
 /**
  * An app page of the person's, absolute: /{locale}/{page}?user_id={DB id}, in their language, with the locale prefix
- * for every language (an unknown language is English). The Join question is addGoogleJoinHref's page.
+ * for every language (an unknown language is English). The Join question is addGoogleJoinHref's page. An invite is
+ * /{locale}/invite/{token}, with no user_id: the invite page reads the session cookie itself.
  */
 export function appPageUrl(locale: string, page: FinishPage, userId: number): string {
-  const path = typeof page === 'string' ? `/${page}?user_id=${userId}` : addGoogleJoinHref(locale, page.join);
+  const path = typeof page === 'string' ? `/${page}?user_id=${userId}` : 'join' in page ? addGoogleJoinHref(locale, page.join) : `/invite/${page.invite}`;
   return new URL(prefixed(locale, path), getBaseUrl()).toString();
+}
+
+/**
+ * Where a sign-in lands: back on the invite it began on (a sign-in flow's `invite`, a clean token only), else the
+ * calendar. The one rule every finish reads (the Telegram and Google callbacks, the email code, the sign-up).
+ */
+export function landingPage(invite: string | undefined): FinishPage {
+  const token = cleanInviteToken(invite);
+  return token ? { invite: token } : 'dashboard';
 }
 
 /**

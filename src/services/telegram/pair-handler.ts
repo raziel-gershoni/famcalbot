@@ -17,6 +17,7 @@ import { captureError } from '../../lib/error-capture';
 import { escapeHtml } from '../../utils/html';
 import { inviteTokenFromStart } from '../../lib/invite-link';
 import { deliveryPlatformFor } from '../../lib/delivery-platform';
+import { hasChat } from '../../lib/has-chat';
 
 /** The factory needs the bot instance for Telegram; ./bot supplies it. */
 function messagingFor(platform: MessagingPlatform): IMessagingService {
@@ -113,7 +114,15 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       where: { id: inviterUserId },
       select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true },
     });
-    if (!inviter) return;
+    if (!inviter) {
+      console.warn(`[pair] inviter ${inviterUserId} not found; accept notice not sent`);
+      return;
+    }
+    // An account made on famcal.bot with no chat has nowhere to hear it until web push (6c-2)
+    if (!hasChat(inviter)) {
+      console.log(`[pair] inviter ${inviterUserId} has no chat; accept notice not sent`);
+      return;
+    }
     // WhatsApp when that is where they are: the saved choice narrowed to the channels they have (an inviter saved as
     // "telegram" who never linked Telegram, but has WhatsApp, is told there)
     const platform =
@@ -125,7 +134,10 @@ export async function notifyInviterOfAccept(inviterUserId: number, acceptorName:
       platform === MessagingPlatform.TELEGRAM
         ? Number(inviter.telegramId)
         : inviter.whatsappPhone ?? inviter.whatsappBsuid ?? '';
-    if (!inviterChatId) return;
+    if (!inviterChatId) {
+      console.warn(`[pair] inviter ${inviterUserId}: no ${platform} chat id; accept notice not sent`);
+      return;
+    }
     if (platform === MessagingPlatform.WHATSAPP) {
       const whatsappTemplate = buildWhatsAppTemplate(normalizeLocale(inviter.language), 'settings');
       await service.sendMessage(inviterChatId, '', { whatsappTemplate });
@@ -188,8 +200,12 @@ export async function handlePairAccept(
 
     await reply(successMessage);
 
-    // Best-effort notification — does not block the success message above.
-    notifyInviterOfAccept(result.inviterUserId, acceptor?.name ?? '').catch(() => {});
+    // Best-effort notification — does not block the success message above. It catches its own errors; anything that
+    // still escapes is logged, never dropped.
+    notifyInviterOfAccept(result.inviterUserId, acceptor?.name ?? '').catch((err) => {
+      console.error(`[pair] the accept notice to inviter ${result.inviterUserId} failed`, err);
+      captureError(err, 'pair-notify-inviter', { user_id: result.inviterUserId }, 'warning');
+    });
   } catch (err) {
     if (err instanceof PairingError) {
       await reply(pairingErrorMessage(err.code, locale));

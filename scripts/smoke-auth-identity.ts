@@ -442,10 +442,12 @@ async function main() {
   const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
   const waCookie = `${SESSION_COOKIE_NAME}=${createSessionToken(42, 'wa', Date.now())}`;
 
+  // The app's own origin, as getBaseUrl() reads it: the pair routes refuse a request from any other (refuseCrossSite)
+  const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').origin;
   const req = (url: string, o: { method?: string; body?: unknown; cookie?: string } = {}) =>
     new NextRequest(`http://localhost${url}`, {
       method: o.method ?? (o.body === undefined ? 'GET' : 'POST'),
-      headers: { 'content-type': 'application/json', ...(o.cookie ? { cookie: o.cookie } : {}) },
+      headers: { 'content-type': 'application/json', origin: appOrigin, ...(o.cookie ? { cookie: o.cookie } : {}) },
       body: o.body === undefined ? undefined : JSON.stringify(o.body),
     });
 

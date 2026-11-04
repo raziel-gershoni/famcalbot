@@ -1,6 +1,11 @@
 // Public landing for a pair invite. No auth required to LOAD — anyone with the
 // link can preview the inviter's display name. Acceptance happens in one of:
 //   - In-app via Telegram initData (one-tap), POST /api/pair/accept.
+//   - Signed in on famcal.bot: the same Accept, with the session cookie (web sign-up spec §3.7). The page reads the
+//     cookie's signature and age only, as /signin does; the accept route checks the rest (verifyUserAuth), and its
+//     401 turns the page signed out.
+//   - Signed out in a browser: "Sign in or create an account to accept" → /signin?invite=<token>, whose sign-in or
+//     sign-up comes back here.
 //   - Out-of-app: tap "Open in Telegram" deep link → /start invite_<packed token> (src/lib/invite-link.ts).
 //   - WhatsApp-only users: tap "Open in WhatsApp" → wa.me with prefilled "accept <token>".
 //
@@ -9,8 +14,10 @@
 // API POST, WA accept text) all converge on pairing-service.acceptInvite.
 
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { getTranslations } from 'next-intl/server';
+import { SESSION_COOKIE_NAME, validateSessionToken } from '@/src/lib/session-auth';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { getInviteByToken } from '@/src/services/pairing-service';
@@ -66,6 +73,9 @@ export default async function InvitePage({ params }: PageProps) {
 
   const { invite, inviter } = result;
   const inviterDisplayName = inviter.name || inviter.englishName || t('someone');
+  // The account this browser is signed in as on famcal.bot, or null (no database read here)
+  const sessionToken = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
+  const sessionUserId = sessionToken ? validateSessionToken(sessionToken)?.userId ?? null : null;
 
   const botUsername = process.env.TELEGRAM_BOT_USERNAME || '';
   const waNumber = process.env.WHATSAPP_PHONE_NUMBER || '';
@@ -81,6 +91,7 @@ export default async function InvitePage({ params }: PageProps) {
       tgDeepLink={tgDeepLink}
       waDeepLink={waDeepLink}
       expiresAt={invite.expiresAt.toISOString()}
+      sessionUserId={sessionUserId}
     />
   );
 }

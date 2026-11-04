@@ -13,9 +13,11 @@
  *
  * And sign-in's one-time values and the email address (web sign-in spec §8): code, state,
  * token, id_token and email leave URLs, queries and JSON or form bodies. That also covers the
- * Google Calendar connect's code and state and the WhatsApp magic link's token. A body's name
- * goes too (Create account sends the name typed on /signup, web sign-up spec §8): no Sentry
- * field holds a person's name.
+ * Google Calendar connect's code and state, its Finish here id (token) and the WhatsApp magic
+ * link's token. A body's name goes too (Create account sends the name typed on /signup, web
+ * sign-up spec §8): no Sentry field holds a person's name. A partner invite's token leaves them
+ * too (web sign-up spec §3.7): the `invite` name, and the invite page's own path,
+ * /invite/<64 hex>, wherever a URL or a name holds it.
  *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
@@ -50,16 +52,16 @@ const SCRUBBED = '[scrubbed]';
 const INIT_DATA_PARAM = /initData=[^&#]*/gi;
 /**
  * Query names whose value is a secret: the cron secret, image-link signatures, Meta's verify token, an OAuth code and
- * state, a one-time link's token, an id_token, and an email address.
+ * state, a one-time link's token, an id_token, an email address, and a partner invite's token.
  */
-const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email'];
-const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email)=[^&#]*/gi;
-/** Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token and email, and a name. */
-const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email', 'name']);
+const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email', 'invite'];
+const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email|invite)=[^&#]*/gi;
+/** Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token, email and invite, and a name. */
+const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email', 'name', 'invite']);
 /** The same fields as JSON members (a string, or a bare number or word), for JSON the SDK cut off at its size limit. */
-const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
+const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name|invite)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
 /** And as fields of a form body. */
-const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name)=[^&]*/gi;
+const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name|invite)=[^&]*/gi;
 /** A Telegram Bot API path, /bot<id>:<token> ('%3A' when the colon is encoded). */
 const BOT_TOKEN_PATH = /\/bot\d+(?::|%3A)[A-Za-z0-9_-]+/gi;
 /**
@@ -76,6 +78,8 @@ const GOOGLE_CONNECT_ID = /\bgc_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g;
 function scrubConnectIds(text: string): string {
   return text.replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`).replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
 }
+/** The partner invite page's path, /invite/<the token's 64 hex characters> (src/lib/invite-token.ts), in a URL or a name. */
+const INVITE_PATH = /\/invite\/[0-9a-f]{64}(?![0-9a-f])/gi;
 /** Request headers that carry a credential, lower-cased. */
 const SECRET_HEADERS = new Set(['x-telegram-init-data', 'cookie', 'authorization', 'x-telegram-bot-api-secret-token']);
 /** The same headers as span attribute names: http.request.header.<name>, '-' as '_'. */
@@ -88,7 +92,8 @@ function scrubSecrets(text: string): string {
     .replace(SECRET_PARAM, `$1$2=${SCRUBBED}`)
     .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`)
     .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
-    .replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
+    .replace(CONNECT_TOKEN, `w_${SCRUBBED}`)
+    .replace(INVITE_PATH, `/invite/${SCRUBBED}`);
 }
 
 /** A URL or path with initData, the secret query values and a bot token scrubbed, and no #fragment. */

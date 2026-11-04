@@ -1,20 +1,26 @@
-// POST /api/pair/accept — accept an invite as the authenticated user.
-// Body: { token, initData? }. Returns { success: true, partnerName }.
+// POST /api/pair/accept — accept an invite as the authenticated user: Telegram initData, or the famcal.bot session
+// cookie (the invite page signed in on the web, web sign-up spec §3.7). Body: { token, initData? }. Returns
+// { success: true, partner: { name, englishName } }.
 //
-// Validation lives in pairing-service.acceptInvite — this route just maps the
-// PairingError codes onto HTTP responses. The inviter is told about the accept
-// here, through the same helper the chat accept uses (pair-handler).
+// A cookie can accept, so the request must come from famcal.bot as JSON (refuseCrossSite), or another site could make
+// a signed-in browser accept its invite. Validation lives in pairing-service.acceptInvite — this route just maps the
+// PairingError codes onto HTTP responses. The inviter is told about the accept here, through the same helper the chat
+// accept uses (pair-handler).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
+import { refuseCrossSite } from '@/src/lib/same-origin';
 import { acceptInvite, PairingError } from '@/src/services/pairing-service';
 import { notifyInviterOfAccept } from '@/src/services/telegram/pair-handler';
 import { captureError } from '@/src/lib/error-capture';
 import { prisma } from '@/src/utils/prisma';
 
 export async function POST(request: NextRequest) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
+  let acceptingUserId: number | undefined;
   try {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
@@ -30,6 +36,7 @@ export async function POST(request: NextRequest) {
     if (!auth.success) return auth.response;
 
     const user = auth.user;
+    acceptingUserId = user.id;
 
     const result = await acceptInvite(token, user.id);
 
@@ -49,10 +56,11 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     if (error instanceof PairingError) {
+      console.log(`[pair-accept] user ${acceptingUserId ?? 'unknown'} refused (${error.code})`);
       const status = error.code === 'INVITE_NOT_FOUND' ? 404 : 400;
       return NextResponse.json({ error: error.code }, { status });
     }
-    captureError(error, 'pair-accept');
+    captureError(error, 'pair-accept', { user_id: acceptingUserId });
     return NextResponse.json({ error: 'Failed to accept invite' }, { status: 500 });
   }
 }

@@ -281,6 +281,29 @@ async function main() {
     }
   });
 
+  await check('P2b /signin?invite=<token> (the invite page\'s way in): both start routes carry the invite after the language; a valid session goes back to the invite instead of the calendar; a token that is not 64 lowercase hex characters is dropped (plain links, the calendar)', async () => {
+    const HEX = 'a1'.repeat(32);
+    configure({ telegram: true, google: true, email: true });
+    const session = createSessionToken(7, 'google', Date.now());
+    const startHref = (html: string, name: string) => decodeEntities(attr(ways(html).find((a) => attr(a, 'data-way') === name) ?? '', 'href') ?? '');
+    for (const locale of LOCALES) {
+      jar.clear();
+      const html = await signin(locale, { invite: HEX });
+      assert(startHref(html, 'telegram') === `/api/auth/telegram/start?locale=${locale}&invite=${HEX}` && startHref(html, 'google') === `/api/auth/google/start?locale=${locale}&invite=${HEX}`, `${locale}: ${startHref(html, 'telegram')} ${startHref(html, 'google')}`);
+      for (const bad of [HEX.toUpperCase(), HEX.slice(2), `${HEX}0`, '../dashboard', ['a', 'b']]) {
+        const plain = await signin(locale, { invite: bad });
+        assert(startHref(plain, 'telegram') === `/api/auth/telegram/start?locale=${locale}`, `${locale} ${show(bad)}: ${startHref(plain, 'telegram')}`);
+      }
+      jar.set(SESSION_COOKIE_NAME, session);
+      const back = await pageOf(SignInPage, locale, { invite: HEX });
+      assert('redirect' in back && back.redirect === `${prefix(locale)}/invite/${HEX}`, `${locale}: ${show(back)}`);
+      const plainSession = await pageOf(SignInPage, locale, { invite: 'nope' });
+      assert('redirect' in plainSession && plainSession.redirect === `${prefix(locale)}/dashboard?user_id=7`, `${locale}: ${show(plainSession)}`);
+    }
+    jar.clear();
+  });
+
+
   await check('P3 the outcomes in en, he and ru: no account (WhatsApp\'s settings link, new here with the start buttons, another way), several, suspended and blocked (the contact address as a mail link), taken and has-one (a refused Add Google) stand instead of the ways; restart, failed and unavailable are an alert above them; an unknown status is ignored', async () => {
     jar.clear();
     configure({ telegram: true, google: true, email: true });
@@ -322,7 +345,7 @@ async function main() {
    * The sign-in client in a browser: plain, in Telegram's own browser (inApp), or in the Mini App's webview (miniApp:
    * Telegram.WebApp.initData is set); siteKey: the server passed a Turnstile site key.
    */
-  function openClient(locale: Locale, opts: { inApp?: boolean; miniApp?: boolean; siteKey?: string } = {}) {
+  function openClient(locale: Locale, opts: { inApp?: boolean; miniApp?: boolean; siteKey?: string; invite?: string } = {}) {
     installWindow();
     assigned.length = 0;
     fakeWindow.location = { hash: '', origin: 'https://famcal.bot', href: 'https://famcal.bot/signin', assign: (u: string) => void assigned.push(u) };
@@ -334,6 +357,7 @@ async function main() {
       telegramAppUrl: 'https://t.me/family_calendar_telegram_bot?start=dashboard',
       pageAddress: `famcal.bot${prefix(locale)}/signin`,
       ...(opts.siteKey ? { turnstileSiteKey: opts.siteKey } : {}),
+      ...(opts.invite ? { invite: opts.invite } : {}),
     };
     return mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignInClient, props)) as unknown as ReactElement);
   }
@@ -545,6 +569,26 @@ async function main() {
     const leaked = logs.filter((l) => /dana@gmail\.com|123456|654321/.test(l));
     assert(leaked.length === 0, `a log line holds the address or a code: ${show(leaked)}`);
   });
+
+  await check('P4b with an invite: the start links carry it, and the email request sends it beside the address and the language; without one nothing changes (P4)', async () => {
+    const HEX = 'a1'.repeat(32);
+    for (const locale of LOCALES) {
+      const m = openClient(locale, { invite: HEX });
+      try {
+        assert(way(m, 'telegram')?.getAttribute('href') === `/api/auth/telegram/start?locale=${locale}&invite=${HEX}` && way(m, 'google')?.getAttribute('href') === `/api/auth/google/start?locale=${locale}&invite=${HEX}`, `${locale}: the start links`);
+        m.click(way(m, 'email') as FakeElement);
+        m.input(inputOf(m), 'dana@gmail.com');
+        routes = { 'POST /api/auth/email/request': () => json({ ok: true }) };
+        m.submit(formOf(m));
+        await settle();
+        const sent = lastCall('/api/auth/email/request');
+        assert(sent?.body?.invite === HEX && sent.body.email === 'dana@gmail.com' && sent.body.locale === locale, `${locale}: the request ${show(sent?.body)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
 
   await check('P5 inside Telegram, in its own browser and in the Mini App\'s webview: no OIDC flow starts; the Telegram way is Telegram\'s app link with its own note, Google says to open the page in a browser and shows its address (no Google link), email still works; outside Telegram both start routes are linked', async () => {
     const appLink = 'https://t.me/family_calendar_telegram_bot?start=dashboard';

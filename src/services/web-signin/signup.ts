@@ -14,7 +14,8 @@
  *  5. the cap on new accounts per internet address (allowNewAccount: 5 a day per IPv4 address or IPv6 /48); a count
  *     that can't be read (Redis failing, store-down) is 'failed', never 'limit';
  *  6. the account (createAccount); a way someone took in the meantime fails the unique (kind, subject): 'taken';
- *  7. the session (finishSignIn, json), landing on the dashboard in the account's language.
+ *  7. the session (finishSignIn, json), landing in the account's language on the invite the sign-in began on, else
+ *     the dashboard (landingPage).
  * From step 2 on, every answer clears the flow cookie, except a creation step that failed on something unclassified (a
  * transient database error): that 500 puts the sign-up back under a new cookie with the time it had left, so pressing
  * Create account again works (the cap slot stays spent).
@@ -28,7 +29,7 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { finishSignIn } from '../../lib/web-session';
+import { finishSignIn, landingPage } from '../../lib/web-session';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { SIGNUP_NAME_MAX } from '../../site/signin';
 import { VALID_LOCALES, normalizeLocale, type Locale } from '../../utils/locale';
@@ -173,7 +174,7 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
       return done(refuse('failed', 500));
     }
   }
-  const finished = await finishSignIn(user, flow.way, { respond: 'json' });
+  const finished = await finishSignIn(user, flow.way, { respond: 'json', page: landingPage(flow.invite) });
   console.log(`[signup] user ${user.id} was made on the web with ${flow.way}`);
   return done(finished);
 }

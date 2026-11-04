@@ -3,6 +3,8 @@
 // /signin's ways and the email code form (spec 2026-11-02-web-sign-in §3), the page's only script. The server says which
 // ways are configured (no button for one whose keys aren't set) and passes the bot's link and the page's address.
 //
+// - With ?invite= on the page (a clean token, passed by the server), every way carries it: the start links' query and
+//   the email request's body. The server keeps it in the one-time flow record and lands back on the invite.
 // - Telegram and Google are plain links to their start routes (/api/auth/<way>/start?locale=): the server makes the
 //   one-time checks and redirects to the provider. Tapping one shows that it is opening and the other ways are off
 //   (a ctrl/cmd/shift/middle click opens a new tab and leaves this page as it was); coming back with the browser's Back
@@ -69,15 +71,20 @@ export function SignInClient({
   telegramAppUrl,
   pageAddress,
   turnstileSiteKey = null,
+  invite = null,
 }: {
   ways: SignInWays;
   telegramAppUrl: string;
   pageAddress: string;
   /** Cloudflare Turnstile's site key, when the server has the check on (page.tsx reads it per request) */
   turnstileSiteKey?: string | null;
+  /** The partner invite this sign-in began on (/signin?invite=, a clean token, passed by the server), or null */
+  invite?: string | null;
 }) {
   const t = useTranslations('site.signin');
   const locale = useLocale();
+  // The start routes' query: the page's language, and the invite this sign-in began on
+  const startQuery = `locale=${locale}${invite ? `&invite=${invite}` : ''}`;
   const inApp = useSyncExternalStore(subscribe, inTelegram, onServer);
   const [step, setStep] = useState<Step>('choose');
   const [email, setEmail] = useState('');
@@ -125,7 +132,7 @@ export function SignInClient({
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(turnstileSiteKey ? { email: address, locale, token } : { email: address, locale }),
+        body: JSON.stringify({ ...(turnstileSiteKey ? { email: address, locale, token } : { email: address, locale }), ...(invite ? { invite } : {}) }),
       });
       const body = await readJsonBody(res, `${TAG} code request`);
       if (res.ok && body?.ok === true) {
@@ -228,7 +235,7 @@ export function SignInClient({
                   {t('telegramInApp')}
                 </a>
               ) : (
-                <a className="site-signin-way" data-way="telegram" href={`/api/auth/telegram/start?locale=${locale}`} aria-busy={busy === 'telegram' || undefined} onClick={startWay('telegram')}>
+                <a className="site-signin-way" data-way="telegram" href={`/api/auth/telegram/start?${startQuery}`} aria-busy={busy === 'telegram' || undefined} onClick={startWay('telegram')}>
                   {busy === 'telegram' ? spinner : <Send aria-hidden="true" focusable="false" />}
                   {busy === 'telegram' ? t('opening') : t('telegram')}
                 </a>
@@ -244,7 +251,7 @@ export function SignInClient({
                   <code dir="ltr">{pageAddress}</code>
                 </p>
               ) : (
-                <a className="site-signin-way" data-way="google" href={`/api/auth/google/start?locale=${locale}`} aria-busy={busy === 'google' || undefined} onClick={startWay('google')}>
+                <a className="site-signin-way" data-way="google" href={`/api/auth/google/start?${startQuery}`} aria-busy={busy === 'google' || undefined} onClick={startWay('google')}>
                   {busy === 'google' ? spinner : <GoogleMark />}
                   {busy === 'google' ? t('opening') : t('google')}
                 </a>

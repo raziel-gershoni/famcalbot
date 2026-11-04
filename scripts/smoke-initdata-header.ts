@@ -420,7 +420,8 @@ async function main() {
     const body = o.body ?? c.body;
     const req = new NextRequest(url, {
       method: c.method,
-      headers: { 'content-type': 'application/json', ...(o.header ? { 'x-telegram-init-data': o.header } : {}) },
+      // The app's own origin (getBaseUrl's): the pair routes refuse any other (refuseCrossSite); the rest ignore it
+      headers: { 'content-type': 'application/json', origin: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').origin, ...(o.header ? { 'x-telegram-init-data': o.header } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const res: Response = await mod[c.method](req, { params: Promise.resolve(c.params ?? {}) });

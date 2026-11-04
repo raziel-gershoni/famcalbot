@@ -11,6 +11,7 @@ import { startFlow } from '@/src/services/web-signin/flow';
 import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { issueCode } from '@/src/services/web-signin/email-code';
 import { findEmailSignIn } from '@/src/services/web-signin/identities';
+import { cleanInviteToken } from '@/src/lib/invite-token';
 import { captureSignInFailure, safeErrorSummary } from '@/src/services/web-signin/safe-error';
 
 const ROUTE = '/api/auth/email/request';
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'unavailable' }, { status: 503 });
   }
   try {
-    let body: { email?: unknown; locale?: unknown; token?: unknown };
+    let body: { email?: unknown; locale?: unknown; token?: unknown; invite?: unknown };
     try {
       body = await request.json();
     } catch (error) {
@@ -55,7 +56,9 @@ export async function POST(request: NextRequest) {
     else if (!normalized) console.log('[signin-email] a code request for text that is not a usable email address');
 
     const response = NextResponse.json({ ok: true });
-    await startFlow(response, { kind: 'email', emailKey: key, locale });
+    // The invite page's way in rides in the flow record (a clean token only), never in the answer
+    const invite = cleanInviteToken(body?.invite);
+    await startFlow(response, { kind: 'email', emailKey: key, locale, ...(invite ? { invite } : {}) });
     if (verdict.ok && normalized) after(() => sendCode(normalized, key, locale, ip));
     return response;
   } catch (error) {
