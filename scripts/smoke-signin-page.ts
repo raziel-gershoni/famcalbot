@@ -258,6 +258,9 @@ async function main() {
       assert(starts.filter((a) => attr(a, 'data-channel')).length >= 4, `${locale}: the start buttons (the header's two and the page's two): ${starts.length}`);
       // /signin is where Use in the browser leads, so it never shows it (web sign-up spec §2.16)
       assert(!/data-channel="browser"/.test(none) && !/data-channel="browser"/.test(all), `${locale}: Use in the browser on /signin`);
+      // the no-account status page has its own start buttons
+      const noAccount = await pageOf(SignInPage, locale, { status: 'no-account' });
+      assert('html' in noAccount && /data-channel="telegram"/.test(noAccount.html) && !/data-channel="browser"/.test(noAccount.html), `${locale}: the no-account page shows Use in the browser or no start buttons`);
     }
     const meta = await generateMetadata({ params: Promise.resolve({ locale: 'he' }) });
     assert(meta.robots?.index === false && meta.robots?.follow === false && !meta.alternates && meta.title === S('he').metaTitle, `metadata ${show(meta)}`);

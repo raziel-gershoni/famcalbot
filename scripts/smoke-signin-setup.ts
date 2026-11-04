@@ -131,7 +131,7 @@ async function main() {
     const readme = read('README.md');
     const problems: string[] = [];
     for (const word of ['`createAccount`', 'smoke-account-create.ts', '`findWayByAddress`', '`offerJoin`', '`mergePlan`', '`POST /api/oauth/claim`', 'Turnstile']) if (!signIn.includes(word)) problems.push(`the sign-in rule does not name ${word}`);
-    for (const word of ['`sendNoticeEmail`', 'telegram-connect.ts', 'skipped user <id>: no chat']) if (!pause.includes(word)) problems.push(`the pause rule does not name ${word}`);
+    for (const word of ['`sendNoticeEmail`', 'telegram-connect.ts', 'skipped user <id>: no Telegram', '[google-sync] user <id>: no chat; no reconnect message']) if (!pause.includes(word)) problems.push(`the pause rule does not name ${word}`);
     if (!/^### Web sign-up$/m.test(readme)) problems.push('README has no "### Web sign-up" section');
     if (/The web makes no accounts/.test(readme)) problems.push('README still says the web makes no accounts');
     for (const name of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET', 'createAccount', '/signup']) if (!readme.slice(readme.indexOf('### Web sign-up')).includes(name)) problems.push(`README's Web sign-up section does not name ${name}`);
