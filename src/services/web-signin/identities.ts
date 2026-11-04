@@ -14,7 +14,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
-import { hasChat } from '../../lib/has-chat';
+import { hasChat, hasWhatsApp } from '../../lib/has-chat';
 import { captureSignInFailure } from './safe-error';
 import { getUserById } from '../user-service';
 import { convertPrismaUserToConfig, type UserConfig } from '../../types';
@@ -136,7 +136,7 @@ export async function identityHolder(kind: IdentityKind, subject: string): Promi
 function durableWays(user: { telegramId: unknown; whatsappPhone?: string | null; whatsappBsuid?: string | null }, kinds: string[]): DurableWay[] {
   const ways: DurableWay[] = [];
   if (user.telegramId !== null && user.telegramId !== undefined) ways.push('telegram');
-  if (user.whatsappPhone || user.whatsappBsuid) ways.push('whatsapp');
+  if (hasWhatsApp(user)) ways.push('whatsapp');
   for (const kind of ['google', 'email'] as const) if (kinds.includes(kind)) ways.push(kind);
   return ways;
 }

@@ -32,6 +32,7 @@ import { hasGoogleChoices } from './native-calendar/onboarding';
 import { liveGoogleChoices } from '../lib/google-state';
 import type { CalendarAssignment } from '../types';
 import type { IdentityKind } from './web-signin/identities';
+import { hasWhatsApp } from '../lib/has-chat';
 
 const LINK_CODE_TTL = 300; // 5 minutes
 
@@ -316,8 +317,6 @@ export interface MergeOutcome {
   /** The decisions the merge followed */
   plan: MergePlan;
 }
-
-const hasWhatsApp = (u: Pick<User, 'whatsappPhone' | 'whatsappBsuid'>) => !!u.whatsappPhone || !!u.whatsappBsuid;
 
 /**
  * Fold the account W into the account T and delete W, inside the caller's transaction. W has no Telegram: it is a

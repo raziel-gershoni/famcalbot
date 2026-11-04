@@ -416,7 +416,7 @@ async function main() {
 
   // ---- Refused at the answer ----
 
-  await check('#9 refused at the answer (409), nothing joined: another account answers Tal\'s question (and uses it up, so Tal\'s answer is then 410); Dana got Telegram meanwhile; the two paired meanwhile', async () => {
+  await check('#9 refused at the answer (409), nothing joined: another account answers Tal\'s question (and uses it up, so Tal\'s answer is then 410); Dana got Telegram meanwhile; the two paired meanwhile; the proved Google way moved to another account or was removed meanwhile', async () => {
     seed();
     const question = await addGoogle(TAL_TG, tal, danaGoogle);
     const id = joinIdOf(question);
@@ -424,10 +424,13 @@ async function main() {
     assert(noa.status === 409 && (await body(noa)).error === 'refused' && userRow(DANA), `Noa ${noa.status}`);
     const late = await answer(TAL, cookieOf(question), id);
     assert(late.status === 410, `Tal after Noa ${late.status}`);
-    for (const meanwhile of ['telegram', 'paired'] as const) {
+    for (const meanwhile of ['telegram', 'paired', 'moved', 'removed'] as const) {
       seed();
       const q = await addGoogle(TAL_TG, tal, danaGoogle);
+      const logsBefore = logs.length;
       if (meanwhile === 'telegram') userRow(DANA)!.telegramId = BigInt(555555555);
+      else if (meanwhile === 'moved') DB.signInIdentity.find(i => i.userId === DANA && i.kind === 'google')!.userId = NOA;
+      else if (meanwhile === 'removed') DB.signInIdentity = DB.signInIdentity.filter(i => !(i.userId === DANA && i.kind === 'google'));
       else {
         DB.pairing.push(pairing('pair-td', TAL, DANA));
         userRow(TAL)!.pairingId = 'pair-td';
@@ -435,6 +438,9 @@ async function main() {
       }
       const res = await answer(TAL, cookieOf(q), joinIdOf(q));
       assert(res.status === 409 && (await body(res)).error === 'refused' && userRow(DANA) && show(waysOf(TAL)) === '[]', `${meanwhile}: ${res.status} ${show(await body(res))}`);
+      if (meanwhile === 'moved' || meanwhile === 'removed') {
+        assert(logs.slice(logsBefore).some(l => l.includes('refused (the google way is no longer the other account\'s)')), `${meanwhile}: logs ${show(logs.slice(logsBefore))}`);
+      }
     }
   });
 

@@ -283,8 +283,9 @@ async function main() {
     assert(leaks.length === 0, `leaks ${show(leaks)}`);
   });
 
-  await check('#11 hasChat: a Telegram id, a WhatsApp phone or a BSUID is a chat; a row with null ids and a UserConfig with undefined ones (a browser-only account) is not', async () => {
-    const { hasChat } = await load('src/lib/has-chat.ts');
+  await check('#11 hasChat/hasWhatsApp: a Telegram id, a WhatsApp phone or a BSUID is a chat (the last two are a WhatsApp id); a row with null ids and a UserConfig with undefined ones (a browser-only account) is not', async () => {
+    const { hasChat, hasWhatsApp } = await load('src/lib/has-chat.ts');
+    assert(hasWhatsApp({ whatsappPhone: '+972500000001' }) && hasWhatsApp({ whatsappBsuid: 'IL.123' }) && !hasWhatsApp({ whatsappPhone: null, whatsappBsuid: '' }) && !hasWhatsApp({}), 'hasWhatsApp: phone or BSUID, nothing else');
     assert(hasChat({ telegramId: 5 }) === true && hasChat({ telegramId: BigInt(5) }) === true, 'a Telegram id');
     assert(hasChat({ telegramId: null, whatsappPhone: '+972500000001', whatsappBsuid: null }) === true, 'a WhatsApp phone');
     assert(hasChat({ telegramId: null, whatsappPhone: null, whatsappBsuid: 'IL.123' }) === true, 'a BSUID');

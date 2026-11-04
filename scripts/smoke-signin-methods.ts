@@ -742,7 +742,7 @@ async function main() {
   /** The notice emails (Resend's idempotency key names them), apart from the codes. */
   const noticeMails = () => mails.filter(m => (m.idempotencyKey ?? '').startsWith('signin-notice-'));
 
-  await check('#44 a Google way added to an account with no chat: the notice is emailed to its email way, in its language, the new address masked; never to the new Google address, and nothing goes to a chat', async () => {
+  await check('#44 a Google way added to an account with no chat: the notice is emailed to its email way, in its language, the new address masked, and no mail goes to the new Google address, nor to a chat (the skip of the just-added kind is pinned by #45, for email, and #49, for Google)', async () => {
     seedWeb();
     const { state, cookie } = await continueAddGoogle(RINA, await rina());
     world.claims = { sub: 'g-rina', email: 'rina.g@gmail.com', emailVerified: true };

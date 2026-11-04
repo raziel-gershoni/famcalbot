@@ -10,5 +10,10 @@ export function hasChat(user: {
   whatsappPhone?: string | null;
   whatsappBsuid?: string | null;
 }): boolean {
-  return user.telegramId != null || Boolean(user.whatsappPhone) || Boolean(user.whatsappBsuid);
+  return user.telegramId != null || hasWhatsApp(user);
+}
+
+/** Whether an account has a WhatsApp id, its phone or its BSUID: the one place that rule is written. */
+export function hasWhatsApp(user: { whatsappPhone?: string | null; whatsappBsuid?: string | null }): boolean {
+  return Boolean(user.whatsappPhone) || Boolean(user.whatsappBsuid);
 }
