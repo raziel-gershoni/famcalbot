@@ -2,7 +2,8 @@
  * Admin user-moderation helpers
  * - Suspend / unsuspend a user (soft, reversible)
  * - Hard delete a user and all related rows
- * - Ban / unban an identifier (persistent blocklist; survives hard delete)
+ * - Ban / unban an account's identifiers: Telegram id, WhatsApp number, Google account id, sign-in address (a
+ *   persistent blocklist; survives hard delete). No log line here holds an identifier: the user id and the kinds only.
  */
 
 import type { BlockedIdentifier, Prisma } from '@prisma/client';
@@ -12,7 +13,7 @@ import { REDIS_KEYS, subscriptionReminderKeys } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
 import { setupTrackKeys } from '../services/setup-tracks';
-import { emailKey } from '../services/web-signin/email-address';
+import { emailKey, maskEmail } from '../services/web-signin/email-address';
 import { captureError } from './error-capture';
 import { readStoredToken } from '../utils/encryption';
 
@@ -326,90 +327,165 @@ export async function isIdentifierBlocked(args: BlockArgs): Promise<boolean> {
   return true;
 }
 
+/** What a blocklist entry blocks. */
+export type BlockKind = 'telegram' | 'whatsapp' | 'google' | 'email';
+
+/** A ban or unban the admin can't do: no such account or entry, or nothing to block. Its message names no identifier. */
+export class BanTargetError extends Error {
+  constructor(readonly code: 'NOT_FOUND' | 'NO_IDENTIFIER') {
+    super(`ban target: ${code}`);
+    this.name = 'BanTargetError';
+  }
+}
+
+/** The kinds given, in this order. */
+function kindsOf(args: BlockArgs): BlockKind[] {
+  const kinds: BlockKind[] = [];
+  if (args.telegramId) kinds.push('telegram');
+  if (args.whatsappPhone) kinds.push('whatsapp');
+  if (args.googleSub) kinds.push('google');
+  if (args.email) kinds.push('email');
+  return kinds;
+}
+
+/**
+ * Everything an account signs in with: its Telegram id, its WhatsApp number, and its Google account id and sign-in
+ * address (accountWays). The blocklist holds no BSUID, as before.
+ */
+async function identifiersOf(userId: number): Promise<BlockArgs> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { telegramId: true, whatsappPhone: true } });
+  if (!user) throw new BanTargetError('NOT_FOUND');
+  const { accountWays } = await import('../services/web-signin/identities');
+  const ways = await accountWays(userId);
+  return { telegramId: user.telegramId, whatsappPhone: user.whatsappPhone, googleSub: ways.googleSub, email: ways.email };
+}
+
+/**
+ * Ban, so none of it can sign up or sign in again (web sign-up spec §2.8, §3.8).
+ * - `{ userId }` (the admin panel, any account, a browser-only one included) reads the account's identifiers and records
+ *   each one. A bare BlockArgs records what it names.
+ * - One row per identifier, each column unique, so a second ban of the same one updates its reason.
+ * - Every account that holds one of them is signed out on the web (web sign-in spec §2.13): sessionsValidAfter moves to
+ *   now, in the row every request already reads, so a live cookie is refused at its next request.
+ * - The cache keys are primed for an hour.
+ * The log names the account (or "identifiers") and the kinds, never a value.
+ */
 export async function banIdentifier(
-  args: BlockArgs,
+  target: { userId: number } | BlockArgs,
   adminId: number,
   reason: string | null
-): Promise<void> {
-  if (!args.telegramId && !args.whatsappPhone) {
-    throw new Error('At least one of telegramId or whatsappPhone is required');
-  }
+): Promise<{ kinds: BlockKind[] }> {
+  const accountId = 'userId' in target ? target.userId : null;
+  const args = accountId !== null ? await identifiersOf(accountId) : (target as BlockArgs);
+  const kinds = kindsOf(args);
+  if (kinds.length === 0) throw new BanTargetError('NO_IDENTIFIER');
 
-  // Use upsert keyed by whichever identifier is present.
-  // If the same admin tries to ban a tg+wa pair, write two rows (one per unique key).
+  const record = { bannedBy: adminId, bannedReason: reason };
   const ops: Promise<unknown>[] = [];
-
   if (args.telegramId) {
-    const tg = BigInt(args.telegramId);
-    ops.push(prisma.blockedIdentifier.upsert({
-      where: { telegramId: tg },
-      update: { bannedBy: adminId, bannedReason: reason },
-      create: { telegramId: tg, bannedBy: adminId, bannedReason: reason },
-    }));
-    ops.push(redis.set(REDIS_KEYS.blockedTelegramId(tg.toString()), '1', { ex: BLOCK_CACHE_TTL }));
+    const telegramId = BigInt(args.telegramId);
+    ops.push(prisma.blockedIdentifier.upsert({ where: { telegramId }, update: record, create: { telegramId, ...record } }));
   }
-
   if (args.whatsappPhone) {
-    ops.push(prisma.blockedIdentifier.upsert({
-      where: { whatsappPhone: args.whatsappPhone },
-      update: { bannedBy: adminId, bannedReason: reason },
-      create: { whatsappPhone: args.whatsappPhone, bannedBy: adminId, bannedReason: reason },
-    }));
-    ops.push(redis.set(REDIS_KEYS.blockedWhatsAppPhone(args.whatsappPhone), '1', { ex: BLOCK_CACHE_TTL }));
+    const whatsappPhone = args.whatsappPhone;
+    ops.push(prisma.blockedIdentifier.upsert({ where: { whatsappPhone }, update: record, create: { whatsappPhone, ...record } }));
   }
+  if (args.googleSub) {
+    const googleSub = args.googleSub;
+    ops.push(prisma.blockedIdentifier.upsert({ where: { googleSub }, update: record, create: { googleSub, ...record } }));
+  }
+  if (args.email) {
+    const email = args.email;
+    ops.push(prisma.blockedIdentifier.upsert({ where: { email }, update: record, create: { email, ...record } }));
+  }
+  for (const key of blockCacheKeys(args)) ops.push(redis.set(key, '1', { ex: BLOCK_CACHE_TTL }));
 
-  // A ban ends the web sessions of the accounts it names (web sign-in spec §2.13): their sessionsValidAfter moves to
-  // now, in the row every request already reads, so a live cookie is refused at its next request.
-  const owners: Array<{ telegramId: bigint } | { whatsappPhone: string }> = [];
+  const owners: Prisma.UserWhereInput[] = [];
+  if (accountId !== null) owners.push({ id: accountId });
   if (args.telegramId) owners.push({ telegramId: BigInt(args.telegramId) });
   if (args.whatsappPhone) owners.push({ whatsappPhone: args.whatsappPhone });
-  ops.push(prisma.user.updateMany({ where: { OR: owners }, data: { sessionsValidAfter: new Date() } }).then(({ count }) => {
-    console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web`);
-  }));
-
-  await Promise.all(ops);
-  console.log(`[Moderation] Admin ${adminId} banned identifier`, args);
-}
-
-export async function unbanIdentifier(args: BlockArgs, adminId: number): Promise<void> {
-  if (!args.telegramId && !args.whatsappPhone) {
-    throw new Error('At least one of telegramId or whatsappPhone is required');
+  if (accountId === null && (args.googleSub || args.email)) {
+    const { accountsHoldingWays } = await import('../services/web-signin/identities');
+    const holders = await accountsHoldingWays({ googleSub: args.googleSub, email: args.email });
+    if (holders.length > 0) owners.push({ id: { in: holders } });
   }
-
-  const ops: Promise<unknown>[] = [];
-
-  if (args.telegramId) {
-    const tg = BigInt(args.telegramId);
-    ops.push(prisma.blockedIdentifier.deleteMany({ where: { telegramId: tg } }));
-    ops.push(redis.del(REDIS_KEYS.blockedTelegramId(tg.toString())));
-  }
-
-  if (args.whatsappPhone) {
-    ops.push(prisma.blockedIdentifier.deleteMany({ where: { whatsappPhone: args.whatsappPhone } }));
-    ops.push(redis.del(REDIS_KEYS.blockedWhatsAppPhone(args.whatsappPhone)));
+  if (owners.length > 0) {
+    ops.push(prisma.user.updateMany({ where: { OR: owners }, data: { sessionsValidAfter: new Date() } }).then(({ count }) => {
+      console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web`);
+    }));
   }
 
   await Promise.all(ops);
-  console.log(`[Moderation] Admin ${adminId} unbanned identifier`, args);
+  console.log(`[Moderation] Admin ${adminId} banned ${accountId !== null ? `user ${accountId}` : 'identifiers'}: ${kinds.join(', ')}`);
+  return { kinds };
 }
 
-export async function listBlockedIdentifiers(): Promise<Array<{
+/**
+ * Unban: one entry of the list by its id (the panel, which shows a Google account and an address masked), every
+ * identifier an account has (`{ userId }`), or what a bare BlockArgs names. The rows and their cache keys go. The log
+ * names the entry or the account and the kinds, never a value.
+ */
+export async function unbanIdentifier(
+  target: BlockArgs | { userId: number } | { entryId: number },
+  adminId: number
+): Promise<{ kinds: BlockKind[] }> {
+  let args: BlockArgs;
+  let who: string;
+  if ('entryId' in target) {
+    const row = await prisma.blockedIdentifier.findUnique({ where: { id: target.entryId } });
+    if (!row) throw new BanTargetError('NOT_FOUND');
+    args = argsOfRow(row);
+    who = `entry ${row.id}`;
+  } else if ('userId' in target) {
+    args = await identifiersOf(target.userId);
+    who = `user ${target.userId}`;
+  } else {
+    args = target;
+    who = 'identifiers';
+  }
+  const kinds = kindsOf(args);
+  if (kinds.length === 0) throw new BanTargetError('NO_IDENTIFIER');
+
+  const keys = blockCacheKeys(args);
+  await Promise.all([
+    prisma.blockedIdentifier.deleteMany({ where: { OR: blockFilters(args) } }),
+    ...(keys.length > 0 ? [redis.del(...keys)] : []),
+  ]);
+  console.log(`[Moderation] Admin ${adminId} unbanned ${who}: ${kinds.join(', ')}`);
+  return { kinds };
+}
+
+/** One entry of the admin's blocked list. */
+export interface BlockedEntry {
   id: number;
-  telegramId: number | null;
-  whatsappPhone: string | null;
+  kind: BlockKind;
+  /** The Telegram id and the WhatsApp number in full; a Google account by the last 4 of its id; an address masked (maskEmail) */
+  shown: string;
   bannedBy: number;
   bannedReason: string | null;
   createdAt: Date;
-}>> {
-  const rows = await prisma.blockedIdentifier.findMany({
-    orderBy: { createdAt: 'desc' },
-  });
-  return rows.map(r => ({
-    id: r.id,
-    telegramId: r.telegramId !== null ? Number(r.telegramId) : null,
-    whatsappPhone: r.whatsappPhone,
-    bannedBy: r.bannedBy,
-    bannedReason: r.bannedReason,
-    createdAt: r.createdAt,
-  }));
+}
+
+/** What a row blocks, as the list shows it; null for a row with no identifier (none is ever written). */
+function shownOf(row: BlockedIdentifier): { kind: BlockKind; shown: string } | null {
+  if (row.telegramId !== null) return { kind: 'telegram', shown: row.telegramId.toString() };
+  if (row.whatsappPhone) return { kind: 'whatsapp', shown: row.whatsappPhone };
+  if (row.googleSub) return { kind: 'google', shown: `•••${row.googleSub.slice(-4)}` };
+  if (row.email) return { kind: 'email', shown: maskEmail(row.email) };
+  return null;
+}
+
+/** The blocked list, newest first. A Google account id and an address never leave the server whole. */
+export async function listBlockedIdentifiers(): Promise<BlockedEntry[]> {
+  const rows = await prisma.blockedIdentifier.findMany({ orderBy: { createdAt: 'desc' } });
+  const entries: BlockedEntry[] = [];
+  for (const row of rows) {
+    const what = shownOf(row);
+    if (!what) {
+      console.warn(`[Moderation] Blocklist entry ${row.id} names no identifier; it is left out of the list`);
+      continue;
+    }
+    entries.push({ id: row.id, ...what, bannedBy: row.bannedBy, bannedReason: row.bannedReason, createdAt: row.createdAt });
+  }
+  return entries;
 }

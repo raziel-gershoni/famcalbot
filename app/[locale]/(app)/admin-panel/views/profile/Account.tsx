@@ -3,7 +3,9 @@
 // What an admin can do to the account itself (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > User profile 7),
 // last on the page and none of it without asking:
 // - Suspend (optional reason, asks first), or Unsuspend (it works at once and says so);
-// - Block their Telegram id and/or WhatsApp number so they cannot sign up again (a sheet with a switch for each, a reason, a confirm);
+// - Block everything they sign in with, so they cannot sign up again (web sign-up spec 2026-11-03 §2.8): a sheet that names the
+//   Telegram id and WhatsApp number they have (the body says their Google account and email go too; the server reads all of them by
+//   the database id), a reason, a confirm. It shows for every account but the viewer's own, a browser-only one included;
 // - Delete for good: a sheet in which the person types DELETE, which is what the server requires (so it is Latin in every language).
 //   While it works nothing closes the sheet. When it is done the profile is gone and the panel goes back to the people list, which says
 //   whose account was deleted.
@@ -11,7 +13,7 @@
 
 import { useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { FormCard, SwitchRow, TextField } from '@/components/app-ui/form-kit';
+import { FormCard, FormRow, TextField } from '@/components/app-ui/form-kit';
 import { Notice } from '@/components/app-ui/Notice';
 import { SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { isBusy } from '../../data/admin-api';
@@ -28,8 +30,6 @@ export function Account({ person, profile, isSelf, onDeleted }: SectionProps & {
   const locale = useLocale();
   const [sheet, setSheet] = useState<'suspend' | 'block' | 'delete' | null>(null);
   const [reason, setReason] = useState('');
-  const [blockTelegram, setBlockTelegram] = useState(true);
-  const [blockWhatsapp, setBlockWhatsapp] = useState(true);
   const [typed, setTyped] = useState('');
   const [message, setMessage] = useState<Message | null>(null);
 
@@ -37,8 +37,6 @@ export function Account({ person, profile, isSelf, onDeleted }: SectionProps & {
     setMessage(null);
     setReason('');
     setTyped('');
-    setBlockTelegram(true);
-    setBlockWhatsapp(true);
     setSheet(which);
   };
   const close = () => setSheet(null);
@@ -53,10 +51,6 @@ export function Account({ person, profile, isSelf, onDeleted }: SectionProps & {
     if (outcome.ok) setMessage({ tone: 'info', text: t('profile.account.unsuspended', { name: person.name }) });
     else if (!isBusy(outcome)) setMessage({ tone: 'error', text: failureText(t as unknown as (key: string) => string, 'unsuspend', outcome) });
   };
-
-  const hasTelegram = person.telegramId !== null;
-  const hasWhatsapp = person.whatsappPhone !== null;
-  const nothingToBlock = !(hasTelegram && blockTelegram) && !(hasWhatsapp && blockWhatsapp);
 
   return (
     <>
@@ -87,11 +81,9 @@ export function Account({ person, profile, isSelf, onDeleted }: SectionProps & {
               <span className="ch-form-label">{t('profile.account.suspend')}</span>
             </button>
           )}
-          {hasTelegram || hasWhatsapp ? (
-            <button type="button" className="ch-form-row ch-action-row" aria-haspopup="dialog" onClick={() => open('block')}>
-              <span className="ch-form-label">{t('profile.account.block')}</span>
-            </button>
-          ) : null}
+          <button type="button" className="ch-form-row ch-action-row" aria-haspopup="dialog" onClick={() => open('block')}>
+            <span className="ch-form-label">{t('profile.account.block')}</span>
+          </button>
           <button type="button" className="ch-form-row ch-danger-row" aria-haspopup="dialog" onClick={() => open('delete')}>
             {t('profile.account.delete')}
           </button>
@@ -122,14 +114,13 @@ export function Account({ person, profile, isSelf, onDeleted }: SectionProps & {
           body={t('profile.account.blockBody')}
           confirmLabel={t('profile.account.blockConfirm')}
           tone="danger"
-          confirmDisabled={nothingToBlock}
-          run={() => profile.ban({ telegram: hasTelegram && blockTelegram, whatsapp: hasWhatsapp && blockWhatsapp, reason })}
+          run={() => profile.ban(reason)}
           onDone={() => done(t('profile.account.blockedDone'))}
           onClose={close}
         >
           <FormCard>
-            {hasTelegram ? <SwitchRow label={t('profile.account.blockTelegram')} hint={isolate(String(person.telegramId))} checked={blockTelegram} onChange={setBlockTelegram} /> : null}
-            {hasWhatsapp ? <SwitchRow label={t('profile.account.blockWhatsapp')} hint={isolate(person.whatsappPhone ?? '')} checked={blockWhatsapp} onChange={setBlockWhatsapp} /> : null}
+            {person.telegramId !== null ? <FormRow label={t('profile.account.blockTelegram')} hint={isolate(String(person.telegramId))} /> : null}
+            {person.whatsappPhone ? <FormRow label={t('profile.account.blockWhatsapp')} hint={isolate(person.whatsappPhone)} /> : null}
             <TextField label={t('profile.account.reason')} placeholder={t('profile.account.reason')} value={reason} onChange={setReason} />
           </FormCard>
         </ActionSheet>

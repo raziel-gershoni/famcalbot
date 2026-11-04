@@ -94,8 +94,8 @@ const FEEDBACK = [
   { id: 'f2', userId: OTHER, userName: 'דנה', userTelegramId: 7000008, text: 'אפשר להוסיף תזכורת קולית?', source: 'dashboard', createdAt: ago(26 * 60) },
 ];
 const BLOCKED = [
-  { id: 1, telegramId: 99123, whatsappPhone: null, bannedBy: 9, bannedReason: 'spam', createdAt: ago(3 * 24 * 60) },
-  { id: 2, telegramId: null, whatsappPhone: '+972501112233', bannedBy: 9, bannedReason: null, createdAt: ago(9 * 24 * 60) },
+  { id: 1, kind: 'telegram', shown: '99123', bannedBy: 9, bannedReason: 'spam', createdAt: ago(3 * 24 * 60) },
+  { id: 2, kind: 'whatsapp', shown: '+972501112233', bannedBy: 9, bannedReason: null, createdAt: ago(9 * 24 * 60) },
 ];
 
 // The people of the Users screen: a person on a trial, a free one, a paid one (its plan includes some features), one given Pro for free,
@@ -146,6 +146,7 @@ const listOf = (d: Row): Row => ({
   calendarsCount: d.calendarsCount,
   hasOverride: d.override !== null,
   earlyAdopter: d.override?.earlyAdopter === true,
+  hasChat: d.telegramId !== null || d.whatsappPhone !== null,
 });
 
 const scenario = {
@@ -251,12 +252,12 @@ const respond = (call: Call): Response | Promise<Response> => {
     return ok({});
   }
   if (key === 'POST users/blocklist' && call.body?.action === 'ban') {
-    scenario.blocked.push({ id: 90 + scenario.blocked.length, telegramId: call.body.telegramId, whatsappPhone: call.body.whatsappPhone, bannedBy: 9, bannedReason: call.body.reason, createdAt: ago(0) });
-    return ok({});
+    scenario.blocked.push({ id: 90 + scenario.blocked.length, kind: 'telegram', shown: String(target?.telegramId ?? ''), bannedBy: 9, bannedReason: call.body.reason, createdAt: ago(0) });
+    return ok({ kinds: ['telegram'] });
   }
   if (key === 'POST users/blocklist' && call.body?.action === 'unban') {
-    scenario.blocked = scenario.blocked.filter((b) => !(b.telegramId === call.body?.telegramId && b.whatsappPhone === call.body?.whatsappPhone));
-    return ok({});
+    scenario.blocked = scenario.blocked.filter((b) => b.id !== call.body?.entryId);
+    return ok({ kinds: [] });
   }
   if (key === 'POST reset-reminders' && call.body?.reset_all) return ok({ usersReset: scenario.resetCount });
   return defaultRespond(call);
@@ -836,7 +837,7 @@ async function main() {
     }
   });
 
-  await check('R7 Blocked: a row per entry (the id or number, always left to right, its kind and its reason); a tap opens a sheet with the reason, the date and Unblock; Unblock posts the entry\'s own identifiers { action: "unban", telegramId, whatsappPhone, initData } once, closes the sheet, says Unblocked and the entry is gone; a failure stays in the sheet with the error and a log (it is never silent); the Overview counts the entries', async () => {
+  await check('R7 Blocked: a row per entry (as the server shows it, always left to right, its kind and its reason); a tap opens a sheet with the reason, the date and Unblock; Unblock posts the entry\'s id { action: "unban", entryId, initData } once, closes the sheet, says Unblocked and the entry is gone; a failure stays in the sheet with the error and a log (it is never silent); the Overview counts the entries', async () => {
     for (const locale of LOCALES) {
       reset();
       const o = open(locale, propsOf(locale), { version: '7.7' });
@@ -856,7 +857,7 @@ async function main() {
         o.m.click(confirmOf(o.m) as FakeElement);
         o.m.click(confirmOf(o.m) as FakeElement);
         await settle();
-        assert(posts('users/blocklist').length === 1 && show(posts('users/blocklist')[0].body) === show({ action: 'unban', telegramId: null, whatsappPhone: '+972501112233', initData: INIT_DATA }), `${locale}: ${show(posts('users/blocklist').map((c) => c.body))}`);
+        assert(posts('users/blocklist').length === 1 && show(posts('users/blocklist')[0].body) === show({ action: 'unban', entryId: 2, initData: INIT_DATA }), `${locale}: ${show(posts('users/blocklist').map((c) => c.body))}`);
         assert(dialogs(o.m).length === 0 && listRows(o.m).length === 1 && show(statusesIn(o.m.container)) === show([word(locale, 'blocked.unblocked')]), `${locale}: after Unblock: ${listRows(o.m).length} row(s), ${show(statusesIn(o.m.container))}`);
         // Opening another entry forgets the notice
         o.m.click(listRows(o.m)[0]);
@@ -971,7 +972,7 @@ async function main() {
         assert(requests('GET', 'user-overrides').length === 1 && requests('GET', 'user-overrides')[0].url === '/api/admin/user-overrides?list=all', `${locale}: ${show(urls())}`);
         assert(show(shown()) === show([0, 1, 2, 3, 4, 5]) && page(o.m).includes(count6[locale]), `${locale}: the rows ${show(shown())}, the count: ${page(o.m).slice(0, 200)}`);
         for (const [index, id] of [[0, TRIAL], [1, FREE], [2, PAID], [3, COMPED]] as const) assert(flat(personRow(o.m, locale, index)).includes(planLines[locale][id]), `${locale}: ${names[index]}: ${flat(personRow(o.m, locale, index))}`);
-        assert(flat(personRow(o.m, locale, 4)).includes(w('users.whatsapp')) && !flat(personRow(o.m, locale, 0)).includes(w('users.whatsapp')), `${locale}: WhatsApp only for the person with no Telegram: ${flat(personRow(o.m, locale, 4))}`);
+        assert(flat(personRow(o.m, locale, 4)).includes(w('users.whatsapp')) && !flat(personRow(o.m, locale, 0)).includes(w('users.whatsapp')) && !listRows(o.m).some((r) => flat(r).includes(` · ${w('users.web')}`)), `${locale}: WhatsApp only for the person with no Telegram, and Web for no one (everyone here has a chat): ${flat(personRow(o.m, locale, 4))}`);
         const tagsOf = (row: FakeElement) => elements(row).filter((e) => classes(e).includes('ch-tag')).map((e) => `${classes(e).filter((c) => c.startsWith('ch-tag-')).join('')}:${flat(e)}`);
         assert(show(tagsOf(personRow(o.m, locale, 5))) === show([`ch-tag-danger:${w('users.suspended')}`]), `${locale}: Suspended: ${show(tagsOf(personRow(o.m, locale, 5)))}`);
         assert(show(tagsOf(personRow(o.m, locale, 2))) === show([`:${w('users.earlyAccess')}`, `ch-tag-muted:${w('users.overrides')}`]), `${locale}: early access and overrides: ${show(tagsOf(personRow(o.m, locale, 2)))}`);
@@ -1337,16 +1338,14 @@ async function main() {
       close(o);
     }
 
-    // Block their Telegram and WhatsApp: a switch for each, a reason, never an empty ban; SELF_BAN is said in our words
+    // Block: the sheet names the Telegram id and the WhatsApp number they have and says Google and email go too, with no switch;
+    // a reason; SELF_BAN is said in our words; the ban goes by their database id (web sign-up spec §2.8: every identifier)
     o = await profileOf(0);
     try {
       askAndCancel(o, w('profile.account.block'), w('profile.account.blockTitle', { name: names[0] }));
-      const toggles = () => elements(dialogs(o.m)[0]).filter((e) => e.getAttribute('role') === 'switch');
-      assert(toggles().length === 2 && toggles().every(checked) && flat(toggles()[0]).includes('7000007') && flat(toggles()[1]).includes('+972501230007'), `the block sheet: ${toggles().map(flat)}`);
-      o.m.click(toggles()[0]);
-      o.m.click(toggles()[1]);
-      assert((confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'with nothing to block the button waits');
-      o.m.click(toggles()[1]);
+      const sheetText = flat(dialogs(o.m)[0]);
+      assert(sheetText.includes('7000007') && sheetText.includes('+972501230007') && sheetText.includes(w('profile.account.blockBody')), `the block sheet: ${sheetText}`);
+      assert(!elements(dialogs(o.m)[0]).some((e) => e.getAttribute('role') === 'switch') && !(confirmOf(o.m) as FakeElement).hasAttribute('disabled'), 'the sheet has a switch, or Block waits');
       o.m.input(sheetField(o.m), 'abuse');
       scenario.answers.set('POST users/blocklist', () => json({ error: 'SELF_BAN' }, 400));
       o.m.click(confirmOf(o.m) as FakeElement);
@@ -1356,7 +1355,7 @@ async function main() {
       calls.splice(0);
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
-      const at = expectPost('users/blocklist', { action: 'ban', telegramId: null, whatsappPhone: '+972501230007', reason: 'abuse' }, 'block');
+      const at = expectPost('users/blocklist', { action: 'ban', user_id: TRIAL, reason: 'abuse' }, 'block');
       assert(dialogs(o.m).length === 0 && reloadedAfter(at, TRIAL) && show(statusesIn(o.m.container)).includes(w('profile.account.blockedDone')), `block: ${show(statusesIn(o.m.container))}`);
     } finally {
       close(o);

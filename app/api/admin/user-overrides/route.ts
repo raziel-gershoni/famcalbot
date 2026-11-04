@@ -17,6 +17,7 @@ import { getPlanLimits } from '@/src/config/plans';
 import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 import { refundWindowStart } from '@/src/lib/refund-eligibility';
+import { hasChat } from '@/src/lib/has-chat';
 
 export const dynamic = 'force-dynamic';
 
@@ -117,6 +118,8 @@ function calculateTrialDaysRemaining(trialEndsAt: Date): number | null {
 function mapUserToResponse(user: {
   id: number;
   telegramId: bigint | null;
+  whatsappPhone: string | null;
+  whatsappBsuid: string | null;
   name: string;
   suspendedAt: Date | null;
   subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null; compedBy: number | null } | null;
@@ -153,6 +156,8 @@ function mapUserToResponse(user: {
     calendarsCount,
     hasOverride: !!user.featureOverride,
     earlyAdopter: user.featureOverride?.earlyAdopter === true,
+    // A chat is a Telegram id or a WhatsApp id (web sign-up spec §2.13); an account made on famcal.bot may have neither
+    hasChat: hasChat(user),
   };
 }
 

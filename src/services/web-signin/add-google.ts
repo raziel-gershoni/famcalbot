@@ -18,11 +18,13 @@ import { buildUrl } from '../../config/urls';
 import { normalizeLocale } from '../../utils/locale';
 import { localeHref } from '../../site/zmanim/links';
 import { finishSignIn, signInPageUrl, signInRefusal } from '../../lib/web-session';
+import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { getUserById } from '../user-service';
 import type { UserConfig } from '../../types';
 import type { OidcFlow } from './flow';
 import type { GoogleClaims } from './oidc';
 import { addIdentity } from './identities';
+import { normalizeEmail } from './email-address';
 import { sendSignInNotice } from './notice';
 
 const ADD_GOOGLE_TTL_SECONDS = 5 * 60;
@@ -59,10 +61,14 @@ export async function takeAddGoogleToken(token: unknown): Promise<{ userId: numb
 /**
  * Google's callback for an 'add-google' flow (Task 4's handleOidcCallback has proved the token and cleared the flow
  * cookie): attach the Google account (sub, the verified address) to the account that made the link, send the notice,
- * and sign this browser in as that account. A sub another account holds is refused (status=taken), and so is a second
- * Google account (status=has-one). A suspended or banned account gets no way and no notice: signInRefusal answers
- * before anything is added, and finishSignIn shows the person its page. The same account adding the same Google account
- * again ('kept') is signed in without a second notice. The caller has checked the address is verified.
+ * and sign this browser in as that account.
+ * - A sub another account holds is refused (status=taken), and so is a second Google account (status=has-one).
+ * - A suspended or banned account gets no way and no notice: signInRefusal answers before anything is added, and
+ *   finishSignIn shows the person its page.
+ * - A Google account, or a verified address, on the blocklist is not added either (status=blocked; web sign-up spec
+ *   §2.8: adding a way checks it).
+ * - The same account adding the same Google account again ('kept') is signed in without a second notice.
+ * The caller has checked the address is verified.
  */
 export async function finishAddGoogle(flow: OidcFlow, claims: GoogleClaims): Promise<NextResponse> {
   const user = flow.userId ? await getUserById(flow.userId) : null;
@@ -74,6 +80,10 @@ export async function finishAddGoogle(flow: OidcFlow, claims: GoogleClaims): Pro
   if (refusal) {
     console.warn(`[signin] user ${user.id}: add-google refused: the account is ${refusal}`);
     return finishSignIn(user, 'google');
+  }
+  if (await isIdentifierBlocked({ googleSub: claims.sub, email: normalizeEmail(claims.email) })) {
+    console.warn(`[signin] user ${user.id}: add-google refused: the Google account or its address is on the blocklist`);
+    return NextResponse.redirect(signInPageUrl(flow.locale, 'blocked'));
   }
   const added = await addIdentity(user.id, 'google', claims.sub, claims.email, { usedNow: true });
   if (added === 'taken' || added === 'has-one') {

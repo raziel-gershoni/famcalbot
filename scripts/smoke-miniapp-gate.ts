@@ -147,6 +147,8 @@ function installStubs() {
         }),
       },
       blockedIdentifier: { findFirst: async () => null },
+      // signInRefusal reads the account's web sign-in ways (accountWays): this one has none
+      signInIdentity: { findMany: async () => [] },
     },
   });
   // /dashboard with no user_id reads the session cookie through next/headers, which refuses outside a request: no cookie.

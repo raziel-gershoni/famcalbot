@@ -153,6 +153,8 @@ function installStubs() {
         }),
       },
       blockedIdentifier: { findFirst: async () => null },
+      // signInRefusal reads the account's web sign-in ways (accountWays): this one has none
+      signInIdentity: { findMany: async () => [] },
     },
     withRetry: (fn: () => unknown) => fn(),
   });

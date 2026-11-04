@@ -37,6 +37,7 @@ export const listItem = (id: number, over: Row = {}): Row => ({
   usage: null,
   calendarsCount: 1,
   hasOverride: false,
+  hasChat: true,
   ...over,
 });
 
@@ -103,7 +104,7 @@ export const defaultRespond = (call: Call): Response => {
     if (route === 'user-overrides') return ok({ user: detail(Number(url.searchParams.get('user_id'))) });
     if (route === 'user-activity') return ok(page(`a${url.searchParams.get('user_id') ?? 'all'}`, 45, url, 'activities'));
     if (route === 'feedback') return ok(page('f', 120, url, 'feedbacks'));
-    if (route === 'users/blocklist') return ok({ blocklist: [{ id: 1, telegramId: 99, whatsappPhone: null, bannedBy: 9, bannedReason: null, createdAt: '2026-10-20T08:00:00.000Z' }] });
+    if (route === 'users/blocklist') return ok({ blocklist: [{ id: 1, kind: 'telegram', shown: '99', bannedBy: 9, bannedReason: null, createdAt: '2026-10-20T08:00:00.000Z' }] });
   }
   return ok({});
 };

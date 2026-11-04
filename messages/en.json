@@ -574,10 +574,12 @@
     },
     "blocked": {
       "title": "Blocked",
-      "intro": "These Telegram ids and WhatsApp numbers can't sign up again, even after an account is deleted.",
+      "intro": "These Telegram ids, WhatsApp numbers, Google accounts and sign-in emails can't sign up again, even after an account is deleted.",
       "empty": "No one is blocked",
       "telegram": "Telegram id",
       "whatsapp": "WhatsApp number",
+      "google": "Google account",
+      "email": "Sign-in email",
       "unblock": "Unblock",
       "reasonNone": "No reason given",
       "blockedOn": "Blocked {date}",
@@ -600,7 +602,8 @@
       "suspended": "Suspended",
       "earlyAccess": "Early access",
       "overrides": "Overrides",
-      "whatsapp": "WhatsApp"
+      "whatsapp": "WhatsApp",
+      "web": "Web"
     },
     "profile": {
       "title": "Profile",
@@ -721,9 +724,9 @@
         "suspended": "{name} is suspended",
         "unsuspend": "Unsuspend",
         "unsuspended": "{name} is no longer suspended",
-        "block": "Block their Telegram and WhatsApp",
+        "block": "Block",
         "blockTitle": "Block {name}?",
-        "blockBody": "They won't be able to sign up again, even after their account is deleted.",
+        "blockBody": "Everything they sign in with is blocked: their Telegram id, WhatsApp number, Google account and email. They can't sign up again with any of it, even after their account is deleted, and they're signed out on the web.",
         "blockTelegram": "Telegram id",
         "blockWhatsapp": "WhatsApp number",
         "blockConfirm": "Block",

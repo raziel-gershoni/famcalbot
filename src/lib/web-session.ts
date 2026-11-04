@@ -60,21 +60,29 @@ export function appPageUrl(locale: string, page: FinishPage, userId: number): st
 }
 
 /**
- * Why this account may not sign in, or null: 'suspended' (checked first), or 'blocked' (its Telegram id or WhatsApp
- * number is on the blocklist). The one rule: finishSignIn uses it, and so do Add Google and the calendar match before
- * they attach a way or send a notice (they answer with finishSignIn, which refuses the same way). It throws when the
- * blocklist can't be read; callers inside finishSignIn are covered by its catch.
+ * Why this account may not sign in, or null: 'suspended' (checked first), or 'blocked' (its Telegram id, WhatsApp
+ * number, Google account or sign-in address is on the blocklist; its ways are read by accountWays, identities.ts). The
+ * one rule: finishSignIn uses it, and so do Add Google and the calendar match before they attach a way or send a
+ * notice (they answer with finishSignIn, which refuses the same way). It throws when the blocklist or the ways can't be
+ * read; callers inside finishSignIn are covered by its catch.
  */
 export async function signInRefusal(user: SignInAccount): Promise<'suspended' | 'blocked' | null> {
   if (user.suspendedAt) return 'suspended';
-  if (await isIdentifierBlocked({ telegramId: user.telegramId, whatsappPhone: user.whatsappPhone ?? null })) return 'blocked';
-  return null;
+  const { accountWays } = await import('../services/web-signin/identities');
+  const ways = await accountWays(user.id);
+  const banned = await isIdentifierBlocked({
+    telegramId: user.telegramId,
+    whatsappPhone: user.whatsappPhone ?? null,
+    googleSub: ways.googleSub,
+    email: ways.email,
+  });
+  return banned ? 'blocked' : null;
 }
 
 /**
  * Finish a sign-in as `user` by `method`.
- * - A suspended account goes to /signin?status=suspended, and one whose Telegram id or WhatsApp number is banned to
- *   status=blocked, with no cookie.
+ * - A suspended account goes to /signin?status=suspended, and one with a banned Telegram id, WhatsApp number, Google
+ *   account or sign-in address to status=blocked, with no cookie (signInRefusal).
  * - Otherwise the session cookie is set (signed in now) and the person lands on `page` (the dashboard by default) in
  *   their language.
  * - `respond: 'json'` answers { ok: true, redirect } (200) or { ok: false, status } (403; 500 for 'failed') instead of

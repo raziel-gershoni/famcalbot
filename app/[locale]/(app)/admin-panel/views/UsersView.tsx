@@ -2,7 +2,8 @@
 
 // Everyone (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > Users): a search field (a name or a Telegram id), a
 // "Show" row (everyone, on trial, paid, free, with overrides) and the people, each a row with their name, their plan in a line (and
-// WhatsApp, for someone who is only there) and tags (suspended, early access, overrides). A tap opens their profile.
+// WhatsApp for someone who is only there, Web for an account with no chat: reachLabel) and tags (suspended, early access, overrides).
+// A tap opens their profile.
 //
 // - The search text and the filter live in the shell (useUsers), so they are as you left them when you come back from a profile.
 // - The list is asked for when the screen opens, and stays on screen while it is asked for again. It has no setup state per person
@@ -16,7 +17,7 @@ import { ScreenHeader } from '@/components/app-ui/ScreenHeader';
 import { FormCard, TextField, ValueRow } from '@/components/app-ui/form-kit';
 import { ListRow } from '@/components/app-ui/ListRow';
 import { Tag } from '@/components/app-ui/Tag';
-import { planLine, type AdminTranslate } from '../data/format';
+import { planLine, reachLabel, type AdminTranslate } from '../data/format';
 import type { FilterType, UserListItem } from '../data/types';
 import type { useUsers } from '../data/use-users';
 import { LoadFailed, Waiting } from './parts';
@@ -48,7 +49,10 @@ export function UsersView({ users, deleted, onBack, onOpenUser }: UsersViewProps
     void load();
   }, [load]);
 
-  const line = (user: UserListItem) => [planLine(user, t as unknown as AdminTranslate, locale), user.telegramId === null ? t('users.whatsapp') : null].filter(Boolean).join(' · ');
+  const line = (user: UserListItem) => {
+    const reach = reachLabel(user);
+    return [planLine(user, t as unknown as AdminTranslate, locale), reach ? t(reach) : null].filter(Boolean).join(' · ');
+  };
 
   return (
     <>

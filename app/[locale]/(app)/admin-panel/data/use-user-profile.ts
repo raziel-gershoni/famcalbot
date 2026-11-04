@@ -32,8 +32,6 @@ const NO_ACTIVITY: ProfileActivity = { items: [], hasMore: false, loading: false
 
 /** No person is open, or the one asked for is not (an action came after the profile went). */
 export const NO_TARGET: AdminFailure = { ok: false, status: 0, code: 'NO_TARGET' };
-/** A ban asked for no identifier the person has. */
-export const NO_IDENTIFIER: AdminFailure = { ok: false, status: 0, code: 'NO_IDENTIFIER' };
 
 const orNull = (text: string | null | undefined): string | null => (text && text.trim() ? text : null);
 
@@ -180,15 +178,11 @@ export function useUserProfile(onUsersChanged: () => unknown) {
   const unsuspend = () => act('unsuspend', (id) => adminPost('users/moderation', { action: 'unsuspend', user_id: id, reason: null }));
   /** `confirmation` is what the person typed; the route accepts only DELETE. */
   const hardDelete = (confirmation: string) => act('hardDelete', (id) => adminPost('users/moderation', { action: 'hard_delete', user_id: id, reason: null, confirmation }));
-  /** Block the person's own Telegram id and/or WhatsApp number (read from the profile open now), so they cannot register again. */
-  const ban = async (what: { telegram: boolean; whatsapp: boolean; reason: string }): Promise<Outcome> => {
-    const open = profileRef.current;
-    if (!open || open.id !== target.current) return NO_TARGET;
-    const telegramId = what.telegram ? open.telegramId : null;
-    const whatsappPhone = what.whatsapp ? open.whatsappPhone : null;
-    if (telegramId === null && !whatsappPhone) return NO_IDENTIFIER;
-    return act('ban', () => adminPost('users/blocklist', { action: 'ban', telegramId, whatsappPhone, reason: orNull(what.reason) }));
-  };
+  /**
+   * Block everything the person signs in with (web sign-up spec §2.8): their Telegram id, WhatsApp number, Google account
+   * and sign-in email, which the server reads by the database id, so a browser-only account is blocked too.
+   */
+  const ban = (reason: string) => act('ban', (id) => adminPost('users/blocklist', { action: 'ban', user_id: id, reason: orNull(reason) }));
 
   /** The profile as it is now (a reload that finished a moment ago, before the next render): what a draft is rebuilt from. */
   const current = () => profileRef.current;

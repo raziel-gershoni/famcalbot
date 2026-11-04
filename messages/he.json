@@ -574,10 +574,12 @@
     },
     "blocked": {
       "title": "חסומים",
-      "intro": "מזהי Telegram ומספרי WhatsApp האלה לא יכולים להירשם שוב, גם אחרי שהחשבון נמחק.",
+      "intro": "מזהי ה-Telegram, מספרי ה-WhatsApp, חשבונות ה-Google וכתובות האימייל לכניסה שכאן לא יכולים להירשם שוב, גם אחרי שהחשבון נמחק.",
       "empty": "אף אחד לא חסום",
       "telegram": "מזהה Telegram",
       "whatsapp": "מספר WhatsApp",
+      "google": "חשבון Google",
+      "email": "אימייל לכניסה",
       "unblock": "לבטל חסימה",
       "reasonNone": "לא צוינה סיבה",
       "blockedOn": "החסימה מתאריך {date}",
@@ -600,7 +602,8 @@
       "suspended": "בהשעיה",
       "earlyAccess": "גישה מוקדמת",
       "overrides": "הרשאות מיוחדות",
-      "whatsapp": "WhatsApp"
+      "whatsapp": "WhatsApp",
+      "web": "דפדפן"
     },
     "profile": {
       "title": "פרופיל",
@@ -721,9 +724,9 @@
         "suspended": "החשבון של {name} הושעה",
         "unsuspend": "ביטול השעיה",
         "unsuspended": "ההשעיה של {name} בוטלה",
-        "block": "חסימת Telegram ו-WhatsApp",
+        "block": "חסימה",
         "blockTitle": "לחסום את {name}?",
-        "blockBody": "לא יהיה אפשר להירשם שוב, גם אחרי שהחשבון נמחק.",
+        "blockBody": "ייחסם כל מה שמשמש לכניסה: מזהה ה-Telegram, מספר ה-WhatsApp, חשבון ה-Google והאימייל. לא יהיה אפשר להירשם שוב עם אף אחד מהם, גם אחרי שהחשבון נמחק, והכניסה באתר תסתיים.",
         "blockTelegram": "מזהה Telegram",
         "blockWhatsapp": "מספר WhatsApp",
         "blockConfirm": "לחסום",

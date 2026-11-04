@@ -40,6 +40,8 @@ export interface UserListItem {
   calendarsCount: number;
   hasOverride: boolean;
   earlyAdopter?: boolean;
+  /** A Telegram id or a WhatsApp id: false for an account made on famcal.bot that has connected neither. */
+  hasChat: boolean;
 }
 
 export type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
@@ -162,10 +164,11 @@ export interface FeedbackItem {
   createdAt: string;
 }
 
+/** One blocked identifier (GET users/blocklist): what it is, and how it is shown (a Google account by the last 4 of its id, an address masked). */
 export interface BlocklistEntry {
   id: number;
-  telegramId: number | null;
-  whatsappPhone: string | null;
+  kind: 'telegram' | 'whatsapp' | 'google' | 'email';
+  shown: string;
   bannedBy: number;
   bannedReason: string | null;
   createdAt: string;

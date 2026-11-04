@@ -1,9 +1,9 @@
 'use client';
 
-// The blocklist: Telegram ids and WhatsApp numbers that cannot register again (GET users/blocklist; it survives a delete of
-// the person). `load` asks for the whole list. `unban` takes one entry off (POST users/blocklist, action unban, with the
-// entry's own identifiers), reloads the list when it worked, and answers an Outcome the screen words; one unban runs at
-// a time (`unbanning` is its entry's id).
+// The blocklist: Telegram ids, WhatsApp numbers, Google accounts and sign-in emails that cannot sign up again (GET
+// users/blocklist; it survives a delete of the person; a Google account and an email come masked). `load` asks for the
+// whole list. `unban` takes one entry off by its id (POST users/blocklist, action unban, entryId), reloads the list when
+// it worked, and answers an Outcome the screen words; one unban runs at a time (`unbanning` is its entry's id).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { adminGet, adminPost, BUSY, outcomeOf, type Outcome } from './admin-api';
@@ -42,7 +42,7 @@ export function useBlocklist() {
       running.current = true;
       setUnbanning(entry.id);
       try {
-        const outcome = outcomeOf(await adminPost('users/blocklist', { action: 'unban', telegramId: entry.telegramId, whatsappPhone: entry.whatsappPhone }));
+        const outcome = outcomeOf(await adminPost('users/blocklist', { action: 'unban', entryId: entry.id }));
         if (outcome.ok) await load();
         return outcome;
       } finally {

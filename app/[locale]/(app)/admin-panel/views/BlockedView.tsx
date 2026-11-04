@@ -1,9 +1,10 @@
 'use client';
 
-// The blocked: Telegram ids and WhatsApp numbers that cannot sign up again (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md,
-// Design > Blocked). A row is the id or number (always left to right), what kind it is and why; a tap opens a sheet with the
-// reason and the date and one button, Unblock, which works at once. A failure is said in the sheet, which stays; success closes it
-// and the list says so. (Blocking someone is done from their profile.)
+// The blocked: Telegram ids, WhatsApp numbers, Google accounts and sign-in emails that cannot sign up again (plan
+// docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > Blocked; web sign-up spec §2.8). A row is the entry as the
+// server shows it (always left to right: the id or number in full, a Google account by the last 4 of its id, an email masked),
+// what kind it is and why; a tap opens a sheet with the reason and the date and one button, Unblock, which works at once. A
+// failure is said in the sheet, which stays; success closes it and the list says so. (Blocking someone is done from their profile.)
 
 import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -18,8 +19,8 @@ import type { useBlocklist } from '../data/use-blocklist';
 import { ConfirmSheet } from '../sheets';
 import { LoadFailed, Waiting } from './parts';
 
-/** What the entry blocks: the Telegram id, else the WhatsApp number (a ban of both is two entries). */
-const identifierOf = (entry: BlocklistEntry): string => (entry.telegramId !== null ? String(entry.telegramId) : (entry.whatsappPhone ?? ''));
+/** The word for each kind of entry (admin.blocked.*). */
+const KIND_LABEL = { telegram: 'blocked.telegram', whatsapp: 'blocked.whatsapp', google: 'blocked.google', email: 'blocked.email' } as const;
 
 export function BlockedView({ blocklist, onBack }: { blocklist: ReturnType<typeof useBlocklist>; onBack: () => void }) {
   const t = useTranslations('admin');
@@ -33,7 +34,7 @@ export function BlockedView({ blocklist, onBack }: { blocklist: ReturnType<typeo
     void load();
   }, [load]);
 
-  const kind = (entry: BlocklistEntry) => (entry.telegramId !== null ? t('blocked.telegram') : t('blocked.whatsapp'));
+  const kind = (entry: BlocklistEntry) => t(KIND_LABEL[entry.kind]);
   const reasonOf = (entry: BlocklistEntry) => entry.bannedReason?.trim() || t('blocked.reasonNone');
   const working = open !== null && blocklist.unbanning === open.id;
 
@@ -68,7 +69,7 @@ export function BlockedView({ blocklist, onBack }: { blocklist: ReturnType<typeo
             {blocklist.entries.map((entry) => (
               <ListRow
                 key={entry.id}
-                title={<bdi dir="ltr">{identifierOf(entry)}</bdi>}
+                title={<bdi dir="ltr">{entry.shown}</bdi>}
                 meta={
                   <>
                     <span className="ch-admin-line">{kind(entry)}</span>
@@ -90,7 +91,7 @@ export function BlockedView({ blocklist, onBack }: { blocklist: ReturnType<typeo
 
       {open ? (
         <ConfirmSheet
-          title={identifierOf(open)}
+          title={open.shown}
           body={kind(open)}
           confirmLabel={t('blocked.unblock')}
           cancelLabel={ui('cancel')}

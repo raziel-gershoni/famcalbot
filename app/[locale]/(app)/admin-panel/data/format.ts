@@ -90,3 +90,9 @@ export function planLine(user: { subscription: PlanSource | null }, t: AdminTran
   if (sub.status === 'EXPIRED') return t('planLine.expired', { plan: name('FREE') });
   return name('FREE');
 }
+
+/** The channel word a people-list row adds: Web for an account with no chat (made on famcal.bot), WhatsApp for one there only, else none. */
+export function reachLabel(user: { telegramId: number | null; hasChat: boolean }): 'users.web' | 'users.whatsapp' | null {
+  if (!user.hasChat) return 'users.web';
+  return user.telegramId === null ? 'users.whatsapp' : null;
+}

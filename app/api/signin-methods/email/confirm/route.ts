@@ -4,7 +4,8 @@
 //   → { ok: true, methods }: the email way is made, the chat gets the notice (§2.10).
 //   → { ok: false, error }: wrong (400), limit (429: too many wrong codes for this address or from this IP),
 //     restart (410: no Add email waiting, the code expired or was used), taken (409: another account signs in with this
-//     address), has-one (409: the account got an email way meanwhile), failed (500).
+//     address), has-one (409: the account got an email way meanwhile), blocked (403: the address is on the blocklist;
+//     Settings shows its generic error), failed (500).
 // Tries are counted before the compare (checkCode), and every wrong one counts toward the address's and the IP's limits.
 //
 // Security: Origin and JSON first, then verifyUserAuth with the settings limiter. The code must have been issued for
@@ -22,6 +23,7 @@ import { clientAddress } from '@/src/services/web-signin/client-address';
 import { codeChecksBlocked, recordWrongCode } from '@/src/services/web-signin/limits';
 import { checkCode } from '@/src/services/web-signin/email-code';
 import { addIdentity, listSignInMethods } from '@/src/services/web-signin/identities';
+import { isIdentifierBlocked } from '@/src/lib/user-moderation';
 import { sendSignInNotice } from '@/src/services/web-signin/notice';
 
 export const dynamic = 'force-dynamic';
@@ -78,6 +80,11 @@ export async function POST(request: NextRequest) {
       // The address's add code was issued to another account meanwhile (a code is per address)
       console.warn(`[signin-methods] user ${user.id}: the Add email code was issued to another account`);
       return answer({ ok: false, error: 'restart' }, 410);
+    }
+    // The address itself may be on the blocklist (a banned account's, after its delete): it becomes no way
+    if (await isIdentifierBlocked({ email: result.address })) {
+      console.warn(`[signin-methods] user ${user.id}: Add email refused: the address is on the blocklist`);
+      return answer({ ok: false, error: 'blocked' }, 403);
     }
     const added = await addIdentity(user.id, 'email', result.address, result.address);
     if (added === 'taken' || added === 'has-one') {

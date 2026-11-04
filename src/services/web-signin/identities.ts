@@ -214,3 +214,16 @@ export async function accountWays(userId: number): Promise<{ googleSub: string |
     email: rows.find(r => r.kind === 'email')?.subject ?? null,
   };
 }
+
+/**
+ * The accounts that sign in with this Google account or this (normalised) address: what a ban of a bare identifier
+ * signs out (user-moderation.ts). At most one each, by the unique (kind, subject).
+ */
+export async function accountsHoldingWays(ways: { googleSub?: string | null; email?: string | null }): Promise<number[]> {
+  const or: Array<{ kind: IdentityKind; subject: string }> = [];
+  if (ways.googleSub) or.push({ kind: 'google', subject: ways.googleSub });
+  if (ways.email) or.push({ kind: 'email', subject: ways.email });
+  if (or.length === 0) return [];
+  const rows = await prisma.signInIdentity.findMany({ where: { OR: or }, select: { userId: true } });
+  return [...new Set(rows.map(r => r.userId))];
+}

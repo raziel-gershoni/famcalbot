@@ -13,8 +13,8 @@
 //  - D6 every action carries the person's database id (never the viewer's Telegram id) and, when it works, reloads the
 //    profile and the list; a delete clears the profile and reloads the list; a failure reloads nothing;
 //  - D7 the formatters in en, he and ru: "ago" in each language's own words, 24-hour dates, the plan line with its plurals;
-//  - D8 POST /api/admin/users/blocklist answers 400 SELF_BAN when an admin bans their own Telegram id or number, and bans
-//    anyone else's;
+//  - D8 POST /api/admin/users/blocklist answers 400 SELF_BAN when an admin bans their own Telegram id, number or account, and
+//    bans anyone else's, by identifier or by the account's database id (user_id, which the panel sends);
 //  - D9 React logs no warning;
 //  - D10 the fake route of the render smoke (admin-world's overrideAfterPost) does what POST /api/admin/user-overrides does, run for real;
 //    and D6 holds that a delete reloads the list first, with the profile and `working` still there, and clears the profile only then.
@@ -31,7 +31,7 @@ import { fileURLToPath } from 'url';
 import { act, createElement, useEffect } from 'react';
 import { createTranslator } from 'next-intl';
 import { fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
-import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, overrideAfterPost, PHONE, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
+import { calls, defaultRespond, deferred, detail, INIT_DATA, installFakeFetch, json, listItem, OTHER, ok, overrideAfterPost, TARGET, VIEWER_TELEGRAM_ID, world, type Call } from './lib/admin-world';
 import type { AdminResult, Outcome } from '../app/[locale]/(app)/admin-panel/data/admin-api';
 
 const ROOT = path.resolve(__dirname, '..');
@@ -69,11 +69,14 @@ function canon(value: unknown): string {
 
 const reactWarnings: string[] = [];
 const adminLogs: string[] = [];
+/** What the blocklist route logs for a refusal it answers itself (a ban of no such account): kept to be asserted, not React's. */
+const blocklistLogs: string[] = [];
 for (const level of ['error', 'warn'] as const) {
   const original = console[level].bind(console);
   console[level] = (...args: unknown[]) => {
     const text = args.map((a) => (typeof a === 'string' ? a : canon(a))).join(' ');
     if (text.startsWith('[admin]')) return void adminLogs.push(text);
+    if (text.startsWith('[admin-blocklist]')) return void blocklistLogs.push(text);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
     reactWarnings.push(text.slice(0, 300));
@@ -157,7 +160,7 @@ const fakePrisma = {
     upsert: async ({ where, update, create }: Row) => {
       const row = DB.blockedIdentifier.find((r) => Object.entries(where).every(([k, v]) => same(r[k], v)));
       if (row) return Object.assign(row, update);
-      const made = { id: blocked().length + 1, telegramId: null, whatsappPhone: null, createdAt: new Date(), ...create };
+      const made = { id: blocked().length + 1, telegramId: null, whatsappPhone: null, googleSub: null, email: null, createdAt: new Date(), ...create };
       DB.blockedIdentifier.push(made);
       return made;
     },
@@ -165,6 +168,8 @@ const fakePrisma = {
     findMany: async () => DB.blockedIdentifier,
     findFirst: async () => null,
   },
+  // A ban by user_id reads the account's web sign-in ways (accountWays): these accounts have none
+  signInIdentity: { findMany: async () => [] },
   userFeatureOverride: {
     deleteMany: async ({ where }: Row) => {
       const keep = DB.userFeatureOverride.filter((r) => !same(r.userId, where.userId));
@@ -281,20 +286,8 @@ async function main() {
     { name: 'suspend', run: (p) => p.suspend('spam'), method: 'POST', url: '/api/admin/users/moderation', body: { action: 'suspend', user_id: TARGET, reason: 'spam' } },
     { name: 'suspend without a reason', run: (p) => p.suspend(''), method: 'POST', url: '/api/admin/users/moderation', body: { action: 'suspend', user_id: TARGET, reason: null } },
     { name: 'unsuspend', run: (p) => p.unsuspend(), method: 'POST', url: '/api/admin/users/moderation', body: { action: 'unsuspend', user_id: TARGET, reason: null } },
-    {
-      name: 'ban',
-      run: (p) => p.ban({ telegram: true, whatsapp: true, reason: 'abuse' }),
-      method: 'POST',
-      url: '/api/admin/users/blocklist',
-      body: { action: 'ban', telegramId: 7000000 + TARGET, whatsappPhone: PHONE[TARGET], reason: 'abuse' },
-    },
-    {
-      name: 'ban (Telegram only)',
-      run: (p) => p.ban({ telegram: true, whatsapp: false, reason: '' }),
-      method: 'POST',
-      url: '/api/admin/users/blocklist',
-      body: { action: 'ban', telegramId: 7000000 + TARGET, whatsappPhone: null, reason: null },
-    },
+    { name: 'ban', run: (p) => p.ban('abuse'), method: 'POST', url: '/api/admin/users/blocklist', body: { action: 'ban', user_id: TARGET, reason: 'abuse' } },
+    { name: 'ban without a reason', run: (p) => p.ban(''), method: 'POST', url: '/api/admin/users/blocklist', body: { action: 'ban', user_id: TARGET, reason: null } },
     { name: 'hardDelete', run: (p) => p.hardDelete('DELETE'), method: 'POST', url: '/api/admin/users/moderation', body: { action: 'hard_delete', user_id: TARGET, reason: null, confirmation: 'DELETE' } },
   ];
   const openProfile = async (h: ReturnType<typeof hooked<ReturnType<typeof useBoth>>>, id = TARGET) => {
@@ -357,7 +350,7 @@ async function main() {
     expectCall(calls[0], 'GET', '/api/admin/users/blocklist', undefined, 'blocklist');
     const entry = blocklist.latest().entries[0];
     await blocklist.run((x) => x.unban(entry));
-    expectCall(calls[1], 'POST', '/api/admin/users/blocklist', { action: 'unban', telegramId: 99, whatsappPhone: null }, 'unban');
+    expectCall(calls[1], 'POST', '/api/admin/users/blocklist', { action: 'unban', entryId: 1 }, 'unban');
     expectCall(calls[2], 'GET', '/api/admin/users/blocklist', undefined, 'the blocklist reloads after an unban');
     blocklist.unmount();
 
@@ -685,13 +678,14 @@ async function main() {
       gate.resolve(ok());
       await first;
     });
-    // No person open: an action sends nothing; a ban with nothing to ban sends nothing
+    // No person open: an action sends nothing
     await both.run((x) => x.profile.clear());
     reset();
     const none = await both.run((x) => x.profile.suspend(''));
     assert(!none.ok && none.code === 'NO_TARGET' && sent() === 0, `no person: ${canon(none)}`);
     both.unmount();
 
+    // A browser-only person (no Telegram id, no WhatsApp number) is blocked by their database id like anyone else
     reset();
     const solo = hooked(useBoth);
     world.respond = (call) => {
@@ -700,8 +694,9 @@ async function main() {
     };
     await openProfile(solo);
     reset();
-    const nothing = await solo.run((x) => x.profile.ban({ telegram: true, whatsapp: true, reason: '' }));
-    assert(!nothing.ok && nothing.code === 'NO_IDENTIFIER' && sent() === 0, `a ban with no identifier: ${canon(nothing)}`);
+    const web = await solo.run((x) => x.profile.ban(''));
+    assert(web.ok, `a ban of a browser-only person: ${canon(web)}`);
+    expectCall(calls[0], 'POST', '/api/admin/users/blocklist', { action: 'ban', user_id: TARGET, reason: null }, 'a ban of a browser-only person');
     solo.unmount();
   });
 
@@ -829,7 +824,7 @@ async function main() {
     }
   });
 
-  await check('D8 POST /api/admin/users/blocklist answers 400 SELF_BAN when an admin bans their own Telegram id or WhatsApp number (in any format), writes nothing, and still bans anyone else; an unban of one\'s own is not refused', async () => {
+  await check('D8 POST /api/admin/users/blocklist answers 400 SELF_BAN when an admin bans their own Telegram id or WhatsApp number (in any format) or their own account (user_id), writes nothing, and still bans anyone else, by identifier or by account; an unban of one\'s own is not refused; no such account is 404 NOT_FOUND', async () => {
     const post = async (body: Row): Promise<{ status: number; body: Row }> => {
       const { POST } = await import('../app/api/admin/users/blocklist/route');
       const res: Response = await POST(
@@ -865,6 +860,17 @@ async function main() {
       assert(unban.status === 200, `an unban of one's own: ${unban.status}`);
       const empty = await post({ action: 'ban' });
       assert(empty.status === 400 && empty.body.error !== 'SELF_BAN', `no identifier: ${empty.status} ${canon(empty.body)}`);
+
+      // By the account's database id, as the panel sends it
+      seedRoute();
+      const ownAccount = await post({ action: 'ban', user_id: 9, reason: 'oops' });
+      assert(ownAccount.status === 400 && ownAccount.body.error === 'SELF_BAN' && blocked().length === 0, `own account: ${ownAccount.status} ${canon(ownAccount.body)}`);
+      const byAccount = await post({ action: 'ban', user_id: 42, reason: 'spam' });
+      assert(byAccount.status === 200 && canon(byAccount.body.kinds) === canon(['telegram', 'whatsapp']) && blocked().length === 2, `by account: ${byAccount.status} ${canon(byAccount.body)} ${captured.join(' | ')}`);
+      assert((sessionEnds[sessionEnds.length - 1]?.where.OR as Row[]).some((c) => c.id === 42), `session ends: ${canon(sessionEnds)}`);
+      const nobody = await post({ action: 'ban', user_id: 4242 });
+      assert(nobody.status === 404 && nobody.body.error === 'NOT_FOUND', `no such account: ${nobody.status} ${canon(nobody.body)}`);
+      assert(blocklistLogs.length === 1 && blocklistLogs[0] === '[admin-blocklist] refused: NOT_FOUND', `the refusal was logged once: ${canon(blocklistLogs)}`);
     } finally {
       console.log = quiet.log;
     }

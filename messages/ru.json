@@ -574,10 +574,12 @@
     },
     "blocked": {
       "title": "Заблокированные",
-      "intro": "Эти Telegram ID и номера WhatsApp не смогут зарегистрироваться снова, даже после удаления аккаунта.",
+      "intro": "Эти Telegram ID, номера WhatsApp, аккаунты Google и адреса почты для входа не смогут зарегистрироваться снова, даже после удаления аккаунта.",
       "empty": "Никто не заблокирован",
       "telegram": "Telegram ID",
       "whatsapp": "Номер WhatsApp",
+      "google": "Аккаунт Google",
+      "email": "Почта для входа",
       "unblock": "Разблокировать",
       "reasonNone": "Причина не указана",
       "blockedOn": "Заблокировано: {date}",
@@ -600,7 +602,8 @@
       "suspended": "Приостановлен",
       "earlyAccess": "Ранний доступ",
       "overrides": "Особый доступ",
-      "whatsapp": "WhatsApp"
+      "whatsapp": "WhatsApp",
+      "web": "Браузер"
     },
     "profile": {
       "title": "Профиль",
@@ -721,9 +724,9 @@
         "suspended": "Аккаунт приостановлен: {name}",
         "unsuspend": "Снять приостановку",
         "unsuspended": "Приостановка снята: {name}",
-        "block": "Заблокировать Telegram и WhatsApp",
+        "block": "Заблокировать",
         "blockTitle": "Заблокировать: {name}?",
-        "blockBody": "Человек не сможет зарегистрироваться снова, даже после удаления аккаунта.",
+        "blockBody": "Будет заблокировано всё, чем человек входит: Telegram ID, номер WhatsApp, аккаунт Google и адрес почты. Зарегистрироваться снова с ними не получится даже после удаления аккаунта, а вход на сайте завершится.",
         "blockTelegram": "Telegram ID",
         "blockWhatsapp": "Номер WhatsApp",
         "blockConfirm": "Заблокировать",
