@@ -8,7 +8,8 @@
 //    this tab; each refusal said by its kind; no log line holds the link or its token
 //  - B3 signInAgain: this browser signs out (POST /api/auth/signout), then /signin in the page's language; a refusal stays put
 //  - B4 Settings with no chat (en, he, ru): no Summaries, no Timing, no voice input, alerts or Shabbat pause, no Pro notice; the
-//    Telegram note card with Connect Telegram in their place; the Events section only for the reminder time
+//    Telegram note card with Connect Telegram in their place; no Events section (page-data gives no-Telegram accounts
+//    nativeRemindersSupported false, a partner's Telegram included)
 //  - B5 Settings with a chat: every section and row as before, no note card
 //  - B6 the note card's Connect: the link opened and what comes next; a stale sign-in turns it into "Sign in again", which signs
 //    out and opens /signin; the hour's limit and a failure each said
@@ -350,30 +351,28 @@ async function main() {
     }
   });
 
-  await check('B4 Settings with no chat (en, he, ru): the place card without the Shabbat pause; no Summaries, no Timing; the Telegram note card ("Briefings and reminders come in Telegram") with Connect Telegram; no voice input, no alerts, no Pro notice; the Events section only for the reminder time', async () => {
+  await check('B4 Settings with no chat (en, he, ru): the place card without the Shabbat pause; no Summaries, no Timing; the Telegram note card ("Briefings and reminders come in Telegram") with Connect Telegram; no voice input, no alerts, no Pro notice; no Events section and no reminder time (page-data sends nativeRemindersSupported false without Telegram)', async () => {
     for (const locale of LOCALES) {
-      for (const reminders of [false, true]) {
-        reset();
-        const m = mountIn(locale, Settings, settingsProps(locale, { nativeRemindersSupported: reminders }));
-        await settle();
-        try {
-          const where = `${locale} reminders=${reminders}`;
-          const want = [at(locale, 'settings.sections.place'), ...(reminders ? [at(locale, 'settings.sections.events')] : []), at(locale, 'settings.signIn.title')];
-          assert(show(sectionLabels(m)) === show(want), `${where}: the sections ${show(sectionLabels(m))}, want ${show(want)}`);
-          for (const key of ['pause.label', 'text.label', 'voice.label', 'weather.label', 'voiceInput.label', 'alerts.label', 'pickup.label']) {
-            assert(!switches(m).some((s) => s.startsWith(at(locale, `settings.${key}`))), `${where}: the ${key} switch shows`);
-          }
-          const text = page(m);
-          assert(text.includes(at(locale, 'settings.noChat.title')) && text.includes(at(locale, 'settings.noChat.body')), `${where}: the note card`);
-          assert(!text.includes(at(locale, 'settings.alerts.proOnly')) && !text.includes(at(locale, 'settings.morning.label')), `${where}: the Pro notice or the timing shows`);
-          assert(buttonsNamed(m.container, at(locale, 'telegramConnect.action')).length === 2, `${where}: Connect Telegram in the note card and in Sign in on the web: ${show(buttonsOf(m.container).map(flat))}`);
-          const reminderRow = formRows(m).some((r) => flat(r).startsWith(at(locale, 'settings.reminderTime')));
-          assert(reminderRow === reminders, `${where}: the reminder time ${reminderRow}`);
-          // The language, the place, the zmanim community and the calendar stay
-          for (const key of ['language.label', 'location.label', 'zmanim.label', 'culture.label']) assert(text.includes(at(locale, `settings.${key}`)), `${where}: ${key} is gone`);
-        } finally {
-          m.unmount();
+      reset();
+      const m = mountIn(locale, Settings, settingsProps(locale, { nativeRemindersSupported: false }));
+      await settle();
+      try {
+        const where = locale;
+        const want = [at(locale, 'settings.sections.place'), at(locale, 'settings.signIn.title')];
+        assert(show(sectionLabels(m)) === show(want), `${where}: the sections ${show(sectionLabels(m))}, want ${show(want)}`);
+        for (const key of ['pause.label', 'text.label', 'voice.label', 'weather.label', 'voiceInput.label', 'alerts.label', 'pickup.label']) {
+          assert(!switches(m).some((s) => s.startsWith(at(locale, `settings.${key}`))), `${where}: the ${key} switch shows`);
         }
+        const text = page(m);
+        assert(text.includes(at(locale, 'settings.noChat.title')) && text.includes(at(locale, 'settings.noChat.body')), `${where}: the note card`);
+        assert(!text.includes(at(locale, 'settings.alerts.proOnly')) && !text.includes(at(locale, 'settings.morning.label')), `${where}: the Pro notice or the timing shows`);
+        assert(buttonsNamed(m.container, at(locale, 'telegramConnect.action')).length === 2, `${where}: Connect Telegram in the note card and in Sign in on the web: ${show(buttonsOf(m.container).map(flat))}`);
+        const reminderRow = formRows(m).some((r) => flat(r).startsWith(at(locale, 'settings.reminderTime')));
+        assert(!reminderRow, `${where}: the reminder time ${reminderRow}`);
+        // The language, the place, the zmanim community and the calendar stay
+        for (const key of ['language.label', 'location.label', 'zmanim.label', 'culture.label']) assert(text.includes(at(locale, `settings.${key}`)), `${where}: ${key} is gone`);
+      } finally {
+        m.unmount();
       }
     }
   });
@@ -404,8 +403,11 @@ async function main() {
       let hold: (r: Response) => void = () => undefined;
       world.connect = () => new Promise<Response>((resolve) => void (hold = resolve));
       const [note] = buttonsNamed(m.container, at('en', 'telegramConnect.action'));
-      m.click(note);
-      m.click(note);
+      // Both presses in one act: React paints nothing between them, so the button is still enabled for the second (the ref guard's case)
+      await act(async () => {
+        m.click(note);
+        m.click(note);
+      });
       await settle();
       assert(callsTo('/api/telegram-connect').length === 1 && note.getAttribute('aria-busy') === 'true' && flat(note) === at('en', 'telegramConnect.opening'), `one request at a time, said: ${flat(note)}`);
       await act(async () => {

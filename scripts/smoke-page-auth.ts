@@ -803,6 +803,27 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+  await check('#11d hasChat by the account, on the dashboard and on Settings: false for an account with no Telegram and no WhatsApp (made on famcal.bot), true for Telegram and for a WhatsApp-only account (phone or BSUID)', async () => {
+    seed();
+    DB.user.push(baseUser({ id: 43, name: 'Web-User', language: 'en', messagingPlatform: 'telegram' }));
+    DB.user.push(baseUser({ id: 44, name: 'WA-Phone', language: 'en', messagingPlatform: 'whatsapp', whatsappPhone: '972500000000' }));
+    const problems: string[] = [];
+    const cookieOf = (id: number) => `${SESSION_COOKIE_NAME}=${createSessionToken(id, 'wa', Date.now())}`;
+    for (const [id, want, locale] of [[43, false, 'en'], [44, true, 'en'], [42, true, 'ru']] as [number, boolean, string][]) {
+      for (const page of ['dashboard', 'settings']) {
+        const res = await pageData({ page, user_id: id, locale }, cookieOf(id));
+        const body = res.status === 200 ? await res.clone().json() : null;
+        if (body?.kind !== 'props') { problems.push(`${page} ${id}: status ${res.status} ${await bodyOf(res)}`); continue; }
+        if (body.props.hasChat !== want) problems.push(`${page} ${id}: hasChat ${show(body.props.hasChat)}, want ${want}`);
+      }
+    }
+    // The Telegram account through the dashboard and Settings too
+    const settingsGina = await pageData({ page: 'settings', user_id: 8880004, locale: 'en', initData: initDataFor(8880004) });
+    const sBody = settingsGina.status === 200 ? await settingsGina.clone().json() : null;
+    if (sBody?.props?.hasChat !== true) problems.push(`settings Gina: ${show(sBody?.props?.hasChat)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   await check('#11c the dashboard says whether the calendar setting is Jewish (the header\'s sun button): true for culture jewish, false for the default calendar, and the Hebrew language alone does not make it so', async () => {
     seed();
     const problems: string[] = [];

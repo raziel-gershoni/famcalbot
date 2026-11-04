@@ -1742,7 +1742,7 @@
       "invoiceSent": "החשבונית נשלחה לצ׳אט עם FamCal ב־Telegram. משלמים שם ועוברים מסלול.",
       "upgradeFailed": "לא הצלחנו לשלוח את החשבונית. כדאי לנסות שוב.",
       "needsTelegram": "התשלום בכוכבים של Telegram אפשרי רק ב־Telegram. כדי לעבור מסלול, פותחים את FamCal ב־Telegram.",
-      "connectTelegram": "משלמים על המסלולים בכוכבים של Telegram. כדי לעבור מסלול, צריך לחבר את Telegram."
+      "connectTelegram": "משלמים על המסלולים בכוכבים של טלגרם. כדי לעבור מסלול, צריך לחבר את טלגרם."
     },
     "reminders": {
       "expiringSoon": {

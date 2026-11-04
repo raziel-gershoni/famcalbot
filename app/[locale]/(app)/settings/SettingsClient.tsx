@@ -6,9 +6,9 @@
 // spec 2026-11-02-web-sign-in §4, which saves each change itself), and a Save bar that stays at the bottom.
 // - An account with no chat (made on famcal.bot; spec 2026-11-03-web-sign-up §4) has nothing that sets up chat messages: no
 //   Summaries, no Timing, no Shabbat pause, voice input or alerts, no Pro notice. In their place the Telegram note
-//   ("Briefings and reminders come in Telegram") with Connect Telegram (telegram-connect-client.ts); the Events section only
-//   when the reminder time applies (a partner with Telegram gets the pings). After Telegram connects, everything shows on the
-//   next load.
+//   ("Briefings and reminders come in Telegram") with Connect Telegram (telegram-connect-client.ts); no Events section either
+//   (its reminder time needs a Telegram account: page-data's nativeRemindersSupported is false without one, a partner's
+//   Telegram included). After Telegram connects, everything shows on the next load.
 //
 // - Save stays on the page: the bar says "Saved" or what failed, and what was just saved becomes the
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
@@ -361,12 +361,12 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           </>
         )}
 
-        {/* With no chat only the reminder time can be left here (a partner with Telegram gets the pings); with none of it, no section. */}
-        {noChat && !nativeRemindersSupported ? null : (
+        {/* Every row here needs a chat (the reminder time too: no Telegram, no reminders), so with no chat there is no section. */}
+        {noChat ? null : (
           <>
             <SectionLabel>{t('sections.events')}</SectionLabel>
             <FormCard>
-              {noChat ? null : <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />}
+              <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />
               {chatAlerts ? (
                 <>
                   <SwitchRow
