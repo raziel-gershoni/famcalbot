@@ -101,7 +101,7 @@ async function main() {
     for (const locale of LOCALES) assert(!('howItWorksPage' in messages[locale]), `${locale}: howItWorksPage is still in messages`);
   });
 
-  await check('P2 the blog in en, he and ru: the index lists the post; the post has its title, the byline from messages, the way back, and ends with the two start buttons (one class list, Telegram first) and the honest line; no inline start links', async () => {
+  await check('P2 the blog in en, he and ru: the index lists the post; the post has its title, the byline from messages, the way back, and ends with the start buttons (one class list: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin) and the honest line; no inline start links', async () => {
     const { getPostBySlug } = await load('src/lib/blog.ts');
     for (const locale of LOCALES) {
       const post = getPostBySlug(POST, locale);
@@ -116,7 +116,8 @@ async function main() {
       assert(attrs(html, 'a').some((a) => attr(a, 'href') === `${prefix(locale)}/blog`) && text.includes(b.backToBlog), `${locale}: the way back`);
       const cta = html.slice(html.indexOf('<aside class="site-cta"'));
       const starts = attrs(cta, 'a').filter((a) => attr(a, 'class') === 'site-start');
-      assert(starts.length === 2 && attr(starts[0], 'data-channel') === 'telegram' && attr(starts[1], 'data-channel') === 'whatsapp', `${locale}: the post's start buttons ${show(starts)}`);
+      assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the post's start buttons ${show(starts)}`);
+      assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(cta).includes(messages[locale].site.cta.browser), `${locale}: Use in the browser ${starts[2]}`);
       assert(decodeEntities(cta).includes(messages[locale].site.cta.honest) && decodeEntities(cta).includes(b.tryFamcal) && decodeEntities(cta).includes(b.ctaText), `${locale}: the post's end`);
       const article = html.slice(html.indexOf('<article'), html.indexOf('</article>'));
       assert(!/t\.me\/family_calendar_telegram_bot|wa\.me\//.test(article), `${locale}: a start link left in the post`);

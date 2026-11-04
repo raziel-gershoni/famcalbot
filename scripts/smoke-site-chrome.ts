@@ -68,7 +68,7 @@ async function main() {
       const logo = anchors.find((a) => attr(a, 'class') === 'site-logo');
       assert(logo && attr(logo, 'aria-label') === site.header.homeLabel && attr(logo, 'href') === (p || '/'), `${locale}: the logo ${logo}`);
       const starts = anchors.filter((a) => /\bsite-start\b/.test(attr(a, 'class') ?? ''));
-      assert(starts.length === 2, `${locale}: ${starts.length} start buttons`);
+      assert(starts.length === 2 && !/data-channel="browser"/.test(html), `${locale}: ${starts.length} start buttons (the header has Sign in, so no Use in the browser)`);
       assert(attr(starts[0], 'class') === attr(starts[1], 'class'), `${locale}: the start buttons' classes differ: ${show(starts.map((s) => attr(s, 'class')))}`);
       assert(attr(starts[0], 'data-channel') === 'telegram' && attr(starts[1], 'data-channel') === 'whatsapp', `${locale}: the order ${show(starts.map((s) => attr(s, 'data-channel')))}`);
       assert(attr(starts[0], 'aria-label') === site.cta.telegram && attr(starts[1], 'aria-label') === site.cta.whatsapp, `${locale}: the buttons' names`);

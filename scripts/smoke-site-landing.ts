@@ -100,7 +100,7 @@ async function main() {
     }
   });
 
-  await check('G2 the start buttons in the hero and in Start again: Telegram first, one class list for both, the honest line right under them', () => {
+  await check('G2 the start buttons in the hero and in Start again: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin, one class list for all three, the honest line right under them', () => {
     for (const locale of LOCALES) {
       const html = pages[locale];
       const main = html.slice(html.indexOf('<main'));
@@ -108,10 +108,11 @@ async function main() {
       assert(pairs.length === 2, `${locale}: ${pairs.length} button pairs with the honest line under them`);
       for (const [, buttons, honest] of pairs) {
         const anchors = attrs(buttons, 'a');
-        assert(anchors.length === 2, `${locale}: ${anchors.length} buttons`);
-        assert(attr(anchors[0], 'class') === 'site-start' && attr(anchors[1], 'class') === 'site-start', `${locale}: the class lists ${show(anchors.map((a) => attr(a, 'class')))}`);
-        assert(attr(anchors[0], 'data-channel') === 'telegram' && attr(anchors[1], 'data-channel') === 'whatsapp', `${locale}: the order`);
-        assert(textOf(buttons).includes(word(locale, 'site.cta.telegram')) && textOf(buttons).includes(word(locale, 'site.cta.whatsapp')), `${locale}: the buttons' words`);
+        assert(anchors.length === 3, `${locale}: ${anchors.length} buttons`);
+        assert(anchors.every((a) => attr(a, 'class') === 'site-start'), `${locale}: the class lists ${show(anchors.map((a) => attr(a, 'class')))}`);
+        assert(show(anchors.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the order`);
+        assert(attr(anchors[2], 'href') === `${locale === 'en' ? '' : `/${locale}`}/signin`, `${locale}: Use in the browser goes to ${attr(anchors[2], 'href')}`);
+        assert(['site.cta.telegram', 'site.cta.whatsapp', 'site.cta.browser'].every((key) => decodeEntities(textOf(buttons)).includes(word(locale, key))), `${locale}: the buttons' words`);
         assert(decodeEntities(honest) === word(locale, 'site.cta.honest'), `${locale}: the honest line ${honest}`);
       }
     }

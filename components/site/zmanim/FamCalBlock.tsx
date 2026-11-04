@@ -1,10 +1,11 @@
 import { HonestLine, StartButtons, startWords } from '@/components/site/StartButtons';
 import { cheapestPlanWith } from '@/src/site/plans';
+import { signInHref } from '@/src/site/signin';
 import type { SiteT } from './words';
 
 // FamCal on a city's page (spec §4.2.6): the landing's own sentence on reminders by zman with its two tags (On Telegram,
-// and the cheapest plan that has reminders), then the site's two start buttons and the honest line, unchanged.
-export function FamCalBlock({ t }: { t: SiteT }) {
+// and the cheapest plan that has reminders), then the site's start buttons (with Use in the browser) and the honest line.
+export function FamCalBlock({ t, locale }: { t: SiteT; locale: string }) {
   const plan = cheapestPlanWith('reminders');
   return (
     <aside className="site-cta" aria-labelledby="famcal-title">
@@ -20,7 +21,7 @@ export function FamCalBlock({ t }: { t: SiteT }) {
           </>
         ) : null}
       </p>
-      <StartButtons words={startWords(t)} />
+      <StartButtons words={startWords(t)} browserHref={signInHref(locale)} />
       <HonestLine text={t('site.cta.honest')} />
     </aside>
   );

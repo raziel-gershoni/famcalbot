@@ -363,6 +363,14 @@ const CHROME_CSS = `
 .site-start[data-channel='whatsapp'] {
   background: var(--site-whatsapp);
 }
+.site-start[data-channel='browser'] {
+  background: var(--ch-bg);
+  color: var(--ch-text);
+  box-shadow: inset 0 0 0 1px var(--ch-outline);
+}
+.site-start[data-channel='browser'] svg {
+  color: var(--ch-accent);
+}
 .site-start svg {
   flex: none;
   inline-size: 22px;

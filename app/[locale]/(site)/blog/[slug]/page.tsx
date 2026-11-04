@@ -8,6 +8,7 @@ import { Link } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { getAllSlugs, getPostBySlug } from '@/src/lib/blog';
 import { siteMetadata } from '@/src/site/seo';
+import { signInHref } from '@/src/site/signin';
 
 // A blog post (spec 2026-10-28-public-website §3.3): the post in the site's chrome, its type in the app's tokens
 // (.site-article), and at its end the two start buttons with the honest line. Static per locale and post.
@@ -49,7 +50,7 @@ export default async function BlogPostPage({ params }: Props) {
               {t('blog.tryFamcal')}
             </h2>
             <p className="site-cta-text">{t('blog.ctaText')}</p>
-            <StartButtons words={startWords(t)} />
+            <StartButtons words={startWords(t)} browserHref={signInHref(locale)} />
             <HonestLine text={t('site.cta.honest')} />
           </aside>
         </div>

@@ -5,6 +5,7 @@ import { Channels, Features, Founder, HowItWorks, Plans, StartAgain } from '@/co
 import { SitePage } from '@/components/site/SitePage';
 import { HonestLine, StartButtons, startWords } from '@/components/site/StartButtons';
 import { SITE_URL } from '@/src/site/config';
+import { signInHref } from '@/src/site/signin';
 import { pageUrl, siteMetadata } from '@/src/site/seo';
 import { buildSampleWeek, sampleWords } from '@/src/site/sample-week';
 
@@ -41,6 +42,7 @@ export default async function LandingPage({ params }: Props) {
   const messages = await getMessages({ locale });
   const week = buildSampleWeek(sampleWords(t));
   const words = startWords(t);
+  const browserHref = signInHref(locale);
   // Two lines by design; a dash never starts a line (a no-break space before it, as Russian sets it)
   const headline = t('landing.hero.headline').split('\n').map((line) => line.replace(/ —/g, '\u00a0—'));
 
@@ -77,7 +79,7 @@ export default async function LandingPage({ params }: Props) {
             <div className="site-hero-grid">
               <div className="site-hero-text">
                 <p className="site-hero-lead">{t('landing.hero.subtitle')}</p>
-                <StartButtons words={words} />
+                <StartButtons words={words} browserHref={browserHref} />
                 <HonestLine text={t('site.cta.honest')} />
               </div>
               <HeroDemo t={t} locale={locale} week={week} messages={messages} />
@@ -89,7 +91,7 @@ export default async function LandingPage({ params }: Props) {
         <Channels t={t} />
         <Plans t={t} locale={locale} />
         <Founder t={t} />
-        <StartAgain t={t} words={words} />
+        <StartAgain t={t} words={words} browserHref={browserHref} />
       </main>
     </SitePage>
   );

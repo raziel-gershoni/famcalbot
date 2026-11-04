@@ -1826,6 +1826,8 @@
       "whatsapp": "Начать в WhatsApp",
       "telegramShort": "Telegram",
       "whatsappShort": "WhatsApp",
+      "browser": "Открыть в браузере",
+      "browserShort": "Браузер",
       "honest": "Напоминания, добавление по фото и оплата тарифа пока работают только в Telegram."
     },
     "footer": {

@@ -509,6 +509,17 @@ async function main() {
     }
   });
 
+  await check('Z16 a city page\'s FamCal block in en, he and ru: the start buttons Telegram, WhatsApp, then Use in the browser, a plain anchor to the page language\'s /signin (web sign-up spec §2.16), and the honest line', async () => {
+    for (const locale of LOCALES) {
+      const html = await cityPage(locale, 'jerusalem');
+      const block = between(html, '<aside class="site-cta" aria-labelledby="famcal-title"', '</aside>');
+      const starts = attrs(block, 'a').filter((a) => attr(a, 'class') === 'site-start');
+      assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the block's start buttons ${show(starts)}`);
+      assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(block).includes(messages[locale].site.cta.browser), `${locale}: Use in the browser ${starts[2]}`);
+      assert(decodeEntities(block).includes(messages[locale].site.cta.honest), `${locale}: the honest line`);
+    }
+  });
+
   finish();
 }
 

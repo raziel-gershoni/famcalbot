@@ -64,7 +64,7 @@ export default async function CityZmanimPage({ params, searchParams }: Props) {
             <MonthList view={view} locale={locale} t={t} tc={tc} />
           </section>
           <PageNote view={view} t={t} />
-          <FamCalBlock t={t} />
+          <FamCalBlock t={t} locale={locale} />
           <Sources t={t} />
         </div>
       </main>

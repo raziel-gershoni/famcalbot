@@ -256,6 +256,8 @@ async function main() {
       assert(ways(none).length === 0 && textOf(none).includes(s.none) && !textOf(none).includes(s.existingOnly), `${locale}: nothing configured`);
       const starts = attrs(none, 'a').filter((a) => /\bsite-start\b/.test(attr(a, 'class') ?? '') && !/site-starts-compact/.test(a));
       assert(starts.filter((a) => attr(a, 'data-channel')).length >= 4, `${locale}: the start buttons (the header's two and the page's two): ${starts.length}`);
+      // /signin is where Use in the browser leads, so it never shows it (web sign-up spec §2.16)
+      assert(!/data-channel="browser"/.test(none) && !/data-channel="browser"/.test(all), `${locale}: Use in the browser on /signin`);
     }
     const meta = await generateMetadata({ params: Promise.resolve({ locale: 'he' }) });
     assert(meta.robots?.index === false && meta.robots?.follow === false && !meta.alternates && meta.title === S('he').metaTitle, `metadata ${show(meta)}`);

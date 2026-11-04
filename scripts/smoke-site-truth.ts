@@ -3,7 +3,8 @@
 //
 //  - T1 the truth list (UNTRUE in scripts/lib/site-harness.ts: "never stored", feature parity, early access, OpenAI,
 //    OpenWeatherMap, Google as a step, two-way sync, events by zman, typed events, WhatsApp photo capture, WhatsApp
-//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew; and OFF_SITE, event
+//    reminders, auto-renewal, a scheduled weekly summary, the Hebrew date in letters outside Hebrew, the browser doing
+//    what the bots do; and OFF_SITE, event
 //    alerts, which only the legal texts may name) over every public
 //    string in en, he and ru: the site's namespaces, the bot's WhatsApp welcome and greeting, the WhatsApp onboarding
 //    that follows them (bot.onboarding valueProp, sampleSummary, ctaSetup), and the blog's posts. The list finds each claim in a sample of the old copy, so a clean walk means
@@ -79,6 +80,7 @@ async function main() {
       'Готовы? Подключите Google Calendar, чтобы увидеть *своё* расписание (60 секунд):',
       'מוכנים? חברו את Google Calendar כדי לראות את *הלו״ז שלכם* (60 שניות):',
       'Get an alert before every event, on time.',
+      'In the browser, FamCal does everything the bot does.',
     ];
     for (const [claim, pattern] of [...UNTRUE, ...OFF_SITE]) assert(old.some((line) => pattern.test(line)), `the pattern for ${claim} finds none of the old copy`);
     const found: string[] = [];

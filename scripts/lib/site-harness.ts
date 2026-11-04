@@ -70,6 +70,9 @@ export const UNTRUE: [string, RegExp][] = [
   ['WhatsApp reminders', /reminders? (?:on|in|via) whatsapp|תזכורות בוואטסאפ|напоминания в whatsapp/i],
   ['auto-renewal', /auto-?renew|renews? automatically|מתחדש(?:ים)? אוטומטית|автоматически продлева|автопродлен/i],
   ['a scheduled weekly summary', /weekly summary every|every (?:sunday|week) (?:you get|it sends)|סיכום שבועי (?:בכל|כל)|еженедельн\S* сводк/i],
+  // An account made on famcal.bot works in the browser, but the assistant, reminders and briefings stay in the bots (web
+  // sign-up spec §2.16: nothing claims the browser does what the bots do)
+  ['the browser doing what the bots do', /(?:everything|all) (?:that )?the bots? (?:does|do|can)|same as (?:in )?the bots?|כל מה ש(?:ה)?בוט(?:ים)? (?:עושה|עושים|יכול)|(?:всё|все) (?:то же|то,) (?:что|чт\S*) (?:и )?(?:в боте|умеет бот|делает бот)/i],
   // Gematriya is drawn only when FamCal speaks Hebrew (hebrew-date.ts), so only English and Russian can't promise it
   ['the Hebrew date in letters, in English or Russian', /\bin (?:hebrew )?letters\b|gematriya|буквами|гематри/i],
 ];

@@ -348,7 +348,7 @@ export function Founder({ t }: { t: Translate }) {
   );
 }
 
-export function StartAgain({ t, words }: { t: Translate; words: StartWords }) {
+export function StartAgain({ t, words, browserHref }: { t: Translate; words: StartWords; browserHref: string }) {
   return (
     <section id="start" className="site-section site-final" aria-labelledby="start-title">
       <div className="site-wrap">
@@ -356,7 +356,7 @@ export function StartAgain({ t, words }: { t: Translate; words: StartWords }) {
           {t('landing.final.title')}
         </h2>
         <p className="site-lead">{t('landing.final.body')}</p>
-        <StartButtons words={words} />
+        <StartButtons words={words} browserHref={browserHref} />
         <HonestLine text={t('site.cta.honest')} />
       </div>
     </section>
