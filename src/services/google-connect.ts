@@ -5,9 +5,11 @@
  * anyone could start one and send the Google URL to someone else, whose token was then
  * saved on the sender's account. So the callback no longer saves the token. It parks it
  * here under a fresh pendingId, and the finish page (/oauth-complete) offers
- * t.me/<bot>?start=gc_<pendingId> and a wa.me message with gc_<pendingId>. The token is
- * committed only when the state's owner sends that from their own Telegram or WhatsApp.
- * Anyone else's claim uses the entry up and connects nothing.
+ * t.me/<bot>?start=gc_<pendingId> and a wa.me message with gc_<pendingId>, and Finish here
+ * when the browser is signed in as the state's owner (POST /api/oauth/claim). The token is
+ * committed only when the state's owner sends that from their own Telegram or WhatsApp, or
+ * presses Finish here in a browser signed in as that account. Anyone else's claim uses the
+ * entry up and connects nothing.
  *
  * The consent itself starts here too (createGoogleConsent, for POST /api/oauth/start). Every
  * consent sends include_granted_scopes, so a later reconnect keeps calendar.app.created.
@@ -148,6 +150,20 @@ export async function createPendingGoogleToken(ownerUserId: number, refreshToken
   };
   await redis.set(pendingKey(pendingId), JSON.stringify(entry), { ex: PENDING_TTL_SECONDS });
   return pendingId;
+}
+
+/**
+ * Who started a waiting connection, read without using it up (GET, never GETDEL): the finish page's Finish here check
+ * (POST /api/oauth/claim { token, peek: true }, web sign-up spec §3.10). null for an id that is not one and for an entry that is gone. The
+ * answer stays on the server: the route says only whether it is this browser's own account.
+ */
+export async function peekPendingOwner(pendingId: string): Promise<number | null> {
+  if (!PENDING_ID.test(pendingId)) return null;
+  const raw = await redis.get<PendingGoogleToken | string>(pendingKey(pendingId));
+  if (!raw) return null;
+  const entry: PendingGoogleToken = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  const owner = Number(entry.ownerUserId);
+  return Number.isSafeInteger(owner) && owner > 0 ? owner : null;
 }
 
 /**

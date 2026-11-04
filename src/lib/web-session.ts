@@ -16,10 +16,12 @@ import { normalizeLocale } from '../utils/locale';
 import { addGoogleJoinHref, signInHref, signUpHref } from '../site/signin';
 
 /**
- * The pages a sign-in lands on: the calendar, Select calendars right after a Google connect on WhatsApp, or the Join
- * question an Add Google ended on (web sign-up spec §3.6; `join` is the question's one-time id).
+ * The pages a sign-in or a finish lands on: the calendar; Select calendars right after a Google connect (on WhatsApp,
+ * or finished here in the browser: /api/oauth/claim); Calendars after a copy to Google finished here, as the chat
+ * claim's button leads; or the Join question an Add Google ended on (web sign-up spec §3.6; `join` is the question's
+ * one-time id).
  */
-export type FinishPage = 'dashboard' | 'select-calendars' | { join: string };
+export type FinishPage = 'dashboard' | 'select-calendars' | 'calendars' | { join: string };
 
 /**
  * The outcomes /signin shows (?status=). 'taken' and 'has-one' are what Add Google answers: the Google account already

@@ -1180,7 +1180,17 @@
     "whatsappText": "Finish connecting my Google Calendar: {code}",
     "whatsappHint": "WhatsApp opens with the message already written. Just send it.",
     "incompleteTitle": "This link is incomplete",
-    "incompleteBody": "Start again from the FamCal bot and connect Google from there."
+    "incompleteBody": "Start again from the FamCal bot and connect Google from there.",
+    "hereButton": "Finish here",
+    "hereBusy": "Connecting…",
+    "hereNotOwner": "This browser is signed in to another FamCal account, so nothing was connected. Connect Google Calendar again from the account you want it on.",
+    "hereExpired": "This link was already used or has expired. Connect Google Calendar again from FamCal.",
+    "hereSignedOut": "Your sign-in on this browser has ended. Sign in again and connect Google Calendar from Settings.",
+    "hereFailed": "Something went wrong while finishing. Check Google Calendar in FamCal: if it isn't connected, connect it again.",
+    "hereNetwork": "Couldn't reach FamCal. Check your connection and try again.",
+    "signInTitle": "Sign in to finish",
+    "signInBody": "This browser isn't signed in to the FamCal account that started this. Sign in, then connect Google Calendar again.",
+    "signInButton": "Sign in"
   },
   "errors": {
     "unauthorized": "You are not authorized to use this bot",

@@ -15,8 +15,10 @@
 //    the code, the scopes page, no refresh token), in the owner's language or else the browser's; /api/refresh-token
 //    turns a return with no code into the callback's card instead of JSON; Google's error is logged quoted; a database
 //    failure on the deny path still shows the card.
-//  - F1..F4 /oauth-complete: the loader before the fragment is read, the ready page (the owner line through ICU, the
-//    buttons per b=), the incomplete card.
+//  - F1..F7 /oauth-complete: the loader before the fragment is read, the ready page (the owner line through ICU, the
+//    buttons per b=), the incomplete card; Finish here (web sign-up spec §3.10): the loader while the page asks
+//    POST /api/oauth/claim { token, peek: true } (the id in the body, never a URL), Sign in to finish when this browser is not the account and there is no chat button, Finish
+//    here first when it is (the chat buttons outlined under it), its press and each refusal.
 //  - K1 the pages' own style sheet passes the kit's lint and the sources hold no old look and no inline copy.
 //
 // The pages run as Next runs them (the server page as a function, then react-dom/server), with Prisma, Redis, error
@@ -337,6 +339,8 @@ function freshBrowser(o: { telegram?: 'light' | 'dark' | null; prefersDark?: boo
     if (queued) return queued();
     if (url.pathname === '/api/oauth/start') return json({ oauthUrl: `https://accounts.google.com/o/oauth2/v2/auth?state=u1_${b.calls.length}`, serverTime: Date.now() });
     if (url.pathname === '/api/check-token-refresh') return json({ refreshed: false });
+    // The finish page's question (POST { token, peek: true }): by default this browser is not the account that started the consent
+    if (url.pathname === '/api/oauth/claim' && init.body && JSON.parse(String(init.body)).peek === true) return json({ mine: false });
     throw new Error(`no route in the smoke: ${url.pathname}`);
   }) as typeof fetch;
   return b;
@@ -991,7 +995,8 @@ async function main() {
   await check('F3 a link missing its fragment (or with a bad one) is the translated "incomplete" card', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
-      for (const hash of ['', '#', '#p=short&b=tg', `#p=${PENDING}&b=`]) {
+      // A well-formed id with no chat button is not incomplete any more: F5 (not this browser's) and F7 (Finish here)
+      for (const hash of ['', '#', '#p=short&b=tg']) {
         const t = messages[l].oauthComplete;
         const m = await mountComplete(l, hash);
         const h1 = all(m).find((e: Row) => e.localName === 'h1');
@@ -1010,6 +1015,117 @@ async function main() {
     assert(links.telegram === `https://t.me/bot?start=gc_${PENDING}` && String(links.whatsapp).includes(`gc_${PENDING}`), show(links));
     assert(typeof mod.FinishButtons === 'function', 'no FinishButtons');
   });
+
+  /** The finish page in a plain browser whose check (POST /api/oauth/claim, peek) answers `mine` (or hangs until release), with a location that can be left. */
+  async function mountHere(l: Locale, hash: string, mine: boolean | 'hang') {
+    const end = await completePage({ locale: l });
+    const client = pageClient(end.element as Row);
+    const b = freshBrowser({ telegram: null });
+    let release: (r: Response) => void = () => undefined;
+    b.answer['/api/oauth/claim'] = [mine === 'hang' ? () => new Promise<Response>((resolve) => void (release = resolve)) : () => json({ mine })];
+    const assigned: string[] = [];
+    fakeWindow.location = { href: `https://app.example.test/oauth-complete?locale=${l}${hash}`, hash, origin: 'https://app.example.test', assign: (u: string) => void assigned.push(u) };
+    const m = mount(inProvider(l, ['oauthComplete'], h(client.type, client.props)));
+    await settle();
+    return { m, b, assigned, release: (r: Response) => release(r) };
+  }
+  const controlsOf = (m: Mounted) => all(m).filter((e: Row) => e.localName === 'a' || e.localName === 'button') as Row[];
+  const errorNotice = (m: Mounted) => all(m).find((e: Row) => String(e.getAttribute('class')).includes('ch-notice-error')) as Row | undefined;
+
+  await check('F5 a consent this browser did not start (the check says not mine) with no chat button: "Sign in to finish" with Sign in (/signin in the page\'s language), never the incomplete card; the question is one POST to /api/oauth/claim with { token, peek: true } as JSON and the cookie, the id in no URL', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      const t = messages[l].oauthComplete;
+      const { m, b } = await mountHere(l, `#p=${PENDING}&b=`, false);
+      const h1 = all(m).find((e: Row) => e.localName === 'h1');
+      const link = all(m).find((e: Row) => e.localName === 'a') as Row | undefined;
+      const asked = b.calls.filter((c) => c.path.startsWith('/api/oauth/claim'));
+      if (!h1 || textOf(h1) !== t.signInTitle || !all(m).some((e: Row) => textOf(e) === t.signInBody)) problems.push(`${l}: ${h1 ? textOf(h1) : 'no h1'}`);
+      if (!link || link.getAttribute('href') !== (l === 'en' ? '/signin' : `/${l}/signin`) || textOf(link) !== t.signInButton) problems.push(`${l}: the link ${link ? link.getAttribute('href') : 'none'}`);
+      if (asked.length !== 1 || asked[0].method !== 'POST' || asked[0].path !== '/api/oauth/claim' || show(asked[0].body) !== show({ token: PENDING, peek: true }) || asked[0].headers['content-type'] !== 'application/json' || asked[0].credentials !== 'same-origin') problems.push(`${l}: the question ${show(asked)}`);
+      if (l !== 'en') {
+        const english = englishIn(visibleText(serialize(m.container)));
+        if (english.length) problems.push(`${l}: English ${show(english)}`);
+      }
+      m.unmount();
+      leaveBrowser();
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('F6 this browser is the account that started it: the loader while the page asks; then Finish here (the first control, the primary) with the chat buttons outlined under it; a press posts { token } as JSON with the cookie and goes to the page the server names (this site only); not_owner, expired and signed-out each say why in an error notice and take Finish here away (the chat buttons stay); a request that never arrived says so and keeps it; a page off this site is refused', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      const t = messages[l].oauthComplete;
+      const hanging = await mountHere(l, `#p=${PENDING}&b=tg%2Cwa`, 'hang');
+      if (!all(hanging.m).some((e: Row) => String(e.getAttribute('class')).includes('ch-loader')) || controlsOf(hanging.m).length) problems.push(`${l}: no loader while the page asks`);
+      hanging.m.unmount();
+      leaveBrowser();
+
+      const { m, b, assigned } = await mountHere(l, `#p=${PENDING}&b=tg%2Cwa`, true);
+      const here = buttonNamed(m, t.hereButton);
+      const links = all(m).filter((e: Row) => e.localName === 'a') as Row[];
+      if (!here || controlsOf(m)[0] !== here || !String(here.getAttribute('class')).includes('ch-btn-primary')) problems.push(`${l}: Finish here is not the first, primary control`);
+      if (links.length !== 2 || links.some((a) => !String(a.getAttribute('class')).includes('ch-btn-outline'))) problems.push(`${l}: the chat buttons ${show(links.map((a) => a.getAttribute('class')))}`);
+      b.answer['/api/oauth/claim'] = [() => json({ ok: true, page: 'select-calendars', userId: 7, redirect: 'https://app.example.test/he/select-calendars?user_id=7' })];
+      if (here) m.click(here as FakeElement);
+      await settle();
+      const post = b.calls.find((c) => c.method === 'POST' && c.path === '/api/oauth/claim' && (c.body as Row | undefined)?.peek !== true);
+      if (!post || show(post.body) !== show({ token: PENDING }) || post.headers['content-type'] !== 'application/json' || post.credentials !== 'same-origin') problems.push(`${l}: the press ${show(post)}`);
+      if (show(assigned) !== show(['https://app.example.test/he/select-calendars?user_id=7'])) problems.push(`${l}: went to ${show(assigned)}`);
+      m.unmount();
+      leaveBrowser();
+
+      for (const [error, key] of [['not_owner', 'hereNotOwner'], ['expired', 'hereExpired'], ['signed-out', 'hereSignedOut']] as const) {
+        const r = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+        r.b.answer['/api/oauth/claim'] = [() => json({ ok: false, error }, error === 'signed-out' ? 401 : error === 'expired' ? 410 : 403)];
+        r.m.click(buttonNamed(r.m, t.hereButton) as FakeElement);
+        await settle();
+        const notice = errorNotice(r.m);
+        const telegram = all(r.m).some((e: Row) => e.localName === 'a' && String(e.getAttribute('href')).startsWith('https://t.me/'));
+        if (!notice || textOf(notice) !== t[key] || buttonNamed(r.m, t.hereButton) || !telegram || r.assigned.length) problems.push(`${l} ${error}: ${notice ? textOf(notice) : 'no notice'}`);
+        r.m.unmount();
+        leaveBrowser();
+      }
+
+      const lost = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+      lost.b.answer['/api/oauth/claim'] = [() => { throw new TypeError('Failed to fetch'); }];
+      lost.m.click(buttonNamed(lost.m, t.hereButton) as FakeElement);
+      await settle();
+      const again = buttonNamed(lost.m, t.hereButton);
+      if (textOf(errorNotice(lost.m) ?? {}) !== t.hereNetwork || !again || again.hasAttribute('disabled')) problems.push(`${l}: a request that never arrived`);
+      lost.m.unmount();
+      leaveBrowser();
+
+      const away = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+      away.b.answer['/api/oauth/claim'] = [() => json({ ok: true, page: 'select-calendars', userId: 7, redirect: 'https://evil.example/x' })];
+      away.m.click(buttonNamed(away.m, t.hereButton) as FakeElement);
+      await settle();
+      if (away.assigned.length || textOf(errorNotice(away.m) ?? {}) !== t.hereFailed) problems.push(`${l}: a page off this site ${show(away.assigned)}`);
+      away.m.unmount();
+      leaveBrowser();
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('F7 an account with no chat (b= empty) that started it in this browser: Finish here alone, never the incomplete card; while the press is out it waits (disabled, "Connecting…")', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      const t = messages[l].oauthComplete;
+      const { m, b } = await mountHere(l, `#p=${PENDING}&b=`, true);
+      const controls = controlsOf(m);
+      if (controls.length !== 1 || textOf(controls[0]) !== t.hereButton || all(m).some((e: Row) => textOf(e) === t.incompleteTitle)) problems.push(`${l}: ${show(controls.map((c) => textOf(c)))}`);
+      b.answer['/api/oauth/claim'] = [() => new Promise<Response>(() => undefined)];
+      if (controls[0]) m.click(controls[0] as FakeElement);
+      await settle();
+      const busy = controlsOf(m)[0];
+      if (!busy || !busy.hasAttribute('disabled') || busy.getAttribute('aria-busy') !== 'true' || textOf(busy) !== t.hereBusy) problems.push(`${l}: no busy state while the press is out`);
+      m.unmount();
+      leaveBrowser();
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
 
   // ---- K: the pages' own style sheet and sources ----
 
