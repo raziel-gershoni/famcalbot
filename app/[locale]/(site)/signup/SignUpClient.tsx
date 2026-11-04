@@ -21,7 +21,7 @@ import { useEffect, useId, useState, type FormEvent, type MouseEvent, type React
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
 import { readJsonBody } from '@/src/lib/read-json';
-import { SIGNUP_NAME_MAX, signInHref } from '@/src/site/signin';
+import { SIGNUP_NAME_MAX, signInHref, type SignUpWays } from '@/src/site/signin';
 import { localeHref } from '@/src/site/zmanim/links';
 
 type Way = 'google' | 'email';
@@ -57,7 +57,8 @@ async function readSignUp(): Promise<View> {
   }
 }
 
-export function SignUpClient() {
+/** `ways`: the ways open for sign-up now (the page's openSignUpWays), which the "start again" line names. */
+export function SignUpClient({ ways }: { ways: SignUpWays }) {
   const t = useTranslations('site.signup');
   const ts = useTranslations('site.signin');
   const locale = useLocale();
@@ -189,7 +190,7 @@ export function SignUpClient() {
     return (
       <>
         {title(t('expiredTitle'))}
-        <p className="site-lead">{t('expired')}</p>
+        <p className="site-lead">{t('expired', { ways })}</p>
         {backToSignIn(t('startAgain'))}
       </>
     );

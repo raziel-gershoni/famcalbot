@@ -4,8 +4,8 @@
 //   - Signed in on famcal.bot: the same Accept, with the session cookie (web sign-up spec §3.7). The page reads the
 //     cookie's signature and age only, as /signin does; the accept route checks the rest (verifyUserAuth), and its
 //     401 turns the page signed out.
-//   - Signed out in a browser: "Sign in or create an account to accept" → /signin?invite=<token>, whose sign-in or
-//     sign-up comes back here.
+//   - Signed out in a browser: "Sign in or create an account to accept" while web sign-up is open (openSignUpWays,
+//     read per request), else "Sign in to accept" → /signin?invite=<token>, whose sign-in or sign-up comes back here.
 //   - Out-of-app: tap "Open in Telegram" deep link → /start invite_<packed token> (src/lib/invite-link.ts).
 //   - WhatsApp-only users: tap "Open in WhatsApp" → wa.me with prefilled "accept <token>".
 //
@@ -26,6 +26,7 @@ import { INVITE_CSS } from './invite-css';
 import { normalizeLocale } from '@/src/utils/locale';
 import { inviteStartParam } from '@/src/lib/invite-link';
 import { SITE_URL } from '@/src/site/config';
+import { openSignUpWays } from '@/src/services/web-signin/signup-open';
 import { OG_SIZE } from '@/src/site/seo';
 
 interface PageProps {
@@ -92,6 +93,7 @@ export default async function InvitePage({ params }: PageProps) {
       waDeepLink={waDeepLink}
       expiresAt={invite.expiresAt.toISOString()}
       sessionUserId={sessionUserId}
+      signUpOpen={openSignUpWays() !== null}
     />
   );
 }

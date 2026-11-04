@@ -6,6 +6,7 @@ import { SitePage } from '@/components/site/SitePage';
 import { SESSION_COOKIE_NAME, validateSessionToken } from '@/src/lib/session-auth';
 import { siteMetadata } from '@/src/site/seo';
 import { localeHref } from '@/src/site/zmanim/links';
+import { openSignUpWays } from '@/src/services/web-signin/signup-open';
 import { SignUpClient } from './SignUpClient';
 
 // /signup (web sign-up spec 2026-11-03 §2.2, §2.3, §3.4), in the site's chrome: where a Google sign-in or an email code
@@ -14,7 +15,9 @@ import { SignUpClient } from './SignUpClient';
 // second-account warning, the name field, the consent line and Create account (or the expired, exists and taken
 // states). Rendered per request, as /signin is, and kept out of search (noindex, no alternates). No database read here.
 // A browser already signed in (a bookmark, or Back after Create account) goes straight to its calendar, as on /signin:
-// only the session cookie's signature and age are read, and it never sees the form.
+// only the session cookie's signature and age are read, and it never sees the form. With web sign-up closed
+// (openSignUpWays, src/services/web-signin/signup-open.ts) the page promises nothing and goes to /signin; while it is
+// open the client names only the open ways when it asks the person to start again.
 
 export const dynamic = 'force-dynamic';
 
@@ -32,11 +35,13 @@ export default async function SignUpPage({ params }: { params: Promise<{ locale:
   const token = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   const session = token ? validateSessionToken(token) : null;
   if (session) redirect(localeHref(locale, `/dashboard?user_id=${session.userId}`));
+  const ways = openSignUpWays();
+  if (!ways) redirect(localeHref(locale, '/signin'));
   return (
     <SitePage locale={locale} path="/signup">
       <main id="main" className="site-section site-page-main">
         <div className="site-wrap site-signin">
-          <SignUpClient />
+          <SignUpClient ways={ways} />
         </div>
       </main>
     </SitePage>

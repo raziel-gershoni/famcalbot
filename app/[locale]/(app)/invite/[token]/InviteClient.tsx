@@ -8,8 +8,9 @@
 //  2. Signed in on famcal.bot (the page read the session cookie: sessionUserId) → the same Accept, with the cookie and the
 //     DB id as user_id (web sign-up spec §3.7); a 401 means the session has ended: the signed-out state, with a line
 //     that says so
-//  3. Signed out in a browser → "Sign in or create an account to accept" (/signin?invite=<token>: the sign-in or the
-//     sign-up comes back here), then "Open in Telegram" + "Open in WhatsApp" for someone who already uses a bot
+//  3. Signed out in a browser → "Sign in or create an account to accept" while web sign-up is open, else "Sign in to
+//     accept" (signUpOpen, from signup-open.ts; /signin?invite=<token>: the sign-in or the sign-up comes back here),
+//     then "Open in Telegram" + "Open in WhatsApp" for someone who already uses a bot
 //  4. After a successful accept → confirmation card: Close inside Telegram, Open your calendar in a browser
 //  5. The two are already paired with each other → that news in place of the button (information, not an error)
 //
@@ -41,6 +42,8 @@ interface Props {
   expiresAt: string;
   /** The account this browser is signed in as on famcal.bot (the session cookie's signature and age only), or null */
   sessionUserId: number | null;
+  /** Whether a new person can create an account on famcal.bot now (openSignUpWays): only then the button says so */
+  signUpOpen: boolean;
 }
 
 // Window.Telegram.WebApp is already typed in src/types/telegram-webapp.d.ts
@@ -156,7 +159,7 @@ export default function InviteClient(props: Props) {
               <>
                 <div className="ch-home-card-actions">
                   <a className="ch-btn ch-btn-primary ch-home-card-action" href={signInLink}>
-                    {t('signInToAccept')}
+                    {props.signUpOpen ? t('signInToAccept') : t('signInOnlyToAccept')}
                   </a>
                 </div>
                 {tgDeepLink || waDeepLink ? (

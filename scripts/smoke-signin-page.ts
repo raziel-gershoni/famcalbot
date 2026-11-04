@@ -451,6 +451,17 @@ async function main() {
       throw new Error(`no /signup page: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
     });
     assert(page.dynamic === 'force-dynamic', `dynamic ${page.dynamic}`);
+    // Sign-up closed (nothing set, or Google with no Resend): /signup promises nothing and goes to /signin
+    for (const ways of [{}, { google: true }]) {
+      configure({ ...ways, turnstile: false });
+      for (const locale of LOCALES) {
+        jar.clear();
+        const closed = await pageOf(page.default, locale);
+        assert('redirect' in closed && closed.redirect === `${prefix(locale)}/signin`, `${locale} ${show(ways)}: sign-up closed ${show(closed)}`);
+      }
+    }
+    // The rest with sign-up open by email (email codes with Turnstile)
+    configure({ email: true, turnstile: true });
     const token = createSessionToken(7, 'google', Date.now());
     for (const locale of LOCALES) {
       jar.clear();
@@ -474,6 +485,7 @@ async function main() {
     const { SITE_CSS } = await load('src/site/site-css.ts');
     for (const selector of ['.site-signup-address', '.site-signin-panel .site-signup-consent', '.site-signup-consent a', '.site-signup-wait']) assert(SITE_CSS.includes(`\n${selector} {`), `no ${selector} rule`);
     assert(/\.site-signup-address \{[^}]*overflow-wrap: anywhere;/.test(SITE_CSS), 'a long address could overflow a phone');
+    configure({ turnstile: false });
   });
 
   await check('P4 the email form: the address (trimmed) and the language to the request route, the one answer, the code (digits only) to the verify route, the redirect; wrong, limited, failed, restart, blocked and a failed request each said; the buttons wait while a request is out; no log line holds the address or the code', async () => {
@@ -720,7 +732,7 @@ async function main() {
   /** Each location.reload() the sign-up client asked for, by the page's language. */
   const reloads: string[] = [];
   /** The sign-up client in a browser (real React on the fake DOM), with the routes the check set. */
-  async function openSignUp(locale: Locale) {
+  async function openSignUp(locale: Locale, ways = 'both') {
     const { SignUpClient } = await load('app/[locale]/(site)/signup/SignUpClient.tsx');
     installWindow();
     assigned.length = 0;
@@ -732,7 +744,7 @@ async function main() {
       assign: (u: string) => void assigned.push(u),
       reload: () => void reloads.push(locale),
     };
-    const m = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignUpClient, {})) as unknown as ReactElement);
+    const m = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignUpClient, { ways })) as unknown as ReactElement);
     await settle();
     return m;
   }
@@ -812,7 +824,7 @@ async function main() {
       const replaced: [() => Response, string, string][] = [
         [() => json({ ok: false, status: 'taken' }, 409), u.takenTitle, u.taken],
         [() => json({ ok: false, status: 'exists', way: 'google' }), u.existsTitle, st.existsGoogle],
-        [() => json({ ok: false, status: 'restart' }), u.expiredTitle, u.expired],
+        [() => json({ ok: false, status: 'restart' }), u.expiredTitle, word(locale, 'site.signup.expired', { ways: 'both' })],
       ];
       for (const [answer, title, line] of replaced) {
         const m = await afterCreate(answer);
@@ -832,7 +844,7 @@ async function main() {
       }
       const reads: [Row, string, string][] = [
         [{ exists: 'email' }, u.existsTitle, st.existsEmail],
-        [{ restart: true }, u.expiredTitle, u.expired],
+        [{ restart: true }, u.expiredTitle, word(locale, 'site.signup.expired', { ways: 'both' })],
       ];
       for (const [answer, title, line] of reads) {
         routes = { 'GET /api/auth/signup': () => json(answer) };
@@ -858,6 +870,33 @@ async function main() {
     }
     const leaked = logs.filter((l) => /dana@gmail\.com|rivka@example\.com|Dana Levi|Rivka/.test(l));
     assert(leaked.length === 0, `a log line holds the address or the name: ${show(leaked)}`);
+  });
+
+  await check('S1b /signup\'s "start again" line names only the ways open for sign-up (the page passes openSignUpWays): Google alone, an email code alone, or both; the server page hands the client the open ways', async () => {
+    const page = await load('app/[locale]/(site)/signup/page.tsx');
+    for (const locale of LOCALES) {
+      const u = messages[locale].site.signup as Row;
+      for (const ways of ['google', 'email', 'both']) {
+        routes = { 'GET /api/auth/signup': () => json({ restart: true }) };
+        const m = await openSignUp(locale, ways);
+        try {
+          const text = flat(m.container);
+          assert(text.includes(u.expiredTitle) && text.includes(word(locale, 'site.signup.expired', { ways })), `${locale} ${ways}: ${text.slice(0, 240)}`);
+        } finally {
+          m.unmount();
+        }
+      }
+      const only = (ways: string) => word(locale, 'site.signup.expired', { ways });
+      assert(new Set([only('google'), only('email'), only('both')]).size === 3, `${locale}: the line does not change with the ways`);
+    }
+    for (const [ways, want] of [[{ google: true, email: true, turnstile: false }, 'google'], [{ email: true, turnstile: true }, 'email'], [{ google: true, email: true, turnstile: true }, 'both']] as const) {
+      configure(ways);
+      jar.clear();
+      const el = await page.default({ params: Promise.resolve({ locale: 'en' }) });
+      const client = JSON.stringify(el, (key, value) => (key === '_owner' || key === '_store' ? undefined : value));
+      assert(client.includes(`"ways":"${want}"`), `${show(ways)}: the client does not get ways ${want}: ${client.slice(0, 300)}`);
+    }
+    configure({ turnstile: false });
   });
 
   await check('S4 /signin\'s email form: a right code whose address already signs in with Google (the verify route\'s { error: exists, way: google }) goes to /signin?status=exists-google, and one with way email to exists-email', async () => {

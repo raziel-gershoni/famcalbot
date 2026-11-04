@@ -140,7 +140,9 @@ const TG_ID = 5550001;
 const SIGNIN = (l: Locale) => (l === 'en' ? '/signin' : `/${l}/signin`);
 /** The cookies the server page reads (next/headers), by name */
 const jar = new Map<string, string>();
-const propsOf = (locale: Locale, over: Row = {}): Row => ({ token: TOKEN, inviterName: NAMES[locale], locale, tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: local(2026, 11, 3, 15, 45), ...over });
+const propsOf = (locale: Locale, over: Row = {}): Row => ({ token: TOKEN, inviterName: NAMES[locale], locale, tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: local(2026, 11, 3, 15, 45), signUpOpen: false, ...over });
+/** The sign-in button's words: "or create an account" only while web sign-up is open (src/services/web-signin/signup-open.ts) */
+const signInWords = (locale: Locale, signUpOpen: boolean) => word(locale, signUpOpen ? 'signInToAccept' : 'signInOnlyToAccept');
 
 let Invite: (props: Row) => ReactElement;
 function tree(locale: Locale, props: Row): ReactElement {
@@ -257,6 +259,8 @@ async function main() {
   // The boundaries of the page: its data, its translator and the error capture
   stub('src/services/pairing-service.ts', { getInviteByToken: async (token: string) => inviteFor(token) });
   stub('src/lib/error-capture.ts', { captureError: (error: unknown, context: string, _extra?: unknown, severity?: string) => void captured.push({ context, error, severity }) });
+  // The page reads whether web sign-up is open (signup-open.ts), whose modules import the Redis client; it never calls it
+  stub('src/utils/redis.ts', { redis: new Proxy({}, { get: (_t, prop) => { if (typeof prop !== 'string' || prop === 'then') return undefined; throw new Error(`the invite page used Redis (${prop})`); } }) });
   const { createTranslator } = nodeRequire('next-intl');
   stub(path.relative(ROOT, nodeRequire.resolve('next-intl/server')), {
     __esModule: true,
@@ -429,19 +433,20 @@ async function main() {
     }
   });
 
-  await check('V3 in a browser that is not signed in (the SDK with no launch data, or no SDK): no Accept and no request; Sign in or create an account to accept (the filled button, to /signin in the page\'s language, with the invite when the token is one), then "already use the bot?" with Open in Telegram and Open in WhatsApp (both quiet) with the exact links, in that order; each is hidden when its link is empty, and with neither their line goes too', async () => {
+  await check('V3 in a browser that is not signed in (the SDK with no launch data, or no SDK): no Accept and no request; Sign in to accept, or Sign in or create an account to accept while web sign-up is open (the filled button, to /signin in the page\'s language, with the invite when the token is one), then "already use the bot?" with Open in Telegram and Open in WhatsApp (both quiet) with the exact links, in that order; each is hidden when its link is empty, and with neither their line goes too', async () => {
     const HEX = 'c3'.repeat(32);
     for (const locale of LOCALES) {
-      for (const options of [{}, { sdkOnly: true }] as OpenOptions[]) {
+      for (const options of [{}, { sdkOnly: true }, { signUpOpen: true }] as (OpenOptions & { signUpOpen?: boolean })[]) {
         reset();
-        const o = open(locale, propsOf(locale), options);
+        const signUpOpen = options.signUpOpen === true;
+        const o = open(locale, propsOf(locale, { signUpOpen }), signUpOpen ? {} : options);
         try {
           await settle();
           const where = `${locale} ${show(options)}`;
           assert(!acceptOf(o.m) && buttonsOf(o.m).length === 0 && requestCount() === 0, `${where}: Accept or a request in a browser`);
           const anchors = anchorsOf(o.m).map((a) => [a.getAttribute('href'), flat(a), a.className]);
           const want = [
-            [SIGNIN(locale), word(locale, 'signInToAccept'), 'ch-btn ch-btn-primary ch-home-card-action'],
+            [SIGNIN(locale), signInWords(locale, signUpOpen), 'ch-btn ch-btn-primary ch-home-card-action'],
             [TG_LINK, word(locale, 'openTg'), 'ch-btn ch-home-card-action'],
             [WA_LINK, word(locale, 'openWa'), 'ch-btn ch-home-card-action'],
           ];
@@ -494,7 +499,28 @@ async function main() {
     };
     for (const [inviter, name] of [[{ name: 'Dana', englishName: 'Dana E' }, 'Dana'], [{ name: '', englishName: 'Dana E' }, 'Dana E'], [{ name: '', englishName: '' }, word('he', 'someone')]] as const) {
       const el = await valid(inviter);
-      assert(el.type === Invite && show(el.props) === show({ token: TOKEN, inviterName: name, locale: 'he', tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: expires.toISOString(), sessionUserId: null }), `the props for ${show(inviter)}: ${show(el.props)}`);
+      assert(el.type === Invite && show(el.props) === show({ token: TOKEN, inviterName: name, locale: 'he', tgDeepLink: TG_LINK, waDeepLink: WA_LINK, expiresAt: expires.toISOString(), sessionUserId: null, signUpOpen: false }), `the props for ${show(inviter)}: ${show(el.props)}`);
+    }
+    // Whether web sign-up is open, read per request from signup-open.ts: email codes with Turnstile, or Google with
+    // Resend, open it; Google sign-in with no Resend does not (fakes only, cleared after)
+    {
+      const NAMES_ENV = ['GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET', 'RESEND_API_KEY', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET'];
+      const states: [Record<string, string>, boolean][] = [
+        [{}, false],
+        [{ GOOGLE_SIGNIN_CLIENT_ID: 'smoke-signin-client', GOOGLE_SIGNIN_CLIENT_SECRET: 'smoke-only' }, false],
+        [{ RESEND_API_KEY: 're_smoke_only', TURNSTILE_SITE_KEY: 'smoke-site-key', TURNSTILE_SECRET: 'smoke-only' }, true],
+        [{ GOOGLE_SIGNIN_CLIENT_ID: 'smoke-signin-client', GOOGLE_SIGNIN_CLIENT_SECRET: 'smoke-only', RESEND_API_KEY: 're_smoke_only' }, true],
+      ];
+      try {
+        for (const [env, open] of states) {
+          for (const name of NAMES_ENV) delete process.env[name];
+          Object.assign(process.env, env);
+          const el = await valid({ name: 'Dana' });
+          assert(el.props.signUpOpen === open, `sign-up ${show(Object.keys(env))}: signUpOpen ${show(el.props.signUpOpen)}`);
+        }
+      } finally {
+        for (const name of NAMES_ENV) delete process.env[name];
+      }
     }
     // A browser signed in on famcal.bot: the session's account (the cookie's signature and age only; the accept route
     // checks the rest); a tampered cookie, or none, is null
@@ -533,7 +559,7 @@ async function main() {
     }
   });
 
-  await check('V7 signed in on famcal.bot (sessionUserId, no Telegram): Accept alone; it posts once to /api/pair/accept?user_id=<the DB id> with { token } and the cookie (same-origin), never initData; success shows Open your calendar (the dashboard in the page\'s language), not Close; a 401 means the session ended: its line, then Sign in or create an account to accept (with the invite) and the bot links, no Accept, nothing reported; an unknown code says the browser\'s "could not accept"; inside Telegram the Telegram user still accepts with initData', async () => {
+  await check('V7 signed in on famcal.bot (sessionUserId, no Telegram): Accept alone; it posts once to /api/pair/accept?user_id=<the DB id> with { token } and the cookie (same-origin), never initData; success shows Open your calendar (the dashboard in the page\'s language), not Close; a 401 means the session ended: its line, then Sign in to accept (with the invite) and the bot links, no Accept, nothing reported; an unknown code says the browser\'s "could not accept"; inside Telegram the Telegram user still accepts with initData', async () => {
     const HEX = 'b2'.repeat(32);
     const prefix = (l: Locale) => (l === 'en' ? '' : `/${l}`);
     for (const locale of LOCALES) {
@@ -558,7 +584,7 @@ async function main() {
         ended.m.click(acceptOf(ended.m) as FakeElement);
         await settle();
         const links = anchorsOf(ended.m).map((a) => [a.getAttribute('href'), flat(a)]);
-        const want = [[`${SIGNIN(locale)}?invite=${HEX}`, word(locale, 'signInToAccept')], [TG_LINK, word(locale, 'openTg')], [WA_LINK, word(locale, 'openWa')]];
+        const want = [[`${SIGNIN(locale)}?invite=${HEX}`, signInWords(locale, false)], [TG_LINK, word(locale, 'openTg')], [WA_LINK, word(locale, 'openWa')]];
         assert(!acceptOf(ended.m) && page(ended.m).includes(word(locale, 'sessionEnded')) && show(links) === show(want), `${locale}: after a 401 ${show(links)}`);
         assert(capturedCount() === 0, `${locale}: a 401 was reported`);
       } finally {

@@ -5,6 +5,7 @@ import { appKey } from '@/src/lib/app-keys';
 import { normalizeLocale } from '@/src/utils/locale';
 import { clientAddress, clientIp } from '@/src/services/web-signin/client-address';
 import { turnstileConfigured, verifyTurnstile } from '@/src/services/web-signin/turnstile';
+import { signUpOpen } from '@/src/services/web-signin/signup-open';
 import { emailKey, normalizeEmail } from '@/src/services/web-signin/email-address';
 import { allowCodeRequest, takeSignUpSend } from '@/src/services/web-signin/limits';
 import { startFlow } from '@/src/services/web-signin/flow';
@@ -70,8 +71,8 @@ export async function POST(request: NextRequest) {
 
 /**
  * After the answer: the account with this address gets a sign-in code at the address it stores. An address on no
- * account gets a sign-up code at the address typed (normalised, in the page's language) while email sign-up is on
- * (Turnstile configured, so this request passed the check), the address is not banned (checked before the share, so a
+ * account gets a sign-up code at the address typed (normalised, in the page's language) while email sign-up is open
+ * (signUpOpen('email'): Turnstile configured, so this request passed the check), the address is not banned (checked before the share, so a
  * banned one spends none of it), and within the sign-up share of the day's mail (takeSignUpSend: 30 a day, 3 per
  * client address; web sign-up spec §2.5, §2.8, §3.1); otherwise nothing is mailed. The answer was the same either way,
  * so it never shows a ban.
@@ -86,7 +87,8 @@ async function sendCode(normalized: string, key: string, locale: string, ip: str
       await issueCode({ purpose: 'signin', emailKey: key, address: account.address, userId: account.userId, locale: account.language });
       return;
     }
-    if (!turnstileConfigured()) {
+    // Email sign-up's one condition (signup-open.ts: Resend and Turnstile; Resend is set, or the request was refused)
+    if (!signUpOpen('email')) {
       console.log('[signin-email] no account signs in with this address; no code sent');
       return;
     }
