@@ -2,7 +2,7 @@
 // FamCal account, from the bot's /start, a first WhatsApp message or a sign-up on famcal.bot, is made by createAccount
 // (src/services/user-service.ts). The steps, in order:
 //   - the blocklist, for that way's own identifier (a Google sign-up's verified address too);
-//   - one transaction with the user row and, for the web, its sign-in way;
+//   - the user row (and, for the web only, its sign-in way in one transaction with it);
 //   - its first FamCal calendar (a failure is logged and reported, and the account stands);
 //   - one log line that names the user id and the way only.
 //
@@ -144,7 +144,9 @@ async function main() {
 
   await check('#3 /start: a new Telegram id gets one account with the shared defaults, its Telegram name and language, messagingPlatform telegram and one primary FamCal calendar; the same id again gets the same account and makes nothing; no web_signup', async () => {
     seed();
+    prismaCalls.length = 0;
     const dana = await users.getOrCreateUser(5550001, { first_name: 'Dana', last_name: 'Levi', language_code: 'he-IL' });
+    assert(!prismaCalls.includes('$transaction') && prismaCalls.includes('user.create'), `a chat account is one row, with no transaction: ${show(prismaCalls)}`);
     const row = newest();
     assert(row.id === dana.id && DB.user.length === 2, `rows ${show(DB.user.map(u => u.id))}`);
     const got = { telegramId: String(row.telegramId), name: row.name, language: row.language, messagingPlatform: row.messagingPlatform, ...sharedOf(row) };
@@ -163,7 +165,9 @@ async function main() {
 
   await check('#4 a first WhatsApp message: a number gets its account (phone, language, messagingPlatform whatsapp, the defaults, one calendar), a BSUID alone gets one with no phone; each found again by its lookup', async () => {
     seed();
+    prismaCalls.length = 0;
     const avi = await users.getOrCreateUserByWhatsApp('+972500000001', 'Avi', undefined, '+972500000001', 'ru');
+    assert(!prismaCalls.includes('$transaction') && prismaCalls.includes('user.create'), `a chat account is one row, with no transaction: ${show(prismaCalls)}`);
     const row = newest();
     const got = { telegramId: row.telegramId, whatsappPhone: row.whatsappPhone, whatsappBsuid: row.whatsappBsuid, name: row.name, language: row.language, messagingPlatform: row.messagingPlatform, ...sharedOf(row) };
     const want = { telegramId: null, whatsappPhone: '+972500000001', whatsappBsuid: null, name: 'Avi', language: 'ru', messagingPlatform: 'whatsapp', ...SHARED };
@@ -267,11 +271,11 @@ async function main() {
     }
   });
 
-  await check('#9 accountWays: the account\'s Google account id and sign-in address (the email way\'s subject), null for each it lacks', async () => {
+  await check('#9 accountWays: the account\'s Google account id, its sign-in address (the email way\'s subject) and the Google way\'s address, null for each it lacks', async () => {
     seed();
     DB.signInIdentity.push(identityRow({ userId: OLD, kind: 'google', subject: 'g-old', address: 'old@gmail.com' }));
-    assert(show(await identities.accountWays(OLD)) === show({ googleSub: 'g-old', email: 'taken@example.com' }), 'both ways');
-    assert(show(await identities.accountWays(12345)) === show({ googleSub: null, email: null }), 'no ways');
+    assert(show(await identities.accountWays(OLD)) === show({ googleSub: 'g-old', email: 'taken@example.com', googleAddress: 'old@gmail.com' }), 'both ways');
+    assert(show(await identities.accountWays(12345)) === show({ googleSub: null, email: null, googleAddress: null }), 'no ways');
   });
 
   await check('#10 no log line of the run holds a name, an address, a Telegram id, a phone or a Google id', () => {

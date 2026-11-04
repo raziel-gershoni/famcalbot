@@ -762,6 +762,7 @@
       "compGrant": "כבר יש מסלול פעיל או Pro במתנה.",
       "compRevoke": "אין Pro במתנה שאפשר להפסיק.",
       "selfBan": "אי אפשר לחסום את ה-Telegram או ה-WhatsApp שלכם.",
+      "noIdentifier": "בחשבון הזה אין מה לחסום: אין בו מזהה Telegram, מספר WhatsApp, חשבון Google או כתובת אימייל.",
       "selfModerate": "אי אפשר להשעות או למחוק את החשבון שלכם."
     },
     "common": {

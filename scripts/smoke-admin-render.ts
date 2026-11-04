@@ -1351,6 +1351,10 @@ async function main() {
       o.m.click(confirmOf(o.m) as FakeElement);
       await settle();
       assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.selfBan')]), `SELF_BAN: ${show(alertsIn(o.m.container))}`);
+      scenario.answers.set('POST users/blocklist', () => json({ error: 'NO_IDENTIFIER' }, 400));
+      o.m.click(confirmOf(o.m) as FakeElement);
+      await settle();
+      assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('errors.noIdentifier')]), `NO_IDENTIFIER: ${show(alertsIn(o.m.container))}`);
       scenario.answers.clear();
       calls.splice(0);
       o.m.click(confirmOf(o.m) as FakeElement);

@@ -205,13 +205,19 @@ export async function writeIdentityInTx(
 
 /**
  * The account's Google account id and its sign-in address (the email way's normalised subject), null for each it
- * lacks: what a ban records (user-moderation.ts) and what signInRefusal checks (web-session.ts).
+ * lacks: what a ban records (user-moderation.ts) and what signInRefusal checks (web-session.ts). `googleAddress` is
+ * the address Google verified for the Google way, as stored: signInRefusal checks it against the email bans too (a
+ * ban records only the email way's subject), and a ban never records it.
  */
-export async function accountWays(userId: number): Promise<{ googleSub: string | null; email: string | null }> {
-  const rows = await prisma.signInIdentity.findMany({ where: { userId }, select: { kind: true, subject: true } });
+export async function accountWays(
+  userId: number,
+): Promise<{ googleSub: string | null; email: string | null; googleAddress: string | null }> {
+  const rows = await prisma.signInIdentity.findMany({ where: { userId }, select: { kind: true, subject: true, address: true } });
+  const google = rows.find(r => r.kind === 'google');
   return {
-    googleSub: rows.find(r => r.kind === 'google')?.subject ?? null,
+    googleSub: google?.subject ?? null,
     email: rows.find(r => r.kind === 'email')?.subject ?? null,
+    googleAddress: google?.address ?? null,
   };
 }
 

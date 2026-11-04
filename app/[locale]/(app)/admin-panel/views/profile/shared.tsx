@@ -39,6 +39,7 @@ type Translate = (key: string) => string;
 export function failureText(t: Translate, action: ProfileAction, failure: AdminFailure): string {
   const { status, code } = failure;
   if (code === 'SELF_BAN') return t('errors.selfBan');
+  if (action === 'ban' && code === 'NO_IDENTIFIER') return t('errors.noIdentifier');
   if (action === 'switchToWhatsApp' && status === 400) return t('errors.invalidPhone');
   if (action === 'switchToWhatsApp' && status === 409) return t('errors.phoneTaken');
   if (action === 'grantComp' && status === 409) return t('errors.compGrant');

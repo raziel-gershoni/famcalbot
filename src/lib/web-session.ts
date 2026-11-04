@@ -76,7 +76,13 @@ export async function signInRefusal(user: SignInAccount): Promise<'suspended' | 
     googleSub: ways.googleSub,
     email: ways.email,
   });
-  return banned ? 'blocked' : null;
+  if (banned) return 'blocked';
+  // The address Google verified for the Google way is checked against the email bans too (spec §2.8): a ban made
+  // through another account's email way records that address, and a ban of an account records only its email way.
+  const { normalizeEmail } = await import('../services/web-signin/email-address');
+  const googleAddress = normalizeEmail(ways.googleAddress);
+  if (googleAddress && googleAddress !== ways.email && await isIdentifierBlocked({ email: googleAddress })) return 'blocked';
+  return null;
 }
 
 /**

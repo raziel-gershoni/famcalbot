@@ -27,7 +27,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  assert, baseUser, body, check, DB, everyCapture, everyLog, identityRow, initDataFor, installSigninWorld, load, logs, mails,
+  assert, baseUser, body, check, DB, everyCapture, everyLog, fakePrisma, identityRow, initDataFor, installSigninWorld, load, logs, mails,
   redisStore, report, request, resetWorld, ROOT, sent, show, type Row,
 } from './lib/signin-world';
 
@@ -138,6 +138,16 @@ async function main() {
     assert(res.status === 403 && show(await body(res)) === show({ ok: false, status: 'blocked' }) && !new RegExp(`${SESSION_COOKIE_NAME}=[^;]`).test(setCookie), `finishSignIn ${res.status} ${setCookie}`);
   });
 
+  await check('#4b a sign-in with an existing account whose Google address was banned through another account\'s email way is refused (spec §2.8); a ban of the address as the account\'s own email way is not checked twice', async () => {
+    seed();
+    assert((await signInRefusal(user(W))) === null, 'W refused before any ban');
+    await moderation.banIdentifier({ email: 'web@gmail.com' }, ADMIN, null);
+    assert((await signInRefusal(user(W))) === 'blocked', 'the Google way\'s address is banned and W can sign in');
+    assert((await signInRefusal(user(V))) === null && (await signInRefusal(user(T))) === null, 'an unrelated account was refused');
+    const res = await finishSignIn(user(W), 'google', { respond: 'json' });
+    assert(res.status === 403 && show(await body(res)) === show({ ok: false, status: 'blocked' }), `finishSignIn ${res.status}`);
+  });
+
   await check('#5 an unban by the account clears its rows and keys and lets it sign in; an unban by one entry\'s id clears that entry only; an unknown entry is NOT_FOUND; the logs name the user or the entry and the kinds', async () => {
     seed();
     await moderation.banIdentifier({ userId: W }, ADMIN, null);
@@ -231,6 +241,24 @@ async function main() {
     const confirmed = await confirmRoute.POST(request(`/api/signin-methods/email/confirm?user_id=${Q_TG}`, { ...auth, body: { code } }));
     assert(confirmed.status === 403 && (await body(confirmed)).error === 'blocked', `confirm ${confirmed.status} ${show(await body(confirmed))}`);
     assert(!DB.signInIdentity.some(i => i.userId === Q && i.kind === 'email') && sent.length === sentBefore, 'a banned address became a way, or a notice went out');
+  });
+
+  await check('#9b a database failure during a ban answers 500 and reaches the log and Sentry by its kind only, never the Google id or the address in the error text', async () => {
+    seed();
+    const real = fakePrisma.blockedIdentifier.upsert;
+    fakePrisma.blockedIdentifier.upsert = async () => {
+      throw Object.assign(new Error('Invalid prisma.blockedIdentifier.upsert() invocation: email: "web@example.com" googleSub: "g-web-0050"'), { code: 'P1001' });
+    };
+    let res: { status: number; body: Row };
+    try {
+      res = await post({ action: 'ban', user_id: W });
+    } finally {
+      fakePrisma.blockedIdentifier.upsert = real;
+    }
+    assert(res.status === 500, `status ${res.status} ${show(res.body)}`);
+    assert(!everyLog.some(l => l.includes('web@example.com') || l.includes('g-web-0050')), `log leak ${show(everyLog.filter(l => l.includes('web@example.com') || l.includes('g-web-0050')))}`);
+    assert(!everyCapture.some(c => show(c).includes('web@example.com') || show(c).includes('g-web-0050')), 'Sentry leak');
+    assert(everyCapture.some(c => show(c).includes('P1001')), `the failure was not captured: ${show(everyCapture)}`);
   });
 
   await check('#10 no log line or Sentry report of the run holds an identifier or a name, and user-moderation prints no argument object', () => {

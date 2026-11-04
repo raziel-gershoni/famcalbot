@@ -291,13 +291,21 @@ export async function createAccount(input: NewAccount): Promise<UserConfig> {
     throw new AccountBlockedError();
   }
 
-  // Loaded only for the web: the chat paths never need the sign-in module
-  const writeWay = input.via === 'web' ? (await import('./web-signin/identities')).writeIdentityInTx : null;
-  const user = await prisma.$transaction(async (tx) => {
-    const created = await tx.user.create({ data: accountData(input) });
-    if (input.via === 'web' && writeWay) await writeWay(tx, created.id, input.way.kind, input.way.subject, input.way.address);
-    return created;
-  });
+  // The one place a User row is made. A web account and its way are one transaction; a chat account is one row, so it
+  // takes no transaction and no extra round trip (the sign-in module is loaded only for the web).
+  const makeRow = (db: Pick<Prisma.TransactionClient, 'user'>) => db.user.create({ data: accountData(input) });
+  let user: PrismaUser;
+  if (input.via === 'web') {
+    const { writeIdentityInTx } = await import('./web-signin/identities');
+    const way = input.way;
+    user = await prisma.$transaction(async (tx) => {
+      const created = await makeRow(tx);
+      await writeIdentityInTx(tx, created.id, way.kind, way.subject, way.address);
+      return created;
+    });
+  } else {
+    user = await makeRow(prisma);
+  }
 
   try {
     const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');

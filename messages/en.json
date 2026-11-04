@@ -762,6 +762,7 @@
       "compGrant": "They already have a plan or free Pro.",
       "compRevoke": "They don't have free Pro to stop.",
       "selfBan": "You can't block your own Telegram or WhatsApp.",
+      "noIdentifier": "This account has nothing to block: no Telegram id, WhatsApp number, Google account or email.",
       "selfModerate": "You can't suspend or delete your own account."
     },
     "common": {

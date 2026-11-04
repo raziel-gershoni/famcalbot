@@ -19,6 +19,7 @@ import { prisma } from '@/src/utils/prisma';
 import { verifyAdminAccess } from '@/src/lib/admin-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
 import { captureError } from '@/src/lib/error-capture';
+import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { banIdentifier, unbanIdentifier, listBlockedIdentifiers, BanTargetError } from '@/src/lib/user-moderation';
 
 export const dynamic = 'force-dynamic';
@@ -111,7 +112,8 @@ export async function POST(request: NextRequest) {
       console.warn(`[admin-blocklist] refused: ${error.code}`);
       return NextResponse.json({ error: error.code }, { status: error.code === 'NOT_FOUND' ? 404 : 400 });
     }
-    captureError(error, 'admin-users-blocklist-post', { api_route: '/api/admin/users/blocklist' });
+    // By its kind only: a ban's database error can print the Google id or the address it was writing
+    captureSignInFailure(error, 'admin-users-blocklist-post', { api_route: '/api/admin/users/blocklist' });
     return NextResponse.json({ error: 'Failed to update blocklist' }, { status: 500 });
   }
 }
