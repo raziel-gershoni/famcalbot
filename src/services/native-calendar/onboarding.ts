@@ -1,7 +1,7 @@
-// Auto-create the user's main FamCal calendar: at signup (getOrCreateUser /
-// getOrCreateUserByWhatsApp), and lazily for anyone who has none ("Google as a
-// connection" spec §1: FamCal is for everyone), e.g. a legacy Google user whose FamCal
-// was hidden by an old connect. Calendars hidden that way stay hidden.
+// Auto-create the user's main FamCal calendar: when an account is made (createAccount in
+// user-service.ts: the bot's /start, a first WhatsApp message, a sign-up on famcal.bot), and
+// lazily for anyone who has none ("Google as a connection" spec §1: FamCal is for everyone),
+// e.g. a legacy Google user whose FamCal was hidden by an old connect. Calendars hidden that way stay hidden.
 //
 // One calendar, name = user's name (or "My calendar"), labels: primary + yours, or only
 // yours when the user has any Google choices (spec §3): with a Google primary that makes

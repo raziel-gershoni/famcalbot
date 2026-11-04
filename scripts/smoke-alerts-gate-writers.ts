@@ -90,7 +90,7 @@ const OPENS: Record<string, string> = {
 /** The files that write those rows but can add no alert and move none earlier, each with why. */
 const NO_NEW_ALERT: Record<string, string> = {
   'app/api/native-calendars/route.ts': 'POST: a new calendar is empty',
-  'src/services/native-calendar/onboarding.ts': 'the main calendar a user starts with is empty',
+  'src/services/native-calendar/onboarding.ts': 'the main calendar a new account starts with (createAccount: /start, a first WhatsApp message, a sign-up on famcal.bot), or one made later for an account with none, is empty',
   'src/services/kid-name-callbacks.ts': 'a calendar\'s person name or rule (and a Google choice\'s rule): no alert reads them',
   'src/services/calendar-provider/primary.ts': 'the primary label only: no alert reads it',
   'src/lib/user-moderation.ts': 'removes a user and their data: fewer alerts, never a new one',

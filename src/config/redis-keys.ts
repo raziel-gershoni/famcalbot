@@ -108,9 +108,12 @@ export const REDIS_KEYS = {
   gcalFresh: (userId: number, from: string, to: string) => `gcal:fresh:${userId}:${from}:${to}`,
   gcalConfigAlert: () => 'gcal:config_alert',
 
-  // Identifier blocklist cache (admin moderation; banned telegramId / whatsappPhone)
+  // Identifier blocklist cache (admin moderation; src/lib/user-moderation.ts): a banned Telegram id, WhatsApp number,
+  // Google account id, or sign-in address by its keyed hash (emailKey, never the address)
   blockedTelegramId: (telegramId: number | bigint | string) => `blocked:tg:${telegramId}`,
   blockedWhatsAppPhone: (phone: string) => `blocked:wa:${phone}`,
+  blockedGoogleSub: (sub: string) => `blocked:google:${sub}`,
+  blockedEmail: (emailKey: string) => `blocked:email:${emailKey}`,
 
   // Voice frictionlessness — recent CRUD for follow-up context (PR 9)
   recentEvents: (userId: number) => `voice:recent:${userId}`,

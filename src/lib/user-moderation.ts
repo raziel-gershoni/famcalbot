@@ -5,12 +5,14 @@
  * - Ban / unban an identifier (persistent blocklist; survives hard delete)
  */
 
+import type { BlockedIdentifier, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS, subscriptionReminderKeys } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
 import { setupTrackKeys } from '../services/setup-tracks';
+import { emailKey } from '../services/web-signin/email-address';
 import { captureError } from './error-capture';
 import { readStoredToken } from '../utils/encryption';
 
@@ -245,57 +247,83 @@ export async function clearDeletedUserCaches(userId: number, extraKeys: string[]
 // BLOCKLIST
 // ============================================
 
-interface BlockArgs {
+/**
+ * The identifiers a ban names, one row each (web sign-up spec §2.8, §3.8): a Telegram id, a WhatsApp number, a Google
+ * account id (`sub`) and a sign-in address (normalizeEmail's form). Any may be absent.
+ */
+export interface BlockArgs {
   telegramId?: number | bigint | null;
   whatsappPhone?: string | null;
+  googleSub?: string | null;
+  email?: string | null;
+}
+
+/** The blocklist rows that name any of them. */
+function blockFilters(args: BlockArgs): Prisma.BlockedIdentifierWhereInput[] {
+  const filters: Prisma.BlockedIdentifierWhereInput[] = [];
+  if (args.telegramId) filters.push({ telegramId: BigInt(args.telegramId) });
+  if (args.whatsappPhone) filters.push({ whatsappPhone: args.whatsappPhone });
+  if (args.googleSub) filters.push({ googleSub: args.googleSub });
+  if (args.email) filters.push({ email: args.email });
+  return filters;
 }
 
 /**
- * Returns true if either identifier is currently blocked.
- * Cached in Redis for 1h; the cache is primed/cleared by ban/unban.
+ * An email ban's cache key, blocked:email:<emailKey>: the keyed hash the other sign-in keys use, never the address.
+ * null (logged) when SESSION_SECRET is unset, so the database answers instead (no email way can exist then).
  */
-export async function isIdentifierBlocked({ telegramId, whatsappPhone }: BlockArgs): Promise<boolean> {
-  // Quick path: check Redis caches first
-  if (telegramId) {
-    try {
-      const cached = await redis.get<string>(REDIS_KEYS.blockedTelegramId(telegramId.toString()));
-      if (cached === '1') return true;
-    } catch (err) {
-      console.warn('[Moderation] Reading the blocklist cache failed; asking the database', err);
-    }
+function emailCacheKey(email: string): string | null {
+  try {
+    return REDIS_KEYS.blockedEmail(emailKey(email));
+  } catch (err) {
+    console.warn(`[Moderation] No sign-in key for an email ban's cache; the database answers (${err instanceof Error ? err.name : typeof err})`);
+    return null;
   }
-  if (whatsappPhone) {
+}
+
+/** The cache key of each identifier given. */
+function blockCacheKeys(args: BlockArgs): string[] {
+  const keys: string[] = [];
+  if (args.telegramId) keys.push(REDIS_KEYS.blockedTelegramId(args.telegramId.toString()));
+  if (args.whatsappPhone) keys.push(REDIS_KEYS.blockedWhatsAppPhone(args.whatsappPhone));
+  if (args.googleSub) keys.push(REDIS_KEYS.blockedGoogleSub(args.googleSub));
+  const mailKey = args.email ? emailCacheKey(args.email) : null;
+  if (mailKey) keys.push(mailKey);
+  return keys;
+}
+
+/** A blocklist row's identifier, as BlockArgs. */
+function argsOfRow(row: BlockedIdentifier): BlockArgs {
+  return { telegramId: row.telegramId, whatsappPhone: row.whatsappPhone, googleSub: row.googleSub, email: row.email };
+}
+
+/**
+ * Whether any identifier given is blocked. Cached in Redis for 1h per identifier: a ban and a hit here prime the
+ * cache, and an unban clears it.
+ */
+export async function isIdentifierBlocked(args: BlockArgs): Promise<boolean> {
+  // Quick path: the cache of each identifier given
+  for (const key of blockCacheKeys(args)) {
     try {
-      const cached = await redis.get<string>(REDIS_KEYS.blockedWhatsAppPhone(whatsappPhone));
+      const cached = await redis.get<string>(key);
       if (cached === '1') return true;
     } catch (err) {
       console.warn('[Moderation] Reading the blocklist cache failed; asking the database', err);
     }
   }
 
-  // DB fallback
-  const filters: Array<{ telegramId?: bigint } | { whatsappPhone?: string }> = [];
-  if (telegramId) filters.push({ telegramId: BigInt(telegramId) });
-  if (whatsappPhone) filters.push({ whatsappPhone });
+  // The database
+  const filters = blockFilters(args);
   if (filters.length === 0) return false;
+  const blocked = await prisma.blockedIdentifier.findFirst({ where: { OR: filters } });
+  if (!blocked) return false;
 
-  const blocked = await prisma.blockedIdentifier.findFirst({
-    where: { OR: filters },
-  });
-
-  if (blocked) {
-    // Re-prime cache
-    const reprimeFailed = (err: unknown) => console.warn('[Moderation] Re-priming the blocklist cache failed', err);
-    if (blocked.telegramId !== null) {
-      redis.set(REDIS_KEYS.blockedTelegramId(blocked.telegramId.toString()), '1', { ex: BLOCK_CACHE_TTL }).catch(reprimeFailed);
-    }
-    if (blocked.whatsappPhone) {
-      redis.set(REDIS_KEYS.blockedWhatsAppPhone(blocked.whatsappPhone), '1', { ex: BLOCK_CACHE_TTL }).catch(reprimeFailed);
-    }
-    return true;
+  // Re-prime the cache of the entry found
+  const reprimeFailed = (err: unknown) => console.warn('[Moderation] Re-priming the blocklist cache failed', err);
+  for (const key of blockCacheKeys(argsOfRow(blocked))) {
+    redis.set(key, '1', { ex: BLOCK_CACHE_TTL }).catch(reprimeFailed);
   }
-
-  return false;
+  return true;
 }
 
 export async function banIdentifier(

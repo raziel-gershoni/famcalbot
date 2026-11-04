@@ -82,6 +82,8 @@ export type ActivityAction =
   | 'user_error_shown'
   // Feedback
   | 'feedback_submitted'
+  // An account made on famcal.bot (createAccount; metadata: language, way 'google' | 'email', never the address)
+  | 'web_signup'
   // Other
   | 'weather_requested'
   | 'lookahead_requested';

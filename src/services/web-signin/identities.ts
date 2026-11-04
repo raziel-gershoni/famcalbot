@@ -12,6 +12,7 @@
  * No log line here holds a subject or an address: the user id and the kind only.
  */
 
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
 import { captureSignInFailure } from './safe-error';
 import { getUserById } from '../user-service';
@@ -184,4 +185,32 @@ export async function removeSignInMethod(userId: number, which: RemovableWay): P
     console.log(`[signin] user ${userId}: the ${which} way was ${changed ? 'removed; every web session ends' : 'not there; nothing changed'}`);
     return changed;
   });
+}
+
+/**
+ * The first way of an account made on famcal.bot, written inside createAccount's transaction (user-service.ts), so the
+ * account and its way are made together or not at all. The sign-up signs in with it at once, so its last use is now.
+ * A way another account took meanwhile fails the unique (kind, subject) with P2002, which rolls the account back; the
+ * caller answers 'taken'.
+ */
+export async function writeIdentityInTx(
+  tx: Prisma.TransactionClient,
+  userId: number,
+  kind: IdentityKind,
+  subject: string,
+  address: string,
+): Promise<void> {
+  await tx.signInIdentity.create({ data: { userId, kind, subject, address, lastUsedAt: new Date() } });
+}
+
+/**
+ * The account's Google account id and its sign-in address (the email way's normalised subject), null for each it
+ * lacks: what a ban records (user-moderation.ts) and what signInRefusal checks (web-session.ts).
+ */
+export async function accountWays(userId: number): Promise<{ googleSub: string | null; email: string | null }> {
+  const rows = await prisma.signInIdentity.findMany({ where: { userId }, select: { kind: true, subject: true } });
+  return {
+    googleSub: rows.find(r => r.kind === 'google')?.subject ?? null,
+    email: rows.find(r => r.kind === 'email')?.subject ?? null,
+  };
 }

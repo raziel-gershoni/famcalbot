@@ -134,12 +134,14 @@ model SignInIdentity {
   @@unique([userId, kind])
 }
 
-// Persistent blocklist for telegramId / whatsappPhone.
-// Survives hard delete so banned identifiers cannot re-register.
+// Persistent blocklist: Telegram ids, WhatsApp numbers, Google account ids (sub) and sign-in email addresses
+// (normalizeEmail's form), one identifier per row. Survives hard delete so a banned identifier cannot sign up again.
 model BlockedIdentifier {
   id            Int      @id @default(autoincrement())
   telegramId    BigInt?  @unique
   whatsappPhone String?  @unique
+  googleSub     String?  @unique // Google's account id, never the address
+  email         String?  @unique // The normalised address
   bannedBy      Int // Admin User.id who banned
   bannedReason  String?  @db.Text
   createdAt     DateTime @default(now())

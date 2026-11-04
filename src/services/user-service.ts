@@ -2,13 +2,18 @@ import { Prisma, User as PrismaUser } from '@prisma/client';
 import { UserConfig, convertPrismaUserToConfig } from '../types';
 import { prisma, withRetry } from '../utils/prisma';
 import { encrypt } from '../utils/encryption';
-import { isIdentifierBlocked } from '../lib/user-moderation';
+import { isIdentifierBlocked, type BlockArgs } from '../lib/user-moderation';
 import { normalizeLocale, type Locale } from '../utils/locale';
+import { normalizeEmail } from './web-signin/email-address';
+import { captureSignInFailure } from './web-signin/safe-error';
+import { trackActivityAsync } from './analytics-service';
+import type { IdentityKind } from './web-signin/identities';
 
-export class IdentifierBlockedError extends Error {
-  constructor(message = 'Identifier is on the admin blocklist') {
-    super(message);
-    this.name = 'IdentifierBlockedError';
+/** A new account was refused: one of its identifiers is on the admin blocklist. The message names none of them. */
+export class AccountBlockedError extends Error {
+  constructor() {
+    super('An identifier of the new account is on the admin blocklist');
+    this.name = 'AccountBlockedError';
   }
 }
 
@@ -189,9 +194,127 @@ export interface TelegramUserInfo {
   language_code?: string;
 }
 
+/** What a new account is made from: the bot's /start, a first WhatsApp message, or a sign-up on famcal.bot. */
+export type NewAccount =
+  | { via: 'telegram'; telegramId: number; profile?: TelegramUserInfo }
+  | { via: 'whatsapp'; identifier: string; profileName?: string; bsuid?: string; phone?: string; initialLanguage?: Locale }
+  | { via: 'web'; way: { kind: IdentityKind; subject: string; address: string }; name: string; language: Locale };
+
+type WhatsAppAccount = Extract<NewAccount, { via: 'whatsapp' }>;
+
+/** A WhatsApp sender's phone and BSUID: the ones given, else the identifier as whichever it looks like. */
+function whatsAppIds(input: WhatsAppAccount): { phone: string | undefined; bsuid: string | undefined } {
+  const isBsuid = !/^\+?\d+$/.test(input.identifier);
+  return {
+    phone: input.phone || (isBsuid ? undefined : input.identifier),
+    bsuid: input.bsuid || (isBsuid ? input.identifier : undefined),
+  };
+}
+
+/** How the account was made, for the one log line. */
+function createdVia(input: NewAccount): 'telegram' | 'whatsapp' | 'web-google' | 'web-email' {
+  return input.via === 'web' ? `web-${input.way.kind}` : input.via;
+}
+
+/**
+ * The identifiers the blocklist is asked about: the Telegram id; the WhatsApp phone when one is known (the blocklist
+ * holds no BSUID); a Google way's account id and its verified address (spec §2.8: a Google sign-up is checked against
+ * the email bans too); an email way's address.
+ */
+function blockArgsOf(input: NewAccount): BlockArgs {
+  switch (input.via) {
+    case 'telegram':
+      return { telegramId: input.telegramId };
+    case 'whatsapp':
+      return { whatsappPhone: whatsAppIds(input).phone ?? null };
+    case 'web':
+      return input.way.kind === 'google'
+        ? { googleSub: input.way.subject, email: normalizeEmail(input.way.address) }
+        : { email: input.way.subject };
+  }
+}
+
+/** The row a new account starts with: the shared defaults (the person changes them in Settings) and what its way gives. */
+function accountData(input: NewAccount): Prisma.UserCreateInput {
+  const shared = {
+    englishName: '',
+    gender: 'male', // Where everyone starts; the person picks "Address me as" in Settings (app/api/settings)
+    location: '',
+    culture: 'default',
+    // Empty until Google is connected. calendarSource defaults to NATIVE in the schema: a new account starts in FamCal's own calendar.
+    googleRefreshToken: '',
+  };
+  switch (input.via) {
+    case 'telegram':
+      return {
+        ...shared,
+        telegramId: BigInt(input.telegramId),
+        name: [input.profile?.first_name, input.profile?.last_name].filter(Boolean).join(' ') || 'User',
+        language: mapTelegramLanguage(input.profile?.language_code),
+        messagingPlatform: 'telegram',
+      };
+    case 'whatsapp': {
+      const ids = whatsAppIds(input);
+      return {
+        ...shared,
+        whatsappPhone: ids.phone,
+        whatsappBsuid: ids.bsuid,
+        name: input.profileName || 'User',
+        language: normalizeLocale(input.initialLanguage),
+        messagingPlatform: 'whatsapp',
+      };
+    }
+    case 'web':
+      // No chat. "Has a chat" is read from the ids (telegramId, whatsappPhone, whatsappBsuid), never from
+      // messagingPlatform, which keeps the schema's default.
+      return { ...shared, name: input.name, language: input.language, messagingPlatform: 'telegram' };
+  }
+}
+
+/**
+ * The one creation step (web sign-up spec §2.7, §3.5). Every new account is made here: the bot's /start
+ * (getOrCreateUser), a first WhatsApp message (getOrCreateUserByWhatsApp) and a sign-up on famcal.bot (Task 5's
+ * completeSignUp). In order:
+ * 1. The blocklist, for that way's identifiers. A banned one throws AccountBlockedError. The webhook handlers gate the
+ *    chat paths already; this is the defense in depth for every caller.
+ * 2. One transaction: the user row with the shared defaults and, for the web, its sign-in way (writeIdentityInTx). A
+ *    way someone took meanwhile throws P2002 out of here with nothing made; the caller answers 'taken'.
+ * 3. Its first FamCal calendar (ensurePrimaryNativeCalendar), so the first event has somewhere to go. A failure is
+ *    logged and reported by its kind only (an error message can hold the calendar's name, which is the person's), and
+ *    the account stands: the calendar is made again on the next calendar use.
+ * 4. One log line with the user id and how the account was made, never a name or an identifier; and web_signup for the web.
+ */
+export async function createAccount(input: NewAccount): Promise<UserConfig> {
+  const via = createdVia(input);
+  if (await isIdentifierBlocked(blockArgsOf(input))) {
+    console.warn(`[account] a new account via ${via} was refused: an identifier is on the blocklist`);
+    throw new AccountBlockedError();
+  }
+
+  // Loaded only for the web: the chat paths never need the sign-in module
+  const writeWay = input.via === 'web' ? (await import('./web-signin/identities')).writeIdentityInTx : null;
+  const user = await prisma.$transaction(async (tx) => {
+    const created = await tx.user.create({ data: accountData(input) });
+    if (input.via === 'web' && writeWay) await writeWay(tx, created.id, input.way.kind, input.way.subject, input.way.address);
+    return created;
+  });
+
+  try {
+    const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');
+    await ensurePrimaryNativeCalendar(user.id);
+  } catch (err) {
+    console.error(`[account] user ${user.id}: making the first FamCal calendar failed; it is made on the next calendar use`);
+    captureSignInFailure(err, 'account-calendar', { user_id: user.id });
+  }
+
+  console.log(`[account] created user ${user.id} via ${via}`);
+  if (input.via === 'web') trackActivityAsync(user.id, 'web_signup', { language: user.language, way: input.way.kind });
+  return convertPrismaUserToConfig(user);
+}
+
 /**
  * Get or create user by Telegram ID
- * Auto-registers new users with minimal defaults from Telegram profile
+ * Auto-registers new users with minimal defaults from Telegram profile (createAccount)
  */
 export async function getOrCreateUser(
   telegramId: number,
@@ -206,46 +329,7 @@ export async function getOrCreateUser(
     return convertPrismaUserToConfig(existingUser);
   }
 
-  // Defense-in-depth: never silently materialize a banned identifier.
-  // Webhook handlers gate this path already, but this catches any other call site.
-  if (await isIdentifierBlocked({ telegramId })) {
-    throw new IdentifierBlockedError(`Telegram ID ${telegramId} is blocked`);
-  }
-
-  // Map Telegram language code to our locale
-  const language = mapTelegramLanguage(telegramUser?.language_code);
-
-  // Build name from Telegram data
-  const name = [telegramUser?.first_name, telegramUser?.last_name]
-    .filter(Boolean).join(' ') || 'User';
-
-  // Create new user with defaults. calendarSource defaults to NATIVE in the
-  // schema; new users land in the in-bot calendar unless they connect Google.
-  const newUser = await prisma.user.create({
-    data: {
-      telegramId: BigInt(telegramId),
-      name,
-      englishName: '',
-      gender: 'male',  // Where everyone starts; the person picks "Address me as" in Settings (app/api/settings)
-      language,
-      location: '',
-      culture: 'default',
-      messagingPlatform: 'telegram',
-      googleRefreshToken: '',  // Empty for NATIVE users; OAuth fills this for GOOGLE.
-    }
-  });
-
-  // Best-effort primary calendar bootstrap so voice CRUD works on first event.
-  // Failure is non-fatal — it'll be retried lazily on next CRUD or settings load.
-  try {
-    const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');
-    await ensurePrimaryNativeCalendar(newUser.id);
-  } catch (err) {
-    console.warn(`[User] Failed to bootstrap primary native calendar for ${newUser.id}:`, err);
-  }
-
-  console.log(`[User] Created new user: ${name} (Telegram ID: ${telegramId})`);
-  return convertPrismaUserToConfig(newUser);
+  return createAccount({ via: 'telegram', telegramId, profile: telegramUser });
 }
 
 /**
@@ -270,8 +354,8 @@ export async function updateUserById(id: number, data: Partial<PrismaUser>): Pro
 
 /**
  * Get or create user by WhatsApp identifier (phone or BSUID)
- * Auto-registers new WhatsApp users with minimal defaults. `initialLanguage` is the language a new user starts
- * in (English when unset); a user who already exists keeps theirs.
+ * Auto-registers new WhatsApp users with minimal defaults (createAccount). `initialLanguage` is the language a new
+ * user starts in (English when unset); a user who already exists keeps theirs.
  */
 export async function getOrCreateUserByWhatsApp(
   identifier: string,
@@ -299,39 +383,7 @@ export async function getOrCreateUserByWhatsApp(
     if (byBsuid) return convertPrismaUserToConfig(byBsuid);
   }
 
-  // Defense-in-depth: refuse to create a fresh user for a blocked phone.
-  const phoneToCheck = phone || (isBsuid ? null : identifier);
-  if (phoneToCheck && await isIdentifierBlocked({ whatsappPhone: phoneToCheck })) {
-    throw new IdentifierBlockedError(`WhatsApp phone ${phoneToCheck} is blocked`);
-  }
-
-  const name = profileName || 'User';
-
-  const newUser = await prisma.user.create({
-    data: {
-      whatsappPhone: phone || (isBsuid ? undefined : identifier),
-      whatsappBsuid: bsuid || (isBsuid ? identifier : undefined),
-      name,
-      englishName: '',
-      gender: 'male',  // As above: changed in Settings ("Address me as")
-      language: normalizeLocale(initialLanguage),
-      location: '',
-      culture: 'default',
-      messagingPlatform: 'whatsapp',
-      googleRefreshToken: '',
-    }
-  });
-
-  // Same bootstrap as the Telegram path — see getOrCreateUser comment.
-  try {
-    const { ensurePrimaryNativeCalendar } = await import('./native-calendar/onboarding');
-    await ensurePrimaryNativeCalendar(newUser.id);
-  } catch (err) {
-    console.warn(`[User] Failed to bootstrap primary native calendar for ${newUser.id}:`, err);
-  }
-
-  console.log(`[User] Created new WhatsApp user: ${name} (ID: ${identifier})`);
-  return convertPrismaUserToConfig(newUser);
+  return createAccount({ via: 'whatsapp', identifier, profileName, bsuid, phone, initialLanguage });
 }
 
 // updateUserCalendars function removed - use /api/select-calendars endpoint instead

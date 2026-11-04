@@ -176,6 +176,7 @@ function applyData(row: Row, data: Row) {
 const UNIQUE: Record<string, string[][]> = {
   signInIdentity: [['kind', 'subject'], ['userId', 'kind']],
   user: [['telegramId'], ['whatsappPhone'], ['whatsappBsuid']],
+  blockedIdentifier: [['telegramId'], ['whatsappPhone'], ['googleSub'], ['email']],
 };
 function assertUnique(name: string, row: Row, all: Row[]) {
   for (const cols of UNIQUE[name] ?? []) {
@@ -186,8 +187,16 @@ function assertUnique(name: string, row: Row, all: Row[]) {
   }
 }
 
+/** The columns Postgres fills on a create, per model: a created row has every column the code under test reads. */
 const DEFAULTS: Record<string, () => Row> = {
   signInIdentity: () => ({ lastUsedAt: null }),
+  user: () => ({
+    telegramId: null, whatsappPhone: null, whatsappBsuid: null, pairingId: null, suspendedAt: null, unreachableSince: null,
+    sessionsValidAfter: null, googleAccountKey: null, googleCalendarSignIn: true, isAdmin: false, calendarSource: 'NATIVE',
+    calendarAssignments: null, googleScopes: [], globalRules: [], remindersEnabled: false, voiceInputEnabled: true,
+    textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true,
+  }),
+  blockedIdentifier: () => ({ telegramId: null, whatsappPhone: null, googleSub: null, email: null, bannedReason: null }),
 };
 
 function model(name: string): Row {
@@ -252,13 +261,27 @@ function model(name: string): Row {
 }
 
 const models: Record<string, Row> = {};
+/** Every table's rows as they are now (a copy of each row), and putting them back: a transaction's rollback. */
+const snapshotDB = (): Record<string, Row[]> => Object.fromEntries(Object.entries(DB).map(([k, rows]) => [k, rows.map(r => ({ ...r }))]));
+function restoreDB(saved: Record<string, Row[]>): void {
+  for (const k of Object.keys(DB)) delete DB[k];
+  Object.assign(DB, saved);
+}
 export const fakePrisma: Row = new Proxy({} as Row, {
   get(_t, prop) {
     if (typeof prop !== 'string' || prop === 'then') return undefined;
     if (prop === '$transaction') {
       return async (arg: unknown) => {
         prismaCalls.push('$transaction');
-        return typeof arg === 'function' ? arg(fakePrisma) : Promise.all(arg as Promise<unknown>[]);
+        if (typeof arg !== 'function') return Promise.all(arg as Promise<unknown>[]);
+        // An interactive transaction: a throw undoes its writes, as Postgres rolls back
+        const saved = snapshotDB();
+        try {
+          return await arg(fakePrisma);
+        } catch (error) {
+          restoreDB(saved);
+          throw error;
+        }
       };
     }
     if (prop.startsWith('$')) return async () => undefined;
