@@ -219,6 +219,14 @@ export async function handleTelegramWebhook(
             await handleQuickFixCallback(chatId, messageId, queryId, field, pendingId);
           }
         }
+      } else if (data.startsWith('tgc:') || data.startsWith('tgc-no:')) {
+        // Connect Telegram's question (src/services/telegram-connect.ts): Connect or Cancel. The spinner is answered
+        // here, before the handler's reply.
+        await getBot().answerCallbackQuery(queryId).catch((err: unknown) => console.error('[tg-connect] could not answer the button:', err));
+        const { handleConnectPress, handleConnectCancel } = await import('./telegram-connect');
+        const languageCode = callbackQuery.from.language_code;
+        if (data.startsWith('tgc:')) await handleConnectPress(chatId, callbackUserId, data.slice('tgc:'.length), languageCode);
+        else await handleConnectCancel(chatId, callbackUserId, data.slice('tgc-no:'.length), languageCode);
       } else if (data.startsWith('nr:')) {
         // Native reminder ping: ✅ Done / 💤 Snooze. The handler answers the tap itself.
         const { handleNativeReminderCallback } = await import('./native-reminders/callbacks');

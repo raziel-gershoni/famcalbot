@@ -62,6 +62,20 @@ const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name)"\s*
 const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name)=[^&]*/gi;
 /** A Telegram Bot API path, /bot<id>:<token> ('%3A' when the colon is encoded). */
 const BOT_TOKEN_PATH = /\/bot\d+(?::|%3A)[A-Za-z0-9_-]+/gi;
+/**
+ * Connect Telegram's one-time token, w_<22 base64url characters> (src/services/telegram-connect.ts): in the /start text
+ * of the Telegram webhook's body, and in any breadcrumb or URL that quotes it.
+ */
+const CONNECT_TOKEN = /\bw_[A-Za-z0-9_-]{22}(?![A-Za-z0-9_-])/g;
+/**
+ * The Google connect's pending id, gc_<32 base64url characters> (src/services/google-connect.ts): it rides in the same
+ * /start text, and in a WhatsApp message, so it is scrubbed the same way.
+ */
+const GOOGLE_CONNECT_ID = /\bgc_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g;
+/** Both ids out of a string. gc_ first: a w_ pattern could match inside a gc_ id that holds "-w_" and leave the rest. */
+function scrubConnectIds(text: string): string {
+  return text.replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`).replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
+}
 /** Request headers that carry a credential, lower-cased. */
 const SECRET_HEADERS = new Set(['x-telegram-init-data', 'cookie', 'authorization', 'x-telegram-bot-api-secret-token']);
 /** The same headers as span attribute names: http.request.header.<name>, '-' as '_'. */
@@ -72,7 +86,9 @@ function scrubSecrets(text: string): string {
   return text
     .replace(INIT_DATA_PARAM, `initData=${SCRUBBED}`)
     .replace(SECRET_PARAM, `$1$2=${SCRUBBED}`)
-    .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`);
+    .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`)
+    .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
+    .replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
 }
 
 /** A URL or path with initData, the secret query values and a bot token scrubbed, and no #fragment. */
@@ -128,6 +144,24 @@ function scrubBody(data: unknown): unknown {
   return data;
 }
 
+/**
+ * Connect Telegram's token and the Google connect's pending id out of a request body of any shape: the Telegram
+ * webhook's update carries them deep inside (message.text), where the field rules above don't look. A body that can't
+ * be written out as JSON is left as it is.
+ */
+function scrubConnectBody(data: unknown): unknown {
+  if (typeof data === 'string') return scrubConnectIds(data);
+  if (!data || typeof data !== 'object') return data;
+  try {
+    const text = JSON.stringify(data);
+    const scrubbed = scrubConnectIds(text);
+    return scrubbed === text ? data : JSON.parse(scrubbed);
+  } catch {
+    console.warn('[sentry-scrub] a request body could not be read for a Connect Telegram token');
+    return data;
+  }
+}
+
 /** Drops the credential header attributes; scrubs initData, secret query values and a bot token from any string. */
 function scrubSpanData(data: Dict | undefined) {
   if (!data) return;
@@ -152,7 +186,7 @@ export function scrubServerEvent<E extends ScrubbableEvent>(event: E): E {
     delete request.cookies;
     if (typeof request.url === 'string') request.url = scrubUrl(request.url);
     if (request.query_string !== undefined) request.query_string = scrubQuery(request.query_string);
-    if (request.data !== undefined) request.data = scrubBody(request.data);
+    if (request.data !== undefined) request.data = scrubConnectBody(scrubBody(request.data));
   }
   // onRequestError records the request path, query included
   const nextjs = event.contexts?.nextjs;

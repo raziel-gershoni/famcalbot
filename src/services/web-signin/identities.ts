@@ -120,6 +120,22 @@ export async function hasIdentity(userId: number, kind: IdentityKind): Promise<b
 }
 
 /**
+ * An account's Google and email ways, oldest first (the first is the way the account was made with when it was made on
+ * famcal.bot): the bot's Connect Telegram question shows it, and the guidance names it. In `tx` when given.
+ */
+export async function identitiesOf(
+  userId: number,
+  tx?: Prisma.TransactionClient,
+): Promise<Array<{ kind: IdentityKind; subject: string; address: string }>> {
+  const rows = await (tx ?? prisma).signInIdentity.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    select: { kind: true, subject: true, address: true },
+  });
+  return rows.map(r => ({ kind: r.kind as IdentityKind, subject: r.subject, address: r.address }));
+}
+
+/**
  * The calendar's Google account row of Settings (spec §2.17), from a user row and whether it has a Google way. null with
  * a Google way, the switch off or no connection. Otherwise 'off' while the key is missing or made under another key id
  * (no query), and 'on' only when the key is current and this account is its only holder: one count, so a Google account

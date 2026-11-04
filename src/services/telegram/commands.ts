@@ -29,6 +29,7 @@ import {
   routeTextMessage,
 } from './summary';
 import { answerGoogleReadError } from './google-read-errors';
+import { sendWelcome } from './welcome';
 import { denyOverTextLimit } from './text-limit';
 
 /**
@@ -104,6 +105,15 @@ export async function handleStartCommand(
     return;
   }
 
+  // Connect Telegram: t.me/<bot>?start=w_<token> from a browser account's Connect Telegram (src/services/telegram-connect.ts).
+  // Answered here for the same reasons as gc_: the link never makes an account, and the breadcrumb below would record
+  // its token, which no log line or breadcrumb may hold.
+  if (args?.startsWith('w_') && platform === MessagingPlatform.TELEGRAM) {
+    const { handleConnectStart } = await import('../telegram-connect');
+    await handleConnectStart(chatId, Number(userId), args.slice('w_'.length), telegramUser?.language_code);
+    return;
+  }
+
   addBreadcrumb('command_started', {
     command: '/start',
     user_id: userId,
@@ -119,7 +129,6 @@ export async function handleStartCommand(
     platform: platform,
   });
 
-  const name = user.name || 'there';
   const locale = user.language || 'en';
   const service = getMessagingService();
 
@@ -167,61 +176,8 @@ export async function handleStartCommand(
     return;
   }
 
-  const dashboardUrl = buildUrl(`/${locale}/dashboard?user_id=${user.telegramId ?? user.id}`);
-  const welcome = t.start.welcome.replace('{name}', name);
-
-  if (user.isAdmin) {
-    const adminUrl = buildUrl(`/${locale}/admin-panel?user_id=${user.telegramId ?? user.id}`);
-    const message = `${welcome}\n\n${t.start.chooseBoard}\n\n${links}`;
-
-    await service.sendMessage(chatId, message, {
-      format: MessageFormat.HTML,
-      disablePreview: true,
-      replyMarkup: {
-        inline_keyboard: [
-          [{ text: t.start.userDashboard, web_app: { url: dashboardUrl } }],
-          [{ text: t.start.adminPanel, web_app: { url: adminUrl } }]
-        ]
-      }
-    });
-    return;
-  }
-
-  // Everyone has FamCal, created at signup or lazily, and Google is optional ("Google as a
-  // connection"), so the only setup that gates good summaries is a location: welcome the
-  // user warmly and point at /settings.
-  const needsLocationOnly = !user.location;
-
-  if (needsLocationOnly) {
-    const settingsUrl = buildUrl(`/${locale}/settings?user_id=${user.telegramId ?? user.id}`);
-    const platformName = platform === MessagingPlatform.TELEGRAM ? 'Telegram' : 'WhatsApp';
-    const nativeWelcome = t.onboarding.nativeWelcome
-      .replace('{platform}', platformName)
-      .replace('{name}', name);
-    await service.sendMessage(chatId, `${nativeWelcome}\n\n${links}`, {
-      format: MessageFormat.HTML,
-      disablePreview: true,
-      replyMarkup: {
-        inline_keyboard: [[
-          { text: t.onboarding.nativeLocationButton, web_app: { url: settingsUrl } }
-        ]]
-      }
-    });
-    return;
-  }
-
-  // Returning user: simple dashboard button
-  const message = `${welcome}\n\n${t.start.tapButton}\n\n${links}`;
-
-  await service.sendMessage(chatId, message, {
-    format: MessageFormat.HTML,
-    disablePreview: true,
-    replyMarkup: {
-      inline_keyboard: [[
-        { text: t.start.dashboard, web_app: { url: dashboardUrl } }
-      ]]
-    }
-  });
+  // No deep link: the welcome with the dashboard button (one builder, shared with Connect Telegram)
+  await sendWelcome(chatId, user, platform);
 }
 
 /**

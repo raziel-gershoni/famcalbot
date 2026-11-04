@@ -277,6 +277,8 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/image-event/handler.ts': 'the answer to an image the person sent',
   'src/services/kid-name-detection.ts': 'the follow-up question after a summary: it is sent only by the summary, which is paused',
   'src/services/google-connect.ts': 'the answer to the person connecting Google',
+  'src/services/telegram-connect.ts': 'Connect Telegram: the answers to the person opening their own connect link in the bot and pressing Connect or Cancel, and the welcome after it (web sign-up spec §3.6)',
+  'src/services/telegram/welcome.ts': 'the welcome: the answer to /start, and to Connect Telegram\'s Connect press',
   'src/services/payment-handler.ts': 'the answer to a payment the person made',
   'src/services/webhook-handlers.ts': 'the answer to what the person sent the bot',
   'src/services/whatsapp-onboarding.ts': 'the answer to what the person sent the bot on WhatsApp',

@@ -402,7 +402,11 @@ export async function drainAfter(): Promise<void> {
   while (afterQueue.length) await afterQueue.shift()!();
 }
 
-export const sent: { platform: 'telegram' | 'whatsapp'; chatId: string; text: string }[] = [];
+export const sent: { platform: 'telegram' | 'whatsapp'; chatId: string; text: string; options: Row }[] = [];
+/** setUserMenuButton's calls: [Telegram id, locale] */
+export const menuButtons: [unknown, unknown][] = [];
+/** The bot's answers to button presses (answerCallbackQuery), by query id */
+export const callbackAnswers: string[] = [];
 export const captured: { context: string; message: string; extra: Row }[] = [];
 export const everyCapture: { context: string; message: string; extra: Row }[] = [];
 export const mails: { to: string[]; body: Row; idempotencyKey: string | null }[] = [];
@@ -447,6 +451,8 @@ export function resetWorld(): void {
   afterQueue.length = 0;
   prismaCalls.length = 0;
   sent.length = 0;
+  menuButtons.length = 0;
+  callbackAnswers.length = 0;
   captured.length = 0;
   mails.length = 0;
   logs.length = 0;
@@ -457,9 +463,9 @@ export function resetWorld(): void {
 
 function chatService(platform: 'telegram' | 'whatsapp'): Row {
   const service: Row = {
-    sendMessage: async (chatId: unknown, text: string) => {
+    sendMessage: async (chatId: unknown, text: string, options: Row = {}) => {
       if (platform === 'telegram' ? world.telegramFails : world.whatsappFails) throw new Error(`${platform} refused the send (smoke)`);
-      sent.push({ platform, chatId: String(chatId), text });
+      sent.push({ platform, chatId: String(chatId), text, options });
       return platform === 'telegram' ? 1 : 'wamid.smoke';
     },
   };
@@ -544,6 +550,14 @@ export async function body(res: Response): Promise<Row> {
 
 // ---- The stand-ins ----
 
+let stubModuleImpl: ((rel: string, exports: Row) => void) | null = null;
+
+/** One more stand-in, for a smoke that needs a boundary the world doesn't fake. Call after installSigninWorld, before loading the code under test. */
+export function stubModule(rel: string, exports: Row): void {
+  if (!stubModuleImpl) throw new Error('stubModule: call installSigninWorld first');
+  stubModuleImpl(rel, exports);
+}
+
 export async function installSigninWorld(): Promise<void> {
   const types = await load('src/services/messaging/types.ts');
   // A stub goes into require's cache (static imports) and is served to import() by a load hook.
@@ -571,6 +585,7 @@ export async function installSigninWorld(): Promise<void> {
     Object.assign(mod, { filename, loaded: true, exports });
     Module._cache[filename] = mod;
   };
+  stubModuleImpl = stub;
 
   stub('src/utils/prisma.ts', { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() });
   stub('src/utils/redis.ts', { redis: fakeRedis });
@@ -596,7 +611,11 @@ export async function installSigninWorld(): Promise<void> {
     getAdminUserIds: async () => [], notifyAdminError: async () => undefined, notifyAdminFeedback: async () => undefined,
     notifyAdminWarning: async (context: string, message: string) => void adminWarnings.push({ context, message }),
   });
-  const telegram = { getBot: () => ({}), initBot: () => ({}), getMessagingService: () => chatService('telegram'), setUserMenuButton: async () => undefined };
+  const bot = { answerCallbackQuery: async (queryId: string) => { callbackAnswers.push(queryId); return true; } };
+  const telegram = {
+    getBot: () => bot, initBot: () => bot, getMessagingService: () => chatService('telegram'),
+    setUserMenuButton: async (telegramId: unknown, locale: unknown) => { menuButtons.push([telegramId, locale]); },
+  };
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/telegram/index.ts', telegram);
   const messaging = {

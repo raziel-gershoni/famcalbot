@@ -1500,7 +1500,21 @@
       "code": "Your link code: <b>{code}</b>\n\nSend this on WhatsApp:\n<code>link {code}</code>\n\nThis code expires in 5 minutes.",
       "alreadyLinked": "Your account is already linked to WhatsApp ({phone}).",
       "deepLinkMsg": "Tap below to link your WhatsApp account:",
-      "sendToWhatsApp": "Send to WhatsApp"
+      "sendToWhatsApp": "Send to WhatsApp",
+      "web": {
+        "question": "Connect this Telegram to the FamCal account {name}, made on famcal.bot with {address}? Do it only if that account is yours.",
+        "connect": "Connect",
+        "cancel": "Cancel",
+        "connected": "Telegram is connected. Reminders and briefings will come here, and you stay signed in on famcal.bot.",
+        "cancelled": "Cancelled. Nothing was connected.",
+        "hasAccountGoogle": "This Telegram already has a FamCal account. To bring the account made on famcal.bot into it, open Settings here → Sign in on the web → Add Google, and choose {address}.",
+        "hasAccountEmail": "This Telegram already has a FamCal account. To bring the account made on famcal.bot into it, open Settings here → Sign in on the web → Add email, and enter {address}.",
+        "openSettings": "Open Settings",
+        "expired": "This link has expired or was already used. To try again, get a new link in FamCal on famcal.bot.",
+        "notYours": "This button was meant for another Telegram account, so nothing was connected.",
+        "refused": "This FamCal account can't be connected to Telegram.",
+        "failed": "Something went wrong, and nothing was connected. Please try again in a minute."
+      }
     },
     "kidNameDetection": {
       "question": "I noticed \"{name}\" in the event \"{event}\" on {calendar}. Is {name} your child?",
@@ -3179,7 +3193,8 @@
   "signinNotice": {
     "addedGoogle": "Google {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
     "addedEmail": "The email {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
-    "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove."
+    "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove.",
+    "telegramConnected": "Telegram was connected to your FamCal account. Not you? Write to privacy@famcal.bot."
   },
   "countries": {
     "IL": "Israel",

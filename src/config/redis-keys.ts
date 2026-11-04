@@ -65,6 +65,12 @@ export const REDIS_KEYS = {
   signinAddGoogle: (tokenHash: string) => `signin:add-google:${tokenHash}`,
   signinAddEmail: (userId: number) => `signin:add-email:${userId}`,
 
+  // Connect Telegram (src/services/telegram-connect.ts): the one-time link a browser account makes (keyed by sha256 of
+  // its token, 10 minutes), and the bot's question waiting for its Connect press (by its random id, bound to the
+  // Telegram id it was asked of, 10 minutes)
+  telegramConnect: (tokenHash: string) => `tgconnect:${tokenHash}`,
+  telegramConnectPress: (pressId: string) => `tgconnect:press:${pressId}`,
+
   // Account linking (Telegram ↔ WhatsApp)
   linkCode: (code: string) => `link:code:${code}`,
   linkUser: (telegramId: number) => `link:user:${telegramId}`,

@@ -21,13 +21,14 @@ import type { UserConfig } from '../../types';
 import { maskEmail } from './email-address';
 import type { IdentityKind } from './identities';
 
-export interface SignInNoticeEvent {
-  kind: IdentityKind;
-  /** The way's address, as stored; the notice shows it masked */
-  address: string;
-  /** added: from Settings; calendar: the first sign-in with the calendar's Google account */
-  via: 'added' | 'calendar';
-}
+/**
+ * What happened. A Google or email way: `address` as stored (the notice shows it masked); `via` added (from Settings) or
+ * calendar (the first sign-in with the calendar's Google account). Telegram connected to an account made on famcal.bot
+ * (src/services/telegram-connect.ts): no address, and no Remove (Telegram can't be removed in Settings).
+ */
+export type SignInNoticeEvent =
+  | { kind: IdentityKind; address: string; via: 'added' | 'calendar' }
+  | { kind: 'telegram'; via: 'connected' };
 
 type NoticeCopy = typeof enMessages.signinNotice;
 const WORDS: Record<Locale, NoticeCopy> = {
@@ -40,8 +41,10 @@ export async function sendSignInNotice(user: UserConfig, event: SignInNoticeEven
   const what = `${event.kind} (${event.via})`;
   try {
     const copy = WORDS[normalizeLocale(user.language)];
-    const template = event.via === 'calendar' ? copy.calendarGoogle : event.kind === 'google' ? copy.addedGoogle : copy.addedEmail;
-    const text = template.replace('{address}', maskEmail(event.address));
+    const text = event.kind === 'telegram'
+      ? copy.telegramConnected
+      : (event.via === 'calendar' ? copy.calendarGoogle : event.kind === 'google' ? copy.addedGoogle : copy.addedEmail)
+          .replace('{address}', maskEmail(event.address));
 
     if (user.telegramId) {
       // Loaded here, as google-connect.ts does: the bot module pulls in the whole Telegram client
