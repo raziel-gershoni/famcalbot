@@ -9,6 +9,11 @@
 //  - S2 the docs: the README's env table has a row for each of the seven, and a Web sign-in section with both callback
 //    URLs; .env.example has a commented placeholder for each (a copied placeholder must never become a real value);
 //    CLAUDE.md has the sign-in rule; and only the files that rule names touch SignInIdentity rows.
+//  - S3 web sign-up's rules (spec 2026-11-03-web-sign-up; plan Task 14): CLAUDE.md's sign-in rule names the one creation
+//    step (createAccount, its smoke), the address check on a proved address (findWayByAddress), Join only after a proved
+//    way (offerJoin, mergePlan) and Finish here (POST /api/oauth/claim); the pause rule names the web sign-up's sends
+//    and the no-chat skip line; the README has a Web sign-up section with the Turnstile pair, and no longer says the
+//    web makes no accounts.
 //
 // Real: src/lib/startup-checks.ts and the files read as text. No network, no DB.
 //
@@ -116,6 +121,20 @@ async function main() {
     const stray = touching.filter((rel) => !SIGNIN_IDENTITY_FILES.includes(rel));
     if (stray.length > 0) problems.push(`SignInIdentity rows touched outside the rule's files: ${show(stray)}`);
     if (!touching.includes(SIGNIN_IDENTITY_FILES[0])) problems.push(`identities.ts touches no SignInIdentity row (the walk found ${show(touching)})`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('S3 web sign-up\'s rules are written down: the CLAUDE.md sign-in rule names the one creation step, the address check on a proved address, Join after a proved way with its one rule set, and Finish here; the pause rule names the web sign-up\'s sends and the no-chat skip line; the README has a Web sign-up section and no longer says the web makes no accounts', () => {
+    const lines = read('CLAUDE.md').split('\n');
+    const signIn = lines.find((l) => l.startsWith('- Every web sign-in')) ?? '';
+    const pause = lines.find((l) => l.startsWith('- A send to a person that no one asked for')) ?? '';
+    const readme = read('README.md');
+    const problems: string[] = [];
+    for (const word of ['`createAccount`', 'smoke-account-create.ts', '`findWayByAddress`', '`offerJoin`', '`mergePlan`', '`POST /api/oauth/claim`', 'Turnstile']) if (!signIn.includes(word)) problems.push(`the sign-in rule does not name ${word}`);
+    for (const word of ['`sendNoticeEmail`', 'telegram-connect.ts', 'skipped user <id>: no chat']) if (!pause.includes(word)) problems.push(`the pause rule does not name ${word}`);
+    if (!/^### Web sign-up$/m.test(readme)) problems.push('README has no "### Web sign-up" section');
+    if (/The web makes no accounts/.test(readme)) problems.push('README still says the web makes no accounts');
+    for (const name of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET', 'createAccount', '/signup']) if (!readme.slice(readme.indexOf('### Web sign-up')).includes(name)) problems.push(`README's Web sign-up section does not name ${name}`);
     assert(problems.length === 0, problems.join('; '));
   });
 
