@@ -285,7 +285,7 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/native-reminders/ping.ts': 'the ping text and the edits of a ping that is already on screen; the one send, sendPing, is called by the paused pass',
   'src/services/web-signin/email-send.ts': 'the sign-in code email: mailed only when the person asks for a code (on famcal.bot or in Settings)',
   'src/services/web-signin/email-code.ts': 'makes and mails the code the person just asked for',
-  'app/api/auth/email/request/route.ts': 'the code the person asked for on /signin, sent right after the answer',
+  'app/api/auth/email/request/route.ts': 'the code the person asked for on /signin (a sign-in code, or a sign-up code for an address on no account), sent right after the answer',
   'src/services/web-signin/notice.ts': 'the notice that a sign-in way was added, or that the calendar\'s Google account signed in for the first time: the answer to the person\'s own action on the web (web sign-in spec §2.10)',
   'app/api/signin-methods/email/add/route.ts': 'the Add email code the person just asked for in Settings (their own action)',
   // To the admin

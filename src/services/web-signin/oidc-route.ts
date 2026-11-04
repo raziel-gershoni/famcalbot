@@ -91,7 +91,7 @@ export async function handleOidcCallback<P extends OidcProvider>(
   };
   try {
     const flow = await takeFlow(request, kinds);
-    if (!flow || flow.kind === 'email') {
+    if (!flow || flow.kind === 'email' || flow.kind === 'signup') {
       console.warn(`[signin] ${provider} callback with no sign-in started in this browser; asked to start again`);
       // The cookie is left as it is: it may name this browser's newer sign-in of another way (another tab's Google,
       // Telegram or email sign-in, which takeFlow left alone), and a dead one ends by itself in 10 minutes.

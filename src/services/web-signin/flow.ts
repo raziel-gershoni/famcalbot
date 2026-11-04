@@ -8,15 +8,20 @@
  *   another kind is left alone (a GET, no GETDEL) and also gets null: it is this browser's newer sign-in of another
  *   way, started in another tab, and its own step still finishes it.
  * - The email flow is read (GET) on each try, since a wrong code doesn't end it; the right code takes it.
+ * - A sign-up (web sign-up spec 2026-11-03 §3.4) is a flow of its own, 'signup': the verified way waiting for the
+ *   person's name and the Terms, started under a new cookie by the step that proved the way. It may carry the invite
+ *   the sign-in came from (a 64-hex pairing token, read back only through inviteOf), never a return URL.
  * - The cookie is httpOnly, Secure, SameSite=Lax (Telegram and Google return with a top-level GET), path /api/auth.
  *
- * Nothing here logs the cookie, a state, a nonce, a verifier or an address key.
+ * Nothing here logs the cookie, a state, a nonce, a verifier, an address key, a sign-up's subject or address, or an
+ * invite.
  */
 
 import crypto from 'crypto';
 import type { NextRequest, NextResponse } from 'next/server';
 import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
+import { cleanInviteToken } from '../../lib/invite-token';
 
 export const SIGNIN_COOKIE_NAME = 'famcal_signin';
 const FLOW_TTL_SEC = 10 * 60;
@@ -36,7 +41,21 @@ export type OidcFlow = {
   startedAt?: number;
 };
 export type EmailFlow = { kind: 'email'; emailKey: string; locale: string; startedAt?: number };
-export type SignInFlow = OidcFlow | EmailFlow;
+/**
+ * A sign-up waiting for its name and the Terms (web sign-up spec §3.4): the way that proved who the person is, its
+ * subject (Google's sub, or the normalised address an email code proved), the address to show, the language the
+ * sign-in began in, and the invite it came from.
+ */
+export type SignUpFlow = {
+  kind: 'signup';
+  way: 'google' | 'email';
+  subject: string;
+  address: string;
+  locale: string;
+  invite?: string;
+  startedAt?: number;
+};
+export type SignInFlow = OidcFlow | EmailFlow | SignUpFlow;
 
 const recordKey = (flowId: string) => REDIS_KEYS.signinFlow(crypto.createHash('sha256').update(flowId).digest('hex'));
 
@@ -47,6 +66,10 @@ function asFlow(value: unknown): SignInFlow | null {
   if (typeof v.locale !== 'string') return null;
   if (v.kind === 'email') {
     return typeof v.emailKey === 'string' ? { kind: 'email', emailKey: v.emailKey, locale: v.locale, ...startedAtOf(v) } : null;
+  }
+  if (v.kind === 'signup') {
+    if ((v.way !== 'google' && v.way !== 'email') || typeof v.subject !== 'string' || typeof v.address !== 'string') return null;
+    return { kind: 'signup', way: v.way, subject: v.subject, address: v.address, locale: v.locale, ...inviteOf(v), ...startedAtOf(v) };
   }
   if (v.kind !== 'telegram' && v.kind !== 'google' && v.kind !== 'add-google') return null;
   if (typeof v.state !== 'string' || typeof v.nonce !== 'string' || typeof v.codeVerifier !== 'string') return null;
@@ -63,6 +86,15 @@ function asFlow(value: unknown): SignInFlow | null {
 }
 
 const startedAtOf = (v: Record<string, unknown>) => (typeof v.startedAt === 'number' && Number.isFinite(v.startedAt) ? { startedAt: v.startedAt } : {});
+
+/**
+ * The invite a stored record carries, when it is a clean token (cleanInviteToken); anything else is dropped, never
+ * echoed. The one reader of `invite` from a record: every flow kind that carries one spreads it.
+ */
+export function inviteOf(v: Record<string, unknown>): { invite?: string } {
+  const invite = cleanInviteToken(v.invite);
+  return invite ? { invite } : {};
+}
 
 /** The flow id in the request's famcal_signin cookie, or null (logged: which browser it was is the person's question). */
 function flowIdOf(request: NextRequest, step: string): string | null {

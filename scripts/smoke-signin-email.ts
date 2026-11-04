@@ -50,6 +50,9 @@ process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.NEXT_PUBLIC_APP_URL = 'https://famcal.bot';
 const RESEND_KEY = 're_smoke_not_a_real_key';
 process.env.RESEND_API_KEY = RESEND_KEY;
+// Email sign-up is off here (no Turnstile): 6b's behaviour, an address on no account is mailed nothing
+delete process.env.TURNSTILE_SITE_KEY;
+delete process.env.TURNSTILE_SECRET;
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -286,6 +289,12 @@ const limitsStub = {
     limitCalls.push({ fn: 'takeDailySend', args: {} });
     return dailySendLeft;
   },
+  // The sign-up code's share (6c-1 Task 4): never asked here, since email sign-up is off without Turnstile
+  takeSignUpSend: async (ip: unknown) => {
+    trace.push('limits.takeSignUpSend');
+    limitCalls.push({ fn: 'takeSignUpSend', args: { ip } });
+    return { ok: false, reason: 'signup-day' };
+  },
   // What the real one does in one Lua call: INCR, and EXPIRE when the key has none. Not traced as a Redis call, so
   // an INCR or EXPIRE of email-code's own would show in the trace.
   countWithin: async (key: string, windowSec: number) => {
@@ -520,6 +529,7 @@ async function main() {
     const asked = calls('allowCodeRequest');
     assert(asked.length === 2 && asked.every(c => c.args.ip === IP && c.args.addForUserId === undefined), `limit asks: ${show(asked)}`);
     assert(asked[0].args.emailKey === emailKey('dana.levi@example.com') && asked[1].args.emailKey === emailKey(UNKNOWN), 'each ask carries its own address key');
+    assert(calls('takeSignUpSend').length === 0, 'the sign-up share was asked with email sign-up off');
   });
 
   await check('#2 a text that is no usable address, and a Kelvin-sign (U+212A) look-alike of kim@example.com, get the same answer, are counted against the IP, and mail nothing', async () => {

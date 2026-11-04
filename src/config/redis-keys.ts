@@ -51,9 +51,9 @@ export const REDIS_KEYS = {
   magicLink: (token: string) => `magic:${token}`,
 
   // Web sign-in email codes (src/services/web-signin/email-code.ts), by purpose and hashed address (emailKey): the code's
-  // keyed hash with its user and address, and the tries at it
-  signinCode: (purpose: 'signin' | 'add', emailKey: string) => `signin:code:${purpose}:${emailKey}`,
-  signinCodeTries: (purpose: 'signin' | 'add', emailKey: string) => `signin:code-tries:${purpose}:${emailKey}`,
+  // keyed hash with its user (none for a sign-up code) and address, and the tries at it
+  signinCode: (purpose: 'signin' | 'add' | 'signup', emailKey: string) => `signin:code:${purpose}:${emailKey}`,
+  signinCodeTries: (purpose: 'signin' | 'add' | 'signup', emailKey: string) => `signin:code-tries:${purpose}:${emailKey}`,
 
   // Google consent waiting for its owner's tap (keyed by sha256 of the pendingId), and the
   // flag that tells the Mini App the owner committed it (google-connect.ts)

@@ -1,6 +1,7 @@
 /**
- * The email sign-in limits (web sign-in spec §5), all in Upstash, before any database lookup, and counted the same for
- * an address no account has, so the answers and their timing say nothing about who has an account.
+ * The email sign-in limits (web sign-in spec §5; web sign-up spec 2026-11-03 §2.5, §2.6, §5), all in Upstash, before
+ * any database lookup, and counted the same for an address no account has, so the answers and their timing say nothing
+ * about who has an account.
  *
  * | What                               | Limit                                                       |
  * |------------------------------------|-------------------------------------------------------------|
@@ -10,8 +11,12 @@
  * | Wrong codes for one email          | 10 a day, then email sign-in for it pauses for a day (a marker) |
  * | Wrong codes from one address       | 20 an hour                                                  |
  * | All codes sent                     | 90 a UTC day (Resend allows 100), then one admin message    |
+ * | Sign-up codes (inside the 90)      | 30 a UTC day, then one admin message; 3 a day per address   |
+ * | Security notices by email          | their own 10 a UTC day, above the 90; 3 a day per account   |
+ * | New accounts per address           | 5 a day (IPv4, or the IPv6 /48); none counted without one   |
  *
- * (Tries per code, 5 then void, are counted by email-code.ts through countWithin below.)
+ * (Tries per code, 5 then void, are counted by email-code.ts through countWithin below. A sign-up code takes from the
+ * 90 in issueCode like every code; takeSignUpSend counts only its own share.)
  *
  * - Keys are `signin:lim:<what>:<keyed hash>` (signinHash: the email's key, the address's, the account's), never an
  *   address, an IP or a user id in clear, and each expires within a day of being made (the count of wrong codes is
@@ -28,6 +33,7 @@ import { redis } from '../../utils/redis';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError } from '../../lib/error-capture';
 import { signinHash } from './email-address';
+import { accountAddressKey } from './client-address';
 
 export type LimitReason =
   | 'email-minute'
@@ -37,6 +43,11 @@ export type LimitReason =
   | 'wrong-email-day'
   | 'wrong-ip-hour'
   | 'daily-budget'
+  | 'signup-day'
+  | 'signup-ip-day'
+  | 'accounts-ip-day'
+  | 'notice-account-day'
+  | 'notice-budget'
   | 'store-down';
 
 const MINUTE_SEC = 60;
@@ -51,6 +62,11 @@ const LIMIT = {
   wrongCodesPerEmailDay: 10,
   wrongCodesPerAddressHour: 20,
   codesSentPerDay: 90,
+  signUpCodesPerDay: 30,
+  signUpCodesPerAddressDay: 3,
+  noticesPerDay: 10,
+  noticesPerAccountDay: 3,
+  newAccountsPerAddressDay: 5,
 } as const;
 
 /**
@@ -98,12 +114,15 @@ export async function countWithin(key: string, windowSec: number): Promise<numbe
   return count(key, windowSec);
 }
 
-/** The day's budget: its key (the UTC date) and the seconds to the next 00:00 UTC. */
-function budget(nowMs: number): { key: string; ttlSec: number } {
+/** A UTC day's count of `what` (the 90's 'daily-send', 'signup-send', 'notice-send'): its key (the date) and the seconds to the next 00:00 UTC. */
+function dayCount(what: string, nowMs: number): { key: string; ttlSec: number } {
   const day = new Date(nowMs).toISOString().slice(0, 10);
   const nextMidnight = (Math.floor(nowMs / DAY_MS) + 1) * DAY_MS;
-  return { key: limitKey('daily-send', day), ttlSec: Math.max(1, Math.ceil((nextMidnight - nowMs) / 1000)) };
+  return { key: limitKey(what, day), ttlSec: Math.max(1, Math.ceil((nextMidnight - nowMs) / 1000)) };
 }
+
+/** The day's budget of codes (the 90). */
+const budget = (nowMs: number) => dayCount('daily-send', nowMs);
 
 function refused(step: string, reason: LimitReason, userId?: number): { ok: false; reason: LimitReason } {
   console.info(`[signin-limits] ${step} refused: ${reason}${userId !== undefined ? ` (user ${userId})` : ''}`);
@@ -226,5 +245,94 @@ export async function takeDailySend(): Promise<boolean> {
   } catch (error) {
     captureError(error, 'signin-limits', { step: 'daily send' });
     return false;
+  }
+}
+
+/** The one admin message when the day's sign-up codes are spent (the first refusal of a UTC day). */
+async function tellAdminSignUpsPaused(): Promise<void> {
+  try {
+    const { notifyAdminWarning } = await import('../../utils/error-notifier');
+    await notifyAdminWarning(
+      'signin-signup-budget',
+      `Email sign-up sent its ${LIMIT.signUpCodesPerDay} sign-up codes for today (UTC), and pauses until 00:00 UTC. Sign-in codes still go out, within the day's ${LIMIT.codesSentPerDay}.`,
+    );
+  } catch (error) {
+    captureError(error, 'signin-signup-budget-alert', {}, 'warning');
+  }
+}
+
+/**
+ * May a sign-up code be mailed now (web sign-up spec §2.5)? Counts it: first the client address's 3 a day (a refusal
+ * there counts nothing for the day, so one address can't spend the day's share), then the UTC day's 30. The first
+ * refusal of a day tells the admin, once. The code itself still takes from the 90 in issueCode. Redis failing refuses
+ * (store-down) and is reported. No line holds the address.
+ */
+export async function takeSignUpSend(ip: string | null): Promise<{ ok: true } | { ok: false; reason: 'signup-day' | 'signup-ip-day' | 'store-down' }> {
+  try {
+    if ((await count(limitKey('signup-ip-day', addressId(ip)), DAY_SEC)) > LIMIT.signUpCodesPerAddressDay) {
+      console.info('[signin-limits] sign-up code refused: signup-ip-day');
+      return { ok: false, reason: 'signup-ip-day' };
+    }
+    const { key, ttlSec } = dayCount('signup-send', Date.now());
+    const sent = await count(key, ttlSec);
+    if (sent > LIMIT.signUpCodesPerDay) {
+      if (sent === LIMIT.signUpCodesPerDay + 1) await tellAdminSignUpsPaused();
+      console.warn(`[signin-limits] sign-up code refused: signup-day (the day's ${LIMIT.signUpCodesPerDay} are sent; no more until 00:00 UTC)`);
+      return { ok: false, reason: 'signup-day' };
+    }
+    return { ok: true };
+  } catch (error) {
+    captureError(error, 'signin-limits', { step: 'sign-up send' });
+    return { ok: false, reason: 'store-down' };
+  }
+}
+
+/**
+ * Takes one security notice by email for this account (web sign-up spec §1, §2.11): first the account's own 3 a UTC
+ * day (a refusal there counts nothing for the day, so one account repeating Add Google can't spend everyone's
+ * notices), then the UTC day's 10, a budget of their own apart from the 90 codes, so a flood of code requests can't
+ * silence a notice. Redis failing refuses (store-down) and is reported. The caller logs a refused notice as its
+ * SECURITY line; no line here holds an address.
+ */
+export async function takeNoticeSend(userId: number): Promise<{ ok: true } | { ok: false; reason: 'notice-account-day' | 'notice-budget' | 'store-down' }> {
+  const now = Date.now();
+  const { key, ttlSec } = dayCount('notice-send', now);
+  try {
+    // The account's share lives to the next 00:00 UTC too, so both counts start over together
+    if ((await count(limitKey('notice-account-day', signinHash('account', String(userId))), ttlSec)) > LIMIT.noticesPerAccountDay) {
+      console.warn(`[signin-limits] notice refused: notice-account-day (user ${userId}: the account's ${LIMIT.noticesPerAccountDay} security notices by email today are sent)`);
+      return { ok: false, reason: 'notice-account-day' };
+    }
+    const sent = await count(key, ttlSec);
+    if (sent > LIMIT.noticesPerDay) {
+      console.warn(`[signin-limits] notice refused: notice-budget (the day's ${LIMIT.noticesPerDay} security notices by email are sent; no more until 00:00 UTC)`);
+      return { ok: false, reason: 'notice-budget' };
+    }
+    return { ok: true };
+  } catch (error) {
+    captureError(error, 'signin-limits', { step: 'notice send', user_id: userId });
+    return { ok: false, reason: 'store-down' };
+  }
+}
+
+/**
+ * May one more account be made from this client address today (web sign-up spec §2.6)? 5 a day per IPv4 address or
+ * IPv6 /48 (accountAddressKey: a /64 is easy to change). `ip` is clientAddress's value. Without one nothing is counted
+ * (one shared count would let anyone block everyone), and that is logged. Redis failing refuses (store-down).
+ */
+export async function allowNewAccount(ip: string | null): Promise<{ ok: true } | { ok: false; reason: 'accounts-ip-day' | 'store-down' }> {
+  if (ip === null) {
+    console.warn('[signup] no client address; the account cap is not counted');
+    return { ok: true };
+  }
+  try {
+    if ((await count(limitKey('accounts-ip-day', signinHash('ip', accountAddressKey(ip))), DAY_SEC)) > LIMIT.newAccountsPerAddressDay) {
+      console.info('[signin-limits] new account refused: accounts-ip-day');
+      return { ok: false, reason: 'accounts-ip-day' };
+    }
+    return { ok: true };
+  } catch (error) {
+    captureError(error, 'signin-limits', { step: 'new account' });
+    return { ok: false, reason: 'store-down' };
   }
 }

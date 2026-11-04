@@ -1,7 +1,8 @@
-// The one builder of the /signin path (web sign-in spec 2026-11-02 §3): the sign-in page, the email form, Settings, the
-// gate card and the finishing step's signInPageUrl (src/lib/web-session.ts) all use signInHref. English has no prefix
-// ('as-needed', i18n/routing.ts), an unknown language is English. Client-safe: no Prisma, no Redis, no server-only
-// import, and the SignInStatus type is import type (erased). It also holds the statuses /signin may show (Task 8).
+// The one builder of the /signin and /signup paths (web sign-in spec 2026-11-02 §3, web sign-up spec 2026-11-03 §3.4):
+// the sign-in page, the email form, Settings, the gate card and the finishing step's signInPageUrl and signUpPageUrl
+// (src/lib/web-session.ts) all use signInHref and signUpHref. English has no prefix ('as-needed', i18n/routing.ts), an
+// unknown language is English. Client-safe: no Prisma, no Redis, no server-only import, and the SignInStatus type is
+// import type (erased). It also holds the statuses /signin may show (Task 8).
 
 import { localeHref } from '@/src/site/zmanim/links';
 import { normalizeLocale } from '@/src/utils/locale';
@@ -40,4 +41,9 @@ export function isOutcome(status: SignInStatus): status is OutcomeStatus {
 export function signInHref(locale: string, status?: SignInStatus): string {
   const path = localeHref(normalizeLocale(locale), '/signin');
   return status ? `${path}?status=${encodeURIComponent(status)}` : path;
+}
+
+/** '/signup', '/he/signup' or '/ru/signup': the page a sign-up waits on (web sign-up spec §3.4). */
+export function signUpHref(locale: string): string {
+  return localeHref(normalizeLocale(locale), '/signup');
 }

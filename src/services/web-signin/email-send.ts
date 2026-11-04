@@ -4,8 +4,9 @@
  * Idempotency-Key, so a retried POST still sends one email. From FamCal <signin@famcal.bot>, replies to
  * privacy@famcal.bot; the words are messages' signinEmail in the person's language, Hebrew right to left.
  *
- * No console line or error holds the address or the code: a line names the user id, the purpose, the status and
- * Resend's id. A failed send is logged here (onGiveUp) and thrown, so the caller reports it.
+ * No console line or error holds the address or the code: a line names the user id (or "a new account" for a sign-up
+ * code), the purpose, the status and Resend's id. A failed send is logged here (onGiveUp) and thrown, so the caller
+ * reports it. The sign-up code (web sign-up spec §2.21) goes to the address typed on /signin, since no account has it.
  * Server only.
  */
 
@@ -22,8 +23,13 @@ export const RESEND_EMAILS_URL = 'https://api.resend.com/emails';
 export const SIGNIN_FROM = 'FamCal <signin@famcal.bot>';
 export const SIGNIN_REPLY_TO = 'privacy@famcal.bot';
 
-/** What a code is for: signing in, or adding this address as a way to sign in (Settings). */
-export type CodePurpose = 'signin' | 'add';
+/** What a code is for: signing in, adding this address as a way to sign in (Settings), or creating an account with it. */
+export type CodePurpose = 'signin' | 'add' | 'signup';
+
+/** Who a code is for, in a log line: the user id, or "a new account" for a sign-up code (no account yet). */
+export function codeOwner(userId: number | null): string {
+  return userId === null ? 'a new account' : `user ${userId}`;
+}
 
 type EmailWords = typeof enMessages.signinEmail;
 const WORDS: Record<Locale, EmailWords> = {
@@ -75,10 +81,11 @@ export function codeEmail(code: string, locale: string, purpose: CodePurpose): C
 }
 
 /**
- * Mails `code` to `to` (the address stored on the row, never typed text). Resolves once Resend took it; throws when it
- * refused (any 4xx, at once), or a 429/5xx or no answer ran out of retries, after one line with the user id and status.
+ * Mails `code` to `to` (the address stored on the row; for a sign-up code, the normalised address typed). Resolves once
+ * Resend took it; throws when it refused (any 4xx, at once), or a 429/5xx or no answer ran out of retries, after one
+ * line with the user id (codeOwner) and status.
  */
-export async function sendCodeEmail(args: { to: string; code: string; locale: string; purpose: CodePurpose; userId: number }): Promise<void> {
+export async function sendCodeEmail(args: { to: string; code: string; locale: string; purpose: CodePurpose; userId: number | null }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new SafeSignInError('RESEND_API_KEY is not set: no sign-in email can be sent');
   const { subject, text, html } = codeEmail(args.code, args.locale, args.purpose);
@@ -98,7 +105,7 @@ export async function sendCodeEmail(args: { to: string; code: string; locale: st
       label: '[signin-email]',
       onGiveUp: (error, { retried, why }) => {
         const status = error instanceof HttpStatusError ? `status ${error.status}` : 'no answer';
-        console.error(`[signin-email] gave up on the ${args.purpose} code for user ${args.userId}: ${status}, ${why} (${retried} retries)`);
+        console.error(`[signin-email] gave up on the ${args.purpose} code for ${codeOwner(args.userId)}: ${status}, ${why} (${retried} retries)`);
       },
     }
   );
@@ -107,7 +114,7 @@ export async function sendCodeEmail(args: { to: string; code: string; locale: st
     const answer = (await response.json()) as { id?: unknown };
     if (typeof answer.id === 'string') id = answer.id;
   } catch (error) {
-    console.warn(`[signin-email] Resend took the ${args.purpose} code for user ${args.userId}, but its answer was unreadable: ${safeErrorSummary(error)}`);
+    console.warn(`[signin-email] Resend took the ${args.purpose} code for ${codeOwner(args.userId)}, but its answer was unreadable: ${safeErrorSummary(error)}`);
   }
-  console.log(`[signin-email] sent the ${args.purpose} code for user ${args.userId} (Resend id ${id})`);
+  console.log(`[signin-email] sent the ${args.purpose} code for ${codeOwner(args.userId)} (Resend id ${id})`);
 }

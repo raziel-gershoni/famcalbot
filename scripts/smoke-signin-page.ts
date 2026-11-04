@@ -759,6 +759,33 @@ async function main() {
   });
 
 
+  await check('P10 sign-up on the email form: with a site key the code screen says to check the inbox (emailSentOpen, every address alike); a right sign-up code goes to the sign-up page the server names', async () => {
+    fakeDocument.head ??= fakeDocument.createElement('head');
+    fakeWindow.turnstile = fakeTurnstile;
+    for (const locale of LOCALES) {
+      const s = S(locale);
+      const m = openClient(locale, { siteKey: SITE_KEY });
+      try {
+        m.click(way(m, 'email') as FakeElement);
+        await settle();
+        await act(async () => lastWidget().options.callback('tok-p10'));
+        m.input(inputOf(m), 'new.person@example.com');
+        routes = { 'POST /api/auth/email/request': () => json({ ok: true }) };
+        m.submit(formOf(m));
+        await settle();
+        assert(flat(m.container).includes(s.emailSentOpen) && !flat(m.container).includes(s.emailSent), `${locale}: the sent line ${flat(m.container).slice(0, 200)}`);
+        m.input(inputOf(m), '123456');
+        assigned.length = 0;
+        routes = { 'POST /api/auth/email/verify': () => json({ ok: true, redirect: `https://famcal.bot/${locale}/signup` }) };
+        m.submit(formOf(m));
+        await settle();
+        assert(show(assigned) === show([`https://famcal.bot/${locale}/signup`]), `${locale}: the sign-up page ${show(assigned)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
   await check('P8 React and the pages logged nothing of their own beyond the expected request failures', () => {
     const unexpected = logs.filter((l) => !ours(l) && !l.startsWith('Detected multiple renderers') && !l.startsWith('(node:'));
     assert(unexpected.length === 0, show(unexpected.slice(0, 5)));

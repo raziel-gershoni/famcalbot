@@ -77,6 +77,28 @@ export async function findEmailSignIn(normalized: string): Promise<{ userId: num
   return row ? { userId: row.userId, address: row.address, language: row.user.language } : null;
 }
 
+/**
+ * Which way, if any, already shows this verified address (web sign-up spec §2.2): an email way whose subject is it, or
+ * a Google way whose stored address is it in any case (Google gives the address as it likes). A check on an address
+ * the person just proved (a right sign-up code, Google's verified email), never a sign-in: the caller only refuses a
+ * second account with it. Email first. The case-blind compare is narrowed by the database and then made exact here,
+ * so no character of the address acts as a pattern.
+ */
+export async function findWayByAddress(normalized: string): Promise<{ kind: IdentityKind; userId: number } | null> {
+  const email = await prisma.signInIdentity.findUnique({
+    where: { kind_subject: { kind: 'email', subject: normalized } },
+    select: { userId: true },
+  });
+  if (email) return { kind: 'email', userId: email.userId };
+  const google = await prisma.signInIdentity.findMany({
+    where: { kind: 'google', address: { equals: normalized, mode: 'insensitive' } },
+    select: { userId: true, address: true },
+    take: 10,
+  });
+  const holder = google.find((row) => row.address.toLowerCase() === normalized);
+  return holder ? { kind: 'google', userId: holder.userId } : null;
+}
+
 /** The account a right code signs in, while it still has that email way (it may have been removed since the code). */
 export async function emailSignInAccount(userId: number, address: string): Promise<{ identityId: number; user: UserConfig } | null> {
   const row = await prisma.signInIdentity.findFirst({

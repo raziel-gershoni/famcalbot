@@ -821,6 +821,128 @@ async function main() {
     assert(!logLines.some((l) => l.includes('dana') || l.includes('123456')), `the body in the log: ${show(logLines)}`);
   });
 
+  // ---- 6c-1 Task 4: the sign-up code's share, the notices' budget and their per-account share, the new-accounts cap ----
+
+  await check('#32 sign-up codes: 3 a day per client address (the 4th is signup-ip-day and counts nothing for the day; another address passes; free a day later); 30 a UTC day in all (the 31st is signup-day, the admin told once, at the 31st, with no address; the 32nd refused too; 00:00 UTC starts over); none of it takes from the 90', async () => {
+    reset();
+    setClock(Date.UTC(2026, 10, 4, 21, 0));
+    const { takeSignUpSend } = await limits();
+    for (let i = 1; i <= 3; i++) assert((await takeSignUpSend('203.0.113.5')).ok, `send ${i} from one address`);
+    const fourth = await takeSignUpSend('203.0.113.5');
+    assert(!fourth.ok && fourth.reason === 'signup-ip-day', `the 4th from one address: ${show(fourth)}`);
+    assert((await takeSignUpSend('2001:db8:1:2::/64')).ok, 'another address');
+    // 4 counted for the day so far (the refused 4th is not); 26 more from fresh addresses make 30
+    for (let i = 0; i < 26; i++) assert((await takeSignUpSend(`198.51.100.${Math.floor(i / 3) + 1}`)).ok, `send ${i + 5} of the day`);
+    assert(adminWarnings.length === 0, `the admin was told early: ${show(adminWarnings)}`);
+    const over = await takeSignUpSend('192.0.2.1');
+    assert(!over.ok && over.reason === 'signup-day', `the 31st ${show(over)}`);
+    assert((await takeSignUpSend('192.0.2.2')).ok === false, 'the 32nd');
+    assert((adminWarnings.length as number) === 1 && adminWarnings[0].context === 'signin-signup-budget', `admin messages ${show(adminWarnings)}`);
+    assert(adminWarnings[0].message.includes('30') && !/@|203\.0\.113|192\.0\.2/.test(adminWarnings[0].message), `the admin message: ${adminWarnings[0].message}`);
+    const dayKey = [...store.keys()].find((k) => k.startsWith('signin:lim:signup-send:'));
+    assert(dayKey === 'signin:lim:signup-send:2026-11-04' && ttlOf(dayKey) === 3 * 3600, `day key ${dayKey} ttl ${dayKey && ttlOf(dayKey)}`);
+    assert(![...store.keys()].some((k) => k.startsWith('signin:lim:daily-send:')), 'the sign-up share took from the 90 (issueCode does that, once per code)');
+    setClock(Date.UTC(2026, 10, 5, 0, 0, 1));
+    assert((await takeSignUpSend('192.0.2.3')).ok, 'refused after 00:00 UTC');
+    advance(24 * 3600);
+    assert((await takeSignUpSend('203.0.113.5')).ok, 'the first address still refused a day later');
+    assert(!logLines.some((l) => /203\.0\.113|198\.51\.100|192\.0\.2|2001:db8/.test(l)), `an address in the log: ${show(logLines)}`);
+  });
+
+  await check('#33 security notices by email: their own 10 a UTC day, apart from the 90 (they go out with the 90 spent, and take nothing from it); the 11th refused (notice-budget) and logged; 00:00 UTC starts over; Redis failing refuses (store-down) and reports', async () => {
+    reset();
+    setClock(Date.UTC(2026, 10, 4, 12, 0));
+    const { takeNoticeSend, takeDailySend } = await limits();
+    for (let i = 1; i <= 91; i++) await takeDailySend();
+    const spentKey = [...store.keys()].find((k) => k.startsWith('signin:lim:daily-send:')) as string;
+    const spent = store.get(spentKey)?.value;
+    // Ten accounts, one notice each, so the account's own share never refuses here (#37 pins it)
+    for (let i = 1; i <= 10; i++) assert((await takeNoticeSend(100 + i)).ok === true, `notice ${i} refused`);
+    const eleventh = await takeNoticeSend(111);
+    assert(!eleventh.ok && eleventh.reason === 'notice-budget', `the 11th notice: ${show(eleventh)}`);
+    assert(store.get(spentKey)?.value === spent, 'the notices took from the 90');
+    const noticeKey = [...store.keys()].find((k) => k.startsWith('signin:lim:notice-send:'));
+    assert(noticeKey === 'signin:lim:notice-send:2026-11-04' && ttlOf(noticeKey) === 12 * 3600, `notice key ${noticeKey} ttl ${noticeKey && ttlOf(noticeKey)}`);
+    assert(logLines.some((l) => l.includes('security notices')), 'the 11th is not logged');
+    setClock(Date.UTC(2026, 10, 5, 0, 0, 1));
+    assert((await takeNoticeSend(111)).ok === true, 'refused after 00:00 UTC');
+    redisDown = true;
+    const down = await takeNoticeSend(112);
+    assert(!down.ok && down.reason === 'store-down', `a notice with Redis down: ${show(down)}`);
+    assert(captured.some((c) => c.startsWith('signin-limits')), `not reported: ${show(captured)}`);
+  });
+
+  await check('#34 new accounts: 5 a day per IPv4 address (the 6th is accounts-ip-day; another address passes; free a day later); IPv6 by its /48, so the /64s of one /48 share a count and another /48 passes; no address counts nothing and says so; no line holds an address; Redis failing refuses (store-down) and reports', async () => {
+    reset();
+    const { allowNewAccount } = await limits();
+    for (let i = 1; i <= 5; i++) assert((await allowNewAccount('203.0.113.5')).ok, `account ${i}`);
+    const sixth = await allowNewAccount('203.0.113.5');
+    assert(!sixth.ok && sixth.reason === 'accounts-ip-day', `the 6th ${show(sixth)}`);
+    assert((await allowNewAccount('203.0.113.6')).ok, 'another IPv4 address');
+    for (let i = 1; i <= 5; i++) assert((await allowNewAccount(`2001:db8:1:${i}::/64`)).ok, `IPv6 account ${i}`);
+    const v6 = await allowNewAccount('2001:db8:1:ff::/64');
+    assert(!v6.ok && v6.reason === 'accounts-ip-day', `a 6th /64 of one /48: ${show(v6)}`);
+    assert((await allowNewAccount('2001:db8:2:1::/64')).ok, 'another /48');
+    const keysBefore = store.size;
+    const mark = logLines.length;
+    assert((await allowNewAccount(null)).ok, 'no address refused');
+    assert(store.size === keysBefore, 'a request with no address was counted');
+    assert(logLines.slice(mark).includes('[signup] no client address; the account cap is not counted'), `no line: ${show(logLines.slice(mark))}`);
+    advance(24 * 3600 + 1);
+    assert((await allowNewAccount('203.0.113.5')).ok, 'still refused a day later');
+    assert(!logLines.some((l) => /203\.0\.113|2001:db8/.test(l)), `an address in the log: ${show(logLines)}`);
+    redisDown = true;
+    const down = await allowNewAccount('203.0.113.7');
+    assert(!down.ok && down.reason === 'store-down', `Redis down: ${show(down)}`);
+    assert(captured.some((c) => c.startsWith('signin-limits')), `not reported: ${show(captured)}`);
+  });
+
+  await check('#35 accountAddressKey: an IPv4 address as it is; clientAddress\'s IPv6 /64 as its /48; an IPv4-mapped IPv6 address as its IPv4', async () => {
+    const { accountAddressKey, clientAddress } = await load('src/services/web-signin/client-address.ts');
+    const at = (ip: string) => accountAddressKey(clientAddress(new Request('https://famcal.bot/', { headers: { 'x-real-ip': ip } })));
+    const table: [string, string][] = [
+      ['203.0.113.5', '203.0.113.5'],
+      ['2001:db8:1:2:aaaa::1', '2001:db8:1::/48'],
+      ['2001:db8:1:ffff::9', '2001:db8:1::/48'],
+      ['2001:DB8:abcd:12::1', '2001:db8:abcd::/48'],
+      ['2001:db8::1', '2001:db8:0::/48'],
+      ['::ffff:192.0.2.7', '192.0.2.7'],
+    ];
+    const wrong = table.filter(([ip, want]) => at(ip) !== want).map(([ip, want]) => `${ip}: ${at(ip)}, want ${want}`);
+    assert(wrong.length === 0, wrong.join('; '));
+  });
+
+  await check('#36 the sign-up share with Redis failing: refused (store-down) and reported once', async () => {
+    reset();
+    const { takeSignUpSend } = await limits();
+    redisDown = true;
+    const r = await takeSignUpSend('203.0.113.5');
+    assert(!r.ok && r.reason === 'store-down', `Redis down: ${show(r)}`);
+    assert(captured.filter((c) => c.startsWith('signin-limits')).length === 1, `reports ${show(captured)}`);
+  });
+
+  await check('#37 security notices per account: 3 a UTC day each (the 4th is notice-account-day, logged with the user id, and takes nothing from the day\'s 10); another account\'s notice still goes out; the day\'s 10 still hold across accounts; 00:00 UTC starts the account over', async () => {
+    reset();
+    setClock(Date.UTC(2026, 10, 4, 12, 0));
+    const { takeNoticeSend } = await limits();
+    for (let i = 1; i <= 3; i++) assert((await takeNoticeSend(7)).ok === true, `account 7's notice ${i} refused`);
+    const mark = logLines.length;
+    const fourth = await takeNoticeSend(7);
+    assert(!fourth.ok && fourth.reason === 'notice-account-day', `account 7's 4th: ${show(fourth)}`);
+    assert(logLines.slice(mark).some((l) => l.includes('notice-account-day') && l.includes('user 7')), `no line: ${show(logLines.slice(mark))}`);
+    assert((await takeNoticeSend(8)).ok === true, 'account 8\'s notice refused once account 7\'s share was spent');
+    const noticeKey = 'signin:lim:notice-send:2026-11-04';
+    assert(store.get(noticeKey)?.value === '4', `the day's count is ${store.get(noticeKey)?.value}, want 3 + 1 (the refused 4th takes nothing)`);
+    const accountKeys = [...store.keys()].filter((k) => k.startsWith('signin:lim:notice-account-day:'));
+    assert(accountKeys.length === 2 && accountKeys.every((k) => ttlOf(k) === 12 * 3600) && !accountKeys.some((k) => /:(7|8)$/.test(k)), `account keys ${show(accountKeys.map((k) => [k, ttlOf(k)]))}`);
+    // Accounts 9 and 10 take 3 each: 10 in all, so a fresh account's first notice is the day's 11th
+    for (const id of [9, 9, 9, 10, 10, 10]) assert((await takeNoticeSend(id)).ok === true, `account ${id} refused before the day's 10`);
+    const over = await takeNoticeSend(11);
+    assert(!over.ok && over.reason === 'notice-budget', `the day's 11th, from a fresh account: ${show(over)}`);
+    setClock(Date.UTC(2026, 10, 5, 0, 0, 1));
+    assert((await takeNoticeSend(7)).ok === true, 'account 7 still refused after 00:00 UTC');
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);

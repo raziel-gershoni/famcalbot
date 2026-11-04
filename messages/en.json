@@ -1845,6 +1845,7 @@
       "turnstileWaiting": "Checking this browser…",
       "turnstileProblem": "The browser check didn’t load. Check your connection and try again.",
       "turnstileRetry": "Try again",
+      "emailSentOpen": "Check your email for a 6-digit code. It works for 10 minutes. Nothing there? Look in spam, or ask for a new code in a minute.",
       "existingOnly": "Signing in works for FamCal accounts made in Telegram or WhatsApp. New here? Start in one of them.",
       "none": "Signing in on the web isn’t available yet. FamCal works in Telegram and WhatsApp.",
       "retry": "Try another way",
@@ -2996,6 +2997,12 @@
       "heading": "Add this email to FamCal",
       "body": "Enter this code in FamCal, and from then on you can sign in with this email too:",
       "ignore": "If you didn’t ask for this, you can ignore this email. Nothing is added without the code."
+    },
+    "signup": {
+      "subject": "Your code to create a FamCal account: {code}",
+      "heading": "Create your FamCal account",
+      "body": "Enter this code on famcal.bot to create your account:",
+      "ignore": "If you didn’t ask for this, you can ignore this email. No account is made without the code."
     },
     "expiry": "The code works once, for the next 10 minutes.",
     "warning": "Don’t share it with anyone. FamCal will never ask you for it.",

@@ -29,6 +29,16 @@ export function clientIp(request: Request): string | null {
   return raw !== '' && isIP(raw) !== 0 ? raw : null;
 }
 
+/**
+ * The key the new-accounts cap counts by (web sign-up spec §2.6), from clientAddress's value: an IPv4 address as it
+ * is, an IPv6 /64 as its /48 (`a:b:c:d::/64` → `a:b:c::/48`), since a home or a phone line can pick any /64 of its /48.
+ * Pure.
+ */
+export function accountAddressKey(address: string): string {
+  const v6 = /^([0-9a-f]{1,4}):([0-9a-f]{1,4}):([0-9a-f]{1,4}):[0-9a-f]{1,4}::\/64$/.exec(address);
+  return v6 ? `${v6[1]}:${v6[2]}:${v6[3]}::/48` : address;
+}
+
 /** The /64 of an IPv6 address `isIP` accepted (any compression, an embedded IPv4, a %zone), or the IPv4 address it maps. */
 function ipv6Block(address: string): string | null {
   const bare = address.split('%')[0].toLowerCase();

@@ -13,7 +13,7 @@ import { isIdentifierBlocked } from './user-moderation';
 import { captureError } from './error-capture';
 import { getBaseUrl } from '../config/urls';
 import { normalizeLocale } from '../utils/locale';
-import { signInHref } from '../site/signin';
+import { signInHref, signUpHref } from '../site/signin';
 
 /** The app pages a sign-in lands on: the calendar, or Select calendars right after a Google connect on WhatsApp. */
 export type FinishPage = 'dashboard' | 'select-calendars';
@@ -49,6 +49,11 @@ function prefixed(locale: string, href: string): string {
 /** /signin on the site in a language, absolute, with the status and an explicit locale prefix. The path is signInHref's (src/site/signin.ts), the one builder. */
 export function signInPageUrl(locale: string, status?: SignInStatus): string {
   return new URL(prefixed(locale, signInHref(locale, status)), getBaseUrl()).toString();
+}
+
+/** /signup on the site in a language, absolute, with an explicit locale prefix: where a verified new way lands (web sign-up spec §3.2, §3.3). */
+export function signUpPageUrl(locale: string): string {
+  return new URL(prefixed(locale, signUpHref(locale)), getBaseUrl()).toString();
 }
 
 /**

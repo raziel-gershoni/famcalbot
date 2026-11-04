@@ -6,7 +6,7 @@ import { normalizeLocale } from '@/src/utils/locale';
 import { clientAddress, clientIp } from '@/src/services/web-signin/client-address';
 import { turnstileConfigured, verifyTurnstile } from '@/src/services/web-signin/turnstile';
 import { emailKey, normalizeEmail } from '@/src/services/web-signin/email-address';
-import { allowCodeRequest } from '@/src/services/web-signin/limits';
+import { allowCodeRequest, takeSignUpSend } from '@/src/services/web-signin/limits';
 import { startFlow } from '@/src/services/web-signin/flow';
 import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { issueCode } from '@/src/services/web-signin/email-code';
@@ -49,13 +49,14 @@ export async function POST(request: NextRequest) {
     const normalized = normalizeEmail(body?.email);
     // Text that is no usable address still takes the IP's limit and gets a flow, under a key nothing matches.
     const key = normalized ? emailKey(normalized) : crypto.randomBytes(16).toString('hex');
-    const verdict = await allowCodeRequest({ emailKey: key, ip: clientAddress(request) });
+    const ip = clientAddress(request);
+    const verdict = await allowCodeRequest({ emailKey: key, ip });
     if (!verdict.ok) console.log(`[signin-email] a code request held back (${verdict.reason})`);
     else if (!normalized) console.log('[signin-email] a code request for text that is not a usable email address');
 
     const response = NextResponse.json({ ok: true });
     await startFlow(response, { kind: 'email', emailKey: key, locale });
-    if (verdict.ok && normalized) after(() => sendSignInCode(normalized, key));
+    if (verdict.ok && normalized) after(() => sendCode(normalized, key, locale, ip));
     return response;
   } catch (error) {
     captureSignInFailure(error, 'signin-email-request', { api_route: ROUTE });
@@ -63,18 +64,35 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** After the answer: the account with this address, if any, gets a code at the address it stores. */
-async function sendSignInCode(normalized: string, key: string): Promise<void> {
+/**
+ * After the answer: the account with this address gets a sign-in code at the address it stores. An address on no
+ * account gets a sign-up code at the address typed (normalised, in the page's language) while email sign-up is on
+ * (Turnstile configured, so this request passed the check) and within the sign-up share of the day's mail
+ * (takeSignUpSend: 30 a day, 3 per client address; web sign-up spec §2.5, §3.1); otherwise nothing is mailed. The
+ * answer was the same either way.
+ */
+async function sendCode(normalized: string, key: string, locale: string, ip: string | null): Promise<void> {
   let userId: number | undefined;
+  let purpose: 'signin' | 'signup' = 'signin';
   try {
     const account = await findEmailSignIn(normalized);
-    if (!account) {
+    if (account) {
+      userId = account.userId;
+      await issueCode({ purpose: 'signin', emailKey: key, address: account.address, userId: account.userId, locale: account.language });
+      return;
+    }
+    if (!turnstileConfigured()) {
       console.log('[signin-email] no account signs in with this address; no code sent');
       return;
     }
-    userId = account.userId;
-    await issueCode({ purpose: 'signin', emailKey: key, address: account.address, userId: account.userId, locale: account.language });
+    const share = await takeSignUpSend(ip);
+    if (!share.ok) {
+      console.log(`[signin-email] no account signs in with this address; no sign-up code (${share.reason})`);
+      return;
+    }
+    purpose = 'signup';
+    await issueCode({ purpose: 'signup', emailKey: key, address: normalized, userId: null, locale });
   } catch (error) {
-    captureSignInFailure(error, 'signin-email-send', { api_route: ROUTE, user_id: userId, purpose: 'signin' });
+    captureSignInFailure(error, 'signin-email-send', { api_route: ROUTE, user_id: userId, purpose });
   }
 }

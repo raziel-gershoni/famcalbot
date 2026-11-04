@@ -15,8 +15,8 @@
 //   its address.
 // - Email: the address, then one answer for every address ("If this email is on a FamCal account, we sent a code"), then
 //   the 6-digit code. A right code goes where the server says (this site only); a wrong one says so; a code the server
-//   can't use any more goes back to the address; a blocked or suspended account goes to its page. "Send a new code" asks
-//   again for the same address.
+//   can't use any more goes back to the address; a blocked or suspended account goes to its page. A right sign-up code
+//   goes to the sign-up page (the server's redirect). "Send a new code" asks again for the same address.
 // - Bot check (web sign-up spec 2026-11-03 §2.4): when the server passes a Turnstile site key, the email form and the code
 //   screen each hold Cloudflare's check (TurnstileWidget). Send and "Send a new code" wait for its token, the token goes
 //   with the request, and the check is reset after each request (a token works once). The server's 'check' refusal has
@@ -295,7 +295,8 @@ export function SignInClient({
   return (
     <div className="site-signin-panel">
       <p className="site-signin-sent" role="status">
-        {t('emailSent')}
+        {/* With sign-up on (a site key), every address may get a code: the line says where to look, the same for all */}
+        {turnstileSiteKey ? t('emailSentOpen') : t('emailSent')}
       </p>
       <form onSubmit={checkCode} noValidate>
         <label className="site-field-label" htmlFor={codeId}>
