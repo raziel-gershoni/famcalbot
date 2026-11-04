@@ -65,7 +65,7 @@ export const SIGNUP_NAME_MAX = 60;
 /** The ways a new person can create an account with on this server: the words /signin uses for "New to FamCal?". */
 export type SignUpWays = 'google' | 'email' | 'both';
 
-/** Which sign-up ways are open (Google sign-in set up; email codes with Turnstile set up), or null when none is. */
+/** The words for the open sign-up ways, or null when none is. Whether a way is open is `signUpOpen`'s rule (signup-open.ts). */
 export function signUpWays(google: boolean, email: boolean): SignUpWays | null {
   if (google && email) return 'both';
   if (google) return 'google';
