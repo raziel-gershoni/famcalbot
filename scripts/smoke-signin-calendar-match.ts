@@ -185,12 +185,12 @@ async function main() {
     }
   });
 
-  await check('#10 a row with no key yet, or a key made under another SESSION_SECRET, does not match', async () => {
+  await check('#10 a row with no key yet, or a key made under another SESSION_SECRET, does not match: no account holds this address\'s current key, so the sign-up is offered (new, web sign-up spec §3.3), with no Google call', async () => {
     for (const key of [null, `${OLD_ID}:${'0'.repeat(64)}`]) {
       seed();
       userRow(TAL).googleAccountKey = key;
       const r = await signin.resolveGoogleSignIn(claims());
-      assert(show(r) === show({ status: 'no-account' }) && world.googleAsks.length === 0, `key ${key}: ${show(r)}`);
+      assert(show(r) === show({ status: 'new' }) && world.googleAsks.length === 0 && identitiesOf(TAL).length === 0, `key ${key}: ${show(r)}`);
     }
   });
 
@@ -202,7 +202,7 @@ async function main() {
     assert(location(await signInWithGoogle(claims())).includes('status=suspended'), 'callback');
   });
 
-  await check('#12 Settings shows the calendar row before its first use; removing the way it made, or the row itself, turns the switch off and the match stops', async () => {
+  await check('#12 Settings shows the calendar row before its first use; removing the way it made, or the row itself, turns the switch off and the match stops (the key goes with it, so nothing holds the Google account any more: new)', async () => {
     seed();
     const list = async () => body(await methodsRoute.GET(request(`/api/signin-methods?user_id=${TAL_TG}`, { initData: initDataFor(TAL_TG) })));
     assert((await list()).googleFromCalendar === 'on', 'before the first use');
@@ -213,10 +213,10 @@ async function main() {
     assert(identitiesOf(TAL).length === 0 && userRow(TAL).googleCalendarSignIn === false, `row ${show(userRow(TAL))}`);
     world.googleAsks.length = 0;
     const again = await signin.resolveGoogleSignIn(claims());
-    assert(show(again) === show({ status: 'no-account' }) && world.googleAsks.length === 0, `again ${show(again)}`);
+    assert(show(again) === show({ status: 'new' }) && world.googleAsks.length === 0 && identitiesOf(TAL).length === 0, `again ${show(again)}`);
     seed();
     await identities.removeSignInMethod(TAL, 'calendar-google');
-    assert(userRow(TAL).googleCalendarSignIn === false && show(await signin.resolveGoogleSignIn(claims())) === show({ status: 'no-account' }), 'calendar row removed');
+    assert(userRow(TAL).googleCalendarSignIn === false && show(await signin.resolveGoogleSignIn(claims())) === show({ status: 'new' }), 'calendar row removed');
   });
 
   // ---- No startup pass; Settings' states; Turn on ----

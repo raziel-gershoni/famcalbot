@@ -9,8 +9,10 @@
  *   way, started in another tab, and its own step still finishes it.
  * - The email flow is read (GET) on each try, since a wrong code doesn't end it; the right code takes it.
  * - A sign-up (web sign-up spec 2026-11-03 §3.4) is a flow of its own, 'signup': the verified way waiting for the
- *   person's name and the Terms, started under a new cookie by the step that proved the way. It may carry the invite
- *   the sign-in came from (a 64-hex pairing token, read back only through inviteOf), never a return URL.
+ *   person's name and the Terms, started under a new cookie by the step that proved the way. /signup reads it (GET,
+ *   peekFlow) and Create account takes it (GETDEL, takeFlow).
+ * - Any kind may carry the partner invite the sign-in began on (a 64-hex pairing token, cleanInviteToken in
+ *   src/lib/invite-token.ts, read back only through inviteOf), never a return URL.
  * - The cookie is httpOnly, Secure, SameSite=Lax (Telegram and Google return with a top-level GET), path /api/auth.
  *
  * Nothing here logs the cookie, a state, a nonce, a verifier, an address key, a sign-up's subject or address, or an
@@ -37,10 +39,12 @@ export type OidcFlow = {
   locale: string;
   /** add-google only: the account the Google sign-in way is added to. */
   userId?: number;
+  /** The partner invite this sign-in came from (cleanInviteToken's form, read back by inviteOf), carried to its finish. */
+  invite?: string;
   /** When the sign-in began (epoch ms, set by startFlow): a flow put back keeps the time it had left. */
   startedAt?: number;
 };
-export type EmailFlow = { kind: 'email'; emailKey: string; locale: string; startedAt?: number };
+export type EmailFlow = { kind: 'email'; emailKey: string; locale: string; invite?: string; startedAt?: number };
 /**
  * A sign-up waiting for its name and the Terms (web sign-up spec §3.4): the way that proved who the person is, its
  * subject (Google's sub, or the normalised address an email code proved), the address to show, the language the
@@ -65,7 +69,7 @@ function asFlow(value: unknown): SignInFlow | null {
   const v = value as Record<string, unknown>;
   if (typeof v.locale !== 'string') return null;
   if (v.kind === 'email') {
-    return typeof v.emailKey === 'string' ? { kind: 'email', emailKey: v.emailKey, locale: v.locale, ...startedAtOf(v) } : null;
+    return typeof v.emailKey === 'string' ? { kind: 'email', emailKey: v.emailKey, locale: v.locale, ...inviteOf(v), ...startedAtOf(v) } : null;
   }
   if (v.kind === 'signup') {
     if ((v.way !== 'google' && v.way !== 'email') || typeof v.subject !== 'string' || typeof v.address !== 'string') return null;
@@ -81,6 +85,7 @@ function asFlow(value: unknown): SignInFlow | null {
     codeVerifier: v.codeVerifier,
     locale: v.locale,
     ...(typeof v.userId === 'number' ? { userId: v.userId } : {}),
+    ...inviteOf(v),
     ...startedAtOf(v),
   };
 }
@@ -155,16 +160,21 @@ export async function takeFlow(request: NextRequest, kinds: SignInFlow['kind'][]
   return flow;
 }
 
-/** Reads this browser's email flow without using it up (GET): a wrong code leaves it for the next try. */
-export async function peekFlow(request: NextRequest, kind: 'email'): Promise<EmailFlow | null> {
+/**
+ * Reads this browser's email flow or sign-up without using it up (GET): a wrong code leaves the email flow for the
+ * next try, and /signup reads the sign-up as often as it is opened (Create account takes it, with takeFlow).
+ */
+export async function peekFlow(request: NextRequest, kind: 'email'): Promise<EmailFlow | null>;
+export async function peekFlow(request: NextRequest, kind: 'signup'): Promise<SignUpFlow | null>;
+export async function peekFlow(request: NextRequest, kind: 'email' | 'signup'): Promise<EmailFlow | SignUpFlow | null> {
   const flowId = flowIdOf(request, kind);
   if (!flowId) return null;
   const flow = asFlow(await redis.get(recordKey(flowId)));
   if (!flow || flow.kind !== kind) {
-    console.warn(`[signin-flow] ${kind}: no email sign-in under the cookie (used, or over 10 minutes)`);
+    console.warn(`[signin-flow] ${kind}: no ${kind === 'email' ? 'email sign-in' : 'sign-up'} under the cookie (used, or over 10 minutes)`);
     return null;
   }
-  return flow;
+  return flow as EmailFlow | SignUpFlow;
 }
 
 /** Clears the famcal_signin cookie (same path and flags, Max-Age 0), once a flow is finished or refused. */

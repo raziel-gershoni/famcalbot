@@ -1847,6 +1847,7 @@
       "turnstileRetry": "Try again",
       "emailSentOpen": "Check your email for a 6-digit code. It works for 10 minutes. Nothing there? Look in spam, or ask for a new code in a minute.",
       "existingOnly": "Signing in works for FamCal accounts made in Telegram or WhatsApp. New here? Start in one of them.",
+      "newAccount": "New to FamCal? Continue with {ways, select, google {Google} email {an email code} other {Google or an email code}} to create an account. Already use FamCal in Telegram or WhatsApp? Sign in to that account instead, so you don’t make a second one.",
       "none": "Signing in on the web isn’t available yet. FamCal works in Telegram and WhatsApp.",
       "retry": "Try another way",
       "status": {
@@ -1855,7 +1856,9 @@
           "body": "We couldn’t find a FamCal account for this sign-in. Your Telegram account works right away. The Google account your calendar is connected from works once it’s on in Settings → Sign in on the web, and another Google account or an email once you add it there.",
           "whatsapp": "Use FamCal on WhatsApp? Send “settings” to FamCal there to get a link to your Settings, then add Google or email under Sign in on the web.",
           "whatsappButton": "Get a link on WhatsApp",
-          "newHere": "New to FamCal? Start in Telegram or WhatsApp."
+          "newHere": "New to FamCal? Start in Telegram or WhatsApp.",
+          "newHereSignUp": "New to FamCal? Create an account with {ways, select, google {Google} email {an email code} other {Google or an email code}} on the sign-in page, or start in Telegram or WhatsApp.",
+          "webAccount": "Made your account on famcal.bot? Sign in with Google or email, then connect Telegram in Settings."
         },
         "several": {
           "title": "This Google account is on more than one FamCal account",
@@ -1879,7 +1882,9 @@
         },
         "restart": "The sign-in didn’t finish. It has to end in the same browser it started in, within 10 minutes. Start again below.",
         "failed": "The sign-in didn’t work. Try again, or pick another way.",
-        "unavailable": "That way of signing in isn’t available right now. Pick another way."
+        "unavailable": "That way of signing in isn’t available right now. Pick another way.",
+        "existsEmail": "This address already signs in to FamCal with an email code. Sign in with a code sent to it, then add Google in Settings → Sign in on the web.",
+        "existsGoogle": "This address already signs in to FamCal with Google. Continue with Google, then add email in Settings → Sign in on the web."
       },
       "addGoogle": {
         "metaTitle": "Add Google sign-in",
@@ -1893,6 +1898,32 @@
         "loadFailed": "Couldn’t open this link. Try again in a moment.",
         "unavailable": "Google sign-in isn’t available right now."
       }
+    },
+    "signup": {
+      "metaTitle": "Create a FamCal account",
+      "metaDescription": "Create a FamCal account with Google or an email code.",
+      "title": "Create your FamCal account",
+      "loading": "Loading…",
+      "loadFailed": "Couldn’t load this page. Check your connection and try again.",
+      "tryAgain": "Try again",
+      "lead": "No FamCal account uses <b>{address}</b> yet.",
+      "secondAccount": "Already use FamCal in Telegram or WhatsApp? Don’t make a second account. Open FamCal there, then add this way in Settings → Sign in on the web.",
+      "nameLabel": "Your name",
+      "nameNote": "Your partner sees it.",
+      "nameLong": "A name can be up to 60 characters.",
+      "nameInvalid": "This name has characters FamCal can’t use. Type it again.",
+      "consent": "By creating an account, you confirm you’re 18 or older and agree to the <terms>Terms</terms> and the <privacy>Privacy Policy</privacy>.",
+      "create": "Create account",
+      "creating": "Creating your account…",
+      "another": "Use another way",
+      "limit": "Too many new accounts from this network today. Try again tomorrow.",
+      "expiredTitle": "This sign-up has expired",
+      "expired": "A sign-up waits 10 minutes, in the browser it started in. Start again with Google or an email code.",
+      "startAgain": "Start again",
+      "existsTitle": "This address already signs in to FamCal",
+      "signIn": "Sign in",
+      "takenTitle": "This way to sign in is already in use",
+      "taken": "While this page was open, it was added to another FamCal account. Sign in with it instead."
     }
   },
   "legal": {

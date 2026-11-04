@@ -428,7 +428,7 @@ async function main() {
     assert(identitiesOf(TAL).length === 0, `ways ${show(identitiesOf(TAL))}`);
   });
 
-  await check('#24 a later "Continue with Google" with the added account signs in and moves its last-used date, with no notice; a Google account nobody added gets no-account', async () => {
+  await check('#24 a later "Continue with Google" with the added account signs in and moves its last-used date, with no notice; a Google account nobody added signs nobody in and starts the sign-up (web sign-up spec §3.3), no account yet', async () => {
     seed();
     DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'google', subject: 'g-tal', address: 'tal@gmail.com' }));
     world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
@@ -437,7 +437,7 @@ async function main() {
     assert(identitiesOf(TAL)[0].lastUsedAt instanceof Date && sent.length === 0, `way ${show(identitiesOf(TAL))} sent ${show(sent)}`);
     world.claims = { sub: 'g-nobody', email: 'nobody@gmail.com', emailVerified: true };
     const none = await callback('st-2', await flowCookie({ kind: 'google', state: 'st-2', nonce: 'n-2', codeVerifier: 'w'.repeat(43), locale: 'en' }));
-    assert(location(none).includes('status=no-account'), `location ${location(none)}`);
+    assert(pathOf(none) === '/en/signup' && DB.user.length === 3, `location ${location(none)}`);
   });
 
   // ---- Remove keeps a WhatsApp link's expiry (ruling R4) ----

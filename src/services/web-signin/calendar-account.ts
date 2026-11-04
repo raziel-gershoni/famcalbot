@@ -14,7 +14,9 @@
  * account's calendar token (syncGoogle(token).account(): getGoogleAuth, then googleAccountOf through googleFetch), and
  * its primary calendar must be the verified address right now. Then a Google way is made for that sub, the chat gets
  * the notice, and the person is signed in. Several accounts on one Google account (a shared family account) → several;
- * a dead token or a different address → no-account; Google not answering → failed ("try again").
+ * a dead token or a different address → no-account; Google not answering → failed ("try again"). No account holding
+ * the key at all (not even one with its switch off or its calendar gone) → new: the web sign-up may be offered (web
+ * sign-up spec §3.3), and google-signin.ts decides.
  *
  * A connection made before 6b, or keyed under another SESSION_SECRET, has no usable key and signs in only after its
  * owner presses Turn on in Settings (the owner's decision, 2026-11-02: Google's User Data Policy asks to notify people
@@ -39,7 +41,7 @@ import { googleAccountKey } from './account-key';
 
 export { googleAccountKey, googleAccountKeyId } from './account-key';
 
-export type CalendarMatch = { user: UserConfig } | { status: 'no-account' | 'several' | 'failed' };
+export type CalendarMatch = { user: UserConfig } | { status: 'no-account' | 'several' | 'failed' | 'new' };
 
 const sameAddress = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -86,7 +88,12 @@ export async function matchCalendarAccount(claims: GoogleClaims): Promise<Calend
     orderBy: { id: 'asc' },
     take: 2,
   });
-  if (holders.length === 0) return { status: 'no-account' };
+  if (holders.length === 0) {
+    // 'new' only when no account holds this key at all: one holding it with its switch off or without a connection (a
+    // row this query leaves out) still keeps the no-account page, with no sign-up (web sign-up spec §3.3)
+    const anyHolder = await prisma.user.count({ where: { googleAccountKey: key } });
+    return { status: anyHolder === 0 ? 'new' : 'no-account' };
+  }
   if (holders.length > 1) {
     console.warn(`[signin] google: the calendar account is connected on several FamCal accounts (${holders.map(h => h.id).join(', ')}): no match`);
     return { status: 'several' };

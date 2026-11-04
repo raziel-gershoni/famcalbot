@@ -684,10 +684,10 @@ async function main() {
     await refusedWith('two audiences', 'google', gClaims, { aud: [SIGNIN_ENV.GOOGLE_SIGNIN_CLIENT_ID, process.env.GOOGLE_CLIENT_ID] }, /untrusted audiences/);
   });
 
-  await check('#25 Google never by email: an unknown sub whose verified email is user 3\'s email way gets the no-account page', async () => {
+  await check('#25 Google never by email: an unknown sub whose verified email is user 3\'s email way signs nobody in and makes no account: it gets the "already signs in with an email code" line (status=exists-email, web sign-up spec §2.2)', async () => {
     seed();
     const { res } = await signIn('google', { ...gClaims, sub: 'g-sub-unknown' });
-    assert(isSignInPage(res, 'en', 'no-account') && !sessionOf(res), `to ${location(res)}`);
+    assert(isSignInPage(res, 'en', 'exists-email') && !sessionOf(res), `to ${location(res)}`);
     assert(DB.signInIdentity[1].lastUsedAt === null, 'the email way was touched');
   });
 

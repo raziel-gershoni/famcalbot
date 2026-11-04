@@ -17,6 +17,9 @@
 //   the 6-digit code. A right code goes where the server says (this site only); a wrong one says so; a code the server
 //   can't use any more goes back to the address; a blocked or suspended account goes to its page. A right sign-up code
 //   goes to the sign-up page (the server's redirect). "Send a new code" asks again for the same address.
+// - A right code whose address already signs in to another account by the other way (the verify route's { error:
+//   'exists', way }, web sign-up spec §2.2) goes to /signin?status=exists-google (or exists-email), whose line says to
+//   sign in that way and add this one in Settings.
 // - Bot check (web sign-up spec 2026-11-03 §2.4): when the server passes a Turnstile site key, the email form and the code
 //   screen each hold Cloudflare's check (TurnstileWidget). Send and "Send a new code" wait for its token, the token goes
 //   with the request, and the check is reset after each request (a token works once). The server's 'check' refusal has
@@ -179,6 +182,13 @@ export function SignInClient({
       if (error === 'restart') {
         setStep('email');
         setProblem('codeRestart');
+        return;
+      }
+      // The address already signs in to another account by the other way (web sign-up spec §2.2): its line on /signin
+      const way = body?.way;
+      if (error === 'exists' && (way === 'google' || way === 'email')) {
+        leaving = true;
+        window.location.assign(signInHref(locale, way === 'google' ? 'exists-google' : 'exists-email'));
         return;
       }
       if (error === 'blocked' || error === 'suspended') {

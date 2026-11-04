@@ -2,9 +2,11 @@
  * The shared steps of the Telegram and Google sign-in routes (spec §3): the start (a redirect to the provider, with the
  * one-time checks kept for this browser) and the callback (the checks, then the route's own lookup of the account).
  *
- * The callback clears the famcal_signin cookie on every answer but two (no flow of its kind under the cookie, and a state
- * that differs: both leave this browser's current sign-in to finish, see handleOidcCallback), and never lets an error out of the route: Next would report it with the
- * callback URL, whose query holds the code and the state. Every refusal logs why, never a value.
+ * The callback clears the famcal_signin cookie on every answer but three (no flow of its kind under the cookie, and a
+ * state that differs: both leave this browser's current sign-in to finish, see handleOidcCallback; and an onClaims
+ * answer that started a new flow on its response, the Google sign-up's record, which /signup reads), and never lets an
+ * error out of the route: Next would report it with the callback URL, whose query holds the code and the state. Every
+ * refusal logs why, never a value.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -59,10 +61,14 @@ export async function startOidcSignIn(provider: OidcProvider, request: NextReque
   }
 }
 
+/** What onClaims gives back: a response, whose flow cookie the callback clears, or one that set a new flow it keeps. */
+export type ClaimsAnswer = NextResponse | { response: NextResponse; keepFlowCookie: true };
+
 /**
  * GET /api/auth/<provider>/callback: the flow this browser started (one use: takeFlow), its state, then the code
  * exchange and the id_token's checks (finishAuthorization). `onClaims` turns the proved identity into the response;
- * its result gets the flow cookie cleared like every other answer here.
+ * its result gets the flow cookie cleared like every other answer here, unless it answers { response, keepFlowCookie }
+ * (it set a new flow on that response with startFlow: the Google sign-up, web sign-up spec §3.3).
  *
  * - no flow for this browser (no cookie, used, older than 10 minutes, or another kind): status=restart, with no request
  *   to the provider, and the cookie left alone (a flow of another kind is another tab's sign-in, which still finishes);
@@ -82,7 +88,7 @@ export async function handleOidcCallback<P extends OidcProvider>(
   provider: P,
   request: NextRequest,
   kinds: OidcFlow['kind'][],
-  onClaims: (claims: ClaimsOf<P>, flow: OidcFlow) => Promise<NextResponse>,
+  onClaims: (claims: ClaimsOf<P>, flow: OidcFlow) => Promise<ClaimsAnswer>,
 ): Promise<NextResponse> {
   let locale: string = requestLocale(request);
   const done = (response: NextResponse) => {
@@ -119,7 +125,10 @@ export async function handleOidcCallback<P extends OidcProvider>(
       captureError(new Error(`${provider} sign-in refused: ${describeOidcError(error)}`), 'signin-oidc', { service: 'web-signin', provider }, 'warning');
       return done(toSignIn(locale, 'failed'));
     }
-    return done(await onClaims(claims, flow));
+    const answer = await onClaims(claims, flow);
+    // A new flow set on the answer (the Google sign-up's record) keeps its cookie: clearing it here would end it
+    if ('keepFlowCookie' in answer) return answer.response;
+    return done(answer);
   } catch (error) {
     captureError(new Error(`${provider} sign-in callback failed: ${describeOidcError(error)}`), 'signin-oidc', { service: 'web-signin', provider });
     return done(toSignIn(locale, 'failed'));

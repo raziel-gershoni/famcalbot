@@ -44,8 +44,8 @@ export interface SignInMethodsView {
   providers: { telegram: boolean; google: boolean; email: boolean };
 }
 
-/** The P2002 Prisma answers when a unique constraint holds (read by its code, as the fakes throw it). */
-const isUniqueViolation = (error: unknown) => (error as { code?: unknown } | null)?.code === 'P2002';
+/** The P2002 Prisma answers when a unique constraint holds (read by its code, as the fakes throw it). The sign-up reads it too. */
+export const isUniqueViolation = (error: unknown) => (error as { code?: unknown } | null)?.code === 'P2002';
 
 /**
  * The account a sign-in way belongs to, or null. A found way gets its last-used date (a failure there is logged and the

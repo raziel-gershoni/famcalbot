@@ -296,6 +296,25 @@ export const fakePrisma: Row = new Proxy({} as Row, {
 export const redisStore = new Map<string, string>();
 /** The sets the capped-set Lua script (Task 3's Add email account limit) keeps; a set is no string, so it lives apart. */
 const redisSets = new Map<string, Set<string>>();
+/**
+ * When a key set with `ex` or `px` runs out, on the fake clock: Date.now() plus what advanceRedis() added. A key past
+ * its time is gone at its next read, as Redis expires it. A smoke that never advances the clock sees no change.
+ */
+const redisExpiry = new Map<string, number>();
+let redisOffsetMs = 0;
+/** Moves the fake Redis clock on by `ms` (a 10-minute record is gone after advanceRedis(601_000)). resetWorld() sets it back. */
+export function advanceRedis(ms: number): void {
+  redisOffsetMs += ms;
+}
+/** Whether the key is there now: one past its expiry is removed first. */
+const live = (k: string): boolean => {
+  const at = redisExpiry.get(k);
+  if (at !== undefined && at <= Date.now() + redisOffsetMs) {
+    redisStore.delete(k);
+    redisExpiry.delete(k);
+  }
+  return redisStore.has(k);
+};
 const decode = (raw: string | undefined) => {
   if (raw === undefined) return null;
   try { return JSON.parse(raw); } catch { return raw; }
@@ -303,30 +322,34 @@ const decode = (raw: string | undefined) => {
 const encode = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v));
 const glob = (pattern: string) => new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
 const incrBy = (k: string, n: number) => {
-  const next = Number(redisStore.get(k) ?? 0) + n;
+  const next = Number((live(k) ? redisStore.get(k) : undefined) ?? 0) + n;
   redisStore.set(k, String(next));
   return next;
 };
 const redisImpl: Row = {
-  get: async (k: string) => decode(redisStore.get(k)),
+  get: async (k: string) => (live(k) ? decode(redisStore.get(k)) : null),
   set: async (k: string, v: unknown, o?: Row) => {
-    if (o?.nx && redisStore.has(k)) return null;
+    if (o?.nx && live(k)) return null;
     redisStore.set(k, encode(v));
+    // SET without EX/PX drops a key's expiry, as Redis does
+    const ttlMs = typeof o?.ex === 'number' ? o.ex * 1000 : typeof o?.px === 'number' ? o.px : null;
+    if (ttlMs === null) redisExpiry.delete(k);
+    else redisExpiry.set(k, Date.now() + redisOffsetMs + ttlMs);
     return 'OK';
   },
-  del: async (...ks: unknown[]) => ks.flat().reduce((n: number, k) => n + (redisStore.delete(String(k)) ? 1 : 0), 0),
+  del: async (...ks: unknown[]) => ks.flat().reduce((n: number, k) => { redisExpiry.delete(String(k)); return n + (redisStore.delete(String(k)) ? 1 : 0); }, 0),
   // Reads and deletes in one tick, as GETDEL does.
-  getdel: async (k: string) => { const raw = redisStore.get(k); redisStore.delete(k); return decode(raw); },
+  getdel: async (k: string) => { const raw = live(k) ? redisStore.get(k) : undefined; redisStore.delete(k); redisExpiry.delete(k); return decode(raw); },
   incr: async (k: string) => incrBy(k, 1),
   incrby: async (k: string, n: number) => incrBy(k, Number(n)),
   decr: async (k: string) => incrBy(k, -1),
-  expire: async (k: string) => (redisStore.has(k) ? 1 : 0),
-  pexpire: async (k: string) => (redisStore.has(k) ? 1 : 0),
-  expireat: async (k: string) => (redisStore.has(k) ? 1 : 0),
-  ttl: async (k: string) => (redisStore.has(k) ? 600 : -2),
-  pttl: async (k: string) => (redisStore.has(k) ? 600_000 : -2),
-  exists: async (...ks: unknown[]) => ks.flat().filter(k => redisStore.has(String(k))).length,
-  mget: async (...ks: unknown[]) => ks.flat().map(k => decode(redisStore.get(String(k)))),
+  expire: async (k: string) => (live(k) ? 1 : 0),
+  pexpire: async (k: string) => (live(k) ? 1 : 0),
+  expireat: async (k: string) => (live(k) ? 1 : 0),
+  ttl: async (k: string) => (live(k) ? 600 : -2),
+  pttl: async (k: string) => (live(k) ? 600_000 : -2),
+  exists: async (...ks: unknown[]) => ks.flat().filter(k => live(String(k))).length,
+  mget: async (...ks: unknown[]) => ks.flat().map(k => (live(String(k)) ? decode(redisStore.get(String(k))) : null)),
   scan: async (_cursor: unknown, o?: Row) => [0, [...redisStore.keys()].filter(k => !o?.match || glob(String(o.match)).test(k))],
   keys: async (pattern: string) => [...redisStore.keys()].filter(k => glob(pattern).test(k)),
   // The two Lua scripts the code under test runs (Task 3's limits, Task 5's countWithin): a counter, and a set with a
@@ -419,6 +442,8 @@ export function resetWorld(): void {
   for (const k of Object.keys(DB)) delete DB[k];
   redisStore.clear();
   redisSets.clear();
+  redisExpiry.clear();
+  redisOffsetMs = 0;
   afterQueue.length = 0;
   prismaCalls.length = 0;
   sent.length = 0;

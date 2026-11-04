@@ -20,10 +20,12 @@ export type FinishPage = 'dashboard' | 'select-calendars';
 
 /**
  * The outcomes /signin shows (?status=). 'taken' and 'has-one' are what Add Google answers: the Google account already
- * signs in to another FamCal account, or this account already has a Google way.
+ * signs in to another FamCal account, or this account already has a Google way. 'exists-email' and 'exists-google' are
+ * a sign-up that found its verified address already signing in to another account by that way (web sign-up spec §2.2).
  */
 export type SignInStatus =
-  | 'no-account' | 'several' | 'suspended' | 'blocked' | 'restart' | 'failed' | 'unavailable' | 'taken' | 'has-one';
+  | 'no-account' | 'several' | 'suspended' | 'blocked' | 'restart' | 'failed' | 'unavailable' | 'taken' | 'has-one'
+  | 'exists-email' | 'exists-google';
 
 /** What the finishing step reads of the account. A UserConfig (user-service) and a Prisma User both fit. */
 export interface SignInAccount {

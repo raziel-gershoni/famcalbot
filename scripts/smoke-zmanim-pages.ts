@@ -433,9 +433,10 @@ async function main() {
       fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true }).flatMap((entry) => (entry.isDirectory() ? walk(`${rel}/${entry.name}`) : /\.(?:tsx?|mdx?)$/.test(entry.name) ? [`${rel}/${entry.name}`] : []));
     const siteFiles = [...walk('app/[locale]/(site)'), ...walk('components/site')];
     assert(['app/[locale]/(site)/page.tsx', 'app/[locale]/(site)/zmanim/[city]/page.tsx', 'components/site/SiteHeader.tsx'].every((f) => siteFiles.includes(f)), `the walk missed the site: ${show(siteFiles)}`);
-    // The sign-in pages' two client components post their forms when a person acts (never while a page renders, and nothing
-    // of the zmanim limit is spent): the only files that may call fetch, and only as client components (web sign-in Task 8)
-    const FORM_CLIENTS = ['app/[locale]/(site)/signin/SignInClient.tsx', 'app/[locale]/(site)/signin/add-google/AddGoogleClient.tsx'];
+    // The sign-in and sign-up pages' client components read and post their forms when a person acts or a page opens in the
+    // browser (never while a page renders on the server, and nothing of the zmanim limit is spent): the only files that may
+    // call fetch, and only as client components (web sign-in Task 8, web sign-up Task 5)
+    const FORM_CLIENTS = ['app/[locale]/(site)/signin/SignInClient.tsx', 'app/[locale]/(site)/signin/add-google/AddGoogleClient.tsx', 'app/[locale]/(site)/signup/SignUpClient.tsx'];
     for (const file of FORM_CLIENTS) assert(siteFiles.includes(file) && /^\s*['"]use client['"]/m.test(readSource(file)), `${file} is not a client component`);
     // The one script a site page loads is Cloudflare's Turnstile, on /signin's email form when a person opens it (6c-1 Task 3)
     const SCRIPT_LOADER = 'components/site/TurnstileWidget.tsx';

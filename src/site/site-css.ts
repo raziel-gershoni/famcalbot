@@ -13,7 +13,7 @@
 // - One motion on the whole site, the hero's (its own rules), and the loading spinners (Near me's on the zmanim index, the
 //   sign-in ways'); prefers-reduced-motion stops them all.
 // - The kit's BottomSheet slides in, a second motion: on the site it just appears.
-// - The sign-in pages (/signin, /signin/add-google: SIGNIN_CSS) draw Google's button in Google's own colours
+// - The sign-in pages (/signin, /signin/add-google, /signup: SIGNIN_CSS) draw Google's button in Google's own colours
 //   (GOOGLE_BUTTON), as its branding rules ask, as tokens like the brands' start buttons.
 
 import { createHash } from 'node:crypto';
@@ -1800,10 +1800,13 @@ export const ZMANIM_PAGE_CSS = `
 `;
 
 /**
- * The sign-in pages (spec 2026-11-02-web-sign-in §3): one narrow column with a panel (the zmanim index's Near me card),
- * three full-width ways (Telegram in its brand shade, Google in Google's colours with its stroke, email on the page
- * colour with an outline), the fields at 16 px and more (no zoom on iOS) with a 3:1 edge, an error line in the danger
- * colour, and text buttons for the way back. Token colours only, logical properties, every target 44 px or more, no hover.
+ * The sign-in pages (spec 2026-11-02-web-sign-in §3) and the sign-up page (spec 2026-11-03-web-sign-up §3.4): one
+ * narrow column with a panel (the zmanim index's Near me card), three full-width ways (Telegram in its brand shade,
+ * Google in Google's colours with its stroke, email on the page colour with an outline), the fields at 16 px and more
+ * (no zoom on iOS) with a 3:1 edge, an error line in the danger colour, and text buttons for the way back. The sign-up
+ * adds the proved address (the accent, set apart and wrapping anywhere, so a long one never widens a phone's page), the
+ * consent line in the muted colour with its two links underlined, and the waiting line with its spinner. Token colours
+ * only, logical properties, every target 44 px or more, no hover.
  */
 export const SIGNIN_CSS = `
 .site-signin {
@@ -1972,6 +1975,30 @@ export const SIGNIN_CSS = `
   color: var(--ch-accent);
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+.site-signin-links a.site-signin-link {
+  text-decoration: none;
+}
+.site-signup-address {
+  color: var(--ch-accent);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.site-signin-panel .site-signup-consent {
+  margin-block-start: 16px;
+  color: var(--ch-muted);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.site-signup-consent a {
+  color: var(--ch-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.site-signup-wait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 @media (prefers-reduced-motion: no-preference) {
   .site-spin {

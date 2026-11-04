@@ -90,7 +90,7 @@ function serverEvent(): Row {
         Cookie: SESSION,
       },
       cookies: { '__Host-famcal_session': '42.1760000000.deadbeef' },
-      data: { user_id: 9, name: 'Kids', initData: INIT },
+      data: { user_id: 9, color: 'blue', initData: INIT },
     },
     contexts: { nextjs: { request_path: `/api/native-calendars?user_id=9&initData=${INIT}`, router_kind: 'App Router' } },
   };
@@ -131,7 +131,7 @@ async function main() {
     assert(r.query_string === 'user_id=9&initData=[scrubbed]', `query_string ${r.query_string}`);
     assert(!('cookies' in r), `cookies ${show(r.cookies)}`);
     assert(show(r.headers) === show({ host: 'famcal.bot', 'user-agent': 'TelegramBot' }), `headers ${show(r.headers)}`);
-    assert(show(r.data) === show({ user_id: 9, name: 'Kids' }), `data ${show(r.data)}`);
+    assert(show(r.data) === show({ user_id: 9, color: 'blue' }), `data ${show(r.data)}`);
     assert(r.method === 'GET' && out.event_id === 'e1', `other fields: ${show(out)}`);
     assert(out.contexts.nextjs.request_path === '/api/native-calendars?user_id=9&initData=[scrubbed]' && out.contexts.nextjs.router_kind === 'App Router',
       `contexts.nextjs ${show(out.contexts.nextjs)}`);
@@ -140,14 +140,14 @@ async function main() {
   await check('#2 the body as a JSON string, a form string or cut-off JSON: initData dropped or scrubbed, the rest kept', () => {
     const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
     // A token field goes too since web sign-in (#13): an invite's token is a credential as well
-    const json = run(JSON.stringify({ initData: INIT, token: 'invite-1', name: 'Kids' }));
-    assert(json === JSON.stringify({ name: 'Kids' }), `JSON string: ${show(json)}`);
+    const json = run(JSON.stringify({ initData: INIT, token: 'invite-1', color: 'blue' }));
+    assert(json === JSON.stringify({ color: 'blue' }), `JSON string: ${show(json)}`);
     const form = run(`user_id=9&initData=${INIT}`);
     assert(form === 'user_id=9&initData=[scrubbed]', `form string: ${show(form)}`);
-    const cut = run(`{"name":"Kids","initData":"${decodeURIComponent(INIT)}","rules":["a`);
-    assert(leaks(cut).length === 0 && String(cut).startsWith('{"name":"Kids"'), `cut-off JSON: ${show(cut)}`);
-    const plain = run('{"name":"Kids"}');
-    assert(plain === '{"name":"Kids"}', `JSON without initData: ${show(plain)}`);
+    const cut = run(`{"color":"blue","initData":"${decodeURIComponent(INIT)}","rules":["a`);
+    assert(leaks(cut).length === 0 && String(cut).startsWith('{"color":"blue"'), `cut-off JSON: ${show(cut)}`);
+    const plain = run('{"color":"blue"}');
+    assert(plain === '{"color":"blue"}', `JSON without initData: ${show(plain)}`);
   });
 
   await check('#3 query_string as an object or as pairs: initData scrubbed, the rest kept', () => {
@@ -357,16 +357,16 @@ async function main() {
     assert(show(pairs) === show([['id_token', '[scrubbed]'], ['locale', 'ru']]), `pairs ${show(pairs)}`);
   });
 
-  await check('#13 server event body: code, state, token, id_token and email dropped from a JSON object or string (any case) and scrubbed in a form or cut-off JSON; the rest kept', () => {
+  await check('#13 server event body: code, state, token, id_token, email and a sign-up\'s name dropped from a JSON object or string (any case) and scrubbed in a form or cut-off JSON; the rest kept', () => {
     const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
-    const object = run({ email: EMAIL, code: OTP, locale: 'he' });
+    const object = run({ email: EMAIL, code: OTP, name: 'Dana Levi', locale: 'he' });
     assert(show(object) === show({ locale: 'he' }), `object ${show(object)}`);
-    const json = run(JSON.stringify({ Email: EMAIL, id_token: ID_TOKEN, state: STATE, user_id: 9 }));
+    const json = run(JSON.stringify({ Email: EMAIL, id_token: ID_TOKEN, state: STATE, Name: 'Dana Levi', user_id: 9 }));
     assert(json === JSON.stringify({ user_id: 9 }), `JSON string ${show(json)}`);
-    const form = run(`email=${encodeURIComponent(EMAIL)}&code=${OTP}&locale=he`);
-    assert(form === 'email=[scrubbed]&code=[scrubbed]&locale=he', `form ${show(form)}`);
-    const cut = run(`{"locale":"he","email":"${EMAIL}","code":${OTP},"token":"${TOKEN}","note":"a`);
-    assert(signInLeaks(cut).length === 0 && String(cut).startsWith('{"locale":"he"'), `cut-off JSON ${show(cut)}`);
+    const form = run(`email=${encodeURIComponent(EMAIL)}&code=${OTP}&name=Dana%20Levi&locale=he`);
+    assert(form === 'email=[scrubbed]&code=[scrubbed]&name=[scrubbed]&locale=he', `form ${show(form)}`);
+    const cut = run(`{"locale":"he","email":"${EMAIL}","code":${OTP},"token":"${TOKEN}","name":"Dana Levi","note":"a`);
+    assert(signInLeaks(cut).length === 0 && !String(cut).includes('Dana') && String(cut).startsWith('{"locale":"he"'), `cut-off JSON ${show(cut)}`);
     const plain = run('{"locale":"he"}');
     assert(plain === '{"locale":"he"}', `JSON without secrets ${show(plain)}`);
   });

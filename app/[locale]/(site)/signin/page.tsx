@@ -12,10 +12,10 @@ import { SELLER } from '@/src/lib/seller';
 import { SESSION_COOKIE_NAME, validateSessionToken } from '@/src/lib/session-auth';
 import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { providerConfigured } from '@/src/services/web-signin/oidc';
-import { turnstileSiteKey } from '@/src/services/web-signin/turnstile';
+import { turnstileConfigured, turnstileSiteKey } from '@/src/services/web-signin/turnstile';
 import { SITE_URL } from '@/src/site/config';
 import { siteMetadata } from '@/src/site/seo';
-import { isOutcome, readSignInStatus, STATUS_KEY, type OutcomeStatus } from '@/src/site/signin';
+import { isOutcome, readSignInStatus, signUpWays, STATUS_KEY, type OutcomeStatus, type SignUpWays } from '@/src/site/signin';
 import { localeHref } from '@/src/site/zmanim/links';
 import { SignInClient, type SignInWays } from './SignInClient';
 
@@ -28,8 +28,13 @@ import { SignInClient, type SignInWays } from './SignInClient';
 //   (page-data), so the card's Sign in lands here with no cookie and the ways show, with no loop.
 // - ?status= is the outcome a sign-in reached (src/site/signin.ts): no account (the WhatsApp way to Settings and the
 //   start buttons), several accounts on one Google account, suspended, blocked (the contact address), taken and has-one
-//   (an Add Google that was refused) stand instead of the ways; restart, failed and unavailable are an alert above them.
-//   A status page never redirects, even with a cookie.
+//   (an Add Google that was refused) stand instead of the ways; restart, failed, unavailable and exists-email /
+//   exists-google (a sign-up whose proved address already signs in another way) are an alert above them. A status page
+//   never redirects, even with a cookie.
+// - Sign-up (web sign-up spec 2026-11-03 §2.1, §2.2) is open when Google sign-in is set up, or email codes are and
+//   Turnstile is (signUpWays). Only then the line under the ways says new people can create an account, and the
+//   no-account page leads with the famcal.bot account line (on every no-account page: it can't tell which way led
+//   there) and says the same; with sign-up closed the page reads as before.
 // - Kept out of search (noindex, no alternates), as the share page is.
 // - The email form's bot check: Turnstile's site key, read per request (turnstileSiteKey: both Turnstile variables set),
 //   reaches the client only when email is on too; without it the form has no widget (web sign-up spec §2.4).
@@ -54,13 +59,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 /** An answer another try won't change, in place of the ways. */
-async function Outcome({ status, locale, whatsappUrl }: { status: OutcomeStatus; locale: string; whatsappUrl: string }) {
+async function Outcome({ status, locale, whatsappUrl, signUp }: { status: OutcomeStatus; locale: string; whatsappUrl: string; signUp: SignUpWays | null }) {
   const t = await getTranslations({ locale });
   const key = `site.signin.status.${STATUS_KEY[status]}`;
   const mail = (chunks: ReactNode) => <a href={`mailto:${SELLER.email}`}>{chunks}</a>;
   return (
     <>
       <h1 className="site-h1 site-page-title">{t(`${key}.title`)}</h1>
+      {status === 'no-account' && signUp ? <p className="site-signin-notice">{t('site.signin.status.noAccount.webAccount')}</p> : null}
       <p className="site-lead">{status === 'suspended' || status === 'blocked' ? t.rich(`${key}.body`, { email: SELLER.email, mail }) : t(`${key}.body`)}</p>
       {status === 'no-account' ? (
         <>
@@ -74,7 +80,7 @@ async function Outcome({ status, locale, whatsappUrl }: { status: OutcomeStatus;
             </div>
           </section>
           <section className="site-signin-panel" aria-labelledby="signin-new">
-            <p id="signin-new">{t('site.signin.status.noAccount.newHere')}</p>
+            <p id="signin-new">{signUp ? t('site.signin.status.noAccount.newHereSignUp', { ways: signUp }) : t('site.signin.status.noAccount.newHere')}</p>
             <div className="site-signin-starts">
               <StartButtons words={startWords(t)} />
             </div>
@@ -102,13 +108,14 @@ export default async function SignInPage({ params, searchParams }: Props) {
   const t = await getTranslations({ locale });
   const ways: SignInWays = { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() };
   const anyWay = ways.telegram || ways.google || ways.email;
+  const signUp = signUpWays(ways.google, ways.email && turnstileConfigured());
   const links = gateLinks();
   return (
     <SitePage locale={locale} path="/signin">
       <main id="main" className="site-section site-page-main">
         <div className="site-wrap site-signin">
           {status && isOutcome(status) ? (
-            <Outcome status={status} locale={locale} whatsappUrl={links.whatsapp} />
+            <Outcome status={status} locale={locale} whatsappUrl={links.whatsapp} signUp={signUp} />
           ) : (
             <>
               <h1 className="site-h1 site-page-title">{t('site.signin.title')}</h1>
@@ -126,7 +133,7 @@ export default async function SignInPage({ params, searchParams }: Props) {
                     pageAddress={`${new URL(SITE_URL).host}${localeHref(locale, '/signin')}`}
                     turnstileSiteKey={ways.email ? turnstileSiteKey() : null}
                   />
-                  <p className="site-honest">{t('site.signin.existingOnly')}</p>
+                  <p className="site-honest">{signUp ? t('site.signin.newAccount', { ways: signUp }) : t('site.signin.existingOnly')}</p>
                 </>
               ) : (
                 <>

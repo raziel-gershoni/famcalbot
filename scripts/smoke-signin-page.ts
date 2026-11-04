@@ -53,7 +53,7 @@ const linkKey = (token: string) => `signin:add-google:${createHash('sha256').upd
 // ---- The boundaries ----
 
 process.env.SESSION_SECRET = 'smoke-only-session-secret-'.padEnd(64, 'x');
-function configure(ways: { telegram?: boolean; google?: boolean; email?: boolean }) {
+function configure(ways: { telegram?: boolean; google?: boolean; email?: boolean; turnstile?: boolean }) {
   // Google sign-in must have its own client: oidc.ts refuses an id equal to the calendar client's GOOGLE_CLIENT_ID (the fake env's 'fake')
   const set = (name: string, on: boolean | undefined) => {
     if (on) process.env[name] = name.startsWith('GOOGLE_SIGNIN') ? 'fake-signin-client' : 'fake';
@@ -64,6 +64,12 @@ function configure(ways: { telegram?: boolean; google?: boolean; email?: boolean
   set('GOOGLE_SIGNIN_CLIENT_ID', ways.google);
   set('GOOGLE_SIGNIN_CLIENT_SECRET', ways.google);
   set('RESEND_API_KEY', ways.email);
+  // Email sign-up opens only with both Turnstile names (turnstileConfigured). Left alone unless given: P9 sets them
+  // itself, then calls configure() for the other ways
+  if (ways.turnstile !== undefined) {
+    set('TURNSTILE_SITE_KEY', ways.turnstile);
+    set('TURNSTILE_SECRET', ways.turnstile);
+  }
 }
 
 class Redirected extends Error {
@@ -87,7 +93,7 @@ for (const level of ['info', 'warn', 'error'] as const) {
     original(...args);
   };
 }
-const ours = (line: string) => /^\[(?:signin|add-google|add-google-page|turnstile)\]/.test(line);
+const ours = (line: string) => /^\[(?:signin|signup|add-google|add-google-page|turnstile)\]/.test(line);
 
 // ---- The fake fetch ----
 
@@ -225,16 +231,25 @@ async function main() {
       const href = (name: string) => decodeEntities(attr(ways(all).find((a) => attr(a, 'data-way') === name) ?? '', 'href') ?? '');
       assert(href('telegram') === `/api/auth/telegram/start?locale=${locale}` && href('google') === `/api/auth/google/start?locale=${locale}`, `${locale}: ${href('telegram')} ${href('google')}`);
       const text = textOf(all);
-      for (const w of [s.title, s.lead, s.telegram, s.telegramNote, s.google, s.email, s.existingOnly]) assert(text.includes(w), `${locale}: no "${w}"`);
+      // Google sign-in set up opens sign-up with Google (email needs Turnstile too): the line says new people can create an account
+      for (const w of [s.title, s.lead, s.telegram, s.telegramNote, s.google, s.email, word(locale, 'site.signin.newAccount', { ways: 'google' })]) assert(text.includes(w), `${locale}: no "${w}"`);
+      assert(!text.includes(s.existingOnly), `${locale}: the old "existing accounts only" line with sign-up open`);
       const google = anchorMarkup(all, 'google');
       assert(google.includes('viewBox="0 0 48 48"') && google.includes('#4285F4') && google.includes('#EA4335'), `${locale}: Google's way has no G mark: ${google}`);
       assert(/class="lucide lucide-send/.test(anchorMarkup(all, 'telegram')), `${locale}: Telegram's way has no Lucide icon`);
       assert(!/role="alert"/.test(all), `${locale}: an alert with no status`);
 
-      configure({ email: true });
+      configure({ email: true, turnstile: false });
       const emailOnly = await signin(locale);
       assert(show(ways(emailOnly).map((a) => attr(a, 'data-way'))) === show(['email']), `${locale}: email only ${show(ways(emailOnly).map((a) => attr(a, 'data-way')))}`);
       assert(!textOf(emailOnly).includes(s.telegramNote), `${locale}: Telegram's note without Telegram`);
+      // Email without Turnstile signs in only: the line stays as it was
+      assert(textOf(emailOnly).includes(s.existingOnly) && !textOf(emailOnly).includes(word(locale, 'site.signin.newAccount', { ways: 'email' })), `${locale}: email without Turnstile offers sign-up`);
+      configure({ email: true, turnstile: true });
+      assert(textOf(await signin(locale)).includes(word(locale, 'site.signin.newAccount', { ways: 'email' })), `${locale}: email with Turnstile does not offer sign-up`);
+      configure({ google: true, email: true, turnstile: true });
+      assert(textOf(await signin(locale)).includes(word(locale, 'site.signin.newAccount', { ways: 'both' })), `${locale}: both ways do not offer sign-up`);
+      configure({ turnstile: false });
 
       configure({});
       const none = await signin(locale);
@@ -274,7 +289,14 @@ async function main() {
       const st = s.status as Row;
       const noAccount = await signin(locale, { status: 'no-account' });
       common(locale, noAccount, 'no-account');
-      for (const w of [st.noAccount.title, st.noAccount.body, st.noAccount.whatsapp, st.noAccount.whatsappButton, st.noAccount.newHere, s.retry]) assert(textOf(noAccount).includes(w), `${locale} no-account: no "${w}"`);
+      // Sign-up open (Google): the page leads with the famcal.bot account line and says new people can create an account
+      const newHere = word(locale, 'site.signin.status.noAccount.newHereSignUp', { ways: 'google' });
+      for (const w of [st.noAccount.title, st.noAccount.webAccount, st.noAccount.body, st.noAccount.whatsapp, st.noAccount.whatsappButton, newHere, s.retry]) assert(textOf(noAccount).includes(w), `${locale} no-account: no "${w}"`);
+      assert(textOf(noAccount).indexOf(st.noAccount.webAccount) < textOf(noAccount).indexOf(st.noAccount.body) && !textOf(noAccount).includes(st.noAccount.newHere), `${locale} no-account: the lead line or the old new-here line`);
+      configure({ telegram: true });
+      const closed = textOf(await signin(locale, { status: 'no-account' }));
+      assert(closed.includes(st.noAccount.newHere) && !closed.includes(st.noAccount.webAccount) && !closed.includes(newHere), `${locale} no-account with sign-up closed`);
+      configure({ telegram: true, google: true, email: true });
       const hrefs = attrs(noAccount, 'a').map((a) => decodeEntities(attr(a, 'href') ?? ''));
       assert(hrefs.includes('https://wa.me/972548524687?text=settings') && hrefs.includes(`${prefix(locale)}/signin`), `${locale} no-account: ${show(hrefs)}`);
       assert(ways(noAccount).length === 0, `${locale} no-account: the ways show`);
@@ -286,9 +308,9 @@ async function main() {
         else assert(textOf(html).includes(st[key].body), `${locale} ${status}: the body`);
         assert(attrs(html, 'a').some((a) => decodeEntities(attr(a, 'href') ?? '') === `${prefix(locale)}/signin`), `${locale} ${status}: no way back to the ways`);
       }
-      for (const status of ['restart', 'failed', 'unavailable'] as const) {
+      for (const [status, key] of [['restart', 'restart'], ['failed', 'failed'], ['unavailable', 'unavailable'], ['exists-email', 'existsEmail'], ['exists-google', 'existsGoogle']] as const) {
         const html = await signin(locale, { status });
-        assert(new RegExp(`<p class="site-signin-notice" role="alert">${st[status].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`).test(decodeEntities(html)), `${locale} ${status}: no alert`);
+        assert(new RegExp(`<p class="site-signin-notice" role="alert">${(st[key] as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`).test(decodeEntities(html)), `${locale} ${status}: no alert`);
         assert(ways(html).length === 3, `${locale} ${status}: the ways are gone`);
       }
       const unknown = await signin(locale, { status: 'nope' });
@@ -387,6 +409,36 @@ async function main() {
     }
     const leaked = logs.filter((l) => l.includes(TOKEN));
     assert(leaked.length === 0, `a log line holds the token: ${show(leaked)}`);
+  });
+
+  await check('S1 /signup in en, he and ru: the site\'s chrome, per request and kept out of search, its own title; the server render is the waiting state (the page reads the sign-up from the browser only, since famcal_signin is for /api/auth) with no form yet; a browser already signed in (a valid session cookie) goes straight to its calendar with no form, a tampered cookie does not; its CSS rules are there', async () => {
+    const page = await load('app/[locale]/(site)/signup/page.tsx').catch((error: unknown) => {
+      throw new Error(`no /signup page: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
+    });
+    assert(page.dynamic === 'force-dynamic', `dynamic ${page.dynamic}`);
+    const token = createSessionToken(7, 'google', Date.now());
+    for (const locale of LOCALES) {
+      jar.clear();
+      jar.set(SESSION_COOKIE_NAME, token);
+      const signedIn = await pageOf(page.default, locale);
+      assert('redirect' in signedIn && signedIn.redirect === `${prefix(locale)}/dashboard?user_id=7`, `${locale}: signed in ${show(signedIn)}`);
+      jar.set(SESSION_COOKIE_NAME, `${token.slice(0, -3)}abc`);
+      assert('html' in (await pageOf(page.default, locale)), `${locale}: a tampered cookie redirected`);
+      jar.clear();
+    }
+    for (const locale of LOCALES) {
+      const u = messages[locale].site.signup as Row;
+      assert(u, `${locale}: no site.signup messages`);
+      const html = await htmlOf(page.default, locale);
+      common(locale, html, '/signup');
+      assert(/role="status"/.test(html) && textOf(html).includes(u.loading) && textOf(html).includes(u.title), `${locale}: no waiting state`);
+      assert(!/<form/.test(html), `${locale}: a form before the sign-up is read`);
+      const meta = await page.generateMetadata({ params: Promise.resolve({ locale }) });
+      assert(meta.robots?.index === false && meta.robots?.follow === false && !meta.alternates && meta.title === u.metaTitle, `${locale}: metadata ${show(meta)}`);
+    }
+    const { SITE_CSS } = await load('src/site/site-css.ts');
+    for (const selector of ['.site-signup-address', '.site-signin-panel .site-signup-consent', '.site-signup-consent a', '.site-signup-wait']) assert(SITE_CSS.includes(`\n${selector} {`), `no ${selector} rule`);
+    assert(/\.site-signup-address \{[^}]*overflow-wrap: anywhere;/.test(SITE_CSS), 'a long address could overflow a phone');
   });
 
   await check('P4 the email form: the address (trimmed) and the language to the request route, the one answer, the code (digits only) to the verify route, the redirect; wrong, limited, failed, restart, blocked and a failed request each said; the buttons wait while a request is out; no log line holds the address or the code', async () => {
@@ -609,6 +661,201 @@ async function main() {
     }
     const leaked = logs.filter((l) => l.includes(TOKEN));
     assert(leaked.length === 0, `a log line holds the token: ${show(leaked)}`);
+  });
+
+  /** Each location.reload() the sign-up client asked for, by the page's language. */
+  const reloads: string[] = [];
+  /** The sign-up client in a browser (real React on the fake DOM), with the routes the check set. */
+  async function openSignUp(locale: Locale) {
+    const { SignUpClient } = await load('app/[locale]/(site)/signup/SignUpClient.tsx');
+    installWindow();
+    assigned.length = 0;
+    reloads.length = 0;
+    fakeWindow.location = {
+      hash: '',
+      origin: 'https://famcal.bot',
+      href: `https://famcal.bot${prefix(locale)}/signup`,
+      assign: (u: string) => void assigned.push(u),
+      reload: () => void reloads.push(locale),
+    };
+    const m = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignUpClient, {})) as unknown as ReactElement);
+    await settle();
+    return m;
+  }
+  const hrefsOf = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'a').map((e) => e.getAttribute('href'));
+
+  await check('S2 /signup\'s form: it reads GET /api/auth/signup (same-origin) and shows the address (its own left-to-right element), the second-account warning, the name field (text, the name autocomplete, any direction, its note), the consent line linking the Terms and the Privacy Policy in the page\'s language, Create account (off with no name) and Use another way (/signin); a name over 60 characters is said with no request; Create account posts the trimmed name and the page\'s language, waits busy, refuses a page off this site and goes where the server says', async () => {
+    for (const locale of LOCALES) {
+      const u = messages[locale].site.signup as Row;
+      routes = { 'GET /api/auth/signup': () => json({ way: 'google', address: 'dana@gmail.com' }) };
+      const m = await openSignUp(locale);
+      try {
+        const read = calls.filter((c) => c.url === '/api/auth/signup' && c.method === 'GET').at(-1);
+        assert(read?.credentials === 'same-origin', `${locale}: the read ${show(read)}`);
+        const text = flat(m.container);
+        for (const w of [u.title, u.secondAccount, u.nameLabel, u.nameNote, u.create, u.another]) assert(text.includes(w), `${locale}: no "${w}" in ${text.slice(0, 300)}`);
+        const address = elements(m.container).find((e) => e.localName === 'bdi');
+        assert(address && flat(address) === 'dana@gmail.com' && address.getAttribute('dir') === 'ltr' && address.className === 'site-signup-address', `${locale}: the address ${address && flat(address)}`);
+        const links = hrefsOf(m);
+        assert(links.includes(`${prefix(locale)}/terms`) && links.includes(`${prefix(locale)}/privacy`) && links.includes(`${prefix(locale)}/signin`), `${locale}: links ${show(links)}`);
+        assert(byClass(m, 'site-signup-consent').length === 1, `${locale}: no consent line`);
+        const field = inputOf(m);
+        assert(field.getAttribute('type') === 'text' && attrOf(field, 'autocomplete') === 'name' && field.getAttribute('dir') === 'auto' && field.className === 'site-field', `${locale}: the name field ${show([...field.attributes])}`);
+        const submit = () => way(m, 'submit') as FakeElement;
+        assert(submit().hasAttribute('disabled') && flat(submit()) === u.create, `${locale}: Create account is on with no name`);
+        m.input(field, 'x'.repeat(61));
+        const before = calls.length;
+        m.submit(formOf(m));
+        await settle();
+        assert(calls.length === before && alerts(m).includes(u.nameLong), `${locale}: a long name ${show(alerts(m))}`);
+        m.input(inputOf(m), '  Dana Levi ');
+        let release: (r: Response) => void = () => undefined;
+        routes['POST /api/auth/signup'] = () => new Promise<Response>((resolve) => void (release = resolve));
+        m.submit(formOf(m));
+        await settle();
+        assert(submit().hasAttribute('disabled') && submit().getAttribute('aria-busy') === 'true' && flat(submit()).includes(u.creating), `${locale}: no busy state`);
+        await act(async () => release(json({ ok: true, redirect: 'https://evil.example/x' })));
+        await settle();
+        assert(assigned.length === 0 && alerts(m).includes(S(locale).requestFailed) && !submit().hasAttribute('disabled'), `${locale}: an off-site page ${show(assigned)}`);
+        const posted = lastCall('/api/auth/signup');
+        assert(posted && posted.method === 'POST' && show(posted.body) === show({ name: 'Dana Levi', locale }) && posted.headers['Content-Type'] === 'application/json' && posted.credentials === 'same-origin', `${locale}: the request ${show(posted)}`);
+        routes['POST /api/auth/signup'] = () => json({ ok: true, redirect: `${prefix(locale)}/dashboard?user_id=12` });
+        m.submit(formOf(m));
+        await settle();
+        assert(show(assigned) === show([`${prefix(locale)}/dashboard?user_id=12`]), `${locale}: the redirect ${show(assigned)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('S3 /signup\'s answers: a refused name, the address cap, a failed or unknown answer each say so and keep the form usable; taken, exists and restart replace it with their own words and a link to /signin; blocked goes to its page; a read that says exists or restart shows those with no form; a failed read says so and Try again reads again; no log line holds the address or the name', async () => {
+    for (const locale of LOCALES) {
+      const u = messages[locale].site.signup as Row;
+      const st = S(locale).status as Row;
+      const afterCreate = async (answer: () => Response) => {
+        routes = { 'GET /api/auth/signup': () => json({ way: 'email', address: 'rivka@example.com' }), 'POST /api/auth/signup': answer };
+        const m = await openSignUp(locale);
+        m.input(inputOf(m), 'Rivka');
+        m.submit(formOf(m));
+        await settle();
+        return m;
+      };
+      const kept: [() => Response, string][] = [
+        [() => json({ ok: false, status: 'name' }, 400), u.nameInvalid],
+        [() => json({ ok: false, status: 'limit' }, 429), u.limit],
+        [() => json({ ok: false, status: 'failed' }, 500), S(locale).requestFailed],
+        [() => json({ ok: false, status: 'something-new' }, 418), S(locale).requestFailed],
+      ];
+      for (const [answer, words] of kept) {
+        const m = await afterCreate(answer);
+        try {
+          assert(alerts(m).includes(words) && formOf(m) && !(way(m, 'submit') as FakeElement).hasAttribute('disabled'), `${locale}: ${words}: ${show(alerts(m))}`);
+        } finally {
+          m.unmount();
+        }
+      }
+      const replaced: [() => Response, string, string][] = [
+        [() => json({ ok: false, status: 'taken' }, 409), u.takenTitle, u.taken],
+        [() => json({ ok: false, status: 'exists', way: 'google' }), u.existsTitle, st.existsGoogle],
+        [() => json({ ok: false, status: 'restart' }), u.expiredTitle, u.expired],
+      ];
+      for (const [answer, title, line] of replaced) {
+        const m = await afterCreate(answer);
+        try {
+          const text = flat(m.container);
+          assert(text.includes(title) && text.includes(line) && !formOf(m), `${locale}: ${title}: ${text.slice(0, 200)}`);
+          assert(hrefsOf(m).includes(`${prefix(locale)}/signin`), `${locale}: ${title}: no way back`);
+        } finally {
+          m.unmount();
+        }
+      }
+      const blocked = await afterCreate(() => json({ ok: false, status: 'blocked' }, 403));
+      try {
+        assert(show(assigned) === show([`${prefix(locale)}/signin?status=blocked`]), `${locale}: blocked ${show(assigned)}`);
+      } finally {
+        blocked.unmount();
+      }
+      const reads: [Row, string, string][] = [
+        [{ exists: 'email' }, u.existsTitle, st.existsEmail],
+        [{ restart: true }, u.expiredTitle, u.expired],
+      ];
+      for (const [answer, title, line] of reads) {
+        routes = { 'GET /api/auth/signup': () => json(answer) };
+        const m = await openSignUp(locale);
+        try {
+          const text = flat(m.container);
+          assert(text.includes(title) && text.includes(line) && !formOf(m), `${locale}: ${show(answer)}: ${text.slice(0, 200)}`);
+        } finally {
+          m.unmount();
+        }
+      }
+      routes = { 'GET /api/auth/signup': () => json({ failed: true }, 500) };
+      const failed = await openSignUp(locale);
+      try {
+        assert(alerts(failed).includes(u.loadFailed) && !formOf(failed), `${locale}: a failed read ${show(alerts(failed))}`);
+        routes = { 'GET /api/auth/signup': () => json({ way: 'google', address: 'dana@gmail.com' }) };
+        failed.click(buttonByText(failed, u.tryAgain) as FakeElement);
+        await settle();
+        assert(formOf(failed), `${locale}: Try again did not read again`);
+      } finally {
+        failed.unmount();
+      }
+    }
+    const leaked = logs.filter((l) => /dana@gmail\.com|rivka@example\.com|Dana Levi|Rivka/.test(l));
+    assert(leaked.length === 0, `a log line holds the address or the name: ${show(leaked)}`);
+  });
+
+  await check('S4 /signin\'s email form: a right code whose address already signs in with Google (the verify route\'s { error: exists, way: google }) goes to /signin?status=exists-google, and one with way email to exists-email', async () => {
+    for (const locale of LOCALES) {
+      installWindow();
+      assigned.length = 0;
+      fakeWindow.location = { hash: '', origin: 'https://famcal.bot', href: 'https://famcal.bot/signin', assign: (u: string) => void assigned.push(u) };
+      delete fakeWindow.TelegramWebviewProxy;
+      fakeWindow.Telegram = undefined;
+      const props = { ways: { telegram: false, google: false, email: true }, telegramAppUrl: '', pageAddress: `famcal.bot${prefix(locale)}/signin` };
+      for (const [answerWay, status] of [['google', 'exists-google'], ['email', 'exists-email']] as const) {
+        assigned.length = 0;
+        const m = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignInClient, props)) as unknown as ReactElement);
+        try {
+          m.click(way(m, 'email') as FakeElement);
+          m.input(inputOf(m), 'dana@gmail.com');
+          routes = { 'POST /api/auth/email/request': () => json({ ok: true }) };
+          m.submit(formOf(m));
+          await settle();
+          m.input(inputOf(m), '123456');
+          routes = { 'POST /api/auth/email/verify': () => json({ ok: false, error: 'exists', way: answerWay }) };
+          m.submit(formOf(m));
+          await settle();
+          assert(show(assigned) === show([`${prefix(locale)}/signin?status=${status}`]), `${locale} ${answerWay}: exists ${show(assigned)}`);
+        } finally {
+          m.unmount();
+        }
+      }
+    }
+  });
+
+  await check('S5 /signup restored by Back (the back-forward cache: pageshow with persisted) reloads, so the server sends a browser that is signed in now to its calendar; a fresh show does not reload', async () => {
+    const shows: ((event: Row) => void)[] = [];
+    const before = fakeWindow.addEventListener;
+    fakeWindow.addEventListener = (type: string, fn: (event: Row) => void) => {
+      if (type === 'pageshow') shows.push(fn);
+    };
+    try {
+      routes = { 'GET /api/auth/signup': () => json({ way: 'google', address: 'dana@gmail.com' }) };
+      const m = await openSignUp('en');
+      try {
+        assert(shows.length === 1, `pageshow listeners: ${shows.length}`);
+        await act(async () => shows[0]({ persisted: false }));
+        assert(reloads.length === 0, 'a fresh show reloaded');
+        await act(async () => shows[0]({ persisted: true }));
+        assert(show(reloads) === show(['en']), `a page restored by Back: ${show(reloads)}`);
+      } finally {
+        m.unmount();
+      }
+    } finally {
+      fakeWindow.addEventListener = before;
+    }
   });
 
   await check('P7 the CSS: the kit\'s lint; the fields 16 px or more; every way, link, field and the header\'s Sign in at least 44 px; Google\'s button in Google\'s colours as tokens, light and dark, with its label readable (4.5:1); the spinner only without reduced motion', async () => {

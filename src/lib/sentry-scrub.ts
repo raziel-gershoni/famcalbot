@@ -13,7 +13,9 @@
  *
  * And sign-in's one-time values and the email address (web sign-in spec §8): code, state,
  * token, id_token and email leave URLs, queries and JSON or form bodies. That also covers the
- * Google Calendar connect's code and state and the WhatsApp magic link's token.
+ * Google Calendar connect's code and state and the WhatsApp magic link's token. A body's name
+ * goes too (Create account sends the name typed on /signup, web sign-up spec §8): no Sentry
+ * field holds a person's name.
  *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
@@ -52,12 +54,12 @@ const INIT_DATA_PARAM = /initData=[^&#]*/gi;
  */
 const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email'];
 const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email)=[^&#]*/gi;
-/** Body fields dropped from a request body, any case: initData, and sign-in's code, state, token, id_token and email. */
-const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email']);
+/** Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token and email, and a name. */
+const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email', 'name']);
 /** The same fields as JSON members (a string, or a bare number or word), for JSON the SDK cut off at its size limit. */
-const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
+const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
 /** And as fields of a form body. */
-const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email)=[^&]*/gi;
+const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name)=[^&]*/gi;
 /** A Telegram Bot API path, /bot<id>:<token> ('%3A' when the colon is encoded). */
 const BOT_TOKEN_PATH = /\/bot\d+(?::|%3A)[A-Za-z0-9_-]+/gi;
 /** Request headers that carry a credential, lower-cased. */

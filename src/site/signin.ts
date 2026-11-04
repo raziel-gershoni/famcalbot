@@ -2,7 +2,8 @@
 // the sign-in page, the email form, Settings, the gate card and the finishing step's signInPageUrl and signUpPageUrl
 // (src/lib/web-session.ts) all use signInHref and signUpHref. English has no prefix ('as-needed', i18n/routing.ts), an
 // unknown language is English. Client-safe: no Prisma, no Redis, no server-only import, and the SignInStatus type is
-// import type (erased). It also holds the statuses /signin may show (Task 8).
+// import type (erased). It also holds the statuses /signin may show (Task 8), which ways a new person can sign up
+// with, and the name's length limit the sign-up page and the server share.
 
 import { localeHref } from '@/src/site/zmanim/links';
 import { normalizeLocale } from '@/src/utils/locale';
@@ -23,6 +24,8 @@ export const STATUS_KEY: Record<SignInStatus, string> = {
   unavailable: 'unavailable',
   taken: 'taken',
   'has-one': 'hasOne',
+  'exists-email': 'existsEmail',
+  'exists-google': 'existsGoogle',
 };
 
 /** Every status the sign-in flows send to /signin: STATUS_KEY's keys, so a new SignInStatus member is read by construction (the Record fails to compile without it). */
@@ -46,4 +49,17 @@ export function signInHref(locale: string, status?: SignInStatus): string {
 /** '/signup', '/he/signup' or '/ru/signup': the page a sign-up waits on (web sign-up spec §3.4). */
 export function signUpHref(locale: string): string {
   return localeHref(normalizeLocale(locale), '/signup');
+}
+
+/** A sign-up name's most characters (code points, after trimming): the server refuses more, the page says so first. */
+export const SIGNUP_NAME_MAX = 60;
+
+/** The ways a new person can create an account with on this server: the words /signin uses for "New to FamCal?". */
+export type SignUpWays = 'google' | 'email' | 'both';
+
+/** Which sign-up ways are open (Google sign-in set up; email codes with Turnstile set up), or null when none is. */
+export function signUpWays(google: boolean, email: boolean): SignUpWays | null {
+  if (google && email) return 'both';
+  if (google) return 'google';
+  return email ? 'email' : null;
 }
