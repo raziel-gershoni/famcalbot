@@ -1959,6 +1959,9 @@ export const SIGNIN_CSS = `
   opacity: 0.6;
   cursor: default;
 }
+.site-turnstile {
+  margin-block-start: 12px;
+}
 .site-signin-starts {
   margin-block-start: 14px;
 }

@@ -17,15 +17,20 @@
 //   the 6-digit code. A right code goes where the server says (this site only); a wrong one says so; a code the server
 //   can't use any more goes back to the address; a blocked or suspended account goes to its page. "Send a new code" asks
 //   again for the same address.
+// - Bot check (web sign-up spec 2026-11-03 §2.4): when the server passes a Turnstile site key, the email form and the code
+//   screen each hold Cloudflare's check (TurnstileWidget). Send and "Send a new code" wait for its token, the token goes
+//   with the request, and the check is reset after each request (a token works once). The server's 'check' refusal has
+//   its own words. No site key: no widget, no script, and the request is as in 6b.
 // - Every request waits with its button busy and the others off, and clears on failure with the reason in words. A log
 //   line holds the status and the error only: never the address or the code.
 // - The words are site.signin.* (the site namespace reaches the client). Inputs are 16 px (no zoom on iOS) and read left
 //   to right in every language.
 
-import { useEffect, useId, useState, useSyncExternalStore, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type FormEvent, type MouseEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2, Mail, Send } from 'lucide-react';
 import { GoogleMark } from '@/components/site/GoogleMark';
+import { TurnstileWidget, type TurnstileHandle } from '@/components/site/TurnstileWidget';
 import { readJsonBody } from '@/src/lib/read-json';
 import { signInHref } from '@/src/site/signin';
 
@@ -38,7 +43,7 @@ export interface SignInWays {
 type Step = 'choose' | 'email' | 'code';
 type Busy = 'telegram' | 'google' | 'email' | 'code';
 /** What the form says went wrong: a key of site.signin. */
-type Problem = 'requestFailed' | 'codeWrong' | 'codeLimited' | 'codeRestart';
+type Problem = 'requestFailed' | 'codeWrong' | 'codeLimited' | 'codeRestart' | 'emailCheck';
 
 const TAG = '[signin]';
 const subscribe = () => () => {};
@@ -56,7 +61,18 @@ const inTelegram = () => {
 };
 const onServer = () => false;
 
-export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: SignInWays; telegramAppUrl: string; pageAddress: string }) {
+export function SignInClient({
+  ways,
+  telegramAppUrl,
+  pageAddress,
+  turnstileSiteKey = null,
+}: {
+  ways: SignInWays;
+  telegramAppUrl: string;
+  pageAddress: string;
+  /** Cloudflare Turnstile's site key, when the server has the check on (page.tsx reads it per request) */
+  turnstileSiteKey?: string | null;
+}) {
   const t = useTranslations('site.signin');
   const locale = useLocale();
   const inApp = useSyncExternalStore(subscribe, inTelegram, onServer);
@@ -65,9 +81,13 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<Busy | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const checkRef = useRef<TurnstileHandle>(null);
   const emailId = useId();
   const codeId = useId();
   const problemId = useId();
+  /** Waiting for the bot check's token: Send and Send a new code wait too */
+  const waiting = turnstileSiteKey !== null && token === null;
 
   // Back from Telegram's or Google's page restores this one as it was left: its ways work again
   useEffect(() => {
@@ -94,7 +114,7 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
   const requestCode = async (event?: FormEvent) => {
     event?.preventDefault();
     const address = email.trim();
-    if (busy || address === '') return;
+    if (busy || address === '' || waiting) return;
     setBusy('email');
     setProblem(null);
     try {
@@ -102,13 +122,18 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: address, locale }),
+        body: JSON.stringify(turnstileSiteKey ? { email: address, locale, token } : { email: address, locale }),
       });
       const body = await readJsonBody(res, `${TAG} code request`);
       if (res.ok && body?.ok === true) {
         setEmail(address);
         setCode('');
         setStep('code');
+        return;
+      }
+      if (body?.error === 'check') {
+        console.warn(`${TAG} the browser check was refused (${res.status})`);
+        setProblem('emailCheck');
         return;
       }
       console.warn(`${TAG} the code request answered ${res.status}`);
@@ -118,6 +143,8 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
       setProblem('requestFailed');
     } finally {
       setBusy(null);
+      // A token works once: the check asks for the next one
+      if (turnstileSiteKey) checkRef.current?.reset();
     }
   };
 
@@ -176,6 +203,8 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
       {t(problem)}
     </p>
   ) : null;
+  // The email form and the code screen each mount their own (a step change renders a fresh check)
+  const browserCheck = turnstileSiteKey ? <TurnstileWidget key="turnstile" ref={checkRef} siteKey={turnstileSiteKey} onToken={setToken} /> : null;
 
   if (step === 'choose') {
     return (
@@ -248,9 +277,10 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
             onChange={(e) => setEmail(e.target.value)}
           />
           {problemLine}
-          <button type="submit" className="site-signin-way" data-way="submit" disabled={busy !== null || email.trim() === ''} aria-busy={busy === 'email' || undefined}>
+          {browserCheck}
+          <button type="submit" className="site-signin-way" data-way="submit" disabled={busy !== null || email.trim() === '' || waiting} aria-busy={busy === 'email' || undefined}>
             {busy === 'email' ? spinner : null}
-            {busy === 'email' ? t('emailSending') : t('emailSend')}
+            {busy === 'email' ? t('emailSending') : waiting ? t('turnstileWaiting') : t('emailSend')}
           </button>
         </form>
         <div className="site-signin-links">
@@ -294,8 +324,9 @@ export function SignInClient({ ways, telegramAppUrl, pageAddress }: { ways: Sign
           {busy === 'code' ? t('codeChecking') : t('codeSubmit')}
         </button>
       </form>
+      {browserCheck}
       <div className="site-signin-links">
-        <button type="button" className="site-signin-link" disabled={busy !== null} onClick={() => void requestCode()}>
+        <button type="button" className="site-signin-link" disabled={busy !== null || waiting} onClick={() => void requestCode()}>
           {t('codeAgain')}
         </button>
         <button type="button" className="site-signin-link" disabled={busy !== null} onClick={() => goTo('choose')}>

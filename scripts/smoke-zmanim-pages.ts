@@ -437,11 +437,15 @@ async function main() {
     // of the zmanim limit is spent): the only files that may call fetch, and only as client components (web sign-in Task 8)
     const FORM_CLIENTS = ['app/[locale]/(site)/signin/SignInClient.tsx', 'app/[locale]/(site)/signin/add-google/AddGoogleClient.tsx'];
     for (const file of FORM_CLIENTS) assert(siteFiles.includes(file) && /^\s*['"]use client['"]/m.test(readSource(file)), `${file} is not a client component`);
+    // The one script a site page loads is Cloudflare's Turnstile, on /signin's email form when a person opens it (6c-1 Task 3)
+    const SCRIPT_LOADER = 'components/site/TurnstileWidget.tsx';
+    assert(siteFiles.includes(SCRIPT_LOADER) && /^\s*['"]use client['"]/m.test(readSource(SCRIPT_LOADER)), `${SCRIPT_LOADER} is not a client component`);
     for (const file of siteFiles) {
       const text = readSource(file);
       assert(FORM_CLIENTS.includes(file) || !/\bfetch\s*\(/.test(text), `${file} calls fetch`);
       assert(!/<script\b[^>]*\bsrc\s*=/i.test(text), `${file} loads a script by src`);
       assert(!/['"]next\/script['"]/.test(text), `${file} imports next/script`);
+      assert(file === SCRIPT_LOADER || !/createElement\(\s*['"]script['"]\s*\)/.test(text), `${file} makes a script element`);
     }
     for (const file of fs.readdirSync(path.join(ROOT, 'components/site/zmanim'))) {
       const client = /^\s*['"]use client['"]/m.test(readSource(`components/site/zmanim/${file}`));

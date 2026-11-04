@@ -39,15 +39,18 @@ export function startupSecretProblems(env: Record<string, string | undefined>): 
 }
 
 /**
- * The web sign-in ways and the variables each one needs (web sign-in spec §6). The owner sets them after the deploy,
- * and a way stays hidden until its own are set (oidc.ts's providerConfigured, email-send.ts's emailConfigured), so an
- * unset one is a warning (signInSetupWarnings), never a StartupProblem: no Sentry capture, not "missing" in the deploy
- * message.
+ * The web sign-in ways and the variables each one needs (web sign-in spec §6), and email sign-up's bot check (web
+ * sign-up spec §6: Turnstile, turnstile.ts's turnstileConfigured). The owner sets them after the deploy, and a way stays
+ * hidden until its own are set (oidc.ts's providerConfigured, email-send.ts's emailConfigured), so an unset one is a
+ * warning (signInSetupWarnings), never a StartupProblem: no Sentry capture, not "missing" in the deploy message.
+ * `off` names what is off when it is not the way's sign-in.
  */
-export const SIGN_IN_ENV: readonly { way: string; names: readonly string[] }[] = [
+export const SIGN_IN_ENV: readonly { way: string; names: readonly string[]; off?: string }[] = [
   { way: 'Telegram', names: ['TELEGRAM_LOGIN_CLIENT_ID', 'TELEGRAM_LOGIN_CLIENT_SECRET'] },
   { way: 'Google', names: ['GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET'] },
   { way: 'an email code', names: ['RESEND_API_KEY'] },
+  // Email sign-in works without it; sign-up by email waits for both
+  { way: 'an email code', names: ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET'], off: 'web sign-up with an email code' },
 ];
 
 /**
@@ -57,9 +60,9 @@ export const SIGN_IN_ENV: readonly { way: string; names: readonly string[] }[] =
  */
 export function signInSetupWarnings(env: Record<string, string | undefined>): string[] {
   const warnings: string[] = [];
-  for (const { way, names } of SIGN_IN_ENV) {
+  for (const { way, names, off } of SIGN_IN_ENV) {
     const unset = names.filter((name) => !env[name]);
-    if (unset.length > 0) warnings.push(`web sign-in with ${way} is off: ${unset.join(' and ')} ${unset.length > 1 ? 'are' : 'is'} not set`);
+    if (unset.length > 0) warnings.push(`${off ?? `web sign-in with ${way}`} is off: ${unset.join(' and ')} ${unset.length > 1 ? 'are' : 'is'} not set`);
   }
   if (env.GOOGLE_SIGNIN_CLIENT_SECRET && googleSignInUsesCalendarClient(env.GOOGLE_SIGNIN_CLIENT_ID, env.GOOGLE_CLIENT_ID)) {
     warnings.push('web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client');

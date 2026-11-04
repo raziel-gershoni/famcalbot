@@ -12,6 +12,7 @@ import { SELLER } from '@/src/lib/seller';
 import { SESSION_COOKIE_NAME, validateSessionToken } from '@/src/lib/session-auth';
 import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { providerConfigured } from '@/src/services/web-signin/oidc';
+import { turnstileSiteKey } from '@/src/services/web-signin/turnstile';
 import { SITE_URL } from '@/src/site/config';
 import { siteMetadata } from '@/src/site/seo';
 import { isOutcome, readSignInStatus, STATUS_KEY, type OutcomeStatus } from '@/src/site/signin';
@@ -30,6 +31,8 @@ import { SignInClient, type SignInWays } from './SignInClient';
 //   (an Add Google that was refused) stand instead of the ways; restart, failed and unavailable are an alert above them.
 //   A status page never redirects, even with a cookie.
 // - Kept out of search (noindex, no alternates), as the share page is.
+// - The email form's bot check: Turnstile's site key, read per request (turnstileSiteKey: both Turnstile variables set),
+//   reaches the client only when email is on too; without it the form has no widget (web sign-up spec §2.4).
 // - The Telegram app link the client uses inside Telegram is gateLinks().telegram, https://t.me/<bot>?start=dashboard: the
 //   bot's chat, whose /start dashboard reply carries the Mini App button. The repo has no `startapp` (direct Mini App)
 //   link builder (checked in src/lib/ and src/site/), and a direct link needs the bot's Main Mini App set in BotFather,
@@ -117,7 +120,12 @@ export default async function SignInPage({ params, searchParams }: Props) {
               ) : null}
               {anyWay ? (
                 <>
-                  <SignInClient ways={ways} telegramAppUrl={links.telegram} pageAddress={`${new URL(SITE_URL).host}${localeHref(locale, '/signin')}`} />
+                  <SignInClient
+                    ways={ways}
+                    telegramAppUrl={links.telegram}
+                    pageAddress={`${new URL(SITE_URL).host}${localeHref(locale, '/signin')}`}
+                    turnstileSiteKey={ways.email ? turnstileSiteKey() : null}
+                  />
                   <p className="site-honest">{t('site.signin.existingOnly')}</p>
                 </>
               ) : (

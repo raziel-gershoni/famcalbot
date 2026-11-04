@@ -138,7 +138,9 @@ check('[guard] every environment variable the app reads that names a credential 
   }
   assert(names.size > 10, `only ${names.size} names found`);
   const credential = /SECRET|TOKEN(?!S)|(^|_)KEY(_|$)|PASSWORD|CREDENTIALS/;
-  const unscrubbed = [...names].filter((name) => credential.test(name) && secretValues({ [name]: 'x'.repeat(24) } as unknown as NodeJS.ProcessEnv).length === 0);
+  // Public by design: Cloudflare Turnstile's site key, which every sign-in page shows to the browser (6c-1 Task 3)
+  const PUBLIC_KEYS = ['TURNSTILE_SITE_KEY'];
+  const unscrubbed = [...names].filter((name) => !PUBLIC_KEYS.includes(name) && credential.test(name) && secretValues({ [name]: 'x'.repeat(24) } as unknown as NodeJS.ProcessEnv).length === 0);
   assert(unscrubbed.length === 0, `named like a credential but not scrubbed: ${unscrubbed.join(', ')}`);
 });
 

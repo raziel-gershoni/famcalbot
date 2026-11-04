@@ -1,18 +1,19 @@
-// Smoke test for web sign-in's setup: the startup warnings and the docs (spec 2026-11-02-web-sign-in §6; plan Task 11b).
+// Smoke test for web sign-in's setup: the startup warnings and the docs (spec 2026-11-02-web-sign-in §6; plan Task 11b;
+// 6c-1 Task 3 adds sign-up's two Turnstile variables, spec 2026-11-03-web-sign-up §6).
 //
-//  - S1 signInSetupWarnings (src/lib/startup-checks.ts) names each web sign-in way that is off by its variables, and a
-//    Google sign-in client that is the calendar's, and never a value; SIGN_IN_ENV holds the five variables the sign-in
-//    code reads (Task 4's oidc.ts, Task 5's email-send.ts), and every secret among them matches the console
-//    scrubber's name pattern (CLAUDE.md: name a new secret to match, or its value is printed). That register() logs
-//    them is smoke-fail-closed #8b.
-//  - S2 the docs: the README's env table has a row for each of the five, and a Web sign-in section with both callback
+//  - S1 signInSetupWarnings (src/lib/startup-checks.ts) names each web sign-in way that is off by its variables (and email
+//    sign-up without its Turnstile pair), and a Google sign-in client that is the calendar's, and never a value;
+//    SIGN_IN_ENV holds the seven variables the sign-in code reads (oidc.ts, email-send.ts, turnstile.ts), and every
+//    secret among them matches the console scrubber's name pattern (CLAUDE.md: name a new secret to match, or its value
+//    is printed). That register() logs them is smoke-fail-closed #8b.
+//  - S2 the docs: the README's env table has a row for each of the seven, and a Web sign-in section with both callback
 //    URLs; .env.example has a commented placeholder for each (a copied placeholder must never become a real value);
 //    CLAUDE.md has the sign-in rule; and only the files that rule names touch SignInIdentity rows.
 //
 // Real: src/lib/startup-checks.ts and the files read as text. No network, no DB.
 //
 // Run with the fake env (never the real one), from the repo root:
-//   bash <scratchpad>/6b/run-smoke.sh smoke-signin-setup
+//   bash <scratchpad>/6c1/run-smoke.sh smoke-signin-setup
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,28 +37,36 @@ function assert(cond: unknown, message: string): asserts cond {
 }
 const show = (v: unknown) => JSON.stringify(v);
 
-const FIVE = ['TELEGRAM_LOGIN_CLIENT_ID', 'TELEGRAM_LOGIN_CLIENT_SECRET', 'GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET', 'RESEND_API_KEY'];
+/** The sign-in and sign-up variables (6b's five, 6c-1's Turnstile pair), in SIGN_IN_ENV's order. */
+const NAMES = ['TELEGRAM_LOGIN_CLIENT_ID', 'TELEGRAM_LOGIN_CLIENT_SECRET', 'GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET', 'RESEND_API_KEY', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET'];
+/** The ones that are no secret (a client id, the site key every page shows); the rest must match the console scrubber. */
+const PUBLIC = ['TELEGRAM_LOGIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_ID', 'TURNSTILE_SITE_KEY'];
 const ALL_OFF = [
   'web sign-in with Telegram is off: TELEGRAM_LOGIN_CLIENT_ID and TELEGRAM_LOGIN_CLIENT_SECRET are not set',
   'web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID and GOOGLE_SIGNIN_CLIENT_SECRET are not set',
   'web sign-in with an email code is off: RESEND_API_KEY is not set',
+  'web sign-up with an email code is off: TURNSTILE_SITE_KEY and TURNSTILE_SECRET are not set',
 ];
 
 /** The files the CLAUDE.md rule lets read or write SignInIdentity rows. */
 const SIGNIN_IDENTITY_FILES = ['src/services/web-signin/identities.ts', 'src/services/account-linking.ts'];
 
 async function main() {
-  await check('S1 signInSetupWarnings names each way that is off by its variables, and a Google sign-in client that is the calendar\'s; never a value; SIGN_IN_ENV is the five variables the sign-in code reads, and its secrets match the console scrubber', async () => {
+  await check('S1 signInSetupWarnings names each way that is off by its variables (email sign-up without Turnstile too), and a Google sign-in client that is the calendar\'s; never a value; SIGN_IN_ENV is the seven variables the sign-in code reads, and its secrets match the console scrubber', async () => {
     const mod = (await import(path.join(ROOT, 'src/lib/startup-checks.ts'))) as Row;
     assert(typeof mod.signInSetupWarnings === 'function', 'startup-checks exports no signInSetupWarnings');
     const names = (mod.SIGN_IN_ENV as { way: string; names: string[] }[]).flatMap((w) => w.names);
-    assert(show(names) === show(FIVE), `SIGN_IN_ENV names ${show(names)}`);
-    const all = { TELEGRAM_LOGIN_CLIENT_ID: '8000000001', TELEGRAM_LOGIN_CLIENT_SECRET: 'VALUE-TGL-1', GOOGLE_SIGNIN_CLIENT_ID: 'VALUE-GSI-id', GOOGLE_SIGNIN_CLIENT_SECRET: 'VALUE-GSI-2', RESEND_API_KEY: 'VALUE-RES-3', GOOGLE_CLIENT_ID: 'VALUE-CAL-id' };
+    assert(show(names) === show(NAMES), `SIGN_IN_ENV names ${show(names)}`);
+    const all = {
+      TELEGRAM_LOGIN_CLIENT_ID: '8000000001', TELEGRAM_LOGIN_CLIENT_SECRET: 'VALUE-TGL-1', GOOGLE_SIGNIN_CLIENT_ID: 'VALUE-GSI-id', GOOGLE_SIGNIN_CLIENT_SECRET: 'VALUE-GSI-2',
+      RESEND_API_KEY: 'VALUE-RES-3', TURNSTILE_SITE_KEY: 'VALUE-TSK-4', TURNSTILE_SECRET: 'VALUE-TSS-5', GOOGLE_CLIENT_ID: 'VALUE-CAL-id',
+    };
     const cases: [string, Record<string, string | undefined>, string[]][] = [
       ['all set', all, []],
       ['none set', {}, ALL_OFF],
-      ['all empty', Object.fromEntries(FIVE.map((n) => [n, ''])), ALL_OFF],
+      ['all empty', Object.fromEntries(NAMES.map((n) => [n, ''])), ALL_OFF],
       ['only the Telegram secret missing', { ...all, TELEGRAM_LOGIN_CLIENT_SECRET: undefined }, ['web sign-in with Telegram is off: TELEGRAM_LOGIN_CLIENT_SECRET is not set']],
+      ['only the Turnstile secret missing', { ...all, TURNSTILE_SECRET: undefined }, ['web sign-up with an email code is off: TURNSTILE_SECRET is not set']],
       ['Google sign-in on the calendar client', { ...all, GOOGLE_CLIENT_ID: 'VALUE-GSI-id' }, ['web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client']],
     ];
     const problems: string[] = [];
@@ -73,19 +82,19 @@ async function main() {
     if (!/googleSignInUsesCalendarClient\(/.test(read('src/services/web-signin/oidc.ts'))) problems.push('oidc.ts does not decide through client-ids.ts');
     if (!/googleSignInUsesCalendarClient\(/.test(read('src/lib/startup-checks.ts'))) problems.push('startup-checks.ts does not decide through client-ids.ts');
     // The names the sign-in code reads: a renamed variable here would warn about one nobody reads
-    const code = read('src/services/web-signin/oidc.ts') + read('src/services/web-signin/email-send.ts');
-    for (const name of FIVE) if (!code.includes(`process.env.${name}`)) problems.push(`the sign-in code never reads process.env.${name}`);
+    const code = read('src/services/web-signin/oidc.ts') + read('src/services/web-signin/email-send.ts') + read('src/services/web-signin/turnstile.ts');
+    for (const name of NAMES) if (!code.includes(`process.env.${name}`)) problems.push(`the sign-in code never reads process.env.${name}`);
     const pattern = /const SECRET_NAME = \/(.+)\/i;/.exec(read('src/lib/console-scrub.ts'))?.[1];
     assert(pattern, 'no SECRET_NAME in src/lib/console-scrub.ts');
-    for (const name of FIVE.filter((n) => !n.endsWith('_CLIENT_ID'))) if (!new RegExp(pattern, 'i').test(name)) problems.push(`${name} does not match the console scrubber's SECRET_NAME`);
+    for (const name of NAMES.filter((n) => !PUBLIC.includes(n))) if (!new RegExp(pattern, 'i').test(name)) problems.push(`${name} does not match the console scrubber's SECRET_NAME`);
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('S2 the README\'s env table has a row for each of the five and a Web sign-in section with both callbacks; .env.example a commented placeholder for each; CLAUDE.md the sign-in rule; only the files the rule names touch SignInIdentity', () => {
+  await check('S2 the README\'s env table has a row for each of the seven and a Web sign-in section with both callbacks; .env.example a commented placeholder for each; CLAUDE.md the sign-in rule; only the files the rule names touch SignInIdentity', () => {
     const readme = read('README.md');
     const example = read('.env.example').split('\n');
     const problems: string[] = [];
-    for (const name of FIVE) {
+    for (const name of NAMES) {
       if (!new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme)) problems.push(`README's table has no ${name} row`);
       const line = example.find((l) => l.startsWith(`# ${name}=`));
       if (!line || !/^# [A-Z_]+=your_[a-z_]+_here$/.test(line)) problems.push(`.env.example has no commented placeholder for ${name}`);

@@ -1,10 +1,11 @@
-// The world the web sign-in smokes run in (smoke-signin-methods.ts, smoke-signin-calendar-match.ts): the real modules,
-// with fakes at the boundaries only. Prisma and Upstash in memory (Prisma with the signInIdentity -> user relation the
-// email lookups select; Upstash with the two Lua scripts the limits and countWithin run), Next's after() (queued, run by
-// drainAfter()), the rate limiter (records nothing, allows), error capture (recorded), Telegram and WhatsApp (every
-// send recorded, or refused on demand), the OIDC exchange (oidc.ts: scripted claims, the state checked as openid-client
-// checks it), the calendar's Google account (google-sync/client.ts: scripted per refresh token), the admin notifier,
-// and fetch (Resend answered and recorded; anything else blocked).
+// The world the web sign-in smokes run in (smoke-signin-methods.ts, smoke-signin-calendar-match.ts, smoke-turnstile.ts,
+// smoke-signup-email.ts): the real modules, with fakes at the boundaries only. Prisma and Upstash in memory (Prisma with
+// the signInIdentity -> user relation the email lookups select, and `equals` with mode 'insensitive'; Upstash with the
+// two Lua scripts the limits and countWithin run), Next's after() (queued, run by drainAfter()), the rate limiter
+// (records nothing, allows), error capture (recorded), Telegram and WhatsApp (every send recorded, or refused on
+// demand), the OIDC exchange (oidc.ts: scripted claims, the state checked as openid-client checks it), the calendar's
+// Google account (google-sync/client.ts: scripted per refresh token), the admin notifier (warnings recorded), and fetch
+// (Resend answered and recorded; Cloudflare Turnstile's siteverify scripted and recorded; anything else blocked).
 // Every console line is kept, so a smoke can check that no address, code or token reached one. No network, no DB.
 // scripts/lib/ is not a smoke (ci-smokes.sh runs scripts/smoke-*.ts only).
 
@@ -104,7 +105,8 @@ function matches(row: Row, where?: Row): boolean {
     if (isPlain(cond) && k.includes('_') && !(k in row)) return matches(row, cond);
     const v = row[k];
     if (isPlain(cond)) {
-      if ('equals' in cond && !same(v ?? null, cond.equals)) return false;
+      // mode 'insensitive' (Postgres compares without case): the fake compares the lower-cased text
+      if ('equals' in cond && !(cond.mode === 'insensitive' ? typeof v === 'string' && v.toLowerCase() === String(cond.equals).toLowerCase() : same(v ?? null, cond.equals))) return false;
       if ('in' in cond && !(cond.in as unknown[]).some(x => same(v, x))) return false;
       if ('notIn' in cond && (cond.notIn as unknown[]).some(x => same(v, x))) return false;
       if ('not' in cond && (isPlain(cond.not) ? matches(row, { [k]: cond.not }) : same(v ?? null, cond.not))) return false;
@@ -382,6 +384,16 @@ export const captured: { context: string; message: string; extra: Row }[] = [];
 export const everyCapture: { context: string; message: string; extra: Row }[] = [];
 export const mails: { to: string[]; body: Row; idempotencyKey: string | null }[] = [];
 export const everyMail: { to: string[]; body: Row; idempotencyKey: string | null }[] = [];
+/** The admin's warnings (notifyAdminWarning), in order: the budget messages. */
+export const adminWarnings: { context: string; message: string }[] = [];
+
+/** Cloudflare Turnstile's siteverify: each call's form, in order. */
+export const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+export const siteverifyCalls: { form: URLSearchParams }[] = [];
+/** A siteverify answer: a pass for famcal.bot's email-code action, with `o` over it. */
+export function siteverifyAnswer(o: Row = {}): Row {
+  return { success: true, 'error-codes': [], challenge_ts: new Date().toISOString(), hostname: 'famcal.bot', action: 'email-code', cdata: '', ...o };
+}
 
 /** The scripted boundaries. A check sets what it needs after resetWorld(). */
 export const world = {
@@ -396,6 +408,11 @@ export const world = {
   accounts: {} as Record<string, string | Error | (() => string)>,
   /** The refresh tokens Google was asked about, in order */
   googleAsks: [] as string[],
+  /**
+   * Turnstile's siteverify, one entry per call: an answer (200 JSON), a status (an empty body), a string (a 200 body as
+   * it is, e.g. cut-off JSON) or an Error (no answer). When empty: siteverifyAnswer(), a pass.
+   */
+  siteverify: [] as (Row | number | string | Error)[],
 };
 
 export function resetWorld(): void {
@@ -408,7 +425,9 @@ export function resetWorld(): void {
   captured.length = 0;
   mails.length = 0;
   logs.length = 0;
-  Object.assign(world, { telegramFails: false, whatsappFails: false, resendFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [] });
+  adminWarnings.length = 0;
+  siteverifyCalls.length = 0;
+  Object.assign(world, { telegramFails: false, whatsappFails: false, resendFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [], siteverify: [] });
 }
 
 function chatService(platform: 'telegram' | 'whatsapp'): Row {
@@ -459,10 +478,14 @@ export function initDataFor(tgId: number): string {
 
 export const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 
-/** A request to famcal.bot: JSON, from famcal.bot (origin: null sends none, or another one), with the client address set. */
-export function request(url: string, o: { method?: string; body?: unknown; cookie?: string; initData?: string; origin?: string | null } = {}): Row {
+/**
+ * A request to famcal.bot: JSON, from famcal.bot (origin: null sends none, or another one), with the client address set
+ * (x-real-ip 203.0.113.9, or `ip`; ip: null sends none).
+ */
+export function request(url: string, o: { method?: string; body?: unknown; cookie?: string; initData?: string; origin?: string | null; ip?: string | null } = {}): Row {
   const { NextRequest } = nodeRequire('next/server');
-  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-real-ip': '203.0.113.9', 'accept-language': 'en' };
+  const headers: Record<string, string> = { 'content-type': 'application/json', 'accept-language': 'en' };
+  if (o.ip !== null) headers['x-real-ip'] = o.ip ?? '203.0.113.9';
   if (o.origin !== null) headers.origin = o.origin ?? BASE;
   if (o.cookie) headers.cookie = o.cookie;
   if (o.initData) headers['x-telegram-init-data'] = o.initData;
@@ -545,7 +568,8 @@ export async function installSigninWorld(): Promise<void> {
     captureInfo: () => undefined,
   });
   stub('src/utils/error-notifier.ts', {
-    getAdminUserIds: async () => [], notifyAdminError: async () => undefined, notifyAdminWarning: async () => undefined, notifyAdminFeedback: async () => undefined,
+    getAdminUserIds: async () => [], notifyAdminError: async () => undefined, notifyAdminFeedback: async () => undefined,
+    notifyAdminWarning: async (context: string, message: string) => void adminWarnings.push({ context, message }),
   });
   const telegram = { getBot: () => ({}), initBot: () => ({}), getMessagingService: () => chatService('telegram'), setUserMenuButton: async () => undefined };
   stub('src/services/telegram/bot.ts', telegram);
@@ -601,9 +625,17 @@ export async function installSigninWorld(): Promise<void> {
     afterQueue.push(typeof task === 'function' ? (task as () => unknown) : () => task);
   };
 
-  // fetch: Resend is answered and its request recorded; everything else is blocked.
+  // fetch: Resend is answered and its request recorded; Turnstile's siteverify is scripted (world.siteverify) and its form
+  // recorded; everything else is blocked.
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
+    if (url === SITEVERIFY_URL) {
+      siteverifyCalls.push({ form: new URLSearchParams(input instanceof Request ? await input.text() : String(init?.body ?? '')) });
+      const next = world.siteverify.shift() ?? siteverifyAnswer();
+      if (next instanceof Error) throw next;
+      if (typeof next === 'number') return new Response('', { status: next });
+      return new Response(typeof next === 'string' ? next : JSON.stringify(next), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
     if (url === 'https://api.resend.com/emails') {
       const raw = input instanceof Request ? await input.text() : String(init?.body ?? '');
       const parsed: Row = JSON.parse(raw || '{}');

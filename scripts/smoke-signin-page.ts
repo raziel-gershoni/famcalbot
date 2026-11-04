@@ -34,7 +34,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { act, createElement as h, type ReactElement } from 'react';
 import { lintCss } from './lib/css-lint';
-import { elements, fakeTelegram, fakeWindow, FakeElement, FakeText, installWindow, mount, type FakeNode, type Mounted } from './lib/fake-dom';
+import { elements, fakeDocument, fakeTelegram, fakeWindow, FakeElement, FakeText, installWindow, mount, type FakeNode, type Mounted } from './lib/fake-dom';
 import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, RAW_KEY, render, request, show, stub, stubIntlServer, textOf, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
@@ -87,7 +87,7 @@ for (const level of ['info', 'warn', 'error'] as const) {
     original(...args);
   };
 }
-const ours = (line: string) => /^\[(?:signin|add-google|add-google-page)\]/.test(line);
+const ours = (line: string) => /^\[(?:signin|add-google|add-google-page|turnstile)\]/.test(line);
 
 // ---- The fake fetch ----
 
@@ -296,17 +296,55 @@ async function main() {
     }
   });
 
-  /** The sign-in client in a browser: plain, in Telegram's own browser (inApp), or in the Mini App's webview (miniApp: Telegram.WebApp.initData is set). */
-  function openClient(locale: Locale, opts: { inApp?: boolean; miniApp?: boolean } = {}) {
+  /**
+   * The sign-in client in a browser: plain, in Telegram's own browser (inApp), or in the Mini App's webview (miniApp:
+   * Telegram.WebApp.initData is set); siteKey: the server passed a Turnstile site key.
+   */
+  function openClient(locale: Locale, opts: { inApp?: boolean; miniApp?: boolean; siteKey?: string } = {}) {
     installWindow();
     assigned.length = 0;
     fakeWindow.location = { hash: '', origin: 'https://famcal.bot', href: 'https://famcal.bot/signin', assign: (u: string) => void assigned.push(u) };
     if (opts.inApp) fakeWindow.TelegramWebviewProxy = {};
     else delete fakeWindow.TelegramWebviewProxy;
     fakeWindow.Telegram = opts.miniApp ? { WebApp: fakeTelegram([], '7.7') } : undefined;
-    const props = { ways: { telegram: true, google: true, email: true }, telegramAppUrl: 'https://t.me/family_calendar_telegram_bot?start=dashboard', pageAddress: `famcal.bot${prefix(locale)}/signin` };
+    const props = {
+      ways: { telegram: true, google: true, email: true },
+      telegramAppUrl: 'https://t.me/family_calendar_telegram_bot?start=dashboard',
+      pageAddress: `famcal.bot${prefix(locale)}/signin`,
+      ...(opts.siteKey ? { turnstileSiteKey: opts.siteKey } : {}),
+    };
     return mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(SignInClient, props)) as unknown as ReactElement);
   }
+
+  // ---- Cloudflare Turnstile in the browser (6c-1 Task 3): a fake window.turnstile that records every call ----
+  const SITE_KEY = '1x00000000000000000000AA';
+  const ts = { calls: [] as string[], widgets: [] as { id: string; options: Row }[] };
+  const fakeTurnstile = {
+    render: (_el: unknown, options: Row) => {
+      const id = `w${ts.widgets.length + 1}`;
+      ts.widgets.push({ id, options });
+      ts.calls.push(`render:${id}`);
+      return id;
+    },
+    reset: (id: string) => void ts.calls.push(`reset:${id}`),
+    remove: (id: string) => void ts.calls.push(`remove:${id}`),
+  };
+  const lastWidget = () => ts.widgets[ts.widgets.length - 1];
+  const scripts = () => ((fakeDocument.head as FakeElement | undefined)?.childNodes ?? []).filter((n): n is FakeElement => n instanceof FakeElement && n.localName === 'script');
+  /** The props the page gives an element of `type` in its tree (the tree as the page returns it, before it renders). */
+  const propsOf = (node: unknown, type: unknown): Row | null => {
+    if (Array.isArray(node)) {
+      for (const n of node) {
+        const hit = propsOf(n, type);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    if (!node || typeof node !== 'object') return null;
+    const el = node as Row;
+    if (el.type === type) return el.props as Row;
+    return propsOf(el.props?.children, type);
+  };
 
   // P6 renders server pages, so it runs before any client check: the first client mount loads react-dom/client, whose dispatcher
   // then takes over react-dom's preload during a server render (the header's priority image) and the render fails.
@@ -594,6 +632,132 @@ async function main() {
     for (const theme of ['light', 'dark'] as const) assert(ratio(GOOGLE_BUTTON[theme].text, GOOGLE_BUTTON[theme].bg) >= 4.5, `${theme}: Google's label at ${ratio(GOOGLE_BUTTON[theme].text, GOOGLE_BUTTON[theme].bg).toFixed(2)}:1`);
     assert(/@media \(prefers-reduced-motion: no-preference\) \{\s*\.site-spin \{\s*animation:/.test(own) && !/(?:^|\n)\.site-spin \{/.test(own), 'the spinner turns under reduced motion');
   });
+
+  await check('P9 Turnstile on the email form: the page passes the site key only with both Turnstile variables and email on; Cloudflare\'s script is loaded once (explicit rendering), again after it failed; the widget gets the site key, action email-code, theme auto, the page\'s language and the flexible size; Send waits for a token, which goes with the request; the widget is reset after every request and removed on unmount; a refused check, an error and a timeout each say so (an error and a timeout with Try again, which renders afresh); an expired token makes Send wait again; the code screen has its own check for Send a new code; no site key, no script; no log line holds a token', async () => {
+    // The page: the key only when both variables are set and email is on
+    request.locale = 'en';
+    const both = { TURNSTILE_SITE_KEY: SITE_KEY, TURNSTILE_SECRET: 'smoke-only-turnstile-secret' };
+    const pageCases: [string, Record<string, string>, boolean, string | null][] = [
+      ['both set', both, true, SITE_KEY],
+      ['only the site key', { TURNSTILE_SITE_KEY: SITE_KEY }, true, null],
+      ['neither', {}, true, null],
+      ['email off', both, false, null],
+    ];
+    for (const [label, env, emailOn, want] of pageCases) {
+      delete process.env.TURNSTILE_SITE_KEY;
+      delete process.env.TURNSTILE_SECRET;
+      Object.assign(process.env, env);
+      configure({ google: true, email: emailOn });
+      const tree = await SignInPage({ params: Promise.resolve({ locale: 'en' }), searchParams: Promise.resolve({}) });
+      const props = propsOf(tree, SignInClient);
+      assert(props && (props.turnstileSiteKey ?? null) === want, `${label}: the page passes ${show(props?.turnstileSiteKey)}`);
+    }
+    delete process.env.TURNSTILE_SITE_KEY;
+    delete process.env.TURNSTILE_SECRET;
+
+    // A script that did not load: said, Try again loads it afresh; then it loads once for every later widget
+    fakeDocument.head = fakeDocument.createElement('head');
+    delete fakeWindow.turnstile;
+    const en = S('en');
+    const first = openClient('en', { siteKey: SITE_KEY });
+    try {
+      first.click(way(first, 'email') as FakeElement);
+      await settle();
+      const script = scripts()[0] as unknown as Row;
+      assert(scripts().length === 1 && script.src === 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit' && script.async === true, `the script: ${scripts().length} ${script?.src}`);
+      await act(async () => script.onerror());
+      await settle();
+      assert(alerts(first).includes(en.turnstileProblem) && scripts().length === 0, `a script that did not load: ${show(alerts(first))}, ${scripts().length} scripts`);
+      first.click(buttonByText(first, en.turnstileRetry) as FakeElement);
+      await settle();
+      assert(scripts().length === 1, 'Try again did not load the script again');
+      fakeWindow.turnstile = fakeTurnstile;
+      await act(async () => (scripts()[0] as unknown as Row).onload());
+      await settle();
+      assert(ts.widgets.length === 1 && !alerts(first).includes(en.turnstileProblem), `after the load: ${show(ts.calls)} ${show(alerts(first))}`);
+    } finally {
+      first.unmount();
+    }
+    assert(ts.calls.at(-1) === 'remove:w1', `not removed on unmount: ${show(ts.calls)}`);
+
+    for (const locale of LOCALES) {
+      const s = S(locale);
+      ts.calls.length = 0;
+      ts.widgets.length = 0;
+      const m = openClient(locale, { siteKey: SITE_KEY });
+      try {
+        m.click(way(m, 'email') as FakeElement);
+        await settle();
+        assert(scripts().length === 1, `${locale}: the script was loaded again`);
+        const o = lastWidget()?.options ?? {};
+        assert(ts.widgets.length === 1 && o.sitekey === SITE_KEY && o.action === 'email-code' && o.theme === 'auto' && o.language === locale && o.size === 'flexible', `${locale}: the widget ${show(ts.calls)} ${show(o)}`);
+        for (const cb of ['callback', 'error-callback', 'expired-callback', 'timeout-callback']) assert(typeof o[cb] === 'function', `${locale}: no ${cb}`);
+        const submit = () => way(m, 'submit') as FakeElement;
+        m.input(inputOf(m), 'dana@gmail.com');
+        assert(submit().hasAttribute('disabled') && flat(submit()) === s.turnstileWaiting, `${locale}: Send before the token: "${flat(submit())}"`);
+        await act(async () => o.callback('tok-1'));
+        assert(!submit().hasAttribute('disabled') && flat(submit()) === s.emailSend, `${locale}: Send after the token: "${flat(submit())}"`);
+
+        // The server refuses the check: said, the widget reset, Send waits for the next token
+        routes = { 'POST /api/auth/email/request': () => json({ ok: false, error: 'check' }, 403) };
+        m.submit(formOf(m));
+        await settle();
+        assert(show(lastCall('/api/auth/email/request')?.body) === show({ email: 'dana@gmail.com', locale, token: 'tok-1' }), `${locale}: the request ${show(lastCall('/api/auth/email/request')?.body)}`);
+        assert(alerts(m).includes(s.emailCheck) && ts.calls.includes('reset:w1') && submit().hasAttribute('disabled'), `${locale}: a refused check: ${show(alerts(m))} ${show(ts.calls)}`);
+
+        // An expired token makes Send wait again
+        await act(async () => o.callback('tok-2'));
+        await act(async () => o['expired-callback']());
+        assert(submit().hasAttribute('disabled'), `${locale}: Send with an expired token`);
+
+        // An error and a timeout: said, with Try again, which renders a fresh widget
+        await act(async () => o['error-callback']('300030'));
+        assert(alerts(m).includes(s.turnstileProblem), `${locale}: an error: ${show(alerts(m))}`);
+        m.click(buttonByText(m, s.turnstileRetry) as FakeElement);
+        await settle();
+        assert(ts.calls.includes('remove:w1') && lastWidget().id === 'w2' && !alerts(m).includes(s.turnstileProblem), `${locale}: Try again after an error: ${show(ts.calls)}`);
+        await act(async () => lastWidget().options['timeout-callback']());
+        assert(alerts(m).includes(s.turnstileProblem), `${locale}: a timeout: ${show(alerts(m))}`);
+        m.click(buttonByText(m, s.turnstileRetry) as FakeElement);
+        await settle();
+        assert(lastWidget().id === 'w3', `${locale}: Try again after a timeout: ${show(ts.calls)}`);
+
+        // A pass and a sent code: the email form's widget goes, and the code screen has its own, for Send a new code
+        await act(async () => lastWidget().options.callback('tok-3'));
+        routes = { 'POST /api/auth/email/request': () => json({ ok: true }) };
+        m.submit(formOf(m));
+        await settle();
+        assert(lastCall('/api/auth/email/request')?.body?.token === 'tok-3', `${locale}: the second request ${show(lastCall('/api/auth/email/request')?.body)}`);
+        assert(ts.calls.includes('reset:w3') && ts.calls.includes('remove:w3') && lastWidget().id === 'w4', `${locale}: after the code was sent: ${show(ts.calls)}`);
+        assert((buttonByText(m, s.codeAgain) as FakeElement).hasAttribute('disabled'), `${locale}: Send a new code before its token`);
+        await act(async () => lastWidget().options.callback('tok-4'));
+        assert(!(buttonByText(m, s.codeAgain) as FakeElement).hasAttribute('disabled'), `${locale}: Send a new code after its token`);
+        m.click(buttonByText(m, s.codeAgain) as FakeElement);
+        await settle();
+        assert(lastCall('/api/auth/email/request')?.body?.token === 'tok-4' && ts.calls.includes('reset:w4'), `${locale}: Send a new code: ${show(lastCall('/api/auth/email/request')?.body)} ${show(ts.calls)}`);
+      } finally {
+        m.unmount();
+      }
+      assert(ts.calls.at(-1) === `remove:${lastWidget().id}`, `${locale}: not removed on unmount: ${show(ts.calls)}`);
+    }
+
+    // No site key: no script, no widget, and Send waits for nothing
+    const callsBefore = ts.calls.length;
+    const scriptsBefore = scripts().length;
+    const plain = openClient('en');
+    try {
+      plain.click(way(plain, 'email') as FakeElement);
+      await settle();
+      plain.input(inputOf(plain), 'dana@gmail.com');
+      assert(ts.calls.length === callsBefore && scripts().length === scriptsBefore, `a widget without a site key: ${show(ts.calls.slice(callsBefore))}`);
+      assert(!(way(plain, 'submit') as FakeElement).hasAttribute('disabled') && flat(way(plain, 'submit') as FakeElement) === en.emailSend, 'Send waits without a site key');
+    } finally {
+      plain.unmount();
+    }
+    const leaked = logs.filter((l) => /tok-\d/.test(l));
+    assert(leaked.length === 0, `a log line holds a token: ${show(leaked)}`);
+  });
+
 
   await check('P8 React and the pages logged nothing of their own beyond the expected request failures', () => {
     const unexpected = logs.filter((l) => !ours(l) && !l.startsWith('Detected multiple renderers') && !l.startsWith('(node:'));

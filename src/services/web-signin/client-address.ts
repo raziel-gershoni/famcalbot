@@ -19,6 +19,16 @@ export function clientAddress(request: Request): string | null {
   return null;
 }
 
+/**
+ * The client's own address, as Railway's edge set it (the same x-real-ip, trimmed), for a provider that asks for it:
+ * Turnstile's remoteip (web sign-up spec §3.1). Never for counting (that is clientAddress, by /64). null when the
+ * header is missing or not an address.
+ */
+export function clientIp(request: Request): string | null {
+  const raw = request.headers.get('x-real-ip')?.trim() ?? '';
+  return raw !== '' && isIP(raw) !== 0 ? raw : null;
+}
+
 /** The /64 of an IPv6 address `isIP` accepted (any compression, an embedded IPv4, a %zone), or the IPv4 address it maps. */
 function ipv6Block(address: string): string | null {
   const bare = address.split('%')[0].toLowerCase();
