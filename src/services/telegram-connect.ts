@@ -240,33 +240,51 @@ async function attachTelegram(userId: number, telegramId: number): Promise<'atta
 }
 
 /**
- * After the Telegram id is written: feature access and the reminder pass see the chat, the menu button opens the
- * dashboard, the person is told and welcomed, and the notice goes to the ways the account had before (`before` is the
- * row read before the write, with no chat, so it goes by email: Task 8's routing). Never throws: the connect has
- * happened, so no "nothing was connected" may follow it.
+ * After the Telegram id is written: the person is told first, then feature access and the reminder pass see the chat,
+ * the menu button opens the dashboard, the person is welcomed, and the notice goes to the ways the account had before
+ * (`before` is the row read before the write, with no chat, so it goes by email: Task 8's routing). Never throws, and
+ * each step stands alone: a Redis or Telegram hiccup in one is captured and the rest still run, so the confirmation
+ * and the welcome are never lost to it. The connect has happened, so no "nothing was connected" may follow it.
  */
 async function afterConnect(chatId: number | string, before: UserConfig, telegramId: number): Promise<void> {
   console.log(`[tg-connect] user ${before.id}: Telegram ${telegramId} connected`);
-  try {
+  await reply(chatId, COPY[normalizeLocale(before.language)].connected);
+  const step = async (name: string, run: () => Promise<void> | void): Promise<void> => {
+    try {
+      await run();
+    } catch (error) {
+      console.error(`[tg-connect] user ${before.id}: the after-connect step ${name} failed: ${safeErrorSummary(error)}`);
+      captureSignInFailure(error, 'tg-connect-after', { user_id: before.id, purpose: name });
+    }
+  };
+  await step('feature-access', async () => {
     const { invalidateFeatureAccessCache } = await import('./subscription-service');
     await invalidateFeatureAccessCache(before.id);
-    // The account's own reminders now have a chat to ping
-    invalidateDueGate();
-    const user = await getUserById(before.id);
-    const locale = normalizeLocale(user?.language ?? before.language);
+  });
+  // The account's own reminders now have a chat to ping
+  await step('due-gate', () => invalidateDueGate());
+  let current: UserConfig | null = null;
+  try {
+    current = await getUserById(before.id);
+  } catch (error) {
+    console.error(`[tg-connect] user ${before.id}: the after-connect step read-user failed: ${safeErrorSummary(error)}`);
+    captureSignInFailure(error, 'tg-connect-after', { user_id: before.id, purpose: 'read-user' });
+  }
+  const locale = normalizeLocale(current?.language ?? before.language);
+  await step('menu-button', async () => {
     const { setUserMenuButton } = await import('./telegram/bot');
     await setUserMenuButton(telegramId, locale);
-    // Who belongs in the reminder cache is the hourly sync's rule
-    if (user) await syncReminderCacheEntry(user);
-    await reply(chatId, COPY[locale].connected);
-    if (user) {
+  });
+  // Who belongs in the reminder cache is the hourly sync's rule
+  const account = current;
+  if (account) {
+    await step('reminder-cache', () => syncReminderCacheEntry(account));
+    await step('welcome', async () => {
       const { sendWelcome } = await import('./telegram/welcome');
-      await sendWelcome(chatId, user);
-    }
-  } catch (error) {
-    captureSignInFailure(error, 'tg-connect-after', { user_id: before.id });
+      await sendWelcome(chatId, account);
+    });
   }
-  await sendSignInNotice(before, { kind: 'telegram', via: 'connected' });
+  await step('notice', () => sendSignInNotice(before, { kind: 'telegram', via: 'connected' }));
 }
 
 /** The Connect button: `tgc:<pressId>`. The caller has answered the button's spinner. */

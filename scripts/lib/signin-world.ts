@@ -425,6 +425,8 @@ export function siteverifyAnswer(o: Row = {}): Row {
 /** The scripted boundaries. A check sets what it needs after resetWorld(). */
 export const world = {
   telegramFails: false,
+  /** setUserMenuButton throws (Telegram refuses the menu button) */
+  menuButtonFails: false,
   whatsappFails: false,
   /** Resend refuses the mail (422: no retry), after recording it */
   resendFails: false,
@@ -458,7 +460,7 @@ export function resetWorld(): void {
   logs.length = 0;
   adminWarnings.length = 0;
   siteverifyCalls.length = 0;
-  Object.assign(world, { telegramFails: false, whatsappFails: false, resendFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [], siteverify: [] });
+  Object.assign(world, { telegramFails: false, menuButtonFails: false, whatsappFails: false, resendFails: false, oidc: { telegram: true, google: true }, claims: null, accounts: {}, googleAsks: [], siteverify: [] });
 }
 
 function chatService(platform: 'telegram' | 'whatsapp'): Row {
@@ -614,7 +616,10 @@ export async function installSigninWorld(): Promise<void> {
   const bot = { answerCallbackQuery: async (queryId: string) => { callbackAnswers.push(queryId); return true; } };
   const telegram = {
     getBot: () => bot, initBot: () => bot, getMessagingService: () => chatService('telegram'),
-    setUserMenuButton: async (telegramId: unknown, locale: unknown) => { menuButtons.push([telegramId, locale]); },
+    setUserMenuButton: async (telegramId: unknown, locale: unknown) => {
+      if (world.menuButtonFails) throw new Error('Telegram refused the menu button (smoke)');
+      menuButtons.push([telegramId, locale]);
+    },
   };
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/telegram/index.ts', telegram);

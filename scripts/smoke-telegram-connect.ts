@@ -400,6 +400,75 @@ async function main() {
     assert(lastSent().text === words('en').expired && String(userRow(DANA).telegramId) === String(OTHER_TG), `reply ${lastSent().text}`);
   });
 
+  // The conditional write is the race fix: every check above changes state BEFORE the press, where handleConnectPress's
+  // own re-reads catch it. These change state between the last read and the write, so only the UPDATE ... WHERE (and the
+  // unique telegramId) can stop it.
+  const duringWrite = async (inBetween: () => void, pressId: string): Promise<void> => {
+    const { prisma } = await load('src/utils/prisma.ts');
+    const real = prisma.user.updateMany;
+    prisma.user.updateMany = async (a: Row) => { inBetween(); return real(a); };
+    try {
+      await press(NEW_TG, pressId);
+    } finally {
+      prisma.user.updateMany = real;
+    }
+  };
+
+  await check('race at the write: the account suspended after the last read -> not connected, "expired"', async () => {
+    seed();
+    const pressId = await askedBy(DANA, NEW_TG);
+    await duringWrite(() => { userRow(DANA).suspendedAt = new Date(); }, pressId);
+    assert(userRow(DANA).telegramId === null, `connected: ${show(userRow(DANA))}`);
+    assert(lastSent().text === words('en').expired, `reply ${lastSent().text}`);
+    assert(menuButtons.length === 0, `after-connect ran: ${show(menuButtons)}`);
+  });
+
+  await check('race at the write: the account got a chat after the last read -> its Telegram id stays, "expired"', async () => {
+    seed();
+    const pressId = await askedBy(DANA, NEW_TG);
+    await duringWrite(() => { userRow(DANA).telegramId = BigInt(OTHER_TG); }, pressId);
+    assert(String(userRow(DANA).telegramId) === String(OTHER_TG), `overwritten: ${show(userRow(DANA))}`);
+    assert(lastSent().text === words('en').expired && menuButtons.length === 0, `reply ${lastSent().text}`);
+  });
+
+  await check('race at the write: the unique telegramId refuses (P2002) because the Telegram made its own account -> the guidance, nothing connected, nothing captured', async () => {
+    seed();
+    const pressId = await askedBy(DANA, NEW_TG);
+    const captures = everyCapture.length;
+    const { prisma } = await load('src/utils/prisma.ts');
+    const real = prisma.user.updateMany;
+    prisma.user.updateMany = async () => {
+      DB.user.push(baseUser({ id: 70, name: 'New', telegramId: BigInt(NEW_TG) }));
+      throw Object.assign(new Error('unique'), { code: 'P2002' });
+    };
+    try {
+      await press(NEW_TG, pressId);
+    } finally {
+      prisma.user.updateMany = real;
+    }
+    assert(lastSent().text === words('en').hasAccountEmail.replace('{address}', '⁦dana@gmail.com⁩'), `reply ${lastSent().text}`);
+    assert(userRow(DANA).telegramId === null, 'connected');
+    assert(everyCapture.length === captures, `captured ${show(everyCapture.slice(captures))}`);
+  });
+
+  await check('after the write: a failing menu button is captured, and the person still gets "connected", the welcome and the notice', async () => {
+    seed();
+    const pressId = await askedBy(DANA, NEW_TG);
+    sent.length = 0;
+    const captures = everyCapture.length;
+    world.menuButtonFails = true;
+    try {
+      await press(NEW_TG, pressId);
+    } finally {
+      world.menuButtonFails = false;
+    }
+    assert(String(userRow(DANA).telegramId) === String(NEW_TG), 'not connected');
+    assert(everyCapture.slice(captures).some(c => c.context === 'tg-connect-after'), `captures ${show(everyCapture.slice(captures).map(c => c.context))}`);
+    assert(sentCount() === 2 && sent[0].text === words('en').connected, `sent ${show(sent.map(s => s.text))}`);
+    assert(sent[1].text.startsWith(MSG.en.bot.start.welcome.replace('{name}', 'Dana')), `welcome ${sent[1]?.text}`);
+    assert(everyLog.some(l => l.startsWith('[signin-notice]') && l.includes(`user ${DANA}`)), 'no notice line');
+  });
+
   await check('Cancel: both records dropped and "cancelled"; Connect afterwards is "expired"; a Cancel from another Telegram changes nothing', async () => {
     seed();
     let pressId = await askedBy(DANA, NEW_TG);
