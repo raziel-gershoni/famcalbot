@@ -213,6 +213,20 @@ async function main(): Promise<void> {
     assert(gaveUp.length === 2 && gaveUp[0].startsWith('0:') && gaveUp[1].startsWith('3:'), `onGiveUp ${show(gaveUp)}`);
   });
 
+  await check('wholeJson: a JSON answer comes back whole as a fresh Response with its status, status text and headers, minus the wire\'s encoding and length; a byte-order mark is fine; a 204 has no body; cut-off or broken JSON throws with its size and encoding, never the body', async () => {
+    const { wholeJson } = nodeRequire(path.join(ROOT, 'src/utils/whole-json.ts')) as typeof import('../src/utils/whole-json');
+    const headers = { 'content-type': 'application/json', 'content-encoding': 'gzip', 'content-length': '31', expires: 'Sat, 31 Oct 2026 18:00:00 GMT' };
+    const whole = await wholeJson(new Response('﻿{"a":[1,2]}', { status: 203, statusText: 'Non-Authoritative', headers }));
+    assert(whole.status === 203 && whole.statusText === 'Non-Authoritative' && whole.headers.get('expires') === headers.expires && whole.headers.get('content-encoding') === null && whole.headers.get('content-length') === null, `status and headers: ${whole.status} ${show([...whole.headers.entries()])}`);
+    assert(show(await whole.json()) === show({ a: [1, 2] }), 'the body reads');
+    const empty = await wholeJson(new Response(null, { status: 204 }));
+    assert(empty.status === 204 && empty.body === null, `204: ${empty.status}`);
+    let thrown: unknown;
+    await wholeJson(new Response('{"lat":32.08,"lon', { status: 200, headers })).catch(error => { thrown = error; });
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    assert(message === 'the 200 answer\'s JSON is cut off or broken: 17 bytes (gzip, 31 bytes sent)', `cut: ${message}`);
+  });
+
   await check('fetch and read: the body is read in the attempt, so a read that throws (a body cut off on the way) is retried like no answer and the next read is the value; a refusal is never read; a read failing every time gives up after 3 retries with its own error, onGiveUp once', async () => {
     reset();
     const reads: number[] = [];

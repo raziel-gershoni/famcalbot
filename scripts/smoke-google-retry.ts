@@ -685,6 +685,41 @@ async function main() {
     assertEq([fetches.length, map.googleRateLimitKind(quota.ok ? null : quota.error), map.retryAfterMs(quota.ok ? null : quota.error)], [1, 'quota', 40_000], 'a quota is not retried');
   });
 
+  await check('googleFetch wholeJson: a 200 whose JSON comes cut off is retried like no answer and the whole one is handed back readable; cut off every time, the read\'s error is thrown after the 2 no-answer retries; the lines say the body broke and its size, never the body; a 4xx is returned unread; without wholeJson the body is the caller\'s, as before', async () => {
+    resetSeam();
+    const cut = '{"id":"me@exam';
+    fakeFetch([respond(200, cut), respond(200, { id: 'me@example.com' })]);
+    const res = await retryMod.googleFetch(PRIMARY, {}, { wholeJson: true });
+    assertEq([res.status, (await res.json()).id, fetches.length, sleeps], [200, 'me@example.com', 2, [250]], 'cut then whole');
+    const line = warnings.find((w) => w.includes('retry 1 of'));
+    assert(line !== undefined && line.includes('answered 200, but its body did not read whole') && line.includes(`${cut.length} bytes`) && !line.includes('me@exam'), `the retry line: ${line}`);
+    resetSeam();
+    fakeFetch([respond(200, cut)]);
+    const broken = await outcome(() => retryMod.googleFetch(PRIMARY, {}, { wholeJson: true }));
+    assert(!broken.ok && /JSON is cut off or broken: 14 bytes/.test(broken.error.message) && !broken.error.message.includes('me@exam'), `cut every time: ${broken.ok ? 'ok' : broken.error.message}`);
+    assertEq([fetches.length, sleeps.length], [3, 2], 'cut every time: 1 + 2 retries');
+    resetSeam();
+    fakeFetch([respond(404, 'Not Found')]);
+    const missing = await retryMod.googleFetch(PRIMARY, {}, { wholeJson: true });
+    assertEq([missing.status, await missing.text(), fetches.length], [404, 'Not Found', 1], 'a 404 is the caller\'s to read');
+    resetSeam();
+    fakeFetch([respond(200, cut)]);
+    const plain = await retryMod.googleFetch(PRIMARY);
+    assertEq([await plain.text(), fetches.length], [cut, 1], 'without wholeJson');
+  });
+
+  await check('googleAccountOf: a primary-calendar answer that comes cut off is asked again and gives the account; one cut off every time is thrown as no answer (transient for classifyGoogleError), never a body', async () => {
+    resetSeam();
+    fakeFetch([respond(200, '{"id":"me@exa'), respond(200, { id: 'me@example.com' })]);
+    assertEq(await googleAccountOf('access'), 'me@example.com', 'account after a cut answer');
+    assertEq(fetches.length, 2, 'fetches');
+    resetSeam();
+    fakeFetch([respond(200, '{"id":"me@exa')]);
+    const broken = await outcome(() => googleAccountOf('access'));
+    assert(!broken.ok && /got no answer: the 200 answer's JSON is cut off or broken/.test(broken.error.message) && !broken.error.message.includes('me@exa'), `outcome ${broken.ok ? 'ok' : broken.error.message}`);
+    assertEq([fetches.length, map.classifyGoogleError(broken.ok ? null : broken.error)], [3, 'transient'], 'fetches, class');
+  });
+
   await check('nothing reached the network', async () => {
     assertEq(networkAttempts, [], 'network attempts');
   });

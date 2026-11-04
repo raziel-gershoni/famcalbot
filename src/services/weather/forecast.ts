@@ -27,6 +27,7 @@ import { captureError, captureWarning } from '../../lib/error-capture';
 import { instantToWallTime, wallTimeToInstant } from '../../utils/wall-time';
 import { addDaysToDate } from '../../utils/day-events';
 import { fetchAndReadWithRetry, HttpStatusError } from '../../utils/fetch-retry';
+import { wholeJson } from '../../utils/whole-json';
 import { seaLevelSun } from '../zmanim/compute';
 
 export const MET_URL = 'https://api.met.no/weatherapi/locationforecast/2.0/complete';
@@ -340,20 +341,12 @@ interface MetAnswer {
 }
 
 /**
- * MET's body read whole, inside the retry: one that does not parse (it came cut off, as on 2026-11-04, "Expected ':'
- * after property name in JSON at position 36641") or has no timeseries throws, and the loop asks again. The error gives
- * the size, never the body (it holds the coordinates).
+ * MET's body read whole, inside the retry (wholeJson): one that comes cut off (as on 2026-11-04) or has no timeseries
+ * throws, and the loop asks again. The error gives the size, never the body (it holds the coordinates).
  */
 async function readMetAnswer(response: Response): Promise<MetAnswer> {
   if (response.status === 304) return { response, body: null };
-  const text = await response.text();
-  let body: MetForecast;
-  try {
-    body = JSON.parse(text) as MetForecast;
-  } catch {
-    const sent = response.headers.get('content-length');
-    throw new Error(`MET answered ${response.status} with a body that is not whole JSON: ${text.length} characters (${response.headers.get('content-encoding') ?? 'not compressed'}${sent === null ? '' : `, ${sent} bytes sent`})`);
-  }
+  const body = (await (await wholeJson(response)).json()) as MetForecast;
   if (!Array.isArray(body?.properties?.timeseries)) throw new Error(`MET answered ${response.status} with no timeseries`);
   return { response, body };
 }

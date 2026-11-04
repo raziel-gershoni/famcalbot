@@ -7,7 +7,7 @@
  * sign-in client id only), its expiry, and RS256 as the one algorithm accepted.
  *
  * Every request it makes goes through the repo's retry layer for that provider: Google's through googleFetch, Telegram's
- * through fetchWithRetry (CLAUDE.md). openid-client puts a 30 s timeout signal of its own on each request; repoFetch
+ * through fetchAndReadWithRetry (CLAUDE.md), a GET's JSON read whole in the attempt (wholeJson). openid-client puts a 30 s timeout signal of its own on each request; repoFetch
  * drops it and the configuration's timeout is 0, so a call runs to the provider's ceiling (CLAUDE.md: no timeout of our own).
  *
  * Who the person is:
@@ -24,7 +24,8 @@
 
 import * as client from 'openid-client';
 import { buildUrl, getBaseUrl } from '../../config/urls';
-import { fetchWithRetry, HttpStatusError } from '../../utils/fetch-retry';
+import { fetchAndReadWithRetry, HttpStatusError } from '../../utils/fetch-retry';
+import { wholeJson } from '../../utils/whole-json';
 import { googleFetch } from '../google-retry';
 import { googleSignInUsesCalendarClient } from './client-ids';
 import type { OidcFlow } from './flow';
@@ -109,19 +110,29 @@ function requestOf(method: string | undefined, url: string): string {
   return `${(method ?? 'GET').toUpperCase()} ${parts ? `${parts[1]}${parts[2]}` : '(not a URL)'}`;
 }
 
-/** Telegram is a third party with no policy of its own: the shared loop, which logs its give-up here. */
-function telegramFetch(url: string, init: RequestInit): Promise<Response> {
-  return fetchWithRetry(url, init, {
+/**
+ * Telegram is a third party with no policy of its own: the shared loop, which logs its give-up here. A GET's JSON (the
+ * discovery document, the keys) is read whole in the attempt (wholeJson), so one that comes cut off is asked again.
+ */
+function telegramFetch(url: string, init: RequestInit, readWhole: boolean): Promise<Response> {
+  return fetchAndReadWithRetry(url, init, readWhole ? wholeJson : async response => response, {
     label: '[signin-telegram]',
     onGiveUp: (error, info) => console.warn(`[signin-telegram] ${requestOf(init.method, url)} failed: ${describeOidcError(error)} (${info.why})`),
   });
 }
 
-/** openid-client's request, sent through the provider's retry layer, without openid-client's timeout signal. */
+/**
+ * openid-client's request, sent through the provider's retry layer, without openid-client's timeout signal. A GET's
+ * body is read whole in the attempt; a POST (the code exchange) is never sent again for its body, and openid-client
+ * reads it as before.
+ */
 function repoFetch(provider: OidcProvider): client.CustomFetch {
-  const send = provider === 'google' ? googleFetch : telegramFetch;
   // `signal` is left out on purpose (see the header). `body` is a form or nothing for every request made here.
-  return (url, options) => send(url, { method: options.method, headers: options.headers, body: options.body as BodyInit | null | undefined, redirect: options.redirect });
+  return (url, options) => {
+    const init: RequestInit = { method: options.method, headers: options.headers, body: options.body as BodyInit | null | undefined, redirect: options.redirect };
+    const readWhole = (options.method ?? 'GET').toUpperCase() === 'GET';
+    return provider === 'google' ? googleFetch(url, init, { wholeJson: readWhole }) : telegramFetch(url, init, readWhole);
+  };
 }
 
 const cache = globalThis as { __famcalOidcConfigs?: Partial<Record<OidcProvider, Promise<client.Configuration>>> };

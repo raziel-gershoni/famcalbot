@@ -24,7 +24,8 @@ const PRIMARY_URL = 'https://www.googleapis.com/calendar/v3/calendars/primary?fi
 export async function googleAccountOf(accessToken: string): Promise<string> {
   let res: Response;
   try {
-    res = await googleFetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } });
+    // wholeJson: the body is read in the attempt, so one that comes cut off is asked again (and, still broken, lands here)
+    res = await googleFetch(PRIMARY_URL, { headers: { Authorization: `Bearer ${accessToken}` } }, { wholeJson: true });
   } catch (error) {
     // No answer at all (native fetch rejects with TypeError('fetch failed'), the cause carrying
     // the network code): a string code and no response, which classifyGoogleError counts as

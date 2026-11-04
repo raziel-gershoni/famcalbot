@@ -22,11 +22,15 @@
 // sleep ends when the request's signal aborts, and clears its timer, so a read that has
 // answered leaves nothing running. The cap bounds a sleep, never a Google call.
 //
+// googleFetch's `wholeJson` (a GET whose JSON is read) reads a 2xx's body in the attempt, so a
+// body that breaks or comes cut off is retried like an answer that never came.
+//
 // Every retry is one console line (the request without its query or ids, the status and
 // reasons, the attempt, the wait, Retry-After) and never a body or a header. The final
 // failure goes on to the callers' own captureError.
 
 import { BRIEF_RATE_LIMIT_REASONS, LONG_QUOTA_REASONS, googleErrorFacts, retryAfterMs } from './calendar-read/google-map';
+import { wholeJson } from '../utils/whole-json';
 
 export const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 500;
@@ -127,14 +131,20 @@ export function planRetry(a: RetryAttempt, env: Seam = seam()): RetryPlan {
 /** The reasons that end a wait the caller would otherwise have made: worth a line, unlike a plain 404. */
 const WORTH_A_LINE = new Set(['retry-after over the cap', 'deadline']);
 
-function logRetry(request: string, status: number | undefined, reasons: readonly string[], attempt: number, max: number, waitMs: number, asked: number | undefined): void {
-  const answer = status === undefined ? 'got no answer' : `answered ${status}${reasons.length > 0 ? ` (${reasons.join(', ')})` : ''}`;
+/** What an attempt got, for a line: its status and reasons, "got no answer", or the caller's words for a body that broke. */
+function answerOf(status: number | undefined, reasons: readonly string[], broke: string | undefined): string {
+  if (broke !== undefined) return broke;
+  return status === undefined ? 'got no answer' : `answered ${status}${reasons.length > 0 ? ` (${reasons.join(', ')})` : ''}`;
+}
+
+function logRetry(request: string, status: number | undefined, reasons: readonly string[], attempt: number, max: number, waitMs: number, asked: number | undefined, broke?: string): void {
+  const answer = answerOf(status, reasons, broke);
   console.warn(`${LOG} ${request} ${answer}; retry ${attempt} of ${max} in ${waitMs} ms${asked !== undefined ? ` (Retry-After ${asked} ms)` : ''}`);
 }
 
-function logGaveUp(request: string, status: number | undefined, reasons: readonly string[], plan: Extract<RetryPlan, { retry: false }>, retried: number, asked: number | undefined): void {
+function logGaveUp(request: string, status: number | undefined, reasons: readonly string[], plan: Extract<RetryPlan, { retry: false }>, retried: number, asked: number | undefined, broke?: string): void {
   if (!WORTH_A_LINE.has(plan.why) && !(plan.why === 'attempts used' && retried > 0)) return;
-  const answer = status === undefined ? 'got no answer' : `answered ${status}${reasons.length > 0 ? ` (${reasons.join(', ')})` : ''}`;
+  const answer = answerOf(status, reasons, broke);
   console.warn(`${LOG} ${request} ${answer}; not retried (${plan.why}${asked !== undefined ? `, Retry-After ${asked} ms` : ''}) after ${retried} ${retried === 1 ? 'retry' : 'retries'}`);
 }
 
@@ -247,24 +257,36 @@ function requestOf(method: string, url: string): string {
  * success, a 4xx, or the last failure) is returned for the caller to read as it always did.
  * A fetch that rejects (no answer) is retried the same way and, when not retried, rethrown as
  * it was. `init.signal` ends a sleep.
+ *
+ * `wholeJson`, for a GET whose JSON is read: a 2xx's body is read in the attempt (wholeJson,
+ * src/utils/whole-json.ts) and handed back whole, so a body that breaks or comes cut off is
+ * retried like no answer, and what still fails is the read's error.
  */
-export async function googleFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function googleFetch(url: string, init: RequestInit = {}, options: { wholeJson?: boolean } = {}): Promise<Response> {
   const method = (init.method ?? 'GET').toUpperCase();
   const request = requestOf(method, url);
   const base = { method, url, maxRetries: MAX_RETRIES, noResponseRetries: NO_RESPONSE_RETRIES };
   for (let retried = 0; ; retried++) {
     const env = seam();
     let res: Response;
+    // Set when the failure below is the body's, read after a 2xx: the line says so instead of "got no answer".
+    let broke: string | undefined;
     try {
       res = await fetch(url, init);
+      if (res.ok && options.wholeJson) {
+        broke = `answered ${res.status}, but its body did not read whole`;
+        res = await wholeJson(res);
+        broke = undefined;
+      }
     } catch (error) {
       const aborted = init.signal?.aborted === true || (error instanceof Error && error.name === 'AbortError');
       const plan = planRetry({ ...base, reasons: [], aborted, retried }, env);
+      const answer = broke === undefined ? undefined : `${broke} (${error instanceof Error ? error.message : String(error)})`;
       if (!plan.retry) {
-        logGaveUp(request, undefined, [], plan, retried, undefined);
+        logGaveUp(request, undefined, [], plan, retried, undefined, answer);
         throw error;
       }
-      logRetry(request, undefined, [], retried + 1, MAX_RETRIES, plan.waitMs, undefined);
+      logRetry(request, undefined, [], retried + 1, MAX_RETRIES, plan.waitMs, undefined, answer);
       await env.sleep(plan.waitMs, init.signal);
       continue;
     }

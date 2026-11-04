@@ -788,6 +788,31 @@ async function main() {
     assert(fetches.filter(f => discovery(f.url)).length === before + 1, 'the second start did not discover again');
   });
 
+  await check('#30b a discovery document or a key set that comes cut off is read in the attempt and asked again (Telegram\'s through the shared loop, Google\'s through googleFetch), and both sign-ins go through; the lines give the size, not the body', async () => {
+    seed();
+    __resetOidcForTests();
+    const cutOnce = new Set([SERVERS.telegram.discovery, SERVERS.telegram.jwks, SERVERS.google.discovery, SERVERS.google.jwks]);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) =>
+      cutOnce.delete(String(input))
+        ? new Response('{"issuer":"https://acc', { status: 200, headers: { 'content-type': 'application/json' } })
+        : realFetch(input as string, init)) as typeof fetch;
+    let tg: Response;
+    let g: Response;
+    try {
+      tg = (await signIn('telegram', tgClaims)).res;
+      g = (await signIn('google', gClaims)).res;
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert(cutOnce.size === 0, `never asked: ${show([...cutOnce])}`);
+    assert(sessionOf(tg)?.userId === 9 && sessionOf(g)?.userId === 1, `telegram ${location(tg)}, google ${location(g)}; ${show(lastCapture())}`);
+    const tgLines = logged.filter(l => l.startsWith('[signin-telegram] the 200 answer\'s JSON is cut off or broken: 22 bytes') && l.includes('retry 1 of 3'));
+    const gLines = logged.filter(l => l.startsWith('[google-retry] GET ') && l.includes('answered 200, but its body did not read whole') && l.includes('22 bytes'));
+    assert(tgLines.length === 2 && gLines.length === 2, `telegram lines ${show(tgLines)}, google lines ${show(gLines)}`);
+    assert(!logged.some(l => l.includes('"issuer"')), 'a body reached a line');
+  });
+
   await check('#31 no log line or Sentry report holds the email, a code, a state, a nonce, an id_token, an access token or a client secret', () => {
     const texts = [...logged, ...captured.map(c => `${c.message} ${c.extra}`)];
     const leaks = texts.filter(t => [...secrets].some(s => t.includes(s)));

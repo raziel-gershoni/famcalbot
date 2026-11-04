@@ -308,7 +308,7 @@ async function main(): Promise<void> {
     assert(days > 0 && nRequests() === 2 && show(waits) === show([250]) && nCaptured() === 0, `cut then whole: ${days} days, ${nRequests()} requests, waits ${show(waits)}, captured ${show(captured)}`);
     assert(nKept() === 1 && nOf((redisStore.values().next().value as { body: { properties: { timeseries: unknown[] } } }).body.properties.timeseries) === nOf(MET_TLV.properties.timeseries), `kept: ${nKept()} keys`);
     const retryLine = logged.find(l => l.includes('retry 1 of 3'));
-    assert(retryLine !== undefined && retryLine.includes(`${at} characters`) && !/Tel Aviv|32\.0|34\.7|air_temperature/.test(retryLine), `the retry line says the size, not the body or the place: ${retryLine}`);
+    assert(retryLine !== undefined && retryLine.includes(`${at} bytes`) && !/Tel Aviv|32\.0|34\.7|air_temperature/.test(retryLine), `the retry line says the size, not the body or the place: ${retryLine}`);
     reset();
     answer = () => cut();
     let threw = false;
