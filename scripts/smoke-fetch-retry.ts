@@ -2,7 +2,8 @@
 // one code path for non-Google retries): the one place that retries a call to a third party (MET Norway's forecast, Copernicus's dust files)
 // with backoff. Checked here: the loop (counts, waits, the server's ask, the give-up, the hooks), and fetch on top of it
 // (429, 5xx and no answer retried; Retry-After in seconds and as a date; one over the cap, 403 and 404 not retried; the
-// accepted extra statuses; no signal of our own on the request). Faked: fetch, the waits, the jitter and the clock (the
+// accepted extra statuses; no signal of our own on the request), and the body read inside the attempt (a read that throws
+// is retried like no answer). Faked: fetch, the waits, the jitter and the clock (the
 // module's test seam). No network.
 //
 // Run under both clocks:
@@ -210,6 +211,31 @@ async function main(): Promise<void> {
     answer = () => status(500);
     await quiet(() => retry.fetchWithRetry('https://example.test/', {}, options)).catch(() => undefined);
     assert(gaveUp.length === 2 && gaveUp[0].startsWith('0:') && gaveUp[1].startsWith('3:'), `onGiveUp ${show(gaveUp)}`);
+  });
+
+  await check('fetch and read: the body is read in the attempt, so a read that throws (a body cut off on the way) is retried like no answer and the next read is the value; a refusal is never read; a read failing every time gives up after 3 retries with its own error, onGiveUp once', async () => {
+    reset();
+    const reads: number[] = [];
+    const read = async (response: Response) => {
+      reads.push(response.status);
+      return JSON.parse(await response.text()) as unknown;
+    };
+    answer = n => (n === 1 ? new Response('{"properties":{"timeseries"', { status: 200 }) : new Response('{"a":1}', { status: 200 }));
+    const value = await quiet(() => retry.fetchAndReadWithRetry('https://example.test/', {}, read));
+    assert(show(value) === show({ a: 1 }) && nRequests() === 2 && show(waits) === show([250]) && show(reads) === show([200, 200]), `cut then whole: ${show(value)}, ${nRequests()} requests, waits ${show(waits)}, reads ${show(reads)}`);
+    reset();
+    reads.length = 0;
+    answer = () => status(403);
+    let thrown: unknown;
+    await quiet(() => retry.fetchAndReadWithRetry('https://example.test/', {}, read)).catch(error => { thrown = error; });
+    assert(thrown instanceof retry.HttpStatusError && thrown.status === 403 && nRequests() === 1 && reads.length === 0, `403: ${show(thrown)}, ${nRequests()} requests, reads ${show(reads)}`);
+    reset();
+    reads.length = 0;
+    const gaveUp: string[] = [];
+    answer = () => new Response('{"cut', { status: 200 });
+    thrown = undefined;
+    await quiet(() => retry.fetchAndReadWithRetry('https://example.test/', {}, read, { onGiveUp: (_, info) => gaveUp.push(`${info.retried}:${info.why}`) })).catch(error => { thrown = error; });
+    assert(thrown instanceof SyntaxError && nRequests() === 4 && reads.length === 4 && show(waits) === show([250, 500, 1000]) && gaveUp.length === 1 && gaveUp[0].startsWith('3:'), `cut every time: ${String(thrown)}, ${nRequests()} requests, onGiveUp ${show(gaveUp)}`);
   });
 
   reported = true;

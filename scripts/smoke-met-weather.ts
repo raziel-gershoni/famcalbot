@@ -78,6 +78,7 @@ const requests: { url: string; headers: Record<string, string>; signal: unknown 
 const nRequests = () => requests.length;
 const nCaptured = () => captured.length;
 const nOf = (list: readonly unknown[]) => list.length;
+const nKept = () => redisStore.size;
 let answer: (n: number) => Response = () => { throw new Error('no scenario'); };
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   requests.push({ url: String(input), headers: Object.fromEntries(new Headers(init?.headers).entries()), signal: init?.signal });
@@ -290,6 +291,32 @@ async function main(): Promise<void> {
     assert(await run([status(403)]) === 'threw' && nRequests() === 1 && waits.length === 0, `403: ${nRequests()} requests`);
     assert(loggedOnce({ status: 403, retried: 0 }) === null, `403 logged: ${loggedOnce({ status: 403, retried: 0 })}`);
     assert(await run([new TypeError('fetch failed')]) === 'threw' && nRequests() === 4, `4 x no answer: ${nRequests()} requests`);
+  });
+
+  await check('[cut-off answer] a 200 whose body stops mid-JSON (prod, 2026-11-04: "Expected \':\' after property name in JSON at position 36641") is retried like no answer, and the next whole answer is the forecast, kept; a body cut off every time gives up after 3 retries with one warning under weather-forecast holding no place, coordinate or body, keeps nothing, and fetchWeather throws', async () => {
+    const whole = JSON.stringify(MET_TLV);
+    const at = whole.indexOf('"air_temperature"', Math.floor(whole.length / 2)) + '"air_temperature"'.length;
+    let parseError = '';
+    try { JSON.parse(whole.slice(0, at)); } catch (error) { parseError = error instanceof Error ? error.message : String(error); }
+    assert(/^Expected ':' after property name in JSON/.test(parseError), `the cut body fails as prod's did: ${parseError}`);
+    const cut = () => new Response(whole.slice(0, at), { status: 200, headers: { 'content-type': 'application/json', expires: 'Sat, 31 Oct 2026 18:00:00 GMT', 'last-modified': LAST_MODIFIED } });
+    reset();
+    logged.length = 0;
+    answer = n => (n === 1 ? cut() : metOk(MET_TLV));
+    const weather = await ask();
+    const days = weather.daily?.length ?? 0;
+    assert(days > 0 && nRequests() === 2 && show(waits) === show([250]) && nCaptured() === 0, `cut then whole: ${days} days, ${nRequests()} requests, waits ${show(waits)}, captured ${show(captured)}`);
+    assert(nKept() === 1 && nOf((redisStore.values().next().value as { body: { properties: { timeseries: unknown[] } } }).body.properties.timeseries) === nOf(MET_TLV.properties.timeseries), `kept: ${nKept()} keys`);
+    const retryLine = logged.find(l => l.includes('retry 1 of 3'));
+    assert(retryLine !== undefined && retryLine.includes(`${at} characters`) && !/Tel Aviv|32\.0|34\.7|air_temperature/.test(retryLine), `the retry line says the size, not the body or the place: ${retryLine}`);
+    reset();
+    answer = () => cut();
+    let threw = false;
+    try { await ask(); } catch { threw = true; }
+    assert(threw && nRequests() === 4 && show(waits) === show([250, 500, 1000]) && nKept() === 0, `cut every time: threw ${threw}, ${nRequests()} requests, waits ${show(waits)}, ${nKept()} kept`);
+    assert(nCaptured() === 1 && captured[0].context === 'weather-forecast' && captured[0].severity === 'warning', `logged once as a warning: ${show(captured)}`);
+    const sent = captured[0].message + captured[0].extra;
+    assert(JSON.parse(captured[0].extra).retried === 3 && !/Tel Aviv|32\.0|34\.7|air_temperature|timeseries/.test(sent), `Sentry got the retries and nothing of the place or the body: ${sent}`);
   });
 
   await check('Redis down (answering as @upstash/redis does, with the command in its message): the forecast still comes, straight from MET, and both Redis failures (the read, the write) are logged to Sentry as warnings that hold no key, no forecast and no coordinate: only that the step failed and the error\'s name', async () => {

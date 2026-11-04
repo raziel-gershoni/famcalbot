@@ -26,7 +26,7 @@ import { REDIS_KEYS } from '../../config/redis-keys';
 import { captureError, captureWarning } from '../../lib/error-capture';
 import { instantToWallTime, wallTimeToInstant } from '../../utils/wall-time';
 import { addDaysToDate } from '../../utils/day-events';
-import { fetchWithRetry, HttpStatusError } from '../../utils/fetch-retry';
+import { fetchAndReadWithRetry, HttpStatusError } from '../../utils/fetch-retry';
 import { seaLevelSun } from '../zmanim/compute';
 
 export const MET_URL = 'https://api.met.no/weatherapi/locationforecast/2.0/complete';
@@ -333,13 +333,39 @@ export function roundedCoordinate(value: number): string {
   return (Math.round(value * 100) / 100 + 0).toFixed(2);
 }
 
+/** MET's answer, read: the response (its status and headers) and the forecast, null for a 304. */
+interface MetAnswer {
+  response: Response;
+  body: MetForecast | null;
+}
+
 /**
- * One request to MET with the retries (the shared loop): 429, 5xx and no answer are retried up to 3 times after
- * max(Retry-After, full-jitter backoff from 500 ms); a Retry-After over 10 s, a 403 or another refusal fails at once.
- * Answers a 2xx or a 304; a failure is logged once (status and retries, never the place) and thrown. No timeout of our own.
+ * MET's body read whole, inside the retry: one that does not parse (it came cut off, as on 2026-11-04, "Expected ':'
+ * after property name in JSON at position 36641") or has no timeseries throws, and the loop asks again. The error gives
+ * the size, never the body (it holds the coordinates).
  */
-function metRequest(url: string, headers: Record<string, string>): Promise<Response> {
-  return fetchWithRetry(url, { headers }, {
+async function readMetAnswer(response: Response): Promise<MetAnswer> {
+  if (response.status === 304) return { response, body: null };
+  const text = await response.text();
+  let body: MetForecast;
+  try {
+    body = JSON.parse(text) as MetForecast;
+  } catch {
+    const sent = response.headers.get('content-length');
+    throw new Error(`MET answered ${response.status} with a body that is not whole JSON: ${text.length} characters (${response.headers.get('content-encoding') ?? 'not compressed'}${sent === null ? '' : `, ${sent} bytes sent`})`);
+  }
+  if (!Array.isArray(body?.properties?.timeseries)) throw new Error(`MET answered ${response.status} with no timeseries`);
+  return { response, body };
+}
+
+/**
+ * One request to MET with the retries (the shared loop): 429, 5xx, no answer and a body that does not read are retried up
+ * to 3 times after max(Retry-After, full-jitter backoff from 500 ms); a Retry-After over 10 s, a 403 or another refusal
+ * fails at once. Answers a 2xx or a 304; a failure is logged once (status and retries, never the place) and thrown. No
+ * timeout of our own.
+ */
+function metRequest(url: string, headers: Record<string, string>): Promise<MetAnswer> {
+  return fetchAndReadWithRetry(url, { headers }, readMetAnswer, {
     okStatuses: [304],
     label: LOG,
     onGiveUp: (error, { retried, why }) =>
@@ -395,18 +421,17 @@ async function askMet(lat: string, lon: string, key: string): Promise<MetForecas
 
   const headers: Record<string, string> = { 'User-Agent': MET_USER_AGENT };
   if (cached?.lastModified) headers['If-Modified-Since'] = cached.lastModified;
-  const response = await metRequest(`${MET_URL}?lat=${lat}&lon=${lon}`, headers);
+  const { response, body } = await metRequest(`${MET_URL}?lat=${lat}&lon=${lon}`, headers);
   // 203: "the version you use is deprecated or in beta, and should not be used in production". It still answers, so it is
   // read as a success, and the warning (once per process) is the signal that the endpoint is going away.
   if (response.status === 203) warnOncePerProcess(DEPRECATED_WARNING);
   const expiresAt = expiresOf(response, now);
   let fresh: CachedForecast;
-  if (response.status === 304) {
+  if (body === null) {
+    // a 304
     if (!cached) throw new Error('MET answered 304 to a request with no If-Modified-Since');
     fresh = { ...cached, expiresAt };
   } else {
-    const body = (await response.json()) as MetForecast;
-    if (!Array.isArray(body?.properties?.timeseries)) throw new Error('MET answered 200 with no timeseries');
     fresh = { body, expiresAt, lastModified: response.headers.get('last-modified') };
   }
   try {

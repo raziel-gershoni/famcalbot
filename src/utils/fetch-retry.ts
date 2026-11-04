@@ -8,6 +8,8 @@
  *                      onGiveUp once before the throw (the one place to log the failure).
  *   fetchWithRetry     fetch on top of it: 429, 5xx and no answer retried, Retry-After honoured; any other status
  *                      (403, 404 ...) fails at once as an HttpStatusError; a status the caller accepts (a 304) is an answer
+ *   fetchAndReadWithRetry  the same with the body read inside the attempt (a GET), so a body that comes cut off or does
+ *                      not parse is retried like no answer
  *
  * No timeout of our own: a call runs to the provider's ceiling (CLAUDE.md), and the retry is what handles its failure.
  * Google is NOT here: every Google call goes through src/services/google-retry.ts, which has its own rules.
@@ -115,11 +117,21 @@ export interface FetchRetryOptions extends Omit<RetryOptions, 'retryable'> {
  * fetch with the retries above. Resolves with a 2xx (or an accepted) response; throws an HttpStatusError for a refusal or
  * for a 429/5xx that ran out of retries, and the fetch error itself for no answer that ran out of retries.
  */
-export async function fetchWithRetry(url: string, init: RequestInit = {}, options: FetchRetryOptions = {}): Promise<Response> {
+export function fetchWithRetry(url: string, init: RequestInit = {}, options: FetchRetryOptions = {}): Promise<Response> {
+  return fetchAndReadWithRetry(url, init, async response => response, options);
+}
+
+/**
+ * fetchWithRetry with the answer's body read in the same attempt, for a request that is safe to send again (a GET):
+ * `read` turns a 2xx (or an accepted) response into the value, and a read that throws (a body cut off on the way, which
+ * fetch can hand over whole-looking when it was compressed, or one that does not parse) is retried like no answer.
+ * Its error message is in the loop's console lines: never put the body in it.
+ */
+export async function fetchAndReadWithRetry<T>(url: string, init: RequestInit, read: (response: Response) => Promise<T>, options: FetchRetryOptions = {}): Promise<T> {
   const { okStatuses = [], ...retry } = options;
   return retryWithBackoff(async () => {
     const response = await fetch(url, init);
-    if (response.ok || okStatuses.includes(response.status)) return response;
+    if (response.ok || okStatuses.includes(response.status)) return read(response);
     // Free the connection: the body of a refusal is of no use to us. Not awaited, so a stream that is slow to close can't hold the retry.
     response.body?.cancel().catch(error => console.warn(`${retry.label ?? '[retry]'} could not drop the body of a ${response.status}: ${describe(error)}`));
     throw new HttpStatusError(response.status, retryAfterMs({ response: { headers: response.headers } }, seam().now()));
