@@ -10,18 +10,23 @@
 //   the range read has no Google half then), or, once a Google answer in this epoch asked
 //   for it (it holds until the store drops), a dead token or missing permission (the
 //   scopes copy);
-// - in a browser, "Open FamCal in Telegram", only for an account with no Telegram (WhatsApp stays
+// - in a browser, "Open FamCal in Telegram", only for an account with no Telegram but a chat (WhatsApp stays
 //   secondary to Telegram); an account that has Telegram already never sees it, and its link
-//   starts WhatsApp linking.
-// Each banner is one button (or, for Telegram, a link) with a 44 px or taller target.
+//   starts WhatsApp linking;
+// - in a browser, "Connect Telegram" (for reminders and briefings) for an account with no chat at all (6c-1), until it is
+//   closed on this device (home-storage.ts). Its press asks for the one-time bot link (telegram-connect-client.ts); a sign-in
+//   over an hour old turns it into "Sign in again to connect Telegram"; what came of it is a line under it.
+// Each banner is one button (or, for Telegram, a link) with a 44 px or taller target; Connect Telegram is two (its own and the close).
 // Google is a connection beside FamCal (spec "Google as a connection" §2): a user who never
 // connected sees no Google banner at all, and Connect Google lives in the ⋯ menu only.
 
 import { useTranslations } from 'next-intl';
+import { Loader2, Send, X } from 'lucide-react';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { GoogleState } from '@/src/lib/google-state';
+import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 
-export type BannerId = 'trial' | 'location' | 'chooseCalendars' | 'reconnect' | 'reconnectScopes' | 'openInTelegram';
+export type BannerId = 'trial' | 'location' | 'chooseCalendars' | 'reconnect' | 'reconnectScopes' | 'openInTelegram' | 'connectTelegram';
 
 export interface BannerFacts {
   /** The page's Google state (googleStateOf). */
@@ -38,6 +43,10 @@ export interface BannerFacts {
   inTelegram: boolean;
   /** The account has a Telegram id. false: WhatsApp-only, who gets the Telegram banner in a browser. Absent means unknown: no banner. */
   hasTelegram?: boolean;
+  /** false: no chat at all (made on famcal.bot): Connect Telegram in a browser. Absent: has one, as before. */
+  hasChat?: boolean;
+  /** This device closed the Connect Telegram banner for this account. */
+  connectClosed?: boolean;
 }
 
 /** Which banners show, in order. */
@@ -50,7 +59,8 @@ export function homeBanners(f: BannerFacts): BannerId[] {
   // A cleared token has no Google half in the read, so the page's state says it; otherwise a Google answer does.
   if (f.googleState === 'reconnect') out.push('reconnect');
   else if (f.googleState !== 'none' && f.reconnect) out.push(f.reconnect === 'scopes' ? 'reconnectScopes' : 'reconnect');
-  if (!f.inTelegram && f.hasTelegram === false) out.push('openInTelegram');
+  if (!f.inTelegram && f.hasTelegram === false && f.hasChat !== false) out.push('openInTelegram');
+  if (!f.inTelegram && f.hasChat === false && !f.connectClosed) out.push('connectTelegram');
   return out;
 }
 
@@ -62,6 +72,8 @@ export interface HomeBannersProps extends BannerFacts {
   userId: number;
   locale: string;
   onNavigate: (href: string) => void;
+  /** Closes the Connect Telegram banner (the home remembers it on the device); absent: no close. */
+  onCloseConnect?: () => void;
 }
 
 type Tone = 'plain' | 'accent' | 'warn';
@@ -128,7 +140,43 @@ function BannerContent({ id, title, body, action }: { id: BannerId; title: strin
   );
 }
 
-export function HomeBanners({ userId, locale, onNavigate, ...facts }: HomeBannersProps) {
+/**
+ * Connect Telegram, for an account with no chat (6c-1): the banner's own button (the bot's one-time link, or Sign in again
+ * after a stale sign-in) and its close, side by side in one banner; what came of a press is a line under it.
+ */
+function ConnectTelegramBanner({ userId, locale, onClose }: { userId: number; locale: string; onClose?: () => void }) {
+  const t = useTranslations('calendarHome');
+  const c = useTranslations('telegramConnect');
+  const { phase, press } = useTelegramConnect(userId, locale);
+  const working = phase === 'busy' || phase === 'leaving';
+  const line = connectLineKey(phase);
+  return (
+    <>
+      <div className="ch-banner ch-banner-telegram ch-banner-split" data-banner="connectTelegram">
+        <button type="button" className="ch-banner-main ch-tap" disabled={working} aria-busy={working || undefined} onClick={press}>
+          <Send className="ch-banner-icon ch-flip" aria-hidden="true" focusable="false" />
+          <span className="ch-banner-text">
+            <span className="ch-banner-title">{c(connectButtonKey(phase))}</span>
+            <span className="ch-banner-body">{t('banner.connectTelegramBody')}</span>
+          </span>
+          {working ? <Loader2 className="ch-banner-chevron ch-spin" aria-hidden="true" focusable="false" /> : <Chevron />}
+        </button>
+        {onClose ? (
+          <button type="button" className="ch-banner-close ch-tap" aria-label={t('banner.close')} onClick={onClose}>
+            <X aria-hidden="true" focusable="false" />
+          </button>
+        ) : null}
+      </div>
+      {line ? (
+        <p className={line.problem ? 'ch-banner-line is-problem' : 'ch-banner-line'} role={line.problem ? 'alert' : 'status'}>
+          {c(line.key)}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+export function HomeBanners({ userId, locale, onNavigate, onCloseConnect, ...facts }: HomeBannersProps) {
   const t = useTranslations('calendarHome');
   const ids = homeBanners(facts);
   if (ids.length === 0) return null;
@@ -161,6 +209,8 @@ export function HomeBanners({ userId, locale, onNavigate, ...facts }: HomeBanner
                 <BannerContent id={id} title={t('banner.openInTelegram')} body={t('banner.openInTelegramBody')} />
               </a>
             );
+          case 'connectTelegram':
+            return <ConnectTelegramBanner key={id} userId={userId} locale={locale} onClose={onCloseConnect} />;
         }
       })}
     </div>

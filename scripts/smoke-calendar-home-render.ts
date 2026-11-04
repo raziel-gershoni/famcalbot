@@ -211,7 +211,7 @@ for (const level of ['error', 'warn'] as const) {
     if (text.startsWith('[telegram-ui]')) return original(...args);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
-    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]')) {
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]') || text.startsWith('[telegram-connect]') || text.startsWith('[sign-in-again]')) {
       appLogs.push(text.slice(0, 300));
       return;
     }
@@ -2220,7 +2220,8 @@ async function main() {
       ['browser 200 (no chat named)', { status: 200, body: { success: true } }, 'today', 'Sent. Check your chat', { command: 'summary' }],
       ['400 wa_link_needed', { status: 400, body: { success: false, error: 'wa_link_needed' } }, 'weather', 'To send to WhatsApp, open FamCal from the link in WhatsApp. Send “settings” there and tap the link.', { command: 'weather' }],
       ['429', { status: 429, body: {} }, 'weather', 'Lots of requests right now. Try again in a minute.', { command: 'weather' }],
-      ['403', { status: 403, body: {} }, 'today', 'Please reopen FamCal from the chat and try again.', { command: 'summary' }],
+      // In a browser a refused session is a sign-in that ended (6c-1): sign in again; inside Telegram it stays "reopen from the chat" (#140)
+      ['403', { status: 403, body: {} }, 'today', 'Your sign-in has ended. Sign in again.', { command: 'summary' }],
       ['no answer', 'throw', 'today', 'No connection. Check your internet and try again.', { command: 'summary' }],
       ['500', { status: 500, body: {} }, 'today', 'Couldn’t send it. Try again.', { command: 'summary' }],
     ];
@@ -10426,6 +10427,201 @@ async function main() {
 
   await check('#135 React logged no warning in #129-#134 (keys, nesting, attributes)', () => {
     assert(reactWarnings.length === warnedBeforePartner, `React warned: ${show(reactWarnings.slice(warnedBeforePartner, warnedBeforePartner + 3))}`);
+  });
+
+  // ---- 6c-1 Task 9: an account with no chat, in a browser (spec 2026-11-03-web-sign-up §2.13, §3.11) ----
+
+  const warnedBeforeBrowserOnly = reactWarnings.length;
+  const CONNECT_URL = 'https://t.me/test_bot?start=w_AbCdEfGhIjKlMnOpQrStUv';
+  /** A browser-only account: no Telegram and no WhatsApp; its page's user_id is its DB id. */
+  const NO_CHAT: Partial<CalendarHomeProps> = { user: { id: 41, name: 'Dana', isAdmin: false }, hasTelegram: false, hasChat: false };
+  const connectCalls = () => fetchCalls.filter((c) => c.path === '/api/telegram-connect');
+  const signOutCalls = () => fetchCalls.filter((c) => c.path === '/api/auth/signout');
+  const connectBanner = (node: FakeNode) => byData(node, 'banner', 'connectTelegram');
+  const connectButton = (node: FakeNode) => {
+    const main = elements(connectBanner(node)).find((e) => e.className.split(' ').includes('ch-banner-main'));
+    assert(main, 'the banner has no button');
+    return main;
+  };
+
+  await check('#136 no chat, in a browser (en, he, ru): no Send to chat in the header (the menu stays); Connect Telegram ("For reminders and briefings") in place of Open FamCal in Telegram, with its close; a tap asks for the one-time link (POST /api/telegram-connect?user_id=<the page id>, same origin, JSON {}, no init data) and opens the bot in this tab, then says what comes next', async () => {
+    for (const locale of LOCALES) {
+      const t = messages[locale].calendarHome;
+      const c = messages[locale].telegramConnect;
+      resetHome();
+      answerFetch = (call) => (call.path === '/api/telegram-connect' ? ok200({ url: CONNECT_URL }) : answerFor(call));
+      const m = await mountHome(locale, NO_CHAT);
+      try {
+        const labels = elements(m.container).filter((e) => e.localName === 'button').map((b) => b.getAttribute('aria-label'));
+        assert(!labels.includes(t.header.send) && labels.includes(t.header.menu), `${locale}: the header's buttons ${show(labels)}`);
+        assertHas(textOf(htmlOf(connectBanner(m.container))), [c.action, t.banner.connectTelegramBody], `${locale}: the banner`);
+        assertLacks(m.html(), ['data-banner="openInTelegram"'], `${locale}: no Open FamCal in Telegram`);
+        assert(byLabel(connectBanner(m.container), t.banner.close).localName === 'button', `${locale}: the close`);
+        m.click(connectButton(m.container));
+        await settle();
+        const [call, ...more] = connectCalls();
+        assert(call && more.length === 0 && call.url === '/api/telegram-connect?user_id=41' && call.method === 'POST' && call.credentials === 'same-origin' && show(call.body) === '{}' && !('X-Telegram-Init-Data' in call.headers), `${locale}: the request ${show(connectCalls().map((x) => [x.url, x.method, x.body]))}`);
+        assert(fakeWindow.location.href === CONNECT_URL, `${locale}: the bot link opened: ${show(fakeWindow.location.href)}`);
+        assertHas(m.text(), [c.opened], `${locale}: what comes next`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#137 the banner\'s close is remembered on this device for this account: it goes at once, asks for no link and stays gone on the next open; another account on the device keeps its own; a storage that throws only forgets', async () => {
+    resetHome();
+    answerFetch = (call) => answerFor(call);
+    const first = await mountHome('en', NO_CHAT);
+    try {
+      first.click(byLabel(connectBanner(first.container), messages.en.calendarHome.banner.close));
+      assertLacks(first.html(), ['data-banner="connectTelegram"'], 'closed at once');
+      assert(fakeWindow.localStorage.getItem('famcal:connectBanner:v1:41') === '1', 'remembered');
+      assert(connectCalls().length === 0, 'the close asks for no link');
+    } finally {
+      first.unmount();
+    }
+    const again = await mountHome('en', NO_CHAT);
+    try {
+      assertLacks(again.html(), ['data-banner="connectTelegram"'], 'still gone on the next open');
+    } finally {
+      again.unmount();
+    }
+    const other = await mountHome('en', { ...NO_CHAT, user: { id: 42, name: 'Avi', isAdmin: false } });
+    try {
+      assert(other.html().includes('data-banner="connectTelegram"'), 'another account keeps its banner');
+    } finally {
+      other.unmount();
+    }
+    resetHome();
+    answerFetch = (call) => answerFor(call);
+    fakeWindow.localStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => undefined };
+    const blocked = await mountHome('en', NO_CHAT);
+    try {
+      assert(blocked.html().includes('data-banner="connectTelegram"'), 'a storage that throws reads as not closed');
+      blocked.click(byLabel(connectBanner(blocked.container), messages.en.calendarHome.banner.close));
+      assertLacks(blocked.html(), ['data-banner="connectTelegram"'], 'the close still works on screen');
+    } finally {
+      blocked.unmount();
+    }
+  });
+
+  await check('#138 a refused link on the banner: a sign-in over an hour old turns it into "Sign in again to connect Telegram", whose tap signs this browser out and opens /signin in the page\'s language; the hour\'s limit and a failure are alerts under it; each is logged, and no log line holds the link or its token', async () => {
+    resetHome();
+    const assigned: string[] = [];
+    fakeWindow.location = { hash: '', reload: () => reloads.push('reload'), assign: (u: string) => void assigned.push(u) };
+    answerFetch = (call) =>
+      call.path === '/api/telegram-connect' ? { status: 403, body: { error: 'stale-sign-in' } } : call.path === '/api/auth/signout' ? ok200({ ok: true }) : answerFor(call);
+    const m = await mountHome('he', NO_CHAT);
+    try {
+      m.click(connectButton(m.container));
+      await settle();
+      assertHas(textOf(htmlOf(connectBanner(m.container))), [messages.he.telegramConnect.signInAgain], 'the stale sign-in');
+      m.click(connectButton(m.container));
+      await settle();
+      assert(signOutCalls().length === 1 && signOutCalls()[0].method === 'POST', `signed out: ${show(signOutCalls().map((c) => c.method))}`);
+      assert(show(assigned) === show(['/he/signin']) && connectCalls().length === 1, `then /he/signin, no second link: ${show(assigned)}`);
+    } finally {
+      m.unmount();
+    }
+    const cases: [string, FetchAnswer, 'limit' | 'failed'][] = [
+      ['limit', { status: 429, body: { error: 'limit' } }, 'limit'],
+      ['unavailable', { status: 503, body: { error: 'unavailable' } }, 'failed'],
+      ['no answer', 'throw', 'failed'],
+    ];
+    for (const [what, reply, key] of cases) {
+      resetHome();
+      appLogs.length = 0;
+      answerFetch = (call) => (call.path === '/api/telegram-connect' ? reply : answerFor(call));
+      const r = await mountHome('ru', NO_CHAT);
+      try {
+        r.click(connectButton(r.container));
+        await settle();
+        const said = byRole(r.container, 'alert').map((e) => textOf(htmlOf(e)));
+        assert(said.includes(messages.ru.telegramConnect[key]), `${what}: ${show(said)}`);
+        assert(appLogs.some((l) => l.startsWith('[telegram-connect]')), `${what}: not logged`);
+        assert(!appLogs.some((l) => l.includes('AbCdEfGhIjKlMnOpQrStUv') || l.includes('t.me')), `${what}: a log holds the link: ${show(appLogs)}`);
+      } finally {
+        r.unmount();
+      }
+    }
+  });
+
+  await check('#139 the empty home with no chat says "To add an event, tap +" and names no bot (en, he, ru), in the Agenda and in the mounted home; with a chat (or not told) the home is as before: Send to chat, no Connect banner, Open FamCal in Telegram for WhatsApp-only, the bot\'s hints', async () => {
+    const empty = model([ok(answer())]);
+    for (const locale of LOCALES) {
+      const t = messages[locale].calendarHome;
+      const html = renderAgenda(locale, empty, { hints: { reminders: false, voiceEvents: false, addByTap: true } });
+      assertHas(textOf(html), [t.empty.title, t.empty.hintBrowser], `${locale}: the browser hint`);
+      assertLacks(textOf(html), [t.empty.hintEvents, t.empty.hintReminders], `${locale}: no bot hint`);
+      assertLacks(textOf(renderAgenda(locale, empty)), [t.empty.hintBrowser], `${locale}: not for a chat account`);
+    }
+    resetHome();
+    answerFetch = (call) => answerFor(call);
+    const m = await mountHome('en', { ...NO_CHAT, hints: { reminders: false, voiceEvents: true } });
+    try {
+      assertHas(m.text(), ['Nothing planned', messages.en.calendarHome.empty.hintBrowser], 'the mounted home');
+      assertLacks(m.text(), [messages.en.calendarHome.empty.hintEvents], "voice events are the bot's: not named with no chat");
+    } finally {
+      m.unmount();
+    }
+    for (const hasChat of [true, undefined]) {
+      resetHome();
+      answerFetch = (call) => answerFor(call);
+      const w = await mountHome('en', { hasTelegram: false, hasChat });
+      try {
+        assert(byLabel(w.container, messages.en.calendarHome.header.send).localName === 'button', `hasChat ${hasChat}: Send to chat`);
+        assertLacks(w.html(), ['data-banner="connectTelegram"'], `hasChat ${hasChat}: no Connect banner`);
+        assert(w.html().includes('data-banner="openInTelegram"'), `hasChat ${hasChat}: a WhatsApp-only account keeps Open FamCal in Telegram`);
+        assertHas(w.text(), [messages.en.calendarHome.empty.hintEvents], `hasChat ${hasChat}: the bot's hint`);
+        assertLacks(w.text(), [messages.en.calendarHome.empty.hintBrowser], `hasChat ${hasChat}: no browser hint`);
+      } finally {
+        w.unmount();
+      }
+    }
+  });
+
+  await check('#140 the Send sheet in a browser whose sign-in ended (401): "Your sign-in has ended. Sign in again." with Sign in, which signs this browser out and opens /signin in the page\'s language (en, he, ru); inside Telegram the line is the chat\'s and there is no Sign in', async () => {
+    for (const locale of LOCALES) {
+      resetHome();
+      const assigned: string[] = [];
+      fakeWindow.location = { hash: '', reload: noop, assign: (u: string) => void assigned.push(u) };
+      answerFetch = (call) =>
+        call.path === '/api/execute-command' ? { status: 401, body: { error: 'Unauthorized' } } : call.path === '/api/auth/signout' ? ok200({ ok: true }) : answerFor(call);
+      const m = await mountHome(locale);
+      try {
+        const t = messages[locale].calendarHome;
+        m.click(byLabel(m.container, t.header.send));
+        m.click(byData(m.container, 'send', 'today'));
+        await settle();
+        assertHas(dialogText(m.container), [t.send.signedOutBrowser], `${locale}: the line`);
+        const signIn = elements(byRole(m.container, 'dialog')[0]).find((e) => e.localName === 'button' && textOf(htmlOf(e)) === messages[locale].pageGate.signIn);
+        assert(signIn, `${locale}: Sign in`);
+        m.click(signIn);
+        await settle();
+        assert(signOutCalls().length === 1 && show(assigned) === show([locale === 'en' ? '/signin' : `/${locale}/signin`]), `${locale}: ${show(assigned)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (call) => (call.path === '/api/execute-command' ? { status: 401, body: {} } : answerFor(call));
+    const inside = await mountHome('en');
+    try {
+      inside.click(byLabel(inside.container, messages.en.calendarHome.header.send));
+      inside.click(byData(inside.container, 'send', 'today'));
+      await settle();
+      assertHas(dialogText(inside.container), [messages.en.calendarHome.send.signedOut], 'inside Telegram');
+      assert(!elements(byRole(inside.container, 'dialog')[0]).some((e) => e.localName === 'button' && textOf(htmlOf(e)) === messages.en.pageGate.signIn), 'no Sign in inside Telegram');
+    } finally {
+      inside.unmount();
+    }
+  });
+
+  await check('#141 React logged no warning in #136-#140', () => {
+    assert(reactWarnings.length === warnedBeforeBrowserOnly, `React warned: ${show(reactWarnings.slice(warnedBeforeBrowserOnly, warnedBeforeBrowserOnly + 3))}`);
   });
 
   let failed = 0;

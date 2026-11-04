@@ -93,6 +93,8 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const call: Call = { method, path: url.pathname, query: url.searchParams, headers: Object.fromEntries(new Headers(init.headers).entries()), body };
   calls.push(call);
   if (url.pathname === '/api/select-calendars' && method === 'POST') return srv.save(call);
+  // Sign in again (6c-1): this browser signs out first
+  if (url.pathname === '/api/auth/signout' && method === 'POST') return json({ ok: true });
   throw new Error(`an unexpected request: ${method} ${url.pathname}`);
 }) as typeof fetch;
 const saves = () => calls.filter((c) => c.method === 'POST' && c.path === '/api/select-calendars');
@@ -1281,6 +1283,28 @@ async function main() {
     }
     const route = noComments(source('app/api/select-calendars/route.ts'));
     assert(/\{ error: validation\.errors\[0\], code: validation\.codes\[0\] \}/.test(route), 'the route does not answer with the first message and its code');
+  });
+
+  await check('S22 in a browser (no Telegram) a save refused because the sign-in ended (401) is undone and says "Your sign-in has ended. Sign in again." on the status bar, with Sign in, which signs this browser out and opens /signin in the page\'s language (inside Telegram it still says to open the page again: S6)', async () => {
+    for (const locale of LOCALES) {
+      resetWorld();
+      srv.save = () => json({ error: 'Unauthorized' }, 401);
+      const o = await open(locale);
+      const went: string[] = [];
+      fakeWindow.location = { hash: '', assign: (u: string) => void went.push(u), reload: () => undefined };
+      try {
+        await tapAndSettle(o, switchOf(o.m, NAMES[locale].family));
+        // The alert holds the words and, under them, the Sign in button: the words are the notice's text element
+        const said = byRole(o.m.container, 'alert').flatMap((a) => elements(a).filter((e) => classes(e).includes('ch-notice-text')).map(flat));
+        assert(show(said) === show([calendarsPageText(locale, 'errors.reopenBrowser')]), `${locale}: ${show(alertsOf(o.m))}`);
+        const signIn = buttonsOf(o.m.container).find((b) => classes(b).includes('ch-notice-action'));
+        assert(signIn && flat(signIn) === messageAt(locale, 'pageGate.signIn'), `${locale}: Sign in ${signIn && flat(signIn)}`);
+        await tapAndSettle(o, signIn);
+        assert(calls.filter((c) => c.method === 'POST' && c.path === '/api/auth/signout').length === 1 && show(went) === show([locale === 'en' ? '/signin' : `/${locale}/signin`]), `${locale}: ${show(went)}`);
+      } finally {
+        close(o);
+      }
+    }
   });
 
   await check('S18 window.confirm was never called on any path above, and React logged no warning (keys, nesting, attributes, act)', () => {

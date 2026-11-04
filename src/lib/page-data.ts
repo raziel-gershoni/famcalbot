@@ -44,6 +44,7 @@ import type { SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { reminderTimeOf } from '@/src/lib/reminder-time';
 import { firstNameOf } from '@/src/lib/first-name';
 import { channelsOf, deliveryPlatformFor } from '@/src/lib/delivery-platform';
+import { hasChat } from '@/src/lib/has-chat';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
@@ -77,6 +78,8 @@ export interface DashboardPageProps {
   hints: HomeHints;
   /** The account has a Telegram id (the browser's Telegram banner is for WhatsApp-only accounts). */
   hasTelegram: boolean;
+  /** The account has a chat (Telegram or WhatsApp). With none (an account made on famcal.bot), the home has no Send and offers Connect Telegram. */
+  hasChat: boolean;
   lookahead7: boolean;
   /** The calendar setting is Jewish: the home shows the zmanim button. */
   jewish: boolean;
@@ -179,6 +182,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
     isEarlyAdopter,
     jewish: user.culture === 'jewish',
     hasTelegram: user.telegramId !== null,
+    hasChat: hasChat(user),
     ...home,
   };
   // One open of the calendar home (spec §7.1), under the DB id like every activity
@@ -288,6 +292,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     nativeRemindersSupported,
     subscriptionInfo,
     bothChannels: channels.telegram && channels.whatsapp,
+    // No chat: the chat-only cards and rows give way to the Telegram note (6c-1)
+    hasChat: hasChat(user),
   };
   // One open of the Settings screen
   trackActivityAsync(user.id, 'settings_viewed');
@@ -501,6 +507,8 @@ async function subscription(user: UserConfig, userId: number, locale: string): P
     // The calendars meter counts as the plan's limit does (calendarTotal); the upgrade is a Telegram Stars invoice, sent to the user's chat
     calendarsUsed: calendarTotal(counts.famcal, counts.google),
     telegramLinked: user.telegramId !== null,
+    // No chat: Plans offers Connect Telegram in place of the pay buttons (6c-1)
+    hasChat: hasChat(user),
   };
   return { kind: 'props', props };
 }

@@ -10,8 +10,10 @@ import type { SourceName } from './types';
  * Which ways of adding things this user can use, for the empty Agenda's hint (Ruling
  * R10). page-data computes them: `reminders` from getReminderSupport (a FamCal calendar,
  * Telegram and the native-reminders switch), `voiceEvents` from the voice_events feature.
+ * `addByTap` is the home's own (never on the wire): an account with no chat adds in the app
+ * only, so the hint says to tap "+" and names no bot (6c-1).
  */
-export type HomeHints = { reminders: boolean; voiceEvents: boolean };
+export type HomeHints = { reminders: boolean; voiceEvents: boolean; addByTap?: boolean };
 
 export type CalendarHomeProps = {
   user: { id: number; name: string; isAdmin: boolean };
@@ -28,6 +30,11 @@ export type CalendarHomeProps = {
    * WhatsApp-only account). Absent means unknown: no banner.
    */
   hasTelegram?: boolean;
+  /**
+   * false: the account has no chat (no Telegram, no WhatsApp; made on famcal.bot): no Send to chat, the Connect Telegram
+   * banner in a browser, and the empty state's "tap +" hint. Absent means it has one, as before.
+   */
+  hasChat?: boolean;
   /**
    * The trial's days left, for the home's trial banner (spec §7.2); null when there is no
    * trial (or the user is an early adopter). Absent means unknown: no banner.

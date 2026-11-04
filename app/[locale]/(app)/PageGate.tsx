@@ -104,6 +104,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
     googleState: p.googleState ?? 'none',
     hints: p.hints,
     hasTelegram: p.hasTelegram,
+    hasChat: p.hasChat,
     trialDaysLeft: !p.isEarlyAdopter && p.trial.isTrialing && p.trial.daysRemaining > 0 ? p.trial.daysRemaining : null,
     hasLocation: Boolean(p.user.location),
     lookahead7: p.lookahead7,
@@ -206,11 +207,12 @@ function Gate({ title, body, actions }: { title: string; body: string; actions: 
 
 /**
  * The card for a page nobody has proved they may see. Inside Telegram the chat's buttons
- * reopen it with fresh initData, so it closes the Mini App. In a browser it leads with Sign in
- * (the web sign-in page, in the page's language), then WhatsApp ("settings" brings a fresh
+ * reopen it with fresh initData, so it closes the Mini App. In a browser it says to sign in and
+ * leads with Sign in (the web sign-in page, in the page's language; an account made on
+ * famcal.bot has no chat to go back to, 6c-1), then WhatsApp ("settings" brings a fresh
  * magic link); a WhatsApp-only user who tapped the Telegram link would get a second, unlinked
  * account from /start, so that link comes last and says who it is for. The calendar home's own
- * 401 card is this same card.
+ * 401 card is this same card. (pageGate.browserTitle and browserBody stay for /refresh-token's gate.)
  */
 export function NoCredentialCard({ inTelegram, links }: { inTelegram: boolean; links: GateLinks }) {
   const t = useTranslations('pageGate');
@@ -226,8 +228,8 @@ export function NoCredentialCard({ inTelegram, links }: { inTelegram: boolean; l
   }
   return (
     <Gate
-      title={t('browserTitle')}
-      body={t('browserBody')}
+      title={t('signInTitle')}
+      body={t('signInBody')}
       actions={[
         { label: t('signIn'), primary: true, href: signInHref(locale) },
         { label: t('openWhatsApp'), href: links.whatsapp },

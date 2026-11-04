@@ -8,8 +8,9 @@
 //   WhatsApp" or "Sent to Telegram", also when Telegram couldn't close the app; "Sent. Check
 //   your chat" when the answer names none;
 // - 400 wa_link_needed (a WhatsApp-only account signed in another way): open FamCal from
-//   WhatsApp first; 429: try again in a minute; 401/403: reopen from the chat; no answer: no
-//   connection; anything else: couldn't send. The sheet stays open and says so.
+//   WhatsApp first; 429: try again in a minute; 401/403: reopen from the chat inside Telegram, and in a browser "Your sign-in
+//   has ended" with Sign in (signInAgain: sign out here, then /signin; 6c-1); no answer: no connection; anything else:
+//   couldn't send. The sheet stays open and says so.
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -17,6 +18,8 @@ import { formatDateSpan } from '@/src/lib/calendar-view/format';
 import { sendWeekRanges } from '@/src/lib/calendar-view/send-weeks';
 import type { DayKey, WeekStart } from '@/src/lib/calendar-view/types';
 import { SEND_ITEMS, sendToChat, type SendItem, type SendResult } from '@/src/lib/command-client';
+import { signInAgain } from '@/src/lib/sign-in-again';
+import { isInTelegram } from '@/src/lib/telegram-ui';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 
 export interface SendSheetProps {
@@ -40,8 +43,8 @@ const COPY: Record<SendItem, { title: string; hint: string }> = {
   weather: { title: 'send.weather', hint: 'send.weatherHint' },
 };
 
-/** The line the sheet shows for an answer, or null while the app is closing. */
-export function sendResultKey(result: SendResult): { key: string; problem: boolean } | null {
+/** The line the sheet shows for an answer, or null while the app is closing. A refused session is the chat's words inside Telegram, the browser's outside it. */
+export function sendResultKey(result: SendResult, inTelegram = true): { key: string; problem: boolean } | null {
   switch (result.outcome) {
     case 'closing':
       return null;
@@ -54,7 +57,7 @@ export function sendResultKey(result: SendResult): { key: string; problem: boole
     case 'failed':
       if (result.reason === 'wa_link_needed') return { key: 'send.waLinkNeeded', problem: true };
       if (result.status === null) return { key: 'send.offline', problem: true };
-      if (result.status === 401 || result.status === 403) return { key: 'send.signedOut', problem: true };
+      if (result.status === 401 || result.status === 403) return { key: inTelegram ? 'send.signedOut' : 'send.signedOutBrowser', problem: true };
       return { key: 'send.failed', problem: true };
   }
 }
@@ -86,6 +89,7 @@ function Spinner() {
 
 export function SendSheet({ userId, locale, today, weekStart, lookahead7, onClose }: SendSheetProps) {
   const t = useTranslations('calendarHome');
+  const gate = useTranslations('pageGate');
   // The bot's week bounds (week-lookahead.ts), as a short range after the title.
   const weeks = today && weekStart !== null && weekStart !== undefined ? sendWeekRanges(today, weekStart, lookahead7) : null;
   const spanOf = (item: SendItem): string => {
@@ -101,7 +105,7 @@ export function SendSheet({ userId, locale, today, weekStart, lookahead7, onClos
     setSending(item);
     setResult(null);
     const answer = await sendToChat(userId, item, locale);
-    const line = sendResultKey(answer);
+    const line = sendResultKey(answer, isInTelegram());
     // Closing: keep the spinner; the app is going away.
     if (line === null) return;
     setSending(null);
@@ -146,6 +150,11 @@ export function SendSheet({ userId, locale, today, weekStart, lookahead7, onClos
       <p className={result ? `ch-send-result${result.problem ? ' is-problem' : ''}` : 'ch-visually-hidden'} role="status">
         {result ? t(result.key) : ''}
       </p>
+      {result?.key === 'send.signedOutBrowser' ? (
+        <button type="button" className="ch-btn ch-btn-primary ch-send-signin" onClick={() => void signInAgain(locale)}>
+          {gate('signIn')}
+        </button>
+      ) : null}
     </BottomSheet>
   );
 }

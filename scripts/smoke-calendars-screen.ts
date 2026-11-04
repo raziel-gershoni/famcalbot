@@ -244,6 +244,8 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   if (url.pathname === '/api/native-calendars' && method === 'POST') return srv.create(call);
   if (id && method === 'PATCH') return srv.patch(call);
   if (id && method === 'DELETE') return srv.del(call);
+  // Sign in again (6c-1): this browser signs out first
+  if (url.pathname === '/api/auth/signout' && method === 'POST') return json({ ok: true });
   throw new Error(`an unexpected request: ${method} ${url.pathname}`);
 }) as typeof fetch;
 const callsTo = (method: string, test: string | RegExp) => calls.filter((c) => c.method === method && (typeof test === 'string' ? c.path === test : test.test(c.path)));
@@ -1380,6 +1382,34 @@ async function main() {
         assert(!sheetOf(o.m) && !listRows(o.m).some((r) => flat(r).startsWith('Work 2')) && listRows(o.m).some((r) => flat(r).startsWith('Soccer')), `${what}: after the delete: ${show(listRows(o.m).map(flat))}`);
       } finally {
         close(o);
+      }
+    }
+  });
+
+  await check('S22 in a browser (no Telegram) a delete refused because the sign-in ended (401, 403) says "Your sign-in has ended. Sign in again." in the page\'s language, with Sign in, which signs this browser out and opens /signin in that language (inside Telegram it still says to open the page again from the bot: S11)', async () => {
+    for (const locale of LOCALES) {
+      for (const status of [401, 403]) {
+        resetWorld(locale);
+        const o = await open(locale);
+        try {
+          await openRow(o, NAMES[locale].work);
+          o.m.click(mustButton(sheetOf(o.m) as FakeNode, word(locale, 'delete')));
+          await settle();
+          srv.del = () => json({ error: 'Unauthorized' }, status);
+          o.m.click(dangerButtons(o.m)[0]);
+          await settle();
+          const where = `${locale} ${status}`;
+          // The alert holds the words and, under them, the Sign in button: the words are the notice's text element
+          const said = byRole(sheetOf(o.m) as FakeNode, 'alert').flatMap((a) => elements(a).filter((e) => classes(e).includes('ch-notice-text')).map(flat));
+          assert(show(said) === show([word(locale, 'errors.reopenBrowser')]), `${where}: ${show(alertsIn(o.m.container))}`);
+          const signIn = buttonsOf(sheetOf(o.m) as FakeNode).find((b) => classes(b).includes('ch-notice-action'));
+          assert(signIn && flat(signIn) === messageAt(locale, 'pageGate.signIn'), `${where}: Sign in ${signIn && flat(signIn)}`);
+          o.m.click(signIn);
+          await settle();
+          assert(callsTo('POST', '/api/auth/signout').length === 1 && show(assigned) === show([locale === 'en' ? '/signin' : `/${locale}/signin`]), `${where}: ${show(assigned)}`);
+        } finally {
+          close(o);
+        }
       }
     }
   });

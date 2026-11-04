@@ -1,7 +1,8 @@
 // The calendar home's memory on the device (spec §7.1 State, §7.4 Memory; Plan E Ruling 2):
 // - the tab on screen, in sessionStorage, so a new session opens on the Agenda, the landing
 //   tab (§7.3), while a reload inside a session keeps the tab;
-// - the Month's layout (browse or picked), in localStorage, kept per device.
+// - the Month's layout (browse or picked), in localStorage, kept per device;
+// - the Connect Telegram banner's close (6c-1), in localStorage: closed on this device for this account.
 // Both keys end with the page's own user_id as it is (a Telegram id or a DB id, never
 // swapped for the other), so two accounts on one device keep their own. Every access is
 // in try/catch: storage can be missing, blocked (private mode, a WebView's settings), full,
@@ -22,6 +23,11 @@ export function homeTabKey(userId: number): string {
 /** The localStorage key for the Month's layout. */
 export function monthLayoutKey(userId: number): string {
   return 'famcal:monthLayout:v1:' + userId;
+}
+
+/** The localStorage key for the Connect Telegram banner's close. */
+export function connectBannerKey(userId: number): string {
+  return 'famcal:connectBanner:v1:' + userId;
 }
 
 type Area = 'sessionStorage' | 'localStorage';
@@ -66,4 +72,14 @@ export function readMonthLayout(userId: number): 'browse' | 'picked' | null {
 /** Remembers the Month's layout on this device. Never throws. */
 export function writeMonthLayout(userId: number, layout: 'browse' | 'picked'): void {
   writeKey('localStorage', monthLayoutKey(userId), layout);
+}
+
+/** Whether this device closed the Connect Telegram banner for this account; false with no window, a throw or nothing stored. */
+export function readConnectBannerClosed(userId: number): boolean {
+  return readKey('localStorage', connectBannerKey(userId)) === '1';
+}
+
+/** Remembers on this device that the Connect Telegram banner was closed for this account. Never throws. */
+export function writeConnectBannerClosed(userId: number): void {
+  writeKey('localStorage', connectBannerKey(userId), '1');
 }

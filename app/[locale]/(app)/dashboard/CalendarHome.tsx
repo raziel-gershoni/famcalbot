@@ -93,8 +93,8 @@ import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/c
 import { monthSpan, monthWindow, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
-import type { CalendarHomeProps } from '@/src/lib/calendar-view/home-props';
-import { readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
+import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
+import { readConnectBannerClosed, readHomeTab, readMonthLayout, writeConnectBannerClosed, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
 import { dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
@@ -355,7 +355,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -411,6 +411,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [tab, setTab] = useState<HomeTab>(() => readHomeTab(userId));
   /** The Month's layout as this device remembers it (localStorage), read once. */
   const [savedLayout] = useState(() => readMonthLayout(userId));
+  /** The Connect Telegram banner's close (no chat, 6c-1), as this device remembers it for this account. */
+  const [connectClosed, setConnectClosed] = useState(() => readConnectBannerClosed(userId));
+  const closeConnect = () => {
+    writeConnectBannerClosed(userId);
+    setConnectClosed(true);
+  };
   /** Where the Month is (month.ts); null until the first answer pins the facts. In browse, its month is where browse opens next. */
   const [monthUi, setMonthUi] = useState<MonthUi | null>(null);
   /** True until the Month is first left or changed: browse's first opening peeks at the month before (spec §7.4). */
@@ -1096,10 +1102,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   }
 
   const zone = facts && zoneDiffers(deviceZone, facts.tz) ? facts.tz : null;
+  // No chat (6c-1): the bot's ways of adding are not this account's; it adds with "+", and the empty state says so.
+  const shownHints: HomeHints = hasChat === false ? { ...hints, voiceEvents: false, addByTap: true } : hints;
   const agendaView = (
     <AgendaView
       agenda={agenda}
-      hints={hints}
+      hints={shownHints}
       selected={selectedNow}
       onSelect={setSelected}
       sheetActions={sheetActions}
@@ -1146,7 +1154,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           zone={zone}
           sendOpen={sheet === 'send'}
           menuOpen={sheet === 'menu'}
-          onSend={() => setSheet('send')}
+          onSend={hasChat === false ? undefined : () => setSheet('send')}
           onMenu={() => setSheet('menu')}
           onAdd={canAdd ? openAdd : undefined}
           addOpen={editor?.mode === 'create'}
@@ -1164,6 +1172,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         reconnect={notices.reconnect}
         inTelegram={inTelegram}
         hasTelegram={hasTelegram}
+        hasChat={hasChat}
+        connectClosed={connectClosed}
+        onCloseConnect={closeConnect}
         userId={userId}
         locale={locale}
         onNavigate={navigate}

@@ -12,12 +12,21 @@
 //   third under that (the browser card: Sign in, then WhatsApp, then the bot).
 // - A card needs the app's tokens above it: inside an AppScreen. MissingParameterCard and
 //   NotFoundCard bring their own.
+// - MissingParameterCard outside Telegram (a browser; an account made on famcal.bot has no bot, 6c-1) names no chat and
+//   offers Sign in: /signin opens the calendar of a browser that is still signed in. On the server, and in the render
+//   that hydrates its markup, it is the card inside Telegram, as it always was.
 //
-// Strings: the card takes its text already translated; the two cards below read `ui.*`.
+// Strings: the card takes its text already translated; the two cards below read `ui.*` (and Sign in, `pageGate.signIn`).
 
-import type { ReactNode } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import { isInTelegram } from '@/src/lib/telegram-ui';
+import { signInHref } from '@/src/site/signin';
 import { AppScreen } from './AppScreen';
+
+const subscribeNothing = () => () => {};
+/** The server, and the first render that hydrates its markup: the card inside Telegram, as it was. */
+const assumeTelegram = () => true;
 
 export interface StateAction {
   label: string;
@@ -71,12 +80,22 @@ export function StateCard({ title, body, action, secondary, tertiary, tone = 'pl
   );
 }
 
-/** A page opened without the parameter its link carries (user_id): one card in the app's look, in the page's language. */
+/**
+ * A page opened without the parameter its link carries (user_id): one card in the app's look, in the page's language.
+ * Inside Telegram it says to open the link again from the bot's message; in a browser it says to sign in, with Sign in.
+ */
 export function MissingParameterCard() {
   const t = useTranslations('ui.missingParameter');
+  const gate = useTranslations('pageGate');
+  const locale = useLocale();
+  const inTelegram = useSyncExternalStore(subscribeNothing, isInTelegram, assumeTelegram);
   return (
     <AppScreen>
-      <StateCard tone="crash" title={t('title')} body={t('body')} />
+      {inTelegram ? (
+        <StateCard tone="crash" title={t('title')} body={t('body')} />
+      ) : (
+        <StateCard tone="crash" title={t('title')} body={t('bodyBrowser')} action={{ label: gate('signIn'), href: signInHref(locale) }} />
+      )}
     </AppScreen>
   );
 }

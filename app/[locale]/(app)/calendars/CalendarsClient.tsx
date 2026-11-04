@@ -29,8 +29,9 @@ import { Plus } from 'lucide-react';
 import { initDataHeaders, readInitData } from '@/src/lib/read-init-data';
 import { CALENDAR_PALETTE, displayColours } from '@/src/lib/calendar-colours';
 import type { GoogleState } from '@/src/lib/google-state';
-import { openExternalLink, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { isInTelegram, openExternalLink, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { startVisiblePoll } from '@/src/lib/visibility-timers';
+import { sessionEndedKey, signInAgain } from '@/src/lib/sign-in-again';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { Chevron, ColorSwatches, FORM_CSS, FieldError, FormCard, RadioCard, SaveBar, SwitchRow, TextField } from '@/components/app-ui/form-kit';
@@ -155,6 +156,7 @@ export default function CalendarsClient(props: Props) {
   const categories = useTranslations('calendars.categories');
   const sharedAccess = useTranslations('calendarsPage.sharedAccess');
   const ui = useTranslations('ui');
+  const gate = useTranslations('pageGate');
   const router = useRouter();
   const deleteErrorId = useId();
 
@@ -539,7 +541,11 @@ export default function CalendarsClient(props: Props) {
 
   // ---- Drawing ----
 
-  const failureText = (e: SheetError) => (e.failure === 'onlyOne' ? t('onlyOne') : e.failure === 'generic' ? t(`errors.${e.action}`) : t(`errors.${e.failure}`));
+  // A session that ended: the bot's words inside Telegram, "Sign in again" in a browser (6c-1)
+  const failureText = (e: SheetError) =>
+    e.failure === 'onlyOne' ? t('onlyOne') : e.failure === 'generic' ? t(`errors.${e.action}`) : e.failure === 'reopen' ? t(sessionEndedKey(isInTelegram())) : t(`errors.${e.failure}`);
+  /** In a browser, a session that ended offers Sign in where the failure is a notice (Telegram's buttons reopen the Mini App instead). */
+  const signInAction = (e: SheetError) => (e.failure === 'reopen' && !isInTelegram() ? { label: gate('signIn'), onClick: () => void signInAgain(locale) } : undefined);
   const colourName = (name: string) => (t.has(`colors.${name.toLowerCase()}`) ? t(`colors.${name.toLowerCase()}`) : t('colors.unknown'));
   const locked = busy !== null;
   const copyRows = copies?.shown ? owned.filter((c) => copyOf(c.rawId)) : [];
@@ -684,7 +690,7 @@ export default function CalendarsClient(props: Props) {
         <p className="ch-sheet-sub">{t('deleteBody')}</p>
         <div className="ch-sheet-stack">
           {copyOn ? <p className="ch-sheet-question">{tc('unlink.question', { name: isolate(c.name) })}</p> : null}
-          {sheetError ? <Notice tone="error">{failureText(sheetError)}</Notice> : null}
+          {sheetError ? <Notice tone="error" action={signInAction(sheetError)}>{failureText(sheetError)}</Notice> : null}
           {copyOn ? (
             <>
               <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={busy === 'delete-remove' || undefined} onClick={() => void deleteCalendar(c, 'remove')}>

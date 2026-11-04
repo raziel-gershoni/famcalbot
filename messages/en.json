@@ -65,6 +65,7 @@
       "busy": "Lots of requests right now. Try again in a minute.",
       "failed": "Couldn’t send it. Try again.",
       "signedOut": "Please reopen FamCal from the chat and try again.",
+      "signedOutBrowser": "Your sign-in has ended. Sign in again.",
       "offline": "No connection. Check your internet and try again."
     },
     "menu": {
@@ -92,7 +93,9 @@
       "reconnectScopesBody": "Reconnect Google and allow access to your calendar.",
       "reconnectAction": "Reconnect Google",
       "openInTelegram": "Open FamCal in Telegram",
-      "openInTelegramBody": "Reminders, voice summaries and more are waiting there."
+      "openInTelegramBody": "Reminders, voice summaries and more are waiting there.",
+      "connectTelegramBody": "For reminders and briefings",
+      "close": "Hide"
     },
     "state": {
       "partial": "Some calendars didn’t load",
@@ -484,7 +487,8 @@
     "empty": {
       "title": "Nothing planned",
       "hintEvents": "To add an event, send the bot a voice message, forward it a message, or share a photo of an invitation.",
-      "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”."
+      "hintReminders": "For a reminder, just tell the bot, like “Remind me to call Grandma at 6”.",
+      "hintBrowser": "To add an event, tap +"
     },
     "picker": {
       "gregorian": "Gregorian",
@@ -850,6 +854,10 @@
       "days": "Evening summary on"
     },
     "oneDayStays": "At least one day stays on",
+    "noChat": {
+      "title": "Briefings and reminders come in Telegram",
+      "body": "Connect Telegram to get your morning and evening briefings, event alerts and reminders. Your calendar stays as it is."
+    },
     "voiceInput": {
       "label": "Add events by voice",
       "hint": "Send the bot a voice message and the event is added"
@@ -895,12 +903,14 @@
     "signIn": {
       "title": "Sign in on the web",
       "hint": "Open FamCal in any browser at famcal.bot. Telegram and WhatsApp keep working as they do.",
+      "hintNoChat": "Open FamCal in any browser at famcal.bot.",
       "loading": "Loading…",
       "loadFailed": "Couldn’t load your sign-in ways.",
       "retry": "Try again",
       "on": "On",
       "telegram": "Telegram",
       "telegramHint": "Your Telegram account always signs you in",
+      "telegramConnectHint": "Not connected. Connect it for reminders and briefings.",
       "google": "Google",
       "googleFromCalendar": "The Google account your calendar is connected from",
       "calendarOffHint": "Turn it on to sign in on the web with this Google account.",
@@ -1006,6 +1016,7 @@
       "notFound": "This calendar was deleted somewhere else.",
       "tooMany": "Too many changes at once. Wait a minute and try again.",
       "reopen": "This page has expired. Open it again from the bot.",
+      "reopenBrowser": "Your sign-in has ended. Sign in again.",
       "limit": "Your plan has no room for another calendar."
     },
     "seePlans": "See plans",
@@ -1149,6 +1160,8 @@
     "browserTitle": "Open this page from your FamCal chat",
     "browserBody": "Send “settings” to FamCal on WhatsApp and we’ll send you a fresh link.",
     "browserTelegramHint": "On Telegram? Just open this page from the bot.",
+    "signInTitle": "Sign in to open this page",
+    "signInBody": "This browser isn’t signed in to FamCal, or its sign-in has ended. Use FamCal on WhatsApp? You can also get a fresh link there.",
     "openWhatsApp": "Get a new link on WhatsApp",
     "openTelegram": "Using Telegram? Open the bot",
     "signIn": "Sign in",
@@ -1728,7 +1741,8 @@
       "starsNote": "You pay with Telegram Stars in your chat with FamCal.",
       "invoiceSent": "The invoice is in your Telegram chat with FamCal. Pay there to switch plans.",
       "upgradeFailed": "Couldn't send the invoice. Try again.",
-      "needsTelegram": "Paying with Telegram Stars needs Telegram. Open FamCal in Telegram to change your plan."
+      "needsTelegram": "Paying with Telegram Stars needs Telegram. Open FamCal in Telegram to change your plan.",
+      "connectTelegram": "Plans are paid with Telegram Stars. Connect Telegram to change your plan."
     },
     "reminders": {
       "expiringSoon": {
@@ -3051,7 +3065,8 @@
   "ui": {
     "missingParameter": {
       "title": "Something's missing in this link",
-      "body": "Open it again from the bot's message."
+      "body": "Open it again from the bot's message.",
+      "bodyBrowser": "Sign in again to open your calendar."
     },
     "notFound": {
       "title": "Page not found",
@@ -3234,6 +3249,14 @@
     "emailSubject": "Your FamCal account has a new way to sign in",
     "emailSubjectTelegram": "Telegram was connected to your FamCal account",
     "emailWhy": "We sent this to an address you already sign in to FamCal with."
+  },
+  "telegramConnect": {
+    "action": "Connect Telegram",
+    "opening": "Opening Telegram…",
+    "signInAgain": "Sign in again to connect Telegram",
+    "opened": "Finish in Telegram, then come back and reload this page.",
+    "limit": "Too many tries. Try again in an hour.",
+    "failed": "Couldn’t open Telegram. Try again."
   },
   "countries": {
     "IL": "Israel",

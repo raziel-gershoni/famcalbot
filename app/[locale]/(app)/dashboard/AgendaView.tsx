@@ -103,6 +103,7 @@ function EmptyState({ hints }: { hints: HomeHints }) {
         <path d="M3 10h18M8 3v4M16 3v4" />
       </svg>
       <h2 className="ch-empty-title">{t('empty.title')}</h2>
+      {hints.addByTap ? <p className="ch-empty-hint">{t('empty.hintBrowser')}</p> : null}
       {hints.voiceEvents ? <p className="ch-empty-hint">{t('empty.hintEvents')}</p> : null}
       {hints.reminders ? <p className="ch-empty-hint">{t('empty.hintReminders')}</p> : null}
     </div>

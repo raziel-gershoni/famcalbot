@@ -315,6 +315,64 @@ export const HOME_SHELL_CSS = `
   block-size: 18px;
   color: var(--ch-muted);
 }
+/* Connect Telegram (6c-1): the banner holds its own button and the close, so the banner itself is no button */
+.ch-banner-split {
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+.ch-banner-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  min-height: 56px;
+  margin: 0;
+  padding-block: 10px;
+  padding-inline: 14px 4px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 15px;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-banner-main:disabled {
+  cursor: default;
+}
+.ch-banner-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  margin-inline-end: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ch-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-banner-close svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+.ch-banner-line {
+  margin: 0;
+  padding-inline: 14px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ch-muted);
+}
+.ch-banner-line.is-problem {
+  color: var(--ch-danger);
+}
 .ch-options {
   list-style: none;
   margin: 0;
@@ -400,6 +458,10 @@ export const HOME_SHELL_CSS = `
 }
 .ch-send-result.is-problem {
   color: var(--ch-danger);
+}
+.ch-send-signin {
+  inline-size: 100%;
+  margin-block-start: 12px;
 }
 @keyframes ch-pulse {
   0%, 100% { opacity: 1; }

@@ -377,7 +377,7 @@ async function main() {
       const wa = html.indexOf(`href="${LINKS.whatsapp}"`);
       const tg = html.indexOf(`href="${LINKS.telegram}"`);
       if (signIn < 0 || wa < 0 || tg < 0 || signIn > wa || wa > tg) problems.push(`Sign in link at ${signIn}, WhatsApp link at ${wa}, Telegram link at ${tg}`);
-      for (const key of ['browserTitle', 'browserBody', 'signIn', 'openWhatsApp', 'openTelegram']) {
+      for (const key of ['signInTitle', 'signInBody', 'signIn', 'openWhatsApp', 'openTelegram']) {
         if (!he.pageGate[key] || !html.includes(asHtml(he.pageGate[key]))) problems.push(`no pageGate.${key}`);
       }
     }

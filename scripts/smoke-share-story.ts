@@ -293,7 +293,11 @@ async function main() {
           await settle();
           const ui = messages[locale].ui as Row;
           const card = elements(o.m.container).find((e) => e.getAttribute('role') === 'alert');
-          assert(card && flat(card) === `${ui.missingParameter.title}${ui.missingParameter.body}`, `${locale}: the missing-parameter card ${card && flat(card)}`);
+          // With no SDK and no launch data this is a browser (6c-1): the card's browser words and Sign in, no bot
+          const want = options.noSdk
+            ? `${ui.missingParameter.title}${ui.missingParameter.bodyBrowser}${(messages[locale].pageGate as Row).signIn}`
+            : `${ui.missingParameter.title}${ui.missingParameter.body}`;
+          assert(card && flat(card) === want, `${locale} ${show(options)}: the missing-parameter card ${card && flat(card)}`);
           assert(fetchCalls.length === 0 && o.alerts.length === 0 && closes(o) === 0, `${locale} ${show(options)}: something went out with no user: ${show(fetchCalls.map((c) => c.url))}`);
         } finally {
           close(o);

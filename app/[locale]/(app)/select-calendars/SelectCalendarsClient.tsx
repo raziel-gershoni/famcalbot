@@ -25,7 +25,8 @@ import { useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { initDataHeaders } from '@/src/lib/read-init-data';
-import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { isInTelegram, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { sessionEndedKey, signInAgain } from '@/src/lib/sign-in-again';
 import type { CalendarLabel } from '@/src/types';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
@@ -136,6 +137,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
   const page = useTranslations('calendarsPage');
   const categories = useTranslations('calendars.categories');
   const ui = useTranslations('ui');
+  const gate = useTranslations('pageGate');
   const router = useRouter();
   const noteHintId = useId();
   const notesHintId = useId();
@@ -304,16 +306,20 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
     if (e.failure === 'noneSelected' || e.failure === 'noYours') return t(`errors.${e.failure}`);
     if (e.failure === 'retry' || (e.failure === 'generic' && inSheet)) return t('errors.retry');
     if (e.failure === 'generic') return t('errors.save');
+    // A session that ended: the bot's words inside Telegram, "Sign in again" in a browser (6c-1)
+    if (e.failure === 'reopen') return page(sessionEndedKey(isInTelegram()));
     return page(`errors.${e.failure}`);
   };
   const seePlans = { label: page('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) };
+  const signIn = { label: gate('signIn'), onClick: () => void signInAgain(locale) };
   const chosen = availableCalendars.filter((c) => sel.selected.has(c.id));
 
   const statusLine = () => {
     if (!status) return null;
     if (status.kind === 'failed') {
+      const way = status.why.failure === 'limit' ? seePlans : status.why.failure === 'reopen' && !isInTelegram() ? signIn : undefined;
       return (
-        <Notice key={status.id} tone="error" action={status.why.failure === 'limit' ? seePlans : undefined}>
+        <Notice key={status.id} tone="error" action={way}>
           {failureText(status.why)}
         </Notice>
       );

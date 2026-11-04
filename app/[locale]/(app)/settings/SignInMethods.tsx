@@ -6,6 +6,8 @@
 //
 // - Telegram shows as on for a Telegram account, only while Telegram sign-in is configured (view.providers.telegram): a
 //   row that says "on" for a way /signin doesn't offer would mislead. Telegram and WhatsApp can't be removed here.
+// - An account with no chat (view.chat false, made on famcal.bot; 6c-1) sees the browser hint and a Telegram row with
+//   Connect Telegram (the shared helper, telegram-connect-client.ts), whatever Telegram sign-in's configuration.
 // - Google: Add asks for a one-time link (POST /api/auth/google/add-link, 5 minutes) to famcal.bot's add-Google page.
 //   Google refuses in-app browsers, so inside Telegram a sheet opens it in the browser with Telegram's openLink on the tap
 //   itself (a link opened after an await may be refused, as on the Calendars screen); in a browser this tab goes there.
@@ -41,6 +43,7 @@ import { isInTelegram, openExternalLink } from '@/src/lib/telegram-ui';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
 import { joinDateText, joinLines, type JoinSummary } from '@/src/lib/join-summary';
 import { signInHref } from '@/src/site/signin';
+import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type JoinError, type MethodsView, type RemoveError, type RemoveWhich, type TurnOnError } from './signin-methods-client';
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; view: MethodsView };
@@ -82,6 +85,11 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [working, setWorking] = useState<Working | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const c = useTranslations('telegramConnect');
+  // No chat (view.chat false, Task 8): Telegram connects here (6c-1)
+  const connect = useTelegramConnect(userId, locale);
+  const connecting = connect.phase === 'busy' || connect.phase === 'leaving';
+  const connectLine = connectLineKey(connect.phase);
 
   useEffect(() => {
     let live = true;
@@ -266,9 +274,22 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
         <>
           <FormCard>
             <div className="ch-form-row">
-              <span className="ch-form-hint">{t('hint')}</span>
+              <span className="ch-form-hint">{view.chat ? t('hint') : t('hintNoChat')}</span>
             </div>
-            {view.telegram && view.providers.telegram ? (
+            {!view.chat ? (
+              <>
+                <FormRow label={t('telegram')} hint={t('telegramConnectHint')} />
+                <button type="button" className="ch-form-row ch-action-row" disabled={off || connecting} aria-busy={connecting || undefined} onClick={connect.press}>
+                  {connecting ? (
+                    <>
+                      {spin} {c(connectButtonKey(connect.phase))}
+                    </>
+                  ) : (
+                    c(connectButtonKey(connect.phase))
+                  )}
+                </button>
+              </>
+            ) : view.telegram && view.providers.telegram ? (
               <FormRow label={t('telegram')} hint={t('telegramHint')}>
                 <span className="ch-form-value">
                   <span className="ch-form-value-text">{t('on')}</span>
@@ -355,6 +376,7 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
         </>
       )}
       {status ? <Notice tone={status.tone}>{status.text}</Notice> : null}
+      {connectLine ? <Notice tone={connectLine.problem ? 'error' : 'info'}>{c(connectLine.key)}</Notice> : null}
 
       {sheet?.kind === 'remove' ? (
         <BottomSheet label={t('removeTitle', { kind: sheet.which === 'email' ? 'email' : 'google' })} closeLabel={t('cancel')} closeDisabled={sheet.busy} onClose={() => setSheet(null)}>

@@ -95,6 +95,7 @@ const KEYS: Record<string, readonly string[]> = {
   'send.busy': [],
   'send.failed': [],
   'send.signedOut': [],
+  'send.signedOutBrowser': [],
   'send.offline': [],
   // MenuSheet (D6), Ruling R6
   'menu.settings': [],
@@ -121,6 +122,9 @@ const KEYS: Record<string, readonly string[]> = {
   'banner.reconnectAction': [],
   'banner.openInTelegram': [],
   'banner.openInTelegramBody': [],
+  // 6c-1: Connect Telegram for an account with no chat (its title is telegramConnect.action)
+  'banner.connectTelegramBody': [],
+  'banner.close': [],
   // §5's state rows and the retry card (D5 and D6)
   'state.partial': [],
   'state.unavailable': ['count'],
@@ -451,6 +455,7 @@ const KEYS: Record<string, readonly string[]> = {
   'empty.title': [],
   'empty.hintEvents': [],
   'empty.hintReminders': [],
+  'empty.hintBrowser': [],
   // The tab bar (E4), spec §7.1 and §7.7
   'tabs.label': [],
   'tabs.agenda': [],

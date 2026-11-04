@@ -4,6 +4,11 @@
 // grouped ground, a header with its back, the sections of cards (language and place, summaries, when
 // summaries arrive, events and reminders, Google while connected, and Sign in on the web: SignInMethods,
 // spec 2026-11-02-web-sign-in §4, which saves each change itself), and a Save bar that stays at the bottom.
+// - An account with no chat (made on famcal.bot; spec 2026-11-03-web-sign-up §4) has nothing that sets up chat messages: no
+//   Summaries, no Timing, no Shabbat pause, voice input or alerts, no Pro notice. In their place the Telegram note
+//   ("Briefings and reminders come in Telegram") with Connect Telegram (telegram-connect-client.ts); the Events section only
+//   when the reminder time applies (a partner with Telegram gets the pings). After Telegram connects, everything shows on the
+//   next load.
 //
 // - Save stays on the page: the bar says "Saved" or what failed, and what was just saved becomes the
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
@@ -25,15 +30,17 @@
 import { useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
 import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import { WEEKDAY_IDS_BY_INDEX } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { readInitData } from '@/src/lib/read-init-data';
 import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { DayChips, type DayChip } from '@/components/app-ui/DayChips';
-import { FORM_CSS, FormCard, SaveBar, SwitchRow, ButtonRow, ValueRow } from '@/components/app-ui/form-kit';
+import { FORM_CSS, FormCard, FormRow, SaveBar, SwitchRow, ButtonRow, ValueRow } from '@/components/app-ui/form-kit';
 import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
@@ -91,6 +98,8 @@ interface SettingsClientProps {
   subscriptionInfo: SubscriptionInfo;
   /** The person has Telegram and WhatsApp both: the platform choice shows only then (with one channel there is nothing to choose). */
   bothChannels: boolean;
+  /** false: no chat at all (no Telegram, no WhatsApp): the chat-only cards and rows give way to the Telegram note. Absent: as before. */
+  hasChat?: boolean;
 }
 
 /** The language names are each language's own, whatever language the page is in. */
@@ -132,7 +141,27 @@ function SummaryDays({ label, days, weekStart, onToggle }: { label: string; days
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels }: SettingsClientProps) {
+function TelegramNote({ userId, locale }: { userId: number; locale: string }) {
+  const t = useTranslations('settings');
+  const c = useTranslations('telegramConnect');
+  const connect = useTelegramConnect(userId, locale);
+  const working = connect.phase === 'busy' || connect.phase === 'leaving';
+  const line = connectLineKey(connect.phase);
+  return (
+    <>
+      <FormCard>
+        <FormRow label={t('noChat.title')} hint={t('noChat.body')} />
+        <button type="button" className="ch-form-row ch-action-row" disabled={working} aria-busy={working || undefined} onClick={connect.press}>
+          {working ? <Loader2 size={16} className="ch-spin" aria-hidden="true" /> : null}
+          {c(connectButtonKey(connect.phase))}
+        </button>
+      </FormCard>
+      {line ? <Notice tone={line.problem ? 'error' : 'info'}>{c(line.key)}</Notice> : null}
+    </>
+  );
+}
+
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat }: SettingsClientProps) {
   const t = useTranslations('settings');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -229,6 +258,9 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const alertsOn = form.remindersEnabled && alertsAllowed;
   // The alerts rows follow the saved platform: picking another one changes them once it is saved.
   const telegramReaches = saved.messagingPlatform !== 'whatsapp';
+  // No chat at all (6c-1): nothing on this page may set up a chat message
+  const noChat = hasChat === false;
+  const chatAlerts = telegramReaches && !noChat;
   const usage = (used: number, limit: number) => (limit > 0 ? t('usage', { used, limit }) : undefined);
 
   return (
@@ -278,8 +310,8 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
             ]}
             onChange={(value) => setForm((f) => ({ ...f, culture: value, ...defaultsForCulture(value) }))}
           />
-          {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). */}
-          <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />
+          {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). It pauses chat messages: none with no chat. */}
+          {noChat ? null : <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />}
           {bothChannels ? (
             <ValueRow
               label={t('platform.label')}
@@ -294,64 +326,75 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           ) : null}
         </FormCard>
 
-        <SectionLabel>{t('sections.summaries')}</SectionLabel>
-        <FormCard>
-          <SwitchRow
-            label={t('text.label')}
-            hint={t('text.hint')}
-            note={usage(subscriptionInfo.textSummariesUsed, subscriptionInfo.textSummariesLimit)}
-            checked={form.textSummaryEnabled}
-            onChange={(on) => set('textSummaryEnabled', on)}
-          />
-          <SwitchRow
-            label={t('voice.label')}
-            hint={t('voice.hint')}
-            note={usage(subscriptionInfo.voiceSummariesUsed, subscriptionInfo.voiceSummariesLimit)}
-            checked={form.voiceSummaryEnabled}
-            onChange={(on) => set('voiceSummaryEnabled', on)}
-          />
-          <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
-          <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
-          <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />
-        </FormCard>
-
-        <SectionLabel>{t('sections.timing')}</SectionLabel>
-        <FormCard>
-          <ValueRow label={t('morning.label')} value={String(form.preferredMorningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredMorningHour', Number(value))} />
-          <SummaryDays label={t('morning.days')} days={form.dailySummaryDays} weekStart={weekStart} onToggle={(day) => set('dailySummaryDays', toggleSummaryDay(form.dailySummaryDays, day))} />
-          <ValueRow label={t('evening.label')} value={String(form.preferredEveningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredEveningHour', Number(value))} />
-          <SummaryDays label={t('evening.days')} days={form.tomorrowSummaryDays} weekStart={weekStart} onToggle={(day) => set('tomorrowSummaryDays', toggleSummaryDay(form.tomorrowSummaryDays, day))} />
-        </FormCard>
-
-        <SectionLabel>{t('sections.events')}</SectionLabel>
-        <FormCard>
-          <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />
-          {telegramReaches ? (
-            <>
+        {noChat ? (
+          <TelegramNote userId={userId} locale={saved.language} />
+        ) : (
+          <>
+            <SectionLabel>{t('sections.summaries')}</SectionLabel>
+            <FormCard>
               <SwitchRow
-                label={t('alerts.label')}
-                hint={remindersGloballyEnabled ? t('alerts.hint') : t('alerts.comingSoon')}
-                checked={alertsOn}
-                disabled={!alertsAllowed}
-                onChange={(on) => set('remindersEnabled', on)}
+                label={t('text.label')}
+                hint={t('text.hint')}
+                note={usage(subscriptionInfo.textSummariesUsed, subscriptionInfo.textSummariesLimit)}
+                checked={form.textSummaryEnabled}
+                onChange={(on) => set('textSummaryEnabled', on)}
               />
-              {alertsOn ? (
+              <SwitchRow
+                label={t('voice.label')}
+                hint={t('voice.hint')}
+                note={usage(subscriptionInfo.voiceSummariesUsed, subscriptionInfo.voiceSummariesLimit)}
+                checked={form.voiceSummaryEnabled}
+                onChange={(on) => set('voiceSummaryEnabled', on)}
+              />
+              <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
+              <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
+              <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />
+            </FormCard>
+
+            <SectionLabel>{t('sections.timing')}</SectionLabel>
+            <FormCard>
+              <ValueRow label={t('morning.label')} value={String(form.preferredMorningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredMorningHour', Number(value))} />
+              <SummaryDays label={t('morning.days')} days={form.dailySummaryDays} weekStart={weekStart} onToggle={(day) => set('dailySummaryDays', toggleSummaryDay(form.dailySummaryDays, day))} />
+              <ValueRow label={t('evening.label')} value={String(form.preferredEveningHour)} options={HOURS} valueDir="ltr" onChange={(value) => set('preferredEveningHour', Number(value))} />
+              <SummaryDays label={t('evening.days')} days={form.tomorrowSummaryDays} weekStart={weekStart} onToggle={(day) => set('tomorrowSummaryDays', toggleSummaryDay(form.tomorrowSummaryDays, day))} />
+            </FormCard>
+          </>
+        )}
+
+        {/* With no chat only the reminder time can be left here (a partner with Telegram gets the pings); with none of it, no section. */}
+        {noChat && !nativeRemindersSupported ? null : (
+          <>
+            <SectionLabel>{t('sections.events')}</SectionLabel>
+            <FormCard>
+              {noChat ? null : <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />}
+              {chatAlerts ? (
                 <>
-                  <ValueRow
-                    label={t('defaultAlert.label')}
-                    hint={t('defaultAlert.hint')}
-                    value={String(form.defaultReminderMinutes)}
-                    options={ALERT_LEADS.map((minutes) => ({ value: String(minutes), text: t('defaultAlert.option', { minutes }) }))}
-                    onChange={(value) => set('defaultReminderMinutes', Number(value))}
+                  <SwitchRow
+                    label={t('alerts.label')}
+                    hint={remindersGloballyEnabled ? t('alerts.hint') : t('alerts.comingSoon')}
+                    checked={alertsOn}
+                    disabled={!alertsAllowed}
+                    onChange={(on) => set('remindersEnabled', on)}
                   />
-                  <SwitchRow label={t('pickup.label')} hint={t('pickup.hint')} checked={form.pickupRemindersEnabled} onChange={(on) => set('pickupRemindersEnabled', on)} />
+                  {alertsOn ? (
+                    <>
+                      <ValueRow
+                        label={t('defaultAlert.label')}
+                        hint={t('defaultAlert.hint')}
+                        value={String(form.defaultReminderMinutes)}
+                        options={ALERT_LEADS.map((minutes) => ({ value: String(minutes), text: t('defaultAlert.option', { minutes }) }))}
+                        onChange={(value) => set('defaultReminderMinutes', Number(value))}
+                      />
+                      <SwitchRow label={t('pickup.label')} hint={t('pickup.hint')} checked={form.pickupRemindersEnabled} onChange={(on) => set('pickupRemindersEnabled', on)} />
+                    </>
+                  ) : null}
                 </>
               ) : null}
-            </>
-          ) : null}
-          {nativeRemindersSupported ? <ButtonRow label={t('reminderTime')} hint={t('reminderTimeHelp')} value={form.reminderTime} valueDir="ltr" onClick={() => setTimeOpen(true)} /> : null}
-        </FormCard>
-        {telegramReaches && remindersGloballyEnabled && !subscriptionInfo.remindersAllowed ? (
+              {nativeRemindersSupported ? <ButtonRow label={t('reminderTime')} hint={t('reminderTimeHelp')} value={form.reminderTime} valueDir="ltr" onClick={() => setTimeOpen(true)} /> : null}
+            </FormCard>
+          </>
+        )}
+        {chatAlerts && remindersGloballyEnabled && !subscriptionInfo.remindersAllowed ? (
           <Notice action={{ label: t('alerts.seePlans'), onClick: () => router.push(`/${saved.language}/subscription?user_id=${userId}`) }}>{t('alerts.proOnly')}</Notice>
         ) : null}
 

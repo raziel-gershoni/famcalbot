@@ -676,7 +676,7 @@ async function main() {
     for (const locale of LOCALES) {
       const screen = messages[locale].subscription.screen as Row;
       const keys = leaves(screen);
-      assert(keys.length === 32, `${locale}: ${keys.length} keys in subscription.screen`);
+      assert(keys.length === 33, `${locale}: ${keys.length} keys in subscription.screen`);
       // The trial's days left is the home's banner line, said once: the screen has no copy of it, and reads the home's with { count }
       assert(!('trialLeft' in screen), `${locale}: subscription.screen.trialLeft is back (the home's calendarHome.banner.trial says it)`);
       assert(typeof (messages[locale].calendarHome as Row).banner.trial === 'string' && (messages[locale].calendarHome as Row).banner.trial.includes('{count, plural'), `${locale}: calendarHome.banner.trial`);
@@ -782,6 +782,10 @@ async function main() {
     assert(props.subscription.effectivePlan === 'FREE' && props.trial.isTrialing === false && props.usage.textSummaries === 1, 'the other props are as they were');
     const whatsapp = await loadPageData('subscription', user(null), 5550001, 'en');
     assert(whatsapp.kind === 'props' && (whatsapp.props as Row).telegramLinked === false, `a user with no Telegram: ${show((whatsapp as Row).props?.telegramLinked)}`);
+    // 6c-1: whether the account has a chat at all (Telegram or WhatsApp): with none, Plans offers Connect Telegram
+    assert(props.hasChat === true && (whatsapp.props as Row).hasChat === false, `hasChat: ${show(props.hasChat)} / ${show((whatsapp.props as Row).hasChat)}`);
+    const waOnly = await loadPageData('subscription', { ...(user(null) as Row), whatsappPhone: '972500000001' } as never, 5550001, 'en');
+    assert(waOnly.kind === 'props' && (waOnly.props as Row).hasChat === true && (waOnly.props as Row).telegramLinked === false, `WhatsApp only: ${show((waOnly as Row).props?.hasChat)}`);
     calendarCount = { famcal: 0, google: 0 };
     const none = await loadPageData('subscription', user(4242), 5550001, 'en');
     assert(none.kind === 'props' && (none.props as Row).calendarsUsed === 0, 'no calendars is 0');

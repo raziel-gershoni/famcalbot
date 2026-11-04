@@ -4,7 +4,7 @@
 // route says so, its Hebrew date ("Thursday, 15 October" over "4 Cheshvan 5787"), both
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
-// when the user can add one, home editing spec §2), Send to chat, the sun (today's zmanim, only for the Jewish
+// when the user can add one, home editing spec §2), Send to chat (only for an account with a chat, 6c-1), the sun (today's zmanim, only for the Jewish
 // calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
 // they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
 // the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar.
@@ -26,7 +26,8 @@ export interface HomeHeaderProps {
   zone: string | null;
   sendOpen: boolean;
   menuOpen: boolean;
-  onSend: () => void;
+  /** Opens the Send sheet; absent for an account with no chat (no Telegram, no WhatsApp), and there is no Send button. */
+  onSend?: () => void;
   onMenu: () => void;
   /** Opens the editor for a new item; absent when the user can add neither kind, and there is no "+". */
   onAdd?: () => void;
@@ -205,16 +206,18 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
               <PlusIcon />
             </button>
           ) : null}
-          <button
-            type="button"
-            className="ch-icon-btn ch-icon-btn-accent"
-            aria-label={t('header.send')}
-            aria-haspopup="dialog"
-            aria-expanded={sendOpen}
-            onClick={onSend}
-          >
-            <SendIcon />
-          </button>
+          {onSend ? (
+            <button
+              type="button"
+              className="ch-icon-btn ch-icon-btn-accent"
+              aria-label={t('header.send')}
+              aria-haspopup="dialog"
+              aria-expanded={sendOpen}
+              onClick={onSend}
+            >
+              <SendIcon />
+            </button>
+          ) : null}
           {onZmanim ? (
             <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
               <SunIcon />

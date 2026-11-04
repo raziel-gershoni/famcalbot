@@ -558,7 +558,7 @@ async function main() {
       assert(show(colourCalls(browser.calls)) === show([]), `colours: ${show(browser.calls)}`);
       const anchors = elements(browser.m.container).filter((e) => e.localName === 'a');
       assert(show(anchors.map((a) => [a.getAttribute('href'), a.className])) === show([['/he/signin', 'ch-btn ch-btn-primary ch-home-card-action'], [links.whatsapp, 'ch-btn ch-home-card-action'], [links.telegram, 'ch-btn ch-home-card-action']]), `the browser card: ${show(anchors.map((a) => a.getAttribute('href')))}`);
-      assert(elements(browser.m.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.browserTitle) && pushes.length === 0, 'the browser title, no push');
+      assert(elements(browser.m.container).some((e) => e.localName === 'h1' && e.textContent === messages.he.pageGate.signInTitle) && pushes.length === 0, 'the browser title, no push');
       assert(!elements(browser.m.container).some((e) => e.className === 'ch-loader'), 'the loader is gone');
     } finally {
       browser.m.unmount();

@@ -11,7 +11,8 @@
 //   offered Basic), or when it is the user's own paid plan while its month runs (ACTIVE or CANCELED with a period end,
 //   until the expiry run moves them to Free): paying again renews it, and the new month starts that day, as the Terms
 //   say (the renewal reminders' Renew lands here). Telegram must be linked: paying is a Telegram Stars invoice the bot
-//   sends to the user's chat. A user with no Telegram is told that, in place of the buttons. A free gift has no period
+//   sends to the user's chat. A user with no Telegram is told that, in place of the buttons; one with no chat at all (made
+//   on famcal.bot, 6c-1) is offered Connect Telegram there (telegram-connect-client.ts). A free gift has no period
 //   end, so it offers nothing. Early access shows no plans at all.
 // - Before the first pay button (Consumer Protection Law s.14C; Telegram's Stars checklist; the legal review of
 //   2026-10-29, issue 4): the seller, one month that never renews, the 14-day full refund and the Terms, as a static
@@ -32,6 +33,7 @@ import { Star } from 'lucide-react';
 import { PLAN_CONFIGS, type PlanId } from '@/src/config/plans';
 import { readInitData } from '@/src/lib/read-init-data';
 import { openExternalLink, showTelegramAlert, telegramWebApp } from '@/src/lib/telegram-ui';
+import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { policyUrl, sellerName } from '@/src/lib/plan-disclosure';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
@@ -81,9 +83,11 @@ interface SubscriptionClientProps {
   calendarsUsed: number;
   /** Whether the user has a Telegram account: the invoice is sent to their chat. */
   telegramLinked: boolean;
+  /** false: no chat at all (no Telegram, no WhatsApp): Connect Telegram in place of the WhatsApp note. Absent: as before. */
+  hasChat?: boolean;
 }
 
-export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked }: SubscriptionClientProps) {
+export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked, hasChat }: SubscriptionClientProps) {
   const t = useTranslations('subscription.screen');
   const names = useTranslations('subscription.plans');
   // The trial's days left is the home's own line (its banner), read from there so the two never say it twice
@@ -95,6 +99,11 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
   const [outcome, setOutcome] = useState<'sent' | 'failed' | null>(null);
   // Two taps can land before React shows the first one's busy state: the ref is what holds the second back
   const inFlight = useRef(false);
+  const c = useTranslations('telegramConnect');
+  // No chat (6c-1): the plan is paid once Telegram is connected; the button is the shared helper's
+  const noChat = hasChat === false;
+  const connect = useTelegramConnect(userId, locale);
+  const connectLine = connectLineKey(connect.phase);
 
   const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
   const nameOf = (id: PlanId) => names(`${id.toLowerCase()}.name`);
@@ -244,7 +253,13 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
             {outcome === 'sent' ? <Notice>{t('invoiceSent')}</Notice> : null}
             {outcome === 'failed' ? <Notice tone="error">{t('upgradeFailed')}</Notice> : null}
             {showButtons ? <p className="ch-plan-fine">{t('starsNote')}</p> : null}
-            {anyPay && !telegramLinked ? <Notice>{t('needsTelegram')}</Notice> : null}
+            {anyPay && !telegramLinked && !noChat ? <Notice>{t('needsTelegram')}</Notice> : null}
+            {anyPay && noChat ? (
+              <Notice live={false} action={{ label: c(connectButtonKey(connect.phase)), onClick: connect.press }}>
+                {t('connectTelegram')}
+              </Notice>
+            ) : null}
+            {anyPay && noChat && connectLine ? <Notice tone={connectLine.problem ? 'error' : 'info'}>{c(connectLine.key)}</Notice> : null}
           </>
         )}
       </div>
