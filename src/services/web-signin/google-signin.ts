@@ -7,7 +7,9 @@
  * - 'blocked': the Google account (its sub) or its verified address is on the blocklist, for a sign-in and a sign-up
  *   alike (an account found by its sub is refused here, before finishSignIn's own check of its ways).
  * - 'new': no account holds this Google account in any way (no Google way with this sub, no calendar key for its
- *   address) and no way of another account shows the verified address: the callback starts the sign-up.
+ *   address), no way of another account shows the verified address, and Google sign-up is open here (signUpOpen:
+ *   email sending set up too, since the new account's notices go only by email): the callback starts the sign-up.
+ *   With Google sign-up closed it is 'no-account', the page a sign-in with no account had before sign-up.
  * - 'exists' (way 'email'): the verified address is another account's email way. Its page says to sign in with a code
  *   and add Google in Settings. A check on an address Google just proved, never a sign-in by address.
  * - A Google way of another sub that shows the address stays 'no-account' (that page's words fit; "use Google" would
@@ -21,6 +23,7 @@ import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { normalizeEmail } from './email-address';
 import { findUserByIdentity, findWayByAddress } from './identities';
 import { matchCalendarAccount } from './calendar-account';
+import { signUpOpen } from './signup-open';
 
 export type GoogleSignInResult =
   | { user: UserConfig }
@@ -49,6 +52,10 @@ export async function resolveGoogleSignIn(claims: GoogleClaims): Promise<GoogleS
   }
   if (held) {
     console.warn(`[signin] google: the verified address shows on user ${held.userId}'s Google way of another Google account; no sign-up`);
+    return { status: 'no-account' };
+  }
+  if (!signUpOpen('google')) {
+    console.warn('[signin] google: no FamCal account holds this Google account, and Google sign-up is off (email sending is not set up); no sign-up');
     return { status: 'no-account' };
   }
   console.log('[signin] google: no FamCal account holds this Google account; the sign-up is offered');

@@ -348,7 +348,7 @@ export function Founder({ t }: { t: Translate }) {
   );
 }
 
-export function StartAgain({ t, words, browserHref }: { t: Translate; words: StartWords; browserHref: string }) {
+export function StartAgain({ t, words, browserHref }: { t: Translate; words: StartWords; browserHref?: string }) {
   return (
     <section id="start" className="site-section site-final" aria-labelledby="start-title">
       <div className="site-wrap">

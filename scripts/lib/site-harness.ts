@@ -187,6 +187,41 @@ export function stubMdx() {
 /** Loads a module of the repo (after the stubs it needs are in place). */
 export const load = (rel: string): Promise<Row> => import(path.join(ROOT, rel));
 
+/**
+ * The Redis client as a page that reads no Redis sees it: any use throws, so the render that made it fails. The
+ * marketing pages import it only through the sign-up switch's modules (signup-open.ts → email-send.ts → limits.ts) and
+ * never call it; stubbed, the fake env's empty Upstash address never reaches the real client either.
+ */
+export function stubNoRedis(): void {
+  const refuse = new Proxy({}, {
+    get: (_target, prop) => {
+      if (typeof prop !== 'string' || prop === 'then') return undefined;
+      throw new Error(`a site page used Redis (${prop})`);
+    },
+  });
+  stub('src/utils/redis.ts', { redis: refuse });
+}
+
+// ---- The sign-up switch ----
+
+/** The variables that open web sign-up (src/services/web-signin/signup-open.ts reads them through its three checks). */
+const SIGNUP_VARS = ['GOOGLE_SIGNIN_CLIENT_ID', 'GOOGLE_SIGNIN_CLIENT_SECRET', 'RESEND_API_KEY', 'TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET'] as const;
+
+/**
+ * Sets the sign-up variables to one state, fakes only: 'off' clears them (the fake env's own state); 'email' is email
+ * codes with Turnstile; 'google' is Google sign-in with Resend; 'google-no-mail' is Google sign-in with no Resend, which
+ * opens no sign-up (web sign-up spec §2.10: a browser-only account's notices go only by email). Google sign-in has its
+ * own client id (oidc.ts refuses one equal to the fake env's calendar client 'fake').
+ */
+export function signUpEnv(state: 'off' | 'email' | 'google' | 'google-no-mail'): void {
+  for (const name of SIGNUP_VARS) delete process.env[name];
+  const set: Record<string, string> = {};
+  if (state === 'google' || state === 'google-no-mail') Object.assign(set, { GOOGLE_SIGNIN_CLIENT_ID: 'smoke-signin-client', GOOGLE_SIGNIN_CLIENT_SECRET: 'smoke-only' });
+  if (state === 'google' || state === 'email') set.RESEND_API_KEY = 're_smoke_only';
+  if (state === 'email') Object.assign(set, { TURNSTILE_SITE_KEY: 'smoke-site-key', TURNSTILE_SECRET: 'smoke-only' });
+  Object.assign(process.env, set);
+}
+
 // ---- Rendering ----
 
 /** The whole HTML of `el`, async server components awaited (react-dom/static's prerender). */

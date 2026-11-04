@@ -231,7 +231,7 @@ async function main() {
       const href = (name: string) => decodeEntities(attr(ways(all).find((a) => attr(a, 'data-way') === name) ?? '', 'href') ?? '');
       assert(href('telegram') === `/api/auth/telegram/start?locale=${locale}` && href('google') === `/api/auth/google/start?locale=${locale}`, `${locale}: ${href('telegram')} ${href('google')}`);
       const text = textOf(all);
-      // Google sign-in set up opens sign-up with Google (email needs Turnstile too): the line says new people can create an account
+      // Google sign-in with email sending set up opens sign-up with Google (email needs Turnstile too): the line says new people can create an account
       for (const w of [s.title, s.lead, s.telegram, s.telegramNote, s.google, s.email, word(locale, 'site.signin.newAccount', { ways: 'google' })]) assert(text.includes(w), `${locale}: no "${w}"`);
       assert(!text.includes(s.existingOnly), `${locale}: the old "existing accounts only" line with sign-up open`);
       const google = anchorMarkup(all, 'google');
@@ -250,6 +250,13 @@ async function main() {
       configure({ google: true, email: true, turnstile: true });
       assert(textOf(await signin(locale)).includes(word(locale, 'site.signin.newAccount', { ways: 'both' })), `${locale}: both ways do not offer sign-up`);
       configure({ turnstile: false });
+      // Google sign-in with no Resend: a browser-only account's notices go only by email, so Google opens no sign-up
+      // either (web sign-up spec §2.10); the line stays as it was
+      configure({ google: true });
+      const googleNoMail = textOf(await signin(locale));
+      assert(googleNoMail.includes(s.existingOnly) && !googleNoMail.includes(word(locale, 'site.signin.newAccount', { ways: 'google' })), `${locale}: Google without Resend offers sign-up`);
+      const noAccountNoMail = textOf(await signin(locale, { status: 'no-account' }));
+      assert(noAccountNoMail.includes((s.status as Row).noAccount.newHere) && !noAccountNoMail.includes((s.status as Row).noAccount.webAccount), `${locale}: the no-account page offers sign-up with Google and no Resend`);
 
       configure({});
       const none = await signin(locale);

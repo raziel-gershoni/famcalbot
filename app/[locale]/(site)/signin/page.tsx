@@ -12,10 +12,11 @@ import { SELLER } from '@/src/lib/seller';
 import { SESSION_COOKIE_NAME, validateSessionToken } from '@/src/lib/session-auth';
 import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { providerConfigured } from '@/src/services/web-signin/oidc';
-import { turnstileConfigured, turnstileSiteKey } from '@/src/services/web-signin/turnstile';
+import { turnstileSiteKey } from '@/src/services/web-signin/turnstile';
+import { openSignUpWays } from '@/src/services/web-signin/signup-open';
 import { SITE_URL } from '@/src/site/config';
 import { siteMetadata } from '@/src/site/seo';
-import { isOutcome, readSignInStatus, signUpWays, STATUS_KEY, type OutcomeStatus, type SignUpWays } from '@/src/site/signin';
+import { isOutcome, readSignInStatus, STATUS_KEY, type OutcomeStatus, type SignUpWays } from '@/src/site/signin';
 import { localeHref } from '@/src/site/zmanim/links';
 import { cleanInviteToken } from '@/src/lib/invite-token';
 import { SignInClient, type SignInWays } from './SignInClient';
@@ -32,8 +33,8 @@ import { SignInClient, type SignInWays } from './SignInClient';
 //   (an Add Google that was refused) stand instead of the ways; restart, failed, unavailable and exists-email /
 //   exists-google (a sign-up whose proved address already signs in another way) are an alert above them. A status page
 //   never redirects, even with a cookie.
-// - Sign-up (web sign-up spec 2026-11-03 §2.1, §2.2) is open when Google sign-in is set up, or email codes are and
-//   Turnstile is (signUpWays). Only then the line under the ways says new people can create an account, and the
+// - Sign-up (web sign-up spec 2026-11-03 §2.1, §2.2, §2.10) is open when Google sign-in and email sending are set up,
+//   or email codes and Turnstile are (openSignUpWays, src/services/web-signin/signup-open.ts). Only then the line under the ways says new people can create an account, and the
 //   no-account page leads with the famcal.bot account line (on every no-account page: it can't tell which way led
 //   there) and says the same; with sign-up closed the page reads as before.
 // - Kept out of search (noindex, no alternates), as the share page is.
@@ -113,7 +114,7 @@ export default async function SignInPage({ params, searchParams }: Props) {
   const t = await getTranslations({ locale });
   const ways: SignInWays = { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() };
   const anyWay = ways.telegram || ways.google || ways.email;
-  const signUp = signUpWays(ways.google, ways.email && turnstileConfigured());
+  const signUp = openSignUpWays();
   const links = gateLinks();
   return (
     <SitePage locale={locale} path="/signin">

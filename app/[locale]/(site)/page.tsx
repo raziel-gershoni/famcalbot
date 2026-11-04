@@ -5,7 +5,7 @@ import { Channels, Features, Founder, HowItWorks, Plans, StartAgain } from '@/co
 import { SitePage } from '@/components/site/SitePage';
 import { HonestLine, StartButtons, startWords } from '@/components/site/StartButtons';
 import { SITE_URL } from '@/src/site/config';
-import { signInHref } from '@/src/site/signin';
+import { browserStartHref } from '@/src/services/web-signin/signup-open';
 import { pageUrl, siteMetadata } from '@/src/site/seo';
 import { buildSampleWeek, sampleWords } from '@/src/site/sample-week';
 
@@ -14,8 +14,9 @@ import { buildSampleWeek, sampleWords } from '@/src/site/sample-week';
 // What it does, Telegram or WhatsApp, Plans, From the founder and Start again.
 //
 // Static: rendered per locale at build time, and again once a day (revalidate) so the sample week's Thursday is
-// always the coming one. It reads nothing on the server beyond the plan table (src/config/plans.ts) and messages; it
-// never reads the early-access switch.
+// always the coming one. It reads nothing on the server beyond the plan table (src/config/plans.ts), messages and
+// whether web sign-up is set up (browserStartHref: environment variables only, so "Use in the browser" shows from the
+// redeploy a variable change brings, or the next daily render); it never reads the early-access switch.
 
 export const revalidate = 86400;
 
@@ -42,7 +43,8 @@ export default async function LandingPage({ params }: Props) {
   const messages = await getMessages({ locale });
   const week = buildSampleWeek(sampleWords(t));
   const words = startWords(t);
-  const browserHref = signInHref(locale);
+  // Use in the browser only while a new person can sign up there (signup-open.ts)
+  const browserHref = browserStartHref(locale);
   // Two lines by design; a dash never starts a line (a no-break space before it, as Russian sets it)
   const headline = t('landing.hero.headline').split('\n').map((line) => line.replace(/ —/g, '\u00a0—'));
 

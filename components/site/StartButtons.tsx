@@ -7,8 +7,9 @@ import { TELEGRAM_BOT_URL, whatsappStartUrl } from '@/src/site/config';
 // its accessible name, which contains the visible one. Server-safe: no hook.
 //
 // A third, "Use in the browser" (web sign-up spec §2.16), opens /signin, where a new person can also create an account.
-// It shows only where the page passes its /signin address (browserHref: signInHref(locale)): the landing's hero and
-// Start again, a blog post's end and a zmanim city page's FamCal block. Never on /signin and never in the header, which
+// It shows only where the page passes its /signin address (browserHref: browserStartHref(locale), which is none while
+// web sign-up is off, src/services/web-signin/signup-open.ts): the landing's hero and Start again, a blog post's end
+// and a zmanim city page's FamCal block. Never on /signin and never in the header, which
 // has Sign in. A plain anchor, never a Next <Link>: a link a page draws is not prefetched (the zmanim pages' limit counts
 // a prefetch, smoke-zmanim-pages Z10). Outlined in the page's own colours, not a brand's.
 

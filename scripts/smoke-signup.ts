@@ -141,6 +141,24 @@ async function main() {
     assert(badRecord?.kind === 'signup' && !('invite' in badRecord), `a malformed invite rode along: ${show(badRecord)}`);
   });
 
+  await check('S1b [M5] Google sign-in set up but no RESEND_API_KEY: a Google sign-in no account holds starts no sign-up (a browser-only account\'s notices go only by email): /signin?status=no-account, as with sign-up off, with no record, the flow cookie cleared, no session and no account', async () => {
+    seed();
+    const users = DB.user.length;
+    const resend = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    let res: Row;
+    try {
+      res = await googleCallback(DANA);
+    } finally {
+      process.env.RESEND_API_KEY = resend;
+    }
+    assert(location(res) === 'https://famcal.bot/en/signin?status=no-account', `location ${location(res)}`);
+    assert(flowCleared(res) && !anySignUpRecord() && !sessionOf(res) && DB.user.length === users, 'a sign-up record, a live cookie, a session or an account');
+    assert(logs.some(l => l.includes('[signin] google:') && l.includes('sign-up is off')), `no log line says why: ${show(logs.filter(l => l.includes('[signin]')))}`);
+    const open = await googleCallback(DANA);
+    assert(location(open) === 'https://famcal.bot/en/signup', `with Resend set again: ${location(open)}`);
+  });
+
   await check('S2 a calendar holder that does not match keeps the no-account page (a live check that disagrees, its switch off, another Google way), and two holders keep several: no sign-up record, the flow cookie cleared, no session', async () => {
     const cases: [string, () => void, string][] = [
       ['a live check that disagrees', () => { world.accounts['rt-tal'] = 'someone@gmail.com'; }, 'no-account'],

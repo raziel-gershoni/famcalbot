@@ -2,7 +2,8 @@
 // 6c-1 Task 3 adds sign-up's two Turnstile variables, spec 2026-11-03-web-sign-up §6).
 //
 //  - S1 signInSetupWarnings (src/lib/startup-checks.ts) names each web sign-in way that is off by its variables (and email
-//    sign-up without its Turnstile pair), and a Google sign-in client that is the calendar's, and never a value;
+//    sign-up without its Turnstile pair, Google sign-up without Resend), and a Google sign-in client that is the
+//    calendar's, and never a value;
 //    SIGN_IN_ENV holds the seven variables the sign-in code reads (oidc.ts, email-send.ts, turnstile.ts), and every
 //    secret among them matches the console scrubber's name pattern (CLAUDE.md: name a new secret to match, or its value
 //    is printed). That register() logs them is smoke-fail-closed #8b.
@@ -51,6 +52,7 @@ const ALL_OFF = [
   'web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID and GOOGLE_SIGNIN_CLIENT_SECRET are not set',
   'web sign-in with an email code is off: RESEND_API_KEY is not set',
   'web sign-up with an email code is off: TURNSTILE_SITE_KEY and TURNSTILE_SECRET are not set',
+  'web sign-up with Google is off: RESEND_API_KEY is not set',
 ];
 
 /** The files the CLAUDE.md rule lets read or write SignInIdentity rows. */
@@ -60,7 +62,8 @@ async function main() {
   await check('S1 signInSetupWarnings names each way that is off by its variables (email sign-up without Turnstile too), and a Google sign-in client that is the calendar\'s; never a value; SIGN_IN_ENV is the seven variables the sign-in code reads, and its secrets match the console scrubber', async () => {
     const mod = (await import(path.join(ROOT, 'src/lib/startup-checks.ts'))) as Row;
     assert(typeof mod.signInSetupWarnings === 'function', 'startup-checks exports no signInSetupWarnings');
-    const names = (mod.SIGN_IN_ENV as { way: string; names: string[] }[]).flatMap((w) => w.names);
+    // RESEND_API_KEY twice: email sign-in's own, and what Google sign-up waits for (signup-open.ts)
+    const names = [...new Set((mod.SIGN_IN_ENV as { way: string; names: string[] }[]).flatMap((w) => w.names))];
     assert(show(names) === show(NAMES), `SIGN_IN_ENV names ${show(names)}`);
     const all = {
       TELEGRAM_LOGIN_CLIENT_ID: '8000000001', TELEGRAM_LOGIN_CLIENT_SECRET: 'VALUE-TGL-1', GOOGLE_SIGNIN_CLIENT_ID: 'VALUE-GSI-id', GOOGLE_SIGNIN_CLIENT_SECRET: 'VALUE-GSI-2',
@@ -72,6 +75,7 @@ async function main() {
       ['all empty', Object.fromEntries(NAMES.map((n) => [n, ''])), ALL_OFF],
       ['only the Telegram secret missing', { ...all, TELEGRAM_LOGIN_CLIENT_SECRET: undefined }, ['web sign-in with Telegram is off: TELEGRAM_LOGIN_CLIENT_SECRET is not set']],
       ['only the Turnstile secret missing', { ...all, TURNSTILE_SECRET: undefined }, ['web sign-up with an email code is off: TURNSTILE_SECRET is not set']],
+      ['only Resend missing', { ...all, RESEND_API_KEY: undefined }, ['web sign-in with an email code is off: RESEND_API_KEY is not set', 'web sign-up with Google is off: RESEND_API_KEY is not set']],
       ['Google sign-in on the calendar client', { ...all, GOOGLE_CLIENT_ID: 'VALUE-GSI-id' }, ['web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client']],
     ];
     const problems: string[] = [];

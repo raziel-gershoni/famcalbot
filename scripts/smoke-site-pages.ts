@@ -37,7 +37,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, request, render, ROOT, show, stub, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, request, render, ROOT, show, signUpEnv, stub, stubNoRedis, stubIntlServer, stubMdx, strayLtrTokens, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -54,6 +54,8 @@ const prefix = (l: Locale) => (l === 'en' ? '' : `/${l}`);
 
 async function main() {
   stubIntlServer();
+  // The page reads no Redis (it imports the client only through the sign-up switch's modules)
+  stubNoRedis();
   // notFound() as Next throws it; the page's own call is what the check sees
   class NotFound extends Error {}
   stub(nodeRequire.resolve('next/navigation'), { ...nodeRequire('next/navigation'), notFound: () => { throw new NotFound('NEXT_NOT_FOUND'); } });
@@ -101,7 +103,7 @@ async function main() {
     for (const locale of LOCALES) assert(!('howItWorksPage' in messages[locale]), `${locale}: howItWorksPage is still in messages`);
   });
 
-  await check('P2 the blog in en, he and ru: the index lists the post; the post has its title, the byline from messages, the way back, and ends with the start buttons (one class list: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin) and the honest line; no inline start links', async () => {
+  await check('P2 the blog in en, he and ru: the index lists the post; the post has its title, the byline from messages, the way back, and ends with the start buttons (one class list: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin only while a new person can sign up) and the honest line; no inline start links', async () => {
     const { getPostBySlug } = await load('src/lib/blog.ts');
     for (const locale of LOCALES) {
       const post = getPostBySlug(POST, locale);
@@ -115,9 +117,21 @@ async function main() {
       assert(text.includes(post.title) && text.includes(b.byline.replace('{author}', post.author)), `${locale}: the title and byline`);
       assert(attrs(html, 'a').some((a) => attr(a, 'href') === `${prefix(locale)}/blog`) && text.includes(b.backToBlog), `${locale}: the way back`);
       const cta = html.slice(html.indexOf('<aside class="site-cta"'));
-      const starts = attrs(cta, 'a').filter((a) => attr(a, 'class') === 'site-start');
-      assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the post's start buttons ${show(starts)}`);
-      assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(cta).includes(messages[locale].site.cta.browser), `${locale}: Use in the browser ${starts[2]}`);
+      // Sign-up is off in the fake env: the two start buttons alone, and no browser button on the page
+      const closed = attrs(cta, 'a').filter((a) => attr(a, 'class') === 'site-start');
+      assert(show(closed.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp']) && !/data-channel="browser"/.test(html), `${locale}: the post's start buttons with sign-up off ${show(closed)}`);
+      // Google with no Resend opens no sign-up either (web sign-up spec §2.10); email codes with Turnstile, or Google with Resend, do
+      for (const [state, open] of [['google-no-mail', false], ['email', true], ['google', true]] as const) {
+        signUpEnv(state);
+        try {
+          const end = (await page('app/[locale]/(site)/blog/[slug]/page.tsx', locale, { slug: POST })).split('<aside class="site-cta"')[1] ?? '';
+          const starts = attrs(end, 'a').filter((a) => attr(a, 'class') === 'site-start');
+          assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(open ? ['telegram', 'whatsapp', 'browser'] : ['telegram', 'whatsapp']), `${state} ${locale}: the post's start buttons ${show(starts)}`);
+          if (open) assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(end).includes(messages[locale].site.cta.browser), `${state} ${locale}: Use in the browser ${starts[2]}`);
+        } finally {
+          signUpEnv('off');
+        }
+      }
       assert(decodeEntities(cta).includes(messages[locale].site.cta.honest) && decodeEntities(cta).includes(b.tryFamcal) && decodeEntities(cta).includes(b.ctaText), `${locale}: the post's end`);
       const article = html.slice(html.indexOf('<article'), html.indexOf('</article>'));
       assert(!/t\.me\/family_calendar_telegram_bot|wa\.me\//.test(article), `${locale}: a start link left in the post`);

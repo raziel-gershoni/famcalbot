@@ -4,7 +4,7 @@
 //  - G1 each section in the spec's order and each anchor (#how, #plans, #start) in en, he and ru, with its words from
 //    messages; the headline's two lines; no raw key; no emoji.
 //  - G2 the start buttons, in the hero and in Start again: Telegram first, one class list for both, the honest line
-//    right under them.
+//    right under them; Use in the browser third only while a new person can sign up (signup-open.ts).
 //  - G3 the plan cards follow the plan table: the numbers, the Stars prices in the locale's digits, Pro's
 //    "everything in Basic" and its features; a fake table with another number, another price and limits of Infinity
 //    changes the cards, "unlimited" comes from messages and Infinity is never printed; no early access anywhere.
@@ -34,7 +34,7 @@
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
 import { contrast, type Rgb } from './lib/css-resolve';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, readSource, render, show, stub, strayLtrTokens, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, readSource, render, show, signUpEnv, stub, stubNoRedis, strayLtrTokens, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -58,6 +58,8 @@ const attr = (a: string, name: string) => new RegExp(`(?:^|\\s)${name}="([^"]*)"
 
 async function main() {
   stubIntlServer();
+  // The page reads no Redis (it imports the client only through the sign-up switch's modules)
+  stubNoRedis();
   const { default: LandingPage, revalidate } = await load('app/[locale]/(site)/page.tsx');
   const { SITE_CSS, SITE_PALETTE, BRAND } = await load('src/site/site-css.ts');
   const { APP_THEME_CSS } = await load('components/app-ui/theme.ts');
@@ -100,21 +102,30 @@ async function main() {
     }
   });
 
-  await check('G2 the start buttons in the hero and in Start again: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin, one class list for all three, the honest line right under them', () => {
-    for (const locale of LOCALES) {
-      const html = pages[locale];
-      const main = html.slice(html.indexOf('<main'));
-      const pairs = [...main.matchAll(/<div class="site-starts">([\s\S]*?)<\/div><p class="site-honest">([^<]*)<\/p>/g)];
-      assert(pairs.length === 2, `${locale}: ${pairs.length} button pairs with the honest line under them`);
-      for (const [, buttons, honest] of pairs) {
-        const anchors = attrs(buttons, 'a');
-        assert(anchors.length === 3, `${locale}: ${anchors.length} buttons`);
-        assert(anchors.every((a) => attr(a, 'class') === 'site-start'), `${locale}: the class lists ${show(anchors.map((a) => attr(a, 'class')))}`);
-        assert(show(anchors.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the order`);
-        assert(attr(anchors[2], 'href') === `${locale === 'en' ? '' : `/${locale}`}/signin`, `${locale}: Use in the browser goes to ${attr(anchors[2], 'href')}`);
-        assert(['site.cta.telegram', 'site.cta.whatsapp', 'site.cta.browser'].every((key) => decodeEntities(textOf(buttons)).includes(word(locale, key))), `${locale}: the buttons' words`);
-        assert(decodeEntities(honest) === word(locale, 'site.cta.honest'), `${locale}: the honest line ${honest}`);
+  await check('G2 the start buttons in the hero and in Start again: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin only while a new person can sign up (email codes with Turnstile, or Google with Resend); with sign-up off (nothing set, or Google with no Resend) the two alone and no browser button anywhere; one class list; the honest line right under them', async () => {
+    try {
+      for (const [state, open] of [['off', false], ['google-no-mail', false], ['email', true], ['google', true]] as const) {
+        signUpEnv(state);
+        for (const locale of LOCALES) {
+          const html = await page(locale);
+          const main = html.slice(html.indexOf('<main'));
+          const pairs = [...main.matchAll(/<div class="site-starts">([\s\S]*?)<\/div><p class="site-honest">([^<]*)<\/p>/g)];
+          assert(pairs.length === 2, `${state} ${locale}: ${pairs.length} button pairs with the honest line under them`);
+          const want = open ? ['telegram', 'whatsapp', 'browser'] : ['telegram', 'whatsapp'];
+          for (const [, buttons, honest] of pairs) {
+            const anchors = attrs(buttons, 'a');
+            assert(anchors.every((a) => attr(a, 'class') === 'site-start'), `${state} ${locale}: the class lists ${show(anchors.map((a) => attr(a, 'class')))}`);
+            assert(show(anchors.map((a) => attr(a, 'data-channel'))) === show(want), `${state} ${locale}: the buttons ${show(anchors.map((a) => attr(a, 'data-channel')))}`);
+            if (open) assert(attr(anchors[2], 'href') === `${locale === 'en' ? '' : `/${locale}`}/signin`, `${state} ${locale}: Use in the browser goes to ${attr(anchors[2], 'href')}`);
+            const keys = open ? ['site.cta.telegram', 'site.cta.whatsapp', 'site.cta.browser'] : ['site.cta.telegram', 'site.cta.whatsapp'];
+            assert(keys.every((key) => decodeEntities(textOf(buttons)).includes(word(locale, key))), `${state} ${locale}: the buttons' words`);
+            assert(decodeEntities(honest) === word(locale, 'site.cta.honest'), `${state} ${locale}: the honest line ${honest}`);
+          }
+          if (!open) assert(!/data-channel="browser"/.test(html), `${state} ${locale}: a browser button with sign-up off`);
+        }
       }
+    } finally {
+      signUpEnv('off');
     }
   });
 

@@ -35,7 +35,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createElement as h, type ReactElement } from 'react';
 import { lintCss } from './lib/css-lint';
-import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, readSource, request, render, ROOT, show, stub, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
+import { assert, check, decodeEntities, EMOJI, finish, LOCALES, load, messages, OFF_SITE, RAW_KEY, readSource, request, render, ROOT, show, signUpEnv, stub, stubNoRedis, stubIntlServer, textOf, UNTRUE, type Locale, type Row } from './lib/site-harness';
 
 const nodeRequire = createRequire(__filename);
 const { NextIntlClientProvider } = nodeRequire('next-intl');
@@ -53,6 +53,8 @@ const TAPS = ['.site-zm-arrow', '.site-zm-today a', '.site-zm-switch a', '.site-
 
 async function main() {
   stubIntlServer();
+  // The page reads no Redis (it imports the client only through the sign-up switch's modules)
+  stubNoRedis();
   class NotFound extends Error {}
   stub(nodeRequire.resolve('next/navigation'), { ...nodeRequire('next/navigation'), notFound: () => { throw new NotFound('NEXT_NOT_FOUND'); } });
   const captured: Row[] = [];
@@ -509,14 +511,22 @@ async function main() {
     }
   });
 
-  await check('Z16 a city page\'s FamCal block in en, he and ru: the start buttons Telegram, WhatsApp, then Use in the browser, a plain anchor to the page language\'s /signin (web sign-up spec §2.16), and the honest line', async () => {
-    for (const locale of LOCALES) {
-      const html = await cityPage(locale, 'jerusalem');
-      const block = between(html, '<aside class="site-cta" aria-labelledby="famcal-title"', '</aside>');
-      const starts = attrs(block, 'a').filter((a) => attr(a, 'class') === 'site-start');
-      assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp', 'browser']), `${locale}: the block's start buttons ${show(starts)}`);
-      assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(block).includes(messages[locale].site.cta.browser), `${locale}: Use in the browser ${starts[2]}`);
-      assert(decodeEntities(block).includes(messages[locale].site.cta.honest), `${locale}: the honest line`);
+  await check('Z16 a city page\'s FamCal block in en, he and ru: the start buttons Telegram, WhatsApp, then Use in the browser, a plain anchor to the page language\'s /signin (web sign-up spec §2.16), only while a new person can sign up (email codes with Turnstile, or Google with Resend; read per request), and the honest line', async () => {
+    try {
+      for (const [state, open] of [['off', false], ['google-no-mail', false], ['email', true], ['google', true]] as const) {
+        signUpEnv(state);
+        for (const locale of LOCALES) {
+          const html = await cityPage(locale, 'jerusalem');
+          const block = between(html, '<aside class="site-cta" aria-labelledby="famcal-title"', '</aside>');
+          const starts = attrs(block, 'a').filter((a) => attr(a, 'class') === 'site-start');
+          assert(show(starts.map((a) => attr(a, 'data-channel'))) === show(open ? ['telegram', 'whatsapp', 'browser'] : ['telegram', 'whatsapp']), `${state} ${locale}: the block's start buttons ${show(starts)}`);
+          if (open) assert(attr(starts[2], 'href') === `${prefix(locale)}/signin` && decodeEntities(block).includes(messages[locale].site.cta.browser), `${state} ${locale}: Use in the browser ${starts[2]}`);
+          else assert(!/data-channel="browser"/.test(html), `${state} ${locale}: a browser button with sign-up off`);
+          assert(decodeEntities(block).includes(messages[locale].site.cta.honest), `${state} ${locale}: the honest line`);
+        }
+      }
+    } finally {
+      signUpEnv('off');
     }
   });
 

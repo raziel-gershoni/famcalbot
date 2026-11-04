@@ -39,8 +39,8 @@ export function startupSecretProblems(env: Record<string, string | undefined>): 
 }
 
 /**
- * The web sign-in ways and the variables each one needs (web sign-in spec §6), and email sign-up's bot check (web
- * sign-up spec §6: Turnstile, turnstile.ts's turnstileConfigured). The owner sets them after the deploy, and a way stays
+ * The web sign-in ways and the variables each one needs (web sign-in spec §6), email sign-up's bot check (web sign-up
+ * spec §6: Turnstile, turnstile.ts's turnstileConfigured) and Google sign-up's mail (signup-open.ts). The owner sets them after the deploy, and a way stays
  * hidden until its own are set (oidc.ts's providerConfigured, email-send.ts's emailConfigured), so an unset one is a
  * warning (signInSetupWarnings), never a StartupProblem: no Sentry capture, not "missing" in the deploy message.
  * `off` names what is off when it is not the way's sign-in.
@@ -51,6 +51,9 @@ export const SIGN_IN_ENV: readonly { way: string; names: readonly string[]; off?
   { way: 'an email code', names: ['RESEND_API_KEY'] },
   // Email sign-in works without it; sign-up by email waits for both
   { way: 'an email code', names: ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET'], off: 'web sign-up with an email code' },
+  // Google sign-in works without it; sign-up with Google waits for it (a browser-only account's notices go only by
+  // email; signup-open.ts)
+  { way: 'Google', names: ['RESEND_API_KEY'], off: 'web sign-up with Google' },
 ];
 
 /**
