@@ -9,6 +9,12 @@
 // no way and no notice from Add Google (R5); the same account adding the same Google account again gets no second
 // notice (R10); Remove keeps a WhatsApp link's own expiry (R4).
 //
+// Web sign-up (spec 2026-11-03 §2.11, §2.12; plan Task 8, #44-#55): a way added to an account with no chat is
+// emailed to the ways that were there before (its email way, else its Google way's address), never to the new one, from
+// the notices' own budget (3 a day per account, then 10 a day in all); a dropped notice is a SECURITY line; the notice
+// email's HTML escapes its text; Telegram connected has its own words; the account's only durable way can't be removed,
+// with the row locked so two removals at once leave one.
+//
 // Real: the routes (Settings', and Task 5's sign-in request and verify), identities, notice, add-google, google-signin,
 // Task 4's Google callback (oidc-route), the session cookie, verifyUserAuth, signInRefusal, the Origin guard,
 // the flow cookie, the email address rules, the limits, the code and its email. Faked at the boundaries
@@ -24,7 +30,7 @@ import path from 'path';
 import { createRequire } from 'module';
 import {
   assert, baseUser, body, captured, check, DB, drainAfter, everyCapture, everyLog, everyMail, flowCookie, identityRow, initDataFor,
-  installSigninWorld, load, logs, mails, prismaCalls, redisStore, report, request, resetWorld, ROOT, sent, sessionCookie, show, world, type Row,
+  installSigninWorld, load, lockWaits, logs, mails, prismaCalls, redisStore, report, request, resetWorld, ROOT, sent, sessionCookie, show, world, type Row,
 } from './lib/signin-world';
 
 const nodeRequire = createRequire(__filename);
@@ -34,6 +40,8 @@ const NOA = 7;
 const NOA_TG = 222222222;
 const DANA = 42;
 const DANA_PHONE = '+972500000042';
+const RINA = 60; // made on famcal.bot with an email code: no chat, one email way
+const OMER = 61; // made on famcal.bot with Google: no chat, one Google way
 
 function seed(): void {
   resetWorld();
@@ -292,7 +300,7 @@ async function main() {
     const res = await confirm(TAL_TG, code, tal);
     assert(res.status === 200 && (await body(res)).ok === true, `confirm ${res.status} ${show(await body(res))}`);
     assert(identitiesOf(TAL).length === 1, 'no way');
-    assert(logs.some(l => l.includes('[signin-notice] user 9')), `logs ${show(logs)}`);
+    assert(logs.some(l => l.startsWith('[signin-notice] SECURITY: notice for user 9 not sent')), `logs ${show(logs)}`);
     assert(captured.some(c => c.context === 'signin-notice' && c.extra.user_id === TAL), `captured ${show(captured)}`);
   });
 
@@ -713,11 +721,195 @@ async function main() {
     assert(src.includes('settingsRateLimiter') && src.includes('refuseCrossSite(request)'), 'the route lacks the settings limiter or the Origin guard its neighbours have');
   });
 
+  // ---- Web sign-up: notices to the ways that were there before; the last way (plan Task 8) ----
+
+  const identities = await load('src/services/web-signin/identities.ts');
+  const { sendSignInNotice } = await load('src/services/web-signin/notice.ts');
+  /** Two accounts made on famcal.bot, with no chat: Rina by email, Omer by Google. */
+  const seedWeb = (): void => {
+    seed();
+    DB.user.push(
+      baseUser({ id: RINA, name: 'Rina', telegramId: null, messagingPlatform: 'telegram', language: 'ru' }),
+      baseUser({ id: OMER, name: 'Omer', telegramId: null, messagingPlatform: 'telegram' }),
+    );
+    DB.signInIdentity.push(
+      identityRow({ userId: RINA, kind: 'email', subject: 'rina@example.com', address: 'rina@example.com' }),
+      identityRow({ userId: OMER, kind: 'google', subject: 'g-omer', address: 'omer@gmail.com' }),
+    );
+  };
+  const rina = async (): Promise<Auth> => ({ cookie: await sessionCookie(RINA, 'email') });
+  const omer = async (): Promise<Auth> => ({ cookie: await sessionCookie(OMER, 'google') });
+  /** The notice emails (Resend's idempotency key names them), apart from the codes. */
+  const noticeMails = () => mails.filter(m => (m.idempotencyKey ?? '').startsWith('signin-notice-'));
+
+  await check('#44 a Google way added to an account with no chat: the notice is emailed to its email way, in its language, the new address masked; never to the new Google address, and nothing goes to a chat', async () => {
+    seedWeb();
+    const { state, cookie } = await continueAddGoogle(RINA, await rina());
+    world.claims = { sub: 'g-rina', email: 'rina.g@gmail.com', emailVerified: true };
+    const res = await callback(state, cookie);
+    assert(pathOf(res) === '/ru/dashboard?user_id=60', `location ${location(res)}; captured ${show(captured)}`);
+    const notices = noticeMails();
+    assert(notices.length === 1 && show(notices[0].to) === show(['rina@example.com']) && sent.length === 0, `notices ${show(notices.map(m => m.to))} sent ${show(sent)}`);
+    const mail = JSON.stringify(notices[0].body);
+    assert(mail.includes('r•••@gmail.com') && !mail.includes('rina.g@gmail.com') && /[а-яё]/i.test(mail), `mail ${mail}`);
+    assert(!mails.some(m => m.to.includes('rina.g@gmail.com')), 'a mail went to the Google address just added');
+  });
+
+  await check('#45 an email way added to an account whose only way is Google: the notice goes to the Google way\'s address, never to the new email (which gets only its code); the answer says the account has no chat, so Settings words the notice as an email', async () => {
+    seedWeb();
+    const code = await startAdd(OMER, 'omer@example.com', await omer());
+    const res = await confirm(OMER, code, await omer());
+    const b = await body(res);
+    assert(res.status === 200 && b.ok === true && b.methods?.chat === false, `confirm ${res.status} ${show(b)}`);
+    const notices = noticeMails();
+    assert(notices.length === 1 && show(notices[0].to) === show(['omer@gmail.com']), `notices ${show(notices.map(m => m.to))}`);
+    assert(mails.filter(m => m.to.includes('omer@example.com')).length === 1 && sent.length === 0, `mails ${show(mails.map(m => [m.to, m.idempotencyKey?.slice(0, 14)]))}`);
+  });
+
+  await check('#46 an account with a chat still gets the notice in its chat, and no notice email', async () => {
+    seedWeb();
+    const code = await startAdd(TAL_TG, 'tal@example.com', tal);
+    const res = await confirm(TAL_TG, code, tal);
+    assert(res.status === 200 && (await body(res)).methods?.chat === true, `confirm ${res.status}`);
+    assert(sent.length === 1 && sent[0].chatId === String(TAL_TG) && noticeMails().length === 0, `sent ${show(sent)} notices ${noticeMails().length}`);
+  });
+
+  await check('#47 Telegram connected to an account made on famcal.bot: the notice is emailed to its email way (the new chat is the way just added), in its own words, with no Remove and with privacy@famcal.bot', async () => {
+    seedWeb();
+    const row = DB.user.find(u => u.id === RINA)!;
+    row.telegramId = BigInt(666666666); // as Task 6's Connect leaves it
+    const { getUserById } = await load('src/services/user-service.ts');
+    await sendSignInNotice(await getUserById(RINA), { kind: 'telegram', via: 'connected' });
+    const notices = noticeMails();
+    assert(notices.length === 1 && show(notices[0].to) === show(['rina@example.com']) && sent.length === 0, `notices ${show(notices.map(m => m.to))} sent ${show(sent)}`);
+    const text = String(notices[0].body.text);
+    assert(text.includes('privacy@famcal.bot') && text.includes('Telegram') && !text.includes('«Убрать»'), `text ${text}`);
+  });
+
+  await check('#48 notices have their own budget: 3 a UTC day for one account, then 10 a day in all; each refusal logs its SECURITY line with a captured warning (the user id, never the address); sign-in codes still go out after', async () => {
+    seedWeb();
+    const OTHERS = [62, 63, 64];
+    for (const id of OTHERS) {
+      DB.user.push(baseUser({ id, name: `Web ${id}`, telegramId: null, messagingPlatform: 'telegram' }));
+      DB.signInIdentity.push(identityRow({ userId: id, kind: 'email', subject: `web${id}@example.com`, address: `web${id}@example.com` }));
+    }
+    const { getUserById } = await load('src/services/user-service.ts');
+    const notify = async (id: number, n: number) => sendSignInNotice(await getUserById(id), { kind: 'google', address: `g${id}-${n}@gmail.com`, via: 'added' });
+    const security = () => logs.filter(l => l.includes('SECURITY'));
+    // One account's share: its 4th notice of the day is refused, and another account's is still sent
+    for (let n = 0; n < 4; n++) await notify(RINA, n);
+    assert(noticeMails().length === 3, `Rina's notices ${noticeMails().length}`);
+    assert(logs.some(l => l === `[signin-notice] SECURITY: notice for user ${RINA} not sent (the account's notices are spent)`), `logs ${show(security())}`);
+    await notify(62, 0);
+    assert(noticeMails().length === 4 && show(noticeMails()[3].to) === show(['web62@example.com']), `another account's notice: ${show(noticeMails().map(m => m.to))}`);
+    // The day's 10 across accounts (Rina's refused 4th took none of them): 62's other two, 63's three, 64's first
+    for (let n = 1; n < 3; n++) await notify(62, n);
+    for (let n = 0; n < 3; n++) await notify(63, n);
+    await notify(64, 0);
+    assert(noticeMails().length === 10, `notices ${noticeMails().length}`);
+    await notify(64, 1);
+    assert(noticeMails().length === 10, `the 11th of the day went out: ${noticeMails().length}`);
+    assert(logs.some(l => l === `[signin-notice] SECURITY: notice for user 64 not sent (the day's notices are spent)`), `logs ${show(security())}`);
+    assert(security().length === 2, `SECURITY lines ${show(security())}`);
+    const warned = captured.filter(c => c.context === 'signin-notice').map(c => c.extra.user_id);
+    assert(show(warned) === show([RINA, 64]), `captured ${show(captured)}`);
+    const { res, mail } = await askForCode('rina@example.com');
+    assert(res.status === 200 && mail && show(mail.to) === show(['rina@example.com']), `code after the notices: ${res.status} ${show(mail?.to)}`);
+  });
+
+  await check('#49 a notice with nowhere to go (no chat, and no way but the one just added) and one Resend refuses are SECURITY lines and captured; the way is still made', async () => {
+    seedWeb();
+    const { getUserById } = await load('src/services/user-service.ts');
+    await sendSignInNotice(await getUserById(OMER), { kind: 'google', address: 'omer@gmail.com', via: 'calendar' });
+    assert(logs.some(l => l === `[signin-notice] SECURITY: notice for user ${OMER} not sent (no address to send it to)`) && noticeMails().length === 0, `logs ${show(logs)}`);
+    world.resendFails = true;
+    await sendSignInNotice(await getUserById(RINA), { kind: 'google', address: 'rina.g@gmail.com', via: 'added' });
+    assert(logs.some(l => l.startsWith(`[signin-notice] SECURITY: notice for user ${RINA} not sent (HTTP 422`)), `logs ${show(logs)}`);
+    assert(captured.filter(c => c.context === 'signin-notice').length === 2, `captured ${show(captured)}`);
+  });
+
+  await check('#50 the server refuses removing the only durable way: 409 last-way, the way stays, no session ends and no cookie is set; GET names it (lastWay) and that the account has no chat; Telegram and WhatsApp count as durable ways', async () => {
+    seedWeb();
+    const res = await remove(RINA, 'email', await rina());
+    assert(res.status === 409 && (await body(res)).error === 'last-way', `remove ${res.status} ${show(await body(res))}`);
+    assert(identitiesOf(RINA).length === 1 && userRow(RINA).sessionsValidAfter === null && !res.cookies.get(SESSION_COOKIE_NAME)?.value, `row ${show(userRow(RINA))}`);
+    const view = await body(await list(RINA, await rina()));
+    assert(view.lastWay === 'email' && view.chat === false, `Rina ${show(view)}`);
+    assert((await body(await list(TAL_TG, tal))).lastWay === 'telegram', 'Tal');
+    assert((await body(await list(DANA, { cookie: await sessionCookie(DANA, 'wa') }))).lastWay === 'whatsapp', 'Dana');
+    assert((await body(await list(NOA_TG, noa))).lastWay === null, 'Noa has three ways');
+    DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'email', subject: 'tal@example.com', address: 'tal@example.com' }));
+    const tals = await remove(TAL_TG, 'email', tal);
+    assert(tals.status === 200 && identitiesOf(TAL).length === 0, `Tal's email with Telegram: ${tals.status}`);
+  });
+
+  await check('#51 the calendar\'s Google account is no durable way: with it on, an email-only account\'s email is still its last way, and the calendar row is removed freely', async () => {
+    seedWeb();
+    Object.assign(userRow(RINA), { googleRefreshToken: 'rt-rina', googleAccountKey: KEY_TAL.replace(/:.*/, ':x'), googleCalendarSignIn: true });
+    assert(await identities.removeSignInMethod(RINA, 'email') === 'last-way', 'the email went');
+    assert(await identities.removeSignInMethod(RINA, 'calendar-google') === 'removed' && userRow(RINA).googleCalendarSignIn === false, `calendar row ${show(userRow(RINA))}`);
+    assert(identitiesOf(RINA).length === 1, 'the email way went');
+  });
+
+  await check('#52 two removals at once leave one way: Google and email removed together from an account with no chat, one is removed and the other is the last way; the second waited on the account\'s row lock', async () => {
+    seedWeb();
+    DB.signInIdentity.push(identityRow({ userId: RINA, kind: 'google', subject: 'g-rina', address: 'rina.g@gmail.com' }));
+    const outcomes = await Promise.all([identities.removeSignInMethod(RINA, 'google'), identities.removeSignInMethod(RINA, 'email')]);
+    assert(show([...outcomes].sort()) === show(['last-way', 'removed']) && identitiesOf(RINA).length === 1, `outcomes ${show(outcomes)} ways ${show(identitiesOf(RINA))}`);
+    assert(lockWaits.includes(`User:${RINA}`), `lock waits ${show(lockWaits)}`);
+    seedWeb();
+    DB.signInIdentity.push(identityRow({ userId: RINA, kind: 'google', subject: 'g-rina', address: 'rina.g@gmail.com' }));
+    const auth = await rina();
+    const answers = await Promise.all([remove(RINA, 'google', auth), remove(RINA, 'email', auth)]);
+    assert(show(answers.map(a => a.status).sort()) === show([200, 409]) && identitiesOf(RINA).length === 1, `routes ${show(answers.map(a => a.status))}`);
+  });
+
+  await check('#53 the removal locks the account\'s row before it counts the ways, inside its transaction', async () => {
+    seedWeb();
+    await identities.removeSignInMethod(RINA, 'email');
+    const lock = prismaCalls.findIndex(c => c.startsWith('$queryRaw SELECT id FROM "User" WHERE id = ? FOR UPDATE'));
+    const count = prismaCalls.findIndex(c => c === 'signInIdentity.findMany');
+    const tx = prismaCalls.indexOf('$transaction');
+    assert(tx >= 0 && lock > tx && count > lock, `calls ${show(prismaCalls)}`);
+  });
+
+  await check('#54 the words: noticeSentEmail and lastWay in Settings, and the notice email\'s subjects and why line, in all three catalogues; the Telegram notice (Task 6\'s telegramConnected) names privacy@famcal.bot and no Remove', async () => {
+    const read = (lang: string): Row => JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${lang}.json`), 'utf8'));
+    const remove3: Record<string, string> = { en: 'Remove', he: 'הסרה', ru: 'Убрать' };
+    for (const lang of ['en', 'he', 'ru']) {
+      const m = read(lang);
+      for (const key of ['noticeSentEmail', 'lastWay']) assert(typeof m.settings.signIn[key] === 'string' && m.settings.signIn[key].length > 0, `${lang} settings.signIn.${key}`);
+      assert(String(m.settings.signIn.noticeSentEmail).includes('{kind, select,'), `${lang} noticeSentEmail has no {kind}`);
+      for (const key of ['emailSubject', 'emailSubjectTelegram', 'emailWhy']) assert(typeof m.signinNotice[key] === 'string' && m.signinNotice[key].length > 0, `${lang} signinNotice.${key}`);
+      // Task 6 Step 8's words, read as they are
+      const tg = String(m.signinNotice.telegramConnected);
+      assert(tg.includes('privacy@famcal.bot') && !tg.includes(remove3[lang]), `${lang} telegramConnected: ${tg}`);
+    }
+  });
+
+  await check('#55 a name holding <b>&"x"</b> arrives escaped in the notice email\'s HTML: its subject, heading and lines are text, never markup; the plain text keeps it as typed', async () => {
+    seedWeb();
+    const { noticeEmail } = await load('src/services/web-signin/email-send.ts');
+    const NAME = '<b>&"x"</b>';
+    const ESCAPED = '&lt;b&gt;&amp;"x"&lt;/b&gt;';
+    const email = noticeEmail(`FamCal ${NAME}`, [`${NAME} joined`, 'why'], 'he');
+    assert(!email.html.includes('<b>') && !email.html.includes('</b>'), `markup in the HTML: ${email.html}`);
+    assert(email.html.includes(`<title>FamCal ${ESCAPED}</title>`) && email.html.includes(`>FamCal ${ESCAPED}</h1>`) && email.html.includes(`>${ESCAPED} joined</p>`), `html ${email.html}`);
+    assert(email.text.includes(`${NAME} joined`) && email.subject === `FamCal ${NAME}`, `text ${email.text}`);
+    // The real path: an account so named gets its notice with no markup from its name
+    DB.user.find(u => u.id === RINA)!.name = NAME;
+    const { getUserById } = await load('src/services/user-service.ts');
+    await sendSignInNotice(await getUserById(RINA), { kind: 'google', address: 'rina.g@gmail.com', via: 'added' });
+    const notices = noticeMails();
+    assert(notices.length === 1 && !String(notices[0].body.html).includes('<b>'), `notice html ${show(notices.map(m => m.body.html))}`);
+  });
+
   await check('#39 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {
     const text = [...everyLog, ...everyCapture.map(c => `${c.context} ${c.message} ${show(c.extra)}`)].join('\n').toLowerCase();
-    const addresses = ['tal@example.com', 'noa@example.com', 'dana@example.com', 'takl@example.com', 'tal@gmail.com', 'noa@gmail.com', 'old@gmail.com', 'nobody@gmail.com', 'noa2@example.com', 'shared@example.com', 'limit@example.com', 'down@example.com'];
+    const addresses = ['tal@example.com', 'noa@example.com', 'dana@example.com', 'takl@example.com', 'tal@gmail.com', 'noa@gmail.com', 'old@gmail.com', 'nobody@gmail.com', 'noa2@example.com', 'shared@example.com', 'limit@example.com', 'down@example.com', 'rina@example.com', 'rina.g@gmail.com', 'omer@gmail.com', 'omer@example.com', 'web62@example.com', 'web63@example.com', 'web64@example.com'];
     const found = addresses.filter(a => text.includes(a));
-    const codes = everyMail.map(codeIn).filter(code => new RegExp(`\\b${code}\\b`).test(text));
+    // Every code mail's code (a notice mail carries none)
+    const codes = everyMail.filter(m => !(m.idempotencyKey ?? '').startsWith('signin-notice-')).map(codeIn).filter(code => new RegExp(`\\b${code}\\b`).test(text));
     const tokens = addTokens.filter(t => t && text.includes(t.toLowerCase()));
     assert(found.length === 0 && codes.length === 0 && tokens.length === 0, `leaked: ${show({ found, codes, tokens })}`);
   });

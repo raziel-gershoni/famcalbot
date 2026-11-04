@@ -290,6 +290,30 @@ function model(name: string): Row {
   );
 }
 
+/**
+ * Row locks, as Postgres holds them: `SELECT … FROM "User" WHERE id = $1 FOR UPDATE` inside an interactive transaction
+ * waits while another open transaction holds that row, and the lock is let go when its transaction ends. Every other
+ * raw query the code sends is refused, so a smoke shows what it needs.
+ */
+const rowLocks = new Map<string, Promise<void>>();
+export const lockWaits: string[] = [];
+async function queryRaw(held: (() => void)[] | null, strings: TemplateStringsArray, ...values: unknown[]): Promise<Row[]> {
+  const sql = strings.join('?').replace(/\s+/g, ' ').trim();
+  prismaCalls.push(`$queryRaw ${sql}`);
+  if (!/^SELECT "?id"? FROM "User" WHERE "?id"? = \? FOR UPDATE$/i.test(sql)) throw new Error(`the fake Prisma does not know this raw query: ${sql}`);
+  const key = `User:${String(values[0])}`;
+  if (held) {
+    while (rowLocks.has(key)) {
+      lockWaits.push(key);
+      await rowLocks.get(key);
+    }
+    let release!: () => void;
+    rowLocks.set(key, new Promise<void>(resolve => { release = resolve; }));
+    held.push(() => { rowLocks.delete(key); release(); });
+  }
+  return (DB.user ?? []).filter(u => same(u.id, values[0])).map(u => ({ id: u.id }));
+}
+
 const models: Record<string, Row> = {};
 /** Every table's rows as they are now (a copy of each row), and putting them back: a transaction's rollback. */
 const snapshotDB = (): Record<string, Row[]> => Object.fromEntries(Object.entries(DB).map(([k, rows]) => [k, rows.map(r => ({ ...r }))]));
@@ -304,16 +328,24 @@ export const fakePrisma: Row = new Proxy({} as Row, {
       return async (arg: unknown) => {
         prismaCalls.push('$transaction');
         if (typeof arg !== 'function') return Promise.all(arg as Promise<unknown>[]);
-        // An interactive transaction: a throw undoes its writes, as Postgres rolls back
+        // An interactive transaction: a throw undoes its writes, as Postgres rolls back. Its client holds the row locks it
+        // takes (queryRaw) until it returns or throws.
         const saved = snapshotDB();
+        const held: (() => void)[] = [];
+        const tx = new Proxy({} as Row, {
+          get: (_x, p) => (p === '$queryRaw' ? (s: TemplateStringsArray, ...v: unknown[]) => queryRaw(held, s, ...v) : fakePrisma[p as string]),
+        });
         try {
-          return await arg(fakePrisma);
+          return await arg(tx);
         } catch (error) {
           restoreDB(saved);
           throw error;
+        } finally {
+          for (const release of held) release();
         }
       };
     }
+    if (prop === '$queryRaw') return (s: TemplateStringsArray, ...v: unknown[]) => queryRaw(null, s, ...v);
     if (prop.startsWith('$')) return async () => undefined;
     return (models[prop] ??= model(prop));
   },
@@ -474,6 +506,10 @@ export const world = {
 
 export function resetWorld(): void {
   for (const k of Object.keys(DB)) delete DB[k];
+  rowLocks.clear();
+  lockWaits.length = 0;
+  rowLocks.clear();
+  lockWaits.length = 0;
   redisStore.clear();
   redisSets.clear();
   redisExpiry.clear();

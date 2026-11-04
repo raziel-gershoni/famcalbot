@@ -19,6 +19,9 @@
 //   no chat, the right code asks instead whether to join it into this one (web sign-up spec §2.9), listing what moves
 //   (joinLines); Join posts /api/signin-methods/join.
 // - Every removal signs out the other browsers (the server moves sessionsValidAfter; this device keeps a fresh cookie).
+// - The account's only durable way (view.lastWay, web sign-up spec 2026-11-03 §2.12) shows with no Remove, and says
+//   why; the server refuses it too ('last-way'), which the remove sheet words the same.
+// - The notice for a way added goes to the chat, or by email with no chat (view.chat): the success line says which.
 // - Sign out (only on a web session: there is a cookie to clear) goes to /signin; Sign out on all devices goes there too
 //   on the web, and says it is done in the Mini App.
 // - The requests are signin-methods-client.ts; each failure is said here in words and logged there with its status.
@@ -38,12 +41,12 @@ import { isInTelegram, openExternalLink } from '@/src/lib/telegram-ui';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
 import { joinDateText, joinLines, type JoinSummary } from '@/src/lib/join-summary';
 import { signInHref } from '@/src/site/signin';
-import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type JoinError, type MethodsView, type RemoveWhich, type RequestError, type TurnOnError } from './signin-methods-client';
+import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type JoinError, type MethodsView, type RemoveError, type RemoveWhich, type TurnOnError } from './signin-methods-client';
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; view: MethodsView };
 type EmailError = AddEmailError | ConfirmEmailError;
 type EmailSheet = { kind: 'email'; step: 'address' | 'code'; address: string; code: string; error: EmailError | null; busy: boolean };
-type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null; error: RequestError | null; busy: boolean };
+type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null; error: RemoveError | null; busy: boolean };
 type GoogleSheet = { kind: 'google'; url: string };
 type JoinSheet = { kind: 'join'; joinId: string; summary: JoinSummary; error: JoinError | null; busy: boolean };
 type Sheet = EmailSheet | RemoveSheet | GoogleSheet | JoinSheet;
@@ -163,7 +166,7 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     if (result.kind === 'ok') {
       setSheet(null);
       showMethods(result.methods);
-      setStatus({ tone: 'info', text: t('added', { kind: 'email' }) });
+      setStatus({ tone: 'info', text: t(result.methods.chat ? 'added' : 'noticeSentEmail', { kind: 'email' }) });
       return;
     }
     if (result.kind === 'join') {
@@ -272,7 +275,15 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
                 </span>
               </FormRow>
             ) : null}
-            {view.google ? (
+            {view.google && view.lastWay === 'google' ? (
+              <FormRow label={t('google')} hint={t('lastWay')}>
+                <span className="ch-form-value">
+                  <span className="ch-form-value-text" dir="auto">
+                    <bdi dir="ltr">{view.google.address}</bdi>
+                  </span>
+                </span>
+              </FormRow>
+            ) : view.google ? (
               <ButtonRow label={t('google')} value={view.google.address} valueDir="ltr" disabled={off} onClick={() => openRemove('google', view.google?.address ?? null)} />
             ) : null}
             {!view.google && view.providers.google && view.googleFromCalendar === 'on' ? (
@@ -303,7 +314,15 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
                 )}
               </button>
             ) : null}
-            {view.email ? (
+            {view.email && view.lastWay === 'email' ? (
+              <FormRow label={t('email')} hint={t('lastWay')}>
+                <span className="ch-form-value">
+                  <span className="ch-form-value-text" dir="auto">
+                    <bdi dir="ltr">{view.email.address}</bdi>
+                  </span>
+                </span>
+              </FormRow>
+            ) : view.email ? (
               <ButtonRow label={t('email')} value={view.email.address} valueDir="ltr" disabled={off} onClick={() => openRemove('email', view.email?.address ?? null)} />
             ) : view.providers.email ? (
               <button type="button" className="ch-form-row ch-action-row" disabled={off} onClick={openEmail}>
@@ -347,7 +366,7 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
           ) : null}
           <p className="ch-sheet-sub">{sheet.which === 'calendar-google' ? t('removeCalendarBody') : t('removeBody')}</p>
           <div className="ch-sheet-stack">
-            {sheet.error ? <Notice tone="error">{t(ERROR_KEY[sheet.error])}</Notice> : null}
+            {sheet.error ? <Notice tone="error">{t(sheet.error === 'last-way' ? 'lastWay' : ERROR_KEY[sheet.error])}</Notice> : null}
             {sheet.busy ? workingLine(t('removing')) : null}
             <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={sheet.busy} onClick={() => void remove(sheet.which, sheet.address)}>
               {t('remove')}

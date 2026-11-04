@@ -14,6 +14,8 @@ import { isJoinSummary, type JoinSummary } from '@/src/lib/join-summary';
 export type MethodsView = SignInMethodsView & { session: SignInMethod | null };
 export type RemoveWhich = 'google' | 'email' | 'calendar-google';
 export type RequestError = 'failed' | 'busy';
+/** Remove's answers besides success: 'last-way' is the account's only durable way, which the server refuses. */
+export type RemoveError = RequestError | 'last-way';
 export type AddEmailError = RequestError | 'invalid' | 'limit' | 'has-one';
 /** 'codeLimit' is the confirm route's `limit` (too many wrong codes): Add's own `limit` is the day's codes. */
 export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
@@ -25,6 +27,8 @@ export type TurnOnError = RequestError | 'shared' | 'reconnect';
 const TAG = '[signin-methods]';
 const SESSION_METHODS: readonly string[] = ['tg', 'google', 'email', 'wa'];
 
+const LAST_WAYS: readonly string[] = ['telegram', 'whatsapp', 'google', 'email'];
+
 const isAddress = (value: unknown) => value === null || (typeof value === 'object' && typeof (value as { address?: unknown }).address === 'string');
 
 /** The shape GET /api/signin-methods answers, and the `methods` of the confirm and remove answers. */
@@ -32,7 +36,8 @@ export function isMethodsView(value: unknown): value is SignInMethodsView {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   const p = v.providers as Record<string, unknown> | null | undefined;
-  return typeof v.telegram === 'boolean' && (v.googleFromCalendar === 'on' || v.googleFromCalendar === 'off' || v.googleFromCalendar === null) && isAddress(v.google) && isAddress(v.email) && !!p && typeof p.telegram === 'boolean' && typeof p.google === 'boolean' && typeof p.email === 'boolean';
+  return typeof v.telegram === 'boolean' && (v.googleFromCalendar === 'on' || v.googleFromCalendar === 'off' || v.googleFromCalendar === null) && isAddress(v.google) && isAddress(v.email) && !!p && typeof p.telegram === 'boolean' && typeof p.google === 'boolean' && typeof p.email === 'boolean'
+    && typeof v.chat === 'boolean' && (v.lastWay === null || LAST_WAYS.includes(String(v.lastWay)));
 }
 
 /** A 429 is the route's rate limit; anything else is a plain failure. */
@@ -106,9 +111,10 @@ export async function joinAccount(userId: number, joinId: string): Promise<{ kin
   return { kind: 'error', code: statusError(r.status) };
 }
 
-export async function removeMethod(userId: number, which: RemoveWhich): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: RequestError }> {
+export async function removeMethod(userId: number, which: RemoveWhich): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: RemoveError }> {
   const r = await post('/api/signin-methods/remove', userId, { which });
   if (r?.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  if (r?.body?.error === 'last-way') return { kind: 'error', code: 'last-way' };
   return { kind: 'error', code: r ? statusError(r.status) : 'failed' };
 }
 

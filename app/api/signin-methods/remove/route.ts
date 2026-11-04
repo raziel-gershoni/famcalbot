@@ -6,6 +6,8 @@
 //     it is a web session, gets a fresh cookie with the same method and a sign-in time of now, so it stays signed in.
 //     A WhatsApp link's cookie keeps its own expiry (spec §2.4: never renewed); a web session gets a full new life.
 //     Any Google removal turns the calendar's Google account off (googleCalendarSignIn).
+//   → 409 last-way: the account's only durable way to sign in (web sign-up spec 2026-11-03 §2.12; removeSignInMethod
+//     counts with the account's row locked), nothing removed and no cookie set.
 //   → 400 invalid for anything else (Telegram and WhatsApp can't be removed here), 500 failed.
 //
 // Security: Origin and JSON first, then verifyUserAuth with the settings limiter; acts on the proved user only.
@@ -43,7 +45,9 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin-methods] user ${userId}: refused a removal of an unknown way`);
       return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
     }
-    await removeSignInMethod(userId, which);
+    if ((await removeSignInMethod(userId, which)) === 'last-way') {
+      return NextResponse.json({ ok: false, error: 'last-way' }, { status: 409 });
+    }
     const fresh = (await getUserById(userId)) ?? auth.user;
     const response = NextResponse.json({ ok: true, methods: await listSignInMethods(fresh) });
     if (auth.via === 'session') {

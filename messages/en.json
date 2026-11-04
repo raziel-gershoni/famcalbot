@@ -935,12 +935,14 @@
       "codeLimit": "Too many wrong codes. Try again tomorrow.",
       "emailHasOne": "This account already has an email for signing in. Remove it first.",
       "added": "{kind, select, google {Google} other {Your email}} can now sign you in. We sent a notice to your chat.",
+      "noticeSentEmail": "{kind, select, google {Google} other {Your email}} can now sign you in. We emailed a notice to the address you already sign in with.",
       "removeTitle": "Remove {kind, select, google {Google} other {email}} sign-in?",
       "removeBody": "It will no longer sign you in to FamCal, and every other browser signed in to FamCal is signed out.",
       "removeCalendarBody": "The Google account your calendar is connected from will no longer sign you in, and every other browser signed in to FamCal is signed out. Your Google Calendar stays connected.",
       "remove": "Remove",
       "removing": "Removing…",
       "removed": "Removed. Other browsers signed in to FamCal are signed out.",
+      "lastWay": "Your only way to sign in. Add another to remove this one.",
       "signOut": "Sign out on this device",
       "signOutAll": "Sign out on all devices",
       "signingOut": "Signing out…",
@@ -3228,7 +3230,10 @@
     "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove.",
     "joinedGoogle": "The FamCal account made with Google {address} was joined into yours, and that Google account can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
     "joinedEmail": "The FamCal account made with the email {address} was joined into yours, and that email can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
-    "telegramConnected": "Telegram was connected to your FamCal account. Not you? Write to privacy@famcal.bot."
+    "telegramConnected": "Telegram was connected to your FamCal account. Not you? Write to privacy@famcal.bot.",
+    "emailSubject": "Your FamCal account has a new way to sign in",
+    "emailSubjectTelegram": "Telegram was connected to your FamCal account",
+    "emailWhy": "We sent this to an address you already sign in to FamCal with."
   },
   "countries": {
     "IL": "Israel",

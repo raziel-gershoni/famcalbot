@@ -238,9 +238,10 @@ function sourceFiles(): string[] {
 
 /**
  * A call that puts a message in front of a person (Telegram, WhatsApp or email), or the sender helpers the files use.
- * Email goes only through Resend's API (src/services/web-signin/email-send.ts) and the code helpers that call it.
+ * Email goes only through Resend's API (src/services/web-signin/email-send.ts), the code helpers that call it, and the
+ * notice email (sendNoticeEmail).
  */
-const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|issueCode)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
+const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|sendNoticeEmail|issueCode)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
 
 /** The files that send on a schedule (cron, or a pass a cron runs): each calls isPaused before it sends. */
 const PAUSED: Record<string, string> = {
@@ -285,10 +286,10 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/native-reminders/actions.ts': 'the quiet note to the partner after a person marks a reminder done (their own action, sent without a sound)',
   'src/services/native-reminders/typed-route.ts': 'the answer to a reminder the person typed',
   'src/services/native-reminders/ping.ts': 'the ping text and the edits of a ping that is already on screen; the one send, sendPing, is called by the paused pass',
-  'src/services/web-signin/email-send.ts': 'the sign-in code email: mailed only when the person asks for a code (on famcal.bot or in Settings)',
+  'src/services/web-signin/email-send.ts': 'the sign-in code email, mailed only when the person asks for a code (on famcal.bot or in Settings), and the notice email (sendNoticeEmail), the answer to a way the person just added, joined or connected',
   'src/services/web-signin/email-code.ts': 'makes and mails the code the person just asked for',
   'app/api/auth/email/request/route.ts': 'the code the person asked for on /signin (a sign-in code, or a sign-up code for an address on no account), sent right after the answer',
-  'src/services/web-signin/notice.ts': 'the notice that a sign-in way was added, or that the calendar\'s Google account signed in for the first time: the answer to the person\'s own action on the web (web sign-in spec §2.10)',
+  'src/services/web-signin/notice.ts': 'the notice that a sign-in way was added or joined, that Telegram was connected, or that the calendar\'s Google account signed in for the first time, in the chat or by email (sendNoticeEmail): the answer to the person\'s own action (web sign-in spec §2.10, web sign-up spec §2.11)',
   'app/api/signin-methods/email/add/route.ts': 'the Add email code the person just asked for in Settings (their own action)',
   // To the admin
   'app/api/admin/send-reminder/route.ts': 'the admin pressing "send a reminder" for one person',

@@ -398,7 +398,7 @@ async function main() {
     }
     seed();
     const changed = await identities.removeSignInMethod(TAL, 'email');
-    assert(changed === false && userRow(TAL).googleCalendarSignIn === true && userRow(TAL).googleAccountKey === KEY_TAL, `email: ${show([changed, userRow(TAL).googleCalendarSignIn, userRow(TAL).googleAccountKey])}`);
+    assert(changed === 'none' && userRow(TAL).googleCalendarSignIn === true && userRow(TAL).googleAccountKey === KEY_TAL, `email: ${show([changed, userRow(TAL).googleCalendarSignIn, userRow(TAL).googleAccountKey])}`);
     seed();
     await identities.removeSignInMethod(TAL, 'calendar-google');
     const added = await identities.addIdentity(TAL, 'google', 'g-sub-1', 'tal@gmail.com');

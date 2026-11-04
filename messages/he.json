@@ -935,12 +935,14 @@
       "codeLimit": "יותר מדי קודים שגויים. אפשר לנסות שוב מחר.",
       "emailHasOne": "לחשבון הזה כבר יש מייל לכניסה. כדי להוסיף מייל אחר, צריך להסיר אותו קודם.",
       "added": "מעכשיו אפשר להיכנס עם {kind, select, google {Google} other {המייל}}. שלחנו על זה הודעה בצ׳אט.",
+      "noticeSentEmail": "מעכשיו אפשר להיכנס עם {kind, select, google {Google} other {המייל}}. שלחנו על זה הודעה במייל לכתובת שאיתה כבר נכנסים.",
       "removeTitle": "להסיר את הכניסה עם {kind, select, google {Google} other {המייל}}?",
       "removeBody": "לא יהיה אפשר להיכנס איתו ל־FamCal, וכל דפדפן אחר שמחובר ל־FamCal ינותק.",
       "removeCalendarBody": "לא יהיה אפשר להיכנס עם חשבון ה־Google שהיומן מחובר ממנו, וכל דפדפן אחר שמחובר ל־FamCal ינותק. יומן Google נשאר מחובר.",
       "remove": "הסרה",
       "removing": "מסירים…",
       "removed": "הוסר. דפדפנים אחרים שהיו מחוברים ל־FamCal נותקו.",
+      "lastWay": "זו דרך הכניסה היחידה שלכם. כדי להסיר אותה, צריך קודם להוסיף דרך אחרת.",
       "signOut": "יציאה במכשיר הזה",
       "signOutAll": "יציאה בכל המכשירים",
       "signingOut": "יוצאים…",
@@ -3228,7 +3230,10 @@
     "calendarGoogle": "נכנסתם ל-FamCal באתר עם חשבון ה-Google {address}, החשבון שממנו חיברתם את היומן. לא אתם? פתחו הגדרות ← כניסה מהדפדפן ← הסרה.",
     "joinedGoogle": "חשבון ה-FamCal שנפתח עם Google {address} צורף לחשבון שלכם, ומעכשיו אפשר להיכנס איתו ל-FamCal שלכם באתר. לא אתם? פתחו הגדרות ← כניסה מהדפדפן ← הסרה, וכתבו לנו ל-privacy@famcal.bot.",
     "joinedEmail": "חשבון ה-FamCal שנפתח עם המייל {address} צורף לחשבון שלכם, ומעכשיו אפשר להיכנס עם המייל הזה ל-FamCal שלכם באתר. לא אתם? פתחו הגדרות ← כניסה מהדפדפן ← הסרה, וכתבו לנו ל-privacy@famcal.bot.",
-    "telegramConnected": "טלגרם חובר לחשבון ה-FamCal שלכם. לא אתם? כתבו אל privacy@famcal.bot."
+    "telegramConnected": "טלגרם חובר לחשבון ה-FamCal שלכם. לא אתם? כתבו אל privacy@famcal.bot.",
+    "emailSubject": "דרך כניסה חדשה לחשבון ה-FamCal שלכם",
+    "emailSubjectTelegram": "טלגרם חובר לחשבון ה-FamCal שלכם",
+    "emailWhy": "שלחנו את המייל הזה לכתובת שאיתה אתם כבר נכנסים ל-FamCal."
   },
   "countries": {
     "IL": "ישראל",

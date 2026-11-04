@@ -27,6 +27,8 @@
 //  - U13 Join (web sign-up plan Task 7): an Add email whose right code answers join opens the question (the other
 //    account's name and day, what moves, what closes); Join posts the question's id as `token`; expired, refused and a
 //    failure each said; success closes it with the done line
+//  - U14 the last way (Task 8): the only durable way shows with no Remove and says why; a removal the server refuses
+//    (last-way) says so; with no chat the success line says the notice went by email
 //
 // Run with the fake env (never the real one), from the repo root: bash /private/tmp/claude-501/-Users-razielgershoni-development-famcalbot/0d239296-a217-49f9-8833-757c9d9a2df6/scratchpad/6c1/run-smoke.sh smoke-signin-ui
 
@@ -93,7 +95,7 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   return route(call);
 }) as typeof fetch;
 const last = (pathname: string) => calls.filter((c) => c.url.split('?')[0] === pathname).at(-1);
-const VIEW = (over: Row = {}): Row => ({ telegram: true, google: null, googleFromCalendar: null, email: null, providers: { telegram: true, google: true, email: true }, session: null, ...over });
+const VIEW = (over: Row = {}): Row => ({ telegram: true, google: null, googleFromCalendar: null, email: null, providers: { telegram: true, google: true, email: true }, chat: true, lastWay: null, session: null, ...over });
 const methodsOf = (view: Row) => {
   const { session: _session, ...methods } = view;
   return methods;
@@ -547,6 +549,48 @@ async function main() {
         assert(!dialog(o.m) && rowStarting(o.m, t.email) && statusLine(o.m).includes(say(l, 'join.done')), `${l}: after ${show(statusLine(o.m))}`);
       } finally {
         closeAll(o);
+      }
+    }
+  });
+
+  await check('U14 the last way: the only durable way shows its address with no Remove and says why (Google or email); a removal the server refuses (last-way) says the same; with no chat, adding an email says the notice went by email', async () => {
+    for (const l of LOCALES) {
+      const t = w(l);
+      for (const [kind, label] of [['email', t.email], ['google', t.google]] as const) {
+        const o = open(l, VIEW({ telegram: false, chat: false, lastWay: kind, [kind]: { address: ADDRESS }, session: kind }));
+        await settle();
+        try {
+          assert(!rowStarting(o.m, label) && page(o.m).includes(t.lastWay) && page(o.m).includes(ADDRESS), `${l} ${kind}: ${page(o.m)} ${show(buttons(o.m).map(flat))}`);
+        } finally {
+          closeAll(o);
+        }
+      }
+      const raced = open(l, VIEW({ telegram: false, chat: false, email: { address: ADDRESS }, google: { address: 'd@example.org' }, session: 'email' }));
+      await settle();
+      try {
+        raced.m.click(rowStarting(raced.m, t.email) as FakeElement);
+        routes['POST /api/signin-methods/remove'] = () => json({ ok: false, error: 'last-way' }, 409);
+        raced.m.click(button(raced.m, t.remove) as FakeElement);
+        await settle();
+        assert(dialog(raced.m) && alertsIn(dialog(raced.m) as FakeElement).includes(t.lastWay), `${l}: last-way ${show(alertsIn(dialog(raced.m) as FakeElement))}`);
+      } finally {
+        closeAll(raced);
+      }
+      const noChat = open(l, VIEW({ telegram: false, chat: false, google: { address: 'd@example.org' }, lastWay: 'google', session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/signin-methods/email/add'] = () => json({ ok: true });
+        noChat.m.click(button(noChat.m, t.emailAdd) as FakeElement);
+        noChat.m.input(inputOf(noChat.m), ADDRESS);
+        noChat.m.submit(formOf(noChat.m));
+        await settle();
+        noChat.m.input(inputOf(noChat.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: true, methods: methodsOf(VIEW({ telegram: false, chat: false, google: { address: 'd@example.org' }, email: { address: ADDRESS } })) });
+        noChat.m.submit(formOf(noChat.m));
+        await settle();
+        assert(statusLine(noChat.m).includes(say(l, 'noticeSentEmail', { kind: 'email' })) && !statusLine(noChat.m).includes(say(l, 'added', { kind: 'email' })), `${l}: the notice line ${show(statusLine(noChat.m))}`);
+      } finally {
+        closeAll(noChat);
       }
     }
   });

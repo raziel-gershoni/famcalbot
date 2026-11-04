@@ -14,6 +14,7 @@
 
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../utils/prisma';
+import { hasChat } from '../../lib/has-chat';
 import { captureSignInFailure } from './safe-error';
 import { getUserById } from '../user-service';
 import { convertPrismaUserToConfig, type UserConfig } from '../../types';
@@ -26,6 +27,11 @@ export type IdentityKind = 'google' | 'email';
 export type RemovableWay = 'google' | 'email' | 'calendar-google';
 /** See SignInMethodsView.googleFromCalendar. */
 export type CalendarSignInState = 'on' | 'off' | null;
+/**
+ * A way the account always signs in with (web sign-up spec 2026-11-03 §2.12): its Telegram, its WhatsApp, a Google way
+ * or an email way. The calendar's Google account is not one: disconnecting the calendar ends it.
+ */
+export type DurableWay = 'telegram' | 'whatsapp' | IdentityKind;
 
 /** Settings → Sign in on the web, as GET /api/signin-methods answers it (plus the session's method). */
 export interface SignInMethodsView {
@@ -42,6 +48,10 @@ export interface SignInMethodsView {
   email: { address: string } | null;
   /** Which ways this server has set up (their env vars), so Settings offers only those */
   providers: { telegram: boolean; google: boolean; email: boolean };
+  /** Telegram or WhatsApp: where the notices go (with none they go by email, and Settings says so) */
+  chat: boolean;
+  /** The account's only durable way, when it has exactly one: Settings offers no Remove on it, and the server refuses it */
+  lastWay: DurableWay | null;
 }
 
 /** The P2002 Prisma answers when a unique constraint holds (read by its code, as the fakes throw it). The sign-up reads it too. */
@@ -122,6 +132,28 @@ export async function identityHolder(kind: IdentityKind, subject: string): Promi
   return row?.userId ?? null;
 }
 
+/** The durable ways of an account, from its row and the kinds of its sign-in ways. */
+function durableWays(user: { telegramId: unknown; whatsappPhone?: string | null; whatsappBsuid?: string | null }, kinds: string[]): DurableWay[] {
+  const ways: DurableWay[] = [];
+  if (user.telegramId !== null && user.telegramId !== undefined) ways.push('telegram');
+  if (user.whatsappPhone || user.whatsappBsuid) ways.push('whatsapp');
+  for (const kind of ['google', 'email'] as const) if (kinds.includes(kind)) ways.push(kind);
+  return ways;
+}
+
+/**
+ * Where a notice goes for an account with no chat (notice.ts): its email way's address, else its Google way's, skipping
+ * the kind just added (`gained`: the notice must reach a way that was there before). null when there is none.
+ */
+export async function noticeAddress(userId: number, gained: IdentityKind | null): Promise<{ kind: IdentityKind; address: string } | null> {
+  const rows = await prisma.signInIdentity.findMany({ where: { userId }, select: { kind: true, address: true } });
+  for (const kind of ['email', 'google'] as const) {
+    const row = kind === gained ? undefined : rows.find(r => r.kind === kind);
+    if (row) return { kind, address: row.address };
+  }
+  return null;
+}
+
 /** Whether the account has a way of this kind. */
 export async function hasIdentity(userId: number, kind: IdentityKind): Promise<boolean> {
   const row = await prisma.signInIdentity.findUnique({ where: { userId_kind: { userId, kind } }, select: { id: true } });
@@ -173,8 +205,12 @@ export async function listSignInMethods(user: UserConfig): Promise<SignInMethods
     googleFromCalendar: await calendarSignInState(user, Boolean(google)),
     email: email ? { address: email.address } : null,
     providers: { telegram: providerConfigured('telegram'), google: providerConfigured('google'), email: emailConfigured() },
+    chat: hasChat(user),
+    lastWay: lastOf(durableWays(user, rows.map(r => r.kind))),
   };
 }
+
+const lastOf = (ways: DurableWay[]): DurableWay | null => (ways.length === 1 ? ways[0] : null);
 
 /**
  * Add a way to an account. 'added': a row was made (the caller sends the notice). 'kept': this same account already
@@ -214,24 +250,36 @@ export async function addIdentity(
  * with the switch off it serves no purpose, so it isn't kept (the Privacy Policy says it is kept only to sign the
  * person in; the lawyer review, finding 10). A removal that changed something ends every web
  * session: sessionsValidAfter is now (the route gives the device it came from a fresh cookie). One that found nothing
- * to remove (no such way, the calendar switch already off) changes nothing and signs nobody out. Returns whether
- * something changed.
+ * to remove (no such way, the calendar switch already off) changes nothing and signs nobody out.
+ *
+ * The account's only durable way (DurableWay; web sign-up spec §2.12) is never removed: 'last-way'. The account's row
+ * is locked first (SELECT … FOR UPDATE), so a second removal at the same moment waits for this one and then counts
+ * what is left: two removals at once can't take the last two ways. The calendar's row ('calendar-google') is no
+ * durable way and is always removable.
  */
-export async function removeSignInMethod(userId: number, which: RemovableWay): Promise<boolean> {
-  return prisma.$transaction(async tx => {
-    const deleted = which === 'calendar-google' ? 0 : (await tx.signInIdentity.deleteMany({ where: { userId, kind: which } })).count;
-    const user = await tx.user.findUnique({ where: { id: userId }, select: { googleCalendarSignIn: true } });
-    const switchWasOn = which !== 'email' && user?.googleCalendarSignIn === true;
-    if (deleted === 0 && !switchWasOn) return false;
+export async function removeSignInMethod(userId: number, which: RemovableWay): Promise<'removed' | 'last-way' | 'none'> {
+  const outcome = await prisma.$transaction(async (tx): Promise<'removed' | 'last-way' | 'none'> => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+    const user = await tx.user.findUnique({
+      where: { id: userId },
+      select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, googleCalendarSignIn: true },
+    });
+    if (!user) return 'none';
+    const kinds = (await tx.signInIdentity.findMany({ where: { userId }, select: { kind: true } })).map(r => r.kind);
+    const holds = which !== 'calendar-google' && kinds.includes(which);
+    const switchWasOn = which !== 'email' && user.googleCalendarSignIn === true;
+    if (!holds && !switchWasOn) return 'none';
+    if (holds && durableWays(user, kinds).length <= 1) return 'last-way';
+    if (holds) await tx.signInIdentity.deleteMany({ where: { userId, kind: which } });
     await tx.user.update({
       where: { id: userId },
       data: { sessionsValidAfter: new Date(), ...(which === 'email' ? {} : { googleCalendarSignIn: false, googleAccountKey: null }) },
     });
-    return true;
-  }).then(changed => {
-    console.log(`[signin] user ${userId}: the ${which} way was ${changed ? 'removed; every web session ends' : 'not there; nothing changed'}`);
-    return changed;
+    return 'removed';
   });
+  const said = { removed: 'removed; every web session ends', 'last-way': 'not removed: it is the last way to sign in', none: 'not there; nothing changed' };
+  console.log(`[signin] user ${userId}: the ${which} way was ${said[outcome]}`);
+  return outcome;
 }
 
 /**
