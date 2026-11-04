@@ -113,8 +113,8 @@ export async function signInRefusal(user: SignInAccount): Promise<'suspended' | 
  * Finish a sign-in as `user` by `method`.
  * - A suspended account goes to /signin?status=suspended, and one with a banned Telegram id, WhatsApp number, Google
  *   account or sign-in address to status=blocked, with no cookie (signInRefusal).
- * - Otherwise the session cookie is set (signed in now) and the person lands on `page` (the dashboard by default) in
- *   their language.
+ * - Otherwise the session cookie is set (signed in now, and proved now: the one place a fresh proved-at is set, which
+ *   Connect Telegram's hour reads) and the person lands on `page` (the dashboard by default) in their language.
  * - `respond: 'json'` answers { ok: true, redirect } (200) or { ok: false, status } (403; 500 for 'failed') instead of
  *   redirecting.
  * - A step that throws (no SESSION_SECRET, the blocklist read) is logged and captured, and answered with 'failed'.

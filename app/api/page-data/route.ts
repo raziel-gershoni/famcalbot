@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
-import { createSessionToken, needsRenewal, setSessionCookie } from '@/src/lib/session-auth';
+import { needsRenewal, reissueSessionToken, setSessionCookie } from '@/src/lib/session-auth';
 import { generalRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { isPageName, loadPageData } from '@/src/lib/page-data';
@@ -43,9 +43,10 @@ export async function POST(request: NextRequest) {
     const result = await loadPageData(page, auth.user, parseInt(String(rawUserId)), locale);
     const response = NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
     // After the row check above accepted it: a famcal.bot sign-in's cookie over a day old gets 30 more days, with its
-    // first sign-in time and method (so Sign out on all devices still ends it). A WhatsApp link's never is renewed.
+    // first sign-in time, proved-at and method (so Sign out on all devices still ends it, and Connect Telegram's hour
+    // never restarts). A WhatsApp link's never is renewed.
     if (auth.via === 'session' && needsRenewal(auth.session, Date.now())) {
-      setSessionCookie(response, createSessionToken(auth.user.id, auth.session.method, auth.session.signedInAt));
+      setSessionCookie(response, reissueSessionToken(auth.session));
     }
     return response;
   } catch (error) {

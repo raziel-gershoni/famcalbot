@@ -1,12 +1,18 @@
 /**
  * The web session cookie (spec 2026-11-02-web-sign-in §2.4, §2.16, §3). An HMAC-signed JSON payload, kept nowhere but
  * the browser. It says who signed in (userId, the DB id), how (m: 'tg' | 'google' | 'email' | 'wa') and when (at,
- * epoch ms), plus when it was issued (iat) and when it ends (exp), in seconds.
+ * epoch ms), when the person last proved who they are by signing in (pa, epoch ms), plus when it was issued (iat) and
+ * when it ends (exp), in seconds.
  *
  * - A WhatsApp link's session lasts 24 hours and is never renewed (a fresh cookie for one, after Remove, keeps its old
  *   end: createSessionToken's `exp` and setSessionCookie's `maxAgeSec`).
  * - One made by signing in on famcal.bot lasts 30 days, and page-data renews it while it is used (needsRenewal),
  *   keeping its method and first sign-in time.
+ * - `at` and `pa` part only when a way is removed: the device's fresh cookie is signed in now (after the new
+ *   sessionsValidAfter, so it stays signed in) but keeps its proved-at. Only a real sign-in (createSessionToken, called
+ *   by finishSignIn alone) sets a fresh proved-at; every re-issue (reissueSessionToken) carries it over. Connect
+ *   Telegram's "a sign-in within the hour" reads it (web sign-up spec §2.9), so no renewal and no removal restarts that
+ *   hour.
  * - Ending sessions is the user row's sessionsValidAfter, which verifyUserAuth compares with `at`
  *   (src/lib/api-auth.ts).
  *
@@ -23,11 +29,15 @@ import { appKey } from './app-keys';
 export type SignInMethod = 'tg' | 'google' | 'email' | 'wa';
 const METHODS: readonly SignInMethod[] = ['tg', 'google', 'email', 'wa'];
 
-/** A session cookie that passed its signature and expiry check. signedInAt is epoch ms; iat and exp are seconds. */
+/**
+ * A session cookie that passed its signature and expiry check. signedInAt (what sessionsValidAfter is compared with) and
+ * provedAt (when the person last signed in for real) are epoch ms; iat and exp are seconds.
+ */
 export interface WebSession {
   userId: number;
   method: SignInMethod;
   signedInAt: number;
+  provedAt: number;
   iat: number;
   exp: number;
 }
@@ -40,11 +50,12 @@ export const SESSION_TTL_SEC = { wa: 24 * 60 * 60, web: 30 * 24 * 60 * 60 } as c
 /** A famcal.bot session is renewed once it is older than this (by its iat). */
 const RENEW_AFTER_MS = 24 * 60 * 60 * 1000;
 
-/** What the cookie carries. A cookie made before 6b has no m and no at. */
+/** What the cookie carries. A cookie made before 6b has no m and no at; one made before 6c-1's fix has no pa. */
 interface SessionPayload {
   userId: number;
   m?: SignInMethod;
   at?: number;
+  pa?: number;
   iat: number;
   exp: number;
 }
@@ -55,26 +66,42 @@ const sign = (key: Buffer, body: string) => crypto.createHmac('sha256', key).upd
 
 const COOKIE_OPTIONS = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: '/' };
 
-/**
- * A signed session token for `userId`, issued now, lasting by `method`. `signedInAt` is the moment the person signed in
- * (epoch ms): now for a new sign-in, the first sign-in's time for a renewal. `opts.exp` (epoch seconds) keeps an
- * earlier end: a WhatsApp link's cookie made again after Remove ends when the first one did (spec §2.4, never
- * renewed). It is used as given, never later than the method's own life from now, and must be after now. Throws
- * without SESSION_SECRET (no fallback to another secret).
- */
-export function createSessionToken(userId: number, method: SignInMethod, signedInAt: number, opts: { exp?: number } = {}): string {
+/** Signs a payload issued now, lasting by `method` (or until an earlier `exp`). Throws without SESSION_SECRET. */
+function mint(userId: number, method: SignInMethod, signedInAt: number, provedAt: number, exp: number | undefined): string {
   const key = appKey('session-cookie');
   if (!key) {
     throw new Error('SESSION_SECRET is not set: cannot sign a session cookie');
   }
   const iat = Math.floor(Date.now() / 1000);
   const latest = iat + ttlFor(method);
-  if (opts.exp !== undefined && !(Number.isSafeInteger(opts.exp) && opts.exp > iat)) {
-    throw new Error('createSessionToken: exp must be a whole number of seconds after now');
+  if (exp !== undefined && !(Number.isSafeInteger(exp) && exp > iat)) {
+    throw new Error('a session token\'s exp must be a whole number of seconds after now');
   }
-  const payload: SessionPayload = { userId, m: method, at: signedInAt, iat, exp: opts.exp === undefined ? latest : Math.min(opts.exp, latest) };
+  const payload: SessionPayload = { userId, m: method, at: signedInAt, pa: provedAt, iat, exp: exp === undefined ? latest : Math.min(exp, latest) };
   const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `${body}.${sign(key, body)}`;
+}
+
+/**
+ * The session token of a sign-in: `userId` signed in by `method` at `signedInAt` (epoch ms, now), which is also its
+ * proved-at, lasting by `method` (or until an earlier `opts.exp`, as reissueSessionToken takes it). finishSignIn is its
+ * only caller in the app (scripts/smoke-web-session.ts #4c): a session that already exists is issued again only with
+ * reissueSessionToken. Throws without SESSION_SECRET (no fallback to another secret).
+ */
+export function createSessionToken(userId: number, method: SignInMethod, signedInAt: number, opts: { exp?: number } = {}): string {
+  return mint(userId, method, signedInAt, signedInAt, opts.exp);
+}
+
+/**
+ * The same session issued again, now: its user, method and proved-at carried over unchanged, so neither a renewal nor a
+ * removal makes an old sign-in look recent. `opts.signedInAt` replaces the sign-in time (Remove: now, so the device
+ * stays after the sessionsValidAfter it just moved); without it the session's own is kept (page-data's renewal).
+ * `opts.exp` (epoch seconds) keeps an earlier end: a WhatsApp link's cookie made again after Remove ends when the first
+ * one did (spec §2.4, never renewed). It is used as given, never later than the method's own life from now, and must be
+ * after now. Throws without SESSION_SECRET.
+ */
+export function reissueSessionToken(session: WebSession, opts: { signedInAt?: number; exp?: number } = {}): string {
+  return mint(session.userId, session.method, opts.signedInAt ?? session.signedInAt, session.provedAt, opts.exp);
 }
 
 /**
@@ -106,19 +133,23 @@ export function validateSessionToken(token: string): WebSession | null {
   const iat = payload?.iat;
   const exp = payload?.exp;
   const at = payload?.at;
+  const pa = payload?.pa;
   const method = payload?.m === undefined ? 'wa' : METHODS.includes(payload.m) ? payload.m : null;
   if (
     typeof userId !== 'number' || !Number.isSafeInteger(userId) || userId <= 0
     || typeof iat !== 'number' || !Number.isFinite(iat)
     || typeof exp !== 'number' || !Number.isFinite(exp)
     || (at !== undefined && (typeof at !== 'number' || !Number.isFinite(at)))
+    || (pa !== undefined && (typeof pa !== 'number' || !Number.isFinite(pa)))
     || method === null
   ) {
     console.warn('[session] malformed session cookie');
     return null;
   }
   if (exp < Math.floor(Date.now() / 1000)) return null;
-  return { userId, method, signedInAt: at ?? iat * 1000, iat, exp };
+  // A cookie with no pa was made before the proved-at existed: its sign-in time is the best it says
+  const signedInAt = at ?? iat * 1000;
+  return { userId, method, signedInAt, provedAt: pa ?? signedInAt, iat, exp };
 }
 
 /** The request's session cookie, checked (signature and expiry only; verifyUserAuth checks the row). */
@@ -130,7 +161,7 @@ export function readSession(request: NextRequest): WebSession | null {
 /**
  * Sets the session cookie on a response. It lasts as long as the token's own method gives (30 days, or 24 hours for a
  * WhatsApp link), or `opts.maxAgeSec` seconds (a positive whole number) when a caller keeps an earlier end. A token that
- * is not a valid session of ours throws: only createSessionToken's output belongs in the cookie.
+ * is not a valid session of ours throws: only createSessionToken's and reissueSessionToken's output belongs in the cookie.
  */
 export function setSessionCookie(response: NextResponse, token: string, opts: { maxAgeSec?: number } = {}): void {
   const session = validateSessionToken(token);

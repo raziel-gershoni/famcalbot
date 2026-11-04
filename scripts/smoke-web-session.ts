@@ -495,6 +495,34 @@ async function main() {
     }
   });
 
+  await check('#4b [C1] page-data\'s renewal carries the proved-at (pa) over unchanged, with the sign-in time; a cookie with no pa (made before it) reads its sign-in time as its proved-at, and a fresh sign-in\'s token is proved now', async () => {
+    seed();
+    const AT = Date.now() - 2 * DAY - 123;
+    const PA = Date.now() - 5 * DAY - 456;
+    const iat = Math.floor((Date.now() - 2 * DAY) / 1000);
+    const res = await pageData(5, { cookie: signed({ userId: 5, m: 'tg', at: AT, pa: PA, iat, exp: iat + WEB_TTL }) });
+    assert(res.status === 200, `status ${res.status} ${await fullBody(res)}`);
+    const c = sessionSetCookie(res);
+    const s = c ? S.validateSessionToken(c.value) : null;
+    assert(s && s.signedInAt === AT && s.provedAt === PA && s.iat >= nowS() - 2, `renewed: ${show(s)}`);
+    const old = S.validateSessionToken(signed({ userId: 5, m: 'tg', at: AT, iat, exp: iat + WEB_TTL }));
+    assert(old && old.provedAt === AT, `no pa: ${show(old)}`);
+    const fresh = S.validateSessionToken(S.createSessionToken(5, 'google', AT));
+    assert(fresh && fresh.provedAt === AT && fresh.signedInAt === AT, `a sign-in's token: ${show(fresh)}`);
+    assert(S.validateSessionToken(signed({ userId: 5, m: 'tg', at: AT, pa: 'yesterday', iat, exp: iat + WEB_TTL })) === null, 'a pa that is not a number is accepted');
+  });
+
+  await check('#4c [C1] only a real sign-in sets a fresh proved-at: createSessionToken is called in app code by finishSignIn alone (src/lib/web-session.ts); every other issuer (page-data, Remove) is reissueSessionToken, which takes the session it renews', () => {
+    const def = path.join('src', 'lib', 'session-auth.ts');
+    const files = sourceFiles(['app', 'src', 'components']).filter(f => f !== def);
+    const minters = files.filter(f => /\bcreateSessionToken\(/.test(read(f)));
+    assert(show(minters) === show([path.join('src', 'lib', 'web-session.ts')]), `createSessionToken callers ${show(minters)}`);
+    const reissuers = files.filter(f => /\breissueSessionToken\(/.test(read(f))).sort();
+    assert(show(reissuers) === show([path.join('app', 'api', 'page-data', 'route.ts'), path.join('app', 'api', 'signin-methods', 'remove', 'route.ts')].sort()), `reissueSessionToken callers ${show(reissuers)}`);
+    const setters = files.filter(f => /\bsetSessionCookie\(/.test(read(f))).sort();
+    assert(show(setters) === show([...reissuers, path.join('src', 'lib', 'web-session.ts')].sort()), `setSessionCookie callers ${show(setters)}`);
+  });
+
   await check('#5 page-data is the only caller of needsRenewal: no other route renews a session', () => {
     const def = path.join('src', 'lib', 'session-auth.ts');
     const callers = sourceFiles(['app', 'src']).filter(f => f !== def && /\bneedsRenewal\(/.test(read(f)));

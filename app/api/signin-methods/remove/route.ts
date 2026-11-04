@@ -2,10 +2,12 @@
 //
 // POST /api/signin-methods/remove?user_id=…  body { which: 'google' | 'email' | 'calendar-google' }
 //   → { ok: true, methods }. When something was removed (or the calendar switch turned off), every web session of the
-//     account ends (sessionsValidAfter); a removal that found nothing changes nothing. The device this came from, when
-//     it is a web session, gets a fresh cookie with the same method and a sign-in time of now, so it stays signed in.
-//     A WhatsApp link's cookie keeps its own expiry (spec §2.4: never renewed); a web session gets a full new life.
-//     Any Google removal turns the calendar's Google account off (googleCalendarSignIn).
+//     account ends (sessionsValidAfter), and the device this came from, when it is a web session, gets a fresh cookie
+//     with the same method and a sign-in time of now, so it stays signed in. The cookie keeps its proved-at
+//     (reissueSessionToken): a removal is no sign-in, so it never restarts Connect Telegram's hour (web sign-up spec
+//     §2.9). A WhatsApp link's cookie keeps its own expiry (spec §2.4: never renewed); a web session gets a full new
+//     life. A removal that found nothing changes nothing and sets no cookie (the device's own still works). Any Google
+//     removal turns the calendar's Google account off (googleCalendarSignIn).
 //   → 409 last-way: the account's only durable way to sign in (web sign-up spec 2026-11-03 §2.12; removeSignInMethod
 //     counts with the account's row locked), nothing removed and no cookie set.
 //   → 400 invalid for anything else (Telegram and WhatsApp can't be removed here), 500 failed.
@@ -18,7 +20,7 @@ import { requestInitData } from '@/src/lib/request-init-data';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { refuseCrossSite } from '@/src/lib/same-origin';
-import { createSessionToken, setSessionCookie } from '@/src/lib/session-auth';
+import { reissueSessionToken, setSessionCookie } from '@/src/lib/session-auth';
 import { getUserById } from '@/src/services/user-service';
 import { listSignInMethods, removeSignInMethod, type RemovableWay } from '@/src/services/web-signin/identities';
 
@@ -45,16 +47,18 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin-methods] user ${userId}: refused a removal of an unknown way`);
       return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
     }
-    if ((await removeSignInMethod(userId, which)) === 'last-way') {
+    const outcome = await removeSignInMethod(userId, which);
+    if (outcome === 'last-way') {
       return NextResponse.json({ ok: false, error: 'last-way' }, { status: 409 });
     }
     const fresh = (await getUserById(userId)) ?? auth.user;
     const response = NextResponse.json({ ok: true, methods: await listSignInMethods(fresh) });
-    if (auth.via === 'session') {
-      // Signed in now, so after the new sessionsValidAfter: this device stays signed in, every other one is out. A
-      // WhatsApp link is never renewed: its cookie keeps the link's own expiry and only the seconds left.
+    if (auth.via === 'session' && outcome === 'removed') {
+      // Signed in now, so after the new sessionsValidAfter: this device stays signed in, every other one is out. The
+      // proved-at is the session's own. A WhatsApp link is never renewed: its cookie keeps the link's own expiry and
+      // only the seconds left.
       const keep = auth.session.method === 'wa' ? auth.session.exp : null;
-      const token = createSessionToken(userId, auth.session.method, Date.now(), keep === null ? undefined : { exp: keep });
+      const token = reissueSessionToken(auth.session, { signedInAt: Date.now(), ...(keep === null ? {} : { exp: keep }) });
       setSessionCookie(response, token, keep === null ? undefined : { maxAgeSec: Math.max(1, keep - Math.floor(Date.now() / 1000)) });
     }
     return response;

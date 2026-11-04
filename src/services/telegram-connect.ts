@@ -123,7 +123,8 @@ export async function createConnectLink(
     console.warn(`[tg-connect] user ${user.id}: link refused: the account has a chat`);
     return { ok: false, error: 'has-chat' };
   }
-  if (session.userId !== user.id || session.method === 'wa' || Date.now() - session.signedInAt >= RECENT_SIGN_IN_MS) {
+  // The proved-at, not the sign-in time: a renewal or a removal re-issues the cookie but never restarts this hour
+  if (session.userId !== user.id || session.method === 'wa' || Date.now() - session.provedAt >= RECENT_SIGN_IN_MS) {
     console.warn(`[tg-connect] user ${user.id}: link refused: the ${session.method} sign-in is not recent`);
     return { ok: false, error: 'stale-sign-in' };
   }

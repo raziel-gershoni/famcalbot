@@ -171,6 +171,68 @@ async function main() {
     assert(recent.status === 200 && typeof (await body(recent)).url === 'string', `59 minutes: ${recent.status} ${show(await body(recent))}`);
   });
 
+  // ---- [C1] Removing a way never restarts the hour ----
+
+  const removeRoute = await load('app/api/signin-methods/remove/route.ts');
+  const { SESSION_COOKIE_NAME, validateSessionToken } = await load('src/lib/session-auth.ts');
+  /** Settings' Remove from this browser: the route's response. */
+  const removeWay = (userId: number, which: string, cookie: string) =>
+    removeRoute.POST(request(`/api/signin-methods/remove?user_id=${userId}`, { body: { which }, cookie }));
+  /** The session cookie a response set, as a Cookie header, or null when it set none. */
+  const setSession = (res: Row): string | null => {
+    const value = res.cookies.get(SESSION_COOKIE_NAME)?.value;
+    return value ? `${SESSION_COOKIE_NAME}=${value}` : null;
+  };
+  const linkWith = (userId: number, cookie: string) => route.POST(request(`/api/telegram-connect?user_id=${userId}`, { body: {}, cookie }));
+  const DAY_MS = 24 * 60 * MIN;
+
+  await check('[C1] a session signed in 3 days ago that removes a way is not signed in again: after a removal that changed nothing, and after one that removed something (a fresh cookie for this device), the link is still 403 stale-sign-in', async () => {
+    seed();
+    const PROVED = Date.now() - 3 * DAY_MS;
+    const old = await sessionCookie(DANA, 'email', PROVED);
+    userRow(DANA).googleCalendarSignIn = false;
+    const none = await removeWay(DANA, 'calendar-google', old);
+    assert(none.status === 200 && userRow(DANA).sessionsValidAfter === null, `nothing to remove: ${none.status} ${show(await body(none))}`);
+    const afterNone = await linkWith(DANA, setSession(none) ?? old);
+    assert(afterNone.status === 403 && (await body(afterNone)).error === 'stale-sign-in', `after a removal of nothing: ${afterNone.status} ${show(await body(afterNone))}`);
+    userRow(DANA).googleCalendarSignIn = true;
+    const removed = await removeWay(DANA, 'calendar-google', old);
+    assert(removed.status === 200 && userRow(DANA).sessionsValidAfter instanceof Date, `a removal: ${removed.status} ${show(await body(removed))}`);
+    const fresh = setSession(removed);
+    assert(fresh, 'a removal gave this device no cookie');
+    const session = validateSessionToken(fresh.slice(SESSION_COOKIE_NAME.length + 1));
+    assert(session?.provedAt === PROVED && session.signedInAt >= userRow(DANA).sessionsValidAfter.getTime(), `the device's cookie ${show(session)}`);
+    const afterRemoved = await linkWith(DANA, fresh);
+    assert(afterRemoved.status === 403 && (await body(afterRemoved)).error === 'stale-sign-in', `after a removal: ${afterRemoved.status} ${show(await body(afterRemoved))}`);
+    assert(![...redisStore.keys()].some(k => k.startsWith('tgconnect:')), 'a link was kept');
+  });
+
+  await check('[C1] a removal that changes nothing (the calendar switch already off, no such way) sets no session cookie, and the device\'s own cookie still works', async () => {
+    seed();
+    userRow(DANA).googleCalendarSignIn = false;
+    const cookie = await sessionCookie(DANA, 'email', Date.now() - 3 * DAY_MS);
+    for (const which of ['calendar-google', 'google']) {
+      const res = await removeWay(DANA, which, cookie);
+      const setCookies = (res.headers as Headers & { getSetCookie: () => string[] }).getSetCookie();
+      assert(res.status === 200 && setSession(res) === null && !setCookies.some(l => l.startsWith(`${SESSION_COOKIE_NAME}=`)), `${which}: ${res.status} set-cookie ${show(setCookies)}`);
+    }
+    const still = await methodsRoute.GET(request(`/api/signin-methods?user_id=${DANA}`, { cookie }));
+    assert(still.status === 200 && userRow(DANA).sessionsValidAfter === null, `the cookie after: ${still.status}`);
+  });
+
+  await check('[C1] a fresh sign-in that removes a way keeps its hour: the device\'s new cookie still gets a link, and the old cookie is ended', async () => {
+    seed();
+    const cookie = await sessionCookie(DANA, 'email', Date.now() - 5 * MIN);
+    const removed = await removeWay(DANA, 'calendar-google', cookie);
+    const fresh = setSession(removed);
+    assert(removed.status === 200 && fresh, `a removal: ${removed.status} ${show(await body(removed))}`);
+    const res = await linkWith(DANA, fresh);
+    assert(res.status === 200 && typeof (await body(res)).url === 'string', `the link after: ${res.status} ${show(await body(res))}`);
+    tokens.push(new URL((await body(res)).url).searchParams.get('start')!.slice('w_'.length));
+    const old = await linkWith(DANA, cookie);
+    assert(old.status === 401, `the old cookie: ${old.status} ${show(await body(old))}`);
+  });
+
   await check('the link: 5 an hour per account; the 6th is 429 limit', async () => {
     seed();
     for (let i = 1; i <= 5; i++) await tokenFor(DANA);
