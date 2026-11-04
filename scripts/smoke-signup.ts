@@ -37,7 +37,7 @@
 import crypto from 'crypto';
 import {
   advanceRedis, assert, baseUser, body, check, DB, everyCapture, everyLog, fakeRedis, flowCookie, identityRow,
-  installSigninWorld, load, logs, redisStore, report, request, resetWorld, show, world, type Row,
+  fakePrisma, installSigninWorld, load, logs, redisStore, report, request, resetWorld, show, world, type Row,
 } from './lib/signin-world';
 
 const TAL = 9;
@@ -270,7 +270,7 @@ async function main() {
 
   // ---- Refusals ----
 
-  await check('S11 bans at Create account (one that came in the 10 minutes): a banned Google sub, a Google sign-up whose address is banned, and a banned email address are status=blocked (403) with no account and no session, and the record is used', async () => {
+  await check('S11 bans at Create account (one that came in the 10 minutes): a banned Google sub, a Google sign-up whose address is banned, and a banned email address are status=blocked (403) with no account and no session, and the record is used; a refused attempt takes no place in the 5 a day of its address (5 banned attempts, then an unbanned sign-up from the same address is made)', async () => {
     const cases: [string, Row, Row][] = [
       ['Google sub', {}, { googleSub: DANA.sub }],
       ['Google address', {}, { email: DANA.email }],
@@ -284,6 +284,15 @@ async function main() {
       assert(res.status === 403 && show(await body(res)) === show({ ok: false, status: 'blocked' }) && usersNamed(NAME).length === 0 && !sessionOf(res), `${name}: ${res.status} ${show(await body(res))}`);
       assert(show(await view(cookie)) === show({ restart: true }), `${name}: the record survived`);
     }
+    // The ban is read before the cap counts the attempt: 5 refused attempts from one address leave its next, unbanned sign-up its place
+    seed();
+    ban({ googleSub: DANA.sub });
+    for (let i = 1; i <= 5; i++) {
+      const refused = await create(await signUpFlow(), { name: NAME }, { ip: '198.51.100.9' });
+      assert(refused.status === 403, `banned attempt #${i}: ${refused.status}`);
+    }
+    const unbanned = await create(await signUpFlow({ way: 'email', subject: 'rivka@example.com', address: 'rivka@example.com' }), { name: 'Rivka' }, { ip: '198.51.100.9' });
+    assert(show(await body(unbanned)).startsWith('{"ok":true') && usersNamed('Rivka').length === 1, `the 6th attempt, unbanned, from the same address: ${unbanned.status} ${show(await body(unbanned))}`);
   });
 
   await check('S12 new accounts per internet address: 5 a day from one IPv4 address, the 6th is status=limit with no account; IPv6 counts by its /48 (5 from different /64s of one /48, the 6th refused, another /48 still works); no address skips the count and logs it', async () => {
@@ -360,6 +369,29 @@ async function main() {
     } finally {
       fakeRedis.eval = realEval;
     }
+  });
+
+  await check('S20 createAccount failing on something unclassified (a transient database error): status=failed (500), the sign-up is put back under a new cookie with the time it had left, no account, no session, and pressing Create account again makes the account', async () => {
+    seed();
+    const cookie = await signUpFlow();
+    const original = recordOf(cookie.split('=')[1]);
+    const users = fakePrisma.user;
+    const realCreate = users.create;
+    users.create = async () => {
+      throw Object.assign(new Error('Server has closed the connection (smoke)'), { code: 'P1017' });
+    };
+    let res: Response;
+    try {
+      res = await create(cookie, { name: NAME });
+    } finally {
+      users.create = realCreate;
+    }
+    assert(res.status === 500 && show(await body(res)) === show({ ok: false, status: 'failed' }) && usersNamed(NAME).length === 0 && !sessionOf(res), `${res.status} ${show(await body(res))}`);
+    const value = flowValue(res);
+    const back = recordOf(value);
+    assert(/^[A-Za-z0-9_-]{43}$/.test(value) && back?.kind === 'signup' && back.subject === DANA.sub && back.startedAt === original?.startedAt, `put back ${show(back)} vs ${show(original)}`);
+    const again = await create(`${SIGNIN_COOKIE_NAME}=${value}`, { name: NAME });
+    assert((await body(again)).ok === true && usersNamed(NAME).length === 1, `again ${again.status} ${show(await body(again))}`);
   });
 
   await check('S18 a Sentry error event of POST /api/auth/signup holds no name: its body as an object or a JSON string loses the name, cut-off JSON and a form have it scrubbed; the language stays', async () => {
