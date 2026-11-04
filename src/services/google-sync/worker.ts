@@ -465,6 +465,8 @@ async function sendReconnect(user: UserRow, reason: 'token' | 'scopes'): Promise
     await getWhatsAppService().sendMessage(waChatId, '', { whatsappTemplate: buildWhatsAppTemplate(lang, 'settings') });
     return true;
   }
+  // No Telegram and no WhatsApp (an account made on famcal.bot): not stamped, so a chat connected later is told
+  console.log(`[google-sync] user ${user.id}: no chat; no reconnect message`);
   return false;
 }
 

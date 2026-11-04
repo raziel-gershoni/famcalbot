@@ -13,6 +13,11 @@
 //   - the trial-expired notice is skipped; the trial is over all the same.
 // A person with the switch off gets them as before.
 //
+// And a person with no Telegram (web sign-up plan, Task 12): the trial-expired notice is Telegram only, so for an account
+// with no Telegram (WhatsApp only, or made on famcal.bot) it is skipped with one line naming the send and the user id
+// (`[trial-expired notice] skipped user <id>: no Telegram`), and the trial ends all the same. The renewal and expiry passes
+// keep their guards and their own skip lines.
+//
 // Real code over fakes at the boundaries: Prisma (in memory, honouring `select`, so a column the code forgets to
 // select is missing), Redis, Telegram and WhatsApp (record every send), the early-adoption switch, error capture
 // and analytics. The clock is set by hand. No network, no DB.
@@ -129,6 +134,7 @@ const recorder = { sendMessage: async (chatId: string | number, text: string) =>
 let trialNotices: number[] = [];
 let activity: string[] = [];
 let logs: string[] = [];
+let skips: string[] = [];
 
 // A stub is served to require() from Module._cache and to import() by a load hook that writes it out as an ES module.
 const stubs: Record<string, Row> = {};
@@ -183,6 +189,7 @@ function reset(): void {
   trialNotices = [];
   activity = [];
   logs = [];
+  skips = [];
   subscriptionWrites.length = 0;
   for (const key of Object.keys(users)) delete users[Number(key)];
   users[1] = { id: 1, telegramId: BigInt(1001), whatsappPhone: null, whatsappBsuid: null, messagingPlatform: 'telegram', language: 'en', name: 'Dana', location: 'somewhere', pauseOnShabbat: true, zmanimCommunity: 'sephardi', ...JERUSALEM };
@@ -210,6 +217,7 @@ async function main(): Promise<void> {
   console.log = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
     if (line.startsWith('[pause]')) logs.push(line);
+    else if (/^\[[^\]]+\] skipped user \d+: /.test(line)) skips.push(line);
     else if (!hide(line)) realLog(...args);
   };
   const run = async (iso: string) => {
@@ -287,6 +295,26 @@ async function main(): Promise<void> {
     assert(subscriptions[0].status === 'EXPIRED' && subscriptions[1].status === 'EXPIRED' && paused.effectivePlan === 'FREE' && other.effectivePlan === 'FREE', `trials: ${show(subscriptions.map(s => [s.userId, s.status]))}`);
     assert(trialNotices.join(',') === '1002', `notices: ${trialNotices.join(',') || '(nothing)'}`);
     assert(logs.join('|') === '[pause] skipped trial-expired notice for 1', `logged: ${logs.join('|') || '(nothing)'}`);
+  });
+
+  // ---- No Telegram (web sign-up plan, Task 12) ----
+
+  /** A person with no chat (made on famcal.bot), the switch off. */
+  const noChat = (id: number, extra: Row = {}) => {
+    users[id] = { ...users[2], id, telegramId: null, whatsappPhone: null, whatsappBsuid: null, messagingPlatform: 'telegram', ...extra };
+    redisStore.set(`tz:user:${id}`, 'Asia/Jerusalem');
+  };
+  const TUESDAY = '2026-10-20T07:00:00Z';
+
+  await check('no Telegram: the trial-expired notice to an account with no Telegram is skipped with one line, and its trial ends all the same', async () => {
+    reset();
+    noChat(3);
+    clock = at(TUESDAY);
+    subscriptions = [{ userId: 3, plan: 'FREE', status: 'TRIALING', compedBy: null, trialEndsAt: new RealDate(at('2026-10-10T00:00:00Z')), currentPeriodEnd: null }];
+    const result = await service.getSubscriptionWithUsage(3);
+    assert(subscriptions[0].status === 'EXPIRED' && result.effectivePlan === 'FREE', `trial: ${show(subscriptions[0])}`);
+    assert(trialNotices.length === 0, `notices: ${trialNotices.join(',')}`);
+    assert(skips.join('|') === '[trial-expired notice] skipped user 3: no Telegram', `logged: ${skips.join('|') || '(nothing)'}`);
   });
 
   console.log = realLog;

@@ -554,7 +554,10 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
       });
       // Shabbat and Yom Tov (the pause): the trial ends all the same, but the notice is not sent (it is sent once, by
       // whichever plan check first finds the trial over, so no later check would tell the person).
-      if (user && user.telegramId && !(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) {
+      // Telegram only: an account with no Telegram (WhatsApp only, or made on famcal.bot) is not told, and the skip is logged.
+      if (user && !user.telegramId) {
+        console.log(`[trial-expired notice] skipped user ${userId}: no Telegram`);
+      } else if (user && !(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) {
         const { sendTrialExpiredNotification } = await import('./telegram');
         await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
       }

@@ -366,6 +366,11 @@ async function notifyDone(seriesId: string, occurrence: string, userId: number, 
       where: { id: userId },
       select: { id: true, language: true, telegramId: true, suspendedAt: true, unreachableSince: true },
     });
+    if (user && !user.telegramId) {
+      // Telegram only (R12): someone with no Telegram (WhatsApp only, or an account made on famcal.bot) is not told
+      console.log(`[done note] skipped user ${userId}: no Telegram`);
+      return;
+    }
     if (!user?.telegramId || user.suspendedAt || user.unreachableSince) return;
     try {
       const text = await getBotMessage(user.language || 'en', 'nativeReminders.doneBy', {

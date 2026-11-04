@@ -122,15 +122,14 @@ export async function notifyAdminWarning(
 
 /**
  * Notify admin of new user feedback via Telegram
- * @param userName - Name of the user who submitted feedback
- * @param telegramId - Telegram ID of the user (null for dashboard and WhatsApp submissions without it)
+ * @param sender - Who sent it: their FamCal id and name, and their Telegram id when they have one (an account made on
+ *   famcal.bot or on WhatsApp has none, so the FamCal id is the one every sender has)
  * @param feedbackText - The feedback text
  * @param source - Where the feedback was submitted from ('telegram', 'whatsapp', 'dashboard', or 'paysupport' for a payment question)
  * @param facts - Lines of facts under the sender (a payment question carries the subscription's, so a refund can be made by hand)
  */
 export async function notifyAdminFeedback(
-  userName: string,
-  telegramId: bigint | number | null,
+  sender: { id: number; name: string; telegramId: bigint | number | null },
   feedbackText: string,
   source: 'telegram' | 'dashboard' | 'whatsapp' | 'paysupport',
   facts?: Record<string, string>
@@ -142,9 +141,9 @@ export async function notifyAdminFeedback(
     // The sender's words are text, not markup: a "<" in them must not make Telegram refuse the whole note
     const factLines = Object.entries(facts ?? {}).map(([label, value]) => `${label}: ${escapeHtml(value)}\n`).join('');
     const message = `${source === 'paysupport' ? '💳 <b>Payment question</b>' : '📨 <b>New Feedback</b>'}
-From: ${escapeHtml(userName)}
-ID: ${telegramId || 'N/A'}
-Source: ${source}
+From: ${escapeHtml(sender.name)}
+FamCal id: ${sender.id}
+${sender.telegramId != null ? `Telegram id: ${sender.telegramId}\n` : ''}Source: ${source}
 ${factLines}───────────
 ${escapeHtml(feedbackText)}`;
 

@@ -727,7 +727,7 @@ export async function handleFeedbackCommand(
     });
 
     const { notifyAdminFeedback } = await import('../../utils/error-notifier');
-    await notifyAdminFeedback(user.name, user.telegramId, trimmedText, source, source === 'paysupport' ? await paymentFacts(user.id) : undefined);
+    await notifyAdminFeedback(user, trimmedText, source, source === 'paysupport' ? await paymentFacts(user.id) : undefined);
 
     trackActivityAsync(user.id, 'feedback_submitted', {
       source,

@@ -1544,6 +1544,18 @@ async function main() {
     assert(sent.length === 1, `a second message in one outage ${show(sent)}`);
   });
 
+  await check('token: an account with no chat (made on famcal.bot) gets no reconnect message and no notified stamp, and the skip is logged with its id (web sign-up plan, Task 12); the copies still go to token', async () => {
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', telegramId: null, whatsappPhone: null, whatsappBsuid: null });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    assert(link('L').state === 'token' && google.calls.length === 0, `link ${show(link('L'))}`);
+    assert(sent.length === 0, `sent ${show(sent)}`);
+    assert(!DB.user[0].googleSyncNotifiedAt, `stamped ${show(DB.user[0].googleSyncNotifiedAt)}`);
+    assert(logs.includes(`[google-sync] user ${TAL}: no chat; no reconnect message`), `logged: ${show(logs.filter((l) => l.startsWith('[google-sync]')))}`);
+  });
+
   await check('pause: an outage that would send the reconnect message in Shabbat is told after it: the pass changes nothing and sends nothing on Saturday (logged), and the next pass after Shabbat does both once', async () => {
     seedCopy();
     Object.assign(DB.user[0], { googleRefreshToken: '', pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754 });

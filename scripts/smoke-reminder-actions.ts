@@ -585,6 +585,23 @@ async function main() {
     assert(sends().length === 0, json(botCalls));
   });
 
+  await check('who: a creator with no Telegram (an account made on famcal.bot) gets no note, and the skip is logged with the creator\'s id (web sign-up plan, Task 12); the Done stands', async () => {
+    reset();
+    db.users.find((u) => u.id === RAZIEL)!.telegramId = null;
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    try {
+      const r = await act(DANA, MILK_KEY, 'done');
+      assert(r.status === 'ok' && stateFor(MILK, MILK_KEY.originalStartsAt)?.doneByUserId === DANA, json(r));
+    } finally {
+      console.log = log;
+    }
+    assert(sends().length === 0, `sent ${json(botCalls)}`);
+    assert(lines.filter((l) => l.startsWith('[done note]')).join('|') === `[done note] skipped user ${RAZIEL}: no Telegram`, `logged: ${lines.join('|') || '(nothing)'}`);
+    assert(captured.length === 0, `captured ${json(captured)}`);
+  });
+
   await check('who: a stranger gets not_yours and nothing is written', async () => {
     reset();
     const r = await act(NOAM, MILK_KEY, 'done');

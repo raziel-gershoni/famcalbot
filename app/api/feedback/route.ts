@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Notify admin via Telegram
-    await notifyAdminFeedback(user.name, user.telegramId, trimmedText, 'dashboard');
+    await notifyAdminFeedback(user, trimmedText, 'dashboard');
 
     // Track activity
     trackActivityAsync(user.id, 'feedback_submitted', {
