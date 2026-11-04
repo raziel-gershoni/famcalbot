@@ -111,6 +111,7 @@ function matches(row: Row, where?: Row): boolean {
       if ('notIn' in cond && (cond.notIn as unknown[]).some(x => same(v, x))) return false;
       if ('not' in cond && (isPlain(cond.not) ? matches(row, { [k]: cond.not }) : same(v ?? null, cond.not))) return false;
       if ('startsWith' in cond && !(typeof v === 'string' && v.startsWith(String(cond.startsWith)))) return false;
+      if ('has' in cond && !(Array.isArray(v) && v.includes(cond.has))) return false;
       if ('gt' in cond && !(v != null && num(v) > num(cond.gt))) return false;
       if ('gte' in cond && !(v != null && num(v) >= num(cond.gte))) return false;
       if ('lt' in cond && !(v != null && num(v) < num(cond.lt))) return false;
@@ -201,6 +202,26 @@ const DEFAULTS: Record<string, () => Row> = {
   blockedIdentifier: () => ({ telegramId: null, whatsappPhone: null, googleSub: null, email: null, bannedReason: null }),
 };
 
+/**
+ * The ON DELETE CASCADE relations the account merge (smoke-join.ts) leans on, as the migrations declare them: a deleted
+ * user takes its sign-in ways, open invites, copies to Google, payments and pings; a deleted calendar its events; a
+ * deleted event its instances and reminder states. Other relations are not modelled (smoke-account-merge.ts has the
+ * full set).
+ */
+const CASCADE: Record<string, [table: string, fk: string][]> = {
+  user: [['signInIdentity', 'userId'], ['pairingInvite', 'inviterUserId'], ['googleSyncLink', 'userId'], ['payment', 'userId'], ['nativeReminderPing', 'userId']],
+  nativeCalendar: [['nativeEvent', 'calendarId']],
+  nativeEvent: [['nativeEventInstance', 'seriesEventId'], ['nativeReminderState', 'seriesEventId']],
+};
+function cascade(name: string, gone: Row[]): void {
+  for (const [table, fk] of CASCADE[name] ?? []) {
+    const rows = (DB[table] ?? []).filter(r => gone.some(g => same(r[fk], g.id)));
+    if (rows.length === 0) continue;
+    DB[table] = (DB[table] ?? []).filter(r => !rows.includes(r));
+    cascade(table, rows);
+  }
+}
+
 function model(name: string): Row {
   const t = () => (DB[name] ??= []);
   const create = (data: Row): Row => {
@@ -220,6 +241,11 @@ function model(name: string): Row {
   };
   const impl: Row = {
     findUnique: async (a: Row = {}) => shape(name, t().find(r => matches(r, a.where)), a),
+    findUniqueOrThrow: async (a: Row = {}) => {
+      const row = t().find(r => matches(r, a.where));
+      if (!row) throw Object.assign(new Error(`No ${name} found`), { code: 'P2025' });
+      return shape(name, row, a);
+    },
     findFirst: async (a: Row = {}) => shape(name, sorted(t().filter(r => matches(r, a.where)), a.orderBy)[0], a),
     findMany: async (a: Row = {}) =>
       sorted(t().filter(r => matches(r, a.where)), a.orderBy).slice(0, a.take ?? undefined).map(r => shape(name, r, a)),
@@ -248,13 +274,15 @@ function model(name: string): Row {
     delete: async (a: Row) => {
       const i = t().findIndex(r => matches(r, a.where));
       if (i < 0) throw Object.assign(new Error(`No ${name} record to delete`), { code: 'P2025' });
-      return t().splice(i, 1)[0];
+      const [row] = t().splice(i, 1);
+      cascade(name, [row]);
+      return row;
     },
     deleteMany: async (a: Row = {}) => {
-      const keep = t().filter(r => !matches(r, a.where));
-      const count = t().length - keep.length;
-      DB[name] = keep;
-      return { count };
+      const gone = t().filter(r => matches(r, a.where));
+      DB[name] = t().filter(r => !gone.includes(r));
+      cascade(name, gone);
+      return { count: gone.length };
     },
   };
   return Object.fromEntries(

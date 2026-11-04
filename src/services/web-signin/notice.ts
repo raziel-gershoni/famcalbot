@@ -22,12 +22,13 @@ import { maskEmail } from './email-address';
 import type { IdentityKind } from './identities';
 
 /**
- * What happened. A Google or email way: `address` as stored (the notice shows it masked); `via` added (from Settings) or
- * calendar (the first sign-in with the calendar's Google account). Telegram connected to an account made on famcal.bot
- * (src/services/telegram-connect.ts): no address, and no Remove (Telegram can't be removed in Settings).
+ * What happened. A Google or email way: `address` as stored (the notice shows it masked); `via` added (from Settings),
+ * calendar (the first sign-in with the calendar's Google account) or joined (the way came with the account a Join
+ * brought in). Telegram connected to an account made on famcal.bot (src/services/telegram-connect.ts): no address, and
+ * no Remove (Telegram can't be removed in Settings).
  */
 export type SignInNoticeEvent =
-  | { kind: IdentityKind; address: string; via: 'added' | 'calendar' }
+  | { kind: IdentityKind; address: string; via: 'added' | 'calendar' | 'joined' }
   | { kind: 'telegram'; via: 'connected' };
 
 type NoticeCopy = typeof enMessages.signinNotice;
@@ -43,7 +44,9 @@ export async function sendSignInNotice(user: UserConfig, event: SignInNoticeEven
     const copy = WORDS[normalizeLocale(user.language)];
     const text = event.kind === 'telegram'
       ? copy.telegramConnected
-      : (event.via === 'calendar' ? copy.calendarGoogle : event.kind === 'google' ? copy.addedGoogle : copy.addedEmail)
+      : (event.via === 'calendar' ? copy.calendarGoogle
+        : event.via === 'joined' ? (event.kind === 'google' ? copy.joinedGoogle : copy.joinedEmail)
+        : event.kind === 'google' ? copy.addedGoogle : copy.addedEmail)
           .replace('{address}', maskEmail(event.address));
 
     if (user.telegramId) {

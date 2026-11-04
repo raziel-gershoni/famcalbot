@@ -40,6 +40,14 @@ export function isOutcome(status: SignInStatus): status is OutcomeStatus {
   return OUTCOMES.includes(status);
 }
 
+/**
+ * The Join question an Add Google ended on (web sign-up spec 2026-11-03 §3.6): '/signin/add-google/join?token=<id>',
+ * under the language's prefix ('token': the log and Sentry scrubber drops it).
+ */
+export function addGoogleJoinHref(locale: string, joinId: string): string {
+  return `${localeHref(normalizeLocale(locale), '/signin/add-google/join')}?token=${encodeURIComponent(joinId)}`;
+}
+
 /** '/signin', '/he/signin' or '/ru/signin', then '?status=<status>' when given. */
 export function signInHref(locale: string, status?: SignInStatus): string {
   const path = localeHref(normalizeLocale(locale), '/signin');

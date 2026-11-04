@@ -15,7 +15,9 @@
 //   the consent), when it has no usable key yet. Add Google shows whenever that row is not on. Removing either asks
 //   first ('google' or 'calendar-google').
 // - Email: Add asks for the address, mails a code, then asks for the code; an address on another account is refused
-//   only after its code is right ('taken'). Remove asks first.
+//   only after its code is right ('taken'). Remove asks first. When that other account was made on famcal.bot and has
+//   no chat, the right code asks instead whether to join it into this one (web sign-up spec §2.9), listing what moves
+//   (joinLines); Join posts /api/signin-methods/join.
 // - Every removal signs out the other browsers (the server moves sessionsValidAfter; this device keeps a fresh cookie).
 // - Sign out (only on a web session: there is a cookie to clear) goes to /signin; Sign out on all devices goes there too
 //   on the web, and says it is done in the Mini App.
@@ -34,15 +36,17 @@ import { Notice } from '@/components/app-ui/Notice';
 import { SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { isInTelegram, openExternalLink } from '@/src/lib/telegram-ui';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
+import { joinDateText, joinLines, type JoinSummary } from '@/src/lib/join-summary';
 import { signInHref } from '@/src/site/signin';
-import { addEmail, confirmEmail, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type MethodsView, type RemoveWhich, type RequestError, type TurnOnError } from './signin-methods-client';
+import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type JoinError, type MethodsView, type RemoveWhich, type RequestError, type TurnOnError } from './signin-methods-client';
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; view: MethodsView };
 type EmailError = AddEmailError | ConfirmEmailError;
 type EmailSheet = { kind: 'email'; step: 'address' | 'code'; address: string; code: string; error: EmailError | null; busy: boolean };
 type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null; error: RequestError | null; busy: boolean };
 type GoogleSheet = { kind: 'google'; url: string };
-type Sheet = EmailSheet | RemoveSheet | GoogleSheet;
+type JoinSheet = { kind: 'join'; joinId: string; summary: JoinSummary; error: JoinError | null; busy: boolean };
+type Sheet = EmailSheet | RemoveSheet | GoogleSheet | JoinSheet;
 type Working = 'google' | 'turnOn' | 'signOut' | 'signOutAll';
 type Status = { tone: 'info' | 'error'; text: string };
 
@@ -58,6 +62,9 @@ const ERROR_KEY: Record<EmailError, string> = {
   restart: 'codeRestart',
   codeLimit: 'codeLimit',
 };
+
+/** Join's failures: a key of settings.signIn. */
+const JOIN_ERROR_KEY: Record<JoinError, string> = { failed: 'failed', busy: 'busy', expired: 'join.expired', refused: 'join.refused' };
 
 /** Turn on's failures: shared and reconnect have words of their own, the rest are the group's plain ones. */
 const TURN_ON_KEY: Record<TurnOnError, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect' };
@@ -159,11 +166,27 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
       setStatus({ tone: 'info', text: t('added', { kind: 'email' }) });
       return;
     }
+    if (result.kind === 'join') {
+      setSheet({ kind: 'join', joinId: result.joinId, summary: result.summary, error: null, busy: false });
+      return;
+    }
     if (result.code === 'restart') {
       setSheet({ kind: 'email', step: 'address', address, code: '', error: 'restart', busy: false });
       return;
     }
     setSheet({ kind: 'email', step: 'code', address, code, error: result.code, busy: false });
+  };
+
+  const join = async (question: JoinSheet) => {
+    setSheet({ ...question, error: null, busy: true });
+    const result = await joinAccount(userId, question.joinId);
+    if (result.kind === 'ok') {
+      setSheet(null);
+      showMethods(result.methods);
+      setStatus({ tone: 'info', text: t('join.done') });
+      return;
+    }
+    setSheet({ ...question, error: result.code, busy: false });
   };
 
   const remove = async (which: RemoveWhich, address: string | null) => {
@@ -340,6 +363,30 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
           <div className="ch-sheet-stack">
             <button type="button" className="ch-btn ch-btn-primary ch-save" onClick={() => openGoogle(sheet.url)}>
               {t('googleOpen')}
+            </button>
+          </div>
+        </BottomSheet>
+      ) : null}
+
+      {sheet?.kind === 'join' ? (
+        <BottomSheet label={t('join.title')} closeLabel={t('cancel')} closeDisabled={sheet.busy} onClose={() => setSheet(null)}>
+          <h2 className="ch-sheet-heading">{t('join.title')}</h2>
+          <p className="ch-sheet-sub">{t('join.question', { kind: 'email', name: sheet.summary.name, date: joinDateText(sheet.summary.createdAt, locale) })}</p>
+          <p className="ch-sheet-sub">{t('join.movesTitle')}</p>
+          <ul className="ch-sheet-list">
+            {joinLines(sheet.summary.plan).map((line) => (
+              <li key={line.key}>{t(`join.${line.key}`, line.values)}</li>
+            ))}
+          </ul>
+          <p className="ch-sheet-sub">{t('join.closes')}</p>
+          <div className="ch-sheet-stack">
+            {sheet.error ? <Notice tone="error">{t(JOIN_ERROR_KEY[sheet.error])}</Notice> : null}
+            {sheet.busy ? workingLine(t('join.joining')) : null}
+            <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={sheet.busy || sheet.error === 'expired' || sheet.error === 'refused'} onClick={() => void join(sheet)}>
+              {t('join.join')}
+            </button>
+            <button type="button" className="ch-btn" disabled={sheet.busy} onClick={() => setSheet(null)}>
+              {t('cancel')}
             </button>
           </div>
         </BottomSheet>

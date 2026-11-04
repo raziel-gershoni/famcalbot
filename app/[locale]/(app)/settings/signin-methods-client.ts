@@ -9,6 +9,7 @@ import type { SignInMethod } from '@/src/lib/session-auth';
 import { initDataHeaders } from '@/src/lib/read-init-data';
 import { readJsonBody } from '@/src/lib/read-json';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
+import { isJoinSummary, type JoinSummary } from '@/src/lib/join-summary';
 
 export type MethodsView = SignInMethodsView & { session: SignInMethod | null };
 export type RemoveWhich = 'google' | 'email' | 'calendar-google';
@@ -16,6 +17,8 @@ export type RequestError = 'failed' | 'busy';
 export type AddEmailError = RequestError | 'invalid' | 'limit' | 'has-one';
 /** 'codeLimit' is the confirm route's `limit` (too many wrong codes): Add's own `limit` is the day's codes. */
 export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
+/** Join's answers besides success: the question expired or was used, or the two can't be joined (any more). */
+export type JoinError = RequestError | 'expired' | 'refused';
 /** Turn on's answers besides success: 'shared' and 'reconnect' have words of their own; 'not-offered' reads as 'failed'. */
 export type TurnOnError = RequestError | 'shared' | 'reconnect';
 
@@ -79,13 +82,27 @@ export async function addEmail(userId: number, email: string): Promise<{ kind: '
   return { kind: 'error', code: statusError(r.status) };
 }
 
-export async function confirmEmail(userId: number, code: string): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: ConfirmEmailError }> {
+export async function confirmEmail(
+  userId: number,
+  code: string,
+): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'join'; joinId: string; summary: JoinSummary } | { kind: 'error'; code: ConfirmEmailError }> {
   const r = await post('/api/signin-methods/email/confirm', userId, { code });
   if (!r) return { kind: 'error', code: 'failed' };
   if (r.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
   const error = r.body?.error;
+  if (error === 'join' && typeof r.body?.joinId === 'string' && isJoinSummary(r.body.summary)) return { kind: 'join', joinId: r.body.joinId, summary: r.body.summary };
   if (error === 'wrong' || error === 'taken' || error === 'restart' || error === 'has-one') return { kind: 'error', code: error };
   if (error === 'limit') return { kind: 'error', code: 'codeLimit' };
+  return { kind: 'error', code: statusError(r.status) };
+}
+
+/** Join: the answer to the question an Add email ended on. The question's id goes as `token` (the scrubber drops it). */
+export async function joinAccount(userId: number, joinId: string): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: JoinError }> {
+  const r = await post('/api/signin-methods/join', userId, { token: joinId });
+  if (!r) return { kind: 'error', code: 'failed' };
+  if (r.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  const error = r.body?.error;
+  if (error === 'expired' || error === 'refused') return { kind: 'error', code: error };
   return { kind: 'error', code: statusError(r.status) };
 }
 

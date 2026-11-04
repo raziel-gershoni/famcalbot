@@ -1989,6 +1989,79 @@ async function main() {
     eq(userRow(T).googleAccountKey, 'k1:t-key', 'T\'s key');
   });
 
+  await check('#68 W\'s trial never replaces T\'s subscription, even when it ends later (T on a 3-day trial, W on a 13-day one): T keeps its own; a T with no subscription takes W\'s trial (it replaces nothing)', async () => {
+    seed();
+    DB.subscription = [trial('sub-t', T, 3), trial('sub-w', W, 13)];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}; captured ${show(captured)}`);
+    assert(DB.subscription.length === 1 && DB.subscription[0].id === 'sub-t' && DB.subscription[0].userId === T, `subscriptions ${show(DB.subscription)}`);
+    seed();
+    DB.subscription = [trial('sub-w', W, 13)];
+    const empty = await link();
+    assert(empty.success === true && DB.subscription.length === 1 && DB.subscription[0].id === 'sub-w' && DB.subscription[0].userId === T, `T with none: ${show(DB.subscription)}`);
+  });
+
+  await check('#69 a W with no chat (made on famcal.bot) joins T through mergeAccounts: T keeps its own Telegram id, WhatsApp number and messagingPlatform; into a WhatsApp-only T, T stays WhatsApp-only and no menu button is set', async () => {
+    const { mergeAccounts } = await load('src/services/account-linking.ts');
+    /** menuButtons.length, not narrowed by the earlier check (tsc would read a later === 0 as impossible) */
+    const menuCount = (): number => menuButtons.length;
+    seed();
+    Object.assign(userRow(W), { whatsappPhone: null, messagingPlatform: 'telegram', language: 'he' });
+    Object.assign(userRow(T), { whatsappPhone: '972500000010', messagingPlatform: 'all' });
+    freshT();
+    const merged = await mergeAccounts(W, T);
+    const t = userRow(T);
+    assert(!userRow(W) && String(t.telegramId) === '5550010' && t.whatsappPhone === '972500000010' && t.messagingPlatform === 'all', `T ${show(t)}`);
+    assert(merged.plan && merged.languageChanged === true && menuCount() === 1, `merged ${show(merged)} menu ${show(menuButtons)}`);
+    seed();
+    Object.assign(userRow(W), { whatsappPhone: null, messagingPlatform: 'telegram', language: 'he' });
+    Object.assign(userRow(T), { telegramId: null, whatsappPhone: '972500000010', messagingPlatform: 'whatsapp' });
+    freshT();
+    await mergeAccounts(W, T);
+    const wa = userRow(T);
+    assert(!userRow(W) && wa.telegramId === null && wa.whatsappPhone === '972500000010' && wa.messagingPlatform === 'whatsapp' && wa.language === 'he', `T ${show(wa)}`);
+    assert(menuCount() === 0, `menu buttons ${show(menuButtons)}`);
+  });
+
+  await check('#70 mergeIntoAccount refuses, before any write, a W with Telegram and a WhatsApp W into a T with no Telegram (MergeRefusedError, naming no number)', async () => {
+    const { mergeAccounts, MergeRefusedError } = await load('src/services/account-linking.ts');
+    for (const setUp of [
+      () => { userRow(W).telegramId = BigInt(5550020); },
+      () => { userRow(T).telegramId = null; },
+    ]) {
+      seed();
+      setUp();
+      // The tables that hold rows (a read makes an empty one, which is no write)
+      const rows = () => show(Object.fromEntries(Object.entries(DB).filter(([, list]) => list.length > 0)));
+      const before = rows();
+      let error: unknown = null;
+      try {
+        await mergeAccounts(W, T);
+      } catch (err) {
+        error = err;
+      }
+      assert(error instanceof MergeRefusedError && !String((error as Error).message).includes(PHONE), `error ${String(error)}`);
+      assert(rows() === before, 'the refused merge wrote something');
+    }
+  });
+
+  await check('#71 the dry run (previewMerge) is the merge\'s own plan: the same decisions mergeAccounts then reports, for W paired, both paired, W on Google with T on its own, and W\'s ways', async () => {
+    const { mergeAccounts, previewMerge } = await load('src/services/account-linking.ts');
+    const cases: Array<[string, () => void]> = [
+      ['W paired', () => pairWithP()],
+      ['both paired', () => { pairWithP(); pairTWithQ(); }],
+      ['both on Google', () => { googleW(); userRow(T).googleRefreshToken = TOKENS.t; }],
+      ['ways', () => { DB.signInIdentity = [way('t-e', T, 'email', 't@example.com', 't@example.com'), way('w-g', W, 'google', 'sub-w', 'w@gmail.com'), way('w-e', W, 'email', 'w@example.com', 'w@example.com')]; }],
+    ];
+    for (const [name, setUp] of cases) {
+      seed();
+      setUp();
+      const asked = await previewMerge(W, T);
+      const merged = await mergeAccounts(W, T);
+      assert(show(asked) === show(merged.plan), `${name}: asked ${show(asked)}, merged ${show(merged.plan)}`);
+    }
+  });
+
   await check('#67 [guard] hardDeleteUser takes the person\'s sign-in ways with the account (they cascade); another person\'s stay', async () => {
     seed();
     DB.signInIdentity = [

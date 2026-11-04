@@ -1,14 +1,19 @@
 /**
  * Account Linking Service
- * Links Telegram and WhatsApp accounts via short-lived link codes.
+ * Links Telegram and WhatsApp accounts via short-lived link codes, and joins one FamCal account into another.
  *
  * Flow:
  * 1. Telegram user sends /connect → generateLinkCode() → gets 6-char code
  * 2. User sends "link CODE" on WhatsApp → redeemLinkCode() → accounts merged
+ * 3. Settings' Add Google or Add email ends on a way a browser-only account holds → Join (web-signin/join.ts) →
+ *    mergeAccounts() (web sign-up spec 2026-11-03 §2.9, §3.6)
+ *
+ * One merge, mergeIntoAccount, for both; its decisions come from mergePlan, which the Join question's dry run reads
+ * too, so the question never promises what the merge won't do.
  */
 
 import { Prisma } from '@prisma/client';
-import type { NativeCalendar, Subscription, User, UserFeatureOverride } from '@prisma/client';
+import type { NativeCalendar, Pairing, Subscription, User, UserFeatureOverride } from '@prisma/client';
 import { redis } from '../utils/redis';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { prisma } from '../utils/prisma';
@@ -26,6 +31,7 @@ import { clearOtherPrimaries } from './calendar-provider/primary';
 import { hasGoogleChoices } from './native-calendar/onboarding';
 import { liveGoogleChoices } from '../lib/google-state';
 import type { CalendarAssignment } from '../types';
+import type { IdentityKind } from './web-signin/identities';
 
 const LINK_CODE_TTL = 300; // 5 minutes
 
@@ -211,9 +217,112 @@ function googlePrimaryOf(assignments: unknown): string | undefined {
     : undefined;
 }
 
+/** One side of a merge as its rules read it: W (the account that closes) or T (the one that stays). */
+export interface MergeSide {
+  id: number;
+  /** A Google Calendar connection (a refresh token is stored) */
+  hasGoogle: boolean;
+  /** User.pairingId as read, and that pairing's row (null when there is none) */
+  pairingId: string | null;
+  pairing: Pick<Pairing, 'id' | 'status' | 'inviterUserId'> | null;
+  subscription: Subscription | null;
+  /** The kinds of the account's web sign-in ways */
+  wayKinds: IdentityKind[];
+  /** The live calendars, and the live events and reminders in them */
+  calendars: number;
+  events: number;
+}
+
 /**
- * Fold the WhatsApp-only user W into the Telegram user T and delete W, inside
- * the caller's transaction. Everything W has moves to T, so the delete clears
+ * What a merge of W into T does, from the two sides as read. The one set of rules: mergeIntoAccount follows it, and
+ * the Join question's dry run (previewMerge) shows it.
+ * - calendars, events: W's live calendars and the live events and reminders in them, all of which end up T's (folded
+ *   into a calendar of T's or moved over);
+ * - ways: the kinds of W's sign-in ways T has none of (one of each kind per person); W's others close with W;
+ * - google: W's Google Calendar connection moves when T has none ('stays' behind with W otherwise, and T is told to
+ *   reconnect); 'none' when W has no connection;
+ * - partner: W's ACTIVE pairing moves to a T with no pairing, and ends otherwise; 'none' when W has no active one;
+ * - plan: W's subscription moves when T has none, or when it runs longer (runsLonger) and is not a trial: W's trial
+ *   never replaces T's subscription, since an account (an email address) costs nothing to make.
+ */
+export interface MergePlan {
+  calendars: number;
+  events: number;
+  ways: IdentityKind[];
+  google: 'moves' | 'stays' | 'none';
+  partner: 'moves' | 'ends' | 'none';
+  plan: 'moves' | 'stays';
+}
+
+export function mergePlan(w: MergeSide, t: MergeSide): MergePlan {
+  const wSub = w.subscription;
+  const tSub = t.subscription;
+  const isTrial = (sub: Subscription) => accessRank(sub)[0] === 1;
+  return {
+    calendars: w.calendars,
+    events: w.events,
+    ways: w.wayKinds.filter(kind => !t.wayKinds.includes(kind)).sort(),
+    google: !w.hasGoogle ? 'none' : t.hasGoogle ? 'stays' : 'moves',
+    partner: w.pairing?.status !== 'ACTIVE' ? 'none' : t.pairingId === null ? 'moves' : 'ends',
+    plan: wSub && (!tSub || (!isTrial(wSub) && runsLonger(wSub, tSub))) ? 'moves' : 'stays',
+  };
+}
+
+/** A side of a merge, read with `db` (the merge's transaction, or the root client for the dry run). */
+async function readMergeSide(db: Prisma.TransactionClient, user: Pick<User, 'id' | 'googleRefreshToken' | 'pairingId'>): Promise<MergeSide> {
+  const pairing = user.pairingId
+    ? await db.pairing.findUnique({ where: { id: user.pairingId }, select: { id: true, status: true, inviterUserId: true } })
+    : null;
+  const subscription = await db.subscription.findUnique({ where: { userId: user.id } });
+  const ways = await db.signInIdentity.findMany({ where: { userId: user.id }, select: { kind: true } });
+  const calendarIds = (await db.nativeCalendar.findMany({ where: { ownerUserId: user.id, isDeleted: false }, select: { id: true } })).map(c => c.id);
+  const events = calendarIds.length ? await db.nativeEvent.count({ where: { calendarId: { in: calendarIds }, isDeleted: false } }) : 0;
+  return {
+    id: user.id,
+    hasGoogle: !!user.googleRefreshToken,
+    pairingId: user.pairingId,
+    pairing,
+    subscription,
+    wayKinds: ways.map(way => way.kind as IdentityKind),
+    calendars: calendarIds.length,
+    events,
+  };
+}
+
+/** The merge of W into T as it would run now (the Join question's dry run): the same rules, read outside a transaction. */
+export async function previewMerge(wUserId: number, tUserId: number): Promise<MergePlan> {
+  const [w, t] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: wUserId } }),
+    prisma.user.findUniqueOrThrow({ where: { id: tUserId } }),
+  ]);
+  return mergePlan(await readMergeSide(prisma, w), await readMergeSide(prisma, t));
+}
+
+/** A merge refused before it wrote anything: W has Telegram, or a WhatsApp W met a T without Telegram. The message names no identifier. */
+export class MergeRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MergeRefusedError';
+  }
+}
+
+export interface MergeOutcome {
+  /** T's pairing after the merge */
+  pairingId: string | null;
+  /** W's Google connection stayed behind (T had its own): the user is told to reconnect */
+  reconnectGoogle: boolean;
+  /** T took W's language */
+  languageChanged: boolean;
+  /** The decisions the merge followed */
+  plan: MergePlan;
+}
+
+const hasWhatsApp = (u: Pick<User, 'whatsappPhone' | 'whatsappBsuid'>) => !!u.whatsappPhone || !!u.whatsappBsuid;
+
+/**
+ * Fold the account W into the account T and delete W, inside the caller's transaction. W has no Telegram: it is a
+ * WhatsApp-only account, which joins only a Telegram T (the link code), or an account with no chat at all, which may
+ * join any T (Join, from Settings). The decisions are mergePlan's. Everything W has moves to T, so the delete clears
  * the schema's ON DELETE RESTRICT relations (calendars, created events,
  * pairings, the per-user rows); T takes W's setup (setupFromW) and, when T has
  * none of its own, W's Google connection. T's primary calendar gives way to W's when
@@ -228,19 +337,25 @@ function googlePrimaryOf(assignments: unknown): string | undefined {
  * Returns T's pairingId after the merge, whether W's Google connection stayed
  * behind, and whether T's language changed.
  */
-async function mergeWhatsAppUser(
+export async function mergeIntoAccount(
   tx: Prisma.TransactionClient,
-  waOnlyUserId: number,
-  telegramUserId: number
-): Promise<{ pairingId: string | null; reconnectGoogle: boolean; languageChanged: boolean }> {
-  const w = await tx.user.findUniqueOrThrow({ where: { id: waOnlyUserId } });
-  const t = await tx.user.findUniqueOrThrow({ where: { id: telegramUserId } });
+  wUserId: number,
+  tUserId: number
+): Promise<MergeOutcome> {
+  const w = await tx.user.findUniqueOrThrow({ where: { id: wUserId } });
+  const t = await tx.user.findUniqueOrThrow({ where: { id: tUserId } });
+  if (w.id === t.id) throw new MergeRefusedError('an account cannot merge into itself');
+  if (w.telegramId !== null) throw new MergeRefusedError(`user ${w.id} has Telegram: it never closes in a merge`);
+  if (hasWhatsApp(w) && t.telegramId === null) throw new MergeRefusedError(`user ${w.id} is on WhatsApp and user ${t.id} has no Telegram`);
+  // The decisions, before any write (W's side first: the pairing's read is the one an unlink can race).
+  const wSide = await readMergeSide(tx, w);
+  const plan = mergePlan(wSide, await readMergeSide(tx, t));
+  console.log(`[AccountLink] Merging user ${w.id} into ${t.id}: ${JSON.stringify(plan)}`);
   // What T takes from W's setup (written last; the calendar fold names T's calendar by it).
   const setup = setupFromW(w, t);
   // Read before W's arrive: T's live calendars, its primary (the one
   // getMainNativeCalendar picks), and whether it holds live events (the
-  // primary step). W's Google connection is its token.
-  const wHasGoogle = !!w.googleRefreshToken;
+  // primary step).
   const tCalendarsBefore = await tx.nativeCalendar.findMany({
     where: { ownerUserId: t.id, isDeleted: false },
     orderBy: { createdAt: 'asc' },
@@ -251,21 +366,21 @@ async function mergeWhatsAppUser(
   const tPrimaryEmpty = !!tPrimary && (await liveEvents([tPrimary.id])) === 0;
 
   // Pairing: one partner each. W's pairing moves to T
-  // when T can take it; otherwise W is unpaired with unlink()'s writes. Each
+  // when T can take it (plan.partner 'moves'); otherwise ('ends') W is unpaired with unlink()'s writes. Each
   // step is a conditional write, as acceptInvite's are. Taking the pairing row
   // waits for an unlink of it in flight and re-checks it is still ACTIVE (count
   // 0: P unlinked after the read, so W is unpaired). T's write refuses a T that
   // accepted an invite after the read above.
   let pairingId = t.pairingId;
   let moved = false;
-  const wPairing = w.pairingId ? await tx.pairing.findUnique({ where: { id: w.pairingId } }) : null;
+  const wPairing = wSide.pairing;
   const wInvited = wPairing?.inviterUserId === w.id;
-  const taken = wPairing?.status === 'ACTIVE' && (await tx.pairing.updateMany({
+  const taken = !!wPairing && plan.partner !== 'none' && (await tx.pairing.updateMany({
     where: { id: wPairing.id, status: 'ACTIVE', ...(wInvited ? { inviterUserId: w.id } : { inviteeUserId: w.id }) },
     data: wInvited ? { inviterUserId: t.id } : { inviteeUserId: t.id },
   })).count === 1;
   if (wPairing && taken) {
-    moved = !t.pairingId && (await tx.user.updateMany({
+    moved = plan.partner === 'moves' && (await tx.user.updateMany({
       where: { id: t.id, pairingId: null },
       data: { pairingId: wPairing.id },
     })).count === 1;
@@ -300,7 +415,7 @@ async function mergeWhatsAppUser(
   // or P did meanwhile) shared W's calendars with P only: they come over
   // PRIVATE and fold only into private ones, so nothing in them (P's events
   // too) reaches T's partner.
-  if (!moved && wPairing?.status === 'ACTIVE') {
+  if (!moved && plan.partner !== 'none') {
     await tx.nativeCalendar.updateMany({ where: { ownerUserId: w.id }, data: { privacy: 'PRIVATE' } });
   }
 
@@ -323,7 +438,7 @@ async function mergeWhatsAppUser(
   // calendar the fold then deletes locks that calendar before its mark needs the link. Here
   // they are only read. Those of W's with work queued (enabled, so turned off below, or a
   // turn-off not yet carried out) are the ones W's token must still reach when it stays behind.
-  const wQueued = wHasGoogle
+  const wQueued = plan.google !== 'none'
     ? (await tx.googleSyncLink.findMany({ where: { userId: w.id }, select: { id: true, enabled: true, dirtySeq: true, pushedSeq: true } }))
       .filter(l => l.enabled || l.dirtySeq > l.pushedSeq).map(l => l.id)
     : [];
@@ -400,10 +515,11 @@ async function mergeWhatsAppUser(
   await tx.nativeReminderPing.deleteMany({ where: { userId: w.id, stateId: { in: tPingStates } } });
   await tx.nativeReminderPing.updateMany({ where: { userId: w.id }, data: { userId: t.id } });
 
-  // Subscription (userId is unique): the one that runs longer stays; a tie keeps T's.
+  // Subscription (userId is unique): W's moves by plan.plan (the one that runs longer stays, a tie keeps T's, and W's
+  // trial never replaces T's), and otherwise goes with W.
   const tSub = await tx.subscription.findUnique({ where: { userId: t.id } });
   const wSub = await tx.subscription.findUnique({ where: { userId: w.id } });
-  if (wSub && (!tSub || runsLonger(wSub, tSub))) {
+  if (wSub && plan.plan === 'moves') {
     if (tSub) await tx.subscription.delete({ where: { id: tSub.id } });
     await tx.subscription.update({ where: { id: wSub.id }, data: { userId: t.id } });
   } else if (wSub) {
@@ -433,15 +549,15 @@ async function mergeWhatsAppUser(
   // A Google sign-in W left half-done is minutes old; it is restarted from T.
   await tx.oAuthState.deleteMany({ where: { userId: BigInt(w.id) } });
 
-  // W's Google connection moves when T has none of its own: the token, still
+  // W's Google connection moves when T has none of its own (plan.google 'moves'): the token, still
   // encrypted, and W's calendar choices. T keeps its FamCal calendars, partner and
   // events beside it (Google is a connection). The write re-checks the token, as
   // the pairing move does. Otherwise T keeps its own, and the user is told to
   // reconnect Google.
   let reconnectGoogle = false;
   let tookGoogle = false;
-  if (wHasGoogle) {
-    tookGoogle = !t.googleRefreshToken && (await tx.user.updateMany({
+  if (plan.google !== 'none') {
+    tookGoogle = plan.google === 'moves' && (await tx.user.updateMany({
       where: { id: t.id, googleRefreshToken: '' },
       data: {
         googleRefreshToken: w.googleRefreshToken,
@@ -514,28 +630,27 @@ async function mergeWhatsAppUser(
   }
 
   // W's ways to sign in on the web (web sign-in spec §2.12): one of each kind per person, so each of W's moves to T
-  // when T has none of its kind; where both have one, T's stays and W's goes with W (it cascades). In this
+  // when T has none of its kind (plan.ways); where both have one, T's stays and W's goes with W (it cascades). In this
   // transaction, before W goes.
-  const tWayKinds = (await tx.signInIdentity.findMany({ where: { userId: t.id }, select: { kind: true } })).map(i => i.kind);
-  const movedWays = await tx.signInIdentity.updateMany({ where: { userId: w.id, kind: { notIn: tWayKinds } }, data: { userId: t.id } });
-  if (movedWays.count > 0) console.log(`[AccountLink] User ${t.id}: ${movedWays.count} web sign-in way(s) of W ${w.id} moved`);
+  if (plan.ways.length > 0) {
+    const movedWays = await tx.signInIdentity.updateMany({ where: { userId: w.id, kind: { in: plan.ways } }, data: { userId: t.id } });
+    console.log(`[AccountLink] User ${t.id}: ${movedWays.count} web sign-in way(s) of W ${w.id} moved`);
+  }
 
-  // W goes before T takes its WhatsApp ids: they are unique. W was found by the
-  // id the link came from, so W's ids are the ones to take; a BSUID-only W has
-  // no phone to give.
+  // W goes before T takes its WhatsApp ids: they are unique. A WhatsApp W was found by the
+  // id the link came from, so W's ids are the ones to take, and T is on both chats now; a BSUID-only W has
+  // no phone to give. A W with no chat gives none, and T keeps its own ids and messagingPlatform.
   await tx.user.delete({ where: { id: w.id } });
   await tx.user.update({
     where: { id: t.id },
     data: {
       ...setup,
-      whatsappPhone: w.whatsappPhone || null,
-      whatsappBsuid: w.whatsappBsuid || null,
-      messagingPlatform: 'all',
+      ...(hasWhatsApp(w) ? { whatsappPhone: w.whatsappPhone || null, whatsappBsuid: w.whatsappBsuid || null, messagingPlatform: 'all' } : {}),
     },
   });
 
   const languageChanged = setup.language !== undefined && setup.language !== t.language;
-  return { pairingId, reconnectGoogle, languageChanged };
+  return { pairingId, reconnectGoogle, languageChanged, plan };
 }
 
 /**
@@ -566,6 +681,18 @@ async function afterMerge(wUserId: number, tUserId: number, languageChanged: boo
   } catch (err) {
     console.warn(`[AccountLink] Cache refresh after merging into ${tUserId} failed:`, err);
   }
+}
+
+/**
+ * Merge W into T: W's cache keys read first (only W's rows can name them), the merge in one transaction, then
+ * afterMerge. The one way both callers merge (redeemLinkCode, and Join's runJoin). It throws what the merge throws
+ * (MergeRefusedError before any write); T's feature access is the caller's to invalidate.
+ */
+export async function mergeAccounts(wUserId: number, tUserId: number): Promise<MergeOutcome> {
+  const wCacheKeys = await personalCacheKeys(wUserId);
+  const merged = await prisma.$transaction((tx) => mergeIntoAccount(tx, wUserId, tUserId));
+  await afterMerge(wUserId, tUserId, merged.languageChanged, wCacheKeys);
+  return merged;
 }
 
 /**
@@ -614,13 +741,8 @@ export async function redeemLinkCode(code: string, whatsappPhone: string): Promi
 
     let reconnectGoogle = false;
     if (waOnlyUser && waOnlyUser.id !== telegramUser.id) {
-      // W's cache keys that only its rows can name, read before the merge moves or deletes them
-      const wCacheKeys = await personalCacheKeys(waOnlyUser.id);
-      const merged = await prisma.$transaction((tx) =>
-        mergeWhatsAppUser(tx, waOnlyUser.id, telegramUser.id)
-      );
+      const merged = await mergeAccounts(waOnlyUser.id, telegramUser.id);
       reconnectGoogle = merged.reconnectGoogle;
-      await afterMerge(waOnlyUser.id, telegramUser.id, merged.languageChanged, wCacheKeys);
 
       console.log(`[AccountLink] Merged WA-only user ${waOnlyUser.id} into TG user ${telegramUser.id}`);
     } else if (!waOnlyUser) {

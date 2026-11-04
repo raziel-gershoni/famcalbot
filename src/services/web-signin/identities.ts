@@ -113,6 +113,15 @@ export async function touchEmailSignIn(identityId: number): Promise<void> {
   await prisma.signInIdentity.update({ where: { id: identityId }, data: { lastUsedAt: new Date() } });
 }
 
+/**
+ * The account that holds this way, or null; nothing is touched (Join asks it after Add Google or Add email found the
+ * way taken, web sign-up spec §3.6).
+ */
+export async function identityHolder(kind: IdentityKind, subject: string): Promise<number | null> {
+  const row = await prisma.signInIdentity.findUnique({ where: { kind_subject: { kind, subject } }, select: { userId: true } });
+  return row?.userId ?? null;
+}
+
 /** Whether the account has a way of this kind. */
 export async function hasIdentity(userId: number, kind: IdentityKind): Promise<boolean> {
   const row = await prisma.signInIdentity.findUnique({ where: { userId_kind: { userId, kind } }, select: { id: true } });

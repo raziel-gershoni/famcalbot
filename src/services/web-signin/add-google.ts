@@ -23,9 +23,10 @@ import { getUserById } from '../user-service';
 import type { UserConfig } from '../../types';
 import type { OidcFlow } from './flow';
 import type { GoogleClaims } from './oidc';
-import { addIdentity } from './identities';
+import { addIdentity, identityHolder } from './identities';
 import { normalizeEmail } from './email-address';
 import { sendSignInNotice } from './notice';
+import { offerJoin } from './join';
 
 const ADD_GOOGLE_TTL_SECONDS = 5 * 60;
 /** 24 random bytes as base64url */
@@ -62,7 +63,9 @@ export async function takeAddGoogleToken(token: unknown): Promise<{ userId: numb
  * Google's callback for an 'add-google' flow (Task 4's handleOidcCallback has proved the token and cleared the flow
  * cookie): attach the Google account (sub, the verified address) to the account that made the link, send the notice,
  * and sign this browser in as that account.
- * - A sub another account holds is refused (status=taken), and so is a second Google account (status=has-one).
+ * - A sub another account holds is refused (status=taken), unless that account has no chat and can be joined into this
+ *   one (web sign-up spec §3.6): then this browser is signed in as the account that made the link and lands on the
+ *   Join question (offerJoin). A second Google account is refused (status=has-one).
  * - A suspended or banned account gets no way and no notice: signInRefusal answers before anything is added, and
  *   finishSignIn shows the person its page.
  * - A Google account, or a verified address, on the blocklist is not added either (status=blocked; web sign-up spec
@@ -86,6 +89,11 @@ export async function finishAddGoogle(flow: OidcFlow, claims: GoogleClaims): Pro
     return NextResponse.redirect(signInPageUrl(flow.locale, 'blocked'));
   }
   const added = await addIdentity(user.id, 'google', claims.sub, claims.email, { usedNow: true });
+  if (added === 'taken') {
+    const holder = await identityHolder('google', claims.sub);
+    const join = holder === null ? null : await offerJoin(user, holder, { kind: 'google', subject: claims.sub, address: claims.email });
+    if (join) return finishSignIn(user, 'google', { page: { join: join.joinId } });
+  }
   if (added === 'taken' || added === 'has-one') {
     console.warn(`[signin] user ${user.id}: add-google refused (${added})`);
     return NextResponse.redirect(signInPageUrl(flow.locale, added));

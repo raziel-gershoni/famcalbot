@@ -13,10 +13,13 @@ import { isIdentifierBlocked } from './user-moderation';
 import { captureError } from './error-capture';
 import { getBaseUrl } from '../config/urls';
 import { normalizeLocale } from '../utils/locale';
-import { signInHref, signUpHref } from '../site/signin';
+import { addGoogleJoinHref, signInHref, signUpHref } from '../site/signin';
 
-/** The app pages a sign-in lands on: the calendar, or Select calendars right after a Google connect on WhatsApp. */
-export type FinishPage = 'dashboard' | 'select-calendars';
+/**
+ * The pages a sign-in lands on: the calendar, Select calendars right after a Google connect on WhatsApp, or the Join
+ * question an Add Google ended on (web sign-up spec §3.6; `join` is the question's one-time id).
+ */
+export type FinishPage = 'dashboard' | 'select-calendars' | { join: string };
 
 /**
  * The outcomes /signin shows (?status=). 'taken' and 'has-one' are what Add Google answers: the Google account already
@@ -60,10 +63,11 @@ export function signUpPageUrl(locale: string): string {
 
 /**
  * An app page of the person's, absolute: /{locale}/{page}?user_id={DB id}, in their language, with the locale prefix
- * for every language (an unknown language is English).
+ * for every language (an unknown language is English). The Join question is addGoogleJoinHref's page.
  */
 export function appPageUrl(locale: string, page: FinishPage, userId: number): string {
-  return new URL(prefixed(locale, `/${page}?user_id=${userId}`), getBaseUrl()).toString();
+  const path = typeof page === 'string' ? `/${page}?user_id=${userId}` : addGoogleJoinHref(locale, page.join);
+  return new URL(prefixed(locale, path), getBaseUrl()).toString();
 }
 
 /**

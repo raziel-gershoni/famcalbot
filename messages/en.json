@@ -947,7 +947,26 @@
       "signedOutAll": "Every browser signed in to FamCal is now signed out.",
       "failed": "That didn’t go through. Try again.",
       "busy": "Too many tries. Wait a minute and try again.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "join": {
+        "title": "Join the two accounts?",
+        "question": "{kind, select, google {This Google account} other {This email}} has its own FamCal account, {name}, made on famcal.bot on {date}. Join it into this one?",
+        "movesTitle": "What comes over:",
+        "calendars": "Its calendars: {calendars}, with {events} events and reminders",
+        "wayGoogle": "Its Google sign-in",
+        "wayEmail": "Its email sign-in",
+        "google": "Its Google Calendar connection",
+        "googleStays": "Its Google Calendar connection doesn’t come over: this account has its own",
+        "partner": "Its partner link",
+        "partnerEnds": "Its partner link ends: this account has a partner already",
+        "plan": "Its plan, which runs longer than this account’s",
+        "closes": "Then that account closes and is signed out everywhere. A trial doesn’t carry over.",
+        "join": "Join",
+        "joining": "Joining…",
+        "done": "Joined. That account’s calendars are in this one now.",
+        "expired": "This question has expired. Add the way again to be asked again.",
+        "refused": "These two accounts can’t be joined."
+      }
     }
   },
   "calendarsPage": {
@@ -1910,7 +1929,20 @@
         "expired": "It was used already, or its 5 minutes are up. Start again in FamCal: Settings → Sign in on the web → Add Google.",
         "failed": "Couldn’t open Google. Try again.",
         "loadFailed": "Couldn’t open this link. Try again in a moment.",
-        "unavailable": "Google sign-in isn’t available right now."
+        "unavailable": "Google sign-in isn’t available right now.",
+        "join": {
+          "metaTitle": "Join the two accounts",
+          "join": "Join",
+          "joining": "Joining…",
+          "cancel": "Cancel",
+          "done": "Joined. That account’s calendars are in yours now.",
+          "cancelled": "Nothing was joined. That account stays as it is, and this browser is signed in to yours.",
+          "openCalendar": "Open your calendar",
+          "expiredTitle": "This question can’t be answered any more",
+          "expired": "It was answered already, or its 10 minutes are up. To be asked again, add Google again in FamCal: Settings → Sign in on the web → Add Google.",
+          "refused": "These two accounts can’t be joined.",
+          "failed": "That didn’t go through. Try again."
+        }
       }
     },
     "signup": {
@@ -3194,6 +3226,8 @@
     "addedGoogle": "Google {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
     "addedEmail": "The email {address} can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove.",
     "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove.",
+    "joinedGoogle": "The FamCal account made with Google {address} was joined into yours, and that Google account can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
+    "joinedEmail": "The FamCal account made with the email {address} was joined into yours, and that email can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
     "telegramConnected": "Telegram was connected to your FamCal account. Not you? Write to privacy@famcal.bot."
   },
   "countries": {

@@ -24,8 +24,11 @@
 //  - U10 the words: every key the group reads is in en, he and ru, none is left unread, and the group writes no copy of its own
 //  - U11 TextField: email and code kinds read left to right with their keyboard and autofill; the default is unchanged
 //  - U12 React logged no warning
+//  - U13 Join (web sign-up plan Task 7): an Add email whose right code answers join opens the question (the other
+//    account's name and day, what moves, what closes); Join posts the question's id as `token`; expired, refused and a
+//    failure each said; success closes it with the done line
 //
-// Run with the fake env (never the real one), from the repo root: bash /private/tmp/claude-501/-Users-razielgershoni-development-famcalbot/0d239296-a217-49f9-8833-757c9d9a2df6/scratchpad/6b/run-smoke.sh smoke-signin-ui
+// Run with the fake env (never the real one), from the repo root: bash /private/tmp/claude-501/-Users-razielgershoni-development-famcalbot/0d239296-a217-49f9-8833-757c9d9a2df6/scratchpad/6c1/run-smoke.sh smoke-signin-ui
 
 import fs from 'fs';
 import path from 'path';
@@ -490,6 +493,64 @@ async function main() {
     }
   });
 
+  await check('U13 Join: an Add email whose right code answers join opens the question with the other account\'s name and day, what moves and what closes; Join posts the id as token; expired, refused and a failure each said; success closes it with the done line', async () => {
+    const JOIN_ID = 'Sm9pbi1xdWVzdGlvbi0x0w';
+    const summary = { name: 'Dana', createdAt: '2026-11-03T09:00:00.000Z', plan: { calendars: 2, events: 5, ways: ['email', 'google'], google: 'stays', partner: 'ends', plan: 'moves' } };
+    for (const l of LOCALES) {
+      const t = w(l);
+      const o = open(l, VIEW());
+      await settle();
+      try {
+        routes['POST /api/signin-methods/email/add'] = () => json({ ok: true });
+        o.m.click(button(o.m, t.emailAdd) as FakeElement);
+        o.m.input(inputOf(o.m), ADDRESS);
+        o.m.submit(formOf(o.m));
+        await settle();
+        o.m.input(inputOf(o.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: false, error: 'join', joinId: JOIN_ID, summary }, 409);
+        o.m.submit(formOf(o.m));
+        await settle();
+        const d = dialog(o.m) as FakeElement;
+        assert(d && d.getAttribute('aria-label') === say(l, 'join.title'), `${l}: the question ${d && flat(d)}`);
+        const date = new Intl.DateTimeFormat(l, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jerusalem' }).format(new Date(summary.createdAt));
+        const text = flat(d);
+        assert(text.includes(say(l, 'join.question', { kind: 'email', name: 'Dana', date })), `${l}: the question line ${text}`);
+        for (const key of ['calendars', 'wayEmail', 'wayGoogle', 'googleStays', 'partnerEnds', 'plan', 'closes']) {
+          assert(text.includes(say(l, `join.${key}`, { calendars: 2, events: 5 })), `${l}: no ${key} line in ${text}`);
+        }
+        assert(!text.includes(say(l, 'join.partner')) || say(l, 'join.partnerEnds').includes(say(l, 'join.partner')), `${l}: a partner line for a partner that ends`);
+        const joinButton = () => button(o.m, say(l, 'join.join')) as FakeElement;
+        for (const [answer, key, stays] of [
+          [() => json({ ok: false, error: 'failed' }, 500), 'failed', true],
+          [() => json({ ok: false, error: 'expired' }, 410), 'join.expired', false],
+        ] as const) {
+          routes['POST /api/signin-methods/join'] = answer;
+          o.m.click(joinButton());
+          await settle();
+          assert(alertsIn(dialog(o.m) as FakeElement).includes(say(l, key)) && joinButton().hasAttribute('disabled') === !stays, `${l}: ${key}: ${show(alertsIn(dialog(o.m) as FakeElement))}`);
+          if (!stays) {
+            o.m.click(button(o.m, t.cancel) as FakeElement);
+            o.m.click(button(o.m, t.emailAdd) as FakeElement);
+            o.m.input(inputOf(o.m), ADDRESS);
+            o.m.submit(formOf(o.m));
+            await settle();
+            o.m.input(inputOf(o.m), '123456');
+            o.m.submit(formOf(o.m));
+            await settle();
+          }
+        }
+        const sent = last('/api/signin-methods/join');
+        assert(sent?.url === '/api/signin-methods/join?user_id=7' && show(sent.body) === show({ token: JOIN_ID }) && sent.credentials === 'same-origin', `${l}: the answer ${show(sent)}`);
+        routes['POST /api/signin-methods/join'] = () => json({ ok: true, methods: methodsOf(VIEW({ email: { address: ADDRESS }, google: { address: 'dana@gmail.com' } })) });
+        o.m.click(joinButton());
+        await settle();
+        assert(!dialog(o.m) && rowStarting(o.m, t.email) && statusLine(o.m).includes(say(l, 'join.done')), `${l}: after ${show(statusLine(o.m))}`);
+      } finally {
+        closeAll(o);
+      }
+    }
+  });
+
   await check('U9 no log line holds an address, a code or the link\'s token', () => {
     const leaked = appLogs.filter((line) => line.includes(ADDRESS) || /\b123456\b/.test(line) || line.includes(LINK_TOKEN));
     assert(appLogs.length > 0 && leaked.length === 0, `${appLogs.length} lines, leaked ${show(leaked)}`);
@@ -498,13 +559,21 @@ async function main() {
   await check('U10 the words: every key the group reads is in en, he and ru; none is left unread; the group writes no copy of its own', () => {
     const file = 'app/[locale]/(app)/settings/SignInMethods.tsx';
     const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
-    const keys = Object.keys(w('en')).sort();
-    for (const l of LOCALES) assert(show(Object.keys(w(l)).sort()) === show(keys), `${l}: other keys than en`);
-    for (const l of LOCALES) for (const k of keys) assert(typeof w(l)[k] === 'string' && w(l)[k].trim() !== '', `${l}: ${k} is empty`);
+    // Nested messages (the Join question's, join.*) as dotted paths
+    const flatten = (o: Row, prefix = ''): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? Object.entries(flatten(v as Row, `${prefix}${k}.`)) : [[`${prefix}${k}`, v]])));
+    const words = (l: Locale) => flatten(w(l) as Row);
+    const keys = Object.keys(words('en')).sort();
+    for (const l of LOCALES) assert(show(Object.keys(words(l)).sort()) === show(keys), `${l}: other keys than en`);
+    for (const l of LOCALES) for (const k of keys) assert(typeof words(l)[k] === 'string' && String(words(l)[k]).trim() !== '', `${l}: ${k} is empty`);
     const read = [...src.matchAll(/\bt(?:\.rich)?\('([\w.]+)'/g)].map((m) => m[1]);
     assert(read.length > 20, `only ${read.length} reads found`);
     for (const k of read) assert(keys.includes(k), `${k} is read but is not a message`);
-    const unread = keys.filter((k) => !src.includes(`'${k}'`));
+    // The question's lines are read by their key (t(`join.${line.key}`)), each named in JoinLine (src/lib/join-summary.ts)
+    const union = /key: ((?:'\w+'(?: \| )?)+);/.exec(fs.readFileSync(path.join(ROOT, 'src/lib/join-summary.ts'), 'utf8'));
+    const lineKeys = union ? [...union[1].matchAll(/'(\w+)'/g)].map((m) => `join.${m[1]}`) : [];
+    assert(lineKeys.length === 8 && src.includes('t(`join.${line.key}`'), `the question's lines: ${show(lineKeys)}`);
+    const unread = keys.filter((k) => !src.includes(`'${k}'`) && !lineKeys.includes(k));
     assert(unread.length === 0, `keys nothing reads: ${show(unread)}`);
     assert(show(jsxCopy(file, src)) === '[]', `copy in the TSX: ${show(jsxCopy(file, src))}`);
   });

@@ -1822,6 +1822,19 @@ export const SIGNIN_CSS = `
   font-size: 16px;
   line-height: 1.5;
 }
+.site-signin-moves-title {
+  margin-block-start: 12px;
+  font-weight: 600;
+}
+.site-signin-moves {
+  display: grid;
+  gap: 6px;
+  margin-block: 8px 12px;
+  padding-inline-start: 22px;
+  list-style: disc;
+  font-size: 16px;
+  line-height: 1.45;
+}
 .site-signin-ways {
   display: grid;
   gap: 16px;

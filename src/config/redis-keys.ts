@@ -64,6 +64,8 @@ export const REDIS_KEYS = {
   // link (keyed by sha256 of its token, 5 minutes) and an Add email waiting for its code (per account, 10 minutes)
   signinAddGoogle: (tokenHash: string) => `signin:add-google:${tokenHash}`,
   signinAddEmail: (userId: number) => `signin:add-email:${userId}`,
+  // Join (src/services/web-signin/join.ts): a Join question waiting for its answer, keyed by sha256 of its id, 10 minutes
+  signinJoin: (joinIdHash: string) => `signin:join:${joinIdHash}`,
 
   // Connect Telegram (src/services/telegram-connect.ts): the one-time link a browser account makes (keyed by sha256 of
   // its token, 10 minutes), and the bot's question waiting for its Connect press (by its random id, bound to the
