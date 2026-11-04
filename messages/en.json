@@ -2008,14 +2008,14 @@
         "who": {
           "heading": "Who we are",
           "blocks": [
-            "FamCal is a family-calendar assistant. You use it by chatting with our bot on Telegram or WhatsApp, through a web app that opens from the bot or when you sign in on our website, and on the website itself, famcal.bot. FamCal is built and run by {sellerName} in Israel (“we”, “us”). He decides how FamCal uses your data and is responsible for it.",
+            "FamCal is a family-calendar assistant. You use it by chatting with our bot on Telegram or WhatsApp, through a web app that opens from the bot or when you sign in on our website, and on the website itself, famcal.bot. You can also create an account on famcal.bot with Google or an email address, and use FamCal only in your browser. FamCal is built and run by {sellerName} in Israel (“we”, “us”). He decides how FamCal uses your data and is responsible for it.",
             "This policy covers what we keep about you, why we keep it, who else handles it, and what you can do about it. To reach us, see Contact at the end."
           ]
         },
         "required": {
           "heading": "What you have to give us",
           "blocks": [
-            "No law requires you to give us anything. FamCal can’t work without your Telegram user id or your WhatsApp number, because that’s how the bot talks to you. Everything else is up to you. If you leave something out, only the feature that needs it won’t work. For example, without a place there’s no weather or zmanim, and without a Google connection we can’t show your Google events."
+            "No law requires you to give us anything. An account needs one way for you to sign in: your Telegram user id or WhatsApp number, which is also how the bot talks to you, or the Google account or email address you created it with on famcal.bot. Everything else is up to you. If you leave something out, only the feature that needs it won’t work. For example, without a place there’s no weather or zmanim, and without a Google connection we can’t show your Google events."
           ]
         },
         "keep": {
@@ -2027,16 +2027,17 @@
             [
               "On Telegram: your Telegram user id, plus the first and last name on your Telegram profile when you first started the bot. We don’t keep your @username.",
               "On WhatsApp: your phone number, the user id WhatsApp gives us, and your WhatsApp profile name from your first message to us.",
+              "If you create your account on famcal.bot: the name you give us.",
               {
                 "text": "To sign you in on famcal.bot:",
                 "items": [
-                  "if you add Google sign-in, or sign in with the Google account your calendar is connected from: your Google account id and its email address;",
-                  "if you add email sign-in: that email address;",
+                  "if you create your account with Google, add Google sign-in, or sign in with the Google account your calendar is connected from: your Google account id and its email address;",
+                  "if you create your account with an email address, or add email sign-in: that email address;",
                   "for each, when you added it and last used it;",
                   "if you connected Google Calendar: a scrambled form of that Google account’s address, so we can recognise it when you sign in with it."
                 ],
                 "after": [
-                  "We use them only to sign you in, to send you sign-in codes, and to tell you in your chat when a way to sign in is added."
+                  "We use them only to sign you in, to send you sign-in codes, and to tell you when a way to sign in is added: in your chat, or by email if your account has no chat."
                 ]
               },
               {
@@ -2117,7 +2118,9 @@
                 "text": "The longest are:",
                 "items": [
                   "a briefing’s text, kept for 24 hours so you can share it;",
-                  "a note that the bot already asked whether a name is one of your children, kept for 30 days."
+                  "a note that the bot already asked whether a name is one of your children, kept for 30 days;",
+                  "while you create an account on famcal.bot, the address (and Google account id) you’re signing up with, for 10 minutes;",
+                  "a one-time link to connect Telegram to your account, for 10 minutes."
                 ]
               },
               "A copy of your settings stays in the cache for as long as your account exists."
@@ -2127,7 +2130,7 @@
             },
             [
               "Our server logs record what happened and when. A log line carries your FamCal or Telegram id, and sometimes your name or WhatsApp number. Secret values, such as keys and passwords, are removed before anything is written. Our host deletes logs after 90 days.",
-              "When you open famcal.bot or the web app, our host receives your request, with your IP address and browser, as any website does. The request includes the page’s address: on the zmanim pages, that is the city, and any day or custom you pick there. To keep automated overuse off the site, our server counts each IP address’s requests to these pages, in memory only and for one minute. Visiting the site creates no account or profile. To stop misuse of sign-in, we also count sign-in attempts in Upstash per IP address, per email address and, when you add an email, per account, under scrambled keys, for up to a day.",
+              "When you open famcal.bot or the web app, our host receives your request, with your IP address and browser, as any website does. The request includes the page’s address: on the zmanim pages, that is the city, and any day or custom you pick there. To keep automated overuse off the site, our server counts each IP address’s requests to these pages, in memory only and for one minute. Visiting the site creates no account or profile. To stop misuse of sign-in, we also count sign-in attempts and new accounts in Upstash per IP address, per email address and, when you add an email, per account, under scrambled keys, for up to a day.",
               "When something breaks, an error report goes to Sentry. It carries your id, your first name and technical details, such as the features you used just before. Sometimes it also carries the content of the request that failed, which can include a message you sent or an event’s details. Sentry deletes reports after at most 90 days."
             ]
           ]
@@ -2183,7 +2186,7 @@
                 ]
               },
               "**Writing.** We write to your Google Calendar only when you ask: to add, change or delete an event, or to keep a “FamCal · <name>” copy calendar up to date. Copying goes one way, and FamCal never reads those copies back.",
-              "**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal. For this, we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account. We use these only to sign you in, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.",
+              "**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal. For this, we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account. We use these only to sign you in and, if your account has no chat, to email you when a way to sign in is added, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.",
               "**Sharing.** Your Google events go to our AI provider, Google Gemini, so it can write your briefings and understand what you ask. They also go to Telegram or WhatsApp inside the messages we send you.",
               "**People.** The people who run FamCal don’t look at your Google data. We look only when you ask us to, for example to fix a problem with an event, when security needs it, or when the law requires it. An error report can include a request that failed, which can hold an event’s details. We open error reports only to fix the problem.",
               "**Keeping and deleting.** What we keep from your Google connection, and for how long, is under “Your Google connection” above. Disconnecting Google deletes it (see Your rights and choices). What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.",
@@ -2219,18 +2222,19 @@
               "**Upstash:** our cache.",
               "**Railway:** our servers and server logs.",
               "**Sentry:** error reports.",
-              "**Cloudflare:** our domain’s DNS, and forwarding the mail you send to {email} to our mailbox.",
-              "**Resend:** your email address and the sign-in code, to email you the code. Resend keeps a copy of each email for up to 30 days.",
+              "**Cloudflare:** our domain’s DNS, forwarding the mail you send to {email} to our mailbox, and Turnstile, which checks that a person, not a program, asks for an email code on famcal.bot. Turnstile reads your IP address and browser details, not what you type.",
+              "**Resend:** your email address and the sign-in code or notice we email you. Resend keeps a copy of each email for up to 30 days.",
               "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”. Your browser asks it directly for that, so, like any site you visit, OpenStreetMap sees your IP address and browser.",
               "**MET Norway:** your place’s map position, rounded to about 1 km, to get the weather.",
-              "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser."
+              "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. When you ask for an email code, your browser loads Cloudflare’s Turnstile check from challenges.cloudflare.com. When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser."
             ],
             {
               "title": "Where your data goes"
             },
             [
               "These services may store or process data in countries other than Israel.",
-              "Google Gemini, Neon, Upstash, Railway, Sentry, Cloudflare and Resend handle data for us. Their terms commit them to protect it and to use it only to provide their service to us.",
+              "Google Gemini, Neon, Upstash, Railway, Sentry, Cloudflare (except Turnstile’s signals, below) and Resend handle data for us. Their terms commit them to protect it and to use it only to provide their service to us.",
+              "Cloudflare also uses Turnstile’s signals to improve its own bot detection, under its Turnstile Privacy Addendum.",
               "Telegram, Meta and Google run their own apps under their own privacy policies.",
               "OpenStreetMap and MET Norway get only what’s listed above."
             ],
@@ -2240,7 +2244,7 @@
             [
               "Our admin panel shows your account details, plan, usage, activity log and feedback. It doesn’t show your events.",
               "We use it to give support, handle payments and refunds, and stop misuse.",
-              "Feedback and payment questions you send also reach us as Telegram messages, with your name and Telegram id."
+              "Feedback and payment questions you send also reach us as Telegram messages, with your name and your FamCal id, and your Telegram id if you have one."
             ],
             "**Your partner** (see below)."
           ]
@@ -2268,7 +2272,7 @@
                   "after you open the web app from a WhatsApp link, it lasts 24 hours."
                 ]
               },
-              "While you sign in, `famcal_signin` holds a one-time check for 10 minutes.",
+              "While you sign in or create an account, `famcal_signin` holds a one-time check for 10 minutes.",
               "`NEXT_LOCALE` remembers the site’s language until you close your browser."
             ],
             "The web app also saves a few view choices in your browser, such as which tab you were on. All of these are needed for the site and the app to work. We use no ad or tracking cookies."
@@ -2299,14 +2303,14 @@
               "ask us to correct or delete anything that’s wrong, incomplete, unclear or out of date;",
               "ask us to delete your account."
             ],
-            "Write to us (see Contact) and we’ll answer within 30 days. We may ask you to confirm the request from the bot, so we know it comes from you. There’s no button yet to delete your account or download your data. We do both by hand when you ask.",
+            "Write to us (see Contact) and we’ll answer within 30 days. We may ask you to confirm the request from the bot, or from the email address you sign in with, so we know it comes from you. There’s no button yet to delete your account or download your data. We do both by hand when you ask.",
             "If you’re not happy with our answer, you can complain to Israel’s Privacy Protection Authority.",
             "**You can also, at any time:**",
             [
               "change your settings in Settings;",
               "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. You can also ask us to stop them;",
               "disconnect Google in Settings. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
-              "remove a sign-in method in Settings, under “Sign in on the web”;",
+              "remove a sign-in method in Settings, under “Sign in on the web”, except your only one;",
               "unlink your partner in the web app."
             ],
             "**When we delete your account**, we:",
@@ -2322,7 +2326,7 @@
               "server logs and error reports, until they expire (up to 90 days);",
               "cache copies, until they expire (up to 30 days);",
               "sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);",
-              "if we banned the account: its Telegram id or WhatsApp number and the reason, so it can’t sign up again;",
+              "if we banned the account: its Telegram id, WhatsApp number, Google account id and sign-in email address, and the reason, so it can’t sign up again;",
               "your payment records at Telegram."
             ]
           ]
@@ -2337,7 +2341,7 @@
             [
               "To run FamCal for you (your account and its sign-in methods, calendar, settings, Google connection, partner sharing, briefings, and reading what you send the bot): our agreement with you.",
               "For payments and refunds: our agreement with you.",
-              "To keep FamCal working and safe (server logs, error reports, the activity log, the sign-in counters, and the record of banned accounts): our legitimate interest in running a reliable service and stopping misuse.",
+              "To keep FamCal working and safe (server logs, error reports, the activity log, the sign-in counters, the bot check on the email-code form (Turnstile), and the record of banned accounts): our legitimate interest in running a reliable service and stopping misuse.",
               "For details you add about family members: our legitimate interest in running the family calendar you asked for.",
               "For the settings that can show your religious practice (calendar culture, zmanim community and the Shabbat and Yom Tov pause): your explicit consent, which you give by turning them on and withdraw by turning them off."
             ],
@@ -2349,7 +2353,7 @@
           "heading": "Children",
           "blocks": [
             "FamCal is for adults who run a family. You must be 18 or older to use the bots or the web app. Parents may add their children’s names, schedules and birthdays, but children don’t use FamCal themselves.",
-            "We don’t ask anyone’s age. If you think someone under 18 is using FamCal, tell us and we’ll delete the account."
+            "We don’t ask anyone’s age, except that creating an account on famcal.bot asks you to confirm you’re 18 or older. If you think someone under 18 is using FamCal, tell us and we’ll delete the account."
           ]
         },
         "security": {
@@ -2421,13 +2425,14 @@
               "reminders and event alerts;",
               "adding events from photos, PDFs and forwarded messages;",
               "paying for a plan."
-            ]
+            ],
+            "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Briefings and reminders reach you once you connect Telegram in Settings."
           ]
         },
         "eligibility": {
           "heading": "Who can use FamCal",
           "blocks": [
-            "To use the bots or the web app, you must be 18 or older, and you need your own Telegram or WhatsApp account. A partner you link with needs their own account, and must be 18 or older too. Anyone may use famcal.bot’s public pages, such as the zmanim pages, without an account."
+            "To use the bots or the web app, you must be 18 or older, and you need your own Telegram or WhatsApp account, or your own Google account or email address to create an account on famcal.bot. A partner you link with needs their own account, and must be 18 or older too. Anyone may use famcal.bot’s public pages, such as the zmanim pages, without an account."
           ]
         },
         "account": {
@@ -2435,7 +2440,8 @@
           "blocks": [
             [
               "You’re responsible for what you add, including details about your children, your partner and other family members. Add only what you have the right to share.",
-              "Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you added for signing in, can use FamCal as you. Keep those accounts safe.",
+              "Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you created your account with or added for signing in, can use FamCal as you. Keep those accounts safe.",
+              "If you lose every way you sign in, we may not be able to give the account back.",
               "A partner sees the calendars you share with them. If you allow it, they can also change them.",
               "What you add stays yours. You allow us to store and process it only to run FamCal for you."
             ]
@@ -2486,7 +2492,7 @@
               "title": "Paying"
             },
             [
-              "You pay for Basic and Pro in the Telegram bot, with Telegram Stars. You can’t pay on WhatsApp yet.",
+              "You pay for Basic and Pro in the Telegram bot, with Telegram Stars. You can’t pay on WhatsApp or on famcal.bot yet. An account made on famcal.bot pays after you connect Telegram.",
               "Prices are in Stars. The invoice shows the plan and its price before you pay. What Stars cost in your own money is set by Telegram or your app store.",
               "Paying for a plan means you accept these terms.",
               "A paid plan lasts one month from the day you pay. It never renews by itself, so to keep it, you pay again. The bot reminds you before it ends, unless the reminder falls inside your Shabbat and Yom Tov pause.",
@@ -2561,9 +2567,9 @@
         "suspension": {
           "heading": "Suspension and closing an account",
           "blocks": [
-            "We may suspend an account, which means the bot stops answering it. We may also ban or delete an account. We do this when the account breaks these terms, puts FamCal or other people at risk, or when the law requires it. You can ask us why through the contact above.",
+            "We may suspend an account, which means the bot stops answering it and it can’t sign in on famcal.bot. We may also ban or delete an account. We do this when the account breaks these terms, puts FamCal or other people at risk, or when the law requires it. You can ask us why through the contact above.",
             "If, during a paid month, we suspend or close an account that didn’t break these terms, we refund that month.",
-            "You can stop using FamCal any time: block the bot, and ask us to delete your account (see the [Privacy Policy](/privacy))."
+            "You can stop using FamCal any time: block the bot if you use it, and ask us to delete your account (see the [Privacy Policy](/privacy))."
           ]
         },
         "changes": {
