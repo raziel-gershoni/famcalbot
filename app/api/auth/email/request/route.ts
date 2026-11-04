@@ -12,6 +12,7 @@ import { emailConfigured } from '@/src/services/web-signin/email-send';
 import { issueCode } from '@/src/services/web-signin/email-code';
 import { findEmailSignIn } from '@/src/services/web-signin/identities';
 import { cleanInviteToken } from '@/src/lib/invite-token';
+import { isIdentifierBlocked } from '@/src/lib/user-moderation';
 import { captureSignInFailure, safeErrorSummary } from '@/src/services/web-signin/safe-error';
 
 const ROUTE = '/api/auth/email/request';
@@ -70,9 +71,10 @@ export async function POST(request: NextRequest) {
 /**
  * After the answer: the account with this address gets a sign-in code at the address it stores. An address on no
  * account gets a sign-up code at the address typed (normalised, in the page's language) while email sign-up is on
- * (Turnstile configured, so this request passed the check) and within the sign-up share of the day's mail
- * (takeSignUpSend: 30 a day, 3 per client address; web sign-up spec §2.5, §3.1); otherwise nothing is mailed. The
- * answer was the same either way.
+ * (Turnstile configured, so this request passed the check), the address is not banned (checked before the share, so a
+ * banned one spends none of it), and within the sign-up share of the day's mail (takeSignUpSend: 30 a day, 3 per
+ * client address; web sign-up spec §2.5, §2.8, §3.1); otherwise nothing is mailed. The answer was the same either way,
+ * so it never shows a ban.
  */
 async function sendCode(normalized: string, key: string, locale: string, ip: string | null): Promise<void> {
   let userId: number | undefined;
@@ -86,6 +88,10 @@ async function sendCode(normalized: string, key: string, locale: string, ip: str
     }
     if (!turnstileConfigured()) {
       console.log('[signin-email] no account signs in with this address; no code sent');
+      return;
+    }
+    if (await isIdentifierBlocked({ email: normalized })) {
+      console.warn('[signin-email] no account signs in with this address, and it is on the blocklist; no sign-up code');
       return;
     }
     const share = await takeSignUpSend(ip);

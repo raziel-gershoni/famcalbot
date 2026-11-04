@@ -16,14 +16,15 @@
  *  6. the account (createAccount); a way someone took in the meantime fails the unique (kind, subject): 'taken';
  *  7. the session (finishSignIn, json), landing in the account's language on the invite the sign-in began on, else
  *     the dashboard (landingPage).
- * From step 2 on, every answer clears the flow cookie, except a creation step that failed on something unclassified (a
- * transient database error): that 500 puts the sign-up back under a new cookie with the time it had left, so pressing
- * Create account again works (the cap slot stays spent).
+ * From step 2 on, every answer clears the flow cookie, except a step (3 to 6) that failed on something unclassified (a
+ * transient database or Redis error): that 500 puts the sign-up back under a new cookie with the time it had left, so
+ * pressing Create account again works (after the creation step the cap slot stays spent); one that can't be put back
+ * clears the cookie.
  *
  * Answers, in finishSignIn's json shape: { ok: true, redirect } with the session cookie, or { ok: false, status }:
  * 'name' (400), 'restart', 'exists' with the way that shows the address, 'blocked' (403), 'limit' (429), 'failed' (503)
  * when the cap's count can't be read, 'taken' (409), finishSignIn's own 'suspended' / 'blocked' / 'failed', and
- * 'failed' (500) from the creation step or the route's catch.
+ * 'failed' (500) from a step that threw (put back, above) or the route's catch.
  *
  * No log line holds an address, a sub, a name, an invite or the cookie: the way, a user id and the outcome only.
  */
@@ -37,7 +38,7 @@ import type { UserConfig } from '../../types';
 import { AccountBlockedError, createAccount } from '../user-service';
 import { clientAddress } from './client-address';
 import { normalizeEmail } from './email-address';
-import { clearFlowCookie, peekFlow, startFlow, takeFlow, type SignUpFlow } from './flow';
+import { clearFlowCookie, peekFlow, SIGNIN_COOKIE_NAME, startFlow, takeFlow, type SignUpFlow } from './flow';
 import { findWayByAddress, isUniqueViolation, type IdentityKind } from './identities';
 import { allowNewAccount } from './limits';
 import { captureSignInFailure, safeErrorSummary } from './safe-error';
@@ -127,22 +128,51 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
     clearFlowCookie(response);
     return response;
   };
+  /**
+   * A step after the record was taken failed on something unclassified (a transient database or Redis error): no
+   * account was made, so the sign-up goes back under a new cookie with the time it had left, and Create account can be
+   * pressed again. One that can't be put back (Redis failing, or no time left of its 10 minutes) clears the cookie, so
+   * the next press starts again cleanly.
+   */
+  const putBack = async (step: string, error: unknown): Promise<NextResponse> => {
+    captureSignInFailure(error, 'signup-complete', { api_route: '/api/auth/signup' });
+    const failed = refuse('failed', 500);
+    try {
+      await startFlow(failed, flow);
+      if (!failed.cookies.get(SIGNIN_COOKIE_NAME)) {
+        console.warn(`[signup] a ${flow.way} sign-up failed in ${step} with no time left to put it back; start again`);
+        return done(failed);
+      }
+      console.warn(`[signup] a ${flow.way} sign-up failed in ${step}; the sign-up was put back for another try`);
+      return failed;
+    } catch (restoreError) {
+      console.error(`[signup] a ${flow.way} sign-up failed in ${step} and could not be put back: ${safeErrorSummary(restoreError)}`);
+      return done(refuse('failed', 500));
+    }
+  };
   const address = addressOf(flow);
   if (!address) {
     console.warn(`[signup] a ${flow.way} sign-up holds no address FamCal can keep`);
     return done(refuse('failed', 500));
   }
-  if (await isIdentifierBlocked(flow.way === 'google' ? { googleSub: flow.subject, email: address } : { email: address })) {
-    console.warn(`[signup] a ${flow.way} sign-up refused: its Google account or address is on the blocklist`);
-    return done(refuse('blocked', 403));
-  }
-  const held = await heldBy(flow);
-  if (held) return done(NextResponse.json({ ok: false, status: 'exists', way: held }));
-  const cap = await allowNewAccount(clientAddress(request));
-  if (!cap.ok) {
-    console.warn(`[signup] a ${flow.way} sign-up refused: ${cap.reason}`);
-    // A store that can't count is an outage, not too many accounts: the page says the request failed (try again)
-    return done(cap.reason === 'store-down' ? refuse('failed', 503) : refuse('limit', 429));
+  let checksStep = 'the ban check';
+  try {
+    if (await isIdentifierBlocked(flow.way === 'google' ? { googleSub: flow.subject, email: address } : { email: address })) {
+      console.warn(`[signup] a ${flow.way} sign-up refused: its Google account or address is on the blocklist`);
+      return done(refuse('blocked', 403));
+    }
+    checksStep = 'the address check';
+    const held = await heldBy(flow);
+    if (held) return done(NextResponse.json({ ok: false, status: 'exists', way: held }));
+    checksStep = 'the account cap';
+    const cap = await allowNewAccount(clientAddress(request));
+    if (!cap.ok) {
+      console.warn(`[signup] a ${flow.way} sign-up refused: ${cap.reason}`);
+      // A store that can't count is an outage, not too many accounts: the page says the request failed (try again)
+      return done(cap.reason === 'store-down' ? refuse('failed', 503) : refuse('limit', 429));
+    }
+  } catch (error) {
+    return putBack(checksStep, error);
   }
   let user: UserConfig;
   try {
@@ -161,18 +191,8 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
       console.warn(`[signup] a ${flow.way} sign-up refused by the creation step's ban check`);
       return done(refuse('blocked', 403));
     }
-    // Something unclassified (a transient database error): no account was made, so the sign-up goes back under a new
-    // cookie with the time it had left, and Create account can be pressed again. The cap slot stays spent.
-    captureSignInFailure(error, 'signup-complete', { api_route: '/api/auth/signup' });
-    const failed = refuse('failed', 500);
-    try {
-      await startFlow(failed, flow);
-      console.warn(`[signup] a ${flow.way} sign-up failed in the creation step; the sign-up was put back for another try`);
-      return failed;
-    } catch (restoreError) {
-      console.error(`[signup] a ${flow.way} sign-up failed in the creation step and could not be put back: ${safeErrorSummary(restoreError)}`);
-      return done(refuse('failed', 500));
-    }
+    // The cap slot stays spent
+    return putBack('the creation step', error);
   }
   const finished = await finishSignIn(user, flow.way, { respond: 'json', page: landingPage(flow.invite) });
   console.log(`[signup] user ${user.id} was made on the web with ${flow.way}`);

@@ -3267,6 +3267,7 @@
     "calendarGoogle": "You signed in to FamCal on the web with Google {address}, the account your calendar is connected from. Not you? Open Settings → Sign in on the web → Remove.",
     "joinedGoogle": "The FamCal account made with Google {address} was joined into yours, and that Google account can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
     "joinedEmail": "The FamCal account made with the email {address} was joined into yours, and that email can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
+    "joinedBoth": "The FamCal account with Google {google} and the email {email} was joined into yours, and both can now sign in to your FamCal on the web. Not you? Open Settings → Sign in on the web → Remove, and write to privacy@famcal.bot.",
     "telegramConnected": "Telegram was connected to your FamCal account. Not you? Write to privacy@famcal.bot.",
     "emailSubject": "Your FamCal account has a new way to sign in",
     "emailSubjectTelegram": "Telegram was connected to your FamCal account",

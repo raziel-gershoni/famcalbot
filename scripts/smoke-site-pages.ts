@@ -105,6 +105,7 @@ async function main() {
 
   await check('P2 the blog in en, he and ru: the index lists the post; the post has its title, the byline from messages, the way back, and ends with the start buttons (one class list: Telegram, WhatsApp, then Use in the browser to the page language\'s /signin only while a new person can sign up) and the honest line; no inline start links', async () => {
     const { getPostBySlug } = await load('src/lib/blog.ts');
+    signUpEnv('off');
     for (const locale of LOCALES) {
       const post = getPostBySlug(POST, locale);
       const index = await page('app/[locale]/(site)/blog/page.tsx', locale);
@@ -117,7 +118,7 @@ async function main() {
       assert(text.includes(post.title) && text.includes(b.byline.replace('{author}', post.author)), `${locale}: the title and byline`);
       assert(attrs(html, 'a').some((a) => attr(a, 'href') === `${prefix(locale)}/blog`) && text.includes(b.backToBlog), `${locale}: the way back`);
       const cta = html.slice(html.indexOf('<aside class="site-cta"'));
-      // Sign-up is off in the fake env: the two start buttons alone, and no browser button on the page
+      // Sign-up off: the two start buttons alone, and no browser button on the page
       const closed = attrs(cta, 'a').filter((a) => attr(a, 'class') === 'site-start');
       assert(show(closed.map((a) => attr(a, 'data-channel'))) === show(['telegram', 'whatsapp']) && !/data-channel="browser"/.test(html), `${locale}: the post's start buttons with sign-up off ${show(closed)}`);
       // Google with no Resend opens no sign-up either (web sign-up spec §2.10); email codes with Turnstile, or Google with Resend, do

@@ -169,7 +169,8 @@ async function sendGuidance(
 }
 
 /**
- * /start w_<token>. The link is read, not used up: a person who opened it in the wrong Telegram can cancel and open it
+ * /start w_<token>, in the bot's private chat (commands.ts answers it nowhere else: the question shows the account's
+ * full address). The link is read, not used up: a person who opened it in the wrong Telegram can cancel and open it
  * again in the right one. It never makes an account.
  */
 export async function handleConnectStart(
@@ -297,18 +298,22 @@ export async function handleConnectPress(
 ): Promise<void> {
   let ownerId: number | undefined;
   try {
-    const press = PRESS_ID.test(pressId) ? readPress(await redis.getdel(REDIS_KEYS.telegramConnectPress(pressId))) : null;
-    if (!press) {
+    const key = PRESS_ID.test(pressId) ? REDIS_KEYS.telegramConnectPress(pressId) : null;
+    // Read first, as Cancel does: another Telegram's tap must not use up the question asked of this one
+    const seen = key ? readPress(await redis.get(key)) : null;
+    if (seen && seen.telegramId !== telegramId) {
+      console.warn(`[tg-connect] user ${seen.userId}: a Connect press came from another Telegram (${telegramId}); nothing was connected and the question stays`);
+      await reply(chatId, COPY[localeOf([await getUserByTelegramId(telegramId)], languageCode)].notYours);
+      return;
+    }
+    // Then taken once (GETDEL): of two presses at once, one finds it gone
+    const press = key && seen ? readPress(await redis.getdel(key)) : null;
+    if (!press || press.telegramId !== telegramId) {
       console.warn(`[tg-connect] a Connect press from Telegram ${telegramId} found no question (expired or used)`);
       await reply(chatId, COPY[localeOf([await getUserByTelegramId(telegramId)], languageCode)].expired);
       return;
     }
     ownerId = press.userId;
-    if (press.telegramId !== telegramId) {
-      console.warn(`[tg-connect] user ${press.userId}: a Connect press came from another Telegram (${telegramId}); nothing was connected`);
-      await reply(chatId, COPY[localeOf([await getUserByTelegramId(telegramId)], languageCode)].notYours);
-      return;
-    }
     const link = readLink(await redis.getdel(REDIS_KEYS.telegramConnect(press.linkHash)));
     const owner = await getUserById(press.userId);
     if (!link || link.userId !== press.userId || !owner || hasChat(owner)) {

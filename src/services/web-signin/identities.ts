@@ -143,12 +143,12 @@ function durableWays(user: { telegramId: unknown; whatsappPhone?: string | null;
 
 /**
  * Where a notice goes for an account with no chat (notice.ts): its email way's address, else its Google way's, skipping
- * the kind just added (`gained`: the notice must reach a way that was there before). null when there is none.
+ * the kinds just added (`gained`: the notice must reach a way that was there before). null when there is none.
  */
-export async function noticeAddress(userId: number, gained: IdentityKind | null): Promise<{ kind: IdentityKind; address: string } | null> {
+export async function noticeAddress(userId: number, gained: readonly IdentityKind[]): Promise<{ kind: IdentityKind; address: string } | null> {
   const rows = await prisma.signInIdentity.findMany({ where: { userId }, select: { kind: true, address: true } });
   for (const kind of ['email', 'google'] as const) {
-    const row = kind === gained ? undefined : rows.find(r => r.kind === kind);
+    const row = gained.includes(kind) ? undefined : rows.find(r => r.kind === kind);
     if (row) return { kind, address: row.address };
   }
   return null;

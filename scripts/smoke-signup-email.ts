@@ -184,6 +184,22 @@ async function main() {
     assert(v.body.ok === false && v.body.error === 'wrong', `the check ${show(v.body)}`);
   });
 
+  await check('U13 [M3] a banned address on no account is mailed no sign-up code and spends none of the sign-up share: the same answer and cookie as any address (the ban is never shown), the refusal logged with no address; a code check for it is "wrong"; an address not banned still gets one', async () => {
+    seed();
+    turnstile(true);
+    DB.blockedIdentifier = [{ id: 1, telegramId: null, whatsappPhone: null, googleSub: null, email: 'banned.person@example.com', bannedBy: 1, bannedReason: null, createdAt: new Date() }];
+    const shares = () => [...redisStore.keys()].filter((k) => k.includes('signup-ip-day') || k.includes('signup-send'));
+    const mark = everyLog.length;
+    const r = await codeFor(' Banned.Person@Example.com ');
+    assert(r.status === 200 && show(r.body) === show({ ok: true }) && r.cookie && !r.mail, `${r.status} ${show(r.body)} mail ${show(r.mail?.to)}`);
+    assert(shares().length === 0, `the sign-up share was spent: ${show(shares())}`);
+    assert(everyLog.slice(mark).some((l) => l.startsWith('[signin-email]') && l.includes('blocklist')), `no line says why: ${show(everyLog.slice(mark))}`);
+    const v = await verify(r.cookie, '123456');
+    assert(v.body.ok === false && v.body.error === 'wrong', `the check ${show(v.body)}`);
+    const fine = await codeFor('fine.person@example.com');
+    assert(fine.mail && fine.code && shares().length > 0, `an address not banned: mail ${show(fine.mail?.to)} shares ${show(shares())}`);
+  });
+
   await check('U4 a wrong sign-up code is a wrong code (counted for the address) and the right one still works after it; a wrong code for an account\'s address asks no sign-up code', async () => {
     seed();
     turnstile(true);

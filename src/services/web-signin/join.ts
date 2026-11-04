@@ -10,8 +10,9 @@
  * The question lists what moves, from previewMerge: the merge's own rules (mergePlan, account-linking.ts) read now, so
  * it can't promise what the merge won't do. Its id (16 random bytes, base64url) is kept 10 minutes in Redis only as
  * its sha256, bound to T, and used once (GETDEL): an answer from another account uses it up and joins nothing.
- * runJoin checks everything again before it merges, then T gets the notice for the way it gained (sendSignInNotice),
- * and W's sessions end with W (its row is gone). No log line holds the id, an address or a name.
+ * runJoin checks everything again before it merges, then T gets the notice naming every way it gained (the proved one
+ * and any other the merge moved, sendSignInNotice), and W's sessions end with W (its row is gone). No log line holds
+ * the id, an address or a name.
  *
  * account-linking is loaded when a join runs, as notice.ts loads the bot: it pulls in the Telegram client.
  */
@@ -38,7 +39,7 @@ export type JoinSummary = { name: string; createdAt: string; plan: MergePlan };
 type JoinRecord = {
   tUserId: number;
   wUserId: number;
-  /** The way the person proved: the one T gains, which the notice names */
+  /** The way the person proved: one T gains (the notice names it, with any other way the merge moves) */
   way: { kind: IdentityKind; subject: string; address: string };
   summary: JoinSummary;
 };
@@ -95,8 +96,8 @@ export async function peekJoin(tUserId: number, joinId: unknown): Promise<JoinSu
 /**
  * The answer Join: the question is used up (GETDEL) whoever answers. 'expired' for a late, used or bad id; 'refused'
  * for another account's id, or when a check fails now (W got a chat, the two paired, a way moved, a suspension, a ban,
- * or the merge refused). Then W merges into T, T's feature access is read again, T gets the notice for the way it
- * gained, and the answer is T's ways now.
+ * or the merge refused). Then W merges into T, T's feature access is read again, T gets the notice naming every way it
+ * gained (the merge's plan.ways, their addresses as T now holds them), and the answer is T's ways now.
  */
 export async function runJoin(tUserId: number, joinId: unknown): Promise<{ ok: true; methods: SignInMethodsView } | { ok: false; error: 'expired' | 'refused' }> {
   if (typeof joinId !== 'string' || !JOIN_ID.test(joinId)) {
@@ -119,8 +120,9 @@ export async function runJoin(tUserId: number, joinId: unknown): Promise<{ ok: t
     return { ok: false, error: 'refused' };
   }
   const { mergeAccounts, MergeRefusedError } = await import('../account-linking');
+  let moved: IdentityKind[];
   try {
-    await mergeAccounts(record.wUserId, tUserId);
+    moved = (await mergeAccounts(record.wUserId, tUserId)).plan.ways;
   } catch (error) {
     if (!(error instanceof MergeRefusedError)) throw error;
     console.warn(`[join] user ${tUserId}: the merge refused user ${record.wUserId}: ${error.message}`);
@@ -129,6 +131,13 @@ export async function runJoin(tUserId: number, joinId: unknown): Promise<{ ok: t
   console.log(`[join] user ${record.wUserId} joined into user ${tUserId}`);
   await invalidateFeatureAccessCache(tUserId);
   const after = (await getUserById(tUserId)) ?? t;
-  await sendSignInNotice(after, { kind: record.way.kind, address: record.way.address, via: 'joined' });
-  return { ok: true, methods: await listSignInMethods(after) };
+  const methods = await listSignInMethods(after);
+  // The other ways the merge moved, with the address T now holds for each
+  const also = moved.filter(kind => kind !== record.way.kind).flatMap(kind => {
+    const way = methods[kind];
+    if (!way) console.warn(`[join] user ${tUserId}: the ${kind} way the merge moved is not on the account; the notice can't name it`);
+    return way ? [{ kind, address: way.address }] : [];
+  });
+  await sendSignInNotice(after, { kind: record.way.kind, address: record.way.address, via: 'joined', also });
+  return { ok: true, methods };
 }

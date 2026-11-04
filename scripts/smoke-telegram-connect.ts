@@ -132,9 +132,9 @@ async function main() {
     tokens.push(token);
     return token;
   };
-  /** /start w_<token> from a Telegram id, as the webhook passes it (the deep link's payload in args). */
+  /** /start w_<token> from a Telegram id in its private chat with the bot, as the webhook passes it (the deep link's payload in args, the chat's type). */
   const start = (telegramId: number, payload: string, languageCode = 'en') =>
-    handleStartCommand(telegramId, telegramId, 'telegram', { id: telegramId, first_name: 'Someone', language_code: languageCode }, payload);
+    handleStartCommand(telegramId, telegramId, 'telegram', { id: telegramId, first_name: 'Someone', language_code: languageCode }, payload, 'private');
   /** The press id on the question's Connect button. */
   const pressIdOf = (message: Row): string => {
     const [yes, no] = buttonsOf(message);
@@ -293,6 +293,24 @@ async function main() {
     assert(show(buttonsOf(q).map(b => b.text)) === show([words('he').connect, words('he').cancel]), `buttons ${show(buttonsOf(q))}`);
   });
 
+  await check('[M7] /start w_ outside a private chat (a group, a supergroup, a channel, no chat type): nothing is sent, no question is kept, no account is made, the link is not used, and the line names the chat type only; the same link then works in the private chat', async () => {
+    seed();
+    const token = await tokenFor(DANA);
+    const users = DB.user.length;
+    const mark = everyLog.length;
+    for (const [chatId, type] of [[-1001234567890, 'supergroup'], [-4567890, 'group'], [-1009876543210, 'channel'], [NEW_TG, undefined]] as const) {
+      await handleStartCommand(chatId, NEW_TG, 'telegram', { id: NEW_TG, first_name: 'Someone', language_code: 'en' }, `w_${token}`, type);
+    }
+    assert(sentCount() === 0, `sent ${show(sent)}`);
+    assert(pressKeys().length === 0 && DB.user.length === users && redisStore.has(REDIS_KEYS.telegramConnect(sha256(token))), 'a question, an account, or the link used up');
+    const lines = everyLog.slice(mark).filter(l => l.startsWith('[tg-connect]'));
+    assert(lines.length === 4 && ['supergroup', 'group', 'channel', 'unknown'].every((t, i) => lines[i].includes(`in a ${t} chat`)), `lines ${show(lines)}`);
+    assert(!lines.some(l => l.includes(token) || l.includes('-100') || l.includes(String(NEW_TG))), `a line holds the token or an id: ${show(lines)}`);
+    assert(!activities.some(a => a.action === 'bot_start'), `/start went on to the welcome path: ${show(activities)}`);
+    await start(NEW_TG, `w_${token}`);
+    assert(pressKeys().length === 1 && lastSent().text.startsWith('Connect this Telegram to the FamCal account'), `the private chat: ${lastSent()?.text}`);
+  });
+
   await check('/start w_ with a token that is not a link (made up, malformed, or expired) answers "expired", makes no account and no question', async () => {
     seed();
     const users = DB.user.length;
@@ -405,7 +423,16 @@ async function main() {
     assert(lastSent().chatId === String(OTHER_TG) && lastSent().text === words('en').notYours, `reply ${show(lastSent())}`);
     assert(userRow(DANA).telegramId === null, 'connected');
     assert(redisStore.has(REDIS_KEYS.telegramConnect(sha256(token))), 'the link was used up by a stranger');
-    await start(NEW_TG, `w_${token}`);
+    // [M7] the stranger's tap does not use up the question: the asked Telegram's press of the same question connects
+    assert(redisStore.has(REDIS_KEYS.telegramConnectPress(pressId)), 'the question was used up by a stranger');
+    await press(NEW_TG, pressId);
+    assert(String(userRow(DANA).telegramId) === String(NEW_TG), `the asked Telegram could not connect with the same question: ${lastSent().text}`);
+    // It may also open the link again after the stranger's tap (a new question) and connect with that one
+    seed();
+    const again = await tokenFor(DANA);
+    await start(NEW_TG, `w_${again}`);
+    await press(OTHER_TG, pressIdOf(lastSent()));
+    await start(NEW_TG, `w_${again}`);
     await press(NEW_TG, pressIdOf(lastSent()));
     assert(String(userRow(DANA).telegramId) === String(NEW_TG), 'the right Telegram could not connect after the stranger');
   });

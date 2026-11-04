@@ -555,7 +555,7 @@ export async function handleTelegramWebhook(
     // Pass Telegram user info for auto-registration
     // Extract args for deep links (e.g., /start feedback from t.me/BotName?start=feedback)
     const args = text.replace('/start', '').trim();
-    await handleStartCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, update.message.from, args || undefined);
+    await handleStartCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, update.message.from, args || undefined, update.message.chat.type);
   } else if (text.startsWith('/summary')) {
     const args = text.replace('/summary', '').trim();
     await handleSummaryCommand(chatId, textUserId, MessagingPlatform.TELEGRAM, args || undefined);

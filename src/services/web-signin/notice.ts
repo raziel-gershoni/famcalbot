@@ -1,8 +1,9 @@
 /**
  * The notice that a way into the account was added (web sign-in spec §2.10, web sign-up spec 2026-11-03 §2.11): a
  * Google or email way added in Settings, the calendar's Google account used for the first time (§2.17), the ways a
- * Join brought in, or Telegram connected to an account made on famcal.bot. So a stolen session can't add a way
- * quietly, it goes to the ways that were there BEFORE the change, never to the one just added:
+ * Join brought in (each one named: the proved way and any other the merge moved), or Telegram connected to an account
+ * made on famcal.bot. So a stolen session can't add a way quietly, it goes to the ways that were there BEFORE the
+ * change, never to one just added:
  * - an account with a chat: the chat, Telegram when it has it, else WhatsApp (the phone, else the BSUID), as in 6b;
  * - an account with no chat (hasChat, src/lib/has-chat.ts), and every Telegram connect (the chat is the new way): by
  *   email to the account's email way, else to its Google way's address, never the way of the kind just added
@@ -37,8 +38,16 @@ export type SignInNoticeEvent =
       kind: IdentityKind;
       /** The way's address, as stored; the notice shows it masked */
       address: string;
-      /** added: from Settings; calendar: the first sign-in with the calendar's Google account; joined: the way came with the account Join brought in */
-      via: 'added' | 'calendar' | 'joined';
+      /** added: from Settings; calendar: the first sign-in with the calendar's Google account */
+      via: 'added' | 'calendar';
+    }
+  | {
+      /** The way the person proved, which the Join brought in */
+      kind: IdentityKind;
+      address: string;
+      via: 'joined';
+      /** The other ways T gained with it (mergePlan's ways beyond the proved one): the notice names each of them too */
+      also: Array<{ kind: IdentityKind; address: string }>;
     }
   | { kind: 'telegram'; via: 'connected' };
 
@@ -49,9 +58,22 @@ const WORDS: Record<Locale, NoticeCopy> = {
   ru: ruMessages.signinNotice,
 };
 
+/** The ways the event adds to the account: the notice must not go to any of them, and names each one. */
+function gainedWays(event: SignInNoticeEvent): Array<{ kind: IdentityKind; address: string }> {
+  if (event.kind === 'telegram') return [];
+  return [{ kind: event.kind, address: event.address }, ...(event.via === 'joined' ? event.also : [])];
+}
+
 /** The notice's text in the person's language. */
 function noticeText(copy: NoticeCopy, event: SignInNoticeEvent): string {
   if (event.kind === 'telegram') return copy.telegramConnected;
+  if (event.via === 'joined') {
+    // One way of each kind per account: a Join that brought both names both
+    const ways = gainedWays(event);
+    const google = ways.find(w => w.kind === 'google');
+    const email = ways.find(w => w.kind === 'email');
+    if (google && email) return copy.joinedBoth.replace('{google}', maskEmail(google.address)).replace('{email}', maskEmail(email.address));
+  }
   const template = event.via === 'calendar' ? copy.calendarGoogle
     : event.via === 'joined' ? (event.kind === 'google' ? copy.joinedGoogle : copy.joinedEmail)
     : event.kind === 'google' ? copy.addedGoogle : copy.addedEmail;
@@ -95,8 +117,8 @@ export async function sendSignInNotice(user: UserConfig, event: SignInNoticeEven
       }
     }
 
-    // No chat before: the account's email way, else its Google way's address, never the kind just added
-    const to = await noticeAddress(user.id, event.kind === 'telegram' ? null : event.kind);
+    // No chat before: the account's email way, else its Google way's address, never a kind just added
+    const to = await noticeAddress(user.id, gainedWays(event).map(w => w.kind));
     if (!to) {
       dropped(user, what, 'no address to send it to');
       return;

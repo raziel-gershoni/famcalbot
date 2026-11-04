@@ -104,6 +104,7 @@ const pathOf = (res: Row): string => {
   const url = new URL(location(res), 'https://famcal.bot');
   return url.pathname;
 };
+const MSG: Record<string, Row> = Object.fromEntries(['en', 'he', 'ru'].map(l => [l, JSON.parse(fs.readFileSync(path.join(ROOT, 'messages', `${l}.json`), 'utf8'))]));
 function codeIn(mail: Row): string {
   const m = /\b(\d{6})\b/.exec(JSON.stringify(mail.body));
   assert(m, `no 6-digit code in the mail: ${show(mail.body)}`);
@@ -469,11 +470,34 @@ async function main() {
       const m = read(lang);
       assert(show(Object.keys(m.settings.signIn.join).sort()) === show(settingsKeys) && show(Object.keys(m.site.signin.addGoogle.join).sort()) === show(siteKeys), `${lang}: other keys`);
       for (const arg of ['{name}', '{date}', '{kind,']) assert(String(m.settings.signIn.join.question).replace(/\{kind, /, '{kind,').includes(arg), `${lang} question lacks ${arg}`);
-      for (const key of ['joinedGoogle', 'joinedEmail']) {
+      for (const key of ['joinedGoogle', 'joinedEmail', 'joinedBoth']) {
         const text = String(m.signinNotice[key]);
-        assert(text.includes(path3[lang]) && text.includes('privacy@famcal.bot') && text.includes('{address}'), `${lang}.signinNotice.${key}: ${text}`);
+        const holes = key === 'joinedBoth' ? ['{google}', '{email}'] : ['{address}'];
+        assert(text.includes(path3[lang]) && text.includes('privacy@famcal.bot') && holes.every(h => text.includes(h)), `${lang}.signinNotice.${key}: ${text}`);
       }
     }
+  });
+
+  await check('#13 [M1] the notice names every way Tal gains: Dana\'s Google and email ways both move, so it names both (masked), whether Add Google or Add email proved one; when only the proved way moves (Tal has its own email way) it names that one alone', async () => {
+    const both = (lang: string) => MSG[lang].signinNotice.joinedBoth.replace('{google}', 'd•••@gmail.com').replace('{email}', 'd•••@example.com');
+    seed();
+    const viaGoogle = await addGoogle(TAL_TG, tal, danaGoogle);
+    const joined = await answer(TAL, cookieOf(viaGoogle), joinIdOf(viaGoogle));
+    assert(joined.status === 200 && show(waysOf(TAL)) === show(['email:dana@example.com', 'google:g-dana']), `join ${joined.status} ${show(await body(joined))}`);
+    assert(sent.length === 1 && sent[0].text === both('en'), `the notice after Add Google: ${sent[0]?.text}`);
+    seed();
+    const viaEmail = await addEmail(TAL_TG, tal, 'dana@example.com');
+    const id = (await body(viaEmail)).joinId;
+    joinIds.push(id);
+    const emailJoined = await answer(TAL_TG, tal, id);
+    assert(emailJoined.status === 200 && show(waysOf(TAL)) === show(['email:dana@example.com', 'google:g-dana']), `join ${emailJoined.status} ${show(await body(emailJoined))}`);
+    assert(sent.length === 1 && sent[0].text === both('en'), `the notice after Add email: ${sent[0]?.text}`);
+    seed();
+    DB.signInIdentity.push(identityRow({ userId: TAL, kind: 'email', subject: 'tal@example.com', address: 'tal@example.com' }));
+    const one = await addGoogle(TAL_TG, tal, danaGoogle);
+    const oneJoined = await answer(TAL, cookieOf(one), joinIdOf(one));
+    assert(oneJoined.status === 200 && show(waysOf(TAL)) === show(['email:tal@example.com', 'google:g-dana']), `join ${oneJoined.status} ${show(await body(oneJoined))}`);
+    assert(sent.length === 1 && sent[0].text === MSG.en.signinNotice.joinedGoogle.replace('{address}', 'd•••@gmail.com'), `the one-way notice: ${sent[0]?.text}`);
   });
 
   await check('#12 no console line and no capture holds an email address, a question id or Dana\'s name', () => {

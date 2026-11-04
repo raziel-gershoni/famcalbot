@@ -93,7 +93,9 @@ export async function handleStartCommand(
   userId: number | string,
   platform: MessagingPlatform = MessagingPlatform.TELEGRAM,
   telegramUser?: TelegramUserInfo,
-  args?: string
+  args?: string,
+  /** Telegram's chat type ('private', 'group', 'supergroup', 'channel'), as the update gives it */
+  chatType?: string
 ): Promise<void> {
   // Google connect claim: t.me/<bot>?start=gc_<pendingId> from the OAuth finish page.
   // Both the webhook and polling /start land here. It runs before auto-registration, so a
@@ -107,8 +109,15 @@ export async function handleStartCommand(
 
   // Connect Telegram: t.me/<bot>?start=w_<token> from a browser account's Connect Telegram (src/services/telegram-connect.ts).
   // Answered here for the same reasons as gc_: the link never makes an account, and the breadcrumb below would record
-  // its token, which no log line or breadcrumb may hold.
+  // its token, which no log line or breadcrumb may hold. Only in the bot's private chat: the question names the
+  // account's full address, which a group must never see, so anywhere else nothing is answered (the line names the
+  // chat's type only).
   if (args?.startsWith('w_') && platform === MessagingPlatform.TELEGRAM) {
+    if (chatType !== 'private') {
+      const type = chatType === 'group' || chatType === 'supergroup' || chatType === 'channel' ? chatType : 'unknown';
+      console.warn(`[tg-connect] a /start w_ in a ${type} chat was not answered: Connect Telegram is only for the bot's private chat`);
+      return;
+    }
     const { handleConnectStart } = await import('../telegram-connect');
     await handleConnectStart(chatId, Number(userId), args.slice('w_'.length), telegramUser?.language_code);
     return;
@@ -848,7 +857,7 @@ export function setupHandlers(bot: TelegramBot) {
     const userId = msg.from?.id;
     const args = match?.[1]?.trim();
     if (userId) {
-      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args);
+      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args, msg.chat.type);
     }
   });
 

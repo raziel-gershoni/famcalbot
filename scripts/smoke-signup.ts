@@ -412,6 +412,31 @@ async function main() {
     assert((await body(again)).ok === true && usersNamed(NAME).length === 1, `again ${again.status} ${show(await body(again))}`);
   });
 
+  await check('S21 [M8] a step after the record is taken that throws (the blocklist read, the address check): status=failed (500), the sign-up is put back under a new cookie with the time it had left, nothing is made, and pressing Create account again makes the account', async () => {
+    const outage = () => Object.assign(new Error('Server has closed the connection (smoke)'), { code: 'P1017' });
+    const breaks: [string, string, string][] = [['the blocklist read', 'blockedIdentifier', 'findFirst'], ['the address check', 'signInIdentity', 'findUnique']];
+    for (const [name, model, method] of breaks) {
+      seed();
+      const cookie = await signUpFlow();
+      const original = recordOf(cookie.split('=')[1]);
+      const table = fakePrisma[model];
+      const real = table[method];
+      table[method] = async () => { throw outage(); };
+      let res: Response;
+      try {
+        res = await create(cookie, { name: NAME });
+      } finally {
+        table[method] = real;
+      }
+      assert(res.status === 500 && show(await body(res)) === show({ ok: false, status: 'failed' }) && usersNamed(NAME).length === 0 && !sessionOf(res), `${name}: ${res.status} ${show(await body(res))}`);
+      const value = flowValue(res);
+      const back = recordOf(value);
+      assert(/^[A-Za-z0-9_-]{43}$/.test(value) && back?.kind === 'signup' && back.subject === DANA.sub && back.startedAt === original?.startedAt, `${name}: put back ${show(back)} vs ${show(original)}`);
+      const again = await create(`${SIGNIN_COOKIE_NAME}=${value}`, { name: NAME });
+      assert((await body(again)).ok === true && usersNamed(NAME).length === 1, `${name}: again ${again.status} ${show(await body(again))}`);
+    }
+  });
+
   await check('S18 a Sentry error event of POST /api/auth/signup holds no name: its body as an object or a JSON string loses the name, cut-off JSON and a form have it scrubbed; the language stays', async () => {
     const { scrubServerEvent } = await load('src/lib/sentry-scrub.ts');
     const dataOf = (data: unknown) => scrubServerEvent({ request: { url: 'https://famcal.bot/api/auth/signup', method: 'POST', data } }).request.data;
