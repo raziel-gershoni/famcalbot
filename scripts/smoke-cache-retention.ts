@@ -1,5 +1,5 @@
-// Smoke test: no cache copy outlives the Privacy Policy's "up to 30 days" (the final review's M-2). The Policy says the
-// longest short-lived copies are kept 30 days, and cache copies stay "up to 30 days" (after a deletion too); only the
+// Smoke test: no cache copy outlives the Privacy Policy's "up to 30 days" (the final review's M-2). The Policy lists
+// copies kept up to 30 days, and cache copies stay "up to 30 days" (after a deletion too); only the
 // settings copy of the reminder run lives as long as the account, and the Policy names it.
 //
 //  - C1 every expiry the code gives a Redis key (`{ ex: … }` on a set, `expire(key, …)`) is 30 days or less: a number,

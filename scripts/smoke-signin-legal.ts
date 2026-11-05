@@ -15,8 +15,8 @@
 //    8 and 9 (2026-11-02) is pinned too: when the primary calendar id is read (at connect or Turn on, and at sign-in), the
 //    chat notice among the uses, the legal grounds naming the sign-in methods and counters, what stays after deletion
 //    (the counters, Resend's copies), and Telegram's and Google's sign-in pages seeing the IP address.
-//  - L3 LEGAL_UPDATED moved for both pages to the day the text last changed (web sign-up's, 2026-11-04, or later), and is
-//    not a day that has not come yet in Israel.
+//  - L3 LEGAL_UPDATED moved to the day each text last changed (the Privacy Policy's follow-up wording, 2026-11-05, and
+//    the Terms' web sign-up, 2026-11-04, or later), and is not a day that has not come yet in Israel.
 //  - L5 each language says what web sign-up (spec 2026-11-03-web-sign-up §7, approved by the owner 2026-11-04) adds:
 //    an account made on famcal.bot with Google or an email address and used only in the browser, the one way to sign in
 //    an account needs, the name kept, the sign-up's 10 minutes and the connect link's, the new accounts counted, the
@@ -89,7 +89,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'We use these only to sign you in and, if your account has no chat, to email you when a way to sign in is added, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.'],
     ['privacy', 'What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.'],
     ['privacy', 'the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.'],
-    ['privacy', '**Google,** if you sign in with Google: your Google account id and email address, to sign you in.'],
+    ['privacy', '**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.'],
     ['privacy', '**Resend:** your email address and the sign-in code or notice we email you. Resend keeps a copy of each email for up to 30 days.'],
     ['privacy', 'Railway, Sentry, Cloudflare (except Turnstile’s signals, below) and Resend handle data for us.'],
     ['privacy', 'such as the US, where Resend keeps the data of the sign-in emails, we rely'],
@@ -123,7 +123,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'אנחנו משתמשים במידע הזה רק כדי להכניס אתכם, ואם לחשבון שלכם אין צ׳אט, גם כדי להודיע לכם במייל כשנוספת דרך כניסה. אנחנו לא מעבירים אותו לאף אחד אחר, ומוחקים אותו כשמסירים את הכניסה עם Google, כשמנתקים את יומן Google (את הכתובת המעורבלת) או כשמוחקים את החשבון.'],
     ['privacy', 'מה אנחנו שומרים כדי להכניס אתכם עם Google מפורט תחת ״החשבון שלכם״, ובסעיף ״כניסה״ למעלה מפורט מתי אנחנו מוחקים אותו.'],
     ['privacy', 'ההתחברות לאפליקציית הרשת, הכניסה ל־famcal.bot עם טלגרם, ותשלומים בכוכבים.'],
-    ['privacy', '**Google,** אם נכנסים עם Google: המזהה של חשבון ה־Google שלכם וכתובת המייל שלו, כדי להכניס אתכם.'],
+    ['privacy', '**Google,** אם נכנסים או פותחים חשבון עם Google: המזהה של חשבון ה־Google שלכם וכתובת המייל שלו, כדי להכניס אתכם.'],
     ['privacy', '**Resend:** כתובת המייל שלכם וקוד הכניסה או ההודעה שאנחנו שולחים לכם במייל. Resend שומרת עותק של כל מייל עד 30 יום.'],
     ['privacy', 'Railway, Sentry, Cloudflare (חוץ מהנתונים ש־Turnstile אוסף, ראו בהמשך) ו־Resend מטפלים במידע בשבילנו.'],
     ['privacy', 'כמו ארצות הברית, שבה Resend שומרת את המידע של מיילי הכניסה, אנחנו מסתמכים'],
@@ -157,7 +157,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Мы используем эти данные только для входа и — если у вашего аккаунта нет чата — для уведомления по электронной почте о том, что добавлен способ входа, больше никому их не передаём и удаляем их, когда вы удаляете вход через Google, отключаете Google Календарь (адрес в преобразованном виде) или удаляете аккаунт.'],
     ['privacy', 'Что мы храним для входа через Google, описано в разделе «Ваш аккаунт», а когда мы это удаляем — выше, в пункте «Вход».'],
     ['privacy', 'вход в веб-приложение, вход на famcal.bot через Telegram и платежи звёздами.'],
-    ['privacy', '**Google,** если вы входите через Google: идентификатор вашего аккаунта Google и адрес электронной почты — чтобы вы могли войти.'],
+    ['privacy', '**Google,** если вы входите или создаёте аккаунт через Google: идентификатор вашего аккаунта Google и адрес электронной почты — чтобы вы могли войти.'],
     ['privacy', '**Resend:** ваш адрес электронной почты и код для входа или уведомление, которые мы отправляем вам письмом. Resend хранит копию каждого письма до 30 дней.'],
     ['privacy', 'Railway, Sentry, Cloudflare (кроме данных, которые собирает Turnstile, — см. ниже) и Resend обрабатывают данные по нашему поручению.'],
     ['privacy', 'например в США, где Resend хранит данные писем, связанных со входом, мы опираемся'],
@@ -191,7 +191,9 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Cloudflare also uses Turnstile’s signals to improve its own bot detection, under its Turnstile Privacy Addendum.'],
     ['privacy', 'Feedback and payment questions you send also reach us as Telegram messages, with your name and your FamCal id, and your Telegram id if you have one.'],
     ['privacy', 'We may ask you to confirm the request from the bot, or from the email address you sign in with, so we know it comes from you.'],
-    ['privacy', 'if we banned the account: its Telegram id, WhatsApp number, Google account id and sign-in email address, and the reason, so it can’t sign up again;'],
+    ['privacy', 'Among the copies we keep:'],
+    ['privacy', '**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.'],
+    ['privacy', 'if we banned the account: its Telegram id, WhatsApp number, Google account id, the email address of that Google account and its sign-in email address, and the reason, so it can’t sign up again;'],
     ['terms', 'An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Briefings and reminders reach you once you connect Telegram in Settings.'],
     ['terms', 'and you need your own Telegram or WhatsApp account, or your own Google account or email address to create an account on famcal.bot. A partner'],
     ['terms', 'If you lose every way you sign in, we may not be able to give the account back.'],
@@ -213,7 +215,9 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Cloudflare משתמשת בנתונים ש־Turnstile אוסף גם כדי לשפר את זיהוי הבוטים שלה, לפי נספח הפרטיות של Turnstile (Turnstile Privacy Addendum).'],
     ['privacy', 'משוב ושאלות על תשלומים ששולחים מגיעים אלינו גם כהודעות בטלגרם, עם השם שלכם ומזהה ה־FamCal שלכם, ומזהה הטלגרם שלכם אם יש לכם.'],
     ['privacy', 'ייתכן שנבקש מכם לאשר את הבקשה מתוך הבוט, או מכתובת המייל שאיתה אתם נכנסים, כדי לדעת שהיא באה מכם.'],
-    ['privacy', 'אם חסמנו את החשבון: מזהה הטלגרם, מספר הוואטסאפ, מזהה חשבון ה־Google וכתובת המייל לכניסה שלו, והסיבה, כדי שלא יוכל להירשם שוב;'],
+    ['privacy', 'בין העותקים שאנחנו שומרים:'],
+    ['privacy', '**Google,** אם נכנסים או פותחים חשבון עם Google: המזהה של חשבון ה־Google שלכם וכתובת המייל שלו, כדי להכניס אתכם.'],
+    ['privacy', 'אם חסמנו את החשבון: מזהה הטלגרם, מספר הוואטסאפ, מזהה חשבון ה־Google, כתובת המייל של חשבון ה־Google וכתובת המייל לכניסה שלו, והסיבה, כדי שלא יוכל להירשם שוב;'],
     ['terms', 'חשבון שנפתח ב־famcal.bot פועל בדפדפן בלי טלגרם ובלי וואטסאפ. בדפדפן אתם מוסיפים את האירועים בעצמכם; העוזר של FamCal (הודעות קוליות, תמונות והודעות כתובות) פועל בבוטים. סיכומים ותזכורות מגיעים אליכם אחרי שמחברים את טלגרם בהגדרות.'],
     ['terms', 'ולהחזיק חשבון טלגרם או וואטסאפ משלכם, או חשבון Google או כתובת מייל משלכם כדי לפתוח חשבון ב־famcal.bot. גם בן או בת הזוג'],
     ['terms', 'אם תאבדו את הגישה לכל דרכי הכניסה שלכם, ייתכן שלא נוכל להחזיר לכם את החשבון.'],
@@ -235,7 +239,9 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Cloudflare также использует данные, которые собирает Turnstile, чтобы улучшать собственное распознавание ботов, в соответствии с Дополнением о конфиденциальности Turnstile (Turnstile Privacy Addendum).'],
     ['privacy', 'приходят нам и в виде сообщений в Telegram — с вашим именем и идентификатором FamCal, а также идентификатором Telegram, если он у вас есть.'],
     ['privacy', 'Мы можем попросить вас подтвердить запрос из бота или с адреса электронной почты, с которым вы входите, чтобы убедиться,'],
-    ['privacy', 'если мы заблокировали аккаунт: его идентификатор Telegram, номер WhatsApp, идентификатор аккаунта Google и адрес электронной почты для входа, а также причина — чтобы с ними нельзя было зарегистрироваться снова;'],
+    ['privacy', 'Среди этих копий:'],
+    ['privacy', '**Google,** если вы входите или создаёте аккаунт через Google: идентификатор вашего аккаунта Google и адрес электронной почты — чтобы вы могли войти.'],
+    ['privacy', 'если мы заблокировали аккаунт: его идентификатор Telegram, номер WhatsApp, идентификатор аккаунта Google, адрес почты этого аккаунта Google и адрес электронной почты для входа, а также причина — чтобы с ними нельзя было зарегистрироваться снова;'],
     ['terms', 'Аккаунт, созданный на famcal.bot, работает в браузере без Telegram и WhatsApp. В браузере вы добавляете события сами; помощник FamCal (голосовые и текстовые сообщения, фото) работает в ботах. Сводки и напоминания начнут приходить, когда вы подключите Telegram в «Настройках».'],
     ['terms', 'и у вас должен быть собственный аккаунт Telegram или WhatsApp либо собственный аккаунт Google или адрес электронной почты, чтобы создать аккаунт на famcal.bot. Партнёру,'],
     ['terms', 'Если вы потеряете доступ ко всем способам входа, мы, возможно, не сможем вернуть вам аккаунт.'],
@@ -252,6 +258,9 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'We don’t ask anyone’s age. If'],
     ['privacy', 'with your name and Telegram id.'],
     ['terms', 'You can’t pay on WhatsApp yet.'],
+    ['privacy', 'The longest are:'],
+    ['privacy', 'if you sign in with Google: your Google account id'],
+    ['privacy', 'Google account id and sign-in email address'],
     ['terms', 'You can stop using FamCal any time: block the bot, and'],
   ],
   he: [
@@ -259,6 +268,9 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'אנחנו לא שואלים אף אחד לגילו. אם'],
     ['privacy', 'עם השם שלכם ומזהה הטלגרם שלכם.'],
     ['terms', 'בוואטסאפ עדיין אי אפשר לשלם.'],
+    ['privacy', 'הארוכים ביותר:'],
+    ['privacy', 'אם נכנסים עם Google: המזהה של חשבון'],
+    ['privacy', 'מזהה חשבון ה־Google וכתובת המייל לכניסה שלו'],
     ['terms', 'לחסום את הבוט, ולבקש'],
     ['terms', 'את כל הדרכים שבהן אתם נכנסים'],
     ['terms', 'להיכנס איתו ב־famcal.bot'],
@@ -269,6 +281,9 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Мы ни у кого не спрашиваем возраст. Если'],
     ['privacy', 'с вашим именем и идентификатором Telegram.'],
     ['terms', 'В WhatsApp оплатить тариф пока нельзя.'],
+    ['privacy', 'Дольше всего хранятся:'],
+    ['privacy', 'если вы входите через Google: идентификатор вашего аккаунта Google'],
+    ['privacy', 'идентификатор аккаунта Google и адрес электронной почты для входа'],
     ['terms', 'заблокируйте бота и попросите'],
     ['privacy', 'по своему приложению'],
     ['privacy', 'писем с кодами для входа'],
@@ -313,10 +328,10 @@ async function main() {
     assert(problems.length === 0, problems.join('\n'));
   });
 
-  await check('L3 LEGAL_UPDATED moved for both pages to the day the text last changed (web sign-up, 2026-11-04, or later; not in the future)', async () => {
+  await check('L3 LEGAL_UPDATED moved to the day each text last changed (the Privacy Policy 2026-11-05, the Terms 2026-11-04, or later; not in the future)', async () => {
     const { LEGAL_UPDATED } = (await import(path.join(ROOT, 'src/site/legal.ts'))) as Row;
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    assert(LEGAL_UPDATED.privacy >= '2026-11-04' && LEGAL_UPDATED.terms >= '2026-11-04', `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
+    assert(LEGAL_UPDATED.privacy >= '2026-11-05' && LEGAL_UPDATED.terms >= '2026-11-04', `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
     assert(LEGAL_UPDATED.privacy <= today && LEGAL_UPDATED.terms <= today, `LEGAL_UPDATED ${show(LEGAL_UPDATED)} is after today in Israel (${today})`);
   });
 

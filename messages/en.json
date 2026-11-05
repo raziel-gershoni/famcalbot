@@ -2115,7 +2115,7 @@
             [
               "To keep FamCal fast, we keep some copies in a cache. Most last a few minutes.",
               {
-                "text": "The longest are:",
+                "text": "Among the copies we keep:",
                 "items": [
                   "a briefing’s text, kept for 24 hours so you can share it;",
                   "a note that the bot already asked whether a name is one of your children, kept for 30 days;",
@@ -2217,7 +2217,7 @@
               "**Telegram:** every message between you and the bot, the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.",
               "**Meta (WhatsApp):** your number and every message between you and the bot on WhatsApp.",
               "**Google Calendar,** if you connect it (see above).",
-              "**Google,** if you sign in with Google: your Google account id and email address, to sign you in.",
+              "**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.",
               "**Neon:** our database.",
               "**Upstash:** our cache.",
               "**Railway:** our servers and server logs.",
@@ -2326,7 +2326,7 @@
               "server logs and error reports, until they expire (up to 90 days);",
               "cache copies, until they expire (up to 30 days);",
               "sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);",
-              "if we banned the account: its Telegram id, WhatsApp number, Google account id and sign-in email address, and the reason, so it can’t sign up again;",
+              "if we banned the account: its Telegram id, WhatsApp number, Google account id, the email address of that Google account and its sign-in email address, and the reason, so it can’t sign up again;",
               "your payment records at Telegram."
             ]
           ]
