@@ -26,6 +26,11 @@
 // - The notice for a way added goes to the chat, or by email with no chat (view.chat): the success line says which.
 // - Sign out (only on a web session: there is a cookie to clear) goes to /signin; Sign out on all devices goes there too
 //   on the web, and says it is done in the Mini App.
+// - Adding a way from a browser needs a sign-in from the last hour (6c-1 follow-ups, src/lib/recent-sign-in.ts): the routes
+//   answer 403 stale-sign-in to an older cookie, never to the Mini App. The page learns of it on the press (no field in
+//   the GET): Add Google, Add email, Turn on and the Join question then read "Sign in again to ...", with a note, and the
+//   next press signs this browser out and opens /signin (sign-in-again.ts, as Connect Telegram does). A WhatsApp-link
+//   session can't sign in again here: it keeps its buttons and shows the WhatsApp hint (pageGate.browserBody) instead.
 // - The requests are signin-methods-client.ts; each failure is said here in words and logged there with its status.
 // - `onSheet` tells the screen what Back should do while a sheet is open (its closer, a no-op while its request is out),
 //   and null once it is closed, as GoogleDisconnect does.
@@ -43,6 +48,7 @@ import { isInTelegram, openExternalLink } from '@/src/lib/telegram-ui';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
 import { joinDateText, joinLines, type JoinSummary } from '@/src/lib/join-summary';
 import { signInHref } from '@/src/site/signin';
+import { signInAgain } from '@/src/lib/sign-in-again';
 import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, requestGoogleLink, signOutAll, signOutHere, turnOnCalendar, type AddEmailError, type ConfirmEmailError, type JoinError, type MethodsView, type RemoveError, type RemoveWhich, type TurnOnError } from './signin-methods-client';
 
@@ -53,7 +59,7 @@ type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null;
 type GoogleSheet = { kind: 'google'; url: string };
 type JoinSheet = { kind: 'join'; joinId: string; summary: JoinSummary; error: JoinError | null; busy: boolean };
 type Sheet = EmailSheet | RemoveSheet | GoogleSheet | JoinSheet;
-type Working = 'google' | 'turnOn' | 'signOut' | 'signOutAll';
+type Working = 'google' | 'turnOn' | 'signOut' | 'signOutAll' | 'leaving';
 type Status = { tone: 'info' | 'error'; text: string };
 
 /** Each failure's words: a key of settings.signIn. */
@@ -67,13 +73,14 @@ const ERROR_KEY: Record<EmailError, string> = {
   taken: 'codeTaken',
   restart: 'codeRestart',
   codeLimit: 'codeLimit',
+  stale: 'staleNote',
 };
 
 /** Join's failures: a key of settings.signIn. */
-const JOIN_ERROR_KEY: Record<JoinError, string> = { failed: 'failed', busy: 'busy', expired: 'join.expired', refused: 'join.refused' };
+const JOIN_ERROR_KEY: Record<JoinError, string> = { failed: 'failed', busy: 'busy', expired: 'join.expired', refused: 'join.refused', stale: 'staleNote' };
 
 /** Turn on's failures: shared and reconnect have words of their own, the rest are the group's plain ones. */
-const TURN_ON_KEY: Record<TurnOnError, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect' };
+const TURN_ON_KEY: Record<TurnOnError, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect', stale: 'staleNote' };
 
 const noop = () => {};
 
@@ -86,6 +93,9 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
   const [working, setWorking] = useState<Working | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const c = useTranslations('telegramConnect');
+  const gate = useTranslations('pageGate');
+  // A route refused for a sign-in over an hour old (set only on a browser's session, never in the Mini App)
+  const [stale, setStale] = useState(false);
   // No chat (view.chat false, Task 8): Telegram connects here (6c-1)
   const connect = useTelegramConnect(userId, locale);
   const connecting = connect.phase === 'busy' || connect.phase === 'leaving';
@@ -122,14 +132,35 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     setAttempt((n) => n + 1);
   };
 
+  // A browser's session can sign in again; a WhatsApp-link one asks for a new link in the chat instead
+  const asksSignIn = stale && view?.session != null && view.session !== 'wa';
+  const asksLink = stale && view?.session === 'wa';
+  const staleLine = asksLink ? gate('browserBody') : t('staleNote');
+  /** A stale answer on a browser's session: remembered, the buttons change. False in the Mini App, which the server never asks. */
+  const markStale = (): boolean => {
+    if (!view?.session) return false;
+    setStale(true);
+    return true;
+  };
+  const leave = async () => {
+    if (working) return;
+    setWorking('leaving');
+    setStatus(null);
+    if (await signInAgain(locale)) return;
+    setWorking(null);
+    setStatus({ tone: 'error', text: t('failed') });
+  };
+
   const addGoogle = async () => {
     if (working) return;
+    if (asksSignIn) return void leave();
     setWorking('google');
     setStatus(null);
     const result = await requestGoogleLink(userId);
     setWorking(null);
     if (result.kind === 'error') {
-      setStatus({ tone: 'error', text: t(ERROR_KEY[result.code]) });
+      if (result.code === 'stale' && markStale()) return;
+      setStatus({ tone: 'error', text: t(result.code === 'stale' ? 'failed' : ERROR_KEY[result.code]) });
       return;
     }
     const url = new URL(result.url, window.location.origin).href;
@@ -139,6 +170,7 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
 
   const turnOn = async () => {
     if (working) return;
+    if (asksSignIn) return void leave();
     setWorking('turnOn');
     setStatus(null);
     const result = await turnOnCalendar(userId);
@@ -148,7 +180,8 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
       setStatus({ tone: 'info', text: t('turnedOn') });
       return;
     }
-    setStatus({ tone: 'error', text: t(TURN_ON_KEY[result.code]) });
+    if (result.code === 'stale' && markStale()) return;
+    setStatus({ tone: 'error', text: t(result.code === 'stale' ? 'failed' : TURN_ON_KEY[result.code]) });
   };
 
   const openGoogle = (url: string) => {
@@ -165,7 +198,8 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     setSheet({ kind: 'email', step: from, address, code: '', error: null, busy: true });
     const result = await addEmail(userId, address);
     if (result.kind === 'ok') setSheet({ kind: 'email', step: 'code', address, code: '', error: null, busy: false });
-    else setSheet({ kind: 'email', step: 'address', address, code: '', error: result.code, busy: false });
+    else if (result.code === 'stale' && markStale()) setSheet(null);
+    else setSheet({ kind: 'email', step: 'address', address, code: '', error: result.code === 'stale' ? 'failed' : result.code, busy: false });
   };
 
   const checkCode = async (address: string, code: string) => {
@@ -185,7 +219,11 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
       setSheet({ kind: 'email', step: 'address', address, code: '', error: 'restart', busy: false });
       return;
     }
-    setSheet({ kind: 'email', step: 'code', address, code, error: result.code, busy: false });
+    if (result.code === 'stale' && markStale()) {
+      setSheet(null);
+      return;
+    }
+    setSheet({ kind: 'email', step: 'code', address, code, error: result.code === 'stale' ? 'failed' : result.code, busy: false });
   };
 
   const join = async (question: JoinSheet) => {
@@ -197,7 +235,8 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
       setStatus({ tone: 'info', text: t('join.done') });
       return;
     }
-    setSheet({ ...question, error: result.code, busy: false });
+    if (result.code === 'stale') markStale();
+    setSheet({ ...question, error: result.code === 'stale' && !view?.session ? 'failed' : result.code, busy: false });
   };
 
   const remove = async (which: RemoveWhich, address: string | null) => {
@@ -243,6 +282,10 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     setSheet({ kind: 'remove', which, address, error: null, busy: false });
   };
   const openEmail = () => {
+    if (asksSignIn) {
+      void leave();
+      return;
+    }
     setStatus(null);
     setSheet({ kind: 'email', step: 'address', address: '', code: '', error: null, busy: false });
   };
@@ -254,6 +297,15 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
     </p>
   );
   const off = working !== null;
+  /** A Sign in again label: with the spinner once the press is on its way to /signin. */
+  const leaveLabel = (label: string) =>
+    working === 'leaving' ? (
+      <>
+        {spin} {label}
+      </>
+    ) : (
+      label
+    );
 
   return (
     <>
@@ -313,11 +365,13 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
             {!view.google && view.providers.google && view.googleFromCalendar === 'off' ? (
               <>
                 <FormRow label={t('googleFromCalendar')} hint={t('calendarOffHint')} />
-                <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'turnOn' || undefined} onClick={() => void turnOn()}>
+                <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'turnOn' || (asksSignIn && working === 'leaving') || undefined} onClick={() => void turnOn()}>
                   {working === 'turnOn' ? (
                     <>
                       {spin} {t('turningOn')}
                     </>
+                  ) : asksSignIn ? (
+                    leaveLabel(t('turnOnSignInAgain'))
                   ) : (
                     t('turnOn')
                   )}
@@ -325,11 +379,13 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
               </>
             ) : null}
             {!view.google && view.providers.google && view.googleFromCalendar !== 'on' ? (
-              <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'google' || undefined} onClick={() => void addGoogle()}>
+              <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'google' || (asksSignIn && working === 'leaving') || undefined} onClick={() => void addGoogle()}>
                 {working === 'google' ? (
                   <>
                     {spin} {t('googlePreparing')}
                   </>
+                ) : asksSignIn ? (
+                  leaveLabel(t('googleSignInAgain'))
                 ) : (
                   t('googleAdd')
                 )}
@@ -346,11 +402,12 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
             ) : view.email ? (
               <ButtonRow label={t('email')} value={view.email.address} valueDir="ltr" disabled={off} onClick={() => openRemove('email', view.email?.address ?? null)} />
             ) : view.providers.email ? (
-              <button type="button" className="ch-form-row ch-action-row" disabled={off} onClick={openEmail}>
-                {t('emailAdd')}
+              <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={(asksSignIn && working === 'leaving') || undefined} onClick={openEmail}>
+                {asksSignIn ? leaveLabel(t('emailSignInAgain')) : t('emailAdd')}
               </button>
             ) : null}
           </FormCard>
+          {stale ? <Notice>{staleLine}</Notice> : null}
           <FormCard>
             {view.session ? (
               <button type="button" className="ch-form-row ch-action-row" disabled={off} aria-busy={working === 'signOut' || undefined} onClick={() => void signOut()}>
@@ -421,10 +478,10 @@ export default function SignInMethods({ userId, onSheet }: { userId: number; onS
           </ul>
           <p className="ch-sheet-sub">{t('join.closes')}</p>
           <div className="ch-sheet-stack">
-            {sheet.error ? <Notice tone="error">{t(JOIN_ERROR_KEY[sheet.error])}</Notice> : null}
+            {sheet.error ? <Notice tone="error">{sheet.error === 'stale' ? staleLine : t(JOIN_ERROR_KEY[sheet.error])}</Notice> : null}
             {sheet.busy ? workingLine(t('join.joining')) : null}
-            <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={sheet.busy || sheet.error === 'expired' || sheet.error === 'refused'} onClick={() => void join(sheet)}>
-              {t('join.join')}
+            <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={sheet.busy || working === 'leaving' || sheet.error === 'expired' || sheet.error === 'refused'} onClick={() => (asksSignIn ? void leave() : void join(sheet))}>
+              {asksSignIn ? t('joinSignInAgain') : t('join.join')}
             </button>
             <button type="button" className="ch-btn" disabled={sheet.busy} onClick={() => setSheet(null)}>
               {t('cancel')}

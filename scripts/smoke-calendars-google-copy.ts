@@ -201,7 +201,7 @@ async function main() {
 
   await check('an error under the row: the code\'s message, in the language, as an alert', async () => {
     for (const l of LOCALES) {
-      for (const code of ['failed', 'upgrade', 'notFound', 'openFailed'] as const) {
+      for (const code of ['failed', 'upgrade', 'notFound', 'openFailed', 'stale'] as const) {
         const html = rowHtml(l, { error: code });
         assert(textOf(html).includes(gc(l).errors[code]) && /role="alert"/.test(html), `${l} ${code}: ${textOf(html)}`);
       }
@@ -341,6 +341,11 @@ async function main() {
     }
     answer = () => 'throw';
     assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'failed' }), 'network');
+    // A sign-in over an hour old (the consent start in a browser, 6c-1 follow-ups): matched by the body's error, never by 403 alone
+    answer = () => ({ status: 403, body: { ok: false, error: 'stale-sign-in' } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'stale' }), 'a stale sign-in');
+    answer = () => ({ status: 403, body: { ok: false, error: 'suspended' } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'failed' }), 'another 403 is a plain failure');
   });
 
   await check('client: stopCopy DELETEs with the choice; recreateCopy POSTs the link; the calendar delete carries googleCopy only when asked', async () => {

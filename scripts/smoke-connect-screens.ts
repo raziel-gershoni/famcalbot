@@ -19,6 +19,9 @@
 //    buttons per b=), the incomplete card; Finish here (web sign-up spec §3.10): the loader while the page asks
 //    POST /api/oauth/claim { token, peek: true } (the id in the body, never a URL), Sign in to finish when this browser is not the account and there is no chat button, Finish
 //    here first when it is (the chat buttons outlined under it), its press and each refusal.
+//  - R8 / F8 (6c-1 follow-ups): a sign-in over an hour old. /refresh-token (oauth/start answers 403 stale-sign-in) and
+//    /oauth-complete (the check says stale, or Finish here is refused 403 stale-sign-in) show a card or notice with
+//    Sign in again, whose press signs out and opens /signin; no retry, no plain /signin link; other 403s keep their words.
 //  - K1 the pages' own style sheet passes the kit's lint and the sources hold no old look and no inline copy.
 //
 // The pages run as Next runs them (the server page as a function, then react-dom/server), with Prisma, Redis, error
@@ -574,6 +577,76 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+  await check('R8 a sign-in over an hour old (oauth/start answers 403 { error: \'stale-sign-in\' }, matched by the body and never by the status alone): a notice with the title, the reason and Sign in again (no Try again, no Continue); its press signs out (POST /api/auth/signout) and opens /signin in the page\'s language; any other 403 still says what the gate says; a later start that goes stale says it too', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      const t = messages[l].refreshToken;
+      const gate = messages[l].pageGate;
+      const signin = l === 'en' ? '/signin' : `/${l}/signin`;
+      seed({ talLanguage: l, noaLanguage: l });
+      const client = pageClient((await refreshPage({ user_id: String(TAL_TG) })).element as Row);
+      const b = freshBrowser({ telegram: null });
+      const assigned: string[] = [];
+      fakeWindow.location = { href: 'https://app.example.test/refresh-token', hash: '', assign: (u: string) => void assigned.push(u) };
+      b.answer['/api/oauth/start'] = [() => json({ ok: false, error: 'stale-sign-in' }, 403)];
+      const { value: m, logs } = await quietly(async () => {
+        const mounted = mount(inProvider(l, ['refreshToken'], h(client.type, client.props)));
+        await settle();
+        return mounted;
+      });
+      const alert = all(m).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
+      if (!alert || !textOf(alert).includes(t.signInAgainTitle) || !textOf(alert).includes(t.signInAgainBody)) problems.push(`${l}: the notice ${alert ? textOf(alert) : 'none'}`);
+      if (alert && textOf(alert).includes(gate.browserBody)) problems.push(`${l}: the gate's WhatsApp lines on a stale sign-in`);
+      if (connectButton(m, t) || buttonNamed(m, t.retry)) problems.push(`${l}: Continue or Try again beside the stale notice`);
+      if (!logs.some((x) => x.startsWith('[refresh-token]'))) problems.push(`${l}: nothing logged`);
+      const again = buttonNamed(m, t.signInAgainButton);
+      if (!again) problems.push(`${l}: no ${t.signInAgainButton}`);
+      else {
+        b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+        b.calls.length = 0;
+        m.click(again as FakeElement);
+        await settle();
+        const out = b.calls.filter((c) => c.path === '/api/auth/signout');
+        if (out.length !== 1 || out[0].method !== 'POST' || show(assigned) !== show([signin])) problems.push(`${l}: the press ${show(b.calls.map((c) => c.path))} ${show(assigned)}`);
+      }
+      m.unmount();
+      leaveBrowser();
+
+      // A plain 403 (a refused credential) is not a stale sign-in
+      seed({ talLanguage: l });
+      const client2 = pageClient((await refreshPage({ user_id: String(TAL_TG) })).element as Row);
+      const b2 = freshBrowser({ telegram: null });
+      b2.answer['/api/oauth/start'] = [() => json({ error: 'Forbidden' }, 403)];
+      const { value: m2 } = await quietly(async () => {
+        const mounted = mount(inProvider(l, ['refreshToken'], h(client2.type, client2.props)));
+        await settle();
+        return mounted;
+      });
+      const plain = all(m2).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
+      if (!plain || !textOf(plain).includes(gate.browserTitle) || buttonNamed(m2, t.signInAgainButton)) problems.push(`${l}: a plain 403 ${plain ? textOf(plain) : 'none'}`);
+      m2.unmount();
+      leaveBrowser();
+
+      // The hour runs out while the page is open: the start that follows Continue is refused, and the page says so
+      seed({ talLanguage: l });
+      const client3 = pageClient((await refreshPage({ user_id: String(TAL_TG) })).element as Row);
+      const b3 = freshBrowser({ telegram: null });
+      const { value: m3 } = await quietly(async () => {
+        const mounted = mount(inProvider(l, ['refreshToken'], h(client3.type, client3.props)));
+        await settle();
+        b3.answer['/api/oauth/start'] = [() => json({ ok: false, error: 'stale-sign-in' }, 403)];
+        mounted.click(connectButton(mounted, t) as FakeElement);
+        await settle();
+        return mounted;
+      });
+      const late = all(m3).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
+      if (!late || !textOf(late).includes(t.signInAgainTitle) || !buttonNamed(m3, t.signInAgainButton)) problems.push(`${l}: a later start ${late ? textOf(late) : 'none'}`);
+      m3.unmount();
+      leaveBrowser();
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   await check('R3 after Continue: Google opens (Telegram\'s openLink inside Telegram, a new tab in a browser on the WhatsApp session, with no initData header), the waiting notice says where to finish and offers Check again, which asks check-token-refresh at once (the header credential and since) while the notice says it is checking (the page and the button stay, so focus does); the 2 s poll runs for 3 minutes and then the notice says it is still waiting and the poll stops; Continue again starts a new wait', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
@@ -1017,12 +1090,12 @@ async function main() {
   });
 
   /** The finish page in a plain browser whose check (POST /api/oauth/claim, peek) answers `mine` (or hangs until release), with a location that can be left. */
-  async function mountHere(l: Locale, hash: string, mine: boolean | 'hang') {
+  async function mountHere(l: Locale, hash: string, mine: boolean | 'hang' | Row) {
     const end = await completePage({ locale: l });
     const client = pageClient(end.element as Row);
     const b = freshBrowser({ telegram: null });
     let release: (r: Response) => void = () => undefined;
-    b.answer['/api/oauth/claim'] = [mine === 'hang' ? () => new Promise<Response>((resolve) => void (release = resolve)) : () => json({ mine })];
+    b.answer['/api/oauth/claim'] = [mine === 'hang' ? () => new Promise<Response>((resolve) => void (release = resolve)) : typeof mine === 'object' ? () => json(mine) : () => json({ mine })];
     const assigned: string[] = [];
     fakeWindow.location = { href: `https://app.example.test/oauth-complete?locale=${l}${hash}`, hash, origin: 'https://app.example.test', assign: (u: string) => void assigned.push(u) };
     const m = mount(inProvider(l, ['oauthComplete'], h(client.type, client.props)));
@@ -1126,6 +1199,61 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
+
+  await check('F8 a sign-in over an hour old: the check says { mine: false, stale: true } and there is no chat button: the stale card (title, reason, Sign in again as a button, no plain /signin link) whose press signs out and opens /signin; with a chat button the chat buttons show and no sign-in card; Finish here answered 403 stale-sign-in says so with Sign in again, takes Finish here away and keeps the chat buttons', async () => {
+    const problems: string[] = [];
+    for (const l of LOCALES) {
+      const t = messages[l].oauthComplete;
+      const signin = l === 'en' ? '/signin' : `/${l}/signin`;
+      const { m, b, assigned } = await mountHere(l, `#p=${PENDING}&b=`, { mine: false, stale: true });
+      const h1 = all(m).find((e: Row) => e.localName === 'h1');
+      if (!h1 || textOf(h1) !== t.staleTitle || !all(m).some((e: Row) => textOf(e) === t.staleBody)) problems.push(`${l}: the card ${h1 ? textOf(h1) : 'no h1'}`);
+      if (all(m).some((e: Row) => e.localName === 'a')) problems.push(`${l}: a link on the stale card (a plain /signin link goes back to the calendar while the cookie is there)`);
+      const again = buttonNamed(m, t.staleButton);
+      if (!again) problems.push(`${l}: no ${t.staleButton}`);
+      else {
+        b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+        m.click(again as FakeElement);
+        await settle();
+        if (!b.calls.some((c) => c.path === '/api/auth/signout' && c.method === 'POST') || show(assigned) !== show([signin])) problems.push(`${l}: the press ${show(b.calls.map((c) => c.path))} ${show(assigned)}`);
+      }
+      m.unmount();
+      leaveBrowser();
+
+      const chat = await mountHere(l, `#p=${PENDING}&b=tg%2Cwa`, { mine: false, stale: true });
+      const links = all(chat.m).filter((e: Row) => e.localName === 'a') as Row[];
+      if (links.length !== 2 || buttonNamed(chat.m, t.staleButton) || buttonNamed(chat.m, t.hereButton) || all(chat.m).some((e: Row) => textOf(e) === t.staleTitle)) problems.push(`${l}: with a chat button ${show(controlsOf(chat.m).map((c) => textOf(c)))}`);
+      chat.m.unmount();
+      leaveBrowser();
+
+      const r = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+      r.b.answer['/api/oauth/claim'] = [() => json({ ok: false, error: 'stale-sign-in' }, 403)];
+      r.m.click(buttonNamed(r.m, t.hereButton) as FakeElement);
+      await settle();
+      const notice = errorNotice(r.m);
+      const telegram = all(r.m).some((e: Row) => e.localName === 'a' && String(e.getAttribute('href')).startsWith('https://t.me/'));
+      if (!notice || !textOf(notice).includes(t.hereStale) || !buttonNamed(r.m, t.staleButton) || buttonNamed(r.m, t.hereButton) || !telegram || r.assigned.length) problems.push(`${l}: Finish here refused ${notice ? textOf(notice) : 'no notice'}`);
+      r.b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+      const press = buttonNamed(r.m, t.staleButton);
+      if (press) {
+        r.m.click(press as FakeElement);
+        await settle();
+        if (show(r.assigned) !== show([signin])) problems.push(`${l}: the notice's press ${show(r.assigned)}`);
+      }
+      r.m.unmount();
+      leaveBrowser();
+
+      // Another 403 is not a stale sign-in: it keeps its own words
+      const o = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+      o.b.answer['/api/oauth/claim'] = [() => json({ ok: false, error: 'not_owner' }, 403)];
+      o.m.click(buttonNamed(o.m, t.hereButton) as FakeElement);
+      await settle();
+      if (textOf(errorNotice(o.m) ?? {}) !== t.hereNotOwner || buttonNamed(o.m, t.staleButton)) problems.push(`${l}: not_owner ${textOf(errorNotice(o.m) ?? {})}`);
+      o.m.unmount();
+      leaveBrowser();
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
 
   // ---- K: the pages' own style sheet and sources ----
 

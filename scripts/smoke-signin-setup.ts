@@ -128,13 +128,13 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('S3 web sign-up\'s rules are written down: the CLAUDE.md sign-in rule names the one creation step, the address check on a proved address, Join after a proved way with its one rule set, and Finish here; the pause rule names the web sign-up\'s sends and the no-chat skip line; the README has a Web sign-up section and no longer says the web makes no accounts', () => {
+  await check('S3 web sign-up\'s rules are written down: the CLAUDE.md sign-in rule names the one creation step, the address check on a proved address, Join after a proved way with its one rule set, Finish here, and the sign-in from the last hour that adding a way needs; the pause rule names the web sign-up\'s sends and the no-chat skip line; the README has a Web sign-up section and no longer says the web makes no accounts', () => {
     const lines = read('CLAUDE.md').split('\n');
     const signIn = lines.find((l) => l.startsWith('- Every web sign-in')) ?? '';
     const pause = lines.find((l) => l.startsWith('- A send to a person that no one asked for')) ?? '';
     const readme = read('README.md');
     const problems: string[] = [];
-    for (const word of ['`createAccount`', 'smoke-account-create.ts', '`findWayByAddress`', '`offerJoin`', '`mergePlan`', '`POST /api/oauth/claim`', 'Turnstile']) if (!signIn.includes(word)) problems.push(`the sign-in rule does not name ${word}`);
+    for (const word of ['`createAccount`', 'smoke-account-create.ts', '`findWayByAddress`', '`offerJoin`', '`mergePlan`', '`POST /api/oauth/claim`', 'Turnstile', '`refuseStaleSignIn`', '`recentlyProved`', 'src/lib/recent-sign-in.ts', 'smoke-recent-sign-in.ts']) if (!signIn.includes(word)) problems.push(`the sign-in rule does not name ${word}`);
     for (const word of ['`sendNoticeEmail`', 'telegram-connect.ts', 'skipped user <id>: no Telegram', '[google-sync] user <id>: no chat; no reconnect message']) if (!pause.includes(word)) problems.push(`the pause rule does not name ${word}`);
     if (!/^### Web sign-up$/m.test(readme)) problems.push('README has no "### Web sign-up" section');
     if (/The web makes no accounts/.test(readme)) problems.push('README still says the web makes no accounts');

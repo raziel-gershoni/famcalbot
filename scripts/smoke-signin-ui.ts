@@ -595,6 +595,132 @@ async function main() {
     }
   });
 
+  await check('U15 a sign-in that is over an hour old (the route answers 403 stale-sign-in, matched by body.error and never by status alone): each add button turns into its Sign in again label with the note, and its next press signs out then opens /signin; Add email closes its sheet; Join keeps its sheet with its own label; a WhatsApp session shows the WhatsApp hint instead; a plain 403 and the Mini App show none of it', async () => {
+    const gateWords = (l: Locale) => (messages[l].pageGate as Record<string, string>).browserBody;
+    const stale = () => json({ ok: false, error: 'stale-sign-in' }, 403);
+    const JOIN_ID = 'Sm9pbi1xdWVzdGlvbi0x0w';
+    const summary = { name: 'Dana', createdAt: '2026-11-03T09:00:00.000Z', plan: { calendars: 2, events: 5, ways: ['email'], google: 'stays', partner: 'ends', plan: 'moves' } };
+    for (const l of LOCALES) {
+      const t = w(l);
+      const signin = l === 'en' ? '/signin' : `/${l}/signin`;
+      const leaves = async (o: { m: Mounted }, label: string) => {
+        calls.length = 0;
+        routes['POST /api/auth/signout'] = () => json({ ok: true });
+        o.m.click(button(o.m, label) as FakeElement);
+        await settle();
+        const out = calls.findIndex((c) => c.url.split('?')[0] === '/api/auth/signout');
+        assert(out === 0 && calls.length === 1 && show(assigned) === show([signin]), `${l}: ${label}: the press ${show(calls.map((c) => c.url))} ${show(assigned)}`);
+      };
+
+      // Add Google, Add email and Turn on all learn of it from one press and turn into their labels
+      const g = open(l, VIEW({ googleFromCalendar: 'off', session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/auth/google/add-link'] = stale;
+        g.m.click(button(g.m, t.googleAdd) as FakeElement);
+        await settle();
+        assert(!button(g.m, t.googleAdd) && button(g.m, t.googleSignInAgain) && button(g.m, t.emailSignInAgain) && button(g.m, t.turnOnSignInAgain), `${l}: the labels ${show(buttons(g.m).map(flat))}`);
+        assert(!button(g.m, t.emailAdd) && !button(g.m, t.turnOn), `${l}: a plain label is left ${show(buttons(g.m).map(flat))}`);
+        assert(statusLine(g.m).includes(t.staleNote) && alertsIn(g.m.container).length === 0 && !dialog(g.m), `${l}: the note ${show(statusLine(g.m))}`);
+        assert(!page(g.m).includes(gateWords(l)), `${l}: the WhatsApp hint on a Google session`);
+        await leaves(g, t.turnOnSignInAgain);
+      } finally {
+        closeAll(g);
+      }
+
+      // Add email: the stale answer to the code request closes the sheet and the row turns into its label
+      const e = open(l, VIEW({ session: 'email' }));
+      await settle();
+      try {
+        e.m.click(button(e.m, t.emailAdd) as FakeElement);
+        e.m.input(inputOf(e.m), ADDRESS);
+        routes['POST /api/signin-methods/email/add'] = stale;
+        e.m.submit(formOf(e.m));
+        await settle();
+        assert(!dialog(e.m) && button(e.m, t.emailSignInAgain) && !button(e.m, t.emailAdd) && statusLine(e.m).includes(t.staleNote), `${l}: add email ${page(e.m)}`);
+        await leaves(e, t.emailSignInAgain);
+      } finally {
+        closeAll(e);
+      }
+      // ... and so does the stale answer to the right code, when the hour ran out between the two
+      const c = open(l, VIEW({ session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/signin-methods/email/add'] = () => json({ ok: true });
+        c.m.click(button(c.m, t.emailAdd) as FakeElement);
+        c.m.input(inputOf(c.m), ADDRESS);
+        c.m.submit(formOf(c.m));
+        await settle();
+        c.m.input(inputOf(c.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = stale;
+        c.m.submit(formOf(c.m));
+        await settle();
+        assert(!dialog(c.m) && button(c.m, t.emailSignInAgain) && statusLine(c.m).includes(t.staleNote), `${l}: confirm ${page(c.m)}`);
+      } finally {
+        closeAll(c);
+      }
+
+      // Join keeps its question open, with its own label
+      const j = open(l, VIEW({ session: 'email' }));
+      await settle();
+      try {
+        routes['POST /api/signin-methods/email/add'] = () => json({ ok: true });
+        j.m.click(button(j.m, t.emailAdd) as FakeElement);
+        j.m.input(inputOf(j.m), ADDRESS);
+        j.m.submit(formOf(j.m));
+        await settle();
+        j.m.input(inputOf(j.m), '123456');
+        routes['POST /api/signin-methods/email/confirm'] = () => json({ ok: false, error: 'join', joinId: JOIN_ID, summary }, 409);
+        j.m.submit(formOf(j.m));
+        await settle();
+        routes['POST /api/signin-methods/join'] = stale;
+        j.m.click(button(j.m, say(l, 'join.join')) as FakeElement);
+        await settle();
+        assert(dialog(j.m) && !button(j.m, say(l, 'join.join')) && button(j.m, t.joinSignInAgain) && alertsIn(dialog(j.m) as FakeElement).includes(t.staleNote), `${l}: join ${show(buttons(j.m).map(flat))}`);
+        await leaves(j, t.joinSignInAgain);
+      } finally {
+        closeAll(j);
+      }
+
+      // A WhatsApp session can only ask for a new link: the hint, never the sign-in label
+      const wa = open(l, VIEW({ session: 'wa', googleFromCalendar: 'off' }));
+      await settle();
+      try {
+        routes['POST /api/auth/google/add-link'] = stale;
+        wa.m.click(button(wa.m, t.googleAdd) as FakeElement);
+        await settle();
+        assert(statusLine(wa.m).includes(gateWords(l)) && !page(wa.m).includes(t.staleNote), `${l}: the WhatsApp hint ${show(statusLine(wa.m))}`);
+        assert(button(wa.m, t.googleAdd) && button(wa.m, t.emailAdd) && button(wa.m, t.turnOn) && !buttons(wa.m).some((b) => [t.googleSignInAgain, t.emailSignInAgain, t.turnOnSignInAgain].includes(flat(b))), `${l}: wa labels ${show(buttons(wa.m).map(flat))}`);
+      } finally {
+        closeAll(wa);
+      }
+
+      // Another 403 (suspended) is the group's plain failure, never the stale labels
+      const plain = open(l, VIEW({ session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/auth/google/add-link'] = () => json({ ok: false, error: 'suspended' }, 403);
+        plain.m.click(button(plain.m, t.googleAdd) as FakeElement);
+        await settle();
+        assert(alertsIn(plain.m.container).includes(t.failed) && button(plain.m, t.googleAdd) && !button(plain.m, t.googleSignInAgain) && !statusLine(plain.m).includes(t.staleNote), `${l}: a plain 403 ${page(plain.m)}`);
+      } finally {
+        closeAll(plain);
+      }
+
+      // Inside the Mini App the server never asks (initData wins); a stale answer there is no reason to sign in again
+      const mini = open(l, VIEW(), { telegram: true });
+      await settle();
+      try {
+        routes['POST /api/auth/google/add-link'] = stale;
+        mini.m.click(button(mini.m, t.googleAdd) as FakeElement);
+        await settle();
+        assert(button(mini.m, t.googleAdd) && !button(mini.m, t.googleSignInAgain) && !page(mini.m).includes(t.staleNote) && alertsIn(mini.m.container).includes(t.failed), `${l}: the Mini App ${page(mini.m)}`);
+      } finally {
+        closeAll(mini);
+      }
+    }
+  });
+
   await check('U9 no log line holds an address, a code or the link\'s token', () => {
     const leaked = appLogs.filter((line) => line.includes(ADDRESS) || /\b123456\b/.test(line) || line.includes(LINK_TOKEN));
     assert(appLogs.length > 0 && leaked.length === 0, `${appLogs.length} lines, leaked ${show(leaked)}`);

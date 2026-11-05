@@ -919,6 +919,11 @@
       "turnedOn": "On. This Google account now signs you in on the web.",
       "turnOnShared": "This Google account is connected to another FamCal account too, so it can’t sign you in on its own. Use Add Google instead.",
       "turnOnReconnect": "Your Google Calendar connection has expired. Reconnect Google, then turn this on.",
+      "googleSignInAgain": "Sign in again to add Google",
+      "emailSignInAgain": "Sign in again to add an email",
+      "turnOnSignInAgain": "Sign in again to turn it on",
+      "joinSignInAgain": "Sign in again to join the accounts",
+      "staleNote": "For your safety, adding a way to sign in needs a sign-in from the last hour.",
       "googleAdd": "Add Google",
       "googlePreparing": "Preparing…",
       "googleSheetTitle": "Add Google sign-in",
@@ -1151,7 +1156,10 @@
     "waitingWhatsApp": "Finish signing in to Google in the new tab, then tap “Finish in WhatsApp” and send the message. This page moves on by itself once you’re done.",
     "retry": "Try again",
     "checkAgain": "Check again",
-    "stillWaiting": "Still waiting? If you finished in Google, tap Check again."
+    "stillWaiting": "Still waiting? If you finished in Google, tap Check again.",
+    "signInAgainTitle": "Sign in again first",
+    "signInAgainBody": "For your safety, connecting Google Calendar in a browser needs a sign-in from the last hour.",
+    "signInAgainButton": "Sign in again"
   },
   "pageGate": {
     "loading": "Loading…",
@@ -1188,9 +1196,13 @@
     "hereSignedOut": "Your sign-in on this browser has ended. Sign in again and connect Google Calendar from Settings.",
     "hereFailed": "Something went wrong while finishing. Check Google Calendar in FamCal: if it isn't connected, connect it again.",
     "hereNetwork": "Couldn't reach FamCal. Check your connection and try again.",
+    "hereStale": "For your safety, connecting Google Calendar in a browser needs a sign-in from the last hour.",
     "signInTitle": "Sign in to finish",
     "signInBody": "This browser isn't signed in to the FamCal account that started this. Sign in, then connect Google Calendar again.",
-    "signInButton": "Sign in"
+    "signInButton": "Sign in",
+    "staleTitle": "Sign in again first",
+    "staleBody": "For your safety, connecting Google Calendar in a browser needs a sign-in from the last hour.",
+    "staleButton": "Sign in again"
   },
   "errors": {
     "unauthorized": "You are not authorized to use this bot",
@@ -2945,7 +2957,8 @@
       "load": "Couldn't load the Google copies. Reopen the page to try again.",
       "upgrade": "Copying to Google comes with the Pro plan.",
       "notFound": "This calendar isn't yours to copy any more.",
-      "openFailed": "Google didn't open. Try again."
+      "openFailed": "Google didn't open. Try again.",
+      "stale": "For your safety, sign in again to start copying to Google."
     }
   },
   "pair": {

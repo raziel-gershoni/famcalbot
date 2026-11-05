@@ -16,6 +16,11 @@
 //   connection is used up, or this browser's sign-in ended); a request that never reached the server keeps it.
 // - Not that account and no chat button (an account made on famcal.bot, in a browser not signed in as it): Sign in to
 //   finish, with Sign in.
+// - This browser is that account but its sign-in is over an hour old (6c-1 follow-ups; the check answers stale: true, and
+//   Finish here is refused 403 stale-sign-in with the connection kept for the chat buttons): with no chat button, the
+//   stale card, "Sign in again first" with a Sign in again button (a plain /signin link would send a browser that still
+//   holds its cookie straight back to its calendar, so the press signs out first: sign-in-again.ts); a refused Finish here
+//   says so in its notice with the same action and takes Finish here away.
 // - A fragment that is missing or bad: the kit's state card, "This link is incomplete".
 //
 // The pendingId, the owner's first name and the buttons are in the URL fragment (finishPageUrl), which only this
@@ -30,6 +35,7 @@ import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { Notice } from '@/components/app-ui/Notice';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { readJsonBody } from '@/src/lib/read-json';
+import { signInAgain } from '@/src/lib/sign-in-again';
 import { signInHref } from '@/src/site/signin';
 import { CONNECT_CSS } from '../connect-css';
 import { ConnectHero, ConnectLoader } from '../connect-ui';
@@ -124,17 +130,21 @@ const subscribeToHash = (onChange: () => void) => {
 };
 
 /** What a refused Finish here says: a key of oauthComplete. */
-type Problem = 'hereNotOwner' | 'hereExpired' | 'hereSignedOut' | 'hereFailed' | 'hereNetwork';
-const REFUSALS: Record<string, Problem> = { not_owner: 'hereNotOwner', expired: 'hereExpired', 'signed-out': 'hereSignedOut' };
+type Problem = 'hereNotOwner' | 'hereExpired' | 'hereSignedOut' | 'hereFailed' | 'hereNetwork' | 'hereStale';
+const REFUSALS: Record<string, Problem> = { not_owner: 'hereNotOwner', expired: 'hereExpired', 'signed-out': 'hereSignedOut', 'stale-sign-in': 'hereStale' };
 
-/** Whether this browser's session is the account that started the consent; null while the page asks (no id: false). */
-function useMine(pendingId: string | null): boolean | null {
-  const [answer, setAnswer] = useState<{ id: string; mine: boolean } | null>(null);
+/**
+ * What this browser's session is to the consent: the account that started it (`mine`), or its own account with a sign-in
+ * over an hour old (`stale`, never with mine); null while the page asks (no id: neither).
+ */
+function useMine(pendingId: string | null): { mine: boolean; stale: boolean } | null {
+  const [answer, setAnswer] = useState<{ id: string; mine: boolean; stale: boolean } | null>(null);
   useEffect(() => {
     if (!pendingId) return;
     let live = true;
     void (async () => {
       let mine = false;
+      let stale = false;
       try {
         const res = await fetch('/api/oauth/claim', {
           method: 'POST',
@@ -146,18 +156,19 @@ function useMine(pendingId: string | null): boolean | null {
         const body = await readJsonBody(res, `${TAG} the Finish here check`);
         if (!res.ok) console.warn(`${TAG} the Finish here check answered ${res.status}`);
         mine = res.ok && body?.mine === true;
+        stale = res.ok && !mine && body?.stale === true;
       } catch (error) {
         // The chat buttons still work: the page shows them as if this browser were not the account
         console.error(`${TAG} the Finish here check failed:`, error instanceof Error ? error.name : typeof error);
       }
-      if (live) setAnswer({ id: pendingId, mine });
+      if (live) setAnswer({ id: pendingId, mine, stale });
     })();
     return () => {
       live = false;
     };
   }, [pendingId]);
-  if (!pendingId) return false;
-  return answer?.id === pendingId ? answer.mine : null;
+  if (!pendingId) return { mine: false, stale: false };
+  return answer?.id === pendingId ? { mine: answer.mine, stale: answer.stale } : null;
 }
 
 export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthCompleteClientProps) {
@@ -167,13 +178,14 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
   // The fragment exists only in the browser; the server render has none (null)
   const hash = useSyncExternalStore(subscribeToHash, () => window.location.hash, () => null);
   const params = hash === null ? null : parseFinishFragment(hash);
-  const mine = useMine(params?.pendingId ?? null);
+  const seen = useMine(params?.pendingId ?? null);
+  const mine = seen === null ? null : seen.mine;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   // A refused Finish here: the connection is used up, or this browser's sign-in ended
   const [hereGone, setHereGone] = useState(false);
 
-  if (hash === null || (params && mine === null)) {
+  if (hash === null || (params && seen === null)) {
     return (
       <AppScreen ground="grouped">
         <ConnectLoader label={gate('loading')} />
@@ -191,6 +203,15 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
     );
   }
   if (!mine && !chat) {
+    // This browser's own account, signed in over an hour ago: the cookie is still here, so /signin would only send it back
+    // to its calendar; the press signs out first
+    if (seen?.stale) {
+      return (
+        <AppScreen>
+          <StateCard tone="crash" title={t('staleTitle')} body={t('staleBody')} action={{ label: t('staleButton'), onClick: () => void signInAgain(locale) }} />
+        </AppScreen>
+      );
+    }
     return (
       <AppScreen>
         <StateCard tone="crash" title={t('signInTitle')} body={t('signInBody')} action={{ label: t('signInButton'), href: signInHref(locale) }} />
@@ -247,7 +268,11 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
       <div className="ch-form-page ch-form-page-grouped">
         <ConnectHero icon={<CircleCheck aria-hidden="true" />} title={t('title')} lead={t('subtitle')} />
         <Notice>{params.ownerName ? t('owner', { name: params.ownerName }) : t('ownerUnnamed')}</Notice>
-        {problem ? <Notice tone="error">{t(problem)}</Notice> : null}
+        {problem ? (
+          <Notice tone="error" action={problem === 'hereStale' ? { label: t('staleButton'), onClick: () => void signInAgain(locale) } : undefined}>
+            {t(problem)}
+          </Notice>
+        ) : null}
         {here ? (
           <div className="ch-connect-actions">
             <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={busy} aria-busy={busy || undefined} onClick={finishHere}>

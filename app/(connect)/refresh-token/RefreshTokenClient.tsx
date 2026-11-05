@@ -8,6 +8,9 @@
 // - On mount POST /api/oauth/start (the credential: initData in the body, or the WhatsApp session cookie) makes the
 //   Google URL; Continue is busy ("Getting Google ready") until it arrives. A start that fails says why in an error
 //   notice (startErrorLines); a server or network failure can be tried again from there, a refused credential cannot.
+//   A browser's sign-in over an hour old is refused too (403 { error: 'stale-sign-in' }, 6c-1 follow-ups; the Mini App is
+//   never asked): the notice says why and offers Sign in again, which signs this browser out and opens /signin
+//   (sign-in-again.ts). It is shown whenever a start says it, also one made after a Continue.
 // - Continue stores famcalbot_oauth_pending and opens Google: Telegram's openLink in the Mini App, a new tab elsewhere.
 //   A new URL is made at once (each consent uses one up), and one left 9 minutes is replaced (URL_FRESH_MS).
 // - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
@@ -25,6 +28,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { CalendarSync } from 'lucide-react';
 import { readInitData } from '@/src/lib/read-init-data';
+import { signInAgain } from '@/src/lib/sign-in-again';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { Notice } from '@/components/app-ui/Notice';
@@ -51,6 +55,10 @@ interface Translations {
   stillWaiting: string;
   /** The error notice's action: ask oauth/start again */
   retry: string;
+  /** A sign-in over an hour old: the notice's title and reason, and its action (sign in again, no retry) */
+  signInAgainTitle: string;
+  signInAgainBody: string;
+  signInAgainButton: string;
   /** The waiting notice's action: one check now */
   checkAgain: string;
   /** The header's back (ui.back) */
@@ -91,6 +99,9 @@ const URL_FRESH_MS = 9 * 60_000;
 
 /** A refused credential: trying again can't help, the page has to be opened again from the chat. */
 const refusedCredential = (status: number) => status === 401 || status === 403 || status === 404;
+
+/** oauth/start refused the browser's sign-in as over an hour old: the body's error says so, a 403 alone does not. */
+export const isStaleSignIn = (status: number, data: unknown): boolean => status === 403 && (data as { error?: unknown } | null)?.error === 'stale-sign-in';
 
 /**
  * What the page says when oauth/start gives no Google URL. With no credential it says
@@ -139,7 +150,9 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   const [start, setStart] = useState<{ oauthUrl: string; clockOffset: number; preparedAt: number } | null>(null);
   const oauthUrl = start?.oauthUrl ?? null;
   // The page's own first start failed: what to say, and whether trying again can help
-  const [startError, setStartError] = useState<{ lines: string[]; canRetry: boolean } | null>(null);
+  const [startError, setStartError] = useState<{ lines: string[]; canRetry: boolean; signInAgain?: boolean } | null>(null);
+  // Sign in again is on its way to /signin
+  const [leaving, setLeaving] = useState(false);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   // The 3-minute poll ended without the token
@@ -161,9 +174,13 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     setStart(null);
     setRetry(false);
     const initData = readInitData();
-    const failed = (lines: string[], canRetry: boolean, why: string) => {
+    const failed = (lines: string[], canRetry: boolean, why: string, stale = false) => {
       if (!mounted.current || run !== prepared.current) return;
-      if (first) {
+      if (stale) {
+        // Trying again can't help, wherever it was asked: the sign-in has to be made again
+        console.warn(`[refresh-token] starting the Google sign-in was refused (${why}); the sign-in is not recent`);
+        setStartError({ lines, canRetry: false, signInAgain: true });
+      } else if (first) {
         console.warn(`[refresh-token] starting the Google sign-in failed (${why})`);
         setStartError({ lines, canRetry });
       } else {
@@ -183,6 +200,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
       const attempt = response.ok ? attemptFromStart(data, Date.now()) : null;
       if (attempt) {
         setStart(attempt);
+      } else if (isStaleSignIn(response.status, data)) {
+        failed([t.signInAgainTitle, t.signInAgainBody], false, `HTTP ${response.status}`, true);
       } else {
         failed(startErrorLines(response.status, initData, t), !refusedCredential(response.status), `HTTP ${response.status}`);
       }
@@ -204,6 +223,15 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   const retryStart = () => {
     setStartError(null);
     void prepare(true);
+  };
+
+  // The stale notice's action: sign out, then /signin; a failure (logged there) lets it be pressed again
+  const leave = () => {
+    if (leaving) return;
+    setLeaving(true);
+    void signInAgain(locale).then((left) => {
+      if (!left && mounted.current) setLeaving(false);
+    });
   };
 
   // A URL nobody tapped is replaced before its state ends (a backgrounded page's timer runs on return)
@@ -358,7 +386,10 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
         </ol>
         <div className="ch-connect-actions">
           {startError ? (
-            <Notice tone="error" action={startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}>
+            <Notice
+              tone="error"
+              action={startError.signInAgain ? { label: t.signInAgainButton, onClick: leave } : startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}
+            >
               {startError.lines.map((line, i) => (
                 <Fragment key={line}>
                   {i > 0 ? <br /> : null}

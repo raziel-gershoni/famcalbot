@@ -14,15 +14,21 @@ import { isJoinSummary, type JoinSummary } from '@/src/lib/join-summary';
 export type MethodsView = SignInMethodsView & { session: SignInMethod | null };
 export type RemoveWhich = 'google' | 'email' | 'calendar-google';
 export type RequestError = 'failed' | 'busy';
+/**
+ * The sign-in is over an hour old (6c-1 follow-ups): the routes that add a way answer 403 { error: 'stale-sign-in' } to a
+ * browser's cookie, never to the Mini App. Matched by the body's error and never by the status alone (a 403 is also
+ * "suspended"); the group then asks to sign in again (SignInMethods).
+ */
+export type StaleError = 'stale';
 /** Remove's answers besides success: 'last-way' is the account's only durable way, which the server refuses. */
 export type RemoveError = RequestError | 'last-way';
-export type AddEmailError = RequestError | 'invalid' | 'limit' | 'has-one';
+export type AddEmailError = RequestError | StaleError | 'invalid' | 'limit' | 'has-one';
 /** 'codeLimit' is the confirm route's `limit` (too many wrong codes): Add's own `limit` is the day's codes. */
-export type ConfirmEmailError = RequestError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
+export type ConfirmEmailError = RequestError | StaleError | 'wrong' | 'taken' | 'restart' | 'codeLimit' | 'has-one';
 /** Join's answers besides success: the question expired or was used, or the two can't be joined (any more). */
-export type JoinError = RequestError | 'expired' | 'refused';
+export type JoinError = RequestError | StaleError | 'expired' | 'refused';
 /** Turn on's answers besides success: 'shared' and 'reconnect' have words of their own; 'not-offered' reads as 'failed'. */
-export type TurnOnError = RequestError | 'shared' | 'reconnect';
+export type TurnOnError = RequestError | StaleError | 'shared' | 'reconnect';
 
 const TAG = '[signin-methods]';
 const SESSION_METHODS: readonly string[] = ['tg', 'google', 'email', 'wa'];
@@ -39,6 +45,9 @@ export function isMethodsView(value: unknown): value is SignInMethodsView {
   return typeof v.telegram === 'boolean' && (v.googleFromCalendar === 'on' || v.googleFromCalendar === 'off' || v.googleFromCalendar === null) && isAddress(v.google) && isAddress(v.email) && !!p && typeof p.telegram === 'boolean' && typeof p.google === 'boolean' && typeof p.email === 'boolean'
     && typeof v.chat === 'boolean' && (v.lastWay === null || LAST_WAYS.includes(String(v.lastWay)));
 }
+
+/** Whether a POST was refused for a sign-in over an hour old. */
+const isStale = (r: { status: number; body: Record<string, unknown> | null } | null): boolean => r?.status === 403 && r.body?.error === 'stale-sign-in';
 
 /** A 429 is the route's rate limit; anything else is a plain failure. */
 const statusError = (status: number): RequestError => (status === 429 ? 'busy' : 'failed');
@@ -81,6 +90,7 @@ export async function addEmail(userId: number, email: string): Promise<{ kind: '
   const r = await post('/api/signin-methods/email/add', userId, { email });
   if (!r) return { kind: 'error', code: 'failed' };
   if (r.ok && r.body?.ok === true) return { kind: 'ok' };
+  if (isStale(r)) return { kind: 'error', code: 'stale' };
   if (r.body?.error === 'invalid') return { kind: 'error', code: 'invalid' };
   if (r.body?.error === 'limit') return { kind: 'error', code: 'limit' };
   if (r.body?.error === 'has-one') return { kind: 'error', code: 'has-one' };
@@ -94,6 +104,7 @@ export async function confirmEmail(
   const r = await post('/api/signin-methods/email/confirm', userId, { code });
   if (!r) return { kind: 'error', code: 'failed' };
   if (r.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  if (isStale(r)) return { kind: 'error', code: 'stale' };
   const error = r.body?.error;
   if (error === 'join' && typeof r.body?.joinId === 'string' && isJoinSummary(r.body.summary)) return { kind: 'join', joinId: r.body.joinId, summary: r.body.summary };
   if (error === 'wrong' || error === 'taken' || error === 'restart' || error === 'has-one') return { kind: 'error', code: error };
@@ -106,6 +117,7 @@ export async function joinAccount(userId: number, joinId: string): Promise<{ kin
   const r = await post('/api/signin-methods/join', userId, { token: joinId });
   if (!r) return { kind: 'error', code: 'failed' };
   if (r.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  if (isStale(r)) return { kind: 'error', code: 'stale' };
   const error = r.body?.error;
   if (error === 'expired' || error === 'refused') return { kind: 'error', code: error };
   return { kind: 'error', code: statusError(r.status) };
@@ -121,14 +133,16 @@ export async function removeMethod(userId: number, which: RemoveWhich): Promise<
 export async function turnOnCalendar(userId: number): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: TurnOnError }> {
   const r = await post('/api/signin-methods/calendar-on', userId, {});
   if (r?.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
+  if (isStale(r)) return { kind: 'error', code: 'stale' };
   const error = r?.body?.error;
   if (error === 'shared' || error === 'reconnect') return { kind: 'error', code: error };
   return { kind: 'error', code: r ? statusError(r.status) : 'failed' };
 }
 
-export async function requestGoogleLink(userId: number): Promise<{ kind: 'ok'; url: string } | { kind: 'error'; code: RequestError }> {
+export async function requestGoogleLink(userId: number): Promise<{ kind: 'ok'; url: string } | { kind: 'error'; code: RequestError | StaleError }> {
   const r = await post('/api/auth/google/add-link', userId, {});
   if (r?.ok && typeof r.body?.url === 'string') return { kind: 'ok', url: r.body.url };
+  if (isStale(r)) return { kind: 'error', code: 'stale' };
   return { kind: 'error', code: r ? statusError(r.status) : 'failed' };
 }
 
