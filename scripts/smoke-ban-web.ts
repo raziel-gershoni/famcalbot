@@ -257,28 +257,42 @@ async function main() {
     assert(logs.includes(`[Moderation] Admin ${ADMIN} banned user ${G}: google, email`), `logs ${show(logs)}`);
   });
 
-  await check('#7c [M4] after the banned Google-only account is deleted, its address gets no sign-up code and the sign-up with it answers blocked and makes no account', async () => {
-    seed();
-    await moderation.banIdentifier({ userId: G }, ADMIN, null);
-    hardDelete(G);
+  const withTurnstile = async (run: () => Promise<void>) => {
     process.env.TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
     process.env.TURNSTILE_SECRET = 'smoke-ban-turnstile-secret-0001';
     try {
+      await run();
+    } finally {
+      delete process.env.TURNSTILE_SITE_KEY;
+      delete process.env.TURNSTILE_SECRET;
+    }
+  };
+
+  await check('#7c [M4] after the banned Google-only account is deleted, its address gets no sign-up code', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: G }, ADMIN, null);
+    hardDelete(G);
+    await withTurnstile(async () => {
       const requestRoute = await load('app/api/auth/email/request/route.ts');
-      const signupRoute = await load('app/api/auth/signup/route.ts');
       const mailsBefore = mails.length;
       const asked = await requestRoute.POST(request('/api/auth/email/request', { body: { email: ' Solo@Gmail.com ', locale: 'en', token: TURNSTILE_TOKEN } }));
       await drainAfter();
       assert(asked.status === 200 && mails.length === mailsBefore, `the code request ${asked.status}, ${mails.length - mailsBefore} mail(s) sent`);
+    });
+  });
+
+  await check('#7c2 [M4] after the banned Google-only account is deleted, a sign-up with its address (a new Google sub) answers blocked and makes no account', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: G }, ADMIN, null);
+    hardDelete(G);
+    await withTurnstile(async () => {
+      const signupRoute = await load('app/api/auth/signup/route.ts');
       // A new Google account with the same address (its own sub is not banned): the address stops it
       const cookie = await flowCookie({ kind: 'signup', way: 'google', subject: 'g-solo-new', address: 'Solo@Gmail.com', locale: 'en' });
       const usersBefore = DB.user.length;
       const signedUp = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Gina' }, cookie }));
       assert(signedUp.status === 403 && show(await body(signedUp)) === show({ ok: false, status: 'blocked' }) && DB.user.length === usersBefore, `sign-up ${signedUp.status} users ${usersBefore} -> ${DB.user.length}`);
-    } finally {
-      delete process.env.TURNSTILE_SITE_KEY;
-      delete process.env.TURNSTILE_SECRET;
-    }
+    });
   });
 
   await check('#7e [M4] after the banned Google-only account is deleted, Add email for its address answers 403 blocked with no way and no notice', async () => {

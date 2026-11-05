@@ -259,7 +259,10 @@ export interface BlockArgs {
   whatsappPhone?: string | null;
   googleSub?: string | null;
   email?: string | null;
-  /** The normalised address of the Google way (spec §10): an `email` row too, and the same kind. */
+  /**
+   * The normalised address of the Google way (spec §10): an `email` row too, and the same kind. Only `identifiersOf`
+   * sets it; a bare BlockArgs that carries only this signs nobody out (`accountsHoldingWays` does not take it).
+   */
   googleAddress?: string | null;
 }
 
