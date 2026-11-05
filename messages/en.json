@@ -2050,7 +2050,7 @@
                   "if you connected Google Calendar: a scrambled form of that Google account’s address, so we can recognise it when you sign in with it."
                 ],
                 "after": [
-                  "We use them only to sign you in, to send you sign-in codes, and to tell you when a way to sign in is added: in your chat, or by email if your account has no chat."
+                  "We use them only to sign you in, to send you sign-in codes, to tell you when a way to sign in is added (in your chat, or by email if your account has no chat) and, if we ban the account, to stop it signing up again."
                 ]
               },
               {
@@ -2199,7 +2199,7 @@
                 ]
               },
               "**Writing.** We write to your Google Calendar only when you ask: to add, change or delete an event, or to keep a “FamCal · <name>” copy calendar up to date. Copying goes one way, and FamCal never reads those copies back.",
-              "**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal. For this, we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account. We use these only to sign you in and, if your account has no chat, to email you when a way to sign in is added, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.",
+              "**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal. For this, we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account. We use these only to sign you in, to email you when a way to sign in is added if your account has no chat, and, if we ban the account, to stop it signing up again. We never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account, except what a ban keeps (see “What stays after that”).",
               "**Sharing.** Your Google events go to our AI provider, Google Gemini, so it can write your briefings and understand what you ask. They also go to Telegram or WhatsApp inside the messages we send you.",
               "**People.** The people who run FamCal don’t look at your Google data. We look only when you ask us to, for example to fix a problem with an event, when security needs it, or when the law requires it. An error report can include a request that failed, which can hold an event’s details. We open error reports only to fix the problem.",
               "**Keeping and deleting.** What we keep from your Google connection, and for how long, is under “Your Google connection” above. Disconnecting Google deletes it (see Your rights and choices). What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.",

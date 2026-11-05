@@ -77,7 +77,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'if you create your account with an email address, or add email sign-in: that email address;'],
     ['privacy', 'for each, when you added it and last used it;'],
     ['privacy', 'if you connected Google Calendar: a scrambled form of that Google account’s address, so we can recognise it when you sign in with it.'],
-    ['privacy', 'We use them only to sign you in, to send you sign-in codes, and to tell you when a way to sign in is added: in your chat, or by email if your account has no chat.'],
+    ['privacy', 'We use them only to sign you in, to send you sign-in codes, to tell you when a way to sign in is added (in your chat, or by email if your account has no chat) and, if we ban the account, to stop it signing up again.'],
     ['privacy', 'To stop misuse of sign-in, we also count sign-in attempts and new accounts in Upstash per IP address, per email address and, when you add an email, per account, under scrambled keys, for up to a day.'],
     ['privacy', '**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address.'],
     ['privacy', 'we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account.'],
@@ -86,7 +86,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'cache copies, until they expire (up to 30 days);'],
     ['privacy', 'sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);'],
     ['privacy', 'When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser.'],
-    ['privacy', 'We use these only to sign you in and, if your account has no chat, to email you when a way to sign in is added, never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account.'],
+    ['privacy', 'We use these only to sign you in, to email you when a way to sign in is added if your account has no chat, and, if we ban the account, to stop it signing up again. We never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account, except what a ban keeps (see “What stays after that”).'],
     ['privacy', 'What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.'],
     ['privacy', 'the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.'],
     ['privacy', '**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.'],
@@ -111,7 +111,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'אם פתחתם את החשבון עם כתובת מייל, או הוספתם כניסה עם מייל: כתובת המייל הזו;'],
     ['privacy', 'לכל אחת מדרכי הכניסה: מתי הוספתם אותה ומתי השתמשתם בה לאחרונה;'],
     ['privacy', 'אם חיברתם את יומן Google: הכתובת של חשבון ה־Google הזה בצורה מעורבלת (hash), כדי שנזהה אותו כשתיכנסו איתו.'],
-    ['privacy', 'אנחנו משתמשים בהם רק כדי להכניס אתכם, לשלוח לכם קודי כניסה, ולהודיע לכם כשנוספת דרך כניסה: בצ׳אט, או במייל אם לחשבון שלכם אין צ׳אט.'],
+    ['privacy', 'אנחנו משתמשים בהם רק כדי להכניס אתכם, לשלוח לכם קודי כניסה, להודיע לכם כשנוספת דרך כניסה (בצ׳אט, או במייל אם לחשבון שלכם אין צ׳אט), ואם חסמנו את החשבון, כדי שלא יוכל להירשם שוב.'],
     ['privacy', 'כדי למנוע שימוש לרעה בכניסה, אנחנו גם סופרים ב־Upstash את ניסיונות הכניסה ואת החשבונות החדשים מכל כתובת IP, לכל כתובת מייל ולכל חשבון (כשמוסיפים כתובת מייל), למשך יום לכל היותר, והמזהים נשמרים שם רק בצורה מעורבלת (hash).'],
     ['privacy', '**כניסה.** אם נכנסים עם Google, FamCal מבקש מ־Google רק את המזהה של החשבון שלכם ואת כתובת המייל שלו.'],
     ['privacy', 'אנחנו קוראים את המזהה של היומן הראשי שלכם (הכתובת שלו) בעזרת ההרשאה ליומן שנתתם: כשמחברים את יומן Google, או מפעילים את זה בהגדרות, כדי לשמור אותו בצורה מעורבלת, וכשנכנסים, כדי לוודא שזה אותו חשבון.'],
@@ -120,7 +120,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'עותקים בזיכרון המטמון, עד שתוקפם פג (עד 30 יום);'],
     ['privacy', 'ספירת ניסיונות הכניסה והחשבונות החדשים, עד שתוקפה פג (יום לכל היותר), והעותקים של מיילי הכניסה אצל Resend (עד 30 יום);'],
     ['privacy', 'כשנכנסים עם טלגרם או עם Google, הדפדפן שלכם פותח את דף הכניסה שלהם. כמו כל אתר שנכנסים אליו, טלגרם ו־Google רואות את כתובת ה־IP ואת הדפדפן שלכם.'],
-    ['privacy', 'אנחנו משתמשים במידע הזה רק כדי להכניס אתכם, ואם לחשבון שלכם אין צ׳אט, גם כדי להודיע לכם במייל כשנוספת דרך כניסה. אנחנו לא מעבירים אותו לאף אחד אחר, ומוחקים אותו כשמסירים את הכניסה עם Google, כשמנתקים את יומן Google (את הכתובת המעורבלת) או כשמוחקים את החשבון.'],
+    ['privacy', 'אנחנו משתמשים במידע הזה רק כדי להכניס אתכם, אם לחשבון שלכם אין צ׳אט גם כדי להודיע לכם במייל כשנוספת דרך כניסה, ואם חסמנו את החשבון, כדי שלא יוכל להירשם שוב. אנחנו לא מעבירים אותו לאף אחד אחר, ומוחקים אותו כשמסירים את הכניסה עם Google, כשמנתקים את יומן Google (את הכתובת המעורבלת) או כשמוחקים את החשבון, חוץ ממה שנשמר אחרי חסימה (ראו ״מה נשאר אחרי זה״).'],
     ['privacy', 'מה אנחנו שומרים כדי להכניס אתכם עם Google מפורט תחת ״החשבון שלכם״, ובסעיף ״כניסה״ למעלה מפורט מתי אנחנו מוחקים אותו.'],
     ['privacy', 'ההתחברות לאפליקציית הרשת, הכניסה ל־famcal.bot עם טלגרם, ותשלומים בכוכבים.'],
     ['privacy', '**Google,** אם נכנסים או פותחים חשבון עם Google: המזהה של חשבון ה־Google שלכם וכתובת המייל שלו, כדי להכניס אתכם.'],
@@ -145,7 +145,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'если вы создали аккаунт по адресу электронной почты или добавили вход по электронной почте: этот адрес;'],
     ['privacy', 'для каждого способа входа: когда вы его добавили и когда в последний раз им пользовались;'],
     ['privacy', 'если вы подключили Google Календарь: адрес этого аккаунта Google в преобразованном виде (хеш), чтобы мы узнали этот аккаунт, когда вы войдёте через него.'],
-    ['privacy', 'Мы используем эти данные только для входа, для отправки вам кодов входа и для уведомления о том, что добавлен способ входа: в вашем чате или по электронной почте, если у вашего аккаунта нет чата.'],
+    ['privacy', 'Мы используем эти данные только для входа, для отправки вам кодов входа, для уведомления о том, что добавлен способ входа (в вашем чате или по электронной почте, если у вашего аккаунта нет чата), и — если мы заблокировали аккаунт — чтобы с ними нельзя было зарегистрироваться снова.'],
     ['privacy', 'Чтобы не допустить злоупотреблений при входе, мы также считаем в Upstash попытки входа и новые аккаунты с каждого IP-адреса, для каждого адреса электронной почты и — при добавлении адреса — для каждого аккаунта, не дольше суток, причём сами идентификаторы хранятся там только в преобразованном виде (хеш).'],
     ['privacy', '**Вход.** Если вы входите через Google, FamCal запрашивает у Google только идентификатор вашего аккаунта и адрес электронной почты.'],
     ['privacy', 'мы читаем идентификатор вашего основного календаря (его адрес) с помощью разрешения на доступ к календарю, которое вы дали: при подключении Google Календаря или при включении этого входа в «Настройках» — чтобы сохранить его в преобразованном виде, и при входе — чтобы убедиться, что это тот же аккаунт.'],
@@ -154,7 +154,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', 'копии в кеше — до истечения их срока (до 30 дней);'],
     ['privacy', 'счётчики попыток входа и новых аккаунтов — до истечения их срока (не дольше суток) и копии писем, связанных со входом, у Resend (до 30 дней);'],
     ['privacy', 'Когда вы входите через Telegram или Google, ваш браузер открывает их страницу входа. Как и любой сайт, который вы посещаете, Telegram и Google видят ваш IP-адрес и данные о браузере.'],
-    ['privacy', 'Мы используем эти данные только для входа и — если у вашего аккаунта нет чата — для уведомления по электронной почте о том, что добавлен способ входа, больше никому их не передаём и удаляем их, когда вы удаляете вход через Google, отключаете Google Календарь (адрес в преобразованном виде) или удаляете аккаунт.'],
+    ['privacy', 'Мы используем эти данные только для входа, для уведомления по электронной почте о том, что добавлен способ входа (если у вашего аккаунта нет чата), и — если мы заблокировали аккаунт — чтобы с ними нельзя было зарегистрироваться снова. Мы никому их не передаём и удаляем их, когда вы удаляете вход через Google, отключаете Google Календарь (адрес в преобразованном виде) или удаляете аккаунт, кроме того, что сохраняется после блокировки (см. «Что остаётся после этого»).'],
     ['privacy', 'Что мы храним для входа через Google, описано в разделе «Ваш аккаунт», а когда мы это удаляем — выше, в пункте «Вход».'],
     ['privacy', 'вход в веб-приложение, вход на famcal.bot через Telegram и платежи звёздами.'],
     ['privacy', '**Google,** если вы входите или создаёте аккаунт через Google: идентификатор вашего аккаунта Google и адрес электронной почты — чтобы вы могли войти.'],
@@ -263,6 +263,8 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Google account id and sign-in email address'],
     ['privacy', 'that Google account and its sign-in email address'],
     ['terms', 'You can stop using FamCal any time: block the bot, and'],
+    ['privacy', 'and to tell you when a way to sign in is added: in your chat'],
+    ['privacy', 'We use these only to sign you in and, if your account has no chat'],
   ],
   he: [
     ['privacy', 'FamCal לא יכול לעבוד בלי מזהה המשתמש שלכם בטלגרם'],
@@ -277,6 +279,8 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'את כל הדרכים שבהן אתם נכנסים'],
     ['terms', 'להיכנס איתו ב־famcal.bot'],
     ['terms', 'בדפדפן מוסיפים את האירועים'],
+    ['privacy', 'ולהודיע לכם כשנוספת דרך כניסה: בצ׳אט'],
+    ['privacy', 'רק כדי להכניס אתכם, ואם לחשבון שלכם אין צ׳אט, גם'],
   ],
   ru: [
     ['privacy', 'FamCal не может работать без вашего идентификатора пользователя Telegram'],
@@ -291,6 +295,8 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'по своему приложению'],
     ['privacy', 'писем с кодами для входа'],
     ['terms', 'Аккаунт, созданный на famcal.bot, можно оплатить'],
+    ['privacy', 'и для уведомления о том, что добавлен способ входа: в вашем чате'],
+    ['privacy', 'только для входа и — если у вашего аккаунта нет чата — для уведомления'],
   ],
 };
 
@@ -322,7 +328,7 @@ async function main() {
     assert(problems.length === 0, problems.join('\n'));
   });
 
-  await check('L5 each language says what web sign-up\'s spec §7 adds (the browser account, the one way in, the name, the sign-up\'s and the connect link\'s 10 minutes, the new accounts counted, the age, the no-chat notice, Turnstile, the FamCal id, the last way, the ban\'s identifiers; the Terms\' browser account, eligibility, a lost last way, paying, suspension), and none still says what it replaced', () => {
+  await check('L5 each language says what web sign-up\'s spec §7 adds (the browser account, the one way in, the name, the sign-up\'s and the connect link\'s 10 minutes, the new accounts counted, the age, the no-chat notice, Turnstile, the FamCal id, the last way, the ban\'s identifiers and its use of the sign-in ways; the Terms\' browser account, eligibility, a lost last way, paying, suspension), and none still says what it replaced', () => {
     const problems: string[] = [];
     for (const locale of LOCALES) {
       for (const [doc, sentence] of SAYS_SIGNUP[locale]) if (!text(locale, doc).includes(sentence)) problems.push(`${locale} ${doc}: no "${sentence}"`);
