@@ -2326,7 +2326,7 @@
               "server logs and error reports, until they expire (up to 90 days);",
               "cache copies, until they expire (up to 30 days);",
               "sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);",
-              "if we banned the account: its Telegram id, WhatsApp number, Google account id, the email address of that Google account and its sign-in email address, and the reason, so it can’t sign up again;",
+              "if we banned the account: its Telegram id, WhatsApp number, sign-in email address, Google account id and that Google account’s email address, and the reason, so it can’t sign up again;",
               "your payment records at Telegram."
             ]
           ]
