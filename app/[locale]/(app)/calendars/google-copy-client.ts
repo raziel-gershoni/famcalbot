@@ -9,8 +9,12 @@ import { OAUTH_STATE_TTL_MS } from '@/src/lib/oauth-state';
 import type { CopiesView, CopyRow, CopyStatus } from '@/src/services/google-sync/view';
 import type { UnlinkChoice } from '@/src/services/google-sync/marks';
 
-/** 'stale' is the browser's sign-in over an hour old (the consent start is refused 403 stale-sign-in); the Mini App is never asked. */
-export type CopyErrorCode = 'failed' | 'upgrade' | 'notFound' | 'openFailed' | 'stale';
+/**
+ * 'stale' is the browser's sign-in over an hour old (the consent start is refused 403 stale-sign-in; the row offers Sign in
+ * again), 'staleWhatsApp' the same refusal of a WhatsApp link's session (whatsapp: true; the row points to a fresh link
+ * from the chat instead); the Mini App is never asked.
+ */
+export type CopyErrorCode = 'failed' | 'upgrade' | 'notFound' | 'openFailed' | 'stale' | 'staleWhatsApp';
 export type CopyResult = { kind: 'ok' } | { kind: 'error'; code: CopyErrorCode };
 export type StartResult = { kind: 'on' } | { kind: 'consent'; oauthUrl: string } | CopyResult;
 
@@ -19,9 +23,9 @@ const GOOGLE_CONSENT = 'https://accounts.google.com/';
 
 const api = (userId: number) => `/api/google-sync?user_id=${userId}`;
 
-function errorCode(status: number, body: { error?: unknown }): CopyErrorCode {
+function errorCode(status: number, body: { error?: unknown; whatsapp?: unknown }): CopyErrorCode {
   // By the body's error, never the status alone: a 403 is also 'upgrade_required' and a suspended account
-  if (status === 403 && body.error === 'stale-sign-in') return 'stale';
+  if (status === 403 && body.error === 'stale-sign-in') return body.whatsapp === true ? 'staleWhatsApp' : 'stale';
   if (status === 403 && body.error === 'upgrade_required') return 'upgrade';
   if (status === 404) return 'notFound';
   return 'failed';

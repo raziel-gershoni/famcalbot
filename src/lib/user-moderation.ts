@@ -261,7 +261,7 @@ export interface BlockArgs {
   email?: string | null;
   /**
    * The normalised address of the Google way (spec §10): an `email` row too, and the same kind. Only `identifiersOf`
-   * sets it; a bare BlockArgs that carries only this signs nobody out (`accountsHoldingWays` does not take it).
+   * sets it; the ban by account also signs out an account whose email way is this address (`accountsHoldingWays`).
    */
   googleAddress?: string | null;
 }
@@ -426,9 +426,13 @@ export async function banIdentifier(
   if (accountId !== null) owners.push({ id: accountId });
   if (args.telegramId) owners.push({ telegramId: BigInt(args.telegramId) });
   if (args.whatsappPhone) owners.push({ whatsappPhone: args.whatsappPhone });
-  if (accountId === null && (args.googleSub || args.email)) {
+  // A bare ban signs out the accounts holding its Google account or address. A ban by account: its own Google account
+  // and sign-in address are its own ways (each way's subject is unique), but its Google way's address can be another
+  // account's email way, which the email row now refuses, so that account is signed out too
+  const holderWays = accountId === null ? { googleSub: args.googleSub, email: args.email } : { googleSub: null, email: args.googleAddress ?? null };
+  if (holderWays.googleSub || holderWays.email) {
     const { accountsHoldingWays } = await import('../services/web-signin/identities');
-    const holders = await accountsHoldingWays({ googleSub: args.googleSub, email: args.email });
+    const holders = await accountsHoldingWays(holderWays);
     if (holders.length > 0) owners.push({ id: { in: holders } });
   }
   if (owners.length > 0) {

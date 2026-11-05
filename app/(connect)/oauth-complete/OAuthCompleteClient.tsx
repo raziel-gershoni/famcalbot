@@ -20,9 +20,10 @@
 //   Finish here is refused 403 stale-sign-in with the connection kept for the chat buttons): with no chat button, the
 //   stale card, "Sign in again first" with a Sign in again button (a plain /signin link would send a browser that still
 //   holds its cookie straight back to its calendar, so the press signs out first: sign-in-again.ts); a refused Finish here
-//   says so in its notice with the same action and takes Finish here away.
-//   Known limit: the check does not carry the session's method, so a WhatsApp-link session also sees Sign in again here
-//   (Settings shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
+//   says so in its notice with the same action and takes Finish here away. A sign-out that fails (Sign in again does
+//   not leave) says so in an error line (hereNetwork) and keeps the action. A WhatsApp link's session (the check and the
+//   refusal say whatsapp: true) has no web way to sign in again with: the card and the notice show the WhatsApp hint
+//   (pageGate.browserBody, a fresh link from the chat) in place of Sign in again, as Settings does.
 // - A fragment that is missing or bad: the kit's state card, "This link is incomplete".
 //
 // The pendingId, the owner's first name and the buttons are in the URL fragment (finishPageUrl), which only this
@@ -135,18 +136,28 @@ const subscribeToHash = (onChange: () => void) => {
 type Problem = 'hereNotOwner' | 'hereExpired' | 'hereSignedOut' | 'hereFailed' | 'hereNetwork' | 'hereStale';
 const REFUSALS: Record<string, Problem> = { not_owner: 'hereNotOwner', expired: 'hereExpired', 'signed-out': 'hereSignedOut', 'stale-sign-in': 'hereStale' };
 
+/** What the check says of this browser's session: see useMine. */
+interface Seen {
+  mine: boolean;
+  stale: boolean;
+  /** With stale: the session is a WhatsApp link's, which signs in again only by a fresh link from the chat */
+  whatsapp: boolean;
+}
+
 /**
  * What this browser's session is to the consent: the account that started it (`mine`), or its own account with a sign-in
- * over an hour old (`stale`, never with mine); null while the page asks (no id: neither).
+ * over an hour old (`stale`, never with mine; `whatsapp` when that session is a WhatsApp link's); null while the page asks
+ * (no id: none of them).
  */
-function useMine(pendingId: string | null): { mine: boolean; stale: boolean } | null {
-  const [answer, setAnswer] = useState<{ id: string; mine: boolean; stale: boolean } | null>(null);
+function useMine(pendingId: string | null): Seen | null {
+  const [answer, setAnswer] = useState<({ id: string } & Seen) | null>(null);
   useEffect(() => {
     if (!pendingId) return;
     let live = true;
     void (async () => {
       let mine = false;
       let stale = false;
+      let whatsapp = false;
       try {
         const res = await fetch('/api/oauth/claim', {
           method: 'POST',
@@ -159,18 +170,19 @@ function useMine(pendingId: string | null): { mine: boolean; stale: boolean } | 
         if (!res.ok) console.warn(`${TAG} the Finish here check answered ${res.status}`);
         mine = res.ok && body?.mine === true;
         stale = res.ok && !mine && body?.stale === true;
+        whatsapp = stale && body?.whatsapp === true;
       } catch (error) {
         // The chat buttons still work: the page shows them as if this browser were not the account
         console.error(`${TAG} the Finish here check failed:`, error instanceof Error ? error.name : typeof error);
       }
-      if (live) setAnswer({ id: pendingId, mine, stale });
+      if (live) setAnswer({ id: pendingId, mine, stale, whatsapp });
     })();
     return () => {
       live = false;
     };
   }, [pendingId]);
-  if (!pendingId) return { mine: false, stale: false };
-  return answer?.id === pendingId ? { mine: answer.mine, stale: answer.stale } : null;
+  if (!pendingId) return { mine: false, stale: false, whatsapp: false };
+  return answer?.id === pendingId ? { mine: answer.mine, stale: answer.stale, whatsapp: answer.whatsapp } : null;
 }
 
 export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthCompleteClientProps) {
@@ -186,13 +198,20 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
   const [problem, setProblem] = useState<Problem | null>(null);
   // A refused Finish here: the connection is used up, or this browser's sign-in ended
   const [hereGone, setHereGone] = useState(false);
+  // Finish here was refused as a stale sign-in: whether this session is a WhatsApp link's (the hint, no Sign in again)
+  const [staleWhatsApp, setStaleWhatsApp] = useState(false);
   // The Sign in again press is out (sign-out, then /signin): a second press is ignored and the button reads as busy
   const [leaving, setLeaving] = useState(false);
+  // The last Sign in again press did not leave (the sign-out failed, logged in sign-in-again.ts): the page says so
+  const [leaveFailed, setLeaveFailed] = useState(false);
   const leave = () => {
     if (leaving) return;
     setLeaving(true);
+    setLeaveFailed(false);
     void signInAgain(locale).then((left) => {
-      if (!left) setLeaving(false);
+      if (left) return;
+      setLeaving(false);
+      setLeaveFailed(true);
     });
   };
 
@@ -216,10 +235,29 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
   if (!mine && !chat) {
     // This browser's own account, signed in over an hour ago: the cookie is still here, so /signin would only send it back
     // to its calendar; the press signs out first
+    if (seen?.stale && seen.whatsapp) {
+      // A WhatsApp link's session: no web way to sign in again with, so the card points to a fresh link from the chat
+      return (
+        <AppScreen>
+          <StateCard
+            tone="crash"
+            title={t('staleTitle')}
+            body={
+              <>
+                {t('staleBody')}
+                <br />
+                {gate('browserBody')}
+              </>
+            }
+          />
+        </AppScreen>
+      );
+    }
     if (seen?.stale) {
       return (
         <AppScreen>
           <StateCard tone="crash" title={t('staleTitle')} body={t('staleBody')} action={{ label: t('staleButton'), onClick: leave, busy: leaving }} />
+          {leaveFailed ? <Notice tone="error">{t('hereNetwork')}</Notice> : null}
         </AppScreen>
       );
     }
@@ -262,7 +300,9 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
         setProblem('hereNetwork');
         return;
       }
-      setProblem(REFUSALS[String(body?.error)] ?? 'hereFailed');
+      const refusal = REFUSALS[String(body?.error)] ?? 'hereFailed';
+      if (refusal === 'hereStale') setStaleWhatsApp(body?.whatsapp === true);
+      setProblem(refusal);
       setHereGone(true);
     } catch (error) {
       console.error(`${TAG} Finish here failed:`, error instanceof Error ? error.name : typeof error);
@@ -279,10 +319,19 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
       <div className="ch-form-page ch-form-page-grouped">
         <ConnectHero icon={<CircleCheck aria-hidden="true" />} title={t('title')} lead={t('subtitle')} />
         <Notice>{params.ownerName ? t('owner', { name: params.ownerName }) : t('ownerUnnamed')}</Notice>
-        {problem ? (
-          <Notice tone="error" action={problem === 'hereStale' ? { label: t('staleButton'), onClick: leave, busy: leaving } : undefined}>
-            {t(problem)}
+        {problem === 'hereStale' && staleWhatsApp ? (
+          <Notice tone="error">
+            {t('hereStale')}
+            <br />
+            {gate('browserBody')}
           </Notice>
+        ) : problem === 'hereStale' ? (
+          // A sign-out that failed says so in the notice and keeps Sign in again
+          <Notice tone="error" action={{ label: t('staleButton'), onClick: leave, busy: leaving }}>
+            {leaveFailed ? t('hereNetwork') : t('hereStale')}
+          </Notice>
+        ) : problem ? (
+          <Notice tone="error">{t(problem)}</Notice>
         ) : null}
         {here ? (
           <div className="ch-connect-actions">

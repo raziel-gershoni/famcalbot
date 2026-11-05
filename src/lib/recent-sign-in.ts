@@ -34,13 +34,23 @@ export function sessionRecentlyProved(session: WebSession, userId: number, opts:
 type ProvedAuth = Extract<AuthResult, { success: true }>;
 
 /**
+ * Whether the request rides a WhatsApp link's session. Its person has no web way to sign in again with, so a refused screen
+ * shows the WhatsApp hint (a fresh link from the chat) instead of Sign in again. Nothing else about the session is told.
+ */
+export function viaWhatsAppLink(auth: ProvedAuth): boolean {
+  return auth.via === 'session' && auth.session.method === 'wa';
+}
+
+/**
  * null when the request may go on: Telegram initData (via 'telegram'), or a session proved within the hour. Otherwise the
- * answer to send, 403 { ok: false, error: 'stale-sign-in' }, with one log line (`tag` names the route). Call it right
- * after the auth check and before anything that redirects, mails or writes.
+ * answer to send, 403 { ok: false, error: 'stale-sign-in' }, and `whatsapp: true` beside it for a WhatsApp link's session
+ * (viaWhatsAppLink; no other method is ever named), with one log line (`tag` names the route). Call it right after the
+ * auth check and before anything that redirects, mails or writes.
  */
 export function refuseStaleSignIn(auth: ProvedAuth, tag: string): NextResponse | null {
   if (auth.via === 'telegram') return null;
   if (sessionRecentlyProved(auth.session, auth.user.id, { allowWhatsApp: true })) return null;
   console.warn(`[recent-sign-in] user ${auth.user.id}: ${tag} refused: the ${auth.session.method} sign-in is not recent`);
-  return NextResponse.json({ ok: false, error: 'stale-sign-in' }, { status: 403 });
+  const answer = viaWhatsAppLink(auth) ? { ok: false, error: 'stale-sign-in', whatsapp: true } : { ok: false, error: 'stale-sign-in' };
+  return NextResponse.json(answer, { status: 403 });
 }

@@ -204,6 +204,15 @@ export default function CalendarsClient(props: Props) {
   /** Calendars whose consent was started and can still be used: Google's URL, opened by the row's Open Google tap. */
   const [waiting, setWaiting] = useState<Record<string, ConsentWait>>({});
   const [copyErrors, setCopyErrors] = useState<Record<string, CopyErrorCode>>({});
+  /** A row's Sign in again (a stale sign-in): out (sign-out, then /signin), or the last press failed (the row says so) */
+  const [copySignIn, setCopySignIn] = useState<'busy' | 'failed' | null>(null);
+  const signInFromCopy = () => {
+    if (copySignIn === 'busy') return;
+    setCopySignIn('busy');
+    void signInAgain(locale).then((left) => {
+      if (!left) setCopySignIn('failed');
+    });
+  };
   const loading = useRef(false);
   /** A refresh asked while one was in flight: that one may have read the rows before a change, so one more runs after it. */
   const refreshAgain = useRef(false);
@@ -359,6 +368,7 @@ export default function CalendarsClient(props: Props) {
         waiting={Boolean(waiting[c.rawId])}
         locked={busy !== null}
         error={copyErrors[c.rawId] ?? null}
+        signIn={{ busy: copySignIn === 'busy', failed: copySignIn === 'failed', onPress: signInFromCopy }}
         onToggle={() => {
           if (running.current) return;
           if (row.on) setSheet({ kind: 'copyOff', calendar: c });

@@ -6,13 +6,15 @@
 // - { token, peek: true } → { mine }: whether this browser's session is that account, read without using the entry up
 //   (peekPendingOwner), and checked in full (verifyUserAuth) only when the ids match. It never says whose it is. The
 //   finish page asks it to show Finish here. For the account's own session signed in over an hour ago it answers
-//   { mine: false, stale: true } (src/lib/recent-sign-in.ts), so the page asks for a fresh sign-in instead.
+//   { mine: false, stale: true } (src/lib/recent-sign-in.ts), so the page asks for a fresh sign-in instead, with
+//   `whatsapp: true` for a WhatsApp link's session (the page then points to a fresh link from the chat).
 // - { token } → claimPendingGoogleToken(token, { userId }) for the session's account, checked in full first: with no
 //   session, or one that has ended, it answers signed-out before the entry is touched, so the chat claim can still
 //   finish it; a live session of another account uses the entry up and connects nothing, as the chat claim from
 //   someone else does.
 //   A session signed in over an hour ago (the browser connect needs a recent sign-in) is refused before the entry is touched
-//   and without clearing the cookie: 403 { ok: false, error: 'stale-sign-in' }; the chat claim can still finish it.
+//   and without clearing the cookie: 403 { ok: false, error: 'stale-sign-in' } (whatsapp: true for a WhatsApp link's
+//   session); the chat claim can still finish it.
 //   → { ok: true, page, userId, redirect } (the page the chat claim leads to: Select calendars, or Calendars after a copy
 //   to Google) | { ok: false, error: 'not_owner' (403) | 'expired' (410; 400 for a body with no id) | 'signed-out' (401)
 //   | 'failed' (500) }.
@@ -23,7 +25,7 @@ import { verifyUserAuth } from '@/src/lib/api-auth';
 import { captureError } from '@/src/lib/error-capture';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { refuseCrossSite } from '@/src/lib/same-origin';
-import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
+import { refuseStaleSignIn, viaWhatsAppLink } from '@/src/lib/recent-sign-in';
 import { clearSessionCookie, readSession } from '@/src/lib/session-auth';
 import { appPageUrl } from '@/src/lib/web-session';
 import { claimPendingGoogleToken, peekPendingOwner } from '@/src/services/google-connect';
@@ -39,7 +41,8 @@ function refuse(error: ClaimError, status: number = STATUS[error]): NextResponse
 
 /** The check: whether this browser's live session is the account that started the consent. */
 async function peek(request: NextRequest, token: string): Promise<NextResponse> {
-  const answer = (mine: boolean, stale = false) => NextResponse.json(stale ? { mine, stale } : { mine }, { headers: { 'Cache-Control': 'no-store' } });
+  const answer = (mine: boolean, stale?: { whatsapp: boolean }) =>
+    NextResponse.json(stale ? { mine, stale: true, ...(stale.whatsapp ? { whatsapp: true } : {}) } : { mine }, { headers: { 'Cache-Control': 'no-store' } });
   try {
     const session = readSession(request);
     if (!session) return answer(false);
@@ -48,7 +51,7 @@ async function peek(request: NextRequest, token: string): Promise<NextResponse> 
     // The ids match: the session must still be good (not ended, not suspended), or Finish here would only fail
     const auth = await verifyUserAuth(request, String(session.userId), null, settingsRateLimiter, 'oauth-claim-check');
     // The account's own session, but signed in too long ago to connect Google from a browser: Finish here would be refused
-    if (auth.success && refuseStaleSignIn(auth, 'oauth-claim-check')) return answer(false, true);
+    if (auth.success && refuseStaleSignIn(auth, 'oauth-claim-check')) return answer(false, { whatsapp: viaWhatsAppLink(auth) });
     if (auth.success) console.log(`[oauth-claim] user ${auth.user.id}: this browser may finish the Google connect here`);
     return answer(auth.success);
   } catch (error) {

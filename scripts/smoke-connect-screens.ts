@@ -22,6 +22,8 @@
 //  - R8 / F8 (6c-1 follow-ups): a sign-in over an hour old. /refresh-token (oauth/start answers 403 stale-sign-in) and
 //    /oauth-complete (the check says stale, or Finish here is refused 403 stale-sign-in) show a card or notice with
 //    Sign in again, whose press signs out and opens /signin; no retry, no plain /signin link; other 403s keep their words.
+//    A WhatsApp link's session (whatsapp: true) gets the WhatsApp hint (pageGate.browserBody) and no Sign in again; a
+//    sign-out that answers 500 says so (oauthComplete.hereNetwork) and keeps Sign in again.
 //  - K1 the pages' own style sheet passes the kit's lint and the sources hold no old look and no inline copy.
 //
 // The pages run as Next runs them (the server page as a function, then react-dom/server), with Prisma, Redis, error
@@ -577,7 +579,7 @@ async function main() {
     assert(problems.length === 0, problems.join('; '));
   });
 
-  await check('R8 a sign-in over an hour old (oauth/start answers 403 { error: \'stale-sign-in\' }, matched by the body and never by the status alone): a notice with the title, the reason and Sign in again (no Try again, no Continue); its press signs out (POST /api/auth/signout) and opens /signin in the page\'s language; any other 403 still says what the gate says; a later start that goes stale says it too', async () => {
+  await check('R8 a sign-in over an hour old (oauth/start answers 403 { error: \'stale-sign-in\' }, matched by the body and never by the status alone): a notice with the title, the reason and Sign in again (no Try again, no Continue); its press signs out (POST /api/auth/signout) and opens /signin in the page\'s language; any other 403 still says what the gate says; a later start that goes stale says it too; a WhatsApp link\'s session (whatsapp: true) gets the WhatsApp hint and no Sign in again; a sign-out that answers 500 says so and keeps Sign in again', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
       const t = messages[l].refreshToken;
@@ -650,6 +652,46 @@ async function main() {
       const late = all(m3).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
       if (!late || !textOf(late).includes(t.signInAgainTitle) || !buttonNamed(m3, t.signInAgainButton)) problems.push(`${l}: a later start ${late ? textOf(late) : 'none'}`);
       m3.unmount();
+      leaveBrowser();
+
+      // A WhatsApp link's session (the 403 says whatsapp: true) has no web way to sign in again: the notice gives the
+      // WhatsApp hint, and there is no Sign in again (it would sign out and strand the person on /signin)
+      seed({ talLanguage: l });
+      const client4 = pageClient((await refreshPage({ user_id: String(TAL_TG) })).element as Row);
+      const b4 = freshBrowser({ telegram: null });
+      b4.answer['/api/oauth/start'] = [() => json({ ok: false, error: 'stale-sign-in', whatsapp: true }, 403)];
+      const { value: m4 } = await quietly(async () => {
+        const mounted = mount(inProvider(l, ['refreshToken'], h(client4.type, client4.props)));
+        await settle();
+        return mounted;
+      });
+      const waAlert = all(m4).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
+      if (!waAlert || !textOf(waAlert).includes(t.signInAgainBody) || !textOf(waAlert).includes(gate.browserBody)) problems.push(`${l}: a WhatsApp link's stale notice ${waAlert ? textOf(waAlert) : 'none'}`);
+      if (buttonNamed(m4, t.signInAgainButton) || buttonNamed(m4, t.retry) || connectButton(m4, t)) problems.push(`${l}: a WhatsApp link's stale notice offers ${show(all(m4).filter((e: Row) => e.localName === 'button').map((e: Row) => textOf(e)))}`);
+      m4.unmount();
+      leaveBrowser();
+
+      // The sign-out answers 500: the press does not leave, the notice says so, and Sign in again can be pressed again
+      seed({ talLanguage: l });
+      const client5 = pageClient((await refreshPage({ user_id: String(TAL_TG) })).element as Row);
+      const b5 = freshBrowser({ telegram: null });
+      const assigned5: string[] = [];
+      fakeWindow.location = { href: 'https://app.example.test/refresh-token', hash: '', assign: (u: string) => void assigned5.push(u) };
+      b5.answer['/api/oauth/start'] = [() => json({ ok: false, error: 'stale-sign-in' }, 403)];
+      b5.answer['/api/auth/signout'] = [() => json({ error: 'failed' }, 500)];
+      const { value: m5 } = await quietly(async () => {
+        const mounted = mount(inProvider(l, ['refreshToken'], h(client5.type, client5.props)));
+        await settle();
+        const press = buttonNamed(mounted, t.signInAgainButton);
+        if (press) mounted.click(press as FakeElement);
+        await settle();
+        return mounted;
+      });
+      const failedNotice = all(m5).find((e: Row) => e.getAttribute('role') === 'alert') as Row | undefined;
+      const again5 = buttonNamed(m5, t.signInAgainButton);
+      if (!failedNotice || !textOf(failedNotice).includes(messages[l].oauthComplete.hereNetwork) || !textOf(failedNotice).includes(t.signInAgainBody)) problems.push(`${l}: a failed sign-out says ${failedNotice ? textOf(failedNotice) : 'nothing'}`);
+      if (!again5 || again5.hasAttribute('disabled') || assigned5.length) problems.push(`${l}: after a failed sign-out ${again5 ? show(again5.getAttribute('disabled')) : 'no Sign in again'} ${show(assigned5)}`);
+      m5.unmount();
       leaveBrowser();
     }
     assert(problems.length === 0, problems.join('; '));
@@ -1208,7 +1250,7 @@ async function main() {
   });
 
 
-  await check('F8 a sign-in over an hour old: the check says { mine: false, stale: true } and there is no chat button: the stale card (title, reason, Sign in again as a button, no plain /signin link) whose press signs out and opens /signin; with a chat button the chat buttons show and no sign-in card; Finish here answered 403 stale-sign-in says so with Sign in again, takes Finish here away and keeps the chat buttons', async () => {
+  await check('F8 a sign-in over an hour old: the check says { mine: false, stale: true } and there is no chat button: the stale card (title, reason, Sign in again as a button, no plain /signin link) whose press signs out and opens /signin; with a chat button the chat buttons show and no sign-in card; Finish here answered 403 stale-sign-in says so with Sign in again, takes Finish here away and keeps the chat buttons; a WhatsApp link\'s session (whatsapp: true in the check or the refusal) gets the WhatsApp hint and no Sign in again; a sign-out that answers 500 says hereNetwork and keeps Sign in again', async () => {
     const problems: string[] = [];
     for (const l of LOCALES) {
       const t = messages[l].oauthComplete;
@@ -1264,6 +1306,48 @@ async function main() {
         if (show(r.assigned) !== show([signin])) problems.push(`${l}: the notice's press ${show(r.assigned)}`);
       }
       r.m.unmount();
+      leaveBrowser();
+
+      // A WhatsApp link's session (whatsapp: true in the check, or in the refusal): the WhatsApp hint, never Sign in again
+      const gate = messages[l].pageGate;
+      const waCard = await mountHere(l, `#p=${PENDING}&b=`, { mine: false, stale: true, whatsapp: true });
+      const waH1 = all(waCard.m).find((e: Row) => e.localName === 'h1');
+      const waBody = all(waCard.m).find((e: Row) => e.localName === 'p' && textOf(e).includes(gate.browserBody));
+      if (!waH1 || textOf(waH1) !== t.staleTitle || !waBody || !textOf(waBody).includes(t.staleBody) || controlsOf(waCard.m).length !== 0) problems.push(`${l}: a WhatsApp link's stale card ${show(controlsOf(waCard.m).map((c) => textOf(c)))} ${waBody ? textOf(waBody) : 'no hint'}`);
+      waCard.m.unmount();
+      leaveBrowser();
+      const waHere = await mountHere(l, `#p=${PENDING}&b=wa`, true);
+      waHere.b.answer['/api/oauth/claim'] = [() => json({ ok: false, error: 'stale-sign-in', whatsapp: true }, 403)];
+      waHere.m.click(buttonNamed(waHere.m, t.hereButton) as FakeElement);
+      await settle();
+      const waNotice = errorNotice(waHere.m);
+      if (!waNotice || !textOf(waNotice).includes(t.hereStale) || !textOf(waNotice).includes(gate.browserBody) || buttonNamed(waHere.m, t.staleButton) || buttonNamed(waHere.m, t.hereButton)) problems.push(`${l}: a WhatsApp link's refused Finish here ${waNotice ? textOf(waNotice) : 'no notice'}`);
+      waHere.m.unmount();
+      leaveBrowser();
+
+      // The sign-out answers 500: the card and the notice say so (hereNetwork), and Sign in again can be pressed again
+      const failCard = await mountHere(l, `#p=${PENDING}&b=`, { mine: false, stale: true });
+      failCard.b.answer['/api/auth/signout'] = [() => json({ error: 'failed' }, 500)];
+      await quietly(async () => {
+        failCard.m.click(buttonNamed(failCard.m, t.staleButton) as FakeElement);
+        await settle();
+      });
+      const cardAgain = buttonNamed(failCard.m, t.staleButton);
+      if (textOf(errorNotice(failCard.m) ?? {}) !== t.hereNetwork || !cardAgain || cardAgain.hasAttribute('disabled') || failCard.assigned.length) problems.push(`${l}: the stale card after a failed sign-out ${textOf(errorNotice(failCard.m) ?? {})} ${show(failCard.assigned)}`);
+      failCard.m.unmount();
+      leaveBrowser();
+      const failHere = await mountHere(l, `#p=${PENDING}&b=tg`, true);
+      failHere.b.answer['/api/oauth/claim'] = [() => json({ ok: false, error: 'stale-sign-in' }, 403)];
+      failHere.m.click(buttonNamed(failHere.m, t.hereButton) as FakeElement);
+      await settle();
+      failHere.b.answer['/api/auth/signout'] = [() => json({ error: 'failed' }, 500)];
+      await quietly(async () => {
+        failHere.m.click(buttonNamed(failHere.m, t.staleButton) as FakeElement);
+        await settle();
+      });
+      const noticeAgain = buttonNamed(failHere.m, t.staleButton);
+      if (!textOf(errorNotice(failHere.m) ?? {}).includes(t.hereNetwork) || !noticeAgain || noticeAgain.hasAttribute('disabled') || failHere.assigned.length) problems.push(`${l}: the stale notice after a failed sign-out ${textOf(errorNotice(failHere.m) ?? {})} ${show(failHere.assigned)}`);
+      failHere.m.unmount();
       leaveBrowser();
 
       // Another 403 is not a stale sign-in: it keeps its own words

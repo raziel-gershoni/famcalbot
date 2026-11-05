@@ -9,7 +9,9 @@
 //   spinner), the wait for Google's consent, or the status; a status that needs the person is in the danger colour. A
 //   second line counts the events that can't be copied. When the state has one action (Approve in Google, Reconnect
 //   Google, Create it again, Copy again; Open Google while a consent waits) it is a row of its own under the switch row.
-//   An error from the last request sits under both.
+//   An error from the last request sits under both. A sign-in over an hour old ('stale') adds Sign in again under its line
+//   (the page's press: sign out, then /signin; a sign-out that fails says so under it), and a WhatsApp link's session
+//   ('staleWhatsApp') the WhatsApp hint instead (pageGate.browserBody, a fresh link from the chat), as the other screens do.
 // - The Remove / Keep question is not part of the row: the page asks it in a sheet (turning a copy off, and deleting a
 //   calendar whose copy is on), so `unlink` words are the page's.
 
@@ -30,6 +32,8 @@ export interface GoogleCopyRowProps {
   /** Another request of the page is running: this row waits (its own busy line is `busy`). */
   locked?: boolean;
   error: CopyErrorCode | null;
+  /** With error 'stale': the Sign in again press (the page's), whether it is out, and whether the last one failed. */
+  signIn?: { busy: boolean; failed: boolean; onPress: () => void };
   onToggle: () => void;
   onAction: () => void;
   onOpenGoogle: () => void;
@@ -46,6 +50,9 @@ const ACTION_LABEL = { consent: 'approve', reconnect: 'reconnect' } as const;
 
 export function GoogleCopyRow(props: GoogleCopyRowProps) {
   const t = useTranslations('googleCopy');
+  const gate = useTranslations('pageGate');
+  const again = useTranslations('refreshToken');
+  const reach = useTranslations('oauthComplete');
   const id = useId();
   const errorId = `${id}-error`;
   const { row, busy, waiting, locked, error } = props;
@@ -101,7 +108,16 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
           {waiting ? t('actions.openGoogle') : actionLabel}
         </button>
       ) : null}
-      {error ? <FieldError id={errorId} error={t(`errors.${error}`)} /> : null}
+      {error ? <FieldError id={errorId} error={t(`errors.${error === 'staleWhatsApp' ? 'stale' : error}`)} /> : null}
+      {error === 'staleWhatsApp' ? <p className="ch-form-fixed">{gate('browserBody')}</p> : null}
+      {error === 'stale' && props.signIn ? (
+        <>
+          {props.signIn.failed ? <FieldError id={`${id}-signin`} error={reach('hereNetwork')} /> : null}
+          <button type="button" className="ch-form-row ch-action-row" disabled={props.signIn.busy} aria-busy={props.signIn.busy || undefined} onClick={props.signIn.onPress}>
+            {again('signInAgainButton')}
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

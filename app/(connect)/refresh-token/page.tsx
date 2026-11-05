@@ -45,8 +45,9 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const rt = messages.refreshToken;
   const connecting = !!user && googleStateOf(user) === 'none';
   const copy = connecting ? { ...rt, title: rt.connectTitle, subtitle: rt.connectSubtitle, step3: rt.connectStep3 } : rt;
-  // With no credential the page says what the gate on the [locale] pages says; the header's back is ui.back
-  const t = { ...copy, gate: messages.pageGate, back: messages.ui.back };
+  // With no credential the page says what the gate on the [locale] pages says; the header's back is ui.back; a Sign in again
+  // that could not sign out says what the finish page says when FamCal can't be reached
+  const t = { ...copy, gate: messages.pageGate, back: messages.ui.back, leaveFailed: messages.oauthComplete.hereNetwork };
 
   // No OAuth state here: the client asks POST /api/oauth/start for the Google URL with
   // its credential (initData or the WhatsApp session), and the state is bound to the

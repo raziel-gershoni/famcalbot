@@ -45,13 +45,14 @@ const Q_TG = 800000080;
 const G = 90; // made on famcal.bot with Google only; its address as Google wrote it
 const E = 91; // a Google way and an email way holding the same address
 const N = 92; // a Google way whose stored address FamCal can't keep (a non-ASCII local part)
+const B = 93; // made on famcal.bot with an email code for the address W's Google way holds
 const TURNSTILE_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX-ban';
 /** The identifiers and names of the run: none may reach a log line or a Sentry report. */
 const VALUES = [
   'g-web-0050', 'web@example.com', 'web@gmail.com', String(T_TG), T_PHONE, 't@example.com', 'v@example.com', 'g-gone-0001',
   'gone@example.com', 'Gone@Example.com', 'g-fresh-0080', 'fresh@gmail.com', 'other@gmail.com', 'Wren', 'Vera', 'Quinn',
   'g-solo-0090', 'Solo@Gmail.com', 'solo@gmail.com', 'g-solo-new', 'g-dup-0091', 'dup@example.com', 'Dup@Example.com',
-  'g-nonascii-0092', 'jürgen@gmail.com', 'Gina', 'Edgar', 'Nico',
+  'g-nonascii-0092', 'jürgen@gmail.com', 'Gina', 'Edgar', 'Nico', 'Bea',
 ];
 
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -129,6 +130,20 @@ async function main() {
     assert(user(W).sessionsValidAfter instanceof Date && user(T).sessionsValidAfter === null && user(V).sessionsValidAfter === null, 'not only W was signed out');
     assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com'), mailKey('web@gmail.com')].sort()), `keys ${show(blockedKeys())}`);
     assert(logs.includes(`[Moderation] Admin ${ADMIN} banned user ${W}: google, email`), `logs ${show(logs)}`);
+  });
+
+  await check('#1b a ban by the database id signs out, too, another account whose email way is the banned account\'s Google way address (that address is now an email row, so its next sign-in is refused): its sessionsValidAfter moves; an account with an unrelated address is untouched; the log still names only the kinds', async () => {
+    seed();
+    DB.user.push(baseUser({ id: B, name: 'Bea' }));
+    DB.signInIdentity.push(identityRow({ userId: B, kind: 'email', subject: 'web@gmail.com', address: 'web@gmail.com' }));
+    const before = logs.length;
+    const result = await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    assert(show(result) === show({ kinds: ['google', 'email'] }), `kinds ${show(result)}`);
+    assert(user(W).sessionsValidAfter instanceof Date, 'W was not signed out');
+    assert(user(B).sessionsValidAfter instanceof Date, 'B holds the banned address as its email way and kept its web session');
+    assert(user(V).sessionsValidAfter === null && user(T).sessionsValidAfter === null, 'an account with another address was signed out');
+    const lines = logs.slice(before);
+    assert(lines.includes(`[Moderation] Ban by admin ${ADMIN}: 2 account(s) signed out on the web`) && lines.includes(`[Moderation] Admin ${ADMIN} banned user ${W}: google, email`), `logs ${show(lines)}`);
   });
 
   await check('#2 a ban by the database id of a chat account records its Telegram id, WhatsApp number and address; a second ban updates the reason and adds no row', async () => {

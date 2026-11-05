@@ -8,7 +8,8 @@
 //     says allowWhatsApp: false (Connect Telegram);
 //   - refuseStaleSignIn: null for Telegram initData whatever its age (and for a stale cookie sent together with valid
 //     initData, through verifyUserAuth), null for a fresh session, 403 { ok: false, error: 'stale-sign-in' } for a stale
-//     one; the log line holds the user id and the method only;
+//     one, with whatsapp: true for a WhatsApp link's session and no other method named; the log line holds the user id
+//     and the method only;
 //   - the proved-at itself: a cookie with no `pa` falls back to its sign-in time (or its iat), and a re-issue (page-data's
 //     renewal, Remove) never restarts the hour;
 //   - no `provedAt` arithmetic anywhere in src/ or app/ except the helper, and Connect Telegram reads the helper;
@@ -90,7 +91,7 @@ async function main() {
     assert(sessionRecentlyProved(sessionOf('wa', Date.now() - 61 * MIN), DANA, { allowWhatsApp: true }) === false, 'a stale WhatsApp session passed');
   });
 
-  await check('refuseStaleSignIn: null for Telegram initData of any age and for a fresh session; 403 { ok: false, error: stale-sign-in } for a stale one, logged with the user id and the method only', async () => {
+  await check('refuseStaleSignIn: null for Telegram initData of any age and for a fresh session; 403 { ok: false, error: stale-sign-in } for a stale one (whatsapp: true beside it for a WhatsApp link\'s session only), logged with the user id and the method only', async () => {
     const before = everyLog.length;
     assert(refuseStaleSignIn({ success: true, via: 'telegram', user: userOf() }, 'add-link') === null, 'Telegram auth was refused');
     const fresh = refuseStaleSignIn({ success: true, via: 'session', user: userOf(), session: sessionOf('email', Date.now() - 10 * MIN) }, 'add-link');
@@ -105,8 +106,14 @@ async function main() {
     assert(show(await body(stale)) === show({ ok: false, error: 'stale-sign-in' }), `the answer ${show(await body(stale))}`);
     const staleWa = refuseStaleSignIn({ success: true, via: 'session', user: userOf(), session: sessionOf('wa', Date.now() - 61 * MIN) }, 'oauth-start');
     assert(staleWa && staleWa.status === 403, 'a stale WhatsApp session passed');
+    // A WhatsApp link's refusal says so (its screens show the WhatsApp hint, not Sign in again); no other method is named
+    assert(show(await body(staleWa)) === show({ ok: false, error: 'stale-sign-in', whatsapp: true }), `the WhatsApp link's answer ${show(await body(staleWa))}`);
+    for (const method of ['tg', 'google', 'email']) {
+      const other = refuseStaleSignIn({ success: true, via: 'session', user: userOf(), session: sessionOf(method, Date.now() - 61 * MIN) }, 'oauth-start');
+      assert(other && show(await body(other)) === show({ ok: false, error: 'stale-sign-in' }), `the ${method} answer names more: ${show(other ? await body(other) : null)}`);
+    }
     const lines = everyLog.slice(before);
-    assert(lines.length === 2, `two refusals, two lines: ${show(lines)}`);
+    assert(lines.length === 5, `five refusals, five lines: ${show(lines)}`);
     assert(lines[0] === `[recent-sign-in] user ${DANA}: email-add refused: the email sign-in is not recent`, `the line: ${lines[0]}`);
     assert(lines[1] === `[recent-sign-in] user ${DANA}: oauth-start refused: the wa sign-in is not recent`, `the line: ${lines[1]}`);
   });
@@ -169,18 +176,21 @@ async function main() {
     'app/api/signin-methods/join/route.ts': 'Join brings in another account\'s ways (refuseStaleSignIn, ruling R2)',
     'app/api/oauth/start/route.ts': 'the browser\'s Google Calendar consent (refuseStaleSignIn; no state row on a refusal)',
     'app/api/oauth/claim/route.ts': 'Finish here commits the connection, and its check says stale (refuseStaleSignIn; the entry stays for the chat claim)',
-    'app/api/google-sync/route.ts': 'the first Copy to Google asks Google\'s consent (refuseStaleSignIn, only before the new consent)',
+    'app/api/google-sync/route.ts': 'a Copy to Google that asks Google\'s consent, the first one or Approve in Google after Google stopped it (refuseStaleSignIn, only before the new consent)',
   };
   /** Files that call one of the same functions and are not asked, with the reason. */
   const EXEMPT: Record<string, string> = {
-    'src/services/google-connect.ts': 'defines the consent and the claim; its chat claims (Telegram /start gc_, WhatsApp) prove possession of the chat, not a cookie',
+    'src/services/google-connect.ts': 'defines the consent, the pending token, its commit and the claim; its chat claims (Telegram /start gc_, WhatsApp) prove possession of the chat, not a cookie, and the browser claim is app/api/oauth/claim (guarded)',
     'src/services/web-signin/calendar-account.ts': 'defines Turn on; the calendar match is a sign-in that ends in finishSignIn, whose proof is fresh by construction',
-    'src/services/web-signin/identities.ts': 'defines addIdentity (every caller above is listed)',
+    'src/services/web-signin/identities.ts': 'defines addIdentity and writeIdentityInTx (every caller is listed)',
     'src/services/web-signin/email-code.ts': 'defines issueCode (every caller is listed)',
-    'src/services/web-signin/join.ts': 'defines runJoin (its one route is guarded)',
+    'src/services/web-signin/join.ts': 'defines offerJoin and runJoin, which calls mergeAccounts: the question is asked only from add-google.ts and email/confirm (both guarded), and runJoin\'s one route is guarded',
+    'src/services/account-linking.ts': 'defines mergeAccounts and runs the WhatsApp-into-Telegram merge, proved by the chat (the person writes from both), never by a browser cookie',
+    'app/(connect)/oauth-callback/page.tsx': 'stores the pending token only (createPendingGoogleToken); nothing is connected until the claim, which app/api/oauth/claim guards (and the chat claim proves the chat)',
+    'src/services/user-service.ts': 'createAccount writes the first web way (writeIdentityInTx) of a sign-up, which ends in finishSignIn: a fresh proof by construction',
     'app/api/auth/email/request/route.ts': 'sign-in and sign-up codes only: the code proves the address and the flow ends in finishSignIn',
   };
-  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin)\(/;
+  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin|mergeAccounts|offerJoin|commitGoogleToken|createPendingGoogleToken|writeIdentityInTx)\(/;
   const DEFINITION = /^\s*export\s+(?:async\s+)?function\s/;
   /** A call of the helper: its name followed by "(" on a code line that is not an import (the import line and comments are not asking). */
   const GUARD_CALL = /\b(?:refuseStaleSignIn|recentlyProved)\(/;

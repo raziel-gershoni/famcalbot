@@ -208,6 +208,30 @@ async function main() {
     }
   });
 
+  await check('a sign-in over an hour old: the stale line with Sign in again under it (a kit row, busy while its press is out; a failed sign-out says so under the line and keeps it pressable); a WhatsApp link\'s session gets the stale line and the WhatsApp hint, never Sign in again; the page wires the press to signInAgain', async () => {
+    for (const l of LOCALES) {
+      const again = (messages[l].refreshToken as Row).signInAgainButton as string;
+      const hint = (messages[l].pageGate as Row).browserBody as string;
+      const network = (messages[l].oauthComplete as Row).hereNetwork as string;
+      const signIn = (o: Partial<{ busy: boolean; failed: boolean }> = {}) => ({ busy: false, failed: false, onPress: noop, ...o });
+      const stale = rowHtml(l, { error: 'stale', signIn: signIn() });
+      const press = buttons(stale).find((b) => b.text === again);
+      assert(textOf(stale).includes(gc(l).errors.stale) && press && /ch-form-row/.test(press.tag) && !/disabled/.test(press.tag) && !textOf(stale).includes(hint), `${l} stale: ${textOf(stale)}`);
+      const busy = buttons(rowHtml(l, { error: 'stale', signIn: signIn({ busy: true }) })).find((b) => b.text === again);
+      assert(busy && /disabled/.test(busy.tag) && /aria-busy="true"/.test(busy.tag), `${l} busy: ${show(busy)}`);
+      const failed = rowHtml(l, { error: 'stale', signIn: signIn({ failed: true }) });
+      const failedPress = buttons(failed).find((b) => b.text === again);
+      assert(textOf(failed).includes(network) && failedPress && !/disabled/.test(failedPress.tag), `${l} failed: ${textOf(failed)}`);
+      assert(!textOf(stale).includes(network), `${l}: the failure line before any press`);
+      const wa = rowHtml(l, { error: 'staleWhatsApp', signIn: signIn() });
+      assert(textOf(wa).includes(gc(l).errors.stale) && textOf(wa).includes(hint) && !buttons(wa).some((b) => b.text === again), `${l} WhatsApp: ${textOf(wa)}`);
+      // Another error offers no Sign in again
+      assert(!buttons(rowHtml(l, { error: 'failed', signIn: signIn() })).some((b) => b.text === again), `${l}: Sign in again under another error`);
+    }
+    const page = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/calendars/CalendarsClient.tsx'), 'utf8');
+    assert(/signIn=\{\{[^}]*onPress: signInFromCopy/.test(page) && /const signInFromCopy[\s\S]{0,200}signInAgain\(locale\)/.test(page), 'the page does not wire the row\'s Sign in again to signInAgain');
+  });
+
   await check('the unlink question (asked by the page in a sheet, not by the row): spec §1\'s words with the copy calendar\'s name, Remove and Keep and Cancel in every language; a right-to-left name is isolated inside the sentence; the row itself no longer carries it', async () => {
     const question = (l: Locale, name: string) => gc(l).unlink.question.replace('{name}', isolate(name));
     assert(question('en', 'Home').replace(/[\u2068\u2069]/g, '') === 'Delete the calendar “FamCal · Home” from Google too, including anything you added to it?', `en ${question('en', 'Home')}`);
@@ -344,6 +368,8 @@ async function main() {
     // A sign-in over an hour old (the consent start in a browser, 6c-1 follow-ups): matched by the body's error, never by 403 alone
     answer = () => ({ status: 403, body: { ok: false, error: 'stale-sign-in' } });
     assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'stale' }), 'a stale sign-in');
+    answer = () => ({ status: 403, body: { ok: false, error: 'stale-sign-in', whatsapp: true } });
+    assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'staleWhatsApp' }), 'a WhatsApp link\'s stale sign-in');
     answer = () => ({ status: 403, body: { ok: false, error: 'suspended' } });
     assert(show(await startCopy(77, 'cal-1')) === show({ kind: 'error', code: 'failed' }), 'another 403 is a plain failure');
   });

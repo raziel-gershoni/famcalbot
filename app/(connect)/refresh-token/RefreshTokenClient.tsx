@@ -10,9 +10,10 @@
 //   notice (startErrorLines); a server or network failure can be tried again from there, a refused credential cannot.
 //   A browser's sign-in over an hour old is refused too (403 { error: 'stale-sign-in' }, 6c-1 follow-ups; the Mini App is
 //   never asked): the notice says why and offers Sign in again, which signs this browser out and opens /signin
-//   (sign-in-again.ts). It is shown whenever a start says it, also one made after a Continue.
-//   Known limit: the 403 does not carry the session's method, so a WhatsApp-link session also sees Sign in again here (Settings
-//   shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
+//   (sign-in-again.ts). It is shown whenever a start says it, also one made after a Continue. A sign-out that fails (the
+//   press does not leave) adds an error line (`leaveFailed`) and keeps Sign in again. A WhatsApp link's session (the 403
+//   says whatsapp: true) has no web way to sign in again with: the notice shows the WhatsApp hint (pageGate.browserBody,
+//   a fresh link from the chat) in place of Sign in again, as Settings does.
 // - Continue stores famcalbot_oauth_pending and opens Google: Telegram's openLink in the Mini App, a new tab elsewhere.
 //   A new URL is made at once (each consent uses one up), and one left 9 minutes is replaced (URL_FRESH_MS).
 // - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
@@ -61,6 +62,8 @@ interface Translations {
   signInAgainTitle: string;
   signInAgainBody: string;
   signInAgainButton: string;
+  /** Under the stale notice when the Sign in again press could not sign this browser out (oauthComplete.hereNetwork) */
+  leaveFailed: string;
   /** The waiting notice's action: one check now */
   checkAgain: string;
   /** The header's back (ui.back) */
@@ -104,6 +107,9 @@ const refusedCredential = (status: number) => status === 401 || status === 403 |
 
 /** oauth/start refused the browser's sign-in as over an hour old: the body's error says so, a 403 alone does not. */
 const isStaleSignIn = (status: number, data: unknown): boolean => status === 403 && (data as { error?: unknown } | null)?.error === 'stale-sign-in';
+
+/** The stale refusal names a WhatsApp link's session: its person gets a fresh link from the chat, never Sign in again. */
+const staleViaWhatsApp = (data: unknown): boolean => (data as { whatsapp?: unknown } | null)?.whatsapp === true;
 
 /**
  * What the page says when oauth/start gives no Google URL. With no credential it says
@@ -155,6 +161,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   const [startError, setStartError] = useState<{ lines: string[]; canRetry: boolean; signInAgain?: boolean } | null>(null);
   // Sign in again is on its way to /signin
   const [leaving, setLeaving] = useState(false);
+  // The last Sign in again press could not sign this browser out (logged in sign-in-again.ts): the notice says so
+  const [leaveFailed, setLeaveFailed] = useState(false);
   // Set when Google opens: when, and whether the finish is in Telegram or WhatsApp
   const [waiting, setWaiting] = useState<{ since: number; telegram: boolean } | null>(null);
   // The 3-minute poll ended without the token
@@ -176,12 +184,12 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
     setStart(null);
     setRetry(false);
     const initData = readInitData();
-    const failed = (lines: string[], canRetry: boolean, why: string, stale = false) => {
+    const failed = (lines: string[], canRetry: boolean, why: string, stale = false, whatsapp = false) => {
       if (!mounted.current || run !== prepared.current) return;
       if (stale) {
-        // Trying again can't help, wherever it was asked: the sign-in has to be made again
+        // Trying again can't help, wherever it was asked: the sign-in has to be made again (a WhatsApp link's: from the chat)
         console.warn(`[refresh-token] starting the Google sign-in was refused (${why}); the sign-in is not recent`);
-        setStartError({ lines, canRetry: false, signInAgain: true });
+        setStartError({ lines, canRetry: false, signInAgain: !whatsapp });
       } else if (first) {
         console.warn(`[refresh-token] starting the Google sign-in failed (${why})`);
         setStartError({ lines, canRetry });
@@ -203,7 +211,8 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
       if (attempt) {
         setStart(attempt);
       } else if (isStaleSignIn(response.status, data)) {
-        failed([t.signInAgainTitle, t.signInAgainBody], false, `HTTP ${response.status}`, true);
+        const whatsapp = staleViaWhatsApp(data);
+        failed(whatsapp ? [t.signInAgainTitle, t.signInAgainBody, t.gate.browserBody] : [t.signInAgainTitle, t.signInAgainBody], false, `HTTP ${response.status}`, true, whatsapp);
       } else {
         failed(startErrorLines(response.status, initData, t), !refusedCredential(response.status), `HTTP ${response.status}`);
       }
@@ -231,8 +240,11 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
   const leave = () => {
     if (leaving) return;
     setLeaving(true);
+    setLeaveFailed(false);
     void signInAgain(locale).then((left) => {
-      if (!left && mounted.current) setLeaving(false);
+      if (left || !mounted.current) return;
+      setLeaving(false);
+      setLeaveFailed(true);
     });
   };
 
@@ -392,7 +404,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
               tone="error"
               action={startError.signInAgain ? { label: t.signInAgainButton, onClick: leave, busy: leaving } : startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}
             >
-              {startError.lines.map((line, i) => (
+              {[...startError.lines, ...(startError.signInAgain && leaveFailed ? [t.leaveFailed] : [])].map((line, i) => (
                 <Fragment key={line}>
                   {i > 0 ? <br /> : null}
                   {i === 0 && startError.lines.length > 1 ? <strong>{line}</strong> : line}

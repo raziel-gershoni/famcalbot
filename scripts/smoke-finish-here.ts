@@ -180,7 +180,7 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === String(TAL_TG) && sent[0].text.includes('Google Calendar is connected'), `the chat reply ${show(sent)}`);
   });
 
-  await check('#5b a session signed in over an hour ago: the check says { mine: false, stale: true }, the claim is 403 stale-sign-in (the session cookie is not cleared) and leaves the entry, which the chat claim still connects; a session from 59 minutes ago commits', async () => {
+  await check('#5b a session signed in over an hour ago: the check says { mine: false, stale: true } (and whatsapp: true for a WhatsApp link\'s), the claim is 403 stale-sign-in (the session cookie is not cleared) and leaves the entry, which the chat claim still connects; a session from 59 minutes ago commits', async () => {
     seed();
     const MIN = 60_000;
     const id = await park(NOA);
@@ -209,6 +209,14 @@ async function main() {
     assert(second.status === 403 && pendingKeys().length === 1, `the second stale press ${second.status}`);
     await connect.handleGoogleConnectTelegram(TAL_TG, TAL_TG, mine, 'en');
     assert(tokenOf(TAL) === `rt-${TAL}` && pendingKeys().length === 0, 'the chat claim did not connect it after a stale press');
+    // A WhatsApp link's stale session: the check and the refusal say whatsapp: true, so the page shows the WhatsApp hint
+    const waEntry = await park(NOA);
+    const staleWa = await sessionCookie(NOA, 'wa', Date.now() - 61 * MIN);
+    const waPeek = await ask(waEntry, staleWa);
+    assert(show(await body(waPeek)) === show({ mine: false, stale: true, whatsapp: true }), `the WhatsApp link's check: ${show(await body(waPeek))}`);
+    const waRefused = await finish(waEntry, staleWa);
+    assert(waRefused.status === 403 && show(await body(waRefused)) === show({ ok: false, error: 'stale-sign-in', whatsapp: true }), `the WhatsApp link's claim: ${waRefused.status} ${show(await body(waRefused))}`);
+    assert(pendingKeys().length === 1, 'a stale WhatsApp press used the entry up');
   });
 
   await check('#6 the check or the claim from another site, with no Origin, or with no id is refused, and the entry stays', async () => {
