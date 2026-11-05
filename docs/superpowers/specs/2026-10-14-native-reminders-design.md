@@ -308,10 +308,10 @@ Only the process that gets a row back sends. That covers overlapping ticks and R
 - **Which reminders:** only ones whose effective owner or creator is the viewer (R1).
 - **One-off:** undone and due before the cutoff.
 - **Repeating:**
-  - Only its latest occurrence before the cutoff, and only if that occurrence is undone.
-  - Never an occurrence due before `series.armedAt − 15 min`: it was never armed or pinged (its time predates the series or its last time change), so "open" would be a phantom. One-offs have no such bound.
-  - Suppressed when the same series has an occurrence on the summary day.
-  - The new `latestOccurrenceBefore(series, overrides, cutoff)` in `recurrence.ts` applies exdates, CANCELLED occurrences and moved overrides.
+  - Its **open run** is one row (owner 2026-11-05): every occurrence due before the cutoff that comes after the viewer's latest done one (`userDoneAt`: the shared Done, or their own where each marks their own). The row is the newest occurrence of the run, labelled "open since" the day of the run's oldest. A snoozed occurrence is open. A Done closes the pressed occurrence and every earlier open one (plan `2026-11-05-repeat-done-catchup`).
+  - Never an occurrence due before `series.armedAt − 15 min`: it was never armed or pinged (its time predates the series or its last time change), so "open" would be a phantom; it never starts the run. One-offs have no such bound.
+  - Not suppressed when the same series has an occurrence on the summary day: a missed time stays open until Done, and the day's own occurrence is listed separately (it replaces the old "suppressed when the same series occurs on the summary day" and "only its latest occurrence" lines).
+  - The run is read with `expandSeries`, which applies exdates, CANCELLED occurrences and moved overrides; `latestOccurrenceBefore(series, overrides, cutoff)` in `recurrence.ts` serves the one-off.
 - **Cap:** at most 5 lines, newest first, plus `and N more open` (R5).
 - **Label:** `Reminder (open since Tue 12 Oct)`, localized.
 - **Prompt rule (en/he/ru daily and tomorrow prompts):**

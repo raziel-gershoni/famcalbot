@@ -605,7 +605,8 @@ async function main() {
       ['Book the plumber', at('2026-10-12 17:00').toISOString(), '2026-10-12'],
       ['Call Grandma', at('2026-10-12 16:00').toISOString(), '2026-10-12'],
       ['Return the library books', at('2026-10-11 10:00').toISOString(), '2026-10-11'],
-      ['Recycling out', at('2026-10-11 08:00').toISOString(), '2026-10-11'],
+      // Sundays the 4th and the 11th are both undone: one row, the 11th's, open since the 4th (owner 2026-11-05).
+      ['Recycling out', at('2026-10-11 08:00').toISOString(), '2026-10-04'],
     ], 'items');
   });
 

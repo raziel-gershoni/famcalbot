@@ -207,7 +207,7 @@ export function toRangeDays(
 
 /**
  * A carry-over (an older open reminder) as the "Still open" card gets it: always open,
- * snoozed ones too, with openSince, the day it fell due (selectOpenReminders sets it;
+ * snoozed ones too, with openSince, the day it fell due, or for a repeating one the day its open run began (selectOpenReminders sets it;
  * worked out the same way when missing). No span: it isn't listed on a day. The
  * caller builds the ReadItem with the occurrence's instanceStartsAt as originalStart
  * and a CalendarRef masked by the legend rule.

@@ -4,18 +4,19 @@
 // done occurrence leaves the list and one whose time has passed is marked open. Older
 // undone ones are carried over as "open since <day>", only to the two people
 // responsible for them (everyone it is for, and its creator), newest first, at most
-// OPEN_REMINDERS_DIGEST_CAP of them. A repeating reminder carries only its latest
-// occurrence before the cutoff, and nothing when it also occurs on the summary day:
-// that occurrence speaks for it. Nor when that occurrence came before the series was
-// armed (created or re-timed): it was never pinged, so it is not open.
+// OPEN_REMINDERS_DIGEST_CAP of them. A repeating reminder carries its open run as one
+// row (owner 2026-11-05): every occurrence after the viewer's latest done one that is
+// due before the cutoff, shown as the newest of them, "open since" the oldest's day, and
+// still carried on a day it occurs again. An occurrence from before the series was
+// armed (created or re-timed) is never in the run: it was never pinged, so it is not open.
 
 import type { NativeEvent, NativeEventInstance } from '@prisma/client';
 import type { CalendarEvent, ReminderInfo, UserConfig } from '../../types';
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
-import { localDate, nextDate, startOfLocalDay } from '../../utils/day-events';
+import { localDate, startOfLocalDay } from '../../utils/day-events';
 import { isReminderEvent } from '../../utils/event-formatter';
-import { expandSeries, latestOccurrenceBefore } from '../native-calendar/recurrence';
+import { expandSeries, latestOccurrenceBefore, type VirtualInstance } from '../native-calendar/recurrence';
 import { reminderInfoFor, toUnifiedEvent } from '../calendar-provider/native-provider';
 import type { ReminderStateRow } from '../native-calendar/event-store';
 import type { UnifiedEvent } from '../calendar-provider/types';
@@ -94,13 +95,14 @@ export interface OpenReminderItem {
 }
 
 /**
- * Which reminders a digest carries over, without the database. Each series offers its
- * latest occurrence before `cutoff`; it is carried when it is due before the cutoff,
- * not done, the viewer is someone it is for or its creator (R1), and, for a
- * repeating one, the series has no occurrence on the summary day and the occurrence is
- * not due before `armedAt - ARMED_GRACE_MS`. A one-off has no armed bound: someone set
- * that one item, so it stays a to-do until done, even when its time had already passed.
- * Newest first; the first `cap`, and how many more there are.
+ * Which reminders a digest carries over, without the database. A one-off is carried when
+ * it is due before `cutoff`, not done, and the viewer is someone it is for or its creator
+ * (R1); it has no armed bound: someone set that one item, so it stays a to-do until done,
+ * even when its time had already passed. A repeating one offers its open run as one row:
+ * the occurrences due before the cutoff that come after the viewer's latest done one and
+ * are not due before `armedAt - ARMED_GRACE_MS`; the row is the newest, "open since" the
+ * oldest's day. Newest first; the first `cap`, and how many more there are. The cutoff
+ * already carries the summary day, so `summaryDay` only stays in the signature for the callers.
  */
 export function selectOpenReminders(
   candidates: OpenReminderCandidate[],
@@ -113,7 +115,7 @@ export function selectOpenReminders(
   reminderTime?: string | null,
   clock?: ZmanClock | null
 ): { events: CalendarEvent[]; moreCount: number } {
-  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, now, cap, reminderTime, clock);
+  const { items, moreCount } = selectOpenReminderItems(candidates, ctx, cutoff, timezone, now, cap, reminderTime, clock);
   return { events: items.map(i => i.event), moreCount };
 }
 
@@ -122,48 +124,41 @@ function selectOpenReminderItems(
   candidates: OpenReminderCandidate[],
   ctx: ViewerContext,
   cutoff: Date,
-  summaryDay: string,
   timezone: string,
   now: Date,
   cap: number,
   reminderTime?: string | null,
   clock?: ZmanClock | null
 ): { items: OpenReminderItem[]; moreCount: number } {
-  const summaryRange = { from: startOfLocalDay(summaryDay, timezone), to: startOfLocalDay(nextDate(summaryDay), timezone) };
   const open: Array<{ due: Date; item: OpenReminderItem }> = [];
   for (const { series, calendar, overrides, states } of candidates) {
     // R1: carried over only to everyone it is for and its creator
     if (!recipientIdsForViewer(series, ctx).includes(ctx.viewerId) && series.creatorUserId !== ctx.viewerId) continue;
-    let occurrence: ReturnType<typeof latestOccurrenceBefore>;
-    let onSummaryDay: boolean;
+    // A reminder by zman is due at its zman time at the viewer's place (a timed occurrence of it is a fixed time).
+    const zman = zmanRuleOf(series.zmanSpec, clock);
+    const dueOf = (occurrence: VirtualInstance) => reminderDueAt(toUnifiedEvent(calendar, occurrence), timezone, reminderTime, zman);
+    const stateOf = (occurrence: VirtualInstance) => states.find(s => s.originalStartsAt.getTime() === occurrence.instanceStartsAt.getTime());
+    let run: VirtualInstance[];
     try {
-      occurrence = latestOccurrenceBefore(series, overrides, cutoff);
-      onSummaryDay = !!series.rrule && expandSeries(series, summaryRange, overrides).length > 0;
+      run = openRunOf(series, overrides, states, ctx.viewerId, cutoff, dueOf);
     } catch (error) {
       // A stored rule that can't be read: report it by id and carry the rest (3b spec §3.1).
       captureError(error, 'native-reminders-open-series', { series_id: series.id });
       continue;
     }
-    if (!occurrence) continue;
-    if (onSummaryDay) continue;
-    const event = toUnifiedEvent(calendar, occurrence);
-    // A reminder by zman is due at its zman time at the viewer's place (a timed occurrence of it is a fixed time).
-    const due = reminderDueAt(event, timezone, reminderTime, zmanRuleOf(series.zmanSpec, clock));
-    if (due >= cutoff) continue; // a date-only one whose morning has not come yet
-    // Never armed: due before the series was created or re-timed, so never pinged and
-    // with no state. Showing it as open would be a phantom.
-    if (series.rrule && series.armedAt && due.getTime() < series.armedAt.getTime() - ARMED_GRACE_MS) continue;
-    const key = occurrence.instanceStartsAt.getTime();
-    const state = states.find(s => s.originalStartsAt.getTime() === key);
-    // Done for the viewer: the shared Done, or (each marks their own) the viewer's. A partner who is not done does not keep
-    // it in the viewer's list, and the viewer's own Done leaves it there for them only.
-    if (userDoneAt(series, state, ctx.viewerId)) continue;
+    if (run.length === 0) continue;
+    // The run is the occurrences open for the viewer; the row is its newest, and the oldest says since when.
+    const dues = run.map(dueOf);
+    const newest = dues.reduce((best, d, i) => (d.getTime() >= dues[best].getTime() ? i : best), 0);
+    const oldest = dues.reduce((best, d, i) => (d.getTime() < dues[best].getTime() ? i : best), 0);
+    const occurrence = run[newest];
+    const state = stateOf(occurrence);
     const info = reminderInfoFor(series, state, ctx, now);
-    info.openSince = localDate(due, timezone);
+    info.openSince = localDate(dues[oldest], timezone);
     open.push({
-      due,
+      due: dues[newest],
       item: {
-        event: { ...event, eventType: 'reminder', reminder: info },
+        event: { ...toUnifiedEvent(calendar, occurrence), eventType: 'reminder', reminder: info },
         series,
         calendar,
         instanceStartsAt: occurrence.instanceStartsAt,
@@ -173,6 +168,48 @@ function selectOpenReminderItems(
   }
   open.sort((a, b) => b.due.getTime() - a.due.getTime());
   return { items: open.slice(0, cap).map(o => o.item), moreCount: Math.max(0, open.length - cap) };
+}
+
+/** How far before the bound the open run's expansion starts: an occurrence's effective start may sit a day off its due time. */
+const RUN_PAD_MS = 2 * 24 * 60 * 60 * 1000;
+
+/**
+ * A series' occurrences that are open for `viewerId` before `cutoff`, oldest first. A one-off is its single
+ * occurrence when due before the cutoff and not done. A repeating one is every occurrence that is due before the
+ * cutoff, comes after the viewer's latest done one (userDoneAt: the shared Done, or their own where each marks their
+ * own) and is not due before `armedAt - ARMED_GRACE_MS` (it was never pinged). Exdates, cancelled and moved
+ * occurrences apply as in expandSeries.
+ */
+function openRunOf(
+  series: NativeEvent,
+  overrides: NativeEventInstance[],
+  states: OpenReminderState[],
+  viewerId: number,
+  cutoff: Date,
+  dueOf: (occurrence: VirtualInstance) => Date
+): VirtualInstance[] {
+  const stateAt = (occurrence: VirtualInstance) => states.find(s => s.originalStartsAt.getTime() === occurrence.instanceStartsAt.getTime());
+  if (!series.rrule) {
+    const only = latestOccurrenceBefore(series, overrides, cutoff);
+    if (!only || dueOf(only) >= cutoff) return []; // a date-only one whose morning has not come yet
+    return userDoneAt(series, stateAt(only), viewerId) ? [] : [only];
+  }
+  // The run starts after the viewer's latest done occurrence before the cutoff (exclusive), and not before the armed bound.
+  const doneKeys = states
+    .filter(s => s.originalStartsAt < cutoff && userDoneAt(series, s, viewerId))
+    .map(s => s.originalStartsAt.getTime());
+  const afterKey = doneKeys.length > 0 ? Math.max(...doneKeys) : -Infinity;
+  const armedBound = series.armedAt ? series.armedAt.getTime() - ARMED_GRACE_MS : -Infinity;
+  const earliest = overrides.reduce(
+    (min, o) => (o.status === 'OVERRIDE' && o.startsAt && o.startsAt < min ? o.startsAt : min),
+    series.startsAt
+  );
+  const from = new Date(Math.max(earliest.getTime(), Math.max(armedBound, afterKey) - RUN_PAD_MS));
+  return expandSeries(series, { from, to: cutoff }, overrides).filter(occurrence => {
+    if (occurrence.instanceStartsAt.getTime() <= afterKey) return false;
+    const due = dueOf(occurrence);
+    return due < cutoff && due.getTime() >= armedBound && !userDoneAt(series, stateAt(occurrence), viewerId);
+  });
 }
 
 /**
@@ -209,7 +246,7 @@ export async function fetchOpenReminderItems(
 ): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
   const clock = await zmanClockIfNeeded(candidates.some((c) => readZmanSpec(c.series.zmanSpec) !== null), user, timezone);
-  return selectOpenReminderItems(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime, clock);
+  return selectOpenReminderItems(candidates, ctx, cutoff, timezone, new Date(), cap, user.reminderTime, clock);
 }
 
 /** The one read behind fetchOpenReminders and fetchOpenReminderItems: each series with its calendar, overrides and state rows. */

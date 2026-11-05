@@ -27,6 +27,10 @@
 // (2026-10-28): a weekly series never appears in /week, /nextweek or the lookahead block,
 // so the golden lost exactly its nine weekly entries (Swimming, Choir) and nothing else;
 // the days and the prompts are unchanged.
+// The prompts were retaken again when a repeating reminder's missed times became one open row
+// that no longer yields to an occurrence on the summary day (2026-11-05): three prompts of the
+// paired FamCal user gain the daily Vitamins reminder's row (and, past the cap, lose the oldest
+// lines); the days and the weeks are unchanged.
 //
 // Real: summary.ts, commands.ts (/week), the command pipeline, week-lookahead.ts, the
 // digest adapters, readRange and both halves, calendar.ts, the native provider, the event

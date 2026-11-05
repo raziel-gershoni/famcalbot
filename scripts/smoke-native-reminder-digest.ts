@@ -3,8 +3,10 @@
 // categorizeEvents (src/services/telegram/summary.ts) and the summary prompt claude.ts
 // builds. A reminder stays in the digests until it is done: on its day a done one leaves
 // the list and a past-due one is "(open)"; older undone ones are carried over as "open
-// since <day>", to its owner and its creator only, newest first, five at most. A daily
-// reminder ignored for two weeks shows once, not fourteen times, and a repeating one's
+// since <day>", to its owner and its creator only, newest first, five at most. A repeating
+// reminder's missed times stay open as one row (the newest, "open since" the first missed day)
+// until a Done closes them, also on a day it occurs again; a daily reminder ignored for two
+// weeks shows once, not fourteen times, and a repeating one's
 // occurrence from before it was armed (created or re-timed) is never carried. Reminders are filed by
 // whose they are, never under "other" (that feeds the kid-name follow-up). Prisma and
 // the AI are faked. No network, no DB.
@@ -306,22 +308,23 @@ async function main() {
   // Mondays at 18:00 since 5 Oct: the latest before Wednesday is Monday the 12th.
   const plants = series('Water the plants', il('2026-10-05 18:00:00'), { rrule: 'FREQ=WEEKLY;BYDAY=MO' });
 
-  await check('repeating: only its latest occurrence before the cutoff, when undone', () => {
+  await check('repeating: the missed Mondays are one row, the newest, open since the first', () => {
     const { events } = select([candidate(plants)]);
-    assertList(linesOf(events, WEDNESDAY), ['Water the plants (Reminder (open since Mon 12 Oct)) [Calendar: Raziel]']);
+    assertList(linesOf(events, WEDNESDAY), ['Water the plants (Reminder (open since Mon 5 Oct)) [Calendar: Raziel]']);
+    assert(events[0].start === il('2026-10-12 18:00:00').toISOString(), `row is ${events[0].start}`);
   });
 
   await check('repeating: the latest one done carries nothing, even with an older one undone', () => {
     assert(select([candidate(plants, [done(il('2026-10-12 18:00:00'))])]).events.length === 0, 'carried an older occurrence');
   });
 
-  await check('repeating: a daily reminder ignored for two weeks is one line, and none when it also falls on the day', () => {
+  await check('repeating: a daily reminder ignored for two weeks is one line, also when it falls on the summary day too', () => {
     const vitamins = series('Take vitamins', il('2026-09-30 08:00:00'), { rrule: 'FREQ=DAILY' });
-    // It occurs on Wednesday too, so Wednesday's own occurrence speaks for it.
-    assert(select([candidate(vitamins)]).events.length === 0, 'carried while it occurs on the summary day');
-    // Ended on Tuesday: nothing on Wednesday, so the latest (Tuesday's) is carried, once.
+    // It occurs on Wednesday too, and still carries its missed days: Tuesday's row, open since the first.
+    assertList(linesOf(select([candidate(vitamins)]).events, WEDNESDAY), ['Take vitamins (Reminder (open since Wed 30 Sep)) [Calendar: Raziel]']);
+    // Ended on Tuesday: nothing on Wednesday, the same row.
     const ended = series('Take vitamins', il('2026-09-30 08:00:00'), { rrule: 'FREQ=DAILY;UNTIL=20261013T235959' });
-    assertList(linesOf(select([candidate(ended)]).events, WEDNESDAY), ['Take vitamins (Reminder (open since Tue 13 Oct)) [Calendar: Raziel]']);
+    assertList(linesOf(select([candidate(ended)]).events, WEDNESDAY), ['Take vitamins (Reminder (open since Wed 30 Sep)) [Calendar: Raziel]']);
   });
 
   await check('repeating: an exdated latest occurrence leaves the one before it', () => {
@@ -334,8 +337,8 @@ async function main() {
   // Daily at 08:00, ended Tuesday: nothing on Wednesday, so Tuesday's is the latest.
   const stretch = (armedAt: Date) => series('Stretch', il('2026-09-30 08:00:00'), { rrule: 'FREQ=DAILY;UNTIL=20261013T235959', armedAt });
 
-  await check('armed: a daily reminder armed three days ago and undone is open since yesterday, once', () => {
-    assertList(linesOf(select([candidate(stretch(il('2026-10-11 08:00:00')))]).events, WEDNESDAY), ['Stretch (Reminder (open since Tue 13 Oct)) [Calendar: Raziel]']);
+  await check('armed: a daily reminder armed three days ago and undone is one row, open since the day it was armed', () => {
+    assertList(linesOf(select([candidate(stretch(il('2026-10-11 08:00:00')))]).events, WEDNESDAY), ['Stretch (Reminder (open since Sun 11 Oct)) [Calendar: Raziel]']);
   });
 
   await check('armed: the same series re-armed today carries nothing (yesterday\'s was never pinged)', () => {
@@ -345,6 +348,80 @@ async function main() {
   await check('armed: a one-off is not bounded: one from two days ago, created today, is still carried', () => {
     const books = series('Return the books', il('2026-10-12 10:00:00'), { armedAt: MORNING, createdAt: MORNING });
     assertList(linesOf(select([candidate(books)]).events, WEDNESDAY), ['Return the books (Reminder (open since Mon 12 Oct)) [Calendar: Raziel]']);
+  });
+
+  // ---- The open run (owner 2026-11-05): missed times of a repeating reminder stay open as one row until a Done ----
+
+  // Mon + Thu at 18:00 from Mon 12 Oct (the 12th, 15th and 19th).
+  const gym = series('Gym', il('2026-10-12 18:00:00'), { rrule: 'FREQ=WEEKLY;BYDAY=MO,TH' });
+  const THURSDAY = '2026-10-15';
+  const FRIDAY = '2026-10-16';
+  const pickDay = (candidates: OpenReminderCandidate[], day: string, ctx = razielCtx) => {
+    const at = il(`${day} 08:00:00`);
+    return selectOpenReminders(candidates, ctx, openRemindersCutoff(day, IL, at), day, IL, at).events;
+  };
+
+  await check('run: Monday missed, Thursday morning (it occurs today too): one row, Monday\'s', () => {
+    const events = pickDay([candidate(gym)], THURSDAY);
+    assert(events.length === 1 && events[0].start === il('2026-10-12 18:00:00').toISOString() && events[0].reminder?.openSince === '2026-10-12', JSON.stringify(events.map(e => [e.start, e.reminder?.openSince])));
+  });
+
+  await check('run: Friday with Monday and Thursday undone: one row, Thursday\'s, open since Monday', () => {
+    const events = pickDay([candidate(gym)], FRIDAY);
+    assert(events.length === 1 && events[0].start === il('2026-10-15 18:00:00').toISOString() && events[0].reminder?.openSince === '2026-10-12', JSON.stringify(events.map(e => [e.start, e.reminder?.openSince])));
+  });
+
+  await check('run: Monday undone, Thursday done, Friday: nothing; Monday done, Thursday undone: Thursday since Thursday', () => {
+    assert(pickDay([candidate(gym, [done(il('2026-10-15 18:00:00'))])], FRIDAY).length === 0, 'carried what a later Done closed');
+    const events = pickDay([candidate(gym, [done(il('2026-10-12 18:00:00'))])], FRIDAY);
+    assert(events.length === 1 && events[0].reminder?.openSince === '2026-10-15', JSON.stringify(events.map(e => e.reminder?.openSince)));
+  });
+
+  // Daily at 08:00 from Sun 11 Oct: Sun, Mon, Tue are missed by Wednesday morning (it occurs on Wednesday too).
+  const daily = (over: Partial<NativeEvent> = {}) => series('Stretch daily', il('2026-10-11 08:00:00'), { rrule: 'FREQ=DAILY', ...over });
+
+  await check('run: a daily reminder missed three days is one row, the newest, open since the first', () => {
+    const events = select([candidate(daily())]).events;
+    assert(events.length === 1 && events[0].start === il('2026-10-13 08:00:00').toISOString() && events[0].reminder?.openSince === '2026-10-11', JSON.stringify(events.map(e => [e.start, e.reminder?.openSince])));
+  });
+
+  await check('run: a done occurrence in the middle starts the run after it', () => {
+    const events = select([candidate(daily(), [done(il('2026-10-12 08:00:00'))])]).events;
+    assert(events.length === 1 && events[0].start === il('2026-10-13 08:00:00').toISOString() && events[0].reminder?.openSince === '2026-10-13', JSON.stringify(events.map(e => [e.start, e.reminder?.openSince])));
+    assert(select([candidate(daily(), [done(il('2026-10-13 08:00:00'))])]).events.length === 0, 'carried what the newest Done closed');
+  });
+
+  await check('run: an occurrence from before the series was armed never starts the run', () => {
+    const events = select([candidate(daily({ armedAt: il('2026-10-12 07:00:00') }))]).events;
+    assert(events.length === 1 && events[0].reminder?.openSince === '2026-10-12', JSON.stringify(events.map(e => e.reminder?.openSince)));
+    // Re-timed today: the whole past is before it.
+    assert(select([candidate(daily({ armedAt: il('2026-10-14 07:00:00') }))]).events.length === 0, 'carried what was never pinged');
+  });
+
+  await check('run: a snoozed occurrence in the run counts as open', () => {
+    const events = select([candidate(daily(), [snoozed(il('2026-10-13 08:00:00'), il('2026-10-14 09:00:00'))])]).events;
+    assert(events.length === 1 && events[0].reminder?.snoozed === true && events[0].reminder?.openSince === '2026-10-11', JSON.stringify(events[0]?.reminder));
+  });
+
+  await check('run: each marks their own - Raziel\'s Done is his only; Dana still carries the whole run', () => {
+    const each = daily({ forUserId: 2, forBoth: true, eachMarksDone: true });
+    const danaCtx: ViewerContext = { viewerId: 2, partner: { ...dana, id: 1, name: 'Raziel' } };
+    const razielDone: StateRow = { originalStartsAt: il('2026-10-12 08:00:00'), doneAt: null, pings: [{ userId: 1, snoozedUntil: null, doneAt: il('2026-10-12 08:05:00') }] };
+    const his = select([candidate(each, [razielDone])]).events;
+    assert(his.length === 1 && his[0].reminder?.openSince === '2026-10-13', `his: ${JSON.stringify(his.map(e => e.reminder?.openSince))}`);
+    const hers = select([candidate(each, [razielDone])], danaCtx).events;
+    assert(hers.length === 1 && hers[0].reminder?.openSince === '2026-10-11', `hers: ${JSON.stringify(hers.map(e => e.reminder?.openSince))}`);
+  });
+
+  await check('run: a one-off is unchanged (one row, its own day, no run)', () => {
+    const events = select([candidate(plumber)]).events;
+    assert(events.length === 1 && events[0].reminder?.openSince === '2026-10-12', JSON.stringify(events[0]?.reminder));
+  });
+
+  await check('run: the cap and the newest-first order hold with runs among the rows', () => {
+    const { events, moreCount } = selectOpenReminders([...SEVEN_TASKS, candidate(daily())], razielCtx, cutoff, WEDNESDAY, IL, MORNING, 3);
+    assertList(events.map(e => e.summary), ['Stretch daily', 'Task 11', 'Task 10']); // the run's row sorts by its newest time
+    assert(moreCount === 5, `moreCount ${moreCount}`);
   });
 
   // ---- Who sees a carried-over reminder (R1) ----
