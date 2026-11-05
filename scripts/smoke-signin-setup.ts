@@ -15,6 +15,8 @@
 //    way (offerJoin, mergePlan) and Finish here (POST /api/oauth/claim); the pause rule names the web sign-up's sends
 //    and the no-chat skip line; the README has a Web sign-up section with the Turnstile pair, and no longer says the
 //    web makes no accounts.
+//  - S4 browser notifications' setup (spec 2026-11-05-web-push §3.9; plan 6c-2 Task 1): pushSetupWarnings, PUSH_ENV, the
+//    private key's name against the console scrubber, register()'s line, and the README and .env.example entries.
 //
 // Real: src/lib/startup-checks.ts and the files read as text. No network, no DB.
 //
@@ -54,6 +56,9 @@ const ALL_OFF = [
   'web sign-up with an email code is off: TURNSTILE_SITE_KEY and TURNSTILE_SECRET are not set',
   'web sign-up with Google is off: RESEND_API_KEY is not set',
 ];
+
+/** Browser notifications' two variables (6c-2), in PUSH_ENV's order. The public key is no secret: the page that turns notifications on reads it. */
+const PUSH_NAMES = ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'];
 
 /** The files the CLAUDE.md rule lets read or write SignInIdentity rows. */
 const SIGNIN_IDENTITY_FILES = ['src/services/web-signin/identities.ts', 'src/services/account-linking.ts'];
@@ -139,6 +144,43 @@ async function main() {
     if (!/^### Web sign-up$/m.test(readme)) problems.push('README has no "### Web sign-up" section');
     if (/The web makes no accounts/.test(readme)) problems.push('README still says the web makes no accounts');
     for (const name of ['TURNSTILE_SITE_KEY', 'TURNSTILE_SECRET', 'createAccount', '/signup']) if (!readme.slice(readme.indexOf('### Web sign-up')).includes(name)) problems.push(`README's Web sign-up section does not name ${name}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('S4 browser notifications\' setup (6c-2, spec 2026-11-05-web-push §3.9): pushSetupWarnings names the unset VAPID variables in one line and never a value, by the rule pushConfigured reads; PUSH_ENV is the two; the private key matches the console scrubber; production register() logs the line; the README table and .env.example have both', async () => {
+    const mod = (await import(path.join(ROOT, 'src/lib/startup-checks.ts'))) as Row;
+    const config = (await import(path.join(ROOT, 'src/services/web-push/config.ts'))) as Row;
+    const problems: string[] = [];
+    if (show(config.PUSH_ENV) !== show(PUSH_NAMES)) problems.push(`PUSH_ENV ${show(config.PUSH_ENV)}`);
+    const both = { VAPID_PUBLIC_KEY: 'VALUE-VPUB-1', VAPID_PRIVATE_KEY: 'VALUE-VPRIV-2' };
+    const cases: [string, Record<string, string | undefined>, string[]][] = [
+      ['both set', both, []],
+      ['none set', {}, ['Browser notifications are off: VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY are not set']],
+      ['only the private key missing', { ...both, VAPID_PRIVATE_KEY: undefined }, ['Browser notifications are off: VAPID_PRIVATE_KEY is not set']],
+      ['the public key blank', { ...both, VAPID_PUBLIC_KEY: '  ' }, ['Browser notifications are off: VAPID_PUBLIC_KEY is not set']],
+    ];
+    for (const [label, env, want] of cases) {
+      const got = typeof mod.pushSetupWarnings === 'function' ? mod.pushSetupWarnings(env) : 'no pushSetupWarnings';
+      if (show(got) !== show(want)) problems.push(`${label}: ${show(got)}`);
+      if (/VALUE-/.test(show(got))) problems.push(`${label}: a value in ${show(got)}`);
+      if (config.pushConfigured?.(env) !== (want.length === 0)) problems.push(`${label}: pushConfigured disagrees with the warning`);
+    }
+    const pattern = /const SECRET_NAME = \/(.+)\/i;/.exec(read('src/lib/console-scrub.ts'))?.[1];
+    assert(pattern, 'no SECRET_NAME in src/lib/console-scrub.ts');
+    if (!new RegExp(pattern, 'i').test('VAPID_PRIVATE_KEY')) problems.push('VAPID_PRIVATE_KEY does not match the console scrubber\'s SECRET_NAME');
+    const boot = read('instrumentation.ts');
+    const production = boot.indexOf("if (process.env.NODE_ENV === 'production') {");
+    const line = boot.indexOf('for (const warning of pushSetupWarnings(process.env)) console.warn(`[startup] ${warning}`);');
+    if (production < 0 || line < production) problems.push('instrumentation.ts does not log pushSetupWarnings in its production block');
+    if (!/import\('\.\/src\/lib\/startup-checks'\)/.test(boot) || !/\bpushSetupWarnings\b.*=\s*await import\('\.\/src\/lib\/startup-checks'\)/.test(boot)) problems.push('instrumentation.ts does not import pushSetupWarnings from startup-checks');
+    const readme = read('README.md');
+    const example = read('.env.example').split('\n');
+    for (const name of PUSH_NAMES) {
+      if (!new RegExp(`^\\|[^\\n]*\`${name}\``, 'm').test(readme)) problems.push(`README's table has no ${name} row`);
+      const placeholder = example.find((l) => l.startsWith(`# ${name}=`));
+      if (!placeholder || !/^# [A-Z_]+=your_[a-z_]+_here$/.test(placeholder)) problems.push(`.env.example has no commented placeholder for ${name}`);
+      if (example.some((l) => l.startsWith(`${name}=`))) problems.push(`.env.example sets ${name} uncommented`);
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 

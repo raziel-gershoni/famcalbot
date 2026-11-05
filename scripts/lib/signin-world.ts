@@ -180,6 +180,7 @@ const UNIQUE: Record<string, string[][]> = {
   signInIdentity: [['kind', 'subject'], ['userId', 'kind']],
   user: [['telegramId'], ['whatsappPhone'], ['whatsappBsuid']],
   blockedIdentifier: [['telegramId'], ['whatsappPhone'], ['googleSub'], ['email']],
+  pushDevice: [['endpoint']],
 };
 function assertUnique(name: string, row: Row, all: Row[]) {
   for (const cols of UNIQUE[name] ?? []) {
@@ -204,12 +205,12 @@ const DEFAULTS: Record<string, () => Row> = {
 
 /**
  * The ON DELETE CASCADE relations the account merge (smoke-join.ts) leans on, as the migrations declare them: a deleted
- * user takes its sign-in ways, open invites, copies to Google, payments and pings; a deleted calendar its events; a
+ * user takes its sign-in ways, open invites, copies to Google, payments, pings and push devices; a deleted calendar its events; a
  * deleted event its instances and reminder states. Other relations are not modelled (smoke-account-merge.ts has the
  * full set).
  */
 const CASCADE: Record<string, [table: string, fk: string][]> = {
-  user: [['signInIdentity', 'userId'], ['pairingInvite', 'inviterUserId'], ['googleSyncLink', 'userId'], ['payment', 'userId'], ['nativeReminderPing', 'userId']],
+  user: [['signInIdentity', 'userId'], ['pairingInvite', 'inviterUserId'], ['googleSyncLink', 'userId'], ['payment', 'userId'], ['nativeReminderPing', 'userId'], ['pushDevice', 'userId']],
   nativeCalendar: [['nativeEvent', 'calendarId']],
   nativeEvent: [['nativeEventInstance', 'seriesEventId'], ['nativeReminderState', 'seriesEventId']],
 };

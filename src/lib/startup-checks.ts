@@ -7,6 +7,7 @@
 
 import { isUsableEncryptionKey } from '../utils/encryption';
 import { googleSignInUsesCalendarClient } from '../services/web-signin/client-ids';
+import { missingPushEnv } from '../services/web-push/config';
 
 export interface StartupProblem {
   /** The variable at fault */
@@ -71,6 +72,17 @@ export function signInSetupWarnings(env: Record<string, string | undefined>): st
     warnings.push('web sign-in with Google is off: GOOGLE_SIGNIN_CLIENT_ID is the calendar client GOOGLE_CLIENT_ID; give sign-in its own Web client');
   }
   return warnings;
+}
+
+/**
+ * Browser notifications (spec 2026-11-05-web-push §3.9) stay off until both VAPID keys are set (web-push/config.ts
+ * pushConfigured, the same rule): one warning line naming the unset ones, never a value. A warning, never a
+ * StartupProblem: the owner sets the keys after the deploy. Pure: env in, lines out.
+ */
+export function pushSetupWarnings(env: Record<string, string | undefined>): string[] {
+  const unset = missingPushEnv(env);
+  if (unset.length === 0) return [];
+  return [`Browser notifications are off: ${unset.join(' and ')} ${unset.length > 1 ? 'are' : 'is'} not set`];
 }
 
 /**

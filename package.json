@@ -72,7 +72,8 @@
     "react-dom": "^19.2.3",
     "rrule": "^2.8.1",
     "satori": "^0.25.0",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
@@ -80,6 +81,7 @@
     "@types/node-telegram-bot-api": "^0.64.7",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/web-push": "3.6.4",
     "eslint": "^9.39.2",
     "eslint-config-next": "^16.1.1",
     "geotiff": "^3.0.5",

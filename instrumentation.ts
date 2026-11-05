@@ -36,7 +36,7 @@ export async function register() {
 
       // Name a missing or reused secret (production only), never its value
       if (process.env.NODE_ENV === 'production') {
-        const { startupSecretProblems, signInSetupWarnings } = await import('./src/lib/startup-checks');
+        const { startupSecretProblems, signInSetupWarnings, pushSetupWarnings } = await import('./src/lib/startup-checks');
         const problems = startupSecretProblems(process.env);
         for (const problem of problems) {
           console.error(`[startup] ${problem.message}`);
@@ -45,6 +45,8 @@ export async function register() {
         missing = problems.filter(p => p.missing).map(p => p.name);
         // A web sign-in way without its variables stays hidden: a warning in the log, never an error, a capture or "missing"
         for (const warning of signInSetupWarnings(process.env)) console.warn(`[startup] ${warning}`);
+        // Browser notifications without their keys stay off, the same way
+        for (const warning of pushSetupWarnings(process.env)) console.warn(`[startup] ${warning}`);
       }
     } catch (err) {
       captureError(err, 'startup-checks');

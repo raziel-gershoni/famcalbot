@@ -105,6 +105,7 @@ model User {
   pairingInvitesAccepted PairingInvite[]       @relation("PairingInvitesAccepted")
   googleSyncLinks        GoogleSyncLink[]
   signInIdentities       SignInIdentity[]
+  pushDevices            PushDevice[]
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -132,6 +133,22 @@ model SignInIdentity {
 
   @@unique([kind, subject])
   @@unique([userId, kind])
+}
+
+// A browser that turned FamCal's notifications on (spec 2026-11-05-web-push §3.1): the address its push service gave it
+// (endpoint) and the two keys that encrypt a notification so only that browser can read it. One row per browser, on one
+// account at a time, at most 10 per account; read and written only in src/services/web-push/devices.ts. Deleted with
+// the account, and by the writers that end its sessions (sessionsValidAfter) or give it a chat.
+model PushDevice {
+  id        String   @id @default(cuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 // Persistent blocklist: Telegram ids, WhatsApp numbers, Google account ids (sub) and sign-in email addresses
