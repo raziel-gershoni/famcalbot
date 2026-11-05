@@ -15,6 +15,8 @@
 //     and never holding the switch itself;
 //   - a failure is logged and read as not paused (it never throws into a pass), and a skipped send is logged
 //     "[pause] skipped <kind> for <userId>";
+//   - nextPauseStart: when the next window begins within a span (a browser notification's lifetime ends there), at the
+//     person's place, from the same per-day computation;
 //   - the audit: every file that sends a message to a person is either paused (it calls isPaused) or listed here with
 //     the reason it is not (a reply to the person's own action, or a message to the admin).
 //
@@ -101,7 +103,10 @@ type PauseUser = {
   zmanimCommunity?: string | null;
   pauseOnShabbat?: boolean | null;
 };
-type Pause = { isPaused: (user: PauseUser, at?: Date, skipped?: string) => Promise<boolean> };
+type Pause = {
+  isPaused: (user: PauseUser, at?: Date, skipped?: string) => Promise<boolean>;
+  nextPauseStart: (user: PauseUser, from: Date, withinMs: number) => Promise<Date | null>;
+};
 type Windows = {
   __resetPauseForTests: () => void;
   MAIN_CITIES: Record<string, string>;
@@ -237,11 +242,11 @@ function sourceFiles(): string[] {
 }
 
 /**
- * A call that puts a message in front of a person (Telegram, WhatsApp or email), or the sender helpers the files use.
+ * A call that puts a message in front of a person (Telegram, WhatsApp, email or a browser notification), or the sender helpers the files use.
  * Email goes only through Resend's API (src/services/web-signin/email-send.ts), the code helpers that call it, and the
  * notice email (sendNoticeEmail).
  */
-const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|sendNoticeEmail|issueCode)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
+const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|sendNoticeEmail|issueCode|sendWebPush)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
 
 /** The files that send on a schedule (cron, or a pass a cron runs): each calls isPaused before it sends. */
 const PAUSED: Record<string, string> = {
@@ -259,6 +264,7 @@ const NOT_PAUSED: Record<string, string> = {
   // Replies to the person's own action
   'src/services/messaging/telegram-adapter.ts': 'the transport: sends what its caller decided to send',
   'src/services/messaging/whatsapp-adapter.ts': 'the transport',
+  'src/services/web-push/send.ts': 'the browser notification transport (sendWebPush): sends what its caller decided to send; each scheduled caller asks the pause first, and a scheduled push\'s lifetime ends before the next window (nextPauseStart)',
   'src/services/messaging/types.ts': 'a type',
   'src/services/telegram/commands.ts': 'replies to the person\'s own commands (summary, weather, lookahead, next week and their weekly voice, feedback, connect)',
   'src/services/telegram/command-pipeline.ts': 'replies to a command: the typing indicator and the error answers',
@@ -642,6 +648,49 @@ async function runChecks(): Promise<void> {
     assert(await pause.isPaused(user, at('2026-10-14T09:00:00.000Z'), 'event alert') === false, 'a Wednesday');
     assert(await pause.isPaused(user, at('2026-10-17T09:00:00.000Z')) === true, 'no kind given');
     assert(!logs.some(l => l.includes('skipped')), `nothing skipped to log: ${show(logs)}`);
+  });
+
+  // ============ The next window, for a push's lifetime (web-push/send.ts) ============
+
+  await check('nextPauseStart: the start of the first window that begins after `from` and no later than `from` + the time asked (the end counts, `from` itself does not), at the person\'s own place, across a UTC midnight with no second computation; a span over a day is read as a day; none for the switch off (and no work); none for a failure (logged and captured, never thrown)', async () => {
+    resetWorld();
+    const H = 60 * 60_000;
+    const iso = (d: Date | null) => (d ? d.toISOString() : null);
+    const user = person(70, 'Asia/Jerusalem', JERUSALEM);
+    const cases: Array<[string, Date, number, string | null]> = [
+      ['an hour before sunset, an hour asked: the sunset itself', minute(FRI_SUNSET, -60), H, FRI_SUNSET],
+      ['61 minutes before sunset, an hour asked: none yet', minute(FRI_SUNSET, -61), H, null],
+      ['Thursday 16:00 UTC, a day asked: Friday\'s sunset, in the next UTC day', at('2026-10-15T16:00:00.000Z'), 24 * H, FRI_SUNSET],
+      ['at the sunset itself: that window has begun, and none begins in the day after it', at(FRI_SUNSET), 24 * H, null],
+      ['a minute after Shabbat ends, a day asked: none', minute(SAT_END, 1), 24 * H, null],
+      ['Thursday 09:00 UTC, two days asked: read as one day, so none (the sunset is 30 hours away)', at('2026-10-15T09:00:00.000Z'), 48 * H, null],
+    ];
+    for (const [name, from, within, want] of cases) assertSame(iso(await pause.nextPauseStart(user, from, within)), want, name);
+
+    // One computation holds `from`'s UTC day and the next: the same day's isPaused asks nothing more
+    resetWorld();
+    const cached = person(71, 'Asia/Jerusalem', JERUSALEM);
+    assertSame(iso(await pause.nextPauseStart(cached, at('2026-10-15T16:00:00.000Z'), 24 * H)), FRI_SUNSET, 'the Thursday answer');
+    const reads = redisReads;
+    assert(await pause.isPaused(cached, at('2026-10-15T20:00:00.000Z')) === false && redisReads === reads, `the same day's isPaused read ${redisReads - reads} more`);
+
+    // Each person by their own place: New York begins at its own sunset, 22:14 UTC
+    const newYork = person(72, 'America/New_York', NEW_YORK);
+    assertSame(iso(await pause.nextPauseStart(newYork, at('2026-10-16T21:00:00.000Z'), 2 * H)), '2026-10-16T22:14:00.000Z', 'New York');
+
+    // The switch off: none, and no work
+    resetWorld();
+    for (const pauseOnShabbat of [false, undefined, null]) {
+      assert(await pause.nextPauseStart(person(73, 'Asia/Jerusalem', JERUSALEM, { pauseOnShabbat }), minute(FRI_SUNSET, -30), H) === null, `pauseOnShabbat ${String(pauseOnShabbat)}`);
+    }
+    assert(redisReads === 0 && dbCalls === 0 && logs.length === 0 && captured.length === 0, `work done with the switch off: ${redisReads} reads, ${dbCalls} db, ${show(logs)}`);
+
+    // A failure: logged and captured, and no window (the push keeps its own lifetime)
+    resetWorld();
+    const broken = person(74, 'Not/AZone', JERUSALEM);
+    assert(await pause.nextPauseStart(broken, at('2026-10-16T14:00:00.000Z'), H) === null, 'a failure is no window');
+    assert(logs.some(l => l.startsWith('[pause]') && l.includes('user 74')), `logged: ${show(logs)}`);
+    assert(captured.some(c => c.context === 'pause-next'), `captured: ${show(captured)}`);
   });
 
   // ============ The audit ============

@@ -384,6 +384,52 @@ async function main() {
     assert(browser.breadcrumbs[0].data.to === '/he/dashboard?user_id=9', `navigation ${show(browser.breadcrumbs[0])}`);
   });
 
+  // ---- Browser notifications (spec 2026-11-05-web-push §3.4): a device's endpoint and keys, and the push services' paths ----
+
+  await check('#15 browser notifications: endpoint, keys, p256dh and auth dropped from a body (object, JSON, form, cut-off JSON); the push services\' URL paths scrubbed from urls, breadcrumbs, the transaction name and span descriptions, every host the devices accept included; a second scrub changes nothing; another host\'s path and the rest kept', async () => {
+    const config = await load('src/services/web-push/config.ts');
+    const ENDPOINTS: Record<string, string> = {
+      fcm: 'https://fcm.googleapis.com/fcm/send/dQw4w9WgXcQ:APA91bHPRgkF3JUikC4ENAHEeMrd41Zxv3hVZjC9KtT8',
+      apple: 'https://web.push.apple.com/QGuQyavXutnMH7Yfc6PB9mxXzqrBm2rWvzGJ7oM8hGfT',
+      mozilla: 'https://updates.push.services.mozilla.com/wpush/v2/gAAAAABnYtEXAMPLEpushtoken_abc',
+      wns: 'https://wns2-par02p.notify.windows.com/w/?token=BQYAAABexampleWnsToken%2bAbc%3d',
+    };
+    const WANT: Record<string, string> = {
+      fcm: 'https://fcm.googleapis.com/[scrubbed]',
+      apple: 'https://web.push.apple.com/[scrubbed]',
+      mozilla: 'https://updates.push.services.mozilla.com/[scrubbed]',
+      wns: 'https://wns2-par02p.notify.windows.com/[scrubbed]?token=[scrubbed]',
+    };
+    const P256DH = 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM';
+    const AUTH = 'tBHItJI5svbpez7KI4CCXg';
+    const SECRETS = ['dQw4w9WgXcQ', 'APA91bHPRgkF3J', 'QGuQyavXutnMH7', 'gAAAAABnYtEXAMPLE', 'BQYAAABexampleWnsToken', P256DH, AUTH];
+    const pushLeaks = (value: unknown) => SECRETS.filter((s) => show(value).includes(s));
+    const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
+    const object = run({ endpoint: ENDPOINTS.fcm, keys: { p256dh: P256DH, auth: AUTH }, locale: 'he' });
+    assert(show(object) === show({ locale: 'he' }), `object ${show(object)}`);
+    const json = run(JSON.stringify({ Endpoint: ENDPOINTS.apple, keys: { p256dh: P256DH, auth: AUTH }, user_id: 9 }));
+    assert(json === JSON.stringify({ user_id: 9 }), `JSON string ${show(json)}`);
+    const form = run(`endpoint=${encodeURIComponent(ENDPOINTS.mozilla)}&p256dh=${P256DH}&auth=${AUTH}&locale=he`);
+    assert(form === 'endpoint=[scrubbed]&p256dh=[scrubbed]&auth=[scrubbed]&locale=he', `form ${show(form)}`);
+    const cut = run(`{"locale":"he","endpoint":"${ENDPOINTS.fcm}","keys":{"auth":"${AUTH}","p256dh":"${P256DH}","note":"a`);
+    assert(pushLeaks(cut).length === 0 && String(cut).startsWith('{"locale":"he"'), `cut-off JSON ${show(cut)}`);
+    for (const [name, url] of Object.entries(ENDPOINTS)) {
+      const crumb = scrub.scrubServerBreadcrumb({ category: 'http', message: `POST ${url}`, data: { url, 'http.method': 'POST', status_code: 410 } });
+      assert(crumb.data.url === WANT[name] && crumb.message === `POST ${WANT[name]}` && crumb.data.status_code === 410, `${name} breadcrumb ${show(crumb)}`);
+      const tx = scrub.scrubServerTransaction({ type: 'transaction', transaction: `POST ${url}`, spans: [{ description: `POST ${url}`, data: { 'url.full': url } }] });
+      assert(pushLeaks(tx).length === 0 && tx.transaction === `POST ${WANT[name]}` && tx.spans[0].description === `POST ${WANT[name]}`, `${name} transaction ${show(tx)}`);
+      assert(scrub.scrubUrl(scrub.scrubUrl(url)) === scrub.scrubUrl(url), `${name}: a second scrub changes ${scrub.scrubUrl(url)}`);
+    }
+    for (const host of config.PUSH_SERVICE_HOSTS as string[]) {
+      for (const url of [`https://${host}/tok-a-1`, `https://edge-1.${host}/send/tok-b-2`]) {
+        assert(!scrub.scrubUrl(url).includes('tok-'), `${host} is accepted for devices, but its path reaches Sentry: ${scrub.scrubUrl(url)}`);
+      }
+    }
+    for (const kept of ['https://example.test/fcm/send/abc', 'https://fcm.googleapis.com.example.test/fcm/send/abc', 'https://famcal.bot/api/push/devices', 'https://www.googleapis.com/calendar/v3/calendars/primary']) {
+      assert(scrub.scrubUrl(kept) === kept, `${kept} was changed: ${scrub.scrubUrl(kept)}`);
+    }
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

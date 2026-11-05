@@ -4,6 +4,10 @@
  *
  *   isPaused(user, at)   whether `pauseOnShabbat` is on and `at` falls inside a Shabbat or Yom Tov
  *                        window at the person's place, from sunset on the eve to the end of the day
+ *   nextPauseStart(user, from, withinMs)
+ *                        when the next window begins within that span (null: none, or the switch is
+ *                        off): a browser notification's lifetime ends there, so one waiting at the
+ *                        push service never arrives inside the window (web-push/send.ts)
  *
  * A send that is paused is skipped and logged "[pause] skipped <kind> for <userId>" (pass `skipped`
  * to have it logged here, once, in one format). What a pass does with the thing it skipped is the
@@ -56,4 +60,22 @@ export async function isPaused(user: PauseUser, at: Date = new Date(), skipped?:
   }
   if (paused && skipped) console.log(`[pause] skipped ${skipped} for ${user.id}`);
   return paused;
+}
+
+
+/**
+ * The start of the person's next Shabbat or Yom Tov window that begins after `from` and no later than `from` +
+ * `withinMs` (read as at most a day), or null: the switch is off, no window begins in the span, or it could not be
+ * told (logged and captured; the caller keeps its own limit). Never throws.
+ */
+export async function nextPauseStart(user: PauseUser, from: Date, withinMs: number): Promise<Date | null> {
+  if (user.pauseOnShabbat !== true || !(withinMs > 0)) return null;
+  try {
+    const { pauseStartWithin } = await import('./pause-windows');
+    return await pauseStartWithin(user, from, withinMs);
+  } catch (error) {
+    console.error(`[pause] could not tell when user ${user.id}'s next Shabbat or Yom Tov begins; the push keeps its own lifetime:`, error);
+    captureError(error, 'pause-next', { user_id: user.id });
+    return null;
+  }
 }

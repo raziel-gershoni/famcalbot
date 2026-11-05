@@ -19,6 +19,11 @@
  * too (web sign-up spec §3.7): the `invite` name, and the invite page's own path,
  * /invite/<64 hex>, wherever a URL or a name holds it.
  *
+ * Browser notifications (spec 2026-11-05-web-push §3.4): a device's endpoint is a credential (its path is the push
+ * service's token for that browser), and its keys too. The endpoint, keys, p256dh and auth names leave bodies, and the
+ * push services' URL paths (FCM's, Apple's, Mozilla's, WNS's) leave every URL, breadcrumb, name and description
+ * (web-push/config.ts PUSH_SERVICE_HOSTS are the hosts a device may use; smoke-sentry-scrub #15 holds the two together).
+ *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
  */
@@ -56,12 +61,15 @@ const INIT_DATA_PARAM = /initData=[^&#]*/gi;
  */
 const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email', 'invite'];
 const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email|invite)=[^&#]*/gi;
-/** Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token, email and invite, and a name. */
-const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email', 'name', 'invite']);
+/**
+ * Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token, email and invite,
+ * a name, and a browser's push subscription (endpoint, keys, p256dh, auth).
+ */
+const SECRET_BODY_FIELDS = new Set(['initdata', 'code', 'state', 'token', 'id_token', 'email', 'name', 'invite', 'endpoint', 'keys', 'p256dh', 'auth']);
 /** The same fields as JSON members (a string, or a bare number or word), for JSON the SDK cut off at its size limit. */
-const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name|invite)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
+const SECRET_JSON_MEMBER = /"(initData|code|state|token|id_token|email|name|invite|endpoint|keys|p256dh|auth)"\s*:\s*(?:"(?:[^"\\]|\\.)*"?|[^,}\]\s]*)/gi;
 /** And as fields of a form body. */
-const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name|invite)=[^&]*/gi;
+const SECRET_FORM_FIELD = /(^|&)(initData|code|state|token|id_token|email|name|invite|endpoint|keys|p256dh|auth)=[^&]*/gi;
 /** A Telegram Bot API path, /bot<id>:<token> ('%3A' when the colon is encoded). */
 const BOT_TOKEN_PATH = /\/bot\d+(?::|%3A)[A-Za-z0-9_-]+/gi;
 /**
@@ -80,12 +88,19 @@ function scrubConnectIds(text: string): string {
 }
 /** The partner invite page's path, /invite/<the token's 64 hex characters> (src/lib/invite-token.ts), in a URL or a name. */
 const INVITE_PATH = /\/invite\/[0-9a-f]{64}(?![0-9a-f])/gi;
+/**
+ * A push service's URL path, the token of one browser's subscription: FCM (fcm.googleapis.com/fcm/send/<token>), Apple
+ * (*.push.apple.com/<token>), Mozilla (*.push.services.mozilla.com/wpush/v2/<token>) and WNS (*.notify.windows.com/w/,
+ * its token in the query, which SECRET_PARAM scrubs). The host stays, for debugging. A path already scrubbed is left as
+ * it is, so a second scrub changes nothing.
+ */
+const PUSH_SERVICE_PATH = /(https?:\/\/(?:[a-z0-9-]+\.)*(?:fcm\.googleapis\.com|push\.apple\.com|push\.services\.mozilla\.com|notify\.windows\.com)(?::\d+)?)\/(?!\[scrubbed\])[^\s?#"']+/gi;
 /** Request headers that carry a credential, lower-cased. */
 const SECRET_HEADERS = new Set(['x-telegram-init-data', 'cookie', 'authorization', 'x-telegram-bot-api-secret-token']);
 /** The same headers as span attribute names: http.request.header.<name>, '-' as '_'. */
 const SECRET_HEADER_ATTRIBUTE = /^http\.request\.header\.(x_telegram_init_data|cookie|authorization|x_telegram_bot_api_secret_token)(\..*)?$/;
 
-/** initData, the secret query values and a bot token scrubbed from a URL, a path or a description. */
+/** initData, the secret query values, a bot token and a push service's path scrubbed from a URL, a path or a description. */
 function scrubSecrets(text: string): string {
   return text
     .replace(INIT_DATA_PARAM, `initData=${SCRUBBED}`)
@@ -93,7 +108,8 @@ function scrubSecrets(text: string): string {
     .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`)
     .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
     .replace(CONNECT_TOKEN, `w_${SCRUBBED}`)
-    .replace(INVITE_PATH, `/invite/${SCRUBBED}`);
+    .replace(INVITE_PATH, `/invite/${SCRUBBED}`)
+    .replace(PUSH_SERVICE_PATH, `$1/${SCRUBBED}`);
 }
 
 /** A URL or path with initData, the secret query values and a bot token scrubbed, and no #fragment. */

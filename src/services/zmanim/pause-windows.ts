@@ -8,8 +8,9 @@
  * that is logged, once a day per person; a zone with no main city in MAIN_CITIES cannot be
  * counted from, so it is not paused and says so.
  *
- * Cached per person per UTC day: the windows overlapping that day (a window that straddles its
- * midnight comes whole, and answering needs no zone work), keyed by the place and the community
+ * Cached per person per UTC day: the windows overlapping that day and the next (a window that
+ * straddles a midnight comes whole, and answering needs no zone work; the next day is there so the
+ * next window's start within a day, pauseStartWithin, needs no second computation), keyed by the place and the community
  * so a changed location or community is computed again. The switch is
  * never cached: pause.ts reads it from the person every time. The cache is on globalThis: Next 16
  * gives the scheduler and the routes separate module instances (src/lib/timezone.ts).
@@ -98,7 +99,7 @@ function logFallbackOnce(userId: number, day: number, message: string): void {
   console.warn(`[pause] user ${userId} ${message}`);
 }
 
-/** The windows for the UTC `day` (a day number since the epoch) at the person's place. */
+/** The windows for the UTC `day` (a day number since the epoch) and the next one, at the person's place. */
 async function compute(user: PauseUser, at: Date, community: ZmanimCommunity, day: number): Promise<Pick<Cached, 'windows' | 'until'>> {
   const placeUser: PlaceUser = {
     id: user.id,
@@ -125,15 +126,13 @@ async function compute(user: PauseUser, at: Date, community: ZmanimCommunity, da
     // A person with a place name may still get coordinates (the lookup is tried again after an hour).
     if (placeUser.location.trim() !== '') until = Math.min(endOfDay, at.getTime() + HOUR_MS);
   }
-  const windows = shabbatYomTovWindows({ from: new Date(day * DAY_MS), to: new Date(endOfDay) }, place, community);
+  // This day and the next: a window that begins up to a day after any moment of this day is in the entry
+  const windows = shabbatYomTovWindows({ from: new Date(day * DAY_MS), to: new Date(endOfDay + DAY_MS) }, place, community);
   return { windows: windows.map(([start, end]): [number, number] => [start.getTime(), end.getTime()]), until };
 }
 
-/**
- * Whether `at` falls inside a window at the person's place. The switch is the caller's (pause.ts).
- * Throws what the place or the windows throw; the caller reads that as "not paused".
- */
-export async function pausedAt(user: PauseUser, at: Date): Promise<boolean> {
+/** The cached windows for `at`'s UTC day and the next, computed again on another day, place or community, or after `until`. */
+async function windowsAt(user: PauseUser, at: Date): Promise<Array<[number, number]>> {
   const day = Math.floor(at.getTime() / DAY_MS);
   const community = isCommunity(user.zmanimCommunity) ? user.zmanimCommunity : DEFAULT_COMMUNITY;
   const key = [day, user.location ?? '', user.latitude ?? '', user.longitude ?? '', user.elevationM ?? '', community].join('|');
@@ -142,6 +141,26 @@ export async function pausedAt(user: PauseUser, at: Date): Promise<boolean> {
     entry = { key, ...(await compute(user, at, community, day)) };
     cache.set(user.id, entry);
   }
+  return entry.windows;
+}
+
+/**
+ * Whether `at` falls inside a window at the person's place. The switch is the caller's (pause.ts).
+ * Throws what the place or the windows throw; the caller reads that as "not paused".
+ */
+export async function pausedAt(user: PauseUser, at: Date): Promise<boolean> {
   const t = at.getTime();
-  return entry.windows.some(([start, end]) => t >= start && t < end);
+  return (await windowsAt(user, at)).some(([start, end]) => t >= start && t < end);
+}
+
+/**
+ * The start of the first window that begins after `from` and no later than `from` + `withinMs`, or null. `withinMs` is
+ * read as at most a day: the entry holds `from`'s UTC day and the next, and no push waits longer. The switch is the
+ * caller's (pause.ts); throws what the place or the windows throw.
+ */
+export async function pauseStartWithin(user: PauseUser, from: Date, withinMs: number): Promise<Date | null> {
+  const t = from.getTime();
+  const last = t + Math.min(withinMs, DAY_MS);
+  const starts = (await windowsAt(user, from)).map(([start]) => start).filter((start) => start > t && start <= last);
+  return starts.length > 0 ? new Date(Math.min(...starts)) : null;
 }

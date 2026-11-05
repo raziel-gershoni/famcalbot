@@ -1,6 +1,7 @@
 /**
  * The one retry loop for calls to a third party FamCal has no policy of its own for: MET Norway's forecast, Copernicus's
- * dust files. Spec docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md.
+ * dust files, and every browser push service (web-push/send.ts), FCM included. Spec
+ * docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md, and 2026-11-05-web-push-design.md §3.4.
  *
  *   retryWithBackoff   any async step: a failure is retried up to 3 times after max(what the server asked, a full-jitter
  *                      backoff from 500 ms); an ask over 10 s, or a failure the caller calls not retryable, is thrown at
@@ -12,7 +13,8 @@
  *                      not parse is retried like no answer
  *
  * No timeout of our own: a call runs to the provider's ceiling (CLAUDE.md), and the retry is what handles its failure.
- * Google is NOT here: every Google call goes through src/services/google-retry.ts, which has its own rules.
+ * Google's APIs are NOT here: every Google API call goes through src/services/google-retry.ts, which has its own rules.
+ * A push to Google's FCM (fcm.googleapis.com) is a push service's call, not a Google API's, so it is here.
  * Server only. Tests skip the waits through __useRetryForTests.
  */
 
