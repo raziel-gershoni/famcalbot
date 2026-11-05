@@ -185,3 +185,8 @@ export async function afterDevicesChanged(userIds: number[]): Promise<void> {
     }
   }
 }
+
+/** How many devices the account has on: the page props' `devices` (pushPropsFor). */
+export async function countDevices(userId: number): Promise<number> {
+  return prisma.pushDevice.count({ where: { userId } });
+}

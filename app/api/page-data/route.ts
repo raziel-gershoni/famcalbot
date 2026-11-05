@@ -40,7 +40,9 @@ export async function POST(request: NextRequest) {
     if (!auth.success) return auth.response;
 
     const locale = typeof body.locale === 'string' ? body.locale : '';
-    const result = await loadPageData(page, auth.user, parseInt(String(rawUserId)), locale);
+    // The `push` prop is for a browser session: Telegram's initData passes none
+    const session = auth.via === 'session' ? { provedAt: auth.session.provedAt } : null;
+    const result = await loadPageData(page, auth.user, parseInt(String(rawUserId)), locale, session);
     const response = NextResponse.json(result, { headers: { 'Cache-Control': 'private, no-store' } });
     // After the row check above accepted it: a famcal.bot sign-in's cookie over a day old gets 30 more days, with its
     // first sign-in time, proved-at and method (so Sign out on all devices still ends it, and Connect Telegram's hour

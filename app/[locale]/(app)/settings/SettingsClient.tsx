@@ -36,6 +36,7 @@ import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import { WEEKDAY_IDS_BY_INDEX } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { readInitData } from '@/src/lib/read-init-data';
+import type { PushPageProps } from '@/src/lib/web-push-props';
 import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { AppScreen } from '@/components/app-ui/AppScreen';
@@ -100,6 +101,8 @@ interface SettingsClientProps {
   bothChannels: boolean;
   /** false: no chat at all (no Telegram, no WhatsApp): the chat-only cards and rows give way to the Telegram note. Absent: as before. */
   hasChat?: boolean;
+  /** Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat, absent as before. */
+  push?: PushPageProps | null;
 }
 
 /** The language names are each language's own, whatever language the page is in. */

@@ -661,6 +661,7 @@ export async function installSigninWorld(): Promise<void> {
     commandRateLimiter: limiter('command'), settingsRateLimiter: limiter('settings'), generalRateLimiter: limiter('general'),
     tokenPollRateLimiter: limiter('token-poll'), calendarRateLimiter: limiter('calendar'), reminderActionRateLimiter: limiter('reminder-action'),
     calendarWriteRateLimiter: limiter('calendar-write'),
+    pushDeviceRateLimiter: limiter('push-device'),
     checkRateLimit: async () => ({ success: true, limit: 99, remaining: 99, reset: 0 }),
     getRateLimitHeaders: () => ({}),
   });

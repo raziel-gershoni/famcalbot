@@ -177,12 +177,14 @@ async function main() {
     'app/api/oauth/start/route.ts': 'the browser\'s Google Calendar consent (refuseStaleSignIn; no state row on a refusal)',
     'app/api/oauth/claim/route.ts': 'Finish here commits the connection, and its check says stale (refuseStaleSignIn; the entry stays for the chat claim)',
     'app/api/google-sync/route.ts': 'a Copy to Google that asks Google\'s consent, the first one or Approve in Google after Google stopped it (refuseStaleSignIn, only before the new consent)',
+    'app/api/push/devices/route.ts': 'Turn on notifications: a new browser device is stored only for a sign-in from the last hour, an endpoint the account already has needs none (refuseStaleSignIn; web push spec 2026-11-05 §3.2)',
   };
   /** Files that call one of the same functions and are not asked, with the reason. */
   const EXEMPT: Record<string, string> = {
     'src/services/google-connect.ts': 'defines the consent, the pending token, its commit and the claim; its chat claims (Telegram /start gc_, WhatsApp) prove possession of the chat, not a cookie, and the browser claim is app/api/oauth/claim (guarded)',
     'src/services/web-signin/calendar-account.ts': 'defines Turn on; the calendar match is a sign-in that ends in finishSignIn, whose proof is fresh by construction',
     'src/services/web-signin/identities.ts': 'defines addIdentity and writeIdentityInTx (every caller is listed)',
+    'src/services/web-push/devices.ts': 'defines addDevice, the store of a browser\'s notification device: its one caller is POST /api/push/devices (guarded)',
     'src/services/web-signin/email-code.ts': 'defines issueCode (every caller is listed)',
     'src/services/web-signin/join.ts': 'defines offerJoin and runJoin, which calls mergeAccounts: the question is asked only from add-google.ts and email/confirm (both guarded), and runJoin\'s one route is guarded',
     'src/services/account-linking.ts': 'defines mergeAccounts and runs the WhatsApp-into-Telegram merge, proved by the chat (the person writes from both), never by a browser cookie',
@@ -190,7 +192,7 @@ async function main() {
     'src/services/user-service.ts': 'createAccount writes the first web way (writeIdentityInTx) of a sign-up, which ends in finishSignIn: a fresh proof by construction',
     'app/api/auth/email/request/route.ts': 'sign-in and sign-up codes only: the code proves the address and the flow ends in finishSignIn',
   };
-  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin|mergeAccounts|offerJoin|commitGoogleToken|createPendingGoogleToken|writeIdentityInTx)\(/;
+  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|addDevice|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin|mergeAccounts|offerJoin|commitGoogleToken|createPendingGoogleToken|writeIdentityInTx)\(/;
   const DEFINITION = /^\s*export\s+(?:async\s+)?function\s/;
   /** A call of the helper: its name followed by "(" on a code line that is not an import (the import line and comments are not asking). */
   const GUARD_CALL = /\b(?:refuseStaleSignIn|recentlyProved)\(/;

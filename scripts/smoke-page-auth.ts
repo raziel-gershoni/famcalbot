@@ -757,7 +757,7 @@ async function main() {
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
   /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
-  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'hasTelegram', 'hasChat', 'lookahead7', 'jewish'];
+  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'hasTelegram', 'hasChat', 'lookahead7', 'jewish', 'push'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */
@@ -793,6 +793,8 @@ async function main() {
     if (gina.hasTelegram !== true) problems.push(`hasTelegram ${show(gina.hasTelegram)}`);
     // ... and so a chat: the home's Send shows and no Connect Telegram banner (6c-1)
     if (gina.hasChat !== true) problems.push(`hasChat ${show(gina.hasChat)}`);
+    // Telegram's initData is no browser session, and she has a chat: no notifications prop (web push spec §3.2)
+    if (gina.push !== null) problems.push(`push ${show(gina.push)}`);
     // A Google user gets reminders too (they live in FamCal): the same feature checks as anyone
     if (hintsOf(gina) !== 'reminders=true voiceEvents=true' || keysOf(gina.hints ?? {}) !== 'reminders,voiceEvents') problems.push(`hints ${show(gina.hints)}`);
     if (show([...featureChecks].sort()) !== show(['reminders(4)', 'voice_events(4)']) || show(supportChecks) !== show([4])) problems.push(`hint checks ${show({ featureChecks, supportChecks })}`);
@@ -815,12 +817,16 @@ async function main() {
         const body = res.status === 200 ? await res.clone().json() : null;
         if (body?.kind !== 'props') { problems.push(`${page} ${id}: status ${res.status} ${await bodyOf(res)}`); continue; }
         if (body.props.hasChat !== want) problems.push(`${page} ${id}: hasChat ${show(body.props.hasChat)}, want ${want}`);
+        // The notifications prop (web push spec §3.2): none with a chat; a browser session with no chat gets one (its key null while the VAPID keys are unset, as in this env; this session was proved just now)
+        const wantPush = want ? null : { key: null, recentSignIn: true, devices: 0 };
+        if (show(body.props.push) !== show(wantPush)) problems.push(`${page} ${id}: push ${show(body.props.push)}, want ${show(wantPush)}`);
       }
     }
     // The Telegram account through the dashboard and Settings too
     const settingsGina = await pageData({ page: 'settings', user_id: 8880004, locale: 'en', initData: initDataFor(8880004) });
     const sBody = settingsGina.status === 200 ? await settingsGina.clone().json() : null;
     if (sBody?.props?.hasChat !== true) problems.push(`settings Gina: ${show(sBody?.props?.hasChat)}`);
+    if (sBody?.props?.push !== null) problems.push(`settings Gina: push ${show(sBody?.props?.push)}`);
     assert(problems.length === 0, problems.join('; '));
   });
 

@@ -64,6 +64,15 @@ export const calendarWriteRateLimiter = new Ratelimit({
   prefix: 'ratelimit:calendar-write',
 });
 
+// push/devices (subscribe, check, unsubscribe): 20 requests per minute per account, on a budget of its own. A person turns
+// a device on or off one tap at a time, and the app's open checks the browser's own endpoint once; the budget is for a
+// stuck retry, and it keeps a script from walking endpoints through the check route
+export const pushDeviceRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(20, '1 m'),
+  prefix: 'ratelimit:push-device',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;

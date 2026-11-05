@@ -1726,6 +1726,10 @@
         "badOffset": "That's out of range: a reminder can be up to 12 hours before or after a zman, or up to 12 halachic hours after sunrise. I didn't set “{description}”. Send it again with a closer time."
       },
       "permissionDenied": "You can't change this one."
+    },
+    "push": {
+      "turnedOn": "Notifications are on",
+      "turnedOnBody": "Your reminders and daily lists will come here."
     }
   },
   "subscription": {

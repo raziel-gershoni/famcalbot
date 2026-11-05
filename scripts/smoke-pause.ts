@@ -297,6 +297,7 @@ const NOT_PAUSED: Record<string, string> = {
   'app/api/auth/email/request/route.ts': 'the code the person asked for on /signin (a sign-in code, or a sign-up code for an address on no account), sent right after the answer',
   'src/services/web-signin/notice.ts': 'the notice that a sign-in way was added or joined, that Telegram was connected, or that the calendar\'s Google account signed in for the first time, in the chat or by email (sendNoticeEmail): the answer to the person\'s own action (web sign-in spec §2.10, web sign-up spec §2.11)',
   'app/api/signin-methods/email/add/route.ts': 'the Add email code the person just asked for in Settings (their own action)',
+  'app/api/push/devices/route.ts': 'the "Notifications are on" notification after the person turned a device on in Settings (a reply to their own tap; the only send from this route)',
   // To the admin
   'app/api/admin/send-reminder/route.ts': 'the admin pressing "send a reminder" for one person',
   'src/services/admin-refund.ts': 'the note to the person that an admin refunded their payment: the answer to their own /paysupport request, sent when the admin acts',

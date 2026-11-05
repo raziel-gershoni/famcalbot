@@ -46,6 +46,8 @@ import { firstNameOf } from '@/src/lib/first-name';
 import { channelsOf, deliveryPlatformFor } from '@/src/lib/delivery-platform';
 import { hasChat } from '@/src/lib/has-chat';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
+import { pushPropsFor, type PageSession } from '@/src/services/web-push/page-props';
+import type { PushPageProps } from '@/src/lib/web-push-props';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -83,6 +85,8 @@ export interface DashboardPageProps {
   lookahead7: boolean;
   /** The calendar setting is Jewish: the home shows the zmanim button. */
   jewish: boolean;
+  /** Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat. */
+  push: PushPageProps | null;
 }
 
 /**
@@ -119,13 +123,16 @@ export type PageDataResult =
 /**
  * What the page shows for this user. `user` is the row verifyUserAuth proved;
  * `urlUserId` is the page's own ?user_id (a telegramId, or a DB id), which the client
- * components and the locale redirect keep using exactly as before.
+ * components and the locale redirect keep using exactly as before. `session` is how the request proved the person: a web
+ * session's proved-at, or null for Telegram's initData (and for a caller that does not say): the `push` prop of the
+ * dashboard and Settings is for a browser session only.
  */
 export async function loadPageData(
   page: PageName,
   user: UserConfig,
   urlUserId: number,
-  locale: string
+  locale: string,
+  session: PageSession = null
 ): Promise<PageDataResult> {
   // Check if URL locale matches user's language preference
   // normalizeLocale handles legacy values like 'Hebrew' -> 'he'
@@ -137,9 +144,9 @@ export async function loadPageData(
 
   switch (page) {
     case 'dashboard':
-      return dashboard(user, urlUserId, locale);
+      return dashboard(user, urlUserId, locale, session);
     case 'settings':
-      return settings(user, urlUserId, userLocale);
+      return settings(user, urlUserId, userLocale, session);
     case 'select-calendars':
       return selectCalendars(user, urlUserId, userLocale);
     case 'calendars':
@@ -151,7 +158,7 @@ export async function loadPageData(
   }
 }
 
-async function dashboard(user: UserConfig, userId: number, locale: string): Promise<PageDataResult> {
+async function dashboard(user: UserConfig, userId: number, locale: string, session: PageSession): Promise<PageDataResult> {
   // Google is a connection beside FamCal (spec "Google as a connection" §2), so the home
   // gets facts, not a source: what it reads, whether a token is stored, and the state the
   // banners and the menu follow. A legacy Google user's cleared token with calendars stored is
@@ -160,10 +167,11 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
   // The trial and early-adopter lines, and the home's hints. getSubscriptionWithUsage's
   // answer isn't on the wire; it runs for its side effect: an open after the trial's end
   // expires it (clearing the feature caches and sending the notice), as the old home's did.
-  const [trialStatus, isEarlyAdopter, home] = await Promise.all([
+  const [trialStatus, isEarlyAdopter, home, push] = await Promise.all([
     getTrialStatus(user.id),
     checkEarlyAdopterAccess(user.id),
     homeHintsFor(user),
+    pushPropsFor(user, session),
     getSubscriptionWithUsage(user.id).catch(() => null),
   ]);
 
@@ -183,6 +191,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string): Prom
     jewish: user.culture === 'jewish',
     hasTelegram: user.telegramId !== null,
     hasChat: hasChat(user),
+    push,
     ...home,
   };
   // One open of the calendar home (spec §7.1), under the DB id like every activity
@@ -230,9 +239,9 @@ async function weekStartForSettings(user: UserConfig): Promise<WeekStart> {
   return weekStartOfUser(user, resolved ?? TIMEZONE, resolved !== null && tzKnownFor(user));
 }
 
-async function settings(user: UserConfig, userId: number, userLocale: string): Promise<PageDataResult> {
-  // Fetch admin settings, subscription data and the week start in parallel
-  const [nativeRemindersSupported, adminSettings, subWithUsage, weekStart] = await Promise.all([
+async function settings(user: UserConfig, userId: number, userLocale: string, session: PageSession): Promise<PageDataResult> {
+  // Fetch admin settings, subscription data, the week start and the notifications prop in parallel
+  const [nativeRemindersSupported, adminSettings, subWithUsage, weekStart, push] = await Promise.all([
     // quiet: a gate for one control, so a plan without reminders logs nothing
     canReceiveReminderPings(user, { quiet: true }),
     prisma.adminSettings.findUnique({
@@ -240,6 +249,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     }).catch(() => null),
     getSubscriptionWithUsage(user.id).catch(() => null),
     weekStartForSettings(user),
+    pushPropsFor(user, session),
   ]);
 
   // Build subscription info for the client
@@ -294,6 +304,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string): P
     bothChannels: channels.telegram && channels.whatsapp,
     // No chat: the chat-only cards and rows give way to the Telegram note (6c-1)
     hasChat: hasChat(user),
+    // Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat
+    push,
   };
   // One open of the Settings screen
   trackActivityAsync(user.id, 'settings_viewed');
