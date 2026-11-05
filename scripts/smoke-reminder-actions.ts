@@ -121,8 +121,12 @@ let duringSnoozeLock: (() => void) | null = null;
 /** A query that throws, as "<model>.<method>". */
 let failOn: string | null = null;
 
+/** Every query the stand-in answers, as "<model>.<method>", in order. */
+const queryLog: string[] = [];
+
 function table(name: string, rows: () => Row[], relations: Relations = {}) {
   const run = (method: string) => {
+    queryLog.push(`${name}.${method}`);
     if (failOn === `${name}.${method}`) throw new Error('connection reset');
   };
   const shape = (row: Row, args: FindArgs): Row => {
@@ -546,6 +550,7 @@ async function main() {
     timezoneTokens.length = 0;
     activity.length = 0;
     failOn = null;
+    queryLog.length = 0;
     hiddenWrites = [];
     rowLocks.clear();
     authMode = 'ok';
@@ -1325,7 +1330,7 @@ async function main() {
     assertJson(sends().map((s) => [s.chatId, s.text]), [[tg(RAZIEL), note]], 'one note to the creator, for the pressed time only');
     assertJson(edits().map((e) => [e.chatId, e.messageId, e.buttons]).sort(), [[tg(DANA), 91, false], [tg(DANA), 92, false]].sort(), 'both live pings closed, no buttons');
     assertJson(activity, [{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: GYM, source: 'app', closed_earlier: 2 } }], 'one event');
-    assertJson(lines.filter((l) => l.includes('Done also closed')), [`[NativeReminders] series ${GYM}: Done also closed 2 earlier`], 'the log line');
+    assertJson(lines.filter((l) => l.includes('Done also closed')), [`[NativeReminders] series ${GYM}: Done also closed 2 of 2 earlier`], 'the log line');
   });
 
   await check('catch-up: a Done on Monday (from its old ping) closes Monday\'s earlier open times only; Thursday stays open and not touched', async () => {
@@ -1337,6 +1342,15 @@ async function main() {
     assertJson(startsOf(r), [gymAt('05'), gymAt('08')].map((d) => d.toISOString()), 'closed');
     assert(same(doneOf(GYM, gymAt('12')), NOW) && doneOf(GYM, gymAt('15')) === null, 'Thursday is still open');
     assert(edits().length === 0, `Thursday\'s ping is untouched: ${json(edits())}`);
+  });
+
+  await check('catch-up: a shared Done closes the whole run in one read and one write, however long it is', async () => {
+    reset();
+    const r = await act(DANA, PILLS_KEY, 'done');
+    assert(startsOf(r).length >= 14, `closed ${startsOf(r).length}`);
+    const writes = queryLog.filter((q) => q === 'nativeReminderState.updateMany');
+    // The pressed time's own conditional Done, and one for the run.
+    assert(writes.length === 2, `${writes.length} state writes: ${json(queryLog)}`);
   });
 
   await check('catch-up: only what is due is closed, and never before the armed bound, a cancelled, an exdated or a moved-to-later time', async () => {
@@ -1372,7 +1386,7 @@ async function main() {
     const user = actor(DANA);
     const { read } = await readFamcal(user, { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
     if (read.status !== 'ok') throw new Error('read failed');
-    const open = await fetchOpenReminderItems(user, read.ctx, openRemindersCutoff('2026-10-19', IL, NOW), '2026-10-19', IL, Infinity);
+    const open = await fetchOpenReminderItems(user, read.ctx, openRemindersCutoff('2026-10-19', IL, NOW), IL, Infinity);
     const gym = open.items.filter((i) => i.series.id === GYM);
     assertJson(gym.map((i) => [i.instanceStartsAt.toISOString(), i.event.reminder?.openSince]), [[gymAt('15').toISOString(), '2026-10-15']], 'the run is Thursday alone');
   });
@@ -1556,7 +1570,7 @@ async function main() {
       if (read.status !== 'ok') throw new Error('read failed');
       // An older open reminder is listed twice, on its day (not open there) and in the "Still open"
       // card (open); the card's is the one the home shows as open.
-      const open = await fetchOpenReminderItems(user, read.ctx, openRemindersCutoff(today, IL, NOW), today, IL, Infinity);
+      const open = await fetchOpenReminderItems(user, read.ctx, openRemindersCutoff(today, IL, NOW), IL, Infinity);
       const carry = carryOverReadItems(read, open.items).map((i) => toCarryOverDto(i, IL, NOW)).find((i) => i.key === key);
       if (carry) return carry.reminder;
       const days = toRangeDays(items, '2026-10-16', '2026-10-20', IL, NOW, today);

@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
     let carryRead: ReadItem[] | undefined;
     if (famcal?.status === 'ok' && from <= today && today < to) {
       try {
-        const open = await fetchOpenReminderItems(user, famcal.ctx, openRemindersCutoff(today, tz, now), today, tz, Infinity);
+        const open = await fetchOpenReminderItems(user, famcal.ctx, openRemindersCutoff(today, tz, now), tz, Infinity);
         carryRead = carryOverReadItems(famcal, open.items);
       } catch (err) {
         captureError(err, 'calendar-range-carryovers', { user_id: user.id }, 'warning');

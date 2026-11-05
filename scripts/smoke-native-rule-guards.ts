@@ -431,7 +431,7 @@ async function main() {
     seedMixed();
     const ctx = { viewerId: TAL, partner: null };
     const cutoff = at('2026-10-21 00:00');
-    const items = await openReminders.fetchOpenReminderItems(tal(), ctx, cutoff, '2026-10-21', IL, Infinity);
+    const items = await openReminders.fetchOpenReminderItems(tal(), ctx, cutoff, IL, Infinity);
     assertSame(items.items.map((i: Row) => i.series.id), ['good-reminder'], 'the open list');
     assert(loggedFor('bad-reminder').length >= 1 && noSecret(), `logged: ${show(captured)}`);
     captured.length = 0;

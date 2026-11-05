@@ -235,8 +235,8 @@ async function main() {
   const { buildShowPrompt } = await import('../src/prompts/voice-show');
 
   const cutoff = openRemindersCutoff(WEDNESDAY, IL, MORNING);
-  const select = (candidates: OpenReminderCandidate[], ctx = razielCtx, at = cutoff, day = WEDNESDAY, now = MORNING) =>
-    selectOpenReminders(candidates, ctx, at, day, IL, now);
+  const select = (candidates: OpenReminderCandidate[], ctx = razielCtx, at = cutoff, now = MORNING) =>
+    selectOpenReminders(candidates, ctx, at, IL, now);
 
   // ---- The cutoff ----
 
@@ -289,7 +289,7 @@ async function main() {
     const morningCall = series('Morning call', il('2026-10-14 10:00:00'));
     const tonight = series('Tonight', il('2026-10-14 21:00:00'));
     const bread = dateOnly('Buy bread', '2026-10-14');
-    const { events } = select([candidate(morningCall), candidate(tonight), candidate(bread)], razielCtx, at, '2026-10-15', evening);
+    const { events } = select([candidate(morningCall), candidate(tonight), candidate(bread)], razielCtx, at, evening);
     assertList(linesOf(events, '2026-10-15'), [
       'Morning call (Reminder (open since Wed 14 Oct)) [Calendar: Raziel]',
       'Buy bread (Reminder (open since Wed 14 Oct)) [Calendar: Raziel]',
@@ -300,7 +300,7 @@ async function main() {
     const early = il('2026-10-14 07:00:00');
     const bread = dateOnly('Buy bread', '2026-10-14');
     const at = openRemindersCutoff('2026-10-15', IL, early);
-    assert(select([candidate(bread)], razielCtx, at, '2026-10-15', early).events.length === 0, 'carried before 09:00');
+    assert(select([candidate(bread)], razielCtx, at, early).events.length === 0, 'carried before 09:00');
   });
 
   // ---- Repeating reminders ----
@@ -358,7 +358,7 @@ async function main() {
   const FRIDAY = '2026-10-16';
   const pickDay = (candidates: OpenReminderCandidate[], day: string, ctx = razielCtx) => {
     const at = il(`${day} 08:00:00`);
-    return selectOpenReminders(candidates, ctx, openRemindersCutoff(day, IL, at), day, IL, at).events;
+    return selectOpenReminders(candidates, ctx, openRemindersCutoff(day, IL, at), IL, at).events;
   };
 
   await check('run: Monday missed, Thursday morning (it occurs today too): one row, Monday\'s', () => {
@@ -413,13 +413,20 @@ async function main() {
     assert(hers.length === 1 && hers[0].reminder?.openSince === '2026-10-11', `hers: ${JSON.stringify(hers.map(e => e.reminder?.openSince))}`);
   });
 
+  await check('run: a date-only daily reminder that started before the cutoff but is due after it is not in the run (the evening digest carries yesterday\'s, not tonight\'s 21:00)', () => {
+    const water = dateOnly('Water the plants daily', '2026-10-11', { rrule: 'FREQ=DAILY' });
+    const evening = il('2026-10-13 20:00:00');
+    const events = selectOpenReminders([candidate(water)], razielCtx, evening, IL, evening, 5, '21:00').events;
+    assert(events.length === 1 && events[0].start === '2026-10-12' && events[0].reminder?.openSince === '2026-10-11', JSON.stringify(events.map(e => [e.start, e.reminder?.openSince])));
+  });
+
   await check('run: a one-off is unchanged (one row, its own day, no run)', () => {
     const events = select([candidate(plumber)]).events;
     assert(events.length === 1 && events[0].reminder?.openSince === '2026-10-12', JSON.stringify(events[0]?.reminder));
   });
 
   await check('run: the cap and the newest-first order hold with runs among the rows', () => {
-    const { events, moreCount } = selectOpenReminders([...SEVEN_TASKS, candidate(daily())], razielCtx, cutoff, WEDNESDAY, IL, MORNING, 3);
+    const { events, moreCount } = selectOpenReminders([...SEVEN_TASKS, candidate(daily())], razielCtx, cutoff, IL, MORNING, 3);
     assertList(events.map(e => e.summary), ['Stretch daily', 'Task 11', 'Task 10']); // the run's row sorts by its newest time
     assert(moreCount === 5, `moreCount ${moreCount}`);
   });
@@ -516,7 +523,7 @@ async function main() {
     const { events, moreCount } = select(SEVEN_TASKS);
     assertList(events.map(e => e.summary), ['Task 11', 'Task 10', 'Task 9', 'Task 8', 'Task 7']);
     assert(moreCount === 2, `moreCount ${moreCount}`);
-    const all = selectOpenReminders(SEVEN_TASKS, razielCtx, cutoff, WEDNESDAY, IL, MORNING, Infinity);
+    const all = selectOpenReminders(SEVEN_TASKS, razielCtx, cutoff, IL, MORNING, Infinity);
     assert(all.events.length === 7 && all.moreCount === 0, `uncapped ${all.events.length}/${all.moreCount}`);
   });
 
@@ -525,7 +532,7 @@ async function main() {
   await check('fetch: one read of the viewer\'s and the partner\'s-for-the-viewer REMINDER series before the cutoff', async () => {
     findManyCalls.length = 0;
     reminderRows = [asRow(candidate(plumber))];
-    const { events } = await fetchOpenReminders(raziel, razielCtx, cutoff, WEDNESDAY, IL);
+    const { events } = await fetchOpenReminders(raziel, razielCtx, cutoff, IL);
     assertList(events.map(e => e.summary), ['Call the plumber']);
     assert(findManyCalls.length === 1, `${findManyCalls.length} reads`);
     assert(JSON.stringify(findManyCalls[0]) === JSON.stringify({
@@ -548,10 +555,10 @@ async function main() {
   await check('fetch: unpaired, only the viewer\'s own; a Google user\'s are read too (Google as a connection)', async () => {
     findManyCalls.length = 0;
     reminderRows = [];
-    await fetchOpenReminders(raziel, { viewerId: 1, partner: null }, cutoff, WEDNESDAY, IL);
+    await fetchOpenReminders(raziel, { viewerId: 1, partner: null }, cutoff, IL);
     assert(JSON.stringify((findManyCalls[0]?.where as Row)?.OR) === '[{"creatorUserId":1}]', JSON.stringify(findManyCalls[0]));
     findManyCalls.length = 0;
-    await fetchOpenReminders(googleUser, { viewerId: 7, partner: null }, cutoff, WEDNESDAY, IL);
+    await fetchOpenReminders(googleUser, { viewerId: 7, partner: null }, cutoff, IL);
     assert(JSON.stringify((findManyCalls[0]?.where as Row)?.OR) === '[{"creatorUserId":7}]', `read for a Google user ${JSON.stringify(findManyCalls[0])}`);
   });
 
@@ -574,7 +581,7 @@ async function main() {
       // armed, so never pinged, and not open (Planning Ruling 4).
       firstMovedTo(fromThursday('Stretch', il('2026-10-13 21:00:00')), il('2026-10-13 20:00:00')),
     ].map(asRow);
-    const { events } = await fetchOpenReminders(raziel, razielCtx, cutoff, WEDNESDAY, IL);
+    const { events } = await fetchOpenReminders(raziel, razielCtx, cutoff, IL);
     assertList(linesOf(events, WEDNESDAY), [
       'Pills (Reminder (open since Tue 13 Oct)) [Calendar: Raziel]',
       'Vitamins (Reminder (open since Sun 11 Oct)) [Calendar: Raziel]',
@@ -643,7 +650,7 @@ async function main() {
     const monday = '2026-10-12';
     const oneOff = candidate(dateOnly('Take the pill', monday, { zmanSpec: SHEMA_10 }));
     const clock = zmanClock(monday, il('2026-10-12 23:50:00'));
-    const open = (cutoffAt: Date, c: ReturnType<typeof zmanClock> | null) => selectOpenReminders([oneOff], razielCtx, cutoffAt, WEDNESDAY, IL, MORNING, 5, undefined, c);
+    const open = (cutoffAt: Date, c: ReturnType<typeof zmanClock> | null) => selectOpenReminders([oneOff], razielCtx, cutoffAt, IL, MORNING, 5, undefined, c);
     assert(open(il('2026-10-12 23:51:00'), clock).events.length === 1, 'past its zman time: carried');
     assert(open(il('2026-10-12 23:49:00'), clock).events.length === 0, 'its zman time (23:50) has not come by the cutoff: not carried');
     assert(open(il('2026-10-12 23:49:00'), null).events.length === 1, 'without the clock it was due at 09:00 and is carried');

@@ -142,7 +142,7 @@ const captured: { ctx: string; severity: string; extra: Row | undefined; message
 /** The reader halves' and the carry-over query's calls. */
 const famcalCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
 const googleCalls: { user: Row; window: { from: Date; to: Date }; opts: Row }[] = [];
-const carryCalls: { userId: number; ctx: Row; cutoff: Date; summaryDay: string; tz: string; cap: number }[] = [];
+const carryCalls: { userId: number; ctx: Row; cutoff: Date; tz: string; cap: number }[] = [];
 let famcalMode: 'ok' | 'error' | 'reject' | 'broken' | 'zman' = 'ok';
 let googleMode: 'ok' | 'partialStale' | 'gone' | 'unsorted' | 'reject' = 'ok';
 let carryMode: 'ok' | 'throw' | 'zman' = 'ok';
@@ -429,8 +429,8 @@ function installStubs() {
   const openReminders = nodeRequire(path.join(ROOT, 'src/services/native-reminders/open-reminders.ts'));
   stub('src/services/native-reminders/open-reminders.ts', {
     ...openReminders,
-    fetchOpenReminderItems: async (user: Row, ctx: Row, cutoff: Date, summaryDay: string, tz: string, cap: number) => {
-      carryCalls.push({ userId: user.id, ctx, cutoff, summaryDay, tz, cap });
+    fetchOpenReminderItems: async (user: Row, ctx: Row, cutoff: Date, tz: string, cap: number) => {
+      carryCalls.push({ userId: user.id, ctx, cutoff, tz, cap });
       if (carryMode === 'throw') throw new Error('carry-over query failed');
       if (carryMode === 'zman' && user.id === 9) return { items: [...talCarryOvers(), zmanCarryOver()], moreCount: 0 };
       return user.id === 9 ? { items: talCarryOvers(), moreCount: 0 } : { items: [], moreCount: 0 };
@@ -668,8 +668,8 @@ async function main() {
     seed();
     const r = await get('', { tg: TG.tal });
     const now = new RealDate(clock);
-    assertSame(carryCalls.map((c) => [c.userId, c.summaryDay, c.tz, c.cap, iso(c.cutoff), c.ctx.partner?.name]), [
-      [9, '2026-10-16', IL, Infinity, iso(openRemindersCutoff('2026-10-16', IL, now)), 'Noa'],
+    assertSame(carryCalls.map((c) => [c.userId, c.tz, c.cap, iso(c.cutoff), c.ctx.partner?.name]), [
+      [9, IL, Infinity, iso(openRemindersCutoff('2026-10-16', IL, now)), 'Noa'],
     ], 'fetchOpenReminderItems arguments');
     const got = (r.body.carryOvers ?? []).map((c: Row) => [
       c.key, c.reminder.open, c.reminder.openSince, c.originalStart, c.calendar.id, c.calendar.name, c.repeatsDaily, c.reminder.snoozedUntil,

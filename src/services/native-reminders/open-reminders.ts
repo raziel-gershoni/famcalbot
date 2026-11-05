@@ -102,13 +102,12 @@ export interface OpenReminderItem {
  * the occurrences due before the cutoff that come after the viewer's latest done one and
  * are not due before `armedAt - ARMED_GRACE_MS`; the row is the newest, "open since" the
  * oldest's day. Newest first; the first `cap`, and how many more there are. The cutoff
- * already carries the summary day, so `summaryDay` only stays in the signature for the callers.
+ * already carries the summary day.
  */
 export function selectOpenReminders(
   candidates: OpenReminderCandidate[],
   ctx: ViewerContext,
   cutoff: Date,
-  summaryDay: string,
   timezone: string,
   now: Date,
   cap: number = OPEN_REMINDERS_DIGEST_CAP,
@@ -226,13 +225,12 @@ export async function fetchOpenReminders(
   user: UserConfig,
   ctx: ViewerContext,
   cutoff: Date,
-  summaryDay: string,
   timezone: string,
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ events: CalendarEvent[]; moreCount: number }> {
   const candidates = await loadOpenReminderCandidates(ctx, cutoff);
   const clock = await zmanClockIfNeeded(candidates.some((c) => readZmanSpec(c.series.zmanSpec) !== null), user, timezone);
-  return selectOpenReminders(candidates, ctx, cutoff, summaryDay, timezone, new Date(), cap, user.reminderTime, clock);
+  return selectOpenReminders(candidates, ctx, cutoff, timezone, new Date(), cap, user.reminderTime, clock);
 }
 
 /**
@@ -244,7 +242,6 @@ export async function fetchOpenReminderItems(
   user: UserConfig,
   ctx: ViewerContext,
   cutoff: Date,
-  summaryDay: string,
   timezone: string,
   cap: number = OPEN_REMINDERS_DIGEST_CAP
 ): Promise<{ items: OpenReminderItem[]; moreCount: number }> {
@@ -300,7 +297,7 @@ export async function addDigestReminders(
   const events = shapeDayReminders(dayEvents, now, timezone, user.reminderTime, clock);
   try {
     const ctx = await loadViewerContext(user);
-    const open = await fetchOpenReminders(user, ctx, openRemindersCutoff(summaryDay, timezone, now), summaryDay, timezone);
+    const open = await fetchOpenReminders(user, ctx, openRemindersCutoff(summaryDay, timezone, now), timezone);
     return { events: [...events, ...open.events], moreCount: open.moreCount };
   } catch (error) {
     captureError(error, 'native-reminders-open', { user_id: user.id }, 'warning');

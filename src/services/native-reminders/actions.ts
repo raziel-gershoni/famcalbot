@@ -254,19 +254,37 @@ async function closeEarlierOpen(
     // An occurrence nobody pinged has no row yet (as for the pressed one).
     await prisma.nativeReminderState.createMany({ data: run.map(o => ({ seriesEventId: series.id, originalStartsAt: o.instanceStartsAt })), skipDuplicates: true });
     const closed: Array<{ key: OccurrenceKey; title: string; stateId?: string; completed?: boolean }> = [];
-    for (const occurrence of run) {
-      const earlierKey = { seriesEventId: series.id, originalStartsAt: occurrence.instanceStartsAt };
-      if (how.counted) {
+    if (how.counted) {
+      // Each marks their own: one transaction per occurrence (the actor's ping row, and the state row's lock).
+      for (const occurrence of run) {
+        const earlierKey = { seriesEventId: series.id, originalStartsAt: occurrence.instanceStartsAt };
         const marked = await markOwnDone(earlierKey, actor.id, how.counted, now);
         if (marked && marked !== 'switched_off') closed.push({ key: earlierKey, title: occurrence.title, stateId: marked.stateId, completed: marked.completed });
-      } else {
-        const { count } = await prisma.nativeReminderState.updateMany({ where: { ...earlierKey, doneAt: null }, data: { doneAt: now, doneByUserId: actor.id } });
-        if (count === 1) closed.push({ key: earlierKey, title: occurrence.title });
+      }
+    } else {
+      // The shared Done: the whole run in one read and one conditional write, however long it is (a daily
+      // reminder nobody marked for months is hundreds of times). A Done that lands in between still wins.
+      const starts = run.map(o => o.instanceStartsAt);
+      const stillOpen = await prisma.nativeReminderState.findMany({
+        where: { seriesEventId: series.id, originalStartsAt: { in: starts }, doneAt: null },
+        select: { originalStartsAt: true },
+      });
+      if (stillOpen.length > 0) {
+        await prisma.nativeReminderState.updateMany({
+          where: { seriesEventId: series.id, originalStartsAt: { in: stillOpen.map(r => r.originalStartsAt) }, doneAt: null },
+          data: { doneAt: now, doneByUserId: actor.id },
+        });
+      }
+      const openKeys = new Set(stillOpen.map(r => r.originalStartsAt.getTime()));
+      for (const occurrence of run) {
+        if (openKeys.has(occurrence.instanceStartsAt.getTime())) {
+          closed.push({ key: { seriesEventId: series.id, originalStartsAt: occurrence.instanceStartsAt }, title: occurrence.title });
+        }
       }
     }
     if (closed.length === 0) return none;
     closed.sort((a, b) => a.key.originalStartsAt.getTime() - b.key.originalStartsAt.getTime());
-    console.log(`[NativeReminders] series ${series.id}: Done also closed ${closed.length} earlier`);
+    console.log(`[NativeReminders] series ${series.id}: Done also closed ${closed.length} of ${run.length} earlier`);
     return {
       starts: closed.map(c => c.key.originalStartsAt),
       editPings: () => {

@@ -124,11 +124,11 @@ const fakeProvider = {
 
 /** The user's open reminders, as fetchOpenReminders would carry them over, and its calls. */
 let openReminders: UnifiedEvent[] = [];
-const openCalls: Array<{ viewerId: number; cutoff: string; summaryDay: string; timezone: string; cap: number }> = [];
+const openCalls: Array<{ viewerId: number; cutoff: string; timezone: string; cap: number }> = [];
 const fakeOpenReminders = {
   OPEN_REMINDERS_DIGEST_CAP: 5,
-  fetchOpenReminders: async (_user: UserConfig, ctx: { viewerId: number }, cutoff: Date, summaryDay: string, timezone: string, cap = 5) => {
-    openCalls.push({ viewerId: ctx.viewerId, cutoff: cutoff.toISOString(), summaryDay, timezone, cap });
+  fetchOpenReminders: async (_user: UserConfig, ctx: { viewerId: number }, cutoff: Date, timezone: string, cap = 5) => {
+    openCalls.push({ viewerId: ctx.viewerId, cutoff: cutoff.toISOString(), timezone, cap });
     return { events: openReminders.slice(0, cap), moreCount: Math.max(0, openReminders.length - cap) };
   },
 };
@@ -376,7 +376,7 @@ async function main() {
     const lines = listedIn(matcherPrompts[0]);
     assert(lines.length === 2 && lines.filter(l => l.includes('Order the cake')).length === 1, `listed ${JSON.stringify(lines)}`);
     const call = openCalls[0];
-    assert(openCalls.length === 1 && call.viewerId === 1 && call.cutoff === NOW.toISOString() && call.summaryDay === '2026-10-14' && call.timezone === IL && call.cap === Infinity,
+    assert(openCalls.length === 1 && call.viewerId === 1 && call.cutoff === NOW.toISOString() && call.timezone === IL && call.cap === Infinity,
       `fetchOpenReminders called ${JSON.stringify(openCalls)} (cap ${call?.cap})`);
 
     // Without the option (an anchor lookup passes only `eligible`) nothing is fetched; a Google user's are

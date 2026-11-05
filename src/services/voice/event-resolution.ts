@@ -390,7 +390,7 @@ function unlessUnread(user: UserConfig, result: MatchResult, failed: SplitFetch[
 async function openReminderCandidates(user: UserConfig, now: Date, timezone: string): Promise<CalendarEvent[]> {
   try {
     const ctx = await loadViewerContext({ id: user.id, pairingId: user.pairingId ?? null });
-    const { events } = await fetchOpenReminders(user, ctx, now, localDate(now, timezone), timezone, Infinity);
+    const { events } = await fetchOpenReminders(user, ctx, now, timezone, Infinity);
     return events;
   } catch (error) {
     captureError(error, 'voice-event-resolution', { user_id: user.id }, 'warning');

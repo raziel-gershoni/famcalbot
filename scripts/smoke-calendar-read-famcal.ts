@@ -559,7 +559,6 @@ async function main() {
 
   // ---- fetchOpenReminderItems and carryOverReadItems ----
 
-  const cutoffDay = '2026-10-13';
   const danaCtx = async () => {
     const r = await readFamcal(viewer(DANA), DAY, {});
     assert(r.read.status === 'ok', 'Dana\'s read failed');
@@ -571,8 +570,8 @@ async function main() {
     const famcal = await danaCtx();
     for (const ctx of [famcal.ctx, { viewerId: DANA, partner: null }]) {
       eventReads.length = 0;
-      await fetchOpenReminders(viewer(DANA), ctx, CUTOFF, cutoffDay, IL, Infinity);
-      await fetchOpenReminderItems(viewer(DANA), ctx, CUTOFF, cutoffDay, IL, Infinity);
+      await fetchOpenReminders(viewer(DANA), ctx, CUTOFF, IL, Infinity);
+      await fetchOpenReminderItems(viewer(DANA), ctx, CUTOFF, IL, Infinity);
       assert(eventReads.length === 2 && eventReads[0] === eventReads[1], `reads\n     ${eventReads.join('\n     ')}`);
     }
   });
@@ -580,8 +579,8 @@ async function main() {
   await check('fetchOpenReminderItems: the same carry-overs, newest first, each with its occurrence and state row', async () => {
     household();
     const famcal = await danaCtx();
-    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
-    const { items, moreCount } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
+    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
+    const { items, moreCount } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
     assertJson(items.map((i) => i.event), old.events, 'events');
     assert(moreCount === old.moreCount && moreCount === 0, `moreCount ${moreCount}`);
     assertJson(items.map((i) => [i.event.summary, i.series.id, i.calendar.id, i.instanceStartsAt.toISOString(), i.state ? i.state.pings[0]?.snoozedUntil ?? null : 'none']), [
@@ -600,7 +599,7 @@ async function main() {
       rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2025-10-23',
     }) as unknown as Row);
     const famcal = await danaCtx();
-    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
+    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
     assertJson(items.map((i) => [i.event.summary, i.instanceStartsAt.toISOString(), i.event.reminder?.openSince]), [
       ['Book the plumber', at('2026-10-12 17:00').toISOString(), '2026-10-12'],
       ['Call Grandma', at('2026-10-12 16:00').toISOString(), '2026-10-12'],
@@ -613,15 +612,15 @@ async function main() {
   await check('fetchOpenReminderItems: the cap and the count past it, as fetchOpenReminders', async () => {
     household();
     const famcal = await danaCtx();
-    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, 2);
-    const { items, moreCount } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, 2);
+    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, IL, 2);
+    const { items, moreCount } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, IL, 2);
     assertJson(items.map((i) => i.event), old.events, 'events');
     assert(items.length === 2 && moreCount === 1 && old.moreCount === 1, `${items.length} items, moreCount ${moreCount}/${old.moreCount}`);
   });
 
   await check('fetchOpenReminderItems: a Google user\'s are read as anyone\'s (reminders live in FamCal, Google as a connection)', async () => {
     household();
-    const none = await fetchOpenReminderItems(viewer(GALI), { viewerId: GALI, partner: null }, CUTOFF, cutoffDay, IL, Infinity);
+    const none = await fetchOpenReminderItems(viewer(GALI), { viewerId: GALI, partner: null }, CUTOFF, IL, Infinity);
     assertJson(none, { items: [], moreCount: 0 }, 'result: Gali set none');
     assertJson(queries, ['nativeEvent.findMany'], 'queries');
   });
@@ -629,7 +628,7 @@ async function main() {
   await check('carryOverReadItems: masked off the legend, named on it; originalStart is the occurrence\'s', async () => {
     household();
     const famcal = await danaCtx();
-    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
+    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
     const read = carryOverReadItems(famcal, items);
     assertJson(read.map(line), [
       'Book the plumber [reminder pending] @ masked as Raziel',
@@ -656,8 +655,8 @@ async function main() {
     household();
     addMovedReminder();
     const famcal = await danaCtx();
-    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
-    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, cutoffDay, IL, Infinity);
+    const old = await fetchOpenReminders(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
+    const { items } = await fetchOpenReminderItems(viewer(DANA), famcal.ctx, CUTOFF, IL, Infinity);
     assertJson(items.map((i) => i.event), old.events, 'events');
     const slot = at('2026-10-20 09:00').toISOString();
     const moved = items.find((i) => i.series.id === 'rem-moved');
