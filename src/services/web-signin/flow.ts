@@ -39,6 +39,11 @@ export type OidcFlow = {
   locale: string;
   /** add-google only: the account the Google sign-in way is added to. */
   userId?: number;
+  /**
+   * add-google only: when the browser that asked last proved who the person is (the session cookie's proved-at, epoch ms),
+   * checked again where Google's answer is attached (finishAddGoogle). Absent for a Mini App start, which is never asked.
+   */
+  provedAt?: number;
   /** The partner invite this sign-in came from (cleanInviteToken's form, read back by inviteOf), carried to its finish. */
   invite?: string;
   /** When the sign-in began (epoch ms, set by startFlow): a flow put back keeps the time it had left. */
@@ -85,6 +90,7 @@ function asFlow(value: unknown): SignInFlow | null {
     codeVerifier: v.codeVerifier,
     locale: v.locale,
     ...(typeof v.userId === 'number' ? { userId: v.userId } : {}),
+    ...(typeof v.provedAt === 'number' && Number.isFinite(v.provedAt) ? { provedAt: v.provedAt } : {}),
     ...inviteOf(v),
     ...startedAtOf(v),
   };

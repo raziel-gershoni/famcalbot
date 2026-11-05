@@ -156,6 +156,48 @@ async function main() {
     assert(/sessionRecentlyProved\(\s*session\s*,\s*user\.id\s*,\s*\{\s*allowWhatsApp:\s*false\s*\}\s*\)/.test(connect), 'createConnectLink does not ask sessionRecentlyProved(session, user.id, { allowWhatsApp: false })');
   });
 
+  // ---- The audit: every file that adds a way, or connects a Google account from a browser ----
+
+  /** Files that ask the helper before they add a way or connect Google from a browser cookie. */
+  const GUARDED: Record<string, string> = {
+    'app/api/auth/google/add-link/route.ts': 'Add Google: the link is made only for a sign-in from the last hour (refuseStaleSignIn; Mini App initData passes)',
+    'app/api/auth/google/add-start/route.ts': 'Continue: the link entry carries the cookie\'s proved-at, checked again before Google (recentlyProved)',
+    'src/services/web-signin/add-google.ts': 'the link entry keeps the proved-at, and finishAddGoogle checks the flow\'s before it adds (recentlyProved)',
+    'app/api/signin-methods/email/add/route.ts': 'Add email: no code is mailed to a stale sign-in (refuseStaleSignIn)',
+    'app/api/signin-methods/email/confirm/route.ts': 'Add email: the right code makes no way for a sign-in that went stale meanwhile (refuseStaleSignIn)',
+    'app/api/signin-methods/calendar-on/route.ts': 'Turn on makes the calendar\'s Google account a way (refuseStaleSignIn, ruling R2)',
+    'app/api/signin-methods/join/route.ts': 'Join brings in another account\'s ways (refuseStaleSignIn, ruling R2)',
+    'app/api/oauth/start/route.ts': 'the browser\'s Google Calendar consent (refuseStaleSignIn; no state row on a refusal)',
+    'app/api/oauth/claim/route.ts': 'Finish here commits the connection, and its check says stale (refuseStaleSignIn; the entry stays for the chat claim)',
+    'app/api/google-sync/route.ts': 'the first Copy to Google asks Google\'s consent (refuseStaleSignIn, only before the new consent)',
+  };
+  /** Files that call one of the same functions and are not asked, with the reason. */
+  const EXEMPT: Record<string, string> = {
+    'src/services/google-connect.ts': 'defines the consent and the claim; its chat claims (Telegram /start gc_, WhatsApp) prove possession of the chat, not a cookie',
+    'src/services/web-signin/calendar-account.ts': 'defines Turn on; the calendar match is a sign-in that ends in finishSignIn, whose proof is fresh by construction',
+    'src/services/web-signin/identities.ts': 'defines addIdentity (every caller above is listed)',
+    'src/services/web-signin/email-code.ts': 'defines issueCode (every caller is listed)',
+    'src/services/web-signin/join.ts': 'defines runJoin (its one route is guarded)',
+    'app/api/auth/email/request/route.ts': 'sign-in and sign-up codes only: the code proves the address and the flow ends in finishSignIn',
+  };
+  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin)\(/;
+  const DEFINITION = /^\s*export\s+(?:async\s+)?function\s/;
+  const GUARD = /\b(?:refuseStaleSignIn|recentlyProved)\b/;
+
+  await check('the audit: every file under src/ and app/ that adds a sign-in way or connects Google from a browser is in GUARDED (and asks the helper) or EXEMPT (with a reason); a file nobody classified fails, and so does a listed file that is gone', () => {
+    const callers = SOURCES.filter(file => codeLines(file).some(line => CALLS.test(line) && !DEFINITION.test(line))).map(rel);
+    const defining = SOURCES.filter(file => codeLines(file).some(line => CALLS.test(line) && DEFINITION.test(line))).map(rel);
+    const touched = [...new Set([...callers, ...defining])].sort();
+    const unclassified = touched.filter(file => !(file in GUARDED) && !(file in EXEMPT));
+    assert(unclassified.length === 0, `a file adds a way or connects Google and nobody classified it (GUARDED or EXEMPT, with the reason):\n     ${unclassified.join('\n     ')}`);
+    const gone = [...Object.keys(GUARDED), ...Object.keys(EXEMPT)].filter(file => !touched.includes(file));
+    assert(gone.length === 0, `listed, but it no longer calls any of them:\n     ${gone.join('\n     ')}`);
+    const unguarded = Object.keys(GUARDED).filter(file => !GUARD.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    assert(unguarded.length === 0, `GUARDED, but it never asks refuseStaleSignIn or recentlyProved:\n     ${unguarded.join('\n     ')}`);
+    for (const [file, reason] of [...Object.entries(GUARDED), ...Object.entries(EXEMPT)]) assert(reason.length > 20, `${file}: the reason is missing`);
+    assert(Object.keys(GUARDED).every(file => !(file in EXEMPT)), 'a file is in both tables');
+  });
+
   report();
 }
 

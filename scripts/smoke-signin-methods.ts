@@ -904,6 +904,99 @@ async function main() {
     assert(notices.length === 1 && !String(notices[0].body.html).includes('<b>'), `notice html ${show(notices.map(m => m.body.html))}`);
   });
 
+  // ---- Adding a way on the web needs a sign-in from the last hour (6c-1 follow-ups Task 4; src/lib/recent-sign-in.ts) ----
+
+  const MIN = 60_000;
+  const agedCookie = async (userId: number, minutes: number, method = 'email'): Promise<Auth> => ({ cookie: await sessionCookie(userId, method, Date.now() - minutes * MIN) });
+  const STALE = { ok: false, error: 'stale-sign-in' };
+  const joinRoute = await load('app/api/signin-methods/join/route.ts');
+  const { newOidcChecks } = await load('src/services/web-signin/oidc.ts');
+  const mailCount = (): number => mails.length;
+  const refusalLines = (): string[] => logs.filter(l => l.startsWith('[recent-sign-in]'));
+  const addGoogleKeys = (): string[] => [...redisStore.keys()].filter(k => k.startsWith('signin:add-google:'));
+  const flowRecords = (): Row[] => [...redisStore.entries()].filter(([k]) => k.startsWith('signin:flow:')).map(([, v]) => JSON.parse(v));
+
+  await check('#56 Add Google link: a cookie signed in over an hour ago is refused (403 stale-sign-in) before any link is made; 59 minutes passes; valid Telegram initData passes even beside a stale cookie; the refusal is logged with the user id and the method only', async () => {
+    seed();
+    const stale = await addLink(TAL, await agedCookie(TAL, 61));
+    assert(stale.status === 403 && show(await body(stale)) === show(STALE), `stale ${stale.status} ${show(await body(stale))}`);
+    assert(addGoogleKeys().length === 0, `a link was kept: ${show(addGoogleKeys())}`);
+    const wa = await addLink(DANA, await agedCookie(DANA, 61, 'wa'));
+    assert(wa.status === 403 && (await body(wa)).error === 'stale-sign-in' && addGoogleKeys().length === 0, `stale wa ${wa.status} ${show(await body(wa))}`);
+    assert(refusalLines().length === 2 && refusalLines()[0] === `[recent-sign-in] user ${TAL}: add-google-link refused: the email sign-in is not recent`, `log ${show(refusalLines())}`);
+    const fine = await addLink(TAL, await agedCookie(TAL, 59));
+    assert(fine.status === 200 && typeof (await body(fine)).url === 'string', `59 minutes ${fine.status} ${show(await body(fine))}`);
+    tokenOf((await body(fine)).url);
+    const mini = await addLink(TAL_TG, { initData: initDataFor(TAL_TG), cookie: (await agedCookie(TAL, 600)).cookie });
+    assert(mini.status === 200 && typeof (await body(mini)).url === 'string', `initData beside a stale cookie ${mini.status} ${show(await body(mini))}`);
+    tokenOf((await body(mini)).url);
+  });
+
+  await check('#57 Add email: a stale cookie gets 403 stale-sign-in with no mail and no pending key; 59 minutes passes; confirm with a right code but a stale cookie is 403 and leaves the code and the pending key, which a fresh cookie then uses', async () => {
+    seed();
+    const stale = await addEmail(TAL, 'tal@example.com', await agedCookie(TAL, 61));
+    assert(stale.status === 403 && show(await body(stale)) === show(STALE), `add ${stale.status} ${show(await body(stale))}`);
+    assert(mails.length === 0 && !redisStore.has(`signin:add-email:${TAL}`), `mail ${mails.length}, pending ${redisStore.has(`signin:add-email:${TAL}`)}`);
+    const code = await startAdd(TAL, 'tal@example.com', await agedCookie(TAL, 59));
+    assert(redisStore.has(`signin:add-email:${TAL}`), 'no pending key after a fresh request');
+    const keysBefore = [...redisStore.keys()].sort();
+    const late = await confirm(TAL, code, await agedCookie(TAL, 61));
+    assert(late.status === 403 && show(await body(late)) === show(STALE), `confirm ${late.status} ${show(await body(late))}`);
+    assert(show([...redisStore.keys()].sort()) === show(keysBefore) && identitiesOf(TAL).length === 0 && sent.length === 0, `the stale confirm changed Redis or the account: ${show([...redisStore.keys()].sort())} ${show(identitiesOf(TAL))}`);
+    const done = await confirm(TAL, code, await agedCookie(TAL, 59));
+    assert(done.status === 200 && (await body(done)).ok === true && identitiesOf(TAL).length === 1, `fresh confirm ${done.status} ${show(await body(done))}`);
+    seed();
+    const mini = await addEmail(TAL_TG, 'tal2@example.com', { initData: tal.initData, cookie: (await agedCookie(TAL, 600)).cookie });
+    assert(mini.status === 200 && (await body(mini)).ok === true && mailCount() === 1, `initData beside a stale cookie ${mini.status} ${show(await body(mini))}`);
+  });
+
+  await check('#58 Continue (add-start): a link made on a cookie that is stale by then is 403 stale-sign-in with no Google URL, no flow and no flow cookie; a link made on a fresh cookie carries its proved-at into the flow (kept when a wrong state puts the flow back); a Mini App link starts as before and its flow has none', async () => {
+    seed();
+    const link = tokenOf(await addGoogle.createAddGoogleLink({ id: TAL, language: 'en' }, Date.now() - 61 * MIN));
+    const stale = await addStart(link);
+    assert(stale.status === 403 && (await body(stale)).error === 'stale-sign-in' && !('url' in (await body(stale))), `stale ${stale.status} ${show(await body(stale))}`);
+    assert(flowRecords().length === 0 && !stale.cookies.get(SIGNIN_COOKIE_NAME)?.value, `a flow was started: ${show(flowRecords())}`);
+    const provedAt = Date.now() - 59 * MIN;
+    const fresh = tokenOf(await addGoogle.createAddGoogleLink({ id: TAL, language: 'en' }, provedAt));
+    const started = await addStart(fresh);
+    assert(started.status === 200 && flowRecords().length === 1 && flowRecords()[0].provedAt === provedAt, `fresh ${started.status} ${show(flowRecords())}`);
+    const cookie = `${SIGNIN_COOKIE_NAME}=${started.cookies.get(SIGNIN_COOKIE_NAME)?.value}`;
+    const wrong = await callback('not-the-state', cookie);
+    assert(location(wrong).includes('status=restart') && flowRecords().length === 1 && flowRecords()[0].provedAt === provedAt, `put back ${location(wrong)} ${show(flowRecords())}`);
+    seed();
+    const mini = tokenOf((await body(await addLink(TAL_TG, tal))).url);
+    const miniStart = await addStart(mini);
+    assert(miniStart.status === 200 && flowRecords().length === 1 && !('provedAt' in flowRecords()[0]), `Mini App link ${miniStart.status} ${show(flowRecords())}`);
+  });
+
+  await check('#59 Google\'s answer to Add Google finishes only inside the hour of the proof the flow carries: a stale flow redirects to /signin?status=stale and adds no way, sends no notice, sets no session cookie; one at 59 minutes, and one with no proved-at (a Mini App start), finish as before', async () => {
+    seed();
+    world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
+    const flowOf = (provedAt?: number): Row => ({ kind: 'add-google', ...newOidcChecks(), locale: 'en', userId: TAL, ...(provedAt === undefined ? {} : { provedAt }) });
+    const run = async (flow: Row) => callback(flow.state, await flowCookie(flow));
+    const stale = await run(flowOf(Date.now() - 61 * MIN));
+    assert(location(stale).includes('status=stale') && pathOf(stale).startsWith('/en/signin'), `stale ${location(stale)}; captured ${show(captured)}`);
+    assert(identitiesOf(TAL).length === 0 && sent.length === 0 && !stale.cookies.get(SESSION_COOKIE_NAME)?.value, `stale added: ${show(identitiesOf(TAL))} sent ${show(sent)}`);
+    assert(logs.includes(`[signin] user ${TAL}: add-google refused: the sign-in is not recent`), `no refusal logged: ${show(logs.slice(-5))}`);
+    const ok = await run(flowOf(Date.now() - 59 * MIN));
+    assert(pathOf(ok) === '/en/dashboard?user_id=9' && identitiesOf(TAL).length === 1 && sentCount() === 1, `59 minutes ${location(ok)} ${show(identitiesOf(TAL))}`);
+    seed();
+    world.claims = { sub: 'g-tal', email: 'tal@gmail.com', emailVerified: true };
+    const mini = await run(flowOf());
+    assert(pathOf(mini) === '/en/dashboard?user_id=9' && identitiesOf(TAL).length === 1, `no proved-at ${location(mini)} ${show(identitiesOf(TAL))}`);
+  });
+
+  await check('#60 Turn on and Join are gated too: a stale cookie gets 403 stale-sign-in with no Google call, no key kept and no question touched; 59 minutes turns it on', async () => {
+    seedOff();
+    const stale = await calendarOn(TAL, await agedCookie(TAL, 61, 'google'));
+    assert(stale.status === 403 && show(await body(stale)) === show(STALE), `turn on ${stale.status} ${show(await body(stale))}`);
+    assert(world.googleAsks.length === 0 && userRow(TAL).googleAccountKey === null, `Google was asked or a key kept: ${show(world.googleAsks)}`);
+    const join = await joinRoute.POST(request(`/api/signin-methods/join?user_id=${TAL}`, { body: { token: 'x'.repeat(22) }, ...(await agedCookie(TAL, 61, 'google')) }));
+    assert(join.status === 403 && show(await body(join)) === show(STALE), `join ${join.status} ${show(await body(join))}`);
+    const ok = await calendarOn(TAL, await agedCookie(TAL, 59, 'google'));
+    assert(ok.status === 200 && (await body(ok)).ok === true && userRow(TAL).googleAccountKey === KEY_TAL, `59 minutes ${ok.status} ${show(await body(ok))}`);
+  });
+
   await check('#39 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {
     const text = [...everyLog, ...everyCapture.map(c => `${c.context} ${c.message} ${show(c.extra)}`)].join('\n').toLowerCase();
     const addresses = ['tal@example.com', 'noa@example.com', 'dana@example.com', 'takl@example.com', 'tal@gmail.com', 'noa@gmail.com', 'old@gmail.com', 'nobody@gmail.com', 'noa2@example.com', 'shared@example.com', 'limit@example.com', 'down@example.com', 'rina@example.com', 'rina.g@gmail.com', 'omer@gmail.com', 'omer@example.com', 'web62@example.com', 'web63@example.com', 'web64@example.com'];

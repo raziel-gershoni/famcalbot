@@ -26,6 +26,7 @@ export const STATUS_KEY: Record<SignInStatus, string> = {
   'has-one': 'hasOne',
   'exists-email': 'existsEmail',
   'exists-google': 'existsGoogle',
+  stale: 'stale',
 };
 
 /** Every status the sign-in flows send to /signin: STATUS_KEY's keys, so a new SignInStatus member is read by construction (the Record fails to compile without it). */

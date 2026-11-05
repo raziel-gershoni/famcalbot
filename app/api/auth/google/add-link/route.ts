@@ -2,8 +2,9 @@
 //
 // POST /api/auth/google/add-link?user_id=…  body {}
 //   → { url }: famcal.bot/{lang}/signin/add-google?token=<token> (English unprefixed), 5 minutes, used up only by Continue on that page.
-//   → 409 { error: 'unavailable' } with no Google sign-in client set up; 409 { error: 'has-one' } when the account has a
-//     Google way already (remove it first); 500 { error: 'failed' }.
+//   → 403 { ok: false, error: 'stale-sign-in' } for a browser session signed in over an hour ago (src/lib/recent-sign-in.ts;
+//     the Mini App is never asked); 409 { error: 'unavailable' } with no Google sign-in client set up; 409
+//     { error: 'has-one' } when the account has a Google way already (remove it first); 500 { error: 'failed' }.
 //
 // Security: Origin and JSON first, then verifyUserAuth with the settings limiter; the link is for the proved user. No
 // log line holds the token.
@@ -11,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { refuseCrossSite } from '@/src/lib/same-origin';
@@ -33,6 +35,9 @@ export async function POST(request: NextRequest) {
     const auth = await verifyUserAuth(request, request.nextUrl.searchParams.get('user_id'), requestInitData(request, body), settingsRateLimiter, 'signin-add-google-link');
     if (!auth.success) return auth.response;
     userId = auth.user.id;
+    // A browser's link needs a sign-in from the last hour (Mini App initData passes); nothing is made before this
+    const stale = refuseStaleSignIn(auth, 'add-google-link');
+    if (stale) return stale;
     if (!providerConfigured('google')) {
       console.warn(`[signin] user ${userId}: Add Google asked with no Google sign-in client set up`);
       return NextResponse.json({ error: 'unavailable' }, { status: 409 });
@@ -41,7 +46,7 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin] user ${userId}: Add Google refused: the account has a Google way`);
       return NextResponse.json({ error: 'has-one' }, { status: 409 });
     }
-    const url = await createAddGoogleLink(auth.user);
+    const url = await createAddGoogleLink(auth.user, auth.via === 'session' ? auth.session.provedAt : undefined);
     console.log(`[signin] user ${userId}: an Add Google link was made`);
     return NextResponse.json({ url });
   } catch (error) {

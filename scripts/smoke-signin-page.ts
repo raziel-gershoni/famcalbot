@@ -177,6 +177,7 @@ async function main() {
   const { SignInClient } = await load('app/[locale]/(site)/signin/SignInClient.tsx');
   const { AddGoogleClient } = await load('app/[locale]/(site)/signin/add-google/AddGoogleClient.tsx');
   const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
+  const { STATUS_KEY } = await load('src/site/signin.ts');
 
   // The server render runs without a browser: the fake window a client check installed (and never removes) is taken away for its length
   const wrap = async (locale: Locale, el: ReactElement) => {
@@ -283,6 +284,7 @@ async function main() {
       const r = await pageOf(SignInPage, locale);
       assert('redirect' in r && r.redirect === `${prefix(locale)}/dashboard?user_id=7`, `${locale}: ${show(r)}`);
       assert('html' in (await pageOf(SignInPage, locale, { status: 'no-account' })), `${locale}: a status was redirected away`);
+      assert('html' in (await pageOf(SignInPage, locale, { status: 'stale' })), `${locale}: ?status=stale was redirected away by the cookie`);
       jar.set(SESSION_COOKIE_NAME, `${token.slice(0, -3)}abc`);
       assert('html' in (await pageOf(SignInPage, locale)), `${locale}: a tampered cookie redirected`);
       jar.clear();
@@ -342,11 +344,12 @@ async function main() {
         else assert(textOf(html).includes(st[key].body), `${locale} ${status}: the body`);
         assert(attrs(html, 'a').some((a) => decodeEntities(attr(a, 'href') ?? '') === `${prefix(locale)}/signin`), `${locale} ${status}: no way back to the ways`);
       }
-      for (const [status, key] of [['restart', 'restart'], ['failed', 'failed'], ['unavailable', 'unavailable'], ['exists-email', 'existsEmail'], ['exists-google', 'existsGoogle']] as const) {
+      for (const [status, key] of [['restart', 'restart'], ['failed', 'failed'], ['unavailable', 'unavailable'], ['exists-email', 'existsEmail'], ['exists-google', 'existsGoogle'], ['stale', 'stale']] as const) {
         const html = await signin(locale, { status });
         assert(new RegExp(`<p class="site-signin-notice" role="alert">${(st[key] as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</p>`).test(decodeEntities(html)), `${locale} ${status}: no alert`);
         assert(ways(html).length === 3, `${locale} ${status}: the ways are gone`);
       }
+      assert(STATUS_KEY.stale === 'stale' && typeof st.stale === 'string' && st.stale.length > 0, `${locale}: no words for ?status=stale`);
       const unknown = await signin(locale, { status: 'nope' });
       assert(!/role="alert"/.test(unknown) && ways(unknown).length === 3, `${locale}: an unknown status shows something`);
     }
@@ -710,15 +713,16 @@ async function main() {
           again.unmount();
         }
       }
-      // A suspended account (403) goes to its own page, as in every other sign-in path; any other 403 is the plain failure
-      for (const [answer, goes] of [[{ error: 'suspended' }, true], [{ error: 'forbidden' }, false]] as const) {
+      // A suspended account (403) goes to its own page, as in every other sign-in path, and a sign-in that is over an hour old
+      // at Continue (the link is used up) to /signin?status=stale; any other 403 is the plain failure
+      for (const [answer, goes] of [[{ error: 'suspended' }, 'suspended'], [{ error: 'stale-sign-in' }, 'stale'], [{ error: 'forbidden' }, null]] as const) {
         routes = { 'POST /api/auth/google/add-start': () => json(answer, 403) };
         assigned.length = 0;
         const sus = mount(h(NextIntlClientProvider, { locale, timeZone: 'Asia/Jerusalem', messages: { site: messages[locale].site } } as never, h(AddGoogleClient, { token: TOKEN })) as unknown as ReactElement);
         try {
           sus.click(way(sus, 'google') as FakeElement);
           await settle();
-          if (goes) assert(show(assigned) === show([`${prefix(locale)}/signin?status=suspended`]), `${locale}: a suspended account went to ${show(assigned)}`);
+          if (goes) assert(show(assigned) === show([`${prefix(locale)}/signin?status=${goes}`]), `${locale}: a ${goes} answer went to ${show(assigned)}`);
           else assert(assigned.length === 0 && alerts(sus).includes(a.failed), `${locale}: another 403 ${show(assigned)} ${show(alerts(sus))}`);
         } finally {
           sus.unmount();

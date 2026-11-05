@@ -1561,6 +1561,30 @@ async function main() {
     assert(DB.oAuthState.length === 0, `states ${show(DB.oAuthState)}`);
   });
 
+  await check('#31b the browser Google connect needs a sign-in from the last hour (6c-1 follow-ups): a cookie signed in over an hour ago is 403 stale-sign-in at oauth/start (connect or sync) with no state row; 59 minutes passes; Telegram initData is unaffected, also beside a stale cookie', async () => {
+    seed();
+    const { POST } = await load('app/api/oauth/start/route.ts');
+    const { createSessionToken, SESSION_COOKIE_NAME } = await load('src/lib/session-auth.ts');
+    const withCookie = async (minutes: number, extra: Row = {}, headers: Row = {}) => {
+      const res: Response = await quietly<Response>(() => POST(new NextRequest('http://localhost/api/oauth/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: `${SESSION_COOKIE_NAME}=${createSessionToken(9, 'email', Date.now() - minutes * 60_000)}`, ...headers },
+        body: JSON.stringify({ user_id: '9', ...extra }),
+      }))).then(r => r.value);
+      return { status: res.status, body: await res.json() };
+    };
+    for (const extra of [{}, { purpose: 'sync', nativeCalendarId: 'cal-9' }]) {
+      const stale = await withCookie(61, extra);
+      assert(stale.status === 403 && show(stale.body) === show({ ok: false, error: 'stale-sign-in' }), `stale ${show(extra)}: ${stale.status} ${show(stale.body)}`);
+    }
+    const states = (): number => DB.oAuthState.length;
+    assert(states() === 0, `a state row was made: ${show(DB.oAuthState)}`);
+    const fresh = await withCookie(59);
+    assert(fresh.status === 200 && typeof fresh.body.oauthUrl === 'string' && states() === 1, `59 minutes: ${fresh.status} ${show(fresh.body)}`);
+    const both = await withCookie(600, {}, { 'x-telegram-init-data': initDataFor(TAL_TG) });
+    assert(both.status === 200 && states() === 2, `initData beside a stale cookie: ${both.status} ${show(both.body)}`);
+  });
+
   await check('#34 S2 callback (connect): the pending entry carries the granted scopes from the token response, and the key of the token\'s account (calendars.get(primary) with the exchange\'s access token), never the address', async () => {
     seed();
     googleAnswer = { refresh_token: 'google-rt-new', scope: `${BOTH_SCOPES} ${SYNC_SCOPE}`, access_token: 'at-1' };

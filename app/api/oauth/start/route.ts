@@ -11,10 +11,14 @@
 // calendar, which also asks for calendar.app.created; the state carries the calendar, and
 // the commit creates the copy's link. Only on a plan with google_sync (403 upgrade_required
 // otherwise). No purpose is a connect, as before.
+//
+// A browser (the session cookie) is asked for a sign-in from the last hour before either: 403 { ok: false, error:
+// 'stale-sign-in' }, src/lib/recent-sign-in.ts. The Mini App (initData) never is.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { createGoogleConsent, parseConsentRequest } from '@/src/services/google-connect';
@@ -36,6 +40,9 @@ export async function POST(request: NextRequest) {
       'oauth-start'
     );
     if (!auth.success) return auth.response;
+    // A browser needs a sign-in from the last hour (403 stale-sign-in; Mini App initData passes): no state row is made before it
+    const stale = refuseStaleSignIn(auth, 'oauth-start');
+    if (stale) return stale;
 
     const asked = parseConsentRequest(body);
     if (!asked) {

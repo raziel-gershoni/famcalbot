@@ -19,6 +19,7 @@ import { normalizeLocale } from '../../utils/locale';
 import { localeHref } from '../../site/zmanim/links';
 import { finishSignIn, signInPageUrl, signInRefusal } from '../../lib/web-session';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
+import { recentlyProved } from '../../lib/recent-sign-in';
 import { getUserById } from '../user-service';
 import type { UserConfig } from '../../types';
 import type { OidcFlow } from './flow';
@@ -34,27 +35,35 @@ const TOKEN = /^[A-Za-z0-9_-]{32}$/;
 
 const keyOf = (token: string) => REDIS_KEYS.signinAddGoogle(crypto.createHash('sha256').update(token).digest('hex'));
 
-/** Make the one-time link for a proved account: famcal.bot/{lang}/signin/add-google?token=<token>, 5 minutes. */
-export async function createAddGoogleLink(user: UserConfig): Promise<string> {
+/**
+ * Make the one-time link for a proved account: famcal.bot/{lang}/signin/add-google?token=<token>, 5 minutes. `provedAt`
+ * is the browser session's proved-at (src/lib/recent-sign-in.ts), kept in the entry so Continue and Google's answer ask
+ * the hour again; a Mini App link has none and is never asked.
+ */
+export async function createAddGoogleLink(user: UserConfig, provedAt?: number): Promise<string> {
   const token = crypto.randomBytes(24).toString('base64url');
-  await redis.set(keyOf(token), JSON.stringify({ userId: user.id }), { ex: ADD_GOOGLE_TTL_SECONDS });
+  await redis.set(keyOf(token), JSON.stringify({ userId: user.id, ...(provedAt === undefined ? {} : { provedAt }) }), { ex: ADD_GOOGLE_TTL_SECONDS });
   return buildUrl(localeHref(normalizeLocale(user.language), `/signin/add-google?token=${token}`));
 }
 
-function readEntry(raw: unknown): { userId: number } | null {
+/** What a link names: the account, and the proved-at of the browser that asked (absent for a Mini App link, and for an entry written before the hour was asked: unchecked, and it expires in minutes). */
+export type AddGoogleLink = { userId: number; provedAt?: number };
+
+function readEntry(raw: unknown): AddGoogleLink | null {
   if (!raw) return null;
-  const entry = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { userId?: unknown };
-  return typeof entry.userId === 'number' ? { userId: entry.userId } : null;
+  const entry = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { userId?: unknown; provedAt?: unknown };
+  if (typeof entry.userId !== 'number') return null;
+  return typeof entry.provedAt === 'number' && Number.isFinite(entry.provedAt) ? { userId: entry.userId, provedAt: entry.provedAt } : { userId: entry.userId };
 }
 
 /** The account a link was made for, without using it up (the page that names it); null for a used, late or bad link. */
-export async function peekAddGoogleToken(token: unknown): Promise<{ userId: number } | null> {
+export async function peekAddGoogleToken(token: unknown): Promise<AddGoogleLink | null> {
   if (typeof token !== 'string' || !TOKEN.test(token)) return null;
   return readEntry(await redis.get(keyOf(token)));
 }
 
 /** Use a link up (Continue): GETDEL, so it works once. */
-export async function takeAddGoogleToken(token: unknown): Promise<{ userId: number } | null> {
+export async function takeAddGoogleToken(token: unknown): Promise<AddGoogleLink | null> {
   if (typeof token !== 'string' || !TOKEN.test(token)) return null;
   return readEntry(await redis.getdel(keyOf(token)));
 }
@@ -66,6 +75,8 @@ export async function takeAddGoogleToken(token: unknown): Promise<{ userId: numb
  * - A sub another account holds is refused (status=taken), unless that account has no chat and can be joined into this
  *   one (web sign-up spec §3.6): then this browser is signed in as the account that made the link and lands on the
  *   Join question (offerJoin). A second Google account is refused (status=has-one).
+ * - A flow that carries a proved-at older than an hour (the sign-in ran out on Google's consent screen) adds nothing: this
+ *   browser lands on /signin?status=stale, with no way, no notice and no session. A Mini App start carries none.
  * - A suspended or banned account gets no way and no notice: signInRefusal answers before anything is added, and
  *   finishSignIn shows the person its page.
  * - A Google account, or a verified address, on the blocklist is not added either (status=blocked; web sign-up spec
@@ -78,6 +89,10 @@ export async function finishAddGoogle(flow: OidcFlow, claims: GoogleClaims): Pro
   if (!user || !claims.email) {
     console.warn(`[signin] add-google: ${user ? `user ${user.id}: Google gave no address` : `the account that made the link is not there (${flow.userId ?? 'none'})`}`);
     return NextResponse.redirect(signInPageUrl(flow.locale, 'failed'));
+  }
+  if (flow.provedAt !== undefined && !recentlyProved(flow.provedAt)) {
+    console.warn(`[signin] user ${user.id}: add-google refused: the sign-in is not recent`);
+    return NextResponse.redirect(signInPageUrl(flow.locale, 'stale'));
   }
   const refusal = await signInRefusal(user);
   if (refusal) {

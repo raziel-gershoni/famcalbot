@@ -424,6 +424,8 @@ const fakeRedis = new Proxy(redisImpl, { get: (t, p) => (typeof p !== 'string' |
 const captured: string[] = [];
 const tracked: string[] = [];
 let authUserId = 1;
+/** A web session the next requests are proved by (null: Telegram initData) */
+let authSession: Row | null = null;
 /** Every verifyUserAuth call (S4): "<endpoint>:<limiter>". */
 const authUses: string[] = [];
 let earlyAdoption = false;
@@ -468,7 +470,9 @@ function installStubs() {
   stub('src/lib/api-auth.ts', {
     verifyUserAuth: async (_req: unknown, _userId: unknown, _initData: unknown, limiter: Row, endpoint: string) => {
       authUses.push(`${endpoint}:${limiter?.name}`);
-      return { success: true, user: { ...table('user').find((u) => u.id === authUserId) } };
+      const user = { ...table('user').find((u) => u.id === authUserId) };
+      // Telegram initData unless a check sets a web session (the 6c-1 follow-ups' hour: src/lib/recent-sign-in.ts)
+      return authSession ? { success: true, via: 'session', user, session: { ...authSession, userId: user.id } } : { success: true, via: 'telegram', user };
     },
   });
   stub('src/lib/rate-limit.ts', { settingsRateLimiter: { name: 'settings' }, generalRateLimiter: { name: 'general' } });
@@ -532,6 +536,7 @@ function seed() {
   authUses.length = 0;
   redisStore.clear();
   authUserId = TAL;
+  authSession = null;
   earlyAdoption = false;
   DB.user = [user(TAL, 'Tal', 'pair'), user(NOA, 'Noa', 'pair'), user(DAN, 'Dan', null)];
   DB.pairing = [{ id: 'pair', status: 'ACTIVE', inviterUserId: TAL, inviteeUserId: NOA }];
@@ -1169,6 +1174,30 @@ async function main() {
       assert(st.length === 1 && st[0].purpose === 'sync' && st[0].nativeCalendarId === 'plain' && String(st[0].userId) === String(TAL), `state ${show(st)}`);
       assert(!table('googleSyncLink').some((l) => l.nativeCalendarId === 'plain'), 'a link before the consent');
     }
+  });
+
+  await check('route POST enable on a web session (the 6c-1 follow-ups\' hour): the first Copy to Google, which asks Google\'s consent, is 403 stale-sign-in after an hour with no state row; the permission held (no consent) and recreate turn on whatever the age; 59 minutes and Telegram initData get the consent', async () => {
+    const session = (minutes: number) => ({ method: 'email', signedInAt: Date.now() - minutes * 60_000, provedAt: Date.now() - minutes * 60_000, iat: 0, exp: 0 });
+    seed();
+    proTal([...BOTH], 'tal-refresh');
+    authSession = session(61);
+    const stale = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(stale.status === 403 && show(stale.body) === show({ ok: false, error: 'stale-sign-in' }), `stale ${show(stale)}`);
+    assert((DB.oAuthState ?? []).length === 0 && !table('googleSyncLink').some((l) => l.nativeCalendarId === 'plain'), 'a consent or a link was made');
+    authSession = session(59);
+    const fresh = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(fresh.status === 200 && fresh.body.status === 'consent' && (DB.oAuthState ?? []).length === 1, `59 minutes ${show(fresh)}`);
+    authSession = null;
+    DB.oAuthState = [];
+    const mini = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(mini.status === 200 && mini.body.status === 'consent', `initData ${show(mini)}`);
+    seed();
+    proTal();
+    authSession = session(600);
+    const held = await call('POST', { action: 'enable', nativeCalendarId: 'plain' });
+    assert(held.status === 200 && held.body.status === 'created' && (DB.oAuthState ?? []).length === 0, `permission held ${show(held)}`);
+    const again = await call('POST', { action: 'recreate', linkId: LINK });
+    assert(again.status !== 403, `recreate ${show(again)}`);
   });
 
   await check('route POST enable on a copy Google stopped in \'scopes\' while googleScopes still lists calendar.app.created ("Approve in Google"): the sync consent, never "already"; the link is left for the commit', async () => {

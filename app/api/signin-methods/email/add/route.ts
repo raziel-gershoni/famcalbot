@@ -2,6 +2,7 @@
 //
 // POST /api/signin-methods/email/add?user_id=…  body { email }
 //   → { ok: true }: the code is on its way (10 minutes), and the account waits for it (REDIS_KEYS.signinAddEmail).
+//   → { ok: false, error: 'stale-sign-in' } (403) for a browser session signed in over an hour ago (src/lib/recent-sign-in.ts).
 //   → { ok: false, error }: invalid (400: not an ASCII address), has-one (409: the account has an email way),
 //     unavailable (409: no email sender set up), limit (429: Add email codes per account, per address, per IP), failed (500).
 // An address another account signs in with is mailed like any other and refused only once its code is right
@@ -13,6 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { refuseCrossSite } from '@/src/lib/same-origin';
@@ -47,6 +49,9 @@ export async function POST(request: NextRequest) {
     if (!auth.success) return auth.response;
     const user = auth.user;
     userId = user.id;
+    // A browser needs a sign-in from the last hour (Mini App initData passes); no mail, no pending key before this
+    const stale = refuseStaleSignIn(auth, 'add-email');
+    if (stale) return stale;
 
     if (!emailConfigured()) {
       console.warn(`[signin-methods] user ${user.id}: Add email asked with no email sender set up`);

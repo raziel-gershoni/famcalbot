@@ -4,6 +4,7 @@
 // POST /api/signin-methods/calendar-on?user_id=…  (no body needed; the press is the person's consent)
 //   → { ok: true, methods }: on (the key was read from Google once, live, and kept). Nothing else changes: no chat
 //     notice (the first sign-in with it sends one) and no session ends.
+//   → { ok: false, error: 'stale-sign-in' } (403) for a browser session signed in over an hour ago (src/lib/recent-sign-in.ts).
 //   → { ok: false, error }: shared (409: another FamCal account holds the same Google account, nothing is kept: use Add
 //     Google), reconnect (409: the calendar's token is dead), not-offered (409: the row isn't in the Turn on state),
 //     failed (502: Google didn't answer, or the connection changed meanwhile; 500 for a fault of ours).
@@ -15,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { refuseCrossSite } from '@/src/lib/same-origin';
@@ -39,6 +41,9 @@ export async function POST(request: NextRequest) {
     const auth = await verifyUserAuth(request, request.nextUrl.searchParams.get('user_id'), requestInitData(request, body), settingsRateLimiter, 'signin-methods-calendar-on');
     if (!auth.success) return auth.response;
     userId = auth.user.id;
+    // Turn on makes a Google account a way to sign in: a browser needs a sign-in from the last hour (Mini App initData passes)
+    const stale = refuseStaleSignIn(auth, 'calendar-on');
+    if (stale) return stale;
     const result = await turnOnCalendarAccount(userId);
     if (result !== 'on') return NextResponse.json({ ok: false, error: result }, { status: STATUS[result] });
     const fresh = (await getUserById(userId)) ?? auth.user;

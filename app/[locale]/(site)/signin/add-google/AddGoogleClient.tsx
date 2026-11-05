@@ -3,8 +3,9 @@
 // /signin/add-google's one button (spec 2026-11-02-web-sign-in §2.9): Continue posts the one-time token to
 // /api/auth/google/add-start, which uses it up, ties the Google sign-in to this browser (famcal_signin) and answers
 // Google's URL; then this tab goes there. A link used or late by then (410) says to start again from Settings; any other
-// failure says so and the button works again. A suspended account (403) goes to /signin?status=suspended. The token is
-// never logged.
+// failure says so and the button works again. A suspended account (403) goes to /signin?status=suspended, and a sign-in
+// that went over the hour since the link was made (403 stale-sign-in; the link is used up) to /signin?status=stale. The
+// token is never logged.
 
 import { useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -47,6 +48,10 @@ export function AddGoogleClient({ token }: { token: string }) {
       // A suspended account gets its own page, as in every other sign-in path
       if (res.status === 403 && body?.error === 'suspended') {
         window.location.assign(signInHref(locale, 'suspended'));
+        return;
+      }
+      if (res.status === 403 && body?.error === 'stale-sign-in') {
+        window.location.assign(signInHref(locale, 'stale'));
         return;
       }
       setState(res.status === 410 || res.status === 404 ? 'expired' : 'failed');

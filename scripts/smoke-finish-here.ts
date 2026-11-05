@@ -180,6 +180,37 @@ async function main() {
     assert(sent.length === 1 && sent[0].chatId === String(TAL_TG) && sent[0].text.includes('Google Calendar is connected'), `the chat reply ${show(sent)}`);
   });
 
+  await check('#5b a session signed in over an hour ago: the check says { mine: false, stale: true }, the claim is 403 stale-sign-in (the session cookie is not cleared) and leaves the entry, which the chat claim still connects; a session from 59 minutes ago commits', async () => {
+    seed();
+    const MIN = 60_000;
+    const id = await park(NOA);
+    const stale = await sessionCookie(NOA, 'google', Date.now() - 61 * MIN);
+    const peeked = await ask(id, stale);
+    assert(peeked.status === 200 && show(await body(peeked)) === show({ mine: false, stale: true }), `the check: ${peeked.status} ${show(await body(peeked))}`);
+    const other = await ask(id, await sessionCookie(TAL, 'google', Date.now() - 61 * MIN));
+    assert(show(await body(other)) === show({ mine: false }), `another account's stale session says nothing of staleness: ${show(await body(other))}`);
+    const refused = await finish(id, stale);
+    assert(refused.status === 403 && show(await body(refused)) === show({ ok: false, error: 'stale-sign-in' }), `the claim: ${refused.status} ${show(await body(refused))}`);
+    assert(!refused.cookies.get(SESSION_COOKIE_NAME)?.value, `the session cookie was touched: ${show(refused.cookies.get(SESSION_COOKIE_NAME))}`);
+    assert(pendingKeys().length === 1 && tokenOf(NOA) === '' && followUps.length === 0, 'a stale press used the entry up or connected');
+    const fresh = await sessionCookie(NOA, 'google', Date.now() - 59 * MIN);
+    assert(show(await body(await ask(id, fresh))) === show({ mine: true }), 'a 59-minute session is not the owner');
+    const ok = await finish(id, fresh);
+    assert(ok.status === 200 && (await body(ok)).ok === true && tokenOf(NOA) === `rt-${NOA}` && pendingKeys().length === 0, `59 minutes: ${ok.status} ${show(await body(ok))}`);
+    const lines = everyLog.filter(l => l.startsWith('[recent-sign-in]'));
+    assert(show(lines) === show([
+      `[recent-sign-in] user ${NOA}: oauth-claim-check refused: the google sign-in is not recent`,
+      `[recent-sign-in] user ${NOA}: oauth-claim refused: the google sign-in is not recent`,
+    ]), `log ${show(lines)}`);
+    // The same on a Telegram account: the stale press leaves the entry for the chat claim, which connects it
+    const mine = await park(TAL);
+    const staleTal = await sessionCookie(TAL, 'tg', Date.now() - 61 * MIN);
+    const second = await finish(mine, staleTal);
+    assert(second.status === 403 && pendingKeys().length === 1, `the second stale press ${second.status}`);
+    await connect.handleGoogleConnectTelegram(TAL_TG, TAL_TG, mine, 'en');
+    assert(tokenOf(TAL) === `rt-${TAL}` && pendingKeys().length === 0, 'the chat claim did not connect it after a stale press');
+  });
+
   await check('#6 the check or the claim from another site, with no Origin, or with no id is refused, and the entry stays', async () => {
     seed();
     const id = await park(NOA);

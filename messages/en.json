@@ -1945,7 +1945,8 @@
         "failed": "The sign-in didn’t work. Try again, or pick another way.",
         "unavailable": "That way of signing in isn’t available right now. Pick another way.",
         "existsEmail": "This address already signs in to FamCal with an email code. Sign in with a code sent to it, then add Google in Settings → Sign in on the web.",
-        "existsGoogle": "This address already signs in to FamCal with Google. Continue with Google, then add email in Settings → Sign in on the web."
+        "existsGoogle": "This address already signs in to FamCal with Google. Continue with Google, then add email in Settings → Sign in on the web.",
+        "stale": "For your safety, sign in again to add a way to sign in or connect Google Calendar."
       },
       "addGoogle": {
         "metaTitle": "Add Google sign-in",

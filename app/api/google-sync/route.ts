@@ -9,6 +9,9 @@
 //        in 'scopes' ("Approve in Google") always gets the consent: Google's 403 put it there
 //        while googleScopes may still list the scope, and only a commit restores it; or
 //        { action: 'recreate', linkId }: "Create it again" / "Copy again from scratch?".
+//        The consent connects a Google account, so a browser session signed in over an hour ago gets
+//        403 { ok: false, error: 'stale-sign-in' } there (src/lib/recent-sign-in.ts; the Mini App never
+//        does, and turning a copy on with the permission held or making it again connects nothing new).
 // DELETE /api/google-sync?user_id=…  — body { nativeCalendarId, googleCopy: 'remove' | 'keep' }:
 //        turn the copy off, the choice queued for the worker.
 //
@@ -22,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { generalRateLimiter, settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureError } from '@/src/lib/error-capture';
 import { prisma } from '@/src/utils/prisma';
@@ -109,7 +113,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: result.status });
     }
     // First use (or no Google yet): Google's consent for calendar.app.created, with the
-    // calendar in the state; the commit after the user's tap turns the copy on.
+    // calendar in the state; the commit after the user's tap turns the copy on. It connects a Google account, so a browser
+    // needs a sign-in from the last hour first (403 stale-sign-in; the Mini App passes). The branches above connect nothing new.
+    const stale = refuseStaleSignIn(auth, 'google-sync');
+    if (stale) return stale;
     const consent = await createGoogleConsent(user.id, { purpose: 'sync', nativeCalendarId: calendar.id });
     if (consent.status === 'upgrade_required') return NextResponse.json({ error: 'upgrade_required' }, { status: 403 });
     if (consent.status !== 'ok') return NextResponse.json({ error: 'not_found' }, { status: 404 });

@@ -2,6 +2,8 @@
 //
 // POST /api/signin-methods/email/confirm?user_id=…  body { code }
 //   → { ok: true, methods }: the email way is made, the chat gets the notice (§2.10).
+//   → { ok: false, error: 'stale-sign-in' } (403) for a browser session signed in over an hour ago (src/lib/recent-sign-in.ts):
+//     the code and the waiting Add email are left as they are.
 //   → { ok: false, error }: wrong (400), limit (429: too many wrong codes for this address or from this IP),
 //     restart (410: no Add email waiting, the code expired or was used), taken (409: another account signs in with this
 //     address), has-one (409: the account got an email way meanwhile), blocked (403: the address is on the blocklist;
@@ -17,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyUserAuth } from '@/src/lib/api-auth';
 import { requestInitData } from '@/src/lib/request-init-data';
+import { refuseStaleSignIn } from '@/src/lib/recent-sign-in';
 import { settingsRateLimiter } from '@/src/lib/rate-limit';
 import { captureSignInFailure } from '@/src/services/web-signin/safe-error';
 import { refuseCrossSite } from '@/src/lib/same-origin';
@@ -56,6 +59,10 @@ export async function POST(request: NextRequest) {
     if (!auth.success) return auth.response;
     const user = auth.user;
     userId = user.id;
+    // The code lives 10 minutes, so the hour can run out between the request and here: refused before anything is read or
+    // consumed, and the code and the pending key stay for a fresh sign-in
+    const stale = refuseStaleSignIn(auth, 'add-email-confirm');
+    if (stale) return stale;
 
     const key = await pendingEmailKey(user.id);
     if (!key) {
