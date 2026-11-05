@@ -27,9 +27,13 @@ export function initBot(): TelegramBot {
     // Development mode: use polling
     bot = new TelegramBot(token, { polling: true });
     // Import setupHandlers lazily to avoid circular dependency
-    import('./commands').then(({ setupHandlers }) => {
-      setupHandlers(bot!);
-    });
+    import('./commands')
+      .then(({ setupHandlers }) => {
+        setupHandlers(bot!);
+      })
+      .catch((error) => {
+        console.error('[bot] Setting up the polling handlers failed:', error);
+      });
     console.log('🤖 Telegram bot initialized in POLLING mode (development)');
   } else {
     // Production mode: no polling (webhook-based)

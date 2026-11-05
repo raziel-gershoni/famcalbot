@@ -857,7 +857,11 @@ export function setupHandlers(bot: TelegramBot) {
     const userId = msg.from?.id;
     const args = match?.[1]?.trim();
     if (userId) {
-      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args, msg.chat.type);
+      // The library drops the callback's promise: a failure is caught here, never left unhandled
+      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args, msg.chat.type).catch((error) => {
+        console.error('[polling] /start failed');
+        captureError(error, 'polling-start');
+      });
     }
   });
 
@@ -866,7 +870,10 @@ export function setupHandlers(bot: TelegramBot) {
     const chatId = msg.chat.id;
     const userId = msg.from?.id;
     if (userId) {
-      await handleConnectCommand(chatId, userId, MessagingPlatform.TELEGRAM);
+      await handleConnectCommand(chatId, userId, MessagingPlatform.TELEGRAM).catch((error) => {
+        console.error('[polling] /connect failed');
+        captureError(error, 'polling-connect');
+      });
     }
   });
 
