@@ -13,8 +13,6 @@
 //   (sign-in-again.ts). It is shown whenever a start says it, also one made after a Continue.
 //   Known limit: the 403 does not carry the session's method, so a WhatsApp-link session also sees Sign in again here (Settings
 //   shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
-//   Known limit: the 403 does not carry the session's method, so a WhatsApp-link session also sees Sign in again here (Settings
-//   shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
 // - Continue stores famcalbot_oauth_pending and opens Google: Telegram's openLink in the Mini App, a new tab elsewhere.
 //   A new URL is made at once (each consent uses one up), and one left 9 minutes is replaced (URL_FRESH_MS).
 // - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
