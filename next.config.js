@@ -36,6 +36,14 @@ const nextConfig = {
 
   poweredByHeader: false,
 
+  // The notification program (public/sw.js, web push spec 2026-11-05 §3.3): never held by an HTTP cache, nor by Cloudflare in
+  // front of the app, so a fix to it reaches every browser at its next check. Next serves public/ files after these rules.
+  async headers() {
+    return [
+      { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }] },
+    ];
+  },
+
   // The old How it works page is now the landing's section (public website spec 2026-10-28 §3.3): a permanent redirect
   // in the visitor's language, in one hop (English unprefixed). Before the proxy, so no locale redirect comes first.
   // The locales are i18n/routing.ts's; scripts/smoke-site-pages.ts keeps this list equal to them.

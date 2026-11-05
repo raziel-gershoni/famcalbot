@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import Script from 'next/script';
 import { locales, type Locale } from '@/i18n';
 import type { Metadata, Viewport } from 'next';
+import { APP_TOKENS } from '@/components/app-ui/tokens';
 import '../../globals.css';
 
 // The Mini App's root layout (spec 2026-10-28-public-website §6.1): every page that opens inside Telegram, or in a
@@ -21,6 +22,11 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // The installed app's bar (app/manifest.ts holds the light one) follows the device's light or dark, as the screens do
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: APP_TOKENS.light.bg },
+    { media: '(prefers-color-scheme: dark)', color: APP_TOKENS.dark.bg },
+  ],
 };
 
 export const metadata: Metadata = {
