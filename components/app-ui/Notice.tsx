@@ -15,7 +15,7 @@ export interface NoticeProps {
   live?: boolean;
   children: ReactNode;
   /** One button under the text (a link to the plans). */
-  action?: { label: string; onClick: () => void };
+  action?: { label: string; onClick: () => void; /** The press is out: the button is disabled and reads as busy. */ busy?: boolean };
 }
 
 export function Notice({ tone = 'info', live = true, children, action }: NoticeProps) {
@@ -23,7 +23,7 @@ export function Notice({ tone = 'info', live = true, children, action }: NoticeP
     <div className={tone === 'error' ? 'ch-notice ch-notice-error' : 'ch-notice'} role={tone === 'error' ? 'alert' : live ? 'status' : undefined}>
       <p className="ch-notice-text">{children}</p>
       {action ? (
-        <button type="button" className="ch-notice-action" onClick={action.onClick}>
+        <button type="button" className="ch-notice-action" disabled={action.busy} aria-busy={action.busy || undefined} onClick={action.onClick}>
           {action.label}
         </button>
       ) : null}

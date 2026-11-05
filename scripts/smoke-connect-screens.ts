@@ -602,9 +602,17 @@ async function main() {
       const again = buttonNamed(m, t.signInAgainButton);
       if (!again) problems.push(`${l}: no ${t.signInAgainButton}`);
       else {
-        b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+        // The sign-out is held: a second press sends nothing and the button reads as busy; then it goes through
+        let release!: (r: Response) => void;
+        b.answer['/api/auth/signout'] = [() => new Promise<Response>((resolve) => { release = resolve; })];
         b.calls.length = 0;
         m.click(again as FakeElement);
+        await settle();
+        m.click(buttonNamed(m, t.signInAgainButton) as FakeElement);
+        await settle();
+        const held = buttonNamed(m, t.signInAgainButton);
+        if (!held || !held.hasAttribute('disabled') || held.getAttribute('aria-busy') !== 'true' || b.calls.filter((c) => c.path === '/api/auth/signout').length !== 1) problems.push(`${l}: while the sign-out is out ${held ? show([held.getAttribute('disabled'), held.getAttribute('aria-busy')]) : 'no button'} ${show(b.calls.map((c) => c.path))}`);
+        release(json({ ok: true }));
         await settle();
         const out = b.calls.filter((c) => c.path === '/api/auth/signout');
         if (out.length !== 1 || out[0].method !== 'POST' || show(assigned) !== show([signin])) problems.push(`${l}: the press ${show(b.calls.map((c) => c.path))} ${show(assigned)}`);
@@ -1212,8 +1220,16 @@ async function main() {
       const again = buttonNamed(m, t.staleButton);
       if (!again) problems.push(`${l}: no ${t.staleButton}`);
       else {
-        b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+        // The sign-out is held: a second press sends nothing and the button reads as busy; then it goes through
+        let release!: (r: Response) => void;
+        b.answer['/api/auth/signout'] = [() => new Promise<Response>((resolve) => { release = resolve; })];
         m.click(again as FakeElement);
+        await settle();
+        m.click(buttonNamed(m, t.staleButton) as FakeElement);
+        await settle();
+        const held = buttonNamed(m, t.staleButton);
+        if (!held || !held.hasAttribute('disabled') || held.getAttribute('aria-busy') !== 'true' || b.calls.filter((c) => c.path === '/api/auth/signout').length !== 1) problems.push(`${l}: while the sign-out is out ${held ? show([held.getAttribute('disabled'), held.getAttribute('aria-busy')]) : 'no button'} ${show(b.calls.map((c) => c.path))}`);
+        release(json({ ok: true }));
         await settle();
         if (!b.calls.some((c) => c.path === '/api/auth/signout' && c.method === 'POST') || show(assigned) !== show([signin])) problems.push(`${l}: the press ${show(b.calls.map((c) => c.path))} ${show(assigned)}`);
       }
@@ -1233,10 +1249,17 @@ async function main() {
       const notice = errorNotice(r.m);
       const telegram = all(r.m).some((e: Row) => e.localName === 'a' && String(e.getAttribute('href')).startsWith('https://t.me/'));
       if (!notice || !textOf(notice).includes(t.hereStale) || !buttonNamed(r.m, t.staleButton) || buttonNamed(r.m, t.hereButton) || !telegram || r.assigned.length) problems.push(`${l}: Finish here refused ${notice ? textOf(notice) : 'no notice'}`);
-      r.b.answer['/api/auth/signout'] = [() => json({ ok: true })];
+      let releaseNotice!: (res: Response) => void;
+      r.b.answer['/api/auth/signout'] = [() => new Promise<Response>((resolve) => { releaseNotice = resolve; })];
       const press = buttonNamed(r.m, t.staleButton);
       if (press) {
         r.m.click(press as FakeElement);
+        await settle();
+        r.m.click(buttonNamed(r.m, t.staleButton) as FakeElement);
+        await settle();
+        const heldNotice = buttonNamed(r.m, t.staleButton);
+        if (!heldNotice || !heldNotice.hasAttribute('disabled') || heldNotice.getAttribute('aria-busy') !== 'true' || r.b.calls.filter((c) => c.path === '/api/auth/signout').length !== 1) problems.push(`${l}: the notice's press while out ${heldNotice ? show([heldNotice.getAttribute('disabled'), heldNotice.getAttribute('aria-busy')]) : 'no button'}`);
+        releaseNotice(json({ ok: true }));
         await settle();
         if (show(r.assigned) !== show([signin])) problems.push(`${l}: the notice's press ${show(r.assigned)}`);
       }

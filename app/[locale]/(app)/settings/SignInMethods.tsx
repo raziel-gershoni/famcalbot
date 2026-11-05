@@ -54,7 +54,7 @@ import { addEmail, confirmEmail, joinAccount, loadMethods, removeMethod, request
 
 type Phase = { kind: 'loading' } | { kind: 'error' } | { kind: 'ready'; view: MethodsView };
 type EmailError = AddEmailError | ConfirmEmailError;
-type EmailSheet = { kind: 'email'; step: 'address' | 'code'; address: string; code: string; error: EmailError | null; busy: boolean };
+type EmailSheet = { kind: 'email'; step: 'address' | 'code'; address: string; code: string; error: Exclude<EmailError, 'stale'> | null; busy: boolean };
 type RemoveSheet = { kind: 'remove'; which: RemoveWhich; address: string | null; error: RemoveError | null; busy: boolean };
 type GoogleSheet = { kind: 'google'; url: string };
 type JoinSheet = { kind: 'join'; joinId: string; summary: JoinSummary; error: JoinError | null; busy: boolean };
@@ -63,7 +63,8 @@ type Working = 'google' | 'turnOn' | 'signOut' | 'signOutAll' | 'leaving';
 type Status = { tone: 'info' | 'error'; text: string };
 
 /** Each failure's words: a key of settings.signIn. */
-const ERROR_KEY: Record<EmailError, string> = {
+// Stale is handled by markStale (the labels) or worded as the plain failure before any lookup here: its key is not in the map.
+const ERROR_KEY: Record<Exclude<EmailError, 'stale'>, string> = {
   failed: 'failed',
   busy: 'busy',
   invalid: 'emailInvalid',
@@ -73,14 +74,15 @@ const ERROR_KEY: Record<EmailError, string> = {
   taken: 'codeTaken',
   restart: 'codeRestart',
   codeLimit: 'codeLimit',
-  stale: 'staleNote',
 };
 
 /** Join's failures: a key of settings.signIn. */
-const JOIN_ERROR_KEY: Record<JoinError, string> = { failed: 'failed', busy: 'busy', expired: 'join.expired', refused: 'join.refused', stale: 'staleNote' };
+// (stale is the Join sheet's staleLine, never looked up here)
+const JOIN_ERROR_KEY: Record<Exclude<JoinError, 'stale'>, string> = { failed: 'failed', busy: 'busy', expired: 'join.expired', refused: 'join.refused' };
 
 /** Turn on's failures: shared and reconnect have words of their own, the rest are the group's plain ones. */
-const TURN_ON_KEY: Record<TurnOnError, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect', stale: 'staleNote' };
+// (stale is handled by markStale or worded 'failed', never looked up here)
+const TURN_ON_KEY: Record<Exclude<TurnOnError, 'stale'>, string> = { failed: 'failed', busy: 'busy', shared: 'turnOnShared', reconnect: 'turnOnReconnect' };
 
 const noop = () => {};
 

@@ -21,6 +21,8 @@
 //   stale card, "Sign in again first" with a Sign in again button (a plain /signin link would send a browser that still
 //   holds its cookie straight back to its calendar, so the press signs out first: sign-in-again.ts); a refused Finish here
 //   says so in its notice with the same action and takes Finish here away.
+//   Known limit: the check does not carry the session's method, so a WhatsApp-link session also sees Sign in again here
+//   (Settings shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
 // - A fragment that is missing or bad: the kit's state card, "This link is incomplete".
 //
 // The pendingId, the owner's first name and the buttons are in the URL fragment (finishPageUrl), which only this
@@ -184,6 +186,15 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
   const [problem, setProblem] = useState<Problem | null>(null);
   // A refused Finish here: the connection is used up, or this browser's sign-in ended
   const [hereGone, setHereGone] = useState(false);
+  // The Sign in again press is out (sign-out, then /signin): a second press is ignored and the button reads as busy
+  const [leaving, setLeaving] = useState(false);
+  const leave = () => {
+    if (leaving) return;
+    setLeaving(true);
+    void signInAgain(locale).then((left) => {
+      if (!left) setLeaving(false);
+    });
+  };
 
   if (hash === null || (params && seen === null)) {
     return (
@@ -208,7 +219,7 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
     if (seen?.stale) {
       return (
         <AppScreen>
-          <StateCard tone="crash" title={t('staleTitle')} body={t('staleBody')} action={{ label: t('staleButton'), onClick: () => void signInAgain(locale) }} />
+          <StateCard tone="crash" title={t('staleTitle')} body={t('staleBody')} action={{ label: t('staleButton'), onClick: leave, busy: leaving }} />
         </AppScreen>
       );
     }
@@ -269,7 +280,7 @@ export default function OAuthCompleteClient({ botUsername, waNumber }: OAuthComp
         <ConnectHero icon={<CircleCheck aria-hidden="true" />} title={t('title')} lead={t('subtitle')} />
         <Notice>{params.ownerName ? t('owner', { name: params.ownerName }) : t('ownerUnnamed')}</Notice>
         {problem ? (
-          <Notice tone="error" action={problem === 'hereStale' ? { label: t('staleButton'), onClick: () => void signInAgain(locale) } : undefined}>
+          <Notice tone="error" action={problem === 'hereStale' ? { label: t('staleButton'), onClick: leave, busy: leaving } : undefined}>
             {t(problem)}
           </Notice>
         ) : null}

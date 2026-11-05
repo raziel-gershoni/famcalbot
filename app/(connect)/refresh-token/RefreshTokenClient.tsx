@@ -11,6 +11,10 @@
 //   A browser's sign-in over an hour old is refused too (403 { error: 'stale-sign-in' }, 6c-1 follow-ups; the Mini App is
 //   never asked): the notice says why and offers Sign in again, which signs this browser out and opens /signin
 //   (sign-in-again.ts). It is shown whenever a start says it, also one made after a Continue.
+//   Known limit: the 403 does not carry the session's method, so a WhatsApp-link session also sees Sign in again here (Settings
+//   shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
+//   Known limit: the 403 does not carry the session's method, so a WhatsApp-link session also sees Sign in again here (Settings
+//   shows it the WhatsApp hint instead); /signin carries the WhatsApp hints.
 // - Continue stores famcalbot_oauth_pending and opens Google: Telegram's openLink in the Mini App, a new tab elsewhere.
 //   A new URL is made at once (each consent uses one up), and one left 9 minutes is replaced (URL_FRESH_MS).
 // - Then the waiting notice: where to finish (Telegram or WhatsApp) and Check again, one check at once. The page asks
@@ -101,7 +105,7 @@ const URL_FRESH_MS = 9 * 60_000;
 const refusedCredential = (status: number) => status === 401 || status === 403 || status === 404;
 
 /** oauth/start refused the browser's sign-in as over an hour old: the body's error says so, a 403 alone does not. */
-export const isStaleSignIn = (status: number, data: unknown): boolean => status === 403 && (data as { error?: unknown } | null)?.error === 'stale-sign-in';
+const isStaleSignIn = (status: number, data: unknown): boolean => status === 403 && (data as { error?: unknown } | null)?.error === 'stale-sign-in';
 
 /**
  * What the page says when oauth/start gives no Google URL. With no credential it says
@@ -388,7 +392,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
           {startError ? (
             <Notice
               tone="error"
-              action={startError.signInAgain ? { label: t.signInAgainButton, onClick: leave } : startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}
+              action={startError.signInAgain ? { label: t.signInAgainButton, onClick: leave, busy: leaving } : startError.canRetry ? { label: t.retry, onClick: retryStart } : undefined}
             >
               {startError.lines.map((line, i) => (
                 <Fragment key={line}>

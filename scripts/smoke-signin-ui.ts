@@ -695,6 +695,20 @@ async function main() {
         closeAll(wa);
       }
 
+      // Turn on's own route answers it too (calendar-on): the same three labels and the note
+      const on = open(l, VIEW({ googleFromCalendar: 'off', session: 'google' }));
+      await settle();
+      try {
+        routes['POST /api/signin-methods/calendar-on'] = stale;
+        on.m.click(button(on.m, t.turnOn) as FakeElement);
+        await settle();
+        assert(!button(on.m, t.turnOn) && !button(on.m, t.googleAdd) && !button(on.m, t.emailAdd) && button(on.m, t.turnOnSignInAgain) && button(on.m, t.googleSignInAgain) && button(on.m, t.emailSignInAgain), `${l}: turn on labels ${show(buttons(on.m).map(flat))}`);
+        assert(statusLine(on.m).includes(t.staleNote) && alertsIn(on.m.container).length === 0, `${l}: turn on note ${show(statusLine(on.m))}`);
+        await leaves(on, t.googleSignInAgain);
+      } finally {
+        closeAll(on);
+      }
+
       // Another 403 (suspended) is the group's plain failure, never the stale labels
       const plain = open(l, VIEW({ session: 'google' }));
       await settle();
@@ -717,6 +731,18 @@ async function main() {
         assert(button(mini.m, t.googleAdd) && !button(mini.m, t.googleSignInAgain) && !page(mini.m).includes(t.staleNote) && alertsIn(mini.m.container).includes(t.failed), `${l}: the Mini App ${page(mini.m)}`);
       } finally {
         closeAll(mini);
+      }
+
+      // ... Turn on included
+      const miniOn = open(l, VIEW({ googleFromCalendar: 'off' }), { telegram: true });
+      await settle();
+      try {
+        routes['POST /api/signin-methods/calendar-on'] = stale;
+        miniOn.m.click(button(miniOn.m, t.turnOn) as FakeElement);
+        await settle();
+        assert(button(miniOn.m, t.turnOn) && !button(miniOn.m, t.turnOnSignInAgain) && !page(miniOn.m).includes(t.staleNote) && alertsIn(miniOn.m.container).includes(t.failed), `${l}: the Mini App, Turn on ${page(miniOn.m)}`);
+      } finally {
+        closeAll(miniOn);
       }
     }
   });

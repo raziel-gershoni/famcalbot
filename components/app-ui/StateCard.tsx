@@ -33,6 +33,8 @@ export interface StateAction {
   /** A link when set, else a button that calls onClick. */
   href?: string;
   onClick?: () => void;
+  /** The press is out: the button is disabled and reads as busy. */
+  busy?: boolean;
 }
 
 export interface StateCardProps {
@@ -53,7 +55,7 @@ function ActionButton({ action, primary }: { action: StateAction; primary: boole
       {action.label}
     </a>
   ) : (
-    <button type="button" className={className} onClick={action.onClick}>
+    <button type="button" className={className} disabled={action.busy} aria-busy={action.busy || undefined} onClick={action.onClick}>
       {action.label}
     </button>
   );
