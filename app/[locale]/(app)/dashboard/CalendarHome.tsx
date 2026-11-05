@@ -39,7 +39,8 @@
 //   stays where it is with its cells loading until the new answer;
 // - the item sheet's reminder actions (reminder-actions spec §4): a tap posts through
 //   deps.reminderAction; the answer's reminder patches every copy of the item in the
-//   store (patchReminder) so the sheet, the rows, the card and the Month follow at once,
+//   store (patchReminder, and the answer's closedKeys for the earlier open times a Done on a
+//   repeating reminder also closed) so the sheet, the rows, the card and the Month follow at once,
 //   and FamCal's windows are asked again to confirm. A changed or lost reminder only
 //   shows its note and refetches. The open sheet's row is re-derived from the store by
 //   key on every render (the tapped row is only the fallback), and a sheet whose item has
@@ -97,7 +98,7 @@ import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-
 import { readConnectBannerClosed, readHomeTab, readMonthLayout, writeConnectBannerClosed, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
-import { dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
+import { closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
 import { REAL_ZMANIM, type ZmanimApi } from '@/src/lib/calendar-view/zmanim-list';
@@ -743,6 +744,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       if (reminder) {
         loaderRef.current?.patchReminder(key, reminder);
         setSelected((cur) => (cur && cur.item.key === key ? withReminder(cur, reminder) : cur));
+      }
+      // A Done on a repeating reminder also closed its earlier open times: they take the same patch.
+      if (outcome.closedKeys) {
+        for (const [closedKey, closed] of closedReminders(store, outcome.closedKeys, reminder?.doneAt ?? new Date(deps.now()).toISOString())) loaderRef.current?.patchReminder(closedKey, closed);
       }
       if (status === 'already_done') setNote({ key, kind: 'alreadyDone' });
       else if (status === 'ok' && action === 'done') hapticSuccess();

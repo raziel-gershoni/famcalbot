@@ -335,6 +335,21 @@ export function patchedReminder(prev: ItemReminderDTO | undefined, next: ItemRem
   return { ...next, open, openSince };
 }
 
+/**
+ * The reminders a Done also closed (POST /api/calendar/reminder's closedKeys), each as the store holds it
+ * but done at `doneAt`: patchReminder takes them like the pressed one's answer. A key the store does not
+ * hold (or an event's) is left out.
+ */
+export function closedReminders(state: CalendarStore, keys: readonly string[], doneAt: string | null): Array<[string, ItemReminderDTO]> {
+  const items = [...Object.values(state.days).flatMap((d) => d.items), ...(state.carryOvers ?? [])];
+  const closed: Array<[string, ItemReminderDTO]> = [];
+  for (const key of keys) {
+    const held = items.find((i) => i.key === key && i.kind === 'reminder')?.reminder;
+    if (held) closed.push([key, { ...held, done: true, doneAt, snoozedUntil: null }]);
+  }
+  return closed;
+}
+
 function patchReminder(state: CalendarStore, key: string, reminder: ItemReminderDTO): CalendarStore {
   const today = state.facts?.today;
   const patch = (item: ItemDTO, place: 'carryOver' | 'today' | 'other'): ItemDTO =>

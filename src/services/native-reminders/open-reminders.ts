@@ -178,15 +178,18 @@ const RUN_PAD_MS = 2 * 24 * 60 * 60 * 1000;
  * occurrence when due before the cutoff and not done. A repeating one is every occurrence that is due before the
  * cutoff, comes after the viewer's latest done one (userDoneAt: the shared Done, or their own where each marks their
  * own) and is not due before `armedAt - ARMED_GRACE_MS` (it was never pinged). Exdates, cancelled and moved
- * occurrences apply as in expandSeries.
+ * occurrences apply as in expandSeries. `before` (a repeating series only) limits it to the occurrences that
+ * started before that one, and the latest done one is then looked for before it too: what a Done on `before`
+ * also closes (actions.ts), by the carry-over's own rule.
  */
-function openRunOf(
+export function openRunOf(
   series: NativeEvent,
   overrides: NativeEventInstance[],
   states: OpenReminderState[],
   viewerId: number,
   cutoff: Date,
-  dueOf: (occurrence: VirtualInstance) => Date
+  dueOf: (occurrence: VirtualInstance) => Date,
+  before?: Date
 ): VirtualInstance[] {
   const stateAt = (occurrence: VirtualInstance) => states.find(s => s.originalStartsAt.getTime() === occurrence.instanceStartsAt.getTime());
   if (!series.rrule) {
@@ -195,8 +198,9 @@ function openRunOf(
     return userDoneAt(series, stateAt(only), viewerId) ? [] : [only];
   }
   // The run starts after the viewer's latest done occurrence before the cutoff (exclusive), and not before the armed bound.
+  const limit = before ?? cutoff;
   const doneKeys = states
-    .filter(s => s.originalStartsAt < cutoff && userDoneAt(series, s, viewerId))
+    .filter(s => s.originalStartsAt < limit && userDoneAt(series, s, viewerId))
     .map(s => s.originalStartsAt.getTime());
   const afterKey = doneKeys.length > 0 ? Math.max(...doneKeys) : -Infinity;
   const armedBound = series.armedAt ? series.armedAt.getTime() - ARMED_GRACE_MS : -Infinity;
@@ -206,7 +210,7 @@ function openRunOf(
   );
   const from = new Date(Math.max(earliest.getTime(), Math.max(armedBound, afterKey) - RUN_PAD_MS));
   return expandSeries(series, { from, to: cutoff }, overrides).filter(occurrence => {
-    if (occurrence.instanceStartsAt.getTime() <= afterKey) return false;
+    if (occurrence.instanceStartsAt.getTime() <= afterKey || (before && occurrence.instanceStartsAt >= before)) return false;
     const due = dueOf(occurrence);
     return due < cutoff && due.getTime() >= armedBound && !userDoneAt(series, stateAt(occurrence), viewerId);
   });

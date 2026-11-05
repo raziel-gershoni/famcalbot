@@ -4119,6 +4119,34 @@ async function main() {
     }
   });
 
+  await check('#71a a Done on a repeating reminder\'s Thursday also closes Monday: the answer\'s closedKeys mark the Monday item done in the Still open card at once, before the held refetch lands (the client reads closedKeys; the store patches them like the pressed one)', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const mon = item('gym#mon', { kind: 'reminder', title: 'Gym on Monday', seriesId: 'series_gym', start: at(-3, '18:00'), reminder: rem({ open: true, openSince: day(-3) }) });
+    const thu = item('gym#thu', { kind: 'reminder', title: 'Gym on Thursday', seriesId: 'series_gym', start: at(-1, '18:00'), reminder: rem({ open: true, openSince: day(-3) }) });
+    live = { items: {}, carry: [thu, mon] };
+    serveReminders();
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      assertHas(stillOpenText(m), ['Gym on Monday', 'Gym on Thursday'], 'both on the card');
+      m.click(button(m.container, 'Gym on Thursday'));
+      reminderReply = () => ok200({ status: 'ok', reminder: rem({ done: true, doneAt: DONE_AT, open: false, openSince: day(-3) }), closedKeys: [mon.key] });
+      const hold = gate();
+      rangeGate = hold.promise.then(noop);
+      m.click(dialogButton(m, 'Done'));
+      await settle();
+      assert(!stillOpenText(m).includes('Gym on Thursday') && !stillOpenText(m).includes('Gym on Monday'), `both are off the card before the refetch lands: ${show(stillOpenText(m))}`);
+      rangeGate = null;
+      live = { items: {}, carry: [] };
+      hold.release({ status: 200 });
+      await settle();
+      assertLacks(stillOpenText(m), ['Gym on Monday', 'Gym on Thursday'], 'and the refetch agrees');
+    } finally {
+      rangeGate = null;
+      m.unmount();
+    }
+  });
+
   await check('#72 the Month follows a tap: from a picked day, Done patches the sheet and the day\'s row, and the confirming refetch is FamCal\'s windows', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };

@@ -634,8 +634,9 @@ async function main() {
     reset();
     const answer = async (seriesEventId: string, originalStartsAt: Date, id = RAZIEL) => (await act(id, { seriesEventId, originalStartsAt }, 'done')).status;
     assert(await answer(MILK, at('2026-10-19 09:00')) === 'ok', 'one-off');
-    assert(await answer(DAILY, at('2026-10-19 08:00'), DANA) === 'ok', 'recurring');
+    // The earlier one first: a Done on the 19th also closes the 18th (catch-up), which would make this one already_done.
     assert(await answer(DAILY, at('2026-10-18 08:00'), DANA) === 'ok', 'moved: its original key');
+    assert(await answer(DAILY, at('2026-10-19 08:00'), DANA) === 'ok', 'recurring');
     assert(await answer(DAILY, at('2026-10-18 19:30'), DANA) === 'changed', 'moved: its new time is not a key');
     assert(await answer(DAILY, at('2026-10-17 08:00'), DANA) === 'changed', 'exdated');
     assert(await answer(DAILY, at('2026-10-16 08:00'), DANA) === 'changed', 'cancelled');
@@ -1268,6 +1269,158 @@ async function main() {
     assert(eligible(until), 'at snoozedUntil');
   });
 
+  // ---- Done also closes a repeating reminder's earlier open times (owner 2026-11-05) ----
+
+  const GYM = sid('gym'); // Raziel's Mon + Thu 18:00 for Dana, from Mon 5 Oct (armed 1 Oct)
+  const gymAt = (day: string) => at(`2026-10-${day} 18:00`);
+  const gymKey = (day: string) => ({ seriesEventId: GYM, originalStartsAt: gymAt(day) });
+  const BOTH_DAILY = sid('botheach'); // Raziel's daily 09:30 for both, each marks their own, from Thu 15 Oct
+  const dailyAt = (day: string) => at(`2026-10-${day} 09:30`);
+  const eachKey = (day: string) => ({ seriesEventId: BOTH_DAILY, originalStartsAt: dailyAt(day) });
+  const base = (id: string, title: string, startsAt: Date, extra: Row): Row => ({
+    id, calendarId: 'cal-raz', creatorUserId: RAZIEL, title, startsAt, endsAt: startsAt, description: null, location: null, allDay: false, timeZone: IL,
+    rrule: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
+    kind: 'REMINDER', forUserId: DANA, forBoth: false, armedAt: CREATED, ...extra,
+  });
+  /** A state row for one occurrence, with Dana's live ping on it when `message` is given. */
+  const addState = (seriesEventId: string, originalStartsAt: Date, extra: Row = {}, message?: number) => {
+    const id = `state-${seriesEventId}-${originalStartsAt.getTime()}`;
+    db.states.push({ id, seriesEventId, originalStartsAt, doneAt: null, doneByUserId: null, createdAt: CREATED, updatedAt: CREATED, ...extra });
+    if (message !== undefined) db.pings.push(pingRow(id, DANA, { lastPingedAt: originalStartsAt, pingAttempts: 1, pingChatId: BigInt(tg(DANA)), pingMessageId: message }));
+  };
+  function addGym() {
+    db.events.push(base(GYM, 'Gym', gymAt('05'), { rrule: 'FREQ=WEEKLY;BYDAY=MO,TH' }));
+  }
+  /** The edits and sends the not-awaited ping edits make settle in a macrotask. */
+  const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const doneOf = (seriesEventId: string, originalStartsAt: Date) => (stateFor(seriesEventId, originalStartsAt)?.doneAt as Date | null | undefined) ?? null;
+  const startsOf = (r: unknown) => ((r as { closedEarlier?: Date[] }).closedEarlier ?? []).map((d) => d.toISOString());
+
+  await check('catch-up: a Done on Thursday closes Monday and the earlier open ones after the last done one; one note, for Thursday only; Monday\'s live ping closes with no note; Thursday\'s is edited too; one activity event with closed_earlier', async () => {
+    reset();
+    addGym();
+    // Mon 5 done; Thu 8 never pinged; Mon 12 pinged (message 91); Thu 15 pinged (message 92), the one pressed.
+    const earlierDone = new RealDate(gymAt('05').getTime() + 60_000);
+    addState(GYM, gymAt('05'), { doneAt: earlierDone, doneByUserId: DANA });
+    addState(GYM, gymAt('12'), {}, 91);
+    addState(GYM, gymAt('15'), {}, 92);
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    let r;
+    try {
+      r = await act(DANA, gymKey('15'), 'done');
+      await flush();
+    } finally {
+      console.log = log;
+    }
+    assertJson(r, { status: 'ok', title: 'Gym', closedEarlier: [gymAt('08'), gymAt('12')] }, 'result');
+    for (const day of ['08', '12', '15']) {
+      const row = stateFor(GYM, gymAt(day))!;
+      assert(same(row.doneAt, NOW) && row.doneByUserId === DANA, `${day}: ${json(row)}`);
+    }
+    assert(doneOf(GYM, gymAt('05')) === earlierDone, 'the earlier done one is left as it was');
+    assert(stateFor(GYM, gymAt('19')) === undefined, 'a later one is never touched');
+    const note = await getBotMessage('he', 'nativeReminders.doneBy', { name: 'Dana', title: 'Gym' });
+    assertJson(sends().map((s) => [s.chatId, s.text]), [[tg(RAZIEL), note]], 'one note to the creator, for the pressed time only');
+    assertJson(edits().map((e) => [e.chatId, e.messageId, e.buttons]).sort(), [[tg(DANA), 91, false], [tg(DANA), 92, false]].sort(), 'both live pings closed, no buttons');
+    assertJson(activity, [{ userId: DANA, action: 'native_reminder_done', meta: { series_event_id: GYM, source: 'app', closed_earlier: 2 } }], 'one event');
+    assertJson(lines.filter((l) => l.includes('Done also closed')), [`[NativeReminders] series ${GYM}: Done also closed 2 earlier`], 'the log line');
+  });
+
+  await check('catch-up: a Done on Monday (from its old ping) closes Monday\'s earlier open times only; Thursday stays open and not touched', async () => {
+    reset();
+    addGym();
+    addState(GYM, gymAt('15'), {}, 92);
+    const r = await act(DANA, gymKey('12'), 'done', NOW, 'ping');
+    await flush();
+    assertJson(startsOf(r), [gymAt('05'), gymAt('08')].map((d) => d.toISOString()), 'closed');
+    assert(same(doneOf(GYM, gymAt('12')), NOW) && doneOf(GYM, gymAt('15')) === null, 'Thursday is still open');
+    assert(edits().length === 0, `Thursday\'s ping is untouched: ${json(edits())}`);
+  });
+
+  await check('catch-up: only what is due is closed, and never before the armed bound, a cancelled, an exdated or a moved-to-later time', async () => {
+    reset();
+    // Oct 18\'s pills moved to this evening, 19:30: not due at 10:00. Oct 16 is cancelled, Oct 17 exdated, Oct 1 08:00 came before the series was armed.
+    db.instances.find((i) => same(i.originalStartsAt, at('2026-10-18 08:00')))!.startsAt = at('2026-10-19 19:30');
+    const r = await act(DANA, PILLS_KEY, 'done');
+    const want = ['02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15'].map((d) => at(`2026-10-${d} 08:00`).toISOString());
+    assertJson(startsOf(r), want, 'closed');
+    for (const day of ['01', '16', '17', '18']) assert(doneOf(DAILY, at(`2026-10-${day} 08:00`)) === null, `${day} must stay open`);
+    assert(activity[0].meta?.closed_earlier === 14, json(activity));
+  });
+
+  await check('catch-up: a one-off closes nothing earlier and says nothing of it; an already_done answer cascades nothing; Undo, snooze never cascade', async () => {
+    reset();
+    addGym();
+    assertJson(await act(DANA, MILK_KEY, 'done'), { status: 'ok', title: 'Buy milk' }, 'one-off');
+    addState(GYM, gymAt('15'), { doneAt: gymAt('15'), doneByUserId: DANA });
+    assertJson(await act(DANA, gymKey('15'), 'done'), { status: 'already_done', title: 'Gym' }, 'already done');
+    assert(stateFor(GYM, gymAt('12')) === undefined && stateFor(GYM, gymAt('08')) === undefined, 'nothing earlier was written');
+    assert((await act(DANA, gymKey('15'), 'undo')).status === 'ok', 'undo');
+    assert((await act(DANA, gymKey('15'), 'snooze15')).status === 'ok', 'snooze');
+    assert(stateFor(GYM, gymAt('12')) === undefined && stateFor(GYM, gymAt('08')) === undefined, 'nor by undo or snooze');
+  });
+
+  await check('catch-up: Undo of Thursday after the cascade reopens Thursday only; Monday stays done, and the carry-over shows Thursday alone, since Thursday', async () => {
+    reset();
+    addGym();
+    await act(DANA, gymKey('15'), 'done');
+    await flush();
+    assert((await act(DANA, gymKey('15'), 'undo')).status === 'ok', 'undo');
+    assert(doneOf(GYM, gymAt('15')) === null && same(doneOf(GYM, gymAt('12')), NOW) && same(doneOf(GYM, gymAt('08')), NOW) && same(doneOf(GYM, gymAt('05')), NOW), 'only Thursday reopened');
+    const user = actor(DANA);
+    const { read } = await readFamcal(user, { from: at('2026-10-19 00:00'), to: at('2026-10-20 00:00') }, {});
+    if (read.status !== 'ok') throw new Error('read failed');
+    const open = await fetchOpenReminderItems(user, read.ctx, openRemindersCutoff('2026-10-19', IL, NOW), '2026-10-19', IL, Infinity);
+    const gym = open.items.filter((i) => i.series.id === GYM);
+    assertJson(gym.map((i) => [i.instanceStartsAt.toISOString(), i.event.reminder?.openSince]), [[gymAt('15').toISOString(), '2026-10-15']], 'the run is Thursday alone');
+  });
+
+  await check('catch-up: where each marks their own Done, only the actor\'s own earlier ones are marked; an earlier one is done for everyone only when every counted person is; the other\'s are untouched', async () => {
+    reset();
+    db.events.push(base(BOTH_DAILY, 'Water the plants', dailyAt('15'), { rrule: 'FREQ=DAILY', forBoth: true, eachMarksDone: true, armedAt: at('2026-10-15 09:00') }));
+    // Raziel marked the 16th himself (his ping row); the 17th is pinged to both.
+    addState(BOTH_DAILY, dailyAt('16'), {});
+    db.pings.push(pingRow(`state-${BOTH_DAILY}-${dailyAt('16').getTime()}`, RAZIEL, { doneAt: new RealDate(dailyAt('16').getTime() + 60_000) }));
+    addState(BOTH_DAILY, dailyAt('17'), {}, 72);
+    db.pings.push(pingRow(`state-${BOTH_DAILY}-${dailyAt('17').getTime()}`, RAZIEL, { lastPingedAt: dailyAt('17'), pingAttempts: 1, pingChatId: BigInt(tg(RAZIEL)), pingMessageId: 71 }));
+    const r = await act(DANA, eachKey('19'), 'done');
+    await flush();
+    assertJson(startsOf(r), ['15', '16', '17', '18'].map((d) => dailyAt(d).toISOString()), 'closed for Dana');
+    assert(r.status === 'ok' && r.completed === false, json(r));
+    const pingOf = (day: string, userId: number) => db.pings.find((p) => p.stateId === stateFor(BOTH_DAILY, dailyAt(day))!.id && p.userId === userId);
+    for (const day of ['15', '16', '17', '18', '19']) assert(same(pingOf(day, DANA)?.doneAt, NOW), `Dana's own on the ${day}th: ${json(pingOf(day, DANA))}`);
+    assert(pingOf('15', RAZIEL) === undefined && pingOf('17', RAZIEL)?.doneAt === null && pingOf('18', RAZIEL) === undefined, 'Raziel\'s are untouched');
+    assert(same(doneOf(BOTH_DAILY, dailyAt('16')), NOW), 'the 16th: both are done, so it is done for everyone');
+    for (const day of ['15', '17', '18', '19']) assert(doneOf(BOTH_DAILY, dailyAt(day)) === null, `the ${day}th stays open for Raziel`);
+    assert(sends().length === 0, 'no note');
+    // Dana's own ping of the 17th closes; Raziel's gains the partner line (not completed).
+    assertJson(edits().map((e) => e.messageId).sort(), [71, 72], 'the 17th\'s two pings');
+    // Raziel's Done on the 19th: his earlier ones after his latest done one (the 16th): the 17th and 18th, both now done for everyone; the 15th is before his done 16th and is left.
+    const later = await act(RAZIEL, eachKey('19'), 'done', LATER);
+    assertJson(startsOf(later), ['17', '18'].map((d) => dailyAt(d).toISOString()), 'closed for Raziel');
+    assert(same(doneOf(BOTH_DAILY, dailyAt('17')), LATER) && same(doneOf(BOTH_DAILY, dailyAt('18')), LATER) && doneOf(BOTH_DAILY, dailyAt('15')) === null, 'complete only where both are done');
+  });
+
+  await check('catch-up: a failure closing the earlier ones is logged and captured and never costs the Done', async () => {
+    reset();
+    addGym();
+    failOn = 'nativeReminderState.findMany';
+    const log = console.error;
+    console.error = () => {};
+    let r;
+    try {
+      r = await act(DANA, gymKey('15'), 'done');
+    } finally {
+      console.error = log;
+    }
+    assertJson(r, { status: 'ok', title: 'Gym' }, 'the Done stands');
+    assert(same(doneOf(GYM, gymAt('15')), NOW), 'written');
+    assert(captured.some((c) => c.ctx === 'native-reminder-close-earlier' && c.extra?.series_id === GYM), json(captured));
+    assert(!json(captured).includes('Gym'), 'no title in the capture');
+  });
+
   // ---- The route ----
 
   const call = async (body: unknown, headers: Record<string, string> = {}, rawBody?: string) => {
@@ -1542,6 +1695,22 @@ async function main() {
     const r = await call(good());
     assert(r.status === 200 && r.body.status === 'ok' && !('reminder' in r.body), `${r.status} ${r.text}`);
     assert(stateFor(MILK, MILK_KEY.originalStartsAt)?.doneAt !== null, 'written');
+  });
+
+  await check('route: a Done on a repeating reminder answers the item keys of the earlier times it closed (closedKeys, the home\'s own keys, oldest first); none when none, and none on undo', async () => {
+    reset();
+    addGym();
+    const r = await call(good({ seriesId: GYM, originalStart: gymAt('15').toISOString() }));
+    await flush();
+    assert(r.status === 200 && r.body.status === 'ok', `${r.status} ${r.text}`);
+    assertJson(r.body.closedKeys, ['05', '08', '12'].map((d) => `famcal|${GYM}#${gymAt(d).toISOString()}`), 'closedKeys');
+    const user = actor(DANA);
+    const { items } = await readFamcal(user, { from: at('2026-10-04 00:00'), to: at('2026-10-17 00:00') }, {});
+    for (const key of r.body.closedKeys) assert(items.some((i: { key: string }) => i.key === key), `${key} is a key the reader lists`);
+    const undo = await call(good({ seriesId: GYM, originalStart: gymAt('15').toISOString(), action: 'undo' }));
+    assert(undo.status === 200 && !('closedKeys' in undo.body), undo.text);
+    const one = await call(good());
+    assert(one.status === 200 && !('closedKeys' in one.body), one.text);
   });
 
   Object.assign(console, quiet);

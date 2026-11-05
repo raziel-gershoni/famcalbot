@@ -21,7 +21,10 @@ import { trackActivityAsync } from '../analytics-service';
 import { escapeHtml } from '../../utils/html';
 import { expandSeries } from '../native-calendar/recurrence';
 import { invalidateDueGate } from './due-gate';
-import { tomorrowMorning } from './due';
+import { dueAtForOccurrence, tomorrowMorning, zmanRuleOf } from './due';
+import { openRunOf } from './open-reminders';
+import { zmanClockIfNeeded } from '../zmanim/reminder-clock';
+import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
 import { getActivePartnerSummary, isForBothReachable, isPingable, pingUserFor, recipientIds } from './ownership';
 import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, stripPingButtons } from './ping';
 import type { UserConfig } from '../../types';
@@ -36,10 +39,12 @@ export type OccurrenceKey = { seriesEventId: string; originalStartsAt: Date };
  * whether the actor was the reminder's target once (`wasTarget`): the pair unlinked, or
  * they moved to Google, and it is the creator's again. On a reminder where each marks their
  * own Done, `already_done` and `not_done` mean the actor's own, and an `ok` Done says whether
- * it `completed` the occurrence (the last of the people who can be reached).
+ * it `completed` the occurrence (the last of the people who can be reached). A Done on a
+ * repeating reminder also closes its earlier open times (owner 2026-11-05): `closedEarlier`
+ * lists their original starts, oldest first, and is absent when it closed none.
  */
 export type ReminderActionResult =
-  | { status: 'ok'; title: string; until?: Date; timeZone?: string; completed?: boolean }
+  | { status: 'ok'; title: string; until?: Date; timeZone?: string; completed?: boolean; closedEarlier?: Date[] }
   | { status: 'already_done'; title: string }
   | { status: 'not_done'; title: string }
   | { status: 'changed' }
@@ -159,11 +164,14 @@ export async function applyReminderAction(
     // The switch went off while this Done waited for the lock: it is the shared Done of a reminder with one Done, from the top.
     if (marked === 'switched_off') return applyReminderAction(actor, key, action, now, source);
     if (!marked) return { status: 'already_done', title };
+    const earlier = await closeEarlierOpen(series, key, actor, now, { recipients, forBoth, counted });
     trackActivityAsync(actor.id, 'native_reminder_done', {
       series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}), each_marks_done: true, completed: marked.completed,
+      ...(earlier.starts.length > 0 ? { closed_earlier: earlier.starts.length } : {}),
     });
     await afterOwnDone(series, key, marked.stateId, counted, forBoth, actor, title, source, marked.completed);
-    return { status: 'ok', title, completed: marked.completed };
+    earlier.editPings();
+    return { status: 'ok', title, completed: marked.completed, ...(earlier.starts.length > 0 ? { closedEarlier: earlier.starts } : {}) };
   }
 
   if (action === 'done') {
@@ -172,9 +180,14 @@ export async function applyReminderAction(
       data: { doneAt: now, doneByUserId: actor.id },
     });
     if (count === 0) return { status: 'already_done', title };
-    trackActivityAsync(actor.id, 'native_reminder_done', { series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}) });
+    const earlier = await closeEarlierOpen(series, key, actor, now, { recipients, forBoth, counted: null });
+    trackActivityAsync(actor.id, 'native_reminder_done', {
+      series_event_id: key.seriesEventId, source, ...(forBoth ? { for_both: true } : {}),
+      ...(earlier.starts.length > 0 ? { closed_earlier: earlier.starts.length } : {}),
+    });
     await afterDone(series, key, recipients, forBoth, actor, title, source);
-    return { status: 'ok', title };
+    earlier.editPings();
+    return { status: 'ok', title, ...(earlier.starts.length > 0 ? { closedEarlier: earlier.starts } : {}) };
   }
 
   const state = await prisma.nativeReminderState.findUnique({ where: { seriesEventId_originalStartsAt: key }, select: { id: true } });
@@ -207,6 +220,70 @@ export async function applyReminderAction(
   trackActivityAsync(actor.id, 'native_reminder_snoozed', { series_event_id: key.seriesEventId, snooze: SNOOZE_OP[action], source });
   if (source === 'app') await editSnoozedPing(state.id, pingUserId, actor.id, title, until, action);
   return { status: 'ok', title, until, timeZone };
+}
+
+/**
+ * A Done on a repeating series' occurrence also closes every earlier open time of it, so a missed
+ * Monday does not stay open under Thursday's Done (owner 2026-11-05). "Earlier open" is the
+ * carry-over's own rule (openRunOf): after the actor's latest done occurrence before the pressed one,
+ * not before the series was armed, due before `now`, and not done for the actor (the shared Done, or
+ * their own where each marks their own). Each is closed by the write the pressed one got: the shared
+ * Done, or (`counted` given) the actor's own, completing it when they are the last counted. A later or
+ * not yet due occurrence is never touched. No "Done by" note goes out for them: `editPings` (called
+ * once the action has answered, never awaited) closes their live pings. A failure is logged and
+ * captured and costs nothing: the pressed Done stands and the carry-over still shows what stayed open.
+ */
+async function closeEarlierOpen(
+  series: Series,
+  key: OccurrenceKey,
+  actor: UserConfig,
+  now: Date,
+  how: { recipients: number[]; forBoth: boolean; counted: number[] | null }
+): Promise<{ starts: Date[]; editPings: () => void }> {
+  const none = { starts: [] as Date[], editPings: () => {} };
+  if (!series.rrule) return none;
+  try {
+    const states = await prisma.nativeReminderState.findMany({
+      where: { seriesEventId: series.id, originalStartsAt: { lt: key.originalStartsAt } },
+      select: { originalStartsAt: true, doneAt: true, pings: { select: { userId: true, snoozedUntil: true, doneAt: true } } },
+    });
+    const timeZone = await resolveUserTimezone(actor);
+    const zman = zmanRuleOf(series.zmanSpec, await zmanClockIfNeeded(readZmanSpec(series.zmanSpec) !== null, actor, timeZone));
+    const run = openRunOf(series, series.instances, states, actor.id, now, occurrence => dueAtForOccurrence(occurrence, timeZone, actor.reminderTime, zman), key.originalStartsAt);
+    if (run.length === 0) return none;
+    // An occurrence nobody pinged has no row yet (as for the pressed one).
+    await prisma.nativeReminderState.createMany({ data: run.map(o => ({ seriesEventId: series.id, originalStartsAt: o.instanceStartsAt })), skipDuplicates: true });
+    const closed: Array<{ key: OccurrenceKey; title: string; stateId?: string; completed?: boolean }> = [];
+    for (const occurrence of run) {
+      const earlierKey = { seriesEventId: series.id, originalStartsAt: occurrence.instanceStartsAt };
+      if (how.counted) {
+        const marked = await markOwnDone(earlierKey, actor.id, how.counted, now);
+        if (marked && marked !== 'switched_off') closed.push({ key: earlierKey, title: occurrence.title, stateId: marked.stateId, completed: marked.completed });
+      } else {
+        const { count } = await prisma.nativeReminderState.updateMany({ where: { ...earlierKey, doneAt: null }, data: { doneAt: now, doneByUserId: actor.id } });
+        if (count === 1) closed.push({ key: earlierKey, title: occurrence.title });
+      }
+    }
+    if (closed.length === 0) return none;
+    closed.sort((a, b) => a.key.originalStartsAt.getTime() - b.key.originalStartsAt.getTime());
+    console.log(`[NativeReminders] series ${series.id}: Done also closed ${closed.length} earlier`);
+    return {
+      starts: closed.map(c => c.key.originalStartsAt),
+      editPings: () => {
+        void (async () => {
+          // Every ping of the closed time is edited, as an in-app Done does (the tapped message is the pressed time's, not theirs), with no note.
+          for (const c of closed) {
+            if (c.stateId !== undefined && how.counted) await afterOwnDone(series, c.key, c.stateId, how.counted, how.forBoth, actor, c.title, 'app', c.completed === true);
+            else await afterDone(series, c.key, how.recipients, how.forBoth, actor, c.title, 'app', false);
+          }
+        })().catch(error => captureError(error, 'native-reminder-action-ping-edit', { user_id: actor.id, series_id: series.id }, 'warning'));
+      },
+    };
+  } catch (error) {
+    console.error(`[NativeReminders] Closing the earlier open times of series ${series.id} failed`);
+    captureError(error, 'native-reminder-close-earlier', { user_id: actor.id, series_id: series.id });
+    return none;
+  }
 }
 
 /**
@@ -329,7 +406,8 @@ export function snoozeLabel(until: Date, action: SnoozeAction, language: string,
  * creator (today's rule), who may not be its recipient. Then the live pings of the
  * occurrence are edited, in their owners' languages: for an in-app Done, every ping
  * (the actor's own too); for a tap on a ping, the other people's (the tap edits its own).
- * One person's failure never costs the others, or the Done.
+ * One person's failure never costs the others, or the Done. `notes: false` sends no "Done by" note and
+ * only edits the pings (the earlier times a Done also closed, closeEarlierOpen).
  */
 async function afterDone(
   series: Series,
@@ -338,9 +416,10 @@ async function afterDone(
   forBoth: boolean,
   actor: UserConfig,
   title: string,
-  source: ReminderActionSource
+  source: ReminderActionSource,
+  notes: boolean = true
 ): Promise<void> {
-  const noteTo = forBoth ? recipients.filter(id => id !== actor.id) : actor.id !== series.creatorUserId ? [series.creatorUserId] : [];
+  const noteTo = !notes ? [] : forBoth ? recipients.filter(id => id !== actor.id) : actor.id !== series.creatorUserId ? [series.creatorUserId] : [];
   const occurrence = key.originalStartsAt.toISOString();
   for (const userId of noteTo) await notifyDone(series.id, occurrence, userId, actor, title);
   try {

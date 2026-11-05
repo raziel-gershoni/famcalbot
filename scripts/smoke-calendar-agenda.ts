@@ -21,6 +21,7 @@
 import path from 'path';
 import {
   addDaysToKey,
+  closedReminders,
   dayFailure,
   dayItems,
   dayStatus,
@@ -753,6 +754,26 @@ async function main() {
     assert(reduceStore(s0, { type: 'patchReminder', key: 'famcal|nope', reminder: done }) === s0, 'unknown key: same state');
     const evState = run([answer(famcalAnswer({ days: { [TODAY]: [ev('plumber', T(0, '08:00'), T(0, '09:00'))] } }))]);
     assert(reduceStore(evState, { type: 'patchReminder', key: keyOf, reminder: done }) === evState, 'an event is not patched');
+  });
+
+  await check('closedReminders: the earlier open times a Done also closed take the same patch, in every copy (the days and the carry-overs): done, no longer open, the carry-over keeps its since; the pressed one, others, events and keys the store lacks are left alone', () => {
+    const monday = (r: Partial<ItemReminderDTO> = {}) => rem('gym#mon', T(0, '07:00'), { open: true, ...r });
+    const thursday = rem('gym#thu', T(0, '08:00'), { open: true });
+    const s0 = run([answer(famcalAnswer({
+      days: { [TODAY]: [monday(), thursday, ev('meet', T(0, '09:00'), T(0, '10:00'))] },
+      carryOvers: [monday({ openSince: day(-3) })],
+    }))]);
+    const doneAt = T(0, '10:00');
+    const closed = closedReminders(s0, ['famcal|gym#mon', 'famcal|nope', 'famcal|meet'], doneAt);
+    assertJson(closed.map(([key]) => key), ['famcal|gym#mon'], 'only the reminder the store holds');
+    assert(closed[0][1].done === true && closed[0][1].doneAt === doneAt && closed[0][1].snoozedUntil === null, JSON.stringify(closed[0][1]));
+    const s1 = closed.reduce((state, [key, reminder]) => reduceStore(state, { type: 'patchReminder', key, reminder }), s0);
+    const mondayCopies = [dayItems(s1, TODAY).find((i) => i.key === 'famcal|gym#mon'), s1.carryOvers?.find((i) => i.key === 'famcal|gym#mon')];
+    assert(mondayCopies.every((i) => i?.reminder?.done === true && i.reminder.open === false && i.reminder.doneAt === doneAt), JSON.stringify(mondayCopies.map((i) => i?.reminder)));
+    assert(mondayCopies[1]?.reminder?.openSince === day(-3), 'the carry-over keeps its since');
+    assert(dayItems(s1, TODAY).find((i) => i.key === 'famcal|gym#thu') === thursday, 'the pressed one is not this patch\'s');
+    assertJson((buildAgenda(s1)?.stillOpen?.shown ?? []).map((r) => r.item.key), ['famcal|gym#thu'], 'the card no longer lists the closed one');
+    assertJson(closedReminders(s0, [], doneAt), [], 'no keys, nothing');
   });
 
   await check('storeRow: the copy the sheet was opened from (a day or the carry-overs) wins over the earliest day\'s; without an origin the earliest day, then the carry-over', () => {

@@ -7,8 +7,9 @@
  *   X-Telegram-Init-Data: <initData>   (or the __Host-famcal_session cookie in a browser)
  *
  * The route acts for the authenticated user only; the body never says whose reminder it
- * is. The answer is { status, reminder? }: reminder is the occurrence's new state as the
- * range route would list it.
+ * is. The answer is { status, reminder?, closedKeys? }: reminder is the occurrence's new state as the
+ * range route would list it; closedKeys are the item keys of the repeating reminder's earlier open
+ * times a Done also closed, for the home to mark done as well.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,7 +21,7 @@ import { resolveUserTimezone } from '@/src/lib/timezone';
 import { applyReminderAction, type ReminderAction } from '@/src/services/native-reminders/actions';
 import { reminderDueAt, zmanRuleOf } from '@/src/services/native-reminders/due';
 import { zmanClockIfNeeded } from '@/src/services/zmanim/reminder-clock';
-import { readFamcal } from '@/src/services/calendar-read/famcal';
+import { famcalOccurrenceKey, readFamcal } from '@/src/services/calendar-read/famcal';
 import { toItemDto } from '@/src/services/calendar-read/dto';
 import { prisma } from '@/src/utils/prisma';
 import { localDate } from '@/src/utils/day-events';
@@ -114,7 +115,8 @@ export async function POST(request: NextRequest) {
       captureError(err, 'calendar-reminder-dto', { user_id: user.id }, 'warning');
       return undefined;
     });
-    return json({ status: result.status, ...(reminder ? { reminder } : {}) });
+    const closedKeys = result.status === 'ok' ? (result.closedEarlier ?? []).map((start) => famcalOccurrenceKey(body.seriesId, start)) : [];
+    return json({ status: result.status, ...(reminder ? { reminder } : {}), ...(closedKeys.length > 0 ? { closedKeys } : {}) });
   } catch (err) {
     // No titles in the context: the user id only.
     captureError(err, 'calendar-reminder', { user_id: user.id });

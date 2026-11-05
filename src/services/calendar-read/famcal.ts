@@ -15,7 +15,7 @@ import type { NativeCalendar, NativeEvent } from '@prisma/client';
 import type { UserConfig } from '../../types';
 import type { UnifiedEvent } from '../calendar-provider/types';
 import { fetchViewerItems } from '../calendar-provider/native-provider';
-import { encodeCalendarId, listVisibleCalendars, type ReminderStateRow } from '../native-calendar/event-store';
+import { encodeCalendarId, encodeEventId, listVisibleCalendars, type ReminderStateRow } from '../native-calendar/event-store';
 import { loadViewerContext, userDoneAt, viewerSnoozedUntil, type ViewerContext } from '../native-reminders/ownership';
 import type { OpenReminderItem } from '../native-reminders/open-reminders';
 import type { CalendarRef, FamcalRead, ReadItem } from './types';
@@ -58,6 +58,15 @@ function legendById(calendars: readonly CalendarRef[]): Map<string, CalendarRef>
 }
 
 /**
+ * The key the home knows a FamCal item by (ItemDTO.key): its event id behind the source. An occurrence of a
+ * repeating series is `encodeEventId(seriesId, itsOriginalStart)`; the one place the key is built.
+ */
+export const famcalItemKey = (eventId: string): string => `famcal|${eventId}`;
+
+/** The key of one occurrence of a repeating series, as the home lists it. */
+export const famcalOccurrenceKey = (seriesId: string, originalStart: Date): string => famcalItemKey(encodeEventId(seriesId, originalStart));
+
+/**
  * One occurrence as a ReadItem. `event` is the provider's, untouched. A reminder always
  * has `state` (nulls when the occurrence has no state row); an event has none. Its Done is the
  * viewer's own (userDoneAt: the shared Done, or where each marks their own, theirs).
@@ -76,7 +85,7 @@ function toReadItem(
   const kind = parts.series.kind === 'REMINDER' ? 'reminder' : 'event';
   return {
     source: 'famcal',
-    key: `famcal|${parts.event.eventId ?? parts.series.id}`,
+    key: famcalItemKey(parts.event.eventId ?? parts.series.id),
     event: parts.event,
     calendar,
     title: parts.title,

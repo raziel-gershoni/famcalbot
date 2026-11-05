@@ -15,7 +15,8 @@ export type ReminderActionName = 'done' | 'undo' | 'snooze15' | 'snooze60' | 'sn
 
 export type ReminderActionStatus = 'ok' | 'already_done' | 'not_done' | 'changed' | 'not_yours';
 
-export type ReminderActionOutcome = { kind: 'answered'; status: ReminderActionStatus; reminder: ItemReminderDTO | null } | { kind: 'failed' };
+/** `closedKeys`: the keys of the earlier open times a Done also closed (a repeating reminder); absent when none. */
+export type ReminderActionOutcome = { kind: 'answered'; status: ReminderActionStatus; reminder: ItemReminderDTO | null; closedKeys?: string[] } | { kind: 'failed' };
 
 /** What the dependency takes: the occurrence's key from the DTO (seriesId, originalStart), and the action. */
 export interface ReminderActionRequest {
@@ -55,7 +56,9 @@ export const postReminderAction: ReminderActionFn = async (userId, request) => {
     const status = body && typeof body === 'object' ? (body as { status?: unknown }).status : undefined;
     if (typeof status !== 'string' || !STATUSES.includes(status)) return { kind: 'failed' };
     const reminder = (body as { reminder?: unknown }).reminder;
-    return { kind: 'answered', status: status as ReminderActionStatus, reminder: isReminder(reminder) ? reminder : null };
+    const closed = (body as { closedKeys?: unknown }).closedKeys;
+    const closedKeys = Array.isArray(closed) ? closed.filter((k): k is string => typeof k === 'string') : [];
+    return { kind: 'answered', status: status as ReminderActionStatus, reminder: isReminder(reminder) ? reminder : null, ...(closedKeys.length > 0 ? { closedKeys } : {}) };
   } catch {
     return { kind: 'failed' };
   } finally {
