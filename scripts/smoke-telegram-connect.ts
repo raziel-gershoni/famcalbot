@@ -171,6 +171,18 @@ async function main() {
     assert(recent.status === 200 && typeof (await body(recent)).url === 'string', `59 minutes: ${recent.status} ${show(await body(recent))}`);
   });
 
+  await check('the hour is the shared helper\'s (src/lib/recent-sign-in.ts): Connect Telegram defines no hour of its own, and the link\'s edge is the helper\'s (59:59 passes, 60:00 is refused; a WhatsApp session never passes)', async () => {
+    seed();
+    const source = fs.readFileSync(path.join(ROOT, 'src/services/telegram-connect.ts'), 'utf8');
+    assert(!/const RECENT_SIGN_IN_MS/.test(source) && /from '\.\.\/lib\/recent-sign-in'/.test(source), 'telegram-connect.ts keeps its own hour or does not import the helper');
+    const { RECENT_SIGN_IN_MS } = await load('src/lib/recent-sign-in.ts');
+    assert(RECENT_SIGN_IN_MS === 60 * MIN, `the helper's hour is ${RECENT_SIGN_IN_MS}`);
+    const edge = await linkFor(DANA, { signedInAt: Date.now() - RECENT_SIGN_IN_MS + 5_000 });
+    assert(edge.status === 200, `just inside the hour: ${edge.status} ${show(await body(edge))}`);
+    const over = await linkFor(DANA, { signedInAt: Date.now() - RECENT_SIGN_IN_MS - 1 });
+    assert(over.status === 403 && (await body(over)).error === 'stale-sign-in', `just past the hour: ${over.status} ${show(await body(over))}`);
+  });
+
   // ---- [C1] Removing a way never restarts the hour ----
 
   const removeRoute = await load('app/api/signin-methods/remove/route.ts');

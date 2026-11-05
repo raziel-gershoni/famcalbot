@@ -36,6 +36,7 @@ import { hasChat } from '../lib/has-chat';
 import type { WebSession } from '../lib/session-auth';
 import { signInRefusal } from '../lib/web-session';
 import { isIdentifierBlocked } from '../lib/user-moderation';
+import { sessionRecentlyProved } from '../lib/recent-sign-in';
 import type { UserConfig } from '../types';
 import { getUserById, getUserByTelegramId } from './user-service';
 import { MessageFormat, type MessageOptions } from './messaging/types';
@@ -49,8 +50,6 @@ import { captureSignInFailure, safeErrorSummary } from './web-signin/safe-error'
 
 /** The link and the question both wait 10 minutes. */
 const TTL_SECONDS = 10 * 60;
-/** A link is made only this soon after signing in on the browser that asks. */
-const RECENT_SIGN_IN_MS = 60 * 60 * 1000;
 const LINKS_PER_HOUR = 5;
 const HOUR_SEC = 60 * 60;
 /** 16 random bytes as base64url */
@@ -124,7 +123,7 @@ export async function createConnectLink(
     return { ok: false, error: 'has-chat' };
   }
   // The proved-at, not the sign-in time: a renewal or a removal re-issues the cookie but never restarts this hour
-  if (session.userId !== user.id || session.method === 'wa' || Date.now() - session.provedAt >= RECENT_SIGN_IN_MS) {
+  if (!sessionRecentlyProved(session, user.id, { allowWhatsApp: false })) {
     console.warn(`[tg-connect] user ${user.id}: link refused: the ${session.method} sign-in is not recent`);
     return { ok: false, error: 'stale-sign-in' };
   }
