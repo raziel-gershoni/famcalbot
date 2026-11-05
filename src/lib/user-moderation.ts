@@ -398,6 +398,21 @@ export async function banIdentifier(
   const kinds = kindsOf(args);
   if (kinds.length === 0) throw new BanTargetError('NO_IDENTIFIER');
 
+  // Every read comes before the first write starts: a write that fails while another await is pending would have no
+  // handler yet (an unhandled rejection), so the writes are started together and awaited at once, below
+  const owners: Prisma.UserWhereInput[] = [];
+  if (accountId !== null) owners.push({ id: accountId });
+  if (args.telegramId) owners.push({ telegramId: BigInt(args.telegramId) });
+  if (args.whatsappPhone) owners.push({ whatsappPhone: args.whatsappPhone });
+  // A bare ban signs out the accounts holding its Google account or address. A ban by account: its own Google account
+  // and sign-in address are its own ways (each way's subject is unique), but its Google way's address can be another
+  // account's email way, which the email row now refuses, so that account is signed out too
+  const holderWays = accountId === null ? { googleSub: args.googleSub, email: args.email } : { googleSub: null, email: args.googleAddress ?? null };
+  if (holderWays.googleSub || holderWays.email) {
+    const { accountsHoldingWays } = await import('../services/web-signin/identities');
+    const holders = await accountsHoldingWays(holderWays);
+    if (holders.length > 0) owners.push({ id: { in: holders } });
+  }
   const record = { bannedBy: adminId, bannedReason: reason };
   const ops: Promise<unknown>[] = [];
   if (args.telegramId) {
@@ -422,19 +437,6 @@ export async function banIdentifier(
   }
   for (const key of blockCacheKeys(args)) ops.push(redis.set(key, '1', { ex: BLOCK_CACHE_TTL }));
 
-  const owners: Prisma.UserWhereInput[] = [];
-  if (accountId !== null) owners.push({ id: accountId });
-  if (args.telegramId) owners.push({ telegramId: BigInt(args.telegramId) });
-  if (args.whatsappPhone) owners.push({ whatsappPhone: args.whatsappPhone });
-  // A bare ban signs out the accounts holding its Google account or address. A ban by account: its own Google account
-  // and sign-in address are its own ways (each way's subject is unique), but its Google way's address can be another
-  // account's email way, which the email row now refuses, so that account is signed out too
-  const holderWays = accountId === null ? { googleSub: args.googleSub, email: args.email } : { googleSub: null, email: args.googleAddress ?? null };
-  if (holderWays.googleSub || holderWays.email) {
-    const { accountsHoldingWays } = await import('../services/web-signin/identities');
-    const holders = await accountsHoldingWays(holderWays);
-    if (holders.length > 0) owners.push({ id: { in: holders } });
-  }
   if (owners.length > 0) {
     ops.push(prisma.user.updateMany({ where: { OR: owners }, data: { sessionsValidAfter: new Date() } }).then(({ count }) => {
       console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web`);

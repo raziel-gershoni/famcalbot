@@ -370,18 +370,32 @@ async function main() {
     assert(!DB.signInIdentity.some(i => i.userId === Q && i.kind === 'email') && sent.length === sentBefore, 'a banned address became a way, or a notice went out');
   });
 
-  await check('#9b a database failure during a ban answers 500 and reaches the log and Sentry by its kind only, never the Google id or the address in the error text', async () => {
+  await check('#9b a database failure during a ban leaves no failure unhandled, answers 500 and reaches the log and Sentry by its kind only, never the Google id or the address in the error text', async () => {
     seed();
     const real = fakePrisma.blockedIdentifier.upsert;
     fakePrisma.blockedIdentifier.upsert = async () => {
       throw Object.assign(new Error('Invalid prisma.blockedIdentifier.upsert() invocation: email: "web@example.com" googleSub: "g-web-0050"'), { code: 'P1001' });
     };
+    // A read that takes a real round trip (here a timer) while a write has already failed would leave that failure with no
+    // handler: an unhandled rejection, which ends the server's process. The ban does every read before its first write.
+    const realFind = fakePrisma.signInIdentity.findMany;
+    fakePrisma.signInIdentity.findMany = async (...a: unknown[]) => {
+      await new Promise(resolve => setTimeout(resolve, 5));
+      return (realFind as (...b: unknown[]) => Promise<unknown>)(...a);
+    };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUnhandled);
     let res: { status: number; body: Row };
     try {
       res = await post({ action: 'ban', user_id: W });
+      await new Promise(resolve => setTimeout(resolve, 20));
     } finally {
       fakePrisma.blockedIdentifier.upsert = real;
+      fakePrisma.signInIdentity.findMany = realFind;
+      process.off('unhandledRejection', onUnhandled);
     }
+    assert(unhandled.length === 0, `a failed write had no handler while a read was pending: ${unhandled.length}`);
     assert(res.status === 500, `status ${res.status} ${show(res.body)}`);
     assert(!everyLog.some(l => l.includes('web@example.com') || l.includes('g-web-0050')), `log leak ${show(everyLog.filter(l => l.includes('web@example.com') || l.includes('g-web-0050')))}`);
     assert(!everyCapture.some(c => show(c).includes('web@example.com') || show(c).includes('g-web-0050')), 'Sentry leak');
