@@ -91,7 +91,7 @@ export async function finishAddGoogle(flow: OidcFlow, claims: GoogleClaims): Pro
     return NextResponse.redirect(signInPageUrl(flow.locale, 'failed'));
   }
   if (flow.provedAt !== undefined && !recentlyProved(flow.provedAt)) {
-    console.warn(`[signin] user ${user.id}: add-google refused: the sign-in is not recent`);
+    console.warn(`[recent-sign-in] user ${user.id}: add-google-finish refused: the sign-in is not recent`);
     return NextResponse.redirect(signInPageUrl(flow.locale, 'stale'));
   }
   const refusal = await signInRefusal(user);

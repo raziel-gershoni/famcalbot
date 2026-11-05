@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     userId = link.userId;
     // A link made in a browser carries that session's proved-at; the hour is asked again before Google (a Mini App link has none)
     if (link.provedAt !== undefined && !recentlyProved(link.provedAt)) {
-      console.warn(`[signin] user ${link.userId}: add-google refused: the sign-in is not recent`);
+      console.warn(`[recent-sign-in] user ${link.userId}: add-google-start refused: the sign-in is not recent`);
       return NextResponse.json({ error: 'stale-sign-in' }, { status: 403 });
     }
     const user = await getUserById(link.userId);

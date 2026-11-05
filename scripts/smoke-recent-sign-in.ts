@@ -182,7 +182,10 @@ async function main() {
   };
   const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin)\(/;
   const DEFINITION = /^\s*export\s+(?:async\s+)?function\s/;
-  const GUARD = /\b(?:refuseStaleSignIn|recentlyProved)\b/;
+  /** A call of the helper: its name followed by "(" on a code line that is not an import (the import line and comments are not asking). */
+  const GUARD_CALL = /\b(?:refuseStaleSignIn|recentlyProved)\(/;
+  const IMPORT_LINE = /^\s*import\b/;
+  const asksHelper = (file: string): boolean => codeLines(file).some(line => GUARD_CALL.test(line) && !IMPORT_LINE.test(line));
 
   await check('the audit: every file under src/ and app/ that adds a sign-in way or connects Google from a browser is in GUARDED (and asks the helper) or EXEMPT (with a reason); a file nobody classified fails, and so does a listed file that is gone', () => {
     const callers = SOURCES.filter(file => codeLines(file).some(line => CALLS.test(line) && !DEFINITION.test(line))).map(rel);
@@ -192,7 +195,7 @@ async function main() {
     assert(unclassified.length === 0, `a file adds a way or connects Google and nobody classified it (GUARDED or EXEMPT, with the reason):\n     ${unclassified.join('\n     ')}`);
     const gone = [...Object.keys(GUARDED), ...Object.keys(EXEMPT)].filter(file => !touched.includes(file));
     assert(gone.length === 0, `listed, but it no longer calls any of them:\n     ${gone.join('\n     ')}`);
-    const unguarded = Object.keys(GUARDED).filter(file => !GUARD.test(fs.readFileSync(path.join(ROOT, file), 'utf8')));
+    const unguarded = Object.keys(GUARDED).filter(file => !asksHelper(path.join(ROOT, file)));
     assert(unguarded.length === 0, `GUARDED, but it never asks refuseStaleSignIn or recentlyProved:\n     ${unguarded.join('\n     ')}`);
     for (const [file, reason] of [...Object.entries(GUARDED), ...Object.entries(EXEMPT)]) assert(reason.length > 20, `${file}: the reason is missing`);
     assert(Object.keys(GUARDED).every(file => !(file in EXEMPT)), 'a file is in both tables');

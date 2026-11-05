@@ -910,6 +910,7 @@ async function main() {
   const agedCookie = async (userId: number, minutes: number, method = 'email'): Promise<Auth> => ({ cookie: await sessionCookie(userId, method, Date.now() - minutes * MIN) });
   const STALE = { ok: false, error: 'stale-sign-in' };
   const joinRoute = await load('app/api/signin-methods/join/route.ts');
+  const join = await load('src/services/web-signin/join.ts');
   const { newOidcChecks } = await load('src/services/web-signin/oidc.ts');
   const mailCount = (): number => mails.length;
   const refusalLines = (): string[] => logs.filter(l => l.startsWith('[recent-sign-in]'));
@@ -956,6 +957,7 @@ async function main() {
     const stale = await addStart(link);
     assert(stale.status === 403 && (await body(stale)).error === 'stale-sign-in' && !('url' in (await body(stale))), `stale ${stale.status} ${show(await body(stale))}`);
     assert(flowRecords().length === 0 && !stale.cookies.get(SIGNIN_COOKIE_NAME)?.value, `a flow was started: ${show(flowRecords())}`);
+    assert(logs.includes(`[recent-sign-in] user ${TAL}: add-google-start refused: the sign-in is not recent`), `no refusal logged: ${show(logs.slice(-5))}`);
     const provedAt = Date.now() - 59 * MIN;
     const fresh = tokenOf(await addGoogle.createAddGoogleLink({ id: TAL, language: 'en' }, provedAt));
     const started = await addStart(fresh);
@@ -977,7 +979,7 @@ async function main() {
     const stale = await run(flowOf(Date.now() - 61 * MIN));
     assert(location(stale).includes('status=stale') && pathOf(stale).startsWith('/en/signin'), `stale ${location(stale)}; captured ${show(captured)}`);
     assert(identitiesOf(TAL).length === 0 && sent.length === 0 && !stale.cookies.get(SESSION_COOKIE_NAME)?.value, `stale added: ${show(identitiesOf(TAL))} sent ${show(sent)}`);
-    assert(logs.includes(`[signin] user ${TAL}: add-google refused: the sign-in is not recent`), `no refusal logged: ${show(logs.slice(-5))}`);
+    assert(logs.includes(`[recent-sign-in] user ${TAL}: add-google-finish refused: the sign-in is not recent`), `no refusal logged: ${show(logs.slice(-5))}`);
     const ok = await run(flowOf(Date.now() - 59 * MIN));
     assert(pathOf(ok) === '/en/dashboard?user_id=9' && identitiesOf(TAL).length === 1 && sentCount() === 1, `59 minutes ${location(ok)} ${show(identitiesOf(TAL))}`);
     seed();
@@ -991,10 +993,21 @@ async function main() {
     const stale = await calendarOn(TAL, await agedCookie(TAL, 61, 'google'));
     assert(stale.status === 403 && show(await body(stale)) === show(STALE), `turn on ${stale.status} ${show(await body(stale))}`);
     assert(world.googleAsks.length === 0 && userRow(TAL).googleAccountKey === null, `Google was asked or a key kept: ${show(world.googleAsks)}`);
-    const join = await joinRoute.POST(request(`/api/signin-methods/join?user_id=${TAL}`, { body: { token: 'x'.repeat(22) }, ...(await agedCookie(TAL, 61, 'google')) }));
-    assert(join.status === 403 && show(await body(join)) === show(STALE), `join ${join.status} ${show(await body(join))}`);
     const ok = await calendarOn(TAL, await agedCookie(TAL, 59, 'google'));
     assert(ok.status === 200 && (await body(ok)).ok === true && userRow(TAL).googleAccountKey === KEY_TAL, `59 minutes ${ok.status} ${show(await body(ok))}`);
+    // Join: a real pending question (Tal may take in Rina, made on famcal.bot) survives a stale press and is answered by a fresh one
+    seedWeb();
+    const { getUserById } = await load('src/services/user-service.ts');
+    const question = await join.offerJoin(await getUserById(TAL), RINA, { kind: 'email', subject: 'rina@example.com', address: 'rina@example.com' });
+    assert(question !== null, `no Join question was offered; logs ${show(logs.slice(-3))}`);
+    const joinKeys = (): string[] => [...redisStore.keys()].filter(k => k.startsWith('signin:join:'));
+    assert(joinKeys().length === 1, `question keys ${show(joinKeys())}`);
+    const post = async (cookie: Auth) => joinRoute.POST(request(`/api/signin-methods/join?user_id=${TAL}`, { body: { token: question!.joinId }, ...cookie }));
+    const late = await post(await agedCookie(TAL, 61, 'google'));
+    assert(late.status === 403 && show(await body(late)) === show(STALE), `join ${late.status} ${show(await body(late))}`);
+    assert(joinKeys().length === 1 && userRow(RINA) !== undefined && identitiesOf(RINA).length === 1, `the stale press touched the question or Rina: keys ${show(joinKeys())}`);
+    const done = await post(await agedCookie(TAL, 59, 'google'));
+    assert(done.status === 200 && (await body(done)).ok === true && joinKeys().length === 0 && DB.user.every(u => u.id !== RINA), `fresh join ${done.status} ${show(await body(done))}; keys ${show(joinKeys())}`);
   });
 
   await check('#39 no console line and no capture holds an email address, a sign-in code or an Add Google token', () => {
