@@ -301,8 +301,8 @@ export async function writeIdentityInTx(
 /**
  * The account's Google account id and its sign-in address (the email way's normalised subject), null for each it
  * lacks: what a ban records (user-moderation.ts) and what signInRefusal checks (web-session.ts). `googleAddress` is
- * the address Google verified for the Google way, as stored: signInRefusal checks it against the email bans too (a
- * ban records only the email way's subject), and a ban never records it.
+ * the address Google verified for the Google way, as stored: a ban records it (normalised) as an email row too, and
+ * signInRefusal checks it against the email bans.
  */
 export async function accountWays(
   userId: number,

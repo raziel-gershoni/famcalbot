@@ -3,7 +3,7 @@
 // What it pins:
 //   - a ban by the account's database id:
 //     - records each identifier the account has, one row each (Telegram id, WhatsApp number, Google account id,
-//       sign-in address);
+//       sign-in address, and the email address of its Google way, normalised, once when it equals the sign-in address);
 //     - ends the web sessions of the account and primes the cache keys;
 //   - a bare ban of a Google id or an address signs out the account that holds it;
 //   - isIdentifierBlocked and signInRefusal see the new kinds, and finishSignIn refuses them;
@@ -15,6 +15,8 @@
 //     - unbans by an entry's id;
 //   - the users list says Web for an account with no chat;
 //   - adding a way (Add Google, Add email) refuses a banned Google account or address;
+//   - a Google-only account's ban (M4) stops its address after the account is deleted: no sign-up code, the sign-up
+//     answers blocked, Add email answers 403; an address FamCal can't keep adds no row and the ban still succeeds;
 //   - no log line or Sentry report holds an identifier or a name, and user-moderation prints no argument object.
 //
 // Real: user-moderation, identities, web-session, add-google, the blocklist, user-overrides and Add email routes, the
@@ -27,7 +29,7 @@
 import fs from 'fs';
 import path from 'path';
 import {
-  assert, baseUser, body, check, DB, everyCapture, everyLog, fakePrisma, identityRow, initDataFor, installSigninWorld, load, logs, mails,
+  assert, baseUser, body, check, DB, drainAfter, everyCapture, everyLog, fakePrisma, flowCookie, identityRow, initDataFor, installSigninWorld, load, logs, mails,
   redisStore, report, request, resetWorld, ROOT, sent, show, type Row,
 } from './lib/signin-world';
 
@@ -40,10 +42,16 @@ const T_PHONE = '+972500000060';
 const V = 70; // made on famcal.bot with an email code only
 const Q = 80; // Telegram only; adds ways in Settings
 const Q_TG = 800000080;
+const G = 90; // made on famcal.bot with Google only; its address as Google wrote it
+const E = 91; // a Google way and an email way holding the same address
+const N = 92; // a Google way whose stored address FamCal can't keep (a non-ASCII local part)
+const TURNSTILE_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX-ban';
 /** The identifiers and names of the run: none may reach a log line or a Sentry report. */
 const VALUES = [
   'g-web-0050', 'web@example.com', 'web@gmail.com', String(T_TG), T_PHONE, 't@example.com', 'v@example.com', 'g-gone-0001',
   'gone@example.com', 'Gone@Example.com', 'g-fresh-0080', 'fresh@gmail.com', 'other@gmail.com', 'Wren', 'Vera', 'Quinn',
+  'g-solo-0090', 'Solo@Gmail.com', 'solo@gmail.com', 'g-solo-new', 'g-dup-0091', 'dup@example.com', 'Dup@Example.com',
+  'g-nonascii-0092', 'jürgen@gmail.com', 'Gina', 'Edgar', 'Nico',
 ];
 
 const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -60,12 +68,19 @@ function seed(): void {
     baseUser({ id: T, name: 'Tom', telegramId: BigInt(T_TG), whatsappPhone: T_PHONE, messagingPlatform: 'all' }),
     baseUser({ id: V, name: 'Vera' }),
     baseUser({ id: Q, name: 'Quinn', telegramId: BigInt(Q_TG) }),
+    baseUser({ id: G, name: 'Gina' }),
+    baseUser({ id: E, name: 'Edgar' }),
+    baseUser({ id: N, name: 'Nico' }),
   ];
   DB.signInIdentity = [
     identityRow({ userId: W, kind: 'google', subject: 'g-web-0050', address: 'web@gmail.com' }),
     identityRow({ userId: W, kind: 'email', subject: 'web@example.com', address: 'web@example.com' }),
     identityRow({ userId: T, kind: 'email', subject: 't@example.com', address: 't@example.com' }),
     identityRow({ userId: V, kind: 'email', subject: 'v@example.com', address: 'v@example.com' }),
+    identityRow({ userId: G, kind: 'google', subject: 'g-solo-0090', address: 'Solo@Gmail.com' }),
+    identityRow({ userId: E, kind: 'google', subject: 'g-dup-0091', address: 'Dup@Example.com' }),
+    identityRow({ userId: E, kind: 'email', subject: 'dup@example.com', address: 'dup@example.com' }),
+    identityRow({ userId: N, kind: 'google', subject: 'g-nonascii-0092', address: 'jürgen@gmail.com' }),
   ];
   DB.blockedIdentifier = [];
 }
@@ -88,16 +103,31 @@ async function main() {
     const res = await blocklistRoute.POST(request('/api/admin/users/blocklist', { body: { ...b, initData: adminInit } }));
     return { status: res.status, body: await body(res) };
   };
+  /** Add email as account Q for `address`: asks for the code, confirms it, and answers the confirm. */
+  const addEmailAs = async (address: string): Promise<{ status: number; body: Row }> => {
+    const auth = { initData: initDataFor(Q_TG) };
+    const asked = await addRoute.POST(request(`/api/signin-methods/email/add?user_id=${Q_TG}`, { ...auth, body: { email: address } }));
+    assert(asked.status === 200, `add ${asked.status} ${show(await body(asked))}`);
+    const code = /\b(\d{6})\b/.exec(JSON.stringify(mails[mails.length - 1]?.body ?? {}))?.[1] ?? '';
+    assert(code !== '', 'no code was mailed');
+    const confirmed = await confirmRoute.POST(request(`/api/signin-methods/email/confirm?user_id=${Q_TG}`, { ...auth, body: { code } }));
+    return { status: confirmed.status, body: await body(confirmed) };
+  };
+  /** The account is gone for good (a hard delete): its user row and its ways cascade away; the blocklist stays. */
+  const hardDelete = (userId: number): void => {
+    DB.signInIdentity = DB.signInIdentity.filter(i => i.userId !== userId);
+    DB.user = DB.user.filter(u => u.id !== userId);
+  };
 
-  await check('#1 a ban by the database id of a browser-only account records its Google account and its sign-in address, one row each; its web sessions end; both cache keys are set; the log names the user and the kinds only', async () => {
+  await check('#1 a ban by the database id of a browser-only account records its Google account, its sign-in address and the address of its Google way, one row each; its web sessions end; the cache keys are set; the log names the user and the kinds only', async () => {
     seed();
     const result = await moderation.banIdentifier({ userId: W }, ADMIN, 'spam');
     assert(show(result) === show({ kinds: ['google', 'email'] }), `kinds ${show(result)}`);
     const rows = DB.blockedIdentifier;
-    assert(rows.length === 2 && rows.some(r => r.googleSub === 'g-web-0050' && r.email === null) && rows.some(r => r.email === 'web@example.com' && r.googleSub === null), `rows ${show(rows)}`);
+    assert(rows.length === 3 && rows.some(r => r.googleSub === 'g-web-0050' && r.email === null) && rows.some(r => r.email === 'web@example.com' && r.googleSub === null) && rows.some(r => r.email === 'web@gmail.com' && r.googleSub === null), `rows ${show(rows)}`);
     assert(rows.every(r => r.telegramId === null && r.whatsappPhone === null && r.bannedBy === ADMIN && r.bannedReason === 'spam'), `rows ${show(rows)}`);
     assert(user(W).sessionsValidAfter instanceof Date && user(T).sessionsValidAfter === null && user(V).sessionsValidAfter === null, 'not only W was signed out');
-    assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com')].sort()), `keys ${show(blockedKeys())}`);
+    assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com'), mailKey('web@gmail.com')].sort()), `keys ${show(blockedKeys())}`);
     assert(logs.includes(`[Moderation] Admin ${ADMIN} banned user ${W}: google, email`), `logs ${show(logs)}`);
   });
 
@@ -119,8 +149,9 @@ async function main() {
     for (const key of blockedKeys()) redisStore.delete(key);
     assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050' })) === true, 'the Google account');
     assert((await moderation.isIdentifierBlocked({ email: 'web@example.com' })) === true, 'the address');
+    assert((await moderation.isIdentifierBlocked({ email: 'web@gmail.com' })) === true, 'the Google way\'s address');
     assert((await moderation.isIdentifierBlocked({ googleSub: 'g-other', email: 'other@example.com' })) === false, 'others');
-    assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com')].sort()), `primed ${show(blockedKeys())}`);
+    assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com'), mailKey('web@gmail.com')].sort()), `primed ${show(blockedKeys())}`);
   });
 
   await check('#4 signInRefusal reads the account\'s ways: a bare ban of an address, or of a Google account, signs out the account that holds it and refuses it; finishSignIn answers blocked with no session cookie', async () => {
@@ -146,6 +177,11 @@ async function main() {
     assert((await signInRefusal(user(V))) === null && (await signInRefusal(user(T))) === null, 'an unrelated account was refused');
     const res = await finishSignIn(user(W), 'google', { respond: 'json' });
     assert(res.status === 403 && show(await body(res)) === show({ ok: false, status: 'blocked' }), `finishSignIn ${res.status}`);
+    // The converse (M4): a ban of the account by its database id records the Google way's address, so Add email for it is refused
+    seed();
+    await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    const added = await addEmailAs('Web@Gmail.com');
+    assert(added.status === 403 && added.body.error === 'blocked' && !DB.signInIdentity.some(i => i.userId === Q && i.kind === 'email'), `Add email for the banned Google address ${added.status} ${show(added.body)}`);
   });
 
   await check('#5 an unban by the account clears its rows and keys and lets it sign in; an unban by one entry\'s id clears that entry only; an unknown entry is NOT_FOUND; the logs name the user or the entry and the kinds', async () => {
@@ -154,8 +190,8 @@ async function main() {
     await moderation.banIdentifier({ userId: T }, ADMIN, null);
     const off = await moderation.unbanIdentifier({ userId: W }, ADMIN);
     assert(show(off) === show({ kinds: ['google', 'email'] }), `kinds ${show(off)}`);
-    assert(blockedCount() === 3 && !DB.blockedIdentifier.some(r => r.googleSub === 'g-web-0050' || r.email === 'web@example.com'), `rows ${show(DB.blockedIdentifier)}`);
-    assert(!blockedKeys().includes('blocked:google:g-web-0050') && !blockedKeys().includes(mailKey('web@example.com')), `keys ${show(blockedKeys())}`);
+    assert(blockedCount() === 3 && !DB.blockedIdentifier.some(r => r.googleSub === 'g-web-0050' || r.email === 'web@example.com' || r.email === 'web@gmail.com'), `rows ${show(DB.blockedIdentifier)}`);
+    assert(!blockedKeys().includes('blocked:google:g-web-0050') && !blockedKeys().includes(mailKey('web@example.com')) && !blockedKeys().includes(mailKey('web@gmail.com')), `keys ${show(blockedKeys())}`);
     assert((await signInRefusal(user(W))) === null, 'W is still refused');
     const phoneRow = DB.blockedIdentifier.find(r => r.whatsappPhone === T_PHONE) as Row;
     const one = await moderation.unbanIdentifier({ entryId: phoneRow.id }, ADMIN);
@@ -169,6 +205,13 @@ async function main() {
     }
     assert(missing instanceof moderation.BanTargetError && (missing as Row).code === 'NOT_FOUND', `an unknown entry: ${show(missing)}`);
     assert(logs.includes(`[Moderation] Admin ${ADMIN} unbanned user ${W}: google, email`) && logs.includes(`[Moderation] Admin ${ADMIN} unbanned entry ${phoneRow.id}: whatsapp`), `logs ${show(logs)}`);
+    // The Google way's address row is its own entry: an unban by its id clears it and its key only
+    seed();
+    await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    const addressRow = DB.blockedIdentifier.find(r => r.email === 'web@gmail.com') as Row;
+    const addressOnly = await moderation.unbanIdentifier({ entryId: addressRow.id }, ADMIN);
+    assert(show(addressOnly) === show({ kinds: ['email'] }) && blockedCount() === 2 && !DB.blockedIdentifier.some(r => r.email === 'web@gmail.com'), `address entry ${show(addressOnly)} ${show(DB.blockedIdentifier)}`);
+    assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com')].sort()), `keys ${show(blockedKeys())}`);
   });
 
   await check('#6 the list: each entry\'s kind and how it is shown (the Telegram id and the number in full, a Google account by the last 4 of its id, an address masked), and never the Google id or the address itself', async () => {
@@ -177,10 +220,10 @@ async function main() {
     await moderation.banIdentifier({ userId: T }, ADMIN, null);
     const list: Row[] = await moderation.listBlockedIdentifiers();
     const shown = list.map(e => `${e.kind}:${e.shown}`).sort();
-    const want = [`email:${maskEmail('t@example.com')}`, `email:${maskEmail('web@example.com')}`, 'google:•••0050', `telegram:${T_TG}`, `whatsapp:${T_PHONE}`].sort();
+    const want = [`email:${maskEmail('t@example.com')}`, `email:${maskEmail('web@example.com')}`, `email:${maskEmail('web@gmail.com')}`, 'google:•••0050', `telegram:${T_TG}`, `whatsapp:${T_PHONE}`].sort();
     assert(show(shown) === show(want), `shown ${show(shown)}`);
     const text = show(list);
-    assert(!text.includes('g-web-0050') && !text.includes('web@example.com') && !text.includes('t@example.com'), `the list holds an identifier: ${text}`);
+    assert(!text.includes('g-web-0050') && !text.includes('web@example.com') && !text.includes('web@gmail.com') && !text.includes('t@example.com'), `the list holds an identifier: ${text}`);
     assert(list.every(e => Object.keys(e).sort().join() === 'bannedBy,bannedReason,createdAt,id,kind,shown'), `entry fields ${show(list.map(e => Object.keys(e)))}`);
   });
 
@@ -189,17 +232,72 @@ async function main() {
     const own = await post({ action: 'ban', user_id: ADMIN, reason: 'oops' });
     assert(own.status === 400 && own.body.error === 'SELF_BAN' && blockedCount() === 0, `own ${own.status} ${show(own.body)}`);
     const web = await post({ action: 'ban', user_id: W, reason: 'spam' });
-    assert(web.status === 200 && web.body.success === true && show(web.body.kinds) === show(['google', 'email']) && blockedCount() === 2, `web ${web.status} ${show(web.body)}`);
+    assert(web.status === 200 && web.body.success === true && show(web.body.kinds) === show(['google', 'email']) && blockedCount() === 3, `web ${web.status} ${show(web.body)}`);
     const nobody = await post({ action: 'ban', user_id: 4242 });
     assert(nobody.status === 404 && nobody.body.error === 'NOT_FOUND', `nobody ${nobody.status} ${show(nobody.body)}`);
     const listed = await blocklistRoute.GET(request('/api/admin/users/blocklist', { initData: adminInit }));
     const entries = (await body(listed)).blocklist as Row[];
-    assert(listed.status === 200 && show(entries.map(e => e.kind).sort()) === show(['email', 'google']) && !show(entries).includes('g-web-0050') && !show(entries).includes('web@example.com'), `GET ${show(entries)}`);
+    assert(listed.status === 200 && show(entries.map(e => e.kind).sort()) === show(['email', 'email', 'google']) && !show(entries).includes('g-web-0050') && !show(entries).includes('web@example.com') && !show(entries).includes('web@gmail.com'), `GET ${show(entries)}`);
     const google = entries.find(e => e.kind === 'google') as Row;
     const unban = await post({ action: 'unban', entryId: google.id });
-    assert(unban.status === 200 && blockedCount() === 1 && DB.blockedIdentifier[0].email === 'web@example.com', `unban ${unban.status} ${show(DB.blockedIdentifier)}`);
+    assert(unban.status === 200 && blockedCount() === 2 && DB.blockedIdentifier.every(r => r.email !== null), `unban ${unban.status} ${show(DB.blockedIdentifier)}`);
     const none = await post({ action: 'ban' });
     assert(none.status === 400 && none.body.error !== 'SELF_BAN', `no target ${none.status} ${show(none.body)}`);
+  });
+
+  await check('#7b [M4] a ban of a Google-only account records the Google way\'s address (normalised) as an email row too: kinds google and email, a googleSub row and a solo@gmail.com row, its cache key primed, and isIdentifierBlocked answers for the address', async () => {
+    seed();
+    const result = await moderation.banIdentifier({ userId: G }, ADMIN, 'abuse');
+    assert(show(result) === show({ kinds: ['google', 'email'] }), `kinds ${show(result)}`);
+    const rows = DB.blockedIdentifier;
+    assert(rows.length === 2 && rows.some(r => r.googleSub === 'g-solo-0090' && r.email === null) && rows.some(r => r.email === 'solo@gmail.com' && r.googleSub === null), `rows ${show(rows)}`);
+    assert(rows.every(r => r.bannedBy === ADMIN && r.bannedReason === 'abuse'), `rows ${show(rows)}`);
+    assert(show(blockedKeys()) === show(['blocked:google:g-solo-0090', mailKey('solo@gmail.com')].sort()), `keys ${show(blockedKeys())}`);
+    assert((await moderation.isIdentifierBlocked({ email: 'solo@gmail.com' })) === true, 'the address');
+    assert(logs.includes(`[Moderation] Admin ${ADMIN} banned user ${G}: google, email`), `logs ${show(logs)}`);
+  });
+
+  await check('#7c [M4] after the banned Google-only account is deleted, its address gets no sign-up code and the sign-up with it answers blocked and makes no account', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: G }, ADMIN, null);
+    hardDelete(G);
+    process.env.TURNSTILE_SITE_KEY = '1x00000000000000000000AA';
+    process.env.TURNSTILE_SECRET = 'smoke-ban-turnstile-secret-0001';
+    try {
+      const requestRoute = await load('app/api/auth/email/request/route.ts');
+      const signupRoute = await load('app/api/auth/signup/route.ts');
+      const mailsBefore = mails.length;
+      const asked = await requestRoute.POST(request('/api/auth/email/request', { body: { email: ' Solo@Gmail.com ', locale: 'en', token: TURNSTILE_TOKEN } }));
+      await drainAfter();
+      assert(asked.status === 200 && mails.length === mailsBefore, `the code request ${asked.status}, ${mails.length - mailsBefore} mail(s) sent`);
+      // A new Google account with the same address (its own sub is not banned): the address stops it
+      const cookie = await flowCookie({ kind: 'signup', way: 'google', subject: 'g-solo-new', address: 'Solo@Gmail.com', locale: 'en' });
+      const usersBefore = DB.user.length;
+      const signedUp = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Gina' }, cookie }));
+      assert(signedUp.status === 403 && show(await body(signedUp)) === show({ ok: false, status: 'blocked' }) && DB.user.length === usersBefore, `sign-up ${signedUp.status} users ${usersBefore} -> ${DB.user.length}`);
+    } finally {
+      delete process.env.TURNSTILE_SITE_KEY;
+      delete process.env.TURNSTILE_SECRET;
+    }
+  });
+
+  await check('#7e [M4] after the banned Google-only account is deleted, Add email for its address answers 403 blocked with no way and no notice', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: G }, ADMIN, null);
+    hardDelete(G);
+    const sentBefore = sent.length;
+    const added = await addEmailAs('Solo@Gmail.com');
+    assert(added.status === 403 && added.body.error === 'blocked' && !DB.signInIdentity.some(i => i.userId === Q && i.kind === 'email') && sent.length === sentBefore, `Add email ${added.status} ${show(added.body)}`);
+  });
+
+  await check('#7d [M4] the same address on the Google way and the email way is one email row, not two; a stored Google address FamCal can\'t keep (a non-ASCII local part) adds no row and the ban still succeeds', async () => {
+    seed();
+    const same = await moderation.banIdentifier({ userId: E }, ADMIN, null);
+    assert(show(same) === show({ kinds: ['google', 'email'] }) && blockedCount() === 2 && DB.blockedIdentifier.filter(r => r.email === 'dup@example.com').length === 1, `same address ${show(same)} ${show(DB.blockedIdentifier)}`);
+    seed();
+    const odd = await moderation.banIdentifier({ userId: N }, ADMIN, null);
+    assert(show(odd) === show({ kinds: ['google'] }) && blockedCount() === 1 && DB.blockedIdentifier[0].googleSub === 'g-nonascii-0092' && DB.blockedIdentifier[0].email === null, `non-ASCII ${show(odd)} ${show(DB.blockedIdentifier)}`);
+    assert(show(blockedKeys()) === show(['blocked:google:g-nonascii-0092']), `keys ${show(blockedKeys())}`);
   });
 
   await check('#8 the users list carries hasChat (false for an account with no Telegram and no WhatsApp), reachLabel words a row Web, WhatsApp or nothing, and the new admin words exist in en, he and ru', async () => {

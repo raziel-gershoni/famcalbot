@@ -2,8 +2,9 @@
  * Admin user-moderation helpers
  * - Suspend / unsuspend a user (soft, reversible)
  * - Hard delete a user and all related rows
- * - Ban / unban an account's identifiers: Telegram id, WhatsApp number, Google account id, sign-in address (a
- *   persistent blocklist; survives hard delete). No log line here holds an identifier: the user id and the kinds only.
+ * - Ban / unban an account's identifiers: Telegram id, WhatsApp number, Google account id, sign-in address and the
+ *   address of its Google way (a persistent blocklist; survives hard delete). No log line here holds an identifier: the
+ *   user id and the kinds only.
  */
 
 import type { BlockedIdentifier, Prisma } from '@prisma/client';
@@ -13,7 +14,7 @@ import { REDIS_KEYS, subscriptionReminderKeys } from '../config/redis-keys';
 import { invalidateFeatureAccessCache } from '../services/subscription-service';
 import { removeUserFromCache } from '../services/reminder-cache';
 import { setupTrackKeys } from '../services/setup-tracks';
-import { emailKey, maskEmail } from '../services/web-signin/email-address';
+import { emailKey, maskEmail, normalizeEmail } from '../services/web-signin/email-address';
 import { captureError } from './error-capture';
 import { readStoredToken } from '../utils/encryption';
 
@@ -250,13 +251,16 @@ export async function clearDeletedUserCaches(userId: number, extraKeys: string[]
 
 /**
  * The identifiers a ban names, one row each (web sign-up spec §2.8, §3.8): a Telegram id, a WhatsApp number, a Google
- * account id (`sub`) and a sign-in address (normalizeEmail's form). Any may be absent.
+ * account id (`sub`), a sign-in address and the address of the account's Google way (both in normalizeEmail's form,
+ * and both recorded in the `email` column). Any may be absent.
  */
 export interface BlockArgs {
   telegramId?: number | bigint | null;
   whatsappPhone?: string | null;
   googleSub?: string | null;
   email?: string | null;
+  /** The normalised address of the Google way (spec §10): an `email` row too, and the same kind. */
+  googleAddress?: string | null;
 }
 
 /** The blocklist rows that name any of them. */
@@ -266,6 +270,7 @@ function blockFilters(args: BlockArgs): Prisma.BlockedIdentifierWhereInput[] {
   if (args.whatsappPhone) filters.push({ whatsappPhone: args.whatsappPhone });
   if (args.googleSub) filters.push({ googleSub: args.googleSub });
   if (args.email) filters.push({ email: args.email });
+  if (args.googleAddress) filters.push({ email: args.googleAddress });
   return filters;
 }
 
@@ -290,6 +295,8 @@ function blockCacheKeys(args: BlockArgs): string[] {
   if (args.googleSub) keys.push(REDIS_KEYS.blockedGoogleSub(args.googleSub));
   const mailKey = args.email ? emailCacheKey(args.email) : null;
   if (mailKey) keys.push(mailKey);
+  const googleMailKey = args.googleAddress ? emailCacheKey(args.googleAddress) : null;
+  if (googleMailKey) keys.push(googleMailKey);
   return keys;
 }
 
@@ -344,20 +351,28 @@ function kindsOf(args: BlockArgs): BlockKind[] {
   if (args.telegramId) kinds.push('telegram');
   if (args.whatsappPhone) kinds.push('whatsapp');
   if (args.googleSub) kinds.push('google');
-  if (args.email) kinds.push('email');
+  if (args.email || args.googleAddress) kinds.push('email');
   return kinds;
 }
 
 /**
- * Everything an account signs in with: its Telegram id, its WhatsApp number, and its Google account id and sign-in
- * address (accountWays). The blocklist holds no BSUID, as before.
+ * Everything an account signs in with: its Telegram id, its WhatsApp number, and its Google account id, sign-in address
+ * and the address Google verified for its Google way (accountWays; null when it equals the sign-in address, so one row,
+ * or when normalizeEmail can't keep it, so none and the ban still goes through). The blocklist holds no BSUID, as before.
  */
 async function identifiersOf(userId: number): Promise<BlockArgs> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { telegramId: true, whatsappPhone: true } });
   if (!user) throw new BanTargetError('NOT_FOUND');
   const { accountWays } = await import('../services/web-signin/identities');
   const ways = await accountWays(userId);
-  return { telegramId: user.telegramId, whatsappPhone: user.whatsappPhone, googleSub: ways.googleSub, email: ways.email };
+  const google = normalizeEmail(ways.googleAddress);
+  return {
+    telegramId: user.telegramId,
+    whatsappPhone: user.whatsappPhone,
+    googleSub: ways.googleSub,
+    email: ways.email,
+    googleAddress: google && google !== ways.email ? google : null,
+  };
 }
 
 /**
@@ -396,6 +411,10 @@ export async function banIdentifier(
   }
   if (args.email) {
     const email = args.email;
+    ops.push(prisma.blockedIdentifier.upsert({ where: { email }, update: record, create: { email, ...record } }));
+  }
+  if (args.googleAddress) {
+    const email = args.googleAddress;
     ops.push(prisma.blockedIdentifier.upsert({ where: { email }, update: record, create: { email, ...record } }));
   }
   for (const key of blockCacheKeys(args)) ops.push(redis.set(key, '1', { ex: BLOCK_CACHE_TTL }));
