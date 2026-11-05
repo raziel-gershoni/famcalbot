@@ -34,10 +34,15 @@ function render(m: PushMessage, title: string, body: string): string {
   });
 }
 
-/** The longest start of `text` (whole characters, then "…") that `fits`; the text itself when it fits whole. */
+const graphemes = new Intl.Segmenter('und', { granularity: 'grapheme' });
+
+/**
+ * The longest start of `text` (whole user-perceived characters, then "…") that `fits`; the text itself when it fits
+ * whole. A grapheme keeps a Hebrew letter with its niqqud, an emoji with its ZWJ joins and a flag with both halves.
+ */
 function cut(text: string, fits: (candidate: string) => boolean): string {
   if (fits(text)) return text;
-  const chars = Array.from(text);
+  const chars = Array.from(graphemes.segment(text), (part) => part.segment);
   const withEllipsis = (n: number) => `${chars.slice(0, n).join('').trimEnd()}${ELLIPSIS}`;
   let lo = 0;
   let hi = chars.length - 1;

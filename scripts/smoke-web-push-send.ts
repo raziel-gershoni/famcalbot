@@ -3,7 +3,7 @@
 //
 // What it pins:
 //   - the payload: Apple's declarative JSON for every browser (web_push 8030, title, body, navigate, lang, dir, tag,
-//     silent), at most 2048 bytes of UTF-8, a long title then the body cut with "…" (never half a character); the Topic,
+//     silent), at most 2048 bytes of UTF-8, a long title then the body cut with "…" (never half a character, or inside a niqqud, ZWJ or flag cluster); the Topic,
 //     32 base64url characters of a SHA-256 of the tag, carrying no tag text;
 //   - the lifetime (TTL): the kind's own, an alert's event start, and for a scheduled kind the next Shabbat or Yom Tov
 //     window (asked of nextPauseStart, and only for those kinds), never above a day, never below a second;
@@ -15,6 +15,8 @@
 //     once a day per device;
 //   - push off (no keys) and no devices send nothing; a device whose stored key the library refuses is skipped and
 //     reported while the others go; a failed device read is retriable; it never throws; one log line per send;
+//   - onlyEndpoint (ruling R1): a send for one endpoint reaches that device alone, an unknown endpoint nobody;
+//   - the push POST never follows a redirect (a 3xx is refused and reported, not sent on to another host);
 //   - no console line or Sentry field holds an endpoint, a key, the title or the body;
 //   - the code: no sendNotification, no setVapidDetails, no Google retry policy; web-push and its types pinned exact;
 //     CLAUDE.md's two retry rules and fetch-retry.ts's header send every push service, FCM included, through fetchWithRetry.
@@ -78,7 +80,7 @@ const pauseAsks: { userId: number; from: string; withinMs: number }[] = [];
 let pauseAnswer: Date | null = null;
 type Answer = number | Error | { status: number; retryAfter: string };
 const answers = new Map<string, Answer[]>();
-const pushes: { url: string; method: string; headers: Headers; body: Buffer }[] = [];
+const pushes: { url: string; method: string; redirect: string | undefined; headers: Headers; body: Buffer }[] = [];
 const pushesTo = (url: string) => pushes.filter((p) => p.url === url);
 /** A length read through a call: the world is changed by reset() and the sends, which TypeScript's narrowing of `x.length` cannot see. */
 const count = (list: unknown[]) => list.length;
@@ -122,7 +124,7 @@ async function main() {
   // The push services: each endpoint answers from its queue (default 201), and every request is kept
   globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
     const url = String(input);
-    pushes.push({ url, method: String(init.method), headers: new Headers(init.headers), body: Buffer.from((init.body ?? new Uint8Array()) as Uint8Array) });
+    pushes.push({ url, method: String(init.method), redirect: init.redirect, headers: new Headers(init.headers), body: Buffer.from((init.body ?? new Uint8Array()) as Uint8Array) });
     const next = answers.get(url)?.shift() ?? 201;
     if (next instanceof Error) throw next;
     const { status, retryAfter } = typeof next === 'number' ? { status: next, retryAfter: undefined } : next;
@@ -175,6 +177,21 @@ async function main() {
       if (title === 'היום') assert(n.title === 'היום' && n.body.endsWith('…'), `${label}: ${show(n)}`);
       if (body.length > 100 && title.length > 100) assert(bytes(JSON.stringify(n.title)) - 2 >= Math.floor(room / 2) - 8, `${label}: the title fell below half the room (${bytes(n.title)} of ${room})`);
     }
+    // A cut lands only between whole user-perceived characters: a Hebrew letter keeps its niqqud, an emoji its ZWJ joins, a flag both halves
+    const seg = new Intl.Segmenter('und', { granularity: 'grapheme' });
+    const clusters: [string, string][] = [['pointed Hebrew', 'שָׁ'], ['a ZWJ family emoji', '👨\u200D👩\u200D👧'], ['a flag', '🇮🇱']];
+    for (const [label, unit] of clusters) {
+      for (let pad = 0; pad < 6; pad++) {
+        const title = 'x'.repeat(pad) + unit.repeat(900);
+        const cutTitle = JSON.parse(payload.buildPushPayload({ ...MESSAGE, title, body: 'x' })).notification.title as string;
+        assert(cutTitle.endsWith('…'), `${label} pad ${pad}: not cut with "…"`);
+        const kept = cutTitle.slice(0, -1);
+        const boundaries = new Set<number>([0]);
+        let at = 0;
+        for (const part of seg.segment(title)) { at += part.segment.length; boundaries.add(at); }
+        assert(title.startsWith(kept) && boundaries.has(kept.length), `${label} pad ${pad}: the cut falls inside a character (kept ${kept.length} code units)`);
+      }
+    }
     const topic = payload.topicFor('nr-clx7stateid');
     assert(/^[A-Za-z0-9_-]{32}$/.test(topic) && topic === payload.topicFor('nr-clx7stateid') && topic !== payload.topicFor('nr-clx7stateie'), `topic ${topic}`);
     assert(topic === crypto.createHash('sha256').update('nr-clx7stateid').digest('base64url').slice(0, 32), 'not the SHA-256 of the tag');
@@ -211,6 +228,7 @@ async function main() {
     for (const push of pushes) {
       const h = push.headers;
       assert(push.method === 'POST', `method ${push.method}`);
+      assert(push.redirect === 'manual', `redirect ${push.redirect}: a push service's 3xx must not be followed (the allow-list covers only the first hop)`);
       assert(h.get('ttl') === '3600' && h.get('urgency') === 'high' && h.get('topic') === payload.topicFor(MESSAGE.tag), `headers ${show([...h.keys()])} ttl ${h.get('ttl')} urgency ${h.get('urgency')}`);
       assert(h.get('content-encoding') === 'aes128gcm' && h.get('content-type') === 'application/octet-stream' && !h.has('content-length'), `encoding headers ${show([...h.entries()].filter(([k]) => k !== 'authorization'))}`);
       assert(decrypt(push) === want, 'the body does not decrypt to the payload');
@@ -255,6 +273,13 @@ async function main() {
       assert(show(await send.sendWebPush(USER, MESSAGE, T0)) === show({ sent: 0, total: 1, retriable: false }) && count(pushes) === 1 && count(gone) === 0, `${status}`);
       assert(count(captured) === 1 && captured[0].context === 'push-send' && captured[0].extra.status === status && captured[0].extra.device_id === 'dev-fcm', `${status} reported: ${show(captured)}`);
     }
+    for (const status of [307, 308]) {
+      reset();
+      devices = [D1];
+      answers.set(FCM, [status]);
+      assert(show(await send.sendWebPush(USER, MESSAGE, T0)) === show({ sent: 0, total: 1, retriable: false }) && count(pushes) === 1 && count(gone) === 0, `a ${status} redirect is refused, not followed or retried`);
+      assert(count(captured) === 1 && captured[0].extra.status === status, `${status} reported: ${show(captured)}`);
+    }
     reset();
     devices = [D1];
     answers.set(FCM, [401, 403, 401]);
@@ -297,6 +322,22 @@ async function main() {
     readFails = true;
     assert(show(await send.sendWebPush(USER, MESSAGE, T0)) === show({ sent: 0, total: 0, retriable: true }) && pushes.length === 0, 'a failed read');
     assert(logs.includes('[push] user 7: reminder not sent: PrismaClientUnknownRequestError') && captured.some((c) => c.context === 'push-send' && c.extra.user_id === 7), `read failure ${show(logs)} ${show(captured)}`);
+  });
+
+  await check('W9 onlyEndpoint (ruling R1): a send for one endpoint goes to that device alone (one POST, "sent to 1 of 1 devices"); an endpoint the account does not hold sends nothing ("0 of 0", no push, no TTL work); without it every device gets it', async () => {
+    reset();
+    const one = await send.sendWebPush(USER, { ...MESSAGE, kind: 'test', onlyEndpoint: APPLE }, T0);
+    assert(show(one) === show({ sent: 1, total: 1, retriable: false }), `result ${show(one)}`);
+    assert(count(pushes) === 1 && count(pushesTo(APPLE)) === 1 && count(pushesTo(FCM)) === 0, `pushes ${show(pushes.map((p) => p.url.slice(0, 30)))}`);
+    assert(decrypt(pushes[0]) === payload.buildPushPayload({ ...MESSAGE, kind: 'test' }), 'the body does not decrypt to the payload');
+    assert(show(sendLines()) === show(['[push] user 7: test sent to 1 of 1 devices']), `log ${show(logs)}`);
+    reset();
+    const none = await send.sendWebPush(USER, { ...MESSAGE, kind: 'test', onlyEndpoint: `${FCM}-other` }, T0);
+    assert(show(none) === show({ sent: 0, total: 0, retriable: false }) && count(pushes) === 0, `unknown endpoint: ${show(none)}, ${count(pushes)} pushes`);
+    assert(show(sendLines()) === show(['[push] user 7: test sent to 0 of 0 devices']), `log ${show(logs)}`);
+    reset();
+    const all = await send.sendWebPush(USER, { ...MESSAGE, kind: 'test' }, T0);
+    assert(show(all) === show({ sent: 2, total: 2, retriable: false }) && count(pushes) === 2, `without onlyEndpoint: ${show(all)}`);
   });
 
   await check('W7 the code and the rules: send.ts builds with generateRequestDetails and sends with fetchWithRetry (never sendNotification, never the Google policy); web-push 3.6.7 and @types/web-push 3.6.4 pinned exact; CLAUDE.md\'s Google rule and third-party rule, and fetch-retry.ts\'s header, send every push service, FCM included, through fetchWithRetry', () => {

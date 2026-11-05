@@ -168,7 +168,9 @@ async function sendToDevice(
   try {
     const response = await fetchWithRetry(
       request.endpoint,
-      { method: 'POST', headers: request.headers, body: request.body ? new Uint8Array(request.body) : undefined },
+      // redirect 'manual': a 3xx comes back as a status (refused below), never a second POST of the encrypted body to
+      // a host the PUSH_SERVICE_HOSTS list never saw (web-push's own sender follows no redirect either)
+      { method: 'POST', headers: request.headers, body: request.body ? new Uint8Array(request.body) : undefined, redirect: 'manual' },
       {
         label: who,
         // A refusal is told below; a give-up of 429, 5xx or no answer is told here
