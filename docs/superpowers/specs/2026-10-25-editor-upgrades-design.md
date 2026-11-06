@@ -1,5 +1,7 @@
 # Editor upgrades: pickers, alerts, repeats, drag to move
 
+Status: shipped 2026-10-25 (the pickers 7c1db0e8..cdbefee1, the alert row 1509462d, the repeat sheet 129bed5b, drag to move 61121ba2..2021aa84; the spec's as-built notes 2ffddd50, 121b5457).
+
 Approved by the owner, 2026-10-25. Four owner-approved parts, built and shipped in this order, each
 on its own (part 3's "until" uses part 1's picker).
 

@@ -19,14 +19,14 @@ Multi-platform messaging support for Telegram, WhatsApp, and future platforms.
 ┌───▼────────┐    ┌──────▼──────┐
 │  Telegram  │    │  WhatsApp   │
 │  Adapter   │    │  Adapter    │
-│  (Ready)   │    │ (Skeleton)  │
+│  (Live)    │    │  (Live)     │
 └────────────┘    └─────────────┘
 ```
 
 ## Current Status
 
 ✅ **Telegram Adapter** - Fully functional, wraps existing `node-telegram-bot-api`
-🚧 **WhatsApp Adapter** - Skeleton implementation, ready for Cloud API integration
+✅ **WhatsApp Adapter** - Fully functional on the WhatsApp Business Cloud API: text (HTML converted to Markdown), interactive reply buttons and lists, template messages for proactive sends (`whatsapp-template.ts`), voice, photos, typing indicator and media download
 
 ## Usage
 
@@ -104,15 +104,9 @@ await telegramService.sendMessage(chatId, html, { format: MessageFormat.HTML });
 await whatsappService.sendMessage(chatId, html, { format: MessageFormat.HTML });
 ```
 
-## Adding WhatsApp Support
+## WhatsApp setup
 
-### 1. Setup WhatsApp Business
-
-1. Create Facebook Business account
-2. Set up WhatsApp Business API
-3. Get Access Token and Phone Number ID
-
-### 2. Configure Environment
+The adapter is built by `getWhatsAppService()` from two environment variables (see the README for the full setup):
 
 ```bash
 # .env
@@ -120,14 +114,7 @@ WHATSAPP_ACCESS_TOKEN=your_token_here
 WHATSAPP_PHONE_NUMBER_ID=your_phone_id_here
 ```
 
-### 3. Implement WhatsApp Adapter
-
-Complete the TODOs in `whatsapp-adapter.ts`:
-- `sendMessage()` - Use WhatsApp Cloud API
-- `sendVoice()` - Upload media, send audio message
-- Test command parsing
-
-### 4. Update Webhook
+### Webhook
 
 ```typescript
 // api/webhook.ts
@@ -147,19 +134,11 @@ export default async function handler(req, res) {
 ### Phase 1: Foundation (✅ COMPLETE)
 - Created abstraction layer
 - Telegram adapter working
-- WhatsApp skeleton ready
 
-### Phase 2: Integration (Next Step)
-- Refactor existing handlers to use `IMessagingService`
-- Update webhook for multi-platform routing
-- Test Telegram with new abstraction
+### Phase 2: WhatsApp (✅ COMPLETE)
+- WhatsApp adapter live, webhook routing for both platforms
 
-### Phase 3: WhatsApp Implementation
-- Complete WhatsApp adapter
-- Set up WhatsApp Business account
-- Test end-to-end
-
-### Phase 4: Future Platforms
+### Phase 3: Future Platforms
 - Discord adapter
 - Slack adapter
 - SMS adapter (Twilio)
@@ -219,8 +198,9 @@ assert(mock.messages.length === 1);
 ```
 src/services/messaging/
 ├── types.ts           - Interface & type definitions
-├── telegram-adapter.ts - Telegram implementation (✅ Ready)
-├── whatsapp-adapter.ts - WhatsApp skeleton (🚧 TODO)
+├── telegram-adapter.ts - Telegram implementation (✅ Live)
+├── whatsapp-adapter.ts - WhatsApp Cloud API implementation (✅ Live)
+├── whatsapp-template.ts - Template messages for proactive sends
 ├── factory.ts         - Service factory & platform detection
 ├── index.ts           - Exports
 └── README.md          - This file

@@ -1,9 +1,8 @@
 /**
- * WhatsApp Messaging Adapter (Skeleton)
- * Implements IMessagingService for WhatsApp Business Cloud API
- *
- * TODO: Implement when WhatsApp integration is needed
- * Requires: WhatsApp Business account, phone number verification, API tokens
+ * WhatsApp Messaging Adapter
+ * Implements IMessagingService for the WhatsApp Business Cloud API (live): text with Markdown conversion, interactive
+ * reply buttons and lists, template messages for proactive sends, voice, photos, the typing indicator, media download.
+ * Built by getWhatsAppService() (factory.ts) from WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID.
  */
 
 import {

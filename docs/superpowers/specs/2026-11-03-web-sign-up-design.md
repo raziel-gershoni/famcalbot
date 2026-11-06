@@ -1,6 +1,6 @@
 # Web sign-up and FamCal in the browser (item 6c-1)
 
-Status: draft for the owner's approval, 2026-11-04. Item 6c is FamCal with no messenger, in two steps:
+Status: shipped 2026-11-04 (main daa187aa); approved by the owner. Item 6c is FamCal with no messenger, in two steps:
 - **6c-1, this spec:** sign up on famcal.bot and use FamCal fully in the browser, with no notifications.
 - **6c-2:** web push notifications.
 

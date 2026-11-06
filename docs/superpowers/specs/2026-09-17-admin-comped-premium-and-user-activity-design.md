@@ -217,8 +217,9 @@ is a separate decision and is not made here.
 
 ## 10. Out of scope, flagged
 
-`app/api/admin/analytics/route.ts:37-52` has an auth bypass: the initData check
-is `if (initData && !verifyUserAccess(...))`, so a request with no initData
-skips verification entirely and needs only a known admin Telegram ID. The same
-pattern appears at `app/api/subscription/upgrade/route.ts:55`. Unrelated to this
-work; reported, not fixed.
+`app/api/admin/analytics/route.ts:37-52` had an auth bypass: the initData check
+was `if (initData && !verifyUserAccess(...))`, so a request with no initData
+skipped verification entirely and needed only a known admin Telegram ID. The same
+pattern was at `app/api/subscription/upgrade/route.ts:55`. Unrelated to this
+work; reported then, and fixed the same day in fd7581d0 (2026-09-17): both
+routes now verify unconditionally.

@@ -1,5 +1,7 @@
 # Hebrew anniversary count
 
+Status: shipped 2026-10-25 (the helper adac33e9, the home and the editor c8dc87c2, the summary prompts 125654ee).
+
 A NativeEvent with `hebrewRule = 'anniversary'` repeats every year on its anchor's Hebrew date.
 This adds the count CalBrew showed ("Dana's birthday (35)"): how many Hebrew years this
 occurrence is after the original one. Owner-approved 2026-10-25.

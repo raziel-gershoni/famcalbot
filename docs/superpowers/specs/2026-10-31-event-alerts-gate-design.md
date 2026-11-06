@@ -1,5 +1,7 @@
 # Event alerts gate: an idle 5-minute pass reads no database (design, 2026-10-31)
 
+Status: shipped 2026-10-31 (the gate 9d9e2dd2 and the shared pass gate bf8cafbf, the writers table a11706bd, then the follow-ups ddcda175, 915651e3, 36ceecd7, 0b37fc4e, 49f4957b).
+
 **Owner, 2026-10-31:** Neon emailed that FamCal had used 80.4 of its 100 free compute-hours; at 100% Neon suspends the database until the next period, so FamCal would be down. The owner chose "Neon 1" (fix the code, stay on the free plan) and "don't wait for me on neon approval. proceed. it is urgent". Both extra wakers below (the :00 ceiling and the feature-access expiry) are included.
 
 **Cause:** the every-5-minutes event-alerts pass reads the database for every cached user on every run since 2026-10-20 (04eff976, b0433631), undoing 86fb7b82 (Feb 2026, Redis-only for Neon auto-suspend). Neon suspends only after 5 minutes with no query, so it never slept (~6 CU-hours a day at 0.25 CU).

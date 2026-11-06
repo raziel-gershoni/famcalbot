@@ -13,7 +13,7 @@ The owner, 2026-11-05:
 2. **What:** reminders when due, event alerts, the morning and evening briefing as a short line built from the day's items (no AI), the partner notices (an invite accepted, a shared reminder marked Done) and the Google reconnect message. A tap opens the app.
 3. **No buttons:** no Done or Snooze on a notification, on any device. A tap opens the home, where a due reminder has its Done (the Still open card).
 
-My rulings, for the owner to confirm or change:
+My rulings, which the owner approved on 2026-11-06:
 
 4. **The lock screen shows what Telegram's notification shows:** a reminder's or event's title and an event's place. The phone's own setting decides whether previews show there.
 5. **A day with nothing on it sends no briefing** (one log line), so FamCal doesn't buzz to say there is nothing.
