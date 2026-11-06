@@ -22,6 +22,7 @@ import { fromZonedTime } from 'date-fns-tz';
 import { startOfLocalDay } from '../src/utils/day-events';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
+import { generateVAPIDKeys } from 'web-push';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -47,6 +48,11 @@ const show = (value: unknown) => JSON.stringify(value, (_key, v) => (typeof v ==
 function assertSame(got: unknown, want: unknown) {
   assert(show(got) === show(want), `\n     got  ${show(got)}\n     want ${show(want)}`);
 }
+
+// Browser notifications on (src/services/web-push/config.ts reads both keys); the sender itself is faked below.
+const vapid = generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
+process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
 
 // ---- Clock: every argument-less new Date() and Date.now() reads `clock` ----
 
@@ -345,6 +351,19 @@ const telegramError = (status: number, description: string) =>
 /** No answer at all. */
 const networkError = () => Object.assign(new Error('EFATAL: Error: socket hang up'), { code: 'EFATAL' });
 
+// ---- Fake web push (src/services/web-push/send.ts) ----
+
+type Pushed = { at: number; userId: number; kind: string; title: string; body: string; url: string; tag: string; lang: string; taken: boolean };
+/** Every sendWebPush call, taken by a device or not. */
+let pushes: Pushed[] = [];
+/** What the next sendWebPush calls answer, in order; after them every call reaches its one device. */
+let pushAnswers: { sent: number; total: number; retriable: boolean }[] = [];
+const fakeSendWebPush = async (user: { id: number }, input: Omit<Pushed, 'at' | 'userId' | 'taken'>) => {
+  const answer = pushAnswers.shift() ?? { sent: 1, total: 1, retriable: false };
+  pushes.push({ at: clock, userId: user.id, ...input, taken: answer.sent > 0 });
+  return answer;
+};
+
 // ---- The rest of the world ----
 
 const IL = 'Asia/Jerusalem';
@@ -387,6 +406,7 @@ const stubs: Record<string, object> = {
     },
   },
   [`${SRC}/services/telegram/index.ts`]: { getBot: () => fakeBot },
+  [`${SRC}/services/web-push/send.ts`]: { sendWebPush: fakeSendWebPush },
   [`${SRC}/services/analytics-service.ts`]: {
     trackActivityAsync: (userId: number, action: string, meta: Row = {}) => tracked.push({ userId, action, meta }),
   },
@@ -459,6 +479,9 @@ function reset() {
   queries.length = 0;
   pauseLines = [];
   zmanLines = [];
+  skipLines = [];
+  pushes = [];
+  pushAnswers = [];
   sent = [];
   sendFailures = [];
   sendCalls = 0;
@@ -550,12 +573,15 @@ const stateOf = (seriesEventId: unknown, originalStartsAt: Date, userId?: number
 let pauseLines: string[] = [];
 /** The "[zmanim] ..." warnings the passes logged since reset(). */
 let zmanLines: string[] = [];
+/** The "[native reminder ping] skipped ..." lines (no chat and no device) the passes logged since reset(). */
+let skipLines: string[] = [];
 
 async function quiet<T>(fn: () => Promise<T>): Promise<T> {
   const { log, warn } = console;
   console.log = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
     if (line.startsWith('[pause]')) pauseLines.push(line);
+    if (line.startsWith('[native reminder ping]')) skipLines.push(line);
   };
   console.warn = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
@@ -907,7 +933,8 @@ async function main() {
     ['suspended', () => { db.users[1].suspendedAt = at('2026-10-01 12:00'); }],
     ['unreachable', () => { db.users[1].unreachableSince = at('2026-10-01 12:00'); }],
     ['banned', () => { blockedTelegramIds.add('1002'); }],
-    ['not on Telegram', () => { db.users[1].telegramId = null; }],
+    // On WhatsApp alone (a chat, but not Telegram). An account with no chat at all is another case: web push, below.
+    ['not on Telegram', () => { Object.assign(db.users[1], { telegramId: null, whatsappPhone: '+972500000002' }); }],
   ];
   for (const [label, setUp] of recipientStates) {
     await check(`skip: a ${label} recipient gets no ping, and nothing is claimed`, async () => {
@@ -1920,6 +1947,127 @@ async function main() {
     reminder({ startsAt: today('16:00') });
     await pass(today('16:00'));
     assert(sent.length === 1, 'a timed one');
+  });
+
+  // ---- Browser notifications (web push spec §3.5): a recipient with no chat ----
+
+  /** User `id` with no chat and `devices` devices with notifications on (the pass reads the count as _count.pushDevices). */
+  const webOnly = (id: number, devices: number) => Object.assign(db.users.find((u) => u.id === id)!, { telegramId: null, _count: { pushDevices: devices } });
+  const pushCopy = { en: en.bot.push, he: he.bot.push };
+  const pushView = (p: Pushed) => ({ userId: p.userId, kind: p.kind, title: p.title, body: p.body, tag: p.tag, lang: p.lang });
+
+  await check('push: a reminder for an account with no chat and a device on is a notification: its title, "Reminder", the home in their language, tagged with the occurrence; no Telegram message, no chat or message id on the ping row', async () => {
+    reset();
+    webOnly(1, 1);
+    const r = reminder({ startsAt: today('10:00') });
+    const result = await pass(today('10:00'));
+    assertSame(result, { sent: 1, skipped: 0, failed: 0, nextDue: null });
+    assert(sent.length === 0, `Telegram: ${sentLines()}`);
+    const row = stateOf(r.id, today('10:00'))!;
+    assertSame(pushes.map(pushView), [{ userId: 1, kind: 'reminder', title: 'Call the plumber', body: pushCopy.he.reminder, tag: `nr-${row.id}`, lang: 'he' }]);
+    assert(pushes[0].url.endsWith('/he/dashboard?user_id=1'), `url ${pushes[0].url}`);
+    assertTime(row.lastPingedAt as Date, today('10:00'), 'lastPingedAt');
+    assert(row.pingChatId === null && row.pingMessageId === null && row.pingAttempts === 1, show(row));
+    assert(tracked.some((t) => t.userId === 1 && t.action === 'native_reminder_pinged' && t.meta.platform === 'push'), show(tracked));
+    await pass(today('10:01'));
+    assert(pushes.length === 1, `pushed again: ${show(pushes.map(pushView))}`);
+  });
+
+  await check('push: the body is the line Telegram adds: "for both of you" to a partner on push (who counts as reachable), "from: <creator>" on one set for them, "<partner> is done" where each marks their own', async () => {
+    reset();
+    webOnly(2, 1);
+    both({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 1 && sent[0].chatId === '1001' && sent[0].text === `⏰ <b>Call the plumber</b>\n${copy.he.ping.forBoth}`, `his Telegram ping: ${sentLines()}`);
+    assertSame(pushes.map((p) => [p.userId, p.body, p.lang]), [[2, copy.en.ping.forBoth, 'en']]);
+
+    reset();
+    webOnly(2, 1);
+    reminder({ startsAt: today('10:00'), forUserId: 2 });
+    await pass(today('10:00'));
+    assertSame(pushes.map((p) => [p.userId, p.body]), [[2, fromLine('en', 'רזיאל')]]);
+
+    reset();
+    webOnly(2, 1);
+    const r = each({ startsAt: today('10:00') });
+    markDone(r.id, today('10:00'), 1, today('09:58')); // Raziel is done before the time
+    await pass(today('10:00'));
+    assertSame(pushes.map((p) => [p.userId, p.body]), [[2, `${copy.en.ping.forBoth}\n${pushCopy.en.partnerIsDone.replace('{name}', 'רזיאל')}`]]);
+    assert(pushes.every((p) => !/[☀-➿\u{1F300}-\u{1FAFF}]/u.test(p.body)), `an emoji in a body: ${show(pushes.map(pushView))}`);
+  });
+
+  await check('push: no chat and no device: each due occurrence is claimed without a send and logged once; a device turned on later that day does not fire the morning\'s date-only reminder', async () => {
+    reset();
+    webOnly(1, 0);
+    const r = dateOnly('2026-10-15');
+    const result = await pass(today('09:00'));
+    assert(sent.length === 0 && pushes.length === 0 && result.sent === 0 && result.skipped === 1, `${sentLines()} ${show(result)}`);
+    assertSame(skipLines, ['[native reminder ping] skipped user 1: no chat and no device']);
+    const row = stateOf(r.id, startOfLocalDay('2026-10-15', IL))!;
+    assert(row.doneAt === null && row.pingMessageId === null, `open, with no message: ${show(row)}`);
+    assertTime(row.lastPingedAt as Date, today('09:00'), 'claimed at the pass');
+    webOnly(1, 1);
+    await pass(today('15:00'));
+    assert(pushes.length === 0 && skipLines.length === 1, `fired late: ${show(pushes.map(pushView))} ${show(skipLines)}`);
+  });
+
+  await check('push: an account on WhatsApp alone is left as before: no notification, no claim, no line', async () => {
+    reset();
+    Object.assign(db.users[0], { telegramId: null, whatsappPhone: '+972500000001', _count: { pushDevices: 1 } });
+    reminder({ startsAt: today('10:00') });
+    const result = await pass(today('10:00'));
+    assert(pushes.length === 0 && sent.length === 0 && skipLines.length === 0 && db.pings.length === 0, `${show(pushes.map(pushView))} ${show(skipLines)} ${show(db.pings)}`);
+    assert(result.skipped === 1, show(result));
+  });
+
+  await check('push: no device took it: given back for the next tick only when a device answered 429 or 5xx, three tries in all (then captured); a refusal keeps the claim', async () => {
+    reset();
+    webOnly(1, 1);
+    const r = reminder({ startsAt: today('10:00') });
+    pushAnswers = [{ sent: 0, total: 1, retriable: true }];
+    const first = await pass(today('10:00'));
+    assertSame([first.sent, first.failed], [0, 1]);
+    assertTime(first.nextDue, today('10:01'), 'retried at the next tick');
+    assert(stateOf(r.id, today('10:00'))!.lastPingedAt === null, 'the claim was given back');
+    const second = await pass(today('10:01'));
+    assert(second.sent === 1 && pushes.length === 2 && pushes[1].taken, show(pushes.map(pushView)));
+
+    reset();
+    webOnly(1, 1);
+    reminder({ startsAt: today('10:00') });
+    pushAnswers = [1, 2, 3].map(() => ({ sent: 0, total: 1, retriable: true }));
+    for (const minute of ['10:00', '10:01', '10:02', '10:03']) await pass(today(minute));
+    assert(pushes.length === 3 && !pushes.some((p) => p.taken), `tries: ${pushes.length}`);
+    assert(captured.some((c) => c.context === 'native-reminders-send'), show(captured));
+
+    reset();
+    webOnly(1, 1);
+    const refused = reminder({ startsAt: today('10:00') });
+    pushAnswers = [{ sent: 0, total: 2, retriable: false }];
+    const once = await pass(today('10:00'));
+    await pass(today('10:01'));
+    assert(once.failed === 1 && pushes.length === 1, `tried again: ${pushes.length}`);
+    assertTime(stateOf(refused.id, today('10:00'))!.lastPingedAt as Date, today('10:00'), 'the claim stays');
+    assert(!captured.some((c) => c.context === 'native-reminders-send'), `a refusal is the sender's to report: ${show(captured)}`);
+  });
+
+  await check('push: in Shabbat a push recipient is claimed without a send, as a chat one is', async () => {
+    reset();
+    pauseRaziel();
+    webOnly(1, 1);
+    const r = reminder({ startsAt: at(`${SAT} 10:00`) });
+    await pass(at(`${SAT} 10:00`));
+    assert(pushes.length === 0 && skipLines.length === 0, show(pushes.map(pushView)));
+    assertSame(pauseLines, ['[pause] skipped native reminder ping for 1']);
+    assertTime(stateOf(r.id, at(`${SAT} 10:00`))!.lastPingedAt as Date, at(`${SAT} 10:00`), 'claimed');
+  });
+
+  await check('push: an account on Telegram is pinged on Telegram even with a device row (Connect Telegram deletes them; the chat wins)', async () => {
+    reset();
+    Object.assign(db.users[0], { _count: { pushDevices: 1 } });
+    reminder({ startsAt: today('10:00') });
+    await pass(today('10:00'));
+    assert(sent.length === 1 && sent[0].chatId === '1001' && pushes.length === 0, `${sentLines()} ${show(pushes.map(pushView))}`);
   });
 
   let failed = 0;

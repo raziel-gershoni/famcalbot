@@ -1762,7 +1762,9 @@
     },
     "push": {
       "turnedOn": "Notifications are on",
-      "turnedOnBody": "Your reminders and daily lists will come here."
+      "turnedOnBody": "Your reminders and daily lists will come here.",
+      "reminder": "Reminder",
+      "partnerIsDone": "{name} is done"
     }
   },
   "subscription": {

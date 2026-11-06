@@ -1762,7 +1762,9 @@
     },
     "push": {
       "turnedOn": "ההתראות הופעלו",
-      "turnedOnBody": "התזכורות והסיכומים היומיים יגיעו לכאן."
+      "turnedOnBody": "התזכורות והסיכומים היומיים יגיעו לכאן.",
+      "reminder": "תזכורת",
+      "partnerIsDone": "{name}: בוצע"
     }
   },
   "subscription": {

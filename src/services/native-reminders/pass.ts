@@ -1,6 +1,6 @@
 // The native reminder pass (spec §4): find the reminder occurrences due now, claim each
 // one for each person it is for (one person, or both partners), and ping them with ✅ Done
-// and 💤 Snooze.
+// and 💤 Snooze, or, for an account with no chat, as a notification on its devices (web push spec §3.5).
 //
 // A 1-minute cron runs it behind an in-process gate (due-gate.ts), so the database is
 // read only when something may be due; the pass's nextDue says when that is. Due times
@@ -25,6 +25,12 @@ import { getReminderSupport, isNativeRemindersEnabled } from './support';
 import { dueAtForOccurrence, isEligible, pingDayOf, zmanDueForOccurrence, zmanRuleOf, MAX_PING_ATTEMPTS, PING_LOOKBACK_MS } from './due';
 import { Claim, claimOccurrence, releaseClaim, undoClaim } from './claim';
 import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, sendPing, stripPingButtons } from './ping';
+import { getBotMessage } from '../../lib/bot-messages';
+import { hasChat } from '../../lib/has-chat';
+import { appPageUrl } from '../../lib/web-session';
+import { normalizeLocale } from '../../utils/locale';
+import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
+import { sendWebPush } from '../web-push/send';
 
 const HOUR_MS = 60 * 60 * 1000;
 // The window occurrences are expanded over. A date-only reminder pings at the recipient's
@@ -42,6 +48,10 @@ const USER_SELECT = {
   name: true,
   language: true,
   telegramId: true,
+  // hasChat and canReachByPush (web push): a WhatsApp id is a chat, and the devices with notifications on, counted
+  whatsappPhone: true,
+  whatsappBsuid: true,
+  ...PUSH_DEVICE_COUNT,
   location: true,
   reminderTime: true,
   pairingId: true,
@@ -54,7 +64,8 @@ const USER_SELECT = {
   longitude: true,
   elevationM: true,
 } as const;
-type PassUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
+/** A user as the pass reads them: the row, with how many devices have notifications on (canReachByPush reads it). */
+type PassUser = Prisma.UserGetPayload<{ select: typeof USER_SELECT }> & { pushDeviceCount: number };
 
 /** One occurrence the pass may ping, with its due time and state. */
 interface Candidate {
@@ -206,12 +217,12 @@ async function changedSinceRead(series: NativeEvent): Promise<boolean> {
   return !now || now.isDeleted || now.forUserId !== series.forUserId || now.forBoth !== series.forBoth || now.updatedAt.getTime() !== series.updatedAt.getTime();
 }
 
-/** Claim one occurrence for one recipient and send their ping. */
+/** Claim one occurrence for one recipient and send their ping: on Telegram, or as a notification to an account with no chat. */
 async function pingOccurrence(
   series: NativeEvent,
   candidate: Candidate,
   creator: PassUser,
-  recipient: PassUser & { telegramId: bigint },
+  recipient: PassUser,
   peers: PassUser[],
   forBoth: boolean,
   now: Date
@@ -228,6 +239,9 @@ async function pingOccurrence(
 
   // Each marks their own Done: the partner who already has is named on the ping.
   const doneBy = series.eachMarksDone ? peers.find((p) => candidate.state?.pings.some((x) => x.userId === p.id && x.doneAt)) : undefined;
+  const chatId = recipient.telegramId;
+  // No Telegram: passForRecipient sends a recipient here without one only when it has no chat and a device on (canReachByPush).
+  if (chatId == null) return pushPing(series, candidate, claim, creator, recipient, forBoth, doneBy);
   let messageId: number;
   try {
     const text = await buildPingText({
@@ -237,7 +251,7 @@ async function pingOccurrence(
       ...(doneBy ? { partnerDoneName: doneBy.name } : {}),
       language: recipient.language,
     });
-    messageId = await sendPing(recipient.telegramId, text, await buildPingKeyboard(claim.stateId, recipient.language));
+    messageId = await sendPing(chatId, text, await buildPingKeyboard(claim.stateId, recipient.language));
   } catch (error) {
     return handleSendFailure(error, claim, recipient, series.id);
   }
@@ -245,7 +259,7 @@ async function pingOccurrence(
   try {
     const saved = await prisma.nativeReminderPing.update({
       where: { id: claim.id },
-      data: { pingChatId: recipient.telegramId, pingMessageId: messageId },
+      data: { pingChatId: chatId, pingMessageId: messageId },
       select: { state: { select: { doneAt: true, doneByUserId: true, doneBy: { select: { name: true } } } } },
     });
     // An in-app done between the claim and this save found no message to edit: close it here.
@@ -253,9 +267,9 @@ async function pingOccurrence(
       // Where each marks their own Done nobody is "done by" another: it reads the plain done.
       const byOther = forBoth && !series.eachMarksDone && saved.state.doneByUserId !== recipient.id;
       const done = await buildDoneText({ title: candidate.occ.title, doneByName: byOther ? saved.state.doneBy?.name : undefined, language: recipient.language });
-      await stripPingButtons(recipient.telegramId, messageId, done);
+      await stripPingButtons(chatId, messageId, done);
     } else if (series.eachMarksDone) {
-      await settleLateOwnDone(candidate, creator, recipient, peers, forBoth, claim.stateId, messageId, doneBy);
+      await settleLateOwnDone(candidate, creator, { ...recipient, telegramId: chatId }, peers, forBoth, claim.stateId, messageId, doneBy);
     }
   } catch (error) {
     // The ping went out; only a later edit to it (on a move) is lost.
@@ -267,6 +281,63 @@ async function pingOccurrence(
     ...(forBoth ? { for_both: true } : {}),
     snoozed: candidate.snoozed,
     all_day: candidate.occ.allDay,
+  });
+  return 'sent';
+}
+
+/**
+ * The ping of a recipient with no chat, as a notification on each of their devices (web push spec §3.5): the reminder's
+ * title, and as its text the line Telegram adds under it (for both of you, or from the creator; then the partner who is
+ * done), else "Reminder". No buttons and no message to edit later, so pingChatId and pingMessageId stay null; the tag
+ * nr-<stateId> makes a newer ping of the same occurrence (after a snooze) replace this one on the device. A push no
+ * device took is a passing failure only when a device answered 429 or 5xx (or not at all): the claim is given back for a
+ * later pass, up to MAX_PING_ATTEMPTS, as a chat's 5xx is. Anything else keeps the claim: the sender has already deleted
+ * a gone device or reported a refusal. No line here holds the title.
+ */
+async function pushPing(
+  series: NativeEvent,
+  candidate: Candidate,
+  claim: Claim,
+  creator: PassUser,
+  recipient: PassUser,
+  forBoth: boolean,
+  doneBy: PassUser | undefined
+): Promise<SendOutcome> {
+  const lang = normalizeLocale(recipient.language);
+  const lines = [
+    forBoth
+      ? await getBotMessage(lang, 'nativeReminders.ping.forBoth')
+      : creator.id !== recipient.id
+        ? await getBotMessage(lang, 'nativeReminders.ping.from', { name: creator.name })
+        : null,
+    doneBy ? await getBotMessage(lang, 'push.partnerIsDone', { name: doneBy.name }) : null,
+  ].filter((line): line is string => !!line);
+  const result = await sendWebPush(recipient, {
+    kind: 'reminder',
+    title: candidate.occ.title,
+    body: lines.length > 0 ? lines.join('\n') : await getBotMessage(lang, 'push.reminder'),
+    url: appPageUrl(lang, 'dashboard', recipient.id),
+    tag: `nr-${claim.stateId}`,
+    lang,
+  });
+  if (result.sent === 0) {
+    if (result.retriable && claim.pingAttempts < MAX_PING_ATTEMPTS) {
+      console.warn(`[NativeReminders] Push ping to user ${recipient.id} for series ${series.id}, state ${claim.stateId} reached no device (attempt ${claim.pingAttempts}), retrying`);
+      await releaseClaim(claim);
+      return 'retry';
+    }
+    console.error(`[NativeReminders] Push ping to user ${recipient.id} for series ${series.id}, state ${claim.stateId} reached none of ${result.total} devices (attempt ${claim.pingAttempts}); not retried`);
+    if (result.retriable) {
+      captureError(new Error('Push ping reached no device after its tries'), 'native-reminders-send', { user_id: recipient.id, series_id: series.id, state_id: claim.stateId, attempts: claim.pingAttempts }, 'warning');
+    }
+    return 'failed';
+  }
+  trackActivityAsync(recipient.id, 'native_reminder_pinged', {
+    for_partner: creator.id !== recipient.id,
+    ...(forBoth ? { for_both: true } : {}),
+    snoozed: candidate.snoozed,
+    all_day: candidate.occ.allDay,
+    platform: 'push',
   });
   return 'sent';
 }
@@ -337,7 +408,8 @@ async function passForRecipient(a: {
   now: Date;
   result: NativeReminderPassResult;
   tz: string;
-  reachable: (telegramId: bigint) => Promise<boolean>;
+  /** Not on the block list (by Telegram id; an account with no Telegram has nothing there) and the creator's plan allows reminders. */
+  reachable: (recipient: PassUser) => Promise<boolean>;
   /** This recipient's zman clock (their own place), built when a reminder by zman needs it. */
   zmanClock: () => Promise<ZmanClock | null>;
 }): Promise<SendOutcome | 'idle'> {
@@ -377,8 +449,20 @@ async function passForRecipient(a: {
   );
   if (eligible.length === 0) return 'idle';
 
+  // How this recipient hears it: their Telegram chat or, for an account with no chat at all, a notification on each of
+  // their devices (canReachByPush, the one rule). A WhatsApp-only one has neither, as before.
   const telegramId = recipient.telegramId;
-  const reachable = telegramId != null && !recipient.suspendedAt && !recipient.unreachableSince && (await a.reachable(telegramId));
+  const byPush = telegramId == null && canReachByPush(recipient);
+  const open = !recipient.suspendedAt && !recipient.unreachableSince;
+  if (open && telegramId == null && !hasChat(recipient) && !byPush) {
+    // No chat and no device: claimed without a send, as a paused one is below, so turning notifications on later
+    // doesn't fire this day's earlier reminders (a date-only one is eligible all day).
+    for (const c of eligible) await claimOccurrence(s.id, c.occ.instanceStartsAt, recipient.id, c.due, now);
+    console.log(`[native reminder ping] skipped user ${recipient.id}: no chat and no device`);
+    result.skipped += eligible.length;
+    return 'idle';
+  }
+  const reachable = open && (telegramId != null || byPush) && (await a.reachable(recipient));
   if (!reachable) {
     result.skipped += eligible.length;
     return 'idle';
@@ -402,7 +486,7 @@ async function passForRecipient(a: {
     result.skipped++;
   }
 
-  const outcome = await pingOccurrence(s, newest, a.creator, { ...recipient, telegramId }, a.peers, a.forBoth, now);
+  const outcome = await pingOccurrence(s, newest, a.creator, recipient, a.peers, a.forBoth, now);
   if (outcome === 'sent') result.sent++;
   else if (outcome === 'lost' || outcome === 'raced') result.skipped++;
   else result.failed++;
@@ -446,7 +530,10 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
     : [];
   const states = new Map(stateRows.map((r) => [occurrenceKey(r.seriesEventId, r.originalStartsAt), r]));
 
-  const users = perPass((id: number) => prisma.user.findUnique({ where: { id }, select: USER_SELECT }));
+  const users = perPass(async (id: number): Promise<PassUser | null> => {
+    const row = await prisma.user.findUnique({ where: { id }, select: USER_SELECT });
+    return row ? { ...row, pushDeviceCount: pushDeviceCountOf(row) } : null;
+  });
   const partnerOf = perPass(async (creatorId: number) => {
     const creator = await users(creatorId);
     return creator ? getActivePartnerSummary(creator.id, creator.pairingId) : null;
@@ -456,6 +543,8 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
     return resolveUserTimezone({ id: userId, location: user?.location ?? '' });
   });
   const isBlocked = perPass((telegramId: bigint) => isIdentifierBlocked({ telegramId }));
+  /** The block list is keyed by the chat: an account with no Telegram has nothing there (a ban suspends it, which isPingable reads). */
+  const blockedFor = (u: PassUser): Promise<boolean> => (u.telegramId != null ? isBlocked(u.telegramId) : Promise.resolve(false));
   const zmanClockOf = perPass(async (userId: number) => {
     const user = await users(userId);
     return user ? zmanClockFor(user, await timezoneOf(userId)) : null;
@@ -478,7 +567,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
       let reachableCount = 0;
       for (const id of ids) {
         const u = await users(id);
-        if (u && isPingable(u) && !(await isBlocked(u.telegramId!))) reachableCount++;
+        if (u && isPingable(u) && !(await blockedFor(u))) reachableCount++;
       }
       const forBoth = isForBothReachable(reachableCount);
       const overrideAt = new Map(overrides.map((o) => [o.originalStartsAt.getTime(), o]));
@@ -491,7 +580,7 @@ export async function runNativeReminderPass(now: Date = new Date()): Promise<Nat
             series: s, occurrences, overrideAt, states, creator, recipient, peers, forBoth, now, result,
             tz: await timezoneOf(recipient.id),
             zmanClock: () => zmanClockOf(recipient.id),
-            reachable: async (telegramId) => !(await isBlocked(telegramId)) && (await creatorSupported(creator.id)),
+            reachable: async (u) => !(await blockedFor(u)) && (await creatorSupported(creator.id)),
           });
           if (outcome === 'retry') retrySoon = true;
         } catch (error) {
