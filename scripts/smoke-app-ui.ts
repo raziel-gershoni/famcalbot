@@ -1290,6 +1290,30 @@ async function main() {
     assert(/color:\s*var\(--ch-accent\)/.test(rule(FORM_CSS, 'button.ch-action-row')) && FORM_CSS.indexOf('button.ch-action-row {') > FORM_CSS.indexOf('button.ch-danger-row {'), 'an action row reads in the accent, after the danger row');
   });
 
+  await check('K19 the separator above a card row survives the row\'s own border reset: every element a FormCard\'s direct child can be and that resets its border (button.ch-form-row, .ch-form-field) has a separator rule of at least the reset\'s specificity (or the same and later), for the rows after the first only; so a switch, a button row and a text field show the line like a plain row, and the first row and the card itself get none', () => {
+    const rules = [...FORM_CSS.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/(?:^|\n)([^\n{}@][^{}@]*?) \{([^}]*)\}/g)].map((m, order) => ({ sel: m[1].trim().replace(/\s*\n\s*/g, ' '), body: m[2], order }));
+    // Specificity as [classes + attributes + pseudo-classes, types]; :not(x) counts as x; pseudo-elements count as types.
+    const spec = (sel: string): [number, number] => {
+      const s = sel.replace(/:not\(([^)]*)\)/g, ' $1 ');
+      return [(s.match(/(?<!:)[.:[]/g) ?? []).length - (s.match(/::/g) ?? []).length, (s.match(/(?:^|[\s>+~])[a-z][\w-]*/g) ?? []).length + (s.match(/::/g) ?? []).length];
+    };
+    const beats = (a: { sel: string; order: number }, b: { sel: string; order: number }) => {
+      const [x, y] = [spec(a.sel), spec(b.sel)];
+      return x[0] !== y[0] ? x[0] > y[0] : x[1] !== y[1] ? x[1] > y[1] : a.order > b.order;
+    };
+    const lines = rules.filter((r) => /border-block-start:\s*1px solid var\(--ch-separator\)/.test(r.body) && /\.ch-form-card\s*>/.test(r.sel));
+    for (const [subject, name] of [['button.ch-form-row', 'a button row'], ['.ch-form-field', 'a text field']] as const) {
+      const resets = rules.filter((r) => r.sel === subject && /(^|\s)border:\s*0;/.test(r.body));
+      assert(resets.length === 1, `${name}: the border reset is ${resets.length} rules`);
+      const line = lines.filter((l) => l.sel.split(',').some((one) => one.includes(subject) && one.includes(':not(:first-child)')));
+      assert(line.length === 1, `${name}: ${line.length} separator rules name it`);
+      assert(beats(line[0], resets[0]), `${name}: its separator "${line[0].sel}" does not beat "${resets[0].sel}"`);
+    }
+    const generic = lines.filter((l) => l.sel.split(',').some((one) => one.trim() === '.ch-form-card > * + *'));
+    assert(generic.length === 1, 'the plain rows keep the one general separator rule (rows after the first)');
+    assert(lines.every((l) => l.sel.split(',').every((one) => /\* \+ \*$/.test(one.trim()) || /:not\(:first-child\)$/.test(one.trim()))), `a separator rule that can reach a first row: ${lines.map((l) => l.sel)}`);
+  });
+
   await check('#99 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });

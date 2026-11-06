@@ -46,7 +46,10 @@ export const FORM_CSS = `
   background: var(--ch-section);
   overflow: hidden;
 }
-.ch-form-card > * + * {
+.ch-form-card > * + *,
+/* The two rows that reset their own border (below) would win over the line above; these name them more closely. */
+.ch-form-card > button.ch-form-row:not(:first-child),
+.ch-form-card > .ch-form-field:not(:first-child) {
   border-block-start: 1px solid var(--ch-separator);
 }
 .ch-form-field {
