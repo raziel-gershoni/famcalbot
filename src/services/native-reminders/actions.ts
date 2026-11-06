@@ -27,6 +27,7 @@ import { zmanClockIfNeeded } from '../zmanim/reminder-clock';
 import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
 import { getActivePartnerSummary, isForBothReachable, isPingable, pingUserFor, recipientIds } from './ownership';
 import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, stripPingButtons } from './ping';
+import { PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
 import type { UserConfig } from '../../types';
 
 export type ReminderAction = 'done' | 'undo' | 'snooze15' | 'snooze60' | 'snoozeTomorrow';
@@ -123,11 +124,11 @@ export async function applyReminderAction(
   if (!recipients.includes(actor.id) && actor.id !== series.creatorUserId) {
     return { status: 'not_yours', wasTarget: actor.id === series.forUserId };
   }
-  // Pings and notes follow the recipients who can be reached (ownership.ts).
-  const reachable = await prisma.user.findMany({
+  // Pings and notes follow the recipients who can be reached (ownership.ts): on Telegram, or by a browser device
+  const reachable = (await prisma.user.findMany({
     where: { id: { in: recipients } },
-    select: { id: true, telegramId: true, suspendedAt: true, unreachableSince: true },
-  });
+    select: { id: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, suspendedAt: true, unreachableSince: true, ...PUSH_DEVICE_COUNT },
+  })).map(({ _count, ...u }) => ({ ...u, pushDeviceCount: pushDeviceCountOf({ _count }) }));
   const forBoth = isForBothReachable(reachable.filter(isPingable).length);
   const pingUserId = pingUserFor(recipients, actor.id);
   // Each marks their own Done (the creator is always a recipient, so the actor's own ping row is theirs).
@@ -461,7 +462,8 @@ async function notifyDone(seriesId: string, occurrence: string, userId: number, 
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, language: true, telegramId: true, suspendedAt: true, unreachableSince: true },
+      // The chats and the devices (6c-2): the note's push branch (Task 11) reads them
+      select: { id: true, language: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, suspendedAt: true, unreachableSince: true, ...PUSH_DEVICE_COUNT },
     });
     if (user && !user.telegramId) {
       // Telegram only (R12): someone with no Telegram (WhatsApp only, or an account made on famcal.bot) is not told

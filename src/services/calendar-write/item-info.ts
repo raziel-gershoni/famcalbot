@@ -30,6 +30,7 @@ import {
 import { classifyRule, endOfRule, fixesDays, isHebrewRule, specOfRule, type HebrewColumns, type VirtualInstance } from '../native-calendar/recurrence';
 import { loadViewerContext, recipientIdsForViewer, type ViewerContext } from '../native-reminders/ownership';
 import { getReminderSupport } from '../native-reminders/support';
+import { reachableForReminders } from '../web-push/reach';
 import { reminderTimeOf } from '../../lib/reminder-time';
 import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
 import { zmanEditorInfoFor } from '../zmanim/reminder-clock';
@@ -89,13 +90,14 @@ async function ownedWritableCalendars(user: UserConfig): Promise<EditorCalendar[
 
 /**
  * Whether an alert can reach the user (editor upgrades spec §2): the admin switch, their own
- * alerts setting (Settings), a plan with reminders, and a Telegram chat. The same four
+ * alerts setting (Settings), a plan with reminders, and a way to reach them (a Telegram chat, or with no chat a
+ * browser device: reachableForReminders, 6c-2). The same four
  * conditions the pass applies, each read through its own function. A hint for the Alert row,
  * not a gate (a stored alert waits until alerts are on), so a plan without reminders logs
  * nothing; an error in the plan check fails closed.
  */
-export async function alertsOnFor(user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled'>): Promise<boolean> {
-  if (user.telegramId === null || !user.remindersEnabled) return false;
+export async function alertsOnFor(user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'whatsappPhone' | 'whatsappBsuid' | 'pushDeviceCount'>): Promise<boolean> {
+  if (!reachableForReminders(user) || !user.remindersEnabled) return false;
   if (!(await getGlobalRemindersEnabled())) return false;
   try {
     return (await peekFeatureAccess(user.id, 'reminders')).allowed;
@@ -316,9 +318,9 @@ function zmanFields(series: Pick<NativeEvent, 'zmanSpec'>, occurrence: Pick<Virt
   return { timeMode: zmanSpec && occurrence.allDay ? 'zman' : 'time', ...(zmanSpec ? { zmanSpec } : {}) };
 }
 
-/** Whether the viewer's partner can be pinged, so a reminder can be for them (resolve.ts targetFor). */
+/** Whether reminders can reach the viewer's partner, so a reminder can be for them (resolve.ts targetFor). */
 export const partnerCanRemind = (ctx: ViewerContext): boolean =>
-  ctx.partner !== null && ctx.partner.telegramId !== null;
+  ctx.partner !== null && reachableForReminders(ctx.partner);
 
 /**
  * Where an event may move (3b spec §2.2): the calendars the user can write, its own among

@@ -4,7 +4,8 @@
 // Design > User profile 4): five switches, a reason, and a Save button that is on only while something differs from what is saved.
 //
 // - A feature their paid plan already includes shows on and cannot be switched, with the note "Included in their plan". Early access
-//   is never locked. Reminders are Telegram's, so a person with no Telegram id has no such switch.
+//   is never locked. The Reminders switch shows only for a person reminders can reach (Telegram, or no chat and a device with
+//   browser notifications on: the profile's `remindable`).
 // - The switches are drafts until Save: the request carries the draft's values, a switch left off as null (as the route has always
 //   read it). A failure is said under the button, and the draft stays as it was. After a save the draft is rebuilt from the profile
 //   that was reloaded, since the route may keep less than was sent (with nothing on it deletes the override and its reason).
@@ -42,7 +43,7 @@ export function FeatureAccess({ person, profile }: SectionProps) {
 
   const rows: { key: Switch; label: string; hint: string; locked: boolean; shown: boolean }[] = [
     { key: 'unlimitedSummaries', label: t('profile.access.unlimitedSummaries'), hint: t('profile.access.unlimitedSummariesHint'), locked: person.paidFeatures.unlimitedSummaries, shown: true },
-    { key: 'remindersEnabled', label: t('profile.access.reminders'), hint: t('profile.access.remindersHint'), locked: person.paidFeatures.remindersEnabled, shown: person.telegramId !== null },
+    { key: 'remindersEnabled', label: t('profile.access.reminders'), hint: t('profile.access.remindersHint'), locked: person.paidFeatures.remindersEnabled, shown: person.remindable },
     { key: 'voiceEventsEnabled', label: t('profile.access.voiceEvents'), hint: t('profile.access.voiceEventsHint'), locked: person.paidFeatures.voiceEventsEnabled, shown: true },
     { key: 'unlimitedCalendars', label: t('profile.access.unlimitedCalendars'), hint: t('profile.access.unlimitedCalendarsHint'), locked: person.paidFeatures.unlimitedCalendars, shown: true },
     { key: 'earlyAdopter', label: t('profile.access.earlyAccess'), hint: t('profile.access.earlyAccessHint'), locked: false, shown: true },

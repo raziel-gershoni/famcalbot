@@ -18,6 +18,7 @@ import { redis } from '@/src/utils/redis';
 import { REDIS_KEYS } from '@/src/config/redis-keys';
 import { refundWindowStart } from '@/src/lib/refund-eligibility';
 import { hasChat } from '@/src/lib/has-chat';
+import { PUSH_DEVICE_COUNT, pushDeviceCountOf, reachableForReminders } from '@/src/services/web-push/reach';
 
 export const dynamic = 'force-dynamic';
 
@@ -195,6 +196,8 @@ export async function GET(request: NextRequest) {
           subscription: true,
           featureOverride: true,
           usageCounter: true,
+          // Whom reminders can reach: the devices counted in this read, never listed (6c-2 spec §5)
+          ...PUSH_DEVICE_COUNT,
         },
       });
 
@@ -254,6 +257,8 @@ export async function GET(request: NextRequest) {
           id: user.id,
           telegramId: user.telegramId ? Number(user.telegramId) : null,
           whatsappPhone: user.whatsappPhone || null,
+          // Whether reminders can reach them (Telegram, or no chat and a browser device): the Reminders switch shows then
+          remindable: reachableForReminders({ telegramId: user.telegramId, whatsappPhone: user.whatsappPhone, whatsappBsuid: user.whatsappBsuid, pushDeviceCount: pushDeviceCountOf(user) }),
           messagingPlatform: user.messagingPlatform || 'telegram',
           createdAt: user.createdAt.toISOString(),
           name: user.name,

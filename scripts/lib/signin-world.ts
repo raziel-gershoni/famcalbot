@@ -133,6 +133,19 @@ const RELATIONS: Record<string, Record<string, { table: string; fk: string }>> =
   signInIdentity: { user: { table: 'user', fk: 'userId' } },
 };
 
+/** The relation counts a `_count` select or include reads (PUSH_DEVICE_COUNT): per model and relation, the table and its foreign key. */
+const COUNTS: Record<string, Record<string, { table: string; fk: string }>> = {
+  user: { pushDevices: { table: 'pushDevice', fk: 'userId' } },
+};
+function countsOf(name: string, row: Row, arg: unknown): Row {
+  const wanted = isPlain(arg) && isPlain(arg.select) ? Object.keys(arg.select).filter(k => (arg.select as Row)[k]) : Object.keys(COUNTS[name] ?? {});
+  return Object.fromEntries(wanted.map(k => {
+    const relation = COUNTS[name]?.[k];
+    if (!relation) throw new Error(`the fake Prisma does not count ${name}.${k}`);
+    return [k, (DB[relation.table] ?? []).filter(r => same(r[relation.fk], row.id)).length];
+  }));
+}
+
 /** A row as findUnique/findFirst/findMany answer it: `select` picks columns and relations, `include` adds relations. */
 function shape(name: string, row: Row | undefined, args: Row): Row | null {
   if (!row) return null;
@@ -144,13 +157,15 @@ function shape(name: string, row: Row | undefined, args: Row): Row | null {
     return isPlain(arg) && isPlain(arg.select) ? pick(target, arg.select) : { ...target };
   };
   if (args.select) {
-    const columns = Object.fromEntries(Object.entries(args.select).filter(([k]) => !(k in relations)));
+    const columns = Object.fromEntries(Object.entries(args.select).filter(([k]) => !(k in relations) && k !== '_count'));
     const out = pick(row, columns) as Row;
     for (const key of Object.keys(relations)) if (args.select[key]) out[key] = related(key, args.select[key]);
+    if (args.select._count) out._count = countsOf(name, row, args.select._count);
     return out;
   }
   const out = { ...row };
   for (const key of Object.keys(relations)) if (args.include?.[key]) out[key] = related(key, args.include[key]);
+  if (args.include?._count) out._count = countsOf(name, row, args.include._count);
   return out;
 }
 

@@ -111,14 +111,15 @@ async function main() {
 
   await check('partner summary: the inviter gets the invitee, with exactly the fields reminders need', async () => {
     assertSame(await getActivePartnerSummary(1, 'pair-1'), {
-      // With the place (a reminder by zman for them is timed there); the fixture has no coordinates or switch
-      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en', location: '',
+      // With the place (a reminder by zman for them is timed there); the fixture has no coordinates or switch. And their
+      // device count (6c-2: whether reminders reach them), which the fixture's rows leave at none
+      id: 2, name: 'Dana', englishName: 'Dana', gender: 'female', telegramId: null, language: 'en', location: '', pushDeviceCount: 0,
     });
   });
 
   await check('partner summary: the invitee gets the inviter', async () => {
     assertSame(await getActivePartnerSummary(2, 'pair-1'), {
-      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1001), language: 'he', location: 'Tel Aviv',
+      id: 1, name: 'רזיאל', englishName: 'Raziel', gender: 'male', telegramId: BigInt(1001), language: 'he', location: 'Tel Aviv', pushDeviceCount: 0,
     });
   });
 

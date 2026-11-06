@@ -131,7 +131,7 @@ function makePeople(locale: Locale): Map<number, Row> {
     person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars', googleState: 'choose' } }),
     person(PAID, { subscription: SUBS.paid, payments: [PAYMENT], whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
     person(COMPED, { subscription: SUBS.comped, whatsappPhone: null }),
-    person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free }),
+    person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free, remindable: false }),
     person(SUSPENDED, { subscription: SUBS.free, suspendedAt: ago(2 * 24 * 60), suspendedReason: spam, suspendedBy: 9 }),
   ]);
 }
@@ -1024,7 +1024,7 @@ async function main() {
     }
   });
 
-  await check('U2 the profile in en, he and ru for a person on a trial, a paid one, one given Pro for free, one with WhatsApp only and a suspended one: the name as the header; the sections in order; ids left to right and copyable; a meter per limit (none for an unlimited one); what their plan includes is on and cannot be switched, with the note; the Reminders switch only with a Telegram id; the early access note; their own profile offers nothing that locks the viewer out; a profile that fails to load says so with a retry; no raw key, no emoji, no English in he and ru beyond the brands', async () => {
+  await check('U2 the profile in en, he and ru for a person on a trial, a paid one, one given Pro for free, one with WhatsApp only and a suspended one: the name as the header; the sections in order; ids left to right and copyable; a meter per limit (none for an unlimited one); what their plan includes is on and cannot be switched, with the note; the Reminders switch only for a person reminders can reach; the early access note; their own profile offers nothing that locks the viewer out; a profile that fails to load says so with a retry; no raw key, no emoji, no English in he and ru beyond the brands', async () => {
     const sectionKeys = ['profile.plan.title', 'profile.setup.title', 'profile.access.title', 'profile.messaging.title', 'activity.userTitle', 'profile.account.title'];
     for (const locale of LOCALES) {
       const w = (key: string, args?: Row) => word(locale, key, 'admin', args);
@@ -1056,9 +1056,9 @@ async function main() {
           const limited = [limits.textSummaries, limits.voiceSummaries, limits.calendars].filter((n) => n !== null).length;
           assert(byRole(o.m.container, 'meter').length === limited, `${where}: ${byRole(o.m.container, 'meter').length} meters for ${limited} limits`);
           assert(elements(o.m.container).filter((e) => classes(e).includes('ch-meter-value') && flat(e) === w('profile.plan.unlimited')).length === 3 - limited, `${where}: Unlimited shows for an unlimited limit only`);
-          // The switches: a plan's own features are locked, the Reminders switch is Telegram's
+          // The switches: a plan's own features are locked, the Reminders switch only for someone reminders can reach
           const rows = switches(o.m);
-          assert(rows.length === (person.telegramId === null ? 4 : 5), `${where}: ${rows.length} switches`);
+          assert(rows.length === (person.remindable ? 5 : 4), `${where}: ${rows.length} switches`);
           if (id === PAID) {
             const locked = rows.filter((r) => r.getAttribute('aria-disabled') === 'true');
             assert(locked.length === 2 && locked.every((r) => checked(r) && flat(r).includes(w('profile.access.locked'))), `${where}: locked ${locked.map(flat)}`);
@@ -1129,6 +1129,23 @@ async function main() {
       assert(flat(title(failing.m) as FakeElement) === PEOPLE_NAMES.en[0] && sectionsOf(failing.m).length === 6 && alertsIn(failing.m.container).length === 0, 'the retry loads the profile');
     } finally {
       close(failing);
+    }
+  });
+
+  await check('U2b the Reminders switch follows whom reminders can reach (6c-2): a person with no chat whose browser notifications are on has it; one with none does not', async () => {
+    for (const remindable of [true, false]) {
+      reset();
+      const o = open('en', propsOf('en'), { version: '7.7' });
+      // After open: it makes the people again
+      Object.assign(scenario.people.get(TRIAL) as Row, { telegramId: null, whatsappPhone: null, hasChat: false, remindable });
+      try {
+        await openPerson(o, 'en', 0);
+        const rows = switches(o.m);
+        const label = word('en', 'profile.access.reminders', 'admin');
+        assert(rows.length === (remindable ? 5 : 4) && rows.some((r) => flat(r).startsWith(label)) === remindable, `remindable ${remindable}: ${show(rows.map(flat))}`);
+      } finally {
+        close(o);
+      }
     }
   });
 

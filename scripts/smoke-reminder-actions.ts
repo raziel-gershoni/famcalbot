@@ -18,10 +18,15 @@ import path from 'path';
 import { fromZonedTime } from 'date-fns-tz';
 import { NextRequest } from 'next/server';
 import type { UserConfig } from '../src/types';
+import webpush from 'web-push';
 
 // The ping edit decrypts the owner's Google token with the real encryption module.
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
 process.env.ENCRYPTION_KEY_PREVIOUS = '';
+// Browser notifications configured (6c-2): a key pair made here, never real ones
+const VAPID = webpush.generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = VAPID.publicKey;
+process.env.VAPID_PRIVATE_KEY = VAPID.privateKey;
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -1106,6 +1111,29 @@ async function main() {
       assert(same(stateOfBoth().doneAt, NOW) && stateOfBoth().doneByUserId === RAZIEL, 'done');
       assertJson(edits().map((e) => e.messageId), [61], 'only his ping');
       assert(sends().length === 0, 'no note');
+    }
+  });
+
+  await check('each (6c-2): a partner with no chat whose browser notifications are on is counted, as one on Telegram is: the creator\'s Done leaves it open for them; with no device, or notifications off, it finishes it', async () => {
+    const cases: [string, Row, boolean][] = [
+      ['a device on', { telegramId: null, _count: { pushDevices: 1 } }, false],
+      ['no device', { telegramId: null, _count: { pushDevices: 0 } }, true],
+    ];
+    for (const [label, patch, completed] of cases) {
+      reset();
+      addEach();
+      Object.assign(db.users.find((u) => u.id === DANA)!, patch);
+      assertJson(await act(RAZIEL, BOTH_KEY, 'done'), { status: 'ok', title: 'Book the flights', completed }, label);
+    }
+    const saved = process.env.VAPID_PUBLIC_KEY;
+    delete process.env.VAPID_PUBLIC_KEY;
+    try {
+      reset();
+      addEach();
+      Object.assign(db.users.find((u) => u.id === DANA)!, { telegramId: null, _count: { pushDevices: 1 } });
+      assertJson(await act(RAZIEL, BOTH_KEY, 'done'), { status: 'ok', title: 'Book the flights', completed: true }, 'notifications off');
+    } finally {
+      process.env.VAPID_PUBLIC_KEY = saved;
     }
   });
 

@@ -24,6 +24,7 @@ import { readZmanSpec, sameZmanSpec, type ZmanSpecValue } from '../../lib/calend
 import { asZmanSpec } from '../zmanim/spec';
 import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-sync/marks';
 import { getActivePartnerSummary, recipientIds } from '../native-reminders/ownership';
+import { reachableForReminders } from '../web-push/reach';
 import { ensurePrimaryNativeCalendar } from './onboarding';
 import {
   assertStorableRule,
@@ -1151,9 +1152,9 @@ async function checkSeriesFields(
     // "Both" is the creator and the partner forUserId names.
     if (input.forBoth === true && input.forUserId === null) throw new NativeRecipientError();
     if (input.forUserId !== null) {
-      // As resolve.ts targetFor: the ACTIVE partner, on Telegram.
+      // As resolve.ts targetFor: the ACTIVE partner, whom reminders can reach (Telegram, or a browser device).
       const partner = await getActivePartnerSummary(actor.id, actor.pairingId ?? null);
-      if (!partner || partner.id !== input.forUserId || partner.telegramId === null) {
+      if (!partner || partner.id !== input.forUserId || !reachableForReminders(partner)) {
         throw new NativeRecipientError();
       }
     }

@@ -1,8 +1,9 @@
 /**
  * Native reminders: the admin switch and the one gate for who gets reminders (spec R3).
  *
- * A user gets reminders only on the built-in calendar, with a Telegram account (the ping
- * and its buttons live there), while the admin switch is on, and with access to the
+ * A user gets reminders only on the built-in calendar, when reminders can reach them (on Telegram, where the ping and
+ * its buttons live, or, with no chat, by a browser notification on a device: reachableForReminders, 6c-2 spec §3.5),
+ * while the admin switch is on, and with access to the
  * 'reminders' feature (Pro, trial, admin override or early adoption). When any of these
  * fails, the extraction prompt has no reminder rules, typed text keeps today's route, and
  * the pass skips that creator's reminders.
@@ -15,10 +16,12 @@ import { captureError } from '../../lib/error-capture';
 import { checkFeatureAccess, peekFeatureAccess } from '../subscription-service';
 import { invalidateDueGate } from './due-gate';
 import { getActivePartnerSummary } from './ownership';
+import { reachableForReminders, type ReachUser } from '../web-push/reach';
 
 const FLAG_KEY = REDIS_KEYS.NATIVE_REMINDERS_ENABLED;
 
-export type ReminderSupportReason = 'no_telegram' | 'disabled' | 'no_access';
+/** no_channel: neither Telegram nor (with no chat) a device with browser notifications on can reach them. */
+export type ReminderSupportReason = 'no_channel' | 'disabled' | 'no_access';
 
 export interface ReminderSupport {
   supported: boolean;
@@ -74,24 +77,19 @@ export async function setNativeRemindersEnabled(enabled: boolean): Promise<void>
   invalidateDueGate();
 }
 
-function hasTelegram(telegramId: bigint | number | string | null | undefined): boolean {
-  return telegramId !== null && telegramId !== undefined && String(telegramId) !== '';
-}
-
 /**
  * Whether this user gets reminders and, if not, the first reason why. Reminders live in
  * FamCal, which everyone has ("Google as a connection" spec §4), so a Google user gets
- * them too; the Telegram and plan gates stay. The checks run cheapest first, so a
+ * them too; the reach and plan gates stay. Reach is reachableForReminders: Telegram, or no chat and a
+ * device with browser notifications on (its count comes with the user's read: UserConfig.pushDeviceCount,
+ * PartnerSummary.pushDeviceCount). The checks run cheapest first, so a
  * WhatsApp-only user costs no Redis read. checkFeatureAccess
  * caches its answer in Redis for 24h; a caller that needs the answer more than once per
  * message keeps the result. An error in the feature check fails closed: without
  * reminders the user gets today's behaviour.
  */
-export async function getReminderSupport(user: {
-  id: number;
-  telegramId?: bigint | number | string | null;
-}, options: { quiet?: boolean } = {}): Promise<ReminderSupport> {
-  if (!hasTelegram(user.telegramId)) return { supported: false, reason: 'no_telegram' };
+export async function getReminderSupport(user: { id: number } & ReachUser, options: { quiet?: boolean } = {}): Promise<ReminderSupport> {
+  if (!reachableForReminders(user)) return { supported: false, reason: 'no_channel' };
   if (!(await isNativeRemindersEnabled())) return { supported: false, reason: 'disabled' };
 
   try {
@@ -108,17 +106,17 @@ export async function getReminderSupport(user: {
 
 /**
  * Whether this user can be pinged by FamCal reminders, so the time those pings ring at
- * (User.reminderTime) means something to them: their own plan allows reminders, or they
- * have Telegram and their active partner's plan does (the pass pings a partner-owned
+ * (User.reminderTime) means something to them: their own plan allows reminders, or reminders can reach
+ * them (reachableForReminders) and their active partner's plan does (the pass pings a partner-owned
  * reminder at the recipient's time, gated on the creator's plan only). The one rule for
  * showing the setting and for accepting it. An error finding the partner fails closed.
  */
 export async function canReceiveReminderPings(
-  user: { id: number; telegramId?: bigint | number | string | null; pairingId?: string | null },
+  user: { id: number; pairingId?: string | null } & ReachUser,
   options: { quiet?: boolean } = {},
 ): Promise<boolean> {
   if ((await getReminderSupport(user, options)).supported) return true;
-  if (!hasTelegram(user.telegramId) || !user.pairingId) return false;
+  if (!reachableForReminders(user) || !user.pairingId) return false;
   try {
     const partner = await getActivePartnerSummary(user.id, user.pairingId);
     return !!partner && (await getReminderSupport(partner, options)).supported;

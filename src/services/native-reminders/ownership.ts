@@ -11,6 +11,7 @@
 // smoke scripts (Planning Ruling 2).
 
 import { prisma } from '../../utils/prisma';
+import { PUSH_DEVICE_COUNT, pushDeviceCountOf, reachableForReminders } from '../web-push/reach';
 
 /** The ACTIVE partner, with what reminders need to name, ping and gate them. */
 export interface PartnerSummary {
@@ -20,6 +21,10 @@ export interface PartnerSummary {
   englishName: string;
   gender: string;
   telegramId: bigint | null;
+  /** Their WhatsApp ids and browser devices (6c-2): with no chat, a device with notifications on reaches them. */
+  whatsappPhone?: string | null;
+  whatsappBsuid?: string | null;
+  pushDeviceCount?: number;
   language: string;
   /** HH:mm or null (09:00): when their date-only reminders ping. */
   reminderTime?: string | null;
@@ -54,13 +59,18 @@ export async function getActivePartnerSummary(userId: number, pairingId: string 
   if (!pair || pair.status !== 'ACTIVE') return null;
   const partnerId = pair.inviterUserId === userId ? pair.inviteeUserId : pair.inviterUserId;
   if (partnerId == null) return null;
-  return prisma.user.findUnique({
+  const row = await prisma.user.findUnique({
     where: { id: partnerId },
     select: {
       id: true, name: true, englishName: true, gender: true, telegramId: true, language: true, reminderTime: true,
       location: true, latitude: true, longitude: true, elevationM: true, zmanimCommunity: true, pauseOnShabbat: true,
+      // Whether reminders reach them (reachableForReminders): the chats, and their devices counted in this read
+      whatsappPhone: true, whatsappBsuid: true, ...PUSH_DEVICE_COUNT,
     },
   });
+  if (!row) return null;
+  const { _count, ...partner } = row;
+  return { ...partner, pushDeviceCount: pushDeviceCountOf({ _count }) };
 }
 
 /** Load once per fetch or digest; every ownership check for this viewer reads it. */
@@ -95,15 +105,22 @@ export function recipientIds(series: RecipientColumns, creatorPartner: { id: num
   return owner === series.creatorUserId ? [series.creatorUserId] : [series.creatorUserId, owner];
 }
 
-/** The columns that decide whether Telegram can reach a user (the pass also asks the block list). */
+/** The columns that decide whether reminders can reach a user (the pass also asks the block list). */
 export interface Pingable {
   telegramId?: bigint | number | string | null;
+  whatsappPhone?: string | null;
+  whatsappBsuid?: string | null;
+  /** Devices with browser notifications on (PUSH_DEVICE_COUNT, read with the row); unread is none. */
+  pushDeviceCount?: number;
   suspendedAt?: Date | null;
   unreachableSince?: Date | null;
 }
 
-/** Whether a user can be pinged and told things on Telegram now: on Telegram, not suspended, not unreachable. */
-export const isPingable = (user: Pingable): boolean => user.telegramId != null && !user.suspendedAt && !user.unreachableSince;
+/**
+ * Whether a user can be pinged and told things now: reminders reach them (on Telegram, or with no chat by a browser
+ * device: reachableForReminders), not suspended, not unreachable on Telegram.
+ */
+export const isPingable = (user: Pingable): boolean => reachableForReminders(user) && !user.suspendedAt && !user.unreachableSince;
 
 /**
  * Whether a reminder is, for pings and notes, for both partners: it has two recipients and both can

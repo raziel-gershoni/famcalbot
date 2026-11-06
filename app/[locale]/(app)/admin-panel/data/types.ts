@@ -64,6 +64,8 @@ export interface UserOverrideDetails {
   /** The database id. */
   id: number;
   telegramId: number | null;
+  /** Whether reminders can reach them: Telegram, or no chat and a device with browser notifications on (6c-2). */
+  remindable: boolean;
   whatsappPhone: string | null;
   messagingPlatform: string;
   createdAt: string;

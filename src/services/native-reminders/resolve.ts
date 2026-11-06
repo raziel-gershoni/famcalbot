@@ -27,6 +27,7 @@ import { occurrenceDays } from '../native-calendar/recurrence';
 import { isPaused } from '../zmanim/pause';
 import { ARMED_GRACE_MS, dueAtForOccurrence, zmanDueForOccurrence, type ZmanRule } from './due';
 import { getActivePartnerSummary } from './ownership';
+import { reachableForReminders } from '../web-push/reach';
 import type { PartnerSummary } from './ownership';
 
 /**
@@ -126,14 +127,15 @@ async function resolveWithPartner(
 
 /**
  * Who "remind Dana…" or "remind us…" is for: the active partner (and the creator, for both),
- * only when they can be pinged (on Telegram). Otherwise the creator alone.
+ * only when reminders can reach them (on Telegram, or with no chat by a browser device: reachableForReminders).
+ * Otherwise the creator alone, with the card's notice (its key keeps its old name).
  */
 function targetFor(
   event: ParsedEvent,
   partner: PartnerSummary | null
 ): { forUserId: number | null; forBoth: boolean; notice?: 'partner_not_on_telegram' } {
   if (!wantsPartner(event) || !partner) return { forUserId: null, forBoth: false };
-  if (partner.telegramId === null) return { forUserId: null, forBoth: false, notice: 'partner_not_on_telegram' };
+  if (!reachableForReminders(partner)) return { forUserId: null, forBoth: false, notice: 'partner_not_on_telegram' };
   return { forUserId: partner.id, forBoth: event.forPerson === 'both' };
 }
 

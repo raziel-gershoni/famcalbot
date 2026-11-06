@@ -1,6 +1,7 @@
 import { User as PrismaUser } from '@prisma/client';
 import { readStoredToken } from './utils/encryption';
 import type { ZmanSpecValue } from './lib/calendar-view/zman-spec';
+import { pushDeviceCountOf } from './services/web-push/reach';
 
 // Calendar category labels
 export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
@@ -40,12 +41,20 @@ export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'what
   defaultReminderMinutes?: number;
   pickupRemindersEnabled?: boolean;
   reminderStartAt?: Date | null;
+  /**
+   * Devices with browser notifications on (6c-2), set only when the row was read with PUSH_DEVICE_COUNT
+   * (getUserById); undefined otherwise, which the reminder gates read as none.
+   */
+  pushDeviceCount?: number;
 };
 
 // Helper to convert Prisma User to UserConfig (with decryption)
-export function convertPrismaUserToConfig(user: PrismaUser): UserConfig {
+export function convertPrismaUserToConfig(user: PrismaUser & { _count?: { pushDevices?: number } }): UserConfig {
+  // A row read with PUSH_DEVICE_COUNT carries its devices' count; the config holds the number, never the _count object
+  const { _count, ...row } = user;
   return {
-    ...user,
+    ...row,
+    ...(_count !== undefined ? { pushDeviceCount: pushDeviceCountOf({ _count }) } : {}),
     telegramId: user.telegramId !== null ? Number(user.telegramId) : null,
     whatsappPhone: user.whatsappPhone ?? undefined,
     whatsappBsuid: user.whatsappBsuid ?? undefined,

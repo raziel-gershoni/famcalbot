@@ -144,18 +144,27 @@ function expectCall(call: Call | undefined, method: string, url: string, body?: 
 const DB: { user: Row[]; blockedIdentifier: Row[]; userFeatureOverride: Row[] } = { user: [], blockedIdentifier: [], userFeatureOverride: [] };
 const blocked = () => DB.blockedIdentifier;
 const sessionEnds: { where: Row; data: Row }[] = [];
+/** The `where` of each read of the accounts a ban signs out (6c-2: the ban reads them, then ends their sessions by id in one transaction). */
+const ownerReads: Row[] = [];
 const same = (a: unknown, b: unknown) => a != null && b != null && String(a) === String(b);
 const fakePrisma = {
   user: {
     findUnique: async ({ where }: Row) => DB.user.find((u) => Object.entries(where).every(([k, v]) => same(u[k], v))) ?? null,
-    // A ban also ends the web sessions of the accounts it names (web sign-in 6b): one updateMany over the ban's identifiers.
+    // A ban also ends the web sessions of the accounts it names (web sign-in 6b; 6c-2: in one transaction with their
+    // browser devices): one read of the accounts over the ban's identifiers, then one updateMany over their ids.
+    findMany: async ({ where }: Row) => {
+      ownerReads.push(where);
+      return DB.user.filter((u) => (where.OR as Row[]).some((c) => Object.entries(c).every(([k, v]) => same(u[k], v))));
+    },
     updateMany: async ({ where, data }: Row) => {
       sessionEnds.push({ where, data });
-      const hit = DB.user.filter((u) => (where.OR as Row[]).some((c) => Object.entries(c).every(([k, v]) => same(u[k], v))));
+      const hit = DB.user.filter((u) => (where.id.in as unknown[]).some((id) => same(u.id, id)));
       hit.forEach((u) => Object.assign(u, data));
       return { count: hit.length };
     },
   },
+  pushDevice: { deleteMany: async () => ({ count: 0 }) },
+  $transaction: async (fn: (tx: unknown) => unknown) => fn(fakePrisma),
   blockedIdentifier: {
     upsert: async ({ where, update, create }: Row) => {
       const row = DB.blockedIdentifier.find((r) => Object.entries(where).every(([k, v]) => same(r[k], v)));
@@ -240,6 +249,7 @@ function seedRoute() {
   ];
   DB.blockedIdentifier = [];
   sessionEnds.length = 0;
+  ownerReads.length = 0;
   DB.userFeatureOverride = [];
   redisStore.clear();
   captured.length = 0;
@@ -855,7 +865,7 @@ async function main() {
       const other = await post({ action: 'ban', telegramId: 222222222, whatsappPhone: '+972503334444', reason: 'spam' });
       assert(other.status === 200 && other.body.success === true, `someone else: ${other.status} ${canon(other.body)} ${captured.join(' | ')}`);
       assert(blocked().length === 2 && DB.blockedIdentifier.every((r) => r.bannedBy === 9 && r.bannedReason === 'spam'), `rows: ${canon(DB.blockedIdentifier)}`);
-      assert(sessionEnds.length === 1 && (sessionEnds[0].where.OR as Row[]).length === 2 && sessionEnds[0].data.sessionsValidAfter instanceof Date, `session ends: ${canon(sessionEnds)}`);
+      assert(sessionEnds.length === 1 && ownerReads.length === 1 && (ownerReads[0].OR as Row[]).length === 2 && sessionEnds[0].data.sessionsValidAfter instanceof Date, `session ends: ${canon(sessionEnds)}`);
       const unban = await post({ action: 'unban', telegramId: ADMIN_TELEGRAM });
       assert(unban.status === 200, `an unban of one's own: ${unban.status}`);
       const empty = await post({ action: 'ban' });
@@ -867,7 +877,7 @@ async function main() {
       assert(ownAccount.status === 400 && ownAccount.body.error === 'SELF_BAN' && blocked().length === 0, `own account: ${ownAccount.status} ${canon(ownAccount.body)}`);
       const byAccount = await post({ action: 'ban', user_id: 42, reason: 'spam' });
       assert(byAccount.status === 200 && canon(byAccount.body.kinds) === canon(['telegram', 'whatsapp']) && blocked().length === 2, `by account: ${byAccount.status} ${canon(byAccount.body)} ${captured.join(' | ')}`);
-      assert((sessionEnds[sessionEnds.length - 1]?.where.OR as Row[]).some((c) => c.id === 42), `session ends: ${canon(sessionEnds)}`);
+      assert((ownerReads[ownerReads.length - 1]?.OR as Row[]).some((c) => c.id === 42) && (sessionEnds[sessionEnds.length - 1]?.where.id as Row).in.includes(42), `session ends: ${canon(sessionEnds)}`);
       const nobody = await post({ action: 'ban', user_id: 4242 });
       assert(nobody.status === 404 && nobody.body.error === 'NOT_FOUND', `no such account: ${nobody.status} ${canon(nobody.body)}`);
       assert(blocklistLogs.length === 1 && blocklistLogs[0] === '[admin-blocklist] refused: NOT_FOUND', `the refusal was logged once: ${canon(blocklistLogs)}`);

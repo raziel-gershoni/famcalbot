@@ -12,6 +12,7 @@
 import Module from 'node:module';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
+import webpush from 'web-push';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -37,6 +38,10 @@ process.env.TELEGRAM_BOT_TOKEN = 'test-token';
 process.env.UPSTASH_REDIS_REST_URL = 'https://redis.invalid';
 process.env.UPSTASH_REDIS_REST_TOKEN = 'test-token';
 process.env.DATABASE_URL = 'postgresql://test@db.invalid/test';
+// Browser notifications configured (6c-2): a key pair made here, never real ones
+const VAPID = webpush.generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = VAPID.publicKey;
+process.env.VAPID_PRIVATE_KEY = VAPID.privateKey;
 
 /** Any request that slips past the fakes is refused and counted. */
 const networkAttempts: string[] = [];
@@ -74,7 +79,7 @@ const db = { row: null as Record<string, unknown> | null, down: false, reads: 0 
 const upserts: { update: Record<string, unknown>; create: Record<string, unknown> }[] = [];
 /** Pairings and users for the partner rule: pairing id -> its row; user id -> its row. */
 const pairings: Record<string, { status: string; inviterUserId: number; inviteeUserId: number | null }> = {};
-const userRows: Record<number, { id: number; telegramId: number | null }> = {};
+const userRows: Record<number, { id: number; telegramId: number | null; whatsappPhone?: string | null; _count?: { pushDevices: number } }> = {};
 const fakePrisma = {
   pairing: { findUnique: async ({ where }: { where: { id: string } }) => pairings[where.id] ?? null },
   user: { findUnique: async ({ where }: { where: { id: number } }) => (userRows[where.id] ? { name: 'P', englishName: '', gender: '', language: 'en', reminderTime: null, ...userRows[where.id] } : null) },
@@ -198,19 +203,19 @@ async function main() {
     assert(accessChecks.join() === '1:reminders', `feature checks ${accessChecks}`);
   });
 
-  await check('the first failing reason wins: no Telegram and the switch off is no_telegram', async () => {
+  await check('the first failing reason wins: no channel and the switch off is no_channel', async () => {
     reset();
     store.set(FLAG, 'false');
     const support = await getReminderSupport({ id: 2, telegramId: null });
-    assert(support.reason === 'no_telegram', JSON.stringify(support));
+    assert(support.reason === 'no_channel', JSON.stringify(support));
   });
 
-  await check('a WhatsApp-only user is no_telegram, with no Redis read', async () => {
+  await check('a WhatsApp-only user is no_channel, with no Redis read', async () => {
     reset();
     access[3] = true;
     for (const telegramId of [null, undefined]) {
       const support = await getReminderSupport({ id: 3, telegramId });
-      assert(!support.supported && support.reason === 'no_telegram', `${telegramId}: ${JSON.stringify(support)}`);
+      assert(!support.supported && support.reason === 'no_channel', `${telegramId}: ${JSON.stringify(support)}`);
     }
     assert(redisState.reads === 0 && accessChecks.length === 0, `redis reads ${redisState.reads}, feature checks ${accessChecks}`);
   });
@@ -278,6 +283,46 @@ async function main() {
     assert(!(await canReceiveReminderPings({ id: 20, telegramId: 2020, pairingId: null })), 'unpaired');
     access[23] = true;
     assert(await canReceiveReminderPings({ id: 23, telegramId: 2023, pairingId: null }), 'own plan allows');
+  });
+
+  // ---- 6c-2: a device with browser notifications on, for an account with no chat ----
+
+  await check('6c-2 getReminderSupport: no chat with a device is supported through the same switch and plan checks; no device, WhatsApp with a device, or push off is no_channel with no Redis read', async () => {
+    reset();
+    access[30] = true;
+    const ok = await getReminderSupport({ id: 30, telegramId: null, pushDeviceCount: 1 });
+    assert(ok.supported && accessChecks.join() === '30:reminders', `${JSON.stringify(ok)} ${accessChecks}`);
+    reset();
+    access[31] = true;
+    for (const user of [{ id: 31, telegramId: null, pushDeviceCount: 0 }, { id: 31, telegramId: null }, { id: 31, telegramId: null, whatsappPhone: '+972500000031', pushDeviceCount: 1 }]) {
+      const support = await getReminderSupport(user);
+      assert(!support.supported && support.reason === 'no_channel', `${JSON.stringify(user)}: ${JSON.stringify(support)}`);
+    }
+    assert(redisState.reads === 0 && accessChecks.length === 0, `redis reads ${redisState.reads}, feature checks ${accessChecks}`);
+    const saved = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      const off = await getReminderSupport({ id: 31, telegramId: null, pushDeviceCount: 1 });
+      assert(off.reason === 'no_channel', `push off: ${JSON.stringify(off)}`);
+    } finally {
+      process.env.VAPID_PRIVATE_KEY = saved;
+    }
+  });
+
+  await check('6c-2 canReceiveReminderPings: a no-chat user with a device whose own plan has no reminders gets pings through a supported partner (on Telegram or by push); with no device they do not', async () => {
+    reset();
+    access[40] = false; access[41] = true; access[42] = true;
+    pairings.q1 = { status: 'ACTIVE', inviterUserId: 40, inviteeUserId: 41 };
+    pairings.q2 = { status: 'ACTIVE', inviterUserId: 40, inviteeUserId: 42 };
+    userRows[41] = { id: 41, telegramId: 2041 };
+    userRows[42] = { id: 42, telegramId: null, _count: { pushDevices: 1 } };
+    assert(await canReceiveReminderPings({ id: 40, telegramId: null, pushDeviceCount: 1, pairingId: 'q1' }), 'a Telegram partner with reminders');
+    assert(await canReceiveReminderPings({ id: 40, telegramId: null, pushDeviceCount: 1, pairingId: 'q2' }), 'a push partner with reminders');
+    assert(!(await canReceiveReminderPings({ id: 40, telegramId: null, pushDeviceCount: 0, pairingId: 'q1' })), 'no device');
+    userRows[42] = { id: 42, telegramId: null, _count: { pushDevices: 0 } };
+    assert(!(await canReceiveReminderPings({ id: 40, telegramId: null, pushDeviceCount: 1, pairingId: 'q2' })), 'the partner has no device: their plan does not count');
+    access[43] = true;
+    assert(await canReceiveReminderPings({ id: 43, telegramId: null, pushDeviceCount: 2, pairingId: null }), 'own plan, by push');
   });
 
   // ---- isNativeRemindersEnabled: Redis first, the DB behind it, on by default ----

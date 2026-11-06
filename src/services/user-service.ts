@@ -8,6 +8,7 @@ import { normalizeEmail } from './web-signin/email-address';
 import { captureSignInFailure } from './web-signin/safe-error';
 import { trackActivityAsync } from './analytics-service';
 import type { IdentityKind } from './web-signin/identities';
+import { PUSH_DEVICE_COUNT } from './web-push/reach';
 
 /** A new account was refused: one of its identifiers is on the admin blocklist. The message names none of them. */
 export class AccountBlockedError extends Error {
@@ -30,12 +31,14 @@ export async function getUserByTelegramId(telegramId: number | bigint): Promise<
 }
 
 /**
- * Get user by DB primary key (platform-agnostic)
- * Used by magic link auth for WhatsApp users
+ * Get user by DB primary key (platform-agnostic). The web session's read (verifyUserAuth), so it carries the
+ * account's browser device count in the same statement (PUSH_DEVICE_COUNT): the reminder gates of a web request read
+ * it with no query of their own (6c-2 spec §3.5).
  */
 export async function getUserById(id: number): Promise<UserConfig | null> {
   const user = await prisma.user.findUnique({
-    where: { id }
+    where: { id },
+    include: PUSH_DEVICE_COUNT,
   });
 
   return user ? convertPrismaUserToConfig(user) : null;

@@ -21,6 +21,7 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import webpush from 'web-push';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -33,6 +34,10 @@ process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.CRON_SECRET ||= 'test-cron';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+// Browser notifications configured (6c-2): a key pair made here, never real ones
+const VAPID = webpush.generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = VAPID.publicKey;
+process.env.VAPID_PRIVATE_KEY = VAPID.privateKey;
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -99,7 +104,10 @@ function matches(row: Row, where: Where): boolean {
 
 /** A state row's `pings` is its relation (the ping rows of its recipients); the other columns are plain. */
 const pick = (row: Row | undefined, select?: Record<string, unknown>): Row | null =>
-  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, k === 'pings' ? pingsOf(row, select[k]) : row[k]])) : { ...row };
+  !row ? null : select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, k === 'pings' ? pingsOf(row, select[k]) : k === '_count' ? countsOf(row, select[k]) : row[k]])) : { ...row };
+/** A user's relation counts (PUSH_DEVICE_COUNT): its browser devices. */
+const countsOf = (row: Row, arg: unknown): Row =>
+  Object.fromEntries(Object.keys((arg as { select: Record<string, boolean> }).select).map((k) => [k, k === 'pushDevices' ? (tables.pushDevice ?? []).filter((d) => d.userId === row.id).length : 0]));
 const pingsOf = (state: Row, select: unknown): Array<Row | null> =>
   tables.nativeReminderPing.filter((p) => p.stateId === state.id).map((p) => pick(p, (select as { select?: Record<string, boolean> }).select));
 
@@ -400,6 +408,7 @@ function seed() {
   tables.nativeReminderState = [];
   tables.nativeReminderPing = [];
   tables.adminSettings = [];
+  tables.pushDevice = [];
   tracked.length = 0;
   (globalThis as Row).__recurrenceCache?.clear?.();
 }
@@ -3156,6 +3165,49 @@ async function main() {
     const { alertsOnFor } = await load('src/services/calendar-write/item-info.ts');
     assert((await alertsOnFor({ id: TAL, telegramId: null, remindersEnabled: true })) === false, 'no Telegram chat');
     assert((await alertsOnFor({ id: TAL, telegramId: 5, remindersEnabled: true })) === true, 'with one');
+  });
+
+  await check('6c-2 a partner with no chat whose browser notifications are on can be reminded: the editor offers them, a reminder for them and for both is made, an edit makes one theirs; with no device, or notifications off, they cannot; alertsOn reads the same rule', async () => {
+    const noChatNoa = () => { tables.user.find((u) => u.id === NOA)!.telegramId = null; };
+    const noaDevice = () => { tables.pushDevice = [{ id: 'pd-noa', userId: NOA, endpoint: 'https://fcm.googleapis.com/fcm/send/smoke-noa', p256dh: 'B'.repeat(87), auth: 'A'.repeat(22), createdAt: OLD }]; };
+    seed();
+    noChatNoa();
+    noaDevice();
+    assertSame((await editorOf()).body.partner, { name: 'Noa', canRemind: true }, 'a partner with a device');
+    const forNoa = await post(reminderBody({ forWho: 'partner', title: 'Pick up the cake' }));
+    assert(forNoa.status === 200 && lastEvent().forUserId === NOA, `for Noa: ${forNoa.status} ${forNoa.text}`);
+    const both = await post(reminderBody({ forWho: 'both', title: 'Book the flights' }));
+    assert(both.status === 200 && lastEvent().forUserId === NOA && lastEvent().forBoth === true, `for both: ${both.status} ${both.text}`);
+    const mine = await post(reminderBody({ title: 'Mine' }));
+    const edit = await patch({ key: mine.body.key, scope: 'all', changes: { forWho: 'partner' } });
+    assert(edit.status === 200 && eventRow(idOf(mine.body.key)).forUserId === NOA, `an edit to Noa: ${edit.status} ${edit.text}`);
+    const off: [string, () => void, () => void][] = [
+      ['no device', () => { tables.pushDevice = []; }, () => undefined],
+      ['notifications off', () => { delete process.env.VAPID_PUBLIC_KEY; }, () => { process.env.VAPID_PUBLIC_KEY = VAPID.publicKey; }],
+    ];
+    for (const [label, turnOff, restore] of off) {
+      seed();
+      noChatNoa();
+      noaDevice();
+      const keep = await post(reminderBody({ title: 'Mine' }));
+      turnOff();
+      try {
+        assertSame((await editorOf()).body.partner, { name: 'Noa', canRemind: false }, `${label}: the editor`);
+        const refused = await post(reminderBody({ forWho: 'partner' }));
+        assertSame([refused.status, refused.body], [400, { error: 'invalid', field: 'forWho' }], `${label}: create`);
+        const edit2 = await patch({ key: keep.body.key, scope: 'all', changes: { forWho: 'both' } });
+        assertSame([edit2.status, edit2.body], [400, { error: 'invalid', field: 'forWho' }], `${label}: edit`);
+      } finally {
+        restore();
+      }
+    }
+    seed();
+    enableAlerts();
+    const { alertsOnFor } = await load('src/services/calendar-write/item-info.ts');
+    assert((await alertsOnFor({ id: TAL, telegramId: null, remindersEnabled: true, pushDeviceCount: 1 })) === true, 'no chat, a device');
+    assert((await alertsOnFor({ id: TAL, telegramId: null, remindersEnabled: true, pushDeviceCount: 0 })) === false, 'no chat, no device');
+    assert((await alertsOnFor({ id: TAL, telegramId: null, whatsappPhone: '+972501234567', remindersEnabled: true, pushDeviceCount: 1 })) === false, 'WhatsApp and a device');
+    assert((await alertsOnFor({ id: TAL, telegramId: null, remindersEnabled: false, pushDeviceCount: 1 })) === false, 'alerts off in Settings');
   });
 
   await check('alerts, create: Default is stored as the default, None as an own empty list, a lead as that lead; the field omitted is the default', async () => {

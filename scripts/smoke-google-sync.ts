@@ -183,6 +183,11 @@ function pick(name: string, row: Row | undefined, select?: Row): Row | null {
   const out: Row = {};
   for (const [k, sel] of Object.entries(select)) {
     if (!sel) continue;
+    if (k === '_count' && isPlain(sel)) {
+      // A relation count (PUSH_DEVICE_COUNT, 6c-2): the user's browser devices
+      out[k] = Object.fromEntries(Object.keys(sel.select as Row).map((c) => [c, c === 'pushDevices' ? table('pushDevice').filter((d) => same(d.userId, row.id)).length : 0]));
+      continue;
+    }
     if (isPlain(sel)) {
       const related = RELATIONS[name]?.[k];
       if (!related) throw new Error(`fake prisma: no relation ${name}.${k}`);

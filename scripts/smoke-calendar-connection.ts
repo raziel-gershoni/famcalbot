@@ -634,7 +634,7 @@ async function main() {
     const noTg = await getReminderSupport({ ...(await configOf(3)), telegramId: null });
     redisStore.set('feature:access:4:reminders', JSON.stringify({ allowed: false }));
     const noPlan = await getReminderSupport(await configOf(4));
-    eq([ok, noTg.reason, noPlan.reason], [{ supported: true }, 'no_telegram', 'no_access'], 'support');
+    eq([ok, noTg.reason, noPlan.reason], [{ supported: true }, 'no_channel', 'no_access'], 'support');
   });
 
   await check('D2 a reminder for a Google partner: the partner can be reminded, and owns it', async () => {
