@@ -1,6 +1,7 @@
 /**
  * Event Reminders Service
- * Sends Telegram reminders for calendar events based on their reminder settings.
+ * Sends Telegram reminders for calendar events based on their reminder settings, or, for an
+ * account with no chat, browser notifications (web push spec §3.5).
  * For kids' events, sends both start and end (pickup) reminders.
  */
 
@@ -26,6 +27,10 @@ import { isFamcalId } from '../utils/calendar-helpers';
 import { nextTopOfHourUtc } from '../utils/pass-gate';
 import { liveGoogleChoices } from '../lib/google-state';
 import { MAX_LEAD_MINUTES, defaultLeadOf, nearestReminderLead } from '../lib/calendar-view/alert-leads';
+import { hasChat } from '../lib/has-chat';
+import { appPageUrl } from '../lib/web-session';
+import { normalizeLocale } from '../utils/locale';
+import { sendWebPush } from './web-push/send';
 
 
 const REMINDER_TTL_SECONDS = 86400; // 24 hours
@@ -277,14 +282,16 @@ export async function getDueReminders(
     const candidates = alertCandidates(event, user, assignments);
     if (candidates.length === 0) continue;
 
-    // Debug logging with actual times
+    // Debug logging with actual times. A title is the user's text: an account with no chat (a notification, which
+    // never logs its title or place) gets none of it in a log line.
+    const logName = hasChat(user) ? event.summary : '(title not logged)';
     const reminderMinutes = (candidates[0].eventTime.getTime() - candidates[0].reminderTime.getTime()) / 60_000;
-    console.log(`[Reminders] Event: ${event.summary}, start: ${hhmm(new Date(event.start))}, end: ${hhmm(new Date(event.end))}, window: [${hhmm(now)}-${hhmm(windowEnd)}), reminderMin: ${reminderMinutes}`);
+    console.log(`[Reminders] Event: ${logName}, start: ${hhmm(new Date(event.start))}, end: ${hhmm(new Date(event.end))}, window: [${hhmm(now)}-${hhmm(windowEnd)}), reminderMin: ${reminderMinutes}`);
 
     for (const candidate of candidates) {
       const { type, reminderTime, eventTime, isAuto } = candidate;
       if (type === 'pickup') {
-        console.log(`[Reminders] Pickup check: ${event.summary}, pickupAt: ${hhmm(eventTime)}, reminderTime: ${hhmm(reminderTime)}, inWindow: ${reminderTime >= now && reminderTime < windowEnd}`);
+        console.log(`[Reminders] Pickup check: ${logName}, pickupAt: ${hhmm(eventTime)}, reminderTime: ${hhmm(reminderTime)}, inWindow: ${reminderTime >= now && reminderTime < windowEnd}`);
       }
       if (reminderTime >= windowEnd) {
         // Not due yet: the earliest such FamCal alert is when the gate opens again.
@@ -341,6 +348,21 @@ async function eventWhen(
 }
 
 /**
+ * The alert's time line (bot.eventAlertWhen, through eventWhen), in the user's timezone: the chat's message and the
+ * notification read the same line.
+ */
+async function alertWhen(reminder: DueReminder, language: string, timezone?: string, pingAt: Date = new Date()): Promise<string> {
+  const tz = timezone || 'UTC';
+  const timeStr = reminder.eventTime.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: tz,
+  });
+  return eventWhen(reminder.type, reminder.eventTime, pingAt, timeStr, language, tz);
+}
+
+/**
  * Format reminder message based on type, language, and source (event vs auto)
  */
 async function formatReminderMessage(
@@ -349,15 +371,8 @@ async function formatReminderMessage(
   timezone?: string,
   pingAt: Date = new Date()
 ): Promise<string> {
-  const { event, type, eventTime, isAutoReminder } = reminder;
-  const tz = timezone || 'UTC';
-  const timeStr = eventTime.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-    timeZone: tz,
-  });
-  const when = await eventWhen(type, eventTime, pingAt, timeStr, language, tz);
+  const { event, type, isAutoReminder } = reminder;
+  const when = await alertWhen(reminder, language, timezone, pingAt);
   // Titles and names are the user's own text inside HTML: a "<" or "&" in one made
   // Telegram refuse the whole message, and the alert was lost.
   const title = escapeHtml(event.summary);
@@ -405,6 +420,55 @@ async function formatReminderMessage(
   return isAutoReminder ? messages[lang][type].auto : messages[lang][type].event;
 }
 
+/** What a delivered alert leaves, by chat or by notification: the sent mark under the key getDueReminders checks, the activity, and the plan's count. */
+async function recordAlertSent(user: UserConfig, reminder: DueReminder, meta: { platform?: string } = {}): Promise<void> {
+  if (reminder.event.eventId) {
+    await markReminderSent(user.id, reminder.event.eventId, reminder.type, reminder.sentKeyDate);
+  }
+  trackActivityAsync(user.id, 'reminder_sent', {
+    reminder_type: reminder.type,
+    minutes_before: getReminderMinutes(reminder.event, user)?.minutes,
+    ...meta,
+  });
+  incrementUsage(user.id, 'reminders').catch(err => {
+    console.error('[Subscription] Failed to increment reminders:', err);
+    captureError(err, 'reminders-increment-usage', { user_id: user.id }, 'warning');
+  });
+}
+
+/**
+ * An alert as a notification, for an account with no chat (the alert cache holds one only with a device on:
+ * reminder-cache.ts alertChannelOf). The title is the event's, the text Telegram's time line with the place under it,
+ * and it waits at the push service no longer than the moment it is about (`until`). Marked sent only when a device took
+ * it, as the chat's alert is only once Telegram took it. No line here holds the title or the place.
+ */
+async function sendAlertByPush(user: UserConfig, reminder: DueReminder, timezone?: string): Promise<boolean> {
+  try {
+    const lang = normalizeLocale(user.language);
+    const when = await alertWhen(reminder, lang, timezone);
+    const result = await sendWebPush(user, {
+      kind: 'alert',
+      title: reminder.event.summary,
+      body: reminder.event.location ? `${when}\n${reminder.event.location}` : when,
+      url: appPageUrl(lang, 'dashboard', user.id),
+      tag: `alert-${reminder.event.eventId ?? reminder.eventTime.getTime()}-${reminder.type}`,
+      lang,
+      until: reminder.eventTime,
+    });
+    if (result.sent === 0) {
+      console.warn(`[Reminders] ${reminder.type} alert to user ${user.id} not delivered by push (0 of ${result.total} devices${result.retriable ? ', a passing failure' : ''})`);
+      return false;
+    }
+    await recordAlertSent(user, reminder, { platform: 'push' });
+    console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.id} by push`);
+    return true;
+  } catch (error) {
+    console.error(`[Reminders] Error sending a push alert to user ${user.id}:`, error);
+    captureError(error, 'reminders-send', { user_id: user.id });
+    return false;
+  }
+}
+
 /**
  * Send a reminder to a user
  */
@@ -413,6 +477,8 @@ export async function sendReminder(
   reminder: DueReminder,
   timezone?: string
 ): Promise<boolean> {
+  // An account with no chat is in the alert cache only with a device on (reminder-cache.ts alertChannelOf): a notification.
+  if (!hasChat(user)) return sendAlertByPush(user, reminder, timezone);
   const platform = user.messagingPlatform || 'telegram';
   const message = await formatReminderMessage(reminder, user.language, timezone);
   let sent = false;
@@ -439,19 +505,8 @@ export async function sendReminder(
       return false;
     }
 
-    // Mark as sent, under the key getDueReminders checked
-    if (reminder.event.eventId) {
-      await markReminderSent(user.id, reminder.event.eventId, reminder.type, reminder.sentKeyDate);
-    }
-
-    trackActivityAsync(user.id, 'reminder_sent', {
-      reminder_type: reminder.type,
-      minutes_before: getReminderMinutes(reminder.event, user)?.minutes,
-    });
-    incrementUsage(user.id, 'reminders').catch(err => {
-      console.error('[Subscription] Failed to increment reminders:', err);
-      captureError(err, 'reminders-increment-usage', { user_id: user.id }, 'warning');
-    });
+    // Mark as sent, under the key getDueReminders checked; the activity and the plan's count
+    await recordAlertSent(user, reminder);
 
     console.log(`[Reminders] Sent ${reminder.type} reminder to user ${user.id} for event: ${reminder.event.summary}`);
     return true;

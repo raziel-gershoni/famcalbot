@@ -47,14 +47,17 @@ export async function handleDailySummary(): Promise<CronResult> {
  * Returns the number of users synced.
  */
 export async function rebuildReminderCache(): Promise<number> {
-  const { syncReminderCache, toEntry } = await import('../services/reminder-cache');
+  const { syncReminderCache, toEntry, alertChannelOf } = await import('../services/reminder-cache');
+  const { PUSH_DEVICE_COUNT, pushDeviceCountOf } = await import('../services/web-push/reach');
 
   const users = await prisma.user.findMany({
     where: {
       remindersEnabled: true,
       // Everyone has FamCal ("Google as a connection"), so a missing Google token
       // keeps nobody out: their FamCal events alert too.
-      telegramId: { not: null },
+      // A Telegram chat, or no chat at all: such an account is alerted by notification once a device is on
+      // (alertChannelOf below decides; this only narrows the read).
+      OR: [{ telegramId: { not: null } }, { whatsappPhone: null, whatsappBsuid: null }],
       suspendedAt: null,
       // Telegram refuses delivery to these chats; reminders would 403 every 5 minutes.
       unreachableSince: null,
@@ -62,6 +65,9 @@ export async function rebuildReminderCache(): Promise<number> {
     select: {
       id: true,
       telegramId: true,
+      whatsappPhone: true,
+      whatsappBsuid: true,
+      ...PUSH_DEVICE_COUNT,
       googleRefreshToken: true,
       calendarAssignments: true,
       calendarSource: true,
@@ -79,7 +85,11 @@ export async function rebuildReminderCache(): Promise<number> {
     }
   });
 
-  const entries = users.map(u => toEntry({
+  // The where clause has held remindersEnabled, suspendedAt and unreachableSince; the one admission rule decides the rest.
+  const entries = users.flatMap(u => {
+    const channel = alertChannelOf({ ...u, remindersEnabled: true }, pushDeviceCountOf(u));
+    return channel ? [{ u, channel }] : [];
+  }).map(({ u, channel }) => toEntry({
     id: u.id,
     telegramId: u.telegramId?.toString() ?? '',
     googleRefreshToken: u.googleRefreshToken, // As stored; toEntry seals it
@@ -96,6 +106,7 @@ export async function rebuildReminderCache(): Promise<number> {
     latitude: u.latitude,
     longitude: u.longitude,
     elevationM: u.elevationM,
+    ...(channel === 'push' ? { pushDevice: true } : {}),
   }));
 
   await syncReminderCache(entries);
@@ -244,7 +255,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
     try {
       const user = {
         id: cachedUser.id,
-        telegramId: parseInt(cachedUser.telegramId, 10),
+        // A push entry (no chat: reminder-cache's alertChannelOf) has no Telegram id; sendReminder sends it a notification.
+        telegramId: cachedUser.telegramId ? parseInt(cachedUser.telegramId, 10) : null,
         name: cachedUser.name,
         language: cachedUser.language,
         // Sealed in the cache (toEntry) and opened here. An entry that no key opens, or a
@@ -269,7 +281,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
         longitude: cachedUser.longitude,
         elevationM: cachedUser.elevationM,
         remindersEnabled: true,
-        // No messagingPlatform on purpose: reminders go to Telegram only.
+        // No messagingPlatform on purpose: reminders go to Telegram only (or, with no chat, as a notification).
       } as import('../types').UserConfig;
       const result = await processUserReminders(user, windowMinutes, { famcal });
       totalRemindersSent += result.sent;
@@ -278,7 +290,7 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
       if (result.nextFamcalAt && (nextFamcalAt === null || result.nextFamcalAt.getTime() < nextFamcalAt)) nextFamcalAt = result.nextFamcalAt.getTime();
       usersProcessed++;
     } catch (error) {
-      const errorMsg = `User ${cachedUser.telegramId}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      const errorMsg = `User ${cachedUser.telegramId || `#${cachedUser.id}`}: ${error instanceof Error ? error.message : 'Unknown error'}`;
       console.error(`[Event Reminders] Error processing user:`, errorMsg);
       captureError(error, 'cron-reminders-process-user', { telegramId: cachedUser.telegramId });
       errors.push(errorMsg);

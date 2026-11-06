@@ -25,9 +25,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { REDIS_KEYS } from '../src/config/redis-keys';
+import { generateVAPIDKeys } from 'web-push';
 
 // No decrypt-only fallback key here (Prisma would load .env for an unset name).
 process.env.ENCRYPTION_KEY_PREVIOUS = '';
+// Browser notifications on (src/services/web-push/config.ts reads both keys); the sender and the device store are faked below.
+const vapid = generateVAPIDKeys();
+process.env.VAPID_PUBLIC_KEY = vapid.publicKey;
+process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -266,6 +271,13 @@ const recorder = {
 };
 /** How many "your reminders are paused, upgrade" notices were sent (the plan downgrade). */
 let downgradeNotices = 0;
+/** Every sendWebPush call (src/services/web-push/send.ts, faked): who, when, and what. */
+type Pushed = { at: number; userId: number; kind: string; title: string; body: string; url: string; tag: string; lang: string; until?: Date };
+let pushes: Pushed[] = [];
+/** What sendWebPush answers. */
+let pushAnswer = { sent: 1, total: 1, retriable: false };
+/** Every console.log and console.warn line of the runs (runTicks), to prove none holds a title or a place. */
+let logLines: string[] = [];
 /** The "[pause] skipped ..." lines the runs logged. */
 let pauseLines: string[] = [];
 /** The contexts captureError was called with. */
@@ -333,6 +345,21 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/messaging/factory.ts`]: {
     getTelegramService: () => recorder,
     getWhatsAppService: () => ({ sendMessage: async () => { throw new Error('reminders went to WhatsApp'); } }),
+  },
+  // The sender reads the devices when an alert is due (one query, recorded as the real one would be).
+  [`${SRC}/services/web-push/send.ts`]: {
+    sendWebPush: async (user: { id: number }, input: Omit<Pushed, 'at' | 'userId'>) => {
+      prismaCalls.push('pushDevice.findMany');
+      pushes.push({ at: clock, userId: user.id, ...input });
+      return pushAnswer;
+    },
+  },
+  // The cache entry sync's count of a no-chat account's devices: _count.pushDevices on the fake row.
+  [`${SRC}/services/web-push/devices.ts`]: {
+    countDevices: async (userId: number) => {
+      prismaCalls.push('pushDevice.count');
+      return ((userRows.find(r => r.id === userId)?._count as { pushDevices?: number } | undefined)?.pushDevices) ?? 0;
+    },
   },
   [`${SRC}/services/user-service.ts`]: { getWhatsAppChatId: () => null, updateUserById: fakeUpdateUserById },
   [`${SRC}/services/analytics-service.ts`]: { trackActivityAsync: () => {} },
@@ -448,6 +475,9 @@ function reset(row: Partial<UserRow> & { id: number }) {
   accessFailingFor = [];
   deniedUsers = [];
   afterCacheRead = null;
+  pushes = [];
+  pushAnswer = { sent: 1, total: 1, retriable: false };
+  logLines = [];
   userRows = [{
     telegramId: BigInt(1000 + row.id),
     googleRefreshToken: 'refresh-token',
@@ -470,9 +500,10 @@ async function runTicks(handlers: typeof import('../src/cron/handlers'), from: D
   const warn = console.warn;
   console.log = (...args: unknown[]) => {
     const line = args.map(String).join(' ');
+    logLines.push(line);
     if (line.startsWith('[pause]')) pauseLines.push(line);
   };
-  console.warn = () => {};
+  console.warn = (...args: unknown[]) => { logLines.push(args.map(String).join(' ')); };
   try {
     for (let t = from.getTime(); t < to.getTime(); t += 5 * 60_000) {
       clock = t;
@@ -1759,6 +1790,133 @@ async function main() {
     await fakeRedis.del(REDIS_KEYS.reminderDowngradeNotified(46));
     await runTicks(handlers, at('2026-10-17 09:10', IL), at('2026-10-17 09:15', IL));
     assert(skipped() === 1 && notices() === 0, `not told yet, in Shabbat: ${notices()} notices, ${pauseLines.join('|')}`);
+  });
+
+  // ---- Browser notifications (web push spec §3.5): event alerts for an account with no chat ----
+
+  const pushLines = (tz: string) => pushes.map(p => `${formatInTimeZone(new RealDate(p.at), tz, 'HH:mm')} ${p.userId} ${p.title} / ${p.body.replace(/\n/g, ' / ')}`);
+  const quietly = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const log = console.log;
+    console.log = () => {};
+    try { return await fn(); } finally { console.log = log; }
+  };
+
+  await check('push: alertChannelOf, the one admission rule: Telegram, else no chat and a device; never with alerts off, suspended, unreachable or a WhatsApp id', async () => {
+    const { alertChannelOf } = await import('../src/services/reminder-cache');
+    const base = { remindersEnabled: true, telegramId: null, suspendedAt: null, unreachableSince: null };
+    const got = [
+      alertChannelOf({ ...base, telegramId: BigInt(5) }, 0),
+      alertChannelOf(base, 1),
+      alertChannelOf(base, 0),
+      alertChannelOf({ ...base, whatsappPhone: '+972500000001' }, 1),
+      alertChannelOf({ ...base, whatsappBsuid: 'IL.123' }, 1),
+      alertChannelOf({ ...base, remindersEnabled: false }, 1),
+      alertChannelOf({ ...base, suspendedAt: new RealDate(0) }, 1),
+      alertChannelOf({ ...base, unreachableSince: new RealDate(0) }, 1),
+      alertChannelOf({ ...base, telegramId: BigInt(5), suspendedAt: new RealDate(0) }, 0),
+    ];
+    assert(JSON.stringify(got) === JSON.stringify(['telegram', 'push', null, null, null, null, null, null, null]), `got ${JSON.stringify(got)}`);
+  });
+
+  await check('push: the hourly sync caches a no-chat account with a device as a push entry (no Telegram id, the flag, never the devices); one with no device, a WhatsApp one, and every no-chat one while push is off stay out; a Telegram entry has no flag', async () => {
+    reset({ id: 62, telegramId: null, _count: { pushDevices: 1 } });
+    userRows.push({ ...userRows[0], id: 63, _count: { pushDevices: 0 } });
+    userRows.push({ ...userRows[0], id: 64, whatsappPhone: '+972500000064' });
+    userRows.push({ ...userRows[0], id: 65, telegramId: BigInt(1065), _count: undefined });
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    let { entries, raw } = cacheV2();
+    assert(JSON.stringify(entries.map(e => e.id).sort()) === '[62,65]', `cached ${JSON.stringify(entries.map(e => e.id))}`);
+    const push = entries.find(e => e.id === 62)!;
+    const chat = entries.find(e => e.id === 65)!;
+    assert(push.telegramId === '' && push.pushDevice === true, `push entry ${JSON.stringify(push)}`);
+    assert(chat.telegramId === '1065' && !('pushDevice' in chat), `Telegram entry ${JSON.stringify(chat)}`);
+    assert(!/endpoint|p256dh|auth"/.test(raw), 'the cache holds no device');
+
+    const keys = { pub: process.env.VAPID_PUBLIC_KEY, priv: process.env.VAPID_PRIVATE_KEY };
+    process.env.VAPID_PRIVATE_KEY = '';
+    try {
+      await syncCache(handlers, at('2026-10-13 07:10', IL));
+      ({ entries, raw } = cacheV2());
+      assert(JSON.stringify(entries.map(e => e.id)) === '[65]', `push off: ${JSON.stringify(entries.map(e => e.id))}`);
+    } finally {
+      process.env.VAPID_PUBLIC_KEY = keys.pub;
+      process.env.VAPID_PRIVATE_KEY = keys.priv;
+    }
+
+    // The entry sync (a settings save, a device added or deleted: afterDevicesChanged) reads the same rule, counting the devices itself.
+    const { syncReminderCacheEntry } = await import('../src/services/reminder-cache');
+    const { convertPrismaUserToConfig } = await import('../src/types');
+    const counts = () => prismaCalls.filter(c => c === 'pushDevice.count').length;
+    const before = counts();
+    await quietly(() => syncReminderCacheEntry(convertPrismaUserToConfig(userRows[0] as never)));
+    assert(cacheV2().entries.some(e => e.id === 62 && e.pushDevice === true), `a device on: ${cacheV2().raw}`);
+    assert(counts() === before + 1, 'the devices were not counted');
+    userRows[0]._count = { pushDevices: 0 };
+    await quietly(() => syncReminderCacheEntry(convertPrismaUserToConfig(userRows[0] as never)));
+    assert(!cacheV2().entries.some(e => e.id === 62), `the last device gone: ${cacheV2().raw}`);
+    const forChat = counts();
+    await quietly(() => syncReminderCacheEntry(convertPrismaUserToConfig(userRows[3] as never)));
+    assert(counts() === forChat && cacheV2().entries.some(e => e.id === 65), 'a Telegram account cost a count');
+  });
+
+  await check('push: a cached push account\'s alerts come as notifications: the event\'s title, Telegram\'s time line and the place, until the event, tagged per event and type, the home in its language; nothing on Telegram; marked sent once; no log line holds the title or the place', async () => {
+    reset({ id: 60, telegramId: null, _count: { pushDevices: 1 } });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(60), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k60', summary: 'Kindergarten', location: 'Hall B', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:00', IL), at('2026-10-13 17:00', IL));
+    assert(sent.length === 0 && sendAttempts === 0, `Telegram: ${sentLines(IL).join(' | ')}`);
+    const view = pushes.map(p => ({ kind: p.kind, title: p.title, body: p.body, tag: p.tag, lang: p.lang, until: p.until?.toISOString() }));
+    const want = [
+      { kind: 'alert', title: 'Kindergarten', body: 'Starting at 08:00\nHall B', tag: 'alert-k60-start', lang: 'en', until: at('2026-10-13 08:00', IL).toISOString() },
+      { kind: 'alert', title: 'Kindergarten', body: 'Pickup at 16:00\nHall B', tag: 'alert-k60-pickup', lang: 'en', until: at('2026-10-13 16:00', IL).toISOString() },
+    ];
+    assert(JSON.stringify(view) === JSON.stringify(want), `pushed ${JSON.stringify(view)}`);
+    assert(pushLines(IL).map(l => l.slice(0, 5)).join(',') === '07:45,15:45', `at ${pushLines(IL).join(' | ')}`);
+    assert(pushes.every(p => p.url.endsWith('/en/dashboard?user_id=60')), `urls ${pushes.map(p => p.url).join(', ')}`);
+    assert(store.has(REDIS_KEYS.reminder(60, 'k60', 'start', '2026-10-13')) && store.has(REDIS_KEYS.reminder(60, 'k60', 'pickup', '2026-10-13')), 'not marked sent');
+    assert(!logLines.some(l => l.includes('Kindergarten') || l.includes('Hall B')), `a line holds the title or the place: ${logLines.filter(l => l.includes('Kindergarten') || l.includes('Hall B')).join(' | ')}`);
+  });
+
+  await check('push: an alert no device took is not marked sent, and says so in one line with no title', async () => {
+    reset({ id: 66, telegramId: null, _count: { pushDevices: 1 }, pickupRemindersEnabled: false });
+    await fakeRedis.set(REDIS_KEYS.userTimezone(66), IL);
+    googleEvents = [{ calendarId: kidsCal, id: 'k66', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
+    pushAnswer = { sent: 0, total: 1, retriable: true };
+    await syncCache(handlers, at('2026-10-13 07:00', IL));
+    await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
+    assert(pushes.length === 1, `${pushes.length} pushes`);
+    assert(!store.has(REDIS_KEYS.reminder(66, 'k66', 'start', '2026-10-13')), 'marked sent though no device took it');
+    assert(logLines.some(l => l.startsWith('[Reminders] start alert to user 66 not delivered by push (0 of 1 devices')), `lines ${logLines.join(' | ')}`);
+    assert(!logLines.some(l => l.includes('Kindergarten')), 'a line holds the title');
+  });
+
+  await check('push: an idle pass makes no Prisma or store call with push accounts cached; only a pass that sends reads (the devices); their Google alert (12:30) and FamCal alert (13:20) go out as notifications', async () => {
+    twoUsers();
+    for (const row of userRows) Object.assign(row, { telegramId: null, _count: { pushDevices: 1 } });
+    for (const id of [50, 51]) await fakeRedis.set(REDIS_KEYS.userTimezone(id), IL);
+    nativeEvents = [{ calendarId: 'cal50', id: 'n50', title: 'Dentist', startsAt: at('2026-10-13 13:35', IL), endsAt: at('2026-10-13 14:00', IL), timeZone: IL }];
+    googleEvents = [{ calendarId: meCal, id: 'g51', summary: 'Soccer', start: at('2026-10-13 12:45', IL), end: at('2026-10-13 13:30', IL) }];
+    await syncCache(handlers, at('2026-10-13 11:00', IL));
+    assert(cacheV2().entries.length === 2 && cacheV2().entries.every(e => e.pushDevice === true), `cached ${cacheV2().raw}`);
+    await passAt(at('2026-10-13 12:00', IL)); // may read
+    const reads = await readingPasses(at('2026-10-13 12:05', IL), at('2026-10-13 13:00', IL));
+    assert(reads.join(' | ') === '12:30 pushDevice.findMany', `passes that read: ${reads.join(' | ') || '(none)'}`);
+    assert((await passAt(at('2026-10-13 13:00', IL))).includes('listVisibleCalendars'), 'the 13:00 pass did not read');
+    const quiet = await readingPasses(at('2026-10-13 13:05', IL), at('2026-10-13 13:20', IL));
+    assert(quiet.length === 0, `passes before the 13:20 alert read: ${quiet.join(' | ')}`);
+    assert((await passAt(at('2026-10-13 13:20', IL))).includes('fetchEventsInCalendars'), 'the 13:20 pass did not read');
+    assert(sent.length === 0, `Telegram: ${sentLines(IL).join(' | ')}`);
+    assert(pushLines(IL).join(' | ') === '12:30 51 Soccer / Starting at 12:45 | 13:20 50 Dentist / Starting at 13:35', `pushed ${pushLines(IL).join(' | ') || '(nothing)'}`);
+  });
+
+  await check('push: Shabbat holds a push account\'s alerts as it holds a chat\'s: nothing is pushed, each skip is logged', async () => {
+    reset({ id: 67, telegramId: null, _count: { pushDevices: 1 }, ...JERUSALEM_ON });
+    googleEvents = [shabbatEvent('s67', 'Kiddush', '2026-10-17 10:00', '2026-10-17 11:00')];
+    await syncCache(handlers, at('2026-10-17 07:00', IL));
+    await runTicks(handlers, at('2026-10-17 09:00', IL), at('2026-10-17 11:00', IL));
+    assert(pushes.length === 0 && sent.length === 0, `sent in Shabbat: ${pushLines(IL).join(' | ')}`);
+    assert(pauseLines.join('|') === '[pause] skipped event alert for 67|[pause] skipped event alert for 67', `logged: ${pauseLines.join('|') || '(nothing)'}`);
   });
 
   let failed = 0;

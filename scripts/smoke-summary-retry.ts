@@ -345,6 +345,8 @@ const stubs: Record<string, object> = {
     // The sync builds each entry with toEntry (the sealing is smoke-reminders'), and the
     // hourly run deletes the legacy key; neither belongs to the housekeeping log.
     toEntry: (user: unknown) => user,
+    // The admission rule (the push rule has its own smoke): every user here has a Telegram chat.
+    alertChannelOf: (user: { telegramId: unknown }) => (user.telegramId != null ? 'telegram' : null),
     purgeLegacyReminderCache: async () => {},
   },
   [`${SRC}/utils/encryption.ts`]: { safeDecrypt: (value: string) => value, readStoredToken: (value: string) => value },

@@ -17,6 +17,7 @@ import { captureError } from '../lib/error-capture';
 import { normalizeStored, sealSecret } from '../utils/encryption';
 import type { UserConfig } from '../types';
 import { openEventAlertsGate } from './event-alerts-gate';
+import { canReachByPush } from './web-push/reach';
 
 /** The reminder users, each Google token sealed: 'reminders:users:v2'. */
 export const REMINDER_CACHE_KEY = REDIS_KEYS.REMINDER_USERS;
@@ -38,6 +39,7 @@ export type ReminderCacheSource = Omit<CachedReminderUser, 'googleToken'> & { go
 
 export interface CachedReminderUser {
   id: number;
+  // '' for a push entry (pushDevice): an account with no chat, which the run alerts by notification (reminders.ts sendReminder).
   telegramId: string;
   // Sealed: ciphertext (under ENCRYPTION_KEY, or under ENCRYPTION_KEY_PREVIOUS until the
   // key sweep converts the row and rebuilds the cache), or '' for no token. The run opens
@@ -66,6 +68,31 @@ export interface CachedReminderUser {
   latitude?: number | null;
   longitude?: number | null;
   elevationM?: number | null;
+  // True only for an account with no chat and a device with notifications on (alertChannelOf 'push'): the run sends its
+  // alerts as notifications. Never the devices themselves: sendWebPush reads them when an alert is due.
+  pushDevice?: boolean;
+}
+
+/** The fields alertChannelOf reads: a database row, a UserConfig and the hourly rebuild's select all fit. */
+export interface AlertAdmissionUser {
+  remindersEnabled?: boolean | null;
+  telegramId: bigint | number | string | null | undefined;
+  whatsappPhone?: string | null;
+  whatsappBsuid?: string | null;
+  suspendedAt?: Date | null;
+  unreachableSince?: Date | null;
+}
+
+/**
+ * How the 5-minute alert pass reaches this account, or null when the cache does not hold it: the one admission rule, read
+ * by the hourly rebuild (handlers.ts rebuildReminderCache) and every entry sync. Alerts on, not suspended, not unreachable
+ * (Telegram refuses that chat every 5 minutes), and a Telegram chat, or no chat at all and a device with notifications on
+ * (canReachByPush, web push spec §3.5). A WhatsApp-only account is not held: event alerts go to Telegram only.
+ */
+export function alertChannelOf(user: AlertAdmissionUser, pushDeviceCount: number): 'telegram' | 'push' | null {
+  if (!user.remindersEnabled || user.suspendedAt || user.unreachableSince) return null;
+  if (user.telegramId != null) return 'telegram';
+  return canReachByPush({ ...user, pushDeviceCount }) ? 'push' : null;
 }
 
 /**
@@ -154,19 +181,33 @@ export async function updateUserInCache(user: ReminderCacheSource): Promise<void
 }
 
 /**
- * Put a user's entry in line with their row, by the hourly sync's rule (handleDailySummary):
- * everyone who gets reminders is in the cache, with or without a Google token (everyone has
- * FamCal); a user with reminders off, no Telegram chat, suspended or unreachable is not (Telegram
- * refuses an unreachable chat every 5 minutes, and a save must not put them back). `user` is
- * the row as convertPrismaUserToConfig returns it (the token already decrypted).
+ * Put a user's entry in line with their row, by the hourly sync's rule (alertChannelOf): everyone who gets reminders is
+ * in the cache, with or without a Google token (everyone has FamCal); a user with reminders off, no way to be reached (no
+ * Telegram chat, and no device with notifications on for an account with no chat), suspended or unreachable is not
+ * (Telegram refuses an unreachable chat every 5 minutes, and a save must not put them back). `user` is the row as
+ * convertPrismaUserToConfig returns it (the token already decrypted). The devices are counted here (one query) only for
+ * an account the cache would hold by notification once it has one, never for a chat account; a failed count leaves the
+ * entry as it was, for the hourly rebuild to put right.
  */
 export async function syncReminderCacheEntry(
-  user: Pick<UserConfig, 'id' | 'telegramId' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location' | 'pauseOnShabbat' | 'zmanimCommunity' | 'latitude' | 'longitude' | 'elevationM'>,
+  user: Pick<UserConfig, 'id' | 'telegramId' | 'whatsappPhone' | 'whatsappBsuid' | 'remindersEnabled' | 'suspendedAt' | 'unreachableSince' | 'googleRefreshToken' | 'calendarAssignments' | 'calendarSource' | 'pairingId' | 'defaultReminderMinutes' | 'language' | 'name' | 'pickupRemindersEnabled' | 'location' | 'pauseOnShabbat' | 'zmanimCommunity' | 'latitude' | 'longitude' | 'elevationM'>,
   /** Values newer than the row in hand: the token just stored (plain), the calendar choices just saved. */
   fresh: { googleRefreshToken?: string; calendarAssignments?: unknown } = {}
 ): Promise<void> {
-  const remindable = user.remindersEnabled && user.telegramId !== null && !user.suspendedAt && !user.unreachableSince;
-  if (!remindable) return removeUserFromCache(user.id);
+  let pushDeviceCount = 0;
+  if (alertChannelOf(user, 1) === 'push') {
+    try {
+      // devices.ts calls this function after a device change (afterDevicesChanged), hence the late import.
+      const { countDevices } = await import('./web-push/devices');
+      pushDeviceCount = await countDevices(user.id);
+    } catch (error) {
+      console.error(`[Reminder Cache] Counting the devices of user ${user.id} failed; the entry is left as it was:`, error);
+      captureError(error, 'reminder-cache', { user_id: user.id }, 'warning');
+      return;
+    }
+  }
+  const channel = alertChannelOf(user, pushDeviceCount);
+  if (!channel) return removeUserFromCache(user.id);
   return updateUserInCache({
     id: user.id,
     telegramId: user.telegramId?.toString() ?? '',
@@ -184,6 +225,7 @@ export async function syncReminderCacheEntry(
     latitude: user.latitude,
     longitude: user.longitude,
     elevationM: user.elevationM,
+    ...(channel === 'push' ? { pushDevice: true } : {}),
   });
 }
 
