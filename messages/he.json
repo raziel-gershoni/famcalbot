@@ -1761,6 +1761,9 @@
       "permissionDenied": "אין לך הרשאה לשנות את זה."
     },
     "push": {
+      "briefingToday": "היום",
+      "briefingTomorrow": "מחר",
+      "briefingMore": "{count, plural, one {ועוד אחד} two {ועוד שניים} other {ועוד #}}",
       "turnedOn": "ההתראות הופעלו",
       "turnedOnBody": "התזכורות והסיכומים היומיים יגיעו לכאן.",
       "reminder": "תזכורת",

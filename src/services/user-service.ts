@@ -121,7 +121,8 @@ export async function getUserByIdentifier(id: number | bigint | string): Promise
  * Replacement for allUsers array and users export in config/users.ts
  */
 export async function getAllUsers(): Promise<UserConfig[]> {
-  const users = await withRetry(() => prisma.user.findMany());
+  // The device count rides along (one more column per row): the scheduled summaries ask canReachByPush
+  const users = await withRetry(() => prisma.user.findMany({ include: PUSH_DEVICE_COUNT }));
   return users.map(convertPrismaUserToConfig);
 }
 

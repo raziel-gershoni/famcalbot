@@ -42,7 +42,7 @@ import { buildUrl } from '../../config/urls';
 import { SHARE_STORY_LABELS, TELEGRAM_CTA_LABELS, getLabel } from '../../config/labels';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { executeCommand } from './command-pipeline';
-import { getBotMessages } from '../../lib/bot-messages';
+import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { answerGoogleReadError } from './google-read-errors';
 import { trackActivityAsync } from '../analytics-service';
 import { checkFeatureAccess, incrementUsage } from '../subscription-service';
@@ -54,6 +54,10 @@ import { isPaused } from '../zmanim/pause';
 import { denyOverTextLimit } from './text-limit';
 import { liveGoogleChoices } from '../../lib/google-state';
 import { deliveryPlatformFor, type DeliveryPlatform } from '../../lib/delivery-platform';
+import { canReachByPush } from '../web-push/reach';
+import { buildBriefingBody } from '../web-push/briefing-line';
+import { appPageUrl } from '../../lib/web-session';
+import { normalizeLocale } from '../../utils/locale';
 
 /**
  * Categorize events by ownership for a specific user
@@ -103,6 +107,36 @@ interface PreparedSummary {
 type StreamStage = 'fetchingCalendar' | 'lookingAhead' | 'fetchingWeather' | 'composing';
 
 /**
+ * One user's summary day, read: the day (the caller's, else the user's local date, plus one calendar day for tomorrow),
+ * the day through `fetchFunction` (FamCal only in the outage run), shaped to the day, with the built-in calendar's
+ * reminders added: done ones leave the day, past-due ones are marked open, and older open ones join after the day's own
+ * (shaping would drop them). Anyone else's events pass through as they are. The AI summary (prepareSummaryForUser) and
+ * the browser notification's line (sendBriefingPush) both read their day here, so the two never disagree about what is
+ * on it. `gap` is the Google half the read lacks (unreachable on demand, or a reconnect), unset in the outage run.
+ */
+async function readSummaryEvents(
+  user: UserConfig,
+  fetchFunction: SummaryFetch,
+  summaryDate: Date | undefined,
+  opts: { day?: DayKey; read?: DigestRead; googleUnavailable?: boolean } | undefined,
+  userTimezone: string,
+  calendarIds: string[]
+): Promise<{ day: DayKey; googleOut: boolean; gap: DigestEvents['googleGap']; events: CalendarEvent[]; openRemindersMore: number }> {
+  const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
+  const today = localDate(new Date(), userTimezone);
+  const day = opts?.day ?? (summaryDate ? nextDate(today) : today);
+  // The outage run: Google failed this summary twice, so the day is read from FamCal only. Only
+  // a user with a Google token reads Google (sourcesFor), so no other user is affected.
+  const googleOut = opts?.googleUnavailable === true && !!user.googleRefreshToken;
+  const fetched = await fetchFunction(user, calendarIds, userTimezone, day, opts?.read, googleOut ? FAMCAL_ONLY : undefined);
+  // The read kept FamCal without Google's half: unreachable on demand, or a reconnect
+  const gap = googleOut ? undefined : fetched.googleGap;
+  const dayEvents = shapeEventsForDay(fetched, day, userTimezone);
+  const { events, moreCount: openRemindersMore } = await addDigestReminders(user, dayEvents, day, userTimezone);
+  return { day, googleOut, gap, events, openRemindersMore };
+}
+
+/**
  * Builds one user's summary. `summaryDate` is the tomorrow flag (set: tomorrow). `opts`
  * comes from the callers (calendar home spec §3.1):
  * - `day`: the summary day. Unset, it is today's rule: the user's local date, plus one
@@ -150,24 +184,11 @@ export async function prepareSummaryForUser(
   // change). The prompt and the date header get noon of that day.
   onStageChange?.('fetchingCalendar');
   const tCalendar = Date.now();
-  const { localDate, nextDate, shapeEventsForDay } = await import('../../utils/day-events');
   const { wallTimeToInstant } = await import('../../utils/wall-time');
-  const today = localDate(new Date(), userTimezone);
-  const day = opts?.day ?? (summaryDate ? nextDate(today) : today);
+  const { day, googleOut, gap, events, openRemindersMore } = await readSummaryEvents(user, fetchFunction, summaryDate, opts, userTimezone, allCalendarIds);
   const dayNoon = wallTimeToInstant(`${day}T12:00`, userTimezone);
-  // The outage run: Google failed this summary twice, so the day is read from FamCal only. Only
-  // a user with a Google token reads Google (sourcesFor), so no other user is affected.
-  const googleOut = opts?.googleUnavailable === true && !!user.googleRefreshToken;
-  const fetched = await fetchFunction(user, allCalendarIds, userTimezone, day, opts?.read, googleOut ? FAMCAL_ONLY : undefined);
-  // The read kept FamCal without Google's half: unreachable on demand, or a reconnect
-  const gap = googleOut ? undefined : fetched.googleGap;
   const googleMissing = googleOut || gap === 'unavailable';
   const googleReconnect = gap === 'token' || gap === 'scopes' ? gap : undefined;
-  const dayEvents = shapeEventsForDay(fetched, day, userTimezone);
-  // Built-in calendar reminders: done ones leave the day, past-due ones are marked
-  // open, and older open ones join after the day's own (shaping would drop them).
-  // Anyone else's events pass through as they are.
-  const { events, moreCount: openRemindersMore } = await addDigestReminders(user, dayEvents, day, userTimezone);
   const calendarMs = Date.now() - tCalendar;
 
   // Categorize events by ownership
@@ -468,6 +489,65 @@ async function sendReconnectNotice(user: UserConfig, platform: DeliveryPlatform,
   );
 }
 
+/** Where a scheduled summary goes: a chat (deliveryPlatformFor), or, for an account with no chat, its browsers. */
+type BatchPlatform = DeliveryPlatform | 'push';
+
+/**
+ * What one account's browser briefing came to: 'sent' (a device took it), 'empty' (nothing on the day, so nothing sent),
+ * 'off' (the person turned text summaries off), 'none' (no device took it and none is worth retrying: they are gone or
+ * refused), 'retry' (no device took it and a push service said to try again).
+ */
+type BriefingOutcome = 'sent' | 'empty' | 'off' | 'none' | 'retry';
+
+/**
+ * A no-chat account's briefing as a notification in its browsers (web push spec §3.5). The caller has already asked the
+ * pause and the hour/days/dedup filters, as for a chat. It reads the day through readSummaryEvents, as the AI summary
+ * does, and sends one short line built from it (buildBriefingBody): no model call, no usage counted against the plan,
+ * no voice. A day with nothing on it sends nothing and says so in one log line. Google's half missing from the read is
+ * logged and the line is FamCal's items; the dead-token notice is not pushed (the copy-to-Google message and the home's
+ * banner tell the person). A failed read throws, for the caller's Google retry and failure handling, as for a chat.
+ */
+async function sendBriefingPush(
+  user: UserConfig,
+  fetchFunction: SummaryFetch,
+  summaryDate: Date | undefined,
+  runOptions: SummaryRunOptions
+): Promise<BriefingOutcome> {
+  const which = summaryDate ? 'tomorrow' : 'today';
+  if (user.textSummaryEnabled === false) {
+    console.log(`[push-briefing] skipped user ${user.id}: text summaries are off`);
+    return 'off';
+  }
+  const { resolveUserTimezone } = await import('../../lib/timezone');
+  const timezone = await resolveUserTimezone(user);
+  const assignments = await getCalendarAssignmentsForUser(user);
+  const { events, googleOut, gap } = await readSummaryEvents(user, fetchFunction, summaryDate, runOptions, timezone, assignments.map(a => a.calendarId));
+  if (googleOut || gap) console.log(`[push-briefing] user ${user.id}: Google's events are missing from the ${which} read (${googleOut ? 'outage' : gap}); the line has FamCal's items`);
+
+  const line = await buildBriefingBody(events, timezone, user.language);
+  if (!line) {
+    console.log(`[push-briefing] skipped user ${user.id}: nothing on ${which}`);
+    return 'empty';
+  }
+  const language = normalizeLocale(user.language);
+  const { sendWebPush } = await import('../web-push/send');
+  const result = await sendWebPush(user, {
+    kind: 'briefing',
+    title: await getBotMessage(language, summaryDate ? 'push.briefingTomorrow' : 'push.briefingToday'),
+    body: line.body,
+    url: appPageUrl(language, 'dashboard', user.id),
+    // The next briefing of the same day replaces a waiting one on the device
+    tag: summaryDate ? 'briefing-tomorrow' : 'briefing-today',
+    lang: language,
+  });
+  if (result.sent > 0) return 'sent';
+  if (result.retriable) {
+    console.log(`[push-briefing] user ${user.id}: no device took the ${which} briefing and a push service asked to try again; not marked sent`);
+    return 'retry';
+  }
+  return 'none';
+}
+
 /**
  * Generic function to send summary to all users
  */
@@ -515,16 +595,24 @@ async function sendSummaryToAll(
 
     // C5 (spec §3.1 step 6): a user whose Google read fails is set aside here and retried
     // after the loop, so the rest of the batch never waits on Google.
-    const googleRetries: { user: UserConfig; platform: DeliveryPlatform; day: SummaryRunOptions['day'] }[] = [];
+    const googleRetries: { user: UserConfig; platform: BatchPlatform; day: SummaryRunOptions['day'] }[] = [];
     let firstGoogleFailureAt = 0;
 
     // One user's summary, prepared and delivered, then counted and marked sent: the same
     // on the first attempt, the retry and the outage run. `markedFor` dates the dedup mark
     // (the retry passes the batch's start); unset, it is the time of the mark, as before.
-    const deliverToUser = async (user: UserConfig, platform: DeliveryPlatform, runOptions: SummaryRunOptions, markedFor?: Date) => {
+    const deliverToUser = async (user: UserConfig, platform: BatchPlatform, runOptions: SummaryRunOptions, markedFor?: Date) => {
       const tUser = Date.now();
       const waButtonPayload = summaryDate ? 'summary tmrw' : 'summary';
-      if (isWhatsAppOnlyDelivery(user, platform)) {
+      // Counted as processed, and given the dedup mark: every delivery, except that a browser briefing counts only when a
+      // device took it, and is left unmarked when none did and a push service said to try again (as a failed chat send is)
+      let delivered = true;
+      let marked = true;
+      if (platform === 'push') {
+        const outcome = await sendBriefingPush(user, fetchFunction, summaryDate, runOptions);
+        delivered = outcome === 'sent';
+        marked = outcome !== 'retry';
+      } else if (isWhatsAppOnlyDelivery(user, platform)) {
         // Only the tap-to-open template goes out, and the tap makes the summary (and counts it). Making it here as well
         // would be paid for twice: nothing of it would be sent. The tap also tells of a Google connection to renew.
         if (await wantsWhatsAppTemplate(user)) await sendWhatsAppSummaryTemplate(user, waButtonPayload);
@@ -551,10 +639,10 @@ async function sendSummaryToAll(
       }
 
       console.log(`[Batch Summary] user=${user.id} platform=${platform} total=${Date.now() - tUser}ms`);
-      result.processed++;
+      if (delivered) result.processed++;
 
       // Mark as sent for dedup
-      if (options?.filterByHour) {
+      if (marked && options?.filterByHour) {
         const { markSummarySent } = await import('../../lib/summary-scheduling');
         const { resolveUserTimezone } = await import('../../lib/timezone');
         const tz = await resolveUserTimezone(user);
@@ -564,12 +652,14 @@ async function sendSummaryToAll(
 
     // A failed summary: logged, and a dead token gets the token text with the refresh
     // button. No dedup mark.
-    const reportFailure = async (user: UserConfig, platform: DeliveryPlatform, error: unknown) => {
+    const reportFailure = async (user: UserConfig, platform: BatchPlatform, error: unknown) => {
       console.error(`Failed to send summary to user ${user.id}:`, error);
       captureError(error, 'summary-batch-user', { user_id: user.id });
 
       if (error instanceof Error && error.message === 'GOOGLE_TOKEN_EXPIRED') {
-        await sendReconnectNotice(user, platform, 'token');
+        // A browser briefing has no refresh button to send: the copy-to-Google message and the home's banner tell the person
+        if (platform === 'push') console.log(`[Summary] user ${user.id}: Google token expired; no reconnect notice for a browser briefing`);
+        else await sendReconnectNotice(user, platform, 'token');
       }
     };
 
@@ -577,7 +667,7 @@ async function sendSummaryToAll(
     // read and the week block. Only a second outage sends the summary without Google,
     // with the outage guideline and line; it counts as sent. Anything else it throws is
     // the caller's to report. Every summary it sends is marked for the batch's date.
-    const retryOnce = async (user: UserConfig, platform: DeliveryPlatform, day: SummaryRunOptions['day']) => {
+    const retryOnce = async (user: UserConfig, platform: BatchPlatform, day: SummaryRunOptions['day']) => {
       const retry: SummaryRunOptions = { day, read: SCHEDULED_RETRY_READ };
       try {
         await deliverToUser(user, platform, retry, batchStartedAt);
@@ -599,8 +689,9 @@ async function sendSummaryToAll(
     // One user's pass: skipped, weather-only, or delivered; a Google outage sets them aside.
     const processUser = async (user: UserConfig) => {
       if (await paused(user)) return;
-      // The saved choice narrowed to the channels the person has (a saved platform that names one they lack still delivers)
-      const platform = deliveryPlatformFor(user);
+      // The saved choice narrowed to the channels the person has (a saved platform that names one they lack still delivers);
+      // an account with no chat and a browser with notifications on gets the briefing there (web push spec §3.5)
+      const platform: BatchPlatform | null = deliveryPlatformFor(user) ?? (canReachByPush({ ...user, pushDeviceCount: user.pushDeviceCount ?? 0 }) ? 'push' : null);
       if (!platform) {
         console.log(`[Summary] Skipping user ${user.id}: no Telegram and no WhatsApp to deliver to`);
         return;
@@ -622,7 +713,8 @@ async function sendSummaryToAll(
         return;
       }
 
-      if (!hasCalendars && hasLocation && user.weatherEnabled) {
+      // (the weather-only message is a chat message; a browser briefing has no weather)
+      if (!hasCalendars && hasLocation && user.weatherEnabled && platform !== 'push') {
         try {
           await sendWeatherOnlyToUser(user, summaryDate, platform);
           result.processed++;
@@ -640,7 +732,7 @@ async function sendSummaryToAll(
       }
 
       if (!hasCalendars) {
-        console.log(`[Summary] Skipping user ${user.id}: No calendars, weather disabled`);
+        console.log(`[Summary] Skipping user ${user.id}: ${platform === 'push' ? 'No calendars' : 'No calendars, weather disabled'}`);
         return;
       }
 

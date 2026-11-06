@@ -1761,6 +1761,9 @@
       "permissionDenied": "You can't change this one."
     },
     "push": {
+      "briefingToday": "Today",
+      "briefingTomorrow": "Tomorrow",
+      "briefingMore": "{count, plural, other {and # more}}",
       "turnedOn": "Notifications are on",
       "turnedOnBody": "Your reminders and daily lists will come here.",
       "reminder": "Reminder",

@@ -1761,6 +1761,9 @@
       "permissionDenied": "Это изменить не получится."
     },
     "push": {
+      "briefingToday": "Сегодня",
+      "briefingTomorrow": "Завтра",
+      "briefingMore": "{count, plural, other {и\u00a0ещё #}}",
       "turnedOn": "Уведомления включены",
       "turnedOnBody": "Напоминания и сводки дня будут приходить сюда.",
       "reminder": "Напоминание",
