@@ -662,6 +662,8 @@ async function main() {
   await check('a pending create, edit or delete stored in plain form reads as expired: the provider is never called, and no log line holds the token', async () => {
     const meeting = { ...event('Standup', '2026-10-20T07:00:00.000Z', '2026-10-20T07:30:00.000Z'), calendarId: 'primary', eventId: 'g8' } as UnifiedEvent;
     providerTokens.length = 0;
+    const secret = 'rt-plain-noa-7731';
+    const plainUser = { ...googleUser, googleRefreshToken: secret };
     const lines: string[] = [];
     const [warn, error] = [console.warn, console.error];
     console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
@@ -670,7 +672,7 @@ async function main() {
     try {
       for (const kind of ['create', 'edit', 'delete'] as const) {
         reset();
-        texts.push((await confirm(kind, meeting, googleUser, { title: 'Standup 2' }, false)).text);
+        texts.push((await confirm(kind, meeting, plainUser, { title: 'Standup 2' }, false)).text);
       }
     } finally {
       console.warn = warn;
@@ -678,7 +680,7 @@ async function main() {
     }
     assert(providerTokens.length === 0, `provider tokens ${JSON.stringify(providerTokens)}`);
     assert(texts.every(t => t.includes('expired')), `texts ${JSON.stringify(texts)}`);
-    assert(lines.length >= 3 && lines.every(l => !l.includes('legacy plaintext')), `the refusals are logged, as errors without the token: ${JSON.stringify(lines)}`);
+    assert(lines.length >= 3 && lines.every(l => !l.includes('legacy plaintext') && !l.includes(secret)), `the refusals are logged, as errors without the token: ${JSON.stringify(lines).replaceAll(secret, '<token>')}`);
   });
 
   let failed = 0;

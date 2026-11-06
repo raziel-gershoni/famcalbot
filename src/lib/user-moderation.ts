@@ -499,9 +499,10 @@ export async function unbanIdentifier(
   const kinds = kindsOf(args);
   if (kinds.length === 0) throw new BanTargetError('NO_IDENTIFIER');
 
-  // The keys go after the rows: a check that read a row just before it went could prime its key again, and a working
-  // cache would keep the unbanned person out for the hour
+  // The keys go before the rows (a failed Redis leaves the rows for a retry) and after them (a check that read a row
+  // just before it went could prime its key again, and a working cache would keep the unbanned person out for the hour)
   const keys = blockCacheKeys(args);
+  if (keys.length > 0) await redis.del(...keys);
   await prisma.blockedIdentifier.deleteMany({ where: { OR: blockFilters(args) } });
   if (keys.length > 0) await redis.del(...keys);
   console.log(`[Moderation] Admin ${adminId} unbanned ${who}: ${kinds.join(', ')}`);

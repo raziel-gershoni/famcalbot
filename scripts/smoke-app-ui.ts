@@ -1307,7 +1307,9 @@ async function main() {
       assert(resets.length === 1, `${name}: the border reset is ${resets.length} rules`);
       const line = lines.filter((l) => l.sel.split(',').some((one) => one.includes(subject) && one.includes(':not(:first-child)')));
       assert(line.length === 1, `${name}: ${line.length} separator rules name it`);
-      assert(beats(line[0], resets[0]), `${name}: its separator "${line[0].sel}" does not beat "${resets[0].sel}"`);
+      // The weight of the one selector of the list that names the subject, not of the whole list
+      const one = line[0].sel.split(',').map((x) => x.trim()).find((x) => x.includes(subject) && x.includes(':not(:first-child)'))!;
+      assert(beats({ sel: one, order: line[0].order }, resets[0]), `${name}: its separator "${one}" does not beat "${resets[0].sel}"`);
     }
     const generic = lines.filter((l) => l.sel.split(',').some((one) => one.trim() === '.ch-form-card > * + *'));
     assert(generic.length === 1, 'the plain rows keep the one general separator rule (rows after the first)');

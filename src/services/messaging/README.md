@@ -116,18 +116,7 @@ WHATSAPP_PHONE_NUMBER_ID=your_phone_id_here
 
 ### Webhook
 
-```typescript
-// api/webhook.ts
-import { detectPlatform, getMessagingService } from '../src/services/messaging';
-
-export default async function handler(req, res) {
-  const platform = detectPlatform(req);
-  const service = getMessagingService(platform, bot);
-
-  // Handle message with platform-agnostic service
-  await service.sendMessage(chatId, 'Hello!');
-}
-```
+The live route is `app/api/webhook/route.ts`: it verifies Meta's signature, then picks the platform with `detectPlatform`.
 
 ## Migration Path
 

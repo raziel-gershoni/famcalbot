@@ -188,6 +188,19 @@ async function main() {
     assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050', email: 'web@example.com' })) === false, 'an unbanned account is still blocked');
   });
 
+  await check('#3c an unban whose first Redis delete fails leaves the rows, so the retry works; the keys are cleared once the retry goes through', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    const rows = blockedCount();
+    const realDel = fakeRedis.del;
+    fakeRedis.del = async () => { throw new Error('redis down'); };
+    let threw = false;
+    try { await moderation.unbanIdentifier({ userId: W }, ADMIN); } catch { threw = true; } finally { fakeRedis.del = realDel; }
+    assert(threw && blockedCount() === rows && rows > 0, `a failed delete: threw ${threw}, rows ${blockedCount()} of ${rows}`);
+    await moderation.unbanIdentifier({ userId: W }, ADMIN);
+    assert(blockedCount() === 0 && blockedKeys().length === 0, `after the retry: rows ${blockedCount()}, keys ${show(blockedKeys())}`);
+  });
+
   await check('#4 signInRefusal reads the account\'s ways: a bare ban of an address, or of a Google account, signs out the account that holds it and refuses it; finishSignIn answers blocked with no session cookie', async () => {
     seed();
     assert((await signInRefusal(user(V))) === null && (await signInRefusal(user(W))) === null, 'an account in good standing was refused');
