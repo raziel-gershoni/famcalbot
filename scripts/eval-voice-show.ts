@@ -2,7 +2,10 @@
 // to about a minute of Gemini TTS audio per fixture (roughly $0.02 each).
 //
 // Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash] [--lang he,en]
-//      [--only name1,name2] [--no-audio]   (--no-audio writes and checks scripts only: no TTS, no length check)
+//      [--only name1,name2] [--no-audio] [--yes]   (--no-audio writes and checks scripts only: no TTS, no length check)
+//
+// Before the first paid call it prints the case count and an estimated cost and exits unless --yes is given. It stops
+// at the first failed case and says which and why (scripts/lib/eval-spend.ts; scripts/smoke-eval-voice-show.ts).
 //
 // Needs GEMINI_API_KEY. For each fixture: writes the script with the real writer; checks facts survive, forbidden
 // phrases are absent, the opening leads where it should, no digits are left, sounds
@@ -15,6 +18,7 @@ import type { UserConfig } from '../src/types';
 import type { ShowKind } from '../src/services/voice-show/types';
 import type { ShowPromptContext } from '../src/prompts/voice-show/types';
 import { AI_MODEL } from '../src/config/ai-models';
+import { confirmSpend, runEvalCases } from './lib/eval-spend';
 
 interface Fixture {
   name: string;
@@ -560,6 +564,9 @@ async function main() {
   const audio = !args.includes('--no-audio');
   const outDirArg = args.filter((a, i) => !a.startsWith('--') && !['--model', '--lang', '--only'].includes(args[i - 1]))[0];
 
+  const cases = [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he') && (!only || only.includes(f.name)));
+  if (!confirmSpend({ cases: cases.length, audio, yes: args.includes('--yes') }, console.log)) process.exit(1);
+
   if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY is not set');
 
   // @hebcal/core is ESM-only (exports has only an "import" condition) and tsx loads src/
@@ -579,9 +586,8 @@ async function main() {
 
   const outDir = outDirArg ?? 'eval-voice-show-out';
   await fs.mkdir(outDir, { recursive: true });
-  const report: Array<{ name: string; checks: Check[] }> = [];
 
-  for (const fixture of [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he') && (!only || only.includes(f.name)))) {
+  const { stopped } = await runEvalCases(cases, async (fixture) => {
     console.log(`\n=== ${fixture.name} ===`);
     const checks: Check[] = [];
     const language = fixture.language ?? 'he';
@@ -647,12 +653,11 @@ async function main() {
     record.checks = checks;
     await fs.writeFile(path.join(outDir, `${fixture.name}.json`), JSON.stringify(record, null, 2));
     for (const c of checks) console.log(`${c.ok ? 'OK  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
-    report.push({ name: fixture.name, checks });
-  }
+    return checks;
+  }, f => f.name, console.log);
 
-  const failed = report.flatMap(r => r.checks.filter(c => !c.ok).map(c => `${r.name}/${c.name}`));
-  console.log(`\n${failed.length ? `FAILED: ${failed.join(', ')}` : 'All checks passed'}  (output in ${outDir})`);
-  process.exit(failed.length ? 1 : 0);
+  console.log(`\n${stopped ? `FAILED: ${stopped}` : 'All checks passed'}  (output in ${outDir})`);
+  process.exit(stopped ? 1 : 0);
 }
 
 main().catch(error => {
