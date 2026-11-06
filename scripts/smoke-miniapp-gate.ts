@@ -543,6 +543,7 @@ async function main() {
       hasLocation: true,
       lookahead7: false,
       jewish: false,
+      push: null,
     };
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);
   });
@@ -553,6 +554,14 @@ async function main() {
     const { jewish: _gone, ...older } = DASHBOARD;
     const no = await renderDashboard(older);
     assert(no.html.includes('smoke:CalendarHome') && rendered[0]?.props.jewish === false, `no jewish: ${canon(rendered[0]?.props)}`);
+  });
+
+  await check('#16b the page\'s push (6c-2: the key, the recent sign-in, the devices) reaches the home; a page without it reads as null', async () => {
+    const push = { key: 'k', recentSignIn: true, devices: 2 };
+    const yes = await renderDashboard({ ...DASHBOARD, push });
+    assert(yes.html.includes('smoke:CalendarHome') && canon(rendered[0]?.props.push) === canon(push), `push: ${canon(rendered[0]?.props)}`);
+    const no = await renderDashboard(DASHBOARD);
+    assert(no.html.includes('smoke:CalendarHome') && rendered[0]?.props.push === null, `no push: ${canon(rendered[0]?.props)}`);
   });
 
   await check('#17 a user with Google connected: the sources and the Google facts pass through, the hints are the page\'s, and an early adopter with no location gets no trial days and hasLocation false', async () => {

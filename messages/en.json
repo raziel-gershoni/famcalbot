@@ -95,6 +95,9 @@
       "openInTelegram": "Open FamCal in Telegram",
       "openInTelegramBody": "Reminders, voice summaries and more are waiting there.",
       "connectTelegramBody": "For reminders and briefings",
+      "pushTitle": "Get reminders on this device",
+      "pushBody": "Reminders and your morning and evening list, as notifications",
+      "pushAction": "Turn on",
       "close": "Hide"
     },
     "state": {
@@ -899,6 +902,36 @@
       "close": "Done",
       "errorFailed": "Disconnecting didn’t finish, and Google may already have lost access. Try again to complete it.",
       "errorBusy": "Too many tries. Wait a minute and try again."
+    },
+    "push": {
+      "title": "Notifications on this device",
+      "switchOff": "Turn on notifications",
+      "switchOn": "Notifications are on",
+      "offHint": "Reminders and your morning and evening list come here. Event alerts too, if you turn them on under Events and reminders.",
+      "onHint": "Reminders and your morning and evening list come to this device.",
+      "checking": "Checking this device…",
+      "turningOn": "Turning on…",
+      "turningOff": "Turning off…",
+      "again": "Tap again to allow",
+      "dismissed": "Your browser didn’t ask. Tap again, or allow notifications in the site settings.",
+      "denied": "Notifications are blocked for FamCal in this browser. Allow them in the site settings (the icon next to the address) or in your phone’s settings for this browser, then turn them on here.",
+      "refused": "This account is connected to a chat now, so its reminders come there. Reload the page.",
+      "failed": "Notifications couldn’t be turned on. Try again.",
+      "offFailed": "Notifications couldn’t be turned off. Try again.",
+      "signInAgain": "Sign in again to turn on notifications",
+      "staleNote": "For your safety, turning on notifications needs a sign-in from the last hour.",
+      "unsupported": "This browser can’t show FamCal’s notifications.",
+      "ios": {
+        "title": "Add FamCal to the Home Screen",
+        "body": "On iPhone and iPad, notifications work only in FamCal added to the Home Screen (iOS 16.4 or later).",
+        "step1": "Tap Share, then Add to Home Screen, and keep Open as Web App on.",
+        "step2": "Open FamCal from the icon and sign in there. The installed app keeps its own sign-in.",
+        "step3": "Turn on notifications."
+      },
+      "noteTitle": "Turn on notifications, or connect Telegram, to get reminders and briefings",
+      "noteBody": "Notifications on this device are further down this page. Your calendar stays as it is.",
+      "textHint": "A short list of the day’s events, as a notification",
+      "alertsHint": "A notification before an event starts"
     },
     "signIn": {
       "title": "Sign in on the web",

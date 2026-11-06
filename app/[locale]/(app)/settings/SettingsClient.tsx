@@ -6,9 +6,16 @@
 // spec 2026-11-02-web-sign-in §4, which saves each change itself), and a Save bar that stays at the bottom.
 // - An account with no chat (made on famcal.bot; spec 2026-11-03-web-sign-up §4) has nothing that sets up chat messages: no
 //   Summaries, no Timing, no Shabbat pause, voice input or alerts, no Pro notice. In their place the Telegram note
-//   ("Briefings and reminders come in Telegram") with Connect Telegram (telegram-connect-client.ts); no Events section either
-//   (its reminder time needs a Telegram account: page-data's nativeRemindersSupported is false without one, a partner's
-//   Telegram included). After Telegram connects, everything shows on the next load.
+//   ("Briefings and reminders come in Telegram"; with push set up, "Turn on notifications, or connect Telegram, ...") with
+//   Connect Telegram (telegram-connect-client.ts); no Events section either. After Telegram connects, everything shows on the
+//   next load.
+// - With notifications on in at least one browser (6c-2 §2.3; page-data's push.devices, then each turn on or off in the card)
+//   such an account gets back what a notification can honour: the summary switch (its push hint, no count: not counted),
+//   the hours and days, the alerts with the default alert and pickups, the reminder time (where page-data's
+//   nativeRemindersSupported says so) and the pause; the note card goes. Voice, weather, the week ahead, 7 days, voice input
+//   and the platform stay hidden.
+// - "Notifications on this device" (PushCard), right above Sign in on the web, for an account with no chat while push is set
+//   up (push.key); it saves itself, as Sign in on the web does.
 //
 // - Save stays on the page: the bar says "Saved" or what failed, and what was just saved becomes the
 //   baseline the page compares against, so Save is on only while something differs. A save that changes the
@@ -47,6 +54,7 @@ import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
 import SignInMethods from './SignInMethods';
+import PushCard from './PushCard';
 import { LocationSheet, type LocationProblem } from './LocationSheet';
 import { validateLocation } from './location-lookup';
 import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type Gender, type SettingsValues } from './settings-body';
@@ -144,7 +152,8 @@ function SummaryDays({ label, days, weekStart, onToggle }: { label: string; days
   );
 }
 
-function TelegramNote({ userId, locale }: { userId: number; locale: string }) {
+/** pushOffered: push is set up (page-data's push.key), so the note names the notifications too (6c-2 §2.3). */
+function TelegramNote({ userId, locale, pushOffered }: { userId: number; locale: string; pushOffered: boolean }) {
   const t = useTranslations('settings');
   const c = useTranslations('telegramConnect');
   const connect = useTelegramConnect(userId, locale);
@@ -153,7 +162,7 @@ function TelegramNote({ userId, locale }: { userId: number; locale: string }) {
   return (
     <>
       <FormCard>
-        <FormRow label={t('noChat.title')} hint={t('noChat.body')} />
+        <FormRow label={pushOffered ? t('push.noteTitle') : t('noChat.title')} hint={pushOffered ? t('push.noteBody') : t('noChat.body')} />
         <button type="button" className="ch-form-row ch-action-row" disabled={working} aria-busy={working || undefined} onClick={connect.press}>
           {working ? <Loader2 size={16} className="ch-spin" aria-hidden="true" /> : null}
           {c(connectButtonKey(connect.phase))}
@@ -164,7 +173,7 @@ function TelegramNote({ userId, locale }: { userId: number; locale: string }) {
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat, push }: SettingsClientProps) {
   const t = useTranslations('settings');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -176,6 +185,8 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const [saveFailed, setSaveFailed] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
+  // The account's devices with notifications on (6c-2): the page's count, then each turn on or off in the card
+  const [pushDevices, setPushDevices] = useState(push?.devices ?? 0);
 
   // The sheets: one is open at a time, and Back closes it. The Google and the sign-in sections report their own.
   const [timeOpen, setTimeOpen] = useState(false);
@@ -261,9 +272,12 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const alertsOn = form.remindersEnabled && alertsAllowed;
   // The alerts rows follow the saved platform: picking another one changes them once it is saved.
   const telegramReaches = saved.messagingPlatform !== 'whatsapp';
-  // No chat at all (6c-1): nothing on this page may set up a chat message
+  // No chat at all (6c-1): nothing on this page may set up a chat message...
   const noChat = hasChat === false;
-  const chatAlerts = telegramReaches && !noChat;
+  // ...unless a browser of the account has notifications on (6c-2 §2.3): then the rows a notification can honour come back
+  const byPush = noChat && Boolean(push?.key) && pushDevices > 0;
+  const chatOnly = noChat && !byPush;
+  const alertRows = byPush || (telegramReaches && !noChat);
   const usage = (used: number, limit: number) => (limit > 0 ? t('usage', { used, limit }) : undefined);
 
   return (
@@ -313,8 +327,8 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
             ]}
             onChange={(value) => setForm((f) => ({ ...f, culture: value, ...defaultsForCulture(value) }))}
           />
-          {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). It pauses chat messages: none with no chat. */}
-          {noChat ? null : <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />}
+          {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). It pauses chat messages and notifications: none to pause with neither. */}
+          {chatOnly ? null : <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />}
           {bothChannels ? (
             <ValueRow
               label={t('platform.label')}
@@ -329,29 +343,35 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           ) : null}
         </FormCard>
 
-        {noChat ? (
-          <TelegramNote userId={userId} locale={saved.language} />
+        {chatOnly ? (
+          <TelegramNote userId={userId} locale={saved.language} pushOffered={Boolean(push?.key)} />
         ) : (
           <>
             <SectionLabel>{t('sections.summaries')}</SectionLabel>
             <FormCard>
+              {/* As a notification (6c-2): the day's short list, no AI, so no count of the plan's summaries (spec decision 6) */}
               <SwitchRow
                 label={t('text.label')}
-                hint={t('text.hint')}
-                note={usage(subscriptionInfo.textSummariesUsed, subscriptionInfo.textSummariesLimit)}
+                hint={byPush ? t('push.textHint') : t('text.hint')}
+                note={byPush ? undefined : usage(subscriptionInfo.textSummariesUsed, subscriptionInfo.textSummariesLimit)}
                 checked={form.textSummaryEnabled}
                 onChange={(on) => set('textSummaryEnabled', on)}
               />
-              <SwitchRow
-                label={t('voice.label')}
-                hint={t('voice.hint')}
-                note={usage(subscriptionInfo.voiceSummariesUsed, subscriptionInfo.voiceSummariesLimit)}
-                checked={form.voiceSummaryEnabled}
-                onChange={(on) => set('voiceSummaryEnabled', on)}
-              />
-              <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
-              <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
-              <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />
+              {/* Voice, the weather and the week ahead need a chat: a notification can't carry them */}
+              {noChat ? null : (
+                <>
+                  <SwitchRow
+                    label={t('voice.label')}
+                    hint={t('voice.hint')}
+                    note={usage(subscriptionInfo.voiceSummariesUsed, subscriptionInfo.voiceSummariesLimit)}
+                    checked={form.voiceSummaryEnabled}
+                    onChange={(on) => set('voiceSummaryEnabled', on)}
+                  />
+                  <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
+                  <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
+                  <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />
+                </>
+              )}
             </FormCard>
 
             <SectionLabel>{t('sections.timing')}</SectionLabel>
@@ -364,17 +384,17 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           </>
         )}
 
-        {/* Every row here needs a chat (the reminder time too: no Telegram, no reminders), so with no chat there is no section. */}
-        {noChat ? null : (
+        {/* Every row here needs a way to reach the person: a chat, or with no chat a browser with notifications on (the reminder time also needs FamCal reminders: nativeRemindersSupported). */}
+        {chatOnly ? null : (
           <>
             <SectionLabel>{t('sections.events')}</SectionLabel>
             <FormCard>
-              <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />
-              {chatAlerts ? (
+              {noChat ? null : <SwitchRow label={t('voiceInput.label')} hint={t('voiceInput.hint')} checked={form.voiceInputEnabled} onChange={(on) => set('voiceInputEnabled', on)} />}
+              {alertRows ? (
                 <>
                   <SwitchRow
                     label={t('alerts.label')}
-                    hint={remindersGloballyEnabled ? t('alerts.hint') : t('alerts.comingSoon')}
+                    hint={!remindersGloballyEnabled ? t('alerts.comingSoon') : byPush ? t('push.alertsHint') : t('alerts.hint')}
                     checked={alertsOn}
                     disabled={!alertsAllowed}
                     onChange={(on) => set('remindersEnabled', on)}
@@ -397,11 +417,12 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
             </FormCard>
           </>
         )}
-        {chatAlerts && remindersGloballyEnabled && !subscriptionInfo.remindersAllowed ? (
+        {alertRows && remindersGloballyEnabled && !subscriptionInfo.remindersAllowed ? (
           <Notice action={{ label: t('alerts.seePlans'), onClick: () => router.push(`/${saved.language}/subscription?user_id=${userId}`) }}>{t('alerts.proOnly')}</Notice>
         ) : null}
 
         <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
+        {noChat && push?.key ? <PushCard userId={userId} push={push} onDevices={setPushDevices} /> : null}
         <SignInMethods userId={userId} onSheet={(close) => setSignInClose(() => close)} />
       </div>
 

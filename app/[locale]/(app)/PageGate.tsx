@@ -109,6 +109,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
     hasLocation: Boolean(p.user.location),
     lookahead7: p.lookahead7,
     jewish: p.jewish === true,
+    push: p.push ?? null,
   };
 }
 

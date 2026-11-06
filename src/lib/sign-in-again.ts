@@ -5,9 +5,14 @@
 // then opens /signin in the page's language. Inside Telegram the chat's buttons reopen the Mini App instead, and the screens
 // keep their "open it again from the bot" words there (sessionEndedKey).
 //
-// Client-safe: one import, and the log lines carry a status or an error's name only.
+// It is a sign-out on this device, so this browser's notifications go first (6c-2 §2.4): turnOffPush(null) unsubscribes the
+// browser (there is no user id here: the server deletes the device when the push service answers "gone" at the next send);
+// a failure is logged there and never stops the sign-out.
+//
+// Client-safe: two imports, and the log lines carry a status or an error's name only.
 
 import { signInHref } from '@/src/site/signin';
+import { turnOffPush } from '@/src/lib/web-push-client';
 
 const TAG = '[sign-in-again]';
 
@@ -18,6 +23,7 @@ export function sessionEndedKey(inTelegram: boolean): 'errors.reopen' | 'errors.
 
 /** Signs this browser out, then opens /signin. False (logged; the page stays) when the sign-out or the move failed. */
 export async function signInAgain(locale: string): Promise<boolean> {
+  await turnOffPush(null);
   try {
     const res = await fetch('/api/auth/signout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     if (!res.ok) {

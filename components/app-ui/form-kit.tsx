@@ -704,7 +704,8 @@ export function FormRow({ label, hint, children }: { label: string; hint?: strin
 
 /**
  * A switch row: the whole row is the button. `note` is a second hint line (what is used of a limit);
- * `disabled` keeps the row focusable and announced (aria-disabled) but a tap changes nothing.
+ * `disabled` keeps the row focusable and announced (aria-disabled) but a tap changes nothing; `busy` also announces that
+ * the change is out (aria-busy; the label carries the spinner).
  */
 export function SwitchRow({
   label,
@@ -713,6 +714,7 @@ export function SwitchRow({
   checked,
   onChange,
   disabled,
+  busy,
 }: {
   label: ReactNode;
   hint?: string;
@@ -720,6 +722,7 @@ export function SwitchRow({
   checked: boolean;
   onChange: (on: boolean) => void;
   disabled?: boolean;
+  busy?: boolean;
 }) {
   return (
     <button
@@ -727,6 +730,7 @@ export function SwitchRow({
       role="switch"
       aria-checked={checked}
       aria-disabled={disabled || undefined}
+      aria-busy={busy || undefined}
       className="ch-form-row"
       onClick={() => {
         if (!disabled) onChange(!checked);

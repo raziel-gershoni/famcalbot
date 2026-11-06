@@ -5,6 +5,7 @@
 
 import type { GoogleState } from '../google-state';
 import type { SourceName } from './types';
+import type { PushProps } from '../web-push-client';
 
 /**
  * Which ways of adding things this user can use, for the empty Agenda's hint (Ruling
@@ -57,4 +58,9 @@ export type CalendarHomeProps = {
    * Hebrew dates).
    */
   jewish?: boolean;
+  /**
+   * This browser's notifications (6c-2, page-data's push): the "Get reminders on this device" banner and the open's check.
+   * Null inside Telegram and with a chat; absent: as before.
+   */
+  push?: PushProps | null;
 };

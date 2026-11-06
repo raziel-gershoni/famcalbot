@@ -1104,7 +1104,12 @@ async function main() {
     const dir = path.join(ROOT, 'app/[locale]/(app)/settings');
     // The Google and the sign-in sections read their own namespaces (settings.googleDisconnect, settings.signIn), which their own smokes hold.
     const OWN_SMOKE = ['GoogleDisconnect.tsx', 'SignInMethods.tsx', 'signin-methods-client.ts'];
-    const source = fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !OWN_SMOKE.includes(f)).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+    // The notifications card's keys (settings.push.*) are named in the hook it shares with the home's banner and in the steps list
+    // both draw (6c-2); smoke-web-push-ui W16 holds every one of them to a reader.
+    const OUTSIDE = ['src/lib/use-push-device.ts', 'components/app-ui/IosPushSteps.tsx'];
+    const source = [...fs.readdirSync(dir).filter((f) => /\.tsx?$/.test(f) && !OWN_SMOKE.includes(f)).map((f) => path.join(dir, f)), ...OUTSIDE.map((f) => path.join(ROOT, f))]
+      .map((f) => fs.readFileSync(f, 'utf8'))
+      .join('\n');
     const keysOf = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? keysOf(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
     const own = keysOf(messages.en.settings as Row).filter((k) => !k.startsWith('googleDisconnect.') && !k.startsWith('signIn.'));
     for (const locale of LOCALES) assert(show(keysOf(messages[locale].settings as Row).sort()) === show(keysOf(messages.en.settings as Row).sort()), `${locale}: a different set of keys than en`);

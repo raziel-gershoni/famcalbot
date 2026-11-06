@@ -373,6 +373,43 @@ export const HOME_SHELL_CSS = `
 .ch-banner-line.is-problem {
   color: var(--ch-danger);
 }
+/* Get reminders on this device (6c-2): the icon, the words and the close on top, the iPhone steps under them, and the two
+   actions (Turn on, Connect Telegram) in a row that wraps on a narrow phone */
+.ch-banner-push {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  cursor: default;
+}
+.ch-banner-push-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block-start: 10px;
+  padding-inline-start: 14px;
+}
+.ch-banner-steps {
+  margin: 6px 0 0;
+  padding-inline: 34px 14px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ch-muted);
+}
+.ch-banner-steps li {
+  margin-block: 2px;
+  overflow-wrap: anywhere;
+}
+.ch-banner-push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px 10px;
+}
+.ch-banner-push-actions .ch-btn {
+  font-size: 14px;
+  font-weight: 600;
+}
 .ch-options {
   list-style: none;
   margin: 0;

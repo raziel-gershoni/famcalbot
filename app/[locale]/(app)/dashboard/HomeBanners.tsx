@@ -16,15 +16,23 @@
 // - in a browser, "Connect Telegram" (for reminders and briefings) for an account with no chat at all (6c-1), until it is
 //   closed on this device (home-storage.ts). Its press asks for the one-time bot link (telegram-connect-client.ts); a sign-in
 //   over an hour old turns it into "Sign in again to connect Telegram"; what came of it is a line under it.
-// Each banner is one button (or, for Telegram, a link) with a 44 px or taller target; Connect Telegram is two (its own and the close).
+//   While push is set up and this browser can show notifications (6c-2, pushBannerOf), it is "Get reminders on this device"
+//   instead: Turn on (the Settings switch's flow, usePushDevice) or, on iPhone and iPad in a browser tab, the three Home Screen
+//   steps, with Connect Telegram as its second action and the same close. It hides once this device is on (and while the open's
+//   check is out); a browser that can't show notifications keeps Connect Telegram.
+// Each banner is one button (or, for Telegram, a link) with a 44 px or taller target; Connect Telegram is two (its own and the
+// close), Get reminders on this device three (Turn on, Connect Telegram, the close).
 // Google is a connection beside FamCal (spec "Google as a connection" §2): a user who never
 // connected sees no Google banner at all, and Connect Google lives in the ⋯ menu only.
 
 import { useTranslations } from 'next-intl';
-import { Loader2, Send, X } from 'lucide-react';
+import { Bell, Loader2, Send, X } from 'lucide-react';
 import { DEFAULT_BOT_USERNAME } from '@/src/lib/gate-links';
 import type { GoogleState } from '@/src/lib/google-state';
 import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
+import { IosPushSteps } from '@/components/app-ui/IosPushSteps';
+import { pushLineKey, type PushDevice } from '@/src/lib/use-push-device';
+import type { PushProps } from '@/src/lib/web-push-client';
 
 export type BannerId = 'trial' | 'location' | 'chooseCalendars' | 'reconnect' | 'reconnectScopes' | 'openInTelegram' | 'connectTelegram';
 
@@ -47,6 +55,12 @@ export interface BannerFacts {
   hasChat?: boolean;
   /** This device closed the Connect Telegram banner for this account. */
   connectClosed?: boolean;
+  /**
+   * This device's notifications (6c-2, pushBannerOf): 'offer' turns Connect Telegram into "Get reminders on this device",
+   * 'hidden' hides it (this device is on, or the open's check is out). Absent: Connect Telegram as before (push is off, or this
+   * browser can't show notifications).
+   */
+  pushBanner?: 'offer' | 'hidden';
 }
 
 /** Which banners show, in order. */
@@ -60,8 +74,20 @@ export function homeBanners(f: BannerFacts): BannerId[] {
   if (f.googleState === 'reconnect') out.push('reconnect');
   else if (f.googleState !== 'none' && f.reconnect) out.push(f.reconnect === 'scopes' ? 'reconnectScopes' : 'reconnect');
   if (!f.inTelegram && f.hasTelegram === false && f.hasChat !== false) out.push('openInTelegram');
-  if (!f.inTelegram && f.hasChat === false && !f.connectClosed) out.push('connectTelegram');
+  if (!f.inTelegram && f.hasChat === false && !f.connectClosed && f.pushBanner !== 'hidden') out.push('connectTelegram');
   return out;
+}
+
+/**
+ * What this device's notifications make of the Connect Telegram banner (6c-2): nothing without push set up (no key) or where
+ * this browser can't show them; hidden until the client has read the browser, while the open's check is out, and while this
+ * device is on; else the offer (the iPhone steps as soon as they are known).
+ */
+export function pushBannerOf(push: PushProps | null | undefined, device: Pick<PushDevice, 'support' | 'phase'>): BannerFacts['pushBanner'] {
+  if (!push?.key || device.support === 'unsupported') return undefined;
+  if (device.support === 'ios-install') return 'offer';
+  if (device.support === null || device.phase === 'checking' || device.phase === 'on' || device.phase === 'stopping') return 'hidden';
+  return 'offer';
 }
 
 /** The bot's /start connect link: it links a WhatsApp account to Telegram (telegram/commands.ts). */
@@ -74,6 +100,8 @@ export interface HomeBannersProps extends BannerFacts {
   onNavigate: (href: string) => void;
   /** Closes the Connect Telegram banner (the home remembers it on the device); absent: no close. */
   onCloseConnect?: () => void;
+  /** This device's notifications (the home's usePushDevice), for "Get reminders on this device"; absent: Connect Telegram. */
+  pushDevice?: PushDevice;
 }
 
 type Tone = 'plain' | 'accent' | 'warn';
@@ -176,7 +204,72 @@ function ConnectTelegramBanner({ userId, locale, onClose }: { userId: number; lo
   );
 }
 
-export function HomeBanners({ userId, locale, onNavigate, onCloseConnect, ...facts }: HomeBannersProps) {
+/**
+ * Get reminders on this device (6c-2 §2.1): the icon, the words and the close on top; the iPhone steps under them in a browser
+ * tab; then Turn on (or Sign in again, or "Tap again to allow") and Connect Telegram. What came of either press is a line under it.
+ */
+function PushBanner({ userId, locale, device, onClose }: { userId: number; locale: string; device: PushDevice; onClose?: () => void }) {
+  const t = useTranslations('calendarHome');
+  const s = useTranslations('settings');
+  const c = useTranslations('telegramConnect');
+  const connect = useTelegramConnect(userId, locale);
+  const connecting = connect.phase === 'busy' || connect.phase === 'leaving';
+  const connectLine = connectLineKey(connect.phase);
+  const ios = device.support === 'ios-install';
+  const stale = device.phase === 'stale' || device.phase === 'leaving';
+  const working = device.phase === 'busy' || device.phase === 'leaving' || device.phase === 'stopping';
+  const said = pushLineKey(device.line);
+  const turnOnLabel = device.phase === 'busy' ? s('push.turningOn') : stale ? s('push.signInAgain') : device.line === 'again' ? s('push.again') : t('banner.pushAction');
+  const spin = <Loader2 size={16} className="ch-spin" aria-hidden="true" focusable="false" />;
+  return (
+    <>
+      <div className="ch-banner ch-banner-telegram ch-banner-push" data-banner="connectTelegram" data-push="offer">
+        <div className="ch-banner-push-head">
+          <Bell className="ch-banner-icon" aria-hidden="true" focusable="false" />
+          <span className="ch-banner-text">
+            <span className="ch-banner-title">{t('banner.pushTitle')}</span>
+            <span className="ch-banner-body">{ios ? s('push.ios.body') : t('banner.pushBody')}</span>
+          </span>
+          {onClose ? (
+            <button type="button" className="ch-banner-close ch-tap" aria-label={t('banner.close')} onClick={onClose}>
+              <X aria-hidden="true" focusable="false" />
+            </button>
+          ) : null}
+        </div>
+        {ios ? <IosPushSteps className="ch-banner-steps" /> : null}
+        <div className="ch-banner-push-actions">
+          {ios ? null : (
+            <button type="button" className="ch-btn ch-btn-primary" disabled={working} aria-busy={working || undefined} onClick={device.press}>
+              {working ? spin : null}
+              {turnOnLabel}
+            </button>
+          )}
+          <button type="button" className="ch-btn" disabled={connecting} aria-busy={connecting || undefined} onClick={connect.press}>
+            {connecting ? spin : null}
+            {c(connectButtonKey(connect.phase))}
+          </button>
+        </div>
+      </div>
+      {said ? (
+        <p className={said.problem ? 'ch-banner-line is-problem' : 'ch-banner-line'} role={said.problem ? 'alert' : 'status'}>
+          {s(said.key)}
+        </p>
+      ) : null}
+      {stale ? (
+        <p className="ch-banner-line" role="status">
+          {s('push.staleNote')}
+        </p>
+      ) : null}
+      {connectLine ? (
+        <p className={connectLine.problem ? 'ch-banner-line is-problem' : 'ch-banner-line'} role={connectLine.problem ? 'alert' : 'status'}>
+          {c(connectLine.key)}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+export function HomeBanners({ userId, locale, onNavigate, onCloseConnect, pushDevice, ...facts }: HomeBannersProps) {
   const t = useTranslations('calendarHome');
   const ids = homeBanners(facts);
   if (ids.length === 0) return null;
@@ -210,7 +303,11 @@ export function HomeBanners({ userId, locale, onNavigate, onCloseConnect, ...fac
               </a>
             );
           case 'connectTelegram':
-            return <ConnectTelegramBanner key={id} userId={userId} locale={locale} onClose={onCloseConnect} />;
+            return facts.pushBanner === 'offer' && pushDevice ? (
+              <PushBanner key={id} userId={userId} locale={locale} device={pushDevice} onClose={onCloseConnect} />
+            ) : (
+              <ConnectTelegramBanner key={id} userId={userId} locale={locale} onClose={onCloseConnect} />
+            );
         }
       })}
     </div>

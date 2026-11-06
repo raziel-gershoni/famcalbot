@@ -125,6 +125,10 @@ const KEYS: Record<string, readonly string[]> = {
   // 6c-1: Connect Telegram for an account with no chat (its title is telegramConnect.action)
   'banner.connectTelegramBody': [],
   'banner.close': [],
+  // 6c-2: Get reminders on this device, the Connect Telegram banner's place while push is set up
+  'banner.pushTitle': [],
+  'banner.pushBody': [],
+  'banner.pushAction': [],
   // §5's state rows and the retry card (D5 and D6)
   'state.partial': [],
   'state.unavailable': ['count'],

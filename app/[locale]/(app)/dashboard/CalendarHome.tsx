@@ -18,6 +18,7 @@
 //   background, data-theme for the tokens), the direction, document-level scroll and
 //   the safe areas (components/app-ui/screen.ts, the home's own ./home-shell), the header, the tab bar, the banners, the tab on
 //   screen (AgendaView, or the Month's MonthView), and the send and menu sheets;
+//   the banners include this device's notifications (6c-2): usePushDevice checks this browser on every open;
 // - the tabs (Ruling 1): the bar sits under the header and above the banners, and shows
 //   only while a panel can show (no card, no block). The tab on screen
 //   is kept in sessionStorage for the session (Ruling 2). A switch closes any sheet and
@@ -108,12 +109,13 @@ import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/
 import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
+import { usePushDevice } from '@/src/lib/use-push-device';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { NoCredentialCard } from '../PageGate';
 import { AGENDA_CSS, AgendaView } from './AgendaView';
 import { PlaceholderRows } from './DayList';
-import { HomeBanners } from './HomeBanners';
+import { HomeBanners, pushBannerOf } from './HomeBanners';
 import { HomeErrorBoundary } from './HomeErrorBoundary';
 import { HomeHeader } from './HomeHeader';
 import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
@@ -356,7 +358,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish, push } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -418,6 +420,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     writeConnectBannerClosed(userId);
     setConnectClosed(true);
   };
+  /** This device's notifications (6c-2): the open's check (every account in a browser) and "Get reminders on this device". */
+  const pushDevice = usePushDevice(userId, push, locale);
   /** Where the Month is (month.ts); null until the first answer pins the facts. In browse, its month is where browse opens next. */
   const [monthUi, setMonthUi] = useState<MonthUi | null>(null);
   /** True until the Month is first left or changed: browse's first opening peeks at the month before (spec §7.4). */
@@ -1180,6 +1184,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         hasChat={hasChat}
         connectClosed={connectClosed}
         onCloseConnect={closeConnect}
+        pushBanner={pushBannerOf(push, pushDevice)}
+        pushDevice={pushDevice}
         userId={userId}
         locale={locale}
         onNavigate={navigate}
