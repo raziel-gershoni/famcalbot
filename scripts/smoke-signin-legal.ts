@@ -15,8 +15,8 @@
 //    8 and 9 (2026-11-02) is pinned too: when the primary calendar id is read (at connect or Turn on, and at sign-in), the
 //    chat notice among the uses, the legal grounds naming the sign-in methods and counters, what stays after deletion
 //    (the counters, Resend's copies), and Telegram's and Google's sign-in pages seeing the IP address.
-//  - L3 LEGAL_UPDATED moved to the day each text last changed (the Privacy Policy's follow-up wording, 2026-11-05, and
-//    the Terms' web sign-up, 2026-11-04, or later), and is not a day that has not come yet in Israel.
+//  - L3 LEGAL_UPDATED moved to the day the texts last changed (browser notifications, PUSH_WORDING_DAY, or later, for
+//    both), and is not a day that has not come yet in Israel.
 //  - L5 each language says what web sign-up (spec 2026-11-03-web-sign-up §7, approved by the owner 2026-11-04) adds:
 //    an account made on famcal.bot with Google or an email address and used only in the browser, the one way to sign in
 //    an account needs, the name kept, the sign-up's 10 minutes and the connect link's, the new accounts counted, the
@@ -28,14 +28,19 @@
 //  - L4 the cookies the Policy names are the code's, with the code's lengths: SESSION_COOKIE_NAME and SESSION_TTL_SEC
 //    (src/lib/session-auth.ts: 30 days on famcal.bot, 24 hours from a WhatsApp link), SIGNIN_COOKIE_NAME and
 //    FLOW_TTL_SEC (src/services/web-signin/flow.ts: 10 minutes), read as text, in every language.
+//  - L6 each language says what browser notifications (spec 2026-11-05-web-push §8, approved by the owner 2026-11-06) add:
+//    the twenty edits of scripts/lib/legal-push.ts (the Privacy Policy's P1-P15 and the Terms' T1-T5), each in its place
+//    and word for word, the same places in en, he and ru; and none still says the sentences they replaced.
 //
-// Real: the messages and src/site/legal.ts; session-auth.ts and flow.ts are read as text. No network, no DB.
+// Real: the messages, scripts/lib/legal-push.ts and src/site/legal.ts; session-auth.ts and flow.ts are read as text. No
+// network, no DB.
 //
 // Run with the fake env (never the real one), from the repo root:
 //   bash <scratchpad>/6b/run-smoke.sh smoke-signin-legal
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { PUSH_LEGAL, problem as pushProblem } from './lib/legal-push';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Locale = 'en' | 'he' | 'ru';
@@ -59,6 +64,8 @@ function assert(cond: unknown, message: string): asserts cond {
   if (!cond) throw new Error(message);
 }
 const show = (v: unknown) => JSON.stringify(v);
+/** The day browser notifications' wording was added (the Israel date of its commit): both pages are dated this day or later. */
+const PUSH_WORDING_DAY = '2026-11-06';
 
 /** Every string under a node, with its path (keys and list positions). */
 function leaves(node: unknown, at: string): [string, string][] {
@@ -194,7 +201,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Among the copies we keep:'],
     ['privacy', '**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.'],
     ['privacy', 'if we banned the account: its Telegram id, WhatsApp number, sign-in email address, Google account id and that Google account’s email address, and the reason, so it can’t sign up again;'],
-    ['terms', 'An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Briefings and reminders reach you once you connect Telegram in Settings.'],
+    ['terms', 'An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots.'],
     ['terms', 'and you need your own Telegram or WhatsApp account, or your own Google account or email address to create an account on famcal.bot. A partner'],
     ['terms', 'If you lose every way you sign in, we may not be able to give the account back.'],
     ['terms', 'You pay for Basic and Pro in the Telegram bot, with Telegram Stars. You can’t pay on WhatsApp or on famcal.bot yet. An account made on famcal.bot pays after you connect Telegram.'],
@@ -218,7 +225,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'בין העותקים שאנחנו שומרים:'],
     ['privacy', '**Google,** אם נכנסים או פותחים חשבון עם Google: המזהה של חשבון ה־Google שלכם וכתובת המייל שלו, כדי להכניס אתכם.'],
     ['privacy', 'אם חסמנו את החשבון: מזהה הטלגרם, מספר הוואטסאפ וכתובת המייל לכניסה שלו, מזהה חשבון ה־Google וכתובת המייל של אותו חשבון Google, והסיבה, כדי שלא יוכל להירשם שוב;'],
-    ['terms', 'חשבון שנפתח ב־famcal.bot פועל בדפדפן בלי טלגרם ובלי וואטסאפ. בדפדפן אתם מוסיפים את האירועים בעצמכם; העוזר של FamCal (הודעות קוליות, תמונות והודעות כתובות) פועל בבוטים. סיכומים ותזכורות מגיעים אליכם אחרי שמחברים את טלגרם בהגדרות.'],
+    ['terms', 'חשבון שנפתח ב־famcal.bot פועל בדפדפן בלי טלגרם ובלי וואטסאפ. בדפדפן אתם מוסיפים את האירועים בעצמכם; העוזר של FamCal (הודעות קוליות, תמונות והודעות כתובות) פועל בבוטים.'],
     ['terms', 'ולהחזיק חשבון טלגרם או וואטסאפ משלכם, או חשבון Google או כתובת מייל משלכם כדי לפתוח חשבון ב־famcal.bot. גם בן או בת הזוג'],
     ['terms', 'אם תאבדו את הגישה לכל דרכי הכניסה שלכם, ייתכן שלא נוכל להחזיר לכם את החשבון.'],
     ['terms', 'משלמים על בסיסי ועל Pro בבוט בטלגרם, בכוכבים של טלגרם. בוואטסאפ וב־famcal.bot עדיין אי אפשר לשלם. בחשבון שנפתח ב־famcal.bot משלמים אחרי שמחברים את טלגרם.'],
@@ -242,7 +249,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['privacy', 'Среди этих копий:'],
     ['privacy', '**Google,** если вы входите или создаёте аккаунт через Google: идентификатор вашего аккаунта Google и адрес электронной почты — чтобы вы могли войти.'],
     ['privacy', 'если мы заблокировали аккаунт: его идентификатор Telegram, номер WhatsApp, идентификатор аккаунта Google, адрес электронной почты этого аккаунта Google и адрес электронной почты для входа, а также причина — чтобы с ними нельзя было зарегистрироваться снова;'],
-    ['terms', 'Аккаунт, созданный на famcal.bot, работает в браузере без Telegram и WhatsApp. В браузере вы добавляете события сами; помощник FamCal (голосовые и текстовые сообщения, фото) работает в ботах. Сводки и напоминания начнут приходить, когда вы подключите Telegram в «Настройках».'],
+    ['terms', 'Аккаунт, созданный на famcal.bot, работает в браузере без Telegram и WhatsApp. В браузере вы добавляете события сами; помощник FamCal (голосовые и текстовые сообщения, фото) работает в ботах.'],
     ['terms', 'и у вас должен быть собственный аккаунт Telegram или WhatsApp либо собственный аккаунт Google или адрес электронной почты, чтобы создать аккаунт на famcal.bot. Партнёру,'],
     ['terms', 'Если вы потеряете доступ ко всем способам входа, мы, возможно, не сможем вернуть вам аккаунт.'],
     ['terms', 'Тарифы «Базовый» и Pro оплачиваются в боте Telegram звёздами Telegram. В WhatsApp и на famcal.bot оплатить тариф пока нельзя. Если аккаунт создан на famcal.bot, тариф можно оплатить после подключения Telegram.'],
@@ -265,6 +272,7 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'You can stop using FamCal any time: block the bot, and'],
     ['privacy', 'and to tell you when a way to sign in is added: in your chat'],
     ['privacy', 'We use these only to sign you in and, if your account has no chat'],
+    ['terms', 'Briefings and reminders reach you once you connect Telegram in Settings.'],
   ],
   he: [
     ['privacy', 'FamCal לא יכול לעבוד בלי מזהה המשתמש שלכם בטלגרם'],
@@ -281,6 +289,7 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'בדפדפן מוסיפים את האירועים'],
     ['privacy', 'ולהודיע לכם כשנוספת דרך כניסה: בצ׳אט'],
     ['privacy', 'רק כדי להכניס אתכם, ואם לחשבון שלכם אין צ׳אט, גם'],
+    ['terms', 'סיכומים ותזכורות מגיעים אליכם אחרי שמחברים את טלגרם בהגדרות.'],
   ],
   ru: [
     ['privacy', 'FamCal не может работать без вашего идентификатора пользователя Telegram'],
@@ -297,6 +306,32 @@ const GONE_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'Аккаунт, созданный на famcal.bot, можно оплатить'],
     ['privacy', 'и для уведомления о том, что добавлен способ входа: в вашем чате'],
     ['privacy', 'только для входа и — если у вашего аккаунта нет чата — для уведомления'],
+    ['terms', 'Сводки и напоминания начнут приходить, когда вы подключите Telegram в «Настройках».'],
+  ],
+};
+
+/** What browser notifications' wording replaced (the Terms' account paragraph is GONE_SIGNUP's), in each language. */
+const GONE_PUSH: Record<Locale, [Doc, string][]> = {
+  en: [
+    ['privacy', 'send event alerts on Telegram;'],
+    ['privacy', 'Telegram, Meta and Google run their own apps under their own privacy policies.'],
+    ['terms', 'reminders and event alerts;'],
+    ['terms', 'when Telegram, WhatsApp or one of our providers has a problem.'],
+    ['terms', 'Telegram, WhatsApp, Google and our other providers run their own services'],
+  ],
+  he: [
+    ['privacy', 'לשלוח התראות לפני אירועים בטלגרם;'],
+    ['privacy', 'מפעילות את האפליקציות שלהן לפי מדיניות הפרטיות שלהן.'],
+    ['terms', 'תזכורות והתראות לפני אירועים;'],
+    ['terms', 'בטלגרם, בוואטסאפ או אצל אחד הספקים שלנו.'],
+    ['terms', 'Google ושאר הספקים שלנו'],
+  ],
+  ru: [
+    ['privacy', 'присылать уведомления о событиях в Telegram;'],
+    ['privacy', 'по своим политикам конфиденциальности.'],
+    ['terms', 'напоминания и уведомления о событиях;'],
+    ['terms', 'у Telegram, WhatsApp или одного из наших поставщиков возникла проблема.'],
+    ['terms', 'Google и другие наши поставщики'],
   ],
 };
 
@@ -337,10 +372,10 @@ async function main() {
     assert(problems.length === 0, problems.join('\n'));
   });
 
-  await check('L3 LEGAL_UPDATED moved to the day each text last changed (the Privacy Policy 2026-11-05, the Terms 2026-11-04, or later; not in the future)', async () => {
+  await check('L3 LEGAL_UPDATED moved to the day each text last changed (both the day browser notifications were added, or later; not in the future)', async () => {
     const { LEGAL_UPDATED } = (await import(path.join(ROOT, 'src/site/legal.ts'))) as Row;
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-    assert(LEGAL_UPDATED.privacy >= '2026-11-05' && LEGAL_UPDATED.terms >= '2026-11-04', `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
+    assert(LEGAL_UPDATED.privacy >= PUSH_WORDING_DAY && LEGAL_UPDATED.terms >= PUSH_WORDING_DAY, `LEGAL_UPDATED ${show(LEGAL_UPDATED)}`);
     assert(LEGAL_UPDATED.privacy <= today && LEGAL_UPDATED.terms <= today, `LEGAL_UPDATED ${show(LEGAL_UPDATED)} is after today in Israel (${today})`);
   });
 
@@ -359,6 +394,21 @@ async function main() {
       const policy = text(locale, 'privacy');
       for (const name of [sessionName, signinName]) assert(policy.includes(`\`${name}\``), `${locale}: the Policy does not name \`${name}\``);
     }
+  });
+
+  await check('L6 each language says what browser notifications (spec 2026-11-05-web-push §8) add to the Privacy Policy and the Terms (P1-P15, T1-T5 of scripts/lib/legal-push.ts), each in its place and word for word, the same places in en, he and ru, and none still says the sentences they replaced', () => {
+    const problems: string[] = [];
+    const places = (l: Locale) => show(PUSH_LEGAL[l].map((op) => [op.id, op.doc, op.path, op.kind]));
+    for (const locale of LOCALES) {
+      if (places(locale) !== places('en')) problems.push(`${locale}: the edits are not the English ones' places`);
+      if (PUSH_LEGAL[locale].length !== 20) problems.push(`${locale}: ${PUSH_LEGAL[locale].length} edits, want 20`);
+      for (const op of PUSH_LEGAL[locale]) {
+        const bad = pushProblem(op, messages[locale].legal[op.doc].sections);
+        if (bad) problems.push(`${locale} ${bad}`);
+      }
+      for (const [doc, old] of GONE_PUSH[locale]) if (text(locale, doc).includes(old)) problems.push(`${locale} ${doc}: still "${old}"`);
+    }
+    assert(problems.length === 0, problems.join('\n'));
   });
 
   let failed = 0;

@@ -2110,7 +2110,8 @@
                   "any notes you write for the AI."
                 ]
               },
-              "We keep your place at the level of a town or neighbourhood. If you type a street address, we keep only its town. To work out weather and zmanim, we look up that place’s map position and height. This is the place’s position, not your device’s."
+              "We keep your place at the level of a town or neighbourhood. If you type a street address, we keep only its town. To work out weather and zmanim, we look up that place’s map position and height. This is the place’s position, not your device’s.",
+              "If you turn on notifications in a browser: for each phone or computer, the address its push service gave that browser for FamCal’s notifications, two keys that encrypt them so only that browser can read them, and when you turned them on there."
             ],
             {
               "title": "Your calendar"
@@ -2203,7 +2204,8 @@
               "**Photos, PDFs and forwarded messages** (Telegram only). We send them to the AI to find events, and we don’t store them.",
               "**Audio we make for you**: voice briefings, the voice show and spoken replies. Each file is deleted as soon as it’s sent.",
               "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name. On the zmanim pages, the city nearest you is found on your device, and your device’s position isn’t sent to us. We receive only the request for that city’s page.",
-              "**Card or bank details.**"
+              "**Card or bank details.**",
+              "**Notifications in your browser.** We write each one when we send it, and don’t store it. It stays on your device until it’s cleared there, and your device’s settings decide whether it shows on the lock screen."
             ],
             "Your messages and the bot’s replies also stay in your chat on Telegram or WhatsApp. That app’s own privacy policy covers them there."
           ]
@@ -2223,7 +2225,7 @@
           "heading": "How we use it",
           "blocks": [
             [
-              "To run the features you use: your calendar, reminders, briefings and the voice show, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, and your Google connection.",
+              "To run the features you use: your calendar, reminders, briefings and the voice show, notifications in your browser, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, and your Google connection.",
               "To understand what you send the bot: voice notes, photos, PDFs, forwarded messages and typed reminders.",
               "To apply your plan’s limits, and to handle payments and refunds.",
               "To answer you, fix problems, and keep FamCal safe from misuse."
@@ -2241,13 +2243,13 @@
                 "items": [
                   "show them in the app;",
                   "include them in your briefings and the voice show;",
-                  "send event alerts on Telegram;",
+                  "send event alerts on Telegram or in your browser;",
                   "find the event you ask to change."
                 ]
               },
               "**Writing.** We write to your Google Calendar only when you ask: to add, change or delete an event, or to keep a “FamCal · <name>” copy calendar up to date. Copying goes one way, and FamCal never reads those copies back.",
               "**Signing in.** If you sign in with Google, FamCal asks Google only for your account id and email address. If you connected Google Calendar, signing in with that same Google account signs you in to your FamCal. For this, we read your primary calendar’s id (its address) with the calendar permission you gave: when you connect Google Calendar, or turn this on in Settings, to keep its scrambled form, and when you sign in, to check it is the same account. We use these only to sign you in, to email you when a way to sign in is added if your account has no chat, and, if we ban the account, to stop it signing up again. We never share them with anyone else, and delete them when you remove Google sign-in, disconnect Google Calendar (the scrambled address) or delete your account, except what a ban keeps (see “What stays after that”).",
-              "**Sharing.** Your Google events go to our AI provider, Google Gemini, so it can write your briefings and understand what you ask. They also go to Telegram or WhatsApp inside the messages we send you.",
+              "**Sharing.** Your Google events go to our AI provider, Google Gemini, so it can write your briefings and understand what you ask. They also go to Telegram or WhatsApp inside the messages we send you. If you turn on notifications in your browser, an event’s title, time and place can be in a notification, encrypted on its way so that only your browser can read it, not the push service that carries it.",
               "**People.** The people who run FamCal don’t look at your Google data. We look only when you ask us to, for example to fix a problem with an event, when security needs it, or when the law requires it. An error report can include a request that failed, which can hold an event’s details. We open error reports only to fix the problem.",
               "**Keeping and deleting.** What we keep from your Google connection, and for how long, is under “Your Google connection” above. Disconnecting Google deletes it (see Your rights and choices). What we keep to sign you in with Google is under “Your account”, and “Signing in” above says when we delete it.",
               "We don’t use Google data for ads, we don’t sell it, and we don’t use it to train AI models.",
@@ -2286,7 +2288,8 @@
               "**Resend:** your email address and the sign-in code or notice we email you. Resend keeps a copy of each email for up to 30 days.",
               "**OpenStreetMap (Nominatim):** the place name you type, so we can check it. Also your device’s position, sent from your browser, if you tap “use my location”. Your browser asks it directly for that, so, like any site you visit, OpenStreetMap sees your IP address and browser.",
               "**MET Norway:** your place’s map position, rounded to about 1 km, to get the weather.",
-              "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. When you ask for an email code, your browser loads Cloudflare’s Turnstile check from challenges.cloudflare.com. When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser."
+              "When you open the web app, your browser loads Telegram’s web-app script from telegram.org. When you ask for an email code, your browser loads Cloudflare’s Turnstile check from challenges.cloudflare.com. When you sign in with Telegram or Google, your browser opens that service’s sign-in page. Like any site you visit, Telegram and Google see your IP address and browser.",
+              "**Your browser’s push service,** if you turn on notifications: the push service your browser uses (its maker picks it, for example Apple’s, Google’s, Mozilla’s or Microsoft’s) delivers FamCal’s notifications to your browser. For each notification, it gets your browser’s notification address, our server’s IP address, and the notification’s time, size and delivery settings, such as how long it may wait. The content is encrypted for your browser, so the push service can’t read it. Which service it is depends on your browser, and it runs under its operator’s own privacy policy."
             ],
             {
               "title": "Where your data goes"
@@ -2295,7 +2298,7 @@
               "These services may store or process data in countries other than Israel.",
               "Google Gemini, Neon, Upstash, Railway, Sentry, Cloudflare (except Turnstile’s signals, below) and Resend handle data for us. Their terms commit them to protect it and to use it only to provide their service to us.",
               "Cloudflare also uses Turnstile’s signals to improve its own bot detection, under its Turnstile Privacy Addendum.",
-              "Telegram, Meta and Google run their own apps under their own privacy policies.",
+              "Telegram, Meta and Google run their own apps under their own privacy policies, and the push service your browser uses runs under its operator’s own.",
               "OpenStreetMap and MET Norway get only what’s listed above."
             ],
             {
@@ -2335,7 +2338,7 @@
               "While you sign in or create an account, `famcal_signin` holds a one-time check for 10 minutes.",
               "`NEXT_LOCALE` remembers the site’s language until you close your browser."
             ],
-            "The web app also saves a few view choices in your browser, such as which tab you were on. All of these are needed for the site and the app to work. We use no ad or tracking cookies."
+            "The web app also saves a few view choices in your browser, such as which tab you were on. If you turn notifications on, it also installs a small FamCal program in your browser (a service worker): it only shows FamCal’s notifications and opens the app when you tap one, and it saves no pages. Your browser then keeps the subscription its push service made for FamCal. All of these are needed for the site and the app to work. We use no ad or tracking cookies."
           ]
         },
         "retention": {
@@ -2350,7 +2353,8 @@
               "**Cache copies:** from a few minutes up to 30 days (see above).",
               "**Server logs:** 90 days.",
               "**Error reports:** at most 90 days.",
-              "**What Google Gemini logs:** a limited time, under Google’s terms."
+              "**What Google Gemini logs:** a limited time, under Google’s terms.",
+              "**Notifications in your browser:** each device until you turn them off or sign out there; until you sign out on all devices, or remove a way to sign in (the device you remove it on stays); until your account gets a chat (Telegram or WhatsApp), is suspended or banned, or is deleted. If the browser or its push service ends them, we delete the device at the next notification. We keep up to 10 devices: turning on an 11th removes the oldest. A notification waiting at a push service for a device that’s off is dropped there within a day."
             ]
           ]
         },
@@ -2368,14 +2372,14 @@
             "**You can also, at any time:**",
             [
               "change your settings in Settings;",
-              "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. You can also ask us to stop them;",
+              "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. To stop notifications in a browser, turn them off in Settings in that browser, or block FamCal’s notifications in your browser’s or device’s settings. You can also ask us to stop them;",
               "disconnect Google in Settings. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
               "remove a sign-in method in Settings, under “Sign in on the web”, except your only one;",
               "unlink your partner in the web app."
             ],
             "**When we delete your account**, we:",
             [
-              "delete your account, settings, calendars and their events (deleted ones too), your sign-in methods, your plan, your activity log and your feedback;",
+              "delete your account, settings, calendars and their events (deleted ones too), your sign-in methods, your plan, the list of devices you get notifications on, your activity log and your feedback;",
               "remove your FamCal copy calendars from Google, except those you chose to keep, and revoke FamCal’s access to your Google account;",
               "unlink your partner."
             ],
@@ -2386,6 +2390,7 @@
               "server logs and error reports, until they expire (up to 90 days);",
               "cache copies, until they expire (up to 30 days);",
               "sign-in counters, until they expire (up to a day), and copies of sign-in emails at Resend (up to 30 days);",
+              "a notification still waiting at a push service for a device that’s off, until it’s delivered or dropped (within a day);",
               "if we banned the account: its Telegram id, WhatsApp number, sign-in email address, Google account id and that Google account’s email address, and the reason, so it can’t sign up again;",
               "your payment records at Telegram."
             ]
@@ -2399,14 +2404,14 @@
               "title": "Our legal grounds"
             },
             [
-              "To run FamCal for you (your account and its sign-in methods, calendar, settings, Google connection, partner sharing, briefings, and reading what you send the bot): our agreement with you.",
+              "To run FamCal for you (your account and its sign-in methods, calendar, settings, Google connection, partner sharing, briefings, notifications in your browser, and reading what you send the bot): our agreement with you.",
               "For payments and refunds: our agreement with you.",
               "To keep FamCal working and safe (server logs, error reports, the activity log, the sign-in counters, the bot check on the email-code form (Turnstile), and the record of banned accounts): our legitimate interest in running a reliable service and stopping misuse.",
               "For details you add about family members: our legitimate interest in running the family calendar you asked for.",
               "For the settings that can show your religious practice (calendar culture, zmanim community and the Shabbat and Yom Tov pause): your explicit consent, which you give by turning them on and withdraw by turning them off."
             ],
             "**Your extra rights.** You can also ask us to limit how we use your data, object to a use based on our legitimate interest, get your data in a format you can take elsewhere, and withdraw a consent at any time. You can complain to your country’s data protection authority.",
-            "**Transfers.** The European Commission and the UK recognise Israel as protecting personal data adequately. For providers in other countries, such as the US, where Resend keeps the data of the sign-in emails, we rely on the safeguards in their terms, such as the EU’s standard contractual clauses or the EU-US Data Privacy Framework."
+            "**Transfers.** The European Commission and the UK recognise Israel as protecting personal data adequately. For providers in other countries, such as the US, where Resend keeps the data of the sign-in emails, we rely on the safeguards in their terms, such as the EU’s standard contractual clauses or the EU-US Data Privacy Framework. A notification reaches your browser’s push service, wherever it is, because you turned notifications on, so that it can be delivered to you."
           ]
         },
         "children": {
@@ -2424,7 +2429,8 @@
               "Your Google key is encrypted (AES-256-GCM) before we store it.",
               "Our database host, Neon, encrypts stored data on its disks. FamCal doesn’t add its own encryption to the rest of your data.",
               "The web app checks every request. On Telegram it checks Telegram’s signed sign-in. From WhatsApp it checks the sign-in link the bot sends you. On famcal.bot it checks the session cookie set when you signed in.",
-              "Secret values are removed from our server logs."
+              "Secret values are removed from our server logs.",
+              "Each notification to a browser is encrypted for that browser alone, so the push service that carries it can’t read it."
             ],
             "No system is completely safe. If a breach puts your data at risk, we’ll tell you, and we’ll report it to the Privacy Protection Authority when the law requires."
           ]
@@ -2482,11 +2488,11 @@
             "Connecting Google Calendar is optional.",
             "For now, some features work only on Telegram:",
             [
-              "reminders and event alerts;",
+              "reminders and event alerts (an account made on famcal.bot can get them as notifications in the browser until it connects Telegram);",
               "adding events from photos, PDFs and forwarded messages;",
               "paying for a plan."
             ],
-            "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Briefings and reminders reach you once you connect Telegram in Settings."
+            "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Reminders, event alerts and a short notification that lists the day’s events reach you on each phone or computer where you turn notifications on (on iPhone and iPad, after you add FamCal to the Home Screen). Once you connect Telegram, they come in Telegram instead, and the notifications stop."
           ]
         },
         "eligibility": {
@@ -2503,7 +2509,8 @@
               "Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you created your account with or added for signing in, can use FamCal as you. Keep those accounts safe.",
               "If you lose every way you sign in, we may not be able to give the account back.",
               "A partner sees the calendars you share with them. If you allow it, they can also change them.",
-              "What you add stays yours. You allow us to store and process it only to run FamCal for you."
+              "What you add stays yours. You allow us to store and process it only to run FamCal for you.",
+              "Notifications show your reminders’ and events’ titles, times and places on each device where you turn them on and, depending on its settings, on its lock screen. Anyone who can see that device can read them, so turn them off on a device others use."
             ]
           ]
         },
@@ -2606,7 +2613,7 @@
         "delivery": {
           "heading": "Reminders and messages can fail",
           "blocks": [
-            "A reminder or a briefing can arrive late, or not at all, for example when Telegram, WhatsApp or one of our providers has a problem.",
+            "A reminder or a briefing can arrive late, or not at all, for example when Telegram, WhatsApp, your browser’s push service or one of our providers has a problem, or when your device is off or blocks notifications. A notification waiting for a device that’s off is dropped after a while (within a day) and isn’t sent again.",
             "With the Shabbat and Yom Tov pause on, scheduled messages that fall inside the pause are not sent, not even afterwards. If FamCal can’t work out the pause times, it sends as usual.",
             "Don’t rely on FamCal alone for anything critical, such as medication or safety."
           ]
@@ -2652,7 +2659,7 @@
               "our total responsibility for any claim is limited to what you paid us for FamCal in the 12 months before the claim."
             ],
             "These limits don’t apply to bodily harm, to harm we cause on purpose or through gross negligence, or to any right the law doesn’t allow to be limited, including your rights as a consumer.",
-            "Telegram, WhatsApp, Google and our other providers run their own services under their own terms, and we aren’t responsible for them."
+            "Telegram, WhatsApp, Google, your browser’s push service and our providers run their own services under their own terms, and we aren’t responsible for them."
           ]
         },
         "law": {
