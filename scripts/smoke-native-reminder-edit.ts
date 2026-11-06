@@ -318,6 +318,7 @@ async function main() {
   const { nativeProvider } = await import('../src/services/calendar-provider/native-provider');
   const { getBotMessages } = await import('../src/lib/bot-messages');
   const { showEditConfirmation, showDeleteConfirmation } = await import('../src/services/voice/confirmations');
+  const { sealUser } = await import('../src/services/voice/pending-seal');
 
   const byDescription = (description: string, extra: Partial<EventReference> = {}): EventReference =>
     ({ type: 'by_description', description, ...extra });
@@ -449,19 +450,21 @@ async function main() {
   });
 
   /** A pending create, edit or delete of `item` by `by`, then its confirm button. */
-  async function confirm(kind: 'create' | 'edit' | 'delete', item: UnifiedEvent, by: UserConfig, updates: Record<string, unknown> = {}) {
+  async function confirm(kind: 'create' | 'edit' | 'delete', item: UnifiedEvent, by: UserConfig, updates: Record<string, unknown> = {}, sealed = true) {
+    // The card's user as the setters leave it: the Google token sealed
+    const stored = sealed ? sealUser(by) : by;
     if (kind === 'create') {
       const event = {
         title: item.summary, startTime: new Date(item.start), endTime: new Date(item.end), allDay: false, calendarId: item.calendarId, confidence: 'high',
       };
-      await fakeRedis.set(REDIS_KEYS.pendingEvent('p1'), { event, user: by, transcription: 'add it' });
+      await fakeRedis.set(REDIS_KEYS.pendingEvent('p1'), { event, user: stored, transcription: 'add it' });
       await handleEventCallback(77, 500, 'q1', 'create', 'p1');
       return edits[edits.length - 1];
     }
     const key = kind === 'edit' ? REDIS_KEYS.pendingEdit('p1') : REDIS_KEYS.pendingDelete('p1');
     await fakeRedis.set(key, kind === 'edit'
-      ? { originalEvent: item, calendarId: item.calendarId, updates, user: by, transcription: 'move it', scope: 'single' }
-      : { event: item, calendarId: item.calendarId, user: by, transcription: 'delete it', scope: 'single' });
+      ? { originalEvent: item, calendarId: item.calendarId, updates, user: stored, transcription: 'move it', scope: 'single' }
+      : { event: item, calendarId: item.calendarId, user: stored, transcription: 'delete it', scope: 'single' });
     if (kind === 'edit') await handleEditCallback(77, 500, 'q1', 'confirm', 'p1');
     else await handleDeleteCallback(77, 500, 'q1', 'confirm', 'p1');
     return edits[edits.length - 1];
@@ -655,27 +658,27 @@ async function main() {
     assert(JSON.stringify(plain) === '{"success":true,"eventId":"e1"}', `event: ${JSON.stringify(plain)}`);
   });
 
-  // Secret rotation (spec, Review focus 5): an entry written in plain form before the deploy
-  // that seals them (at most ten minutes old) still confirms, with its token.
-  await check('a pending create, edit or delete stored in plain form before the deploy still confirms on Google: the provider gets the token, with one warning each', async () => {
+  // Sealing shipped 2026-10-23 and a card lives ten minutes: a card holding a plain token is no longer accepted
+  await check('a pending create, edit or delete stored in plain form reads as expired: the provider is never called, and no log line holds the token', async () => {
     const meeting = { ...event('Standup', '2026-10-20T07:00:00.000Z', '2026-10-20T07:30:00.000Z'), calendarId: 'primary', eventId: 'g8' } as UnifiedEvent;
     providerTokens.length = 0;
-    const warnings: string[] = [];
-    const warn = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+    const lines: string[] = [];
+    const [warn, error] = [console.warn, console.error];
+    console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    const texts: string[] = [];
     try {
       for (const kind of ['create', 'edit', 'delete'] as const) {
         reset();
-        createResult = { success: false, error: 'FORBIDDEN' };
-        updateResult = { success: false, error: 'FORBIDDEN' };
-        deleteResult = { success: false, error: 'FORBIDDEN' };
-        await confirm(kind, meeting, googleUser, { title: 'Standup 2' });
+        texts.push((await confirm(kind, meeting, googleUser, { title: 'Standup 2' }, false)).text);
       }
     } finally {
       console.warn = warn;
+      console.error = error;
     }
-    assert(JSON.stringify(providerTokens) === '["token","token","token"]', `provider tokens ${JSON.stringify(providerTokens)}`);
-    assert(warnings.filter(w => w.includes('[voice-pending] legacy plaintext')).length === 3, `warnings ${JSON.stringify(warnings)}`);
+    assert(providerTokens.length === 0, `provider tokens ${JSON.stringify(providerTokens)}`);
+    assert(texts.every(t => t.includes('expired')), `texts ${JSON.stringify(texts)}`);
+    assert(lines.length >= 3 && lines.every(l => !l.includes('legacy plaintext')), `the refusals are logged, as errors without the token: ${JSON.stringify(lines)}`);
   });
 
   let failed = 0;

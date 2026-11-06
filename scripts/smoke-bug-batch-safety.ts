@@ -583,8 +583,10 @@ function calendarEvent() {
 /** A card waiting for its tap, as the voice flow leaves it in Redis. */
 async function pending(kind: 'event' | 'edit' | 'delete', userId: number, calendarId = 'native:home1'): Promise<string> {
   const id = `p${++seq}`;
-  // A person with a Google token when the card is for a Google calendar (the tap asks them to connect first otherwise)
-  const user = person(userId, calendarId.startsWith('native:') ? {} : { googleRefreshToken: 'google-token' });
+  // A person with a Google token when the card is for a Google calendar (the tap asks them to connect first otherwise);
+  // sealed, as the setters leave it (an unsealed token reads as an expired card)
+  const { encrypt } = await import('../src/utils/encryption');
+  const user = person(userId, calendarId.startsWith('native:') ? {} : { googleRefreshToken: encrypt('google-token') });
   const value =
     kind === 'event' ? { event: { ...sampleEvent(), calendarId }, user, transcription: 'x' }
     : kind === 'edit' ? { originalEvent: calendarEvent(), calendarId, updates: { title: 'Dentist 2' }, user, transcription: 'x' }
