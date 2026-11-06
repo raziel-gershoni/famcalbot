@@ -271,8 +271,9 @@ export async function getDueReminders(
     famcalFailed ||= fetched.failed.includes('famcal');
     if (fetched.failed.length > 0) console.warn(`[Reminders] user ${user.id}: no alerts this run from ${fetched.failed.join(', ')} (the fetch failed)`);
   } catch (error) {
-    console.error(`[Reminders] Error fetching events for user ${user.telegramId}:`, error);
-    captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId }, 'warning');
+    // A push entry (no chat) has no Telegram id: it is named by its id, as the handler's own line does
+    console.error(`[Reminders] Error fetching events for user ${user.telegramId ?? `#${user.id}`}:`, error);
+    captureError(error, 'reminders-fetch-events', { telegramId: user.telegramId, user_id: user.id }, 'warning');
     return { due: [], nextFamcalAt: null, famcalFailed: calendarsFailed || famcalAsked, famcalRead: false };
   }
 

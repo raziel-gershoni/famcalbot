@@ -30,7 +30,7 @@ import { hasChat } from '../../lib/has-chat';
 import { appPageUrl } from '../../lib/web-session';
 import { normalizeLocale } from '../../utils/locale';
 import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
-import { sendWebPush } from '../web-push/send';
+import { sendWebPush, type PushSendInput } from '../web-push/send';
 
 const HOUR_MS = 60 * 60 * 1000;
 // The window occurrences are expanded over. A date-only reminder pings at the recipient's
@@ -304,22 +304,30 @@ async function pushPing(
   doneBy: PassUser | undefined
 ): Promise<SendOutcome> {
   const lang = normalizeLocale(recipient.language);
-  const lines = [
-    forBoth
-      ? await getBotMessage(lang, 'nativeReminders.ping.forBoth')
-      : creator.id !== recipient.id
-        ? await getBotMessage(lang, 'nativeReminders.ping.from', { name: creator.name })
-        : null,
-    doneBy ? await getBotMessage(lang, 'push.partnerIsDone', { name: doneBy.name }) : null,
-  ].filter((line): line is string => !!line);
-  const result = await sendWebPush(recipient, {
-    kind: 'reminder',
-    title: candidate.occ.title,
-    body: lines.length > 0 ? lines.join('\n') : await getBotMessage(lang, 'push.reminder'),
-    url: appPageUrl(lang, 'dashboard', recipient.id),
-    tag: `nr-${claim.stateId}`,
-    lang,
-  });
+  let input: PushSendInput;
+  try {
+    // Built inside the try, as a chat's ping text is: a throw here (the strings, the page link) is a failed send
+    // (handleSendFailure gives the claim back while attempts remain), not a claim taken with nothing sent
+    const lines = [
+      forBoth
+        ? await getBotMessage(lang, 'nativeReminders.ping.forBoth')
+        : creator.id !== recipient.id
+          ? await getBotMessage(lang, 'nativeReminders.ping.from', { name: creator.name })
+          : null,
+      doneBy ? await getBotMessage(lang, 'push.partnerIsDone', { name: doneBy.name }) : null,
+    ].filter((line): line is string => !!line);
+    input = {
+      kind: 'reminder',
+      title: candidate.occ.title,
+      body: lines.length > 0 ? lines.join('\n') : await getBotMessage(lang, 'push.reminder'),
+      url: appPageUrl(lang, 'dashboard', recipient.id),
+      tag: `nr-${claim.stateId}`,
+      lang,
+    };
+  } catch (error) {
+    return handleSendFailure(error, claim, recipient, series.id);
+  }
+  const result = await sendWebPush(recipient, input);
   if (result.sent === 0) {
     if (result.retriable && claim.pingAttempts < MAX_PING_ATTEMPTS) {
       console.warn(`[NativeReminders] Push ping to user ${recipient.id} for series ${series.id}, state ${claim.stateId} reached no device (attempt ${claim.pingAttempts}), retrying`);

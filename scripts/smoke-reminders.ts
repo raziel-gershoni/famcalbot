@@ -95,12 +95,16 @@ let userRows: UserRow[] = [];
  * Prisma returns only the selected columns, so a column the sync forgets to select is
  * missing. Of the filter, only the columns it requires to be null are applied.
  */
+/** The where and select of the last user.findMany (the hourly rebuild's read), for the checks on what it asks. */
+let lastUserRead: { where: Record<string, unknown>; select: Record<string, unknown> } | null = null;
 const fakePrisma = {
   user: {
-    findMany: async ({ where = {}, select }: { where?: Record<string, unknown>; select: Record<string, boolean> }) =>
-      userRows
+    findMany: async ({ where = {}, select }: { where?: Record<string, unknown>; select: Record<string, boolean> }) => {
+      lastUserRead = { where, select };
+      return userRows
         .filter(row => Object.keys(where).every(k => where[k] !== null || row[k] == null))
-        .map(row => Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]]))),
+        .map(row => Object.fromEntries(Object.keys(select).filter(k => select[k]).map(k => [k, row[k]])));
+    },
     // markUserUnreachable: the id, and the columns it requires to be null.
     updateMany: async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
       const rows = userRows.filter(row => Object.keys(where).every(k => (where[k] === null ? row[k] == null : row[k] === where[k])));
@@ -188,6 +192,8 @@ const recordingPrisma = new Proxy(fakePrisma as Record<string, unknown>, {
 const storeCalls: string[] = [];
 /** When set, the FamCal events read fails with it (the FamCal half of the split fetch fails). */
 let storeFailure: Error | null = null;
+/** Makes calendar-provider's fetchEventsInRange itself throw (the providers' own failures are caught inside it). */
+let fetchThrows: Error | null = null;
 /** The FamCal calendars whose events read fails (one user's FamCal half fails, the others' do not). */
 let failingCalendars: string[] = [];
 /** The users whose calendar list read fails (the store's first query: listVisibleCalendars). */
@@ -400,6 +406,9 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
     fetchReminderStates: async () => { storeCalls.push('fetchReminderStates'); return []; },
     // The partner's reminders for the viewer (paired users): none.
     fetchRemindersForUserInRange: async () => { storeCalls.push('fetchRemindersForUserInRange'); return []; },
+  }),
+  [`${SRC}/services/calendar-provider/index.ts`]: real => fakeOver(real, {
+    fetchEventsInRange: (...args: unknown[]) => (fetchThrows ? Promise.reject(fetchThrows) : (real.fetchEventsInRange as (...a: unknown[]) => unknown)(...args)),
   }),
   // The real one, counted.
   [`${SRC}/services/native-reminders/ownership.ts`]: real => fakeOver(real, {
@@ -1476,8 +1485,36 @@ async function main() {
       accessFailure = null;
     }
     assert(captured.includes('cron-reminders-process-user') && captured.includes('event-alerts-gate-held'), `captured ${captured.join(', ') || '(nothing)'}`);
+    // The capture names the user by id (a push entry has no Telegram id to name it by)
+    assert(capturedDetail.some(d => d.includes('"user_id":50')), `the capture has no user_id: ${capturedDetail.join(' | ')}`);
     assert((await passAt(at('2026-10-13 12:05', IL))).includes('listVisibleCalendars'), 'the pass after the throw did not read FamCal');
     assert((await passAt(at('2026-10-13 12:10', IL))).length === 0, 'a pass that read without a failure did not close the gate');
+  });
+
+  await check('alerts: a fetch that throws is logged and captured with the account\'s id: a Telegram account\'s line is as before (its Telegram id), a push account (no Telegram id) is named #<id>, never "null"', async () => {
+    const lines: string[] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    try {
+      for (const [row, who] of [[{ id: 50 }, '1050'], [{ id: 62, telegramId: null, _count: { pushDevices: 1 } }, '#62']] as const) {
+        reset({ ...row, calendarSource: 'NATIVE', googleRefreshToken: '', calendarAssignments: null });
+        await fakeRedis.set(REDIS_KEYS.userTimezone(row.id), IL);
+        nativeCalendars = [{ id: `cal${row.id}`, name: 'Dana', labels: ['yours'], ownerUserId: row.id }];
+        await syncCache(handlers, at('2026-10-13 11:00', IL));
+        lines.length = 0;
+        fetchThrows = new Error('provider blew up (smoke)');
+        try {
+          await passAt(at('2026-10-13 12:00', IL));
+        } finally {
+          fetchThrows = null;
+        }
+        const named = lines.filter(l => l.startsWith('[Reminders] Error fetching events for user'));
+        assert(named.length === 1 && named[0] === `[Reminders] Error fetching events for user ${who}: Error: provider blew up (smoke)`, `the line for ${who}: ${JSON.stringify(named)}`);
+        assert(captured.includes('reminders-fetch-events') && capturedDetail.some(d => d.includes(`"user_id":${row.id}`)), `the capture for ${who}: ${capturedDetail.join(' | ')}`);
+      }
+    } finally {
+      console.error = error;
+    }
   });
 
   await check('gate: the calendars of a Google user can\'t be read (the store\'s first query fails): captured, the gate stays open, and their Google alert still goes out', async () => {
@@ -1831,6 +1868,10 @@ async function main() {
     assert(push.telegramId === '' && push.pushDevice === true, `push entry ${JSON.stringify(push)}`);
     assert(chat.telegramId === '1065' && !('pushDevice' in chat), `Telegram entry ${JSON.stringify(chat)}`);
     assert(!/endpoint|p256dh|auth"/.test(raw), 'the cache holds no device');
+    // Push on: the read takes the Telegram accounts and the no-chat ones, and counts their devices in the same statement
+    const onRead = lastUserRead as { where: Record<string, unknown>; select: Record<string, unknown> } | null;
+    assert(JSON.stringify(onRead?.where.OR) === JSON.stringify([{ telegramId: { not: null } }, { whatsappPhone: null, whatsappBsuid: null }]) && !('telegramId' in onRead!.where), `push on, the where: ${JSON.stringify(onRead?.where)}`);
+    assert('_count' in onRead!.select, `push on, the select: ${JSON.stringify(onRead?.select)}`);
 
     const keys = { pub: process.env.VAPID_PUBLIC_KEY, priv: process.env.VAPID_PRIVATE_KEY };
     process.env.VAPID_PRIVATE_KEY = '';
@@ -1838,6 +1879,10 @@ async function main() {
       await syncCache(handlers, at('2026-10-13 07:10', IL));
       ({ entries, raw } = cacheV2());
       assert(JSON.stringify(entries.map(e => e.id)) === '[65]', `push off: ${JSON.stringify(entries.map(e => e.id))}`);
+      // Push off (today's production): the read is the Telegram accounts alone, as before browser notifications, and counts no devices
+      const offRead = lastUserRead as { where: Record<string, unknown>; select: Record<string, unknown> } | null;
+      assert(JSON.stringify(offRead?.where.telegramId) === JSON.stringify({ not: null }) && !('OR' in offRead!.where) && !JSON.stringify(offRead!.where).includes('whatsapp'), `push off, the where has a no-chat branch: ${JSON.stringify(offRead?.where)}`);
+      assert(!('_count' in offRead!.select), `push off, the select counts devices: ${JSON.stringify(offRead?.select)}`);
     } finally {
       process.env.VAPID_PUBLIC_KEY = keys.pub;
       process.env.VAPID_PRIVATE_KEY = keys.priv;

@@ -2,7 +2,9 @@
 //
 // POST /api/signin-methods/remove?user_id=…  body { which: 'google' | 'email' | 'calendar-google', endpoint?: string }
 //   endpoint: this browser's push subscription (6c-2 spec §2.4), whose device is kept when every other one of the
-//   account is deleted with the sessions; absent or null keeps none. One that is not an endpoint is 400 invalid.
+//   account is deleted with the sessions; absent or null keeps none. One we would not accept (not https, not a URL, too
+//   long, a host that is not a push service, not a string) matches no stored device, so it keeps none too: the removal
+//   goes ahead and one line says so (the endpoint is never logged).
 //   → { ok: true, methods }. When something was removed (or the calendar switch turned off), every web session of the
 //     account ends (sessionsValidAfter), and the device this came from, when it is a web session, gets a fresh cookie
 //     with the same method and a sign-in time of now, so it stays signed in. The cookie keeps its proved-at
@@ -50,14 +52,14 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin-methods] user ${userId}: refused a removal of an unknown way`);
       return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
     }
-    // This browser's push subscription, so its device stays (never logged: it is a capability)
-    const endpoint: unknown = body?.endpoint ?? null;
-    if (endpoint !== null && !isValidEndpoint(endpoint)) {
-      console.warn(`[signin-methods] user ${userId}: refused a removal whose endpoint is not one`);
-      return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
-    }
+    // This browser's push subscription, so its device stays (never logged: it is a capability). One that is not valid
+    // (a push host outside PUSH_SERVICE_HOSTS, say) matches no stored row, so it keeps none: refusing the whole removal
+    // for it would leave the person unable to remove a way in that browser.
+    const sent: unknown = body?.endpoint ?? null;
+    const endpoint = isValidEndpoint(sent) ? sent : null;
+    if (sent !== null && endpoint === null) console.warn(`[signin-methods] user ${userId}: kept no device: endpoint not valid`);
     // Only a web session stays signed in after the removal, so only its browser keeps its device
-    const keep = auth.via === 'session' && typeof endpoint === 'string' ? endpoint : null;
+    const keep = auth.via === 'session' ? endpoint : null;
     const outcome = await removeSignInMethod(userId, which, keep);
     if (outcome === 'last-way') {
       return NextResponse.json({ ok: false, error: 'last-way' }, { status: 409 });

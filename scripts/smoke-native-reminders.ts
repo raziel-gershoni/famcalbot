@@ -935,6 +935,8 @@ async function main() {
     ['banned', () => { blockedTelegramIds.add('1002'); }],
     // On WhatsApp alone (a chat, but not Telegram). An account with no chat at all is another case: web push, below.
     ['not on Telegram', () => { Object.assign(db.users[1], { telegramId: null, whatsappPhone: '+972500000002' }); }],
+    // No chat at all, with a device on (web push, below): suspended is still refused before anything is sent or claimed
+    ['suspended no-chat (a device on)', () => { Object.assign(db.users[1], { telegramId: null, _count: { pushDevices: 1 }, suspendedAt: at('2026-10-01 12:00') }); }],
   ];
   for (const [label, setUp] of recipientStates) {
     await check(`skip: a ${label} recipient gets no ping, and nothing is claimed`, async () => {
@@ -943,6 +945,7 @@ async function main() {
       reminder({ startsAt: today('10:00'), forUserId: 2 });
       const result = await pass(today('10:00'));
       assert(sent.length === 0 && result.skipped === 1 && db.states.length === 0, `${show(result)} ${sentLines()}`);
+      assert(pushes.length === 0 && skipLines.length === 0 && db.pings.length === 0, `pushed ${pushes.length}; lines ${show(skipLines)}; pings ${show(db.pings)}`);
     });
   }
 
@@ -2049,6 +2052,38 @@ async function main() {
     assert(once.failed === 1 && pushes.length === 1, `tried again: ${pushes.length}`);
     assertTime(stateOf(refused.id, today('10:00'))!.lastPingedAt as Date, today('10:00'), 'the claim stays');
     assert(!captured.some((c) => c.context === 'native-reminders-send'), `a refusal is the sender's to report: ${show(captured)}`);
+  });
+
+  await check('push: a throw while the notification is built (the home link here) is a failed send like a chat\'s: nothing is sent, the claim is given back for the next tick, and after three tries it is captured; once it builds, the next tick sends', async () => {
+    reset();
+    webOnly(1, 1);
+    const r = reminder({ startsAt: today('10:00') });
+    const base = process.env.NEXT_PUBLIC_APP_URL;
+    // appPageUrl resolves the home link against this base: an invalid one throws, inside the building of the notification
+    process.env.NEXT_PUBLIC_APP_URL = 'not a url';
+    try {
+      const first = await pass(today('10:00'));
+      assertSame([first.sent, first.failed], [0, 1]);
+      assertTime(first.nextDue, today('10:01'), 'retried at the next tick');
+      assert(pushes.length === 0 && stateOf(r.id, today('10:00'))!.lastPingedAt === null, `the claim stayed taken: ${show(stateOf(r.id, today('10:00')))}`);
+    } finally {
+      if (base === undefined) delete process.env.NEXT_PUBLIC_APP_URL; else process.env.NEXT_PUBLIC_APP_URL = base;
+    }
+    const second = await pass(today('10:01'));
+    assert(second.sent === 1 && pushes.length === 1 && pushes[0].taken, `${show(second)} ${show(pushes.map(pushView))}`);
+
+    reset();
+    webOnly(1, 1);
+    reminder({ startsAt: today('10:00') });
+    process.env.NEXT_PUBLIC_APP_URL = 'not a url';
+    try {
+      for (const minute of ['10:00', '10:01', '10:02', '10:03']) await pass(today(minute));
+    } finally {
+      if (base === undefined) delete process.env.NEXT_PUBLIC_APP_URL; else process.env.NEXT_PUBLIC_APP_URL = base;
+    }
+    assert(pushes.length === 0, `sent ${pushes.length}`);
+    const reported = captured.filter((c) => c.context === 'native-reminders-send');
+    assert(reported.length === 1 && reported[0].extra?.user_id === 1, `captured ${show(captured)}`);
   });
 
   await check('push: in Shabbat a push recipient is claimed without a send, as a chat one is', async () => {

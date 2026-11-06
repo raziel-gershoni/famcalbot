@@ -359,7 +359,7 @@ async function main() {
     const lines = everyLog.length;
     for (const res of [await subscribe(DANA, e), await check_(DANA, e.endpoint), await unsubscribe(DANA, e.endpoint)]) assert(res.status === 429, `${res.status}`);
     assert(devices.length === 0, 'a limited request stored something');
-    assert(show(everyLog.slice(lines)) === show(['[push] push-devices refused: too many requests', '[push] push-devices-check refused: too many requests', '[push] push-devices-delete refused: too many requests']), `the lines: ${show(everyLog.slice(lines))}`);
+    assert(show(everyLog.slice(lines)) === show([`[push] user ${DANA}: push-devices refused: too many requests`, `[push] user ${DANA}: push-devices-check refused: too many requests`, `[push] user ${DANA}: push-devices-delete refused: too many requests`]), `the lines: ${show(everyLog.slice(lines))}`);
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/rate-limit.ts'), 'utf8');
     assert(/export const pushDeviceRateLimiter = new Ratelimit\(\{[^}]*slidingWindow\(20, '1 m'\)[^}]*prefix: 'ratelimit:push-device'/s.test(source), 'rate-limit.ts: the limiter is not 20 a minute under its own prefix');
   });
@@ -444,6 +444,26 @@ async function main() {
     assert(failed?.devices === 0 && failed.key !== null, `failed: ${show(failed)}`);
     const caught = everyCapture.slice(before);
     assert(caught.length === 1 && caught[0].context === 'push-page-props' && caught[0].extra.user_id === DANA, `captured: ${show(caught)}`);
+    // by its kind only: the raw error's message (a Prisma error's can print the query's values) never reaches the capture
+    assert(caught[0].message === 'push-page-props: Error' && !String(caught[0].message).includes('the count failed'), `the capture holds the error's message: ${show(caught[0].message)}`);
+  });
+
+  await check('pushPropsFor: a user row that carries its device count (pushDeviceCount, a number) is not counted by a query, even at zero or while a count would fail; a user without it is counted', async () => {
+    seed();
+    await subscribe(DANA, mint());
+    const queries = countCalls;
+    const withCount = await pushPropsFor({ id: DANA, telegramId: null, pushDeviceCount: 7 }, { provedAt: Date.now() });
+    assert(withCount?.devices === 7, `the row's count was not used: ${show(withCount)}`);
+    const zero = await pushPropsFor({ id: DANA, telegramId: null, pushDeviceCount: 0 }, { provedAt: Date.now() });
+    assert(zero?.devices === 0, `a zero count was counted again: ${show(zero)}`);
+    countFails = true;
+    const before = everyCapture.length;
+    const failing = await pushPropsFor({ id: DANA, telegramId: null, pushDeviceCount: 3 }, { provedAt: Date.now() });
+    assert(failing?.devices === 3 && everyCapture.length === before, `a row with its count touched the failing query: ${show(failing)}`);
+    countFails = false;
+    assert(countCalls === queries, `a user with pushDeviceCount made ${countCalls - queries} count queries`);
+    const without = await pushPropsFor({ id: DANA, telegramId: null }, { provedAt: Date.now() });
+    assert(without?.devices === 1 && countCalls === queries + 1, `a user without the count was not counted once: ${show(without)} ${countCalls - queries}`);
   });
 
   await check('wiring: page-data hands the dashboard and Settings props the push prop from the session, the page-data route passes the proved-at of a session (null for initData), SettingsClient takes the prop, and the three routes share one front', () => {

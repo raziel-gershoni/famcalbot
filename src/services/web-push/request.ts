@@ -9,6 +9,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { verifyUserAuth, type AuthResult } from '../../lib/api-auth';
 import { pushDeviceRateLimiter } from '../../lib/rate-limit';
+import { readSession } from '../../lib/session-auth';
 import { refuseCrossSite } from '../../lib/same-origin';
 import { isPushServiceUrl, pushConfigured } from './config';
 
@@ -26,8 +27,11 @@ export async function pushFront(request: NextRequest, tag: string, opts: { needs
   if (refused) return { ok: false, response: refused };
   const auth = await verifyUserAuth(request, request.nextUrl.searchParams.get('user_id'), null, pushDeviceRateLimiter, tag);
   if (!auth.success) {
-    // verifyUserAuth logs its other refusals itself; the spent minute (429) it answers silently, and the person is proved by then
-    if (auth.response.status === 429) console.warn(`[push] ${tag} refused: too many requests`);
+    // verifyUserAuth logs its other refusals itself; the spent minute (429) it answers silently, and the person is proved by
+    // then: the cookie is the only credential here, and verifyUserAuth reads its user id as the account it proved
+    if (auth.response.status === 429) {
+      console.warn(`[push] user ${readSession(request)?.userId ?? 'unknown'}: ${tag} refused: too many requests`);
+    }
     return { ok: false, response: auth.response };
   }
   // With no initData only the cookie can prove the user, so this is a session; the check narrows the type
