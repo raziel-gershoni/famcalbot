@@ -1,6 +1,6 @@
 # Notifications in the browser (item 6c-2) — design
 
-Status: draft for the owner's approval, 2026-11-05. Reviewed against the code (an Opus review, 1 blocker and 15 should-fix folded in) and drafted legally (an Opus lawyer and an adversarial check, §8).
+Status: shipped 2026-11-06; approved by the owner 2026-11-06. Reviewed against the code (an Opus review, 1 blocker and 15 should-fix folded in) and drafted legally (an Opus lawyer and an adversarial check, §8).
 Follows 6c-1 (`2026-11-03-web-sign-up-design.md`), which made accounts on famcal.bot with no chat and deferred their notifications to this item.
 
 ## 1. Goal and decisions

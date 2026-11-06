@@ -18,6 +18,11 @@
 //  - S4 browser notifications' setup (spec 2026-11-05-web-push §3.9; plan 6c-2 Task 1): pushSetupWarnings, PUSH_ENV, the
 //    private key's name against the console scrubber, register()'s line, and the README and .env.example entries.
 //
+//  - S5 browser notifications' rules (spec 2026-11-05-web-push; plan 6c-2 Task 13): CLAUDE.md has the push rule, naming the
+//    one sender, the one device file and its fence, the push-service hosts, the reach rule, the pause and the TTL, the
+//    Sentry scrub, the four session writers and their smokes, and every file it names exists; the README has a
+//    "Notifications in the browser" section with the key setup, the never-changed rule and the /sw.js check.
+//
 // Real: src/lib/startup-checks.ts and the files read as text. No network, no DB.
 //
 // Run with the fake env (never the real one), from the repo root:
@@ -180,6 +185,25 @@ async function main() {
       const placeholder = example.find((l) => l.startsWith(`# ${name}=`));
       if (!placeholder || !/^# [A-Z_]+=your_[a-z_]+_here$/.test(placeholder)) problems.push(`.env.example has no commented placeholder for ${name}`);
       if (example.some((l) => l.startsWith(`${name}=`))) problems.push(`.env.example sets ${name} uncommented`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('S5 browser notifications\' rules are written down (6c-2, spec 2026-11-05-web-push; plan Task 13): CLAUDE.md has the push rule, naming the one sender, the one device file and its fence, the push-service hosts, the reach rule, the pause and the TTL, the Sentry scrub, the four session writers and the smokes, and every file it names exists; the README has a "Notifications in the browser" section with the key setup, the never-changed rule and the /sw.js check', () => {
+    const rule = read('CLAUDE.md').split('\n').find((l) => l.startsWith('- A browser notification')) ?? '';
+    const readme = read('README.md');
+    const problems: string[] = [];
+    if (!rule) problems.push('CLAUDE.md has no "- A browser notification" rule');
+    else for (const word of ['`sendWebPush`', 'src/services/web-push/send.ts', 'src/services/web-push/devices.ts', 'smoke-push-devices.ts', '`PUSH_SERVICE_HOSTS`', '`canReachByPush`', 'src/services/web-push/reach.ts', 'isPaused(', '`pushTtlSeconds`', '`nextPauseStart`', 'src/lib/sentry-scrub.ts', '`captureSignInFailure`', 'User.sessionsValidAfter', '`deleteDevicesOf`', '`afterDevicesChanged`', 'smoke-web-push-send.ts', 'smoke-push-session-end.ts', 'smoke-push-reach.ts']) {
+      if (!rule.includes(word)) problems.push(`the push rule does not name ${word}`);
+    }
+    for (const file of rule.match(/\b(?:src|scripts)\/[\w./-]+\.ts\b/g) ?? []) if (!fs.existsSync(path.join(ROOT, file))) problems.push(`the push rule names ${file}, which does not exist`);
+    if (!/^### Notifications in the browser$/m.test(readme)) problems.push('README has no "### Notifications in the browser" section');
+    else {
+      const section = readme.slice(readme.indexOf('### Notifications in the browser')).split(/\n### /)[0];
+      for (const word of ['npx web-push generate-vapid-keys', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'Never change the keys', '/sw.js', 'cf-cache-status']) {
+        if (!section.includes(word)) problems.push(`README's Notifications section does not name ${word}`);
+      }
     }
     assert(problems.length === 0, problems.join('; '));
   });
