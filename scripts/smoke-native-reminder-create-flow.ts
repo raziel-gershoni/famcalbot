@@ -1203,19 +1203,22 @@ async function main() {
     assert(created.length === 1 && tokenKinds(providerTokens) === '["plain"]', `creates ${created.length}; tokens ${tokenKinds(providerTokens)}; WhatsApp ${JSON.stringify(waCalls.map(c => c.text))}`);
   });
 
-  // Review focus 5: an entry written in plain form before the deploy (at most ten minutes old)
-  await check('legacy pending: an event entry stored in plain form before the deploy still creates, with its token, and logs one warning', async () => {
-    await fakeRedis.set('voice:pending:event:legacy1', { event: dentist, user: danaWithToken, transcription: 'dentist' });
-    const warnings: string[] = [];
-    const warn = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
+  // The sealing deploy (2026-10-23) is long past and an entry lives ten minutes: a plain-form entry is no longer accepted
+  await check('plain-form pending: an event entry with an unsealed token reads as expired, nothing is created, and the log lines hold no token', async () => {
+    await fakeRedis.set('voice:pending:event:plain1', { event: dentist, user: danaWithToken, transcription: 'dentist' });
+    const lines: string[] = [];
+    const [warn, error] = [console.warn, console.error];
+    console.warn = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    console.error = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
     try {
-      await handleEventCallback(555, 701, 'q1', 'create', 'legacy1');
+      await handleEventCallback(555, 701, 'q1', 'create', 'plain1');
     } finally {
       console.warn = warn;
+      console.error = error;
     }
-    assert(created.length === 1 && tokenKinds(providerTokens) === '["plain"]', `creates ${created.length}; tokens ${tokenKinds(providerTokens)}`);
-    assert(warnings.filter(w => w.includes('[voice-pending] legacy plaintext')).length === 1, `warnings ${JSON.stringify(warnings)}`);
+    assert(created.length === 0, `created ${JSON.stringify(created)}`);
+    assert(lastBot()?.text === t.voice.expiredMessage, JSON.stringify(lastBot()));
+    assert(lines.length > 0 && !lines.some(l => l.includes('rt-dana')), `log lines ${JSON.stringify(lines)}`);
   });
 
   await check('sealed pending: an entry that no key opens reads as expired, and nothing is created', async () => {

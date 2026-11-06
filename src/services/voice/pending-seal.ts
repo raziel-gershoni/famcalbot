@@ -7,7 +7,7 @@
  * UserConfig as before.
  */
 
-import { isEncrypted, openSecret, sealSecret } from '../../utils/encryption';
+import { openSecret, sealSecret } from '../../utils/encryption';
 
 /** The user with its Google token sealed, for a pending entry's write. No token: unchanged. */
 export function sealUser<T extends { googleRefreshToken: string }>(user: T): T {
@@ -17,16 +17,12 @@ export function sealUser<T extends { googleRefreshToken: string }>(user: T): T {
 
 /**
  * The user of a pending entry with its Google token opened. Throws UndecryptableError when
- * no key opens it; the getters treat that as any failed read. An entry written in plain
- * form before this release (at most ten minutes before the deploy) is accepted with a
- * warning; remove that branch in a later release.
+ * no key opens it, and for a token that is not sealed at all (nothing writes one: an entry
+ * lives ten minutes and sealing shipped 2026-10-23); the getters treat that as any failed
+ * read, and the error names no value.
  */
 export function openUser<T extends { googleRefreshToken: string }>(stored: T): T {
   const token = stored.googleRefreshToken;
   if (!token) return stored;
-  if (!isEncrypted(token)) {
-    console.warn('[voice-pending] legacy plaintext pending entry accepted');
-    return stored;
-  }
   return { ...stored, googleRefreshToken: openSecret(token) };
 }
