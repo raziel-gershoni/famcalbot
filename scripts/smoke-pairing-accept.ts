@@ -62,6 +62,9 @@ process.env.TELEGRAM_BOT_TOKEN ||= 'test';
 process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.CRON_SECRET ||= 'test-cron';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
+// Push is configured (web push, 6c-2): the keys are never used to sign here, sendWebPush is faked
+process.env.VAPID_PUBLIC_KEY ||= 'smoke-public-key';
+process.env.VAPID_PRIVATE_KEY ||= 'smoke-private-key';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -307,6 +310,8 @@ const fakeRedis = new Proxy(redisImpl, {
 type Sent = { via: string; platform: string; chatId: unknown; text?: string; options?: Row };
 const sent: Sent[] = [];
 const captured: string[] = [];
+/** Every notification handed to sendWebPush (web push, 6c-2): the user it was given and the message. */
+const pushes: { user: Row; input: Row }[] = [];
 
 const recorder = (platform: string, prefix: string): Row =>
   new Proxy({} as Row, {
@@ -385,6 +390,13 @@ function installStubs() {
   };
   stub('src/services/messaging/index.ts', messaging);
   stub('src/services/messaging/factory.ts', messaging);
+  // The sender is its own task's (web-push/send.ts): here it only records what the pair handler hands it
+  stub('src/services/web-push/send.ts', {
+    sendWebPush: async (user: Row, input: Row) => {
+      pushes.push({ user, input });
+      return { sent: 1, total: 1, retriable: false };
+    },
+  });
   globalThis.fetch = (async (input: unknown) => {
     throw new Error(`network blocked in smoke: ${String(input)}`);
   }) as typeof fetch;
@@ -420,6 +432,7 @@ function seed() {
   userWrites.length = 0;
   sent.length = 0;
   captured.length = 0;
+  pushes.length = 0;
   DB.user = [
     baseUser({ id: 1, name: 'Dana', telegramId: BigInt(5550001) }),
     baseUser({ id: 2, name: 'Noam', telegramId: BigInt(7770002) }),
@@ -767,6 +780,64 @@ async function main() {
     await notifyInviterOfAccept(1, 'Noam');
     const tg = toChat(5550001);
     if (tg.length !== 1 || tg[0].options?.whatsappTemplate || !tg[0].text?.includes('Noam accepted your invite')) problems.push(`Telegram inviter: ${show(tg)}`);
+    assert(problems.length === 0, problems.join('; '));
+  });
+
+  await check('#18 an inviter with no chat (an account made on famcal.bot) and a browser with notifications on is told by one push, in their language (kind partner-accepted, the acceptor\'s name, the home, not paused: only their id goes with it); with no browser on, or push off, the old line and nothing is sent; an inviter with a chat gets no push', async () => {
+    const { notifyInviterOfAccept } = await load('src/services/telegram/pair-handler.ts');
+    const { buildUrl } = await load('src/config/urls.ts');
+    const problems: string[] = [];
+    const want: Record<string, { title: string; body: string; noName: string }> = {
+      en: { title: 'Noam accepted your invite', body: 'You\'re paired now.', noName: 'Your invite was accepted' },
+      he: { title: 'ההזמנה שלכם התקבלה על ידי Noam', body: 'אתם מחוברים עכשיו.', noName: 'ההזמנה שלכם התקבלה' },
+      ru: { title: 'Ваше приглашение принято: Noam', body: 'Теперь вы связаны.', noName: 'Ваше приглашение принято' },
+    };
+    const quiet = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    try {
+      for (const lang of ['en', 'he', 'ru']) {
+        for (const name of ['Noam', '']) {
+          seed();
+          Object.assign(userRow(1), { telegramId: null, language: lang, _count: { pushDevices: 2 } });
+          await notifyInviterOfAccept(1, name);
+          const w = want[lang];
+          const expected = [{ user: { id: 1 }, input: { kind: 'partner-accepted', title: name ? w.title : w.noName, body: w.body, url: buildUrl(`/${lang}/dashboard?user_id=1`), tag: 'partner-accepted', lang } }];
+          if (show(pushes) !== show(expected) || sent.length !== 0) problems.push(`${lang}${name ? '' : ' (no name)'}: pushes ${show(pushes)}, sent ${show(sent)}`);
+        }
+      }
+
+      lines.length = 0;
+      seed();
+      Object.assign(userRow(1), { telegramId: null, _count: { pushDevices: 0 } });
+      await notifyInviterOfAccept(1, 'Noam');
+      if (pushes.length !== 0 || sent.length !== 0 || !lines.includes('[pair] inviter 1 has no chat; accept notice not sent')) problems.push(`no browser on: pushes ${show(pushes)}, sent ${show(sent)}, lines ${show(lines)}`);
+
+      lines.length = 0;
+      seed();
+      Object.assign(userRow(1), { telegramId: null, _count: { pushDevices: 1 } });
+      const savedKey = process.env.VAPID_PRIVATE_KEY;
+      delete process.env.VAPID_PRIVATE_KEY;
+      try {
+        await notifyInviterOfAccept(1, 'Noam');
+      } finally {
+        process.env.VAPID_PRIVATE_KEY = savedKey;
+      }
+      if (pushes.length !== 0 || sent.length !== 0 || !lines.includes('[pair] inviter 1 has no chat; accept notice not sent')) problems.push(`push off: pushes ${show(pushes)}, sent ${show(sent)}, lines ${show(lines)}`);
+
+      seed();
+      Object.assign(userRow(1), { _count: { pushDevices: 3 } });
+      await notifyInviterOfAccept(1, 'Noam');
+      const tgNotice = toChat(5550001);
+      if (pushes.length !== 0 || tgNotice.length !== 1 || !tgNotice[0].text?.includes('Noam accepted your invite')) problems.push(`Telegram inviter with browsers on: pushes ${show(pushes)}, sent ${show(sent)}`);
+
+      seed();
+      Object.assign(userRow(1), { telegramId: null, whatsappPhone: '+972500000001', messagingPlatform: 'whatsapp', _count: { pushDevices: 3 } });
+      await notifyInviterOfAccept(1, 'Noam');
+      if (pushes.length !== 0 || sent.filter(m => String(m.chatId) === '+972500000001').length !== 1) problems.push(`WhatsApp inviter with browsers on: pushes ${show(pushes)}, sent ${show(sent)}`);
+    } finally {
+      console.log = quiet;
+    }
     assert(problems.length === 0, problems.join('; '));
   });
 

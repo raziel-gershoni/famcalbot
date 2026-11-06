@@ -1761,6 +1761,11 @@
       "permissionDenied": "You can't change this one."
     },
     "push": {
+      "inviteAccepted": "{name} accepted your invite",
+      "inviteAcceptedNoName": "Your invite was accepted",
+      "inviteAcceptedBody": "You're paired now.",
+      "doneBy": "Done by {name}",
+      "reconnectTitle": "Copies to Google are paused",
       "briefingToday": "Today",
       "briefingTomorrow": "Tomorrow",
       "briefingMore": "{count, plural, other {and # more}}",

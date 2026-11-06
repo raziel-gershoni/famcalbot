@@ -27,7 +27,9 @@ import { zmanClockIfNeeded } from '../zmanim/reminder-clock';
 import { readZmanSpec } from '../../lib/calendar-view/zman-spec';
 import { getActivePartnerSummary, isForBothReachable, isPingable, pingUserFor, recipientIds } from './ownership';
 import { buildDoneText, buildPingKeyboard, buildPingText, refreshPing, stripPingButtons } from './ping';
-import { PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
+import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
+import { appPageUrl } from '../../lib/web-session';
+import { normalizeLocale } from '../../utils/locale';
 import type { UserConfig } from '../../types';
 
 export type ReminderAction = 'done' | 'undo' | 'snooze15' | 'snooze60' | 'snoozeTomorrow';
@@ -457,7 +459,11 @@ async function afterDone(
   }
 }
 
-/** The quiet "✅ Done by Dana: Buy milk". Telegram only (R12). */
+/**
+ * The quiet "✅ Done by Dana: Buy milk". Telegram only (R12), except that an account with no chat at all (made on famcal.bot)
+ * and a browser with notifications on hears it there, as a silent notification (web push spec §3.5): a WhatsApp-only
+ * person is still not told. Not paused: it answers the partner's action, as the chat's note does.
+ */
 async function notifyDone(seriesId: string, occurrence: string, userId: number, doer: UserConfig, title: string): Promise<void> {
   try {
     const user = await prisma.user.findUnique({
@@ -466,7 +472,21 @@ async function notifyDone(seriesId: string, occurrence: string, userId: number, 
       select: { id: true, language: true, telegramId: true, whatsappPhone: true, whatsappBsuid: true, suspendedAt: true, unreachableSince: true, ...PUSH_DEVICE_COUNT },
     });
     if (user && !user.telegramId) {
-      // Telegram only (R12): someone with no Telegram (WhatsApp only, or an account made on famcal.bot) is not told
+      if (!user.suspendedAt && canReachByPush({ ...user, pushDeviceCount: pushDeviceCountOf(user) })) {
+        const language = normalizeLocale(user.language);
+        const { sendWebPush } = await import('../web-push/send');
+        await sendWebPush({ id: user.id }, {
+          kind: 'partner-done',
+          title: await getBotMessage(language, 'push.doneBy', { name: doer.name }),
+          body: title,
+          url: appPageUrl(language, 'dashboard', user.id),
+          tag: `nr-done-${seriesId}`,
+          lang: language,
+          silent: true,
+        });
+        return;
+      }
+      // Telegram only (R12): someone with no Telegram (WhatsApp only, or an account made on famcal.bot with no browser on) is not told
       console.log(`[done note] skipped user ${userId}: no Telegram`);
       return;
     }

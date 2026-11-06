@@ -18,6 +18,9 @@ import { escapeHtml } from '../../utils/html';
 import { inviteTokenFromStart } from '../../lib/invite-link';
 import { deliveryPlatformFor } from '../../lib/delivery-platform';
 import { hasChat } from '../../lib/has-chat';
+import { getBotMessage } from '../../lib/bot-messages';
+import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
+import { appPageUrl } from '../../lib/web-session';
 
 /** The factory needs the bot instance for Telegram; ./bot supplies it. */
 function messagingFor(platform: MessagingPlatform): IMessagingService {
@@ -107,20 +110,39 @@ function pairingErrorMessage(code: PairingErrorCode, locale: string): string {
  * outside their 24h window is rejected (131047), and only later, by a status
  * callback. Its button sends "settings", answered with the dashboard link,
  * where the pairing shows.
+ *
+ * An inviter with no chat (an account made on famcal.bot) hears it as a notification in their browsers, when at least one
+ * has notifications on (web push spec §3.5); with none, nothing is sent and the line below says so. It is not paused: it
+ * answers the partner's action, as the chat's notice does.
  */
 export async function notifyInviterOfAccept(inviterUserId: number, acceptorName: string): Promise<void> {
   try {
     const inviter = await prisma.user.findUnique({
       where: { id: inviterUserId },
-      select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true },
+      select: { telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true, messagingPlatform: true, ...PUSH_DEVICE_COUNT },
     });
     if (!inviter) {
       console.warn(`[pair] inviter ${inviterUserId} not found; accept notice not sent`);
       return;
     }
-    // An account made on famcal.bot with no chat has nowhere to hear it until web push (6c-2)
     if (!hasChat(inviter)) {
-      console.log(`[pair] inviter ${inviterUserId} has no chat; accept notice not sent`);
+      // An account made on famcal.bot: its browsers with notifications on, else nowhere to hear it
+      if (!canReachByPush({ ...inviter, pushDeviceCount: pushDeviceCountOf(inviter) })) {
+        console.log(`[pair] inviter ${inviterUserId} has no chat; accept notice not sent`);
+        return;
+      }
+      const language = normalizeLocale(inviter.language);
+      const { sendWebPush } = await import('../web-push/send');
+      await sendWebPush({ id: inviterUserId }, {
+        kind: 'partner-accepted',
+        title: acceptorName
+          ? await getBotMessage(language, 'push.inviteAccepted', { name: acceptorName })
+          : await getBotMessage(language, 'push.inviteAcceptedNoName'),
+        body: await getBotMessage(language, 'push.inviteAcceptedBody'),
+        url: appPageUrl(language, 'dashboard', inviterUserId),
+        tag: 'partner-accepted',
+        lang: language,
+      });
       return;
     }
     // WhatsApp when that is where they are: the saved choice narrowed to the channels they have (an inviter saved as

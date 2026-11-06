@@ -15,6 +15,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-reminder-actions.ts
 
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { fromZonedTime } from 'date-fns-tz';
 import { NextRequest } from 'next/server';
 import type { UserConfig } from '../src/types';
@@ -460,6 +461,8 @@ const captured: { ctx: string; extra?: Row; message: string; severity?: string }
 /** The Google token each timezone lookup was given, in call order. */
 const timezoneTokens: (string | undefined)[] = [];
 const activity: { userId: number; action: string; meta?: Row }[] = [];
+/** Every notification handed to sendWebPush (web push, 6c-2): the user it was given and the message. */
+const pushes: { user: Row; input: Row }[] = [];
 
 const ZMAN_CLOCK = {
   source: 'saved' as const,
@@ -485,6 +488,22 @@ async function main() {
   };
   stub('src/utils/prisma.ts', { prisma: fakePrisma });
   stub('src/utils/redis.ts', { redis: {} });
+  // The sender is its own task's (web-push/send.ts): here it only records what the Done note hands it. actions.ts loads it
+  // with import(), which goes through the ES module hooks, so the stub is served to those too.
+  const pushStub = {
+    sendWebPush: async (user: Row, input: Row) => {
+      pushes.push({ user, input });
+      return { sent: 1, total: 1, retriable: false };
+    },
+  };
+  stub('src/services/web-push/send.ts', pushStub);
+  (globalThis as Row).__smokePushStub = pushStub;
+  (Module as unknown as { registerHooks: (h: unknown) => void }).registerHooks({
+    load(url: string, context: unknown, nextLoad: (u: string, c: unknown) => unknown) {
+      if (!url.startsWith('file:') || fileURLToPath(url.split('?')[0]) !== path.resolve(__dirname, '../src/services/web-push/send.ts')) return nextLoad(url, context);
+      return { format: 'module', shortCircuit: true, source: 'export const sendWebPush = globalThis.__smokePushStub.sendWebPush;' };
+    },
+  });
   const telegram = { getBot: () => fakeBot, getMessagingService: () => ({}) };
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/telegram/index.ts', telegram);
@@ -554,6 +573,7 @@ async function main() {
     captured.length = 0;
     timezoneTokens.length = 0;
     activity.length = 0;
+    pushes.length = 0;
     failOn = null;
     queryLog.length = 0;
     hiddenWrites = [];
@@ -610,6 +630,67 @@ async function main() {
     assert(sends().length === 0, `sent ${json(botCalls)}`);
     assert(lines.filter((l) => l.startsWith('[done note]')).join('|') === `[done note] skipped user ${RAZIEL}: no Telegram`, `logged: ${lines.join('|') || '(nothing)'}`);
     assert(captured.length === 0, `captured ${json(captured)}`);
+  });
+
+  /** Raziel (Hebrew) is the creator who hears of Dana's Done; `chat` says what chat he has, `devices` how many browsers have notifications on. */
+  const razielIs = (chat: 'none' | 'whatsapp' | 'telegram', devices: number, extra: Row = {}) => {
+    const raziel = db.users.find((u) => u.id === RAZIEL)!;
+    Object.assign(raziel, { telegramId: chat === 'telegram' ? BigInt(tg(RAZIEL)) : null, whatsappPhone: chat === 'whatsapp' ? '+972500000002' : null, _count: { pushDevices: devices }, ...extra });
+  };
+  const doneNoteLines = async (run: () => Promise<unknown>) => {
+    const lines: string[] = [];
+    const log = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.map(String).join(' ')); };
+    try {
+      await run();
+    } finally {
+      console.log = log;
+    }
+    return lines.filter((l) => l.startsWith('[done note]'));
+  };
+
+  await check('who, web push: a creator with no chat and a browser on is told by one silent push (kind partner-done, "Done by Dana" in his language, the reminder\'s title as the text, the home); nothing goes to a chat; the Done stands', async () => {
+    reset();
+    razielIs('none', 2);
+    const lines = await doneNoteLines(async () => {
+      const r = await act(DANA, MILK_KEY, 'done');
+      assert(r.status === 'ok' && stateFor(MILK, MILK_KEY.originalStartsAt)?.doneByUserId === DANA, json(r));
+    });
+    assert(sends().length === 0, `sent ${json(botCalls)}`);
+    assertJson(pushes, [{
+      user: { id: RAZIEL },
+      input: { kind: 'partner-done', title: 'בוצע ע״י Dana', body: 'Buy milk', url: 'http://localhost:3000/he/dashboard?user_id=2', tag: `nr-done-${MILK}`, lang: 'he', silent: true },
+    }], 'the push');
+    assert(lines.length === 0 && captured.length === 0, `logged ${lines.join('|')}, captured ${json(captured)}`);
+  });
+
+  await check('who, web push: only a person with no chat at all is pushed to: a WhatsApp-only creator, a suspended one, a creator with no browser on, and any creator when push is off are not (the skip line as before); a Telegram creator gets the Telegram note and no push', async () => {
+    const skip = `[done note] skipped user ${RAZIEL}: no Telegram`;
+    for (const [label, setUp] of [
+      ['WhatsApp only', () => razielIs('whatsapp', 2)],
+      ['suspended', () => razielIs('none', 2, { suspendedAt: new RealDate(clock) })],
+      ['no browser on', () => razielIs('none', 0)],
+    ] as const) {
+      reset();
+      setUp();
+      const lines = await doneNoteLines(() => act(DANA, MILK_KEY, 'done'));
+      assert(pushes.length === 0 && sends().length === 0, `${label}: pushes ${json(pushes)}, sent ${json(botCalls)}`);
+      assert(lines.join('|') === skip, `${label}: logged ${lines.join('|') || '(nothing)'}`);
+    }
+    reset();
+    razielIs('none', 2);
+    const savedKey = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      const lines = await doneNoteLines(() => act(DANA, MILK_KEY, 'done'));
+      assert(pushes.length === 0 && lines.join('|') === skip, `push off: pushes ${json(pushes)}, logged ${lines.join('|') || '(nothing)'}`);
+    } finally {
+      process.env.VAPID_PRIVATE_KEY = savedKey;
+    }
+    reset();
+    razielIs('telegram', 2);
+    await act(DANA, MILK_KEY, 'done');
+    assert(pushes.length === 0 && sends().length === 1 && sends()[0].chatId === tg(RAZIEL) && sends()[0].silent === true, `Telegram creator: pushes ${json(pushes)}, sent ${json(botCalls)}`);
   });
 
   await check('who: a stranger gets not_yours and nothing is written', async () => {

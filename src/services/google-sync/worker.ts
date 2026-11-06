@@ -51,9 +51,10 @@ import type { Prisma } from '@prisma/client';
 import { TIMEZONE } from '../../config/constants';
 import { REDIS_KEYS } from '../../config/redis-keys';
 import { buildUrl } from '../../config/urls';
-import { getBotMessages } from '../../lib/bot-messages';
+import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { captureError } from '../../lib/error-capture';
 import { resolveUserTimezone } from '../../lib/timezone';
+import { normalizeLocale } from '../../utils/locale';
 import { safeDecrypt } from '../../utils/encryption';
 import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
@@ -61,6 +62,7 @@ import { scrubbedGoogleError } from '../calendar';
 import { classifyGoogleError, googleErrorFacts, googleRateLimitKind, isGoogleRateLimit, retryAfterMs, type GoogleErrorClass } from '../calendar-read/google-map';
 import { peekFeatureAccess } from '../subscription-service';
 import { isPaused } from '../zmanim/pause';
+import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from '../web-push/reach';
 import { copyName, ensureCopyCalendar, findCopyCalendarId, keepCopyCalendar, removeCopyCalendar, renameCopyCalendar, type TurnOffOutcome } from './calendars';
 import { BudgetSpent, CALLS_PER_RUN, counted, syncGoogle, type CallBudget, type SyncGoogle } from './client';
 import { hasSinglesFlag, hebrewHorizonFrom, storedHebrewFrom } from './hebrew';
@@ -103,6 +105,8 @@ const USER_SELECT = {
   suspendedAt: true, unreachableSince: true, googleRefreshToken: true, googleScopes: true, googleSyncNotifiedAt: true,
   // The pause (isPaused): the switch, and the place and community its windows are counted at (location is above)
   pauseOnShabbat: true, zmanimCommunity: true, latitude: true, longitude: true, elevationM: true,
+  // How many browsers have notifications on (web push): the reconnect message goes there for an account with no chat
+  ...PUSH_DEVICE_COUNT,
 } as const;
 type UserRow = Prisma.UserGetPayload<{ select: typeof USER_SELECT }>;
 
@@ -438,7 +442,10 @@ async function outage(run: UserRun, reason: 'token' | 'scopes', cause: string): 
  * The sync reconnect message (spec §4 Token or scopes), in the user's language. On Telegram
  * with a button: a dead token opens /refresh-token; a missing permission opens the calendars
  * page, where "Copy to Google" asks for it. A WhatsApp-only user gets the settings template
- * (a proactive WhatsApp send must be a template). False when there was no one to send to.
+ * (a proactive WhatsApp send must be a template). An account with no chat and a browser with notifications on gets a
+ * notification: the title without its bold, the message's first sentence, and the same page the Telegram button opens
+ * (web push spec §3.5); the caller has asked the pause already (outage). False when there was no one to send to, and
+ * when no device took the notification, so the outage is not marked told and a chat connected later is still told.
  */
 async function sendReconnect(user: UserRow, reason: 'token' | 'scopes'): Promise<boolean> {
   if (user.unreachableSince) {
@@ -448,8 +455,8 @@ async function sendReconnect(user: UserRow, reason: 'token' | 'scopes'): Promise
   const lang = user.language || 'en';
   const t = (await getBotMessages(lang)).googleSync.reconnect;
   const userParam = `user_id=${user.telegramId ?? user.id}`;
+  const url = reason === 'token' ? buildUrl(`/refresh-token?${userParam}`) : buildUrl(`/${lang}/calendars?${userParam}`);
   if (user.telegramId) {
-    const url = reason === 'token' ? buildUrl(`/refresh-token?${userParam}`) : buildUrl(`/${lang}/calendars?${userParam}`);
     const { getMessagingService } = await import('../telegram');
     const { MessageFormat } = await import('../messaging/types');
     await getMessagingService().sendMessage(Number(user.telegramId), `${t.title}\n\n${reason === 'token' ? t.messageToken : t.messageScopes}`, {
@@ -465,9 +472,30 @@ async function sendReconnect(user: UserRow, reason: 'token' | 'scopes'): Promise
     await getWhatsAppService().sendMessage(waChatId, '', { whatsappTemplate: buildWhatsAppTemplate(lang, 'settings') });
     return true;
   }
-  // No Telegram and no WhatsApp (an account made on famcal.bot): not stamped, so a chat connected later is told
+  // No Telegram and no WhatsApp (an account made on famcal.bot): its browsers with notifications on hear it
+  if (canReachByPush({ ...user, pushDeviceCount: pushDeviceCountOf(user) })) {
+    const { sendWebPush } = await import('../web-push/send');
+    const result = await sendWebPush({ ...user, googleRefreshToken: tokenOf(user.googleRefreshToken) }, {
+      kind: 'reconnect',
+      title: await getBotMessage(lang, 'push.reconnectTitle'),
+      body: firstSentence(reason === 'token' ? t.messageToken : t.messageScopes),
+      url,
+      tag: 'google-reconnect',
+      lang: normalizeLocale(lang),
+    });
+    if (result.sent > 0) return true;
+    console.log(`[google-sync] user ${user.id}: no device took the reconnect notification; not marked told`);
+    return false;
+  }
+  // No device either: not stamped, so a chat connected later is told
   console.log(`[google-sync] user ${user.id}: no chat; no reconnect message`);
   return false;
+}
+
+/** A message's first sentence: up to its first ". ", "! " or "? " (all of it when it is one sentence). The reconnect messages are two sentences; a notification carries the first. */
+function firstSentence(text: string): string {
+  const end = text.search(/[.!?](\s|$)/);
+  return end === -1 ? text.trim() : text.slice(0, end + 1).trim();
 }
 
 /** The lock's TTL renewed only while it still holds this run's token: 1 renewed, 0 not ours (lapsed, or a newer run's). */

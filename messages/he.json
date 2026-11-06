@@ -1761,6 +1761,11 @@
       "permissionDenied": "אין לך הרשאה לשנות את זה."
     },
     "push": {
+      "inviteAccepted": "ההזמנה שלכם התקבלה על ידי {name}",
+      "inviteAcceptedNoName": "ההזמנה שלכם התקבלה",
+      "inviteAcceptedBody": "אתם מחוברים עכשיו.",
+      "doneBy": "בוצע ע״י {name}",
+      "reconnectTitle": "ההעתקה ל-Google מושהית",
       "briefingToday": "היום",
       "briefingTomorrow": "מחר",
       "briefingMore": "{count, plural, one {ועוד אחד} two {ועוד שניים} other {ועוד #}}",

@@ -54,6 +54,9 @@ process.env.SESSION_SECRET ||= 'test-session-secret';
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
 // Empty, not deleted: @prisma/client loads a .env file into every variable that is unset
 process.env.ENCRYPTION_KEY_PREVIOUS = '';
+// Push is configured (web push, 6c-2): the keys are never used to sign here, sendWebPush is faked
+process.env.VAPID_PUBLIC_KEY ||= 'smoke-public-key';
+process.env.VAPID_PRIVATE_KEY ||= 'smoke-private-key';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -605,6 +608,9 @@ const sent: Array<{ via: string; chatId: unknown; text?: unknown; options?: Row 
 const adminWarnings: string[] = [];
 const planAllowed = new Map<number, boolean>();
 const logs: string[] = [];
+/** Every notification the worker handed to sendWebPush (web push, 6c-2), and what the next call answers. */
+const pushCalls: Array<{ user: Row; input: Row }> = [];
+let pushResult = { sent: 1, total: 1, retriable: false };
 /** Every log line and Sentry capture of the whole run; seed() never clears these, so the title check sees every scenario. */
 const runLogs: string[] = [];
 const runCaptured: Array<{ ctx: string; message: string; level?: string; extra?: Row }> = [];
@@ -668,6 +674,13 @@ function installStubs() {
     invalidateFeatureAccessCache: async () => undefined,
   });
   stub('src/services/analytics-service.ts', { trackActivity: async () => undefined, trackActivityAsync: () => undefined });
+  // The sender is its own task's (web-push/send.ts): here it only records what the worker hands it
+  stub('src/services/web-push/send.ts', {
+    sendWebPush: async (user: Row, input: Row) => {
+      pushCalls.push({ user, input });
+      return pushResult;
+    },
+  });
   globalThis.fetch = (async (input: unknown) => {
     throw new Error(`network blocked in smoke: ${String(input)}`);
   }) as typeof fetch;
@@ -735,6 +748,8 @@ function seed() {
   redisFail = null;
   afterLockTaken = null;
   logs.length = 0;
+  pushCalls.length = 0;
+  pushResult = { sent: 1, total: 1, retriable: false };
   Object.assign(google, { calendars: new Map(), accounts: new Map([['tok-1', ACCOUNT]]), calls: [], failures: [], missingInstances: new Set(), inflight: 0, maxInflight: 0, inserting: 0, maxInserting: 0, during: null, seq: 0, clients: 0, noRevive: false });
   DB.user = [userRow(TAL), userRow(NOA)];
   DB.nativeCalendar = [calendarRow('home', TAL, 'Home'), calendarRow('work', TAL, 'Work'), calendarRow('noa', NOA, 'Noa')];
@@ -1554,6 +1569,116 @@ async function main() {
     assert(sent.length === 0, `sent ${show(sent)}`);
     assert(!DB.user[0].googleSyncNotifiedAt, `stamped ${show(DB.user[0].googleSyncNotifiedAt)}`);
     assert(logs.includes(`[google-sync] user ${TAL}: no chat; no reconnect message`), `logged: ${show(logs.filter((l) => l.startsWith('[google-sync]')))}`);
+  });
+
+  /** An account made on famcal.bot (no chat) with `devices` browsers that have notifications on. */
+  const webAccount = (devices: number, o: Row = {}) =>
+    Object.assign(DB.user[0], { googleRefreshToken: '', telegramId: null, whatsappPhone: null, whatsappBsuid: null, _count: { pushDevices: devices }, ...o });
+  // Read through functions: TypeScript would narrow a repeated `pushCalls.length` or `sent[0].via` after the first assert
+  const pushed = () => pushCalls.length;
+  const via = () => sent.map((s) => s.via).join();
+  const reconnectTexts = (lang: string) => {
+    const bot = nodeRequire(path.join(ROOT, `messages/${lang}.json`)).bot;
+    const first = (text: string) => text.slice(0, text.indexOf('. ') + 1);
+    return { title: bot.push.reconnectTitle as string, token: first(bot.googleSync.reconnect.messageToken), scopes: first(bot.googleSync.reconnect.messageScopes) };
+  };
+
+  await check('token, web push: an account with no chat and a browser on is told by one notification (kind reconnect, the title without its bold, the message\'s first sentence, the page the Telegram button opens) and stamped told once; nothing goes to a chat; the copies go to token', async () => {
+    seedCopy();
+    webAccount(1);
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    assert(link('L').state === 'token' && sent.length === 0, `link ${link('L').state}, sent ${show(sent)}`);
+    assert(pushCalls.length === 1 && pushCalls[0].user.id === TAL, `pushes ${show(pushCalls)}`);
+    const { url, ...rest } = pushCalls[0].input;
+    assert(show(rest) === show({
+      kind: 'reconnect', title: 'Copies to Google are paused',
+      body: 'FamCal can\'t reach your Google Calendar right now, so your FamCal calendars aren\'t being copied there.', tag: 'google-reconnect', lang: 'en',
+    }), `input ${show(rest)}`);
+    assert(String(url).startsWith('http') && String(url).endsWith(`/refresh-token?user_id=${TAL}`), `url ${show(url)}`);
+    assert(DB.user[0].googleSyncNotifiedAt?.getTime() === NOW.getTime(), 'not stamped told');
+    DB.googleSyncLink.forEach((l) => { if (l.state === 'token') l.state = 'ok'; });
+    await pass();
+    assert(pushCalls.length === 1, `a second notification in one outage ${show(pushCalls)}`);
+  });
+
+  await check('scopes, web push: a missing permission opens the calendars page in the person\'s language; the notification is in he and ru as the chat\'s message is (title and first sentence)', async () => {
+    for (const lang of ['en', 'he', 'ru']) {
+      seedCopy();
+      webAccount(2, { googleRefreshToken: 'tok-1', googleScopes: SCOPES.slice(0, 2), language: lang });
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      await pass();
+      const want = reconnectTexts(lang);
+      assert(link('L').state === 'scopes' && pushCalls.length === 1, `${lang}: link ${link('L').state}, pushes ${show(pushCalls)}`);
+      const input = pushCalls[0].input;
+      assert(input.title === want.title && input.body === want.scopes && input.lang === lang && String(input.url).endsWith(`/${lang}/calendars?user_id=${TAL}`), `${lang}: ${show(input)} want ${show(want)}`);
+      assert(!String(input.title).includes('<b>') && String(input.body).endsWith('.'), `${lang}: markup or a cut sentence in ${show(input)}`);
+      if (lang !== 'en') assert(input.body !== reconnectTexts('en').scopes, `${lang}: the English text`);
+    }
+    for (const lang of ['he', 'ru']) {
+      seedCopy();
+      webAccount(1, { language: lang });
+      seriesRow('a', 'home');
+      itemRow('L', 'a');
+      await pass();
+      assert(pushCalls[0].input.body === reconnectTexts(lang).token && String(pushCalls[0].input.url).endsWith(`/refresh-token?user_id=${TAL}`), `${lang} token: ${show(pushCalls)}`);
+    }
+  });
+
+  await check('web push: no device took it (a push service asked to retry): not stamped told, logged with the id, the copies still go to token; a later outage can tell them', async () => {
+    seedCopy();
+    webAccount(1);
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    pushResult = { sent: 0, total: 1, retriable: true };
+    await pass();
+    assert(link('L').state === 'token' && pushCalls.length === 1, `link ${link('L').state}, pushes ${pushCalls.length}`);
+    assert(!DB.user[0].googleSyncNotifiedAt, `stamped ${show(DB.user[0].googleSyncNotifiedAt)}`);
+    assert(logs.includes(`[google-sync] user ${TAL}: no device took the reconnect notification; not marked told`), `logged: ${show(logs.filter((l) => l.startsWith('[google-sync]')))}`);
+    assert(!logs.some((l) => l.includes('reconnect message sent')), 'said it was sent');
+  });
+
+  await check('web push: not for a Telegram account or a WhatsApp-only one with a browser on (their message is unchanged), and not when push is off; the account with no chat then gets the old skip line and no stamp', async () => {
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', _count: { pushDevices: 2 } });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    assert(pushed() === 0 && via() === 'telegram', `Telegram: pushes ${show(pushCalls)}, sent ${show(sent)}`);
+    seedCopy();
+    Object.assign(DB.user[0], { googleRefreshToken: '', telegramId: null, whatsappPhone: '+972500000001', _count: { pushDevices: 2 } });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    await pass();
+    assert(pushed() === 0 && via() === 'whatsapp', `WhatsApp: pushes ${show(pushCalls)}, sent ${show(sent)}`);
+    seedCopy();
+    webAccount(1);
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    const savedKey = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      await pass();
+    } finally {
+      process.env.VAPID_PRIVATE_KEY = savedKey;
+    }
+    assert(pushed() === 0 && via() === '' && !DB.user[0].googleSyncNotifiedAt, `push off: pushes ${show(pushCalls)}, sent ${show(sent)}`);
+    assert(logs.includes(`[google-sync] user ${TAL}: no chat; no reconnect message`), `logged: ${show(logs.filter((l) => l.startsWith('[google-sync]')))}`);
+  });
+
+  await check('pause, web push: an outage that would notify a browser in Shabbat waits for after it, as the chat\'s message does: nothing is pushed, stamped or changed on Saturday, and the next pass after Shabbat pushes once', async () => {
+    seedCopy();
+    webAccount(1, { pauseOnShabbat: true, zmanimCommunity: 'sephardi', latitude: 31.778, longitude: 35.235, elevationM: 754 });
+    seriesRow('a', 'home');
+    itemRow('L', 'a');
+    const before = logs.length;
+    await pass(new Date('2026-10-17T07:00:00Z'));
+    assert(link('L').state === 'ok' && pushed() === 0 && DB.user[0].googleSyncNotifiedAt === null, `Shabbat: link ${link('L').state}, pushes ${show(pushCalls)}`);
+    assert(logs.slice(before).some((l) => l.startsWith('[pause] skipped Google reconnect message for 1')), `logged: ${show(logs.slice(before))}`);
+    await pass(new Date('2026-10-17T16:00:00Z'));
+    assert(link('L').state === 'token' && pushed() === 1 && pushCalls[0].input.kind === 'reconnect', `after Shabbat: link ${link('L').state}, pushes ${show(pushCalls)}`);
   });
 
   await check('pause: an outage that would send the reconnect message in Shabbat is told after it: the pass changes nothing and sends nothing on Saturday (logged), and the next pass after Shabbat does both once', async () => {
