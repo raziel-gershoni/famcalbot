@@ -30,22 +30,30 @@ export function isUserSuspended(user: { suspendedAt: Date | null } | null | unde
 
 /**
  * Suspends the account and ends its web sessions (web sign-in spec §2.13): sessionsValidAfter moves to the suspension's
- * moment, so a cookie from before it stays refused after an unsuspend too (unsuspendUser leaves it).
+ * moment, so a cookie from before it stays refused after an unsuspend too (unsuspendUser leaves it). Its browser
+ * devices are deleted in the same write (6c-2 spec §3.7); an unsuspend brings none back (the person turns them on again).
+ * devices.ts is loaded here, not at the top: user-service imports this file and devices.ts imports user-service.
  */
 export async function suspendUser(userId: number, adminId: number, reason: string | null): Promise<void> {
+  const { afterDevicesChanged, deleteDevicesOf } = await import('../services/web-push/devices');
   const now = new Date();
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      suspendedAt: now,
-      suspendedBy: adminId,
-      suspendedReason: reason,
-      sessionsValidAfter: now,
-    },
+  const devices = await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: {
+        suspendedAt: now,
+        suspendedBy: adminId,
+        suspendedReason: reason,
+        sessionsValidAfter: now,
+      },
+    });
+    return deleteDevicesOf(userId, { tx });
   });
 
   await invalidateFeatureAccessCache(userId);
-  console.log(`[Moderation] Admin ${adminId} suspended user ${userId}`);
+  // An account with a chat has no device: nothing more runs for it
+  if (devices > 0) await afterDevicesChanged([userId]);
+  console.log(`[Moderation] Admin ${adminId} suspended user ${userId}${devices > 0 ? `; ${devices} browser device(s) deleted` : ''}`);
 }
 
 export async function unsuspendUser(userId: number, adminId: number): Promise<void> {
@@ -384,7 +392,8 @@ async function identifiersOf(userId: number): Promise<BlockArgs> {
  *   each one. A bare BlockArgs records what it names.
  * - One row per identifier, each column unique, so a second ban of the same one updates its reason.
  * - Every account that holds one of them is signed out on the web (web sign-in spec §2.13): sessionsValidAfter moves to
- *   now, in the row every request already reads, so a live cookie is refused at its next request.
+ *   now, in the row every request already reads, so a live cookie is refused at its next request; their browser
+ *   devices are deleted in the same write (6c-2 spec §3.7), and each such account's alert entry is re-synced after it.
  * - The cache keys are primed for an hour.
  * The log names the account (or "identifiers") and the kinds, never a value.
  */
@@ -413,6 +422,8 @@ export async function banIdentifier(
     const holders = await accountsHoldingWays(holderWays);
     if (holders.length > 0) owners.push({ id: { in: holders } });
   }
+  // Loaded before the first write, as every read is (see above); not at the top: user-service imports this file
+  const devicesModule = owners.length > 0 ? await import('../services/web-push/devices') : null;
   const record = { bannedBy: adminId, bannedReason: reason };
   const ops: Promise<unknown>[] = [];
   if (args.telegramId) {
@@ -437,13 +448,26 @@ export async function banIdentifier(
   }
   for (const key of blockCacheKeys(args)) ops.push(redis.set(key, '1', { ex: BLOCK_CACHE_TTL }));
 
-  if (owners.length > 0) {
-    ops.push(prisma.user.updateMany({ where: { OR: owners }, data: { sessionsValidAfter: new Date() } }).then(({ count }) => {
-      console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web`);
+  // The accounts signed out, and how many of their devices went: the alert entries to re-sync after the writes
+  let signedOut: number[] = [];
+  let devicesGone = 0;
+  if (owners.length > 0 && devicesModule) {
+    const { deleteDevicesOf } = devicesModule;
+    // One write per ban: the accounts' sessions end and their browser devices go with them
+    ops.push(prisma.$transaction(async (tx) => {
+      const ids = (await tx.user.findMany({ where: { OR: owners }, select: { id: true } })).map(u => u.id);
+      const { count } = await tx.user.updateMany({ where: { id: { in: ids } }, data: { sessionsValidAfter: new Date() } });
+      const devices = ids.length > 0 ? await deleteDevicesOf(ids, { tx }) : 0;
+      return { ids, count, devices };
+    }).then(({ ids, count, devices }) => {
+      signedOut = ids;
+      devicesGone = devices;
+      console.log(`[Moderation] Ban by admin ${adminId}: ${count} account(s) signed out on the web${devices > 0 ? `, ${devices} browser device(s) deleted` : ''}`);
     }));
   }
 
   await Promise.all(ops);
+  if (devicesGone > 0 && devicesModule) await devicesModule.afterDevicesChanged(signedOut);
   console.log(`[Moderation] Admin ${adminId} banned ${accountId !== null ? `user ${accountId}` : 'identifiers'}: ${kinds.join(', ')}`);
   return { kinds };
 }

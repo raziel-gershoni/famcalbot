@@ -41,6 +41,7 @@ import type { UserConfig } from '../types';
 import { getUserById, getUserByTelegramId } from './user-service';
 import { MessageFormat, type MessageOptions } from './messaging/types';
 import { syncReminderCacheEntry } from './reminder-cache';
+import { deleteDevicesOf } from './web-push/devices';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { countWithin } from './web-signin/limits';
 import { signinHash } from './web-signin/email-address';
@@ -241,7 +242,9 @@ async function attachTelegram(userId: number, telegramId: number): Promise<'atta
 }
 
 /**
- * After the Telegram id is written: the person is told first, then feature access and the reminder pass see the chat,
+ * After the Telegram id is written: the person is told first, then the account's browser devices are deleted (it has
+ * a chat now and Telegram carries everything, 6c-2 spec §2.4; no push reaches an account with a chat even before
+ * this runs, canReachByPush), then feature access and the reminder pass see the chat,
  * the menu button opens the dashboard, the person is welcomed, and the notice goes to the ways the account had before
  * (`before` is the row read before the write, with no chat, so it goes by email: Task 8's routing). Never throws, and
  * each step stands alone: a Redis or Telegram hiccup in one is captured and the rest still run, so the confirmation
@@ -258,6 +261,10 @@ async function afterConnect(chatId: number | string, before: UserConfig, telegra
       captureSignInFailure(error, 'tg-connect-after', { user_id: before.id, purpose: name });
     }
   };
+  await step('push-devices', async () => {
+    const gone = await deleteDevicesOf(before.id);
+    if (gone > 0) console.log(`[tg-connect] user ${before.id}: ${gone} browser device(s) deleted (it has a chat now)`);
+  });
   await step('feature-access', async () => {
     const { invalidateFeatureAccessCache } = await import('./subscription-service');
     await invalidateFeatureAccessCache(before.id);

@@ -400,6 +400,38 @@ async function main() {
     assert(res.status === 200 && answer.telegram === true && answer.session === 'email', `the browser: ${res.status} ${show(answer)}`);
   });
 
+  const pushDeviceRow = (id: string, userId: number): Row => ({
+    id, userId, endpoint: `https://fcm.googleapis.com/fcm/send/smoke-${id}`, p256dh: 'B'.repeat(87), auth: 'A'.repeat(22), createdAt: new Date(Date.now() - 60 * MIN),
+  });
+
+  await check('Connect (6c-2 §2.4): the account has a chat now, so its browser devices are deleted; another account\'s stay; one line with the count and no address', async () => {
+    seed();
+    DB.pushDevice = [pushDeviceRow('pd-dana-1', DANA), pushDeviceRow('pd-dana-2', DANA), pushDeviceRow('pd-noam', NOAM)];
+    await press(NEW_TG, await askedBy(DANA, NEW_TG));
+    assert(String(userRow(DANA).telegramId) === String(NEW_TG), `not connected: ${show(userRow(DANA))}`);
+    assert(show(DB.pushDevice.map(d => d.id)) === show(['pd-noam']), `devices left ${show(DB.pushDevice.map(d => d.id))}`);
+    assert(everyLog.some(l => l.startsWith(`[tg-connect] user ${DANA}: 2 browser device(s) deleted`)), `no device line: ${show(everyLog.filter(l => l.includes('device')))}`);
+    assert(!everyLog.some(l => l.includes('fcm.googleapis.com')), 'an endpoint reached a log line');
+  });
+
+  await check('Connect: a failing device delete is captured, and the person still gets "connected", the welcome and the notice', async () => {
+    seed();
+    DB.pushDevice = [pushDeviceRow('pd-dana-1', DANA)];
+    const { prisma } = await load('src/utils/prisma.ts');
+    const real = prisma.pushDevice.deleteMany;
+    prisma.pushDevice.deleteMany = async () => { throw Object.assign(new Error('connection reset (smoke)'), { code: 'P1001' }); };
+    const captures = everyCapture.length;
+    try {
+      await press(NEW_TG, await askedBy(DANA, NEW_TG));
+    } finally {
+      prisma.pushDevice.deleteMany = real;
+    }
+    assert(String(userRow(DANA).telegramId) === String(NEW_TG), 'not connected');
+    assert(sent.some(s => s.text === words('en').connected) && sent.some(s => s.text.startsWith(MSG.en.bot.start.welcome.replace('{name}', 'Dana'))), `sent ${show(sent.map(s => s.text.slice(0, 30)))}`);
+    assert(everyCapture.slice(captures).some(c => c.context === 'tg-connect-after' && c.extra.purpose === 'push-devices'), `captures ${show(everyCapture.slice(captures))}`);
+    assert(everyLog.some(l => l.startsWith('[signin-notice]') && l.includes(`user ${DANA}`)), 'no notice');
+  });
+
   await check('a second press of the same question, or the used link opened again: "expired", nothing changes', async () => {
     seed();
     const token = await tokenFor(DANA);

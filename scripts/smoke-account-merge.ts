@@ -131,6 +131,7 @@ const FKS: FK[] = [
   { from: 'googleSyncLink', field: 'nativeCalendarId', to: 'nativeCalendar', onDelete: 'SetNull' },
   { from: 'googleSyncItem', field: 'linkId', to: 'googleSyncLink', onDelete: 'Cascade' },
   { from: 'signInIdentity', field: 'userId', to: 'user', onDelete: 'Cascade' },
+  { from: 'pushDevice', field: 'userId', to: 'user', onDelete: 'Cascade' },
 ];
 const UNIQUE: Record<string, string[]> = {
   user: ['telegramId', 'whatsappPhone', 'whatsappBsuid'],
@@ -2060,6 +2061,45 @@ async function main() {
       const merged = await mergeAccounts(W, T);
       assert(show(asked) === show(merged.plan), `${name}: asked ${show(asked)}, merged ${show(merged.plan)}`);
     }
+  });
+
+  // ---- Browser notifications (6c-2 spec §2.4): devices end with the sessions that could see them ----
+
+  const pushDevice = (id: string, userId: number): Row => ({
+    id, userId, endpoint: `https://fcm.googleapis.com/fcm/send/smoke-${id}`, p256dh: 'B'.repeat(87), auth: 'A'.repeat(22), createdAt: days(-2),
+  });
+  const devicesLeft = () => table('pushDevice').map((r) => `${r.userId}:${r.id}`).sort();
+
+  await check('#72 a W with no chat joins a T with a chat (6c-2 §2.4): W\'s devices go, and a stray device of T\'s goes too, in the merge\'s transaction; another person\'s stays; no row holds W', async () => {
+    const { mergeAccounts } = await load('src/services/account-linking.ts');
+    seed();
+    Object.assign(userRow(W), { whatsappPhone: null, messagingPlatform: 'telegram' });
+    DB.pushDevice = [pushDevice('w-1', W), pushDevice('w-2', W), pushDevice('t-stray', T), pushDevice('p-1', P)];
+    await mergeAccounts(W, T);
+    assert(!userRow(W), 'W still exists');
+    eq(devicesLeft(), [`${P}:p-1`], 'the devices left');
+    eq(referencesTo(W), [], 'rows that still hold W');
+  });
+
+  await check('#73 a W with no chat joins a T with no chat: W\'s devices go with W (they cascade at its delete; its sessions end with it), and T keeps its own', async () => {
+    const { mergeAccounts } = await load('src/services/account-linking.ts');
+    seed();
+    Object.assign(userRow(W), { whatsappPhone: null, messagingPlatform: 'telegram' });
+    Object.assign(userRow(T), { telegramId: null });
+    DB.pushDevice = [pushDevice('w-1', W), pushDevice('t-1', T), pushDevice('t-2', T)];
+    await mergeAccounts(W, T);
+    assert(!userRow(W), 'W still exists');
+    eq(devicesLeft(), [`${T}:t-1`, `${T}:t-2`], 'the devices left');
+    eq(referencesTo(W), [], 'rows that still hold W');
+  });
+
+  await check('#74 [guard] hardDeleteUser takes the person\'s browser devices with the account (they cascade); another person\'s stay', async () => {
+    seed();
+    DB.pushDevice = [pushDevice('t-1', T), pushDevice('p-1', P)];
+    const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+    await hardDeleteUser(T, 1);
+    assert(!userRow(T), 'T still exists');
+    eq(devicesLeft(), [`${P}:p-1`], 'the devices left');
   });
 
   await check('#67 [guard] hardDeleteUser takes the person\'s sign-in ways with the account (they cascade); another person\'s stay', async () => {

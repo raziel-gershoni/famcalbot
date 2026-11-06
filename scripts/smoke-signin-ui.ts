@@ -356,6 +356,35 @@ async function main() {
     }
   });
 
+  await check('U5c Remove sends this browser\'s notification address (6c-2 §2.4), so its device stays: { which, endpoint } with a subscription here, { which } with none (U5)', async () => {
+    const EP = 'https://fcm.googleapis.com/fcm/send/smoke-remove-device';
+    const win = fakeWindow as unknown as Row;
+    // The browser APIs currentPushEndpoint (src/lib/web-push-client.ts) reads, on the window the code reads them from
+    // (window.navigator.serviceWorker, window.PushManager): a registration with a subscription
+    win.navigator = {
+      serviceWorker: { getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: EP }) } }) },
+    };
+    win.PushManager = function PushManager() {};
+    try {
+      const t = w('en');
+      const o = open('en', VIEW({ email: { address: ADDRESS } }));
+      await settle();
+      try {
+        o.m.click(rowStarting(o.m, t.email) as FakeElement);
+        routes['POST /api/signin-methods/remove'] = () => json({ ok: true, methods: methodsOf(VIEW()) });
+        o.m.click(button(o.m, t.remove) as FakeElement);
+        await settle();
+        assert(show(last('/api/signin-methods/remove')?.body) === show({ which: 'email', endpoint: EP }), `the request ${show(last('/api/signin-methods/remove'))}`);
+        assert(!dialog(o.m) && statusLine(o.m).includes(t.removed), 'after');
+      } finally {
+        closeAll(o);
+      }
+    } finally {
+      delete win.navigator;
+      delete win.PushManager;
+    }
+  });
+
   await check('U5b Turn on: one POST to /api/signin-methods/calendar-on for the account (no body of consequence), a busy label while it runs; on reads the new list (the row becomes the calendar account on, Add Google and Turn on hide) with turnedOn; shared, reconnect, failed and busy each say their own words and keep the off row with Turn on', async () => {
     for (const l of LOCALES) {
       const t = w(l);

@@ -21,6 +21,7 @@ import { getUserById, getUserByTelegramId } from './user-service';
 import { convertPrismaUserToConfig, UserConfig } from '../types';
 import { invalidateFeatureAccessCache } from './subscription-service';
 import { syncReminderCacheEntry } from './reminder-cache';
+import { deleteDevicesOf } from './web-push/devices';
 import { invalidateDueGate } from './native-reminders/due-gate';
 import { openEventAlertsGate } from './event-alerts-gate';
 import { markSyncDirty, unlinkSync, type SyncSeries } from './google-sync/marks';
@@ -32,7 +33,7 @@ import { hasGoogleChoices } from './native-calendar/onboarding';
 import { liveGoogleChoices } from '../lib/google-state';
 import type { CalendarAssignment } from '../types';
 import type { IdentityKind } from './web-signin/identities';
-import { hasWhatsApp } from '../lib/has-chat';
+import { hasChat, hasWhatsApp } from '../lib/has-chat';
 
 const LINK_CODE_TTL = 300; // 5 minutes
 
@@ -634,6 +635,15 @@ export async function mergeIntoAccount(
   if (plan.ways.length > 0) {
     const movedWays = await tx.signInIdentity.updateMany({ where: { userId: w.id, kind: { in: plan.ways } }, data: { userId: t.id } });
     console.log(`[AccountLink] User ${t.id}: ${movedWays.count} web sign-in way(s) of W ${w.id} moved`);
+  }
+
+  // Browser notifications (6c-2 spec §2.4). W's devices belonged to W's sessions, which end with W, so they go with it
+  // (ON DELETE CASCADE at the delete below); the person turns notifications on again, signed in to T. A T with a chat
+  // gets everything there, so its own devices go too, in this transaction (an account with a chat can't add one; this
+  // clears one a race left), and W's are counted with them.
+  if (hasChat(t) || hasWhatsApp(w)) {
+    const gone = await deleteDevicesOf([w.id, t.id], { tx });
+    if (gone > 0) console.log(`[AccountLink] User ${t.id} has a chat: ${gone} browser device(s) of W ${w.id} and T deleted`);
   }
 
   // W goes before T takes its WhatsApp ids: they are unique. A WhatsApp W was found by the

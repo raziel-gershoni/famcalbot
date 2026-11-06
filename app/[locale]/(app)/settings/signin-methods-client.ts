@@ -9,7 +9,7 @@
 import type { SignInMethod } from '@/src/lib/session-auth';
 import { initDataHeaders } from '@/src/lib/read-init-data';
 import { readJsonBody } from '@/src/lib/read-json';
-import { turnOffPush } from '@/src/lib/web-push-client';
+import { currentPushEndpoint, turnOffPush } from '@/src/lib/web-push-client';
 import type { SignInMethodsView } from '@/src/services/web-signin/identities';
 import { isJoinSummary, type JoinSummary } from '@/src/lib/join-summary';
 
@@ -125,8 +125,13 @@ export async function joinAccount(userId: number, joinId: string): Promise<{ kin
   return { kind: 'error', code: statusError(r.status) };
 }
 
+/**
+ * Remove a way. Every other browser's session ends with it, and with them their notification devices; this browser's
+ * subscription goes along (6c-2 spec §2.4), so its device stays. None in this browser: the body is { which } alone.
+ */
 export async function removeMethod(userId: number, which: RemoveWhich): Promise<{ kind: 'ok'; methods: SignInMethodsView } | { kind: 'error'; code: RemoveError }> {
-  const r = await post('/api/signin-methods/remove', userId, { which });
+  const endpoint = await currentPushEndpoint();
+  const r = await post('/api/signin-methods/remove', userId, endpoint ? { which, endpoint } : { which });
   if (r?.ok && r.body?.ok === true && isMethodsView(r.body.methods)) return { kind: 'ok', methods: r.body.methods };
   if (r?.body?.error === 'last-way') return { kind: 'error', code: 'last-way' };
   return { kind: 'error', code: r ? statusError(r.status) : 'failed' };

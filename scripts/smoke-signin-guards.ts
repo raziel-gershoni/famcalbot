@@ -88,6 +88,11 @@ function model(name: string): Row {
       rows.forEach((r) => Object.assign(r, a.data));
       return { count: rows.length };
     },
+    deleteMany: async (a: Row = {}) => {
+      const gone = t().filter((r) => matches(r, a.where));
+      DB[name] = t().filter((r) => !gone.includes(r));
+      return { count: gone.length };
+    },
   };
   return new Proxy(impl, {
     get: (target, prop) => {

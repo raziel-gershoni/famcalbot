@@ -21,6 +21,7 @@ import { convertPrismaUserToConfig, type UserConfig } from '../../types';
 import { providerConfigured } from './oidc';
 import { emailConfigured } from './email-send';
 import { googleAccountKeyId } from './account-key';
+import { afterDevicesChanged, deleteDevicesOf } from '../web-push/devices';
 
 export type IdentityKind = 'google' | 'email';
 /** What Settings can remove: a Google way, the email way, or the calendar's Google account before its first use. */
@@ -249,7 +250,9 @@ export async function addIdentity(
  * so the calendar match doesn't make it again (Add Google still works), and clears the calendar account's keyed hash:
  * with the switch off it serves no purpose, so it isn't kept (the Privacy Policy says it is kept only to sign the
  * person in; the lawyer review, finding 10). A removal that changed something ends every web
- * session: sessionsValidAfter is now (the route gives the device it came from a fresh cookie). One that found nothing
+ * session: sessionsValidAfter is now (the route gives the device it came from a fresh cookie), and in the same write
+ * every browser device of the account is deleted but `keepDevice`, the endpoint of the browser Remove was pressed on,
+ * which stays signed in (6c-2 spec §3.7; only the account's own device can be kept). One that found nothing
  * to remove (no such way, the calendar switch already off) changes nothing and signs nobody out.
  *
  * The account's only durable way (DurableWay; web sign-up spec §2.12) is never removed: 'last-way'. The account's row
@@ -257,7 +260,8 @@ export async function addIdentity(
  * what is left: two removals at once can't take the last two ways. The calendar's row ('calendar-google') is no
  * durable way and is always removable.
  */
-export async function removeSignInMethod(userId: number, which: RemovableWay): Promise<'removed' | 'last-way' | 'none'> {
+export async function removeSignInMethod(userId: number, which: RemovableWay, keepDevice: string | null = null): Promise<'removed' | 'last-way' | 'none'> {
+  let devicesGone = 0;
   const outcome = await prisma.$transaction(async (tx): Promise<'removed' | 'last-way' | 'none'> => {
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUnique({
@@ -275,10 +279,15 @@ export async function removeSignInMethod(userId: number, which: RemovableWay): P
       where: { id: userId },
       data: { sessionsValidAfter: new Date(), ...(which === 'email' ? {} : { googleCalendarSignIn: false, googleAccountKey: null }) },
     });
+    devicesGone = await deleteDevicesOf(userId, { keep: keepDevice, tx });
     return 'removed';
   });
   const said = { removed: 'removed; every web session ends', 'last-way': 'not removed: it is the last way to sign in', none: 'not there; nothing changed' };
   console.log(`[signin] user ${userId}: the ${which} way was ${said[outcome]}`);
+  if (devicesGone > 0) {
+    console.log(`[signin] user ${userId}: ${devicesGone} browser device(s) deleted with the sessions${keepDevice ? '; the one Remove was pressed on is kept' : ''}`);
+    await afterDevicesChanged([userId]);
+  }
   return outcome;
 }
 

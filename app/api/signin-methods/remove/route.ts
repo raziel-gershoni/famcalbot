@@ -1,6 +1,8 @@
 // Settings → Sign in on the web → Remove (web sign-in spec §4, §2.13, §2.17).
 //
-// POST /api/signin-methods/remove?user_id=…  body { which: 'google' | 'email' | 'calendar-google' }
+// POST /api/signin-methods/remove?user_id=…  body { which: 'google' | 'email' | 'calendar-google', endpoint?: string }
+//   endpoint: this browser's push subscription (6c-2 spec §2.4), whose device is kept when every other one of the
+//   account is deleted with the sessions; absent or null keeps none. One that is not an endpoint is 400 invalid.
 //   → { ok: true, methods }. When something was removed (or the calendar switch turned off), every web session of the
 //     account ends (sessionsValidAfter), and the device this came from, when it is a web session, gets a fresh cookie
 //     with the same method and a sign-in time of now, so it stays signed in. The cookie keeps its proved-at
@@ -23,6 +25,7 @@ import { refuseCrossSite } from '@/src/lib/same-origin';
 import { reissueSessionToken, setSessionCookie } from '@/src/lib/session-auth';
 import { getUserById } from '@/src/services/user-service';
 import { listSignInMethods, removeSignInMethod, type RemovableWay } from '@/src/services/web-signin/identities';
+import { isValidEndpoint } from '@/src/services/web-push/devices';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +50,15 @@ export async function POST(request: NextRequest) {
       console.warn(`[signin-methods] user ${userId}: refused a removal of an unknown way`);
       return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
     }
-    const outcome = await removeSignInMethod(userId, which);
+    // This browser's push subscription, so its device stays (never logged: it is a capability)
+    const endpoint: unknown = body?.endpoint ?? null;
+    if (endpoint !== null && !isValidEndpoint(endpoint)) {
+      console.warn(`[signin-methods] user ${userId}: refused a removal whose endpoint is not one`);
+      return NextResponse.json({ ok: false, error: 'invalid' }, { status: 400 });
+    }
+    // Only a web session stays signed in after the removal, so only its browser keeps its device
+    const keep = auth.via === 'session' && typeof endpoint === 'string' ? endpoint : null;
+    const outcome = await removeSignInMethod(userId, which, keep);
     if (outcome === 'last-way') {
       return NextResponse.json({ ok: false, error: 'last-way' }, { status: 409 });
     }
