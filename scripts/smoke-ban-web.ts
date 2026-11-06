@@ -30,7 +30,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   assert, baseUser, body, check, DB, drainAfter, everyCapture, everyLog, fakePrisma, flowCookie, identityRow, initDataFor, installSigninWorld, load, logs, mails,
-  redisStore, report, request, resetWorld, ROOT, sent, show, type Row,
+  fakeRedis, redisStore, report, request, resetWorld, ROOT, sent, show, type Row,
 } from './lib/signin-world';
 
 const ADMIN = 9;
@@ -59,6 +59,7 @@ const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const user = (id: number): Row => DB.user.find(u => u.id === id) as Row;
 /** The blocklist rows now (a function, so a check's earlier length test does not narrow a later one for tsc). */
 const blockedCount = (): number => DB.blockedIdentifier.length;
+const fakeRedisGet = (k: string): Promise<unknown> => fakeRedis.get(k);
 const blockedKeys = (): string[] => [...redisStore.keys()].filter(k => k.startsWith('blocked:')).sort();
 
 function seed(): void {
@@ -167,6 +168,24 @@ async function main() {
     assert((await moderation.isIdentifierBlocked({ email: 'web@gmail.com' })) === true, 'the Google way\'s address');
     assert((await moderation.isIdentifierBlocked({ googleSub: 'g-other', email: 'other@example.com' })) === false, 'others');
     assert(show(blockedKeys()) === show(['blocked:google:g-web-0050', mailKey('web@example.com'), mailKey('web@gmail.com')].sort()), `primed ${show(blockedKeys())}`);
+  });
+
+  await check('#3b the cache hits: the fake Redis, like Upstash\'s client, hands back the stored \'1\' as the number 1, and a primed key answers true with the database emptied (a number-blind read asks the database every time); a key that is not 1 does not block; an unban clears the keys, so the next check asks the database and answers false', async () => {
+    seed();
+    await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    const key = 'blocked:google:g-web-0050';
+    assert((await fakeRedisGet(key)) === 1, `the fake returns ${show(await fakeRedisGet(key))}, not the number 1`);
+    DB.blockedIdentifier = [];
+    assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050' })) === true, 'a primed key did not answer: the cache read misses a stored 1');
+    redisStore.set(key, '"1"');
+    assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050' })) === true, "the string '1' also counts");
+    redisStore.set(key, '0');
+    assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050' })) === false, 'a 0 blocked');
+    seed();
+    await moderation.banIdentifier({ userId: W }, ADMIN, null);
+    await moderation.unbanIdentifier({ userId: W }, ADMIN);
+    assert(blockedKeys().length === 0 && blockedCount() === 0, `after the unban: keys ${show(blockedKeys())}`);
+    assert((await moderation.isIdentifierBlocked({ googleSub: 'g-web-0050', email: 'web@example.com' })) === false, 'an unbanned account is still blocked');
   });
 
   await check('#4 signInRefusal reads the account\'s ways: a bare ban of an address, or of a Google account, signs out the account that holds it and refuses it; finishSignIn answers blocked with no session cookie', async () => {

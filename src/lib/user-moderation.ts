@@ -324,8 +324,9 @@ export async function isIdentifierBlocked(args: BlockArgs): Promise<boolean> {
   // Quick path: the cache of each identifier given
   for (const key of blockCacheKeys(args)) {
     try {
-      const cached = await redis.get<string>(key);
-      if (cached === '1') return true;
+      // Upstash's client parses what it reads, so the '1' stored comes back as the number 1
+      const cached = await redis.get<string | number>(key);
+      if (cached === 1 || cached === '1') return true;
     } catch (err) {
       console.warn('[Moderation] Reading the blocklist cache failed; asking the database', err);
     }
@@ -498,11 +499,11 @@ export async function unbanIdentifier(
   const kinds = kindsOf(args);
   if (kinds.length === 0) throw new BanTargetError('NO_IDENTIFIER');
 
+  // The keys go after the rows: a check that read a row just before it went could prime its key again, and a working
+  // cache would keep the unbanned person out for the hour
   const keys = blockCacheKeys(args);
-  await Promise.all([
-    prisma.blockedIdentifier.deleteMany({ where: { OR: blockFilters(args) } }),
-    ...(keys.length > 0 ? [redis.del(...keys)] : []),
-  ]);
+  await prisma.blockedIdentifier.deleteMany({ where: { OR: blockFilters(args) } });
+  if (keys.length > 0) await redis.del(...keys);
   console.log(`[Moderation] Admin ${adminId} unbanned ${who}: ${kinds.join(', ')}`);
   return { kinds };
 }
