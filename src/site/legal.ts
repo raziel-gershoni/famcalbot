@@ -3,7 +3,7 @@
 // Client-safe: no import.
 
 /** The day each page's text last changed (yyyy-MM-dd). Change it with the text. */
-export const LEGAL_UPDATED = { privacy: '2026-11-07', terms: '2026-11-07' } as const;
+export const LEGAL_UPDATED = { privacy: '2026-11-08', terms: '2026-11-08' } as const;
 
 export type LegalDoc = keyof typeof LEGAL_UPDATED;
 

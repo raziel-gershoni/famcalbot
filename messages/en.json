@@ -2321,7 +2321,7 @@
             [
               "**Voice notes.** We send them to the AI to understand them, then drop them. What the AI understood is held for 10 minutes while you confirm it. If the AI couldn’t make sense of a voice note, we hold the note for 5 minutes so your next message can complete it.",
               "**Photos, PDFs and forwarded messages** (Telegram only). We send them to the AI to find events, and we don’t store them.",
-              "**A message you ask about in another chat** (Telegram only). When you reply to a message in another Telegram chat and mention our bot, Telegram sends us that message, which someone else may have written, and your mention. We send both to the AI only to find the day and time you’re asking about, and we keep neither. The bot then answers in that chat, where everyone in it can see the answer: it shows only when you’re busy and when you’re free, never what your events are.",
+              "**A message you ask about in another chat** (Telegram only). When you reply to a message in another Telegram chat and mention our bot, Telegram sends us that message, which someone else may have written, and your mention. We send both to the AI only to find the day and time you’re asking about, and whose time, and we keep neither. The bot then answers in that chat, where everyone in it can see the answer: it shows only busy and free times, from the calendars you see in FamCal: yours, your family’s, and, by name, your partner’s and your children’s. It never shows what anyone’s events are.",
               "**Audio we make for you**: voice briefings, the voice show and spoken replies. Each file is deleted as soon as it’s sent.",
               "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name. On the zmanim pages, the city nearest you is found on your device, and your device’s position isn’t sent to us. We receive only the request for that city’s page.",
               "**Card or bank details.**",
@@ -2439,6 +2439,7 @@
             [
               "they see the calendars you share with them, either to view or to view and edit. They see every event in those calendars and who added it, and they get the reminders from them;",
               "they see the reminders you make for both of you, and whether each of you marked them done;",
+              "they can ask the bot in another Telegram chat when you’re busy: the answer, which everyone in that chat sees, shows by your name when you have plans and when you’re free, from the calendars you share with them, never what your events are;",
               "calendars you keep private stay private."
             ],
             "When you unlink, both of your calendars go back to private. Events you added to your partner’s calendar stay in their calendar."
@@ -2614,7 +2615,7 @@
               "asking when you’re free from another chat;",
               "paying for a plan."
             ],
-            "When you mention the bot in another Telegram chat, it answers in that chat, and everyone in it sees the answer: when you’re busy and when you’re free on the day you asked about, from all the calendars you chose in FamCal. It never shows your events’ names. Mention it only where you’re happy for the people there to see that.",
+            "When you mention the bot in another Telegram chat, it answers in that chat, and everyone in it sees the answer: busy and free times on the day you asked about, from the calendars you see in FamCal: yours, your family’s, and, by name, your partner’s and your children’s. It never shows the events’ names. Mention it only where you’re happy for the people there to see that.",
             "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Reminders, event alerts, a short notification that lists the day’s events and a notice when your trial ends reach you on each phone or computer where you turn notifications on (on iPhone and iPad, after you add FamCal to the Home Screen). Once you connect Telegram, they come in Telegram instead, and the notifications stop."
           ]
         },
@@ -2724,7 +2725,7 @@
           "blocks": [
             "FamCal uses AI to:",
             [
-              "understand voice notes, photos, PDFs and forwarded messages, and the day you ask about in another chat;",
+              "understand voice notes, photos, PDFs and forwarded messages, and the day and the people you ask about in another chat;",
               "write your briefings and the voice show;",
               "read them aloud. The voices in voice briefings, the voice show and spoken replies are made by AI."
             ],

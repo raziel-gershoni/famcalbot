@@ -1,7 +1,7 @@
 // Smoke test: the Privacy Policy and the Terms say what asking FamCal in another chat adds (spec
 // docs/superpowers/specs/2026-11-07-ask-in-chat-design.md §9; CLAUDE.md: the legal texts change only on the owner's word,
 // in all three languages at once, with a new LEGAL_UPDATED):
-//   - G1 each language holds the seven edits of scripts/lib/legal-ask.ts word for word, each in its place, the same
+//   - G1 each language holds the eight edits of scripts/lib/legal-ask.ts word for word, each in its place, the same
 //     places in en, he and ru, and the entry after each new one is the one that moved on;
 //   - G2 none still says a sentence an edit replaced;
 //   - G3 LEGAL_UPDATED is the day of the change or later, the same day for both texts, and not in the future;
@@ -34,19 +34,19 @@ const show = (v: unknown) => JSON.stringify(v);
 
 const MESSAGES: Record<Locale, { legal: Record<string, { sections: unknown }> }> = { en, he, ru } as never;
 const LOCALES: Locale[] = ['en', 'he', 'ru'];
-/** The day the ask-in-chat wording went in (spec 2026-11-07). */
-const ASK_WORDING_DAY = '2026-11-07';
+/** The day the ask-in-chat wording last changed (the lines by person, spec 2026-11-08-ask-in-chat-people §6). */
+const ASK_WORDING_DAY = '2026-11-08';
 
 const strings = (node: unknown): string[] =>
   typeof node === 'string' ? [node] : node && typeof node === 'object' ? Object.values(node).flatMap(strings) : [];
 
 async function main() {
-  await check('G1 each language holds the seven edits word for word, each in its place, the same places in en, he and ru', () => {
+  await check('G1 each language holds the eight edits word for word, each in its place, the same places in en, he and ru', () => {
     const places = (l: Locale) => show(ASK_LEGAL[l].map(op => [op.id, op.doc, op.path, op.kind]));
     assert(places('he') === places('en') && places('ru') === places('en'), 'the edits sit in different places in different languages');
     const problems: string[] = [];
     for (const locale of LOCALES) {
-      if (ASK_LEGAL[locale].length !== 7) problems.push(`${locale}: ${ASK_LEGAL[locale].length} edits, want 7`);
+      if (ASK_LEGAL[locale].length !== 8) problems.push(`${locale}: ${ASK_LEGAL[locale].length} edits, want 8`);
       for (const op of ASK_LEGAL[locale]) {
         const why = problem(op, MESSAGES[locale].legal[op.doc].sections);
         if (why) problems.push(`${locale} ${why}`);
