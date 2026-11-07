@@ -42,6 +42,12 @@ export interface PeopleInput {
   locale: Locale;
 }
 
+/** A kid's calendars, linked by the names they carry. */
+interface KidGroup {
+  names: Set<string>;
+  calendars: CalendarAssignment[];
+}
+
 /** Google's public holiday calendars: never busy (ruling 12 of the 2026-11-07 spec), so no one's. */
 export const HOLIDAY_CALENDAR = /#holiday@group\.v\.calendar\.google\.com$/;
 
@@ -87,22 +93,41 @@ function personNameOf(a: CalendarAssignment, locale: Locale): string {
 
 /**
  * The people of an answer, in its order: the caller, the partner, the kids (in calendar order), the family.
- * - A FamCal calendar the partner owns is the partner's; one the partner labelled spouse (about the caller: `yours` from
- *   the caller's side) is the caller's; labelled kids (labelsFromViewerSide keeps it) it is the kids'. A calendar with
- *   several labels counts for each.
+ * - A FamCal calendar the partner owns is the partner's, also the one the partner keeps about the caller (decision 5:
+ *   every calendar the partner owns); labelled kids (labelsFromViewerSide keeps it) it is the kids', and the partner's too
+ *   when it is also spouse-labelled from the caller's side. A calendar with several labels counts for each.
  * - Any other calendar: primary or yours is the caller's, spouse the partner's, kids the kid its person names, and no
  *   label the family's. A calendar with several labels counts for each of them.
  * - A birthdays calendar and a Google holiday calendar are no one's: they are never busy.
- * Kids' calendars that name the same person (folded) are one line, and so are those that name no one ("Kids"). The
+ * Kids' calendars that name the same person are one line, in every language: they share a line when any of their
+ * folded names, personName or personEnglishName, is the same; those that name no one ("Kids") share one. The
  * caller is there with no calendar when no calendar is anyone's, so an answer always has a line.
  * Names: the caller's first name (user.name); the partner's first name from the pairing, else the first spouse
- * calendar's person; a kid's person (personEnglishName in an English or Russian answer when set). None is null.
+ * calendar's person; a kid's person (personEnglishName in an English or Russian answer when set, from the first
+ * calendar of the kid that has one). None is null.
  */
 export function peopleOf(input: PeopleInput): Person[] {
   const mine: string[] = [];
   const partners: string[] = [];
   const family: string[] = [];
-  const kids = new Map<string, Person>();
+  const kidGroups: KidGroup[] = [];
+  const order = new Map<string, number>();
+  input.assignments.forEach((a, i) => order.set(a.calendarId, i));
+  // A kid's calendars share a line when any whole name (personName or personEnglishName, folded) is the same, whatever
+  // the answer's language: a group is the calendars so linked, and a calendar linking several groups joins them.
+  const addKid = (a: CalendarAssignment) => {
+    const names = [...new Set([foldName(tidy(a.personName)), foldName(tidy(a.personEnglishName))].filter(Boolean))];
+    const linked = kidGroups.filter(g => (names.length === 0 ? g.names.size === 0 : names.some(n => g.names.has(n))));
+    const group = linked[0] ?? { names: new Set<string>(), calendars: [] };
+    if (!linked[0]) kidGroups.push(group);
+    for (const other of linked.slice(1)) {
+      other.names.forEach(n => group.names.add(n));
+      group.calendars.push(...other.calendars);
+      kidGroups.splice(kidGroups.indexOf(other), 1);
+    }
+    names.forEach(n => group.names.add(n));
+    group.calendars.push(a);
+  };
   let spouseName = '';
   const spouseAliases: string[] = [];
   for (const a of input.assignments) {
@@ -110,29 +135,18 @@ export function peopleOf(input: PeopleInput): Person[] {
     if (labels.includes('birthdays') || HOLIDAY_CALENDAR.test(a.calendarId)) continue;
     const kid = labels.includes('kids');
     const partnersOwn = input.partnerOwned.has(a.calendarId);
-    // labels are from the caller's side already (labelsFromViewerSide): on a calendar the partner owns, `yours` is one
-    // the partner labelled spouse (about the caller), `spouse` is the partner's own; no other label makes it the partner's.
-    const about = labels.includes('yours');
-    const partner = partnersOwn ? labels.includes('spouse') || (!about && !kid) : labels.includes('spouse');
-    const me = partnersOwn ? about : labels.includes('primary') || about;
+    // labels are from the caller's side already (labelsFromViewerSide): every FamCal calendar the partner owns is the
+    // partner's (decision 5), the one she keeps about the caller (`yours`) included, except a kids' one, which is the
+    // kid's alone unless it is also spouse-labelled; the caller's are the calendars they own.
+    const partner = partnersOwn ? !kid || labels.includes('spouse') : labels.includes('spouse');
+    const me = !partnersOwn && (labels.includes('primary') || labels.includes('yours'));
     if (me) mine.push(a.calendarId);
     if (partner) {
       partners.push(a.calendarId);
       if (!spouseName) spouseName = personNameOf(a, input.locale);
       spouseAliases.push(...aliasesOf(a.personName, a.personEnglishName));
     }
-    if (kid) {
-      const name = personNameOf(a, input.locale);
-      const key = `kid:${foldName(name)}`;
-      const aliases = aliasesOf(a.personName, a.personEnglishName);
-      const known = kids.get(key);
-      if (known) {
-        known.calendarIds.push(a.calendarId);
-        known.aliases = [...new Set([...known.aliases, ...aliases])];
-      } else {
-        kids.set(key, { key, kind: 'kid', name: name || null, aliases, calendarIds: [a.calendarId] });
-      }
-    }
+    if (kid) addKid(a);
     if (!me && !partner && !kid) family.push(a.calendarId);
   }
   const meName = firstWord(input.me.name) || null;
@@ -148,7 +162,21 @@ export function peopleOf(input: PeopleInput): Person[] {
       calendarIds: partners,
     });
   }
-  people.push(...kids.values());
+  for (const group of kidGroups) {
+    const calendars = [...group.calendars].sort((x, y) => order.get(x.calendarId)! - order.get(y.calendarId)!);
+    // the line's name: the first calendar's in the answer's language (the English name in an English or Russian answer),
+    // else the first name the group has in the other one
+    const hebrew = calendars.map(c => tidy(c.personName)).find(Boolean);
+    const english = calendars.map(c => tidy(c.personEnglishName)).find(Boolean);
+    const name = (input.locale !== 'he' ? english || hebrew : hebrew || english) ?? '';
+    people.push({
+      key: `kid:${foldName(name)}`,
+      kind: 'kid',
+      name: name || null,
+      aliases: [...new Set(calendars.flatMap(c => aliasesOf(c.personName, c.personEnglishName)))],
+      calendarIds: calendars.map(c => c.calendarId),
+    });
+  }
   if (family.length > 0) people.push({ key: 'family', kind: 'family', name: null, aliases: [], calendarIds: family });
   if (people.length === 0) people.push({ key: 'me', kind: 'me', name: meName, aliases: meAliases, calendarIds: [] });
   return people;

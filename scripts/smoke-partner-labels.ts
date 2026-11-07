@@ -262,13 +262,13 @@ async function main() {
     assert(storeCalls.length === 1, `${storeCalls.length} store reads`);
   });
 
-  await check('a guest answer\'s people from these calendars (ask-in-chat people.ts): Raziel (with the calendar Dana keeps about him), Dana, Leo, Mia', async () => {
+  await check('a guest answer\'s people from these calendars (ask-in-chat people.ts): Raziel, Dana (with the calendar she keeps about Raziel), Leo, Mia', async () => {
     const { peopleOf } = await import('../src/services/ask-in-chat/people');
     const { assignments, partnerOwned } = await getCalendarsWithOwners(raziel);
     const people = peopleOf({ assignments, partnerOwned, me: raziel, partner: USERS[0], locale: 'he' });
     assertList(people.map(p => [p.key, p.name, p.calendarIds]), [
-      ['me', 'Raziel', ['native:raz-main', 'native:dana-about-raz']],
-      ['partner', 'דנה', ['native:dana-main', 'native:dana-work']],
+      ['me', 'Raziel', ['native:raz-main']],
+      ['partner', 'דנה', ['native:dana-main', 'native:dana-about-raz', 'native:dana-work']],
       ['kid:leo', 'Leo', ['native:raz-kids']],
       ['kid:mia', 'Mia', ['native:dana-kids']],
     ]);

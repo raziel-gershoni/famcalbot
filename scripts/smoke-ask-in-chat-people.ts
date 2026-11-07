@@ -1,12 +1,12 @@
 // Smoke test for whose lines a guest answer has (src/services/ask-in-chat/people.ts; spec
 // docs/superpowers/specs/2026-11-08-ask-in-chat-people-design.md §3, the owner's decisions 1, 2, 3 and 5):
-//   - peopleOf: the caller's own calendars (primary, yours), the partner's (every FamCal calendar the partner owns, and
-//     a spouse-labelled one), each kid by the person on their calendar, the family (no label); a partner's kids calendar
+//   - peopleOf: the caller's own calendars (primary, yours), the partner's (every FamCal calendar the partner owns, the
+//     one she keeps about the caller included, and a spouse-labelled one), each kid by the person on their calendar, the family (no label); a partner's kids calendar
 //     is the kids'; a calendar with several labels counts for each; birthdays and Google holidays are no one's; the order
 //     is the caller, the partner, the kids in calendar order, the family;
 //   - the names: the caller's first name, the partner's first name from the pairing else the spouse calendar's person,
 //     a kid's person (the English name in an English or Russian answer when set); none is null; kids' calendars naming
-//     the same person (niqqud and case aside) share a line, and so do those naming no one;
+//     the same person (niqqud and case aside, in either language's name) share a line, and so do those naming no one;
 //   - with no calendar anyone's, the caller alone, with none;
 //   - foldName and askedLines: each group, everyone, a person by any of their names (case, niqqud, ё, a first name of a
 //     full one, a Hebrew prefix letter), the caller by their own name; a group with no line and a name no line answers
@@ -44,7 +44,7 @@ const CALENDARS: CalendarAssignment[] = [
   cal('native:raz-main', ['primary', 'yours']),
   cal('native:raz-kids', ['kids'], { personName: 'מָאיָה', personEnglishName: 'Maya' }),
   cal('native:dana-kids', ['kids'], { personName: 'נועה' }), // Dana labelled it kids
-  cal('native:dana-about-raz', ['yours']), // Dana's calendar she labelled spouse (about the caller): the caller's line (controller ruling, labelsFromViewerSide)
+  cal('native:dana-about-raz', ['yours']), // Dana's calendar she labelled spouse (about the caller): hers, like every calendar she owns (decision 5)
   cal('native:dana-plain', []), // Dana's, no label: hers
   cal('native:dana-bdays', ['birthdays']),
   cal('native:home', []), // Raziel's own, no label: the family's
@@ -62,10 +62,10 @@ const rows = (people: Person[]) => people.map(p => [p.key, p.name, p.calendarIds
 const he = peopleOf({ assignments: CALENDARS, partnerOwned: PARTNER_OWNED, me: RAZ, partner: DANA, locale: 'he' });
 const en = peopleOf({ assignments: CALENDARS, partnerOwned: PARTNER_OWNED, me: RAZ, partner: DANA, locale: 'en' });
 
-check('peopleOf: the caller, the partner (what she owns but her kids calendar and the one about the caller), each kid, the family; birthdays and holidays no one\'s', () => {
+check('peopleOf: the caller, the partner (every calendar she owns but her kids calendar, the one about the caller included), each kid, the family; birthdays and holidays no one\'s', () => {
   same(rows(he), [
-    ['me', 'Raziel', ['native:raz-main', 'native:dana-about-raz', 'work@example.com']],
-    ['partner', 'דנה', ['native:dana-main', 'native:dana-plain']],
+    ['me', 'Raziel', ['native:raz-main', 'work@example.com']],
+    ['partner', 'דנה', ['native:dana-main', 'native:dana-about-raz', 'native:dana-plain']],
     ['kid:מאיה', 'מָאיָה', ['native:raz-kids', 'maya@group.calendar.google.com']],
     ['kid:נועה', 'נועה', ['native:dana-kids']],
     ['kid:', null, ['school@group.calendar.google.com']],
@@ -157,6 +157,41 @@ check('review focus: a name two people share gives both lines; "me" asked with n
   const people = peopleOf({ assignments: [cal('native:p', []), cal('k@x', ['kids'], { personName: 'Noa' })], partnerOwned: new Set(['native:p']), me: RAZ, partner: { name: 'Noa' }, locale: 'en' });
   same([...askedLines({ kind: 'person', name: 'Noa' }, people).keys!], ['partner', 'kid:noa'], 'both');
   same(askedLines({ kind: 'me' }, people), { keys: null, log: 'me-none' }, 'no caller line');
+});
+
+check('review focus (F4): one child whose calendars name them in different ways is one line in every language', () => {
+  const withEnglish = cal('native:a', ['kids'], { personName: 'מאיה', personEnglishName: 'Maya' });
+  const hebrewOnly = cal('g@x', ['kids'], { personName: 'מאיה' });
+  for (const [label, assignments] of [['english first', [withEnglish, hebrewOnly]], ['hebrew first', [hebrewOnly, withEnglish]]] as const) {
+    for (const locale of ['he', 'en', 'ru'] as const) {
+      const people = peopleOf({ assignments: [...assignments], partnerOwned: new Set(), me: RAZ, partner: null, locale });
+      const kids = people.filter(p => p.kind === 'kid');
+      assert(kids.length === 1, `${label} ${locale}: ${kids.length} kid lines: ${show(rows(kids))}`);
+      same([...kids[0].calendarIds].sort(), ['g@x', 'native:a'], `${label} ${locale} calendars`);
+      same(kids[0].name, locale === 'he' ? 'מאיה' : 'Maya', `${label} ${locale} name`);
+      same(kids[0].key, `kid:${foldName(kids[0].name!)}`, `${label} ${locale} key`);
+      same([...askedLines({ kind: 'person', name: 'Maya' }, people).keys!], [kids[0].key], `${label} ${locale} asked by English`);
+      same([...askedLines({ kind: 'person', name: 'מאיה' }, people).keys!], [kids[0].key], `${label} ${locale} asked by Hebrew`);
+    }
+  }
+});
+
+check('review focus (F4): calendars linked through a shared name are one child; two children who share only a first word are not', () => {
+  const linked = peopleOf({
+    assignments: [cal('a', ['kids'], { personName: 'מאיה' }), cal('b', ['kids'], { personEnglishName: 'Maya' }), cal('c', ['kids'], { personName: 'מאיה', personEnglishName: 'Maya' })],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'en',
+  });
+  same(rows(linked.filter(p => p.kind === 'kid')), [['kid:maya', 'Maya', ['a', 'b', 'c']]], 'linked through c');
+  const two = peopleOf({
+    assignments: [cal('a', ['kids'], { personName: 'Maya Cohen' }), cal('b', ['kids'], { personName: 'Maya Levi' }), cal('c', ['kids'])],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'en',
+  });
+  same(rows(two.filter(p => p.kind === 'kid')), [['kid:maya cohen', 'Maya Cohen', ['a']], ['kid:maya levi', 'Maya Levi', ['b']], ['kid:', null, ['c']]], 'two children');
+});
+
+check('review focus (F4): in a Hebrew answer a kid known only by an English name keeps their own line, apart from the unnamed kids', () => {
+  const people = peopleOf({ assignments: [cal('a', ['kids'], { personEnglishName: 'Maya' }), cal('b', ['kids'])], partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he' });
+  same(rows(people.filter(p => p.kind === 'kid')), [['kid:maya', 'Maya', ['a']], ['kid:', null, ['b']]], 'he');
 });
 
 let failed = 0;
