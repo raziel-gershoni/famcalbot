@@ -6,5 +6,6 @@ export { nativeProvider } from './native-provider';
 export { providerForCalendar, fetchEventsInRange } from './routing';
 export type { SplitFetch } from './routing';
 export { createCalendarFor } from './create-target';
-export { getCalendarAssignmentsForUser, hasUsableCalendar } from './user-calendars';
+export { getCalendarAssignmentsForUser, getCalendarsWithOwners, hasUsableCalendar } from './user-calendars';
+export type { CalendarsWithOwners } from './user-calendars';
 export * from './types';

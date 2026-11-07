@@ -29,6 +29,22 @@ type CalendarOwner = Pick<User, 'id' | 'name' | 'englishName' | 'gender'>;
  * person, is named after the partner, so summaries file and name it as the spouse's.
  */
 export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<CalendarAssignment[]> {
+  return (await getCalendarsWithOwners(user)).assignments;
+}
+
+/** The union list, and which of its FamCal calendars the partner owns. */
+export interface CalendarsWithOwners {
+  assignments: CalendarAssignment[];
+  /** The ids (`native:<cuid>`) of the FamCal calendars the ACTIVE partner owns and shares. */
+  partnerOwned: ReadonlySet<string>;
+}
+
+/**
+ * getCalendarAssignmentsForUser's list, read the same way (no query more), with the partner's FamCal calendars by id:
+ * a guest answer files a partner's calendar under the partner (spec 2026-11-08-ask-in-chat-people §3.2), which the
+ * labels alone can't tell from the user's own unlabelled one.
+ */
+export async function getCalendarsWithOwners(user: UserConfig): Promise<CalendarsWithOwners> {
   const calendars = await listVisibleCalendars(user.id, user.pairingId ?? null);
   const owners = await loadUnnamedOwners(calendars, user.id);
   const famcal = calendars.map((c): CalendarAssignment => {
@@ -48,7 +64,8 @@ export async function getCalendarAssignmentsForUser(user: UserConfig): Promise<C
   // The Google choices that count: kept for a legacy Google user without a token too, so an
   // event placed on a Google calendar asks to reconnect instead of moving to FamCal. A FamCal
   // user's stale choices with no token are none (liveGoogleChoices).
-  return [...famcal, ...liveGoogleChoices(user)];
+  const partnerOwned = new Set(calendars.filter(c => c.ownerUserId !== user.id).map(c => encodeCalendarId(c.id)));
+  return { assignments: [...famcal, ...liveGoogleChoices(user)], partnerOwned };
 }
 
 /**

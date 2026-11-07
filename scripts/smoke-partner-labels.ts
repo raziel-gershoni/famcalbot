@@ -163,7 +163,7 @@ async function main() {
     },
   });
 
-  const { getCalendarAssignmentsForUser, labelsFromViewerSide } = await import('../src/services/calendar-provider/user-calendars');
+  const { getCalendarAssignmentsForUser, getCalendarsWithOwners, labelsFromViewerSide } = await import('../src/services/calendar-provider/user-calendars');
 
   // The week read goes through the shared reader, whose readRange answers with these; the
   // digest adapter and the calendar lookup are the real thing.
@@ -252,6 +252,26 @@ async function main() {
 
   await check('getPrimaryCalendar is the user\'s own, even when the partner\'s calendar is older', () => {
     assert(getPrimaryCalendar(razCalendars) === 'native:raz-main', `primary ${getPrimaryCalendar(razCalendars)}`);
+  });
+
+  await check('getCalendarsWithOwners: the same list in one store read, with the partner\'s FamCal calendars by id', async () => {
+    storeCalls.length = 0;
+    const { assignments, partnerOwned } = await getCalendarsWithOwners(raziel);
+    assertList(assignments, razCalendars);
+    assertList([...partnerOwned], ['native:dana-main', 'native:dana-kids', 'native:dana-about-raz', 'native:dana-work', 'native:dana-bdays']);
+    assert(storeCalls.length === 1, `${storeCalls.length} store reads`);
+  });
+
+  await check('a guest answer\'s people from these calendars (ask-in-chat people.ts): Raziel (with the calendar Dana keeps about him), Dana, Leo, Mia', async () => {
+    const { peopleOf } = await import('../src/services/ask-in-chat/people');
+    const { assignments, partnerOwned } = await getCalendarsWithOwners(raziel);
+    const people = peopleOf({ assignments, partnerOwned, me: raziel, partner: USERS[0], locale: 'he' });
+    assertList(people.map(p => [p.key, p.name, p.calendarIds]), [
+      ['me', 'Raziel', ['native:raz-main', 'native:dana-about-raz']],
+      ['partner', 'דנה', ['native:dana-main', 'native:dana-work']],
+      ['kid:leo', 'Leo', ['native:raz-kids']],
+      ['kid:mia', 'Mia', ['native:dana-kids']],
+    ]);
   });
 
   await check('categorizeEvents: the partner\'s events are the spouse\'s, kids\' events stay other', () => {
