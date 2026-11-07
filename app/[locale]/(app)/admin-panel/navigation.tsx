@@ -14,7 +14,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 /** The views of the panel: the Overview, the people list, one person (by their database id), and the sub-screens. */
-export type AdminView = { kind: 'root' } | { kind: 'users' } | { kind: 'user'; id: number } | { kind: 'feedback' } | { kind: 'blocked' } | { kind: 'activity' };
+export type AdminView = { kind: 'root' } | { kind: 'users' } | { kind: 'user'; id: number } | { kind: 'feedback' } | { kind: 'blocked' } | { kind: 'activity' } | { kind: 'apiKeys' };
 
 const ROOT: AdminView = { kind: 'root' };
 

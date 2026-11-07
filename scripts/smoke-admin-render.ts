@@ -97,6 +97,12 @@ const BLOCKED = [
   { id: 1, kind: 'telegram', shown: '99123', bannedBy: 9, bannedReason: 'spam', createdAt: ago(3 * 24 * 60) },
   { id: 2, kind: 'whatsapp', shown: '+972501112233', bannedBy: 9, bannedReason: null, createdAt: ago(9 * 24 * 60) },
 ];
+const API_KEYS = [
+  { id: 2, appName: 'Shabbat site', prefix: 'fcj_3kQ9xA', origins: ['https://shabbat.example.test'], createdAt: ago(60), revokedAt: null },
+  { id: 1, appName: 'Old app', prefix: 'fcj_Zz12ab', origins: [], createdAt: ago(9 * 24 * 60), revokedAt: ago(2 * 24 * 60) },
+];
+/** The key the fake route makes: shown once by the sheet. */
+const NEW_KEY = `fcj_${'N'.repeat(43)}`;
 
 // The people of the Users screen: a person on a trial, a free one, a paid one (its plan includes some features), one given Pro for free,
 // one with WhatsApp only, and a suspended one. Names are in the page's language, so a Hebrew or Russian page shows no Latin from them.
@@ -157,6 +163,7 @@ const scenario = {
   feedback: FEEDBACK as Row[],
   feedbackTotal: 2,
   blocked: BLOCKED.map((b) => ({ ...b })) as Row[],
+  apiKeys: API_KEYS.map((k) => ({ ...k })) as Row[],
   /** "POST settings" and the like: answered with a 500. A profile's own request is "GET user-overrides?7". */
   fail: new Set<string>(),
   /** A route answered with something else: "POST users/blocklist" -> a 400 SELF_BAN. */
@@ -260,6 +267,16 @@ const respond = (call: Call): Response | Promise<Response> => {
     return ok({ kinds: [] });
   }
   if (key === 'POST reset-reminders' && call.body?.reset_all) return ok({ usersReset: scenario.resetCount });
+  if (key === 'GET api-keys') return ok({ keys: scenario.apiKeys });
+  if (key === 'POST api-keys' && call.body?.action === 'create') {
+    scenario.apiKeys.unshift({ id: 3, appName: call.body.appName, prefix: NEW_KEY.slice(0, 10), origins: String(call.body.origins ?? '').split('\n').filter(Boolean), createdAt: ago(0), revokedAt: null });
+    return ok({ key: NEW_KEY, id: 3, prefix: NEW_KEY.slice(0, 10) });
+  }
+  if (key === 'POST api-keys' && call.body?.action === 'revoke') {
+    const item = scenario.apiKeys.find((k) => k.id === call.body?.id);
+    if (item) item.revokedAt = ago(0);
+    return ok({});
+  }
   return defaultRespond(call);
 };
 world.respond = respond;
@@ -274,6 +291,7 @@ const reset = () => {
   scenario.feedback = FEEDBACK;
   scenario.feedbackTotal = 2;
   scenario.blocked = BLOCKED.map((b) => ({ ...b }));
+  scenario.apiKeys = API_KEYS.map((k) => ({ ...k }));
   scenario.fail.clear();
   scenario.answers.clear();
   scenario.hold.clear();
@@ -418,7 +436,7 @@ const viewerIdSent = () => calls.some((c) => show({ ...c.body, initData: undefin
 /** The markup without the style sheets. */
 const markupOf = (html: string) => html.replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
 
-const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini|\bID\b/g;
+const BRANDS = /Telegram|WhatsApp|Google|FamCal|Pro|Gemini|\bID\b|\bAPI\b/g;
 
 /** Every .ts and .tsx file of the panel (app/[locale]/(app)/admin-panel), whole path. */
 function panelFiles(dir = path.join(ROOT, 'app/[locale]/(app)/admin-panel')): string[] {
@@ -459,9 +477,9 @@ async function main() {
       // The rows
       const rows = [...html.matchAll(/<button type="button" class="ch-form-row ch-list-row"[^>]*>([\s\S]*?)<\/button>/g)].map((m) => textOf(m[1]));
       const users = word(locale, 'rows.withCount', 'admin', { name: word(locale, 'rows.users'), count: 12 });
-      assert(show(rows) === show([users, word(locale, 'rows.feedback'), word(locale, 'rows.blocked'), `${word(locale, 'rows.activity')} ${word(locale, 'rows.activityHint')}`]), `${where}: rows ${show(rows)}`);
+      assert(show(rows) === show([users, word(locale, 'rows.feedback'), word(locale, 'rows.blocked'), `${word(locale, 'rows.activity')} ${word(locale, 'rows.activityHint')}`, word(locale, 'apiKeys.row')]), `${where}: rows ${show(rows)}`);
       const sections = [...html.matchAll(/<h2 class="ch-section-label">([^<]*)<\/h2>/g)].map((m) => m[1]);
-      assert(show(sections) === show(['people', 'activity', 'switches', 'reminders'].map((k) => word(locale, `sections.${k}`))), `${where}: sections ${show(sections)}`);
+      assert(show(sections) === show(['sections.people', 'sections.activity', 'apiKeys.section', 'sections.switches', 'sections.reminders'].map((k) => word(locale, k))), `${where}: sections ${show(sections)}`);
       // The switches, in order, with their state
       const sw = [...html.matchAll(/role="switch" aria-checked="(true|false)"/g)].map((m) => m[1] === 'true');
       assert(show(sw) === show([true, false, false, true, false]), `${where}: switches ${show(sw)}`);
@@ -896,6 +914,67 @@ async function main() {
     }
   });
 
+  await check('R11 API keys: the Overview counts the active keys; a row per key (the app, its first characters and its websites left to right or "Any caller", the day; a revoked one dimmed with the day it was revoked); New key opens a sheet whose Create posts { action: "create", appName, origins, initData } and then shows the key once, with Copy and the line to copy it now; Done forgets it; a refused name says so in the sheet; Revoke asks with the app\'s name, Cancel sends nothing, MIRROR_FAILED has its own line and the sheet stays, then it posts { action: "revoke", id, initData }, closes and says so', async () => {
+    for (const locale of LOCALES) {
+      reset();
+      const w = (key: string, args: Row = {}) => word(locale, key, 'admin', args);
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      try {
+        await settle();
+        assert(rowOf(o.m, w('rows.withCount', { name: w('apiKeys.row'), count: 1 })) !== undefined, `${locale}: the Overview's count: ${show(listRows(o.m).map(flat))}`);
+        await enter(o, locale, 'apiKeys.row');
+        assert(flat(title(o.m) as FakeElement) === w('apiKeys.title') && page(o.m).includes(w('apiKeys.intro')), `${locale}: the header and the intro`);
+        const ltr = (row: FakeElement) => elements(row).filter((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'ltr').map(flat);
+        let rows = listRows(o.m);
+        assert(rows.length === 2 && flat(rows[0]).startsWith('Shabbat site') && show(ltr(rows[0])) === show(['fcj_3kQ9xA…', 'https://shabbat.example.test']) && flat(rows[0]).includes(w('apiKeys.createdOn').split('{')[0].trim()), `${locale}: the active row: ${rows.map(flat).join(' | ')}`);
+        assert(rows[1].hasAttribute('disabled') && flat(rows[1]).includes(w('apiKeys.anyCaller')) && flat(rows[1]).includes(w('apiKeys.revokedOn').split('{')[0].trim()), `${locale}: the revoked row: ${flat(rows[1])}`);
+
+        o.m.click(btn(o.m, w('apiKeys.newKey')));
+        assert(dialogs(o.m).length === 1 && dialogs(o.m)[0].getAttribute('aria-label') === w('apiKeys.sheetTitle'), `${locale}: the New key sheet`);
+        const field = (tag: string, label: string) => inSheet(o.m, (e) => e.localName === tag && e.getAttribute('aria-label') === label) as FakeElement;
+        scenario.answers.set('POST api-keys', () => json({ error: 'INVALID_NAME' }, 400));
+        o.m.input(field('input', w('apiKeys.appName')), 'x');
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('apiKeys.errors.name')]), `${locale}: a refused name: ${show(alertsIn(o.m.container))}`);
+        scenario.answers.delete('POST api-keys');
+        o.m.input(field('input', w('apiKeys.appName')), 'Candle site');
+        o.m.input(field('textarea', w('apiKeys.origins')), 'https://candles.example.test');
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        const creates = posts('api-keys').filter((c) => c.body?.action === 'create');
+        assert(creates.length === 2 && show(creates[1].body) === show({ action: 'create', appName: 'Candle site', origins: 'https://candles.example.test', initData: INIT_DATA }), `${locale}: the create: ${show(creates.map((c) => c.body))}`);
+        assert(idFields(o.m).some((f) => f.value === NEW_KEY) && flat(dialogs(o.m)[0]).includes(w('apiKeys.copyNow')) && flat(dialogs(o.m)[0]).includes(w('apiKeys.createdTitle')), `${locale}: the key shown once`);
+        assert(!adminLogs.some((l) => l.includes(NEW_KEY)), `${locale}: the key reached a log`);
+        o.m.click(btn(o.m, word(locale, 'done', 'ui')));
+        assert(dialogs(o.m).length === 0 && listRows(o.m).length === 3, `${locale}: Done closes it and the list has the new key`);
+        o.m.click(btn(o.m, w('apiKeys.newKey')));
+        assert(!idFields(o.m).some((f) => f.value === NEW_KEY) && field('input', w('apiKeys.appName')).value === '', `${locale}: the sheet forgot the key`);
+        o.m.click(cancelOf(o.m) as FakeElement);
+
+        const shabbat = () => listRows(o.m).find((r) => flat(r).startsWith('Shabbat site')) as FakeElement;
+        o.m.click(shabbat());
+        assert(dialogs(o.m)[0]?.getAttribute('aria-label') === w('apiKeys.revokeTitle', { app: 'Shabbat site' }), `${locale}: the revoke sheet`);
+        o.m.click(cancelOf(o.m) as FakeElement);
+        assert(dialogs(o.m).length === 0 && posts('api-keys').filter((c) => c.body?.action === 'revoke').length === 0, `${locale}: Cancel sent something`);
+        o.m.click(shabbat());
+        scenario.answers.set('POST api-keys', () => json({ error: 'MIRROR_FAILED' }, 503));
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        assert(dialogs(o.m).length === 1 && show(alertsIn(dialogs(o.m)[0])) === show([w('apiKeys.errors.mirror')]) && adminLogs.some((l) => l.startsWith('[admin] api-keys failed:')), `${locale}: MIRROR_FAILED: ${show(alertsIn(o.m.container))}`);
+        scenario.answers.delete('POST api-keys');
+        o.m.click(confirmOf(o.m) as FakeElement);
+        await settle();
+        const revokes = posts('api-keys').filter((c) => c.body?.action === 'revoke');
+        assert(revokes.length === 2 && show(revokes[1].body) === show({ action: 'revoke', id: 2, initData: INIT_DATA }), `${locale}: the revoke: ${show(revokes.map((c) => c.body))}`);
+        rows = listRows(o.m);
+        assert(dialogs(o.m).length === 0 && show(statusesIn(o.m.container)) === show([w('apiKeys.revoked')]) && shabbat().hasAttribute('disabled'), `${locale}: after Revoke: ${show(statusesIn(o.m.container))}`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
   await check('R8 the entry: the loader is the app\'s on the grouped ground; a non-admin gets the denied card (an alert with the page\'s h1, in the app look, text from messages in en, he and ru) and nothing of the panel; a failed load gets the error card with a retry that asks again; a good load shows the panel; startMiniApp asks for full height and sets no colour of its own', async () => {
     const client = await import('../app/[locale]/(app)/admin-panel/AdminPanelClient');
     const Client = client.default as unknown as (props: Row) => ReactElement;
@@ -939,7 +1018,7 @@ async function main() {
         calls.splice(0);
         errored.click(retry);
         await settle();
-        assert(requests('GET', 'settings').length === 1 && requests('GET', 'stats').length === 1 && switches(errored).length === 5 && listRows(errored).length === 4, `${locale}: after the retry: ${show(urls())}, ${switches(errored).length} switches`);
+        assert(requests('GET', 'settings').length === 1 && requests('GET', 'stats').length === 1 && switches(errored).length === 5 && listRows(errored).length === 5, `${locale}: after the retry: ${show(urls())}, ${switches(errored).length} switches`);
         assert(flat(title(errored) as FakeElement) === word(locale, 'title'), `${locale}: the panel's title`);
       } finally {
         errored.unmount();
@@ -1717,7 +1796,7 @@ async function main() {
     const names = [...sources.matchAll(/\bt\(\s*['"`]([\w.]+)['"`]/g)].map((m) => m[1]);
     const lookups = [...sources.matchAll(/(?:label|hint|title|body):\s*'([a-zA-Z.]+)'/g)].map((m) => m[1]);
     for (const locale of LOCALES) {
-      const missing = [...new Set([...names, ...lookups])].filter((key) => key.includes('.') && /^(?:users|profile|rows|counts|sections|features|earlyAccess|reset|errors|common|activity|feedback|blocked|plan|planLine|unauthorized)\./.test(key)).filter((key) => key.split('.').reduce<unknown>((node, part) => (node as Row | undefined)?.[part], messages[locale].admin) === undefined);
+      const missing = [...new Set([...names, ...lookups])].filter((key) => key.includes('.') && /^(?:users|profile|rows|counts|sections|features|earlyAccess|reset|errors|common|activity|feedback|blocked|apiKeys|plan|planLine|unauthorized)\./.test(key)).filter((key) => key.split('.').reduce<unknown>((node, part) => (node as Row | undefined)?.[part], messages[locale].admin) === undefined);
       assert(missing.length === 0, `${locale}: messages the panel reads that do not exist: ${missing.join(', ')}`);
     }
   });

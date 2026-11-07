@@ -202,6 +202,25 @@ export interface FeedbackAnswer {
 export interface BlocklistAnswer {
   blocklist: BlocklistEntry[];
 }
+/** A key of the Jewish times API as the admin list shows it (GET api-keys). */
+export interface ApiKeyItem {
+  id: number;
+  appName: string;
+  /** fcj_ and the key's next 6 characters. */
+  prefix: string;
+  origins: string[];
+  createdAt: string;
+  revokedAt: string | null;
+}
+export interface ApiKeysAnswer {
+  keys: ApiKeyItem[];
+}
+/** POST api-keys { action: 'create' }: the key, in this answer only. */
+export interface CreatedKeyAnswer {
+  key: string;
+  id: number;
+  prefix: string;
+}
 export interface ResetAllAnswer {
   usersReset: number;
 }

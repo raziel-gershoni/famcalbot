@@ -2,8 +2,8 @@
 
 // The admin panel, once it has loaded (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design): an AppScreen on the
 // grouped ground that shows one view of an in-page stack, with no routes of its own. It owns what outlives a view: the five
-// switches, the people list with its search and filter (so coming back from a profile finds them), and the feedback and
-// blocklist lists the Overview counts.
+// switches, the people list with its search and filter (so coming back from a profile finds them), and the feedback,
+// blocklist and API key lists the Overview counts.
 //
 // - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the sheet that is
 //   open first (a sheet registers its closer, ./navigation.tsx, and one that is working registers none that acts), then pops
@@ -22,12 +22,14 @@ import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { ADMIN_CSS } from './admin-css';
 import { useAdminSettings } from './data/use-admin-settings';
+import { useApiKeys } from './data/use-api-keys';
 import { useBlocklist } from './data/use-blocklist';
 import { useFeedback } from './data/use-feedback';
 import { useUsers } from './data/use-users';
 import type { AdminFlags, AdminStats } from './data/types';
 import { SheetBackContext, useSheetBackRegistry, useViewStack, type AdminView } from './navigation';
 import { ActivityView } from './views/ActivityView';
+import { ApiKeysView } from './views/ApiKeysView';
 import { BlockedView } from './views/BlockedView';
 import { FeedbackView } from './views/FeedbackView';
 import { Overview } from './views/Overview';
@@ -50,6 +52,7 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
   const users = useUsers();
   const feedback = useFeedback();
   const blocklist = useBlocklist();
+  const apiKeys = useApiKeys();
   /** The name of the person just deleted, until the next move. */
   const [deleted, setDeleted] = useState<string | null>(null);
   const view = stack.current;
@@ -59,15 +62,17 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
   const scrollTo = useRef<number | null>(null);
   const { load: loadFeedback } = feedback;
   const { load: loadBlocklist } = blocklist;
+  const { load: loadApiKeys } = apiKeys;
   const { load: loadUsers } = users;
 
-  // The Overview shows how many messages and blocked entries there are
+  // The Overview shows how many messages, blocked entries and active API keys there are
   const atRoot = view.kind === 'root';
   useEffect(() => {
     if (!atRoot) return;
     void loadFeedback();
     void loadBlocklist();
-  }, [atRoot, loadFeedback, loadBlocklist]);
+    void loadApiKeys();
+  }, [atRoot, loadFeedback, loadBlocklist, loadApiKeys]);
 
   const offset = () => (typeof window === 'undefined' ? 0 : (window.scrollY ?? window.pageYOffset ?? 0));
   useLayoutEffect(() => {
@@ -106,6 +111,7 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
             setFlag={settings.setFlag}
             feedbackCount={feedback.total}
             blockedCount={blocklist.status === 'ready' ? blocklist.entries.length : null}
+            apiKeyCount={apiKeys.activeCount}
             onOpen={open}
             onBack={back}
           />
@@ -135,6 +141,8 @@ export default function AdminPanel({ viewerTelegramId, locale, stats, flags: ini
         return <FeedbackView feedback={feedback} onBack={back} />;
       case 'blocked':
         return <BlockedView blocklist={blocklist} onBack={back} />;
+      case 'apiKeys':
+        return <ApiKeysView apiKeys={apiKeys} onBack={back} />;
     }
   };
 

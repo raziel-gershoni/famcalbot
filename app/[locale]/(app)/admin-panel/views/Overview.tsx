@@ -1,7 +1,7 @@
 'use client';
 
 // The panel's first screen (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > Root): four counts, the
-// ways into people, feedback, the blocked and the activity log, the five app switches, and the reset of everyone's setup
+// ways into people, feedback, the blocked, the activity log and the API keys, the five app switches, and the reset of everyone's setup
 // reminders.
 //
 // - The counts card: People and Still setting up open the Users list (the list carries no setup state, so the second opens
@@ -51,13 +51,15 @@ export interface OverviewProps {
   /** How many messages / blocked entries there are, once known. */
   feedbackCount: number | null;
   blockedCount: number | null;
+  /** How many API keys are active, once known. */
+  apiKeyCount: number | null;
   onOpen: (view: AdminView) => void;
   onBack: () => void;
 }
 
 type Message = { tone: 'info' | 'error'; text: string };
 
-export function Overview({ stats, flags, saving, setFlag, feedbackCount, blockedCount, onOpen, onBack }: OverviewProps) {
+export function Overview({ stats, flags, saving, setFlag, feedbackCount, blockedCount, apiKeyCount, onOpen, onBack }: OverviewProps) {
   const t = useTranslations('admin');
   const ui = useTranslations('ui');
   const locale = useLocale();
@@ -156,6 +158,11 @@ export function Overview({ stats, flags, saving, setFlag, feedbackCount, blocked
         <SectionLabel>{t('sections.activity')}</SectionLabel>
         <FormCard>
           <ListRow title={t('rows.activity')} meta={t('rows.activityHint')} onClick={() => onOpen({ kind: 'activity' })} />
+        </FormCard>
+
+        <SectionLabel>{t('apiKeys.section')}</SectionLabel>
+        <FormCard>
+          <ListRow title={titled(t('apiKeys.row'), apiKeyCount)} onClick={() => onOpen({ kind: 'apiKeys' })} />
         </FormCard>
 
         <SectionLabel>{t('sections.switches')}</SectionLabel>
