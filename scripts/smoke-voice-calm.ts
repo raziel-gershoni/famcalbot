@@ -205,6 +205,28 @@ async function main() {
     }
   });
 
+  await check('D1 the migration adds exactly User.voiceFormat (text, not null, default show), idempotent; the schema declares the same', () => {
+    const file = path.join(ROOT, 'prisma/migrations/20261107000000_voice_format/migration.sql');
+    assert(fs.existsSync(file), 'no prisma/migrations/20261107000000_voice_format/migration.sql');
+    const sql = fs.readFileSync(file, 'utf8').split('\n').filter((line) => !line.trim().startsWith('--')).join(' ').replace(/\s+/g, ' ').trim();
+    assert(sql === `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "voiceFormat" TEXT NOT NULL DEFAULT 'show';`, `the SQL: ${sql}`);
+    const schema = fs.readFileSync(path.join(ROOT, 'prisma/schema.prisma'), 'utf8');
+    assert(/\n\s+voiceFormat\s+String\s+@default\("show"\)/.test(schema), 'the schema has no voiceFormat String @default("show")');
+  });
+
+  await check('D2 the format: only exactly "calm" is calm, a missing, empty or unknown value is the show; the route\'s closed set is show and calm; CALM_STYLE is the frozen string', async () => {
+    const { CALM_STYLE, MAX_CALM_PARAGRAPHS, MIN_CALM_PARAGRAPHS, isVoiceFormat, voiceFormatOf } = await import('../src/services/voice-show/types');
+    assert(voiceFormatOf({ voiceFormat: 'calm' }) === 'calm', 'calm');
+    for (const value of ['show', '', 'Calm', 'CALM', ' calm', 'loud', null, undefined]) {
+      assert(voiceFormatOf({ voiceFormat: value }) === 'show', `${show(value)} is not the show`);
+    }
+    assert(voiceFormatOf({}) === 'show', 'no field');
+    assert(isVoiceFormat('show') && isVoiceFormat('calm'), 'the two');
+    for (const value of ['', 'Calm', 'loud', null, undefined, 0, true, ['calm'], { calm: true }]) assert(!isVoiceFormat(value), `${show(value)} accepted`);
+    assert(CALM_STYLE === 'calm, warm radio presenter', `CALM_STYLE ${show(CALM_STYLE)}`);
+    assert(MIN_CALM_PARAGRAPHS === 2 && MAX_CALM_PARAGRAPHS === 12, 'paragraph bounds');
+  });
+
   // ---- Calm checks (added by later tasks) go here, above the report ----
 
   let failed = 0;

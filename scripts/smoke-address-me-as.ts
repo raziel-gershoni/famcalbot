@@ -12,6 +12,9 @@
 //  - A6 the summary prompts say the user's gender in Hebrew and Russian from the saved value;
 //  - A7 no cache holds the gender: the reminder cache entry the route syncs after a save does not carry it,
 //    so there is nothing to invalidate.
+//  - A8 the voice style (Settings "Voice style", User.voiceFormat): the route saves "calm" and "show", logs the field's
+//    name only, the next read narrows it, a save without one leaves it alone, and a stored unknown value reads as the show;
+//  - A9 any other voice style is refused with 400 and writes nothing.
 // The page side (the row, Save, the body) is in smoke-settings-render (S13) and page-data's props in
 // smoke-page-auth (#6c2).
 //
@@ -414,6 +417,34 @@ async function main() {
     const cached = decode(redisStore.get('reminders:users:v2')) as Row[] | null;
     assert(cached?.some(c => c.id === 3), `the entry is synced: ${show(cached)}`);
     for (const key of redisStore.keys()) assert(!/gender|female/i.test(redisStore.get(key) ?? ''), `${key} holds a gender`);
+  });
+
+  await check('A8 the voice style: the route saves "calm" and "show" (200, the row holds it, the activity log gets the field\'s name voiceFormat, never its value), the next read says what was saved, a save without one leaves it alone, and a stored unknown value reads as the show', async () => {
+    seed();
+    eq((await configOf(3)).voiceFormat, 'show', 'where everyone starts');
+    const toCalm = await save(3, { voiceFormat: 'calm' });
+    assert(toCalm.status === 200, `calm: ${show(toCalm)}`);
+    eq(userRow(3).voiceFormat, 'calm', 'the row after calm');
+    eq(activities.map(a => [a.userId, a.type, a.meta]), [[3, 'settings_changed', { changed_fields: ['voiceFormat'] }]], 'activity');
+    assert(!JSON.stringify(activities).includes('calm'), 'the activity carries the value');
+    eq((await configOf(3)).voiceFormat, 'calm', 'reloaded');
+    assert((await save(3, { weatherEnabled: false })).status === 200, 'a save without a voice style');
+    eq((await configOf(3)).voiceFormat, 'calm', 'still calm');
+    assert((await save(3, { voiceFormat: 'show' })).status === 200, 'and back');
+    eq((await configOf(3)).voiceFormat, 'show', 'back to the show');
+    userRow(3).voiceFormat = 'loud';
+    eq((await configOf(3)).voiceFormat, 'show', 'a stored unknown value');
+  });
+
+  await check('A9 a voice style other than "show" or "calm" is refused with 400 "Invalid voiceFormat" and writes nothing, not even the other settings of that request', async () => {
+    const bad: unknown[] = ['', 'Calm', 'CALM', ' calm', 'loud', 'radio', null, 0, 1, true, ['calm'], { voiceFormat: 'calm' }];
+    for (const value of bad) {
+      seed();
+      const res = await save(3, { voiceFormat: value, language: 'he', weatherEnabled: false });
+      assert(res.status === 400 && res.body.error === 'Invalid voiceFormat', `${show(value)}: ${show(res)}`);
+      eq([userRow(3).voiceFormat, userRow(3).language, userRow(3).weatherEnabled], [undefined, 'en', true], `${show(value)}: the row`);
+      assert(userWrites.length === 0 && activities.length === 0, `${show(value)}: wrote ${show(userWrites)} ${show(activities)}`);
+    }
   });
 
   const failed = results.filter(r => !r.ok);

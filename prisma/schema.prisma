@@ -41,6 +41,7 @@ model User {
   suspendedReason            String?   @db.Text // Why suspended (admin-facing audit)
   textSummaryEnabled         Boolean   @default(true) // Receive text summaries
   voiceSummaryEnabled        Boolean   @default(true) // Receive voice summaries
+  voiceFormat                String    @default("show") // Voice style of the summary voice notes: 'show' (two hosts) | 'calm' (one presenter); read only through voiceFormatOf
   voiceInputEnabled          Boolean   @default(true) // Allow voice message input for event creation (on for new accounts since 2026-10-29)
   weatherEnabled             Boolean   @default(true) // Include weather in summaries
   includeLookaheadInTomorrow Boolean   @default(false) // Include week lookahead in tomorrow summary

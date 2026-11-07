@@ -12,6 +12,7 @@ import { canReceiveReminderPings } from '@/src/services/native-reminders/support
 import { invalidateDueGate } from '@/src/services/native-reminders/due-gate';
 import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 import { isCommunity } from '@/src/services/zmanim/sets';
+import { isVoiceFormat } from '@/src/services/voice-show/types';
 import { channelsOf, platformAvailable } from '@/src/lib/delivery-platform';
 
 const isGender = (value: unknown): value is 'male' | 'female' => value === 'male' || value === 'female';
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
     const userId = searchParams.get('user_id');
     const body = await request.json();
     const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, initData } = body;
+    // "Voice style" (Settings, under the voice switch): the two-host show or the calm single voice
+    const { voiceFormat } = body;
 
     // Authentication and rate limiting
     const auth = await verifyUserAuth(request, userId, initData, settingsRateLimiter, 'settings');
@@ -46,6 +49,10 @@ export async function POST(request: NextRequest) {
     // "Address me as": a closed set of two. Anything else (null, '', 'other', a number) is refused, never stored.
     if (gender !== undefined && !isGender(gender)) {
       return NextResponse.json({ error: 'Invalid gender' }, { status: 400 });
+    }
+    // A closed set: show or calm (src/services/voice-show/types.ts). Anything else is refused, never stored.
+    if (voiceFormat !== undefined && !isVoiceFormat(voiceFormat)) {
+      return NextResponse.json({ error: 'Invalid voiceFormat' }, { status: 400 });
     }
     if (reminderTime !== undefined && !isValidReminderTime(reminderTime)) {
       return NextResponse.json({ error: 'Invalid reminderTime' }, { status: 400 });
@@ -101,6 +108,8 @@ export async function POST(request: NextRequest) {
       globalRules: Array.isArray(globalRules) ? globalRules : undefined,
       textSummaryEnabled: typeof textSummaryEnabled === 'boolean' ? textSummaryEnabled : undefined,
       voiceSummaryEnabled: typeof voiceSummaryEnabled === 'boolean' ? voiceSummaryEnabled : undefined,
+      // The voice notes read the row at send time (voiceFormatOf): nothing caches it
+      voiceFormat: isVoiceFormat(voiceFormat) ? voiceFormat : undefined,
       weatherEnabled: typeof weatherEnabled === 'boolean' ? weatherEnabled : undefined,
       includeLookaheadInTomorrow: typeof includeLookaheadInTomorrow === 'boolean' ? includeLookaheadInTomorrow : undefined,
       lookaheadAlways7Days: typeof lookaheadAlways7Days === 'boolean' ? lookaheadAlways7Days : undefined,

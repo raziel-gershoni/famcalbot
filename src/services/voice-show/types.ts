@@ -103,3 +103,30 @@ export interface ProducedVoice {
   /** For analytics. */
   durationSeconds: number;
 }
+
+/**
+ * How a person's summary voice notes sound (User.voiceFormat, Settings "Voice style"): the two-host show, or one
+ * calm presenter reading the same content (spec docs/superpowers/specs/2026-11-07-calm-voice-design.md).
+ */
+export type ShowFormat = 'show' | 'calm';
+
+/** The closed set the settings route accepts; anything else is refused with 400 and never stored. */
+export function isVoiceFormat(value: unknown): value is ShowFormat {
+  return value === 'show' || value === 'calm';
+}
+
+/** A row's format, the one reader of User.voiceFormat: only exactly 'calm' is calm; missing or unknown is the show. */
+export function voiceFormatOf(user: { voiceFormat?: string | null }): ShowFormat {
+  return user.voiceFormat === 'calm' ? 'calm' : 'show';
+}
+
+/**
+ * The calm presenter's persona, the same on every paragraph. It is picked by ear with the voice in the owner's blind
+ * round (spec §4) and frozen there: no mood colour, no pace word ("slowly" ran about 40% slower), no "morning"
+ * (evening notes use it too). The style changes the timbre, so changing it means listening again.
+ */
+export const CALM_STYLE = 'calm, warm radio presenter';
+
+/** Calm paragraphs per voice note (each is one TTS request). The prompt asks for 4-8 (weather 3-6). */
+export const MIN_CALM_PARAGRAPHS = 2;
+export const MAX_CALM_PARAGRAPHS = 12;

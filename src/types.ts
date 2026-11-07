@@ -2,6 +2,7 @@ import { User as PrismaUser } from '@prisma/client';
 import { readStoredToken } from './utils/encryption';
 import type { ZmanSpecValue } from './lib/calendar-view/zman-spec';
 import { pushDeviceCountOf } from './services/web-push/reach';
+import { voiceFormatOf, type ShowFormat } from './services/voice-show/types';
 
 // Calendar category labels
 export type CalendarLabel = 'primary' | 'yours' | 'spouse' | 'kids' | 'birthdays';
@@ -21,13 +22,14 @@ export interface CalendarAssignment {
 }
 
 // Prisma User type with BigInt converted to number for compatibility
-export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'whatsappBsuid' | 'gender' | 'calendarAssignments' | 'defaultReminderMinutes'> & {
+export type UserConfig = Omit<PrismaUser, 'telegramId' | 'whatsappPhone' | 'whatsappBsuid' | 'gender' | 'voiceFormat' | 'calendarAssignments' | 'defaultReminderMinutes'> & {
   telegramId: number | null;  // Convert BigInt to number (null for WhatsApp-only users)
   whatsappPhone?: string | null;
   whatsappBsuid?: string | null;  // Make optional and allow null
   messagingPlatform?: 'telegram' | 'whatsapp' | 'all';
   language?: string;
   gender: 'male' | 'female';  // Narrow type for type safety
+  voiceFormat: ShowFormat;  // Narrowed by voiceFormatOf: anything but 'calm' is the show
   calendarAssignments?: CalendarAssignment[];  // Parsed from JSON
   culture?: string;
   globalRules?: string[];
@@ -60,6 +62,7 @@ export function convertPrismaUserToConfig(user: PrismaUser & { _count?: { pushDe
     whatsappBsuid: user.whatsappBsuid ?? undefined,
     messagingPlatform: user.messagingPlatform as 'telegram' | 'whatsapp' | 'all',
     gender: user.gender as 'male' | 'female',
+    voiceFormat: voiceFormatOf(user),
     // Decrypt OAuth token. Never throws: a token neither key opens reads as '' (not
     // connected) and is reported once, so one bad row can't fail getAllUsers or a lookup.
     googleRefreshToken: readStoredToken(user.googleRefreshToken, { userId: user.id, column: 'googleRefreshToken' }),
