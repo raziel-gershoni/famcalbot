@@ -1407,23 +1407,33 @@
         "evening": "evening",
         "night": "night"
       },
-      "day": {
-        "some": "{date}: busy {ranges}, free the rest of the day",
-        "free": "{date}: free all day",
-        "all": "{date}: busy all day"
+      "head": {
+        "day": "{date}:",
+        "window": "{date}, {when}:",
+        "at": "{date}, {time}:"
       },
-      "window": {
-        "some": "{date}, {when}: busy {ranges}, free the rest",
-        "free": "{date}, {when}: free",
-        "all": "{date}, {when}: busy throughout"
+      "line": {
+        "day": {
+          "some": "{name}: busy {ranges}, free the rest of the day",
+          "free": "{name}: free all day",
+          "all": "{name}: busy all day"
+        },
+        "window": {
+          "some": "{name}: busy {ranges}, free the rest",
+          "free": "{name}: free",
+          "all": "{name}: busy throughout"
+        },
+        "at": {
+          "busy": "{name}: busy ({ranges})",
+          "free": "{name}: free"
+        },
+        "partial": "{name}: busy {ranges}"
       },
-      "at": {
-        "busy": "{date}, {time}: busy ({ranges})",
-        "free": "{date}, {time}: free"
-      },
-      "partial": {
-        "some": "{date}: busy {ranges}",
-        "window": "{date}, {when}: busy {ranges}"
+      "people": {
+        "me": "Me",
+        "partner": "Partner",
+        "kids": "Kids",
+        "family": "Family"
       },
       "googlePartial": "Google Calendar couldn't be read, so this is from FamCal alone.",
       "unavailable": "Couldn't check the calendar right now. Try again in a minute.",

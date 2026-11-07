@@ -1,8 +1,10 @@
 /**
- * When the person is busy on the days a guest message asks about (spec 2026-11-07-ask-in-chat §5.2-5.4).
+ * When the person, their partner and their kids are busy on the days a guest message asks about (spec
+ * 2026-11-07-ask-in-chat §5.2-5.4; one line per person, spec 2026-11-08-ask-in-chat-people §3-4).
  *
  * One read through the summaries' reader (readLookaheadEvents, calendar-read/digest.ts) on the calendars the summary
- * reads (getCalendarAssignmentsForUser), with its failure rules: a Google gap keeps the FamCal half (googleGap), a
+ * reads (getCalendarsWithOwners, the same list as getCalendarAssignmentsForUser), split by person (peopleOf), with its
+ * failure rules: a Google gap keeps the FamCal half (googleGap), a
  * Google failure with no FamCal items throws GOOGLE_TOKEN_EXPIRED / GOOGLE_INSUFFICIENT_SCOPES / GOOGLE_FETCH_FAILED,
  * and a FamCal (database) error rethrows its cause. Busy is made of the reader's events, not the summary's shaping
  * (ruling 12): last night's tail counts.
@@ -14,10 +16,13 @@
 import type { CalendarAssignment, CalendarEvent, UserConfig } from '../../types';
 import type { DayKey } from '../calendar-read/types';
 import type { DigestEvents, DigestRead, GoogleGap } from '../calendar-read/digest';
+import type { CalendarsWithOwners } from '../calendar-provider/user-calendars';
 import { getCalendarsByLabel } from '../../utils/calendar-helpers';
 import { nextDate, startOfLocalDay } from '../../utils/day-events';
 import { isBirthdayEvent, isReminderEvent } from '../../utils/event-formatter';
+import type { Locale } from '../../utils/locale';
 import { wallTimeToInstant } from '../../utils/wall-time';
+import { HOLIDAY_CALENDAR, peopleOf, type NamedUser, type Person } from './people';
 import type { AskRange, PartOfDay } from './window';
 
 /** A busy stretch of one day, clipped to it. `start === end` is an instant (an event with no length). */
@@ -30,18 +35,24 @@ export interface Interval {
   endsAfter: boolean;
 }
 
-export interface BusyDay {
-  day: DayKey;
+/** One person's busy stretches of a day. */
+export interface PersonIntervals {
+  person: Person;
   intervals: Interval[];
 }
 
+export interface BusyDay {
+  day: DayKey;
+  /** Every person's own busy intervals, in the answer's order (peopleOf). */
+  people: PersonIntervals[];
+}
+
 export interface BusyRead {
+  /** The answer's people, in its order. */
+  people: Person[];
   days: BusyDay[];
   googleGap?: GoogleGap;
 }
-
-/** Google's public holiday calendars: never busy (ruling 12). */
-const HOLIDAY_CALENDAR = /#holiday@group\.v\.calendar\.google\.com$/;
 
 /** Ruling 10: a part of the day, from and until (24:00 is the next day's start). */
 export const PART_HOURS: Record<PartOfDay, [string, string]> = {
@@ -159,25 +170,37 @@ export interface BusyReader {
 
 export interface BusyDeps {
   reader?: BusyReader;
-  assignmentsOf?: (user: UserConfig) => Promise<CalendarAssignment[]>;
+  /** The summary's calendars with the partner's FamCal ones by id; getCalendarsWithOwners by default. */
+  calendarsOf?: (user: UserConfig) => Promise<CalendarsWithOwners>;
+  /** The ACTIVE partner's names, or null; getActivePartnerSummary by default. */
+  partnerOf?: (user: UserConfig) => Promise<NamedUser | null>;
 }
 
 /**
- * The busy intervals of each of `days` (consecutive, first to last) for `user` in `tz`: one read from the first day's
- * start to the last instant of the last day. Throws as the summaries' reader does (spec §5.4).
+ * The busy intervals of each of `days` (consecutive, first to last) for each person of `user`'s answer in `tz`: one read
+ * from the first day's start to the last instant of the last day, each event counted for every person whose calendar
+ * it is on. `locale` picks the names (peopleOf). Throws as the summaries' reader does (spec §5.4).
  */
-export async function readBusyDays(user: UserConfig, days: readonly DayKey[], tz: string, deps: BusyDeps = {}): Promise<BusyRead> {
+export async function readBusyDays(user: UserConfig, days: readonly DayKey[], tz: string, locale: Locale, deps: BusyDeps = {}): Promise<BusyRead> {
   const reader = deps.reader ?? (await import('../calendar-read/digest'));
-  const assignmentsOf = deps.assignmentsOf ?? (await import('../calendar-provider')).getCalendarAssignmentsForUser;
-  const assignments = await assignmentsOf(user);
+  const calendarsOf = deps.calendarsOf ?? (await import('../calendar-provider')).getCalendarsWithOwners;
+  const partnerOf =
+    deps.partnerOf ?? (async (u: UserConfig) => (await import('../native-reminders/ownership')).getActivePartnerSummary(u.id, u.pairingId ?? null));
+  const [{ assignments, partnerOwned }, partner] = await Promise.all([calendarsOf(user), partnerOf(user)]);
+  const people = peopleOf({ assignments, partnerOwned, me: user, partner, locale });
   const ids = assignments.map(a => a.calendarId);
   const first = days[0];
   const last = days[days.length - 1];
   const start = startOfLocalDay(first, tz);
   const end = new Date(startOfLocalDay(nextDate(last), tz).getTime() - 1);
   const events = await reader.readLookaheadEvents(user, start, end, tz, ids, reader.DEFAULT_ON_DEMAND_READ);
+  const theirs = people.map(person => {
+    const own = new Set(person.calendarIds);
+    return events.filter(event => own.has(event.calendarId));
+  });
   return {
-    days: days.map(day => ({ day, intervals: busyIntervals(events, day, tz, assignments) })),
+    people,
+    days: days.map(day => ({ day, people: people.map((person, i) => ({ person, intervals: busyIntervals(theirs[i], day, tz, assignments) })) })),
     ...(events.googleGap ? { googleGap: events.googleGap } : {}),
   };
 }

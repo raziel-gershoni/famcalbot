@@ -4,6 +4,9 @@
 //     model call or calendar read;
 //   - the rate limit gives its line; the same query id twice is answered once;
 //   - the window, the read and the words end in one answer, and one `[ask] user <id>: answered ...` line;
+//   - who the model read is matched against the read's people (spec 2026-11-08-ask-in-chat-people §3.3): a kid asked
+//     by name gets only that kid's line, free too; a name no line answers is no one in particular; the read gets the
+//     caller's language; the log says the kind, never the name;
 //   - the sister mentioning the bot reads her own account's calendar, in her own language;
 //   - a bare reply from someone else gets no answer and no model call;
 //   - a Google gap gives the partial form; Google unread with no FamCal items, a FamCal error, a model failure and a
@@ -20,6 +23,8 @@
 import type { AICompletionResult } from '../src/services/ai-provider';
 import type { AskDeps } from '../src/services/ask-in-chat/handler';
 import type { BusyRead } from '../src/services/ask-in-chat/busy';
+import type { Person } from '../src/services/ask-in-chat/people';
+import type { GoogleGap } from '../src/services/calendar-read/digest';
 import type { GuestAnswerArticle } from '../src/services/messaging/telegram-adapter';
 import type { UserConfig } from '../src/types';
 import en from '../messages/en.json';
@@ -68,7 +73,7 @@ const SISTER = 4002;
 const STRANGER = 4009;
 const IL = 'Asia/Jerusalem';
 const NOW = new Date('2026-11-07T10:00:00Z');
-const SENTINELS = ['SECRET-MENTION-TEXT', 'SECRET-REPLIED-TEXT', 'SECRET-MODEL-OUT', 'Zelda', 'zelda_user', 'gq-secret-1'];
+const SENTINELS = ['SECRET-MENTION-TEXT', 'SECRET-REPLIED-TEXT', 'SECRET-MODEL-OUT', 'Zelda', 'zelda_user', 'gq-secret-1', 'SECRET-KID'];
 
 const user = (id: number, telegramId: number, language: string) => ({ id, telegramId, language }) as unknown as UserConfig;
 const RAZ = user(1, CALLER, 'en');
@@ -88,6 +93,16 @@ function guest(from: number, extra: Record<string, unknown> = {}): Record<string
   };
 }
 
+/** The read's people: the caller, busy 19:00-21:00 on Friday, and a kid with nothing that day. */
+const ME: Person = { key: 'me', kind: 'me', name: 'Raziel', aliases: ['raziel'], calendarIds: ['native:mine'] };
+const KID: Person = { key: 'kid:secret-kid', kind: 'kid', name: 'SECRET-KID', aliases: ['secret-kid'], calendarIds: ['native:kid'] };
+const EVENING_BUSY = [{ start: Date.parse('2026-11-13T17:00:00Z'), end: Date.parse('2026-11-13T19:00:00Z'), startsBefore: false, endsAfter: false }];
+const readOf = (googleGap?: GoogleGap): BusyRead => ({
+  people: [ME, KID],
+  days: [{ day: '2026-11-13', people: [{ person: ME, intervals: EVENING_BUSY }, { person: KID, intervals: [] }] }],
+  ...(googleGap ? { googleGap } : {}),
+});
+
 const modelAnswer = (fields: Record<string, unknown>) =>
   JSON.stringify({ date: null, lastDate: null, hebrewDate: null, time: null, until: null, partOfDay: null, ...fields });
 const completion = (text: string): AICompletionResult => ({ text, usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'STOP', model: 'fake', durationMs: 1 });
@@ -95,7 +110,7 @@ const completion = (text: string): AICompletionResult => ({ text, usage: { input
 interface World {
   answers: Array<{ id: string; article: GuestAnswerArticle }>;
   prompts: string[];
-  reads: Array<{ userId: number; days: readonly string[]; tz: string }>;
+  reads: Array<{ userId: number; days: readonly string[]; tz: string; locale: string }>;
   reports: Array<{ error: string; extra: unknown }>;
   claims: Set<string>;
 }
@@ -104,7 +119,7 @@ interface World {
 function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Error; allowed?: boolean } = {}): { w: World; deps: Partial<AskDeps> } {
   const { reply, busy: busyOver, allowed, ...overrides } = over;
   const w: World = { answers: [], prompts: [], reads: [], reports: [], claims: new Set() };
-  const busy = busyOver ?? { days: [{ day: '2026-11-13', intervals: [{ start: Date.parse('2026-11-13T17:00:00Z'), end: Date.parse('2026-11-13T19:00:00Z'), startsBefore: false, endsAfter: false }] }] };
+  const busy = busyOver ?? readOf();
   const deps: Partial<AskDeps> = {
     now: () => NOW,
     claimQuery: async key => {
@@ -118,8 +133,8 @@ function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Erro
       w.prompts.push(prompt);
       return completion(reply ?? modelAnswer({ date: '2026-11-13', partOfDay: 'evening' }));
     },
-    readBusy: async (u, days, tz) => {
-      w.reads.push({ userId: u.id, days, tz });
+    readBusy: async (u, days, tz, locale) => {
+      w.reads.push({ userId: u.id, days, tz, locale });
       if (busy instanceof Error) throw busy;
       return busy;
     },
@@ -148,11 +163,12 @@ async function main() {
   await check('a full answer: one model call, one read of the caller\'s own calendar, one answer, one answered line', async () => {
     const w = await run(guest(CALLER), RAZ);
     assert(w.prompts.length === 1 && w.reads.length === 1 && w.answers.length === 1, show({ p: w.prompts.length, r: w.reads.length, a: w.answers.length }));
-    assert(w.reads[0].userId === 1 && show(w.reads[0].days) === show(['2026-11-13']) && w.reads[0].tz === IL, show(w.reads));
+    assert(w.reads[0].userId === 1 && show(w.reads[0].days) === show(['2026-11-13']) && w.reads[0].tz === IL && w.reads[0].locale === 'en', show(w.reads));
     assert(w.answers[0].id === 'gq-secret-1', 'the query id');
-    assert(textOf(w) === 'Friday 13.11, evening: busy 19:00-21:00, free the rest', show(textOf(w)));
+    // No one in particular asked: the caller's line, and the kid (free) has none
+    assert(textOf(w) === 'Friday 13.11, evening:\nRaziel: busy 19:00-21:00, free the rest', show(textOf(w)));
     assert(!w.answers[0].article.reply_markup, 'no button on an answer');
-    assert(logs.some(l => /^\[ask\] user 1: answered part x1 busy=1 google=ok in \d+ ms \(ai \d+, read \d+\)$/.test(l)), show(logs));
+    assert(logs.some(l => /^\[ask\] user 1: answered part x1 who=none people=2 busy=1 google=ok in \d+ ms \(ai \d+, read \d+\)$/.test(l)), show(logs));
   });
 
   await check('no account: the Start line with the Open FamCal url button, in Telegram\'s language; no model call, no read', async () => {
@@ -184,8 +200,19 @@ async function main() {
 
   await check('the sister mentioning the bot reads her own account\'s calendar, in Hebrew', async () => {
     const w = await run(guest(SISTER), DANA);
-    assert(w.reads[0]?.userId === 2, show(w.reads));
+    assert(w.reads[0]?.userId === 2 && w.reads[0].locale === 'he', show(w.reads));
     assert(textOf(w)?.startsWith('יום שישי'), show(textOf(w)));
+  });
+
+  await check('who the question asks about: a kid asked by name gets only their line, free too; the log says the kind, never the name', async () => {
+    const kid = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'secret-kid' } }) });
+    assert(textOf(kid) === 'Friday 13.11, evening:\nSECRET-KID: free', show(textOf(kid)));
+    assert(logs.some(l => / answered part x1 who=person people=2 busy=1 google=ok /.test(l)), show(logs));
+    const kids = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'kids', name: null } }) });
+    assert(textOf(kids) === 'Friday 13.11, evening:\nSECRET-KID: free', show(textOf(kids)));
+    const unknown = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'Nobody' } }) });
+    assert(textOf(unknown) === 'Friday 13.11, evening:\nRaziel: busy 19:00-21:00, free the rest', show(textOf(unknown)));
+    assert(logs.some(l => l.includes(' who=person-none ')), show(logs));
   });
 
   await check('a bare reply from someone else to our answer: no answer, no model call, one line', async () => {
@@ -206,9 +233,8 @@ async function main() {
   });
 
   await check('a Google gap gives the partial form: busy times, no free claim, the Google line', async () => {
-    const busy: BusyRead = { days: [{ day: '2026-11-13', intervals: [{ start: Date.parse('2026-11-13T17:00:00Z'), end: Date.parse('2026-11-13T19:00:00Z'), startsBefore: false, endsAfter: false }] }], googleGap: 'token' };
-    const w = await run(guest(CALLER), RAZ, { busy });
-    assert(textOf(w) === `Friday 13.11, evening: busy 19:00-21:00\n${en.bot.askInChat.googlePartial}`, show(textOf(w)));
+    const w = await run(guest(CALLER), RAZ, { busy: readOf('token') });
+    assert(textOf(w) === `Friday 13.11, evening:\nRaziel: busy 19:00-21:00\n${en.bot.askInChat.googlePartial}`, show(textOf(w)));
     assert(logs.some(l => l.includes('google=token')), show(logs));
   });
 

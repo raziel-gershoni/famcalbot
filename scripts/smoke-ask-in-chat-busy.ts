@@ -8,7 +8,8 @@
 //     range, each free, busy throughout or busy in part; night ends at the next day's start;
 //   - summer and winter time in Asia/Jerusalem (2026-03-27 has 23 hours, 2026-10-25 has 25) and a New York caller;
 //   - readBusyDays: one read through the summaries' reader on the summary's calendars, from the first day's start to
-//     the last instant of the last day, on demand; the Google gap is passed on;
+//     the last instant of the last day, on demand; each person (spec 2026-11-08-ask-in-chat-people §3) gets the events
+//     of their own calendars only, named in the answer's language; the Google gap is passed on;
 //   - the same results whatever zone the server runs in: the file re-runs itself under UTC, Asia/Jerusalem and
 //     America/New_York.
 // Pure: the reader and the calendar list are fakes. No network, no database.
@@ -173,17 +174,21 @@ async function main() {
     assert(busyIntervals([ev('2026-11-13T19:00:00-05:00', '2026-11-13T21:00:00-05:00')], FRI, IL, ASSIGNMENTS).length === 0, 'the same event is Saturday in Jerusalem');
   });
 
-  await check('readBusyDays: one read on the summary\'s calendars from the first day\'s start to the last instant of the last day, on demand; the Google gap is kept', async () => {
+  await check('readBusyDays: one read on the summary\'s calendars from the first day\'s start to the last instant of the last day, on demand; each person gets their own calendars\' events; the Google gap is kept', async () => {
     const calls: Array<{ start: string; end: string; tz: string; ids: readonly string[]; read: DigestRead; userId: number }> = [];
     const DEFAULT_ON_DEMAND_READ: DigestRead = { mode: 'onDemand', deadlineMs: 10_000 };
-    const user = { id: 7, telegramId: 4001 } as unknown as UserConfig;
-    const result = await readBusyDays(user, [FRI, '2026-11-14'], IL, {
-      assignmentsOf: async u => { assert(u === user, 'the caller\'s own account'); return ASSIGNMENTS; },
+    const user = { id: 7, telegramId: 4001, name: 'Raziel Gershoni', englishName: 'Raziel', pairingId: 'pair-1' } as unknown as UserConfig;
+    const result = await readBusyDays(user, [FRI, '2026-11-14'], IL, 'en', {
+      calendarsOf: async u => { assert(u === user, 'the caller\'s own account'); return { assignments: ASSIGNMENTS, partnerOwned: new Set(['native:partner']) }; },
+      partnerOf: async u => { assert(u === user, 'the caller\'s partner'); return { name: 'Dana Levi', englishName: 'Dana' }; },
       reader: {
         DEFAULT_ON_DEMAND_READ,
         readLookaheadEvents: async (u, start, end, tz, ids, read) => {
           calls.push({ start: start.toISOString(), end: end.toISOString(), tz, ids, read, userId: u.id });
-          const events: DigestEvents = [ev('2026-11-13T19:00:00+02:00', '2026-11-13T21:00:00+02:00')];
+          const events: DigestEvents = [
+            ev('2026-11-13T19:00:00+02:00', '2026-11-13T21:00:00+02:00'),
+            ev('2026-11-13T10:00:00+02:00', '2026-11-13T11:00:00+02:00', { calendarId: 'native:partner' }),
+          ];
           events.googleGap = 'token';
           return events;
         },
@@ -192,15 +197,23 @@ async function main() {
     assert(calls.length === 1, `${calls.length} reads`);
     assert(calls[0].start === '2026-11-12T22:00:00.000Z' && calls[0].end === '2026-11-14T21:59:59.999Z', show(calls[0]));
     assert(show(calls[0].ids) === show(ASSIGNMENTS.map(a => a.calendarId)) && calls[0].read === DEFAULT_ON_DEMAND_READ && calls[0].userId === 7, show(calls[0]));
-    assert(result.googleGap === 'token' && result.days.length === 2 && result.days[0].intervals.length === 1 && result.days[1].intervals.length === 0, show(result));
+    assert(show(result.people.map(p => [p.key, p.name, p.calendarIds])) === show([['me', 'Raziel', ['native:mine']], ['partner', 'Dana', ['native:partner']]]), show(result.people));
+    assert(result.googleGap === 'token' && result.days.length === 2, show(result));
+    const [fri, sat] = result.days;
+    assert(show(fri.people.map(p => [p.person.key, p.intervals])) === show([
+      ['me', [iv('2026-11-13T17:00:00Z', '2026-11-13T19:00:00Z')]],
+      ['partner', [iv('2026-11-13T08:00:00Z', '2026-11-13T09:00:00Z')]],
+    ]), show(fri));
+    assert(sat.day === '2026-11-14' && sat.people.every(p => p.intervals.length === 0), show(sat));
   });
 
   await check('readBusyDays: a reader failure is thrown as it is (the handler words it)', async () => {
     const boom = new Error('GOOGLE_FETCH_FAILED');
     let thrown: unknown;
     try {
-      await readBusyDays({ id: 7 } as unknown as UserConfig, [FRI], IL, {
-        assignmentsOf: async () => ASSIGNMENTS,
+      await readBusyDays({ id: 7 } as unknown as UserConfig, [FRI], IL, 'en', {
+        calendarsOf: async () => ({ assignments: ASSIGNMENTS, partnerOwned: new Set() }),
+        partnerOf: async () => null,
         reader: { DEFAULT_ON_DEMAND_READ: { mode: 'onDemand', deadlineMs: 10_000 }, readLookaheadEvents: async () => { throw boom; } },
       });
     } catch (error) {

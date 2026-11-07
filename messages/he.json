@@ -1407,23 +1407,33 @@
         "evening": "בערב",
         "night": "בלילה"
       },
-      "day": {
-        "some": "{date}: תפוס {ranges}, שאר היום פנוי",
-        "free": "{date}: פנוי כל היום",
-        "all": "{date}: תפוס כל היום"
+      "head": {
+        "day": "{date}:",
+        "window": "{date}, {when}:",
+        "at": "{date}, {time}:"
       },
-      "window": {
-        "some": "{date}, {when}: תפוס {ranges}, בשאר הזמן פנוי",
-        "free": "{date}, {when}: פנוי",
-        "all": "{date}, {when}: תפוס כל הזמן"
+      "line": {
+        "day": {
+          "some": "{name}: יש תוכניות {ranges}, שאר היום פנוי",
+          "free": "{name}: כל היום פנוי",
+          "all": "{name}: יש תוכניות כל היום"
+        },
+        "window": {
+          "some": "{name}: יש תוכניות {ranges}, שאר הזמן פנוי",
+          "free": "{name}: אין תוכניות",
+          "all": "{name}: הלו״ז מלא"
+        },
+        "at": {
+          "busy": "{name}: יש תוכניות ({ranges})",
+          "free": "{name}: אין תוכניות"
+        },
+        "partial": "{name}: יש תוכניות {ranges}"
       },
-      "at": {
-        "busy": "{date}, {time}: תפוס ({ranges})",
-        "free": "{date}, {time}: פנוי"
-      },
-      "partial": {
-        "some": "{date}: תפוס {ranges}",
-        "window": "{date}, {when}: תפוס {ranges}"
+      "people": {
+        "me": "אני",
+        "partner": "בן או בת הזוג",
+        "kids": "הילדים",
+        "family": "המשפחה"
       },
       "googlePartial": "את Google Calendar לא הצלחנו לקרוא, אז התשובה לפי FamCal בלבד.",
       "unavailable": "לא הצלחנו לבדוק את היומן כרגע. אפשר לנסות שוב בעוד דקה.",

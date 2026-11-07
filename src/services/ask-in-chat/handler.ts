@@ -4,11 +4,13 @@
  * Someone in another chat asks "are you free Friday evening?"; the person replies to it and mentions the bot. The
  * webhook routes the `guest_message` here after its moderation gate (a blocked or suspended caller never arrives), with
  * the account its gate looked up by the sender's telegramId. The answer is posted once, in that chat, through
- * answerGuestQuery: when the caller is busy and free on the day asked, never an event's name.
+ * answerGuestQuery: when the caller, their partner and their kids are busy and free on the day asked, one line each
+ * (spec 2026-11-08-ask-in-chat-people), never an event's name.
  *
  * Steps: read the update; a bare reply from anyone but the answer's caller is not answered (ruling 9); one answer per
  * query (a Redis claim on the query id's hash); the per-person rate limit; no account gets the Start line; one model
- * call for the window; one read through the summaries' reader; the words.
+ * call for the window and who was asked; one read through the summaries' reader, split by person; the lines asked
+ * for (askedLines); the words.
  *
  * Not paused (scripts/smoke-pause.ts): it answers the person's own mention. Logs carry ids, kinds and timings only:
  * never a message's text, an event's title, a name, a chat id or the query id.
@@ -21,6 +23,7 @@ import { getBotMessages } from '../../lib/bot-messages';
 import { DEFAULT_BOT_USERNAME } from '../../lib/gate-links';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { judgeWindow, type BusyRead } from './busy';
+import { askedLines } from './people';
 import { askAnswerText, noDateText, tooManyDaysText, type AskTexts, type AskWords } from './text';
 import { answersThis, botIdFromToken, readGuestUpdate, type GuestAsk } from './update';
 import { readAskWindow, type CompletionFn } from './window';
@@ -43,7 +46,8 @@ export interface AskDeps {
   timezoneOf: (user: UserConfig) => Promise<string>;
   /** The model call; undefined is generateAICompletion. */
   complete?: CompletionFn;
-  readBusy: (user: UserConfig, days: readonly string[], tz: string) => Promise<BusyRead>;
+  /** The busy times of each person of the caller's answer, named in `locale`. */
+  readBusy: (user: UserConfig, days: readonly string[], tz: string, locale: Locale) => Promise<BusyRead>;
   answer: (guestQueryId: string, article: GuestAnswerArticle) => Promise<void>;
   report: (error: unknown, extra: { user_id: number; stage: AskStage }) => void;
 }
@@ -57,7 +61,7 @@ const defaultDeps: AskDeps = {
     return (await checkRateLimit(askInChatRateLimiter, `tg${telegramId}`)).success;
   },
   timezoneOf: async user => (await import('../../lib/timezone')).resolveUserTimezone(user),
-  readBusy: async (user, days, tz) => (await import('./busy')).readBusyDays(user, days, tz),
+  readBusy: async (user, days, tz, locale) => (await import('./busy')).readBusyDays(user, days, tz, locale),
   answer: async (guestQueryId, article) => {
     const { getBot } = await import('../telegram/bot');
     const { TelegramAdapter } = await import('../messaging/telegram-adapter');
@@ -209,7 +213,7 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
     const readStartedAt = Date.now();
     let busy: BusyRead;
     try {
-      busy = await deps.readBusy(user, window.days, tz);
+      busy = await deps.readBusy(user, window.days, tz, locale);
     } catch (error) {
       const code = codeOf(error);
       console.warn(`[ask] user ${user.id}: unavailable (read: ${code})`);
@@ -220,13 +224,21 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
     }
     const readMs = Date.now() - readStartedAt;
 
-    const days = busy.days.map(({ day, intervals }) => ({ day, judged: judgeWindow(window.range, day, intervals, tz) }));
-    const text = askAnswerText({ range: window.range, hebrewAsked: window.hebrewAsked, tz, days, ...(busy.googleGap ? { googleGap: busy.googleGap } : {}) }, words);
+    // Who was asked is matched here against the calendars' names; the model never saw them, and the log gets the kind
+    const asked = askedLines(read.who, busy.people);
+    const days = busy.days.map(({ day, people }) => ({
+      day,
+      lines: people.map(({ person, intervals }) => ({ person, judged: judgeWindow(window.range, day, intervals, tz) })),
+    }));
+    const text = askAnswerText(
+      { range: window.range, hebrewAsked: window.hebrewAsked, tz, days, asked: asked.keys, ...(busy.googleGap ? { googleGap: busy.googleGap } : {}) },
+      words
+    );
     if (!(await send(text))) return;
-    const busyCount = days.reduce((n, d) => n + d.judged.shown.length, 0);
+    const busyCount = days.reduce((n, d) => n + d.lines.reduce((m, l) => m + l.judged.shown.length, 0), 0);
     console.log(
-      `[ask] user ${user.id}: answered ${window.range.kind} x${days.length} busy=${busyCount} google=${busy.googleGap ?? 'ok'} ` +
-        `in ${Date.now() - startedAt} ms (ai ${read.aiMs}, read ${readMs})`
+      `[ask] user ${user.id}: answered ${window.range.kind} x${days.length} who=${asked.log} people=${busy.people.length} busy=${busyCount} ` +
+        `google=${busy.googleGap ?? 'ok'} in ${Date.now() - startedAt} ms (ai ${read.aiMs}, read ${readMs})`
     );
   } catch (error) {
     console.error(`[ask] ${who}: failed (${codeOf(error)})`);

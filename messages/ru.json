@@ -1398,7 +1398,7 @@
     "weatherCredit": "Погода: MET Norway · Пыль: Copernicus (Open-Meteo.com)",
     "askInChat": {
       "date": "{weekday}, {date}",
-      "range": "{from}–{to}",
+      "range": "с {from} до {to}",
       "until": "до {time}",
       "from": "с {time}",
       "parts": {
@@ -1407,23 +1407,33 @@
         "evening": "вечером",
         "night": "ночью"
       },
-      "day": {
-        "some": "{date}: занято {ranges}, в остальное время свободно",
-        "free": "{date}: весь день свободно",
-        "all": "{date}: занято весь день"
+      "head": {
+        "day": "{date}:",
+        "window": "{date}, {when}:",
+        "at": "{date}, {time}:"
       },
-      "window": {
-        "some": "{date}, {when}: занято {ranges}, в остальное время свободно",
-        "free": "{date}, {when}: свободно",
-        "all": "{date}, {when}: всё время занято"
+      "line": {
+        "day": {
+          "some": "{name}: есть планы {ranges}, в остальное время свободно",
+          "free": "{name}: весь день свободен",
+          "all": "{name}: планы на весь день"
+        },
+        "window": {
+          "some": "{name}: есть планы {ranges}, в остальное время свободно",
+          "free": "{name}: планов нет",
+          "all": "{name}: всё время занято"
+        },
+        "at": {
+          "busy": "{name}: есть планы ({ranges})",
+          "free": "{name}: планов нет"
+        },
+        "partial": "{name}: есть планы {ranges}"
       },
-      "at": {
-        "busy": "{date}, {time}: занято ({ranges})",
-        "free": "{date}, {time}: свободно"
-      },
-      "partial": {
-        "some": "{date}: занято {ranges}",
-        "window": "{date}, {when}: занято {ranges}"
+      "people": {
+        "me": "Я",
+        "partner": "Партнёр",
+        "kids": "Дети",
+        "family": "Семья"
       },
       "googlePartial": "Google Календарь сейчас недоступен, поэтому ответ только по FamCal.",
       "unavailable": "Сейчас не удалось проверить календарь. Попробуйте ещё раз через минуту.",
