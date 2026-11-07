@@ -492,6 +492,40 @@ async function main() {
     }
   });
 
+  await check('P8 the calm prompt names the parser\'s paragraph limit and lets many events take several paragraphs (a paragraph over 400 characters throws and costs a second paid writer call)', async () => {
+    const { MAX_TURN_CHARS } = await import('../src/services/voice-show/types');
+    const split: Record<Locale, string> = {
+      he: 'עד כ-350 תווים',
+      en: 'under about 350 characters',
+      ru: 'не длиннее примерно 350 знаков',
+    };
+    const several: Record<Locale, string> = {
+      he: 'הרבה אירועים נפרסים על כמה פסקאות',
+      en: 'Many events take several paragraphs',
+      ru: 'Если событий много, раскладывайте их по нескольким абзацам',
+    };
+    assert(MAX_TURN_CHARS === 400, `the parser's limit moved to ${MAX_TURN_CHARS}: re-check the 350 in the calm prompts`);
+    for (const locale of LOCALES) {
+      for (const k of KINDS) {
+        const calm = buildShowPrompt(calmContext(locale, { kind: k.kind, isNextWeek: k.isNextWeek }));
+        assert(calm.includes(split[locale]), `${locale} ${k.name}: the length limit`);
+        assert(calm.includes(several[locale]), `${locale} ${k.name}: events over several paragraphs`);
+      }
+    }
+  });
+
+  await check('P9 the calm style line has no time of day: evening notes and the evening weather use the same prompt', async () => {
+    const heading: Record<Locale, RegExp> = { he: /\*\*סגנון:\*\*\n([\s\S]*?)\n\n/, en: /\*\*Style:\*\*\n([\s\S]*?)\n\n/, ru: /\*\*Стиль:\*\*\n([\s\S]*?)\n\n/ };
+    for (const locale of LOCALES) {
+      for (const k of KINDS) {
+        const calm = buildShowPrompt(calmContext(locale, { kind: k.kind, isNextWeek: k.isNextWeek }));
+        const style = heading[locale].exec(calm)?.[1];
+        assert(style !== undefined && style.length > 100, `${locale} ${k.name}: the style section was not found`);
+        assert(!/morning|בוקר|утр/i.test(style), `${locale} ${k.name}: a time of day in the style section`);
+      }
+    }
+  });
+
   await check('R1 the context: a user with no voiceFormat, "show" or an unknown one gets the show; "calm" gets calm with the presenter\'s gender from CALM_VOICES', async () => {
     const { buildShowContext } = await import('../src/services/voice-show/context');
     const { getCalmVoice } = await import('../src/services/voice-generator');

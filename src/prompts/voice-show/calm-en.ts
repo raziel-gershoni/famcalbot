@@ -33,10 +33,10 @@ ${rules}
 ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
 **Style:**
-- Calm, warm and unhurried, at the even pace of quiet morning radio. No excitement, no exclamations like "Let's go!" or "What a day!", no jokes and no sports images.
+- Calm, warm and unhurried, at the even pace of quiet radio. No excitement, no exclamations like "Let's go!" or "What a day!", no jokes and no sports images.
 - Talk naturally, with contractions ("it's", "here's", "you've got").
 - ${addressRule(context)}
-- Paragraphs: one to three sentences each, one topic per paragraph (the opening and the date, the weather, the events, the week ahead, the close).
+- Paragraphs: one to three sentences each, under about 350 characters, one topic per paragraph (the opening and the date, the weather, the events, the week ahead, the close). Many events take several paragraphs, one or two in each, never all in one.
 - Length: ${length}
 - A short opening and a short, quiet close.
 
