@@ -6,13 +6,16 @@
 //     reason never holds the model's value;
 //   - readAskWindow: one call with the schema; a rejected answer is asked again once with the reason in the prompt;
 //     two rejections throw; the prompt holds the date table, the zone and both texts as data, and no marker a text
-//     could use to close its block.
+//     could use to close its block;
+//   - parseAskWho (spec 2026-11-08-ask-in-chat-people §3.1): each group, a person's name trimmed, null or missing is no
+//     one in particular; a bad kind or name is an AskWindowError naming the field, never the value; readAskWindow
+//     carries who, the schema asks for it, and a bad who is asked again.
 // The model is a fake `complete`: no network, no SDK, no env.
 //
 //   npx tsx scripts/smoke-ask-in-chat-window.ts
 
 import type { AICompletionOptions, AICompletionResult } from '../src/services/ai-provider';
-import { AskWindowError, parseAskWindow, readAskWindow } from '../src/services/ask-in-chat/window';
+import { AskWindowError, parseAskWho, parseAskWindow, readAskWindow } from '../src/services/ask-in-chat/window';
 import type { GuestAsk } from '../src/services/ask-in-chat/update';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -186,6 +189,45 @@ async function main() {
     let prompt = '';
     await readAskWindow(ASK, { tz: 'America/New_York', language: 'en', now: new Date('2026-11-07T03:00:00Z'), complete: async p => { prompt = p; return fakeCompletion(answer({})); } });
     assert(prompt.includes('NOW: 2026-11-06 Friday 22:00 in America/New_York'), prompt.split('\n')[2]);
+  });
+
+  await check('who: each group, a person\'s name trimmed, a name on a group dropped; null or missing is no one in particular', () => {
+    const who = (value: unknown) => parseAskWho(answer({ date: '2026-11-13', who: value }));
+    assert(who(null) === null && parseAskWho(answer({ date: '2026-11-13' })) === null, 'null and missing');
+    for (const kind of ['me', 'partner', 'kids', 'family', 'everyone'] as const) assert(show(who({ kind, name: null })) === show({ kind }), kind);
+    assert(show(who({ kind: 'kids', name: 'Maya' })) === show({ kind: 'kids' }), 'a name on a group');
+    assert(show(who({ kind: 'person', name: '  מאיה ' })) === show({ kind: 'person', name: 'מאיה' }), 'person');
+  });
+
+  await check('who: a bad kind, a person with no name or one over 60 characters, or not an object is an AskWindowError naming the field, never the value', () => {
+    const cases: Array<[string, unknown]> = [
+      ['a kind', { kind: 'SECRET-VALUE', name: null }],
+      ['no name', { kind: 'person', name: null }],
+      ['an empty name', { kind: 'person', name: '   ' }],
+      ['a long name', { kind: 'person', name: `SECRET-VALUE${'x'.repeat(60)}` }],
+      ['not an object', 'SECRET-VALUE'],
+    ];
+    for (const [label, value] of cases) {
+      const error = throwsAskError(() => parseAskWho(answer({ date: '2026-11-13', who: value })), label);
+      assert(error.message.includes('"who') && !error.message.includes('SECRET-VALUE'), `${label}: ${error.message}`);
+    }
+  });
+
+  await check('readAskWindow: the schema asks for who, the prompt has its rules, the result carries it, and a bad who is asked again', async () => {
+    const prompts: string[] = [];
+    let schema: unknown;
+    const replies = [answer({ date: '2026-11-13', who: { kind: 'nobody', name: null } }), answer({ date: '2026-11-13', who: { kind: 'person', name: 'Maya' } })];
+    const result = await readAskWindow(ASK, {
+      tz: 'Asia/Jerusalem', language: 'en', now: NOW,
+      complete: async (p, _model, options) => { prompts.push(p); schema = options?.responseJsonSchema; return fakeCompletion(replies[prompts.length - 1]); },
+    });
+    assert(show(result.who) === show({ kind: 'person', name: 'Maya' }) && result.attempts === 2, show(result));
+    assert(prompts[1].includes('Your previous answer was rejected: "who.kind" is not'), 'the reason in the second prompt');
+    const s = schema as { required: string[]; properties: Record<string, unknown> };
+    assert(s.required.includes('who') && 'who' in s.properties, 'the schema');
+    assert(prompts[0].includes('"who" is whose time') && prompts[0].includes('in the nominative') && prompts[0].includes('read "who" only from what is asked'), 'the rules');
+    const none = await readAskWindow(ASK, { tz: 'Asia/Jerusalem', language: 'en', now: NOW, complete: async () => fakeCompletion(answer({ date: '2026-11-13' })) });
+    assert(none.who === null, show(none.who));
   });
 
   let failed = 0;
