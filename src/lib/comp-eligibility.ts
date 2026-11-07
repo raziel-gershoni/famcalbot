@@ -14,3 +14,14 @@ export function holdsPaidPlan(sub: { status: string; currentPeriodEnd: Date | st
   const periodEnd = typeof sub.currentPeriodEnd === 'string' ? Date.parse(sub.currentPeriodEnd) : sub.currentPeriodEnd.getTime();
   return periodEnd > now.getTime();
 }
+
+/**
+ * A paid month runs now: a plan paid for (ACTIVE, or CANCELED with its month ahead) that is not Free and not a gift
+ * (compedBy), with its month's end still ahead. Settings' Delete account warns of it (spec 2026-11-07-b-features §B3).
+ */
+export function paidMonthRunning(sub: { status: string; plan: string; compedBy: number | null; currentPeriodEnd: Date | string | null }, now: Date): boolean {
+  if (sub.plan === 'FREE' || sub.compedBy !== null || sub.currentPeriodEnd === null) return false;
+  if (!holdsPaidPlan(sub, now)) return false;
+  const end = typeof sub.currentPeriodEnd === 'string' ? Date.parse(sub.currentPeriodEnd) : sub.currentPeriodEnd.getTime();
+  return end > now.getTime();
+}

@@ -1166,10 +1166,10 @@ async function main() {
     }
   });
 
-  await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect and signIn are their own sections\')', () => {
+  await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect, signIn and accountDelete are their own sections\')', () => {
     const dir = path.join(ROOT, 'app/[locale]/(app)/settings');
     // The Google and the sign-in sections read their own namespaces (settings.googleDisconnect, settings.signIn), which their own smokes hold.
-    const OWN_SMOKE = ['GoogleDisconnect.tsx', 'SignInMethods.tsx', 'signin-methods-client.ts'];
+    const OWN_SMOKE = ['GoogleDisconnect.tsx', 'SignInMethods.tsx', 'signin-methods-client.ts', 'AccountDelete.tsx', 'account-delete-client.ts'];
     // The notifications card's keys (settings.push.*) are named in the hook it shares with the home's banner and in the steps list
     // both draw (6c-2); smoke-web-push-ui W16 holds every one of them to a reader.
     const OUTSIDE = ['src/lib/use-push-device.ts', 'components/app-ui/IosPushSteps.tsx'];
@@ -1177,12 +1177,12 @@ async function main() {
       .map((f) => fs.readFileSync(f, 'utf8'))
       .join('\n');
     const keysOf = (node: Row, prefix = ''): string[] => Object.entries(node).flatMap(([k, v]) => (typeof v === 'object' && v !== null ? keysOf(v as Row, `${prefix}${k}.`) : [`${prefix}${k}`]));
-    const own = keysOf(messages.en.settings as Row).filter((k) => !k.startsWith('googleDisconnect.') && !k.startsWith('signIn.'));
+    const own = keysOf(messages.en.settings as Row).filter((k) => !k.startsWith('googleDisconnect.') && !k.startsWith('signIn.') && !k.startsWith('accountDelete.'));
     for (const locale of LOCALES) assert(show(keysOf(messages[locale].settings as Row).sort()) === show(keysOf(messages.en.settings as Row).sort()), `${locale}: a different set of keys than en`);
     const unread = own.filter((key) => !source.includes(`'${key}'`) && !source.includes(`'${key.split('.').at(-1)}'`) && !source.includes(`\`${key.split('.').slice(0, -1).join('.')}.`));
     assert(unread.length === 0, `keys nothing reads: ${show(unread)}`);
     const read = [...source.matchAll(/\bt\('([\w.]+)'/g)].map((m) => m[1]);
-    for (const key of read) assert(own.includes(key) || key.startsWith('googleDisconnect.') || key.startsWith('signIn.'), `${key} is read but is not a message`);
+    for (const key of read) assert(own.includes(key) || key.startsWith('googleDisconnect.') || key.startsWith('signIn.') || key.startsWith('accountDelete.'), `${key} is read but is not a message`);
     for (const key of ['back', 'save', 'saved', 'done']) for (const locale of LOCALES) assert(typeof (messages[locale].ui as Row)[key] === 'string', `${locale}: ui.${key}`);
   });
 

@@ -57,6 +57,7 @@ import { TimePickerSheet } from '../dashboard/TimePickerSheet';
 import GoogleDisconnect from './GoogleDisconnect';
 import SignInMethods from './SignInMethods';
 import PushCard from './PushCard';
+import AccountDelete from './AccountDelete';
 import { LocationSheet, type LocationProblem } from './LocationSheet';
 import { validateLocation } from './location-lookup';
 import { buildSettingsBody, defaultsForCulture, sameSettings, toggleSummaryDay, valuesOf, type Gender, type SettingsValues } from './settings-body';
@@ -115,6 +116,8 @@ interface SettingsClientProps {
   hasChat?: boolean;
   /** Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat, absent as before. */
   push?: PushPageProps | null;
+  /** Delete account (spec 2026-11-07-b-features §B3): the row and its sheet; null for an admin account, absent as before (no row). */
+  accountDelete?: { paidMonthRunning: boolean } | null;
 }
 
 /** The language names are each language's own, whatever language the page is in. */
@@ -177,7 +180,7 @@ function TelegramNote({ userId, locale, pushOffered }: { userId: number; locale:
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat, push }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat, push, accountDelete }: SettingsClientProps) {
   const t = useTranslations('settings');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -198,8 +201,9 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const [locationDraft, setLocationDraft] = useState('');
   const [googleClose, setGoogleClose] = useState<(() => void) | null>(null);
   const [signInClose, setSignInClose] = useState<(() => void) | null>(null);
+  const [deleteClose, setDeleteClose] = useState<(() => void) | null>(null);
   // A wheel dragged down in a sheet must not minimize the app.
-  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null || signInClose !== null);
+  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null || signInClose !== null || deleteClose !== null);
 
   // The check of a changed place. Save waits for it; a later edit makes an earlier answer stale.
   const [locationChecking, setLocationChecking] = useState(false);
@@ -244,6 +248,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
     else if (locationOpen) void closeLocation();
     else if (googleClose) googleClose();
     else if (signInClose) signInClose();
+    else if (deleteClose) deleteClose();
     else router.push(`/${saved.language}/dashboard?user_id=${userId}`);
   };
 
@@ -440,6 +445,7 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
         <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
         {noChat && push?.key ? <PushCard userId={userId} push={push} onDevices={setPushDevices} /> : null}
         <SignInMethods userId={userId} onSheet={(close) => setSignInClose(() => close)} />
+        {accountDelete ? <AccountDelete userId={userId} paidMonthRunning={accountDelete.paidMonthRunning} onSheet={(close) => setDeleteClose(() => close)} /> : null}
       </div>
 
       <SaveBar

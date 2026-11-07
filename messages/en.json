@@ -908,6 +908,26 @@
       "errorFailed": "Disconnecting didn’t finish, and Google may already have lost access. Try again to complete it.",
       "errorBusy": "Too many tries. Wait a minute and try again."
     },
+    "accountDelete": {
+      "button": "Delete account",
+      "confirmTitle": "Delete your account?",
+      "goesData": "Your calendars and events, settings, plan and sign-in ways are deleted.",
+      "goesPartner": "Your partner is unlinked and loses the calendars you own and their events. Events you added to their calendars stay with them.",
+      "goesGoogle": "FamCal’s copy calendars are removed from your Google account, except those you chose to keep, and FamCal’s access to Google is revoked.",
+      "undone": "This can’t be undone.",
+      "paidMonth": "Your paid plan ends with your account. To cancel a payment, ask us before you delete (<terms>Terms, Cancelling and refunds</terms>).",
+      "confirm": "Delete my account",
+      "cancel": "Cancel",
+      "working": "Deleting your account…",
+      "errorFailed": "Your account couldn’t be deleted. Try again.",
+      "errorBusy": "Too many tries. Wait a minute and try again.",
+      "staleNote": "For your safety, deleting your account needs a sign-in from the last hour.",
+      "signInAgain": "Sign in again",
+      "staleLink": "For your safety, ask for a new link in the WhatsApp chat, then delete your account from it.",
+      "doneTitle": "Your account is deleted.",
+      "goneTitle": "This account was already deleted.",
+      "close": "Close"
+    },
     "push": {
       "title": "Notifications on this device",
       "switchOff": "Turn on notifications",

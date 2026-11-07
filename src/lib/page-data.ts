@@ -25,6 +25,7 @@ import { canReceiveReminderPings, getReminderSupport } from '@/src/services/nati
 import { trackActivityAsync } from '@/src/services/analytics-service';
 import { captureError } from '@/src/lib/error-capture';
 import { TZ_LOOKUP_MS, timezoneWithin } from '@/src/lib/timezone';
+import { paidMonthRunning } from '@/src/lib/comp-eligibility';
 import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar';
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { sourcesFor } from '@/src/services/calendar-read';
@@ -308,6 +309,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     hasChat: hasChat(user),
     // Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat
     push,
+    // Delete account (B3): hidden for an admin account; the sheet warns while a paid month runs (not a trial, not a gift)
+    accountDelete: user.isAdmin ? null : { paidMonthRunning: subWithUsage ? paidMonthRunning(subWithUsage.subscription, new Date()) : false },
   };
   // One open of the Settings screen
   trackActivityAsync(user.id, 'settings_viewed');
