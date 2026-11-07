@@ -8,12 +8,16 @@
  * unlisted tags are stripped, |backchannels| and stage-direction cues removed, sounds
  * over budget or in the opening or closing turn dropped, and a turn left with no words
  * (a lone <laugh>) is dropped.
+ *
+ * The calm single voice (format 'calm') is paragraphs read by one presenter: {"turns":[{"text":"..."}]}, 2-12 of up
+ * to 400 characters. A host other than A is refused; every tag goes, the show's sounds included (a <yawn>-type tag
+ * also slows the whole read); the cleanup is otherwise the same.
  */
 
 import { pointHebrewTimes, pointSecondPerson } from './hebrew-pointing';
 import {
-  MAX_SOUNDS_PER_SHOW, MAX_TURN_CHARS, MAX_TURNS, MIN_TURNS, MOODS, SOUND_TAGS, moodStyle,
-  type Mood, type ShowLine, type ShowScript, type ShowTurn,
+  CALM_STYLE, MAX_CALM_PARAGRAPHS, MAX_SOUNDS_PER_SHOW, MAX_TURN_CHARS, MAX_TURNS, MIN_CALM_PARAGRAPHS, MIN_TURNS, MOODS,
+  SOUND_TAGS, moodStyle, type Mood, type ShowFormat, type ShowLine, type ShowScript, type ShowTurn,
 } from './types';
 
 export class ShowScriptError extends Error {
@@ -40,6 +44,24 @@ export const SHOW_RESPONSE_SCHEMA = {
           text: { type: 'string' },
         },
         required: ['host', 'mood', 'text'],
+      },
+    },
+  },
+  required: ['turns'],
+};
+
+/** The calm writer's JSON: paragraphs only, read by one presenter. Bounds are the parser's, as for the show. */
+export const CALM_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    turns: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          text: { type: 'string' },
+        },
+        required: ['text'],
       },
     },
   },
@@ -153,8 +175,9 @@ function isStageDirection(span: string, source: string): boolean {
 /**
  * @param source The summary the show was written from. Bracketed text found in it word
  *   for word is the user's content, never a stage direction.
+ * @param format 'calm' reads the calm single voice's paragraphs (parseCalmParagraphs); the show is the default.
  */
-export function parseShowScript(raw: string, source = ''): ShowScript {
+export function parseShowScript(raw: string, source = '', format: ShowFormat = 'show'): ShowScript {
   let data: unknown;
   try {
     data = JSON.parse(stripCodeFence(raw));
@@ -164,6 +187,7 @@ export function parseShowScript(raw: string, source = ''): ShowScript {
 
   const rawTurns = (data as { turns?: unknown } | null)?.turns;
   if (!Array.isArray(rawTurns)) throw new ShowScriptError('Response has no "turns" array');
+  if (format === 'calm') return parseCalmParagraphs(rawTurns, source);
   if (rawTurns.length < MIN_TURNS || rawTurns.length > MAX_TURNS) {
     throw new ShowScriptError(`Expected ${MIN_TURNS}-${MAX_TURNS} turns, got ${rawTurns.length}`);
   }
@@ -213,12 +237,42 @@ function normalizeTurn(value: unknown, n: number, warnings: string[], source: st
   return { host: t.host, mood, text };
 }
 
+/** The calm voice's paragraphs, cleaned: one presenter (A), no tag of any kind, 2-12 left with words. */
+function parseCalmParagraphs(rawTurns: unknown[], source: string): ShowScript {
+  if (rawTurns.length < MIN_CALM_PARAGRAPHS || rawTurns.length > MAX_CALM_PARAGRAPHS) {
+    throw new ShowScriptError(`Expected ${MIN_CALM_PARAGRAPHS}-${MAX_CALM_PARAGRAPHS} paragraphs, got ${rawTurns.length}`);
+  }
+  const warnings: string[] = [];
+  const turns: ShowTurn[] = [];
+  rawTurns.forEach((value, i) => {
+    const n = i + 1;
+    const t = (value ?? {}) as { host?: unknown; text?: unknown };
+    // One presenter: a paragraph may name host A or no host, never anyone else. A mood is ignored.
+    if (t.host !== undefined && t.host !== 'A') throw new ShowScriptError(`Paragraph ${n}: one presenter only, host must be "A" or absent`);
+    if (typeof t.text !== 'string') throw new ShowScriptError(`Paragraph ${n}: text must be a string`);
+    const text = cleanText(t.text, n, warnings, source, false);
+    if (!/\p{L}/u.test(text)) {
+      warnings.push(`Paragraph ${n}: dropped, no words to speak (${JSON.stringify(t.text)})`);
+      return;
+    }
+    if (text.length > MAX_TURN_CHARS) throw new ShowScriptError(`Paragraph ${n}: ${text.length} characters, limit ${MAX_TURN_CHARS}`);
+    if (/\d/.test(text)) warnings.push(`Paragraph ${n}: contains digits (numbers should be words)`);
+    // Host and mood are unused by calm; they keep the ShowTurn shape the rest of the pipeline reads.
+    turns.push({ host: 'A', mood: 'warm', text });
+  });
+  if (turns.length < MIN_CALM_PARAGRAPHS) {
+    throw new ShowScriptError(`Only ${turns.length} paragraphs left after dropping ones with no words; need ${MIN_CALM_PARAGRAPHS}`);
+  }
+  return { turns, warnings };
+}
+
 /**
  * Every strip comes before the label and tag checks, so nothing they would catch can
  * reappear afterwards: "**B:**" only becomes a label once the asterisks go, "<*cheer*>"
  * only a tag. Gemini reads whatever is left verbatim.
+ * keepSounds false (calm): every tag goes, the whitelisted sounds too.
  */
-function cleanText(input: string, n: number, warnings: string[], source: string): string {
+function cleanText(input: string, n: number, warnings: string[], source: string, keepSounds = true): string {
   let text = input.replace(ENTITY, (_m, dec: string | undefined, hex: string | undefined, name: string | undefined) => {
     if (name) return NAMED_ENTITIES[name.toLowerCase()];
     const code = dec ? parseInt(dec, 10) : parseInt(hex!, 16);
@@ -251,7 +305,7 @@ function cleanText(input: string, n: number, warnings: string[], source: string)
   // Keep whitelisted sounds, normalised to <name>. HTML and any other tag go.
   text = text.replace(ANY_TAG, (m, slash: string, name: string) => {
     const tag = name.toLowerCase();
-    if (!slash && SOUNDS.has(tag)) return ` <${tag}> `;
+    if (keepSounds && !slash && SOUNDS.has(tag)) return ` <${tag}> `;
     warnings.push(`Turn ${n}: removed tag ${m}`);
     return ' ';
   });
@@ -261,8 +315,8 @@ function cleanText(input: string, n: number, warnings: string[], source: string)
     throw new ShowScriptError(`Turn ${n}: contains another speaker label; one host per turn`);
   }
 
-  // Last guard: only exact sound tags may carry angle brackets.
-  text = text.replace(KEPT_SOUND_OR_BRACKET, m => {
+  // Last guard: only exact sound tags may carry angle brackets (and none at all without sounds).
+  text = text.replace(keepSounds ? KEPT_SOUND_OR_BRACKET : /[<>]/g, m => {
     if (m.length > 1) return m;
     warnings.push(`Turn ${n}: removed stray ${m}`);
     return ' ';
@@ -304,8 +358,14 @@ function speakable(text: string, language: string, listenerGender: 'male' | 'fem
   return language === 'he' ? pointSecondPerson(pointHebrewTimes(text), listenerGender) : text;
 }
 
-/** Turns as TTS lines: mood becomes its style string; Hebrew words get their niqqud. */
-export function toShowLines(turns: ShowTurn[], language: string, listenerGender: 'male' | 'female'): ShowLine[] {
+/**
+ * Turns as TTS lines: mood becomes its style string; Hebrew words get their niqqud. Calm: one voice (A) and
+ * CALM_STYLE on every line, the same pointing.
+ */
+export function toShowLines(turns: ShowTurn[], language: string, listenerGender: 'male' | 'female', format: ShowFormat = 'show'): ShowLine[] {
+  if (format === 'calm') {
+    return turns.map(turn => ({ host: 'A', text: speakable(turn.text, language, listenerGender), style: CALM_STYLE }));
+  }
   return turns.map(turn => ({
     host: turn.host,
     text: speakable(turn.text, language, listenerGender),

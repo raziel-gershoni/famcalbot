@@ -227,6 +227,104 @@ async function main() {
     assert(MIN_CALM_PARAGRAPHS === 2 && MAX_CALM_PARAGRAPHS === 12, 'paragraph bounds');
   });
 
+  const calmJson = (texts: unknown[]) => show({ turns: texts.map((text) => ({ text })) });
+
+  await check('C1 a calm answer is paragraphs read by host A: four clean paragraphs parse with no warnings; a mood or a host A on a paragraph is accepted and ignored', async () => {
+    const { parseShowScript } = await import('../src/services/voice-show/script');
+    const s = parseShowScript(calmJson(['בוקר טוב, דני.', 'בעשר ורבע פגישה.', 'בערב ארוחה אצל סבתא.', 'שיהיה יום טוב.']), '', 'calm');
+    assert(s.turns.length === 4 && s.turns.every((t) => t.host === 'A') && s.warnings.length === 0, show(s));
+    const withExtras = parseShowScript(show({ turns: [{ host: 'A', mood: 'hype', text: 'אחת.' }, { mood: 'nope', text: 'שתיים.' }] }), '', 'calm');
+    assert(withExtras.turns.length === 2 && withExtras.warnings.length === 0, show(withExtras));
+  });
+
+  await check('C2 one presenter: a paragraph for host B (or any host but A), or a speaker label inside the text, is refused', async () => {
+    const { parseShowScript, ShowScriptError } = await import('../src/services/voice-show/script');
+    for (const raw of [
+      show({ turns: [{ host: 'A', text: 'שלום.' }, { host: 'B', text: 'יאללה.' }] }),
+      show({ turns: [{ host: 'C', text: 'שלום.' }, { text: 'עוד.' }] }),
+      calmJson(['Good morning. B: and over to you!', 'Bye.']),
+    ]) {
+      let error: unknown;
+      try { parseShowScript(raw, '', 'calm'); } catch (e) { error = e; }
+      assert(error instanceof ShowScriptError, `accepted: ${raw}`);
+    }
+  });
+
+  await check('C3 calm strips every tag (the sounds the show keeps, <yawn>, <short pause>, HTML) and every stage direction, and notes each in the warnings', async () => {
+    const { parseShowScript } = await import('../src/services/voice-show/script');
+    const s = parseShowScript(calmJson([
+      '<laugh> Good morning, Danny. <whispers> Here is your day.',
+      'At ten <yawn> fifteen, <short pause> the <b>meeting</b> with Levi.',
+      '(laughs) And tonight, dinner. *sighs*',
+    ]), '', 'calm');
+    const text = s.turns.map((t) => t.text).join(' ');
+    assert(!/[<>]/.test(text), `a bracket left: ${text}`);
+    assert(!/laugh|whisper|yawn|pause|sigh/i.test(text), `a cue left: ${text}`);
+    assert(text.includes('meeting') && text.includes('dinner'), `words lost: ${text}`);
+    assert(s.warnings.filter((w) => w.includes('removed')).length >= 6, show(s.warnings));
+  });
+
+  await check('C4 paragraph bounds: 2 and 12 parse; 1, 13 and none are refused; a paragraph over 400 characters is refused; a paragraph with no words is dropped, and too few left is refused', async () => {
+    const { parseShowScript, ShowScriptError } = await import('../src/services/voice-show/script');
+    const p = (n: number) => Array.from({ length: n }, (_, i) => `Paragraph ${['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen'][i]}.`);
+    assert(parseShowScript(calmJson(p(2)), '', 'calm').turns.length === 2, '2');
+    assert(parseShowScript(calmJson(p(12)), '', 'calm').turns.length === 12, '12');
+    const refused = (raw: string) => {
+      try { parseShowScript(raw, '', 'calm'); } catch (e) { return e instanceof ShowScriptError; }
+      return false;
+    };
+    assert(refused(calmJson(p(1))) && refused(calmJson(p(13))) && refused(show({ turns: [] })) && refused('{"nope":1}') && refused('not json'), 'bounds');
+    assert(refused(calmJson(['a'.repeat(401), 'Fine.'])), 'over 400');
+    const dropped = parseShowScript(calmJson(['<laugh>', 'One.', 'Two.']), '', 'calm');
+    assert(dropped.turns.length === 2 && dropped.warnings.some((w) => w.includes('dropped')), show(dropped));
+    assert(refused(calmJson(['<laugh>', 'One.'])), 'one left');
+  });
+
+  await check('C5 the show is untouched: its parser still keeps whitelisted sounds, needs both hosts, and refuses a calm-shaped answer', async () => {
+    const { parseShowScript, ShowScriptError } = await import('../src/services/voice-show/script');
+    const s = parseShowScript(show({ turns: SCRIPTS.en }));
+    assert(s.turns.length === 6 && s.turns.some((t) => t.text.includes('<chuckle>')) && s.turns.some((t) => t.host === 'B'), show(s));
+    let error: unknown;
+    try { parseShowScript(calmJson(['One.', 'Two.', 'Three.', 'Four.'])); } catch (e) { error = e; }
+    assert(error instanceof ShowScriptError, 'the show took paragraphs with no host');
+  });
+
+  await check('C6 CALM_RESPONSE_SCHEMA asks for turns of text only; SHOW_RESPONSE_SCHEMA is unchanged', async () => {
+    const { CALM_RESPONSE_SCHEMA, SHOW_RESPONSE_SCHEMA } = await import('../src/services/voice-show/script');
+    assert(show(CALM_RESPONSE_SCHEMA) === show({ type: 'object', properties: { turns: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } } }, required: ['turns'] }), show(CALM_RESPONSE_SCHEMA));
+    assert(show(Object.keys(SHOW_RESPONSE_SCHEMA.properties.turns.items.properties)) === show(['host', 'mood', 'text']), 'the show schema');
+  });
+
+  await check('C7 a summary\'s own bracketed words stay in a calm paragraph (the show\'s rule): "(ערב צחוק)" from the summary is spoken, a bare "(צוחק)" is not', async () => {
+    const { parseShowScript } = await import('../src/services/voice-show/script');
+    const s = parseShowScript(calmJson(['בשמונה (ערב צחוק) במתנ"ס.', 'שיהיה ערב טוב (צוחק).']), '• 20:00 - (ערב צחוק) במתנ"ס', 'calm');
+    assert(s.turns[0].text.includes('(ערב צחוק)') && !s.turns[1].text.includes('צוחק'), show(s.turns));
+  });
+
+  await check('L1 calm lines: one voice (host A), CALM_STYLE on every line, no whisper, and Hebrew pointed for the listener as the show points it', async () => {
+    const { toShowLines } = await import('../src/services/voice-show/script');
+    const { pointHebrewTimes, pointSecondPerson } = await import('../src/services/voice-show/hebrew-pointing');
+    const { CALM_STYLE } = await import('../src/services/voice-show/types');
+    const texts = ['בוקר טוב, נועה. יש לך יום רגוע.', 'בעשר ורבע פגישה, ובאחת עשרה הפסקה.', 'שיהיה לך יום טוב.'];
+    const turns = texts.map((text) => ({ host: 'A' as const, mood: 'warm' as const, text }));
+    const lines = toShowLines(turns, 'he', 'female', 'calm');
+    assert(lines.every((l) => l.host === 'A' && l.style === CALM_STYLE && !('whisper' in l)), show(lines));
+    assert(show(lines.map((l) => l.text)) === show(texts.map((t) => pointSecondPerson(pointHebrewTimes(t), 'female'))), show(lines));
+    assert(lines[0].text !== texts[0], 'nothing was pointed');
+  });
+
+  await check('L2 calm lines in English and Russian are the text as written; the show\'s lines still carry the mood style and the whisper flag', async () => {
+    const { toShowLines } = await import('../src/services/voice-show/script');
+    const { CALM_STYLE } = await import('../src/services/voice-show/types');
+    for (const language of ['en', 'ru']) {
+      const turns = [{ host: 'A' as const, mood: 'warm' as const, text: language === 'en' ? 'Good morning.' : 'Доброе утро.' }];
+      const [line] = toShowLines(turns, language, 'female', 'calm');
+      assert(line.text === turns[0].text && line.style === CALM_STYLE, show(line));
+    }
+    const showLines = toShowLines([{ host: 'B', mood: 'secret', text: '<whispers> a secret' }], 'en', 'male');
+    assert(showLines[0].style === 'high-energy, excited sports commentator, leaning in close' && showLines[0].whisper === true, show(showLines));
+  });
+
   // ---- Calm checks (added by later tasks) go here, above the report ----
 
   let failed = 0;
