@@ -11,7 +11,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { installConsoleScrub, secretValues, scrubText } from '../src/lib/console-scrub';
+import { installConsoleScrub, secretValues, scrubText, withoutHttpResponse } from '../src/lib/console-scrub';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -65,7 +65,22 @@ check('a logged Telegram error prints no bot token, but still says what went wro
   target.error('[set-menu-button] Setting the menu button failed:', telegramError());
   const line = lines.join('\n');
   assert(!line.includes(BOT_TOKEN), `the token is in the log:\n${line}`);
-  assert(line.includes('chat not found') && line.includes('[redacted]'), `the line lost its meaning:\n${line}`);
+  assert(line.includes('chat not found') && line.includes('ETELEGRAM') && line.includes('400'), `the line lost its meaning:\n${line}`);
+});
+
+check('a logged Telegram error prints none of the request it sent (a message\'s text, a guest query\'s id), only its name, code, status and message', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { TelegramError } = require('node-telegram-bot-api/src/errors.js');
+  const request = { method: 'POST', path: '/bot0/answerGuestQuery', body: 'guest_query_id=GQ-SENTINEL-77&result=%7B%22message_text%22%3A%22Dinner%20at%20Grandma%22%7D' };
+  const error = new TelegramError('400 Bad Request: query is too old', { statusCode: 400, body: { ok: false, description: 'Bad Request: query is too old' }, request });
+  const { target, lines } = capturedConsole();
+  target.error('[ask-in-chat]', error);
+  target.warn('a failed send:', error, { user: 1 });
+  const line = lines.join('\n');
+  assert(!line.includes('GQ-SENTINEL-77') && !line.includes('Dinner') && !line.includes('answerGuestQuery'), `the request is in the log:\n${line}`);
+  assert(line.includes('[ETELEGRAM] (HTTP 400): ETELEGRAM: 400 Bad Request: query is too old'), `the line lost its meaning:\n${line}`);
+  const plain = new Error('no response here');
+  assert(withoutHttpResponse(plain) === plain && withoutHttpResponse('text') === 'text', 'an error with no response, or a non-error, is changed');
 });
 
 check('every level, format strings and nested objects are scrubbed', () => {

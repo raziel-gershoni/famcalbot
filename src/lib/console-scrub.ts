@@ -3,7 +3,8 @@
  * and its request's path holds `/bot<token>/<method>`, so any `console.error('...', error)` of one printed the bot token in
  * the Railway logs; a Prisma error can carry the database URL. Rather than trust every catch in the codebase, the server
  * installs this once at startup (instrumentation.ts): each console line is formatted as Node formats it, then every secret
- * value of the environment is replaced. Sentry has its own scrubber (sentry-scrub.ts).
+ * value of the environment is replaced, and an HTTP client's error loses the response it carries (withoutHttpResponse).
+ * Sentry has its own scrubber (sentry-scrub.ts).
  */
 
 import { formatWithOptions } from 'util';
@@ -33,6 +34,24 @@ export function scrubText(text: string, secrets: readonly string[]): string {
   return out;
 }
 
+/**
+ * An HTTP client's error that keeps the whole response (node-telegram-bot-api's TelegramError, ParseError and FatalError)
+ * also keeps the request, whose body is what was sent: a message's text with its events, a guest query's id. Such an
+ * error is logged as its name, code, HTTP status, message and stack only.
+ */
+export function withoutHttpResponse(arg: unknown): unknown {
+  if (!(arg instanceof Error)) return arg;
+  const response = (arg as { response?: unknown }).response;
+  if (typeof response !== 'object' || response === null) return arg;
+  const code = (arg as { code?: unknown }).code;
+  const status = (response as { statusCode?: unknown }).statusCode;
+  const head = `${arg.name}${typeof code === 'string' ? ` [${code}]` : ''}${typeof status === 'number' ? ` (HTTP ${status})` : ''}: ${arg.message}`;
+  const clean = new Error(arg.message);
+  clean.name = arg.name;
+  clean.stack = [head, ...(arg.stack ?? '').split('\n').slice(1)].join('\n');
+  return clean;
+}
+
 type ConsoleLike = Pick<Console, 'log' | 'info' | 'warn' | 'error' | 'debug'>;
 
 const LEVELS = ['log', 'info', 'warn', 'error', 'debug'] as const;
@@ -52,7 +71,7 @@ export function installConsoleScrub(env: NodeJS.ProcessEnv = process.env, target
   if (secrets.length === 0) return;
   for (const level of LEVELS) {
     const write = target[level].bind(target);
-    target[level] = (...args: unknown[]) => write(scrubText(formatWithOptions({ colors: false }, ...args), secrets));
+    target[level] = (...args: unknown[]) => write(scrubText(formatWithOptions({ colors: false }, ...args.map(withoutHttpResponse)), secrets));
   }
   marked.__secretsScrubbed = true;
 }
