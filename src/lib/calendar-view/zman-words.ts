@@ -31,3 +31,22 @@ export function zmanRuleWords(t: ZmanWordsT, spec: ZmanSpecValue, opinion: ZmanO
   const name = 'zman' in spec ? zmanName(t, spec.zman, opinion, true) : t('zmanim.hoursAfter', { count: spec.halachicHours });
   return t(spec.offsetMin < 0 ? 'zmanim.before' : 'zmanim.after', { minutes, name });
 }
+
+/**
+ * A row of a day's zmanim list by its name (the sun sheet, the city pages and /api/v1/*, so a row is named one way
+ * everywhere): a window row by its own message (calendarHome.zmanimList.*), any other zman by its name and opinion.
+ */
+export function zmanRowName(t: ZmanWordsT, row: { key: string; opinion: ZmanOpinion | null }): string {
+  switch (row.key) {
+    case 'SHABBAT_ENDS':
+      return t('zmanimList.shabbatEnds');
+    case 'YOM_TOV_ENDS':
+      return t('zmanimList.yomTovEnds');
+    case 'SHABBAT_YOM_TOV_ENDS':
+      return t('zmanimList.shabbatYomTovEnds');
+    case 'CANDLE_LIGHTING_NOT_BEFORE':
+      return t('zmanimList.candlesNotBefore');
+    default:
+      return zmanName(t, row.key, row.opinion);
+  }
+}

@@ -20,36 +20,24 @@ import { isDayKey } from '@/src/lib/calendar-view/picker-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { WINDOW_ROW_KEYS, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
 import { holidaysInRange, type Holiday } from '@/src/services/hebrew-holidays';
-import { inIsrael, restDayBlocks, type Place } from '@/src/services/zmanim/compute';
+import { inIsrael, type Place } from '@/src/services/zmanim/compute';
 import { zmanDayForPlace, type ZmanDayList, type ZmanMemo } from '@/src/services/zmanim/day-list';
+import { daysFrom, restBlocksBetween, type RestBlockDay, type RestBlockView } from '@/src/services/zmanim/rest-blocks-view';
 import { isCommunity, type ZmanimCommunity } from '@/src/services/zmanim/sets';
 import type { City } from '@/src/site/cities';
-import { addDaysToDate, localDate, startOfLocalDay } from '@/src/utils/day-events';
+import { addDaysToDate, localDate } from '@/src/utils/day-events';
 import { weekStartFor } from '@/src/utils/locale-rules';
 
 /** A Shabbat or Yom Tov listed ahead begins at most this many days after the day shown (spec §4.2.3). */
 const AHEAD_DAYS = 8;
 
-/** The most rest days in a row (a Yom Tov on Thursday and Friday, then Shabbat): how far a block reaches past its eve. */
-const LONGEST_BLOCK = 3;
-
 export type CityParams = { day: string; community: ZmanimCommunity; today: string; dayFromParam: boolean; communityFromParam: boolean };
 
 /** One day of a window: only its window rows (WINDOW_ROW_KEYS), as the day list gives them. */
-export type AheadDay = { day: string; rows: ZmanimListRow[] };
+export type AheadDay = RestBlockDay;
 
-export type AheadWindow = {
-  /** The day whose sunset begins it (yyyy-MM-dd in the city's zone). */
-  eve: string;
-  /** Its last rest day. */
-  last: string;
-  /** Its Yom Tov days' names, or, with none, its chol hamoed or special Shabbat's. */
-  holidays: Holiday[];
-  parasha: Holiday | null;
-  days: AheadDay[];
-  /** The sun does not make its end (the far north in summer): the end row is a dash. */
-  endMissing: boolean;
-};
+/** A Shabbat or Yom Tov listed ahead: rest-blocks-view.ts restBlocksBetween, which /api/v1/shabbat lists too. */
+export type AheadWindow = RestBlockView;
 
 export type MonthCell = { day: string; inMonth: boolean; inRange: boolean; holidays: Holiday[]; yomTov: boolean; isToday: boolean; isShown: boolean };
 
@@ -95,9 +83,14 @@ export function cityPlace(city: City): Place {
   return { latitude: city.latitude, longitude: city.longitude, elevationM: city.elevationM, timeZone: city.timeZone };
 }
 
-/** The owner's rule (spec §2.6): Sephardi in Israel, Ashkenazi abroad. */
+/** The owner's rule (spec §2.6): Sephardi in Israel, Ashkenazi abroad, by the place's zone (the Jewish times API asks it too). */
+export function defaultCommunityIn(timeZone: string): ZmanimCommunity {
+  return inIsrael(timeZone) ? 'sephardi' : 'ashkenazi';
+}
+
+/** A city's default community: defaultCommunityIn its zone. */
 export function defaultCommunity(city: City): ZmanimCommunity {
-  return inIsrael(city.timeZone) ? 'sephardi' : 'ashkenazi';
+  return defaultCommunityIn(city.timeZone);
 }
 
 /** Today in the city, yyyy-MM-dd, by the city's own clock. */
@@ -140,19 +133,7 @@ export function readCityParams(city: City, search: Record<string, string | strin
   return { day: day ?? today, community: community ?? fallback, today, dayFromParam: day !== null, communityFromParam: community !== null };
 }
 
-/** The days from `first` to `last`, both included. */
-function daysFrom(first: string, last: string): string[] {
-  const out: string[] = [];
-  for (let day = first; day <= last; day = addDaysToDate(day, 1)) out.push(day);
-  return out;
-}
-
 const weekdayOf = (day: string): number => new Date(`${day}T00:00:00Z`).getUTCDay();
-
-function uniqueByTitle(holidays: Holiday[]): Holiday[] {
-  const seen = new Set<string>();
-  return holidays.filter((h) => (seen.has(h.title) ? false : (seen.add(h.title), true)));
-}
 
 /** Rows a list component draws, for one day's window rows (the hours line stays off: hours []). */
 export function windowList(view: CityView, day: string, rows: ZmanimListRow[]): ZmanDayList {
@@ -181,34 +162,7 @@ export function buildCityView(city: City, params: CityParams, locale: string): C
 
   const list = attempt('day', () => listOf(day));
 
-  const ahead = attempt('ahead', (): AheadWindow[] => {
-    const until = addDaysToDate(day, AHEAD_DAYS);
-    const dayStart = startOfLocalDay(day, city.timeZone);
-    const blocks = restDayBlocks(
-      { from: startOfLocalDay(addDaysToDate(day, -LONGEST_BLOCK), city.timeZone), to: startOfLocalDay(addDaysToDate(until, LONGEST_BLOCK + 1), city.timeZone) },
-      place,
-      community,
-    )
-      // The one under way on the day shown: its last day is that day or later, or its end is still after the day's start (a
-      // Shabbat that ends at 00:21 on the Sunday in the far north in summer has its last day on the Saturday). And every one
-      // that begins within AHEAD_DAYS
-      .filter((block) => (block.last >= day || (block.end !== null && block.end.getTime() > dayStart.getTime())) && block.eve <= until)
-      .sort((a, b) => (a.eve < b.eve ? -1 : a.eve > b.eve ? 1 : 0));
-    if (blocks.length === 0) return [];
-    const holidays = holidaysInRange(blocks[0].eve, blocks[blocks.length - 1].last, locale, { il });
-    return blocks.map((block) => {
-      const found = daysFrom(addDaysToDate(block.eve, 1), block.last).flatMap((d) => holidays[d] ?? []);
-      const chag = found.filter((h) => h.chag);
-      return {
-        eve: block.eve,
-        last: block.last,
-        holidays: uniqueByTitle(chag.length > 0 ? chag : found.filter((h) => h.kind === 'cholHamoed' || h.kind === 'specialShabbat')),
-        parasha: found.find((h) => h.kind === 'parasha') ?? null,
-        days: daysFrom(block.eve, block.last).map((d) => ({ day: d, rows: windowRows(d) })),
-        endMissing: block.end === null,
-      };
-    });
-  });
+  const ahead = attempt('ahead', (): AheadWindow[] => restBlocksBetween(place, community, day, addDaysToDate(day, AHEAD_DAYS), locale, il, memo));
 
   const key = monthOf(day);
   const weekStart = weekStartFor({ culture: 'jewish', language: locale, tz: city.timeZone, tzKnown: true });

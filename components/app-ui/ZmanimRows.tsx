@@ -2,7 +2,7 @@
 // sun sheet (app/[locale]/(app)/dashboard/ZmanimSheet.tsx) and the public city pages share, so both show the same words,
 // accent and dash.
 //
-// - each row is the set's zman named with its opinion (zman-words.ts, the editor's words), or a window row (WINDOW_ROW_KEYS:
+// - each row is the set's zman named with its opinion (zman-words.ts zmanRowName, the editor's words), or a window row (WINDOW_ROW_KEYS:
 //   the candle lighting, the candle lighting "not before", the end of Shabbat, of Yom Tov or of both) in the accent
 //   (is-key); its time in 24 hours in the list's zone, left to right inside Hebrew;
 // - a zman the sun does not make that day shows a dash, with "No time this day" for a reader (is-none);
@@ -15,8 +15,8 @@
 
 import type { ReactElement } from 'react';
 import { formatTime } from '@/src/lib/calendar-view/format';
-import { zmanName, type ZmanWordsT } from '@/src/lib/calendar-view/zman-words';
-import { WINDOW_ROW_KEYS, formatHalachicHour, type ZmanimListResponse, type ZmanimListRow } from '@/src/lib/calendar-view/zmanim-list';
+import { zmanRowName, type ZmanWordsT } from '@/src/lib/calendar-view/zman-words';
+import { WINDOW_ROW_KEYS, formatHalachicHour, type ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
 
 /** What the rows read of a day's list: the zone, the rows and the hours (ZmanimListResponse and the engine's ZmanDayList both fit). */
 export type ZmanimRowsList = Pick<ZmanimListResponse, 'tz' | 'rows' | 'hours'>;
@@ -28,29 +28,13 @@ export interface ZmanimRowsProps {
   t: ZmanWordsT;
 }
 
-/** A row's name: a window row by its own message, any other zman by its name and opinion. */
-function rowText(t: ZmanWordsT, row: ZmanimListRow): string {
-  switch (row.key) {
-    case 'SHABBAT_ENDS':
-      return t('zmanimList.shabbatEnds');
-    case 'YOM_TOV_ENDS':
-      return t('zmanimList.yomTovEnds');
-    case 'SHABBAT_YOM_TOV_ENDS':
-      return t('zmanimList.shabbatYomTovEnds');
-    case 'CANDLE_LIGHTING_NOT_BEFORE':
-      return t('zmanimList.candlesNotBefore');
-    default:
-      return zmanName(t, row.key, row.opinion);
-  }
-}
-
 export function ZmanimRows({ list, locale, t }: ZmanimRowsProps): ReactElement {
   return (
     <>
       <ul className="ch-zl-rows" role="list">
         {list.rows.map((row) => (
           <li key={row.key} className={`ch-zl-row${WINDOW_ROW_KEYS.includes(row.key) ? ' is-key' : ''}${row.at === null ? ' is-none' : ''}`} data-zman={row.key}>
-            <span className="ch-zl-name">{rowText(t, row)}</span>
+            <span className="ch-zl-name">{zmanRowName(t, row)}</span>
             <span className="ch-zl-time">
               {row.at === null ? (
                 <>
