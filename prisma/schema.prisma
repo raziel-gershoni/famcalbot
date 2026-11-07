@@ -168,6 +168,19 @@ model BlockedIdentifier {
   @@index([whatsappPhone])
 }
 
+// The Jewish times API's keys (/api/v1/*): one per app of the owner's. Only the key's SHA-256 is kept; read and written
+// only by src/services/api-keys/store.ts.
+model ApiKey {
+  id        Int       @id @default(autoincrement())
+  appName   String
+  keyHash   String    @unique // SHA-256 of the key, hex
+  prefix    String // "fcj_" and the key's next 6 characters, for the admin list
+  origins   String[]  @default([]) // Web origins a browser may call from; empty = a server key
+  createdAt DateTime  @default(now())
+  createdBy Int // Admin User.id who made it
+  revokedAt DateTime?
+}
+
 model OAuthState {
   id               String   @id @default(cuid())
   userId           BigInt

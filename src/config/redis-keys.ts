@@ -168,6 +168,10 @@ export const REDIS_KEYS = {
   // under a keyed hash (never an address, an IP or a user id) and kept at most a day (limits.ts).
   signinFlow: (cookieHash: string) => `signin:flow:${cookieHash}`,
   signinLimit: (what: string, id: string) => `signin:lim:${what}:${id}`,
+
+  // The Jewish times API's keys (src/services/api-keys): the active keys as one JSON list [{ id, app, hash, origins }], no
+  // TTL, rewritten after each admin change; requests read the process's copy of it, this at most once in 5 minutes.
+  API_KEYS: 'api:keys:v1',
 } as const;
 
 /** The subscription reminders' kinds (src/services/subscription-reminders.ts). */
