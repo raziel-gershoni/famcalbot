@@ -131,7 +131,7 @@ export async function handleStartCommand(
   }, 'command');
 
   const userIdNum = typeof userId === 'number' ? userId : parseInt(String(userId));
-  const { user } = await getOrCreateUser(userIdNum, telegramUser);
+  const { user, created } = await getOrCreateUser(userIdNum, telegramUser);
 
   trackActivityAsync(user.id, 'bot_start', {
     language: user.language,
@@ -154,6 +154,14 @@ export async function handleStartCommand(
   // someone's first message (feedback, connect, a partner's invite). gc_ is answered above: it never creates an account.
   const links = policyLinks(t.policy, locale, 'html');
 
+  // "Address me as" (address-choice.ts): an account this /start made is asked once, after its first reply. Never on
+  // /start connect, whose new account merges into a WhatsApp account that was asked already.
+  const askAddress = async () => {
+    if (!created || platform !== MessagingPlatform.TELEGRAM) return;
+    const { sendAddressQuestion } = await import('../address-choice');
+    await sendAddressQuestion(chatId, user.id, locale);
+  };
+
   // Handle deep link parameters (e.g., t.me/BotName?start=feedback)
   if (args === 'feedback') {
     const feedbackUrl = buildUrl(`/${locale}/feedback?user_id=${user.telegramId ?? user.id}`);
@@ -167,6 +175,7 @@ export async function handleStartCommand(
         ]]
       }
     });
+    await askAddress();
     return;
   }
 
@@ -182,11 +191,13 @@ export async function handleStartCommand(
   if (args && args.startsWith('invite_')) {
     const { handlePairStart } = await import('./pair-handler');
     await handlePairStart(chatId, user.id, args.slice('invite_'.length), locale, platform, links);
+    await askAddress();
     return;
   }
 
   // No deep link: the welcome with the dashboard button (one builder, shared with Connect Telegram)
   await sendWelcome(chatId, user, platform);
+  await askAddress();
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
  * WhatsApp Conversational Onboarding
- * Simple state machine for basic setup (language) via WhatsApp messages.
+ * Simple state machine for basic setup (language) via WhatsApp messages, ending with the "Address me as" question.
  * Complex flows (Google OAuth, calendar selection) redirect to web app via magic link.
  */
 
@@ -11,6 +11,7 @@ import { generateMagicLink } from './magic-link';
 import { getWhatsAppService } from './messaging';
 import { UserConfig } from '../types';
 import { captureError } from '../lib/error-capture';
+import { sendAddressQuestionWhatsApp } from './address-choice';
 
 
 const ONBOARD_TTL = 3600; // 1 hour
@@ -117,6 +118,9 @@ export async function handleOnboardingMessage(phone: string, text: string): Prom
         url: link,
       },
     });
+
+    // Message 3: "Address me as", the last one (address-choice.ts; the webhook reads the two buttons whenever they come)
+    await sendAddressQuestionWhatsApp(phone, state.userId, language);
     return true;
   }
 

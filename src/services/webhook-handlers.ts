@@ -239,6 +239,10 @@ export async function handleTelegramWebhook(
         const languageCode = callbackQuery.from.language_code;
         if (data.startsWith('tgc:')) await handleConnectPress(chatId, callbackUserId, data.slice('tgc:'.length), languageCode);
         else await handleConnectCancel(chatId, callbackUserId, data.slice('tgc-no:'.length), languageCode);
+      } else if (data.startsWith('gd:')) {
+        // "Address me as" (address-choice.ts): saved for the presser's own account; the handler answers the spinner
+        const { handleAddressPress } = await import('./address-choice');
+        await handleAddressPress(chatId, callbackQuery.message?.message_id, queryId, callbackUserId, data);
       } else if (data.startsWith('nr:')) {
         // Native reminder ping: ✅ Done / 💤 Snooze. The handler answers the tap itself.
         const { handleNativeReminderCallback } = await import('./native-reminders/callbacks');
@@ -593,12 +597,17 @@ export async function handleTelegramWebhook(
     const token = parseAcceptCommand(text);
     if (token) {
       const { getOrCreateUser } = await import('./user-service');
-      const { user } = await getOrCreateUser(textUserId, update.message.from);
+      const { user, created } = await getOrCreateUser(textUserId, update.message.from);
       // It can be someone's first message (it creates the account): every reply ends with the Privacy Policy and the Terms, as /start's do
       const locale = user.language || 'en';
       const [{ getBotMessages }, { policyLinks }] = await Promise.all([import('../lib/bot-messages'), import('../lib/plan-disclosure')]);
       const links = policyLinks((await getBotMessages(locale)).policy, locale, 'html');
       await handlePairAccept(chatId, user.id, token, locale, MessagingPlatform.TELEGRAM, links);
+      if (created) {
+        // A first message that made the account: "Address me as" once, after its reply (address-choice.ts)
+        const { sendAddressQuestion } = await import('./address-choice');
+        await sendAddressQuestion(chatId, user.id, locale);
+      }
     } else {
       await routeTypedReminderText(chatId, textUserId, text, update.message.message_id);
     }
@@ -912,6 +921,17 @@ export async function handleWhatsAppWebhook(
     if (await isInOnboarding(from)) {
       const handled = await handleOnboardingMessage(from, text);
       if (handled) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+    }
+
+    // "Address me as" (address-choice.ts): the two buttons that end onboarding, read whenever they are tapped
+    {
+      const { genderOfWhatsAppButton, answerAddressWhatsApp } = await import('./address-choice');
+      const chosen = genderOfWhatsAppButton(text);
+      if (chosen) {
+        await answerAddressWhatsApp(from, user.id, chosen, locale);
         res.status(200).json({ ok: true });
         return;
       }

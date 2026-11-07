@@ -1436,7 +1436,12 @@
       "ctaSetup": "Your calendar is ready. Open it to add your city, for the weather and zmanim. Google Calendar is optional: you can connect it from the calendar's menu any time.",
       "ctaButton": "🚀 Set Up FamCal",
       "nativeWelcome": "👋 Hi {name}, your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.",
-      "nativeLocationButton": "📍 Set my location"
+      "nativeLocationButton": "📍 Set my location",
+      "addressQuestion": "How should FamCal address you? It sets the grammar of your summaries and the voice show. You can change it in Settings.",
+      "addressMale": "Male",
+      "addressFemale": "Female",
+      "addressSavedMale": "Saved: FamCal will use male forms for you. You can change it in Settings.",
+      "addressSavedFemale": "Saved: FamCal will use female forms for you. You can change it in Settings."
     },
     "setupNudge": {
       "noLocationNative": "🌤️ <b>One quick thing</b>\n\nYour calendar is ready! I just need your location so weather and timezones work right.\n\nTap below to set your city:",
