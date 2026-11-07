@@ -1,6 +1,6 @@
 # Ask FamCal in a chat, one line per person: design
 
-Status: decisions APPROVED by the owner 2026-11-08 ("go"). The legal wording in §6 is a DRAFT waiting for the owner's OK; nothing in `legal.*` changes before it. Builds on the shipped spec `2026-11-07-ask-in-chat-design.md` (its rules stay unless this one says otherwise).
+Status: decisions APPROVED by the owner 2026-11-08 ("go"). The legal wording in §6 (A1, A6, A7, A8) is a DRAFT waiting for the owner's OK; nothing in `legal.*` may reach main before it (the feature branch carries the draft wording in `messages/` so it can be reviewed, and the owner's OK, with its date, is recorded here when given). Builds on the shipped spec `2026-11-07-ask-in-chat-design.md` (its rules stay unless this one says otherwise).
 
 ## 1. Goal and decisions
 
@@ -200,7 +200,7 @@ Cost: per question, one more pairing read and one partner row read (`getActivePa
 
 ## 6. The Privacy Policy and the Terms (DRAFT, for the owner's OK)
 
-The meaning changes in all three languages at once. `LEGAL_UPDATED` (`src/site/legal.ts`) moves to the ship day for both documents. `scripts/lib/legal-ask.ts` holds each text (Russian there with plain spaces). `messages/ru.json` binds every one-letter word (в, с, к, о, у, и, а, я) to the next word with U+00A0, as `smoke-site-truth` T6 and `smoke-ask-in-chat-legal` G4 require. Edits A1 and A6 are decision 6's. **A7 is my addition** (the AI now also reads *who* is asked, and that clause lists what the AI can get wrong); drop it if the owner prefers. Privacy (b)-(d) (what the bot and Gemini receive) do not change: Gemini still gets the two texts and nothing from the calendars (ruling 7).
+The meaning changes in all three languages at once. `LEGAL_UPDATED` (`src/site/legal.ts`) moves to the ship day for both documents. `scripts/lib/legal-ask.ts` holds each text (Russian there with plain spaces). `messages/ru.json` binds every one-letter word (в, с, к, о, у, и, а, я) to the next word with U+00A0, as `smoke-site-truth` T6 and `smoke-ask-in-chat-legal` G4 require. Edits A1 and A6 are decision 6's. **A8 is the controller's addition (2026-11-08), found missing by the branch review:** the Privacy Policy's "Your partner" list now also says the partner can ask the bot in another chat, which shows the caller by name; drop it if the owner prefers (then also drop it from `messages/`, `scripts/lib/legal-ask.ts` and the count of eight in `smoke-ask-in-chat-legal`). **A7 is my addition** (the AI now also reads *who* is asked, and that clause lists what the AI can get wrong); drop it if the owner prefers. Privacy (b)-(d) (what the bot and Gemini receive) do not change: Gemini still gets the two texts and nothing from the calendars (ruling 7).
 
 ### A1. Privacy, "What we don’t keep", the item about a message asked about in another chat
 
@@ -244,6 +244,20 @@ The meaning changes in all three languages at once. `LEGAL_UPDATED` (`src/site/l
   - Current: понимать голосовые сообщения, фото, PDF и пересланные сообщения, а также день, о котором вы спрашиваете в другом чате;
   - New: понимать голосовые сообщения, фото, PDF и пересланные сообщения, а также день и людей, о которых вы спрашиваете в другом чате;
 
+### A8. Privacy, "Your partner", the list's item about the partner asking the bot in another chat (controller's addition)
+
+`legal.privacy.sections.partner.blocks[1][2]`, a new item before "calendars you keep private stay private." (which moves one place on)
+
+- **English**
+  - Current: (no such item)
+  - New: they can ask the bot in another Telegram chat when you’re busy: the answer, which everyone in that chat sees, shows by your name when you have plans and when you’re free, from the calendars you share with them, never what your events are;
+- **Hebrew**
+  - Current: (no such item)
+  - New: הם יכולים לשאול את הבוט בצ׳אט אחר בטלגרם מתי יש לכם תוכניות: התשובה, שכל מי שבצ׳אט רואה, מראה לצד השם שלכם מתי יש לכם תוכניות ומתי הזמן פנוי, לפי היומנים שאתם משתפים איתם, ואף פעם לא מה האירועים שלכם;
+- **Russian**
+  - Current: (no such item)
+  - New: он может спросить бота в другом чате Telegram, когда у вас есть планы: в ответе, который видят все участники чата, по вашему имени указано, когда у вас есть планы и когда время свободно, по календарям, которыми вы с ним поделились, но никогда не сказано, что это за события;
+
 The Hebrew addresses the reader in the plural (אתם) as the rest of the text does, and names the partner gender-neutrally (בן או בת הזוג). The Russian stays formal (вы).
 
 ## 7. Files
@@ -285,6 +299,6 @@ The Hebrew addresses the reader in the plural (אתם) as the rest of the text d
 - `scripts/smoke-partner-labels.ts`:
   - `getCalendarsWithOwners` returns the same list in one store read, with the partner's FamCal ids.
   - `peopleOf` on that real list: Raziel; Dana with her primary, the calendar she keeps about Raziel and her named work calendar; Leo; Mia; Dana's birthdays out.
-- `scripts/smoke-ask-in-chat-legal.ts`: the seven edits with the new A1/A6/A7; the 2026-11-07 wording of each is gone; `ASK_WORDING_DAY` 2026-11-08.
+- `scripts/smoke-ask-in-chat-legal.ts`: the eight edits with the new A1/A6/A7/A8, each drafted word for word in §6 (G5); the 2026-11-07 wording of each is gone; `ASK_WORDING_DAY` 2026-11-08.
 - Unchanged and still passing: `smoke-he-neutral`, `smoke-ru-formal`, `smoke-bot-key-paths`, `check-i18n-parity`, `smoke-site-truth` (T6), `smoke-signin-legal`, `smoke-pause`.
 - The gate: `npx tsc --noEmit -p .`, `npm run lint`, `bash scripts/ci-smokes.sh`.

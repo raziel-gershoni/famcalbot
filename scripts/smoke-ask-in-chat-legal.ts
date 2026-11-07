@@ -5,11 +5,14 @@
 //     places in en, he and ru, and the entry after each new one is the one that moved on;
 //   - G2 none still says a sentence an edit replaced;
 //   - G3 LEGAL_UPDATED is the day of the change or later, the same day for both texts, and not in the future;
-//   - G4 the Russian edits bind a one-letter word and a dash with a no-break space.
+//   - G4 the Russian edits bind a one-letter word and a dash with a no-break space;
+//   - G5 every edit of the 2026-11-08 people spec (A1, A6, A7, A8) is drafted in that spec's section 6 in all three
+//     languages, word for word, so the owner has seen the wording that is in the messages.
 // Nothing is faked: no DB, Redis or network.
 //
 //   npx tsx scripts/smoke-ask-in-chat-legal.ts
 
+import fs from 'node:fs';
 import path from 'node:path';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
@@ -78,6 +81,25 @@ async function main() {
       assert(!/(^|[\s(«])[вскоуиаяВСКОУИАЯ] /.test(node), `${op.id}: a one-letter word before a plain space: ${node.slice(0, 80)}`);
       assert(!/ —/.test(node), `${op.id}: a plain space before a dash`);
     }
+  });
+
+  await check('G5 the edits of the people spec (A1, A6, A7, A8) are drafted in its section 6, word for word in every language', () => {
+    const spec = fs.readFileSync(path.join(__dirname, '../docs/superpowers/specs/2026-11-08-ask-in-chat-people-design.md'), 'utf8').replace(/\u00a0/g, ' ');
+    const section = spec.slice(spec.indexOf('## 6. The Privacy Policy'), spec.indexOf('## 7. Files'));
+    const problems: string[] = [];
+    for (const id of ['A1', 'A6', 'A7', 'A8']) {
+      const at = section.indexOf(`### ${id}.`);
+      if (at < 0) {
+        problems.push(`${id}: no "### ${id}." draft in the spec's section 6`);
+        continue;
+      }
+      const draft = section.slice(at).split(/\n### /)[0] ?? '';
+      for (const locale of LOCALES) {
+        const op = ASK_LEGAL[locale].find(o => o.id === id);
+        if (!op || !('text' in op) || !draft.includes(`New: ${op.text}`)) problems.push(`${id} ${locale}: the spec's draft is not the messages' wording`);
+      }
+    }
+    assert(problems.length === 0, problems.join('\n'));
   });
 
   let failed = 0;
