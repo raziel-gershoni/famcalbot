@@ -1396,10 +1396,6 @@
       "tomorrow": "На завтра нет запланированных событий. Наслаждайтесь свободным днём!"
     },
     "weatherCredit": "Погода: MET Norway · Пыль: Copernicus (Open-Meteo.com)",
-    "guestProbe": {
-      "title": "FamCal",
-      "text": "FamCal получил ваше сообщение. Ответы о вашем календаре скоро появятся."
-    },
     "askInChat": {
       "date": "{weekday}, {date}",
       "range": "{from}–{to}",

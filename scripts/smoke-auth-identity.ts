@@ -764,7 +764,7 @@ async function main() {
     assert(userWrites.length === 0, `a refused save was written: ${show(userWrites)}`);
   });
 
-  await check('#27 [guard] only src/lib/api-auth.ts calls a limiter, so no other key shares a bucket', () => {
+  await check('#27 [guard] only src/lib/api-auth.ts calls a limiter, so no other key shares a bucket (the guest answer\'s own limiter, askInChatRateLimiter, keyed tg<telegramId>, is the one other caller)', () => {
     const callers: string[] = [];
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
@@ -777,7 +777,13 @@ async function main() {
     };
     walk('app');
     walk('src');
-    const others = callers.filter(f => f !== path.join('src', 'lib', 'rate-limit.ts') && f !== path.join('src', 'lib', 'api-auth.ts'));
+    // Ask FamCal in a chat has a bucket of its own (its own prefix, by Telegram id): it may call its own limiter, no other
+    const guest = path.join('src', 'services', 'ask-in-chat', 'handler.ts');
+    const ownOnly = (file: string) => {
+      const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
+      return !/RateLimiter\.limit\(/.test(text) && (text.match(/\bcheckRateLimit\(/g) ?? []).length === (text.match(/\bcheckRateLimit\(askInChatRateLimiter, `tg\$\{/g) ?? []).length;
+    };
+    const others = callers.filter(f => f !== path.join('src', 'lib', 'rate-limit.ts') && f !== path.join('src', 'lib', 'api-auth.ts') && !(f === guest && ownOnly(f)));
     assert(others.length === 0, `a limiter is also called from ${others.join(', ')}`);
   });
 

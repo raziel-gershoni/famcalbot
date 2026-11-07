@@ -27,6 +27,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Photo-to-event** — forward or snap a photo of an invitation or flyer and the bot extracts the event details into your calendar.
 - **Natural voice replies** — optional spoken summaries via Gemini TTS in the user's language: a short two-host radio show, or one calm presenter reading the same summary, chosen in Settings.
 - **FamCal calendar, with Google as an optional connection** — everyone has the built-in recurring FamCal calendar; connect Google and its calendars appear beside the FamCal ones. Move an event between FamCal and Google from its Calendar row (whole series only). Copy any FamCal calendar you own to Google as its own "FamCal · <name>" calendar, kept up to date one way.
+- **Ask FamCal in a chat** — in another Telegram chat, reply to a message such as "are you free Friday evening?" and mention the bot: it answers there, once, with when you're busy and when you're free that day (every calendar you chose, never an event's name; up to 3 days). Telegram only. It needs **Guest Mode** on: in BotFather's Mini App, open the bot's settings and turn on Guest Mode.
 - **Couple pairing** — invite a partner to share calendars, with an auditable pairing lifecycle.
 - **Multilingual** — Hebrew, English, and Russian throughout, including a right-to-left dashboard, Hebrew dates/holidays (Hebcal), and localized voice.
 - **Weather in context** — MET Norway forecasts woven into the daily briefing, with Copernicus dust-storm and regional heatwave (sharav) awareness.
@@ -201,8 +202,6 @@ npm run start
 ```
 
 Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Google refresh token) and `npm run setup-webhook` (register the Telegram webhook).
-
-The Guest Mode probe (`src/services/telegram/guest-probe.ts`, answers a `guest_message` update once with a fixed text and logs one `[guest probe]` line of field names) is a temporary diagnostic, removed once we know what Telegram sends.
 
 Dev-only data scripts: `scripts/build-israel-heights.ts` (the height map), `scripts/build-city-heights.ts` (the public cities), `scripts/record-cams-fixture.ts` (the dust smoke's recording); none runs in CI. MET Norway and the dust data need no env var.
 

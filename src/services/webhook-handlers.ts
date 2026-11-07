@@ -17,7 +17,7 @@ import {
   handleConnectCommand,
   getBot
 } from './telegram';
-import { handleGuestProbe } from './telegram/guest-probe';
+import { handleGuestMessage } from './ask-in-chat/handler';
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
 import { guessLanguageFromText } from '../utils/locale';
@@ -80,17 +80,10 @@ export async function handleTelegramWebhook(
     }
   }
 
-  // Guest Mode (Bot API 10.0): someone mentioned the bot in a chat it is not in. Routed before every other
-  // dispatch so it never reaches the message paths (they create accounts and parse events). TEMPORARY probe.
-  if (update.guest_message) {
-    await handleGuestProbe(update, existingUser);
-    res.status(200).json({ ok: true });
-    return;
-  }
-
   // Add breadcrumb for webhook type
   const isForwarded = update.message?.text && (update.message.forward_origin || update.message.forward_from || update.message.forward_from_chat || update.message.forward_date);
-  const webhookType = update.pre_checkout_query ? 'pre_checkout'
+  const webhookType = update.guest_message ? 'guest_message'
+    : update.pre_checkout_query ? 'pre_checkout'
     : update.message?.successful_payment ? 'successful_payment'
     : update.callback_query ? 'callback_query'
     : update.message?.voice ? 'voice_message'
@@ -104,6 +97,15 @@ export async function handleTelegramWebhook(
     update_id: update.update_id,
     user_id: userId,
   }, 'webhook');
+
+  // Ask FamCal in a chat (Guest Mode, Bot API 10.0): someone mentioned the bot in a chat it is not in. Routed before
+  // every other dispatch so it never reaches the message paths (they create accounts and parse events); the gate above
+  // has already dropped a blocked or suspended caller, and its lookup by telegramId is the caller's account.
+  if (update.guest_message) {
+    await handleGuestMessage(update.guest_message, existingUser);
+    res.status(200).json({ ok: true });
+    return;
+  }
 
   // Handle pre-checkout query (Telegram Stars payment validation)
   if (update.pre_checkout_query) {

@@ -73,6 +73,14 @@ export const pushDeviceRateLimiter = new Ratelimit({
   prefix: 'ratelimit:push-device',
 });
 
+// Ask FamCal in a chat (Guest Mode): 10 questions a minute per Telegram id, on a budget of its own. Each one is a model
+// call and a calendar read; a person asks one at a time, and the budget keeps a script from running up either
+export const askInChatRateLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(10, '1 m'),
+  prefix: 'ratelimit:ask-in-chat',
+});
+
 export interface RateLimitResult {
   success: boolean;
   remaining: number;

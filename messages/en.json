@@ -1396,10 +1396,6 @@
       "tomorrow": "No events planned for tomorrow. Enjoy your free time!"
     },
     "weatherCredit": "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)",
-    "guestProbe": {
-      "title": "FamCal",
-      "text": "FamCal got your message. Answers about your calendar are coming soon."
-    },
     "askInChat": {
       "date": "{weekday} {date}",
       "range": "{from}-{to}",

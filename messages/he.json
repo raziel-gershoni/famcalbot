@@ -1396,10 +1396,6 @@
       "tomorrow": "אין לכם אירועים מתוכננים למחר. תיהנו מיום פנוי!"
     },
     "weatherCredit": "מזג האוויר: MET Norway · אבק: Copernicus (Open-Meteo.com)",
-    "guestProbe": {
-      "title": "FamCal",
-      "text": "FamCal קיבל את ההודעה. תשובות על היומן יגיעו בקרוב."
-    },
     "askInChat": {
       "date": "{weekday} {date}",
       "range": "{from}–{to}",
