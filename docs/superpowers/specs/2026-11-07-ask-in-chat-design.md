@@ -1,6 +1,6 @@
 # Ask FamCal in a chat (Telegram Guest Mode): design
 
-Status: APPROVED by the owner 2026-11-07: decisions 1-8 (2026-11-06/07) and the legal wording in section 9 ("ok", 2026-11-07). The probe release (b0078d27) settled the update's shape (section 12).
+Status: SHIPPED 2026-11-07 (LEGAL_UPDATED 2026-11-07). APPROVED by the owner 2026-11-07: decisions 1-8 (2026-11-06/07) and the legal wording in section 9 ("ok", 2026-11-07). The probe release (b0078d27) settled the update's shape (section 12).
 
 ## 1. Goal and decisions
 

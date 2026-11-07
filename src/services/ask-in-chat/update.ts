@@ -3,8 +3,8 @@
  *
  * Bot API 10.0 sends `guest_message` when someone mentions the bot in a chat it is not a member of, or replies to the
  * bot's own answer there. This file is the only place that reads the update's shape: the probe (spec §12) showed the
- * replied-to message in `reply_to_message` and the caller in `from`. Whether a bare reply to FamCal's own answer
- * carries `guest_bot_caller_user` on it is not known yet; without it, a bare reply is never answered (ruling 9).
+ * replied-to message in `reply_to_message` and the caller in `from`, and a bare reply to FamCal's own answer carries that
+ * answer with `guest_bot_caller_user` on it; an answer without it is never answered by a bare reply (ruling 9).
  *
  * Pure: no I/O, no clock. Nothing here logs: every string in the update was written by a person.
  */
