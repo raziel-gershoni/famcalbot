@@ -1781,7 +1781,9 @@
       "turnedOn": "Notifications are on",
       "turnedOnBody": "Your reminders and daily lists will come here.",
       "reminder": "Reminder",
-      "partnerIsDone": "{name} is done"
+      "partnerIsDone": "{name} is done",
+      "planEndedTitle": "Your Pro trial has ended",
+      "planEndedBody": "You're on the Free plan now, so reminders and event alerts have stopped. Your calendar stays as it is."
     }
   },
   "subscription": {

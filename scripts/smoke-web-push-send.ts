@@ -198,16 +198,16 @@ async function main() {
     assert(!topic.includes('clx7') && !topic.includes('nr-'), `the topic carries the tag: ${topic}`);
   });
 
-  await check('W2 the lifetime: reminder 1 h, alert 24 h, briefing 3 h, the notices 24 h, the test 10 min; an alert stops at its event start; a scheduled kind (reminder, alert, briefing, reconnect) stops at the next pause window, asked over its own lifetime; the partner notices and the test never ask; never above a day, never below a second', async () => {
+  await check('W2 the lifetime: reminder 1 h, alert 24 h, briefing 3 h, the notices and the trial-ended notice 24 h, the test 10 min; an alert stops at its event start; a scheduled kind (reminder, alert, briefing, reconnect, plan-ended) stops at the next pause window, asked over its own lifetime; the partner notices and the test never ask; never above a day, never below a second', async () => {
     reset();
-    assert(show(send.PUSH_LIFETIME_S) === show({ reminder: 3600, alert: 86400, briefing: 10800, 'partner-accepted': 86400, 'partner-done': 86400, reconnect: 86400, test: 600 }), `lifetimes ${show(send.PUSH_LIFETIME_S)}`);
-    assert(show(send.PUSH_URGENCY) === show({ reminder: 'high', alert: 'high', briefing: 'normal', 'partner-accepted': 'normal', 'partner-done': 'low', reconnect: 'normal', test: 'normal' }), `urgency ${show(send.PUSH_URGENCY)}`);
-    assert(show(send.PAUSED_KINDS) === show(['reminder', 'alert', 'briefing', 'reconnect']), `paused kinds ${show(send.PAUSED_KINDS)}`);
+    assert(show(send.PUSH_LIFETIME_S) === show({ reminder: 3600, alert: 86400, briefing: 10800, 'partner-accepted': 86400, 'partner-done': 86400, reconnect: 86400, 'plan-ended': 86400, test: 600 }), `lifetimes ${show(send.PUSH_LIFETIME_S)}`);
+    assert(show(send.PUSH_URGENCY) === show({ reminder: 'high', alert: 'high', briefing: 'normal', 'partner-accepted': 'normal', 'partner-done': 'low', reconnect: 'normal', 'plan-ended': 'normal', test: 'normal' }), `urgency ${show(send.PUSH_URGENCY)}`);
+    assert(show(send.PAUSED_KINDS) === show(['reminder', 'alert', 'briefing', 'reconnect', 'plan-ended']), `paused kinds ${show(send.PAUSED_KINDS)}`);
     for (const [kind, want] of Object.entries(send.PUSH_LIFETIME_S as Record<string, number>)) {
       const ttl = await send.pushTtlSeconds(USER, kind, T0); // once: each call asks the pause once
       assert(ttl === want, `${kind}: ${ttl}`);
     }
-    assert(show(pauseAsks.map((a) => [a.withinMs, a.from])) === show([[3_600_000, T0.toISOString()], [86_400_000, T0.toISOString()], [10_800_000, T0.toISOString()], [86_400_000, T0.toISOString()]]), `asked ${show(pauseAsks)}`);
+    assert(show(pauseAsks.map((a) => [a.withinMs, a.from])) === show([[3_600_000, T0.toISOString()], [86_400_000, T0.toISOString()], [10_800_000, T0.toISOString()], [86_400_000, T0.toISOString()], [86_400_000, T0.toISOString()]]), `asked ${show(pauseAsks)}`);
     assert(await send.pushTtlSeconds(USER, 'alert', T0, new Date(T0.getTime() + 30 * 60_000)) === 1800, 'an alert stops at its event');
     assert(await send.pushTtlSeconds(USER, 'alert', T0, new Date(T0.getTime() + 3 * DAY)) === 86400, 'at most a day');
     assert(await send.pushTtlSeconds(USER, 'alert', T0, new Date(T0.getTime() - 60_000)) === 1, 'an event already started: one second');

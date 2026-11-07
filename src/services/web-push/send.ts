@@ -33,7 +33,7 @@ import { vapidKeys, vapidSubject } from './config';
 import { deleteGoneDevice, devicesForSend, type StoredDevice } from './devices';
 import { buildPushPayload, topicFor, type PushMessage } from './payload';
 
-export type PushKind = 'reminder' | 'alert' | 'briefing' | 'partner-accepted' | 'partner-done' | 'reconnect' | 'test';
+export type PushKind = 'reminder' | 'alert' | 'briefing' | 'partner-accepted' | 'partner-done' | 'reconnect' | 'plan-ended' | 'test';
 
 /** How long each kind may wait at the push service for a device that is off, in seconds (spec §3.6). */
 export const PUSH_LIFETIME_S: Record<PushKind, number> = {
@@ -43,6 +43,7 @@ export const PUSH_LIFETIME_S: Record<PushKind, number> = {
   'partner-accepted': 86_400,
   'partner-done': 86_400,
   reconnect: 86_400,
+  'plan-ended': 86_400,
   test: 600,
 };
 
@@ -54,11 +55,12 @@ export const PUSH_URGENCY: Record<PushKind, 'high' | 'normal' | 'low'> = {
   'partner-accepted': 'normal',
   'partner-done': 'low',
   reconnect: 'normal',
+  'plan-ended': 'normal',
   test: 'normal',
 };
 
 /** The scheduled kinds: their callers ask the pause, and their lifetime ends before the next window. */
-export const PAUSED_KINDS: readonly PushKind[] = ['reminder', 'alert', 'briefing', 'reconnect'];
+export const PAUSED_KINDS: readonly PushKind[] = ['reminder', 'alert', 'briefing', 'reconnect', 'plan-ended'];
 
 /** No push waits longer than a day (spec §3.6, the Policy's "within a day"). */
 export const MAX_PUSH_TTL_S = 86_400;

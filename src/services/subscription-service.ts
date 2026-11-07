@@ -12,7 +12,11 @@ import { getEarlyAdoptionMode } from './reminder-cache';
 import { REDIS_KEYS } from '../config/redis-keys';
 import { captureError } from '../lib/error-capture';
 import { liveGoogleChoices } from '../lib/google-state';
-import { isPaused } from './zmanim/pause';
+import { isPaused, type PauseUser } from './zmanim/pause';
+import { canReachByPush, PUSH_DEVICE_COUNT, pushDeviceCountOf } from './web-push/reach';
+import { getBotMessage } from '../lib/bot-messages';
+import { buildUrl } from '../config/urls';
+import { normalizeLocale } from '../utils/locale';
 import { holdsPaidPlan } from '../lib/comp-eligibility';
 import { TIMEZONE } from '../config/constants';
 import { instantToWallTime, instantToWallTimeMs, wallTimeToInstant } from '../utils/wall-time';
@@ -541,25 +545,34 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   // Invalidate feature access cache
   await invalidateFeatureAccessCache(userId);
 
-  // Send trial expired notification to user (non-blocking, skip for early adopters)
+  // The trial-ended notice (non-blocking, skipped for early adopters): in Telegram, or, for an account with no chat (made on
+  // famcal.bot), as a browser notification on each device with notifications on (spec 2026-11-07-b-features §B1).
   if (!await checkEarlyAdopterAccess(userId)) {
     try {
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
-          telegramId: true, language: true,
+          telegramId: true, whatsappPhone: true, whatsappBsuid: true, language: true,
           // The Shabbat and Yom Tov pause (isPaused): the switch, and the place and community its windows are counted at
           location: true, pauseOnShabbat: true, zmanimCommunity: true, latitude: true, longitude: true, elevationM: true,
+          // The browsers with notifications on, counted in the same statement (canReachByPush)
+          ...PUSH_DEVICE_COUNT,
         },
       });
       // Shabbat and Yom Tov (the pause): the trial ends all the same, but the notice is not sent (it is sent once, by
       // whichever plan check first finds the trial over, so no later check would tell the person).
-      // Telegram only: an account with no Telegram (WhatsApp only, or made on famcal.bot) is not told, and the skip is logged.
-      if (user && !user.telegramId) {
-        console.log(`[trial-expired notice] skipped user ${userId}: no Telegram`);
-      } else if (user && !(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) {
-        const { sendTrialExpiredNotification } = await import('./telegram');
-        await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
+      // WhatsApp alone reaches nobody here (the notice is Telegram's, and push is for an account with no chat): skipped, logged.
+      if (!user) {
+        console.warn(`[trial-expired notice] skipped user ${userId}: no user row`);
+      } else if (user.telegramId) {
+        if (!(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) {
+          const { sendTrialExpiredNotification } = await import('./telegram');
+          await sendTrialExpiredNotification(Number(user.telegramId), user.language || 'en');
+        }
+      } else if (canReachByPush({ ...user, pushDeviceCount: pushDeviceCountOf(user) })) {
+        if (!(await isPaused({ ...user, id: userId }, new Date(), 'trial-expired notice'))) await sendTrialEndedPush(userId, user);
+      } else {
+        console.log(`[trial-expired notice] skipped user ${userId}: no Telegram and no device with notifications on`);
       }
     } catch (error) {
       console.error(`[Subscription] Failed to send trial expired notification for user ${userId}:`, error);
@@ -570,6 +583,27 @@ async function expireTrialSubscription(userId: number): Promise<Subscription> {
   console.log(`[Subscription] Trial expired for user ${userId}`);
 
   return updated;
+}
+
+/**
+ * The trial-ended notice as a browser notification (spec 2026-11-07-b-features §B1): the title and text in the account's
+ * language (English for none or an unknown one), a tap opening the plan page, whose no-chat state offers Connect Telegram.
+ * It says what changed and nothing about paying, so it stays true when other ways to pay arrive. A push no device takes
+ * is logged and not sent again: the trial is EXPIRED already, so no later check sends it (as with a failed Telegram send).
+ * The caller has asked the pause. sendWebPush never throws and logs its own "[push] user <id>: plan-ended sent to N of M".
+ */
+async function sendTrialEndedPush(userId: number, user: Omit<PauseUser, 'id'> & { language: string | null }): Promise<void> {
+  const lang = normalizeLocale(user.language);
+  const { sendWebPush } = await import('./web-push/send');
+  const result = await sendWebPush({ ...user, id: userId }, {
+    kind: 'plan-ended',
+    title: await getBotMessage(lang, 'push.planEndedTitle'),
+    body: await getBotMessage(lang, 'push.planEndedBody'),
+    url: buildUrl(`/${lang}/subscription?user_id=${userId}`),
+    tag: 'plan-ended',
+    lang,
+  });
+  if (result.sent === 0) console.log(`[trial-expired notice] user ${userId}: no device took the notification; it is not sent again`);
 }
 
 // ============================================

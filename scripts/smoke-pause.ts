@@ -255,7 +255,7 @@ const PAUSED: Record<string, string> = {
   'src/services/telegram/summary.ts': 'the daily and tomorrow summaries, text and voice (the batch: sendSummaryToAll)',
   'src/cron/handlers.ts': 'the setup nudges (the location track and the Google tracks)',
   'src/services/subscription-reminders.ts': 'the 3-day and last-day renewal reminders and the expiry notice',
-  'src/services/subscription-service.ts': 'the trial-expired notice, sent when the first check after the trial finds it over',
+  'src/services/subscription-service.ts': 'the trial-expired notice (in Telegram, or a browser notification for an account with no chat), sent when the first check after the trial finds it over',
   'src/services/google-sync/worker.ts': 'the copy-to-Google reconnect message',
 };
 

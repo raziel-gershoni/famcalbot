@@ -10,7 +10,7 @@ An account made on famcal.bot, with no Telegram and no WhatsApp, gets FamCal's r
 The owner, 2026-11-05:
 
 1. **Who:** only accounts with no chat (`hasChat` false). Telegram and WhatsApp accounts change nothing, so nobody gets a message twice.
-2. **What:** reminders when due, event alerts, the morning and evening briefing as a short line built from the day's items (no AI), the partner notices (an invite accepted, a shared reminder marked Done) and the Google reconnect message. A tap opens the app.
+2. **What:** reminders when due, event alerts, the morning and evening briefing as a short line built from the day's items (no AI), the partner notices (an invite accepted, a shared reminder marked Done), the notice that the trial ended (B features spec 2026-11-07 §B1) and the Google reconnect message. A tap opens the app.
 3. **No buttons:** no Done or Snooze on a notification, on any device. A tap opens the home, where a due reminder has its Done (the Still open card).
 
 My rulings, which the owner approved on 2026-11-06:
@@ -22,7 +22,7 @@ My rulings, which the owner approved on 2026-11-06:
 8. **No security notice when a device turns notifications on:** turning on needs a sign-in from the last hour, as adding a sign-in way does.
 9. **Up to 10 devices per account:** an 11th replaces the oldest.
 
-Not sent as a notification: voice, the setup nudges, plan renewal, trial and downgrade notices, sign-in notices (they stay email), the kid-name question, the weather-only message, and the summary's own reconnect notice (the Google reconnect message covers it).
+Not sent as a notification: voice, the setup nudges, plan renewal, downgrade notices (the trial-ended notice is sent since the B features, §B1), sign-in notices (they stay email), the kid-name question, the weather-only message, and the summary's own reconnect notice (the Google reconnect message covers it).
 
 ## 2. What the person sees
 
@@ -54,10 +54,11 @@ Every notification is in the account's language, with no emoji. A tap opens the 
 | Invite accepted | when the partner accepts | "Dana accepted your invite" | "You're paired now." |
 | Partner's Done | when the partner marks a shared reminder Done | "Done by Dana" | the reminder's title (silent, as on Telegram) |
 | Google reconnect | once per outage, as on Telegram | the reconnect message's title | its first sentence |
+| Trial ended | the first plan check after the trial ends, as on Telegram (B features spec §B1) | "Your Pro trial has ended" | "You're on the Free plan now, so reminders and event alerts have stopped. Your calendar stays as it is." (opens the plan page) |
 
 - **A newer notification of the same reminder replaces the older one** on the device (the notification's tag).
 - **A notification can go stale:** a reminder marked Done, moved or deleted elsewhere keeps its notification until it's tapped or cleared (a push can't close one silently; Telegram edits its message). The tap shows the current state.
-- **The Shabbat and Yom Tov pause** holds the scheduled ones (reminders, alerts, briefings, the reconnect message), as it holds the chat's. One of them waiting at the push service never arrives inside a pause window (§3.6). The partner notices aren't paused, as on Telegram: they answer the partner's action.
+- **The Shabbat and Yom Tov pause** holds the scheduled ones (reminders, alerts, briefings, the reconnect message, the trial-ended notice), as it holds the chat's. One of them waiting at the push service never arrives inside a pause window (§3.6). The partner notices aren't paused, as on Telegram: they answer the partner's action.
 
 ### 2.3 What comes back in Settings, and reminders
 
@@ -184,13 +185,13 @@ Every notification is in the account's language, with no emoji. A tap opens the 
 
 ### 3.6 Pause and lifetime
 
-- **The pause:** each scheduled push (reminder, alert, briefing, reconnect) asks `isPaused` with its send's existing kind before it goes.
+- **The pause:** each scheduled push (reminder, alert, briefing, reconnect, trial-ended notice) asks `isPaused` with its send's existing kind before it goes.
 - **The lifetime (`TTL`)** is the shorter of the kind's own lifetime and the time to the person's next pause window, so a waiting push expires before the window opens.
 - **Lifetimes:**
   - a reminder: 1 hour;
   - an event alert: until the event starts (at most 24 hours, the longest lead);
   - a briefing: 3 hours;
-  - the partner notices and the reconnect message: 24 hours.
+  - the partner notices, the reconnect message and the trial-ended notice: 24 hours.
 - **The cap:** no push waits more than 24 hours (a smoke pins it).
 
 ### 3.7 When a session ends

@@ -1781,7 +1781,9 @@
       "turnedOn": "ההתראות הופעלו",
       "turnedOnBody": "התזכורות והסיכומים היומיים יגיעו לכאן.",
       "reminder": "תזכורת",
-      "partnerIsDone": "{name}: בוצע"
+      "partnerIsDone": "{name}: בוצע",
+      "planEndedTitle": "תקופת הניסיון של Pro נגמרה",
+      "planEndedBody": "עכשיו אתם במסלול החינמי, ולכן התזכורות וההתראות לפני אירועים נפסקו. היומן שלכם נשאר כמו שהוא."
     }
   },
   "subscription": {

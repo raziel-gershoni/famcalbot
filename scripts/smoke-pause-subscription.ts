@@ -13,10 +13,12 @@
 //   - the trial-expired notice is skipped; the trial is over all the same.
 // A person with the switch off gets them as before.
 //
-// And a person with no Telegram (web sign-up plan, Task 12): the trial-expired notice is Telegram only, so for an account
-// with no Telegram (WhatsApp only, or made on famcal.bot) it is skipped with one line naming the send and the user id
-// (`[trial-expired notice] skipped user <id>: no Telegram`), and the trial ends all the same. The renewal and expiry passes
-// keep their guards and their own skip lines.
+// And a person with no chat (web sign-up plan, Task 12; B features plan, Task 1): the trial-expired notice goes to Telegram,
+// or, for an account with no chat (made on famcal.bot) and a browser with notifications on, as one browser notification
+// (kind plan-ended, the plan page, the account's language). The pause holds it as it holds Telegram's. An account with no
+// device, and a WhatsApp-only one (WhatsApp alone reaches nobody here), is skipped with one line naming the send and the
+// user id (`[trial-expired notice] skipped user <id>: no Telegram and no device with notifications on`); the trial ends
+// all the same. An early adopter is told nothing. The renewal and expiry passes keep their guards and their own skip lines.
 //
 // Real code over fakes at the boundaries: Prisma (in memory, honouring `select`, so a column the code forgets to
 // select is missing), Redis, Telegram and WhatsApp (record every send), the early-adoption switch, error capture
@@ -28,10 +30,15 @@
 
 import Module from 'node:module';
 import path from 'node:path';
+import fs from 'node:fs';
 
 import { REDIS_KEYS } from '../src/config/redis-keys';
 
 const ROOT = path.resolve(__dirname, '..');
+// Browser notifications are set up (reach.ts asks pushConfigured): fake keys, never real ones; sendWebPush is a recorder
+process.env.VAPID_PUBLIC_KEY = 'smoke-vapid-public';
+process.env.VAPID_PRIVATE_KEY = 'smoke-vapid-private';
+const PUSH_WORDS = Object.fromEntries(['en', 'he'].map(l => [l, JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8')).bot.push])) as Record<'en' | 'he', Record<string, string>>;
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -122,7 +129,7 @@ const fakePrisma = {
     findMany: async () => [],
     findUnique: async ({ where }: { where: { userId: number } }) => ({ userId: where.userId, cycleStartDate: new RealDate(clock), textSummariesUsed: 0, voiceSummariesUsed: 0, voiceEventsCreated: 0, remindersTriggered: 0 }),
   },
-  userFeatureOverride: { findUnique: async () => null },
+  userFeatureOverride: { findUnique: async ({ where }: { where: { userId: number } }) => (earlyAdopters.has(where.userId) ? { userId: where.userId, earlyAdopter: true } : null) },
   user: {
     findUnique: async ({ where, select }: { where: { id: number }; select: Record<string, boolean> }) => (users[where.id] ? pick(users[where.id], select) : null),
   },
@@ -132,6 +139,8 @@ type Sent = { chatId: string; text: string };
 let sent: Sent[] = [];
 const recorder = { sendMessage: async (chatId: string | number, text: string) => { sent.push({ chatId: String(chatId), text }); } };
 let trialNotices: number[] = [];
+let pushes: { user: Row; input: Row }[] = [];
+const earlyAdopters = new Set<number>();
 let activity: string[] = [];
 let logs: string[] = [];
 let skips: string[] = [];
@@ -167,6 +176,9 @@ function installStubs(): void {
     sendTrialExpiredNotification: async (telegramId: number) => { trialNotices.push(telegramId); },
     sendReminderDowngradeNotification: async () => {},
   });
+  stub('src/services/web-push/send.ts', {
+    sendWebPush: async (user: Row, input: Row) => { pushes.push({ user, input }); return { sent: 1, total: 1, retriable: false }; },
+  });
   stub('src/services/messaging/factory.ts', {
     getTelegramService: () => recorder,
     getWhatsAppService: () => ({ sendMessage: async () => { throw new Error('the subscription messages went to WhatsApp'); } }),
@@ -187,6 +199,8 @@ function reset(): void {
   redisStore.clear();
   sent = [];
   trialNotices = [];
+  pushes = [];
+  earlyAdopters.clear();
   activity = [];
   logs = [];
   skips = [];
@@ -306,15 +320,44 @@ async function main(): Promise<void> {
   };
   const TUESDAY = '2026-10-20T07:00:00Z';
 
-  await check('no Telegram: the trial-expired notice to an account with no Telegram is skipped with one line, and its trial ends all the same', async () => {
+  const trialOver = (userId: number): Row => ({ userId, plan: 'FREE', status: 'TRIALING', compedBy: null, trialEndsAt: new RealDate(at('2026-10-10T00:00:00Z')), currentPeriodEnd: null });
+
+  await check('no chat: the trial-expired notice reaches an account with no chat and a device as one browser notification (kind plan-ended, tag plan-ended, the plan page, its language; an empty language reads as English); one with no device, and a WhatsApp-only one, is skipped with one line; Telegram still gets Telegram\'s; every trial ends', async () => {
     reset();
-    noChat(3);
     clock = at(TUESDAY);
-    subscriptions = [{ userId: 3, plan: 'FREE', status: 'TRIALING', compedBy: null, trialEndsAt: new RealDate(at('2026-10-10T00:00:00Z')), currentPeriodEnd: null }];
-    const result = await service.getSubscriptionWithUsage(3);
-    assert(subscriptions[0].status === 'EXPIRED' && result.effectivePlan === 'FREE', `trial: ${show(subscriptions[0])}`);
-    assert(trialNotices.length === 0, `notices: ${trialNotices.join(',')}`);
-    assert(skips.join('|') === '[trial-expired notice] skipped user 3: no Telegram', `logged: ${skips.join('|') || '(nothing)'}`);
+    noChat(3, { language: 'he', _count: { pushDevices: 2 } });
+    noChat(4, { _count: { pushDevices: 0 } });
+    noChat(5, { whatsappPhone: '+972500000005', _count: { pushDevices: 1 } });
+    noChat(6, { language: '', _count: { pushDevices: 1 } });
+    subscriptions = [trialOver(2), trialOver(3), trialOver(4), trialOver(5), trialOver(6)];
+    for (const id of [2, 3, 4, 5, 6]) await service.getSubscriptionWithUsage(id);
+    assert(subscriptions.every(s => s.status === 'EXPIRED' && s.plan === 'FREE'), `trials: ${show(subscriptions.map(s => [s.userId, s.status]))}`);
+    assert(trialNotices.join(',') === '1002', `Telegram notices: ${trialNotices.join(',') || '(nothing)'}`);
+    assert(show(pushes.map(p => [p.user.id, p.input.kind, p.input.tag, p.input.lang])) === show([[3, 'plan-ended', 'plan-ended', 'he'], [6, 'plan-ended', 'plan-ended', 'en']]), `pushes ${show(pushes.map(p => p.input))}`);
+    const [he, en] = pushes;
+    assert(he.input.title === PUSH_WORDS.he.planEndedTitle && he.input.body === PUSH_WORDS.he.planEndedBody && String(he.input.url).endsWith('/he/subscription?user_id=3'), `Hebrew push ${show(he.input)}`);
+    assert(en.input.title === PUSH_WORDS.en.planEndedTitle && en.input.body === PUSH_WORDS.en.planEndedBody && String(en.input.url).endsWith('/en/subscription?user_id=6'), `English push ${show(en.input)}`);
+    assert(skips.join('|') === '[trial-expired notice] skipped user 4: no Telegram and no device with notifications on|[trial-expired notice] skipped user 5: no Telegram and no device with notifications on', `logged: ${skips.join('|') || '(nothing)'}`);
+  });
+
+  await check('no chat, paused: a trial found over inside Shabbat sends no browser notification to an account whose switch is on (the pause line), and the trial ends', async () => {
+    reset();
+    clock = at(SATURDAY);
+    noChat(7, { pauseOnShabbat: true, _count: { pushDevices: 1 } });
+    subscriptions = [trialOver(7)];
+    await service.getSubscriptionWithUsage(7);
+    assert(subscriptions[0].status === 'EXPIRED' && pushes.length === 0, `trial ${show(subscriptions[0])}, pushes ${show(pushes)}`);
+    assert(logs.join('|') === '[pause] skipped trial-expired notice for 7', `logged: ${logs.join('|') || '(nothing)'}`);
+  });
+
+  await check('no chat, early adopter: the trial ends and nothing is sent or logged as skipped', async () => {
+    reset();
+    clock = at(TUESDAY);
+    noChat(8, { _count: { pushDevices: 1 } });
+    earlyAdopters.add(8);
+    subscriptions = [trialOver(8)];
+    await service.getSubscriptionWithUsage(8);
+    assert(subscriptions[0].status === 'EXPIRED' && pushes.length === 0 && skips.length === 0, `trial ${show(subscriptions[0])}, pushes ${show(pushes)}, skips ${skips.join('|')}`);
   });
 
   console.log = realLog;
