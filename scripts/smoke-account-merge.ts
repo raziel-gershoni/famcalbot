@@ -1761,7 +1761,7 @@ async function main() {
       { id: 'it-p', linkId: 'link-p', nativeEventId: 'ev-w-in-p', dirtySeq: 1, pushedSeq: 1, generation: 0, attempts: 0, status: 'ok' },
     ];
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
     assert(!userRow(W), 'W still exists');
     assert(!syncRow('link-w') && !table('googleSyncItem').some(r => r.linkId === 'link-w'), `W's copy ${show(table('googleSyncLink'))}`);
     const p = syncRow('link-p');
@@ -1824,7 +1824,7 @@ async function main() {
     let deletedFirst = false;
     concurrent = (name, method) => { if (name === 'user' && method === 'delete' && gcalls.length === 0) deletedFirst = true; };
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
     concurrent = null;
     assert(!deletedFirst && !userRow(W) && !syncRow('link-w'), `order ${show(gcalls)}; W ${show(userRow(W))}`);
     assert(!gcals.has('g-link-w') && gcalls.includes('calendars.delete google-rt-w'), `Remove ${show(gcalls)}`);
@@ -1836,7 +1836,7 @@ async function main() {
     seedCopies();
     gfail = Object.assign(new Error('Backend Error'), { response: { status: 503, data: {} } });
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
     assert(!userRow(W) && !syncRow('link-w'), `W ${show(userRow(W))}`);
     assert(captured.filter(c => c.startsWith('google-sync-hard-delete:')).length === 2 && gcals.has('g-link-w'), `captured ${show(captured)}`);
   });
@@ -1846,7 +1846,7 @@ async function main() {
     gcalls.length = 0;
     DB.googleSyncLink = [];
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
     assert(!userRow(W) && gcalls.length === 0, `calls ${show(gcalls)}`);
   });
 
@@ -1865,7 +1865,7 @@ async function main() {
     redisStore.set('reminders:users:v2', JSON.stringify([{ id: W, telegramId: '5550020' }, { id: P, telegramId: '5550030' }]));
 
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
 
     assert(!userRow(W), 'W still exists');
     assert(rowOf('nativeCalendar', 'cal-p')?.ownerUserId === P, 'P\'s calendar is gone');
@@ -1878,6 +1878,20 @@ async function main() {
     assert(left.length === 0, `still pointing at W: ${show(left)}`);
     const cached = JSON.parse(redisStore.get('reminders:users:v2') ?? '[]').map((u: Row) => u.id);
     assert(!cached.includes(W) && cached.includes(P), `reminder cache ${show(cached)}`);
+  });
+
+  await check('#13b hardDeleteUser by the person (\'self\'): the pairing the deleted person was invited into is unlinked with no unlinker recorded, the partner keeps their calendar (now private); by an admin the admin is recorded', async () => {
+    for (const [by, want] of [['self', null], [{ admin: 1 }, 1]] as const) {
+      seed();
+      DB.pairing.push(pairing('pair-pw', P, W));
+      userRow(W).pairingId = 'pair-pw';
+      userRow(P).pairingId = 'pair-pw';
+      const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
+      await hardDeleteUser(W, by);
+      const pr = rowOf('pairing', 'pair-pw');
+      assert(!userRow(W) && pr?.status === 'UNLINKED' && pr.unlinkedByUserId === want && userRow(P).pairingId === null, `${show(by)}: pairing ${show(pr)}`);
+      assert(rowOf('nativeCalendar', 'cal-p')?.ownerUserId === P, `${show(by)}: P's calendar is gone`);
+    }
   });
 
   // ---- Account deletion: payment records and the person's cache keys (the final review's I-1 and M-2) ----
@@ -1908,7 +1922,7 @@ async function main() {
     const pKeys = personKeys(P, '5550030', [days(27)]);
     for (const k of [...tKeys, ...pKeys]) redisStore.set(k, '1');
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(T, 1);
+    await hardDeleteUser(T, { admin: 1 });
     assert(!userRow(T), 'T still exists');
     eq(DB.payment.map((r: Row) => r.id), ['pay-p'], 'the payments left');
     eq(tKeys.filter((k) => redisStore.has(k)), [], 'T\'s keys left');
@@ -2100,7 +2114,7 @@ async function main() {
     seed();
     DB.pushDevice = [pushDevice('t-1', T), pushDevice('p-1', P)];
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(T, 1);
+    await hardDeleteUser(T, { admin: 1 });
     assert(!userRow(T), 'T still exists');
     eq(devicesLeft(), [`${P}:p-1`], 'the devices left');
   });
@@ -2113,7 +2127,7 @@ async function main() {
       way('p-e', P, 'email', 'p@example.com', 'p@example.com'),
     ];
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(T, 1);
+    await hardDeleteUser(T, { admin: 1 });
     assert(!userRow(T), 'T still exists');
     eq(table('signInIdentity').map((r) => r.id), ['p-e'], 'the ways left');
   });
@@ -2124,7 +2138,7 @@ async function main() {
     const pr = rowOf('pairing', 'pair-wp')!;
     Object.assign(pr, { inviterUserId: P, inviteeUserId: W });
     const { hardDeleteUser } = await load('src/lib/user-moderation.ts');
-    await hardDeleteUser(W, 1);
+    await hardDeleteUser(W, { admin: 1 });
     assert(!userRow(W), 'W still exists');
     const after = rowOf('pairing', 'pair-wp');
     assert(after?.status === 'UNLINKED' && after.inviterUserId === P && after.inviteeUserId === null, `pairing ${show(after)}`);
@@ -2141,7 +2155,7 @@ async function main() {
       if (!wInvited) Object.assign(rowOf('pairing', 'pair-wp')!, { inviterUserId: P, inviteeUserId: W });
       DB.nativeCalendar.push(calendar('cal-p-old', P, 'Old', { isDeleted: true, privacy: 'SHARED_VIEWER' }));
       const writes = recordWrites();
-      await hardDeleteUser(W, 1);
+      await hardDeleteUser(W, { admin: 1 });
       concurrent = null;
       const privacy = privacyOf(['cal-p', 'cal-p-old', 'cal-t', 'cal-q']);
       const want = { 'cal-p': 'PRIVATE', 'cal-p-old': 'PRIVATE', 'cal-t': 'SHARED_EDITOR', 'cal-q': 'SHARED_EDITOR' };

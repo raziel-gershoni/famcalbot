@@ -252,6 +252,10 @@ const providerScript: Row[] = [];
 const providerCalls: string[] = [];
 /** The people whose copies to Google the hard delete carried out (the worker is faked). */
 const carried: number[] = [];
+/** The hard delete's Google steps in order (the worker is faked): the disconnect marker, then the copies carried out. */
+const deleteSteps: string[] = [];
+/** Set by a check: the fake marker throws, as a Redis that refuses the write would. */
+let markFails = false;
 /** The summary pass: who it is asked about, and what it did (generated, counted, marked sent, flagged unreachable). */
 let scheduled: number[] = [];
 const generated: string[] = [];
@@ -446,7 +450,13 @@ Object.assign(stubs, {
     markSummarySent: async (userId: number, type: string) => { marks.push({ userId, type }); },
   },
   // The hard delete carries out the copies in Google before it deletes: faked (it has its own smoke)
-  [`${SRC}/services/google-sync/worker.ts`]: (real: Record<string, unknown>) => fakeOver(real, { carryOutCopiesBeforeDelete: async (userId: number) => { carried.push(userId); } }),
+  [`${SRC}/services/google-sync/worker.ts`]: (real: Record<string, unknown>) => fakeOver(real, {
+    markDisconnecting: async (userId: number) => {
+      if (markFails) throw new Error('Redis refused the marker (smoke)');
+      deleteSteps.push(`mark ${userId}`);
+    },
+    carryOutCopiesBeforeDelete: async (userId: number) => { carried.push(userId); deleteSteps.push(`carry ${userId}`); },
+  }),
   [`${SRC}/lib/timezone.ts`]: { resolveUserTimezone: async () => 'Asia/Jerusalem', resolveLocation: async () => null, LOOKUP_TIMEOUT_MS: 3000, TIMEZONE_CACHE_TTL: 86_400 },
   [`${SRC}/services/zmanim/pause.ts`]: (real: Record<string, unknown>) => fakeOver(real, { isPaused: async () => false }),
   // The voice path
@@ -817,7 +827,7 @@ async function fix2() {
     answer = () => new Response('{}', { status: 200 });
     watchGoogle();
     const { hardDeleteUser } = await import('../src/lib/user-moderation');
-    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, { admin: 1 }));
     assertSame(revokes, [{ token: 'refresh-token-6', carried: true, stillThere: true }], 'the revoke call (the token, the copies carried out first, the row still there)');
     assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
     assertSame(captured, [], 'something was captured');
@@ -834,7 +844,7 @@ async function fix2() {
     watchGoogle();
     try {
       const { hardDeleteUser } = await import('../src/lib/user-moderation');
-      await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+      await withLogs(() => hardDeleteUser(GOOGLE_USER, { admin: 1 }));
       assertSame(revokes.map(r => r.token).sort(), ['merged-away-token', 'refresh-token-6'], 'the tokens revoked');
     } finally {
       DB.googleSyncLink = [];
@@ -846,7 +856,7 @@ async function fix2() {
     answer = () => new Response(JSON.stringify({ error: 'invalid_request' }), { status: 400 });
     watchGoogle();
     const { hardDeleteUser } = await import('../src/lib/user-moderation');
-    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, { admin: 1 }));
     assert(revokes.length === 1, `expected one revoke call, got ${revokes.length}`);
     assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted after the revoke failed');
     assert(captured.some(c => c.startsWith('google-disconnect-revoke')), `not captured: ${show(captured)}`);
@@ -860,7 +870,7 @@ async function fix2() {
     const handler = fetchHandler;
     fetchHandler = async (url, init) => { await handler(url, init); throw new Error('socket hang up'); };
     const { hardDeleteUser } = await import('../src/lib/user-moderation');
-    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, { admin: 1 }));
     assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
     assert(captured.some(c => c.startsWith('google-disconnect-revoke')), `not captured: ${show(captured)}`);
   });
@@ -869,9 +879,29 @@ async function fix2() {
     addGoogleUser('');
     watchGoogle();
     const { hardDeleteUser } = await import('../src/lib/user-moderation');
-    await withLogs(() => hardDeleteUser(GOOGLE_USER, 1));
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, { admin: 1 }));
     assertSame(revokes, [], 'a call to Google');
     assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
+  });
+
+  await check('2: the hard delete marks the Google disconnect before it carries out the copies (a copy run under way stops), and a marker Redis refuses is logged and reported while the delete goes on', async () => {
+    addGoogleUser('');
+    deleteSteps.length = 0;
+    markFails = false;
+    const { hardDeleteUser } = await import('../src/lib/user-moderation');
+    await withLogs(() => hardDeleteUser(GOOGLE_USER, 'self'));
+    assertSame(deleteSteps, [`mark ${GOOGLE_USER}`, `carry ${GOOGLE_USER}`], 'the order');
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'the person was not deleted');
+    addGoogleUser('');
+    markFails = true;
+    try {
+      await withLogs(() => hardDeleteUser(GOOGLE_USER, 'self'));
+    } finally {
+      markFails = false;
+    }
+    assert(!DB.user.some(u => u.id === GOOGLE_USER), 'a refused marker stopped the delete');
+    assert(captured.some(c => c.startsWith('google-sync-hard-delete-marker')), `not captured: ${show(captured)}`);
+    assert(logs.some(l => l.includes('marking the Google disconnect failed') && l.includes(`user ${GOOGLE_USER}`)), `not logged: ${show(logs)}`);
   });
 
   await check('2: Disconnect Google uses the same exported call (one revoke path)', async () => {

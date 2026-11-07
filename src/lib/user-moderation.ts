@@ -74,6 +74,9 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
 // HARD DELETE
 // ============================================
 
+/** Who deletes the account: an admin from the admin panel, or the person from Settings (app/api/account/delete). */
+export type DeletedBy = { admin: number } | 'self';
+
 /**
  * Delete a user and every row that points at them, in one transaction. The
  * schema refuses the delete (ON DELETE RESTRICT) while a calendar, an event
@@ -102,8 +105,23 @@ export async function unsuspendUser(userId: number, adminId: number): Promise<vo
  * Admin ids they left in compedBy, grantedBy, suspendedBy and bannedBy stay: they
  * are plain audit columns, and compedBy != null is what marks a comp.
  * Also clears Redis caches keyed by userId.
+ * `by`: an admin (the admin panel's Delete) or the person ('self', Settings' Delete account, app/api/account/delete).
+ * One code path for both; only the unlinker recorded on the pairing and the log line differ. First of all it marks the
+ * Google disconnect (markDisconnecting), so a copy-to-Google run already under way stops writing and messaging and makes
+ * no copy calendar after the Remove pass; best effort like the Google steps.
  */
-export async function hardDeleteUser(userId: number, adminId: number): Promise<void> {
+export async function hardDeleteUser(userId: number, by: DeletedBy): Promise<void> {
+  // First: a copy-to-Google run under way stops writing and messaging (the worker's assertConnected), so it makes no copy
+  // calendar after the Remove pass below. Best effort: a Redis that refuses the marker is logged and reported, and the
+  // delete goes on (the person asked for it; the run then fails on the rows that are gone).
+  try {
+    const { markDisconnecting } = await import('../services/google-sync/worker');
+    await markDisconnecting(userId);
+  } catch (error) {
+    console.error(`[Moderation] Hard delete of user ${userId}: marking the Google disconnect failed; the delete goes on`, error);
+    captureError(error, 'google-sync-hard-delete-marker', { user_id: userId }, 'warning');
+  }
+
   try {
     // Loaded here: the worker reaches the Google client and the calendar code, which the
     // moderation helpers' other callers (the webhooks' blocklist checks) never need.
@@ -149,7 +167,7 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
     if (user?.pairingId) {
       await tx.pairing.updateMany({
         where: { id: user.pairingId, status: 'ACTIVE' },
-        data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: adminId },
+        data: { status: 'UNLINKED', unlinkedAt: new Date(), unlinkedByUserId: by === 'self' ? null : by.admin },
       });
       const partners = await tx.user.findMany({ where: { pairingId: user.pairingId, id: { not: userId } }, select: { id: true } });
       await tx.user.updateMany({ where: { pairingId: user.pairingId }, data: { pairingId: null } });
@@ -190,7 +208,8 @@ export async function hardDeleteUser(userId: number, adminId: number): Promise<v
 
   await clearDeletedUserCaches(userId, cacheKeys);
 
-  console.log(`[Moderation] Admin ${adminId} hard-deleted user ${userId}`);
+  // The person's own delete is logged by its route, with the way they came in (app/api/account/delete)
+  if (by !== 'self') console.log(`[Moderation] Admin ${by.admin} hard-deleted user ${userId}`);
 }
 
 /**

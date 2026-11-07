@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        await hardDeleteUser(user_id, auth.adminId!);
+        await hardDeleteUser(user_id, { admin: auth.adminId! });
         return NextResponse.json({ success: true, message: 'User hard-deleted' });
       }
 

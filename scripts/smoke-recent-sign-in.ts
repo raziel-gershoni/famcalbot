@@ -13,7 +13,7 @@
 //   - the proved-at itself: a cookie with no `pa` falls back to its sign-in time (or its iat), and a re-issue (page-data's
 //     renewal, Remove) never restarts the hour;
 //   - no `provedAt` arithmetic anywhere in src/ or app/ except the helper, and Connect Telegram reads the helper;
-//   - the audit (Task 4): every file that adds a way to an account or connects a Google account from a browser either
+//   - the audit (Task 4): every file that adds a way to an account, connects a Google account or deletes an account from a browser either
 //     asks the helper (GUARDED) or is listed with the reason it does not (EXEMPT); an unlisted file fails here.
 //
 // Real: the helper, the session cookie, verifyUserAuth. Faked at the boundaries (scripts/lib/signin-world.ts): Prisma,
@@ -178,6 +178,7 @@ async function main() {
     'app/api/oauth/claim/route.ts': 'Finish here commits the connection, and its check says stale (refuseStaleSignIn; the entry stays for the chat claim)',
     'app/api/google-sync/route.ts': 'a Copy to Google that asks Google\'s consent, the first one or Approve in Google after Google stopped it (refuseStaleSignIn, only before the new consent)',
     'app/api/push/devices/route.ts': 'Turn on notifications: a new browser device is stored only for a sign-in from the last hour, an endpoint the account already has needs none (refuseStaleSignIn; web push spec 2026-11-05 §3.2)',
+    'app/api/account/delete/route.ts': 'Delete account: an account is deleted from a browser only for a sign-in from the last hour (refuseStaleSignIn; Mini App initData passes; spec 2026-11-07-b-features §B3)',
   };
   /** Files that call one of the same functions and are not asked, with the reason. */
   const EXEMPT: Record<string, string> = {
@@ -191,15 +192,17 @@ async function main() {
     'app/(connect)/oauth-callback/page.tsx': 'stores the pending token only (createPendingGoogleToken); nothing is connected until the claim, which app/api/oauth/claim guards (and the chat claim proves the chat)',
     'src/services/user-service.ts': 'createAccount writes the first web way (writeIdentityInTx) of a sign-up, which ends in finishSignIn: a fresh proof by construction',
     'app/api/auth/email/request/route.ts': 'sign-in and sign-up codes only: the code proves the address and the flow ends in finishSignIn',
+    'src/lib/user-moderation.ts': 'defines hardDeleteUser (every caller is listed: the admin route and Delete account)',
+    'app/api/admin/users/moderation/route.ts': 'the admin\'s Delete, proved by the admin\'s Telegram initData only (verifyAdminAccess), never a browser cookie',
   };
-  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|addDevice|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin|mergeAccounts|offerJoin|commitGoogleToken|createPendingGoogleToken|writeIdentityInTx)\(/;
+  const CALLS = /\b(?:createAddGoogleLink|takeAddGoogleToken|issueCode|addIdentity|addDevice|createGoogleConsent|claimPendingGoogleToken|turnOnCalendarAccount|runJoin|mergeAccounts|offerJoin|commitGoogleToken|createPendingGoogleToken|writeIdentityInTx|hardDeleteUser)\(/;
   const DEFINITION = /^\s*export\s+(?:async\s+)?function\s/;
   /** A call of the helper: its name followed by "(" on a code line that is not an import (the import line and comments are not asking). */
   const GUARD_CALL = /\b(?:refuseStaleSignIn|recentlyProved)\(/;
   const IMPORT_LINE = /^\s*import\b/;
   const asksHelper = (file: string): boolean => codeLines(file).some(line => GUARD_CALL.test(line) && !IMPORT_LINE.test(line));
 
-  await check('the audit: every file under src/ and app/ that adds a sign-in way or connects Google from a browser is in GUARDED (and asks the helper) or EXEMPT (with a reason); a file nobody classified fails, and so does a listed file that is gone', () => {
+  await check('the audit: every file under src/ and app/ that adds a sign-in way, connects Google or deletes an account from a browser is in GUARDED (and asks the helper) or EXEMPT (with a reason); a file nobody classified fails, and so does a listed file that is gone', () => {
     const callers = SOURCES.filter(file => codeLines(file).some(line => CALLS.test(line) && !DEFINITION.test(line))).map(rel);
     const defining = SOURCES.filter(file => codeLines(file).some(line => CALLS.test(line) && DEFINITION.test(line))).map(rel);
     const touched = [...new Set([...callers, ...defining])].sort();
