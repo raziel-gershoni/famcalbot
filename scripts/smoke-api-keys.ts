@@ -15,7 +15,9 @@
 //     instance's revoke lands then), a failing Redis keeps the copy and waits 5 minutes, and with nothing at all
 //     KeysUnavailable;
 //   - K8 the schema, the hand-written migration (additions only, safe twice) and the generated client;
-//   - A1-A5 (Task 3) the admin route and the fence on the table;
+//   - K9 a revoke that fails after the table update stays revoked here after the old Redis list is read again; K10 a create
+//     that fails the same way revokes its new row;
+//   - A1-A5 (Task 3) the admin route and the fence on the table; A6 the admin list puts a stale mirror right;
 //   - Z1 no console line or Sentry field holds a key, its hash, its prefix, an app name or an origin.
 //
 // Real: mirror.ts, store.ts, lookup.ts (and, from Task 3, the admin route, admin-auth and user-service). Faked at the
@@ -180,6 +182,56 @@ async function main() {
     assert((await codeOf(() => store.revokeApiKey(2, ADMIN))) === 'MIRROR_FAILED', 'both failing');
     assert(DB.apiKey[1].revokedAt instanceof Date && mirror.keyCopy()?.byHash.size === 0, 'the table and the copy are right');
     assert(captured.some((c) => c.context === 'api-keys' && /not deleted either/.test(c.message)), 'the failed DEL is reported');
+  });
+
+  await check('K9 a revoke that fails after the table update (the key list could not be read back, or Redis took neither the SET nor the DEL) is MIRROR_FAILED, the key is refused here at once, and still refused after the next refresh of the old Redis list (5 minutes later); the retry writes the list and clears it', async () => {
+    for (const how of ['the table read-back fails', 'Redis refuses SET and DEL']) {
+      resetApiWorld();
+      setClock(T0);
+      const a = remember((await store.createApiKey('Shabbat site', '', ADMIN)).key);
+      const b = remember((await store.createApiKey('Candle app', '', ADMIN)).key);
+      if (how === 'the table read-back fails') prismaFails.add('apiKey.findMany');
+      else {
+        redisFails.add('set');
+        redisFails.add('del');
+      }
+      assert((await codeOf(() => store.revokeApiKey(1, ADMIN))) === 'MIRROR_FAILED', `${how}: the code`);
+      prismaFails.clear();
+      redisFails.clear();
+      assert(DB.apiKey[0].revokedAt instanceof Date && !mirror.keyCopy()?.byHash.has(sha(a)) && mirror.keyCopy()?.byHash.has(sha(b)), `${how}: the table and the copy here`);
+      assert(show(mirrorOf()?.map((e) => e.id)) === '[1,2]', `${how}: Redis still holds the old list: ${show(mirrorOf())}`);
+      advanceClock(5 * 60_000);
+      assert((await lookup.findApiKey(b))?.id === 2, `${how}: the other key`);
+      await lookup.__pendingKeyRefreshForTests();
+      assert((await lookup.findApiKey(a)) === null, `${how}: the revoked key is accepted again after the refresh`);
+      assert((await lookup.findApiKey(b))?.id === 2, `${how}: the other key after the refresh`);
+      await store.revokeApiKey(1, ADMIN);
+      assert(show(mirrorOf()?.map((e) => e.id)) === '[2]', `${how}: the retry writes the list`);
+      advanceClock(5 * 60_000);
+      await lookup.findApiKey(b);
+      await lookup.__pendingKeyRefreshForTests();
+      assert((await lookup.findApiKey(a)) === null && (await lookup.findApiKey(b))?.id === 2, `${how}: after the retry`);
+    }
+  });
+
+  await check('K10 a create whose mirror could be neither written nor deleted, or whose table read-back fails, is MIRROR_FAILED: the new row is revoked (no key nobody has, no slot used), and no copy holds it', async () => {
+    for (const how of ['the table read-back fails', 'Redis refuses SET and DEL']) {
+      resetApiWorld();
+      setClock(T0);
+      if (how === 'the table read-back fails') prismaFails.add('apiKey.findMany');
+      else {
+        redisFails.add('set');
+        redisFails.add('del');
+      }
+      assert((await codeOf(() => store.createApiKey('Shabbat site', '', ADMIN))) === 'MIRROR_FAILED', `${how}: the code`);
+      prismaFails.clear();
+      redisFails.clear();
+      assert(DB.apiKey.length === 1 && DB.apiKey[0].revokedAt instanceof Date, `${how}: the row is revoked`);
+      assert((mirror.keyCopy()?.count ?? 0) === 0, `${how}: the copy`);
+      advanceClock(5 * 60_000);
+      forgetCopy();
+      assert(show((await lookup.anyKeyListsOrigin('https://x.example.test')) ? 1 : 0) === '0' && (mirror.keyCopy()?.count ?? 0) === 0, `${how}: after a cold read`);
+    }
   });
 
   await check('K7 the lookup: memory only while the copy is under 5 minutes old (an unknown or malformed key costs nothing); a cold start is one Redis GET, shared by requests at once; an old copy serves and refreshes in the background (another instance\'s revoke lands then); a missing or corrupt mirror is one table read and one SET; a failing Redis keeps the copy and waits 5 minutes; with no copy, no Redis and no table it is KeysUnavailable', async () => {
@@ -358,6 +410,37 @@ async function main() {
     assert(show(touching) === show([ALLOWED]), `the table is used outside store.ts: ${show(touching)}`);
     const raw = codeFiles(['src', 'app']).filter((rel) => /"ApiKey"/.test(read(rel)));
     assert(raw.length === 0, `raw SQL on the table: ${show(raw)}`);
+  });
+
+  await check('A6 GET puts the key list right when Redis holds a key the table has revoked (a revoke that ended in MIRROR_FAILED): one Redis GET when they agree, a rebuild when they differ, and a failing Redis does not fail the list', async () => {
+    resetApiWorld();
+    seedAdmin();
+    const first = await post({ action: 'create', appName: 'Shabbat site', origins: '' });
+    const second = await post({ action: 'create', appName: 'Candle app', origins: '' });
+    const a = remember(first.body.key);
+    const b = remember(second.body.key);
+    const list = () => route.GET(request('/api/admin/api-keys', { initData: adminInit() }));
+    redisCalls.length = 0;
+    assert((await list()).status === 200 && show(redisCalls) === show(['get']), `agreeing: ${show(redisCalls)}`);
+    redisFails.add('set');
+    redisFails.add('del');
+    assert((await post({ action: 'revoke', id: first.body.id })).status === 503, 'the revoke is stuck');
+    redisFails.clear();
+    // Another process (a new one, or the old one during a deploy): no tombstone, it reads Redis's old list
+    forgetCopy();
+    assert((await lookup.findApiKey(a))?.id === first.body.id, 'the old list still accepts it elsewhere');
+    redisCalls.length = 0;
+    const res: Response = await list();
+    const listed = await body(res);
+    assert(res.status === 200 && listed.keys.length === 2 && show(redisCalls) === show(['get', 'set']), `healing: ${res.status} ${show(redisCalls)}`);
+    assert(show(mirrorOf()?.map((e) => e.id)) === show([second.body.id]), `the mirror: ${show(mirrorOf())}`);
+    assert((await lookup.findApiKey(a)) === null && (await lookup.findApiKey(b))?.id === second.body.id, 'the revoked key is refused, the other works');
+    redisCalls.length = 0;
+    await list();
+    assert(show(redisCalls) === show(['get']), `then only a GET: ${show(redisCalls)}`);
+    redisFails.add('get');
+    captured.length = 0;
+    assert((await list()).status === 200 && captured.some((c) => c.context === 'api-keys'), 'a failing Redis: the list is still answered, and it is reported');
   });
 
   await check('Z1 no console line or Sentry field of the run holds a key, its hash, its prefix, an app name or an origin', () => {

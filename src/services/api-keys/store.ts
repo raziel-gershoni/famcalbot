@@ -7,6 +7,10 @@
 //   (REDIS_KEYS.API_KEYS, no TTL), then put in this process's memory (mirror.ts), in that order. A failed SET deletes the
 //   mirror (the next cold read rebuilds it from the table); a failed delete too is MIRROR_FAILED for a revoke (a create
 //   still answers its key: this process's copy has it). The memory copy is always replaced.
+// - A write that fails after the table changed does not leave a key accepted: a revoke forgets the key in this process
+//   (mirror.ts forgetKey, so a refresh that reads Redis's old list cannot bring it back) and answers MIRROR_FAILED; a create
+//   whose list could be neither written nor read back revokes its new row and answers MIRROR_FAILED. The admin list
+//   compares Redis's ids with the table's active ids (one GET) and writes the list again when they differ (healMirror).
 // - At most 50 active keys: a guard, not a product limit.
 // - Logs name a key by its id and the admin by theirs: never the key, its hash, its prefix, its app's name or its origins.
 
@@ -16,7 +20,7 @@ import { captureError } from '../../lib/error-capture';
 import { prisma } from '../../utils/prisma';
 import { redis } from '../../utils/redis';
 import { safeErrorSummary } from '../web-signin/safe-error';
-import { KEY_PREFIX, PREFIX_LENGTH, hashKey, installKeyCopy, type MirrorEntry } from './mirror';
+import { KEY_PREFIX, PREFIX_LENGTH, forgetKey, hashKey, installKeyCopy, keysWritten, parseMirror, pruneKeyCopy, type MirrorEntry } from './mirror';
 
 export const MAX_ACTIVE_KEYS = 50;
 export const MAX_APP_NAME = 40;
@@ -111,7 +115,27 @@ export async function rebuildMirror(): Promise<{ entries: MirrorEntry[]; publish
 async function afterWrite(now: number): Promise<boolean> {
   const { entries, published } = await rebuildMirror();
   installKeyCopy(entries, now);
+  if (published) keysWritten();
   return published;
+}
+
+/**
+ * afterWrite for a revoke: when it fails in either way
+ * (the table read-back throws, or Redis took neither the SET nor the DEL) the key is already out of this process's copy
+ * and stays out of it (mirror.ts forgetKey), the failure is reported, and MIRROR_FAILED is thrown. Redis may still list it:
+ * the admin list (healMirror) or the retry writes the list again.
+ */
+async function writeWithoutKey(id: number, now: number): Promise<void> {
+  forgetKey(id);
+  let published: boolean;
+  try {
+    published = await afterWrite(now);
+  } catch (error) {
+    pruneKeyCopy();
+    captureError(new Error(`[api-keys] the key list could not be written after key ${id} was revoked (${safeErrorSummary(error)})`), 'api-keys', { step: 'mirror-rebuild' });
+    throw new ApiKeyError('MIRROR_FAILED');
+  }
+  if (!published) throw new ApiKeyError('MIRROR_FAILED');
 }
 
 /** A new key for an app: answered once, with its row id and its prefix. Throws ApiKeyError for a bad name or origin, or 50 active keys. */
@@ -126,8 +150,26 @@ export async function createApiKey(appName: unknown, origins: unknown, adminId: 
     select: { id: true, prefix: true },
   });
   console.log(`[api-keys] key ${row.id} created by admin ${adminId}`);
-  // A mirror that could not be written is reported in publishMirror; this process's copy has the key either way
-  await afterWrite(Date.now());
+  // A mirror that could not be written is reported in publishMirror. When the list could be neither written nor deleted, or
+  // the table could not be read back, the key would work in this process only (or nowhere) and nobody would be told: the
+  // row is revoked and the admin makes another.
+  let written = false;
+  try {
+    written = await afterWrite(Date.now());
+  } catch (error) {
+    captureError(new Error(`[api-keys] the key list could not be written after key ${row.id} was created (${safeErrorSummary(error)})`), 'api-keys', { step: 'mirror-rebuild' });
+  }
+  if (!written) {
+    forgetKey(row.id);
+    pruneKeyCopy();
+    try {
+      await prisma.apiKey.updateMany({ where: { id: row.id, revokedAt: null }, data: { revokedAt: new Date() } });
+      console.log(`[api-keys] key ${row.id} revoked at once: the key list could not be written`);
+    } catch (error) {
+      captureError(new Error(`[api-keys] key ${row.id} could not be revoked after its key list failed (${safeErrorSummary(error)}): it stays active, nobody has it`), 'api-keys', { step: 'create-undo' });
+    }
+    throw new ApiKeyError('MIRROR_FAILED');
+  }
   return { key, id: row.id, prefix: row.prefix };
 }
 
@@ -142,7 +184,26 @@ export async function revokeApiKey(id: number, adminId: number): Promise<void> {
   } else {
     console.log(`[api-keys] key ${id} revoked by admin ${adminId}`);
   }
-  if (!(await afterWrite(now))) throw new ApiKeyError('MIRROR_FAILED');
+  await writeWithoutKey(id, now);
+}
+
+/**
+ * Puts Redis's list right when it differs from the table's active keys (a revoke or a create whose write failed, or an
+ * old instance's list): one Redis GET, and a rebuild only when they differ. Never throws: the admin list is answered anyway.
+ * A missing or unreadable list is left to the lookup, which rebuilds it from the table when it reads.
+ */
+async function healMirror(activeIds: number[]): Promise<void> {
+  try {
+    const value = await redis.get<unknown>(REDIS_KEYS.API_KEYS);
+    if (value === null || value === undefined) return;
+    const listed = parseMirror(value);
+    const want = [...activeIds].sort((x, y) => x - y).join(',');
+    if (listed && listed.map((entry) => entry.id).sort((x, y) => x - y).join(',') === want) return;
+    console.warn('[api-keys] the key list in Redis differs from the database: writing it again');
+    await afterWrite(Date.now());
+  } catch (error) {
+    captureError(new Error(`[api-keys] the key list could not be checked (${safeErrorSummary(error)})`), 'api-keys', { step: 'heal' });
+  }
 }
 
 /** Every key, newest first, as the admin list shows it (never a hash). */
@@ -151,5 +212,6 @@ export async function listApiKeys(): Promise<ApiKeyListItem[]> {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: { id: true, appName: true, prefix: true, origins: true, createdAt: true, revokedAt: true },
   });
+  await healMirror(rows.filter((row) => !row.revokedAt).map((row) => row.id));
   return rows.map((row) => ({ id: row.id, appName: row.appName, prefix: row.prefix, origins: row.origins, createdAt: row.createdAt.toISOString(), revokedAt: row.revokedAt?.toISOString() ?? null }));
 }

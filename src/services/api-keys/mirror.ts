@@ -26,12 +26,12 @@ export type KeyCopy = {
   count: number;
 };
 
-type Shared = { copy: KeyCopy | null };
+type Shared = { copy: KeyCopy | null; gone: Set<number> };
 
 /** The process's state, read on each call (a smoke starts it over by deleting globalThis.__apiKeys). */
 function shared(): Shared {
   const g = globalThis as { __apiKeys?: Shared };
-  return (g.__apiKeys ??= { copy: null });
+  return (g.__apiKeys ??= { copy: null, gone: new Set() });
 }
 
 /** The SHA-256 of a key, hex: what the table, the mirror and the copy hold. */
@@ -67,14 +67,39 @@ export function keyCopy(): KeyCopy | null {
   return shared().copy;
 }
 
-/** Replaces the process's copy with these entries, read at `now`. */
+/**
+ * Replaces the process's copy with these entries, read at `now`, without the keys this process knows are gone (forgetKey).
+ * `loadedAt` is when the copy was read: a pruned copy keeps its own.
+ */
 export function installKeyCopy(entries: readonly MirrorEntry[], now: number): KeyCopy {
+  const { gone } = shared();
+  const kept = gone.size === 0 ? entries : entries.filter((entry) => !gone.has(entry.id));
   const copy: KeyCopy = {
-    byHash: new Map(entries.map((entry) => [entry.hash, entry])),
-    origins: new Set(entries.flatMap((entry) => entry.origins)),
+    byHash: new Map(kept.map((entry) => [entry.hash, entry])),
+    origins: new Set(kept.flatMap((entry) => entry.origins)),
     loadedAt: now,
-    count: entries.length,
+    count: kept.length,
   };
   shared().copy = copy;
   return copy;
+}
+
+/**
+ * A key the table says is revoked (or a new row that was revoked at once) whose removal from Redis's list may not have
+ * gone through: from now on this process refuses it, whatever list a refresh reads back from Redis, until a list without it
+ * is written (keysWritten). The copy itself changes at the next install (installKeyCopy) or pruneKeyCopy.
+ */
+export function forgetKey(id: number): void {
+  shared().gone.add(id);
+}
+
+/** The copy without the keys forgetKey named, at once. */
+export function pruneKeyCopy(): void {
+  const { copy } = shared();
+  if (copy) installKeyCopy([...copy.byHash.values()], copy.loadedAt);
+}
+
+/** Redis now holds the table's list: the keys forgetKey kept out are out there too. */
+export function keysWritten(): void {
+  shared().gone.clear();
 }
