@@ -2311,6 +2311,7 @@
             [
               "**Voice notes.** We send them to the AI to understand them, then drop them. What the AI understood is held for 10 minutes while you confirm it. If the AI couldn’t make sense of a voice note, we hold the note for 5 minutes so your next message can complete it.",
               "**Photos, PDFs and forwarded messages** (Telegram only). We send them to the AI to find events, and we don’t store them.",
+              "**A message you ask about in another chat** (Telegram only). When you reply to a message in another Telegram chat and mention our bot, Telegram sends us that message, which someone else may have written, and your mention. We send both to the AI only to find the day and time you’re asking about, and we keep neither. The bot then answers in that chat, where everyone in it can see the answer: it shows only when you’re busy and when you’re free, never what your events are.",
               "**Audio we make for you**: voice briefings, the voice show and spoken replies. Each file is deleted as soon as it’s sent.",
               "**Your device’s location.** If you tap “use my location” in Settings, your browser asks OpenStreetMap for the place name, and your device’s position never reaches our servers. We keep only the place name. On the zmanim pages, the city nearest you is found on your device, and your device’s position isn’t sent to us. We receive only the request for that city’s page.",
               "**Card or bank details.**",
@@ -2335,7 +2336,7 @@
           "blocks": [
             [
               "To run the features you use: your calendar, reminders, briefings and the voice show, notifications in your browser, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, and your Google connection.",
-              "To understand what you send the bot: voice notes, photos, PDFs, forwarded messages and typed reminders.",
+              "To understand what you send the bot: voice notes, photos, PDFs, forwarded messages, typed reminders, and the message you ask about when you mention the bot in another chat.",
               "To apply your plan’s limits, and to handle payments and refunds.",
               "To answer you, fix problems, and keep FamCal safe from misuse."
             ],
@@ -2376,7 +2377,7 @@
               {
                 "text": "**Google Gemini (our AI).** It receives:",
                 "items": [
-                  "your voice notes, photos, PDFs, forwarded messages and typed reminders, so it can understand them;",
+                  "your voice notes, photos, PDFs, forwarded messages and typed reminders, and a message you ask about in another chat with your mention, so it can understand them;",
                   "your calendar names, your family members’ names and your recent events, so it can match what you ask;",
                   "for briefings and the voice show: your name, how to address you, your family members’ names, your events, your calendar culture, your notes for the AI and the day’s weather;",
                   "the text it reads aloud."
@@ -2385,7 +2386,7 @@
                   "We use Gemini’s paid service. Under Google’s terms, Google doesn’t use what we send it to improve its products. It keeps that data for a limited time, only to detect misuse."
                 ]
               },
-              "**Telegram:** every message between you and the bot, the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.",
+              "**Telegram:** every message between you and the bot; when you mention the bot in another chat, the message you ask about, your mention and the bot’s answer there; the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.",
               "**Meta (WhatsApp):** your number and every message between you and the bot on WhatsApp.",
               "**Google Calendar,** if you connect it (see above).",
               "**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.",
@@ -2600,8 +2601,10 @@
             [
               "reminders and event alerts (an account made on famcal.bot can get them as notifications in the browser until it connects Telegram);",
               "adding events from photos, PDFs and forwarded messages;",
+              "asking when you’re free from another chat;",
               "paying for a plan."
             ],
+            "When you mention the bot in another Telegram chat, it answers in that chat, and everyone in it sees the answer: when you’re busy and when you’re free on the day you asked about, from all the calendars you chose in FamCal. It never shows your events’ names. Mention it only where you’re happy for the people there to see that.",
             "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Reminders, event alerts, a short notification that lists the day’s events and a notice when your trial ends reach you on each phone or computer where you turn notifications on (on iPhone and iPad, after you add FamCal to the Home Screen). Once you connect Telegram, they come in Telegram instead, and the notifications stop."
           ]
         },
@@ -2711,7 +2714,7 @@
           "blocks": [
             "FamCal uses AI to:",
             [
-              "understand voice notes, photos, PDFs and forwarded messages;",
+              "understand voice notes, photos, PDFs and forwarded messages, and the day you ask about in another chat;",
               "write your briefings and the voice show;",
               "read them aloud. The voices in voice briefings, the voice show and spoken replies are made by AI."
             ],
