@@ -30,11 +30,13 @@ import fs from 'fs';
 import path from 'path';
 import { Prisma } from '@prisma/client';
 import { advanceClock, installApiWorld, prismaFails, redisBefore, redisCalls, redisFails, resetApiWorld, setClock } from './lib/api-world';
-import { assert, captured, check, DB, everyCapture, everyLog, load, logs, prismaCalls, redisStore, report, ROOT, show, type Row } from './lib/signin-world';
+import { assert, baseUser, body, captured, check, DB, everyCapture, everyLog, initDataFor, load, logs, prismaCalls, redisStore, report, request, ROOT, show, type Row } from './lib/signin-world';
 
 const MIGRATION = '20261107010000_api_keys';
 const MIRROR = 'api:keys:v1';
 const ADMIN = 9;
+const ADMIN_TG = 5550009;
+const OTHER_TG = 5550010;
 /** One second into a minute (the rate smokes rely on it too). */
 const T0 = Date.UTC(2026, 10, 13, 8, 0, 1);
 
@@ -277,7 +279,86 @@ async function main() {
     assert(show(fields) === show(['id', 'appName', 'keyHash', 'prefix', 'origins', 'createdAt', 'createdBy', 'revokedAt']), `the generated client's ApiKey: ${show(fields)} (run npx prisma generate)`);
   });
 
-  // ---- Task 3: the admin route (A1-A5) ----
+  const seedAdmin = () => {
+    DB.user = [baseUser({ id: ADMIN, name: 'Admin', telegramId: BigInt(ADMIN_TG), isAdmin: true }), baseUser({ id: 10, name: 'Someone', telegramId: BigInt(OTHER_TG) })];
+  };
+  const route = await load('app/api/admin/api-keys/route.ts');
+  const adminInit = () => initDataFor(ADMIN_TG);
+  const post = async (b: Row, initData: string | null = adminInit()) => {
+    const res: Response = await route.POST(request('/api/admin/api-keys', { body: initData ? { ...b, initData } : b, ...(initData ? { initData } : {}) }));
+    return { status: res.status, body: await body(res), cache: res.headers.get('cache-control') };
+  };
+
+  await check('A1 GET: no initData is 401, a person who is not an admin 403; an admin gets every key newest first, a revoked one with its date, and never a hash', async () => {
+    resetApiWorld();
+    seedAdmin();
+    assert((await route.GET(request('/api/admin/api-keys'))).status === 401, 'no initData');
+    assert((await route.GET(request('/api/admin/api-keys', { initData: initDataFor(OTHER_TG) }))).status === 403, 'not an admin');
+    const first = await post({ action: 'create', appName: 'Shabbat site', origins: '' });
+    const second = await post({ action: 'create', appName: 'Candle app', origins: 'https://candles.example.test' });
+    remember(first.body.key);
+    remember(second.body.key);
+    await post({ action: 'revoke', id: first.body.id });
+    const res: Response = await route.GET(request('/api/admin/api-keys', { initData: adminInit() }));
+    const listed = await body(res);
+    assert(res.status === 200 && listed.success === true && res.headers.get('cache-control') === 'no-store', `${res.status} ${show(listed)}`);
+    assert(show(listed.keys.map((k: Row) => Object.keys(k).sort())) === show([['appName', 'createdAt', 'id', 'origins', 'prefix', 'revokedAt'], ['appName', 'createdAt', 'id', 'origins', 'prefix', 'revokedAt']]), 'the fields');
+    assert(show(listed.keys.map((k: Row) => [k.id, k.appName, k.origins, k.revokedAt === null])) === show([[2, 'Candle app', ['https://candles.example.test'], true], [1, 'Shabbat site', [], false]]), `the list: ${show(listed.keys)}`);
+    assert(!JSON.stringify(listed).includes(sha(first.body.key)) && !JSON.stringify(listed).includes(first.body.key), 'a hash or a key in the list');
+  });
+
+  await check('A2 POST create answers { success, key, id, prefix } once, not stored by a cache; a bad name, a bad origin and the 51st active key are refused by their codes', async () => {
+    resetApiWorld();
+    seedAdmin();
+    const made = await post({ action: 'create', appName: 'Shabbat site', origins: 'https://shabbat.example.test' });
+    remember(made.body.key);
+    assert(made.status === 200 && made.cache === 'no-store' && show(Object.keys(made.body).sort()) === show(['id', 'key', 'prefix', 'success']) && /^fcj_/.test(made.body.key) && made.body.prefix === made.body.key.slice(0, 10), `${made.status} ${show(Object.keys(made.body))}`);
+    assert(show(await post({ action: 'create', appName: ' ', origins: '' })) === show({ status: 400, body: { error: 'INVALID_NAME' }, cache: null }), 'a blank name');
+    assert(show(await post({ action: 'create', appName: 'One more', origins: 'http://shabbat.example.test' })) === show({ status: 400, body: { error: 'INVALID_ORIGIN' }, cache: null }), 'a plain http origin');
+    DB.apiKey.push(...Array.from({ length: 49 }, (_, i) => ({ id: 100 + i, appName: `app ${i}`, keyHash: sha(`k${i}`), prefix: 'fcj_aaaaaa', origins: [], createdAt: new Date(T0), createdBy: ADMIN, revokedAt: null })));
+    assert(show(await post({ action: 'create', appName: 'One more', origins: '' })) === show({ status: 400, body: { error: 'TOO_MANY_KEYS' }, cache: null }), 'the 51st');
+    assert((await post({ action: 'create', appName: 'One more', origins: '' }, null)).status === 401, 'a POST with no initData');
+  });
+
+  await check('A3 POST revoke answers { success }; again succeeds; no such key is 404 NOT_FOUND; a bad id, an unknown action or a body that is no JSON is 400 INVALID_REQUEST; a mirror that could be neither written nor deleted is 503 MIRROR_FAILED', async () => {
+    resetApiWorld();
+    seedAdmin();
+    const made = await post({ action: 'create', appName: 'Shabbat site', origins: '' });
+    remember(made.body.key);
+    assert(show(await post({ action: 'revoke', id: made.body.id })) === show({ status: 200, body: { success: true }, cache: null }), 'revoke');
+    assert((await post({ action: 'revoke', id: made.body.id })).status === 200, 'again');
+    assert(show(await post({ action: 'revoke', id: 999 })) === show({ status: 404, body: { error: 'NOT_FOUND' }, cache: null }), 'no such key');
+    for (const bad of [{ action: 'revoke', id: '1' }, { action: 'revoke', id: 0 }, { action: 'revoke' }, { action: 'delete', id: 1 }, {}]) {
+      assert(show(await post(bad)) === show({ status: 400, body: { error: 'INVALID_REQUEST' }, cache: null }), `${show(bad)} was taken`);
+    }
+    const { NextRequest } = await import('next/server');
+    const notJson = await route.POST(new NextRequest('https://famcal.bot/api/admin/api-keys', { method: 'POST', headers: { 'x-telegram-init-data': adminInit() }, body: '{"action":' }));
+    assert(notJson.status === 400 && show(await body(notJson)) === show({ error: 'INVALID_REQUEST' }), 'a body that is no JSON');
+    const other = await post({ action: 'create', appName: 'Candle app', origins: '' });
+    remember(other.body.key);
+    redisFails.add('set');
+    redisFails.add('del');
+    assert(show(await post({ action: 'revoke', id: other.body.id })) === show({ status: 503, body: { error: 'MIRROR_FAILED' }, cache: null }), 'the mirror stuck');
+  });
+
+  await check('A4 the route logs by ids and codes only: the created and revoked lines, a refusal by its code', async () => {
+    resetApiWorld();
+    seedAdmin();
+    const made = await post({ action: 'create', appName: 'Shabbat site', origins: '' });
+    remember(made.body.key);
+    await post({ action: 'revoke', id: made.body.id });
+    await post({ action: 'create', appName: '', origins: '' });
+    assert(logs.includes(`[api-keys] key ${made.body.id} created by admin ${ADMIN}`) && logs.includes(`[api-keys] key ${made.body.id} revoked by admin ${ADMIN}`) && logs.includes('[api-keys] refused: INVALID_NAME'), show(logs));
+  });
+
+  await check('A5 the fence: only src/services/api-keys/store.ts reads or writes the API key table (no other prisma delegate use in src/, app/ or scripts/, and no raw "ApiKey" SQL in src/ or app/)', () => {
+    const ALLOWED = 'src/services/api-keys/store.ts';
+    const delegate = new RegExp(['\\bprisma', 'apiKey\\b'].join('\\.'));
+    const touching = codeFiles(['src', 'app', 'scripts']).filter((rel) => delegate.test(read(rel)));
+    assert(show(touching) === show([ALLOWED]), `the table is used outside store.ts: ${show(touching)}`);
+    const raw = codeFiles(['src', 'app']).filter((rel) => /"ApiKey"/.test(read(rel)));
+    assert(raw.length === 0, `raw SQL on the table: ${show(raw)}`);
+  });
 
   await check('Z1 no console line or Sentry field of the run holds a key, its hash, its prefix, an app name or an origin', () => {
     const text = [...everyLog, ...everyCapture.map((c) => `${c.message} ${show(c.extra)}`)].join('\n');
