@@ -14,8 +14,8 @@ import { isValidReminderTime, reminderTimeOf } from '@/src/lib/reminder-time';
 import { isCommunity } from '@/src/services/zmanim/sets';
 import { isVoiceFormat } from '@/src/services/voice-show/types';
 import { channelsOf, platformAvailable } from '@/src/lib/delivery-platform';
+import { isGender } from '@/src/lib/gender';
 
-const isGender = (value: unknown): value is 'male' | 'female' => value === 'male' || value === 'female';
 
 export async function POST(request: NextRequest) {
   try {

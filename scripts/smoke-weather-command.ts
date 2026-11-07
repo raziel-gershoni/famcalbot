@@ -254,7 +254,7 @@ const stubs: Record<string, object | ((real: Record<string, unknown>) => object)
   [`${SRC}/services/user-service.ts`]: {
     getUserByIdentifier: async () => user,
     getUserByTelegramId: async () => user,
-    getOrCreateUser: async () => user,
+    getOrCreateUser: async () => ({ user, created: false }),
   },
   [`${SRC}/services/messaging/index.ts`]: {
     MessagingPlatform, MessageFormat,

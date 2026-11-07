@@ -239,7 +239,7 @@ async function main() {
     const v = await body(verified);
     assert(v.ok === true && pathOf(String(v.redirect)) === '/he/signup', `the code: ${verified.status} ${show(v)}`);
     assert(flowRecords().some(r => r.kind === 'signup' && r.invite === TOKEN), `the sign-up record ${show(flowRecords())}`);
-    const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Shira' }, cookie: cookieOf(verified, SIGNIN_COOKIE_NAME) }));
+    const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Shira', gender: 'female' }, cookie: cookieOf(verified, SIGNIN_COOKIE_NAME) }));
     const m = await body(made);
     assert(m.ok === true && pathOf(String(m.redirect)) === `/he/invite/${TOKEN}`, `Create account: ${made.status} ${show(m)}`);
   });
@@ -250,7 +250,7 @@ async function main() {
     const { back } = await startThenBack('google', `locale=he&invite=${TOKEN}`);
     assert(new URL(location(back), 'https://famcal.bot').pathname === '/he/signup', `the callback went to ${location(back)}`);
     assert(flowRecords().some(r => r.kind === 'signup' && r.invite === TOKEN), `the sign-up record ${show(flowRecords())}`);
-    const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Avi' }, cookie: cookieOf(back, SIGNIN_COOKIE_NAME) }));
+    const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Avi', gender: 'male' }, cookie: cookieOf(back, SIGNIN_COOKIE_NAME) }));
     const m = await body(made);
     assert(m.ok === true && pathOf(String(m.redirect)) === `/he/invite/${TOKEN}`, `Create account: ${made.status} ${show(m)}`);
   });
@@ -316,7 +316,7 @@ async function main() {
         assert(taken.status === 200 && (await body(taken)).success === true, `Dana's accept: ${taken.status} ${show(await body(taken))}`);
       }
       const pairings = DB.pairing.length;
-      const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Avi' }, cookie: cookieOf(back, SIGNIN_COOKIE_NAME) }));
+      const made = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Avi', gender: 'male' }, cookie: cookieOf(back, SIGNIN_COOKIE_NAME) }));
       const m = await body(made);
       assert(m.ok === true && pathOf(String(m.redirect)) === `/he/invite/${TOKEN}`, `${ending}: Create account ${made.status} ${show(m)}`);
       const fresh = DB.user.filter(u => ![TAL, NOA, DANA].includes(u.id));

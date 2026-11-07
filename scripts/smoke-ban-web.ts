@@ -337,7 +337,7 @@ async function main() {
       // A new Google account with the same address (its own sub is not banned): the address stops it
       const cookie = await flowCookie({ kind: 'signup', way: 'google', subject: 'g-solo-new', address: 'Solo@Gmail.com', locale: 'en' });
       const usersBefore = DB.user.length;
-      const signedUp = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Gina' }, cookie }));
+      const signedUp = await signupRoute.POST(request('/api/auth/signup', { body: { name: 'Gina', gender: 'female' }, cookie }));
       assert(signedUp.status === 403 && show(await body(signedUp)) === show({ ok: false, status: 'blocked' }) && DB.user.length === usersBefore, `sign-up ${signedUp.status} users ${usersBefore} -> ${DB.user.length}`);
     });
   });

@@ -7,7 +7,7 @@
  * signs this browser in (finishSignIn).
  *
  * Create account, in this order:
- *  1. the name (cleanName), before the record is touched, so a typo costs nothing;
+ *  1. the name (cleanName), then "Address me as" (male or female, required), before the record is touched, so a typo costs nothing;
  *  2. the record (takeFlow, GETDEL): none is 'restart', with the cookie left alone (it may name another tab's sign-in);
  *  3. the bans as of now: the Google sub and the address, or the email address;
  *  4. the address check again: a way of another account may show the address since the sign-in ('exists');
@@ -22,7 +22,7 @@
  * clears the cookie.
  *
  * Answers, in finishSignIn's json shape: { ok: true, redirect } with the session cookie, or { ok: false, status }:
- * 'name' (400), 'restart', 'exists' with the way that shows the address, 'blocked' (403), 'limit' (429), 'failed' (503)
+ * 'name' (400), 'gender' (400), 'restart', 'exists' with the way that shows the address, 'blocked' (403), 'limit' (429), 'failed' (503)
  * when the cap's count can't be read, 'taken' (409), finishSignIn's own 'suspended' / 'blocked' / 'failed', and
  * 'failed' (500) from a step that threw (put back, above) or the route's catch.
  *
@@ -32,6 +32,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { finishSignIn, landingPage } from '../../lib/web-session';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
+import { isGender } from '../../lib/gender';
 import { SIGNUP_NAME_MAX } from '../../site/signin';
 import { VALID_LOCALES, normalizeLocale, type Locale } from '../../utils/locale';
 import type { UserConfig } from '../../types';
@@ -98,10 +99,10 @@ export async function signUpView(request: NextRequest): Promise<SignUpView> {
   return held ? { exists: held } : { way: flow.way, address: flow.address };
 }
 
-/** Create account's body: the name typed, and the page's language. */
-export type SignUpBody = { name?: unknown; locale?: unknown };
+/** Create account's body: the name typed, "Address me as" (male or female, required), and the page's language. */
+export type SignUpBody = { name?: unknown; gender?: unknown; locale?: unknown };
 
-type SignUpRefusal = 'name' | 'restart' | 'blocked' | 'limit' | 'taken' | 'failed';
+type SignUpRefusal = 'name' | 'gender' | 'restart' | 'blocked' | 'limit' | 'taken' | 'failed';
 
 const refuse = (status: SignUpRefusal, httpStatus = 200) => NextResponse.json({ ok: false, status }, { status: httpStatus });
 
@@ -116,6 +117,12 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
   if (!name) {
     console.log('[signup] a name was refused (empty, over 60 characters, or a control, direction or zero-width character)');
     return refuse('name', 400);
+  }
+  // "Address me as" (spec 2026-11-07-b-features §B2): required, one of two, refused before the record is touched
+  const gender = body.gender;
+  if (!isGender(gender)) {
+    console.log('[signup] an "Address me as" that is missing or not male or female was refused');
+    return refuse('gender', 400);
   }
   const taken = await takeFlow(request, ['signup']);
   if (!taken || taken.kind !== 'signup') {
@@ -180,6 +187,7 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
       via: 'web',
       way: { kind: flow.way, subject: flow.subject, address: flow.address },
       name,
+      gender,
       language: languageOf(body, flow),
     });
   } catch (error) {
@@ -196,5 +204,6 @@ export async function completeSignUp(request: NextRequest, body: SignUpBody): Pr
   }
   const finished = await finishSignIn(user, flow.way, { respond: 'json', page: landingPage(flow.invite) });
   console.log(`[signup] user ${user.id} was made on the web with ${flow.way}`);
+  console.log(`[gender] user ${user.id} chose via web`);
   return done(finished);
 }

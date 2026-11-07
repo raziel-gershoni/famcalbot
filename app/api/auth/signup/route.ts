@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/auth/signup { name, locale }: Create account (signup.ts completeSignUp), after the same-origin check and
+ * POST /api/auth/signup { name, gender, locale }: Create account (signup.ts completeSignUp), after the same-origin check and
  * the JSON read. A failure past them is { ok: false, status: 'failed' } (500), reported by its kind only.
  */
 export async function POST(request: NextRequest) {

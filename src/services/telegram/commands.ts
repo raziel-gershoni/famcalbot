@@ -131,7 +131,7 @@ export async function handleStartCommand(
   }, 'command');
 
   const userIdNum = typeof userId === 'number' ? userId : parseInt(String(userId));
-  const user = await getOrCreateUser(userIdNum, telegramUser);
+  const { user } = await getOrCreateUser(userIdNum, telegramUser);
 
   trackActivityAsync(user.id, 'bot_start', {
     language: user.language,

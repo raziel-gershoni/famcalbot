@@ -9,6 +9,7 @@ import { captureSignInFailure } from './web-signin/safe-error';
 import { trackActivityAsync } from './analytics-service';
 import type { IdentityKind } from './web-signin/identities';
 import { PUSH_DEVICE_COUNT } from './web-push/reach';
+import type { Gender } from '../lib/gender';
 
 /** A new account was refused: one of its identifiers is on the admin blocklist. The message names none of them. */
 export class AccountBlockedError extends Error {
@@ -202,7 +203,7 @@ export interface TelegramUserInfo {
 export type NewAccount =
   | { via: 'telegram'; telegramId: number; profile?: TelegramUserInfo }
   | { via: 'whatsapp'; identifier: string; profileName?: string; bsuid?: string; phone?: string; initialLanguage?: Locale }
-  | { via: 'web'; way: { kind: IdentityKind; subject: string; address: string }; name: string; language: Locale };
+  | { via: 'web'; way: { kind: IdentityKind; subject: string; address: string }; name: string; gender: Gender; language: Locale };
 
 type WhatsAppAccount = Extract<NewAccount, { via: 'whatsapp' }>;
 
@@ -242,7 +243,7 @@ function blockArgsOf(input: NewAccount): BlockArgs {
 function accountData(input: NewAccount): Prisma.UserCreateInput {
   const shared = {
     englishName: '',
-    gender: 'male', // Where everyone starts; the person picks "Address me as" in Settings (app/api/settings)
+    gender: 'male', // A chat account starts here and is asked once after its first reply (address-choice.ts); the web's sign-up asks first
     location: '',
     culture: 'default',
     // Empty until Google is connected. calendarSource defaults to NATIVE in the schema: a new account starts in FamCal's own calendar.
@@ -270,8 +271,8 @@ function accountData(input: NewAccount): Prisma.UserCreateInput {
     }
     case 'web':
       // No chat. "Has a chat" is read from the ids (telegramId, whatsappPhone, whatsappBsuid), never from
-      // messagingPlatform, which keeps the schema's default.
-      return { ...shared, name: input.name, language: input.language, messagingPlatform: 'telegram' };
+      // messagingPlatform, which keeps the schema's default. "Address me as" is the one chosen on the sign-up form.
+      return { ...shared, gender: input.gender, name: input.name, language: input.language, messagingPlatform: 'telegram' };
   }
 }
 
@@ -325,23 +326,24 @@ export async function createAccount(input: NewAccount): Promise<UserConfig> {
 }
 
 /**
- * Get or create user by Telegram ID
- * Auto-registers new users with minimal defaults from Telegram profile (createAccount)
+ * Get or create user by Telegram ID. Auto-registers new users with minimal defaults from Telegram profile (createAccount).
+ * `created`: this call made the account, so its first reply is followed by the "Address me as" question once
+ * (src/services/address-choice.ts).
  */
 export async function getOrCreateUser(
   telegramId: number,
   telegramUser?: TelegramUserInfo
-): Promise<UserConfig> {
+): Promise<{ user: UserConfig; created: boolean }> {
   // Try to find existing user
   const existingUser = await prisma.user.findUnique({
     where: { telegramId: BigInt(telegramId) }
   });
 
   if (existingUser) {
-    return convertPrismaUserToConfig(existingUser);
+    return { user: convertPrismaUserToConfig(existingUser), created: false };
   }
 
-  return createAccount({ via: 'telegram', telegramId, profile: telegramUser });
+  return { user: await createAccount({ via: 'telegram', telegramId, profile: telegramUser }), created: true };
 }
 
 /**

@@ -154,7 +154,7 @@ const stubs: Record<string, Record<string, unknown>> = {
   [`${SRC}/services/user-service.ts`]: {
     getUserByIdentifier: async () => user,
     getUserByTelegramId: async () => user,
-    getOrCreateUser: async () => user,
+    getOrCreateUser: async () => ({ user, created: false }),
     // A tripwire: missing permissions keep the token now (a cleared one made stale Google choices)
     clearGoogleRefreshToken: async (telegramId: number | bigint) => { tokensCleared.push(String(telegramId)); },
   },

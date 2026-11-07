@@ -225,7 +225,7 @@ const stubs: Record<string, object> = {
   [`${SRC}/services/payment-handler.ts`]: { handlePreCheckoutQuery: asyncNoop, handleSuccessfulPayment: asyncNoop },
   [`${SRC}/services/user-service.ts`]: {
     getUserByTelegramId: async (telegramId: number) => USERS[Number(telegramId)] ?? null,
-    getOrCreateUser: async (telegramId: number) => USERS[Number(telegramId)],
+    getOrCreateUser: async (telegramId: number) => ({ user: USERS[Number(telegramId)], created: false }),
     getUserByWhatsAppPhone: async () => null,
     getOrCreateUserByWhatsApp: async () => null,
   },

@@ -145,7 +145,8 @@ async function main() {
   await check('#3 /start: a new Telegram id gets one account with the shared defaults, its Telegram name and language, messagingPlatform telegram and one primary FamCal calendar; the same id again gets the same account and makes nothing; no web_signup', async () => {
     seed();
     prismaCalls.length = 0;
-    const dana = await users.getOrCreateUser(5550001, { first_name: 'Dana', last_name: 'Levi', language_code: 'he-IL' });
+    const { user: dana, created } = await users.getOrCreateUser(5550001, { first_name: 'Dana', last_name: 'Levi', language_code: 'he-IL' });
+    assert(created === true, 'a new Telegram id: created is not true');
     assert(!prismaCalls.includes('$transaction') && prismaCalls.includes('user.create'), `a chat account is one row, with no transaction: ${show(prismaCalls)}`);
     const row = newest();
     assert(row.id === dana.id && DB.user.length === 2, `rows ${show(DB.user.map(u => u.id))}`);
@@ -156,7 +157,7 @@ async function main() {
     assert(calendars.length === 1 && show(calendars[0].labels) === show(['primary', 'yours']), `calendars ${show(calendars)}`);
     assert(show(createdLines()) === show([`[account] created user ${row.id} via telegram`]), `log ${show(createdLines())}`);
     const again = await users.getOrCreateUser(5550001, { first_name: 'Other' });
-    assert(again.id === dana.id && DB.user.length === 2 && calendarsOf(row.id).length === 1 && createdLines().length === 1, 'the same Telegram id made a second account');
+    assert(again.created === false && again.user.id === dana.id && DB.user.length === 2 && calendarsOf(row.id).length === 1 && createdLines().length === 1, 'the same Telegram id made a second account');
     await users.getOrCreateUser(5550002);
     assert(newest().name === 'User' && newest().language === 'en', `no profile: ${show({ name: newest().name, language: newest().language })}`);
     await tick();
@@ -179,13 +180,13 @@ async function main() {
     assert((await users.getOrCreateUserByWhatsApp('+972500000001')).id === avi.id && (await users.getOrCreateUserByWhatsApp('IL.123', undefined, 'IL.123')).id === mira.id && DB.user.length === count, 'a known number or BSUID made another account');
   });
 
-  await check('#5 a sign-up on famcal.bot: after the ban check, one transaction makes the user (the typed name, the page language, the defaults, no chat) and its way (used now), then one primary calendar; the log says via web-email / web-google; web_signup is recorded with the way', async () => {
+  await check('#5 a sign-up on famcal.bot: after the ban check, one transaction makes the user (the typed name, the page language, the defaults, no chat, and the gender chosen at sign-up (female here)) and its way (used now), then one primary calendar; the log says via web-email / web-google; web_signup is recorded with the way', async () => {
     seed();
     prismaCalls.length = 0;
-    const dana = await users.createAccount({ via: 'web', way: { kind: 'email', subject: 'dana@example.com', address: 'dana@example.com' }, name: 'Dana', language: 'he' });
+    const dana = await users.createAccount({ via: 'web', gender: 'female', way: { kind: 'email', subject: 'dana@example.com', address: 'dana@example.com' }, name: 'Dana', language: 'he' });
     const row = DB.user.find(u => u.id === dana.id) as Row;
     const got = { telegramId: row.telegramId, whatsappPhone: row.whatsappPhone, whatsappBsuid: row.whatsappBsuid, name: row.name, language: row.language, messagingPlatform: row.messagingPlatform, ...sharedOf(row) };
-    const want = { telegramId: null, whatsappPhone: null, whatsappBsuid: null, name: 'Dana', language: 'he', messagingPlatform: 'telegram', ...SHARED };
+    const want = { telegramId: null, whatsappPhone: null, whatsappBsuid: null, name: 'Dana', language: 'he', messagingPlatform: 'telegram', ...SHARED, gender: 'female' };
     assert(show(got) === show(want), `the row ${show(got)}`);
     const ways = DB.signInIdentity.filter(i => i.userId === dana.id);
     assert(ways.length === 1 && ways[0].kind === 'email' && ways[0].subject === 'dana@example.com' && ways[0].address === 'dana@example.com' && ways[0].lastUsedAt instanceof Date, `ways ${show(ways)}`);
@@ -196,7 +197,7 @@ async function main() {
     await tick();
     const activity = (DB.userActivity ?? []).filter(a => a.userId === dana.id && a.action === 'web_signup');
     assert(activity.length === 1 && activity[0].metadata?.way === 'email' && !show(activity[0]).includes('dana@example.com'), `activity ${show(DB.userActivity)}`);
-    const google = await users.createAccount({ via: 'web', way: { kind: 'google', subject: 'g-sub-1', address: 'Dana@Gmail.com' }, name: 'Dana G', language: 'en' });
+    const google = await users.createAccount({ via: 'web', gender: 'male', way: { kind: 'google', subject: 'g-sub-1', address: 'Dana@Gmail.com' }, name: 'Dana G', language: 'en' });
     const gWays = DB.signInIdentity.filter(i => i.userId === google.id);
     assert(gWays.length === 1 && gWays[0].kind === 'google' && gWays[0].subject === 'g-sub-1' && gWays[0].address === 'Dana@Gmail.com', `Google way ${show(gWays)}`);
     assert(createdLines().includes(`[account] created user ${google.id} via web-google`), `log ${show(createdLines())}`);
@@ -207,7 +208,7 @@ async function main() {
     const before = { users: DB.user.length, ways: DB.signInIdentity.length };
     let thrown: unknown = null;
     try {
-      await users.createAccount({ via: 'web', way: { kind: 'email', subject: 'taken@example.com', address: 'taken@example.com' }, name: 'Mira', language: 'en' });
+      await users.createAccount({ via: 'web', gender: 'male', way: { kind: 'email', subject: 'taken@example.com', address: 'taken@example.com' }, name: 'Mira', language: 'en' });
     } catch (error) {
       thrown = error;
     }
@@ -226,9 +227,9 @@ async function main() {
     const tries: [string, () => Promise<unknown>][] = [
       ['a banned Telegram id', () => users.getOrCreateUser(5550009, { first_name: 'Dana' })],
       ['a banned WhatsApp number', () => users.getOrCreateUserByWhatsApp('+972500000009', 'Avi', undefined, '+972500000009')],
-      ['a banned Google account', () => users.createAccount({ via: 'web', way: { kind: 'google', subject: 'g-banned', address: 'dana@gmail.com' }, name: 'Dana', language: 'en' })],
-      ['a banned address', () => users.createAccount({ via: 'web', way: { kind: 'email', subject: 'banned@example.com', address: 'banned@example.com' }, name: 'Dana', language: 'en' })],
-      ['a Google sign-up whose verified address is banned', () => users.createAccount({ via: 'web', way: { kind: 'google', subject: 'g-fresh', address: 'Banned@Example.com' }, name: 'Dana', language: 'en' })],
+      ['a banned Google account', () => users.createAccount({ via: 'web', gender: 'male', way: { kind: 'google', subject: 'g-banned', address: 'dana@gmail.com' }, name: 'Dana', language: 'en' })],
+      ['a banned address', () => users.createAccount({ via: 'web', gender: 'male', way: { kind: 'email', subject: 'banned@example.com', address: 'banned@example.com' }, name: 'Dana', language: 'en' })],
+      ['a Google sign-up whose verified address is banned', () => users.createAccount({ via: 'web', gender: 'male', way: { kind: 'google', subject: 'g-fresh', address: 'Banned@Example.com' }, name: 'Dana', language: 'en' })],
     ];
     for (const [label, run] of tries) {
       let thrown: unknown = null;
@@ -260,7 +261,7 @@ async function main() {
       throw Object.assign(new Error('Invalid `prisma.nativeCalendar.create()` invocation: name: "Mira"'), { code: 'P1001' });
     };
     try {
-      const mira = await users.createAccount({ via: 'web', way: { kind: 'email', subject: 'mira@example.com', address: 'mira@example.com' }, name: 'Mira', language: 'ru' });
+      const mira = await users.createAccount({ via: 'web', gender: 'male', way: { kind: 'email', subject: 'mira@example.com', address: 'mira@example.com' }, name: 'Mira', language: 'ru' });
       assert(DB.user.some(u => u.id === mira.id) && DB.signInIdentity.some(i => i.userId === mira.id), 'the account did not stand');
       const sentry = captured.find(c => c.context === 'account-calendar');
       assert(sentry && sentry.extra.user_id === mira.id && !sentry.message.includes('Mira'), `Sentry ${show(captured)}`);

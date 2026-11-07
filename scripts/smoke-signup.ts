@@ -118,8 +118,9 @@ async function main() {
   /** A sign-up record as the callback or the email verify leaves it, and its cookie header. */
   const signUpFlow = (o: Row = {}) => flowCookie({ kind: 'signup', way: 'google', subject: DANA.sub, address: DANA.email, locale: 'en', ...o });
   const view = async (cookie?: string) => body(await need(signupRoute, 'GET /api/auth/signup').GET(request('/api/auth/signup', { cookie })));
+  /** Create account: the body as given, with "Address me as" set to male unless the body says (a key present with undefined sends none). */
   const create = (cookie: string | undefined, b: unknown, o: { ip?: string | null; origin?: string | null } = {}) =>
-    need(signupRoute, 'POST /api/auth/signup').POST(request('/api/auth/signup', { body: b, cookie, ...o }));
+    need(signupRoute, 'POST /api/auth/signup').POST(request('/api/auth/signup', { body: b !== null && typeof b === 'object' && !Array.isArray(b) && !('gender' in b) ? { gender: 'male', ...b } : b, cookie, ...o }));
 
   // ---- Google: when it asks for sign-up ----
 
@@ -435,6 +436,24 @@ async function main() {
       const again = await create(`${SIGNIN_COOKIE_NAME}=${value}`, { name: NAME });
       assert((await body(again)).ok === true && usersNamed(NAME).length === 1, `${name}: again ${again.status} ${show(await body(again))}`);
     }
+  });
+
+  await check('S22 "Address me as": Create account refuses a missing or unknown choice (absent, null, empty, another word, another case, a number, a list, an object) with status=gender (400) after the name and before the record is touched: the sign-up still answers and nothing is made; female and male are stored as chosen; the log names the user id and the way only', async () => {
+    seed();
+    const cookie = await signUpFlow();
+    for (const bad of [undefined, null, '', 'other', 'Female', 'MALE', 1, ['female'], { v: 'male' }]) {
+      const res = await create(cookie, { name: NAME, gender: bad });
+      const answer = await body(res);
+      assert(res.status === 400 && show(answer) === show({ ok: false, status: 'gender' }), `${show(bad)}: ${res.status} ${show(answer)}`);
+    }
+    assert(show(await body(await create(cookie, { name: '', gender: 'nope' }))) === show({ ok: false, status: 'name' }), 'the name is not checked first');
+    assert(show(await view(cookie)) === show({ way: 'google', address: DANA.email }) && usersNamed(NAME).length === 0, 'a refused choice used the record or made an account');
+    const made = await body(await create(cookie, { name: NAME, gender: 'female' }));
+    assert(made.ok === true && usersNamed(NAME).length === 1 && usersNamed(NAME)[0].gender === 'female', `stored ${show(usersNamed(NAME).map((u: Row) => u.gender))}`);
+    const line = logs.filter((l) => l.startsWith('[gender]'));
+    assert(line.length === 1 && /^\[gender\] user \d+ chose via web$/.test(line[0]), `the gender line: ${show(line)}`);
+    seed();
+    assert((await body(await create(await signUpFlow({ way: 'email', subject: 'rivka@example.com', address: 'rivka@example.com' }), { name: 'Rivka', gender: 'male' }))).ok === true && usersNamed('Rivka')[0]?.gender === 'male', 'male is not stored');
   });
 
   await check('S18 a Sentry error event of POST /api/auth/signup holds no name: its body as an object or a JSON string loses the name, cut-off JSON and a form have it scrubbed; the language stays', async () => {
