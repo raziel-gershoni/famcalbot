@@ -16,6 +16,47 @@ import {
   StreamMessageOptions,
 } from './types';
 import { captureError } from '../../lib/error-capture';
+import { retryWithBackoff, type RetryVerdict } from '../../utils/fetch-retry';
+
+/**
+ * The one result answerGuestQuery posts in a chat the bot is not in (Bot API 10.0 Guest Mode): an article whose text is
+ * the answer, with no link preview, and a url button where one is wanted (a web_app button is not allowed outside the
+ * bot's own chat). node-telegram-bot-api has no type for it yet.
+ */
+export interface GuestAnswerArticle {
+  type: 'article';
+  id: string;
+  title: string;
+  input_message_content: { message_text: string; link_preview_options: { is_disabled: true } };
+  reply_markup?: { inline_keyboard: { text: string; url: string }[][] };
+}
+
+/** The article for an answer: the text as it is, the first line (64 characters at most) as its title, and an optional url button. */
+export function guestAnswerArticle(text: string, button?: { text: string; url: string }): GuestAnswerArticle {
+  return {
+    type: 'article',
+    id: 'a',
+    title: Array.from(text.split('\n')[0]).slice(0, 64).join(''),
+    input_message_content: { message_text: text, link_preview_options: { is_disabled: true } },
+    ...(button ? { reply_markup: { inline_keyboard: [[{ text: button.text, url: button.url }]] } } : {}),
+  };
+}
+
+/**
+ * Whether a failed Bot API call is worth another attempt, for retryWithBackoff: no answer (EFATAL), a 429 (after the
+ * `retry_after` Telegram asks for) and a 5xx are; every other refusal (a 400 "query already answered", a 403) is not.
+ */
+export function telegramRetryVerdict(error: unknown): RetryVerdict {
+  const e = error as { code?: unknown; response?: { statusCode?: unknown; body?: { parameters?: { retry_after?: unknown } } } } | null;
+  if (e?.code === 'EFATAL') return { retry: true };
+  if (e?.code !== 'ETELEGRAM') return { retry: false };
+  const status = e.response?.statusCode;
+  if (status === 429) {
+    const after = e.response?.body?.parameters?.retry_after;
+    return { retry: true, ...(typeof after === 'number' ? { askedMs: after * 1000 } : {}) };
+  }
+  return { retry: typeof status === 'number' && status >= 500 };
+}
 
 // Telegram-side flush cadence for sendMessageDraft updates. Drafts are
 // animated, so 250ms feels live without overwhelming the API.
@@ -257,6 +298,20 @@ export class TelegramAdapter implements IMessagingService {
 
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
     await this.bot.answerCallbackQuery(queryId, text ? { text } : undefined);
+  }
+
+  /**
+   * Answer a guest query once (Guest Mode): the article is posted in the chat where the bot was mentioned, as the bot.
+   * Retried through the one third-party loop (src/utils/fetch-retry.ts) on no answer, a 429 and a 5xx; throws the last
+   * error. A retry after an answer that was lost on the way gets Telegram's "query already answered" 400.
+   */
+  async answerGuestQuery(guestQueryId: string, result: GuestAnswerArticle): Promise<void> {
+    await retryWithBackoff(
+      // The Bot API takes `result` JSON-serialized; the library has no method for answerGuestQuery yet
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      () => (this.bot as any)._request('answerGuestQuery', { form: { guest_query_id: guestQueryId, result: JSON.stringify(result) } }),
+      { label: '[ask] answerGuestQuery', retryable: telegramRetryVerdict },
+    );
   }
 
   async streamMessage(
