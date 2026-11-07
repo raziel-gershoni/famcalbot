@@ -86,6 +86,21 @@ function refusalText(error: unknown): string {
   return `HTTP ${typeof response.statusCode === 'number' ? response.statusCode : '?'} ${description}`;
 }
 
+/** What a retry after a lost success gets from Telegram: the first answer went, so there is nothing to report. */
+function alreadyAnswered(error: unknown): boolean {
+  const response = (error as { response?: { statusCode?: unknown; body?: { description?: unknown } } } | null)?.response;
+  return response?.statusCode === 400 && typeof response.body?.description === 'string' && /already (been )?answered/i.test(response.body.description);
+}
+
+/**
+ * The error a report may carry: a new one with a short message and nothing attached. A node-telegram-bot-api error holds
+ * the whole HTTP response, whose `request.body` is `guest_query_id=<id>&result=<the answer>`, and captureError prints the
+ * error object on the console, so the original never goes to a report.
+ */
+function plainError(message: string): Error {
+  return new Error(message);
+}
+
 /** The language of a caller with no account: Telegram's language_code (he, iw, ru; anything else is English). */
 function localeOfCode(code: string | undefined): Locale {
   const base = (code ?? '').toLowerCase().split('-')[0];
@@ -131,8 +146,10 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
       await deps.answer(queryId, guestAnswerArticle(text, button));
       return true;
     } catch (error) {
-      console.warn(`[ask] ${who}: answer refused ${refusalText(error)}`);
-      if (user) deps.report(error, { user_id: user.id, stage: 'send' });
+      const refusal = refusalText(error);
+      console.warn(`[ask] ${who}: answer refused ${refusal}`);
+      // A retry after a lost success gets "already answered": the person saw the answer, so it is logged only
+      if (user && !alreadyAnswered(error)) deps.report(plainError(`answerGuestQuery refused: ${refusal}`), { user_id: user.id, stage: 'send' });
       return false;
     }
   };
@@ -213,6 +230,6 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
     );
   } catch (error) {
     console.error(`[ask] ${who}: failed (${codeOf(error)})`);
-    if (user) deps.report(error, { user_id: user.id, stage: 'send' });
+    if (user) deps.report(plainError(`ask failed (${codeOf(error)})`), { user_id: user.id, stage: 'send' });
   }
 }

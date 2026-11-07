@@ -44,12 +44,13 @@ export function guestAnswerArticle(text: string, button?: { text: string; url: s
 
 /**
  * Whether a failed Bot API call is worth another attempt, for retryWithBackoff: no answer (EFATAL), a 429 (after the
- * `retry_after` Telegram asks for) and a 5xx are; every other refusal (a 400 "query already answered", a 403) is not.
+ * `retry_after` Telegram asks for) and a 5xx (also one whose body is not JSON, EPARSE) are; every other refusal (a 400 "query already answered", a 403) is not.
  */
 export function telegramRetryVerdict(error: unknown): RetryVerdict {
   const e = error as { code?: unknown; response?: { statusCode?: unknown; body?: { parameters?: { retry_after?: unknown } } } } | null;
   if (e?.code === 'EFATAL') return { retry: true };
-  if (e?.code !== 'ETELEGRAM') return { retry: false };
+  // EPARSE is a body that is not Telegram's JSON (a gateway's HTML 502 page): the status is still the answer's
+  if (e?.code !== 'ETELEGRAM' && e?.code !== 'EPARSE') return { retry: false };
   const status = e.response?.statusCode;
   if (status === 429) {
     const after = e.response?.body?.parameters?.retry_after;

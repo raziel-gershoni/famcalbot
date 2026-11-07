@@ -8,7 +8,9 @@
 //   - a bare reply from someone else gets no answer and no model call;
 //   - a Google gap gives the partial form; Google unread with no FamCal items, a FamCal error, a model failure and a
 //     zone failure give "couldn't check", with a Sentry report for everything but Google's own;
-//   - a refused answer is logged with Telegram's status and description and reported, and claims no answer;
+//   - a refused answer is logged with Telegram's status and description and reported, and claims no answer; the report
+//     is a clean error (no response, no request body), and through the real captureError no console line holds the
+//     query id; "query already answered" (what a retry after a lost success gets) is logged and not reported;
 //   - no console line and no report holds a sentinel planted in both messages and in the model's answer.
 // Every reach outside is injected (the claim, the limiter, the zone, the model, the reader, the send, the report).
 // No network, no database, no Redis.
@@ -41,13 +43,17 @@ const show = (v: unknown) => JSON.stringify(v);
 process.env.TELEGRAM_BOT_TOKEN = '123456:test-token';
 process.env.TELEGRAM_BOT_USERNAME = 'famcal_test_bot';
 
+import { format } from 'node:util';
+
 const realLog = console.log;
 const realWarn = console.warn;
 const realError = console.error;
 let logs: string[] = [];
 const allLogs: string[] = [];
+const allReports: string[] = [];
 const capture = (...args: unknown[]) => {
-  const line = args.map(a => (typeof a === 'string' ? a : a instanceof Error ? `${a.name}: ${a.message}` : show(a))).join(' ');
+  // As the real console prints it (util.format inspects an error with everything it carries)
+  const line = format(...args);
   logs.push(line);
   allLogs.push(line);
 };
@@ -118,7 +124,11 @@ function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Erro
       return busy;
     },
     answer: async (id, article) => { w.answers.push({ id, article }); },
-    report: (error, extra) => { w.reports.push({ error: error instanceof Error ? `${error.name}: ${error.message}` : String(error), extra }); },
+    report: (error, extra) => {
+      w.reports.push({ error: error instanceof Error ? `${error.name}: ${error.message}` : String(error), extra });
+      // Everything a report would carry to Sentry: the error as the real console prints it, and its extras
+      allReports.push(`${format(error)} ${show(extra)}`);
+    },
     ...overrides,
   };
   return { w, deps };
@@ -236,6 +246,46 @@ async function main() {
     assert(!logs.some(l => l.includes('answered')), show(logs));
   });
 
+  const tooOld = () => Object.assign(new Error('ETELEGRAM: 400 Bad Request: query is too old'), {
+    code: 'ETELEGRAM',
+    response: {
+      statusCode: 400,
+      body: { ok: false, description: 'Bad Request: query is too old' },
+      request: { uri: { href: 'https://api.telegram.org/bot123456:test-token/answerGuestQuery' }, body: 'guest_query_id=gq-secret-1&result=%7B%22text%22%3A%22SECRET-MODEL-OUT%22%7D' },
+    },
+  });
+
+  await check('a refused answer reports a clean error: no response, no request body, no query id', async () => {
+    const w = await run(guest(CALLER), RAZ, { answer: async () => { throw tooOld(); } });
+    assert(w.reports.length === 1, show(w.reports));
+    const reported = allReports[allReports.length - 1];
+    assert(!reported.includes('gq-secret-1') && !reported.includes('request') && !reported.includes('response'), reported);
+    assert(reported.includes('400') && reported.includes('query is too old'), reported);
+  });
+
+  await check('through the real captureError, a refused answer leaves no query id or answer text in any console line', async () => {
+    logs = [];
+    const { deps } = world({ answer: async () => { throw tooOld(); } });
+    delete (deps as { report?: unknown }).report;
+    await handleGuestMessage(guest(CALLER), RAZ, deps);
+    // The default report imports captureError first, then prints
+    for (let i = 0; i < 100 && !logs.some(l => l.startsWith('[ask-in-chat]')); i++) await new Promise(r => setTimeout(r, 20));
+    assert(logs.some(l => l.startsWith('[ask-in-chat]')), `captureError never printed: ${show(logs)}`);
+    const all = logs.join('\n');
+    assert(!all.includes('gq-secret-1') && !all.includes('SECRET-MODEL-OUT') && !all.includes('guest_query_id'), all);
+  });
+
+  await check('"query already answered" (a retry after a lost success) is logged and not reported', async () => {
+    const answered = Object.assign(new Error('ETELEGRAM: 400 Bad Request: query already answered'), { code: 'ETELEGRAM', response: { statusCode: 400, body: { description: 'Bad Request: query already answered' } } });
+    const w = await run(guest(CALLER), RAZ, { answer: async () => { throw answered; } });
+    assert(w.reports.length === 0, show(w.reports));
+    assert(logs.includes('[ask] user 1: answer refused HTTP 400 Bad Request: query already answered'), show(logs));
+    const expired = await run(guest(CALLER), RAZ, { answer: async () => { throw tooOld(); } });
+    assert(expired.reports.length === 1, 'an expired query is still reported');
+    const forbidden = await run(guest(CALLER), RAZ, { answer: async () => { throw Object.assign(new Error('ETELEGRAM: 403'), { code: 'ETELEGRAM', response: { statusCode: 403, body: { description: 'Forbidden' } } }); } });
+    assert(forbidden.reports.length === 1, 'a 403 is still reported');
+  });
+
   await check('a guest message with no query id or no sender is not answered, with one line', async () => {
     const noId = await run(guest(CALLER, { guest_query_id: undefined }), RAZ);
     const noFrom = await run(guest(CALLER, { from: undefined }), null);
@@ -246,6 +296,10 @@ async function main() {
   await check('no console line and no report, in any case above, holds a message\'s text, a name, a username, a chat title, the model\'s answer or the query id', () => {
     const all = allLogs.join('\n');
     for (const secret of SENTINELS) assert(!all.includes(secret), `a log line holds ${secret}: ${show(allLogs.filter(l => l.includes(secret)))}`);
+    // The reports (what reaches Sentry: the error and its extras), from every world above
+    assert(allReports.length > 0, 'no report was collected');
+    const reported = allReports.join('\n');
+    for (const secret of SENTINELS) assert(!reported.includes(secret), `a report holds ${secret}: ${show(allReports.filter(l => l.includes(secret)))}`);
   });
 
   console.log = realLog;

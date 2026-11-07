@@ -36,6 +36,8 @@ const telegramError = (status: number, description: string, retryAfter?: number)
     code: 'ETELEGRAM',
     response: { statusCode: status, body: { ok: false, error_code: status, description, ...(retryAfter !== undefined ? { parameters: { retry_after: retryAfter } } : {}) } },
   });
+// A gateway's HTML 502 page: the library cannot parse it and throws a ParseError (EPARSE) that still holds the response
+const unparsable = (status: number) => Object.assign(new Error('EPARSE: Error parsing Telegram response: <html>'), { code: 'EPARSE', response: { statusCode: status, body: '<html>' } });
 const noAnswer = () => Object.assign(new Error('EFATAL: socket hang up'), { code: 'EFATAL' });
 
 type Call = { method: string; form: Record<string, unknown> };
@@ -80,6 +82,22 @@ async function main() {
     await adapter.answerGuestQuery('gq-1', article);
     assert(calls.length === 3, `${calls.length} tries`);
     assert(waits[0] === 2000, `waits ${show(waits)}`);
+  });
+
+  await check('a gateway 502 or 504 whose body is not JSON (EPARSE) is retried like any 5xx; an EPARSE 400 is not', async () => {
+    reset();
+    const { calls, adapter } = fakeBot([unparsable(502), unparsable(504), 'ok']);
+    await adapter.answerGuestQuery('gq-1', article);
+    assert(calls.length === 3, `${calls.length} tries`);
+    reset();
+    const bad = fakeBot([unparsable(400)]);
+    let thrown: unknown;
+    try {
+      await bad.adapter.answerGuestQuery('gq-1', article);
+    } catch (error) {
+      thrown = error;
+    }
+    assert(thrown && bad.calls.length === 1, `tries ${bad.calls.length}`);
   });
 
   await check('no answer (EFATAL) is retried', async () => {
