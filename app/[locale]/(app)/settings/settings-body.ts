@@ -8,6 +8,9 @@
 /** How the person is addressed in the voice show and the summaries (User.gender). The only two the server accepts. */
 export type Gender = 'male' | 'female';
 
+/** How the summary voice notes sound (User.voiceFormat): the two-host radio show or one calm presenter. The only two the server accepts. */
+export type VoiceFormat = 'show' | 'calm';
+
 export interface SettingsValues {
   language: string;
   /** "Address me as": the grammatical gender the show and the summaries use for the person. */
@@ -17,6 +20,8 @@ export interface SettingsValues {
   culture: string;
   textSummaryEnabled: boolean;
   voiceSummaryEnabled: boolean;
+  /** "Voice style": shown under the voice switch while it is on, posted always (the server keeps a closed set). */
+  voiceFormat: VoiceFormat;
   weatherEnabled: boolean;
   includeLookaheadInTomorrow: boolean;
   lookaheadAlways7Days: boolean;
@@ -53,6 +58,7 @@ export function buildSettingsBody(values: SettingsValues, nativeRemindersSupport
     culture: values.culture,
     textSummaryEnabled: values.textSummaryEnabled,
     voiceSummaryEnabled: values.voiceSummaryEnabled,
+    voiceFormat: values.voiceFormat,
     weatherEnabled: values.weatherEnabled,
     includeLookaheadInTomorrow: values.includeLookaheadInTomorrow,
     lookaheadAlways7Days: values.lookaheadAlways7Days,
@@ -84,6 +90,7 @@ export function sameSettings(a: SettingsValues, b: SettingsValues): boolean {
     a.culture === b.culture &&
     a.textSummaryEnabled === b.textSummaryEnabled &&
     a.voiceSummaryEnabled === b.voiceSummaryEnabled &&
+    a.voiceFormat === b.voiceFormat &&
     a.weatherEnabled === b.weatherEnabled &&
     a.includeLookaheadInTomorrow === b.includeLookaheadInTomorrow &&
     a.lookaheadAlways7Days === b.lookaheadAlways7Days &&

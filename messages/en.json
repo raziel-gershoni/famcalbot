@@ -833,7 +833,12 @@
     },
     "voice": {
       "label": "Voice summary",
-      "hint": "A short radio show with two hosts"
+      "hint": "Your summary as a short voice note"
+    },
+    "voiceFormat": {
+      "label": "Voice style",
+      "show": "Radio show, two hosts",
+      "calm": "Calm, one voice"
     },
     "weather": {
       "label": "Weather",

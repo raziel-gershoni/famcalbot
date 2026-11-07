@@ -23,6 +23,8 @@
 //   (settings-body.ts).
 // - The "Address me as" row (male or female) sits under the language: the voice show, the summaries and a partner's
 //   calendar speak of the person in that gender.
+// - The "Voice style" row (the two-host radio show or one calm voice) sits right under the Voice summary switch, only
+//   while the switch is on; the voice notes of every kind follow it.
 // - The community row ("Zmanim": Sephardi, Ashkenazi or Chabad) sits under the location: the zmanim a reminder can be set
 //   to and the Shabbat and Yom Tov windows are counted at that place, by that community's set.
 // - The pause switch ("Pause messages on Shabbat and Yom Tov") sits in the first card under the calendar: choosing a
@@ -79,6 +81,8 @@ interface SettingsClientProps {
     culture: string;
     textSummaryEnabled: boolean;
     voiceSummaryEnabled: boolean;
+    /** "Voice style": the two-host show or one calm presenter (User.voiceFormat). */
+    voiceFormat: SettingsValues['voiceFormat'];
     weatherEnabled: boolean;
     includeLookaheadInTomorrow: boolean;
     lookaheadAlways7Days: boolean;
@@ -367,6 +371,18 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
                     checked={form.voiceSummaryEnabled}
                     onChange={(on) => set('voiceSummaryEnabled', on)}
                   />
+                  {/* How the voice notes sound: only while there are voice notes. The show stays everyone's default. */}
+                  {form.voiceSummaryEnabled ? (
+                    <ValueRow
+                      label={t('voiceFormat.label')}
+                      value={form.voiceFormat}
+                      options={[
+                        { value: 'show', text: t('voiceFormat.show') },
+                        { value: 'calm', text: t('voiceFormat.calm') },
+                      ]}
+                      onChange={(value) => set('voiceFormat', value === 'calm' ? 'calm' : 'show')}
+                    />
+                  ) : null}
                   <SwitchRow label={t('weather.label')} hint={t('weather.hint')} checked={form.weatherEnabled} onChange={(on) => set('weatherEnabled', on)} />
                   <SwitchRow label={t('weekAhead.label')} hint={t('weekAhead.hint')} checked={form.includeLookaheadInTomorrow} onChange={(on) => set('includeLookaheadInTomorrow', on)} />
                   <SwitchRow label={t('sevenDays.label')} hint={t('sevenDays.hint')} checked={form.lookaheadAlways7Days} onChange={(on) => set('lookaheadAlways7Days', on)} />

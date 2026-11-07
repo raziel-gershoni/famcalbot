@@ -17,6 +17,7 @@
 //  - S7b the day chips start on the person's week start (Monday, Saturday, Sunday), each chip keeping its own day number;
 //  - S8 the header's own back in a browser, none in Telegram 7.7;
 //  - S9 React logs no warning; S10 every message the screen reads is there, and none is left over.
+//  - S14 the "Voice style" row: right under the voice switch while it is on, its copy in en/he/ru, a pick posted as "show" or "calm".
 //
 // Run with the fake env from the task brief (no dotenv), under two clocks:
 //   TZ=UTC npx tsx scripts/smoke-settings-render.ts
@@ -142,6 +143,7 @@ const settings = (over: Partial<Omit<SettingsValues, 'defaultReminderMinutes'>> 
   culture: 'jewish',
   textSummaryEnabled: true,
   voiceSummaryEnabled: false,
+  voiceFormat: 'show' as SettingsValues['voiceFormat'],
   weatherEnabled: true,
   includeLookaheadInTomorrow: false,
   lookaheadAlways7Days: false,
@@ -383,6 +385,7 @@ async function main() {
       culture: 'jewish',
       textSummaryEnabled: true,
       voiceSummaryEnabled: true,
+      voiceFormat: 'calm',
       weatherEnabled: false,
       includeLookaheadInTomorrow: true,
       lookaheadAlways7Days: false,
@@ -409,6 +412,7 @@ async function main() {
           culture: 'jewish',
           textSummaryEnabled: true,
           voiceSummaryEnabled: true,
+          voiceFormat: 'calm',
           weatherEnabled: false,
           includeLookaheadInTomorrow: true,
           lookaheadAlways7Days: false,
@@ -438,6 +442,7 @@ async function main() {
           culture: 'jewish',
           textSummaryEnabled: true,
           voiceSummaryEnabled: true,
+          voiceFormat: 'calm',
           weatherEnabled: false,
           includeLookaheadInTomorrow: true,
           lookaheadAlways7Days: false,
@@ -474,6 +479,7 @@ async function main() {
             culture: 'jewish',
             textSummaryEnabled: true,
             voiceSummaryEnabled: false,
+            voiceFormat: 'show',
             weatherEnabled: false,
             includeLookaheadInTomorrow: false,
             lookaheadAlways7Days: false,
@@ -1078,6 +1084,66 @@ async function main() {
       assert(JSON.parse(String(posts()[0].init.body)).gender === 'female', `a female user's other save: ${String(posts()[0].init.body).slice(0, 80)}`);
     } finally {
       close(b);
+    }
+  });
+
+  await check('S14 "Voice style" (voiceFormat): a row right under the Voice summary switch only while the switch is on (and never for an account with no chat), in the person\'s language with the show and calm in it, the saved one shown; the switch\'s hint no longer names two hosts; a pick enables Save and is posted as "show" or "calm"; switched off and on again it comes back as it was, with Save off', async () => {
+    // Written out, so a change of wording is seen here
+    const copy: Record<Locale, { label: string; show: string; calm: string; hint: string }> = {
+      en: { label: 'Voice style', show: 'Radio show, two hosts', calm: 'Calm, one voice', hint: 'Your summary as a short voice note' },
+      he: { label: 'סגנון הקול', show: 'תוכנית רדיו, שני מגישים', calm: 'קול אחד רגוע', hint: 'הסיכום כהודעה קולית קצרה' },
+      ru: { label: 'Стиль озвучки', show: 'Радиошоу с двумя ведущими', calm: 'Один спокойный голос', hint: 'Сводка в виде короткого голосового сообщения' },
+    };
+    for (const locale of LOCALES) {
+      const want = copy[locale];
+      assert(word(locale, 'voiceFormat.label') === want.label && word(locale, 'voiceFormat.show') === want.show && word(locale, 'voiceFormat.calm') === want.calm && word(locale, 'voice.hint') === want.hint, `${locale}: the messages`);
+      const off = renderToString(tree(locale, propsOf({}, { language: locale, voiceSummaryEnabled: false })));
+      assert(!off.includes(want.label), `${locale}: the row shows while voice is off`);
+      for (const voiceFormat of ['show', 'calm'] as const) {
+        const html = renderToString(tree(locale, propsOf({}, { language: locale, voiceSummaryEnabled: true, voiceFormat })));
+        const at = html.indexOf(want.label);
+        assert(at > html.indexOf(word(locale, 'voice.label')) && at < html.indexOf(word(locale, 'weather.label')), `${locale}: not right under the voice switch`);
+        assert(!/settings\./.test(textOf(html)), `${locale}: a raw key`);
+        const m = open(locale, propsOf({}, { language: locale, voiceSummaryEnabled: true, voiceFormat }));
+        try {
+          const row = rowOf(m.m, want.label);
+          assert(row, `${locale}: no row ${want.label}`);
+          const shown = elements(row).find((e) => e.className.split(' ').includes('ch-form-value-text'));
+          assert(shown && flat(shown) === want[voiceFormat].replace(/\s+/g, ' '), `${locale} ${voiceFormat}: the row shows ${shown ? flat(shown) : '(nothing)'}`);
+          const options = elements(selectOf(m.m, want.label) as FakeElement).filter((e) => e.localName === 'option');
+          assert(show(options.map((o) => [o.getAttribute('value'), o.textContent])) === show([['show', want.show], ['calm', want.calm]]), `${locale}: the options ${show(options.map((o) => [o.getAttribute('value'), o.textContent]))}`);
+          assert(saveButton(m.m)?.hasAttribute('disabled'), `${locale}: Save is off while nothing differs`);
+        } finally {
+          close(m);
+        }
+      }
+    }
+    // No chat: no voice, so no style, even saved with voice on
+    assert(!renderToString(tree('en', propsOf({ hasChat: false }, { voiceSummaryEnabled: true }))).includes('Voice style'), 'shown to an account with no chat');
+    // A pick enables Save and is posted; picking back leaves Save off; switched off and on again it is as it was
+    reset();
+    const a = open('en', propsOf({}, { voiceSummaryEnabled: true, voiceFormat: 'calm' }));
+    try {
+      const select = () => selectOf(a.m, 'Voice style') as FakeElement;
+      a.m.click(switchOf(a.m, word('en', 'voice.label')) as FakeElement);
+      assert(!rowOf(a.m, 'Voice style'), 'the row stays with voice off');
+      a.m.click(switchOf(a.m, word('en', 'voice.label')) as FakeElement);
+      const back = rowOf(a.m, 'Voice style');
+      // The value the row shows (the select inside it holds both options, so the row's whole text proves nothing)
+      const backShown = back && elements(back).find((e) => e.className.split(' ').includes('ch-form-value-text'));
+      assert(backShown && flat(backShown) === 'Calm, one voice' && saveButton(a.m)?.hasAttribute('disabled'), 'off and on again: not as it was');
+      a.m.change(select(), 'show');
+      assert(!saveButton(a.m)?.hasAttribute('disabled'), 'a pick enables Save');
+      a.m.change(select(), 'calm');
+      assert(saveButton(a.m)?.hasAttribute('disabled'), 'back to the saved value: Save is off');
+      a.m.change(select(), 'show');
+      a.m.click(saveButton(a.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(posts().length === 1 && body.voiceFormat === 'show' && body.voiceSummaryEnabled === true, `the request: ${show(body)}`);
+      assert(saveButton(a.m)?.hasAttribute('disabled'), 'saved: Save is off');
+    } finally {
+      close(a);
     }
   });
 

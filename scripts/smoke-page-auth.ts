@@ -650,6 +650,18 @@ async function main() {
     }
   });
 
+  await check('#6c3 page-data settings: the props carry the voice style (currentSettings.voiceFormat) as the row has it, show or calm; a row holding anything else reads as the show, as the voice notes read it', async () => {
+    for (const [stored, want] of [['calm', 'calm'], ['show', 'show'], ['', 'show'], ['Calm', 'show'], ['loud', 'show']] as const) {
+      seed();
+      Object.assign(DB.user.find((u: Row) => u.id === 42) as Row, { voiceFormat: stored });
+      const res = await pageData({ page: 'settings', user_id: 42, locale: 'ru' }, waCookie);
+      assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
+      const body = await fullBody(res);
+      const voiceFormat = body.match(/"currentSettings":\{[^}]*?"voiceFormat":"(\w+)"/)?.[1];
+      assert(voiceFormat === want, `stored ${JSON.stringify(stored)}: the props say ${voiceFormat} (want ${want}) in ${await bodyOf(res)}`);
+    }
+  });
+
   await check('#6d page-data settings: the props carry where the person\'s week starts, beside currentSettings and never in it: Jewish culture Sunday; else the zone of their place decides over the language (London Monday even in Hebrew, New York Sunday even in Russian); no place at all follows the language; a lookup that never answers or fails still gives the page at once, by the language, and is captured', async () => {
     const show = (value: unknown) => JSON.stringify(value);
     const { REDIS_KEYS } = await load('src/config/redis-keys.ts');

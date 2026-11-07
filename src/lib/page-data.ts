@@ -281,6 +281,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
       culture: user.culture || 'default',
       textSummaryEnabled: user.textSummaryEnabled,
       voiceSummaryEnabled: user.voiceSummaryEnabled,
+      // "Voice style": already narrowed by voiceFormatOf (convertPrismaUserToConfig), as the voice notes read it
+      voiceFormat: user.voiceFormat,
       weatherEnabled: user.weatherEnabled,
       includeLookaheadInTomorrow: user.includeLookaheadInTomorrow,
       lookaheadAlways7Days: user.lookaheadAlways7Days,

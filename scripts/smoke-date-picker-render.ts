@@ -266,7 +266,7 @@ async function main() {
                 bothChannels: true,
                 subscriptionInfo: { effectivePlan: 'basic', textSummariesUsed: 0, textSummariesLimit: -1, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false },
                 currentSettings: {
-                  language: locale, gender: 'male', location: 'x', messagingPlatform: 'telegram', culture: 'jewish', textSummaryEnabled: true, voiceSummaryEnabled: false, weatherEnabled: true,
+                  language: locale, gender: 'male', location: 'x', messagingPlatform: 'telegram', culture: 'jewish', textSummaryEnabled: true, voiceSummaryEnabled: false, voiceFormat: 'show', weatherEnabled: true,
                   includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 20, dailySummaryDays: [], tomorrowSummaryDays: [],
                   remindersEnabled: true, defaultReminderMinutes: 15, reminderTime: '09:15', pickupRemindersEnabled: false, voiceInputEnabled: false, pauseOnShabbat: true, zmanimCommunity: 'sephardi',
                 },
