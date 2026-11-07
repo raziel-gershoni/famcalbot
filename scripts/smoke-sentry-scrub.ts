@@ -448,6 +448,25 @@ async function main() {
     assert(show(run(other)) === show(other), `another update changed: ${show(run(other))}`);
   });
 
+  await check('#17 the Jewish times API\'s place: lat, lon and city scrubbed from url, query_string (string, object any case, pairs), the nextjs request path, breadcrumbs and the transaction name; names that only contain them (flat, citycode) and the rest kept', () => {
+    const query = 'city=jerusalem&from=2026-11-13&lat=31.7690&lon=35.2163&flat=1&citycode=7&lang=he';
+    const want = 'city=[scrubbed]&from=2026-11-13&lat=[scrubbed]&lon=[scrubbed]&flat=1&citycode=7&lang=he';
+    const out = scrub.scrubServerEvent({ request: { url: `https://famcal.bot/api/v1/shabbat?${query}`, query_string: query }, contexts: { nextjs: { request_path: `/api/v1/shabbat?${query}` } } });
+    assert(out.request.url === `https://famcal.bot/api/v1/shabbat?${want}`, `url ${out.request.url}`);
+    assert(out.request.query_string === want, `query_string ${out.request.query_string}`);
+    assert(out.contexts.nextjs.request_path === `/api/v1/shabbat?${want}`, `request_path ${out.contexts.nextjs.request_path}`);
+    const obj = scrub.scrubServerEvent({ request: { query_string: { City: 'haifa', lat: '32.8', lon: '35', lang: 'en' } } }).request.query_string;
+    assert(show(obj) === show({ City: '[scrubbed]', lat: '[scrubbed]', lon: '[scrubbed]', lang: 'en' }), `object ${show(obj)}`);
+    const pairs = scrub.scrubServerEvent({ request: { query_string: [['lat', '40.7128'], ['date', '2026-11-14']] } }).request.query_string;
+    assert(show(pairs) === show([['lat', '[scrubbed]'], ['date', '2026-11-14']]), `pairs ${show(pairs)}`);
+    const crumb = scrub.scrubServerBreadcrumb({ category: 'http', message: `GET /api/v1/day?${query}`, data: { url: `/api/v1/day?${query}` } });
+    const tx = scrub.scrubServerTransaction({ type: 'transaction', transaction: `GET /api/v1/day?${query}` });
+    for (const [label, value] of [['breadcrumb', crumb], ['transaction', tx]] as [string, Row][]) {
+      assert(!/31\.769|35\.2163|jerusalem/.test(show(value)), `${label} still has the place: ${show(value)}`);
+    }
+    assert(scrub.scrubUrl(scrub.scrubUrl(`/api/v1/day?${query}`)) === scrub.scrubUrl(`/api/v1/day?${query}`), 'a second scrub changes the URL');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

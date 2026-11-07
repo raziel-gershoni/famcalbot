@@ -30,8 +30,8 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { installApiWorld, resetApiWorld } from './lib/api-world';
-import { assert, captured, check, load, report, ROOT, show, stubModule, type Row } from './lib/signin-world';
+import { advanceClock, installApiWorld, prismaFails, redisCalls, redisFails, resetApiWorld, setClock } from './lib/api-world';
+import { assert, captured, check, everyCapture, everyLog, load, logs, prismaCalls, redisStore, report, ROOT, show, stubModule, type Row } from './lib/signin-world';
 
 const ZONES = ['UTC', 'Asia/Jerusalem', 'America/New_York'] as const;
 const CHILD = 'API_V1_SMOKE_CHILD';
@@ -68,6 +68,15 @@ const HARISH = { lat: '32.4618', lon: '35.0456' };
 const NY = { lat: '40.7128', lon: '-74.0060' };
 const HEBRON = { lat: '31.5326', lon: '35.0998' };
 const SEA = { lat: '33.1234', lon: '32.5678' };
+const ADMIN = 9;
+const MIRROR = 'api:keys:v1';
+/** One second into a minute, so a rate window has 59 seconds to run. */
+const T0 = Date.UTC(2026, 10, 13, 8, 0, 1);
+const BROWSER_ORIGIN = 'https://candles.example.test';
+const OTHER_ORIGIN = 'https://elsewhere.example.test';
+const DAY_URL = '/api/v1/day?city=jerusalem&date=2026-11-14';
+/** No log line or Sentry field may hold these either: the keys, their hashes and prefixes, the origins (Z1). */
+const KEYS: string[] = ['candles.example.test', 'elsewhere.example.test', 'Shabbat site', 'Candle app'];
 
 /** No log line or Sentry field of the run may hold these (Z1): the coordinates, slugs and names the run uses. */
 const PLACES = ['32.4618', '35.0456', '40.7128', '74.006', '31.5326', '35.0998', '33.1234', '32.5678', '31.769', '35.2163', 'jerusalem', 'haifa', 'new-york', 'saint-petersburg', 'atlantis', 'Jerusalem', 'Haifa', 'New York', 'Saint Petersburg'];
@@ -346,10 +355,254 @@ async function runChecks(): Promise<void> {
     assert(memoSize() === memoBefore, `the process memo grew from ${memoBefore} to ${memoSize()}`);
   });
 
-  // ---- Task 5: the routes (H1-H10) and the whole run's logs (Z1) ----
+  const crypto = await import('node:crypto');
+  const store = await load('src/services/api-keys/store.ts');
+  const lookup = await load('src/services/api-keys/lookup.ts');
+  const routes: Record<string, Row> = {
+    shabbat: await load('app/api/v1/shabbat/route.ts'),
+    day: await load('app/api/v1/day/route.ts'),
+    rest: await load('app/api/v1/[...rest]/route.ts'),
+  };
+  const remember = (key: string) => {
+    KEYS.push(key, crypto.createHash('sha256').update(key, 'utf8').digest('hex'), key.slice(0, 10));
+    return key;
+  };
+  /** Two keys: a server key, and a browser key locked to BROWSER_ORIGIN (typed as a person might: capital, trailing slash). */
+  const seedKeys = async () => {
+    const server = await store.createApiKey('Shabbat site', '', ADMIN);
+    const browser = await store.createApiKey('Candle app', 'https://Candles.Example.test/', ADMIN);
+    remember(server.key);
+    remember(browser.key);
+    return { server: server as Row, browser: browser as Row };
+  };
+  const forgetCopy = () => {
+    delete (globalThis as Row).__apiKeys;
+  };
+  type Call = { key?: string | null; auth?: string; origin?: string; method?: 'GET' | 'OPTIONS' };
+  const call = async (url: string, o: Call = {}): Promise<{ status: number; body: Row; headers: Headers }> => {
+    const headers: Record<string, string> = {};
+    if (o.auth !== undefined) headers.authorization = o.auth;
+    else if (o.key) headers.authorization = `Bearer ${o.key}`;
+    if (o.origin) headers.origin = o.origin;
+    const request = new Request(`https://famcal.bot${url}`, { method: o.method ?? 'GET', headers });
+    const pathname = new URL(request.url).pathname;
+    const route = pathname === '/api/v1/shabbat' ? routes.shabbat : pathname === '/api/v1/day' ? routes.day : routes.rest;
+    const res: Response = await (o.method === 'OPTIONS' ? route.OPTIONS(request) : route.GET(request));
+    const text = await res.text();
+    let body: Row = {};
+    try {
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = { notJson: text.slice(0, 80) };
+    }
+    return { status: res.status, body, headers: res.headers };
+  };
+  const cache = (r: { headers: Headers }) => r.headers.get('cache-control');
 
-  void CITIES;
-  void PLACES; // Task 5 (Z1) reads it
+  await check('H1 every error code with its status and the one shape { error: { code, message } }, no-store and JSON in UTF-8; a lower-case bearer is a bearer; malformed coordinates make no zone lookup (no warning reaches Sentry)', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server } = await seedKeys();
+    const cases: [string, Call, number, string][] = [
+      ['/api/v1/shabbat?city=jerusalem', { key: null }, 401, 'MISSING_KEY'],
+      ['/api/v1/shabbat?city=jerusalem', { auth: 'Basic abc' }, 401, 'MISSING_KEY'],
+      ['/api/v1/shabbat?city=jerusalem', { key: `fcj_${'B'.repeat(43)}` }, 401, 'INVALID_KEY'],
+      ['/api/v1/shabbat?city=jerusalem', { key: 'not-a-key' }, 401, 'INVALID_KEY'],
+      ['/api/v1/shabbat', {}, 400, 'INVALID_PLACE'],
+      ['/api/v1/shabbat?city=jerusalem&lat=1&lon=2', {}, 400, 'INVALID_PLACE'],
+      ['/api/v1/shabbat?city=atlantis', {}, 400, 'UNKNOWN_CITY'],
+      ['/api/v1/day?lat=91&lon=0', {}, 400, 'INVALID_COORDINATES'],
+      ['/api/v1/day?lat=32,46&lon=35', {}, 400, 'INVALID_COORDINATES'],
+      ['/api/v1/day?city=jerusalem&date=2026-02-30', {}, 400, 'INVALID_DATE'],
+      ['/api/v1/shabbat?city=jerusalem&from=2026-11-20&to=2026-11-13', {}, 400, 'INVALID_RANGE'],
+      ['/api/v1/shabbat?city=jerusalem&from=2026-01-01&to=2027-01-03', {}, 400, 'INVALID_RANGE'],
+      ['/api/v1/day?city=jerusalem&date=1999-12-31', {}, 400, 'OUT_OF_RANGE'],
+      ['/api/v1/day?city=jerusalem&community=yemenite', {}, 400, 'INVALID_COMMUNITY'],
+      ['/api/v1/day?city=jerusalem&lang=fr', {}, 400, 'INVALID_LANG'],
+      ['/api/v1/day?city=jerusalem&from=2026-11-13', {}, 400, 'UNKNOWN_PARAMETER'],
+      ['/api/v1/day?city=jerusalem&lang=en&lang=he', {}, 400, 'UNKNOWN_PARAMETER'],
+      ['/api/v1/zmanim?city=jerusalem', {}, 404, 'NOT_FOUND'],
+    ];
+    for (const [url, o, status, code] of cases) {
+      const r = await call(url, { key: server.key, ...o });
+      assert(r.status === status && r.body.error?.code === code && typeof r.body.error?.message === 'string' && Object.keys(r.body).length === 1 && Object.keys(r.body.error).length === 2, `${url}: ${r.status} ${show(r.body)}`);
+      assert(cache(r) === 'no-store' && r.headers.get('content-type') === 'application/json; charset=utf-8' && r.headers.get('vary') === 'Origin', `${url}: the headers`);
+    }
+    assert(captured.filter((c) => c.context === 'location-lookup').length === 0, `a malformed coordinate reached the zone lookup: ${show(captured)}`);
+    const sea = await call(`/api/v1/day?lat=${SEA.lat}&lon=${SEA.lon}`, { key: server.key });
+    assert(sea.status === 400 && sea.body.error.code === 'NO_TIME_ZONE', `at sea: ${show(sea.body)}`);
+    assert((await call(DAY_URL, { auth: `bearer ${server.key}` })).status === 200, 'a lower-case bearer');
+  });
+
+  await check('H2 an answer: 200, private, max-age=3600 with every date given, Vary: Origin and the rate headers; the golden Jerusalem Shabbat through the route; a defaulted date is today at the place and keeps it to the place\'s midnight; a far from with no to is clamped to 2099-12-31 (Review Focus 3)', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server } = await seedKeys();
+    const r = await call('/api/v1/shabbat?city=jerusalem&from=2026-11-13&to=2026-11-14', { key: server.key });
+    assert(r.status === 200 && cache(r) === 'private, max-age=3600' && r.headers.get('content-type') === 'application/json; charset=utf-8' && r.headers.get('vary') === 'Origin', `the headers: ${r.status} ${cache(r)}`);
+    assert(r.headers.get('x-ratelimit-limit') === '300' && r.headers.get('x-ratelimit-remaining') === '299' && r.headers.get('x-ratelimit-reset') === String((T0 - 1000 + 60_000) / 1000), 'the rate headers');
+    assertSame(r.body.blocks, GOLDEN_BLOCKS, 'the golden blocks');
+    assertSame(r.body.place, { city: 'jerusalem', timeZone: 'Asia/Jerusalem', inIsrael: true, elevationM: 828 }, 'the place');
+    setClock(Date.parse('2026-11-14T21:30:00Z'));
+    const today = await call('/api/v1/day?city=jerusalem', { key: server.key });
+    assert(today.body.date === '2026-11-14' && cache(today) === 'private, max-age=1800', `today in Jerusalem at 23:30: ${today.body.date} ${cache(today)}`);
+    const week = await call('/api/v1/shabbat?city=jerusalem', { key: server.key });
+    assert(week.body.from === '2026-11-14' && week.body.to === '2026-11-21' && cache(week) === 'private, max-age=1800', `this week: ${week.body.from} ${week.body.to} ${cache(week)}`);
+    const fromOnly = await call('/api/v1/shabbat?city=jerusalem&from=2026-11-14', { key: server.key });
+    assert(fromOnly.body.to === '2026-11-21' && cache(fromOnly) === 'private, max-age=3600', 'from given, to defaulted: nothing depends on today');
+    setClock(Date.parse('2026-11-15T04:15:00Z'));
+    const ny = await call(`/api/v1/day?lat=${NY.lat}&lon=${NY.lon}`, { key: server.key });
+    assert(ny.body.date === '2026-11-14' && cache(ny) === 'private, max-age=2700', `today in New York at 23:15: ${ny.body.date} ${cache(ny)}`);
+    setClock(T0);
+    const far = await call('/api/v1/shabbat?city=jerusalem&from=2099-12-28', { key: server.key });
+    assert(far.status === 200 && far.body.to === '2099-12-31', `a far from: ${far.status} ${show(far.body.to ?? far.body)}`);
+    const behind = await call('/api/v1/shabbat?city=jerusalem&to=2026-11-01', { key: server.key });
+    assert(behind.status === 400 && behind.body.error.code === 'INVALID_RANGE', 'a to before today');
+  });
+
+  await check('H3 no database once warm: after a restart the first request makes one Redis GET and no query; 50 more across both endpoints and both keys make no Redis command and no query; 5 minutes on, one request makes one Redis GET; with the mirror gone, one query and one SET, then none', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server, browser } = await seedKeys();
+    forgetCopy();
+    redisCalls.length = 0;
+    prismaCalls.length = 0;
+    assert((await call(DAY_URL, { key: server.key })).status === 200, 'the first request');
+    assert(show(redisCalls) === show(['get']) && prismaCalls.length === 0, `the first request: ${show(redisCalls)} ${show(prismaCalls)}`);
+    redisCalls.length = 0;
+    for (let i = 0; i < 50; i++) {
+      const key = i % 2 === 0 ? server.key : browser.key;
+      const url = i % 3 === 0 ? `/api/v1/shabbat?city=haifa&from=2026-11-${String(10 + (i % 15)).padStart(2, '0')}` : `/api/v1/day?lat=${NY.lat}&lon=${NY.lon}&date=2026-11-14`;
+      const r = await call(url, { key });
+      assert(r.status === 200, `${url}: ${r.status} ${show(r.body)}`);
+    }
+    assert(redisCalls.length === 0 && prismaCalls.length === 0, `50 warm requests: ${show(redisCalls)} ${show(prismaCalls)}`);
+    advanceClock(5 * 60_000);
+    await call(DAY_URL, { key: server.key });
+    await lookup.__pendingKeyRefreshForTests();
+    await call(DAY_URL, { key: server.key });
+    assert(show(redisCalls) === show(['get']) && prismaCalls.length === 0, `5 minutes on: ${show(redisCalls)} ${show(prismaCalls)}`);
+    redisStore.delete(MIRROR);
+    forgetCopy();
+    redisCalls.length = 0;
+    await call(DAY_URL, { key: server.key });
+    assert(show(redisCalls) === show(['get', 'set']) && show(prismaCalls) === show(['apiKey.findMany']), `the mirror gone: ${show(redisCalls)} ${show(prismaCalls)}`);
+    redisCalls.length = 0;
+    prismaCalls.length = 0;
+    await call(DAY_URL, { key: server.key });
+    assert(redisCalls.length === 0 && prismaCalls.length === 0, 'then none');
+  });
+
+  await check('H4 a revoked key is refused on the next request in the same process, with the same code as an unknown one; logged as [api] 401 INVALID_KEY', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server, browser } = await seedKeys();
+    assert((await call(DAY_URL, { key: server.key })).status === 200, 'before');
+    await store.revokeApiKey(server.id, ADMIN);
+    logs.length = 0;
+    const after = await call(DAY_URL, { key: server.key });
+    assert(after.status === 401 && after.body.error.code === 'INVALID_KEY' && logs.includes('[api] 401 INVALID_KEY'), `after: ${after.status} ${show(after.body)} ${show(logs)}`);
+    assert((await call(DAY_URL, { key: browser.key })).status === 200, 'the other key');
+  });
+
+  await check('H5 the rate: 300 requests a minute per key; the 301st is 429 RATE_LIMITED with Retry-After to the minute\'s end and no-store; another key counts on its own; the next minute starts fresh', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server, browser } = await seedKeys();
+    // A refusal after the rate step is the cheapest request that counts
+    const fast = (key: string) => call('/api/v1/day?city=jerusalem&date=bad', { key });
+    for (let i = 1; i <= 300; i++) {
+      const r = await fast(server.key);
+      if (r.status !== 400 || r.headers.get('x-ratelimit-remaining') !== String(300 - i)) throw new Error(`request ${i}: ${r.status} ${r.headers.get('x-ratelimit-remaining')}`);
+    }
+    const over = await fast(server.key);
+    assert(over.status === 429 && over.body.error.code === 'RATE_LIMITED' && over.headers.get('retry-after') === '59' && over.headers.get('x-ratelimit-remaining') === '0' && cache(over) === 'no-store', `the 301st: ${over.status} ${over.headers.get('retry-after')} ${show(over.body)}`);
+    assert((await fast(browser.key)).headers.get('x-ratelimit-remaining') === '299', 'another key counts on its own');
+    advanceClock(60_000);
+    const next = await fast(server.key);
+    assert(next.status === 400 && next.headers.get('x-ratelimit-remaining') === '299', `the next minute: ${next.status} ${next.headers.get('x-ratelimit-remaining')}`);
+  });
+
+  await check('H6 CORS: a preflight from a listed origin gets Allow-Origin, GET, Authorization and 600 s, from another none; a browser key from its origin gets Allow-Origin and the exposed rate headers, from another origin 403 ORIGIN_NOT_ALLOWED; with no Origin (a server) it works without CORS headers; a server key never gets them; a refused key from a listed origin can be read; the origin typed with a capital and a slash matches the browser\'s (Review Focus 4)', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server, browser } = await seedKeys();
+    const pre = await call('/api/v1/shabbat', { method: 'OPTIONS', origin: BROWSER_ORIGIN });
+    assert(pre.status === 204 && pre.headers.get('access-control-allow-origin') === BROWSER_ORIGIN && pre.headers.get('access-control-allow-methods') === 'GET' && pre.headers.get('access-control-allow-headers') === 'Authorization' && pre.headers.get('access-control-max-age') === '600', `the preflight: ${pre.status} ${show([...pre.headers.entries()])}`);
+    const preOther = await call('/api/v1/day', { method: 'OPTIONS', origin: OTHER_ORIGIN });
+    assert(preOther.status === 204 && preOther.headers.get('access-control-allow-origin') === null, 'another origin\'s preflight');
+    const ok = await call(DAY_URL, { key: browser.key, origin: BROWSER_ORIGIN });
+    assert(ok.status === 200 && ok.headers.get('access-control-allow-origin') === BROWSER_ORIGIN && ok.headers.get('vary') === 'Origin' && /X-RateLimit-Remaining/.test(ok.headers.get('access-control-expose-headers') ?? ''), `from its origin: ${ok.status} ${show([...ok.headers.entries()])}`);
+    const other = await call(DAY_URL, { key: browser.key, origin: OTHER_ORIGIN });
+    assert(other.status === 403 && other.body.error.code === 'ORIGIN_NOT_ALLOWED' && other.headers.get('access-control-allow-origin') === null, `from another origin: ${other.status} ${show(other.body)}`);
+    const fromServer = await call(DAY_URL, { key: browser.key });
+    assert(fromServer.status === 200 && fromServer.headers.get('access-control-allow-origin') === null, 'a browser key from a server');
+    const serverKey = await call(DAY_URL, { key: server.key, origin: BROWSER_ORIGIN });
+    assert(serverKey.status === 200 && serverKey.headers.get('access-control-allow-origin') === null, 'a server key gets no CORS headers');
+    const missing = await call(DAY_URL, { key: null, origin: BROWSER_ORIGIN });
+    assert(missing.status === 401 && missing.headers.get('access-control-allow-origin') === BROWSER_ORIGIN, 'a refused key from a listed origin');
+  });
+
+  await check('H7 failures: a thrown error is 500 INTERNAL, reported by its kind with the endpoint and the key id; no copy, no Redis and no table is 503 KEYS_UNAVAILABLE with Retry-After: 60, reported; the table back, the next request works', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server } = await seedKeys();
+    captured.length = 0;
+    // An Invalid Date clock makes the default "today" throw a RangeError inside the answer
+    setClock(Number.NaN);
+    const boom = await call('/api/v1/day?city=jerusalem', { key: server.key });
+    setClock(T0);
+    assert(boom.status === 500 && boom.body.error.code === 'INTERNAL' && cache(boom) === 'no-store', `${boom.status} ${show(boom.body)}`);
+    const reported = captured.find((c) => c.context === 'api-v1');
+    assert(reported && /^api-v1 day failed: RangeError/.test(reported.message) && reported.extra.endpoint === 'day' && reported.extra.key_id === server.id, `the report: ${show(captured)}`);
+    resetApiWorld();
+    setClock(T0);
+    const again = await seedKeys();
+    forgetCopy();
+    redisFails.add('get');
+    prismaFails.add('apiKey.findMany');
+    captured.length = 0;
+    const down = await call(DAY_URL, { key: again.server.key });
+    assert(down.status === 503 && down.body.error.code === 'KEYS_UNAVAILABLE' && down.headers.get('retry-after') === '60' && cache(down) === 'no-store', `${down.status} ${show(down.body)}`);
+    assert(captured.some((c) => c.context === 'api-keys'), 'reported');
+    prismaFails.clear();
+    assert((await call(DAY_URL, { key: again.server.key })).status === 200, 'the table back');
+  });
+
+  await check('H8 one log line per request: [api] key <id> <endpoint> <status> [<code>] <ms> ms, and [api] 401 <code> for a refused key; nothing else', async () => {
+    resetApiWorld();
+    setClock(T0);
+    const { server } = await seedKeys();
+    logs.length = 0;
+    await call(DAY_URL, { key: server.key });
+    await call('/api/v1/day?city=jerusalem&lang=fr', { key: server.key });
+    await call(DAY_URL, { key: `fcj_${'C'.repeat(43)}` });
+    await call(DAY_URL, { key: null });
+    const lines = logs.filter((l) => l.startsWith('[api]'));
+    assert(lines.length === 4 && new RegExp(`^\\[api\\] key ${server.id} day 200 \\d+ ms$`).test(lines[0]) && new RegExp(`^\\[api\\] key ${server.id} day 400 INVALID_LANG \\d+ ms$`).test(lines[1]) && lines[2] === '[api] 401 INVALID_KEY' && lines[3] === '[api] 401 MISSING_KEY', show(lines));
+  });
+
+  await check('H9 the proxy\'s matcher leaves /api/v1/* alone (no city-page limit, no next-intl), and still matches a city page', () => {
+    const source = fs.readFileSync(path.join(ROOT, 'proxy.ts'), 'utf8');
+    const literal = /matcher:\s*\['([^']+)'/.exec(source)?.[1];
+    assert(literal, 'no matcher in proxy.ts');
+    const pattern = new RegExp(`^${JSON.parse(`"${literal}"`)}$`);
+    assert(!pattern.test('/api/v1/shabbat') && !pattern.test('/api/v1/day') && pattern.test('/zmanim/jerusalem'), `the matcher ${literal}`);
+  });
+
+  await check('H10 the reference lists every city slug of src/site/cities.ts, in its order, between its markers', () => {
+    const doc = fs.readFileSync(path.join(ROOT, 'docs/api/jewish-times-v1.md'), 'utf8');
+    const block = /<!-- cities:start -->\n([\s\S]*?)\n<!-- cities:end -->/.exec(doc)?.[1] ?? '';
+    const want = CITIES.map((c: Row) => `- \`${c.slug}\` (${c.country}, ${c.timeZone})`).join('\n');
+    assert(block === want, `the city list differs from src/site/cities.ts; between the markers it should read:\n${want}`);
+  });
+
+  await check('Z1 no console line or Sentry field of the whole run holds a coordinate, a city slug or name, a key, its hash or prefix, an app name or an origin', () => {
+    const zones = /\b[A-Z][A-Za-z_]+\/[A-Za-z_/+-]+/g;
+    const text = [...everyLog, ...everyCapture.map((c) => `${c.message} ${show(c.extra)}`)].join('\n').replace(zones, '<zone>');
+    const leaks = [...PLACES, ...KEYS].filter((s) => text.includes(s));
+    assert(leaks.length === 0, `leaked: ${show(leaks.map((s) => (s.length > 12 ? `${s.slice(0, 6)}…` : s)))}`);
+  });
   report();
 }
 

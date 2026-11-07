@@ -24,6 +24,9 @@
  * push services' URL paths (FCM's, Apple's, Mozilla's, WNS's) leave every URL, breadcrumb, name and description
  * (web-push/config.ts PUSH_SERVICE_HOSTS are the hosts a device may use; smoke-sentry-scrub #15 holds the two together).
  *
+ * The Jewish times API's place (spec 2026-11-07-zmanim-api §3.6): the lat, lon and city query values leave URLs and
+ * queries, so an error event of /api/v1/* holds no place.
+ *
  * No imports: the server, edge and client Sentry configs all load this module. The types
  * are structural so Sentry's own event types fit them.
  */
@@ -61,6 +64,12 @@ const INIT_DATA_PARAM = /initData=[^&#]*/gi;
  */
 const SECRET_PARAM_NAMES = ['secret', 'sig', 'hub.verify_token', 'code', 'state', 'token', 'id_token', 'email', 'invite'];
 const SECRET_PARAM = /(^|[?&])(secret|sig|hub\.verify_token|code|state|token|id_token|email|invite)=[^&#]*/gi;
+/**
+ * The Jewish times API's place (spec 2026-11-07-zmanim-api §3.6): /api/v1/*?city=…&lat=…&lon=… names a place, and no
+ * Sentry field holds one. Its own rule beside the secret query values: URLs and queries, as SECRET_PARAM.
+ */
+const PLACE_PARAM_NAMES = ['lat', 'lon', 'city'];
+const PLACE_PARAM = /(^|[?&])(lat|lon|city)=[^&#]*/gi;
 /**
  * Body fields dropped from a request body, any case: initData, sign-in's code, state, token, id_token, email and invite,
  * a name, and a browser's push subscription (endpoint, keys, p256dh, auth).
@@ -105,6 +114,7 @@ function scrubSecrets(text: string): string {
   return text
     .replace(INIT_DATA_PARAM, `initData=${SCRUBBED}`)
     .replace(SECRET_PARAM, `$1$2=${SCRUBBED}`)
+    .replace(PLACE_PARAM, `$1$2=${SCRUBBED}`)
     .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`)
     .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
     .replace(CONNECT_TOKEN, `w_${SCRUBBED}`)
@@ -119,7 +129,7 @@ export function scrubUrl(url: string): string {
 }
 
 const isSecretParam = (name: unknown) =>
-  name === 'initData' || (typeof name === 'string' && SECRET_PARAM_NAMES.includes(name.toLowerCase()));
+  name === 'initData' || (typeof name === 'string' && (SECRET_PARAM_NAMES.includes(name.toLowerCase()) || PLACE_PARAM_NAMES.includes(name.toLowerCase())));
 
 function scrubQuery(query: unknown): unknown {
   if (typeof query === 'string') return scrubSecrets(query);

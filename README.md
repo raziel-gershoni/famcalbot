@@ -168,6 +168,14 @@ One-time setup:
 
 Before announcing it, check on real devices (spec §6): on an iPhone, installing FamCal, signing in inside the installed app, turning notifications on, receiving each kind (a newer reminder replaces the older one) and a tap opening the home, and connecting Google Calendar from the installed app; on Android Chrome, the permission prompt left unanswered.
 
+### Jewish times API
+
+FamCal's Shabbat, Yom Tov and zmanim times as JSON for the owner's other apps: `GET /api/v1/shabbat` (the Shabbat and Yom Tov blocks of a range of days) and `GET /api/v1/day` (one day's zmanim, holidays and Hebrew date), at a city of the zmanim pages' list or at coordinates, Sephardi, Ashkenazi or Chabad, with names in en, he or ru. The reference handed to another app is `docs/api/jewish-times-v1.md`; the design is `docs/superpowers/specs/2026-11-07-zmanim-api-design.md`.
+
+- **Keys:** admin panel → **API keys** → **New key**: the app's name and, for an app that calls from a browser, its web origins. The key (`fcj_…`) is shown once, to paste into the other app's own secret store. **Revoke** stops that app at once. Only the key's SHA-256 is stored (the `ApiKey` table); nothing is set on Railway.
+- **Cost:** a request reads the keys from the process's memory and counts its rate (300 a minute per key) in memory, so it makes no database query and no Redis command; one Redis read every 5 minutes while requests come keeps the copy fresh.
+- **Privacy:** no log line or Sentry field holds a key, an origin, a place name or coordinates.
+
 ### Install & run
 
 ```bash
