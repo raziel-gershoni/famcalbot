@@ -166,6 +166,25 @@ function scrubBody(data: unknown): unknown {
 }
 
 /**
+ * A Telegram Guest Mode update (`guest_message`) carries a message from another chat, often written by someone who never
+ * used FamCal (the one the person replied to when they mentioned the bot), so the whole message leaves the body and only
+ * the update's id stays. A body that is a string is matched as text, so JSON the SDK cut off is caught too.
+ */
+const GUEST_MESSAGE_MEMBER = /"guest_message"\s*:/;
+function scrubGuestBody(data: unknown): unknown {
+  if (typeof data === 'string') {
+    if (!GUEST_MESSAGE_MEMBER.test(data)) return data;
+    const id = data.match(/"update_id"\s*:\s*(\d+)/)?.[1];
+    return JSON.stringify(id ? { update_id: Number(id), guest_message: SCRUBBED } : { guest_message: SCRUBBED });
+  }
+  if (data && typeof data === 'object' && !Array.isArray(data) && 'guest_message' in data) {
+    const updateId = (data as Dict).update_id;
+    return updateId === undefined ? { guest_message: SCRUBBED } : { update_id: updateId, guest_message: SCRUBBED };
+  }
+  return data;
+}
+
+/**
  * Connect Telegram's token and the Google connect's pending id out of a request body of any shape: the Telegram
  * webhook's update carries them deep inside (message.text), where the field rules above don't look. A body that can't
  * be written out as JSON is left as it is.
@@ -207,7 +226,7 @@ export function scrubServerEvent<E extends ScrubbableEvent>(event: E): E {
     delete request.cookies;
     if (typeof request.url === 'string') request.url = scrubUrl(request.url);
     if (request.query_string !== undefined) request.query_string = scrubQuery(request.query_string);
-    if (request.data !== undefined) request.data = scrubConnectBody(scrubBody(request.data));
+    if (request.data !== undefined) request.data = scrubConnectBody(scrubBody(scrubGuestBody(request.data)));
   }
   // onRequestError records the request path, query included
   const nextjs = event.contexts?.nextjs;

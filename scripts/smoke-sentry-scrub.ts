@@ -430,6 +430,24 @@ async function main() {
     }
   });
 
+  await check('#16 a Guest Mode update (someone else\'s message, from another chat) leaves the body whole, as an object, a JSON string or JSON cut off; only update_id stays; another update is untouched', () => {
+    const run = (data: unknown) => scrub.scrubServerEvent({ request: { data } }).request.data;
+    const update = {
+      update_id: 77,
+      guest_message: { message_id: 5, guest_query_id: 'gq1', from: { id: 111, first_name: 'Dana' }, chat: { id: 222, type: 'private' }, text: '@famcalbot',
+        reply_to_message: { message_id: 4, from: { id: 333, first_name: 'Noa' }, text: 'Are you free on Friday at eight?' } },
+    };
+    const leaks = (value: unknown) => ['Dana', 'Noa', 'Friday', 'gq1', '@famcalbot'].filter((word) => show(value).includes(word));
+    const object = run(update);
+    assert(show(object) === show({ update_id: 77, guest_message: '[scrubbed]' }), `object ${show(object)}`);
+    const json = run(JSON.stringify(update));
+    assert(json === JSON.stringify({ update_id: 77, guest_message: '[scrubbed]' }), `JSON string ${show(json)}`);
+    const cut = run(JSON.stringify(update).slice(0, 150));
+    assert(leaks(cut).length === 0, `cut-off JSON leaks ${leaks(cut).join(', ')}: ${show(cut)}`);
+    const other = { update_id: 78, message: { message_id: 6, chat: { id: 1, type: 'private' }, text: '/summary' } };
+    assert(show(run(other)) === show(other), `another update changed: ${show(run(other))}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);
