@@ -2,7 +2,11 @@
 // to about a minute of Gemini TTS audio per fixture (roughly $0.02 each).
 //
 // Run: npx tsx -r dotenv/config scripts/eval-voice-show.ts <outDir> [--model gemini-3.8-flash] [--lang he,en]
-//      [--only name1,name2] [--no-audio] [--yes]   (--no-audio writes and checks scripts only: no TTS, no length check)
+//      [--only name1,name2] [--format show|calm] [--no-audio] [--yes]   (--no-audio writes and checks scripts only: no TTS, no length check)
+//
+// --format calm runs the calm single voice (spec docs/superpowers/specs/2026-11-07-calm-voice-design.md) on the same
+// fixtures: the calm writer and parser, no tag at all instead of the sound budget, the presenter's gender in the judge,
+// one voice (CALM_VOICES) with CALM_STYLE. Its files are <fixture>-calm.json and .ogg. An unknown format runs nothing.
 //
 // Before the first paid call it prints the case count and an estimated cost and exits unless --yes is given. It stops
 // at the first failed case and says which and why (scripts/lib/eval-spend.ts; scripts/smoke-eval-voice-show.ts).
@@ -16,6 +20,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import type { UserConfig } from '../src/types';
 import type { ShowKind } from '../src/services/voice-show/types';
+import { isVoiceFormat } from '../src/services/voice-show/types';
 import type { ShowPromptContext } from '../src/prompts/voice-show/types';
 import { AI_MODEL } from '../src/config/ai-models';
 import { confirmSpend, runEvalCases } from './lib/eval-spend';
@@ -562,7 +567,15 @@ async function main() {
   const onlyFlag = args.indexOf('--only');
   const only = onlyFlag >= 0 ? args[onlyFlag + 1].split(',') : null;
   const audio = !args.includes('--no-audio');
-  const outDirArg = args.filter((a, i) => !a.startsWith('--') && !['--model', '--lang', '--only'].includes(args[i - 1]))[0];
+  // --format calm runs the calm single voice instead of the show.
+  const formatFlag = args.indexOf('--format');
+  const format = formatFlag >= 0 ? args[formatFlag + 1] : 'show';
+  if (!isVoiceFormat(format)) {
+    console.log(`Unknown --format ${JSON.stringify(format)}: use show or calm. Nothing was run.`);
+    process.exit(1);
+  }
+  const calm = format === 'calm';
+  const outDirArg = args.filter((a, i) => !a.startsWith('--') && !['--model', '--lang', '--only', '--format'].includes(args[i - 1]))[0];
 
   const cases = [...FIXTURES, ...FIXTURES_EN_RU].filter(f => langs.includes(f.language ?? 'he') && (!only || only.includes(f.name)));
   if (!confirmSpend({ cases: cases.length, audio, yes: args.includes('--yes') }, console.log)) process.exit(1);
@@ -591,9 +604,10 @@ async function main() {
     console.log(`\n=== ${fixture.name} ===`);
     const checks: Check[] = [];
     const language = fixture.language ?? 'he';
-    const user = { id: 1, language, isAdmin: true, ...fixture.user } as unknown as UserConfig;
+    const user = { id: 1, language, isAdmin: true, ...fixture.user, voiceFormat: format } as unknown as UserConfig;
     const context = buildShowContext(fixture.summary, user, fixture.kind, fixture.isNextWeek);
-    const record: Record<string, unknown> = { fixture: fixture.name, model: modelId ?? AI_MODEL };
+    const record: Record<string, unknown> = { fixture: fixture.name, model: modelId ?? AI_MODEL, format };
+    const outName = calm ? `${fixture.name}-calm` : fixture.name;
 
     try {
       const written = await writeShowScript(context, { modelId });
@@ -619,15 +633,25 @@ async function main() {
         const ambiguous = text.match(AMBIGUOUS_HE_VERB) ?? [];
         checks.push({ name: 'ל״ה present verbs pointed', ok: ambiguous.length === 0, detail: ambiguous.join(' ') || 'none' });
       }
-      const sounds = text.match(SOUND) ?? [];
-      checks.push({ name: 'sounds <= 2', ok: sounds.length <= 2, detail: sounds.join(' ') || 'none' });
-      checks.push({ name: 'shape', ok: true, detail: `${turns.length} turns, ${new Set(turns.map(t => t.mood)).size} moods (${[...new Set(turns.map(t => t.mood))].join(', ')}), attempts ${written.attempts}` });
+      if (calm) {
+        // One presenter: no sound and no tag may reach TTS (a <yawn>-type tag slows the whole read).
+        const tags = text.match(/<[^>]*>|[<>]/g) ?? [];
+        checks.push({ name: 'no tags', ok: tags.length === 0, detail: tags.join(' ') || 'none' });
+        checks.push({ name: 'shape', ok: turns.every(t => t.host === 'A'), detail: `${turns.length} paragraphs, one presenter, attempts ${written.attempts}` });
+      } else {
+        const sounds = text.match(SOUND) ?? [];
+        checks.push({ name: 'sounds <= 2', ok: sounds.length <= 2, detail: sounds.join(' ') || 'none' });
+        checks.push({ name: 'shape', ok: true, detail: `${turns.length} turns, ${new Set(turns.map(t => t.mood)).size} moods (${[...new Set(turns.map(t => t.mood))].join(', ')}), attempts ${written.attempts}` });
+      }
 
       const judge = await generateAICompletion(
         `You check a ${{ he: 'Hebrew', en: 'English', ru: 'Russian' }[language]} radio script for grammatical gender agreement.\n` +
-        `The two hosts (A and B) are men and must speak of themselves in the masculine.\n${describePeople(context)}\n` +
+        (calm
+          ? `The one presenter (A) is a ${context.presenterGender === 'female' ? 'woman' : 'man'} and must speak of themself in the ${context.presenterGender === 'female' ? 'feminine' : 'masculine'}.\n`
+          : 'The two hosts (A and B) are men and must speak of themselves in the masculine.\n') +
+        `${describePeople(context)}\n` +
         `Report every place where the listener is addressed with the wrong gender (second-person verbs, adjectives, pronouns), ` +
-        `a family member is referred to with the wrong gender, a person of unknown gender is given one, or a host speaks of himself in the feminine. ` +
+        `a family member is referred to with the wrong gender, a person of unknown gender is given one, ${calm ? 'or the presenter speaks of themself in the wrong gender. ' : 'or a host speaks of himself in the feminine. '}` +
         `Return JSON {"ok": boolean, "problems": [string]}.\n\nScript:\n${turns.map(t => `${t.host}: ${t.text}`).join('\n')}`,
         modelId,
         { responseJsonSchema: JUDGE_SCHEMA },
@@ -635,13 +659,13 @@ async function main() {
       const verdict = JSON.parse(judge.text) as { ok: boolean; problems: string[] };
       checks.push({ name: 'gender', ok: verdict.ok, detail: verdict.problems.join(' / ') || 'ok' });
 
-      const lines = toShowLines(turns, language, context.listener.gender);
+      const lines = toShowLines(turns, language, context.listener.gender, format);
       Object.assign(record, { lines });
       if (!audio) throw new SkipAudio();
-      const show = await generateShowVoice(lines, language);
+      const show = await generateShowVoice(lines, language, {}, format);
       const [min, max] = fixture.seconds;
       checks.push({ name: 'length', ok: show.audioSeconds >= min && show.audioSeconds <= max, detail: `${show.audioSeconds.toFixed(1)}s (want ${min}-${max}), TTS ${(show.ttsMs / 1000).toFixed(1)}s, ${show.audioTokens} tokens, ${show.ttsModel}` });
-      await fs.copyFile(show.filePath, path.join(outDir, `${fixture.name}.ogg`));
+      await fs.copyFile(show.filePath, path.join(outDir, `${outName}.ogg`));
       await fs.unlink(show.filePath).catch(() => {});
       Object.assign(record, { lines, show: { ...show, filePath: undefined } });
     } catch (error) {
@@ -651,7 +675,7 @@ async function main() {
     }
 
     record.checks = checks;
-    await fs.writeFile(path.join(outDir, `${fixture.name}.json`), JSON.stringify(record, null, 2));
+    await fs.writeFile(path.join(outDir, `${outName}.json`), JSON.stringify(record, null, 2));
     for (const c of checks) console.log(`${c.ok ? 'OK  ' : 'FAIL'}  ${c.name}: ${c.detail}`);
     return checks;
   }, f => f.name, console.log);

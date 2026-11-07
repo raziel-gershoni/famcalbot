@@ -2,6 +2,7 @@
 // (and says which and why), and it prints the case count and an estimated cost and exits before any paid call unless
 // it is run with --yes. The paid steps are stubbed here (a case is a stub function), and the real script is run as a
 // child with no --yes and a fake key: it must print the estimate and exit without reaching the writer or the network.
+// With --format calm it runs the calm single voice; an unknown format stops before the spend notice.
 // Nothing is paid, nothing touches the network or the database.
 
 import { spawnSync } from 'node:child_process';
@@ -70,6 +71,26 @@ async function main() {
     assert(run.status === 1 && run.signal === null, `exit ${run.status} (signal ${run.signal}): it went on past the gate: ${out}`);
     assert(/\$\d/.test(out) && out.includes('--yes') && /\d+ case/.test(out), `the notice: ${out}`);
     assert(!out.includes('===') && !out.includes('FAIL') && !out.includes('OK  '), `a case ran: ${out}`);
+  });
+
+  await check('#5 the real script with --format calm, the three Hebrew daily cases and no --yes: it prints 3 cases and the estimate, exits non-zero and runs none', () => {
+    const run = spawnSync(process.execPath, ['-r', 'tsx/cjs', 'scripts/eval-voice-show.ts', path.join(ROOT, 'node_modules/.cache/eval-voice-show-smoke'), '--format', 'calm', '--lang', 'he', '--only', 'daily-male-busy,daily-female-empty,daily-female-busy'], {
+      cwd: ROOT, encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL',
+      env: { ...process.env, GEMINI_API_KEY: 'fake' },
+    });
+    const out = `${run.stdout}${run.stderr}`;
+    assert(run.status === 1 && run.signal === null, `exit ${run.status} (signal ${run.signal}): ${out}`);
+    assert(out.includes('3 case') && /\$\d/.test(out) && out.includes('--yes'), `the notice: ${out}`);
+    assert(!out.includes('===') && !out.includes('FAIL') && !out.includes('OK  '), `a case ran: ${out}`);
+  });
+
+  await check('#6 an unknown --format stops before the spend notice and runs nothing', () => {
+    const run = spawnSync(process.execPath, ['-r', 'tsx/cjs', 'scripts/eval-voice-show.ts', path.join(ROOT, 'node_modules/.cache/eval-voice-show-smoke'), '--format', 'loud', '--yes'], {
+      cwd: ROOT, encoding: 'utf8', timeout: 20_000, killSignal: 'SIGKILL',
+      env: { ...process.env, GEMINI_API_KEY: 'fake' },
+    });
+    const out = `${run.stdout}${run.stderr}`;
+    assert(run.status === 1 && out.includes('Unknown --format') && !out.includes('case(s) to run') && !out.includes('==='), `exit ${run.status}: ${out}`);
   });
 
   let failed = 0;
