@@ -1,6 +1,6 @@
 # Jewish times API (v1) — design
 
-Status: draft for the owner, 2026-11-07. The owner approved the direction (decisions 1 to 6 below) on 2026-11-07.
+**Status:** SHIPPED 2026-11-07. Approved by the owner 2026-11-07 ("ok for jewish time api recommendations"); open points A (the height at the exact point) and B (300 requests a minute per key) took the recommendations.
 
 ## 1. Goal and decisions
 
