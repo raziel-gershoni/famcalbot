@@ -925,7 +925,7 @@ async function fix7() {
     }
   });
 
-  await check('7: every first contact ends with the links too, with no link preview: the /start deep links feedback, connect (WhatsApp not linked yet) and a partner\'s invite (a bad token and one the pairing refuses), and a typed "accept <token>" (from a stranger, whose account it creates, and from a known person)', async () => {
+  await check('7: every first contact\'s reply ends with the links too, with no link preview, and a new account\'s Address me as question is the one message after it: the /start deep links feedback, connect (WhatsApp not linked yet) and a partner\'s invite (a bad token and one the pairing refuses), and a typed "accept <token>" (from a stranger, whose account it creates, and from a known person)', async () => {
     const cases: [string, string, Lang, number][] = [
       ['feedback', '/start feedback', 'en', TG_EN],
       ['connect', '/start connect', 'he', TG_HE],
@@ -939,8 +939,14 @@ async function fix7() {
       sent.length = 0;
       await withLogs(() => telegramText(id, text));
       const replies = sentTo('telegram').filter(s => s.chatId === id);
-      assert(replies.length > 0, `${what}: no reply`);
-      const last = replies[replies.length - 1];
+      // A new account is then asked "Address me as" (address-choice.ts) in a message of its own, after the reply
+      // that carries the links: the notice still comes before that request for data.
+      const isAddressQuestion = (s: (typeof replies)[number]) => show(s.options?.replyMarkup ?? null).includes('"gd:m"');
+      const asked = replies.filter(isAddressQuestion);
+      const answers = replies.filter(s => !isAddressQuestion(s));
+      assert(answers.length > 0, `${what}: no reply`);
+      assert(asked.length <= 1 && (asked.length === 0 || replies[replies.length - 1] === asked[0]), `${what}: the Address me as question is not one message after the reply (${asked.length} sent)`);
+      const last = answers[answers.length - 1];
       const want = id === TG_STRANGER ? 'en' : lang;
       assert(last.text.endsWith(`\n\n${disclosure.policyLinks(policyWords(want), want, 'html')}`), `${what}: the links are not at the end:\n${last.text}`);
       assert(last.options?.format === MessageFormat.HTML && last.options?.disablePreview === true, `${what}: the options ${show(last.options)}`);
