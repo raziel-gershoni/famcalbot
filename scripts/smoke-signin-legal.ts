@@ -28,6 +28,7 @@
 //  - L4 the cookies the Policy names are the code's, with the code's lengths: SESSION_COOKIE_NAME and SESSION_TTL_SEC
 //    (src/lib/session-auth.ts: 30 days on famcal.bot, 24 hours from a WhatsApp link), SIGNIN_COOKIE_NAME and
 //    FLOW_TTL_SEC (src/services/web-signin/flow.ts: 10 minutes), read as text, in every language.
+//  - L7 the B features' wording (spec 2026-11-07-b-features §B1, §B3): deleting the account in Settings, the trial notice, the plan ending with the account.
 //  - L6 each language says what browser notifications (spec 2026-11-05-web-push §8, approved by the owner 2026-11-06) add:
 //    the twenty edits of scripts/lib/legal-push.ts (the Privacy Policy's P1-P15 and the Terms' T1-T5), each in its place
 //    and word for word, the same places in en, he and ru; and none still says the sentences they replaced.
@@ -206,7 +207,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'If you lose every way you sign in, we may not be able to give the account back.'],
     ['terms', 'You pay for Basic and Pro in the Telegram bot, with Telegram Stars. You can’t pay on WhatsApp or on famcal.bot yet. An account made on famcal.bot pays after you connect Telegram.'],
     ['terms', 'We may suspend an account, which means the bot stops answering it and it can’t sign in on famcal.bot.'],
-    ['terms', 'You can stop using FamCal any time: block the bot if you use it, and ask us to delete your account'],
+    ['terms', 'You can stop using FamCal any time: block the bot if you use it, and delete your account in Settings, or ask us to delete it'],
   ],
   he: [
     ['privacy', 'ובאתר עצמו, famcal.bot. אפשר גם לפתוח חשבון ב־famcal.bot עם Google או עם כתובת מייל, ולהשתמש ב־FamCal רק בדפדפן. את FamCal בונה'],
@@ -230,7 +231,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'אם תאבדו את הגישה לכל דרכי הכניסה שלכם, ייתכן שלא נוכל להחזיר לכם את החשבון.'],
     ['terms', 'משלמים על בסיסי ועל Pro בבוט בטלגרם, בכוכבים של טלגרם. בוואטסאפ וב־famcal.bot עדיין אי אפשר לשלם. בחשבון שנפתח ב־famcal.bot משלמים אחרי שמחברים את טלגרם.'],
     ['terms', 'אנחנו רשאים להשעות חשבון, כלומר הבוט מפסיק לענות לו ואי אפשר להיכנס אליו ב־famcal.bot.'],
-    ['terms', 'אפשר להפסיק להשתמש ב־FamCal בכל עת: לחסום את הבוט, אם אתם משתמשים בו, ולבקש'],
+    ['terms', 'אפשר להפסיק להשתמש ב־FamCal בכל עת: לחסום את הבוט, אם אתם משתמשים בו, ולמחוק את החשבון בהגדרות, או לבקש'],
   ],
   ru: [
     ['privacy', 'и на самом сайте famcal.bot. Также можно создать аккаунт на famcal.bot через Google или по адресу электронной почты и пользоваться FamCal только в браузере. FamCal создаёт'],
@@ -254,7 +255,7 @@ const SAYS_SIGNUP: Record<Locale, [Doc, string][]> = {
     ['terms', 'Если вы потеряете доступ ко всем способам входа, мы, возможно, не сможем вернуть вам аккаунт.'],
     ['terms', 'Тарифы «Базовый» и Pro оплачиваются в боте Telegram звёздами Telegram. В WhatsApp и на famcal.bot оплатить тариф пока нельзя. Если аккаунт создан на famcal.bot, тариф можно оплатить после подключения Telegram.'],
     ['terms', 'Мы можем приостановить аккаунт — тогда бот перестаёт ему отвечать, а войти в него на famcal.bot нельзя.'],
-    ['terms', 'заблокируйте бота, если вы им пользуетесь, и попросите нас удалить ваш аккаунт'],
+    ['terms', 'заблокируйте бота, если вы им пользуетесь, и удалите аккаунт в «Настройках» или попросите нас его удалить'],
   ],
 };
 
@@ -342,6 +343,39 @@ const GONE: Record<Locale, [Doc, RegExp][]> = {
   ru: [['privacy', /(?<!__Host-)famcal_session/], ['privacy', /после того, как вы открыли его из WhatsApp/], ['terms', /Берегите этот аккаунт/]],
 };
 
+/**
+ * What the B features (spec 2026-11-07-b-features §B1, §B3, approved by the owner 2026-11-07 with the wording) say, page by
+ * page, and the sentences they replaced. Russian is written with plain spaces (text() reads U+00A0 as one).
+ */
+const SAYS_B: Record<Locale, [Doc, string][]> = {
+  en: [
+    ['privacy', 'You can also delete your account yourself in Settings. There’s no button yet to download your data. We make you a copy by hand when you ask.'],
+    ['privacy', 'unlink your partner in the web app;'],
+    ['privacy', 'delete your account in Settings. It can’t be undone: below is what we delete and what stays.'],
+    ['terms', 'Reminders, event alerts, a short notification that lists the day’s events and a notice when your trial ends reach you on each phone or computer'],
+    ['terms', 'and delete your account in Settings, or ask us to delete it (see the [Privacy Policy](/privacy)). Your plan ends with the account: to cancel a payment, ask us before you delete the account (see “Cancelling and refunds” above).'],
+  ],
+  he: [
+    ['privacy', 'אפשר גם למחוק את החשבון בעצמכם, בהגדרות. עדיין אין כפתור להורדת המידע שלכם. כשמבקשים, אנחנו מכינים לכם עותק ידנית.'],
+    ['privacy', 'לבטל את הקישור לבן או בת הזוג באפליקציית הרשת;'],
+    ['privacy', 'למחוק את החשבון בהגדרות. אי אפשר לבטל את המחיקה: בהמשך מפורט מה אנחנו מוחקים ומה נשאר.'],
+    ['terms', 'תזכורות, התראות לפני אירועים, התראה קצרה עם רשימת האירועים של היום והודעה כשתקופת הניסיון נגמרת מגיעות אליכם'],
+    ['terms', 'ולמחוק את החשבון בהגדרות, או לבקש מאיתנו למחוק אותו (ראו [מדיניות הפרטיות](/privacy)). המסלול נגמר יחד עם החשבון: כדי לבטל תשלום, פנו אלינו לפני שמוחקים את החשבון (ראו ״ביטול והחזרים״ למעלה).'],
+  ],
+  ru: [
+    ['privacy', 'Удалить аккаунт можно и самостоятельно, в «Настройках». Кнопки, чтобы скачать свои данные, пока нет. По вашей просьбе мы готовим копию вручную.'],
+    ['privacy', 'разорвать связь с партнёром в веб-приложении;'],
+    ['privacy', 'удалить аккаунт в «Настройках». Отменить удаление нельзя: ниже сказано, что мы удаляем и что остаётся.'],
+    ['terms', 'Напоминания, уведомления о событиях, краткое уведомление со списком событий дня и сообщение об окончании пробного периода приходят'],
+    ['terms', 'и удалите аккаунт в «Настройках» или попросите нас его удалить (см. [Политику конфиденциальности](/privacy)). Тариф заканчивается вместе с аккаунтом: чтобы отменить платёж, напишите нам до того, как удалите аккаунт (см. «Отмена и возврат» выше).'],
+  ],
+};
+const GONE_B: Record<Locale, [Doc, string][]> = {
+  en: [['privacy', 'There’s no button yet to delete your account or download your data.'], ['terms', 'and ask us to delete your account (see'], ['terms', 'Reminders, event alerts and a short notification']],
+  he: [['privacy', 'עדיין אין כפתור למחיקת החשבון או להורדת המידע שלכם.'], ['terms', 'ולבקש מאיתנו למחוק את החשבון (ראו'], ['terms', 'תזכורות, התראות לפני אירועים והתראה קצרה']],
+  ru: [['privacy', 'Кнопки, чтобы удалить аккаунт или скачать свои данные, пока нет.'], ['terms', 'и попросите нас удалить ваш аккаунт (см.'], ['terms', 'Напоминания, уведомления о событиях и краткое уведомление']],
+};
+
 async function main() {
   await check('L1 the Privacy Policy and the Terms hold the same legal.* leaves (every key and list position) in en, he and ru', () => {
     const paths = (l: Locale) => leaves(messages[l].legal, 'legal').map(([at]) => at);
@@ -407,6 +441,15 @@ async function main() {
         if (bad) problems.push(`${locale} ${bad}`);
       }
       for (const [doc, old] of GONE_PUSH[locale]) if (text(locale, doc).includes(old)) problems.push(`${locale} ${doc}: still "${old}"`);
+    }
+    assert(problems.length === 0, problems.join('\n'));
+  });
+
+  await check('L7 each language says what the B features (spec 2026-11-07-b-features §B1, §B3) add: deleting the account in Settings (the rights paragraph and the "you can also" list), the trial-ended notice among the browser notifications, and the Terms\' closing line with the plan ending with the account; the sentences they replaced are gone', () => {
+    const problems: string[] = [];
+    for (const locale of LOCALES) {
+      for (const [doc, want] of SAYS_B[locale]) if (!text(locale, doc).includes(want)) problems.push(`${locale} ${doc}: lacks "${want.slice(0, 70)}…"`);
+      for (const [doc, old] of GONE_B[locale]) if (text(locale, doc).includes(old)) problems.push(`${locale} ${doc}: still "${old}"`);
     }
     assert(problems.length === 0, problems.join('\n'));
   });

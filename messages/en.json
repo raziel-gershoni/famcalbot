@@ -2378,7 +2378,7 @@
               "ask us to correct or delete anything that’s wrong, incomplete, unclear or out of date;",
               "ask us to delete your account."
             ],
-            "Write to us (see Contact) and we’ll answer within 30 days. We may ask you to confirm the request from the bot, or from the email address you sign in with, so we know it comes from you. There’s no button yet to delete your account or download your data. We do both by hand when you ask.",
+            "Write to us (see Contact) and we’ll answer within 30 days. We may ask you to confirm the request from the bot, or from the email address you sign in with, so we know it comes from you. You can also delete your account yourself in Settings. There’s no button yet to download your data. We make you a copy by hand when you ask.",
             "If you’re not happy with our answer, you can complain to Israel’s Privacy Protection Authority.",
             "**You can also, at any time:**",
             [
@@ -2386,7 +2386,8 @@
               "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. To stop notifications in a browser, turn them off in Settings in that browser, or block FamCal’s notifications in your browser’s or device’s settings. You can also ask us to stop them;",
               "disconnect Google in Settings. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
               "remove a sign-in method in Settings, under “Sign in on the web”, except your only one;",
-              "unlink your partner in the web app."
+              "unlink your partner in the web app;",
+              "delete your account in Settings. It can’t be undone: below is what we delete and what stays."
             ],
             "**When we delete your account**, we:",
             [
@@ -2503,7 +2504,7 @@
               "adding events from photos, PDFs and forwarded messages;",
               "paying for a plan."
             ],
-            "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Reminders, event alerts and a short notification that lists the day’s events reach you on each phone or computer where you turn notifications on (on iPhone and iPad, after you add FamCal to the Home Screen). Once you connect Telegram, they come in Telegram instead, and the notifications stop."
+            "An account made on famcal.bot works in your browser without Telegram or WhatsApp. In the browser you add events yourself; FamCal’s assistant (voice notes, photos and messages) works in the bots. Reminders, event alerts, a short notification that lists the day’s events and a notice when your trial ends reach you on each phone or computer where you turn notifications on (on iPhone and iPad, after you add FamCal to the Home Screen). Once you connect Telegram, they come in Telegram instead, and the notifications stop."
           ]
         },
         "eligibility": {
@@ -2647,7 +2648,7 @@
           "blocks": [
             "We may suspend an account, which means the bot stops answering it and it can’t sign in on famcal.bot. We may also ban or delete an account. We do this when the account breaks these terms, puts FamCal or other people at risk, or when the law requires it. You can ask us why through the contact above.",
             "If, during a paid month, we suspend or close an account that didn’t break these terms, we refund that month.",
-            "You can stop using FamCal any time: block the bot if you use it, and ask us to delete your account (see the [Privacy Policy](/privacy))."
+            "You can stop using FamCal any time: block the bot if you use it, and delete your account in Settings, or ask us to delete it (see the [Privacy Policy](/privacy)). Your plan ends with the account: to cancel a payment, ask us before you delete the account (see “Cancelling and refunds” above)."
           ]
         },
         "changes": {
