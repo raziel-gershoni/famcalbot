@@ -1,6 +1,6 @@
 # Ask FamCal in a chat (Telegram Guest Mode): design
 
-Status: draft for the owner's approval, 2026-11-07. Decisions 1-8 approved by the owner on 2026-11-06/07; the legal wording (section 9) waits for the owner's OK. The probe release (b0078d27) settled the update's shape (section 12).
+Status: APPROVED by the owner 2026-11-07: decisions 1-8 (2026-11-06/07) and the legal wording in section 9 ("ok", 2026-11-07). The probe release (b0078d27) settled the update's shape (section 12).
 
 ## 1. Goal and decisions
 
@@ -388,8 +388,10 @@ The probe release (b0078d27) logged a real mention by the owner in a private cha
 
 1. **The replied-to message is `reply_to_message`**, with its `chat`, `date`, `from`, `message_id` and `text`. The design stands; the fallback (the mention alone) stays for a reply to a message with no text.
 2. **`from` is the caller** (the owner's own Telegram id, matched to his account). The design stands.
-3. Whether a bare reply to FamCal's answer carries FamCal's answer as `reply_to_message`, and with which fields (`from`, `via_bot`, `guest_bot_caller_user`): **pending**, one more probe line from the owner. Until then ruling 9 builds on the documented fields, and without them every caller has to mention the bot.
+3. **A bare reply to FamCal's answer** (no mention, no entities) re-summons the bot, and its `reply_to_message` is FamCal's answer with `chat`, `date`, `from`, `guest_bot_caller_user`, `message_id` and `text`. Ruling 9 stands as designed.
 4. **Telegram's default `allowed_updates` delivers `guest_message`.** The webhook setup is not touched.
-5. **Timings:** the update reached the server about 2 s after it was sent (`date` has whole seconds), and `answerGuestQuery` answered in 516 ms.
+5. **Timings:** the update reached the server about 1-2 s after it was sent (`date` has whole seconds), and `answerGuestQuery` answered in 134-516 ms.
+6. **How the answer shows:** "@<bot> for <the caller's first name>", as a reply quoting the caller's message.
+7. **Direction:** the probe's Hebrew text began with the Latin word "FamCal", and Telegram laid the whole paragraph out left to right (the full stop landed on the wrong side). Every Hebrew answer starts with a right-to-left letter, or with U+200F when its first character is a digit or a Latin letter.
 
 The guest message's own keys were `chat`, `date`, `entities`, `from`, `guest_query_id`, `message_id`, `reply_to_message` and `text`, and the chat type `private`.
