@@ -248,7 +248,11 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     prisma.adminSettings.findUnique({
       where: { id: 'global' }
     }).catch(() => null),
-    getSubscriptionWithUsage(user.id).catch(() => null),
+    // The plan also decides Delete account's paid-month line, so a failed read is reported, not swallowed
+    getSubscriptionWithUsage(user.id).catch((error) => {
+      captureError(error, 'settings-subscription', { user_id: user.id });
+      return null;
+    }),
     weekStartForSettings(user),
     pushPropsFor(user, session),
   ]);

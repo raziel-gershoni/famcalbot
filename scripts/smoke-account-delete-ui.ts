@@ -13,6 +13,7 @@
 //  - U8 the client: each answer becomes its result; the status only is logged
 //  - U9 paidMonthRunning: a paid plan whose month is still ahead, never a trial, a gift, Free, or a month that ended
 //  - U10 the wiring: Settings shows the row only from its accountDelete prop, which page-data fills (null for an admin)
+//  - U11 no silent failure: the subscription read behind the paid-month line reports its error (captureError) before it falls back
 // Real React on the small fake DOM (scripts/lib/fake-dom.ts) and renderToString. Faked: fetch. No network.
 //
 // Run: $RUN smoke-account-delete-ui
@@ -195,6 +196,15 @@ async function main() {
     const pageData = fs.readFileSync(path.join(ROOT, 'src/lib/page-data.ts'), 'utf8');
     assert(/accountDelete\?: \{ paidMonthRunning: boolean \} \| null/.test(client) && /\{accountDelete \? <AccountDelete\b/.test(client), 'SettingsClient does not render the row from its prop');
     assert(/accountDelete: user\.isAdmin \? null : \{ paidMonthRunning: /.test(pageData), 'page-data does not fill accountDelete');
+  });
+
+  await check('U11 the subscription read that decides the paid-month line logs and reports its failure, not an empty catch', () => {
+    const pageData = fs.readFileSync(path.join(ROOT, 'src/lib/page-data.ts'), 'utf8');
+    const start = pageData.indexOf('async function settings(');
+    const body = pageData.slice(start, pageData.indexOf('\nasync function ', start + 1));
+    const read = /getSubscriptionWithUsage\(user\.id\)\.catch\(([\s\S]*?)\),\n\s*weekStartForSettings/.exec(body);
+    assert(read, 'the settings read of the subscription was not found');
+    assert(/captureError\(\s*error,\s*'settings-subscription',\s*\{ user_id: user\.id \}/.test(read[1]) && /return null/.test(read[1]), `its catch does not report the error: ${read[1]}`);
   });
 
   const failed = results.filter((r) => !r.ok);
