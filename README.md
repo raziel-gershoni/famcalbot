@@ -25,7 +25,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 - **Week-ahead and next-week previews** — culture-aware week boundaries (e.g., Sunday-start weeks) rendered as AI prose on demand.
 - **Voice-note to event** — send a voice message; Gemini transcribes and parses it into a structured event, with confidence-gated auto-create and quick inline corrections.
 - **Photo-to-event** — forward or snap a photo of an invitation or flyer and the bot extracts the event details into your calendar.
-- **Natural voice replies** — optional spoken summaries via Gemini TTS in the user's language, with selectable voices and styles.
+- **Natural voice replies** — optional spoken summaries via Gemini TTS in the user's language: a short two-host radio show, or one calm presenter reading the same summary, chosen in Settings.
 - **FamCal calendar, with Google as an optional connection** — everyone has the built-in recurring FamCal calendar; connect Google and its calendars appear beside the FamCal ones. Move an event between FamCal and Google from its Calendar row (whole series only). Copy any FamCal calendar you own to Google as its own "FamCal · <name>" calendar, kept up to date one way.
 - **Couple pairing** — invite a partner to share calendars, with an auditable pairing lifecycle.
 - **Multilingual** — Hebrew, English, and Russian throughout, including a right-to-left dashboard, Hebrew dates/holidays (Hebcal), and localized voice.

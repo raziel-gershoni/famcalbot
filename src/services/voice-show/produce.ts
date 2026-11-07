@@ -1,5 +1,6 @@
 /**
- * Turns a text summary into the two-host show voice note: writer → validator →
+ * Turns a text summary into the voice note, the two-host show or the calm single voice (User.voiceFormat, through
+ * buildShowContext): writer → validator →
  * pointing → TTS → OGG. Any failure propagates to the caller's
  * "voice unavailable" path.
  */
@@ -36,11 +37,12 @@ export async function produceShowVoice(
   const written = await writeShowScript(context, { complete: deps.complete });
   const { turns, warnings } = written.script;
   if (warnings.length) console.warn(`[VoiceShow] Script repaired for user ${user.id}:`, warnings);
-  console.log(`[VoiceShow] ${kind} script for user ${user.id}: ${turns.length} turns from ${summary.length} chars`);
+  const format = context.format ?? 'show';
+  console.log(`[VoiceShow] ${kind} ${format} script for user ${user.id}: ${turns.length} turns from ${summary.length} chars`);
 
-  const show = await generateShowVoice(toShowLines(turns, language, context.listener.gender), language, {
+  const show = await generateShowVoice(toShowLines(turns, language, context.listener.gender, format), language, {
     synthesize: deps.synthesize,
-  });
+  }, format);
   return {
     filePath: show.filePath,
     caption: formatShowCaption(written.completion, written.attempts, show, user.isAdmin),

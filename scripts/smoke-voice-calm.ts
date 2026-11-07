@@ -492,6 +492,73 @@ async function main() {
     }
   });
 
+  await check('R1 the context: a user with no voiceFormat, "show" or an unknown one gets the show; "calm" gets calm with the presenter\'s gender from CALM_VOICES', async () => {
+    const { buildShowContext } = await import('../src/services/voice-show/context');
+    const { getCalmVoice } = await import('../src/services/voice-generator');
+    for (const voiceFormat of [undefined, 'show', '', 'loud', 'Calm']) {
+      const context = buildShowContext('s', { id: 1, name: 'Dana', gender: 'female', language: 'he', voiceFormat } as unknown as UserConfig, 'daily', false, []);
+      assert(context.format === 'show' && context.presenterGender === undefined, `${show(voiceFormat)}: ${show(context)}`);
+    }
+    for (const locale of LOCALES) {
+      const context = buildShowContext('s', { id: 1, name: 'Dana', gender: 'female', language: locale, voiceFormat: 'calm' } as unknown as UserConfig, 'weekly', true, []);
+      assert(context.format === 'calm' && context.presenterGender === getCalmVoice(locale)!.gender && context.isNextWeek === true, `${locale}: ${show(context)}`);
+    }
+  });
+
+  await check('R2 the calm writer asks with the calm schema; a show-shaped answer (host B) is refused and regenerated once with the reason; a second one reaches the caller', async () => {
+    const { writeShowScript } = await import('../src/services/voice-show/writer');
+    const { CALM_RESPONSE_SCHEMA, ShowScriptError } = await import('../src/services/voice-show/script');
+    const context = calmContext('he');
+    const showShaped = show({ turns: [{ host: 'A', mood: 'hype', text: 'בוקר טוב!' }, { host: 'B', mood: 'amused', text: 'יאללה!' }] });
+    const good = calmJson(['בוקר טוב, דני.', 'בעשר ורבע פגישה.', 'שיהיה יום טוב.']);
+    const sent: Array<{ prompt: string; options?: AICompletionOptions }> = [];
+    const answers = [showShaped, good];
+    const written = await quiet(() => writeShowScript(context, {
+      complete: async (prompt, _model, options) => {
+        sent.push({ prompt, options });
+        return { text: answers.shift()!, usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'STOP', model: 'Fake', durationMs: 1 };
+      },
+    }));
+    assert(written.attempts === 2 && written.script.turns.length === 3 && written.script.turns.every((t) => t.host === 'A'), show(written));
+    assert(sent.every((s) => show(s.options?.responseJsonSchema) === show(CALM_RESPONSE_SCHEMA)), 'not the calm schema');
+    assert(sent[0].prompt === buildShowPrompt(context) && sent[1].prompt.includes('Your previous answer was rejected: Paragraph 2: one presenter only'), sent[1].prompt.slice(-200));
+    let error: unknown;
+    await quiet(async () => {
+      try {
+        await writeShowScript(context, { complete: async () => ({ text: showShaped, usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'STOP', model: 'Fake', durationMs: 1 }) });
+      } catch (e) { error = e; }
+    });
+    assert(error instanceof ShowScriptError, `a second show-shaped answer: ${String(error)}`);
+  });
+
+  await check('R3 a calm user end to end: the calm prompt and schema, every TTS request on the calm voice with CALM_STYLE and the Hebrew pointed for her, one OGG, the admin caption "calm A:<voice>"', async () => {
+    const { produceShowVoice } = await import('../src/services/voice-show/produce');
+    const { CALM_RESPONSE_SCHEMA } = await import('../src/services/voice-show/script');
+    const { getCalmVoice } = await import('../src/services/voice-generator');
+    const { CALM_STYLE } = await import('../src/services/voice-show/types');
+    const { pointHebrewTimes, pointSecondPerson } = await import('../src/services/voice-show/hebrew-pointing');
+    const texts = ['בוקר טוב, נועה. יש לך יום רגוע.', 'בעשר ורבע פגישה עם עורך הדין לוי.', 'שיהיה לך יום טוב.'];
+    const user = { id: 8, name: 'נועה', gender: 'female', language: 'he', isAdmin: true, voiceFormat: 'calm', calendarAssignments: [] } as unknown as UserConfig;
+    const prompts: Array<{ prompt: string; options?: AICompletionOptions }> = [];
+    const calls: SynthesizeSpeechInput[] = [];
+    const voice = await quiet(() => produceShowVoice(SUMMARY.he, user, 'daily', false, {
+      complete: async (prompt, _model, options) => { prompts.push({ prompt, options }); return { text: calmJson(texts), usage: { inputTokens: 1, outputTokens: 1 }, stopReason: 'STOP', model: 'Fake', durationMs: 1 }; },
+      synthesize: async (input) => { calls.push(input); return { pcm: tone(300), sampleRate: RATE, mimeType: 'audio/l16', audioTokens: 10 }; },
+    }));
+    try {
+      const calm = getCalmVoice('he')!;
+      assert(prompts.length === 1 && show(prompts[0].options?.responseJsonSchema) === show(CALM_RESPONSE_SCHEMA), 'the schema');
+      const self = calm.gender === 'female' ? 'שמדברת על עצמה בלשון נקבה' : 'שמדבר על עצמו בלשון זכר';
+      assert(prompts[0].prompt.includes('{"turns":[{"text":"..."}') && prompts[0].prompt.includes(self) && prompts[0].prompt.includes('ודברו אליה'), 'the prompt');
+      assert(calls.length === 3 && calls.every((c) => c.voiceName === calm.voice && c.style === CALM_STYLE), show(calls.map((c) => [c.voiceName, c.style])));
+      assert(show(calls.map((c) => c.text).sort()) === show(texts.map((t) => pointSecondPerson(pointHebrewTimes(t), 'female')).sort()), show(calls.map((c) => c.text)));
+      assert((await fsp.readFile(voice.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
+      assert(!!voice.caption && voice.caption.includes(`calm A:${calm.voice}`) && voice.caption.includes('3 lines') && !voice.caption.includes(' B:'), `caption ${voice.caption}`);
+    } finally {
+      await fsp.unlink(voice.filePath).catch(() => {});
+    }
+  });
+
   // ---- Calm checks (added by later tasks) go here, above the report ----
 
   let failed = 0;

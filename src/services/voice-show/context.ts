@@ -1,11 +1,12 @@
 /**
- * Builds the show writer's context from the user: who is listening, and the family
- * the hosts may mention, with genders where the calendars record them.
+ * Builds the writer's context from the user: who is listening, the family the hosts (or the calm presenter) may
+ * mention, with genders where the calendars record them, and which voice note the user chose (voiceFormatOf).
  */
 
 import type { CalendarAssignment, UserConfig } from '../../types';
 import type { ShowPerson, ShowPromptContext } from '../../prompts/voice-show/types';
-import type { ShowKind } from './types';
+import { voiceFormatOf, type ShowKind } from './types';
+import { getCalmVoice } from '../voice-generator';
 import { captureError } from '../../lib/error-capture';
 import { liveGoogleChoices } from '../../lib/google-state';
 
@@ -32,10 +33,13 @@ export function buildShowContext(
     kids.push({ name, gender: cal.personGender });
   }
 
+  const locale = user.language || 'en';
+  const format = voiceFormatOf(user);
+
   return {
     kind,
     summary,
-    locale: user.language || 'en',
+    locale,
     listener: { name: user.name, gender: user.gender === 'female' ? 'female' : 'male' },
     spouse: spouse ? { name: spouse.personName!.trim(), gender: spouse.personGender } : undefined,
     kids,
@@ -43,6 +47,9 @@ export function buildShowContext(
     culture: user.culture,
     globalRules: user.globalRules,
     isNextWeek: kind === 'weekly' ? isNextWeek : undefined,
+    format,
+    // How the calm presenter speaks of themself (he, ru): the gender of the language's calm voice
+    ...(format === 'calm' ? { presenterGender: getCalmVoice(locale)?.gender ?? 'male' } : {}),
   };
 }
 

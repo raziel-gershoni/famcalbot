@@ -3,12 +3,13 @@
  * JSON mode, then ./script's validator. A rejected answer is regenerated once with the
  * reason attached; a second rejection throws, and the caller takes the "voice
  * unavailable" path.
+ * The calm single voice (context.format 'calm') asks with CALM_RESPONSE_SCHEMA and is parsed as paragraphs.
  */
 
 import type { AICompletionOptions, AICompletionResult } from '../ai-provider';
 import { buildShowPrompt } from '../../prompts/voice-show';
 import type { ShowPromptContext } from '../../prompts/voice-show/types';
-import { parseShowScript, ShowScriptError, SHOW_RESPONSE_SCHEMA } from './script';
+import { CALM_RESPONSE_SCHEMA, parseShowScript, ShowScriptError, SHOW_RESPONSE_SCHEMA } from './script';
 import type { ShowScript } from './types';
 
 export type CompletionFn = (prompt: string, modelId?: string, options?: AICompletionOptions) => Promise<AICompletionResult>;
@@ -33,18 +34,20 @@ export async function writeShowScript(context: ShowPromptContext, options: Write
   // Imported lazily so the prompt and validator stay loadable without the SDKs.
   const complete = options.complete ?? (await import('../ai-provider')).generateAICompletion;
   const prompt = buildShowPrompt(context);
+  const format = context.format ?? 'show';
+  const responseJsonSchema = format === 'calm' ? CALM_RESPONSE_SCHEMA : SHOW_RESPONSE_SCHEMA;
   let rejection: ShowScriptError | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const request = rejection
       ? `${prompt}\n\nYour previous answer was rejected: ${rejection.message}. Answer again with valid JSON that follows every rule above.`
       : prompt;
-    const completion = await complete(request, options.modelId, { responseJsonSchema: SHOW_RESPONSE_SCHEMA });
+    const completion = await complete(request, options.modelId, { responseJsonSchema });
     try {
-      return { script: parseShowScript(completion.text, context.summary), completion, attempts: attempt };
+      return { script: parseShowScript(completion.text, context.summary, format), completion, attempts: attempt };
     } catch (error) {
       if (!(error instanceof ShowScriptError)) throw error;
-      console.warn(`[VoiceShow] Script rejected (attempt ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);
+      console.warn(`[VoiceShow] ${format} script rejected (attempt ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);
       rejection = error;
     }
   }

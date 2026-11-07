@@ -43,6 +43,7 @@ const produced: string[] = [];
 const voicesSent: string[] = [];
 const rows: string[] = [];
 const cleaned: string[] = [];
+const producedFor: string[] = [];
 
 const service = {
   sendMessage: async () => 1,
@@ -65,8 +66,9 @@ const stubs: Record<string, Record<string, unknown>> = {
   [`${SRC}/services/messaging/index.ts`]: { MessagingPlatform, MessageFormat: { HTML: 'html' }, getMessagingService: () => service },
   [`${SRC}/services/voice-show/produce.ts`]: {
     isShowLanguage: () => true,
-    produceShowVoice: async (_s: string, _u: unknown, kind: string) => {
+    produceShowVoice: async (_s: string, u: unknown, kind: string) => {
       produced.push(kind);
+      producedFor.push(String((u as { voiceFormat?: string }).voiceFormat ?? 'none'));
       if (produceFails) throw new Error('TTS failed');
       return { filePath: `/tmp/${kind}.ogg`, caption: '', durationSeconds: 30 };
     },
@@ -104,7 +106,7 @@ function reset() {
   voiceAllowed = true;
   produceFails = false;
   accessThrows = false;
-  for (const list of [captured, featureChecks, usage, produced, voicesSent, rows, cleaned]) list.length = 0;
+  for (const list of [captured, featureChecks, usage, produced, voicesSent, rows, cleaned, producedFor]) list.length = 0;
 }
 
 async function main() {
@@ -160,6 +162,17 @@ async function main() {
     await quiet(() => sendVoiceMessage(7031, 'the day', user, undefined, false));
     await settle();
     assert(voicesSent.length === 1 && usage.join() === '31:voiceSummaries' && featureChecks.length === 0, `sent ${voicesSent.length} usage ${usage.join()} checks ${featureChecks.join()}`);
+  });
+
+  await check('a calm voice is a voice summary like the show: the daily (Telegram and WhatsApp) and the weekly each go through the one producer with the calm user, are sent and count once', async () => {
+    reset();
+    const calmUser = { ...user, voiceFormat: 'calm' } as unknown as UserConfig;
+    await quiet(() => sendVoiceMessage(7031, 'the day', calmUser, undefined, false));
+    await quiet(() => sendVoiceMessage('972500000031', 'the day', calmUser, undefined, false, MessagingPlatform.WHATSAPP));
+    await quiet(() => sendWeeklyVoiceMessage(7031, 'the week', calmUser, false));
+    await settle();
+    assert(produced.join() === 'daily,daily,weekly' && producedFor.join() === 'calm,calm,calm', `produced ${produced.join()} for ${producedFor.join()}`);
+    assert(voicesSent.length === 3 && usage.join() === '31:voiceSummaries,31:voiceSummaries,31:voiceSummaries', `sent ${voicesSent.length} usage ${usage.join()}`);
   });
 }
 
