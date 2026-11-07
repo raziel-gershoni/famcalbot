@@ -1,5 +1,6 @@
 import type { AICompletionResult } from '../services/ai-provider';
 import type { ShowVoiceResult } from '../services/voice-generator';
+import type { ShowFormat } from '../services/voice-show/types';
 import { getTtsModelConfig } from '../config/tts-models';
 
 export function formatAdminFooter(result: AICompletionResult, isAdmin: boolean): string {
@@ -21,18 +22,18 @@ export function formatVoiceCaption(
   return `${condenser}\n${tts}`;
 }
 
-/** Admin caption for the two-host show: the writer's metrics, then the TTS side. */
+/** Admin caption for the two-host show or the calm single voice: the writer's metrics, then the TTS side. */
 export function formatShowCaption(
   writer: AICompletionResult,
   writerAttempts: number,
-  show: Pick<ShowVoiceResult, 'ttsMs' | 'ttsModel' | 'voices' | 'lineCount' | 'audioSeconds' | 'audioTokens'>,
+  show: Pick<ShowVoiceResult, 'ttsMs' | 'ttsModel' | 'voices' | 'lineCount' | 'audioSeconds' | 'audioTokens'> & { format?: ShowFormat },
   isAdmin: boolean,
 ): string | undefined {
   if (!isAdmin) return undefined;
   const rewritten = writerAttempts > 1 ? ` | rewritten x${writerAttempts - 1}` : '';
   const tts = [
     `🔊 TTS ${show.ttsModel}`,
-    `A:${show.voices.A} B:${show.voices.B}`,
+    show.format === 'calm' ? `calm A:${show.voices.A}` : `A:${show.voices.A} B:${show.voices.B}`,
     `${show.lineCount} lines`,
     `${show.audioSeconds.toFixed(0)}s audio`,
     `${(show.ttsMs / 1000).toFixed(1)}s`,

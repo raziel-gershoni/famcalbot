@@ -8,6 +8,8 @@
  *   narrator for a language without show hosts. It speaks in the language's anchor.
  * - generateShowVoice: the two-host show. One TTS request per line, mixed into one
  *   voice note. See docs/superpowers/specs/2026-10-12-two-host-voice-show-design.md.
+ *   The calm single voice (format 'calm', docs/superpowers/specs/2026-11-07-calm-voice-design.md) goes the same
+ *   way with a cast of one: CALM_VOICES, CALM_STYLE on every paragraph, a longer gap between them.
  */
 
 import fs from 'fs/promises';
@@ -21,7 +23,7 @@ import {
   synthesizeSpeech, type SpeechAudio, type SynthesizeSpeechInput,
 } from './gemini-tts';
 import { synthesizeDialogue } from './dialogue-tts';
-import type { ShowLine } from './voice-show/types';
+import type { ShowFormat, ShowLine } from './voice-show/types';
 
 /** The two show hosts' voices for a language: Gemini built-in voices, by name. */
 export interface ShowVoices {
@@ -44,6 +46,41 @@ const SHOW_VOICES: Record<string, ShowVoices> = {
 /** Host voices for a language, or null when the language has no show yet. */
 export function getShowVoices(language: string): ShowVoices | null {
   return Object.hasOwn(SHOW_VOICES, language) ? SHOW_VOICES[language] : null;
+}
+
+/** The calm single voice for a language: one Gemini built-in voice, and its gender (how the presenter speaks of themself). */
+export interface CalmVoice {
+  voice: string;
+  gender: 'male' | 'female';
+}
+
+// Built-in voices only. Male in every language (the owner, 2026-11-07). PROVISIONAL until the owner's blind round
+// (spec §4: Umbriel, Achird, Iapetus, Charon, each heard with CALM_STYLE); the pick replaces the names here, and
+// nothing else names a calm voice. Never Schedar or Puck: the show's hosts would make calm sound like the show.
+export const CALM_VOICES: Readonly<Record<string, CalmVoice>> = {
+  he: { voice: 'Charon', gender: 'male' },
+  en: { voice: 'Charon', gender: 'male' },
+  ru: { voice: 'Charon', gender: 'male' },
+};
+
+/** The calm voice for a language, or null when it has none. */
+export function getCalmVoice(language: string): CalmVoice | null {
+  return Object.hasOwn(CALM_VOICES, language) ? CALM_VOICES[language] : null;
+}
+
+/** Who speaks a voice note: the show's two hosts, or calm's one presenter (A only). */
+export interface ShowCast {
+  A: string;
+  B?: string;
+}
+
+/** Silence between calm paragraphs; the show keeps the mixer's default 200 ms. Tuned in the listening round. */
+const CALM_GAP_MS = 400;
+
+function voiceFor(cast: ShowCast, host: ShowLine['host']): string {
+  const voice = cast[host];
+  if (!voice) throw new Error(`[TTS] No voice for host ${host} in this cast`);
+  return voice;
 }
 
 /** The single voice for a language: its anchor, so replies sound like the show. */
@@ -160,7 +197,9 @@ export interface ShowVoiceResult {
   filePath: string;
   ttsMs: number;
   ttsModel: string;
-  voices: ShowVoices;
+  voices: ShowCast;
+  /** Which voice note this was: the show or the calm single voice. */
+  format: ShowFormat;
   lineCount: number;
   audioSeconds: number;
   /** Output audio tokens across all lines; 0 when not reported. */
@@ -186,37 +225,48 @@ const withShowSlot = createSemaphore(MAX_CONCURRENT_SHOWS);
 const SHOW_DEADLINE_MS = 90_000;
 
 /**
- * Generate the two-host show from validated lines.
+ * Generate the two-host show, or the calm single voice, from validated lines.
  * @param lines - From voice-show/script toShowLines(): host, text, style, whisper
- * @param language - Must have hosts (getShowVoices)
+ * @param language - Must have hosts (getShowVoices), or for calm a calm voice (getCalmVoice)
+ * @param format - 'calm' speaks every line in the language's calm voice; the show is the default
  * @returns Path to the OGG OPUS file in /tmp, with metrics for the admin caption
  */
 export async function generateShowVoice(
   lines: ShowLine[],
   language: string,
   deps: ShowVoiceDeps = {},
+  format: ShowFormat = 'show',
 ): Promise<ShowVoiceResult> {
-  const voices = getShowVoices(language);
-  if (!voices) throw new Error(`[TTS] No show hosts for language "${language}"`);
+  let voices: ShowCast | null;
+  if (format === 'calm') {
+    const calm = getCalmVoice(language);
+    if (!calm) throw new Error(`[TTS] No calm voice for language "${language}"`);
+    voices = { A: calm.voice };
+  } else {
+    voices = getShowVoices(language);
+    if (!voices) throw new Error(`[TTS] No show hosts for language "${language}"`);
+  }
   if (!lines.length) throw new Error('[TTS] Show has no lines');
 
+  const cast = voices;
   const model = TTS_MODEL;
   const queuedAt = Date.now();
 
   return withShowSlot(async () => {
     const deadline = Date.now() + (deps.deadlineMs ?? SHOW_DEADLINE_MS);
-    console.log('[TTS] Show got a slot:', { waitedMs: Date.now() - queuedAt, lines: lines.length });
+    console.log('[TTS] Show got a slot:', { waitedMs: Date.now() - queuedAt, lines: lines.length, format });
     // Only the time left: synthesizeDialogue fails fast when too little remains.
-    return generateShowLocal(lines, voices, model, deps, deadline);
+    return generateShowLocal(lines, cast, model, deps, deadline, format);
   });
 }
 
 async function generateShowLocal(
   lines: ShowLine[],
-  voices: ShowVoices,
+  voices: ShowCast,
   model: string,
   deps: ShowVoiceDeps,
   deadline: number,
+  format: ShowFormat,
 ): Promise<ShowVoiceResult> {
   const startTime = Date.now();
   console.log('[TTS] Generating show locally:', { lines: lines.length, model, voices, msLeft: deadline - startTime });
@@ -224,7 +274,7 @@ async function generateShowLocal(
   const audio = await synthesizeDialogue({
     apiKey: process.env.GEMINI_API_KEY || '',
     model,
-    lines: lines.map(line => ({ voice: voices[line.host], text: line.text, style: line.style })),
+    lines: lines.map(line => ({ voice: voiceFor(voices, line.host), text: line.text, style: line.style })),
     synthesize: deps.synthesize ?? synthesizeSpeech,
     concurrency: SHOW_LINE_CONCURRENCY,
     deadline,
@@ -237,7 +287,7 @@ async function generateShowLocal(
 
   const pcm = mixDialogue(
     audio.pcms.map((p, i) => ({ pcm: p, speaker: lines[i].host, keepDynamics: lines[i].whisper })),
-    { sampleRate: SAMPLE_RATE },
+    format === 'calm' ? { sampleRate: SAMPLE_RATE, gapMs: CALM_GAP_MS } : { sampleRate: SAMPLE_RATE },
   );
   const oggBuffer = encodePcmToOggOpus(pcm);
   const filePath = await writeVoiceFile(oggBuffer);
@@ -247,6 +297,7 @@ async function generateShowLocal(
     ttsMs: Date.now() - startTime,
     ttsModel: model,
     voices,
+    format,
     lineCount: lines.length,
     audioSeconds: pcm.length / 2 / SAMPLE_RATE,
     audioTokens: audio.audioTokens,

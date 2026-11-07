@@ -325,6 +325,73 @@ async function main() {
     assert(showLines[0].style === 'high-energy, excited sports commentator, leaning in close' && showLines[0].whisper === true, show(showLines));
   });
 
+  await check('V1 CALM_VOICES: one built-in voice for he, en and ru, male (the owner\'s choice), never one of the show\'s hosts, nothing elsewhere', async () => {
+    const { CALM_VOICES, getCalmVoice, getShowVoices } = await import('../src/services/voice-generator');
+    for (const locale of LOCALES) {
+      const calm = getCalmVoice(locale);
+      assert(calm && /^[A-Z][a-z]+$/.test(calm.voice) && calm.gender === 'male', `${locale}: ${show(calm)}`);
+      assert(calm === CALM_VOICES[locale], `${locale}: getCalmVoice reads CALM_VOICES`);
+      const hosts = getShowVoices(locale)!;
+      assert(calm.voice !== hosts.A && calm.voice !== hosts.B, `${locale}: ${calm.voice} is a show host`);
+    }
+    assert(getCalmVoice('fr') === null && getCalmVoice('__proto__') === null && getCalmVoice('constructor') === null, 'other keys');
+  });
+
+  await check('V2 a calm note is made line by line on the calm voice with CALM_STYLE, mixed into one OGG; the result names the calm cast and format', async () => {
+    const { generateShowVoice, getCalmVoice } = await import('../src/services/voice-generator');
+    const { CALM_STYLE } = await import('../src/services/voice-show/types');
+    const calls: SynthesizeSpeechInput[] = [];
+    const lines = ['בוקר טוב.', 'בעשר פגישה.', 'יום טוב.'].map((text) => ({ host: 'A' as const, text, style: CALM_STYLE }));
+    const result = await quiet(() => generateShowVoice(lines, 'he', {
+      synthesize: async (input) => { calls.push(input); return { pcm: tone(400), sampleRate: RATE, mimeType: 'audio/l16', audioTokens: 9 }; },
+    }, 'calm'));
+    try {
+      const voice = getCalmVoice('he')!.voice;
+      assert(calls.length === 3 && calls.every((c) => c.voiceName === voice && c.style === CALM_STYLE), show(calls.map((c) => [c.voiceName, c.style])));
+      assert(show(calls.map((c) => c.text).sort()) === show(lines.map((l) => l.text).sort()), 'texts');
+      assert(show(result.voices) === show({ A: voice }) && result.format === 'calm' && result.lineCount === 3 && result.audioTokens === 27, show(result));
+      assert((await fsp.readFile(result.filePath)).subarray(0, 4).toString('ascii') === 'OggS', 'not Ogg');
+    } finally {
+      await fsp.unlink(result.filePath).catch(() => {});
+    }
+  });
+
+  await check('V3 calm refuses a host B line and a language with no calm voice; the show still refuses a language with no hosts', async () => {
+    const { generateShowVoice } = await import('../src/services/voice-generator');
+    const synth = async () => ({ pcm: tone(200), sampleRate: RATE, mimeType: 'audio/l16', audioTokens: 1 });
+    const fails = async (fn: () => Promise<unknown>, what: RegExp) => {
+      try { await quiet(fn as () => Promise<unknown>); } catch (e) { return what.test(String(e)); }
+      return false;
+    };
+    assert(await fails(() => generateShowVoice([{ host: 'B', text: 'x' }], 'he', { synthesize: synth }, 'calm'), /No voice for host B/), 'host B');
+    assert(await fails(() => generateShowVoice([{ host: 'A', text: 'x' }], 'fr', { synthesize: synth }, 'calm'), /No calm voice/), 'fr calm');
+    assert(await fails(() => generateShowVoice([{ host: 'A', text: 'x' }], 'fr', { synthesize: synth }), /No show hosts/), 'fr show');
+  });
+
+  await check('V4 calm paragraphs are 400 ms apart, the show\'s lines 200 ms: the same three lines run 0.4 s longer as calm', async () => {
+    const { generateShowVoice } = await import('../src/services/voice-generator');
+    const synth = async () => ({ pcm: Buffer.concat([Buffer.alloc(4800), tone(500), Buffer.alloc(4800)]), sampleRate: RATE, mimeType: 'audio/l16', audioTokens: 1 });
+    const lines = ['one', 'two', 'three'].map((text) => ({ host: 'A' as const, text }));
+    const asShow = await quiet(() => generateShowVoice(lines, 'en', { synthesize: synth }));
+    const asCalm = await quiet(() => generateShowVoice(lines, 'en', { synthesize: synth }, 'calm'));
+    await Promise.all([asShow, asCalm].map((r) => fsp.unlink(r.filePath).catch(() => {})));
+    const extra = asCalm.audioSeconds - asShow.audioSeconds;
+    assert(Math.abs(extra - 0.4) < 0.02, `calm ran ${extra.toFixed(3)} s longer (want 0.4)`);
+    assert(asShow.format === 'show' && show(Object.keys(asShow.voices)) === show(['A', 'B']), show(asShow.voices));
+  });
+
+  await check('V5 the admin caption: calm says "calm A:<voice>" with no B; the show\'s caption is unchanged, with or without a format', async () => {
+    const { formatShowCaption } = await import('../src/utils/ai-footer');
+    const writer: AICompletionResult = { text: '', usage: { inputTokens: 1200, outputTokens: 300 }, stopReason: 'STOP', model: 'Gemini 3.8 Flash', durationMs: 4200 };
+    const base = { ttsMs: 6100, ttsModel: 'gemini-3.8-flash-tts', lineCount: 5, audioSeconds: 50.2, audioTokens: 1500 };
+    const calm = formatShowCaption(writer, 1, { ...base, voices: { A: 'VoiceX' }, format: 'calm' }, true)!;
+    assert(calm.includes('| calm A:VoiceX |') && !calm.includes(' B:') && calm.includes('5 lines') && calm.includes('~$0.0135'), calm);
+    const asShow = formatShowCaption(writer, 1, { ...base, voices: { A: 'a1', B: 'b2' } }, true)!;
+    assert(asShow.includes('| A:a1 B:b2 |') && !asShow.includes('calm'), asShow);
+    assert(formatShowCaption(writer, 1, { ...base, voices: { A: 'a1', B: 'b2' }, format: 'show' }, true) === asShow, 'format show');
+    assert(formatShowCaption(writer, 1, { ...base, voices: { A: 'VoiceX' }, format: 'calm' }, false) === undefined, 'non-admin');
+  });
+
   // ---- Calm checks (added by later tasks) go here, above the report ----
 
   let failed = 0;
