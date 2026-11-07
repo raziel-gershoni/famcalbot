@@ -5,12 +5,13 @@
 //
 // - { way, address }: the address the person proved (its own left-to-right element, wrapping anywhere), the warning
 //   against a second account, the name field ("Your name", any direction, 16 px so iOS doesn't zoom), its note ("Your
-//   partner sees it."), the consent line linking the Terms and the Privacy Policy, Create account and Use another way;
+//   partner sees it."), "Address me as" (two buttons, male or female, none chosen: Create account waits for one; spec
+//   2026-11-07-b-features §B2), the consent line linking the Terms and the Privacy Policy, Create account and Use another way;
 // - { exists }: the address already signs in by the other way: its guidance (site.signin.status.exists*) and Sign in;
 // - { restart: true }: expired or used: Start again (/signin).
 // - A read that fails says so, with Try again.
 //
-// Create account posts { name, locale } (the page's language becomes the account's). A name over 60 characters is said
+// Create account posts { name, gender, locale } (the page's language becomes the account's). A name over 60 characters is said
 // before any request (the server's rule is the same: SIGNUP_NAME_MAX). It waits with its button busy and clears on
 // every failure with the reason in words; taken, exists and restart replace the form; blocked and suspended go to their
 // /signin page; a right answer goes where the server says, this site only. A page the browser restores with Back (the
@@ -20,6 +21,7 @@
 import { useEffect, useId, useState, type FormEvent, type MouseEvent, type ReactNode } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Loader2 } from 'lucide-react';
+import type { Gender } from '@/src/lib/gender';
 import { readJsonBody } from '@/src/lib/read-json';
 import { SIGNUP_NAME_MAX, signInHref, type SignUpWays } from '@/src/site/signin';
 import { localeHref } from '@/src/site/zmanim/links';
@@ -33,7 +35,7 @@ type View =
   | { kind: 'expired' }
   | { kind: 'taken' };
 /** What the form says went wrong: a key of site.signup, or the sign-in form's requestFailed. */
-type Problem = 'nameLong' | 'nameInvalid' | 'limit' | 'requestFailed';
+type Problem = 'nameLong' | 'nameInvalid' | 'addressMissing' | 'limit' | 'requestFailed';
 
 const TAG = '[signup]';
 const isWay = (value: unknown): value is Way => value === 'google' || value === 'email';
@@ -65,10 +67,12 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [name, setName] = useState('');
+  const [gender, setGender] = useState<Gender | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
   const nameId = useId();
   const noteId = useId();
+  const genderHintId = useId();
   const problemId = useId();
 
   useEffect(() => {
@@ -102,6 +106,7 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
     const typed = name.trim();
     if (typed === '') return;
     if (Array.from(typed).length > SIGNUP_NAME_MAX) return void setProblem('nameLong');
+    if (gender === null) return void setProblem('addressMissing');
     setBusy(true);
     setProblem(null);
     let leaving = false;
@@ -110,7 +115,7 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: typed, locale }),
+        body: JSON.stringify({ name: typed, gender, locale }),
       });
       const body = await readJsonBody(res, `${TAG} create account`);
       if (body?.ok === true && typeof body.redirect === 'string') {
@@ -127,6 +132,7 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
       const status = body?.status;
       const way = body?.way;
       if (status === 'name') return void setProblem('nameInvalid');
+      if (status === 'gender') return void setProblem('addressMissing');
       if (status === 'limit') return void setProblem('limit');
       if (status === 'restart') return void setView({ kind: 'expired' });
       if (status === 'taken') return void setView({ kind: 'taken' });
@@ -251,6 +257,28 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
           <p id={noteId} className="site-signin-note">
             {t('nameNote')}
           </p>
+          <fieldset className="site-signup-gender" disabled={busy} aria-describedby={genderHintId}>
+            <legend className="site-field-label">{t('addressLabel')}</legend>
+            <div className="site-signup-genders">
+              {(['male', 'female'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className="site-signup-gender-option"
+                  aria-pressed={gender === value}
+                  onClick={() => {
+                    setGender(value);
+                    if (problem === 'addressMissing') setProblem(null);
+                  }}
+                >
+                  {value === 'male' ? t('addressMale') : t('addressFemale')}
+                </button>
+              ))}
+            </div>
+            <p id={genderHintId} className="site-signin-note">
+              {t('addressHint')}
+            </p>
+          </fieldset>
           {problem ? (
             <p id={problemId} className="site-field-error" role="alert">
               {problem === 'requestFailed' ? ts('requestFailed') : t(problem)}
@@ -262,7 +290,7 @@ export function SignUpClient({ ways }: { ways: SignUpWays }) {
               privacy: (chunks: ReactNode) => <a href={localeHref(locale, '/privacy')}>{chunks}</a>,
             })}
           </p>
-          <button type="submit" className="site-signin-way" data-way="submit" disabled={busy || name.trim() === ''} aria-busy={busy || undefined}>
+          <button type="submit" className="site-signin-way" data-way="submit" disabled={busy || name.trim() === '' || gender === null} aria-busy={busy || undefined}>
             {busy ? spinner : null}
             {busy ? t('creating') : t('create')}
           </button>

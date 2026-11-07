@@ -2068,7 +2068,12 @@
       "existsTitle": "This address already signs in to FamCal",
       "signIn": "Sign in",
       "takenTitle": "This way to sign in is already in use",
-      "taken": "While this page was open, it was added to another FamCal account. Sign in with it instead."
+      "taken": "While this page was open, it was added to another FamCal account. Sign in with it instead.",
+      "addressLabel": "Address me as",
+      "addressMale": "Male",
+      "addressFemale": "Female",
+      "addressHint": "Used for the grammar of your summaries and the voice show. You can change it in Settings.",
+      "addressMissing": "Choose how FamCal should address you."
     }
   },
   "legal": {

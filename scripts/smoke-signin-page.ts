@@ -134,6 +134,7 @@ const alerts = (m: Mounted) => elements(m.container).filter((e) => e.getAttribut
 const attrOf = (el: FakeElement, name: string) => [...el.attributes].find(([key]) => key.toLowerCase() === name)?.[1] ?? null;
 const inputOf = (m: Mounted) => elements(m.container).find((e) => e.localName === 'input') as FakeElement;
 const formOf = (m: Mounted) => elements(m.container).find((e) => e.localName === 'form') as FakeElement;
+const genderOptions = (m: Mounted) => byClass(m, 'site-signup-gender-option');
 
 async function main() {
   stubIntlServer();
@@ -486,8 +487,9 @@ async function main() {
       assert(meta.robots?.index === false && meta.robots?.follow === false && !meta.alternates && meta.title === u.metaTitle, `${locale}: metadata ${show(meta)}`);
     }
     const { SITE_CSS } = await load('src/site/site-css.ts');
-    for (const selector of ['.site-signup-address', '.site-signin-panel .site-signup-consent', '.site-signup-consent a', '.site-signup-wait']) assert(SITE_CSS.includes(`\n${selector} {`), `no ${selector} rule`);
+    for (const selector of ['.site-signup-address', '.site-signin-panel .site-signup-consent', '.site-signup-consent a', '.site-signup-wait', '.site-signup-gender', '.site-signup-genders', '.site-signup-gender-option']) assert(SITE_CSS.includes(`\n${selector} {`), `no ${selector} rule`);
     assert(/\.site-signup-address \{[^}]*overflow-wrap: anywhere;/.test(SITE_CSS), 'a long address could overflow a phone');
+    assert(/\.site-signup-gender-option \{[^}]*min-block-size: 48px;[^}]*font-size: 16px;/.test(SITE_CSS), 'a choice is smaller than a finger, or zooms on iOS');
     configure({ turnstile: false });
   });
 
@@ -754,7 +756,7 @@ async function main() {
   }
   const hrefsOf = (m: Mounted) => elements(m.container).filter((e) => e.localName === 'a').map((e) => e.getAttribute('href'));
 
-  await check('S2 /signup\'s form: it reads GET /api/auth/signup (same-origin) and shows the address (its own left-to-right element), the second-account warning, the name field (text, the name autocomplete, any direction, its note), the consent line linking the Terms and the Privacy Policy in the page\'s language, Create account (off with no name) and Use another way (/signin); a name over 60 characters is said with no request; Create account posts the trimmed name and the page\'s language, waits busy, refuses a page off this site and goes where the server says', async () => {
+  await check('S2 /signup\'s form: it reads GET /api/auth/signup (same-origin) and shows the address (its own left-to-right element), the second-account warning, the name field (text, the name autocomplete, any direction, its note), the consent line linking the Terms and the Privacy Policy in the page\'s language, Create account (off with no name) and Use another way (/signin); a name over 60 characters is said with no request; Create account posts the trimmed name, the "Address me as" pair (two buttons, none chosen, Create account off until one is) and the page\'s language, waits busy, refuses a page off this site and goes where the server says', async () => {
     for (const locale of LOCALES) {
       const u = messages[locale].site.signup as Row;
       routes = { 'GET /api/auth/signup': () => json({ way: 'google', address: 'dana@gmail.com' }) };
@@ -779,6 +781,14 @@ async function main() {
         await settle();
         assert(calls.length === before && alerts(m).includes(u.nameLong), `${locale}: a long name ${show(alerts(m))}`);
         m.input(inputOf(m), '  Dana Levi ');
+        const options = genderOptions(m);
+        assert(options.length === 2 && show(options.map((o) => flat(o))) === show([u.addressMale, u.addressFemale]) && options.every((o) => o.getAttribute('type') === 'button' && o.getAttribute('aria-pressed') === 'false'), `${locale}: the choices ${show(options.map((o) => [flat(o), o.getAttribute('aria-pressed')]))}`);
+        const legend = elements(m.container).find((e) => e.localName === 'legend');
+        assert(legend && flat(legend) === u.addressLabel && flat(m.container).includes(u.addressHint), `${locale}: the label or the hint`);
+        assert(submit().hasAttribute('disabled'), `${locale}: Create account is on with a name and no choice`);
+        m.click(genderOptions(m)[1]);
+        await settle();
+        assert(genderOptions(m)[1].getAttribute('aria-pressed') === 'true' && genderOptions(m)[0].getAttribute('aria-pressed') === 'false' && !submit().hasAttribute('disabled'), `${locale}: female not chosen`);
         let release: (r: Response) => void = () => undefined;
         routes['POST /api/auth/signup'] = () => new Promise<Response>((resolve) => void (release = resolve));
         m.submit(formOf(m));
@@ -788,7 +798,7 @@ async function main() {
         await settle();
         assert(assigned.length === 0 && alerts(m).includes(S(locale).requestFailed) && !submit().hasAttribute('disabled'), `${locale}: an off-site page ${show(assigned)}`);
         const posted = lastCall('/api/auth/signup');
-        assert(posted && posted.method === 'POST' && show(posted.body) === show({ name: 'Dana Levi', locale }) && posted.headers['Content-Type'] === 'application/json' && posted.credentials === 'same-origin', `${locale}: the request ${show(posted)}`);
+        assert(posted && posted.method === 'POST' && show(posted.body) === show({ name: 'Dana Levi', gender: 'female', locale }) && posted.headers['Content-Type'] === 'application/json' && posted.credentials === 'same-origin', `${locale}: the request ${show(posted)}`);
         routes['POST /api/auth/signup'] = () => json({ ok: true, redirect: `${prefix(locale)}/dashboard?user_id=12` });
         m.submit(formOf(m));
         await settle();
@@ -807,12 +817,14 @@ async function main() {
         routes = { 'GET /api/auth/signup': () => json({ way: 'email', address: 'rivka@example.com' }), 'POST /api/auth/signup': answer };
         const m = await openSignUp(locale);
         m.input(inputOf(m), 'Rivka');
+        m.click(genderOptions(m)[0]);
         m.submit(formOf(m));
         await settle();
         return m;
       };
       const kept: [() => Response, string][] = [
         [() => json({ ok: false, status: 'name' }, 400), u.nameInvalid],
+        [() => json({ ok: false, status: 'gender' }, 400), u.addressMissing],
         [() => json({ ok: false, status: 'limit' }, 429), u.limit],
         [() => json({ ok: false, status: 'failed' }, 500), S(locale).requestFailed],
         [() => json({ ok: false, status: 'something-new' }, 418), S(locale).requestFailed],

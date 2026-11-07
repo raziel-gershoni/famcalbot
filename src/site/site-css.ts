@@ -2021,6 +2021,44 @@ export const SIGNIN_CSS = `
   align-items: center;
   gap: 10px;
 }
+.site-signup-gender {
+  margin: 0;
+  margin-block-start: 18px;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.site-signup-genders {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.site-signup-gender-option {
+  min-block-size: 48px;
+  padding-inline: 12px;
+  border: 1px solid var(--ch-hint);
+  border-radius: 12px;
+  background: var(--ch-bg);
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.site-signup-gender-option[aria-pressed='true'] {
+  border-color: var(--ch-button);
+  background: var(--ch-button);
+  color: var(--ch-button-text);
+}
+.site-signup-gender-option:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 2px;
+}
+.site-signup-gender:disabled .site-signup-gender-option {
+  opacity: 0.6;
+  cursor: default;
+}
 @media (prefers-reduced-motion: no-preference) {
   .site-spin {
     animation: site-zm-turn 900ms linear infinite;
