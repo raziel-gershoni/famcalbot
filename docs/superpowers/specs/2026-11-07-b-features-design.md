@@ -1,6 +1,6 @@
 # Trial-ended notice, "Address me as" at sign-up, Delete account: design
 
-**Status:** APPROVED by the owner 2026-11-07 ("B accepted as recommended"): every decision below takes the recommended answer, including the Terms and Privacy Policy wording in all three languages (B1 decision 1, B3 decision 8). Written 2026-11-06. `LEGAL_UPDATED` (`privacy` and `terms`) moves to the ship day.
+**Status:** SHIPPED 2026-11-07 (LEGAL_UPDATED 2026-11-07). APPROVED by the owner 2026-11-07 ("B accepted as recommended"): every decision below takes the recommended answer, including the Terms and Privacy Policy wording in all three languages (B1 decision 1, B3 decision 8). Written 2026-11-06. `LEGAL_UPDATED` (`privacy` and `terms`) moves to the ship day.
 
 In the Russian legal text below, `~` marks a no-break space (U+00A0), as the texts use it after one-letter words and before an em dash.
 
