@@ -1400,6 +1400,43 @@
       "title": "FamCal",
       "text": "FamCal קיבל את ההודעה. תשובות על היומן יגיעו בקרוב."
     },
+    "askInChat": {
+      "date": "{weekday} {date}",
+      "range": "{from}–{to}",
+      "until": "עד {time}",
+      "from": "מ־{time}",
+      "parts": {
+        "morning": "בבוקר",
+        "afternoon": "בצהריים",
+        "evening": "בערב",
+        "night": "בלילה"
+      },
+      "day": {
+        "some": "{date}: תפוס {ranges}, שאר היום פנוי",
+        "free": "{date}: פנוי כל היום",
+        "all": "{date}: תפוס כל היום"
+      },
+      "window": {
+        "some": "{date}, {when}: תפוס {ranges}, בשאר הזמן פנוי",
+        "free": "{date}, {when}: פנוי",
+        "all": "{date}, {when}: תפוס כל הזמן"
+      },
+      "at": {
+        "busy": "{date}, {time}: תפוס ({ranges})",
+        "free": "{date}, {time}: פנוי"
+      },
+      "partial": {
+        "some": "{date}: תפוס {ranges}",
+        "window": "{date}, {when}: תפוס {ranges}"
+      },
+      "googlePartial": "את Google Calendar לא הצלחנו לקרוא, אז התשובה לפי FamCal בלבד.",
+      "unavailable": "לא הצלחנו לבדוק את היומן כרגע. אפשר לנסות שוב בעוד דקה.",
+      "noDate": "על איזה יום מדובר? אפשר להשיב להודעה שמזכירה אותו, או לכתוב אותו אחרי התיוג, למשל: @{bot} שישי בערב",
+      "tooManyDays": "אפשר לבדוק עד 3 ימים בכל פעם. כתבו יום אחד, למשל: @{bot} שישי",
+      "noAccount": "כדי לבדוק כאן את היומן, צריך קודם להפעיל את FamCal.",
+      "openButton": "לפתיחת FamCal",
+      "rateLimited": "יותר מדי שאלות ברצף. אפשר לנסות שוב בעוד דקה."
+    },
     "weatherOnly": {
       "title": "מזג אוויר",
       "current": "כרגע",

@@ -1400,6 +1400,43 @@
       "title": "FamCal",
       "text": "FamCal got your message. Answers about your calendar are coming soon."
     },
+    "askInChat": {
+      "date": "{weekday} {date}",
+      "range": "{from}-{to}",
+      "until": "until {time}",
+      "from": "from {time}",
+      "parts": {
+        "morning": "morning",
+        "afternoon": "afternoon",
+        "evening": "evening",
+        "night": "night"
+      },
+      "day": {
+        "some": "{date}: busy {ranges}, free the rest of the day",
+        "free": "{date}: free all day",
+        "all": "{date}: busy all day"
+      },
+      "window": {
+        "some": "{date}, {when}: busy {ranges}, free the rest",
+        "free": "{date}, {when}: free",
+        "all": "{date}, {when}: busy throughout"
+      },
+      "at": {
+        "busy": "{date}, {time}: busy ({ranges})",
+        "free": "{date}, {time}: free"
+      },
+      "partial": {
+        "some": "{date}: busy {ranges}",
+        "window": "{date}, {when}: busy {ranges}"
+      },
+      "googlePartial": "Google Calendar couldn't be read, so this is from FamCal alone.",
+      "unavailable": "Couldn't check the calendar right now. Try again in a minute.",
+      "noDate": "Which day? Reply to the message that names it, or write it after the mention, e.g. @{bot} Friday evening.",
+      "tooManyDays": "I can check up to 3 days at a time. Name a day, e.g. @{bot} Friday.",
+      "noAccount": "To check your calendar here, start FamCal first.",
+      "openButton": "Open FamCal",
+      "rateLimited": "That's a lot of questions at once. Try again in a minute."
+    },
     "weatherOnly": {
       "title": "Weather",
       "current": "Current",
