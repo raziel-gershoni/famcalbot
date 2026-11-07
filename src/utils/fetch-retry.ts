@@ -1,6 +1,7 @@
 /**
  * The one retry loop for calls to a third party FamCal has no policy of its own for: MET Norway's forecast, Copernicus's
- * dust files, and every browser push service (web-push/send.ts), FCM included. Spec
+ * dust files, every browser push service (web-push/send.ts), FCM included, and WhatsApp's Cloud API
+ * (messaging/whatsapp-adapter.ts: sends, uploads, the typing indicator, media downloads). Spec
  * docs/superpowers/specs/2026-10-31-open-meteo-replacement-design.md, and 2026-11-05-web-push-design.md §3.4.
  *
  *   retryWithBackoff   any async step: a failure is retried up to 3 times after max(what the server asked, a full-jitter

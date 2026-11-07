@@ -17,6 +17,24 @@ import {
   StreamMessageOptions,
 } from './types';
 import { captureError } from '../../lib/error-capture';
+import { fetchAndReadWithRetry, fetchWithRetry, HttpStatusError } from '../../utils/fetch-retry';
+import { wholeJson } from '../../utils/whole-json';
+
+/**
+ * The Cloud API's refusals: every 4xx except 429. They are answers, not failures: Graph puts its error (a code and a
+ * message) in a JSON body the send reads and throws as before, and they are never sent again. Among them 400 (100 invalid
+ * parameter, 131026 undeliverable, 131047 outside the 24-hour window, 131051 unsupported type, 132000 template
+ * parameters), 401 (190 the token expired or is wrong), 403 (10 and 200 permission), 404 (an unknown phone-number or media
+ * id) and 413 (media too large). The one third-party loop (src/utils/fetch-retry.ts, CLAUDE.md) retries 429 (4, 80007,
+ * 130429, 131048, 131056), every 5xx (131000, 131016, 133004) and no answer, and honours Retry-After up to 10 s.
+ */
+export const WHATSAPP_REFUSALS: readonly number[] = Array.from({ length: 100 }, (_, i) => 400 + i).filter((status) => status !== 429);
+
+const LOG = '[WhatsApp]';
+
+/** The loop's give-up, told once: what, why, and the status or the error's message (never the token, the body or the URL). */
+const logGiveUp = (what: string) => (error: unknown, info: { retried: number; why: string }) =>
+  console.warn(`${LOG} ${what} not delivered (${info.why}): ${error instanceof HttpStatusError ? `HTTP ${error.status}` : error instanceof Error ? error.message : String(error)}`);
 
 export class WhatsAppAdapter implements IMessagingService {
   private apiUrl: string;
@@ -293,25 +311,19 @@ export class WhatsAppAdapter implements IMessagingService {
     if (!messageId) return; // WA requires the inbound message ID
     try {
       const url = `${this.apiUrl}/messages`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          status: 'read',
-          message_id: messageId,
-          typing_indicator: { type: 'text' }, // WA only supports 'text', no 'audio' variant
-        }),
-      });
+      const response = await this.post(url, JSON.stringify({
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+        typing_indicator: { type: 'text' }, // WA only supports 'text', no 'audio' variant
+      }), 'typing indicator');
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         console.warn(`[WhatsApp] Typing indicator failed (${response.status}):`, JSON.stringify(err));
       }
-    } catch {
-      // Non-critical
+    } catch (error) {
+      // Non-critical: the reply still goes; the loop logged the give-up
+      console.warn(`${LOG} Typing indicator failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -392,38 +404,18 @@ export class WhatsAppAdapter implements IMessagingService {
   }
 
   /**
-   * Make a request to WhatsApp API with retry logic
+   * A POST to the Cloud API through the one third-party retry loop. A refusal (WHATSAPP_REFUSALS) comes back as the
+   * response, for the caller to read Graph's error as before; a 429, 5xx or no answer that outlasts the retries throws.
    */
-  private async makeRequest(url: string, body: unknown, retries = 3): Promise<Response> {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.accessToken}`,
-          },
-          body: JSON.stringify(body),
-        });
+  private post(url: string, body: string | FormData, what: string): Promise<Response> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${this.accessToken}` };
+    if (typeof body === 'string') headers['Content-Type'] = 'application/json';
+    return fetchWithRetry(url, { method: 'POST', headers, body }, { okStatuses: WHATSAPP_REFUSALS, label: `${LOG} ${what}`, onGiveUp: logGiveUp(what) });
+  }
 
-        // Retry on rate limit (429) or server errors (5xx)
-        if ((response.status === 429 || response.status >= 500) && attempt < retries) {
-          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
-          console.log(`[WhatsApp] Rate limited or server error, retrying in ${waitTime}ms...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          continue;
-        }
-
-        return response;
-      } catch (error) {
-        if (attempt === retries) throw error;
-        const waitTime = Math.pow(2, attempt) * 1000;
-        console.log(`[WhatsApp] Request failed, retrying in ${waitTime}ms...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-      }
-    }
-
-    throw new Error('Max retries exceeded');
+  /** A message to the Cloud API (JSON). */
+  private makeRequest(url: string, body: unknown): Promise<Response> {
+    return this.post(url, JSON.stringify(body), 'send');
   }
 
   /**
@@ -434,30 +426,30 @@ export class WhatsAppAdapter implements IMessagingService {
    * 2-step: GET /media/{id} → get URL → download binary
    */
   async downloadMedia(mediaId: string): Promise<Buffer> {
-    // Step 1: Get media URL
-    const metaUrl = `https://graph.facebook.com/v18.0/${mediaId}`;
-    const metaResponse = await fetch(metaUrl, {
-      headers: { 'Authorization': `Bearer ${this.accessToken}` },
-    });
-
-    if (!metaResponse.ok) {
-      const error = await metaResponse.json();
-      throw new Error(`WhatsApp media metadata error: ${JSON.stringify(error)}`);
+    const headers = { Authorization: `Bearer ${this.accessToken}` };
+    // Step 1: the media's URL. A GET read whole inside the attempt: an answer cut off on the way is retried like no answer.
+    let meta: { url?: unknown };
+    try {
+      meta = await fetchAndReadWithRetry(`https://graph.facebook.com/v18.0/${mediaId}`, { headers }, async (response) => (await (await wholeJson(response)).json()) as { url?: unknown }, {
+        label: `${LOG} media metadata`,
+        onGiveUp: logGiveUp('media metadata'),
+      });
+    } catch (error) {
+      if (error instanceof HttpStatusError) throw new Error(`WhatsApp media metadata error: HTTP ${error.status}`);
+      throw error;
     }
+    if (typeof meta.url !== 'string') throw new Error('WhatsApp media metadata error: no url in the answer');
 
-    const meta = await metaResponse.json() as { url: string };
-
-    // Step 2: Download the actual file
-    const fileResponse = await fetch(meta.url, {
-      headers: { 'Authorization': `Bearer ${this.accessToken}` },
-    });
-
-    if (!fileResponse.ok) {
-      throw new Error(`WhatsApp media download failed: ${fileResponse.status}`);
+    // Step 2: the file itself, read inside the attempt as well
+    try {
+      return await fetchAndReadWithRetry(meta.url, { headers }, async (response) => Buffer.from(await response.arrayBuffer()), {
+        label: `${LOG} media download`,
+        onGiveUp: logGiveUp('media download'),
+      });
+    } catch (error) {
+      if (error instanceof HttpStatusError) throw new Error(`WhatsApp media download failed: ${error.status}`);
+      throw error;
     }
-
-    const arrayBuffer = await fileResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
   }
 
   private async uploadMedia(filePath: string, mimeType: string = 'audio/ogg'): Promise<string> {
@@ -475,13 +467,7 @@ export class WhatsAppAdapter implements IMessagingService {
     formData.append('type', mimeType);
 
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.accessToken}`,
-        },
-        body: formData,
-      });
+      const response = await this.post(url, formData, 'media upload');
 
       if (!response.ok) {
         const error = await response.json();
