@@ -17,6 +17,7 @@ import {
   handleConnectCommand,
   getBot
 } from './telegram';
+import { handleGuestProbe } from './telegram/guest-probe';
 import { getUserByWhatsAppPhone, getOrCreateUserByWhatsApp, getUserByTelegramId } from './user-service';
 import { UserConfig } from '../types';
 import { guessLanguageFromText } from '../utils/locale';
@@ -43,7 +44,8 @@ export async function handleTelegramWebhook(
   // Extract user ID from various update types and set Sentry context
   const userId = update.message?.from?.id
     || update.callback_query?.from?.id
-    || update.pre_checkout_query?.from?.id;
+    || update.pre_checkout_query?.from?.id
+    || update.guest_message?.from?.id;
   const userName = update.message?.from?.first_name
     || update.callback_query?.from?.first_name
     || update.pre_checkout_query?.from?.first_name;
@@ -52,19 +54,21 @@ export async function handleTelegramWebhook(
     setUserContext(userId, userName);
   }
 
-  // Moderation gate: drop everything from blocked or suspended Telegram users.
+  // Moderation gate: drop everything from blocked or suspended Telegram users (a guest message's caller too).
+  let existingUser: UserConfig | null = null;
   if (userId) {
     if (await isIdentifierBlocked({ telegramId: userId })) {
       console.log(`[Moderation] Dropped Telegram update from blocked id ${userId}`);
       res.status(200).json({ ok: true });
       return;
     }
-    const existingUser = await getUserByTelegramId(userId);
+    existingUser = await getUserByTelegramId(userId);
 
     // Hearing from them proves the chat accepts our messages again, so lift any
     // unreachable flag. Fire-and-forget: this runs on every inbound update and must
     // not add latency or fail the webhook. No-ops for everyone who was never flagged.
-    if (existingUser?.unreachableSince) {
+    // (A guest message comes from another chat, so it proves nothing about their private one.)
+    if (existingUser?.unreachableSince && !update.guest_message) {
       const { clearUserUnreachable } = await import('../lib/user-reachability');
       clearUserUnreachable(existingUser.id).catch(() => {});
     }
@@ -74,6 +78,14 @@ export async function handleTelegramWebhook(
       res.status(200).json({ ok: true });
       return;
     }
+  }
+
+  // Guest Mode (Bot API 10.0): someone mentioned the bot in a chat it is not in. Routed before every other
+  // dispatch so it never reaches the message paths (they create accounts and parse events). TEMPORARY probe.
+  if (update.guest_message) {
+    await handleGuestProbe(update, existingUser);
+    res.status(200).json({ ok: true });
+    return;
   }
 
   // Add breadcrumb for webhook type

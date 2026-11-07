@@ -246,7 +246,7 @@ function sourceFiles(): string[] {
  * Email goes only through Resend's API (src/services/web-signin/email-send.ts), the code helpers that call it, and the
  * notice email (sendNoticeEmail).
  */
-const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|sendNoticeEmail|issueCode|sendWebPush)\(|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
+const SEND_CALL = /\.(sendMessage|sendMessageDraft|sendVoice|sendAudio|sendPhoto|sendDocument|sendMediaGroup|sendInvoice|sendLocation|sendContact|sendPoll|sendSticker|sendAnimation|sendVideo|sendVideoNote|forwardMessage|copyMessage)\(|\b(sendVoiceMessage|sendWeeklyVoiceMessage|sendPing|sendTrialExpiredNotification|sendReminderDowngradeNotification|sendCodeEmail|sendNoticeEmail|issueCode|sendWebPush)\(|'answerGuestQuery'|\bwhatsappTemplate\b|api\.resend\.com\/emails/;
 
 /** The files that send on a schedule (cron, or a pass a cron runs): each calls isPaused before it sends. */
 const PAUSED: Record<string, string> = {
@@ -287,6 +287,7 @@ const NOT_PAUSED: Record<string, string> = {
   'src/services/telegram-connect.ts': 'Connect Telegram: the answers to the person opening their own connect link in the bot and pressing Connect or Cancel, and the welcome after it (web sign-up spec §3.6)',
   'src/services/telegram/welcome.ts': 'the welcome: the answer to /start, and to Connect Telegram\'s Connect press',
   'src/services/payment-handler.ts': 'the answer to a payment the person made',
+  'src/services/telegram/guest-probe.ts': 'the answer to a mention of the bot in another chat (Guest Mode), the person\'s own message; a temporary diagnostic',
   'src/services/webhook-handlers.ts': 'the answer to what the person sent the bot',
   'src/services/whatsapp-onboarding.ts': 'the answer to what the person sent the bot on WhatsApp',
   'src/services/native-reminders/actions.ts': 'the quiet note to the partner after a person marks a reminder done (their own action, sent without a sound)',

@@ -189,6 +189,8 @@ npm run start
 
 Helper scripts handle one-time setup: `npm run get-google-token` (obtain a Google refresh token) and `npm run setup-webhook` (register the Telegram webhook).
 
+The Guest Mode probe (`src/services/telegram/guest-probe.ts`, answers a `guest_message` update once with a fixed text and logs one `[guest probe]` line of field names) is a temporary diagnostic, removed once we know what Telegram sends.
+
 Dev-only data scripts: `scripts/build-israel-heights.ts` (the height map), `scripts/build-city-heights.ts` (the public cities), `scripts/record-cams-fixture.ts` (the dust smoke's recording); none runs in CI. MET Norway and the dust data need no env var.
 
 ## 📦 Deployment
