@@ -1,6 +1,6 @@
 # Calm single voice: design
 
-**Status:** APPROVED by the owner 2026-11-07 ("C male, ok on spends"): decisions 1 and 3-6 as recommended; decision 2 changed by the owner: the calm voice is **male** in every language (the blind round below samples the four male candidates only). The owner approved the paid listening rounds and the post-build eval at the estimates in section 4. Written 2026-11-06.
+**Status:** SHIPPED 2026-11-07. APPROVED by the owner 2026-11-07 ("C male, ok on spends"): decisions 1 and 3-6 as recommended; decision 2 changed by the owner: the calm voice is **male** in every language (the blind round below samples the four male candidates only). The owner approved the paid listening rounds and the post-build eval at the estimates in section 4. Blind picks 2026-11-07: Hebrew **Iapetus**, English **Charon**, Russian **Iapetus**, heard with `CALM_STYLE` and a 400 ms gap (rounds cost about $0.08 in all). Written 2026-11-06.
 
 Owner 2026-11-06: "i had feedback that morning show is too intensive, let's build choose some calm single voice as alternative". This reverses the 2026-10-12 decision ("no user voice/style choice at all") for this one choice, on the owner's word. The spec records the reversal.
 

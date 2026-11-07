@@ -54,13 +54,13 @@ export interface CalmVoice {
   gender: 'male' | 'female';
 }
 
-// Built-in voices only. Male in every language (the owner, 2026-11-07). PROVISIONAL until the owner's blind round
-// (spec §4: Umbriel, Achird, Iapetus, Charon, each heard with CALM_STYLE); the pick replaces the names here, and
-// nothing else names a calm voice. Never Schedar or Puck: the show's hosts would make calm sound like the show.
+// Built-in voices only, male in every language: the owner's blind picks of 2026-11-07 (spec §4: Umbriel, Achird,
+// Iapetus and Charon, each heard with CALM_STYLE and CALM_GAP_MS). Nothing else names a calm voice. Never Schedar or
+// Puck: the show's hosts would make calm sound like the show. A new voice here means a new listening round.
 export const CALM_VOICES: Readonly<Record<string, CalmVoice>> = {
-  he: { voice: 'Charon', gender: 'male' },
+  he: { voice: 'Iapetus', gender: 'male' },
   en: { voice: 'Charon', gender: 'male' },
-  ru: { voice: 'Charon', gender: 'male' },
+  ru: { voice: 'Iapetus', gender: 'male' },
 };
 
 /** The calm voice for a language, or null when it has none. */
@@ -74,7 +74,7 @@ export interface ShowCast {
   B?: string;
 }
 
-/** Silence between calm paragraphs; the show keeps the mixer's default 200 ms. Tuned in the listening round. */
+/** Silence between calm paragraphs, as the owner heard them in the listening round; the show keeps the mixer's default 200 ms. */
 const CALM_GAP_MS = 400;
 
 function voiceFor(cast: ShowCast, host: ShowLine['host']): string {
