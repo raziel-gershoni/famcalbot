@@ -1,8 +1,8 @@
 /**
- * Context for the two-host show writer prompts.
+ * Context for the voice-note writer prompts: the two-host show and the calm single voice.
  */
 
-import type { ShowKind } from '../../services/voice-show/types';
+import type { ShowFormat, ShowKind } from '../../services/voice-show/types';
 
 export interface ShowPerson {
   name: string;
@@ -27,4 +27,8 @@ export interface ShowPromptContext {
   globalRules?: string[];
   /** Weekly only: next week rather than this one. */
   isNextWeek?: boolean;
+  /** Which voice note: absent or 'show' is the two-host show, 'calm' one presenter (buildShowContext, from User.voiceFormat). */
+  format?: ShowFormat;
+  /** Calm only: the presenter's gender (CALM_VOICES in voice-generator.ts), which sets how they speak of themself in he and ru. */
+  presenterGender?: 'male' | 'female';
 }

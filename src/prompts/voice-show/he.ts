@@ -6,11 +6,13 @@
  * Content rules carry over from ../voice-condenser/he.ts and week-he.ts: every event
  * kept, every time in words, weather right after the date, birthday names, the user's
  * own rules. The show rules add the hosts, personal address, moods and sounds.
+ * The calm single voice (./calm-he.ts) reads the same rules from here: kindRules with format 'calm', familyLines,
+ * factRules, addressRule and POINTING_RULE, so a fix here reaches both.
  */
 
 import { sanitizeForPrompt } from '../shared-builders';
 import { buildRulesSection } from '../voice-condenser/template';
-import { MAX_SOUNDS_PER_SHOW, SOUND_TAGS } from '../../services/voice-show/types';
+import { MAX_SOUNDS_PER_SHOW, SOUND_TAGS, type ShowFormat } from '../../services/voice-show/types';
 import type { ShowPerson, ShowPromptContext } from './types';
 
 const SOUND_LIST = SOUND_TAGS.map(sound => `<${sound}>`).join(' ');
@@ -35,16 +37,23 @@ function listenerLine(context: ShowPromptContext): string {
     : `המאזין: ${name}. הוא גבר — פנו אליו בשמו ובלשון זכר ("אתה", "יש לך", "תזכור", "מוכן").`;
 }
 
-interface KindRules {
+export interface KindRules {
   goal: string;
   content: string[];
   length: string;
-  /** Turn count asked for in the output line. */
+  /** Turn count asked for in the output line (paragraphs for calm). */
   turns: [min: number, max: number];
 }
 
-function kindRules(context: ShowPromptContext): KindRules {
+/**
+ * The kind's own content. Calm (format 'calm') swaps only the show's energy and its turns: a free day is said
+ * calmly instead of celebrated, and paragraphs are counted instead of turns. Every other word is the same.
+ */
+export function kindRules(context: ShowPromptContext, format: ShowFormat = 'show'): KindRules {
   const female = context.listener.gender === 'female';
+  const calm = format === 'calm';
+  const oneUnit = calm ? 'בפסקה אחת' : 'בתור אחד';
+  const turns: [number, number] = calm ? [4, 8] : [6, 20];
   if (context.kind === 'weekly') {
     const weekRef = context.isNextWeek ? 'בשבוע הבא' : 'השבוע';
     return {
@@ -55,12 +64,12 @@ function kindRules(context: ShowPromptContext): KindRules {
           ? 'השתמשו בתאריכים עבריים (בלי תאריכים לועזיים ובלי שנה עברית).'
           : 'השתמשו בתאריכים לועזיים.',
         'עברו יום אחרי יום, עם ימים יחסיים ("ביום שלישי", "ביום חמישי"), והדגישו את האירועים החשובים.',
-        'כל אירוע מהסיכום נכנס, עם היום והשעה שלו. מותר לאחד כמה אירועים של אותו יום בתור אחד.',
+        `כל אירוע מהסיכום נכנס, עם היום והשעה שלו. מותר לאחד כמה אירועים של אותו יום ${oneUnit}.`,
         'לאירועי משפחה ציינו בטבעיות של מי האירוע.',
         'שבוע בלי אירועים: אמרו שהיומן פנוי. אל תמציאו אירועים.',
       ],
       length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). בשבוע עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
-      turns: [6, 20],
+      turns,
     };
   }
 
@@ -74,13 +83,13 @@ function kindRules(context: ShowPromptContext): KindRules {
         'רק מזג אוויר: טמפרטורות, גשם, רוח, ואיכות אוויר אם היא מופיעה בתחזית.',
         'קודם עכשיו ושאר היום, אחר כך מחר. אם התחזית נכתבה בערב (היא נפתחת ב"ערב טוב" או מדברת על הערב והלילה), הפכו את הסדר: פתחו במחר, ועל הערב והלילה מספיק משפט קצר.',
         'בתחזית של ערב, הבוקר הבא הוא "מחר בבוקר", לעולם לא "הבוקר": הבוקר כבר עבר. כך גם בשאר חלקי מחר ("מחר בצהריים", "מחר בערב").',
-        'השבוע: תור או שניים, רק המגמה והשינויים הבולטים. כאן מותר לסכם ולקבץ ימים.',
+        `השבוע: ${calm ? 'פסקה או שתיים' : 'תור או שניים'}, רק המגמה והשינויים הבולטים. כאן מותר לסכם ולקבץ ימים.`,
         'התחזית המורחבת: לכל היותר משפט אחד, בזהירות ("כנראה", "צפוי").',
         'סיימו בטיפ מעשי אחד (מטרייה, קרם הגנה, שכבה נוספת).',
       ],
       // The hosts speak about two words a second (eval: 1.9-2.0).
-      length: 'כ-35-50 שניות דיבור (בערך 70-95 מילים), 6-10 תורות.',
-      turns: [6, 10],
+      length: `כ-35-50 שניות דיבור (בערך 70-95 מילים), ${calm ? '3-6 פסקאות' : '6-10 תורות'}.`,
+      turns: calm ? [3, 6] : [6, 10],
     };
   }
 
@@ -96,14 +105,14 @@ function kindRules(context: ShowPromptContext): KindRules {
           : 'אמרו "מחר" כבר במשפט הפתיחה: זה הלוח של מחר. אחריו התאריך של מחר עם היום בשבוע, למשל "מחר, יום שני, ...".',
         'כל מה שבסיכום קורה מחר. לעולם אל תקראו לו "היום": לא "היום יום שני", לא "בהמשך היום", ולא "הערב" על ערב של מחר. אמרו "מחר", "מחר בבוקר", "מחר בערב".',
         'מזג האוויר של מחר מגיע מיד אחרי התאריך, לפני לוח הזמנים: משפט או שניים עם טיפ מעשי.',
-        'כל אירוע מהסיכום נכנס, עם השעה שלו. מותר לאחד כמה אירועים קטנים בתור אחד.',
+        `כל אירוע מהסיכום נכנס, עם השעה שלו. מותר לאחד כמה אירועים קטנים ${oneUnit}.`,
         'ילדים: בקצרה ובטבעיות (למשל "לאסוף את דני בשתיים").',
         'מבט לשבוע, אם יש בסיכום: בקצרה, רק האירועים המרכזיים.',
-        'מחר בלי אירועים: אמרו שהיומן של מחר פנוי וחגגו את זה. אל תמציאו אירועים.',
+        calm ? 'מחר בלי אירועים: אמרו ברוגע שהיומן של מחר פנוי. אל תמציאו אירועים.' : 'מחר בלי אירועים: אמרו שהיומן של מחר פנוי וחגגו את זה. אל תמציאו אירועים.',
         'סגירה שמתאימה לערב ומכינה למחר.',
       ],
       length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). ביום עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
-      turns: [6, 20],
+      turns,
     };
   }
 
@@ -115,44 +124,65 @@ function kindRules(context: ShowPromptContext): KindRules {
         ? 'אמרו רק את התאריך העברי עם היום בשבוע (בלי תאריך לועזי ובלי שנה עברית).'
         : 'אמרו את התאריך עם היום בשבוע.',
       'מזג האוויר מגיע מיד אחרי התאריך, לפני לוח הזמנים: משפט או שניים עם טיפ מעשי.',
-      'כל אירוע מהסיכום נכנס, עם השעה שלו. מותר לאחד כמה אירועים קטנים בתור אחד.',
+      `כל אירוע מהסיכום נכנס, עם השעה שלו. מותר לאחד כמה אירועים קטנים ${oneUnit}.`,
       'ילדים: בקצרה ובטבעיות (למשל "לאסוף את דני בשתיים").',
       'מבט לשבוע, אם יש בסיכום: בקצרה, רק האירועים המרכזיים.',
-      'יום בלי אירועים: אמרו שהיומן פנוי וחגגו את זה. אל תמציאו אירועים.',
+      calm ? 'יום בלי אירועים: אמרו ברוגע שהיומן פנוי. אל תמציאו אירועים.' : 'יום בלי אירועים: אמרו שהיומן פנוי וחגגו את זה. אל תמציאו אירועים.',
     ],
     length: 'כ-45-60 שניות דיבור (בערך 110-150 מילים). ביום עמוס מותר יותר, אבל אף פעם לא על חשבון אירועים.',
-    turns: [6, 20],
+    turns,
   };
 }
 
-export function buildShowPrompt(context: ShowPromptContext): string {
-  const female = context.listener.gender === 'female';
-  const listener = female ? 'המאזינה' : 'המאזין';
-  const toListener = female ? 'אליה' : 'אליו';
-  const { goal, content, length, turns: [minTurns, maxTurns] } = kindRules(context);
-
+/** The family block: the listener, the partner and the kids, each with how to speak of them. Shared with ./calm-he.ts. */
+export function familyLines(context: ShowPromptContext): string[] {
   const family = [listenerLine(context)];
   if (context.spouse) family.push(personLine('בן או בת הזוג', context.spouse));
   for (const kid of context.kids) family.push(personLine('ילד או ילדה', kid));
   if (!context.kids.length && context.hasKidsCalendars) family.push('יש יומנים של ילדים.');
+  return family;
+}
 
-  const rules = buildRulesSection(context.globalRules, 'כללים אישיים של המשתמש (יש ליישם):');
-
-  const allContent = [
-    ...content,
+/** The facts every voice note keeps, after the kind's own content. Shared with ./calm-he.ts. */
+export function factRules(context: ShowPromptContext): string[] {
+  return [
     ...(context.summary.includes('⏰') ? [REMINDERS_RULE] : []),
     'כל השעות במילים מלאות, לא בספרות: "תשע בבוקר", "עשר ורבע", "אחת עשרה וחצי", "ארבע וחצי אחר הצהריים".',
     'גם שאר המספרים במילים, למשל טמפרטורות ("עשרים ושמונה מעלות").',
     'ימי הולדת: הוציאו את שם האדם מהאירוע ("יום ההולדת של יוחנן").',
     'שמות מלאים, בלי קיצורים.',
     'שמרו את מה שהסיכום אומר על חצות: אירוע שנמשך "אחרי חצות" נגמר בלילה שאחרי היום הזה, ואירוע ש"התחיל אתמול" לא מתחיל היום.',
+  ];
+}
+
+/** Second person, by name, in the listener's gender. Shared with ./calm-he.ts. */
+export function addressRule(context: ShowPromptContext): string {
+  return `פנייה אישית: הזכירו את השם כבר בפתיחה, ודברו ${context.listener.gender === 'female' ? 'אליה' : 'אליו'} ישירות בגוף שני ובלשון הנכונה. לא "יש לכם" — "יש לך".`;
+}
+
+/**
+ * The writer points the words only their subject genders (the code points the rest: hebrew-pointing.ts). Shared with
+ * ./calm-he.ts word for word: it also covers the calm presenter speaking of themself.
+ */
+export const POINTING_RULE = 'ניקוד: כשמילה נכתבת אותו דבר בזכר ובנקבה, הקריינות מנחשת ולעתים קרובות טועה. נקדו ניקוד מלא כל מילה כזאת, לפי מי שהיא מתארת: פועל בהווה מגזרת ל״ה ("יום מְחַכֶּה", "ישיבה מְחַכָּה", "מה שֶׁמְּחַכֶּה"), סיומת שייכות בגוף שני על שם עצם ("תּוֹרֵךְ" למאזינה, "תּוֹרְךָ" למאזין), והכינוי "אַתְּ". את שאר המילים אל תנקדו.';
+
+export function buildShowPrompt(context: ShowPromptContext): string {
+  const female = context.listener.gender === 'female';
+  const listener = female ? 'המאזינה' : 'המאזין';
+  const { goal, content, length, turns: [minTurns, maxTurns] } = kindRules(context);
+
+  const rules = buildRulesSection(context.globalRules, 'כללים אישיים של המשתמש (יש ליישם):');
+
+  const allContent = [
+    ...content,
+    ...factRules(context),
     'ההתלהבות והבדיחות לא מוסיפות ולא משמיטות עובדות: אין אירועים, שעות, שמות או פרטים שלא מופיעים בסיכום.',
   ];
 
   return `אתם כותבים תסריט לתוכנית אודיו קצרה בעברית על ${goal}: שני מגישים נלהבים של תוכנית רדיו קצבית.
 
 **המשפחה:**
-${family.join('\n')}
+${familyLines(context).join('\n')}
 ${rules}
 **המגישים:**
 - A: המגיש המוביל. חם, בטוח, סוף שנות השלושים.
@@ -164,9 +194,9 @@ ${allContent.map((rule, i) => `${i + 1}. ${rule}`).join('\n')}
 
 **סגנון:**
 - אנרגיה של רדיו: קצב, התלהבות, מסירות בין המגישים, "יאללה", "איזה יום!". התוכנית היא לא שידור ספורט: אל תמסגרו את היום כמשחק. דימוי מעולם הספורט מותר רק כשהוא מתאים באופן טבעי למה שנאמר.
-- פנייה אישית: הזכירו את השם כבר בפתיחה, ודברו ${toListener} ישירות בגוף שני ובלשון הנכונה. לא "יש לכם" — "יש לך".
+- ${addressRule(context)}
 - רק ${listener} מקבל${female ? 'ת' : ''} פנייה בגוף שני. המגישים לא אומרים זה לזה "לך", "שלך", "אותך", "עליך", "איתך".
-- ניקוד: כשמילה נכתבת אותו דבר בזכר ובנקבה, הקריינות מנחשת ולעתים קרובות טועה. נקדו ניקוד מלא כל מילה כזאת, לפי מי שהיא מתארת: פועל בהווה מגזרת ל״ה ("יום מְחַכֶּה", "ישיבה מְחַכָּה", "מה שֶׁמְּחַכֶּה"), סיומת שייכות בגוף שני על שם עצם ("תּוֹרֵךְ" למאזינה, "תּוֹרְךָ" למאזין), והכינוי "אַתְּ". את שאר המילים אל תנקדו.
+- ${POINTING_RULE}
 - תורות קצרים: משפט או שניים בכל תור. המגישים מתחלפים ומגיבים זה לזה.
 - אורך: ${length}
 - פתיחה קצרה וסגירה קצרה ואנרגטית.

@@ -392,6 +392,106 @@ async function main() {
     assert(formatShowCaption(writer, 1, { ...base, voices: { A: 'VoiceX' }, format: 'calm' }, false) === undefined, 'non-admin');
   });
 
+  /** A calm context: the matrix's family, rules and summary, with the presenter's gender. */
+  const calmContext = (locale: Locale, over: Partial<ShowPromptContext> = {}): ShowPromptContext => ({
+    kind: 'daily', summary: SUMMARY[locale], locale, listener: { name: PEOPLE[locale].male, gender: 'male' },
+    spouse: { name: PEOPLE[locale].spouse }, kids: PEOPLE[locale].kids, hasKidsCalendars: true, culture: 'jewish',
+    globalRules: [PEOPLE[locale].rule], format: 'calm', presenterGender: 'male', ...over,
+  });
+
+  await check('P1 every show language has a calm prompt; format calm builds it, format show or none builds the show', async () => {
+    const { hasCalmPrompt, hasShowPrompt } = await import('../src/prompts/voice-show');
+    for (const locale of LOCALES) {
+      assert(hasShowPrompt(locale) && hasCalmPrompt(locale), `${locale}: no calm prompt`);
+      const calm = buildShowPrompt(calmContext(locale));
+      const asShow = buildShowPrompt(calmContext(locale, { format: 'show' }));
+      const none = buildShowPrompt(calmContext(locale, { format: undefined }));
+      assert(calm.includes('{"turns":[{"text":"..."}') && !calm.includes('"host"'), `${locale}: not the calm prompt`);
+      assert(asShow === none && asShow.includes('"host":"A"'), `${locale}: format show is not the show`);
+    }
+    assert(!hasCalmPrompt('fr') && !hasCalmPrompt('__proto__'), 'other keys');
+  });
+
+  await check('P2 the calm prompt carries the show\'s facts: every content rule of the kind (calm wording), every facts rule, the family lines, the user\'s rule and the summary, for every kind, with and without ⏰', async () => {
+    const prompts = { he: await import('../src/prompts/voice-show/he'), en: await import('../src/prompts/voice-show/en'), ru: await import('../src/prompts/voice-show/ru') };
+    for (const locale of LOCALES) {
+      for (const k of KINDS) {
+        for (const reminders of [false, true]) {
+          const context = calmContext(locale, { kind: k.kind, isNextWeek: k.isNextWeek, summary: SUMMARY[locale] + (reminders ? REMINDER[locale] : '') });
+          const calm = buildShowPrompt(context);
+          const mod = prompts[locale];
+          const wanted = [...mod.kindRules(context, 'calm').content, ...mod.factRules(context), ...mod.familyLines(context), PEOPLE[locale].rule, context.summary];
+          const missing = wanted.filter((line) => !calm.includes(line));
+          assert(missing.length === 0, `${locale} ${k.name} ${reminders}: missing ${show(missing)}`);
+          assert(reminders === calm.includes('⏰'), `${locale} ${k.name}: the reminders rule follows ⏰`);
+        }
+      }
+    }
+  });
+
+  await check('P3 the calm prompt has no moods, no sound list, no second host and none of the show\'s energy lines', async () => {
+    const banned: Record<Locale, string[]> = {
+      he: ['"mood"', 'hype', '<chuckle>', '<whispers>', '<throat-clearing>', '"host"', 'וחגגו', 'נלהבים', 'מגיש צעיר'],
+      en: ['"mood"', 'hype', '<chuckle>', '<whispers>', '<throat-clearing>', '"host"', 'celebrate', 'excited', 'young host'],
+      ru: ['"mood"', 'hype', '<chuckle>', '<whispers>', '<throat-clearing>', '"host"', 'порадуйтесь', 'азартных', 'молодой ведущий'],
+    };
+    for (const locale of LOCALES) {
+      for (const k of KINDS) {
+        const calm = buildShowPrompt(calmContext(locale, { kind: k.kind, isNextWeek: k.isNextWeek }));
+        const found = banned[locale].filter((word) => calm.includes(word));
+        assert(found.length === 0, `${locale} ${k.name}: ${show(found)}`);
+      }
+    }
+  });
+
+  await check('P4 the presenter speaks of themself in the voice table\'s gender (he and ru), and English names the presenter; the listener is addressed in their own gender', async () => {
+    const self: Record<Locale, Record<'male' | 'female', string>> = {
+      he: { male: 'שמדבר על עצמו בלשון זכר', female: 'שמדברת על עצמה בלשון נקבה' },
+      en: { male: 'One presenter, a man', female: 'One presenter, a woman' },
+      ru: { male: 'говорит о себе в мужском роде', female: 'говорит о себе в женском роде' },
+    };
+    for (const locale of LOCALES) {
+      for (const presenterGender of ['male', 'female'] as const) {
+        const calm = buildShowPrompt(calmContext(locale, { presenterGender, listener: { name: PEOPLE[locale].female, gender: 'female' } }));
+        const other = presenterGender === 'male' ? 'female' : 'male';
+        assert(calm.includes(self[locale][presenterGender]) && !calm.includes(self[locale][other]), `${locale} ${presenterGender}`);
+      }
+    }
+    const he = buildShowPrompt(calmContext('he', { listener: { name: 'נועה', gender: 'female' } }));
+    assert(he.includes('ודברו אליה ישירות בגוף שני') && he.includes('היא אישה'), 'he: a female listener');
+    const ru = buildShowPrompt(calmContext('ru', { listener: { name: 'Ноа', gender: 'female' } }));
+    assert(ru.includes('ты готова') && ru.includes('в женском роде. Не "у вас", а "у тебя"') && ru.includes('пол неизвестен'), 'ru: "ты", her gender, the unknown-gender spouse');
+  });
+
+  await check('P5 the Hebrew calm prompt carries the show\'s pointing rule word for word (מְחַכֶּה/מְחַכָּה by subject, תּוֹרֵךְ, אַתְּ)', async () => {
+    const { POINTING_RULE } = await import('../src/prompts/voice-show/he');
+    const calm = buildShowPrompt(calmContext('he'));
+    const asShow = buildShowPrompt(calmContext('he', { format: 'show' }));
+    assert(calm.includes(POINTING_RULE) && asShow.includes(POINTING_RULE), 'the rule is not in both');
+    for (const word of ['מְחַכֶּה', 'מְחַכָּה', 'תּוֹרֵךְ', 'אַתְּ']) assert(POINTING_RULE.includes(word), word);
+  });
+
+  await check('P6 calm asks for paragraphs: 4 to 8 (the weather 3 to 6) in each language, and says a free day calmly', async () => {
+    const counts: Record<Locale, [string, string]> = {
+      he: ['בין 4 ל-8 פסקאות', 'בין 3 ל-6 פסקאות'],
+      en: ['4 to 8 paragraphs', '3 to 6 paragraphs'],
+      ru: ['от 4 до 8 абзацев', 'от 3 до 6 абзацев'],
+    };
+    const calmly: Record<Locale, string> = { he: 'אמרו ברוגע שהיומן פנוי', en: 'say calmly that the calendar is clear', ru: 'спокойно скажите, что календарь свободен' };
+    for (const locale of LOCALES) {
+      assert(buildShowPrompt(calmContext(locale)).includes(counts[locale][0]), `${locale}: daily count`);
+      assert(buildShowPrompt(calmContext(locale, { kind: 'weather' })).includes(counts[locale][1]), `${locale}: weather count`);
+      assert(buildShowPrompt(calmContext(locale)).includes(calmly[locale]), `${locale}: the free day`);
+    }
+  });
+
+  await check('P7 an empty rules list adds no rules header, as in the show', async () => {
+    for (const locale of LOCALES) {
+      const calm = buildShowPrompt(calmContext(locale, { globalRules: [] }));
+      assert(!calm.includes(PEOPLE[locale].rule) && !/\*\*[^*]*(כללים אישיים|own rules|Личные правила)/.test(calm), `${locale}: a rules header`);
+    }
+  });
+
   // ---- Calm checks (added by later tasks) go here, above the report ----
 
   let failed = 0;
