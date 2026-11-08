@@ -1,6 +1,6 @@
 # Ask FamCal in a chat, one line per person: design
 
-Status: decisions APPROVED by the owner 2026-11-08 ("go"). The legal wording in §6 (A1, A6, A7, A8) is a DRAFT waiting for the owner's OK; nothing in `legal.*` may reach main before it (the feature branch carries the draft wording in `messages/` so it can be reviewed, and the owner's OK, with its date, is recorded here when given). Builds on the shipped spec `2026-11-07-ask-in-chat-design.md` (its rules stay unless this one says otherwise).
+Status: SHIPPED 2026-11-08. Decisions APPROVED by the owner 2026-11-08 ("go"); the legal wording in §6 (A1, A6, A7 and the controller's A8) APPROVED by the owner 2026-11-08 ("ok"), LEGAL_UPDATED 2026-11-08. Builds on the shipped spec `2026-11-07-ask-in-chat-design.md` (its rules stay unless this one says otherwise).
 
 ## 1. Goal and decisions
 
@@ -35,7 +35,7 @@ My rulings inside those (small choices, made here):
 19. **Direction per line.** A Hebrew answer's line that starts with a Latin name gets U+200F. An English or Russian answer's line that starts with a Hebrew name gets U+200E (new `leadLtr`).
 20. **Russian ranges read "с 16:00 до 17:00".** `bot.askInChat.range` in ru becomes `с {from} до {to}` (the ruling's example). en stays `{from}-{to}`, he `{from}–{to}`.
 
-**Caveat for the owner (decision 5, followed as written).** A FamCal calendar the partner owns and labelled `spouse` (a calendar the partner keeps *about the caller*) counts as the partner's line here, because decision 5 says every partner-owned calendar is the partner's. The summaries read the same calendar as the caller's own (`labelsFromViewerSide` turns the owner's `spouse` into the viewer's `yours`). If the owner wants it on the caller's line instead, it is a one-line change in `peopleOf`.
+**The partner's calendar about the caller (ruling, told to the owner 2026-11-08 before the legal OK).** A FamCal calendar the partner owns and labelled `spouse` (a calendar the partner keeps *about the caller*) is on the caller's line, as the summaries read it (`labelsFromViewerSide` turns the owner's `spouse` into the viewer's `yours`): its events are the caller's plans. Every other calendar the partner owns is the partner's (decision 5); one the partner labelled kids is the kids'.
 
 Not in scope: a setting to hide a person; naming a person on the Start line or the error lines; a person's line for someone with no calendar; events by zman; any change to what the summaries, the home or the editor show.
 
@@ -102,7 +102,7 @@ Each calendar, in list order:
 | Calendar | Counts for |
 |---|---|
 | labelled `birthdays`, or a Google holiday calendar (`…#holiday@group.v.calendar.google.com`) | no one (never busy) |
-| the partner owns it | the partner, unless labelled `kids` (then the kid it names); labelled `kids` and `spouse`, both |
+| the partner owns it | the partner, unless the partner labelled it `spouse` (about the caller: `yours` from the caller's side, then the caller) or `kids` (then the kid it names) |
 | otherwise, labelled `primary` or `yours` | the caller |
 | otherwise, labelled `spouse` | the partner |
 | otherwise, labelled `kids` | the kid its `personName` names |
@@ -298,7 +298,7 @@ The Hebrew addresses the reader in the plural (אתם) as the rest of the text d
   - A sentinel kid name never reaches a log or a report.
 - `scripts/smoke-partner-labels.ts`:
   - `getCalendarsWithOwners` returns the same list in one store read, with the partner's FamCal ids.
-  - `peopleOf` on that real list: Raziel; Dana with her primary, the calendar she keeps about Raziel and her named work calendar; Leo; Mia; Dana's birthdays out.
+  - `peopleOf` on that real list: Raziel with the calendar Dana keeps about him; Dana with her primary and her named work calendar; Leo; Mia; Dana's birthdays out.
 - `scripts/smoke-ask-in-chat-legal.ts`: the eight edits with the new A1/A6/A7/A8, each drafted word for word in §6 (G5); the 2026-11-07 wording of each is gone; `ASK_WORDING_DAY` 2026-11-08.
 - Unchanged and still passing: `smoke-he-neutral`, `smoke-ru-formal`, `smoke-bot-key-paths`, `check-i18n-parity`, `smoke-site-truth` (T6), `smoke-signin-legal`, `smoke-pause`.
 - The gate: `npx tsc --noEmit -p .`, `npm run lint`, `bash scripts/ci-smokes.sh`.

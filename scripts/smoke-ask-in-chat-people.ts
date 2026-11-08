@@ -1,7 +1,7 @@
 // Smoke test for whose lines a guest answer has (src/services/ask-in-chat/people.ts; spec
 // docs/superpowers/specs/2026-11-08-ask-in-chat-people-design.md §3, the owner's decisions 1, 2, 3 and 5):
-//   - peopleOf: the caller's own calendars (primary, yours), the partner's (every FamCal calendar the partner owns, the
-//     one she keeps about the caller included, and a spouse-labelled one), each kid by the person on their calendar, the family (no label); a partner's kids calendar
+//   - peopleOf: the caller's own calendars (primary, yours, and the one the partner keeps about the caller), the
+//     partner's (every other FamCal calendar the partner owns, and a spouse-labelled one), each kid by the person on their calendar, the family (no label); a partner's kids calendar
 //     is the kids'; a calendar with several labels counts for each; birthdays and Google holidays are no one's; the order
 //     is the caller, the partner, the kids in calendar order, the family;
 //   - the names: the caller's first name, the partner's first name from the pairing else the spouse calendar's person,
@@ -44,7 +44,7 @@ const CALENDARS: CalendarAssignment[] = [
   cal('native:raz-main', ['primary', 'yours']),
   cal('native:raz-kids', ['kids'], { personName: 'מָאיָה', personEnglishName: 'Maya' }),
   cal('native:dana-kids', ['kids'], { personName: 'נועה' }), // Dana labelled it kids
-  cal('native:dana-about-raz', ['yours']), // Dana's calendar she labelled spouse (about the caller): hers, like every calendar she owns (decision 5)
+  cal('native:dana-about-raz', ['yours']), // Dana's calendar she labelled spouse (about the caller): the caller's line (the owner's ruling, labelsFromViewerSide)
   cal('native:dana-plain', []), // Dana's, no label: hers
   cal('native:dana-bdays', ['birthdays']),
   cal('native:home', []), // Raziel's own, no label: the family's
@@ -62,10 +62,10 @@ const rows = (people: Person[]) => people.map(p => [p.key, p.name, p.calendarIds
 const he = peopleOf({ assignments: CALENDARS, partnerOwned: PARTNER_OWNED, me: RAZ, partner: DANA, locale: 'he' });
 const en = peopleOf({ assignments: CALENDARS, partnerOwned: PARTNER_OWNED, me: RAZ, partner: DANA, locale: 'en' });
 
-check('peopleOf: the caller, the partner (every calendar she owns but her kids calendar, the one about the caller included), each kid, the family; birthdays and holidays no one\'s', () => {
+check('peopleOf: the caller (with the calendar the partner keeps about him), the partner (what she owns but her kids calendar and that one), each kid, the family; birthdays and holidays no one\'s', () => {
   same(rows(he), [
-    ['me', 'Raziel', ['native:raz-main', 'work@example.com']],
-    ['partner', 'דנה', ['native:dana-main', 'native:dana-about-raz', 'native:dana-plain']],
+    ['me', 'Raziel', ['native:raz-main', 'native:dana-about-raz', 'work@example.com']],
+    ['partner', 'דנה', ['native:dana-main', 'native:dana-plain']],
     ['kid:מאיה', 'מָאיָה', ['native:raz-kids', 'maya@group.calendar.google.com']],
     ['kid:נועה', 'נועה', ['native:dana-kids']],
     ['kid:', null, ['school@group.calendar.google.com']],
