@@ -203,7 +203,9 @@ function askedForms(name: string): string[] {
 /**
  * The lines a question asked for (spec §3.3): a group's lines, everyone's, or the lines one name matches (the first form
  * of it that any line answers; folded, so case, niqqud and ё don't matter). A group with no line, or a name no line
- * answers, is no one in particular.
+ * answers, is no one in particular. So is a question about the caller alone ("can you pick me up?", or the caller's own
+ * name): the others' plans bear on the caller's time, so it shows the caller's line and every busy one (the owner,
+ * 2026-11-08). Only the partner, the kids, the family, everyone or another person's name narrows an answer.
  */
 export function askedLines(who: AskWho | null, people: readonly Person[]): Asked {
   if (!who) return { keys: null, log: 'none' };
@@ -220,5 +222,6 @@ export function askedLines(who: AskWho | null, people: readonly Person[]): Asked
     picked = people.filter(p => p.kind === kind);
   }
   if (picked.length === 0) return { keys: null, log: `${who.kind}-none` };
+  if (who.kind !== 'everyone' && picked.every(p => p.kind === 'me')) return { keys: null, log: who.kind === 'me' ? 'me' : `${who.kind}-me` };
   return { keys: new Set(picked.map(p => p.key)), log: who.kind };
 }

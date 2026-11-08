@@ -215,6 +215,18 @@ async function main() {
     assert(logs.some(l => l.includes(' who=person-none ')), show(logs));
   });
 
+  await check('a question about the caller ("can you pick me up on the 29th at 15:30?" read as me) still shows a busy kid: the caller\'s line and every busy one (the owner, 2026-11-08)', async () => {
+    const kidBusy: BusyRead = {
+      people: [ME, KID],
+      days: [{ day: '2026-11-13', people: [{ person: ME, intervals: [] }, { person: KID, intervals: EVENING_BUSY }] }],
+    };
+    const me = await run(guest(CALLER), RAZ, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'me', name: null } }) });
+    assert(textOf(me) === 'Friday 13.11, evening:\nRaziel: free\nSECRET-KID: busy 19:00-21:00, free the rest', show(textOf(me)));
+    assert(logs.some(l => / answered part x1 who=me people=2 busy=1 google=ok /.test(l)), show(logs));
+    const named = await run(guest(CALLER), RAZ, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'Raziel' } }) });
+    assert(textOf(named) === textOf(me), `the caller by name: ${show(textOf(named))}`);
+  });
+
   await check('a bare reply from someone else to our answer: no answer, no model call, one line', async () => {
     const ours = { message_id: 71, from: { id: BOT_ID, is_bot: true }, text: 'Friday 13.11: free all day', guest_bot_caller_user: { id: CALLER } };
     const w = await run(guest(SISTER, { text: 'thanks SECRET-MENTION-TEXT', entities: undefined, reply_to_message: ours }), DANA);

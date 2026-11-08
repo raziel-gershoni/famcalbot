@@ -117,7 +117,7 @@ check('foldName: niqqud, case, ё, apostrophes and geresh, and spaces don\'t mat
 
 check('askedLines: each group, everyone, and no one in particular', () => {
   same(askedLines(null, he), { keys: null, log: 'none' }, 'nobody');
-  same([...askedLines({ kind: 'me' }, he).keys!], ['me'], 'me');
+  same(askedLines({ kind: 'me' }, he), { keys: null, log: 'me' }, 'me: the caller asked about is no one in particular (their line and every busy one)');
   same([...askedLines({ kind: 'partner' }, he).keys!], ['partner'], 'partner');
   same([...askedLines({ kind: 'kids' }, he).keys!], ['kid:מאיה', 'kid:נועה', 'kid:'], 'kids');
   same([...askedLines({ kind: 'family' }, he).keys!], ['family'], 'family');
@@ -131,7 +131,7 @@ check('askedLines: a person by any of their names; the caller by their own; the 
   same(one('נועה'), ['kid:נועה'], 'a partner\'s kid');
   same(one('Dana'), ['partner'], 'the partner in English');
   same(one('דנה'), ['partner'], 'the partner in Hebrew');
-  same(one('Raziel'), ['me'], 'the caller');
+  same(askedLines({ kind: 'person', name: 'Raziel' }, he), { keys: null, log: 'person-me' }, 'the caller by name is no one in particular too');
   same(askedLines({ kind: 'person', name: 'Maya' }, he).log, 'person', 'log');
 });
 
