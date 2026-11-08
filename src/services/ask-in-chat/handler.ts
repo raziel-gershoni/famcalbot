@@ -198,28 +198,35 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
       await send(words.t.unavailable);
       return;
     }
+    // From here the answer is in the language of the message replied to when the model read he, en or ru there; in any
+    // other case (other, no message) it stays the caller's, as before (owner, 2026-11-08)
+    const messageLocale: Locale | null = read.language === 'he' || read.language === 'en' || read.language === 'ru' ? read.language : null;
+    const fromMessage = messageLocale !== null;
+    const answerLocale: Locale = messageLocale ?? locale;
+    const lang = `${answerLocale}(${fromMessage ? 'msg' : 'user'})`;
+    const answerWords = answerLocale === locale ? words : await wordsFor(answerLocale, botUsername);
     const window = read.window;
     if (window.kind === 'noDate') {
       console.log(`[ask] user ${user.id}: no date`);
-      await send(noDateText(words));
+      await send(noDateText(answerWords));
       return;
     }
     if (window.kind === 'tooManyDays') {
       console.log(`[ask] user ${user.id}: too many days`);
-      await send(tooManyDaysText(words));
+      await send(tooManyDaysText(answerWords));
       return;
     }
 
     const readStartedAt = Date.now();
     let busy: BusyRead;
     try {
-      busy = await deps.readBusy(user, window.days, tz, locale);
+      busy = await deps.readBusy(user, window.days, tz, answerLocale);
     } catch (error) {
       const code = codeOf(error);
       console.warn(`[ask] user ${user.id}: unavailable (read: ${code})`);
       // A Google half that could not be read is the reader's answer (it reports an outage itself); anything else is ours.
       if (!GOOGLE_READ_CODES.has(code)) deps.report(error, { user_id: user.id, stage: 'read' });
-      await send(words.t.unavailable);
+      await send(answerWords.t.unavailable);
       return;
     }
     const readMs = Date.now() - readStartedAt;
@@ -232,12 +239,12 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
     }));
     const text = askAnswerText(
       { range: window.range, hebrewAsked: window.hebrewAsked, tz, days, asked: asked.keys, ...(busy.googleGap ? { googleGap: busy.googleGap } : {}) },
-      words
+      answerWords
     );
     if (!(await send(text))) return;
     const busyCount = days.reduce((n, d) => n + d.lines.reduce((m, l) => m + l.judged.shown.length, 0), 0);
     console.log(
-      `[ask] user ${user.id}: answered ${window.range.kind} x${days.length} who=${asked.log} people=${busy.people.length} busy=${busyCount} ` +
+      `[ask] user ${user.id}: answered ${window.range.kind} x${days.length} who=${asked.log} lang=${lang} people=${busy.people.length} busy=${busyCount} ` +
         `google=${busy.googleGap ?? 'ok'} in ${Date.now() - startedAt} ms (ai ${read.aiMs}, read ${readMs})`
     );
   } catch (error) {

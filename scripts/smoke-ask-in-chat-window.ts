@@ -15,7 +15,7 @@
 //   npx tsx scripts/smoke-ask-in-chat-window.ts
 
 import type { AICompletionOptions, AICompletionResult } from '../src/services/ai-provider';
-import { AskWindowError, parseAskWho, parseAskWindow, readAskWindow } from '../src/services/ask-in-chat/window';
+import { AskWindowError, parseAskLanguage, parseAskWho, parseAskWindow, readAskWindow } from '../src/services/ask-in-chat/window';
 import type { GuestAsk } from '../src/services/ask-in-chat/update';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -228,6 +228,48 @@ async function main() {
     assert(prompts[0].includes('"who" is whose time') && prompts[0].includes('in the nominative') && prompts[0].includes('read "who" only from what is asked'), 'the rules');
     const none = await readAskWindow(ASK, { tz: 'Asia/Jerusalem', language: 'en', now: NOW, complete: async () => fakeCompletion(answer({ date: '2026-11-13' })) });
     assert(none.who === null, show(none.who));
+  });
+
+  await check('language: he, en, ru and other parse; null or missing is null', () => {
+    const lang = (value: unknown) => parseAskLanguage(answer({ date: '2026-11-13', language: value }));
+    for (const l of ['he', 'en', 'ru', 'other'] as const) assert(lang(l) === l, l);
+    assert(lang(null) === null && parseAskLanguage(answer({ date: '2026-11-13' })) === null && parseAskLanguage('{}') === null, 'null and missing');
+  });
+
+  await check('language: "fr", 3 and "RU" are an AskWindowError naming the field, never the value', () => {
+    for (const [label, value] of [['fr', 'fr-SECRET-VALUE'], ['number', 3], ['upper case', 'RU'], ['object', { SECRET: 'VALUE' }]] as Array<[string, unknown]>) {
+      const error = throwsAskError(() => parseAskLanguage(answer({ date: '2026-11-13', language: value })), label);
+      assert(error.message.includes('"language"') && !error.message.includes('SECRET') && !error.message.includes('fr-') && !error.message.includes('RU'), `${label}: ${error.message}`);
+    }
+  });
+
+  await check('readAskWindow: the schema has language (he, en, ru, other, or null) and requires it; the prompt has its rules and examples; the result carries it', async () => {
+    let schema: unknown;
+    let prompt = '';
+    const result = await readAskWindow(ASK, {
+      tz: 'Asia/Jerusalem', language: 'en', now: NOW,
+      complete: async (p, _model, options) => { prompt = p; schema = options?.responseJsonSchema; return fakeCompletion(answer({ date: '2026-11-13', language: 'ru' })); },
+    });
+    const s = schema as { required: string[]; properties: Record<string, { anyOf: Array<{ enum?: string[]; type?: string }> }> };
+    assert(s.required.includes('language'), 'required');
+    const options = s.properties.language?.anyOf ?? [];
+    assert(show(options.find(o => o.enum)?.enum) === show(['he', 'en', 'ru', 'other']) && options.some(o => o.type === 'null'), show(options));
+    for (const phrase of ['"ata panui be-shishi?" -> "he"', 'Ukrainian is "other"', 'Hebrew typed in Latin letters', 'ты сможешь меня встретить 29?" -> "ru"', 'MESSAGE REPLIED TO (not of the mention)']) assert(prompt.includes(phrase), phrase);
+    assert(result.language === 'ru', show(result.language));
+  });
+
+  await check('readAskWindow: a missing language is null; no message replied to (or one with no words) is null whatever the model says; a bad language is asked again', async () => {
+    const opts = (reply: string) => ({ tz: 'Asia/Jerusalem', language: 'en' as const, now: NOW, complete: async () => fakeCompletion(reply) });
+    const none = await readAskWindow(ASK, opts(answer({ date: '2026-11-13' })));
+    assert(none.language === null, show(none.language));
+    const bare = await readAskWindow({ ...ASK, replied: null }, opts(answer({ date: '2026-11-13', language: 'ru' })));
+    assert(bare.language === null, show(bare.language));
+    const blank = await readAskWindow({ ...ASK, replied: { text: '  ', isOurAnswer: false } }, opts(answer({ date: '2026-11-13', language: 'ru' })));
+    assert(blank.language === null, show(blank.language));
+    const prompts: string[] = [];
+    const replies = [answer({ date: '2026-11-13', language: 'fr' }), answer({ date: '2026-11-13', language: 'he' })];
+    const again = await readAskWindow(ASK, { tz: 'Asia/Jerusalem', language: 'en', now: NOW, complete: async p => { prompts.push(p); return fakeCompletion(replies[prompts.length - 1]); } });
+    assert(again.language === 'he' && again.attempts === 2 && prompts[1].includes('rejected: "language" is not he, en, ru, other or null'), show(again));
   });
 
   let failed = 0;

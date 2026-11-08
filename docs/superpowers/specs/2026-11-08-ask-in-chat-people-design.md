@@ -302,3 +302,14 @@ The Hebrew addresses the reader in the plural (אתם) as the rest of the text d
 - `scripts/smoke-ask-in-chat-legal.ts`: the eight edits with the new A1/A6/A7/A8, each drafted word for word in §6 (G5); the 2026-11-07 wording of each is gone; `ASK_WORDING_DAY` 2026-11-08.
 - Unchanged and still passing: `smoke-he-neutral`, `smoke-ru-formal`, `smoke-bot-key-paths`, `check-i18n-parity`, `smoke-site-truth` (T6), `smoke-signin-legal`, `smoke-pause`.
 - The gate: `npx tsc --noEmit -p .`, `npm run lint`, `bash scripts/ci-smokes.sh`.
+
+## 9. Answer language (owner, 2026-11-08)
+
+- A guest answer is written in the language of the message the caller replied to (the other person's words), not the caller's FamCal language.
+- The same single model call (`readAskWindow`) returns it as `language`: `"he"`, `"en"`, `"ru"`, `"other"`, or null when there is no replied-to message (or it has no words). No second call, nothing new is sent to the model, so no legal change.
+- `he` / `en` / `ru`: the answer is in that language. `other` or null: the caller's FamCal language (`normalizeLocale(user.language)`), as before. Hebrew typed in Latin letters is Hebrew; Ukrainian is `other`. The prompt gives short examples.
+- A bare reply to FamCal's own answer (a correction) needs nothing special: the replied-to message is FamCal's answer, so its language comes back.
+- The field is validated like the others (`parseAskLanguage`: the enum or null; anything else is an `AskWindowError`, retried once with a reason that names the field, never its value).
+- Everything said before the model answers (no account Start line, rate limited, the zone and model failures) keeps the caller's language choice. After the model answers, every line of that question (the answer, noDate, tooManyDays, unavailable, the Google partial line) is in the answer's language, and `readBusy` gets that locale (people's names: `personEnglishName` in en and ru answers, as before).
+- The answered log line adds the language and where it came from, never any text: `lang=ru(msg)` or `lang=he(user)`.
+- Tests: `smoke-ask-in-chat-window` (schema, parse, refusals, missing is null) and `smoke-ask-in-chat-handler` (a Hebrew caller replying in Russian gets Russian, other and null keep the caller's, the log line, noDate in the message's language).

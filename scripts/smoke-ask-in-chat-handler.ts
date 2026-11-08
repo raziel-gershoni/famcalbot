@@ -29,6 +29,7 @@ import type { GuestAnswerArticle } from '../src/services/messaging/telegram-adap
 import type { UserConfig } from '../src/types';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
+import ru from '../messages/ru.json';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -97,6 +98,7 @@ function guest(from: number, extra: Record<string, unknown> = {}): Record<string
 const ME: Person = { key: 'me', kind: 'me', name: 'Raziel', aliases: ['raziel'], calendarIds: ['native:mine'] };
 const KID: Person = { key: 'kid:secret-kid', kind: 'kid', name: 'SECRET-KID', aliases: ['secret-kid'], calendarIds: ['native:kid'] };
 const EVENING_BUSY = [{ start: Date.parse('2026-11-13T17:00:00Z'), end: Date.parse('2026-11-13T19:00:00Z'), startsBefore: false, endsAfter: false }];
+const EXPECTED_RU = 'Пятница, 13.11, вечером:\nRaziel: планов нет\nSECRET-KID: есть планы с\u00a019:00 до 21:00, в\u00a0остальное время свободно';
 const readOf = (googleGap?: GoogleGap): BusyRead => ({
   people: [ME, KID],
   days: [{ day: '2026-11-13', people: [{ person: ME, intervals: EVENING_BUSY }, { person: KID, intervals: [] }] }],
@@ -168,7 +170,7 @@ async function main() {
     // No one in particular asked: the caller's line, and the kid (free) has none
     assert(textOf(w) === 'Friday 13.11, evening:\nRaziel: busy 19:00-21:00, free the rest', show(textOf(w)));
     assert(!w.answers[0].article.reply_markup, 'no button on an answer');
-    assert(logs.some(l => /^\[ask\] user 1: answered part x1 who=none people=2 busy=1 google=ok in \d+ ms \(ai \d+, read \d+\)$/.test(l)), show(logs));
+    assert(logs.some(l => /^\[ask\] user 1: answered part x1 who=none lang=en\(user\) people=2 busy=1 google=ok in \d+ ms \(ai \d+, read \d+\)$/.test(l)), show(logs));
   });
 
   await check('no account: the Start line with the Open FamCal url button, in Telegram\'s language; no model call, no read', async () => {
@@ -207,7 +209,7 @@ async function main() {
   await check('who the question asks about: a kid asked by name gets only their line, free too; the log says the kind, never the name', async () => {
     const kid = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'secret-kid' } }) });
     assert(textOf(kid) === 'Friday 13.11, evening:\nSECRET-KID: free', show(textOf(kid)));
-    assert(logs.some(l => / answered part x1 who=person people=2 busy=1 google=ok /.test(l)), show(logs));
+    assert(logs.some(l => / answered part x1 who=person lang=en\(user\) people=2 busy=1 google=ok /.test(l)), show(logs));
     const kids = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'kids', name: null } }) });
     assert(textOf(kids) === 'Friday 13.11, evening:\nSECRET-KID: free', show(textOf(kids)));
     const unknown = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'Nobody' } }) });
@@ -222,9 +224,42 @@ async function main() {
     };
     const me = await run(guest(CALLER), RAZ, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'me', name: null } }) });
     assert(textOf(me) === 'Friday 13.11, evening:\nRaziel: free\nSECRET-KID: busy 19:00-21:00, free the rest', show(textOf(me)));
-    assert(logs.some(l => / answered part x1 who=me people=2 busy=1 google=ok /.test(l)), show(logs));
+    assert(logs.some(l => / answered part x1 who=me lang=en\(user\) people=2 busy=1 google=ok /.test(l)), show(logs));
     const named = await run(guest(CALLER), RAZ, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who: { kind: 'person', name: 'Raziel' } }) });
     assert(textOf(named) === textOf(me), `the caller by name: ${show(textOf(named))}`);
+  });
+
+  await check('answer language (owner, 2026-11-08): a Hebrew caller replying to a Russian message gets Russian; other and null keep the caller\'s; every line after the model follows it; the log says where it came from', async () => {
+    const kidBusy: BusyRead = {
+      people: [ME, KID],
+      days: [{ day: '2026-11-13', people: [{ person: ME, intervals: [] }, { person: KID, intervals: EVENING_BUSY }] }],
+    };
+    const HE_CALLER = { ...RAZ, language: 'he' } as UserConfig;
+    const who = { kind: 'me', name: null };
+    const ruText = await run(guest(CALLER), HE_CALLER, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who, language: 'ru' }) });
+    assert(ruText.reads[0].locale === 'ru', show(ruText.reads));
+    assert(textOf(ruText) === EXPECTED_RU, show(textOf(ruText)));
+    assert(logs.some(l => / answered part x1 who=me lang=ru\(msg\) people=2 /.test(l)), show(logs));
+    const hebrew = await run(guest(CALLER), RAZ, { busy: kidBusy, reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', who, language: 'he' }) });
+    assert(hebrew.reads[0].locale === 'he' && textOf(hebrew)?.startsWith('יום שישי'), show(textOf(hebrew)));
+    assert(logs.some(l => / lang=he\(msg\) /.test(l)), show(logs));
+    for (const language of ['other', null]) {
+      const kept = await run(guest(CALLER), HE_CALLER, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', language }) });
+      assert(kept.reads[0].locale === 'he' && textOf(kept)?.startsWith('יום שישי'), `${language}: ${show(textOf(kept))}`);
+      assert(logs.some(l => / lang=he\(user\) /.test(l)), `${language}: ${show(logs)}`);
+    }
+    const same = await run(guest(CALLER), RAZ, { reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', language: 'en' }) });
+    assert(logs.some(l => / lang=en\(msg\) /.test(l)) && textOf(same)?.startsWith('Friday'), show(logs));
+    const noDate = await run(guest(CALLER), HE_CALLER, { reply: modelAnswer({ language: 'ru' }) });
+    assert(textOf(noDate) === ru.bot.askInChat.noDate.replace('{bot}', 'famcal_test_bot'), show(textOf(noDate)));
+    const many = await run(guest(CALLER), HE_CALLER, { reply: modelAnswer({ date: '2026-11-13', lastDate: '2026-11-20', language: 'ru' }) });
+    assert(textOf(many) === ru.bot.askInChat.tooManyDays.replace('{bot}', 'famcal_test_bot'), show(textOf(many)));
+    const down = await run(guest(CALLER), HE_CALLER, { busy: Object.assign(new Error('x'), { code: 'P1001' }), reply: modelAnswer({ date: '2026-11-13', language: 'ru' }) });
+    assert(textOf(down) === ru.bot.askInChat.unavailable, show(textOf(down)));
+    const partial = await run(guest(CALLER), HE_CALLER, { busy: readOf('token'), reply: modelAnswer({ date: '2026-11-13', partOfDay: 'evening', language: 'ru' }) });
+    assert(textOf(partial)?.endsWith(ru.bot.askInChat.googlePartial), show(textOf(partial)));
+    const failed = await run(guest(CALLER), HE_CALLER, { complete: async () => { throw new Error('boom'); } });
+    assert(textOf(failed) === he.bot.askInChat.unavailable, show(textOf(failed)));
   });
 
   await check('a bare reply from someone else to our answer: no answer, no model call, one line', async () => {

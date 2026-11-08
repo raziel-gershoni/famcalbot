@@ -60,8 +60,9 @@ export const ASK_WINDOW_SCHEMA = {
         { type: 'null' },
       ],
     },
+    language: { anyOf: [{ type: 'string', enum: ['he', 'en', 'ru', 'other'] }, { type: 'null' }] },
   },
-  required: ['date', 'lastDate', 'hebrewDate', 'time', 'until', 'partOfDay', 'who'],
+  required: ['date', 'lastDate', 'hebrewDate', 'time', 'until', 'partOfDay', 'who', 'language'],
 } as const;
 
 const LANGUAGE_NAMES = { en: 'English', he: 'Hebrew', ru: 'Russian' } as const;
@@ -108,9 +109,10 @@ RULES:
   - "person": one person by name ("is Maya free?"). "name" is the name as the messages write it, in its base form: without a Hebrew prefix letter (למאיה → מאיה) and, in Russian, in the nominative (у Маши → Маша).
   - null when the messages ask about a day or a time and no one in particular ("Friday?", "what's on Friday?").
   "name" is null for every kind but "person". FamCal's own earlier answer lists people by name: those are its lines, not a question, so read "who" only from what is asked.
+- "language" is the language of the MESSAGE REPLIED TO (not of the mention), so the answer can be written in the language the other person wrote in: "he", "en", "ru", or "other" for any other language. Hebrew typed in Latin letters is "he". Ukrainian is "other". Examples: "are you free friday?" -> "en"; "ata panui be-shishi?" -> "he"; "את פנויה ביום שישי?" -> "he"; "ты сможешь меня встретить 29?" -> "ru"; "ти вільна в п'ятницю?" -> "other". null when there is no message replied to, or it has no words.
 - When the mention corrects the message replied to ("no, Saturday"), the mention wins.
 - When nothing names or implies a day, every field is null.
 
 Answer with JSON only:
-{"date": "yyyy-MM-dd" or null, "lastDate": "yyyy-MM-dd" or null, "hebrewDate": {"day": 1-30, "month": "<month>", "year": number or null} or null, "time": "HH:mm" or null, "until": "HH:mm" or null, "partOfDay": "morning" | "afternoon" | "evening" | "night" | null, "who": {"kind": "me" | "partner" | "kids" | "family" | "everyone" | "person", "name": string or null} or null}`;
+{"date": "yyyy-MM-dd" or null, "lastDate": "yyyy-MM-dd" or null, "hebrewDate": {"day": 1-30, "month": "<month>", "year": number or null} or null, "time": "HH:mm" or null, "until": "HH:mm" or null, "partOfDay": "morning" | "afternoon" | "evening" | "night" | null, "who": {"kind": "me" | "partner" | "kids" | "family" | "everyone" | "person", "name": string or null} or null, "language": "he" | "en" | "ru" | "other" | null}`;
 }

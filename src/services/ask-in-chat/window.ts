@@ -156,6 +156,21 @@ export function parseAskWho(text: string): AskWho | null {
   return { kind: kind as AskGroup };
 }
 
+/** The language of the message replied to, as the model read it; 'other' is any language but he, en and ru. */
+export type AskMessageLanguage = 'he' | 'en' | 'ru' | 'other';
+export const ASK_MESSAGE_LANGUAGES: readonly AskMessageLanguage[] = ['he', 'en', 'ru', 'other'];
+
+/**
+ * The language of the message replied to, as the model read it (owner, 2026-11-08): null (or missing) is no message or
+ * no words. Anything else than he, en, ru or other is an AskWindowError naming the field, never the value.
+ */
+export function parseAskLanguage(text: string): AskMessageLanguage | null {
+  const language = field(readObject(text), 'language');
+  if (language === null) return null;
+  if (typeof language !== 'string' || !ASK_MESSAGE_LANGUAGES.includes(language as AskMessageLanguage)) throw new AskWindowError('"language" is not he, en, ru, other or null');
+  return language as AskMessageLanguage;
+}
+
 export interface ReadAskWindowOptions {
   tz: string;
   language: 'en' | 'he' | 'ru';
@@ -168,6 +183,8 @@ export interface ReadAskWindowResult {
   window: AskWindow;
   /** Whose time the question asks about; null: no one in particular. */
   who: AskWho | null;
+  /** The language of the message replied to; null: no message (or no words), so the caller's language answers. */
+  language: AskMessageLanguage | null;
   /** The model's time over every attempt, in ms. */
   aiMs: number;
   attempts: number;
@@ -207,7 +224,12 @@ export async function readAskWindow(ask: GuestAsk, options: ReadAskWindowOptions
     const completion = await complete(request, undefined, { responseJsonSchema: ASK_WINDOW_SCHEMA });
     aiMs += Date.now() - startedAt;
     try {
-      return { window: parseAskWindow(completion.text, today), who: parseAskWho(completion.text), aiMs, attempts: attempt };
+      const window = parseAskWindow(completion.text, today);
+      const who = parseAskWho(completion.text);
+      const read = parseAskLanguage(completion.text);
+      // With no message replied to (or no words in it) there is no language to read, whatever the model said
+      const language = ask.replied && ask.replied.text.trim() ? read : null;
+      return { window, who, language, aiMs, attempts: attempt };
     } catch (error) {
       if (!(error instanceof AskWindowError)) throw error;
       console.warn(`[ask] window rejected (attempt ${attempt}/${MAX_ATTEMPTS}): ${error.message}`);
