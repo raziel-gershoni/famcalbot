@@ -7,7 +7,9 @@
 //   - G3 LEGAL_UPDATED is the day of the change or later, the same day for both texts, and not in the future;
 //   - G4 the Russian edits bind a one-letter word and a dash with a no-break space;
 //   - G5 every edit of the 2026-11-08 people spec (A1, A6, A7, A8) is drafted in that spec's section 6 in all three
-//     languages, word for word, so the owner has seen the wording that is in the messages.
+//     languages, word for word, so the owner has seen the wording that is in the messages;
+//   - G6 the base spec's ruling 13 (answer language) points to the people spec's section 9, so the older spec is not read
+//     as saying an account holder's answer is in the caller's FamCal language.
 // Nothing is faked: no DB, Redis or network.
 //
 //   npx tsx scripts/smoke-ask-in-chat-legal.ts
@@ -100,6 +102,14 @@ async function main() {
       }
     }
     assert(problems.length === 0, problems.join('\n'));
+  });
+
+  await check("G6 the base spec's ruling 13 points to the people spec's section 9 (answer language)", () => {
+    const base = fs.readFileSync(path.join(__dirname, '../docs/superpowers/specs/2026-11-07-ask-in-chat-design.md'), 'utf8');
+    const line = base.split('\n').find(l => /^13\. \*\*Language/.test(l));
+    assert(line, 'ruling 13 (Language) not found in the base spec');
+    assert(line.includes('2026-11-08-ask-in-chat-people-design.md') && line.includes('§9'), "ruling 13 does not point to the people spec's §9");
+    assert(line.includes('language_code'), 'ruling 13 lost the no-account language_code part');
   });
 
   let failed = 0;
