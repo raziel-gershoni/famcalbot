@@ -182,7 +182,7 @@ function withGematriyaYear(text: string, locale: string): string {
 function parashaBrief(ev: ParshaEvent, locale: string, language: string): string {
   const override = NAMES[language][`${holidayNameKey(ev.getDesc(), locale).id}Brief`];
   // hebcal writes its English apostrophes as ’.
-  return override ?? ev.parsha.map(part => Locale.gettext(part, locale)).join('-').replace(/'/g, '’');
+  return override ?? ev.parsha.map(part => Locale.gettext(part, locale)).join(language === 'he' ? '\u05BE' : '-').replace(/'/g, '’');
 }
 
 /**

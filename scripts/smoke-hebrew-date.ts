@@ -15,7 +15,7 @@
 // on the month's first cell ("1 Chesh.", "א׳ חשון", "1 хешв.", from
 // calendarHome.hebrewMonthShort).
 //
-// It also guards the dependency. @hebcal/hdate is a direct dependency pinned to ^0.21.1,
+// It also guards the dependency. @hebcal/hdate is a direct dependency pinned to ^0.23.1,
 // the one copy @hebcal/core and @hebcal/locales share. A second copy would register
 // Russian on a different Locale, and the bot's Russian Hebrew month names
 // (src/services/claude.ts:46) would fall back to English.
@@ -470,15 +470,15 @@ async function main() {
     }
   });
 
-  await check('@hebcal/hdate is a direct dependency pinned to ^0.21.1, with one copy in the lock and in node_modules', () => {
+  await check('@hebcal/hdate is a direct dependency pinned to ^0.23.1, with one copy in the lock and in node_modules', () => {
     const pkg = readJson('package.json') as { dependencies?: Record<string, string> };
-    assertEqual(pkg.dependencies?.['@hebcal/hdate'], '^0.21.1', 'package.json dependencies');
+    assertEqual(pkg.dependencies?.['@hebcal/hdate'], '^0.23.1', 'package.json dependencies');
     const lock = readJson('package-lock.json') as { packages: Record<string, { version?: string; dependencies?: Record<string, string> }> };
-    assertEqual(lock.packages['']?.dependencies?.['@hebcal/hdate'], '^0.21.1', 'package-lock.json root dependencies');
+    assertEqual(lock.packages['']?.dependencies?.['@hebcal/hdate'], '^0.23.1', 'package-lock.json root dependencies');
     const copies = Object.keys(lock.packages).filter(k => k.endsWith('node_modules/@hebcal/hdate'));
     assertEqual(copies, ['node_modules/@hebcal/hdate'], 'package-lock.json @hebcal/hdate entries');
     const locked = lock.packages['node_modules/@hebcal/hdate'].version ?? '';
-    assert(/^0\.21\.([1-9]|\d{2,})$/.test(locked), `the lock has @hebcal/hdate ${locked}, want ^0.21.1`);
+    assert(/^0\.23\.([1-9]|\d{2,})$/.test(locked), `the lock has @hebcal/hdate ${locked}, want ^0.23.1`);
     const installed = (readJson('node_modules/@hebcal/hdate/package.json') as { version: string }).version;
     assertEqual(installed, locked, 'node_modules/@hebcal/hdate version');
     for (const owner of ['core', 'locales']) {

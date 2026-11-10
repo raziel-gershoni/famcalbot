@@ -74,12 +74,12 @@ const portion = (day: string, lang: string, options?: Options): string => (holid
 /** Taken at HEAD ef987cc1 (before the option): holidaysInRange('2026-01-01', '2030-12-31', lang), and nextHoliday(day, lang) for every day of 2026-2027. */
 const HEAD_RANGE: Record<string, string> = {
   en: '6fcaa938e22e87c5d5dab2e65aabcbf9d1757dce9bfb5757e224ebb7c17c824e',
-  he: '4fbbd7b8bf9db3605be177da8234a51a40f35ce520e718e7346a41ff33ab7066',
+  he: '2758ffa558169d315d49d11efc5b3a7f6c98aa2e8293c281201471d17c9a3bdb',
   ru: '8d307508a3ed48a68e6f59bcfa4e2bcd54e06cf5b0537171448f4fa7f88ae31f',
 };
 const HEAD_NEXT: Record<string, string> = {
   en: 'e52eac4a045371ceed7266ec63dbd0ff90d960bb5a4480a88ad1d4f87129417f',
-  he: '8b96b36f98dcee69b976e849bdd7a36f7f75a6d0f0f18dc7aa7c980e005d4fd7',
+  he: '7bd08f8901eaa1dc35bf2b673cfc98a432e39bd7b0dfa183f45b8c9640869a83',
   ru: '4639b9cfa63982c675432cff929470eb7242a2c745dbf0334ce70af428d2d8e2',
 };
 
@@ -150,7 +150,7 @@ async function main() {
       assertEqual(portion(day, 'en'), israel, `${day} Israel`);
       assertEqual(portion(day, 'en', ABROAD), abroad, `${day} abroad`);
     }
-    assertEqual(portion('2027-07-17', 'he', ABROAD), 'חוקת-בלק', 'he');
+    assertEqual(portion('2027-07-17', 'he', ABROAD), 'חוקת־בלק', 'he');
     assertEqual(portion('2027-07-17', 'ru', ABROAD), 'Хукат-Балак', 'ru');
   });
 

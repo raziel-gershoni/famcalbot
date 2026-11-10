@@ -121,7 +121,7 @@ async function main() {
   await check('Erev Yom Kippur, Yom Kippur (a chag, though also a fast) and Erev Sukkot', () => {
     const [erev] = on('2026-09-20', 'en');
     assertEqual([erev.title, erev.kind, erev.chag], ['Erev Yom Kippur', 'erev', false], 'erev');
-    assertEqual(on('2026-09-20', 'he')[0].title, 'ערב יום כפור', 'he erev');
+    assertEqual(on('2026-09-20', 'he')[0].title, 'ערב יום כיפור', 'he erev');
     const [yk] = on('2026-09-21', 'en');
     assertEqual([yk.title, yk.kind, yk.chag], ['Yom Kippur', 'chag', true], 'yk');
     assertEqual(on('2026-09-25', 'en')[0].kind, 'erev', 'erev sukkot');

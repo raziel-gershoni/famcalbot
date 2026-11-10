@@ -85,7 +85,7 @@ async function main() {
 
   await check('a doubled week is one portion with both names (Matot-Masei 2026-07-11)', () => {
     assertEqual(on('2026-07-11', 'en').map(h => [h.title, h.brief]), [['Parashat Matot-Masei', 'Matot-Masei']], 'en');
-    assertEqual(on('2026-07-11', 'he').map(h => [h.title, h.brief]), [['פרשת מטות-מסעי', 'מטות-מסעי']], 'he');
+    assertEqual(on('2026-07-11', 'he').map(h => [h.title, h.brief]), [['פרשת מטות־מסעי', 'מטות־מסעי']], 'he');
     assertEqual(on('2026-07-11', 'ru').map(h => [h.title, h.brief]), [['Глава Матот-Масей', 'Матот-Масей']], 'ru');
     assertEqual(portion('2026-03-14', 'ru').map(h => [h.title, h.brief]), [['Глава Ваякгель-Пкудей', 'Ваякгель-Пкудей']], 'ru Vayakhel-Pekudei');
   });
