@@ -614,11 +614,14 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     setFirstLoad(null);
   }, []);
 
-  // The sheet's note belongs to the item it was shown for (a move's note is set for the key it follows to).
+  // The sheet's note belongs to the item it was shown for (a move's note is set for the key it follows to): another
+  // item drops it, in the render that opens that item.
   const selectedKey = selected?.item.key ?? null;
-  useEffect(() => {
+  const [noteFor, setNoteFor] = useState(selectedKey);
+  if (noteFor !== selectedKey) {
+    setNoteFor(selectedKey);
     setNote((cur) => (cur && cur.key === selectedKey ? cur : null));
-  }, [selectedKey]);
+  }
   // What the user can add: asked once, for a Google user too (3b spec §3.3). A failure leaves the header without "+".
   useEffect(() => {
     let live = true;
@@ -645,10 +648,16 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const homeUsable = facts !== null && card === null && blocked === null;
   const weatherDay = facts?.today ?? null;
   const [weather, setWeather] = useState<'loading' | HomeWeather | null>('loading');
+  // A new ask (the home turned usable, a new day, another user or language) shows the loading state from its own render.
+  const weatherAsk = hasLocation && homeUsable ? JSON.stringify([weatherDay, userId, locale]) : null;
+  const [weatherAsked, setWeatherAsked] = useState(weatherAsk);
+  if (weatherAsked !== weatherAsk) {
+    setWeatherAsked(weatherAsk);
+    if (weatherAsk !== null) setWeather('loading');
+  }
   useEffect(() => {
     if (!hasLocation || !homeUsable) return;
     let live = true;
-    setWeather('loading');
     deps.weather
       .load(userId, locale)
       .then((outcome) => {
@@ -698,22 +707,22 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // row; once the edit's refetch has landed, it closes if the item is not there (moved out of
   // view, or cut off), else it keeps the edited copy as the one to fall back on. Another item
   // opened, or the sheet closed, ends the watch.
-  useEffect(() => {
-    if (!follow) return;
+  // It is worked out while the page draws, from the store and the open item.
+  if (follow) {
     if (selectedKey !== follow.key) {
       setFollow(null);
-      return;
+    } else {
+      const moved = follow.next && store.facts ? storeRow(store, follow.next) : null;
+      if (moved) {
+        setSelected(moved);
+        if (follow.note && follow.next) setNote({ key: follow.next, ...follow.note });
+        setFollow(null);
+      } else if (follow.landed) {
+        setSelected(follow.next !== null || liveRow === null ? null : liveRow);
+        setFollow(null);
+      }
     }
-    const moved = follow.next && store.facts ? storeRow(store, follow.next) : null;
-    if (moved) {
-      setSelected(moved);
-      if (follow.note && follow.next) setNote({ key: follow.next, ...follow.note });
-      setFollow(null);
-    } else if (follow.landed) {
-      setSelected(follow.next !== null || liveRow === null ? null : liveRow);
-      setFollow(null);
-    }
-  }, [follow, selectedKey, liveRow, store]);
+  }
 
   // Done, undo or snooze on the open sheet's item. One request at a time. An answer with a
   // reminder patches the store at once and FamCal's windows confirm it; changed and

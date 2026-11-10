@@ -304,6 +304,7 @@ export default function CalendarsClient(props: Props) {
     if (action === 'consent') return turnOn(row.calendarId, 'working');
     if (action === 'reconnect') {
       // /refresh-token gives Google's token back; it can't grant calendar.app.created (that is 'approve').
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: /refresh-token has its own root layout, (connect)
       window.location.assign(`/refresh-token?user_id=${userId}`);
       return;
     }
@@ -375,7 +376,7 @@ export default function CalendarsClient(props: Props) {
           else void turnOn(c.rawId, 'on');
         }}
         onAction={() => void copyActionFor(row)}
-        onOpenGoogle={() => openGoogle(c.rawId)}
+        onOpenGoogle={openGoogle}
       />
     );
   };
@@ -583,6 +584,7 @@ export default function CalendarsClient(props: Props) {
   const googleRow = () => {
     const toSelect = () => router.push(`/${locale}/select-calendars?user_id=${userId}`);
     // /refresh-token lives outside [locale] (proxy.ts skips that path): no language prefix
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: /refresh-token has its own root layout, (connect)
     const toGoogle = () => window.location.assign(`/refresh-token?user_id=${userId}`);
     const go = google.state === 'connected' || google.state === 'choose' ? toSelect : toGoogle;
     const label = google.state === 'connected' ? t('googleChosen') : google.state === 'choose' ? t('googleChoose') : google.state === 'reconnect' ? t('googleReconnect') : t('googleConnect');
@@ -601,15 +603,15 @@ export default function CalendarsClient(props: Props) {
     );
   };
 
-  /** The Remove / Keep question, for a copy being turned off and for a calendar being deleted with its copy on. */
-  const question = (c: Calendar, onChoose: (choice: UnlinkChoice) => void, pending: { remove: boolean; keep: boolean }) => (
+  /** The Remove / Keep question for a copy being turned off; each answer turns it off (the delete sheet asks its own). */
+  const question = (c: Calendar, pending: { remove: boolean; keep: boolean }) => (
     <div className="ch-sheet-stack">
       <h2 className="ch-sheet-heading">{tc('unlink.question', { name: isolate(c.name) })}</h2>
-      <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={pending.remove || undefined} onClick={() => onChoose('remove')}>
+      <button type="button" className="ch-btn ch-btn-primary ch-btn-danger ch-save" disabled={locked} aria-busy={pending.remove || undefined} onClick={() => void turnOff(c, 'remove')}>
         {pending.remove ? <Spinner /> : null}
         {tc('unlink.remove')}
       </button>
-      <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={locked} aria-busy={pending.keep || undefined} onClick={() => onChoose('keep')}>
+      <button type="button" className="ch-btn ch-btn-primary ch-save" disabled={locked} aria-busy={pending.keep || undefined} onClick={() => void turnOff(c, 'keep')}>
         {pending.keep ? <Spinner /> : null}
         {tc('unlink.keep')}
       </button>
@@ -691,7 +693,11 @@ export default function CalendarsClient(props: Props) {
     );
   };
 
-  const deleteSheet = (c: Calendar) => {
+  // Its calendar is the open sheet's, read here: the React Compiler's lint takes a helper's parameter for a value it may
+  // change, and the buttons' handlers that hold it for ones called while the page draws.
+  const deleteSheet = () => {
+    if (sheet?.kind !== 'delete') return null;
+    const c = sheet.calendar;
     // What is deleted comes first; a calendar whose Google copy is on then asks the Google question, and each answer is a button that says both halves
     const copyOn = copyOf(c.rawId)?.on === true;
     return (
@@ -797,10 +803,10 @@ export default function CalendarsClient(props: Props) {
 
       {sheet?.kind === 'create' ? createSheet() : null}
       {sheet?.kind === 'edit' ? editSheet(sheet.calendar) : null}
-      {sheet?.kind === 'delete' ? deleteSheet(sheet.calendar) : null}
+      {deleteSheet()}
       {sheet?.kind === 'copyOff' ? (
         <BottomSheet label={tc('unlink.question', { name: isolate(sheet.calendar.name) })} closeLabel={ui('cancel')} closeDisabled={locked} onClose={closeSheet}>
-          {question(sheet.calendar, (choice) => void turnOff(sheet.calendar, choice), { remove: busy === 'off-remove', keep: busy === 'off-keep' })}
+          {question(sheet.calendar, { remove: busy === 'off-remove', keep: busy === 'off-keep' })}
         </BottomSheet>
       ) : null}
     </AppScreen>

@@ -224,6 +224,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
 
   useEffect(() => {
     mounted.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the page's own POST /api/oauth/start on mount: prepare's resets are no-ops then, and the lint reads its sets after the await as synchronous
     void prepare(true);
     return () => {
       mounted.current = false;
@@ -289,6 +290,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
           // Clear the pending flag
           localStorage.removeItem(OAUTH_PENDING_KEY);
           // Navigate to calendar selection with user's locale
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: this page has its own root layout, (connect)
           window.location.href = `/${locale}/select-calendars?user_id=${pendingUserId}`;
           return;
         }
@@ -354,6 +356,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
 
     // Also check on mount in case user already completed OAuth. It reads localStorage,
     // which exists only on the client, so the check must run after mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage exists only on the client: a pending connect shows "Checking" at once after mount
     checkTokenRefresh();
 
     return () => {
@@ -377,6 +380,7 @@ export default function RefreshTokenClient({ userId, locale, translations: t }: 
 
   // The calendar, with a full load: this page is outside [locale]
   const back = () => {
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: this page has its own root layout, (connect)
     window.location.href = `/${locale}/dashboard?user_id=${userId}`;
   };
   const preparing = !oauthUrl && !retry;

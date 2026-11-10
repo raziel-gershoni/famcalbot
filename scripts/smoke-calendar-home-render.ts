@@ -4030,6 +4030,29 @@ async function main() {
     }
   });
 
+  await check('#69a a note belongs to the item it was shown for: closed and opened again, the item shows no note', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    live = { items: { [day(0)]: [form2()] }, carry: [] };
+    serveReminders();
+    reminderReply = () => ok200({ status: 'changed' });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
+    try {
+      const changed = messages.en.calendarHome.sheet.actionNotes.changed;
+      m.click(button(m.container, 'Send the form'));
+      m.click(dialogButton(m, labelsOf('en').done));
+      await settle();
+      assertHas(dialogText(m.container), [changed], 'the note');
+      m.key(byRole(m.container, 'dialog')[0], 'Escape');
+      assert(byRole(m.container, 'dialog').length === 0, 'closed');
+      m.click(button(m.container, 'Send the form'));
+      assert(byRole(m.container, 'dialog').length === 1, 'open again');
+      assertLacks(dialogText(m.container), [changed], 'the note stayed with the closed sheet');
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#70 an item the store no longer holds: "changed" shows its note, the answer without it leaves the sheet up for GONE_NOTE_MS, then it closes; with the item still there it stays', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
@@ -10180,6 +10203,24 @@ async function main() {
         for (let i = 0; i < 6; i++) await new Promise((resolve) => setImmediate(resolve));
       });
       assert(weatherBlock(m)[0]?.getAttribute('aria-label')?.includes('Now 9°'), `the stale answer won: ${weatherBlock(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#126y2 a new day\'s weather shows the ghost while its request is on its way, never the day before\'s block', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const clock = fakeClock('2026-10-15T20:59:30Z');
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    serveWeather = () => (weatherCount() === 1 ? ok200(WEATHER_OK) : new Promise<FetchAnswer>(() => undefined));
+    const m = await mountHome('en', { hasLocation: true }, clock);
+    try {
+      assert(weatherCount() === 1 && weatherBlock(m).length === 1, 'the first day\'s block');
+      serverToday = day(1);
+      await clock.advance(31_000);
+      assert(weatherCount() === 2 && weatherBlock(m).length === 0 && m.html().includes('class="ch-head-weather-ghost"'), `${weatherCount()} requests, ${weatherBlock(m).length} blocks`);
     } finally {
       m.unmount();
     }

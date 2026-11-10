@@ -1159,6 +1159,8 @@ async function main() {
       o.m.click(mustButton(sheetOf(o.m) as FakeNode, 'Remove'));
       await settle();
       assert(!sheetOf(o.m) && show(alertsIn(o.m.container)) === show([tc('en', 'errors.failed')]), `the refusal: ${show(alertsIn(o.m.container))}`);
+      const removed = callsTo('DELETE', '/api/google-sync')[1];
+      assert(removed && show(removed.body) === show({ nativeCalendarId: 'own', googleCopy: 'remove' }), `Remove: ${show(removed)}`);
       // On
       srv.copyWrite = () => json({ status: 'created' });
       const work = () => switchesOf(o.m.container)[1];

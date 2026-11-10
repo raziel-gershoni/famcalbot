@@ -36,7 +36,8 @@ export interface GoogleCopyRowProps {
   signIn?: { busy: boolean; failed: boolean; onPress: () => void };
   onToggle: () => void;
   onAction: () => void;
-  onOpenGoogle: () => void;
+  /** Open Google's consent for the row's calendar (`row.calendarId`). */
+  onOpenGoogle: (calendarId: string) => void;
 }
 
 // First-strong isolation of a name (src/lib/isolate.ts, the one definition: the home's rows use it too).
@@ -104,7 +105,7 @@ export function GoogleCopyRow(props: GoogleCopyRowProps) {
         <span className={row.on ? 'ch-switch is-on' : 'ch-switch'} aria-hidden="true" />
       </button>
       {!busy && (waiting || actionLabel) ? (
-        <button type="button" className="ch-form-row ch-action-row" disabled={locked} onClick={waiting ? props.onOpenGoogle : props.onAction}>
+        <button type="button" className="ch-form-row ch-action-row" disabled={locked} onClick={waiting ? () => props.onOpenGoogle(row.calendarId) : props.onAction}>
           {waiting ? t('actions.openGoogle') : actionLabel}
         </button>
       ) : null}

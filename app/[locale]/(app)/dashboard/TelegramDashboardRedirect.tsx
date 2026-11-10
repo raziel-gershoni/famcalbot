@@ -35,6 +35,7 @@ export default function TelegramDashboardRedirect({ locale, links }: TelegramDas
       } else {
         // No Telegram user: a browser (a stale or used WhatsApp magic link lands here),
         // or a launch without one. The SDK defines Telegram.WebApp in any browser.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- window.Telegram exists only on the client: the gate is read in the mount step that calls ready() and sends a Telegram user on
         setGate(readInitData() ? 'telegram' : 'browser');
       }
     } else {
