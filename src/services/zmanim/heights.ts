@@ -32,7 +32,8 @@ const shared = globalThis as { __israelHeightMap?: HeightMap; __israelHeightMapL
 function heightMap(): HeightMap {
   if (!shared.__israelHeightMap) {
     const started = performance.now();
-    const map = decodeHeightMap(zlib.brotliDecompressSync(fs.readFileSync(mapPath)));
+    // The path is a variable (the smokes' hook), so Turbopack would trace the whole project; next.config.js traces the file
+    const map = decodeHeightMap(zlib.brotliDecompressSync(fs.readFileSync(/*turbopackIgnore: true*/ mapPath)));
     shared.__israelHeightMap = map;
     shared.__israelHeightMapLoads = (shared.__israelHeightMapLoads ?? 0) + 1;
     console.log(`[heights] the Israel height map is loaded: ${map.rows} x ${map.cols} cells in ${Math.round(performance.now() - started)} ms`);
