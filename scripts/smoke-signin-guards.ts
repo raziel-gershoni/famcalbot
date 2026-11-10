@@ -252,7 +252,7 @@ function installStubs(messagingTypes: Row) {
     notifyAdminFeedback: async () => undefined,
     getAdminUserIds: async () => [],
   });
-  const telegram = { getBot: () => recorder('telegram'), initBot: () => recorder('telegram'), getMessagingService: () => recorder('telegram'), setUserMenuButton: async () => undefined };
+  const telegram = { getBot: () => recorder('telegram'), getMessagingService: () => recorder('telegram'), setUserMenuButton: async () => undefined };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = {

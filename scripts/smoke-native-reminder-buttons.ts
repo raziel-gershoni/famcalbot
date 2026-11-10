@@ -13,6 +13,7 @@
 import path from 'path';
 import type { Api } from 'node-telegram-bot-api';
 import type { CallbackQuery, InlineKeyboardMarkup } from 'node-telegram-bot-api/types';
+import { tgRefused } from './lib/fake-telegram';
 import { __resetDueGateForTests, setNextDue, shouldRunPass } from '../src/services/native-reminders/due-gate';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -239,35 +240,33 @@ type BotCall =
 let botCalls: BotCall[] = [];
 const botFailures: { edit?: Error; markup?: Error; answer?: Error; send?: Error } = {};
 
-/** A Telegram API error as node-telegram-bot-api throws it. */
-const telegramError = (status: number, description: string) =>
-  Object.assign(new Error(`ETELEGRAM: ${status} ${description}`), { code: 'ETELEGRAM', response: { body: { error_code: status, description } } });
+/** A Telegram API error as node-telegram-bot-api 2.x throws it. */
+const telegramError = tgRefused;
 
-/** Whether reply_markup (an object, or the JSON string the adapter sends) still has buttons. */
+/** Whether reply_markup (the keyboard object the library encodes once) still has buttons. */
 function hasButtons(markup: unknown): boolean {
-  const parsed = typeof markup === 'string' ? JSON.parse(markup) : markup;
-  return !!(parsed as InlineKeyboardMarkup | undefined)?.inline_keyboard?.some(row => row.length > 0);
+  return !!(markup as InlineKeyboardMarkup | undefined)?.inline_keyboard?.some(row => row.length > 0);
 }
 
-type EditOptions = { chat_id?: number | string; message_id?: number; parse_mode?: string; reply_markup?: unknown };
+type EditParams = { chat_id?: number | string; message_id?: number; text?: string; parse_mode?: string; reply_markup?: unknown };
 const fakeBot = {
-  answerCallbackQuery: async (queryId: string, options?: { text?: string }) => {
-    botCalls.push({ kind: 'answer', queryId, text: options?.text });
+  answerCallbackQuery: async (params: { callback_query_id: string; text?: string }) => {
+    botCalls.push({ kind: 'answer', queryId: params.callback_query_id, text: params.text });
     if (botFailures.answer) throw botFailures.answer;
     return true;
   },
-  editMessageText: async (text: string, options: EditOptions) => {
-    botCalls.push({ kind: 'edit', chatId: Number(options.chat_id), messageId: Number(options.message_id), text, buttons: hasButtons(options.reply_markup), html: options.parse_mode === 'HTML' });
+  editMessageText: async (params: EditParams & { text: string }) => {
+    botCalls.push({ kind: 'edit', chatId: Number(params.chat_id), messageId: Number(params.message_id), text: params.text, buttons: hasButtons(params.reply_markup), html: params.parse_mode === 'HTML' });
     if (botFailures.edit) throw botFailures.edit;
     return true;
   },
-  editMessageReplyMarkup: async (markup: InlineKeyboardMarkup, options: EditOptions) => {
-    botCalls.push({ kind: 'markup', chatId: Number(options.chat_id), messageId: Number(options.message_id), buttons: hasButtons(markup) });
+  editMessageReplyMarkup: async (params: EditParams) => {
+    botCalls.push({ kind: 'markup', chatId: Number(params.chat_id), messageId: Number(params.message_id), buttons: hasButtons(params.reply_markup) });
     if (botFailures.markup) throw botFailures.markup;
     return true;
   },
-  sendMessage: async (chatId: number | string, text: string, options?: { parse_mode?: string; disable_notification?: boolean }) => {
-    botCalls.push({ kind: 'send', chatId: Number(chatId), text, silent: options?.disable_notification === true, html: options?.parse_mode === 'HTML' });
+  sendMessage: async (params: { chat_id: number | string; text: string; parse_mode?: string; disable_notification?: boolean }) => {
+    botCalls.push({ kind: 'send', chatId: Number(params.chat_id), text: params.text, silent: params.disable_notification === true, html: params.parse_mode === 'HTML' });
     if (botFailures.send) throw botFailures.send;
     return { message_id: 900 };
   },

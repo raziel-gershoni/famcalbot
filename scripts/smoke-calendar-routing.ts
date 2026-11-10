@@ -89,11 +89,11 @@ const fakeRedis = {
 type Sent = { method: string; chatId?: number | string; text: string; opts?: Record<string, unknown> };
 let botCalls: Sent[] = [];
 const fakeBot = {
-  sendMessage: async (chatId: number, text: string, opts?: Record<string, unknown>) => {
+  sendMessage: async ({ chat_id: chatId, text, ...opts }: { chat_id: number; text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'sendMessage', chatId, text, opts });
     return { message_id: 700 + botCalls.length };
   },
-  editMessageText: async (text: string, opts?: Record<string, unknown>) => {
+  editMessageText: async ({ text, ...opts }: { text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'editMessageText', text, opts });
     return true;
   },

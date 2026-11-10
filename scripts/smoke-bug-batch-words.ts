@@ -221,9 +221,9 @@ const waService = {
 };
 /** The bot's own sendMessage is the admin notifier's (error-notifier.ts calls getBot()). */
 const fakeBot = {
-  sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
-  answerCallbackQuery: async (_queryId: string, options?: Row) => { sent.push({ via: 'bot', method: 'answerCallbackQuery', chatId: null, text: String(options?.text ?? ''), options }); return true; },
-  editMessageText: async (text: string, options?: Row) => { sent.push({ via: 'bot', method: 'editMessageText', chatId: options?.chat_id, text, options }); return true; },
+  sendMessage: async ({ chat_id: chatId, text, ...options }: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
+  answerCallbackQuery: async ({ callback_query_id: _queryId, ...options }: Row) => { sent.push({ via: 'bot', method: 'answerCallbackQuery', chatId: null, text: String(options?.text ?? ''), options }); return true; },
+  editMessageText: async ({ text, ...options }: Row) => { sent.push({ via: 'bot', method: 'editMessageText', chatId: options?.chat_id, text, options }); return true; },
 };
 
 // ---- Fixtures ----
@@ -305,7 +305,6 @@ Object.assign(stubs, {
   },
   [`${SRC}/services/telegram/bot.ts`]: {
     getBot: () => fakeBot,
-    initBot: () => fakeBot,
     getMessagingService: () => tgService,
     setUserMenuButton: async () => undefined,
   },

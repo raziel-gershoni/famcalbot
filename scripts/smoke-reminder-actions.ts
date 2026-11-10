@@ -20,6 +20,7 @@ import { fromZonedTime } from 'date-fns-tz';
 import { NextRequest } from 'next/server';
 import type { UserConfig } from '../src/types';
 import webpush from 'web-push';
+import { tgRefused } from './lib/fake-telegram';
 
 // The ping edit decrypts the owner's Google token with the real encryption module.
 process.env.ENCRYPTION_KEY ||= '0'.repeat(64);
@@ -446,13 +447,13 @@ type BotCall = { kind: 'send' | 'edit'; chatId: number; text: string; messageId?
 let botCalls: BotCall[] = [];
 let botFailure: Error | null = null;
 const fakeBot = {
-  sendMessage: async (chatId: number | string, text: string, options?: { disable_notification?: boolean }) => {
-    botCalls.push({ kind: 'send', chatId: Number(chatId), text, silent: options?.disable_notification === true });
+  sendMessage: async (params: { chat_id: number | string; text: string; disable_notification?: boolean }) => {
+    botCalls.push({ kind: 'send', chatId: Number(params.chat_id), text: params.text, silent: params.disable_notification === true });
     if (botFailure) throw botFailure;
     return { message_id: 900 };
   },
-  editMessageText: async (text: string, options: { chat_id?: number | string; message_id?: number; reply_markup?: unknown }) => {
-    botCalls.push({ kind: 'edit', chatId: Number(options.chat_id), messageId: options.message_id, text, buttons: options.reply_markup !== undefined, markup: options.reply_markup });
+  editMessageText: async (params: { chat_id?: number | string; message_id?: number; text: string; reply_markup?: unknown }) => {
+    botCalls.push({ kind: 'edit', chatId: Number(params.chat_id), messageId: params.message_id, text: params.text, buttons: params.reply_markup !== undefined, markup: params.reply_markup });
     if (botFailure) throw botFailure;
     return true;
   },
@@ -1014,7 +1015,7 @@ async function main() {
   await check('both: a failed note or edit for one partner is logged by ids and never undoes the Done', async () => {
     reset();
     addBoth();
-    botFailure = new Error('ETELEGRAM: 500 Internal Server Error');
+    botFailure = tgRefused(500, 'Internal Server Error');
     const r = await act(DANA, BOTH_KEY, 'done');
     assert(r.status === 'ok' && stateFor(BOTH, BOTH_KEY.originalStartsAt)!.doneAt !== null, json(r));
     const contexts = captured.map((c) => c.ctx);
@@ -1265,7 +1266,7 @@ async function main() {
     assertJson(edits().map((e) => e.messageId), [62], 'only her own; his snoozed message keeps its text');
     reset();
     addEach();
-    botFailure = new Error('ETELEGRAM: 500 Internal Server Error');
+    botFailure = tgRefused(500, 'Internal Server Error');
     const r = await act(DANA, BOTH_KEY, 'done');
     assert(r.status === 'ok' && pingOfBoth(DANA)!.doneAt !== null, json(r));
     const failures = captured.filter((c) => c.ctx === 'native-reminder-action-ping-edit');
@@ -1323,13 +1324,13 @@ async function main() {
 
   await check('ping: the edit is Telegram\'s to fail: the action still succeeds, answered ok, a warning is captured', async () => {
     reset();
-    botFailure = new Error('ETELEGRAM: 400 Bad Request: message can\'t be edited');
+    botFailure = tgRefused(400, 'Bad Request: message can\'t be edited');
     const r = await act(RAZIEL, PLUMBER_KEY, 'done');
     assert(r.status === 'ok', json(r));
     assert(stateFor(PINGED, PLUMBER_KEY.originalStartsAt)!.doneAt !== null, 'written');
     assert(captured.some((c) => c.severity === 'warning'), json(captured));
     reset();
-    botFailure = new Error('ETELEGRAM: 400 Bad Request: message is not modified');
+    botFailure = tgRefused(400, 'Bad Request: message is not modified');
     assert((await act(RAZIEL, PLUMBER_KEY, 'snooze15')).status === 'ok', 'not modified');
     assert(captured.length === 0, `"not modified" is not an error: ${json(captured)}`);
   });
@@ -1357,7 +1358,7 @@ async function main() {
       assert(sends().length === 0, `${json(patch)}: ${json(botCalls)}`);
     }
     reset();
-    botFailure = new Error('ETELEGRAM: 502 Bad Gateway');
+    botFailure = tgRefused(502, 'Bad Gateway');
     assert((await act(DANA, MILK_KEY, 'done')).status === 'ok', 'a failed send');
     assert(captured.some((c) => c.ctx === 'native-reminder-done-notice'), json(captured));
   });

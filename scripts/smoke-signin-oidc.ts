@@ -218,7 +218,7 @@ function installStubs(messagingTypes: Row) {
   const inert: Row = new Proxy({} as Row, {
     get: (_t, p) => (typeof p !== 'string' || p === 'then' ? undefined : async () => { throw new Error(`no ${p} in this smoke`); }),
   });
-  const telegram = { getBot: () => inert, initBot: () => inert, getMessagingService: () => inert, setUserMenuButton: async () => undefined };
+  const telegram = { getBot: () => inert, getMessagingService: () => inert, setUserMenuButton: async () => undefined };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = { ...messagingTypes, getMessagingService: () => inert, getTelegramService: () => inert, getWhatsAppService: () => inert, detectPlatform: () => 'telegram' };

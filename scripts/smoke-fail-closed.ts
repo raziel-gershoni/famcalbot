@@ -170,7 +170,7 @@ function installStubs() {
   stub('src/cron/scheduler.ts', { startScheduler: () => { schedulerStarts.push(Date.now()); } });
   stub('src/utils/error-notifier.ts', { getAdminUserIds: () => adminIds() });
   const bot = {
-    sendMessage: async (chatId: unknown, text: string) => {
+    sendMessage: async ({ chat_id: chatId, text }: { chat_id: unknown; text: string }) => {
       if (sendFails) throw new Error('telegram down (smoke)');
       sends.push({ chatId, text });
       return {};

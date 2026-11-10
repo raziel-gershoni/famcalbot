@@ -376,7 +376,7 @@ function installStubs() {
     new Proxy({} as Row, {
       get: (_t, p) => (typeof p !== 'string' || p === 'then' ? undefined : async () => ({ message_id: 1 })),
     });
-  const telegram = { getBot: () => recorder(), initBot: () => recorder(), getMessagingService: () => recorder() };
+  const telegram = { getBot: () => recorder(), getMessagingService: () => recorder() };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/web-signin/limits.ts', limitsStub);

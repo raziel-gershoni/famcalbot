@@ -36,6 +36,7 @@ import { MessagingPlatform, MessageFormat } from '../src/services/messaging/type
 import type { MessageOptions } from '../src/services/messaging/types';
 import type { ParsedEvent } from '../src/services/event-parser';
 import { REDIS_KEYS } from '../src/config/redis-keys';
+import { tgNoAnswer, tgRefused } from './lib/fake-telegram';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -237,7 +238,7 @@ const edits: { chatId: unknown; messageId: unknown; text: string; options?: Row 
 const toasts: string[] = [];
 /** Telegram's answer to a refund: set by a check; the calls it saw (method, form) and what the database held at that moment. */
 let telegramRefund: () => unknown = () => true;
-const botCalls: { method: string; form: Row; planAtCall: unknown }[] = [];
+const botCalls: { method: string; params: Row; planAtCall: unknown }[] = [];
 let adminAsking = true;
 const ADMIN_ID = 9;
 /** The bot's default menu button calls, and whether the next one fails. */
@@ -280,18 +281,18 @@ const waService = {
 };
 /** The bot itself: the admin notifier's sends, and the card edits of the callbacks. */
 const fakeBot = {
-  sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
-  answerCallbackQuery: async (_queryId: string, options?: Row) => { toasts.push(String(options?.text ?? '')); return true; },
-  _request: async (method: string, options: { form: Row }) => {
-    botCalls.push({ method, form: options.form, planAtCall: DB.subscription?.find(r => r.userId === Number(options.form.user_id) - 3000)?.plan });
+  sendMessage: async ({ chat_id: chatId, text, ...options }: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text: text as string, options }); return { message_id: 1 }; },
+  answerCallbackQuery: async (params: Row) => { toasts.push(String(params.text ?? '')); return true; },
+  refundStarPayment: async (params: Row) => {
+    botCalls.push({ method: 'refundStarPayment', params, planAtCall: DB.subscription?.find(r => r.userId === Number(params.user_id) - 3000)?.plan });
     return telegramRefund();
   },
   setChatMenuButton: async (options: unknown) => {
     menuButtonCalls.push(options);
-    if (menuButtonFails) throw new Error('ETELEGRAM: 400 Bad Request: secret-detail-from-telegram');
+    if (menuButtonFails) throw tgRefused(400, 'Bad Request: secret-detail-from-telegram');
     return true;
   },
-  editMessageText: async (text: string, options: Row) => { edits.push({ chatId: options.chat_id, messageId: options.message_id, text, options }); return true; },
+  editMessageText: async (options: Row) => { edits.push({ chatId: options.chat_id, messageId: options.message_id, text: options.text as string, options }); return true; },
 };
 
 // ---- Fixtures ----
@@ -376,7 +377,6 @@ Object.assign(stubs, {
   },
   [`${SRC}/services/telegram/bot.ts`]: {
     getBot: () => fakeBot,
-    initBot: () => fakeBot,
     getMessagingService: () => tgService,
     setUserMenuButton: async () => undefined,
   },
@@ -1315,8 +1315,8 @@ async function fix7() {
   const unchanged = (before: Row) => assertSame(JSON.stringify({ subscription: DB.subscription, payment: DB.payment }), JSON.stringify(before), 'the database changed');
   const snapshot = () => JSON.parse(JSON.stringify({ subscription: DB.subscription, payment: DB.payment }));
   const refundedActivity = () => tracked.filter(t => t.action === 'subscription_refunded');
-  /** Telegram refuses the way node-telegram-bot-api reports it: a TelegramError with the Bot API's description. */
-  const refusal = (description: string, statusCode = 400) => Object.assign(new Error(`ETELEGRAM: ${statusCode} Bad Request: ${description}`), { code: 'ETELEGRAM', response: { statusCode, body: { ok: false, error_code: statusCode, description: `Bad Request: ${description}` } } });
+  /** Telegram refuses the way node-telegram-bot-api 2.x reports it: a TelegramApiError with the Bot API's description. */
+  const refusal = (description: string, statusCode = 400) => tgRefused(statusCode, `Bad Request: ${description}`);
   const toPerson = () => sentTo('telegram').filter(s => s.method === 'sendMessage').map(s => [s.chatId, s.text]);
   const { paymentDay } = await import('../src/lib/plan-disclosure');
   const earlierText = (lang: Lang, plan: 'basic' | 'pro', paid: Date) =>
@@ -1326,7 +1326,7 @@ async function fix7() {
     seedPayers();
     const answer = await refund(2, 'p-dana');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
-    assertSame(botCalls.map(c => [c.method, c.form]), [['refundStarPayment', { user_id: 3002, telegram_payment_charge_id: 'charge-dana' }]], 'the call to Telegram');
+    assertSame(botCalls.map(c => [c.method, c.params]), [['refundStarPayment', { user_id: 3002, telegram_payment_charge_id: 'charge-dana' }]], 'the call to Telegram');
     assertSame(botCalls[0].planAtCall, 'PRO', 'the plan when Telegram was asked: the database changes only after Telegram agreed');
     const row = subscriptionOf(2);
     assertSame([row.plan, row.status, row.telegramPaymentChargeId, row.currentPeriodStart, row.currentPeriodEnd, row.cancelAtPeriodEnd, row.compedBy], ['FREE', 'EXPIRED', null, null, null, false, null], 'the subscription after');
@@ -1346,7 +1346,7 @@ async function fix7() {
     const before = JSON.parse(JSON.stringify(subscriptionOf(2)));
     const answer = await refund(2, 'p-dana-basic');
     assertSame([answer.status, answer.body], [200, { success: true }], 'the answer');
-    assertSame(botCalls.map(c => c.form), [{ user_id: 3002, telegram_payment_charge_id: 'charge-dana-basic' }], 'the call to Telegram');
+    assertSame(botCalls.map(c => c.params), [{ user_id: 3002, telegram_payment_charge_id: 'charge-dana-basic' }], 'the call to Telegram');
     assertSame(JSON.stringify(subscriptionOf(2)), JSON.stringify(before), 'the plan changed');
     assert(paymentOf('p-dana-basic').refundedAt instanceof Date && paymentOf('p-dana').refundedAt === null, `the payments: ${show(DB.payment.filter(p => p.userId === 2))}`);
     assertSame(refundedActivity().map(t => [t.userId, t.metadata?.plan, t.metadata?.ended_plan]), [[2, 'BASIC', false]], 'the activity row');
@@ -1425,7 +1425,7 @@ async function fix7() {
     seedPayers();
     const before = snapshot();
     const token = process.env.TELEGRAM_BOT_TOKEN as string;
-    telegramRefund = () => { throw Object.assign(new Error(`EFATAL: getaddrinfo ENOTFOUND while calling https://api.telegram.org/bot${token}/refundStarPayment`), { code: 'EFATAL' }); };
+    telegramRefund = () => { throw tgNoAnswer('refundStarPayment', `getaddrinfo ENOTFOUND https://api.telegram.org/bot${token}/refundStarPayment`); };
     const answer = await refund(2, 'p-dana');
     assertSame(answer.status, 500, 'status');
     assert(!JSON.stringify(answer.body).includes(token), 'the token is in the answer');

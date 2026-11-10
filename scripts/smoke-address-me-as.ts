@@ -240,7 +240,7 @@ function installStubs() {
       return user ? { success: true, user } : { success: false, response: new Response('{}', { status: 404 }) };
     },
   });
-  const telegram = { getMessagingService: () => ({}), setUserMenuButton: async () => {}, getBot: () => ({}), initBot: () => ({}) };
+  const telegram = { getMessagingService: () => ({}), setUserMenuButton: async () => {}, getBot: () => ({}) };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/services/analytics-service.ts', {

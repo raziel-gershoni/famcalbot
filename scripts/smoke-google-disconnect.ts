@@ -267,7 +267,7 @@ function installStubs() {
   stub('src/lib/error-capture.ts', { captureError: capture, captureWarning: capture, captureInfo: () => undefined });
   stub('src/utils/error-notifier.ts', { notifyAdminWarning: async () => undefined, notifyAdminError: async () => undefined, notifyAdminFeedback: async () => undefined, getAdminUserIds: async () => [] });
   const tg = { sendMessage: async () => 1 };
-  stub('src/services/telegram/index.ts', { getMessagingService: () => tg, getBot: () => tg, initBot: () => tg });
+  stub('src/services/telegram/index.ts', { getMessagingService: () => tg, getBot: () => tg });
   stub('src/services/messaging/factory.ts', { getMessagingService: () => tg, getWhatsAppService: () => tg, getTelegramService: () => tg });
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => 'Asia/Jerusalem' });
   stub('src/services/subscription-service.ts', {

@@ -23,6 +23,8 @@ import { startOfLocalDay } from '../src/utils/day-events';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
 import { generateVAPIDKeys } from 'web-push';
+import { tgNoAnswer, tgRefused } from './lib/fake-telegram';
+import { telegramErrorInfo } from '../src/lib/telegram-errors';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -322,7 +324,7 @@ let nextMessageId = 100;
 /** Runs inside the next send, as an action landing while the ping is on its way. */
 let duringSend: (() => void) | null = null;
 const fakeBot = {
-  sendMessage: async (chatId: string, text: string, options: { parse_mode?: string; reply_markup: Keyboard }) => {
+  sendMessage: async ({ chat_id: chatId, text, ...options }: { chat_id: string; text: string; parse_mode?: string; reply_markup: Keyboard }) => {
     sendCalls++;
     if (sendFailures.length) throw sendFailures.shift();
     const messageId = nextMessageId++;
@@ -331,7 +333,7 @@ const fakeBot = {
     sent.push({ at: clock, chatId: String(chatId), text, parseMode: options.parse_mode, keyboard: options.reply_markup, messageId });
     return { message_id: messageId };
   },
-  editMessageText: async (text: string, options: Row) => {
+  editMessageText: async ({ text, ...options }: { text: string } & Row) => {
     if (editFailure) {
       const error = editFailure;
       editFailure = null;
@@ -342,14 +344,10 @@ const fakeBot = {
   },
 };
 
-/** An error as node-telegram-bot-api throws it for an API refusal. */
-const telegramError = (status: number, description: string) =>
-  Object.assign(new Error(`ETELEGRAM: ${status} ${description}`), {
-    code: 'ETELEGRAM',
-    response: { statusCode: status, body: { ok: false, error_code: status, description } },
-  });
+/** An error as node-telegram-bot-api 2.x throws it for an API refusal. */
+const telegramError = (status: number, description: string) => tgRefused(status, description);
 /** No answer at all. */
-const networkError = () => Object.assign(new Error('EFATAL: Error: socket hang up'), { code: 'EFATAL' });
+const networkError = () => tgNoAnswer();
 
 // ---- Fake web push (src/services/web-push/send.ts) ----
 
@@ -399,8 +397,8 @@ const stubs: Record<string, object> = {
   [`${SRC}/lib/user-reachability.ts`]: {
     // The real helper's rule: a Telegram 403 flags the user.
     markUnreachableAfterSendFailure: async (user: { id: number }, error: unknown) => {
-      const flagged = !!error && (error as { response?: { statusCode?: number; body?: { description?: string } } }).response?.statusCode === 403
-        && /blocked/.test((error as { response: { body: { description: string } } }).response.body.description);
+      const info = telegramErrorInfo(error);
+      const flagged = info?.kind === 'refused' && info.status === 403 && /blocked/.test(info.description);
       if (flagged) unreachable.push(user.id);
       return flagged;
     },

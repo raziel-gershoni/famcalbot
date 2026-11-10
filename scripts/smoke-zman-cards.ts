@@ -145,15 +145,15 @@ type Sent = { method: string; chatId?: number | string; text: string; opts?: Rec
 let seq = 0;
 let botCalls: Sent[] = [];
 const fakeBot = {
-  sendMessage: async (chatId: number, text: string, opts?: Record<string, unknown>) => {
+  sendMessage: async ({ chat_id: chatId, text, ...opts }: { chat_id: number; text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'sendMessage', chatId, text, opts, n: ++seq });
     return { message_id: 700 + botCalls.length };
   },
-  editMessageText: async (text: string, opts?: Record<string, unknown>) => {
+  editMessageText: async ({ text, ...opts }: { text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'editMessageText', text, opts, n: ++seq });
     return true;
   },
-  answerCallbackQuery: async (_id: string, opts?: Record<string, unknown>) => {
+  answerCallbackQuery: async ({ callback_query_id: _id, ...opts }: { callback_query_id: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'answerCallbackQuery', text: String(opts?.text ?? ''), opts });
     return true;
   },

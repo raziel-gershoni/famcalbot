@@ -143,15 +143,15 @@ const fakeRedis = {
 type Sent = { method: string; text: string; opts?: Record<string, unknown> };
 let botCalls: Sent[] = [];
 const fakeBot = {
-  sendMessage: async (_chatId: number, text: string, opts?: Record<string, unknown>) => {
+  sendMessage: async ({ text, ...opts }: { chat_id: number; text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'sendMessage', text, opts });
     return { message_id: 700 + botCalls.length };
   },
-  editMessageText: async (text: string, opts?: Record<string, unknown>) => {
+  editMessageText: async ({ text, ...opts }: { text: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'editMessageText', text, opts });
     return true;
   },
-  answerCallbackQuery: async (_id: string, opts?: Record<string, unknown>) => {
+  answerCallbackQuery: async ({ callback_query_id: _id, ...opts }: { callback_query_id: string } & Record<string, unknown>) => {
     botCalls.push({ method: 'answerCallbackQuery', text: String(opts?.text ?? ''), opts });
     return true;
   },

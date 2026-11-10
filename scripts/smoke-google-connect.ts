@@ -367,7 +367,6 @@ function installStubs() {
   const bot = recorder('telegram', 'bot');
   stub('src/services/telegram/bot.ts', {
     getBot: () => bot,
-    initBot: () => bot,
     getMessagingService: () => recorder('telegram', 'tg'),
     setUserMenuButton: async (chatId: unknown) => { sent.push({ via: 'setUserMenuButton', platform: 'telegram', chatId }); },
   });
@@ -931,7 +930,7 @@ async function main() {
     assert(/פג|expired/i.test(sentTo(WA_BSUID).at(-1)?.text ?? ''), `WhatsApp expired: ${show(sentTo(WA_BSUID).at(-1))}`);
   });
 
-  await check('#13 /start gc_… from an unknown Telegram sender creates no user, sets no menu button (webhook and polling)', async () => {
+  await check('#13 /start gc_… from an unknown Telegram sender creates no user, sets no menu button (webhook)', async () => {
     seed();
     const before = DB.user.length;
     const id = await pendingFor(9);
@@ -939,17 +938,7 @@ async function main() {
     assert(DB.user.length === before && !userWrites.some(w => w.method === 'create'), `webhook: users ${DB.user.length}`);
     assert(!sent.some(s => s.via === 'setUserMenuButton'), 'webhook: a menu button was set');
     assert(/different/i.test(sentTo(STRANGER_TG).at(-1)?.text ?? ''), `webhook reply ${show(sentTo(STRANGER_TG))}`);
-    // Polling mode: the bot's /start handler
-    const handlers: { re: RegExp; fn: (msg: Row, match: RegExpExecArray | null) => Promise<void> }[] = [];
-    const { setupHandlers } = await load('src/services/telegram/commands.ts');
-    setupHandlers({ onText: (re: RegExp, fn: (msg: Row, match: RegExpExecArray | null) => Promise<void>) => handlers.push({ re, fn }) });
-    const id2 = await pendingFor(9);
-    const text = `/start gc_${id2}`;
-    const start = handlers.find(h => h.re.test(text));
-    assert(start, 'no /start handler');
-    await quietly(() => start.fn({ chat: { id: STRANGER_TG }, from: { id: STRANGER_TG, first_name: 'Stranger' }, text }, start.re.exec(text)));
-    assert(DB.user.length === before && !userWrites.some(w => w.method === 'create'), `polling: users ${DB.user.length}`);
-    assert(pendingKeys().length === 0, 'polling: the pending entry survived');
+    assert(pendingKeys().length === 0, 'webhook: the pending entry survived');
   });
 
   // ---- B4: the Mini App waits for the commit ----
@@ -1445,19 +1434,10 @@ async function main() {
     }
   });
 
-  await check('#29 /start connect from an account already linked to WhatsApp (phone or BSUID only) gets the usual dashboard reply and no link code (webhook and polling)', async () => {
-    const handlers: { re: RegExp; fn: (msg: Row, match: RegExpExecArray | null) => Promise<void> }[] = [];
-    const { setupHandlers } = await load('src/services/telegram/commands.ts');
-    setupHandlers({ onText: (re: RegExp, fn: (msg: Row, match: RegExpExecArray | null) => Promise<void>) => handlers.push({ re, fn }) });
-    const startConnect = async (via: 'webhook' | 'polling', tgId: number) => {
-      const text = '/start connect';
-      if (via === 'webhook') return tgWebhook(tgText(tgId, text));
-      const start = handlers.find(h => h.re.test(text));
-      assert(start, 'no polling /start handler');
-      await quietly(() => start.fn({ chat: { id: tgId }, from: { id: tgId, first_name: 'Test', language_code: 'en' }, text }, start.re.exec(text)));
-    };
+  await check('#29 /start connect from an account already linked to WhatsApp (phone or BSUID only) gets the usual dashboard reply and no link code (webhook)', async () => {
+    const startConnect = (via: 'webhook', tgId: number) => tgWebhook(tgText(tgId, '/start connect'));
     const BSUID_TG = 5050;
-    for (const via of ['webhook', 'polling'] as const) {
+    for (const via of ['webhook'] as const) {
       seed();
       DB.user.push(baseUser({ id: 50, name: 'Dana', telegramId: BigInt(BSUID_TG), whatsappBsuid: 'IL.555', messagingPlatform: 'all' }));
       for (const tgId of [VICTIM_TG, BSUID_TG]) {

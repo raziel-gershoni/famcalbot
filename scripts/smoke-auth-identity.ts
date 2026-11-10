@@ -258,8 +258,12 @@ const recorder = (platform: string, prefix: string): Row =>
     get: (_t, p) =>
       typeof p !== 'string' || p === 'then'
         ? undefined
-        : async (chatId: unknown, ...rest: unknown[]) => {
-            sent.push({ via: `${prefix}.${p}`, platform, chatId, text: typeof rest[0] === 'string' ? rest[0] : undefined });
+        : async (first: unknown, ...rest: unknown[]) => {
+            // The Bot API client takes one params object; the messaging services take (chatId, text, ...)
+            const params = prefix === 'bot' ? (first as Row) : null;
+            const chatId = params ? params.chat_id : first;
+            const text = params ? params.text : rest[0];
+            sent.push({ via: `${prefix}.${p}`, platform, chatId, text: typeof text === 'string' ? text : undefined });
             if (p === 'streamMessage') return { finalize: async () => 1, cancel: async () => undefined, update: async () => undefined };
             return { message_id: 1 };
           },
@@ -317,7 +321,6 @@ function installStubs(messagingTypes: Row) {
   };
   const telegram = {
     getBot: () => bot,
-    initBot: () => bot,
     getMessagingService: () => tgService,
     setUserMenuButton: async (chatId: unknown, language: unknown) => {
       sent.push({ via: 'setUserMenuButton', platform: 'telegram', chatId, text: String(language) });

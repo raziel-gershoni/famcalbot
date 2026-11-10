@@ -1,16 +1,17 @@
 // Smoke test for sending a guest answer (TelegramAdapter.answerGuestQuery and guestAnswerArticle,
 // src/services/messaging/telegram-adapter.ts; spec docs/superpowers/specs/2026-11-07-ask-in-chat-design.md §7):
-//   - the request: answerGuestQuery with the query id and the article JSON-serialized;
+//   - the request: answerGuestQuery with the query id and the article object (the library serializes it once);
 //   - the article: the text as it is, its first line (64 characters at most) as the title, no link preview, and a url
 //     button only when one is given;
 //   - retries through the one third-party loop (src/utils/fetch-retry.ts): a 429 waits the retry_after Telegram asks,
-//     a 5xx and no answer (EFATAL) are retried, a 400 fails at once, a retry_after over 10 s fails at once.
-// The bot is a fake `_request`; the loop's waits go through its test seam. No network.
+//     a 5xx and no answer (EFETCH) are retried, a 400 fails at once, a retry_after over 10 s fails at once.
+// The bot is a fake `Api` (fakeTelegramApi); the loop's waits go through its test seam. No network.
 //
 //   npx tsx scripts/smoke-ask-in-chat-send.ts
 
 import { __useRetryForTests } from '../src/utils/fetch-retry';
 import { guestAnswerArticle, TelegramAdapter } from '../src/services/messaging/telegram-adapter';
+import { fakeTelegramApi, tgNoAnswer, tgRefused, tgServerPage, tgUnreadable } from './lib/fake-telegram';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -31,27 +32,21 @@ const realWarn = console.warn;
 let warnings: string[] = [];
 console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')); };
 
-const telegramError = (status: number, description: string, retryAfter?: number) =>
-  Object.assign(new Error(`ETELEGRAM: ${status} ${description}`), {
-    code: 'ETELEGRAM',
-    response: { statusCode: status, body: { ok: false, error_code: status, description, ...(retryAfter !== undefined ? { parameters: { retry_after: retryAfter } } : {}) } },
-  });
-// A gateway's HTML 502 page: the library cannot parse it and throws a ParseError (EPARSE) that still holds the response
-const unparsable = (status: number) => Object.assign(new Error('EPARSE: Error parsing Telegram response: <html>'), { code: 'EPARSE', response: { statusCode: status, body: '<html>' } });
-const noAnswer = () => Object.assign(new Error('EFATAL: socket hang up'), { code: 'EFATAL' });
+const telegramError = tgRefused;
+// A gateway's HTML 502 page: 2.x throws a NetworkError (EFETCH) for a 5xx that is not Telegram's JSON, with no status
+const gatewayPage = tgServerPage;
+const noAnswer = () => tgNoAnswer('answerGuestQuery');
 
-type Call = { method: string; form: Record<string, unknown> };
 function fakeBot(outcomes: Array<Error | 'ok'>) {
-  const calls: Call[] = [];
-  const bot = {
-    _request: async (method: string, options: { form: Record<string, unknown> }) => {
-      calls.push({ method, form: options.form });
-      const next = outcomes[calls.length - 1] ?? 'ok';
+  let tries = 0;
+  const { api, calls } = fakeTelegramApi({
+    answerGuestQuery: () => {
+      const next = outcomes[tries++] ?? 'ok';
       if (next !== 'ok') throw next;
-      return true;
+      return { inline_message_id: 'im' };
     },
-  };
-  return { calls, adapter: new TelegramAdapter(bot as never) };
+  });
+  return { calls, adapter: new TelegramAdapter(api as never) };
 }
 
 async function main() {
@@ -68,12 +63,12 @@ async function main() {
     assert(show(start.reply_markup) === show({ inline_keyboard: [[{ text: 'Open FamCal', url: 'https://t.me/famcal_test_bot' }]] }), show(start));
   });
 
-  await check('answerGuestQuery: one answerGuestQuery request with the query id and the article JSON-serialized', async () => {
+  await check('answerGuestQuery: one answerGuestQuery call with the query id and the article object', async () => {
     reset();
     const { calls, adapter } = fakeBot(['ok']);
     await adapter.answerGuestQuery('gq-1', article);
-    assert(calls.length === 1 && calls[0].method === 'answerGuestQuery' && calls[0].form.guest_query_id === 'gq-1', show(calls));
-    assert(calls[0].form.result === JSON.stringify(article), `result ${show(calls[0].form.result)}`);
+    assert(calls.length === 1 && calls[0].method === 'answerGuestQuery' && calls[0].params.guest_query_id === 'gq-1', show(calls));
+    assert(show(calls[0].params.result) === show(article), `result ${show(calls[0].params.result)}`);
   });
 
   await check('a 429 waits the retry_after Telegram asks, a 500 is retried, then the answer goes', async () => {
@@ -84,13 +79,13 @@ async function main() {
     assert(waits[0] === 2000, `waits ${show(waits)}`);
   });
 
-  await check('a gateway 502 or 504 whose body is not JSON (EPARSE) is retried like any 5xx; an EPARSE 400 is not', async () => {
+  await check('a gateway 502 or 504 whose body is not JSON (EFETCH in 2.x) is retried like any 5xx; an answer under 500 that is not JSON (EPARSE, no status in 2.x, so not retried: under 0.66 a proxy\'s HTML 429 was) is not', async () => {
     reset();
-    const { calls, adapter } = fakeBot([unparsable(502), unparsable(504), 'ok']);
+    const { calls, adapter } = fakeBot([gatewayPage(502), gatewayPage(504), 'ok']);
     await adapter.answerGuestQuery('gq-1', article);
     assert(calls.length === 3, `${calls.length} tries`);
     reset();
-    const bad = fakeBot([unparsable(400)]);
+    const bad = fakeBot([tgUnreadable('answerGuestQuery')]);
     let thrown: unknown;
     try {
       await bad.adapter.answerGuestQuery('gq-1', article);
@@ -100,7 +95,7 @@ async function main() {
     assert(thrown && bad.calls.length === 1, `tries ${bad.calls.length}`);
   });
 
-  await check('no answer (EFATAL) is retried', async () => {
+  await check('no answer (EFETCH) is retried', async () => {
     reset();
     const { calls, adapter } = fakeBot([noAnswer(), 'ok']);
     await adapter.answerGuestQuery('gq-1', article);

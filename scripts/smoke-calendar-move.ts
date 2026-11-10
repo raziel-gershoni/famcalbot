@@ -492,7 +492,7 @@ function installStubs() {
     captureInfo: () => undefined,
   });
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => IL, resolveTimezoneForLocation: async () => null });
-  const telegram = { getBot: () => recorder(), initBot: () => recorder(), getMessagingService: () => recorder(), setUserMenuButton: async () => undefined };
+  const telegram = { getBot: () => recorder(), getMessagingService: () => recorder(), setUserMenuButton: async () => undefined };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = {

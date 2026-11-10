@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
+import { tgRefused } from './lib/fake-telegram';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -53,9 +54,12 @@ async function main() {
   const { markUnreachableAfterWhatsAppFailure, markUnreachableAfterSendFailure } = await import('../src/lib/user-reachability');
 
   await check('Telegram: a blocked bot is unreachable, a bare 403 is not', () => {
-    const blocked = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } } });
+    const blocked = tgRefused(403, 'Forbidden: bot was blocked by the user');
     assert(isUnreachableError(blocked), 'blocked not classified');
-    assert(!isUnreachableError(new Error('ETELEGRAM: 403 Forbidden: something new')), 'bare 403 classified');
+    assert(!isUnreachableError(tgRefused(403, 'Forbidden: something new')), 'bare 403 classified');
+    // A flattened message alone (no structured fields) still classifies a block, and a bare 403 message still does not
+    assert(isUnreachableError(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user')), 'flattened block not classified');
+    assert(!isUnreachableError(new Error('ETELEGRAM: 403 Forbidden: something new')), 'bare 403 message classified');
   });
 
   await check('WhatsApp 131026 (undeliverable: not a WhatsApp number, ToS, old client) is unreachable, from a send error and from a status', () => {
@@ -87,7 +91,7 @@ async function main() {
   });
 
   await check('markUnreachableAfterSendFailure: a Telegram 403 flags the user (Telegram id or not); a WhatsApp 131026 flags only a WhatsApp-only user, a bigint Telegram id counts', async () => {
-    const blocked = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), { response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } } });
+    const blocked = tgRefused(403, 'Forbidden: bot was blocked by the user');
     updates.length = 0;
     assert(await markUnreachableAfterSendFailure({ id: 7, telegramId: 99 }, blocked) === true && updates.length === 1, 'telegram 403 not flagged');
     updates.length = 0;

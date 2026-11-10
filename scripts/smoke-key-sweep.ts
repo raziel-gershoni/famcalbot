@@ -251,8 +251,8 @@ function installStubs() {
     notifyAdminFeedback: async () => undefined,
     getAdminUserIds: async () => [ADMIN_ID],
   });
-  const bot = { sendMessage: async (chatId: unknown, text: string) => { botSends.push({ chatId, text }); return { message_id: 1 }; } };
-  stub('src/services/telegram/bot.ts', { getBot: () => bot, initBot: () => bot });
+  const bot = { sendMessage: async ({ chat_id: chatId, text }: { chat_id: unknown; text: string }) => { botSends.push({ chatId, text }); return { message_id: 1 }; } };
+  stub('src/services/telegram/bot.ts', { getBot: () => bot });
   stub('src/cron/handlers.ts', {
     rebuildReminderCache: async () => { rebuilds++; return 2; },
     bootReminderCache: async () => undefined,

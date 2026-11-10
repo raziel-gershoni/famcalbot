@@ -13,6 +13,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
+import { fakeTelegramApi } from './fake-telegram';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Row = Record<string, any>;
@@ -483,6 +484,9 @@ export const sent: { platform: 'telegram' | 'whatsapp'; chatId: string; text: st
 export const menuButtons: [unknown, unknown][] = [];
 /** The bot's answers to button presses (answerCallbackQuery), by query id */
 export const callbackAnswers: string[] = [];
+/** The Bot API client the sign-in smokes share (a fake `Api`: every call is recorded as { method, params }). */
+const telegramApi = fakeTelegramApi({ answerCallbackQuery: (params) => { callbackAnswers.push(String(params.callback_query_id)); return true; } });
+export const botCalls = telegramApi.calls;
 export const captured: { context: string; message: string; extra: Row }[] = [];
 export const everyCapture: { context: string; message: string; extra: Row }[] = [];
 export const mails: { to: string[]; body: Row; idempotencyKey: string | null }[] = [];
@@ -535,6 +539,7 @@ export function resetWorld(): void {
   sent.length = 0;
   menuButtons.length = 0;
   callbackAnswers.length = 0;
+  botCalls.length = 0;
   captured.length = 0;
   mails.length = 0;
   logs.length = 0;
@@ -694,9 +699,8 @@ export async function installSigninWorld(): Promise<void> {
     getAdminUserIds: async () => [], notifyAdminError: async () => undefined, notifyAdminFeedback: async () => undefined,
     notifyAdminWarning: async (context: string, message: string) => void adminWarnings.push({ context, message }),
   });
-  const bot = { answerCallbackQuery: async (queryId: string) => { callbackAnswers.push(queryId); return true; } };
   const telegram = {
-    getBot: () => bot, initBot: () => bot, getMessagingService: () => chatService('telegram'),
+    getBot: () => telegramApi.api, getMessagingService: () => chatService('telegram'),
     setUserMenuButton: async (telegramId: unknown, locale: unknown) => {
       if (world.menuButtonFails) throw new Error('Telegram refused the menu button (smoke)');
       menuButtons.push([telegramId, locale]);

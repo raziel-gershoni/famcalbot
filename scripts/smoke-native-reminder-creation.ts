@@ -145,7 +145,7 @@ const telegram = {
   sendTypingIndicator: async () => {},
 };
 const fakeBot = {
-  sendMessage: async (chatId: number | string, text: string) => {
+  sendMessage: async ({ chat_id: chatId, text }: { chat_id: number | string; text: string }) => {
     sent.push({ chatId, text });
     return { message_id: 1 };
   },

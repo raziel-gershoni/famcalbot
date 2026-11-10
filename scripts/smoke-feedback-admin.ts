@@ -38,7 +38,7 @@ globalThis.fetch = (async (input: unknown) => {
 }) as typeof fetch;
 
 const sent: { chatId: number; text: string }[] = [];
-const fakeBot = { sendMessage: async (chatId: number, text: string) => { sent.push({ chatId, text }); return {}; } };
+const fakeBot = { sendMessage: async ({ chat_id: chatId, text }: { chat_id: number; text: string }) => { sent.push({ chatId, text }); return {}; } };
 const fakePrisma = { user: { findMany: async () => [{ telegramId: BigInt(900) }] } };
 
 async function main() {

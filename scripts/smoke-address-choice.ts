@@ -20,7 +20,7 @@ import fs from 'fs';
 import Module from 'module';
 import path from 'path';
 import {
-  assert, baseUser, callbackAnswers, check, DB, everyLog, installSigninWorld, load, logs, redisStore, report, resetWorld, ROOT, sent, show, stubModule, type Row,
+  assert, baseUser, botCalls, callbackAnswers, check, DB, everyLog, installSigninWorld, load, logs, redisStore, report, resetWorld, ROOT, sent, show, stubModule, type Row,
 } from './lib/signin-world';
 
 // @hebcal/core is ESM-only and tsx loads src/ as CommonJS (see smoke-telegram-connect.ts): /start's module reaches it
@@ -39,7 +39,8 @@ const OLD = 12;
 const WA_USER = 13;
 const WA_PHONE = '+972500000013';
 const buttonsOf = (message: Row | undefined): Row[] => message?.options?.replyMarkup?.inline_keyboard?.[0] ?? [];
-const edits: Row[] = [];
+/** The message edits the bot was asked for (their params). */
+const edits = (): Row[] => botCalls.filter((c) => c.method === 'editMessageText').map((c) => c.params);
 
 function seed(): void {
   resetWorld();
@@ -48,7 +49,6 @@ function seed(): void {
     baseUser({ id: WA_USER, name: 'Avi', language: 'en', messagingPlatform: 'whatsapp', whatsappPhone: WA_PHONE }),
   ];
   DB.nativeCalendar = [];
-  edits.length = 0;
 }
 const userRow = (id: number): Row | undefined => DB.user.find((u) => u.id === id);
 
@@ -59,8 +59,6 @@ async function main() {
     ACTIVITY_RETENTION_DAYS: 90, ACTIVITY_PURGE_BATCH: 5000, purgeOldActivity: async () => 0,
   });
   stubModule('src/services/magic-link.ts', { generateMagicLink: async () => 'https://famcal.bot/m/smoke-link' });
-  const bot = (await load('src/services/telegram/bot.ts')).getBot() as Row;
-  bot.editMessageText = async (text: string, o: Row) => { edits.push({ text, ...o }); return true; };
   const { handleStartCommand } = await load('src/services/telegram/commands.ts');
   const choice = await load('src/services/address-choice.ts');
   const onboarding = await load('src/services/whatsapp-onboarding.ts');
@@ -95,16 +93,16 @@ async function main() {
     await choice.handleAddressPress(OLD_TG, 501, 'q-1', OLD_TG, 'gd:f');
     assert(userRow(OLD)?.gender === 'female', `gender ${userRow(OLD)?.gender}`);
     assert(callbackAnswers.includes('q-1'), `answers ${show(callbackAnswers)}`);
-    assert(show(edits) === show([{ text: words('ru').addressSavedFemale, chat_id: OLD_TG, message_id: 501 }]), `edits ${show(edits)}`);
+    assert(show(edits()) === show([{ text: words('ru').addressSavedFemale, chat_id: OLD_TG, message_id: 501 }]), `edits ${show(edits())}`);
     await choice.handleAddressPress(OLD_TG, 501, 'q-2', OLD_TG, 'gd:m');
     await choice.handleAddressPress(OLD_TG, 501, 'q-3', OLD_TG, 'gd:m');
-    assert(userRow(OLD)?.gender === 'male' && edits.at(-1)?.text === words('ru').addressSavedMale && callbackAnswers.includes('q-3'), `again: ${userRow(OLD)?.gender} ${show(edits.at(-1))}`);
+    assert(userRow(OLD)?.gender === 'male' && edits().at(-1)?.text === words('ru').addressSavedMale && callbackAnswers.includes('q-3'), `again: ${userRow(OLD)?.gender} ${show(edits().at(-1))}`);
   });
 
   await check('C3 a stray value (gd:x, gd:, gd:female) saves nothing, is answered and logged', async () => {
     seed();
     for (const [i, data] of ['gd:x', 'gd:', 'gd:female'].entries()) await choice.handleAddressPress(OLD_TG, 502, `s-${i}`, OLD_TG, data);
-    assert(userRow(OLD)?.gender === 'male' && edits.length === 0, `saved ${userRow(OLD)?.gender} ${show(edits)}`);
+    assert(userRow(OLD)?.gender === 'male' && edits().length === 0, `saved ${userRow(OLD)?.gender} ${show(edits())}`);
     assert(['s-0', 's-1', 's-2'].every((q) => callbackAnswers.includes(q)), `answers ${show(callbackAnswers)}`);
     assert(logs.filter((l) => l.startsWith('[gender] refused a button')).length === 3, `logs ${show(logs.filter((l) => l.startsWith('[gender]')))}`);
   });
@@ -122,7 +120,7 @@ async function main() {
     seed();
     const before = DB.user.length;
     await choice.handleAddressPress(990000009, 503, 'n-1', 990000009, 'gd:f');
-    assert(DB.user.length === before && edits.length === 0 && callbackAnswers.includes('n-1'), `users ${DB.user.length}, edits ${show(edits)}`);
+    assert(DB.user.length === before && edits().length === 0 && callbackAnswers.includes('n-1'), `users ${DB.user.length}, edits ${show(edits())}`);
     assert(logs.some((l) => l === '[gender] a button from a Telegram id with no account was refused'), `logs ${show(logs.filter((l) => l.startsWith('[gender]')))}`);
   });
 

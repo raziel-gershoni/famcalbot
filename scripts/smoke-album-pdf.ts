@@ -187,7 +187,7 @@ const fakeService = {
   sendTypingIndicator: async () => { typingCalls++; },
 };
 const fakeBot = {
-  sendMessage: async (chatId: number | string, text: string) => { sent.push({ chatId, text }); return {}; },
+  sendMessage: async ({ chat_id: chatId, text }: { chat_id: number | string; text: string }) => { sent.push({ chatId, text }); return {}; },
 };
 
 type Card = { chatId: number; event: ParsedEvent; label: string; user: UserConfig; modality: string };

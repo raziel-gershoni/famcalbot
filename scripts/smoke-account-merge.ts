@@ -510,7 +510,7 @@ function installStubs() {
   });
   const bot = recorder('bot');
   const telegram = {
-    getBot: () => bot, initBot: () => bot, getMessagingService: () => recorder('tg'),
+    getBot: () => bot, getMessagingService: () => recorder('tg'),
     setUserMenuButton: async (chatId: unknown, locale: unknown) => { menuButtons.push([chatId, locale]); },
   };
   stub('src/services/telegram/index.ts', telegram);

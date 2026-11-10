@@ -42,6 +42,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
+import { tgRefused } from './lib/fake-telegram';
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const ROOT = path.resolve(__dirname, '..');
@@ -190,7 +191,7 @@ const redis = {
 let sendFails: ((text: string, options?: Row) => boolean) | null = null;
 const messaging = {
   sendMessage: async (chatId: unknown, text: string, options?: Row) => {
-    if (sendFails?.(text, options)) throw new Error('ETELEGRAM: 502 Bad Gateway (smoke)');
+    if (sendFails?.(text, options)) throw tgRefused(502, 'Bad Gateway (smoke)');
     sent.push({ chatId, text, options });
   },
 };

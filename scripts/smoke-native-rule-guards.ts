@@ -305,11 +305,11 @@ function stub(rel: string, exports: Row) {
 }
 
 const fakeBot = {
-  sendMessage: async (chatId: unknown, text: string) => {
+  sendMessage: async ({ chat_id: chatId, text }: { chat_id: unknown; text: string }) => {
     sent.push({ chatId: String(chatId), text });
     return { message_id: 900 + sent.length };
   },
-  editMessageText: async (text: string, options: Row) => {
+  editMessageText: async ({ text, ...options }: Row) => {
     edits.push({ chatId: String(options.chat_id), messageId: options.message_id, text });
     return true;
   },
@@ -323,7 +323,7 @@ function installStubs() {
     captureWarning: () => undefined,
     captureInfo: () => undefined,
   });
-  const telegram = { getBot: () => fakeBot, initBot: () => fakeBot };
+  const telegram = { getBot: () => fakeBot };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => IL });

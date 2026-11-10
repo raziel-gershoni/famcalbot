@@ -321,7 +321,6 @@ function installStubs() {
   const bot = recorder('bot');
   stub('src/services/telegram/bot.ts', {
     getBot: () => bot,
-    initBot: () => bot,
     getMessagingService: () => recorder('tg'),
     setUserMenuButton: async () => undefined,
   });

@@ -348,7 +348,7 @@ function installStubs() {
     captureWarning: capture(() => 'warning'),
     captureInfo: () => undefined,
   });
-  const telegram = { getBot: () => recorder(), initBot: () => recorder(), getMessagingService: () => recorder(), setUserMenuButton: async () => undefined };
+  const telegram = { getBot: () => recorder(), getMessagingService: () => recorder(), setUserMenuButton: async () => undefined };
   stub('src/services/telegram/index.ts', telegram);
   stub('src/services/telegram/bot.ts', telegram);
   const messaging = {

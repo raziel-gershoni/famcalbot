@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { REDIS_KEYS } from '../src/config/redis-keys';
 import { generateVAPIDKeys } from 'web-push';
+import { tgRefused } from './lib/fake-telegram';
 
 // No decrypt-only fallback key here (Prisma would load .env for an unset name).
 process.env.ENCRYPTION_KEY_PREVIOUS = '';
@@ -1011,10 +1012,7 @@ async function main() {
     reset({ id: 19 });
     await fakeRedis.set(REDIS_KEYS.userTimezone(19), IL);
     googleEvents = [{ calendarId: kidsCal, id: 'k19', summary: 'Kindergarten', start: at('2026-10-13 08:00', IL), end: at('2026-10-13 16:00', IL) }];
-    sendError = Object.assign(new Error('ETELEGRAM: 403 Forbidden: bot was blocked by the user'), {
-      code: 'ETELEGRAM',
-      response: { body: { error_code: 403, description: 'Forbidden: bot was blocked by the user' } },
-    });
+    sendError = tgRefused(403, 'Forbidden: bot was blocked by the user');
     await syncCache(handlers, at('2026-10-13 07:00', IL));
     await runTicks(handlers, at('2026-10-13 07:40', IL), at('2026-10-13 07:50', IL));
     assert(sendAttempts === 1, `${sendAttempts} send attempts`);

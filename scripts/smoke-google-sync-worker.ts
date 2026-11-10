@@ -662,7 +662,7 @@ function installStubs() {
   });
   const tg = { sendMessage: async (chatId: unknown, text: unknown, options: Row) => { sent.push({ via: 'telegram', chatId, text, options }); return 1; } };
   const wa = { sendMessage: async (chatId: unknown, text: unknown, options: Row) => { sent.push({ via: 'whatsapp', chatId, text, options }); return 1; } };
-  stub('src/services/telegram/index.ts', { getMessagingService: () => tg, getBot: () => tg, initBot: () => tg });
+  stub('src/services/telegram/index.ts', { getMessagingService: () => tg, getBot: () => tg });
   stub('src/services/messaging/factory.ts', { getMessagingService: () => tg, getWhatsAppService: () => wa, getTelegramService: () => tg });
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => 'Asia/Jerusalem' });
   stub('src/services/subscription-service.ts', {

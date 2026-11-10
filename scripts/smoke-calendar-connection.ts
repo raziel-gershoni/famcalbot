@@ -232,7 +232,7 @@ const fakeRedis = new Proxy(redisImpl, {
 type Sent = { via: string; chatId: unknown; text?: string; options?: Row };
 const sent: Sent[] = [];
 /** What the bot object (getBot) was asked to send or edit: kid-name answers. */
-const botSent: { method: string; args: unknown[] }[] = [];
+const botSent: { method: string; params: Row }[] = [];
 const captured: string[] = [];
 const recorder = (prefix: string): Row =>
   new Proxy({} as Row, {
@@ -249,8 +249,8 @@ const botRecorder: Row = new Proxy({} as Row, {
   get: (_t, p) =>
     typeof p !== 'string' || p === 'then'
       ? undefined
-      : async (...args: unknown[]) => {
-          botSent.push({ method: p, args });
+      : async (params: Row) => {
+          botSent.push({ method: p, params });
           return { message_id: 1 };
         },
 });
@@ -321,7 +321,7 @@ function installStubs() {
   });
   stub('src/lib/admin-auth.ts', { verifyAdminAccess: async () => ({ authorized: true, adminId: 1 }) });
   const telegram = {
-    getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => botRecorder, initBot: () => ({}),
+    getMessagingService: () => recorder('tg'), setUserMenuButton: async () => {}, getBot: () => botRecorder,
     // The daily cron handler's batch; H6 checks only its reminder-cache sync beside it.
     sendDailySummaryToAll: async () => ({ processed: 0, skippedHour: 0, skippedDay: 0, skippedDedup: 0 }),
   };
@@ -1248,8 +1248,8 @@ async function main() {
     const { getBotMessages } = await load('src/lib/bot-messages.ts');
     const t = await getBotMessages('en');
     const want = String(t.kidNameDetection.confirmedFamcal).replace('{calendar}', 'Nava kids').replace('{name}', 'Tom');
-    assert(edit && edit.args[0] === want, `edit ${show(edit?.args[0])} (want ${show(want)})`);
-    assert(show(edit.args[1]).includes('/en/calendars?user_id=5550001'), `link ${show(edit.args[1])}`);
+    assert(edit && edit.params.text === want, `edit ${show(edit?.params.text)} (want ${show(want)})`);
+    assert(show(edit.params.reply_markup).includes('/en/calendars?user_id=5550001'), `link ${show(edit.params.reply_markup)}`);
     redisStore.set('kidname:pending:kn:1:2', JSON.stringify({ name: 'Ido', calendarId: 'native:cal-2', userId: 1 }));
     await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', 'kn:1:2');
     eq((table('nativeCalendar').find(c => c.id === 'cal-2') as Row).personName, null, 'the partner\'s calendar');
@@ -1267,7 +1267,7 @@ async function main() {
       await handleKidNameCallback(5550001, 9, 'q', 'kidname_yes', `kn:${id}`);
       const edit = botSent.find(b => b.method === 'editMessageText');
       const want = String(template).split('{calendar}').join(name).split('{name}').join('Noa $&amp; {name}');
-      assert(edit && edit.args[0] === want, `${id}: edit ${show(edit?.args[0])} (want ${show(want)})`);
+      assert(edit && edit.params.text === want, `${id}: edit ${show(edit?.params.text)} (want ${show(want)})`);
     }
     // The question, through the real follow-up: the name, the event title and the calendar name are escaped
     botSent.length = 0;
@@ -1275,7 +1275,7 @@ async function main() {
     await sendKidNameFollowUp(5550001, await configOf(1), [{ summary: 'Swim & <Art> - Tom', start: '2026-10-21', end: '2026-10-22', calendarId: 'native:cal-11', calendarName: 'Art & <Music>' }]);
     const question = botSent.find(b => b.method === 'sendMessage');
     assert(question, `no question was sent: ${show(botSent)}`);
-    const text = String(question.args[1]);
+    const text = String(question.params.text);
     assert(text.includes('Swim &amp; &lt;Art&gt; - Tom') && text.includes('Art &amp; &lt;Music&gt;') && !/<Art>|<Music>/.test(text), `not escaped: ${text}`);
   });
 
@@ -1293,7 +1293,7 @@ async function main() {
       eq([row.personName, row.rules], [null, ['Noa is my child']], name);
       const edit = botSent.find(b => b.method === 'editMessageText');
       const want = String(t.kidNameDetection.confirmed).replace('{calendar}', name).replace('{name}', 'Noa');
-      assert(edit && edit.args[0] === want, `${name}: edit ${show(edit?.args[0])} (want ${show(want)})`);
+      assert(edit && edit.params.text === want, `${name}: edit ${show(edit?.params.text)} (want ${show(want)})`);
     }
   });
 

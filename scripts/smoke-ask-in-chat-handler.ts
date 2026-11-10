@@ -27,6 +27,7 @@ import type { Person } from '../src/services/ask-in-chat/people';
 import type { GoogleGap } from '../src/services/calendar-read/digest';
 import type { GuestAnswerArticle } from '../src/services/messaging/telegram-adapter';
 import type { UserConfig } from '../src/types';
+import { tgNoAnswer, tgRefused } from './lib/fake-telegram';
 import en from '../messages/en.json';
 import he from '../messages/he.json';
 import ru from '../messages/ru.json';
@@ -312,28 +313,34 @@ async function main() {
   });
 
   await check('a refused answer: logged with Telegram\'s status and description, reported at stage send, no answered line', async () => {
-    const refusal = Object.assign(new Error('ETELEGRAM: 400 Bad Request: query is too old'), { code: 'ETELEGRAM', response: { statusCode: 400, body: { description: 'Bad Request: query is too old' } } });
+    const refusal = tgRefused(400, 'Bad Request: query is too old');
     const w = await run(guest(CALLER), RAZ, { answer: async () => { throw refusal; } });
     assert(logs.includes('[ask] user 1: answer refused HTTP 400 Bad Request: query is too old'), show(logs));
     assert(w.reports.length === 1 && show(w.reports[0].extra) === show({ user_id: 1, stage: 'send' }), show(w.reports));
     assert(!logs.some(l => l.includes('answered')), show(logs));
   });
 
-  const tooOld = () => Object.assign(new Error('ETELEGRAM: 400 Bad Request: query is too old'), {
-    code: 'ETELEGRAM',
-    response: {
-      statusCode: 400,
-      body: { ok: false, description: 'Bad Request: query is too old' },
-      request: { uri: { href: 'https://api.telegram.org/bot123456:test-token/answerGuestQuery' }, body: 'guest_query_id=gq-secret-1&result=%7B%22text%22%3A%22SECRET-MODEL-OUT%22%7D' },
-    },
-  });
+  // What carries the request: a refusal that holds the URL with the bot token and the form body in its cause (a defence:
+  // 2.x's own errors carry neither), and a network failure whose cause names the URL, as fetch's errors can
+  const requestDetail = 'request to https://api.telegram.org/bot123456:test-token/answerGuestQuery failed, body guest_query_id=gq-secret-1&result=%7B%22text%22%3A%22SECRET-MODEL-OUT%22%7D';
+  const tooOld = () => Object.assign(tgRefused(400, 'Bad Request: query is too old'), { cause: new Error(requestDetail) });
+  const cutOff = () => tgNoAnswer('answerGuestQuery', requestDetail);
 
   await check('a refused answer reports a clean error: no response, no request body, no query id', async () => {
     const w = await run(guest(CALLER), RAZ, { answer: async () => { throw tooOld(); } });
     assert(w.reports.length === 1, show(w.reports));
     const reported = allReports[allReports.length - 1];
-    assert(!reported.includes('gq-secret-1') && !reported.includes('request') && !reported.includes('response'), reported);
+    assert(!reported.includes('gq-secret-1') && !reported.includes('test-token') && !reported.includes('request') && !reported.includes('response'), reported);
     assert(reported.includes('400') && reported.includes('query is too old'), reported);
+  });
+
+  await check('a failed answer with no reply from Telegram reports a clean error: no request URL, no bot token, no query id', async () => {
+    const w = await run(guest(CALLER), RAZ, { answer: async () => { throw cutOff(); } });
+    assert(w.reports.length === 1, show(w.reports));
+    const reported = allReports[allReports.length - 1];
+    assert(!reported.includes('gq-secret-1') && !reported.includes('test-token') && !reported.includes('SECRET-MODEL-OUT'), reported);
+    assert(reported.includes('no answer (EFETCH)'), reported);
+    assert(logs.includes('[ask] user 1: answer refused no answer (EFETCH)'), show(logs));
   });
 
   await check('through the real captureError, a refused answer leaves no query id or answer text in any console line', async () => {
@@ -349,13 +356,13 @@ async function main() {
   });
 
   await check('"query already answered" (a retry after a lost success) is logged and not reported', async () => {
-    const answered = Object.assign(new Error('ETELEGRAM: 400 Bad Request: query already answered'), { code: 'ETELEGRAM', response: { statusCode: 400, body: { description: 'Bad Request: query already answered' } } });
+    const answered = tgRefused(400, 'Bad Request: query already answered');
     const w = await run(guest(CALLER), RAZ, { answer: async () => { throw answered; } });
     assert(w.reports.length === 0, show(w.reports));
     assert(logs.includes('[ask] user 1: answer refused HTTP 400 Bad Request: query already answered'), show(logs));
     const expired = await run(guest(CALLER), RAZ, { answer: async () => { throw tooOld(); } });
     assert(expired.reports.length === 1, 'an expired query is still reported');
-    const forbidden = await run(guest(CALLER), RAZ, { answer: async () => { throw Object.assign(new Error('ETELEGRAM: 403'), { code: 'ETELEGRAM', response: { statusCode: 403, body: { description: 'Forbidden' } } }); } });
+    const forbidden = await run(guest(CALLER), RAZ, { answer: async () => { throw tgRefused(403, 'Forbidden'); } });
     assert(forbidden.reports.length === 1, 'a 403 is still reported');
   });
 

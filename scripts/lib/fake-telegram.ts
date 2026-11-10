@@ -19,3 +19,37 @@ export function tgServerPage(status: number, method = 'sendMessage'): Error {
 export function tgUnreadable(method = 'sendMessage'): Error {
   return new ParseError(`Invalid JSON in response to ${method}`, { responseText: '<html>' });
 }
+
+/** One call on the fake `Api`: the method's name and the one params object it took. */
+export interface TgCall {
+  method: string;
+  params: Record<string, unknown>;
+}
+
+/**
+ * A fake `Api` for the smokes: every method records `{ method, params }` (2.x takes one params object) and returns the
+ * handler's result for that method, else `{ message_id: <next number> }` for a `send*` and `true` for the rest. A handler
+ * that throws makes the call reject, like a failed request.
+ */
+export function fakeTelegramApi(handlers: Record<string, (params: Record<string, unknown>) => unknown> = {}): {
+  api: unknown;
+  calls: TgCall[];
+} {
+  const calls: TgCall[] = [];
+  let nextMessageId = 1000;
+  const api = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (typeof property !== 'string' || property === 'then') return undefined;
+        return async (params: Record<string, unknown> = {}) => {
+          calls.push({ method: property, params });
+          const handler = handlers[property];
+          if (handler) return handler(params);
+          return property.startsWith('send') ? { message_id: nextMessageId++ } : true;
+        };
+      },
+    },
+  );
+  return { api, calls };
+}

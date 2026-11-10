@@ -700,7 +700,7 @@ async function main() {
     assert(w > 0 && w < startFn.indexOf("addBreadcrumb('command_started'") && w < startFn.indexOf('getOrCreateUser('), 'w_ is not answered first');
     const router = fs.readFileSync(path.join(ROOT, 'src/services/webhook-handlers.ts'), 'utf8');
     const branch = router.slice(router.indexOf("data.startsWith('tgc:')"), router.indexOf("data.startsWith('nr:')"));
-    assert(branch.includes('answerCallbackQuery(queryId)') && branch.includes('handleConnectPress(') && branch.includes('handleConnectCancel('), `router ${branch.slice(0, 200)}`);
+    assert(branch.includes('answerCallbackQuery({ callback_query_id: queryId })') && branch.includes('handleConnectPress(') && branch.includes('handleConnectCancel('), `router ${branch.slice(0, 200)}`);
     assert(branch.indexOf('answerCallbackQuery') < branch.indexOf('handleConnectPress('), 'the spinner is answered after the reply');
     const pause = fs.readFileSync(path.join(ROOT, 'scripts/smoke-pause.ts'), 'utf8');
     assert(pause.includes("'src/services/telegram-connect.ts':") && pause.includes("'src/services/telegram/welcome.ts':"), 'smoke-pause does not list the new senders');

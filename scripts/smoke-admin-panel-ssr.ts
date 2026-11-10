@@ -303,7 +303,6 @@ function installStubs() {
   const bot = recorder('bot');
   const telegram = {
     getBot: () => bot,
-    initBot: () => bot,
     getMessagingService: () => recorder('tg'),
     setUserMenuButton: async () => { sent.push('setUserMenuButton'); },
   };

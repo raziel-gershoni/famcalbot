@@ -242,7 +242,8 @@ const USERS: Row[] = [
 ];
 const messaging = { sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ method: 'sendMessage', chatId, args: [text, options] }); return 1; } };
 const bot = {
-  sendInvoice: async (chatId: unknown, ...args: unknown[]) => { sent.push({ method: 'sendInvoice', chatId, args }); return {}; },
+  // args keep the order the invoice's fields are checked in below: title, description, payload, provider token, currency, prices
+  sendInvoice: async (p: Row) => { sent.push({ method: 'sendInvoice', chatId: p.chat_id, args: [p.title, p.description, p.payload, p.provider_token, p.currency, p.prices] }); return {}; },
   answerPreCheckoutQuery: async () => true,
 };
 const stubs: Record<string, object> = {
@@ -303,9 +304,9 @@ async function wiring(D: typeof import('../src/lib/plan-disclosure')) {
         sent.length = 0;
         await quietly(() => handler.sendSubscriptionInvoice(Number(user.telegramId), user.id, plan));
         assert(sent.length === 1 && sent[0].method === 'sendInvoice', `${l} ${plan}: ${show(sent.map((s) => s.method))}`);
-        const [title, description, , , currency] = sent[0].args as string[];
+        const [title, description, , providerToken, currency] = sent[0].args as string[];
         assert(description === D.invoiceDescription(sub(l).invoiceDescription, l, planName(l, id)), `${l} ${plan}: the description ${show(description)}`);
-        assert(typeof title === 'string' && title.length <= 32 && title.includes(planName(l, id)) && currency === 'XTR', `${l} ${plan}: the title ${show(title)} ${show(currency)}`);
+        assert(typeof title === 'string' && title.length <= 32 && title.includes(planName(l, id)) && currency === 'XTR' && providerToken === '', `${l} ${plan}: the title ${show(title)} ${show(currency)} ${show(providerToken)}`);
       }
     }
   });

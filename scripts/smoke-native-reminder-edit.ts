@@ -154,11 +154,11 @@ type Sent = { chatId: number; text: string; options?: { reply_markup?: unknown }
 let sent: Sent[] = [];
 let edits: Sent[] = [];
 const fakeBot = {
-  sendMessage: async (chatId: number, text: string, options?: Sent['options']) => {
+  sendMessage: async ({ chat_id: chatId, text, ...options }: { chat_id: number; text: string } & NonNullable<Sent['options']>) => {
     sent.push({ chatId, text, options });
     return { message_id: 900 + sent.length };
   },
-  editMessageText: async (text: string, options: { chat_id: number; reply_markup?: unknown }) => {
+  editMessageText: async ({ text, ...options }: { text: string; chat_id: number; reply_markup?: unknown }) => {
     edits.push({ chatId: options.chat_id, text, options });
     return true;
   },

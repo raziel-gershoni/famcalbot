@@ -233,7 +233,7 @@ const waService = {
 };
 /** The bot's own sendMessage is the admin notifier's (error-notifier.ts calls getBot()). */
 const fakeBot = {
-  sendMessage: async (chatId: unknown, text: string, options?: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
+  sendMessage: async ({ chat_id: chatId, text, ...options }: Row) => { sent.push({ via: 'bot', method: 'sendMessage', chatId, text, options }); return { message_id: 1 }; },
 };
 
 // ---- Fixtures ----
@@ -315,7 +315,6 @@ Object.assign(stubs, {
   },
   [`${SRC}/services/telegram/bot.ts`]: {
     getBot: () => fakeBot,
-    initBot: () => fakeBot,
     getMessagingService: () => tgService,
     setUserMenuButton: async () => undefined,
   },
