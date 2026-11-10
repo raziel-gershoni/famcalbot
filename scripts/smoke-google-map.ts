@@ -13,8 +13,8 @@
 //   TZ=UTC npx tsx scripts/smoke-google-map.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-google-map.ts
 
-import { createRequire } from 'module';
 import type { calendar_v3 } from '@googleapis/calendar';
+import { assertOneGaxios, gaxiosModule, nodeFetch } from './lib/google-client-modules';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -54,23 +54,10 @@ const apiBody = (code: number, reason: string, message: string) => ({
   error: { code, message, errors: [{ domain: 'global', reason, message }] },
 });
 
-const calendarRequire = createRequire(require.resolve('@googleapis/calendar'));
-const gaxiosModule = calendarRequire('gaxios') as {
-  Gaxios: { prototype: { _defaultAdapter: (this: unknown, opts: GaxiosOpts) => Promise<unknown> } };
-};
-const nodeFetch = createRequire(calendarRequire.resolve('gaxios'))('node-fetch') as {
-  FetchError: new (message: string, type: string, systemError?: { code: string }) => Error;
-};
-
 function installFakeGoogle(): void {
   // The calendar client, its auth library and their transports must all share the one
   // gaxios whose adapter is replaced; otherwise a request could reach the network.
-  const authGaxios = createRequire(calendarRequire.resolve('google-auth-library'))('gaxios');
-  const commonGaxios = createRequire(calendarRequire.resolve('googleapis-common'))('gaxios');
-  if (authGaxios !== gaxiosModule || commonGaxios !== gaxiosModule) {
-    console.error('FAIL  the Google client loads more than one gaxios; refusing to run without the fake');
-    process.exit(1);
-  }
+  assertOneGaxios();
   const real = gaxiosModule.Gaxios.prototype._defaultAdapter;
   gaxiosModule.Gaxios.prototype._defaultAdapter = async function (this: unknown, opts: GaxiosOpts) {
     const url = String(opts.url);

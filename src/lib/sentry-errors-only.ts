@@ -27,6 +27,6 @@ export const SERVER_NON_ERROR_INTEGRATIONS = ['ProcessSession'];
  * The server's integrations: the SDK's defaults (as @sentry/nextjs builds them) without the process session, and `http`
  * (the server init's Http integration, request sessions off) in place of the default one.
  */
-export function serverIntegrations<T extends { name: string }>(http: T): (defaults: T[]) => T[] {
+export function serverIntegrations<H extends { name: string }>(http: H): <T extends { name: string }>(defaults: T[]) => (T | H)[] {
   return (defaults) => [...defaults.filter((integration) => integration.name !== http.name && !SERVER_NON_ERROR_INTEGRATIONS.includes(integration.name)), http];
 }

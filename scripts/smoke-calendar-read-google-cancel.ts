@@ -21,11 +21,12 @@
 //   TZ=UTC npx tsx scripts/smoke-calendar-read-google-cancel.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-read-google-cancel.ts
 
-import Module, { createRequire } from 'node:module';
+import Module from 'node:module';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import type { UserConfig } from '../src/types';
 import type { GoogleReadOptions, GoogleReadResult } from '../src/services/calendar-read/google';
+import { assertOneGaxios, gaxiosModule, nodeFetch } from './lib/google-client-modules';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -61,13 +62,6 @@ globalThis.fetch = (async (input: unknown) => {
 type GaxiosOpts = Record<string, unknown> & { url?: unknown; timeout?: number; signal?: AbortSignal };
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const calendarRequire = createRequire(require.resolve('@googleapis/calendar'));
-const gaxiosModule = calendarRequire('gaxios') as {
-  Gaxios: { prototype: { _defaultAdapter: (this: unknown, opts: GaxiosOpts) => Promise<unknown> } };
-};
-const nodeFetch = createRequire(calendarRequire.resolve('gaxios'))('node-fetch') as {
-  FetchError: new (message: string, type: string) => Error;
-};
 
 /** How the fake answers a request: at once, or never (until aborted or timed out). */
 type Behaviour = 'answer' | 'hang';
@@ -90,12 +84,7 @@ function abortError(): Error {
 function installFakeGoogle(): void {
   // The calendar client and its auth library must share the one gaxios whose adapter is
   // replaced; otherwise a request could reach the network.
-  const authGaxios = createRequire(calendarRequire.resolve('google-auth-library'))('gaxios');
-  const commonGaxios = createRequire(calendarRequire.resolve('googleapis-common'))('gaxios');
-  if (authGaxios !== gaxiosModule || commonGaxios !== gaxiosModule) {
-    console.error('FAIL  the Google client loads more than one gaxios; refusing to run without the fake');
-    process.exit(1);
-  }
+  assertOneGaxios();
   gaxiosModule.Gaxios.prototype._defaultAdapter = async function (opts: GaxiosOpts) {
     const url = String(opts.url);
     const isToken = url === TOKEN_URL;

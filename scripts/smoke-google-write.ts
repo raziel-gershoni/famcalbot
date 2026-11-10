@@ -15,12 +15,13 @@
 //   TZ=UTC npx tsx scripts/smoke-google-write.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-google-write.ts
 
-import Module, { createRequire } from 'node:module';
+import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RRule } from 'rrule';
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
 import type { CalendarAssignment, UserConfig } from '../src/types';
+import { assertOneGaxios, gaxiosModule } from './lib/google-client-modules';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -273,16 +274,8 @@ function serve(req: Req): Answer {
   return fail(400, 'invalid', `unknown ${req.method} ${req.path}`);
 }
 
-const calendarRequire = createRequire(require.resolve('@googleapis/calendar'));
-const gaxiosModule = calendarRequire('gaxios') as { Gaxios: { prototype: { _defaultAdapter: (opts: Row) => Promise<unknown> } } };
-
 function installFakeGoogle(): void {
-  const authGaxios = createRequire(calendarRequire.resolve('google-auth-library'))('gaxios');
-  const commonGaxios = createRequire(calendarRequire.resolve('googleapis-common'))('gaxios');
-  if (authGaxios !== gaxiosModule || commonGaxios !== gaxiosModule) {
-    console.error('FAIL  the Google client loads more than one gaxios; refusing to run without the fake');
-    process.exit(1);
-  }
+  assertOneGaxios();
   gaxiosModule.Gaxios.prototype._defaultAdapter = async function (opts: Row) {
     const url = new URL(String(opts.url));
     let answer: Answer;

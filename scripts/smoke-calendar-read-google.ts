@@ -24,7 +24,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-read-google.ts
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-read-google.ts
 
-import Module, { createRequire } from 'node:module';
+import Module from 'node:module';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -35,6 +35,7 @@ import { REDIS_KEYS } from '../src/config/redis-keys';
 import type { CalendarAssignment, UserConfig } from '../src/types';
 import type { GoogleReadOptions, GoogleReadResult } from '../src/services/calendar-read/google';
 import type { CalendarRef } from '../src/services/calendar-read/types';
+import { gaxiosModule, googleAuthLibrary } from './lib/google-client-modules';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -196,13 +197,8 @@ const fakeGoogleModule = {
 
 // ---- Real error shapes: gaxios's error, run through google-auth-library's processError ----
 
-const calendarRequire = createRequire(require.resolve('@googleapis/calendar'));
-const { GaxiosError } = calendarRequire('gaxios') as {
-  GaxiosError: new (message: string, config: object, response?: object, error?: Error) => Error;
-};
-const { DefaultTransporter } = calendarRequire('google-auth-library') as {
-  DefaultTransporter: new () => { processError(e: Error): Error };
-};
+const { GaxiosError } = gaxiosModule;
+const { DefaultTransporter } = googleAuthLibrary;
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 

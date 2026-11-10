@@ -98,7 +98,9 @@ async function runChecks(): Promise<void> {
   const cronCalls: Array<{ pattern: string; options: unknown; task: () => unknown }> = [];
   // node-cron: every job is recorded; while `realCron` is on, a job with a fixed minute (hourly and daily ones) also runs
   // in the REAL node-cron, which the scheduler check drives on a virtual clock. A job in flight is counted so that check can wait for it.
-  const nodeCron = createRequire(__filename)(path.join(ROOT, 'node_modules/node-cron/dist/cjs/node-cron.js')) as {
+  const nodeCronRequire = createRequire(__filename);
+  // The package's own entry (its exports map picks the CommonJS build), loaded by path so the 'node-cron' stub below does not answer
+  const nodeCron = nodeCronRequire(nodeCronRequire.resolve('node-cron')) as {
     schedule(pattern: string, task: (...args: unknown[]) => unknown, options?: unknown): { stop(): void };
   };
   let realCron = false;

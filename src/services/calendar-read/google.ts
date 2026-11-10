@@ -760,7 +760,7 @@ export async function readGoogle(
 let stampClient: Redis | undefined;
 
 /**
- * The stamp's own client: one attempt per command (in @upstash/redis 1.35, `retry: false`
+ * The stamp's own client: one attempt per command (in @upstash/redis, `retry: false`
  * still makes two) and each request aborted at 750 ms, so a slow Redis can't hold up a
  * write to Google.
  */

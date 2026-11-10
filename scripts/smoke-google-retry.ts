@@ -13,9 +13,10 @@
 //   TZ=UTC npx tsx scripts/smoke-google-retry.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-google-retry.ts
 
-import Module, { createRequire } from 'node:module';
+import Module from 'node:module';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { assertOneGaxios, gaxiosModule, nodeFetch } from './lib/google-client-modules';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -67,13 +68,6 @@ function restoreFetch() {
 type GaxiosOpts = Record<string, unknown> & { url?: unknown; method?: unknown; signal?: AbortSignal };
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const calendarRequire = createRequire(require.resolve('@googleapis/calendar'));
-const gaxiosModule = calendarRequire('gaxios') as {
-  Gaxios: { prototype: { _defaultAdapter: (this: unknown, opts: GaxiosOpts) => Promise<unknown> } };
-};
-const nodeFetch = createRequire(calendarRequire.resolve('gaxios'))('node-fetch') as {
-  FetchError: new (message: string, type: string, systemError?: { code: string }) => Error;
-};
 
 type Answer = { status: number; data?: unknown; headers?: Record<string, string> } | { network: string };
 type Call = { method: string; url: string; token: boolean };
@@ -96,12 +90,7 @@ const fail = (status: number, reason: string, headers: Record<string, string> = 
 const retryAfter = (status: number, reason: string, value: string): Answer => fail(status, reason, { 'retry-after': value });
 
 function installFakeGoogle(): void {
-  const authGaxios = createRequire(calendarRequire.resolve('google-auth-library'))('gaxios');
-  const commonGaxios = createRequire(calendarRequire.resolve('googleapis-common'))('gaxios');
-  if (authGaxios !== gaxiosModule || commonGaxios !== gaxiosModule) {
-    console.error('FAIL  the Google client loads more than one gaxios; refusing to run without the fake');
-    process.exit(1);
-  }
+  assertOneGaxios();
   gaxiosModule.Gaxios.prototype._defaultAdapter = async function (opts: GaxiosOpts) {
     const url = String(opts.url);
     const token = url === TOKEN_URL;
