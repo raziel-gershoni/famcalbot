@@ -1,7 +1,7 @@
 // Smoke test: no secret value of the environment reaches the server's logs.
 //
-// node-telegram-bot-api's TelegramError keeps the HTTP response, whose request path is `/bot<token>/<method>`, so a
-// `console.error('...', error)` of one printed the bot token in the Railway logs. instrumentation.ts installs
+// An HTTP client's error that keeps the response (its request path is `/bot<token>/<method>`), or a failed Bot API call
+// whose cause names the request URL, would print the bot token in the Railway logs. instrumentation.ts installs
 // src/lib/console-scrub.ts once at startup; this checks that a line written through it carries no secret, whatever the
 // arguments, and that it is installed at startup.
 //
@@ -12,6 +12,7 @@
 import fs from 'fs';
 import path from 'path';
 import { installConsoleScrub, secretValues, scrubText, withoutHttpResponse } from '../src/lib/console-scrub';
+import { tgNoAnswer } from './lib/fake-telegram';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -46,12 +47,13 @@ function capturedConsole() {
   return { target, lines, coverage };
 }
 
-/** What node-telegram-bot-api throws for a refused call: the response with the request whose path holds the token. */
+/** An HTTP client's error that keeps the response, with the request whose path holds the token. */
+function httpClientError(message: string, response: object) {
+  return Object.assign(new Error(message), { code: 'ETELEGRAM', response });
+}
 function telegramError() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { TelegramError } = require('node-telegram-bot-api/src/errors.js');
   const request = { method: 'POST', path: `/bot${BOT_TOKEN}/setChatMenuButton`, href: `https://api.telegram.org/bot${BOT_TOKEN}/setChatMenuButton` };
-  return new TelegramError('ETELEGRAM: 400 Bad Request: chat not found', { statusCode: 400, body: { ok: false, description: 'Bad Request: chat not found' }, request });
+  return httpClientError('ETELEGRAM: 400 Bad Request: chat not found', { statusCode: 400, body: { ok: false, description: 'Bad Request: chat not found' }, request });
 }
 
 check('the secrets are the values of secret-named variables, long enough to be secrets; others are left', () => {
@@ -60,7 +62,7 @@ check('the secrets are the values of secret-named variables, long enough to be s
   assert(!secrets.includes('production') && !secrets.includes('FamCalBot_of_the_smoke') && !secrets.includes('abc'), `not a secret: ${JSON.stringify(secrets)}`);
 });
 
-check('a logged Telegram error prints no bot token, but still says what went wrong', () => {
+check('a logged HTTP client error that keeps the response prints no bot token, but still says what went wrong', () => {
   const { target, lines } = capturedConsole();
   target.error('[set-menu-button] Setting the menu button failed:', telegramError());
   const line = lines.join('\n');
@@ -68,11 +70,9 @@ check('a logged Telegram error prints no bot token, but still says what went wro
   assert(line.includes('chat not found') && line.includes('ETELEGRAM') && line.includes('400'), `the line lost its meaning:\n${line}`);
 });
 
-check('a logged Telegram error prints none of the request it sent (a message\'s text, a guest query\'s id), only its name, code, status and message', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { TelegramError } = require('node-telegram-bot-api/src/errors.js');
+check('a logged HTTP client error prints none of the request it sent (a message\'s text, a guest query\'s id), only its name, code, status and message', () => {
   const request = { method: 'POST', path: '/bot0/answerGuestQuery', body: 'guest_query_id=GQ-SENTINEL-77&result=%7B%22message_text%22%3A%22Dinner%20at%20Grandma%22%7D' };
-  const error = new TelegramError('400 Bad Request: query is too old', { statusCode: 400, body: { ok: false, description: 'Bad Request: query is too old' }, request });
+  const error = httpClientError('ETELEGRAM: 400 Bad Request: query is too old', { statusCode: 400, body: { ok: false, description: 'Bad Request: query is too old' }, request });
   const { target, lines } = capturedConsole();
   target.error('[ask-in-chat]', error);
   target.warn('a failed send:', error, { user: 1 });
@@ -81,6 +81,16 @@ check('a logged Telegram error prints none of the request it sent (a message\'s 
   assert(line.includes('[ETELEGRAM] (HTTP 400): ETELEGRAM: 400 Bad Request: query is too old'), `the line lost its meaning:\n${line}`);
   const plain = new Error('no response here');
   assert(withoutHttpResponse(plain) === plain && withoutHttpResponse('text') === 'text', 'an error with no response, or a non-error, is changed');
+});
+
+check('a logged Bot API network failure whose cause names the request URL prints no bot token, but still says what went wrong', () => {
+  const error = tgNoAnswer('answerGuestQuery', `request to https://api.telegram.org/bot${BOT_TOKEN}/answerGuestQuery failed`);
+  assert(String((error as Error & { cause?: unknown }).cause).includes(BOT_TOKEN), 'the fake lost the token it must carry');
+  const { target, lines } = capturedConsole();
+  target.error('[ask-in-chat] answerGuestQuery failed:', error);
+  const line = lines.join('\n');
+  assert(!line.includes(BOT_TOKEN), `the token is in the log:\n${line}`);
+  assert(line.includes('EFETCH') && line.includes('Network request failed: answerGuestQuery'), `the line lost its meaning:\n${line}`);
 });
 
 check('every level, format strings and nested objects are scrubbed', () => {

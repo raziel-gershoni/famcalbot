@@ -18,6 +18,7 @@ import {
   StreamMessageOptions,
 } from './types';
 import { captureError } from '../../lib/error-capture';
+import { telegramErrorInfo } from '../../lib/telegram-errors';
 import { retryWithBackoff, type RetryVerdict } from '../../utils/fetch-retry';
 
 /**
@@ -45,20 +46,17 @@ export function guestAnswerArticle(text: string, button?: { text: string; url: s
 }
 
 /**
- * Whether a failed Bot API call is worth another attempt, for retryWithBackoff: no answer (EFATAL), a 429 (after the
- * `retry_after` Telegram asks for) and a 5xx (also one whose body is not JSON, EPARSE) are; every other refusal (a 400 "query already answered", a 403) is not.
+ * Whether a failed Bot API call is worth another attempt, for retryWithBackoff: no answer (EFETCH, which is also a 5xx
+ * whose body is not Telegram's JSON, a gateway's page), a 429 (after the `retry_after` Telegram asks for) and a 5xx are;
+ * every other refusal (a 400 "query already answered", a 403) is not. An answer under 500 that is not JSON (EPARSE, a
+ * proxy's page) has no status in node-telegram-bot-api 2.x and is not retried (under 0.66 a proxy's HTML 429 was).
  */
 export function telegramRetryVerdict(error: unknown): RetryVerdict {
-  const e = error as { code?: unknown; response?: { statusCode?: unknown; body?: { parameters?: { retry_after?: unknown } } } } | null;
-  if (e?.code === 'EFATAL') return { retry: true };
-  // EPARSE is a body that is not Telegram's JSON (a gateway's HTML 502 page): the status is still the answer's
-  if (e?.code !== 'ETELEGRAM' && e?.code !== 'EPARSE') return { retry: false };
-  const status = e.response?.statusCode;
-  if (status === 429) {
-    const after = e.response?.body?.parameters?.retry_after;
-    return { retry: true, ...(typeof after === 'number' ? { askedMs: after * 1000 } : {}) };
-  }
-  return { retry: typeof status === 'number' && status >= 500 };
+  const info = telegramErrorInfo(error);
+  if (info?.kind === 'no-answer') return { retry: true };
+  if (info?.kind !== 'refused') return { retry: false };
+  if (info.status === 429) return { retry: true, ...(info.retryAfterMs !== null ? { askedMs: info.retryAfterMs } : {}) };
+  return { retry: info.status >= 500 };
 }
 
 // Telegram-side flush cadence for sendMessageDraft updates. Drafts are

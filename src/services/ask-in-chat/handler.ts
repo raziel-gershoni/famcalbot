@@ -21,6 +21,7 @@ import type { UserConfig } from '../../types';
 import { guestAnswerArticle, type GuestAnswerArticle } from '../messaging/telegram-adapter';
 import { getBotMessages } from '../../lib/bot-messages';
 import { DEFAULT_BOT_USERNAME } from '../../lib/gate-links';
+import { telegramErrorInfo } from '../../lib/telegram-errors';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { judgeWindow, type BusyRead } from './busy';
 import { askedLines } from './people';
@@ -82,24 +83,23 @@ function codeOf(error: unknown): string {
   return error instanceof Error ? error.name : 'error';
 }
 
-/** Telegram's own words for a refused answer: the HTTP status and its description (never the request). */
-function refusalText(error: unknown): string {
-  const response = (error as { response?: { statusCode?: unknown; body?: { description?: unknown } } } | null)?.response;
-  if (!response) return `no answer (${codeOf(error)})`;
-  const description = typeof response.body?.description === 'string' ? response.body.description : 'no description';
-  return `HTTP ${typeof response.statusCode === 'number' ? response.statusCode : '?'} ${description}`;
+/** Telegram's own words for a refused answer: the HTTP status and its description (never the request). Exported for the smoke. */
+export function refusalText(error: unknown): string {
+  const info = telegramErrorInfo(error);
+  return info?.kind === 'refused' ? `HTTP ${info.status} ${info.description}` : `no answer (${codeOf(error)})`;
 }
 
-/** What a retry after a lost success gets from Telegram: the first answer went, so there is nothing to report. */
-function alreadyAnswered(error: unknown): boolean {
-  const response = (error as { response?: { statusCode?: unknown; body?: { description?: unknown } } } | null)?.response;
-  return response?.statusCode === 400 && typeof response.body?.description === 'string' && /already (been )?answered/i.test(response.body.description);
+/** What a retry after a lost success gets from Telegram: the first answer went, so there is nothing to report. Exported for the smoke. */
+export function alreadyAnswered(error: unknown): boolean {
+  const info = telegramErrorInfo(error);
+  return info?.kind === 'refused' && info.status === 400 && /already (been )?answered/i.test(info.description);
 }
 
 /**
- * The error a report may carry: a new one with a short message and nothing attached. A node-telegram-bot-api error holds
- * the whole HTTP response, whose `request.body` is `guest_query_id=<id>&result=<the answer>`, and captureError prints the
- * error object on the console, so the original never goes to a report.
+ * The error a report may carry: a new one with a short message and nothing attached. A failed call's error can carry
+ * what was sent or where (a network failure's cause names the request URL, which holds the bot token; an unreadable
+ * answer keeps the page it got), and captureError prints the error object on the console, so the original never goes to
+ * a report.
  */
 function plainError(message: string): Error {
   return new Error(message);

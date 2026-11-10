@@ -22,6 +22,7 @@
 
 import { prisma } from '../utils/prisma';
 import { captureError } from '../lib/error-capture';
+import { telegramErrorInfo } from '../lib/telegram-errors';
 import { getBotMessages, getSubscriptionMessages } from '../lib/bot-messages';
 import { paymentDay } from '../lib/plan-disclosure';
 import { getBot, getMessagingService } from './telegram/bot';
@@ -49,16 +50,13 @@ function safeText(error: unknown): string {
 }
 
 /**
- * Telegram answered and said no: node-telegram-bot-api's TelegramError (code ETELEGRAM), with the Bot API's description.
- * A rate limit or a Telegram server error is not a refusal (null: a failure to try again).
+ * Telegram answered and said no: its refusal's description (telegramErrorInfo). A rate limit or a Telegram server error
+ * is not a refusal (null: a failure to try again), and neither is no answer. Exported for the smoke.
  */
-function telegramRefusal(error: unknown): string | null {
-  const e = error as { code?: unknown; response?: { statusCode?: unknown; body?: { description?: unknown } } };
-  if (e?.code !== 'ETELEGRAM') return null;
-  const status = typeof e.response?.statusCode === 'number' ? e.response.statusCode : 0;
-  if (status === 429 || status >= 500) return null;
-  const description = e.response?.body?.description;
-  return typeof description === 'string' ? description : safeText(error);
+export function telegramRefusal(error: unknown): string | null {
+  const info = telegramErrorInfo(error);
+  if (info?.kind !== 'refused' || info.status === 429 || info.status >= 500) return null;
+  return info.description;
 }
 
 /** Telegram's refusal for a charge it already refunded: the Stars are back, so the plan must end all the same. */

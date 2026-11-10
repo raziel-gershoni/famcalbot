@@ -11,6 +11,7 @@ import type { NativeEvent, NativeEventInstance, NativeReminderPing, NativeRemind
 import { prisma } from '../../utils/prisma';
 import { captureError } from '../../lib/error-capture';
 import { describeDeliveryError } from '../../lib/delivery-errors';
+import { telegramErrorInfo } from '../../lib/telegram-errors';
 import { markUnreachableAfterSendFailure } from '../../lib/user-reachability';
 import { isIdentifierBlocked } from '../../lib/user-moderation';
 import { resolveUserTimezone } from '../../lib/timezone';
@@ -197,11 +198,13 @@ function armedAtOf(series: NativeEvent, occ: VirtualInstance, override: NativeEv
   return moved && override ? override.updatedAt : series.armedAt;
 }
 
-/** A send that may work on a later tick: Telegram's 429 and 5xx, or no answer at all. */
-function isPassingFailure(error: unknown): boolean {
-  const response = (error as { response?: { statusCode?: number; body?: { error_code?: number } } } | null)?.response;
-  const status = response?.body?.error_code ?? response?.statusCode;
-  return status === undefined || status === 429 || status >= 500;
+/**
+ * A send that may work on a later tick: anything but Telegram's own 4xx refusal (a 429, a 5xx, no answer at all, or a
+ * failure that is not Telegram's). Exported for the smoke.
+ */
+export function isPassingFailure(error: unknown): boolean {
+  const info = telegramErrorInfo(error);
+  return info?.kind !== 'refused' || info.status === 429 || info.status >= 500;
 }
 
 /**

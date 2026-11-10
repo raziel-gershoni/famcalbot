@@ -1,10 +1,10 @@
 /**
- * Secrets never reach the server's logs. A Telegram error (node-telegram-bot-api's TelegramError) keeps the HTTP response,
- * and its request's path holds `/bot<token>/<method>`, so any `console.error('...', error)` of one printed the bot token in
- * the Railway logs; a Prisma error can carry the database URL. Rather than trust every catch in the codebase, the server
- * installs this once at startup (instrumentation.ts): each console line is formatted as Node formats it, then every secret
- * value of the environment is replaced, and an HTTP client's error loses the response it carries (withoutHttpResponse).
- * Sentry has its own scrubber (sentry-scrub.ts).
+ * Secrets never reach the server's logs. A failed Bot API call's error can name the request URL, which holds
+ * `/bot<token>/<method>` (a network failure's cause), so a `console.error('...', error)` of one could print the bot token
+ * in the Railway logs; a Prisma error can carry the database URL. Rather than trust every catch in the codebase, the
+ * server installs this once at startup (instrumentation.ts): each console line is formatted as Node formats it, then
+ * every secret value of the environment is replaced, and an HTTP client's error loses the response it carries
+ * (withoutHttpResponse). Sentry has its own scrubber (sentry-scrub.ts).
  */
 
 import { formatWithOptions } from 'util';
@@ -35,9 +35,10 @@ export function scrubText(text: string, secrets: readonly string[]): string {
 }
 
 /**
- * An HTTP client's error that keeps the whole response (node-telegram-bot-api's TelegramError, ParseError and FatalError)
- * also keeps the request, whose body is what was sent: a message's text with its events, a guest query's id. Such an
- * error is logged as its name, code, HTTP status, message and stack only.
+ * An HTTP client's error that keeps the whole response (a `.response` object, as some HTTP clients attach) also keeps the
+ * request, whose body is what was sent: a message's text with its events, a guest query's id. Such an error is logged as
+ * its name, code, HTTP status, message and stack only. node-telegram-bot-api 2.x's errors carry no response; this stays
+ * as a shield for any other client's that does.
  */
 export function withoutHttpResponse(arg: unknown): unknown {
   if (!(arg instanceof Error)) return arg;

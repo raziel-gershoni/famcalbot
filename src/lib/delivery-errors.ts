@@ -2,10 +2,8 @@
  * Classification of delivery failures.
  *
  * Telegram answers a send to someone who has blocked the bot with
- * `403 Forbidden: bot was blocked by the user`. node-telegram-bot-api surfaces that
- * as a TelegramError with `code = 'ETELEGRAM'` and the API response on
- * `response.body`, and a message of the form
- * `ETELEGRAM: 403 Forbidden: bot was blocked by the user`.
+ * `403 Forbidden: bot was blocked by the user`, read through telegramErrorInfo
+ * (src/lib/telegram-errors.ts) as a refusal with its status and description.
  *
  * This is a terminal state, not a transient one: retrying tomorrow produces the same
  * 403. It has to be distinguishable from an ordinary failure so callers can stop
@@ -16,6 +14,8 @@
  * status webhook. See WHATSAPP_UNREACHABLE_CODES for which codes count and why.
  */
 
+import { telegramErrorInfo } from './telegram-errors';
+
 /** Why a send failed, when we can tell. */
 export type DeliveryFailure = 'unreachable' | 'other';
 
@@ -24,7 +24,6 @@ interface TelegramErrorShape {
   message?: string;
   /** A WhatsApp error object attached to the thrown error, e.g. a failed delivery status's errors[0]. */
   whatsappError?: { code?: number };
-  response?: { body?: { error_code?: number; description?: string } };
 }
 
 // 403 descriptions that mean "this chat will never accept our messages again".
@@ -80,12 +79,11 @@ export function isUnreachableError(error: unknown): boolean {
   const waCode = whatsappErrorCode(error);
   if (waCode !== null) return WHATSAPP_UNREACHABLE_CODES.has(waCode);
 
-  const status = err.response?.body?.error_code;
-  const description = err.response?.body?.description ?? '';
+  const info = telegramErrorInfo(error);
   const message = typeof err.message === 'string' ? err.message : '';
 
-  // Structured form: what node-telegram-bot-api attaches to the error.
-  if (status === 403 && TERMINAL_403_MARKERS.some(m => description.toLowerCase().includes(m))) {
+  // Structured form: Telegram's refusal, its status and description.
+  if (info?.kind === 'refused' && info.status === 403 && TERMINAL_403_MARKERS.some(m => info.description.toLowerCase().includes(m))) {
     return true;
   }
 
@@ -103,9 +101,11 @@ export function classifyDeliveryFailure(error: unknown): DeliveryFailure {
   return isUnreachableError(error) ? 'unreachable' : 'other';
 }
 
-/** Short, log-safe reason string. */
+/** Short, log-safe reason string: Telegram's description for its refusal (no "403: " prefix), else the error's message. */
 export function describeDeliveryError(error: unknown): string {
   if (!error) return 'Unknown error';
+  const info = telegramErrorInfo(error);
+  if (info?.kind === 'refused' && info.description) return info.description;
   const err = error as TelegramErrorShape;
-  return err.response?.body?.description || err.message || 'Unknown error';
+  return err.message || 'Unknown error';
 }
