@@ -6,8 +6,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "dev": "tsx scripts/dev.ts",
-    "dev:next": "next dev",
+    "dev": "next dev",
     "build": "prisma generate && prisma migrate deploy && next build",
     "lint": "eslint .",
     "start": "NODE_OPTIONS='--max-old-space-size=256' next start",
@@ -56,7 +55,7 @@
     "next-intl": "^4.14.10",
     "next-mdx-remote": "^6.0.0",
     "node-cron": "^4.6.0",
-    "node-telegram-bot-api": "^0.66.0",
+    "node-telegram-bot-api": "2.4.0",
     "openid-client": "6.8.9",
     "opusscript": "^0.1.1",
     "pdf-lib": "^1.17.1",
@@ -72,7 +71,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
-    "@types/node-telegram-bot-api": "^0.64.15",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/web-push": "3.6.4",

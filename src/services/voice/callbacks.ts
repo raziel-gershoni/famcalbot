@@ -50,10 +50,11 @@ export async function handleEventCallback(
 
   if (!pending) {
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
-    await bot.editMessageText(t.voice.expiredMessage, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice.expired });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.expiredMessage,
       parse_mode: 'HTML'
     });
     return;
@@ -63,21 +64,23 @@ export async function handleEventCallback(
   const t = await getBotMessages(user.language || 'en');
 
   if (action === 'cancel') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice.cancelled });
-    await bot.editMessageText(t.voice.cancelledMessage, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice.cancelled });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.cancelledMessage,
       parse_mode: 'HTML'
     });
     return;
   }
 
   if (action === 'create') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice.creating });
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice.creating });
 
-    await bot.editMessageText(t.voice.creatingInCalendar, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.creatingInCalendar,
       parse_mode: 'HTML'
     });
 
@@ -85,14 +88,12 @@ export async function handleEventCallback(
     const calendarId = await createCalendarFor(user, event);
     if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
       console.log(`[Voice] user ${user.id}: a create on a Google calendar with no Google token; asked to connect`);
-      await bot.editMessageText(
-        `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice.notConnected}\n\n${t.voice.connectFirst}`,
+        parse_mode: 'HTML'
+      });
       return;
     }
 
@@ -167,68 +168,61 @@ export async function handleEventCallback(
         ? `\n\n<a href="${result.eventLink}">${t.voice.openInCalendar}</a>`
         : '';
 
-      await bot.editMessageText(
-        reminder
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: reminder
           ? await formatReminderCreated(event, user.language || 'en', timezone, user)
           : `${t.voice.created}\n\n` +
             `<b>${escapeHtml(event.title)}</b>\n` +
             `${dateTimeStr}${linkButton}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          disable_web_page_preview: true
-        }
-      );
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true }
+      });
     } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the calendar is not theirs to add to (built-in), or Google refuses
       // it (a read-only calendar, an event they don't organize)
-      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+      await bot.editMessageText({
         chat_id: chatId,
         message_id: messageId,
+        text: t.nativeReminders?.permissionDenied || "You can't change this one.",
         parse_mode: 'HTML'
       });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
 
-      await bot.editMessageText(
-        `${t.voice.permissionRequired}\n\n${t.voice.permissionMessage}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice.grantAccess, web_app: { url: upgradeUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice.permissionRequired}\n\n${t.voice.permissionMessage}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice.grantAccess, web_app: { url: upgradeUrl } }
+          ]]
         }
-      );
+      });
     } else if (result.error === 'TOKEN_EXPIRED') {
       const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
 
-      await bot.editMessageText(
-        `${t.voice.accessExpired}\n\n${t.voice.accessExpiredMessage}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice.reauthorize, web_app: { url: refreshUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice.accessExpired}\n\n${t.voice.accessExpiredMessage}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice.reauthorize, web_app: { url: refreshUrl } }
+          ]]
         }
-      );
+      });
     } else {
-      await bot.editMessageText(
-        writeFailureText(result, t, 'create', { userId: user.id, calendarId }),
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: writeFailureText(result, t, 'create', { userId: user.id, calendarId }),
+        parse_mode: 'HTML'
+      });
     }
   }
 }
@@ -249,7 +243,7 @@ export async function handleEventChoiceCallback(
   if (!chosen.ok && chosen.reason !== 'expired') {
     // No such choice, or a failure before the create: the card stays for another tap
     const t = await getBotMessages(chosen.pending.user.language || 'en');
-    await getBot().answerCallbackQuery(queryId, { text: t.voice.unknownError });
+    await getBot().answerCallbackQuery({ callback_query_id: queryId, text: t.voice.unknownError });
     return;
   }
   // Created from the claimed reminder; an expired card (or one another tap took) gets the expired answer
@@ -272,10 +266,11 @@ export async function handleEditCallback(
 
   if (!pending) {
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
-    await bot.editMessageText(t.voice.expiredMessage, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice.expired });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.expiredMessage,
       parse_mode: 'HTML'
     });
     return;
@@ -287,48 +282,46 @@ export async function handleEditCallback(
   await removePendingEdit(pendingId);
 
   if (action === 'cancel') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.cancelled || 'Cancelled' });
-    await bot.editMessageText(t.voice?.cancelledMessage || '❌ Edit cancelled.', {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice?.cancelled || 'Cancelled' });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.cancelledMessage || '❌ Edit cancelled.',
       parse_mode: 'HTML'
     });
     return;
   }
 
   if (action === 'confirm') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.updating || 'Updating...' });
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice?.updating || 'Updating...' });
 
-    await bot.editMessageText(t.voice?.updatingEvent || '⏳ Updating event...', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.updatingEvent || '⏳ Updating event...',
       parse_mode: 'HTML'
     });
 
     // A Google calendar needs the token; a FamCal one never does
     if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
       console.log(`[Voice] user ${user.id}: a change on a Google calendar with no Google token; asked to connect`);
-      await bot.editMessageText(
-        `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
+        parse_mode: 'HTML'
+      });
       return;
     }
 
     const eventId = originalEvent.eventId;
     if (!eventId) {
-      await bot.editMessageText(
-        t.voice?.eventNotFound || '❌ Could not find the event to update.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: t.voice?.eventNotFound || '❌ Could not find the event to update.',
+        parse_mode: 'HTML'
+      });
       return;
     }
 
@@ -351,16 +344,14 @@ export async function handleEditCallback(
 
       const editedMsg = t.voice?.edited || '✅ <b>Event updated!</b>';
 
-      await bot.editMessageText(
-        `${editedMsg}\n\n` +
-        `📅 ${escapeHtml(updates.title || originalEvent.summary)}${linkButton}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          disable_web_page_preview: true
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${editedMsg}\n\n` +
+          `📅 ${escapeHtml(updates.title || originalEvent.summary)}${linkButton}`,
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true }
+      });
 
       // Recent-events: refresh the sliding window with the edited event (PR 9).
       const { pushRecentEvent } = await import('./recent-events-store');
@@ -384,52 +375,47 @@ export async function handleEditCallback(
     } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the item is not theirs to change (built-in), or Google refuses it
       // (a read-only calendar, an event they don't organize)
-      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+      await bot.editMessageText({
         chat_id: chatId,
         message_id: messageId,
+        text: t.nativeReminders?.permissionDenied || "You can't change this one.",
         parse_mode: 'HTML'
       });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
-      await bot.editMessageText(
-        `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
+          ]]
         }
-      );
+      });
     } else if (result.error === 'TOKEN_EXPIRED') {
       const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
-      await bot.editMessageText(
-        `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
+          ]]
         }
-      );
+      });
     } else {
       // Not found, a series on set weekdays that can't move its days (only one occurrence, or a new series), and every
       // other failure: one sentence each, in the person's language
-      await bot.editMessageText(
-        writeFailureText(result, t, 'update', { userId: user.id, calendarId }),
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: writeFailureText(result, t, 'update', { userId: user.id, calendarId }),
+        parse_mode: 'HTML'
+      });
     }
   }
 }
@@ -450,10 +436,11 @@ export async function handleDeleteCallback(
 
   if (!pending) {
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.answerCallbackQuery(queryId, { text: t.voice.expired });
-    await bot.editMessageText(t.voice.expiredMessage, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice.expired });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.expiredMessage,
       parse_mode: 'HTML'
     });
     return;
@@ -465,48 +452,46 @@ export async function handleDeleteCallback(
   await removePendingDelete(pendingId);
 
   if (action === 'cancel') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.kept || 'Kept' });
-    await bot.editMessageText(t.voice?.keptMessage || '✅ Event kept.', {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice?.kept || 'Kept' });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.keptMessage || '✅ Event kept.',
       parse_mode: 'HTML'
     });
     return;
   }
 
   if (action === 'confirm') {
-    await bot.answerCallbackQuery(queryId, { text: t.voice?.deleting || 'Deleting...' });
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.voice?.deleting || 'Deleting...' });
 
-    await bot.editMessageText(t.voice?.deletingEvent || '⏳ Deleting event...', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.deletingEvent || '⏳ Deleting event...',
       parse_mode: 'HTML'
     });
 
     // A Google calendar needs the token; a FamCal one never does
     if (!isFamcalId(calendarId) && !user.googleRefreshToken) {
       console.log(`[Voice] user ${user.id}: a change on a Google calendar with no Google token; asked to connect`);
-      await bot.editMessageText(
-        `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.notConnected || '❌ Not connected'}\n\n${t.voice?.connectFirst || 'Please connect your calendar first.'}`,
+        parse_mode: 'HTML'
+      });
       return;
     }
 
     const eventId = event.eventId;
     if (!eventId) {
-      await bot.editMessageText(
-        t.voice?.eventNotFound || '❌ Could not find the event to delete.',
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: t.voice?.eventNotFound || '❌ Could not find the event to delete.',
+        parse_mode: 'HTML'
+      });
       return;
     }
 
@@ -520,15 +505,13 @@ export async function handleDeleteCallback(
 
     if (result.success) {
       const deletedMsg = t.voice?.deleted || '✅ <b>Event deleted!</b>';
-      await bot.editMessageText(
-        `${deletedMsg}\n\n` +
-        `📅 <s>${escapeHtml(event.summary)}</s>`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${deletedMsg}\n\n` +
+          `📅 <s>${escapeHtml(event.summary)}</s>`,
+        parse_mode: 'HTML'
+      });
 
       // Recent-events: drop the deleted event from the sliding window so the
       // user doesn't see "the meeting" resolve to a tombstone (PR 9).
@@ -551,50 +534,45 @@ export async function handleDeleteCallback(
     } else if (result.error === 'FORBIDDEN' || (result.error === 'PERMISSION_DENIED' && isFamcalId(calendarId))) {
       // No grant fixes this: the item is not theirs to delete (built-in), or Google refuses it
       // (a read-only calendar, an event they don't organize)
-      await bot.editMessageText(t.nativeReminders?.permissionDenied || "You can't change this one.", {
+      await bot.editMessageText({
         chat_id: chatId,
         message_id: messageId,
+        text: t.nativeReminders?.permissionDenied || "You can't change this one.",
         parse_mode: 'HTML'
       });
     } else if (result.error === 'PERMISSION_DENIED') {
       const upgradeUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
-      await bot.editMessageText(
-        `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.permissionRequired || '🔐 Permission required'}\n\n${t.voice?.permissionMessage || 'Please grant calendar write access.'}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice?.grantAccess || 'Grant Access', web_app: { url: upgradeUrl } }
+          ]]
         }
-      );
+      });
     } else if (result.error === 'TOKEN_EXPIRED') {
       const refreshUrl = buildUrl(`/refresh-token?user_id=${user.telegramId}&scope=write`);
-      await bot.editMessageText(
-        `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
-            ]]
-          }
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: `${t.voice?.accessExpired || '🔑 Access expired'}\n\n${t.voice?.accessExpiredMessage || 'Please re-authorize.'}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: t.voice?.reauthorize || 'Re-authorize', web_app: { url: refreshUrl } }
+          ]]
         }
-      );
+      });
     } else {
-      await bot.editMessageText(
-        writeFailureText(result, t, 'delete', { userId: user.id, calendarId }),
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          parse_mode: 'HTML'
-        }
-      );
+      await bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId,
+        text: writeFailureText(result, t, 'delete', { userId: user.id, calendarId }),
+        parse_mode: 'HTML'
+      });
     }
   }
 }
@@ -615,7 +593,7 @@ export async function handleVoiceUndoCallback(
   callbackUserId: number
 ): Promise<void> {
   const bot = await getBot();
-  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+  await bot.answerCallbackQuery({ callback_query_id: queryId, text: '⏳' });
 
   const { getUserByTelegramId } = await import('../user-service');
   const user = await getUserByTelegramId(callbackUserId);
@@ -626,21 +604,24 @@ export async function handleVoiceUndoCallback(
   const result = await handleUndoCallback(user, token);
 
   if (result.ok) {
-    await bot.editMessageText(t.voice?.undone || '↩️ <b>Event removed.</b>', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.undone || '↩️ <b>Event removed.</b>',
       parse_mode: 'HTML',
     });
   } else if (result.reason === 'expired') {
-    await bot.editMessageText(t.voice?.undoExpired || '⌛ Undo window expired — event kept.', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.undoExpired || '⌛ Undo window expired — event kept.',
       parse_mode: 'HTML',
     });
   } else {
-    await bot.editMessageText(t.voice?.undoFailed || '❌ Could not undo. Try editing or deleting from the calendar.', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.undoFailed || '❌ Could not undo. Try editing or deleting from the calendar.',
       parse_mode: 'HTML',
     });
   }
@@ -658,15 +639,16 @@ export async function handleBulkCallback(
   pendingId: string
 ): Promise<void> {
   const bot = getBot();
-  await bot.answerCallbackQuery(queryId, { text: '⏳' });
+  await bot.answerCallbackQuery({ callback_query_id: queryId, text: '⏳' });
 
   if (action === 'cancel') {
     const { handleBulkCancel } = await import('./bulk-confirmations');
     const user = await handleBulkCancel(pendingId);
     const t = user ? await getBotMessages(user.language || 'en') : await getBotMessagesForTelegramUser(chatId);
-    await bot.editMessageText(t.voice?.bulkCancelled || '❌ Batch cancelled.', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.bulkCancelled || '❌ Batch cancelled.',
       parse_mode: 'HTML',
     });
     return;
@@ -689,25 +671,28 @@ export async function handleBulkCallback(
         .replace('{total}', String(result.successCount + result.failureCount))
         .replace('{errors}', result.failureMessages.map((e) => `• ${e}`).join('\n'));
     }
-    await bot.editMessageText(summary, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: summary,
       parse_mode: 'HTML',
     });
   } catch (err) {
     const t = await getBotMessagesForTelegramUser(chatId);
     if (err instanceof Error && err.message === 'bulk_pending_expired') {
-      await bot.editMessageText(t.voice.expiredMessage, {
+      await bot.editMessageText({
         chat_id: chatId,
         message_id: messageId,
+        text: t.voice.expiredMessage,
         parse_mode: 'HTML',
       });
       return;
     }
     captureError(err, 'voice-bulk-callback');
-    await bot.editMessageText(t.voice?.unknownError || '❌ Something went wrong.', {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice?.unknownError || '❌ Something went wrong.',
       parse_mode: 'HTML',
     });
   }
@@ -729,17 +714,18 @@ export async function handleQuickFixCallback(
   const bot = getBot();
   const pending = await getPendingEvent(pendingId);
   if (!pending) {
-    await bot.answerCallbackQuery(queryId, { text: '⏰' });
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: '⏰' });
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.editMessageText(t.voice.expiredMessage, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.expiredMessage,
       parse_mode: 'HTML',
     });
     return;
   }
 
-  await bot.answerCallbackQuery(queryId);
+  await bot.answerCallbackQuery({ callback_query_id: queryId });
   const t = await getBotMessages(pending.user.language || 'en');
   const { setQuickCorrection } = await import('./quick-correction');
   await setQuickCorrection(chatId, { pendingId, field, messageId });
@@ -749,7 +735,7 @@ export async function handleQuickFixCallback(
     field === 'day' ? (t.voice?.askDay || 'What day? (reply with text or voice)') :
     (t.voice?.askCal || 'Which calendar? (reply with text or voice)');
 
-  await bot.sendMessage(chatId, prompt);
+  await bot.sendMessage({ chat_id: chatId, text: prompt });
 }
 
 /**
@@ -765,16 +751,17 @@ export async function handleBulkEditCallback(
   pendingId: string
 ): Promise<void> {
   const bot = getBot();
-  await bot.answerCallbackQuery(queryId, { text: '✏️' });
+  await bot.answerCallbackQuery({ callback_query_id: queryId, text: '✏️' });
 
   const { popEventFromBatch } = await import('./bulk-confirmations');
   const { showEventConfirmation } = await import('./confirmations');
   const popped = await popEventFromBatch(pendingId, index);
   if (!popped) {
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.editMessageText(t.voice.batchExpired, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.voice.batchExpired,
       parse_mode: 'HTML',
     });
     return;
@@ -785,6 +772,6 @@ export async function handleBulkEditCallback(
   const t = await getBotMessages(popped.user.language || 'en');
   const splitTemplate = t.voice?.bulkSplitOff || `✏️ Editing #{n} only — the other events were not created. You can re-dictate them.`;
   const splitMsg = splitTemplate.replace('{n}', String(index + 1));
-  await bot.editMessageText(splitMsg, { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' });
+  await bot.editMessageText({ text: splitMsg, chat_id: chatId, message_id: messageId, parse_mode: 'HTML' });
   await showEventConfirmation(chatId, undefined, popped.event, popped.transcription, popped.user, undefined, 'voice');
 }

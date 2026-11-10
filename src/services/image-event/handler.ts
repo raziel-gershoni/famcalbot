@@ -218,7 +218,9 @@ export async function handleMediaMessage(
     if (!user.voiceInputEnabled) {
       const bot = getBot();
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId ?? user.id}`);
-      await bot.sendMessage(chatId, t.voice.featureDisabled, {
+      await bot.sendMessage({
+        chat_id: chatId,
+        text: t.voice.featureDisabled,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[{ text: t.voice.enableInSettings, web_app: { url: settingsUrl } }]],
@@ -232,7 +234,9 @@ export async function handleMediaMessage(
       const bot = getBot();
       const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${user.telegramId ?? user.id}`);
       const upgradeMessage = t.subscription.voiceEventsRequired;
-      await bot.sendMessage(chatId, upgradeMessage, {
+      await bot.sendMessage({
+        chat_id: chatId,
+        text: upgradeMessage,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[{ text: t.subscription?.upgradeButton || '⭐ Upgrade to Pro', web_app: { url: upgradeUrl } }]],

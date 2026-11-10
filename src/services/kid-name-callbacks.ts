@@ -46,10 +46,11 @@ export async function handleKidNameCallback(
   if (!raw) {
     // Expired: the question is answered in the language of the person who tapped it (the chat is theirs)
     const t = await getBotMessagesForTelegramUser(chatId);
-    await bot.answerCallbackQuery(queryId, { text: t.kidNameDetection.expired });
-    await bot.editMessageText(t.kidNameDetection.expired, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: t.kidNameDetection.expired });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: t.kidNameDetection.expired,
       parse_mode: 'HTML',
     });
     return;
@@ -78,10 +79,11 @@ export async function handleKidNameCallback(
     const openSettingsText = kd.openSettings || 'Open Settings';
 
     // The toast repeats the rule only when it was written; otherwise it says what the card says
-    await bot.answerCallbackQuery(queryId, { text: written ? ruleText : answer });
-    await bot.editMessageText(answer, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: written ? ruleText : answer });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: answer,
       parse_mode: 'HTML',
       reply_markup: {
         inline_keyboard: [[
@@ -95,10 +97,11 @@ export async function handleKidNameCallback(
   } else if (action === 'kidname_no') {
     const declinedText = kd.declined || 'Got it, thanks!';
 
-    await bot.answerCallbackQuery(queryId, { text: declinedText });
-    await bot.editMessageText(declinedText, {
+    await bot.answerCallbackQuery({ callback_query_id: queryId, text: declinedText });
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: declinedText,
       parse_mode: 'HTML',
     });
 

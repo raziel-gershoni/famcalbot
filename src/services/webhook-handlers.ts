@@ -159,7 +159,7 @@ export async function handleTelegramWebhook(
           await handleEventChoiceCallback(chatId, messageId, queryId, index, rest.slice(colon + 1));
         } else {
           console.error(`[zman-voice] an opinion button with data ${JSON.stringify(data)} is malformed`);
-          await getBot().answerCallbackQuery(queryId).catch((err: unknown) => console.error('[zman-voice] could not answer the malformed button:', err));
+          await getBot().answerCallbackQuery({ callback_query_id: queryId }).catch((err: unknown) => console.error('[zman-voice] could not answer the malformed button:', err));
         }
       } else if (data.startsWith('edit_confirm:') || data.startsWith('edit_cancel:')) {
         // Handle event edit callbacks
@@ -236,7 +236,7 @@ export async function handleTelegramWebhook(
       } else if (data.startsWith('tgc:') || data.startsWith('tgc-no:')) {
         // Connect Telegram's question (src/services/telegram-connect.ts): Connect or Cancel. The spinner is answered
         // here, before the handler's reply.
-        await getBot().answerCallbackQuery(queryId).catch((err: unknown) => console.error('[tg-connect] could not answer the button:', err));
+        await getBot().answerCallbackQuery({ callback_query_id: queryId }).catch((err: unknown) => console.error('[tg-connect] could not answer the button:', err));
         const { handleConnectPress, handleConnectCancel } = await import('./telegram-connect');
         const languageCode = callbackQuery.from.language_code;
         if (data.startsWith('tgc:')) await handleConnectPress(chatId, callbackUserId, data.slice('tgc:'.length), languageCode);
@@ -252,7 +252,7 @@ export async function handleTelegramWebhook(
       } else {
         // A button nothing here handles (a retired prefix): answer it, or its spinner hangs.
         try {
-          await getBot().answerCallbackQuery(queryId);
+          await getBot().answerCallbackQuery({ callback_query_id: queryId });
         } catch {
           // The spinner times out by itself
         }
@@ -358,7 +358,7 @@ export async function handleTelegramWebhook(
             const { getBotMessages } = await import('../lib/bot-messages');
             const t = await getBotMessages(pending.user.language || 'en');
             const { getBot } = await import('./telegram');
-            await getBot().sendMessage(chatId, t.voice?.fixFailed || "❌ I couldn't apply that — please tap the button again or send a fresh voice message.");
+            await getBot().sendMessage({ chat_id: chatId, text: t.voice?.fixFailed || "❌ I couldn't apply that — please tap the button again or send a fresh voice message." });
           }
           res.status(200).json({ ok: true });
           return;
@@ -1640,11 +1640,7 @@ async function handleWhatsAppVoiceCallback(phone: string, callbackData: string, 
 async function notifyTelegramAboutWhatsApp(telegramId: number, command: string): Promise<void> {
   try {
     const bot = getBot();
-    await bot.sendMessage(
-      telegramId,
-      `📱 <b>WhatsApp Command:</b> /${command}\n<i>Response sent to WhatsApp</i>`,
-      { parse_mode: 'HTML' }
-    );
+    await bot.sendMessage({ chat_id: telegramId, text: `📱 <b>WhatsApp Command:</b> /${command}\n<i>Response sent to WhatsApp</i>`, parse_mode: 'HTML' });
   } catch (error) {
     console.error('[WhatsApp] Failed to notify Telegram:', error);
   }

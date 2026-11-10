@@ -3,7 +3,6 @@
  * Handles /start, /summary, /weather, /lookahead, /nextweek, /feedback
  */
 
-import TelegramBot from 'node-telegram-bot-api';
 import { getUserByTelegramId, getUserByIdentifier, getOrCreateUser, TelegramUserInfo } from '../user-service';
 import { MessagingPlatform, MessageFormat, IMessagingService } from '../messaging';
 import { getMessagingService as getMessagingServiceByPlatform } from '../messaging';
@@ -856,36 +855,4 @@ export async function handleConnectCommand(
     await service.sendMessage(chatId, withFooter(msg), { format: MessageFormat.HTML, ...noPreview });
   }
   trackCommandCompleted(user.id, 'connect', platform);
-}
-
-/**
- * Setup bot command handlers for polling mode
- */
-export function setupHandlers(bot: TelegramBot) {
-  // /start command - auto-registers new users
-  bot.onText(/\/start(?:\s+(.+))?/, async (msg, match) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    const args = match?.[1]?.trim();
-    if (userId) {
-      // The library drops the callback's promise: a failure is caught here, never left unhandled
-      await handleStartCommand(chatId, userId, MessagingPlatform.TELEGRAM, msg.from, args, msg.chat.type).catch((error) => {
-        console.error('[polling] /start failed');
-        captureError(error, 'polling-start');
-      });
-    }
-  });
-
-  // /connect command - link WhatsApp account
-  bot.onText(/\/connect/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from?.id;
-    if (userId) {
-      await handleConnectCommand(chatId, userId, MessagingPlatform.TELEGRAM).catch((error) => {
-        console.error('[polling] /connect failed');
-        captureError(error, 'polling-connect');
-      });
-    }
-  });
-
 }

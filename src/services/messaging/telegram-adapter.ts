@@ -3,7 +3,9 @@
  * Implements IMessagingService for Telegram platform
  */
 
-import TelegramBot from 'node-telegram-bot-api';
+import { Api, InputFile } from 'node-telegram-bot-api';
+import { fromPath } from 'node-telegram-bot-api/node';
+import type { InlineKeyboardMarkup, ReplyMarkup } from 'node-telegram-bot-api/types';
 import {
   IMessagingService,
   MessagingPlatform,
@@ -21,7 +23,7 @@ import { retryWithBackoff, type RetryVerdict } from '../../utils/fetch-retry';
 /**
  * The one result answerGuestQuery posts in a chat the bot is not in (Bot API 10.0 Guest Mode): an article whose text is
  * the answer, with no link preview, and a url button where one is wanted (a web_app button is not allowed outside the
- * bot's own chat). node-telegram-bot-api has no type for it yet.
+ * bot's own chat). Narrower than the library's InlineQueryResultArticle, which it satisfies.
  */
 export interface GuestAnswerArticle {
   type: 'article';
@@ -125,9 +127,9 @@ export function sanitizeStreamingHtml(text: string): string {
 }
 
 export class TelegramAdapter implements IMessagingService {
-  private bot: TelegramBot;
+  private bot: Api;
 
-  constructor(bot: TelegramBot) {
+  constructor(bot: Api) {
     this.bot = bot;
   }
 
@@ -136,31 +138,32 @@ export class TelegramAdapter implements IMessagingService {
     text: string,
     options?: MessageOptions
   ): Promise<number> {
-    const telegramOptions: TelegramBot.SendMessageOptions = {};
-
-    // Set parse mode based on format
+    let parseMode: 'HTML' | 'Markdown' | undefined;
     if (options?.format === MessageFormat.HTML) {
-      telegramOptions.parse_mode = 'HTML';
+      parseMode = 'HTML';
     } else if (options?.format === MessageFormat.MARKDOWN) {
-      telegramOptions.parse_mode = 'Markdown';
-    }
-
-    // Disable link preview
-    if (options?.disablePreview) {
-      telegramOptions.disable_web_page_preview = true;
+      parseMode = 'Markdown';
     }
 
     // Reply markup (keyboards or force reply)
+    let replyMarkup: ReplyMarkup | undefined;
     if (options?.forceReply) {
-      telegramOptions.reply_markup = {
+      replyMarkup = {
         force_reply: true,
         ...(options.inputPlaceholder && { input_field_placeholder: options.inputPlaceholder }),
       };
     } else if (options?.replyMarkup) {
-      telegramOptions.reply_markup = options.replyMarkup;
+      replyMarkup = options.replyMarkup;
     }
 
-    const message = await this.bot.sendMessage(chatId, text, telegramOptions);
+    const message = await this.bot.sendMessage({
+      chat_id: chatId,
+      text,
+      ...(parseMode && { parse_mode: parseMode }),
+      // Disable link preview
+      ...(options?.disablePreview && { link_preview_options: { is_disabled: true } }),
+      ...(replyMarkup && { reply_markup: replyMarkup }),
+    });
     return message.message_id;
   }
 
@@ -170,32 +173,33 @@ export class TelegramAdapter implements IMessagingService {
     text: string,
     options?: MessageOptions
   ): Promise<void> {
-    // reply_markup goes out pre-serialized below, which the library's
-    // EditMessageTextOptions typing doesn't allow
-    const telegramOptions: Omit<TelegramBot.EditMessageTextOptions, 'reply_markup'> & { reply_markup?: string } = {
-      chat_id: chatId,
-      message_id: messageId as number,
-    };
-
-    // Set parse mode based on format
+    let parseMode: 'HTML' | 'Markdown' | undefined;
     if (options?.format === MessageFormat.HTML) {
-      telegramOptions.parse_mode = 'HTML';
+      parseMode = 'HTML';
     } else if (options?.format === MessageFormat.MARKDOWN) {
-      telegramOptions.parse_mode = 'Markdown';
+      parseMode = 'Markdown';
     }
 
-    // Disable link preview
-    if (options?.disablePreview) {
-      telegramOptions.disable_web_page_preview = true;
-    }
-
-    // Reply markup (inline keyboard)
+    // Reply markup: an edit takes only an inline keyboard (any other kind cannot be shown in an edit, so it is dropped)
+    let replyMarkup: InlineKeyboardMarkup | undefined;
     if (options?.replyMarkup) {
-      telegramOptions.reply_markup = JSON.stringify(options.replyMarkup);
+      if (options.replyMarkup.inline_keyboard) {
+        replyMarkup = options.replyMarkup as InlineKeyboardMarkup;
+      } else {
+        console.warn(`[telegram] Dropped a reply markup that is not an inline keyboard from an edit of message ${messageId}`);
+      }
     }
 
     try {
-      await this.bot.editMessageText(text, telegramOptions as TelegramBot.EditMessageTextOptions);
+      await this.bot.editMessageText({
+        chat_id: chatId,
+        message_id: messageId as number,
+        text,
+        ...(parseMode && { parse_mode: parseMode }),
+        // Disable link preview
+        ...(options?.disablePreview && { link_preview_options: { is_disabled: true } }),
+        ...(replyMarkup && { reply_markup: replyMarkup }),
+      });
     } catch (error) {
       // Ignore "message is not modified" errors
       if (!(error as { message?: string }).message?.includes('message is not modified')) {
@@ -209,7 +213,7 @@ export class TelegramAdapter implements IMessagingService {
     messageId: number | string
   ): Promise<void> {
     try {
-      await this.bot.deleteMessage(chatId, messageId as number);
+      await this.bot.deleteMessage({ chat_id: chatId, message_id: messageId as number });
     } catch (error) {
       // Ignore deletion errors (message may already be deleted)
       console.warn('Failed to delete message:', error);
@@ -221,17 +225,13 @@ export class TelegramAdapter implements IMessagingService {
     audioPath: string,
     options?: VoiceOptions
   ): Promise<void> {
-    const telegramOptions: TelegramBot.SendVoiceOptions = {};
-
-    if (options?.caption) {
-      telegramOptions.caption = options.caption;
-    }
-
-    if (options?.duration) {
-      telegramOptions.duration = options.duration;
-    }
-
-    await this.bot.sendVoice(chatId, audioPath, telegramOptions);
+    // fromPath names the part after the file (voice-….opus) and types it application/octet-stream, as before
+    await this.bot.sendVoice({
+      chat_id: chatId,
+      voice: await fromPath(audioPath),
+      ...(options?.caption && { caption: options.caption }),
+      ...(options?.duration && { duration: options.duration }),
+    });
   }
 
   async sendPhoto(
@@ -239,25 +239,19 @@ export class TelegramAdapter implements IMessagingService {
     photo: Buffer,
     options?: PhotoOptions
   ): Promise<number> {
-    const telegramOptions: TelegramBot.SendPhotoOptions = {};
-
-    if (options?.caption) {
-      telegramOptions.caption = options.caption;
-    }
-
+    let parseMode: 'HTML' | 'Markdown' | undefined;
     if (options?.format === MessageFormat.HTML) {
-      telegramOptions.parse_mode = 'HTML';
+      parseMode = 'HTML';
     } else if (options?.format === MessageFormat.MARKDOWN) {
-      telegramOptions.parse_mode = 'Markdown';
+      parseMode = 'Markdown';
     }
 
-    if (options?.replyMarkup) {
-      telegramOptions.reply_markup = options.replyMarkup;
-    }
-
-    const message = await this.bot.sendPhoto(chatId, photo, telegramOptions, {
-      filename: 'weather.png',
-      contentType: 'image/png',
+    const message = await this.bot.sendPhoto({
+      chat_id: chatId,
+      photo: new InputFile(photo, { filename: 'weather.png', contentType: 'image/png' }),
+      ...(options?.caption && { caption: options.caption }),
+      ...(parseMode && { parse_mode: parseMode }),
+      ...(options?.replyMarkup && { reply_markup: options.replyMarkup }),
     });
     return message.message_id;
   }
@@ -291,14 +285,14 @@ export class TelegramAdapter implements IMessagingService {
   async sendTypingIndicator(chatId: number | string, _messageId?: string, typingType?: 'text' | 'audio' | 'photo'): Promise<void> {
     try {
       const action = typingType === 'audio' ? 'record_voice' : typingType === 'photo' ? 'upload_photo' : 'typing';
-      await this.bot.sendChatAction(chatId, action);
+      await this.bot.sendChatAction({ chat_id: chatId, action });
     } catch {
       // Non-critical — ignore errors
     }
   }
 
   async answerCallbackQuery(queryId: string, text?: string): Promise<void> {
-    await this.bot.answerCallbackQuery(queryId, text ? { text } : undefined);
+    await this.bot.answerCallbackQuery({ callback_query_id: queryId, ...(text ? { text } : {}) });
   }
 
   /**
@@ -308,9 +302,7 @@ export class TelegramAdapter implements IMessagingService {
    */
   async answerGuestQuery(guestQueryId: string, result: GuestAnswerArticle): Promise<void> {
     await retryWithBackoff(
-      // The Bot API takes `result` JSON-serialized; the library has no method for answerGuestQuery yet
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      () => (this.bot as any)._request('answerGuestQuery', { form: { guest_query_id: guestQueryId, result: JSON.stringify(result) } }),
+      () => this.bot.answerGuestQuery({ guest_query_id: guestQueryId, result }),
       { label: '[ask] answerGuestQuery', retryable: telegramRetryVerdict },
     );
   }
@@ -355,14 +347,8 @@ export class TelegramAdapter implements IMessagingService {
     const callSendMessageDraft = async (text: string): Promise<void> => {
       const truncated = text.slice(0, DRAFT_MAX_TEXT_CHARS);
       const safe = sanitizeStreamingHtml(truncated);
-      const form: Record<string, unknown> = {
-        chat_id: chatId,
-        draft_id: draftId,
-        text: safe,
-        parse_mode: 'HTML',
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (this.bot as any)._request('sendMessageDraft', { form });
+      // Drafts go only to private chats, whose ids are numbers
+      await this.bot.sendMessageDraft({ chat_id: Number(chatId), draft_id: draftId, text: safe, parse_mode: 'HTML' });
     };
 
     const flush = async (): Promise<void> => {

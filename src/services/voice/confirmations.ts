@@ -772,16 +772,19 @@ export async function showEventConfirmation(
   };
 
   if (messageId) {
-    await bot.editMessageText(confirmationMessage, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
     // Store reverse mapping for reply-to-correct
     await redis.set(REDIS_KEYS.pendingReply(chatId, messageId), pendingId, { ex: PENDING_TTL_SECONDS });
   } else {
-    const sentMessage = await bot.sendMessage(chatId, confirmationMessage, {
+    const sentMessage = await bot.sendMessage({
+      chat_id: chatId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
@@ -859,14 +862,17 @@ export async function showEditConfirmation(
   };
 
   if (messageId) {
-    await bot.editMessageText(confirmationMessage, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
   } else {
-    await bot.sendMessage(chatId, confirmationMessage, {
+    await bot.sendMessage({
+      chat_id: chatId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
@@ -935,14 +941,17 @@ export async function showDeleteConfirmation(
   };
 
   if (messageId) {
-    await bot.editMessageText(confirmationMessage, {
+    await bot.editMessageText({
       chat_id: chatId,
       message_id: messageId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });
   } else {
-    await bot.sendMessage(chatId, confirmationMessage, {
+    await bot.sendMessage({
+      chat_id: chatId,
+      text: confirmationMessage,
       parse_mode: 'HTML',
       reply_markup: replyMarkup,
     });

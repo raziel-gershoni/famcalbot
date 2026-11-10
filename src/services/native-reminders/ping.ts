@@ -6,7 +6,7 @@
 // row lives as long as the occurrence keeps its time, so an old ping's buttons still work.
 // A reminder for both partners shares the state row; the tapping user picks their own ping.
 
-import TelegramBot from 'node-telegram-bot-api';
+import type { InlineKeyboardMarkup } from 'node-telegram-bot-api/types';
 import { getBot } from '../telegram';
 import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
@@ -35,7 +35,7 @@ export function buildDoneText(a: { title: string; doneByName?: string; language:
 }
 
 /** ✅ Done on its own row, the three snoozes under it. */
-export async function buildPingKeyboard(stateId: string, language: string): Promise<TelegramBot.InlineKeyboardMarkup> {
+export async function buildPingKeyboard(stateId: string, language: string): Promise<InlineKeyboardMarkup> {
   const buttons = (await getBotMessages(language)).nativeReminders.buttons;
   return {
     inline_keyboard: [
@@ -50,8 +50,8 @@ export async function buildPingKeyboard(stateId: string, language: string): Prom
 }
 
 /** Send a ping. Resolves to its message id, which the state row keeps for later edits. */
-export async function sendPing(chatId: bigint, text: string, keyboard: TelegramBot.InlineKeyboardMarkup): Promise<number> {
-  const message = await getBot().sendMessage(chatId.toString(), text, { parse_mode: 'HTML', reply_markup: keyboard });
+export async function sendPing(chatId: bigint, text: string, keyboard: InlineKeyboardMarkup): Promise<number> {
+  const message = await getBot().sendMessage({ chat_id: chatId.toString(), text, parse_mode: 'HTML', reply_markup: keyboard });
   return message.message_id;
 }
 
@@ -61,9 +61,9 @@ export async function sendPing(chatId: bigint, text: string, keyboard: TelegramB
  * already reads so ("message is not modified", logged at debug) or that the user deleted needs
  * nothing; any other failure is the caller's.
  */
-export async function refreshPing(chatId: bigint | number, messageId: number, text: string, keyboard: TelegramBot.InlineKeyboardMarkup): Promise<void> {
+export async function refreshPing(chatId: bigint | number, messageId: number, text: string, keyboard: InlineKeyboardMarkup): Promise<void> {
   try {
-    await getBot().editMessageText(text, { chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML', reply_markup: keyboard });
+    await getBot().editMessageText({ text, chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML', reply_markup: keyboard });
   } catch (error) {
     const message = (error as { message?: string })?.message ?? '';
     if (message.includes('message is not modified')) {
@@ -81,7 +81,7 @@ export async function refreshPing(chatId: bigint | number, messageId: number, te
  */
 export async function stripPingButtons(chatId: bigint | number, messageId: number, text: string): Promise<void> {
   try {
-    await getBot().editMessageText(text, { chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML' });
+    await getBot().editMessageText({ text, chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML' });
   } catch (error) {
     const message = (error as { message?: string })?.message ?? '';
     if (message.includes('message is not modified') || message.includes('message to edit not found')) return;

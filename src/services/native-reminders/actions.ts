@@ -496,7 +496,7 @@ async function notifyDone(seriesId: string, occurrence: string, userId: number, 
         name: escapeHtml(doer.name),
         title: escapeHtml(title),
       });
-      await getBot().sendMessage(Number(user.telegramId), text, { parse_mode: 'HTML', disable_notification: true });
+      await getBot().sendMessage({ chat_id: Number(user.telegramId), text, parse_mode: 'HTML', disable_notification: true });
     } catch (error) {
       if (!(await markUnreachableAfterSendFailure(user, error))) throw error;
     }

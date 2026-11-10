@@ -353,8 +353,8 @@ export async function handleReminders(windowMinutes: number = 5): Promise<CronRe
 // manual route (app/api/native-reminders) load this file in separate bundles, and a
 // module-level flag would let a manual run overlap a scheduled one.
 const NATIVE_REMINDERS_ALERT_INTERVAL_MS = 60 * 60 * 1000;
-// A pass still running after this is taken for dead. node-telegram-bot-api sets no
-// request timeout, so one hung send would otherwise hold every ping until TCP gives up.
+// A pass still running after this is taken for dead. The Bot API client is built with no
+// request timeout (TELEGRAM_API_OPTIONS), so one hung send would otherwise hold every ping until TCP gives up.
 const NATIVE_REMINDERS_STUCK_MS = 5 * 60 * 1000;
 type NativeRemindersCronState = { running: boolean; startedAt: number; alertedAt: number };
 const nativeRemindersCron = ((globalThis as { __nativeRemindersCron?: NativeRemindersCronState }).__nativeRemindersCron ??= {

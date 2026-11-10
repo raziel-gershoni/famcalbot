@@ -4,7 +4,7 @@
  */
 
 // Bot singleton and core utilities
-export { initBot, getBot, getMessagingService, setUserMenuButton } from './bot';
+export { getBot, getMessagingService, setUserMenuButton } from './bot';
 
 // Command handlers
 export {
@@ -17,7 +17,6 @@ export {
   handleFeedbackCommand,
   handleSupportCommand,
   handleConnectCommand,
-  setupHandlers,
 } from './commands';
 
 // Summary generation and delivery

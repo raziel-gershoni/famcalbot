@@ -64,13 +64,8 @@ function telegramRefusal(error: unknown): string | null {
 /** Telegram's refusal for a charge it already refunded: the Stars are back, so the plan must end all the same. */
 const alreadyRefunded = (refusal: string) => /CHARGE_ALREADY_REFUNDED/i.test(refusal);
 
-/**
- * node-telegram-bot-api 0.66 has no method for refundStarPayment (Bot API 7.4): the generic request, as the streaming
- * draft's sendMessageDraft does.
- */
 async function refundStarPayment(telegramId: number, chargeId: string): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (getBot() as any)._request('refundStarPayment', { form: { user_id: telegramId, telegram_payment_charge_id: chargeId } });
+  await getBot().refundStarPayment({ user_id: telegramId, telegram_payment_charge_id: chargeId });
 }
 
 export async function refundPayment(user: RefundTarget, paymentId: string, adminId: number): Promise<RefundOutcome> {

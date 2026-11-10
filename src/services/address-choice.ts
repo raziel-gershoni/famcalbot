@@ -62,7 +62,7 @@ export async function sendAddressQuestion(chatId: number | string, userId: numbe
 export async function handleAddressPress(chatId: number, messageId: number | undefined, queryId: string, telegramId: number, data: string): Promise<void> {
   const { getBot } = await import('./telegram/bot');
   const bot = getBot();
-  await bot.answerCallbackQuery(queryId).catch((error: unknown) => console.error(`[gender] could not answer an address button (${why(error)})`));
+  await bot.answerCallbackQuery({ callback_query_id: queryId }).catch((error: unknown) => console.error(`[gender] could not answer an address button (${why(error)})`));
   const gender = genderOfCallback(data);
   if (!gender) {
     console.warn('[gender] refused a button that is not gd:m or gd:f');
@@ -78,7 +78,7 @@ export async function handleAddressPress(chatId: number, messageId: number | und
     userId = user.id;
     await saveAddressChoice(user.id, gender, 'telegram');
     const t = (await getBotMessages(user.language || 'en')).onboarding;
-    if (messageId !== undefined) await bot.editMessageText(gender === 'female' ? t.addressSavedFemale : t.addressSavedMale, { chat_id: chatId, message_id: messageId });
+    if (messageId !== undefined) await bot.editMessageText({ text: gender === 'female' ? t.addressSavedFemale : t.addressSavedMale, chat_id: chatId, message_id: messageId });
   } catch (error) {
     console.error(`[gender] user ${userId ?? 'unknown'}: saving the Telegram choice failed (${why(error)})`);
     captureError(error, 'address-choice', { user_id: userId, platform: 'telegram', step: 'save' });

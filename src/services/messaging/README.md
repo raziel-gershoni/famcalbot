@@ -25,7 +25,7 @@ Multi-platform messaging support for Telegram, WhatsApp, and future platforms.
 
 ## Current Status
 
-✅ **Telegram Adapter** - Fully functional, wraps existing `node-telegram-bot-api`
+✅ **Telegram Adapter** - Fully functional, wraps the `node-telegram-bot-api` 2.x `Api` client (`getBot()`)
 ✅ **WhatsApp Adapter** - Fully functional on the WhatsApp Business Cloud API: text (HTML converted to Markdown), interactive reply buttons and lists, template messages for proactive sends (`whatsapp-template.ts`), voice, photos, typing indicator and media download
 
 ## Usage
@@ -146,7 +146,7 @@ The live route is `app/api/webhook/route.ts`: it verifies Meta's signature, then
 ```typescript
 export async function handleSummaryCommand(chatId: number, userId: number, args?: string) {
   const bot = getBot();
-  await bot.sendMessage(chatId, summary, { parse_mode: 'HTML' });
+  await bot.sendMessage({ chat_id: chatId, text: summary, parse_mode: 'HTML' });
 }
 ```
 

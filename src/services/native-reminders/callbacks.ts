@@ -8,7 +8,7 @@
 // answered exactly once, and nothing here throws: an error would fail the
 // webhook with a 500, and Telegram would deliver the same tap again and again.
 
-import type TelegramBot from 'node-telegram-bot-api';
+import type { CallbackQuery } from 'node-telegram-bot-api/types';
 import { prisma } from '../../utils/prisma';
 import { getBot } from '../telegram/bot';
 import { getUserByTelegramId } from '../user-service';
@@ -35,7 +35,7 @@ export function parseNativeReminderCallback(data: string): { op: NativeReminderO
  * exactly once, whatever happens in between.
  */
 export async function handleNativeReminderCallback(
-  query: TelegramBot.CallbackQuery,
+  query: CallbackQuery,
   now: Date = new Date()
 ): Promise<void> {
   let toast: string | undefined;
@@ -56,7 +56,7 @@ const ACTION_OF: Record<NativeReminderOp, ReminderAction> = {
 };
 
 /** What a tap does. Returns the toast, or undefined when the edited ping says it all. */
-async function handleTap(query: TelegramBot.CallbackQuery, now: Date): Promise<string | undefined> {
+async function handleTap(query: CallbackQuery, now: Date): Promise<string | undefined> {
   const parsed = parseNativeReminderCallback(query.data ?? '');
   const chatId = query.message?.chat.id;
   const messageId = query.message?.message_id;
@@ -125,7 +125,7 @@ async function editPing(ping: PingMessage, text: string): Promise<void> {
 /** Drop a stale ping's buttons and leave its text as it was. */
 async function removeButtons(ping: PingMessage): Promise<void> {
   try {
-    await getBot().editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: ping.chatId, message_id: ping.messageId });
+    await getBot().editMessageReplyMarkup({ chat_id: ping.chatId, message_id: ping.messageId, reply_markup: { inline_keyboard: [] } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes('message is not modified') || message.includes('message to edit not found')) return;
@@ -136,7 +136,7 @@ async function removeButtons(ping: PingMessage): Promise<void> {
 /** Answer the tap. It fails harmlessly when the tap waited too long ("query is too old"). */
 async function answer(queryId: string, text?: string): Promise<void> {
   try {
-    await getBot().answerCallbackQuery(queryId, text ? { text } : undefined);
+    await getBot().answerCallbackQuery({ callback_query_id: queryId, ...(text ? { text } : {}) });
   } catch (error) {
     console.warn('[NativeReminders] Could not answer a button tap:', error instanceof Error ? error.message : error);
   }

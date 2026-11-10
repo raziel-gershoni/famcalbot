@@ -29,7 +29,7 @@ import { DEFAULT_REMINDER_TIME, isValidReminderTime } from '../../lib/reminder-t
 export async function downloadTelegramFile(fileId: string): Promise<Buffer> {
   const bot = getBot();
 
-  const fileInfo = await bot.getFile(fileId);
+  const fileInfo = await bot.getFile({ file_id: fileId });
   const filePath = fileInfo.file_path;
 
   if (!filePath) {

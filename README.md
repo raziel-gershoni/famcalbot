@@ -55,7 +55,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 ## 🛠️ Tech stack
 
 - **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, next-intl (he/en/ru, RTL), lucide-react, MDX blog, Satori + resvg for generated share/weather images.
-- **Backend/API:** TypeScript on Node 22, Next.js route handlers, node-telegram-bot-api, WhatsApp Business Cloud API, node-cron.
+- **Backend/API:** TypeScript on Node 22, Next.js route handlers, node-telegram-bot-api 2.x, WhatsApp Business Cloud API, node-cron.
 - **Data:** Prisma ORM, Neon Postgres, Upstash Redis (distributed locks, caching, rate limiting).
 - **AI:** Google Gemini behind a unified provider layer, for text, voice transcription, photo parsing, and TTS.
 - **Integrations:** Google Calendar API, Web Push (the `web-push` library, VAPID: browser notifications), MET Norway (forecast), Copernicus CAMS via Open-Meteo's open data on S3 (dust; read with `@openmeteo/file-reader`, GPL-2.0, server only), `geo-tz` (time zones, © OpenStreetMap contributors, ODbL), the Copernicus DEM GLO-90 (heights in Israel, `data/israel-heights-3s.i16.br`, rebuilt with `scripts/build-israel-heights.ts`), Hebcal (Hebrew dates/holidays, zmanim), `rrule` (RFC-5545 recurrence); GeoNames, OpenStreetMap and Copernicus DEM for the public pages' city table (built once, never called at runtime).
@@ -183,11 +183,8 @@ FamCal's Shabbat, Yom Tov and zmanim times as JSON for the owner's other apps: `
 # install dependencies
 npm install
 
-# local development: runs the Next.js app and the bot in polling mode together
+# local development: runs the Next.js app (no polling bot: the bot is tried on the deployed webhook)
 npm run dev
-
-# (optional) the Next.js dashboard only
-npm run dev:next
 
 # type-check
 npm run type-check

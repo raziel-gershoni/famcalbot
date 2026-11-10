@@ -11,7 +11,8 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-native-reminder-buttons.ts
 
 import path from 'path';
-import type TelegramBot from 'node-telegram-bot-api';
+import type { Api } from 'node-telegram-bot-api';
+import type { CallbackQuery, InlineKeyboardMarkup } from 'node-telegram-bot-api/types';
 import { __resetDueGateForTests, setNextDue, shouldRunPass } from '../src/services/native-reminders/due-gate';
 
 type Result = { name: string; ok: boolean; reason?: string };
@@ -245,7 +246,7 @@ const telegramError = (status: number, description: string) =>
 /** Whether reply_markup (an object, or the JSON string the adapter sends) still has buttons. */
 function hasButtons(markup: unknown): boolean {
   const parsed = typeof markup === 'string' ? JSON.parse(markup) : markup;
-  return !!(parsed as TelegramBot.InlineKeyboardMarkup | undefined)?.inline_keyboard?.some(row => row.length > 0);
+  return !!(parsed as InlineKeyboardMarkup | undefined)?.inline_keyboard?.some(row => row.length > 0);
 }
 
 type EditOptions = { chat_id?: number | string; message_id?: number; parse_mode?: string; reply_markup?: unknown };
@@ -260,7 +261,7 @@ const fakeBot = {
     if (botFailures.edit) throw botFailures.edit;
     return true;
   },
-  editMessageReplyMarkup: async (markup: TelegramBot.InlineKeyboardMarkup, options: EditOptions) => {
+  editMessageReplyMarkup: async (markup: InlineKeyboardMarkup, options: EditOptions) => {
     botCalls.push({ kind: 'markup', chatId: Number(options.chat_id), messageId: Number(options.message_id), buttons: hasButtons(markup) });
     if (botFailures.markup) throw botFailures.markup;
     return true;
@@ -287,7 +288,7 @@ async function fakeGetUserByTelegramId(telegramId: number | bigint) {
 
 let queryCount = 0;
 /** A tap by `userId` on a button of message `messageId` in their own chat. */
-function tap(userId: number, data: string, messageId: number): TelegramBot.CallbackQuery {
+function tap(userId: number, data: string, messageId: number): CallbackQuery {
   queryCount++;
   return {
     id: `q${queryCount}`,
@@ -295,7 +296,7 @@ function tap(userId: number, data: string, messageId: number): TelegramBot.Callb
     chat_instance: 'ci',
     data,
     message: { message_id: messageId, date: 0, chat: { id: tg(userId), type: 'private' } },
-  } as TelegramBot.CallbackQuery;
+  } as CallbackQuery;
 }
 
 function reset() {
@@ -307,10 +308,10 @@ function reset() {
   for (const key of Object.keys(botFailures) as (keyof typeof botFailures)[]) delete botFailures[key];
 }
 
-const answersTo = (q: TelegramBot.CallbackQuery) =>
+const answersTo = (q: CallbackQuery) =>
   botCalls.filter((c): c is Extract<BotCall, { kind: 'answer' }> => c.kind === 'answer' && c.queryId === q.id);
 /** Every tap is answered exactly once; returns the toast. */
-function toastOf(q: TelegramBot.CallbackQuery): string | undefined {
+function toastOf(q: CallbackQuery): string | undefined {
   const answers = answersTo(q);
   assert(answers.length === 1, `answered ${answers.length} times`);
   return answers[0].text;
@@ -384,7 +385,7 @@ async function main() {
   stub('lib/user-moderation.ts', { isIdentifierBlocked: async () => false, isUserSuspended: () => false });
 
   const { TelegramAdapter } = await import('../src/services/messaging/telegram-adapter');
-  adapter = new TelegramAdapter(fakeBot as unknown as TelegramBot);
+  adapter = new TelegramAdapter(fakeBot as unknown as Api);
   const { handleNativeReminderCallback, parseNativeReminderCallback } =
     await import('../src/services/native-reminders/callbacks');
   const { buildPingKeyboard } = await import('../src/services/native-reminders/ping');
@@ -693,7 +694,7 @@ async function main() {
   // ---- The webhook ----
 
   type Response = { code: number; body: unknown };
-  const webhook = async (callbackQuery: TelegramBot.CallbackQuery) => {
+  const webhook = async (callbackQuery: CallbackQuery) => {
     const responses: Response[] = [];
     const res = { status: (code: number) => ({ json: (body: unknown) => { responses.push({ code, body }); } }) };
     await handleTelegramWebhook({ body: { update_id: 1, callback_query: callbackQuery } }, res);

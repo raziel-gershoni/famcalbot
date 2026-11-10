@@ -3,7 +3,7 @@
  * Creates platform-specific messaging adapters
  */
 
-import TelegramBot from 'node-telegram-bot-api';
+import type { Api } from 'node-telegram-bot-api';
 import { IMessagingService, MessagingPlatform } from './types';
 import { TelegramAdapter } from './telegram-adapter';
 import { WhatsAppAdapter } from './whatsapp-adapter';
@@ -17,7 +17,7 @@ let whatsappInstance: IMessagingService | null = null;
 /**
  * Create or get Telegram messaging service
  */
-export function getTelegramService(bot: TelegramBot): IMessagingService {
+export function getTelegramService(bot: Api): IMessagingService {
   if (!telegramInstance) {
     telegramInstance = new TelegramAdapter(bot);
   }
@@ -46,7 +46,7 @@ export function getWhatsAppService(): IMessagingService {
  */
 export function getMessagingService(
   platform: MessagingPlatform,
-  bot?: TelegramBot
+  bot?: Api
 ): IMessagingService {
   switch (platform) {
     case MessagingPlatform.TELEGRAM:

@@ -1,48 +1,16 @@
-import TelegramBot from 'node-telegram-bot-api';
+import { Api } from 'node-telegram-bot-api';
 import { IMessagingService, getTelegramService } from '../messaging';
 import { getBotMessages } from '../../lib/bot-messages';
 import { buildUrl } from '../../config/urls';
 
-let bot: TelegramBot | null = null;
+let bot: Api | null = null;
 let messagingService: IMessagingService | null = null;
 
 /**
- * Initialize the Telegram bot
- * In development: uses polling mode
- * In production: uses webhook mode (no polling)
+ * The one Bot API client's options. The library's own retries would send a message twice when an answer is lost, and
+ * its 5-minute timeout would be one of our own: both off (CLAUDE.md, the third-party retry rule).
  */
-export function initBot(): TelegramBot {
-  if (bot) {
-    return bot;
-  }
-
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    throw new Error('TELEGRAM_BOT_TOKEN is not set');
-  }
-
-  const isDevelopment = process.env.NODE_ENV === 'development';
-
-  if (isDevelopment) {
-    // Development mode: use polling
-    bot = new TelegramBot(token, { polling: true });
-    // Import setupHandlers lazily to avoid circular dependency
-    import('./commands')
-      .then(({ setupHandlers }) => {
-        setupHandlers(bot!);
-      })
-      .catch((error) => {
-        console.error('[bot] Setting up the polling handlers failed:', error);
-      });
-    console.log('🤖 Telegram bot initialized in POLLING mode (development)');
-  } else {
-    // Production mode: no polling (webhook-based)
-    bot = new TelegramBot(token);
-    console.log('🤖 Telegram bot initialized in WEBHOOK mode (production)');
-  }
-
-  return bot;
-}
+export const TELEGRAM_API_OPTIONS = { maxRetries: 0, timeoutMs: 0 } as const;
 
 /**
  * Set per-user menu button with localized text. Opens the dashboard webapp
@@ -61,20 +29,9 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
     const text = messages.menuButton.open;
     const url = buildUrl(`/${locale}/dashboard?user_id=${userId}`);
 
-    // node-telegram-bot-api v0.66 doesn't auto-stringify `menu_button`
-    // (verified — see _fixReplyMarkup in the lib). Pre-stringify so the
-    // form body is the JSON-serialized object the Bot API expects rather
-    // than bracket-notation form encoding.
-    const menuButtonJson = JSON.stringify({
-      type: 'web_app',
-      text: text,
-      web_app: { url }
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (botInstance as any).setChatMenuButton({
+    await botInstance.setChatMenuButton({
       chat_id: userId,
-      menu_button: menuButtonJson
+      menu_button: { type: 'web_app', text, web_app: { url } },
     });
     console.log(`✅ Menu button set for user ${userId} (${locale})`);
   } catch (error) {
@@ -84,10 +41,8 @@ export async function setUserMenuButton(userId: number, locale: string): Promise
   }
 }
 
-/**
- * Get or create bot instance (without polling for serverless)
- */
-export function getBot(): TelegramBot {
+/** The Bot API client (webhook mode: Telegram's updates come to app/api/webhook, never by polling). */
+export function getBot(): Api {
   if (bot) {
     return bot;
   }
@@ -97,7 +52,7 @@ export function getBot(): TelegramBot {
     throw new Error('TELEGRAM_BOT_TOKEN is not set');
   }
 
-  bot = new TelegramBot(token);
+  bot = new Api(token, TELEGRAM_API_OPTIONS);
   return bot;
 }
 

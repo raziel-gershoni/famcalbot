@@ -60,7 +60,9 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
     try {
       payload = JSON.parse(query.invoice_payload);
     } catch {
-      await bot.answerPreCheckoutQuery(query.id, false, {
+      await bot.answerPreCheckoutQuery({
+        pre_checkout_query_id: query.id,
+        ok: false,
         error_message: 'Invalid payment data',
       });
       return;
@@ -68,7 +70,9 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
 
     // Validate currency is Telegram Stars
     if (query.currency !== 'XTR') {
-      await bot.answerPreCheckoutQuery(query.id, false, {
+      await bot.answerPreCheckoutQuery({
+        pre_checkout_query_id: query.id,
+        ok: false,
         error_message: 'Invalid currency',
       });
       return;
@@ -77,7 +81,9 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
     // Validate plan and amount
     const planConfig = PLAN_CONFIGS[payload.plan];
     if (!planConfig || query.total_amount !== planConfig.priceStars) {
-      await bot.answerPreCheckoutQuery(query.id, false, {
+      await bot.answerPreCheckoutQuery({
+        pre_checkout_query_id: query.id,
+        ok: false,
         error_message: 'Invalid amount',
       });
       return;
@@ -86,14 +92,16 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
     // Validate user
     const user = await getUserByTelegramId(query.from.id);
     if (!user) {
-      await bot.answerPreCheckoutQuery(query.id, false, {
+      await bot.answerPreCheckoutQuery({
+        pre_checkout_query_id: query.id,
+        ok: false,
         error_message: 'User not found',
       });
       return;
     }
 
     // Approve the checkout
-    await bot.answerPreCheckoutQuery(query.id, true);
+    await bot.answerPreCheckoutQuery({ pre_checkout_query_id: query.id, ok: true });
 
     // Add breadcrumb for approval
     addBreadcrumb('pre_checkout_approved', {
@@ -105,7 +113,9 @@ export async function handlePreCheckoutQuery(query: PreCheckoutQuery): Promise<v
     console.log(`[Payment] Pre-checkout approved for user ${payload.userId}, plan: ${payload.plan}`);
   } catch (error) {
     captureError(error, 'payment-pre-checkout', { query_id: query.id });
-    await bot.answerPreCheckoutQuery(query.id, false, {
+    await bot.answerPreCheckoutQuery({
+      pre_checkout_query_id: query.id,
+      ok: false,
       error_message: 'Payment processing error',
     });
   }
@@ -293,9 +303,15 @@ export async function sendSubscriptionInvoice(
   }, 'payment');
 
   // One-time payment (manual renewal model - no recurring subscriptions)
-  await bot.sendInvoice(chatId, title, description, JSON.stringify(payload), '', 'XTR', [
-    { label: priceLabel, amount: planConfig.priceStars },
-  ]);
+  await bot.sendInvoice({
+    chat_id: chatId,
+    title,
+    description,
+    payload: JSON.stringify(payload),
+    provider_token: '',
+    currency: 'XTR',
+    prices: [{ label: priceLabel, amount: planConfig.priceStars }],
+  });
   addBreadcrumb('invoice_sent', { recurring: false }, 'payment');
   console.log(`[Payment] Invoice sent to user ${userId} for plan ${plan}`);
 }

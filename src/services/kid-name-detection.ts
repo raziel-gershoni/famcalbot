@@ -200,7 +200,9 @@ export async function sendKidNameFollowUp(
   const noText = kd.no || 'No';
 
   const bot = getBot();
-  await bot.sendMessage(Number(telegramId), questionText, {
+  await bot.sendMessage({
+    chat_id: Number(telegramId),
+    text: questionText,
     parse_mode: 'HTML',
     reply_markup: {
       inline_keyboard: [[

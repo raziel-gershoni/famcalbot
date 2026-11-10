@@ -313,7 +313,7 @@ async function announceSafe(fpCurrent: string, fpPrevious: string): Promise<void
       `Nothing needs ENCRYPTION_KEY_PREVIOUS (fp <code>${fpPrevious}</code>) any more: remove it at the next deploy.`;
     for (const adminId of await getAdminUserIds()) {
       try {
-        await bot.sendMessage(adminId, text, { parse_mode: 'HTML' });
+        await bot.sendMessage({ chat_id: adminId, text, parse_mode: 'HTML' });
       } catch (error) {
         console.error(`[key-sweep] SAFE message to admin ${adminId} failed:`, error);
         captureError(error, 'key-sweep-safe-notify', { admin_id: adminId }, 'warning');

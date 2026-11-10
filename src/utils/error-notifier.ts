@@ -66,7 +66,7 @@ export async function notifyAdminError(
     message += `\n\n<i>Time: ${new Date().toISOString()}</i>`;
 
     const adminIds = await getAdminUserIds();
-    await Promise.all(adminIds.map(id => bot.sendMessage(id, message, { parse_mode: 'HTML' })));
+    await Promise.all(adminIds.map(id => bot.sendMessage({ chat_id: id, text: message, parse_mode: 'HTML' })));
   } catch (notificationError) {
     // If Telegram notification fails, capture that too
     console.error('Failed to send error notification to admin:', notificationError);
@@ -111,7 +111,7 @@ export async function notifyAdminWarning(
     const warningMessage = `⚠️ <b>Warning: ${context}</b>\n\n${body}\n\n<i>Time: ${new Date().toISOString()}</i>`;
 
     const adminIds = await getAdminUserIds();
-    await Promise.all(adminIds.map(id => bot.sendMessage(id, warningMessage, { parse_mode: 'HTML' })));
+    await Promise.all(adminIds.map(id => bot.sendMessage({ chat_id: id, text: warningMessage, parse_mode: 'HTML' })));
   } catch (error) {
     console.error('Failed to send warning notification:', error);
     Sentry.captureException(error, {
@@ -148,7 +148,7 @@ ${factLines}───────────
 ${escapeHtml(feedbackText)}`;
 
     await Promise.all(adminIds.map(id =>
-      bot.sendMessage(id, message, { parse_mode: 'HTML' })
+      bot.sendMessage({ chat_id: id, text: message, parse_mode: 'HTML' })
     ));
   } catch (error) {
     console.error('Failed to send feedback notification to admin:', error);

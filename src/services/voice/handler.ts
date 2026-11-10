@@ -302,7 +302,9 @@ export async function handleVoiceMessage(
       console.log(`[Voice] Voice input disabled for user ${userId}, sending settings prompt`);
       const bot = getBot();
       const settingsUrl = buildUrl(`/${user.language || 'en'}/settings?user_id=${user.telegramId ?? user.id}`);
-      await bot.sendMessage(chatId, t.voice.featureDisabled, {
+      await bot.sendMessage({
+        chat_id: chatId,
+        text: t.voice.featureDisabled,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[
@@ -320,7 +322,9 @@ export async function handleVoiceMessage(
       const upgradeUrl = buildUrl(`/${user.language || 'en'}/subscription?user_id=${user.telegramId ?? user.id}`);
       const upgradeMessage = t.subscription.voiceEventsRequired;
 
-      await bot.sendMessage(chatId, upgradeMessage, {
+      await bot.sendMessage({
+        chat_id: chatId,
+        text: upgradeMessage,
         parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [[

@@ -3,7 +3,7 @@
  * Platform-agnostic interface for messaging platforms (Telegram, WhatsApp, etc.)
  */
 
-import type TelegramBot from 'node-telegram-bot-api';
+import type { ReplyMarkup } from 'node-telegram-bot-api/types';
 
 /**
  * Supported messaging platforms
@@ -93,7 +93,7 @@ export interface WhatsAppTemplate {
 export interface MessageOptions {
   format?: MessageFormat;
   disablePreview?: boolean;
-  replyMarkup?: TelegramBot.SendBasicOptions['reply_markup'];  // Telegram-specific keyboard markup
+  replyMarkup?: ReplyMarkup;  // Telegram-specific keyboard markup
   whatsappButtons?: WhatsAppReplyButton[];  // WhatsApp reply buttons (max 3)
   whatsappUrlButton?: WhatsAppUrlButton;    // WhatsApp CTA URL button
   whatsappList?: WhatsAppListMessage;       // WhatsApp list message (up to 10 items)
@@ -146,7 +146,7 @@ export interface StreamMessageHandle {
 export interface PhotoOptions {
   caption?: string;
   format?: MessageFormat;
-  replyMarkup?: TelegramBot.SendBasicOptions['reply_markup'];  // Telegram-specific keyboard markup
+  replyMarkup?: ReplyMarkup;  // Telegram-specific keyboard markup
 }
 
 /**
