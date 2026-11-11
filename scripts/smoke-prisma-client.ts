@@ -2,7 +2,7 @@
 // could not be reached (src/utils/db-retry.ts). It runs the real generated client against the fake DATABASE_URL, a refused
 // port on 127.0.0.1, so the CI proves on its own Node that the client loads and fails the way withRetry reads.
 // No database and no network beyond 127.0.0.1.
-//   bash scripts/ci-smokes.sh   (or one smoke with its fake env, see the plan or CLAUDE.md)
+//   bash scripts/ci-smokes.sh   (or one smoke: env <the FAKES list of scripts/ci-smokes.sh> TZ=Asia/Jerusalem npx tsx scripts/smoke-prisma-client.ts)
 
 import path from 'node:path';
 
@@ -34,9 +34,12 @@ async function callsOf(fn: () => Promise<unknown>): Promise<{ calls: number; thr
   const { withRetry } = await import('../src/utils/db-retry');
   let calls = 0;
   let thrown: unknown = null;
+  const warn = console.warn; // withRetry's own "retrying" line is not this smoke's output
+  console.warn = () => {};
   try {
     await withRetry(() => { calls++; return fn(); }, 2, 1);
   } catch (e) { thrown = e; }
+  finally { console.warn = warn; }
   return { calls, thrown };
 }
 
@@ -61,6 +64,12 @@ async function main() {
   const isP1001 = (e: unknown) => /\bP1001\b/.test(kindOf(e))
     || (e instanceof Error && e.constructor?.name === 'PrismaClientInitializationError' && /Can't reach database server/.test(e.message));
 
+  // The app's singleton logs its failed queries (NODE_ENV=development); those two checks fail on purpose, so their log lines are held back.
+  const loud = { log: console.log, warn: console.warn, error: console.error };
+  const hush = () => { console.log = console.warn = console.error = () => {}; };
+  const unhush = () => Object.assign(console, loud);
+  hush();
+
   await check(`the real client loads on Node ${process.version}: a query on a refused port fails as Prisma's "can't reach" (P1001)`, async () => {
     let thrown: unknown = null;
     try { await prisma.user.findFirst({ select: { id: true } }); } catch (e) { thrown = e; }
@@ -71,6 +80,8 @@ async function main() {
     const { calls, thrown } = await callsOf(() => prisma.user.findFirst({ select: { id: true } }));
     assert(calls === 3 && isP1001(thrown), `calls ${show(calls)}, thrown ${kindOf(thrown)}`);
   });
+
+  unhush();
 
   // ---- Prisma 7: one factory, its pool, nothing connects before a query ----
   const { readFileSync, readdirSync, statSync, existsSync } = await import('node:fs');
@@ -115,7 +126,7 @@ async function main() {
   await check('building a client opens no connection; its first query does', async () => {
     const server = await droppingServer();
     try {
-      const client = factory.createPrismaClient(server.url, ['error']);
+      const client = factory.createPrismaClient(server.url, []);
       await new Promise(r => setTimeout(r, 300));
       assert(server.connections() === 0, `${server.connections()} connections before any query`);
       let thrown: unknown = null;
@@ -173,7 +184,7 @@ async function main() {
   const { Prisma } = await import('@prisma/client');
   const known = (message: string, code: string, kind?: string) =>
     new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: 'smoke', ...(kind ? { meta: { driverAdapterError: { cause: { kind } } } } : {}) });
-  const refused = factory.createPrismaClient('postgresql://fake:fake@127.0.0.1:1/fake', ['error']);
+  const refused = factory.createPrismaClient('postgresql://fake:fake@127.0.0.1:1/fake', []);
   const reachKind = (e: unknown) => (e as { meta?: { driverAdapterError?: { cause?: { kind?: unknown } } } }).meta?.driverAdapterError?.cause?.kind;
 
   await check('refused port, model query: P1001 (DatabaseNotReachable), retried: 3 calls', async () => {
@@ -199,31 +210,40 @@ async function main() {
     const server = net.createServer(socket => { held.push(socket); });
     await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
     const { port } = server.address() as { port: number };
-    const silent = factory.createPrismaClient(`postgresql://fake:fake@127.0.0.1:${port}/fake`, ['error']);
+    const silent = factory.createPrismaClient(`postgresql://fake:fake@127.0.0.1:${port}/fake`, []);
     const { calls, thrown } = await callsOf(() => silent.$transaction(async tx => tx.user.count()));
     assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P2028' && /Unable to start a transaction/.test(thrown.message), `thrown ${kindOf(thrown)}`);
     assert(calls === 3, `calls ${calls}`);
     server.unref(); // its pending connects never settle; never $disconnect this client (it would wait for them)
   });
 
-  await check('localhost, refused on every address it resolves to: retried whatever shape Node gives (P1001 or AggregateError)', async () => {
-    const local = factory.createPrismaClient('postgresql://fake:fake@localhost:1/fake', ['error']);
+  await check('localhost, refused on every address it resolves to: retried in the shape that is really seen (P1001, or a KnownRequestError carrying Node\'s ECONNREFUSED)', async () => {
+    const local = factory.createPrismaClient('postgresql://fake:fake@localhost:1/fake', []);
     const { calls, thrown } = await callsOf(() => local.user.findFirst({ select: { id: true } }));
     assert(calls === 3, `calls ${calls}, thrown ${kindOf(thrown)}`);
   });
 
-  await check('a connect AggregateError (refused on every address) is retried; one with another code is not', async () => {
+  await check('Prisma\'s wrapped Node codes: ECONNREFUSED and ETIMEDOUT (only a connect gives them) are retried, 3 calls; EHOSTUNREACH and ENETUNREACH (a statement already sent can give them) are not, 1 call', async () => {
+    const wrapped = { ECONNREFUSED: 3, ETIMEDOUT: 3, EHOSTUNREACH: 1, ENETUNREACH: 1 };
+    const ran: Record<string, number> = {};
+    for (const code of Object.keys(wrapped)) ran[code] = (await callsOf(async () => { throw known(`connect ${code} 127.0.0.1:1`, code); })).calls;
+    assert(show(ran) === show(wrapped), `calls ${show(ran)}, wanted ${show(wrapped)}`);
+  });
+
+  await check('a bare connect AggregateError is retried for each of the four Node codes (a connect only); one with another code is not', async () => {
     const aggregate = (code: string) => Object.assign(new AggregateError([new Error('a'), new Error('b')], 'connect failed'), { code });
-    const a = await callsOf(async () => { throw aggregate('ECONNREFUSED'); });
-    assert(a.calls === 3, `ECONNREFUSED calls ${a.calls}`);
+    for (const code of ['ECONNREFUSED', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH']) {
+      const a = await callsOf(async () => { throw aggregate(code); });
+      assert(a.calls === 3, `${code} calls ${a.calls}`);
+    }
     const b = await callsOf(async () => { throw aggregate('EPROTO'); });
     assert(b.calls === 1, `EPROTO calls ${b.calls}`);
   });
 
-  await check('a server that drops the connection: pg\'s plain Error reaches the caller once (it reads the same whether a connect or a running statement was cut)', async () => {
+  await check('a server that drops the connection: P1017 ConnectionClosed reaches the caller once (a cut statement may have run)', async () => {
     const server = await droppingServer();
     try {
-      const dropped = factory.createPrismaClient(server.url, ['error']);
+      const dropped = factory.createPrismaClient(server.url, []);
       const { calls, thrown } = await callsOf(() => dropped.user.findFirst({ select: { id: true } }));
       // Prisma 7.10.1 maps pg's cut connection to P1017 ConnectionClosed; a cut running statement may have run, so it is never retried.
       assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P1017' && reachKind(thrown) === 'ConnectionClosed', `thrown ${kindOf(thrown)}`);
