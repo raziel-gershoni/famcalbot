@@ -168,6 +168,87 @@ async function main() {
     assert(show(sorted(found)) === show(sorted(listed)), `found ${show(sorted(found))}, listed ${show(sorted(listed))}`);
   });
 
+
+  // ---- withRetry on Prisma 7's errors (prisma7-trial.md §5.1, "with patch" column) ----
+  const { Prisma } = await import('@prisma/client');
+  const known = (message: string, code: string, kind?: string) =>
+    new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: 'smoke', ...(kind ? { meta: { driverAdapterError: { cause: { kind } } } } : {}) });
+  const refused = factory.createPrismaClient('postgresql://fake:fake@127.0.0.1:1/fake', ['error']);
+  const reachKind = (e: unknown) => (e as { meta?: { driverAdapterError?: { cause?: { kind?: unknown } } } }).meta?.driverAdapterError?.cause?.kind;
+
+  await check('refused port, model query: P1001 (DatabaseNotReachable), retried: 3 calls', async () => {
+    const { calls, thrown } = await callsOf(() => refused.user.findFirst({ select: { id: true } }));
+    assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P1001' && reachKind(thrown) === 'DatabaseNotReachable', `thrown ${kindOf(thrown)}`);
+    assert(calls === 3, `calls ${calls}`);
+  });
+
+  await check('refused port, raw query: P2010 with DatabaseNotReachable, retried: 3 calls', async () => {
+    const { calls, thrown } = await callsOf(() => refused.$queryRaw`SELECT 1`);
+    assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P2010' && reachKind(thrown) === 'DatabaseNotReachable', `thrown ${kindOf(thrown)}`);
+    assert(calls === 3, `calls ${calls}`);
+  });
+
+  await check('refused port, transaction start: P1001, retried: 3 calls', async () => {
+    const { calls, thrown } = await callsOf(() => refused.$transaction(async tx => tx.user.count()));
+    assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P1001', `thrown ${kindOf(thrown)}`);
+    assert(calls === 3, `calls ${calls}`);
+  });
+
+  await check('a server that accepts and never answers: the transaction cannot start in 2 s (P2028 "Unable to start a transaction"), retried: 3 calls', async () => {
+    const held: import('node:net').Socket[] = [];
+    const server = net.createServer(socket => { held.push(socket); });
+    await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
+    const { port } = server.address() as { port: number };
+    const silent = factory.createPrismaClient(`postgresql://fake:fake@127.0.0.1:${port}/fake`, ['error']);
+    const { calls, thrown } = await callsOf(() => silent.$transaction(async tx => tx.user.count()));
+    assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P2028' && /Unable to start a transaction/.test(thrown.message), `thrown ${kindOf(thrown)}`);
+    assert(calls === 3, `calls ${calls}`);
+    server.unref(); // its pending connects never settle; never $disconnect this client (it would wait for them)
+  });
+
+  await check('localhost, refused on every address it resolves to: retried whatever shape Node gives (P1001 or AggregateError)', async () => {
+    const local = factory.createPrismaClient('postgresql://fake:fake@localhost:1/fake', ['error']);
+    const { calls, thrown } = await callsOf(() => local.user.findFirst({ select: { id: true } }));
+    assert(calls === 3, `calls ${calls}, thrown ${kindOf(thrown)}`);
+  });
+
+  await check('a connect AggregateError (refused on every address) is retried; one with another code is not', async () => {
+    const aggregate = (code: string) => Object.assign(new AggregateError([new Error('a'), new Error('b')], 'connect failed'), { code });
+    const a = await callsOf(async () => { throw aggregate('ECONNREFUSED'); });
+    assert(a.calls === 3, `ECONNREFUSED calls ${a.calls}`);
+    const b = await callsOf(async () => { throw aggregate('EPROTO'); });
+    assert(b.calls === 1, `EPROTO calls ${b.calls}`);
+  });
+
+  await check('a server that drops the connection: pg\'s plain Error reaches the caller once (it reads the same whether a connect or a running statement was cut)', async () => {
+    const server = await droppingServer();
+    try {
+      const dropped = factory.createPrismaClient(server.url, ['error']);
+      const { calls, thrown } = await callsOf(() => dropped.user.findFirst({ select: { id: true } }));
+      // Prisma 7.10.1 maps pg's cut connection to P1017 ConnectionClosed; a cut running statement may have run, so it is never retried.
+      assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P1017' && reachKind(thrown) === 'ConnectionClosed', `thrown ${kindOf(thrown)}`);
+      assert(calls === 1, `calls ${calls}`);
+    } finally { server.close(); }
+  });
+
+  await check('not retried, 1 call each: a refused password, a raw query error, a closed transaction, a duplicate, a server FATAL, a lost transaction connection, and the Prisma 5 startup error', async () => {
+    const cases: [string, unknown][] = [
+      ['P1000', known('Authentication failed against the database server', 'P1000', 'AuthenticationFailed')],
+      ['P2010 other', known('Raw query failed. Code: `23505`.', 'P2010', 'UniqueConstraintViolation')],
+      ['P2010 no kind', known('Raw query failed. Code: `N/A`.', 'P2010')],
+      ['P2028 closed', known('Transaction API error: Transaction already closed: A commit cannot be executed on a committed transaction.', 'P2028')],
+      ['P2028 expired', known('Transaction API error: A query cannot be executed on an expired transaction.', 'P2028')],
+      ['P2002', known('Unique constraint failed on the constraint: `User_telegramId_key`', 'P2002')],
+      ['P2039', known('Database error. Code: `57P01`.', 'P2039')],
+      ['plain', new Error('Client has encountered a connection error and is not queryable')],
+      ['init', new Prisma.PrismaClientInitializationError("Can't reach database server", 'smoke', 'P1001')],
+    ];
+    const ran: Record<string, number> = {};
+    for (const [name, error] of cases) ran[name] = (await callsOf(async () => { throw error; })).calls;
+    assert(Object.values(ran).every(n => n === 1), `calls ${show(ran)}`);
+  });
+
+
   reported = true;
   let failed = 0;
   for (const r of results) {
