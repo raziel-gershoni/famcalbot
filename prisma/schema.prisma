@@ -1,14 +1,15 @@
 // Prisma schema for FamCalBot
 // Database: Neon (Serverless Postgres)
 
+// The connection strings live outside the schema (Prisma 7): migrations use DIRECT_URL through prisma.config.ts, and
+// the app's queries use the pooled DATABASE_URL through the pg adapter (src/utils/prisma-client.ts).
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL") // Pooled connection for queries
-  directUrl = env("DIRECT_URL") // Direct connection for migrations
+  provider = "postgresql"
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  compilerBuild = "small" // the smaller query compiler: about 60 MiB less memory at the same speed (owner decision)
 }
 
 model User {

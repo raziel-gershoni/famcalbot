@@ -1,10 +1,11 @@
-import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
+import { createPrismaClient } from '../src/utils/prisma-client';
 
-// Load environment variables
+// Load environment variables (Prisma 7 loads no .env of its own)
 dotenv.config({ path: '.env.local' });
 
-const prisma = new PrismaClient();
+// Built after .env.local is loaded: the factory reads the URL it is given, when it is called
+const prisma = createPrismaClient(process.env.DATABASE_URL, ['error']);
 
 async function main() {
   console.log('🌱 Seeding database...');

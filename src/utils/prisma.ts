@@ -1,8 +1,10 @@
 /**
- * Prisma Client Singleton
+ * Prisma Client Singleton (Prisma 7: queries go through the pg driver adapter on the pooled DATABASE_URL;
+ * the client and its pool are built by createPrismaClient, src/utils/prisma-client.ts)
  */
 
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from './prisma-client';
 
 declare global {
   var prisma: PrismaClient | undefined;
@@ -10,9 +12,7 @@ declare global {
 
 export const prisma =
   global.prisma ||
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
+  createPrismaClient(process.env.DATABASE_URL, process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error']);
 
 if (process.env.NODE_ENV !== 'production') {
   global.prisma = prisma;

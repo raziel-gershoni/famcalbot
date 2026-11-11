@@ -66,7 +66,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 ### Prerequisites
 
 - Node.js 24.x
-- A PostgreSQL database (Neon recommended; the schema uses `DATABASE_URL` + `DIRECT_URL`)
+- A PostgreSQL database (Neon recommended; the app's queries use the pooled `DATABASE_URL` through Prisma's pg adapter, migrations the direct `DIRECT_URL` through `prisma.config.ts`)
 - An Upstash Redis instance
 - A Telegram bot token (via BotFather); WhatsApp Business API credentials are optional
 - Google OAuth credentials for Google Calendar access
@@ -87,7 +87,7 @@ Copy `.env.example` (production) or `.env.local.example` (local dev) and fill in
 | `GOOGLE_SIGNIN_CLIENT_ID`, `GOOGLE_SIGNIN_CLIENT_SECRET` | Optional. Google sign-in on famcal.bot: a Web client of its own in the Calendar's Google Cloud project, never `GOOGLE_CLIENT_ID`'s, with the redirect URI `https://famcal.bot/api/auth/google/callback`; unset, or the Calendar client's, the Google way is hidden and production startup logs a warning |
 | `GEMINI_API_KEY` | Gemini API key for text and voice |
 | `AI_MAX_TOKENS`, `AI_MAX_RETRIES` | Optional output-token and retry overrides |
-| `DATABASE_URL`, `DIRECT_URL` | Postgres connection (pooled + direct for migrations) |
+| `DATABASE_URL`, `DIRECT_URL` | Postgres: `DATABASE_URL` pooled, for the app (pool size and idle time are set in code, `src/utils/prisma-client.ts`; URL knobs such as `connection_limit` do nothing); `DIRECT_URL` direct, for migrations |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Redis for locks, caching, rate limiting |
 | `RESEND_API_KEY` | Optional. Resend's API key for the email sign-in codes (from `FamCal <signin@famcal.bot>`, replies to `privacy@famcal.bot`); unset, email sign-in is not offered, its routes answer 503 and production startup logs a warning |
 | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET` | Optional. Cloudflare Turnstile on the email-code form (Cloudflare → Turnstile → widget "FamCal sign-in", hostname `famcal.bot`, Managed): the site key reaches the page at request time (never at build), the secret checks each code request with Cloudflare. With both set every code request needs a pass, and an address with no account gets a sign-up code; unset, email sign-up is off, email sign-in works as before and production startup logs a warning |
@@ -204,7 +204,7 @@ Dev-only data scripts: `scripts/build-israel-heights.ts` (the height map), `scri
 
 ## 📦 Deployment
 
-Deployed on Railway as one persistent Next.js (Node) process, with zero-downtime deploys. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check, the encryption-key sweep) runs in-process on node-cron, started from `instrumentation.ts` into `src/cron/scheduler.ts` (the job logic is in `src/cron/handlers.ts`); the health check and the key sweep run only on the schedule; every other job also has an API endpoint for manual runs, guarded by `CRON_SECRET` sent as `Authorization: Bearer <CRON_SECRET>` (a `?secret=` query is refused). Cron times are UTC (node-cron follows the server process's zone, which the startup log names) except the setup-reminder nudge, which keeps 10:00 Israel time summer and winter (an hourly UTC job that acts when Israel's hour is 10; node-cron's own `timezone` option skips the day the clocks spring forward). Local wall times become instants in one function, `src/utils/wall-time.ts`: a time the clocks skip moves forward by the jump, a repeated one is its first occurrence, whatever zone the server runs in.
+Deployed on Railway as one persistent Next.js (Node) process, with zero-downtime deploys. `npm run build` runs `prisma generate && prisma migrate deploy && next build`, so database migrations are applied on each deploy. Prisma's CLI reads `DIRECT_URL` through `prisma.config.ts` and loads no `.env` file (export the variables to run it locally; the seed is `npx prisma db seed`). Scheduled work (daily/tomorrow summaries, reminders, setup reminders, the Google copy worker, a nightly health check, the encryption-key sweep) runs in-process on node-cron, started from `instrumentation.ts` into `src/cron/scheduler.ts` (the job logic is in `src/cron/handlers.ts`); the health check and the key sweep run only on the schedule; every other job also has an API endpoint for manual runs, guarded by `CRON_SECRET` sent as `Authorization: Bearer <CRON_SECRET>` (a `?secret=` query is refused). Cron times are UTC (node-cron follows the server process's zone, which the startup log names) except the setup-reminder nudge, which keeps 10:00 Israel time summer and winter (an hourly UTC job that acts when Israel's hour is 10; node-cron's own `timezone` option skips the day the clocks spring forward). Local wall times become instants in one function, `src/utils/wall-time.ts`: a time the clocks skip moves forward by the jump, a repeated one is its first occurrence, whatever zone the server runs in.
 
 ## 📄 License
 

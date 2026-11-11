@@ -15,9 +15,6 @@
     "get-google-token": "tsx scripts/get-google-token.ts",
     "setup-webhook": "tsx scripts/setup-webhook.ts"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "keywords": [
     "telegram",
     "bot",
@@ -35,7 +32,8 @@
     "@hebcal/locales": "^6.5.3",
     "@ncdai/react-wheel-picker": "1.2.3",
     "@openmeteo/file-reader": "0.0.21",
-    "@prisma/client": "^5.22.0",
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
     "@resvg/resvg-js": "^2.6.2",
     "@sentry/nextjs": "^10.78.0",
     "@tailwindcss/postcss": "^4.3.5",
@@ -59,8 +57,9 @@
     "openid-client": "6.8.9",
     "opusscript": "^0.1.1",
     "pdf-lib": "^1.17.1",
+    "pg": "8.23.1",
     "postcss": "^8.5.32",
-    "prisma": "^5.22.0",
+    "prisma": "7.10.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
