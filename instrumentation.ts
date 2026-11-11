@@ -61,7 +61,7 @@ export async function register() {
           getAdminUserIds().then(adminIds => {
             const bot = getBot();
             for (const adminId of adminIds) {
-              bot.sendMessage({ chat_id: adminId, text: `🚀 FamCal <code>${commitSha}</code> deployed${missingLine}`, parse_mode: 'HTML' })
+              bot.sendMessage({ chat_id: adminId, text: `🚀 FamCal <code>${commitSha}</code> deployed on Node ${process.version}${missingLine}`, parse_mode: 'HTML' })
                 .catch(err => captureError(err, 'deploy-notify-send', { admin_id: adminId }));
             }
           })

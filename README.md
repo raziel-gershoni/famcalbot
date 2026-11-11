@@ -5,7 +5,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js%2016-000?style=flat-square&logo=next.js&logoColor=white)
 ![React](https://img.shields.io/badge/React%2019-20232A?style=flat-square&logo=react&logoColor=61DAFB)
-![Node.js](https://img.shields.io/badge/Node%2022-339933?style=flat-square&logo=node.js&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node%2024-339933?style=flat-square&logo=node.js&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
 ![Postgres](https://img.shields.io/badge/Neon%20Postgres-336791?style=flat-square&logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Upstash%20Redis-DC382D?style=flat-square&logo=redis&logoColor=white)
@@ -55,7 +55,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 ## 🛠️ Tech stack
 
 - **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, next-intl (he/en/ru, RTL), lucide-react, MDX blog, Satori + resvg for generated share/weather images.
-- **Backend/API:** TypeScript on Node 22, Next.js route handlers, node-telegram-bot-api 2.x, WhatsApp Business Cloud API, node-cron.
+- **Backend/API:** TypeScript on Node 24, Next.js route handlers, node-telegram-bot-api 2.x, WhatsApp Business Cloud API, node-cron.
 - **Data:** Prisma ORM, Neon Postgres, Upstash Redis (distributed locks, caching, rate limiting).
 - **AI:** Google Gemini behind a unified provider layer, for text, voice transcription, photo parsing, and TTS.
 - **Integrations:** Google Calendar API, Web Push (the `web-push` library, VAPID: browser notifications), MET Norway (forecast), Copernicus CAMS via Open-Meteo's open data on S3 (dust; read with `@openmeteo/file-reader`, GPL-2.0, server only), `geo-tz` (time zones, © OpenStreetMap contributors, ODbL), the Copernicus DEM GLO-90 (heights in Israel, `data/israel-heights-3s.i16.br`, rebuilt with `scripts/build-israel-heights.ts`), Hebcal (Hebrew dates/holidays, zmanim), `rrule` (RFC-5545 recurrence); GeoNames, OpenStreetMap and Copernicus DEM for the public pages' city table (built once, never called at runtime).
@@ -65,7 +65,7 @@ FamCal is a multi-platform, multilingual calendar assistant for individuals and 
 
 ### Prerequisites
 
-- Node.js 22.x
+- Node.js 24.x
 - A PostgreSQL database (Neon recommended; the schema uses `DATABASE_URL` + `DIRECT_URL`)
 - An Upstash Redis instance
 - A Telegram bot token (via BotFather); WhatsApp Business API credentials are optional

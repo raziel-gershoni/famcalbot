@@ -26,6 +26,9 @@ import crypto from 'crypto';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
+// The deploy message names the Node version it runs on (instrumentation.ts).
+const DEPLOYED = `🚀 FamCal <code>abcdef1</code> deployed on Node ${process.version}`;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
@@ -388,7 +391,7 @@ async function main() {
         'warn [startup] web sign-in with an email code is off: RESEND_API_KEY is not set',
       ]), `warnings ${show(warns)}`);
       assert(!captured.some(c => /web sign-in/.test(c.message)), `a warning was captured: ${show(captured)}`);
-      assert(sends.length === 1 && sends[0].text === '🚀 FamCal <code>abcdef1</code> deployed', `deploy message ${show(sends)}`);
+      assert(sends.length === 1 && sends[0].text === DEPLOYED, `deploy message ${show(sends)}`);
       const on = await registerWith({
         NODE_ENV: 'production',
         TELEGRAM_LOGIN_CLIENT_ID: '8000000001', TELEGRAM_LOGIN_CLIENT_SECRET: 'VALUE-TGL-fc5', GOOGLE_SIGNIN_CLIENT_ID: 'VALUE-GSI-id', GOOGLE_SIGNIN_CLIENT_SECRET: 'VALUE-GSI-fc6', RESEND_API_KEY: 'VALUE-RESEND-fc7',
@@ -424,10 +427,10 @@ async function main() {
     await registerWith({ NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567', SESSION_SECRET: '', WHATSAPP_APP_SECRET: '' });
     await settle(() => sends.length >= 2);
     const texts = sends.map(s => s.text);
-    assert(sends.length === 2 && sends.every(s => s.text === '🚀 FamCal <code>abcdef1</code> deployed\nmissing: SESSION_SECRET, WHATSAPP_APP_SECRET'), `sent ${show(sends)}`);
+    assert(sends.length === 2 && sends.every(s => s.text === `${DEPLOYED}\nmissing: SESSION_SECRET, WHATSAPP_APP_SECRET`), `sent ${show(sends)}`);
     await registerWith({ NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567', CRON_SECRET: SESSION });
     await settle(() => sends.length >= 2);
-    assert(sends.length === 2 && sends.every(s => s.text === '🚀 FamCal <code>abcdef1</code> deployed'), `reused only: sent ${show(sends)} (before: ${show(texts)})`);
+    assert(sends.length === 2 && sends.every(s => s.text === DEPLOYED), `reused only: sent ${show(sends)} (before: ${show(texts)})`);
   });
 
   await check('#10b the deploy message names a missing ENCRYPTION_KEY', async () => {
@@ -435,7 +438,7 @@ async function main() {
     sendFails = false;
     await registerWith({ NODE_ENV: 'production', RAILWAY_GIT_COMMIT_SHA: 'abcdef1234567', ENCRYPTION_KEY: '' });
     await settle(() => sends.length >= 2);
-    assert(sends.length === 2 && sends.every(s => s.text === '🚀 FamCal <code>abcdef1</code> deployed\nmissing: ENCRYPTION_KEY'), `sent ${show(sends)}`);
+    assert(sends.length === 2 && sends.every(s => s.text === `${DEPLOYED}\nmissing: ENCRYPTION_KEY`), `sent ${show(sends)}`);
   });
 
   await check('#11 a deploy message that fails is logged and captured (deploy-notify-send per admin, deploy-notify for the admin list), never swallowed', async () => {

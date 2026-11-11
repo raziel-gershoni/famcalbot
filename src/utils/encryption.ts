@@ -160,7 +160,7 @@ export function decryptDetailed(encryptedText: string): { value: string; key: 'c
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
 
-  // encrypt() always writes a 16-byte tag. Node 22 (engines.node) would otherwise verify
+  // encrypt() always writes a 16-byte tag. Node (22 and 24 alike) would otherwise verify
   // a truncated one down to 4 bytes (DEP0182), so a forgery only had to match 32 bits.
   if (authTag.length !== AUTH_TAG_LENGTH) {
     throw new UndecryptableError('Invalid encrypted text format');
