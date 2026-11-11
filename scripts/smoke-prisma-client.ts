@@ -240,13 +240,32 @@ async function main() {
     assert(b.calls === 1, `EPROTO calls ${b.calls}`);
   });
 
-  await check('a server that drops the connection: P1017 ConnectionClosed reaches the caller once (a cut statement may have run)', async () => {
-    const server = await droppingServer();
+  /** A server on 127.0.0.1 that cuts each connection at accept, the way `cut` says: an RST (reset) or a clean close (a FIN). */
+  async function cuttingServer(cut: 'reset' | 'end'): Promise<{ url: string; close: () => void }> {
+    const server = net.createServer(socket => { if (cut === 'reset') socket.resetAndDestroy(); else socket.end(); });
+    await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
+    const { port } = server.address() as { port: number };
+    return { url: `postgresql://fake:fake@127.0.0.1:${port}/fake`, close: () => server.close() };
+  }
+
+  await check('a server that resets the connection (an RST): P1017 ConnectionClosed reaches the caller once (a cut statement may have run, so it is not retried)', async () => {
+    const server = await cuttingServer('reset');
     try {
-      const dropped = factory.createPrismaClient(server.url, []);
-      const { calls, thrown } = await callsOf(() => dropped.user.findFirst({ select: { id: true } }));
-      // Prisma 7.10.1 maps pg's cut connection to P1017 ConnectionClosed; a cut running statement may have run, so it is never retried.
+      const cut = factory.createPrismaClient(server.url, []);
+      const { calls, thrown } = await callsOf(() => cut.user.findFirst({ select: { id: true } }));
       assert(thrown instanceof Prisma.PrismaClientKnownRequestError && thrown.code === 'P1017' && reachKind(thrown) === 'ConnectionClosed', `thrown ${kindOf(thrown)}`);
+      assert(calls === 1, `calls ${calls}`);
+    } finally { server.close(); }
+  });
+
+  await check('a server that closes the connection cleanly (a FIN): pg\'s plain Error, not a Prisma error, reaches the caller once (a cut statement may have run, so it is not retried)', async () => {
+    const server = await cuttingServer('end');
+    try {
+      const cut = factory.createPrismaClient(server.url, []);
+      const { calls, thrown } = await callsOf(() => cut.user.findFirst({ select: { id: true } }));
+      assert(thrown instanceof Error, `thrown ${kindOf(thrown)}`);
+      const prismaError = thrown instanceof Prisma.PrismaClientKnownRequestError || thrown instanceof Prisma.PrismaClientUnknownRequestError || thrown instanceof Prisma.PrismaClientInitializationError;
+      assert(!prismaError, `thrown ${kindOf(thrown)}`);
       assert(calls === 1, `calls ${calls}`);
     } finally { server.close(); }
   });
