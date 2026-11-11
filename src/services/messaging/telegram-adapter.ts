@@ -18,7 +18,7 @@ import {
   StreamMessageOptions,
 } from './types';
 import { captureError } from '../../lib/error-capture';
-import { telegramErrorInfo } from '../../lib/telegram-errors';
+import { telegramErrorInfo, telegramRefusalSays } from '../../lib/telegram-errors';
 import { retryWithBackoff, type RetryVerdict } from '../../utils/fetch-retry';
 
 /**
@@ -200,7 +200,7 @@ export class TelegramAdapter implements IMessagingService {
       });
     } catch (error) {
       // Ignore "message is not modified" errors
-      if (!(error as { message?: string }).message?.includes('message is not modified')) {
+      if (!telegramRefusalSays(error, 'message is not modified')) {
         throw error;
       }
     }

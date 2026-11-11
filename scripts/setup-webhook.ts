@@ -105,7 +105,7 @@ const USAGE = [
   'Usage (TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET set in the environment):',
   '  npm run setup-webhook set https://<host>/api/webhook   - point the bot at this webhook, with the secret',
   '  npm run setup-webhook get                              - show the current webhook',
-  '  npm run setup-webhook delete                           - remove the webhook (local polling only)',
+  '  npm run setup-webhook delete                           - remove the webhook (the bot then gets no updates)',
 ];
 
 /** Runs one command and returns the exit code. */

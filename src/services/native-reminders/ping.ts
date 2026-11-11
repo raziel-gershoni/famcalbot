@@ -8,6 +8,7 @@
 
 import type { InlineKeyboardMarkup } from 'node-telegram-bot-api/types';
 import { getBot } from '../telegram';
+import { telegramRefusalSays } from '../../lib/telegram-errors';
 import { getBotMessage, getBotMessages } from '../../lib/bot-messages';
 import { escapeHtml } from '../../utils/html';
 
@@ -65,12 +66,11 @@ export async function refreshPing(chatId: bigint | number, messageId: number, te
   try {
     await getBot().editMessageText({ text, chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML', reply_markup: keyboard });
   } catch (error) {
-    const message = (error as { message?: string })?.message ?? '';
-    if (message.includes('message is not modified')) {
+    if (telegramRefusalSays(error, 'message is not modified')) {
       console.debug(`[NativeReminders] Ping ${messageId} in chat ${chatId} already reads that; nothing to refresh`);
       return;
     }
-    if (message.includes('message to edit not found')) return;
+    if (telegramRefusalSays(error, 'message to edit not found')) return;
     throw error;
   }
 }
@@ -83,8 +83,7 @@ export async function stripPingButtons(chatId: bigint | number, messageId: numbe
   try {
     await getBot().editMessageText({ text, chat_id: chatId.toString(), message_id: messageId, parse_mode: 'HTML' });
   } catch (error) {
-    const message = (error as { message?: string })?.message ?? '';
-    if (message.includes('message is not modified') || message.includes('message to edit not found')) return;
+    if (telegramRefusalSays(error, 'message is not modified') || telegramRefusalSays(error, 'message to edit not found')) return;
     throw error;
   }
 }

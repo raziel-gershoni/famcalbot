@@ -27,7 +27,7 @@
 // the user's name.
 //
 // The callback page, the finish page's helpers, google-connect, the webhook route, the
-// Telegram and WhatsApp webhook handlers, /start (webhook and polling), magic-link,
+// Telegram and WhatsApp webhook handlers, /start (through the webhook), magic-link,
 // oauth/start, check-token-refresh and user-service run for real, and so does
 // RefreshTokenClient (#27: its hooks on a small dispatcher, no DOM). Faked at the
 // boundaries: Prisma (in memory), Redis (in memory), the rate limiter (always allows), the

@@ -14,6 +14,7 @@ import { getBot } from '../telegram/bot';
 import { getUserByTelegramId } from '../user-service';
 import { getBotMessage } from '../../lib/bot-messages';
 import { captureError } from '../../lib/error-capture';
+import { telegramRefusalSays } from '../../lib/telegram-errors';
 import { escapeHtml } from '../../utils/html';
 import { stripPingButtons } from './ping';
 import { applyReminderAction, loadLiveOccurrence, snoozeLabel, type ReminderAction } from './actions';
@@ -127,8 +128,7 @@ async function removeButtons(ping: PingMessage): Promise<void> {
   try {
     await getBot().editMessageReplyMarkup({ chat_id: ping.chatId, message_id: ping.messageId, reply_markup: { inline_keyboard: [] } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('message is not modified') || message.includes('message to edit not found')) return;
+    if (telegramRefusalSays(error, 'message is not modified') || telegramRefusalSays(error, 'message to edit not found')) return;
     captureError(error, 'native-reminder-callback-edit', { chat_id: ping.chatId }, 'warning');
   }
 }

@@ -1,7 +1,8 @@
 // Smoke test: every reader of a failed Bot API call reads node-telegram-bot-api 2.x's errors through the one helper,
 // telegramErrorInfo (src/lib/telegram-errors.ts), and gets for each failure what it got under 0.66: the guest answer's
 // retry verdict, the refund's refusal, the guest answer's log words and "already answered", the reminder pass's "try
-// again on a later tick", the blocked-user flag and the reason stored with it (without 2.x's "403: " prefix).
+// again on a later tick", the blocked-user flag and the reason stored with it (without 2.x's "403: " prefix), and the
+// edits' "message is not modified" / "message to edit not found" checks (telegramRefusalSays).
 //
 // The failures are the library's own classes (scripts/lib/fake-telegram.ts). Nothing is faked but the env (fake values
 // from ci-smokes); no DB, Redis or network.
@@ -53,7 +54,7 @@ interface Row {
 }
 
 async function main() {
-  const { telegramErrorInfo } = await import('../src/lib/telegram-errors');
+  const { telegramErrorInfo, telegramRefusalSays } = await import('../src/lib/telegram-errors');
   const { telegramRetryVerdict } = await import('../src/services/messaging/telegram-adapter');
   const { telegramRefusal } = await import('../src/services/admin-refund');
   const { refusalText, alreadyAnswered } = await import('../src/services/ask-in-chat/handler');
@@ -168,9 +169,13 @@ async function main() {
     assert(describeDeliveryError(blocked) === 'Forbidden: bot was blocked by the user', describeDeliveryError(blocked));
   });
 
-  check('a 400 "message is not modified" still says so in its message (the adapter\'s and the reminders\' checks read it)', () => {
-    const error = tgRefused(400, 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message');
-    assert(error.message.includes('message is not modified'), error.message);
+  check('telegramRefusalSays (the adapter\'s and the reminders\' edit checks) reads a refusal\'s words: "message is not modified" and "message to edit not found" match, the same words in a plain error or no answer do not', () => {
+    const notModified = tgRefused(400, 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message');
+    assert(telegramRefusalSays(notModified, 'message is not modified'), notModified.message);
+    assert(telegramRefusalSays(tgRefused(400, 'Bad Request: message to edit not found'), 'message to edit not found'), 'not found');
+    assert(!telegramRefusalSays(notModified, 'message to edit not found'), 'the other words matched');
+    assert(!telegramRefusalSays(new Error('Bad Request: message is not modified'), 'message is not modified'), 'a plain error read as a refusal');
+    assert(!telegramRefusalSays(tgNoAnswer('editMessageText', 'message is not modified'), 'message is not modified'), 'no answer read as a refusal');
   });
 
   check('a WhatsApp error classifies as before: 131026 is unreachable, 131047 is not, and neither is a Telegram error', () => {

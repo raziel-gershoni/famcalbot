@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import Module from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { format, inspect } from 'node:util';
 import { MessagingPlatform, MessageFormat } from '../src/services/messaging/types';
 import type { MessageOptions } from '../src/services/messaging/types';
 import type { ParsedEvent } from '../src/services/event-parser';
@@ -231,6 +232,8 @@ type Sent = { via: 'telegram' | 'whatsapp' | 'bot'; method: string; chatId: unkn
 const sent: Sent[] = [];
 const logs: string[] = [];
 const captured: string[] = [];
+/** Each captured error as Sentry gets it: inspected whole, its cause chain and the context's fields included. */
+const reported: string[] = [];
 const tracked: { userId: number; action: string; metadata?: Row }[] = [];
 /** The bot's card edits and answers on Telegram: what the person's card now says. */
 const edits: { chatId: unknown; messageId: unknown; text: string; options?: Row }[] = [];
@@ -322,7 +325,7 @@ function reset() {
   redisStore.clear();
   redisDeletes.length = 0;
   failing.clear();
-  for (const list of [sent, logs, captured, tracked, edits, toasts, providerCalls, providerScript, menuButtonCalls]) list.length = 0;
+  for (const list of [sent, logs, captured, reported, tracked, edits, toasts, providerCalls, providerScript, menuButtonCalls]) list.length = 0;
   menuButtonFails = false;
   telegramRefund = () => true;
   botCalls.length = 0;
@@ -371,8 +374,14 @@ Object.assign(stubs, {
   [`${SRC}/utils/prisma.ts`]: { prisma: fakePrisma, withRetry: (fn: () => unknown) => fn() },
   [`${SRC}/utils/redis.ts`]: { redis: fakeRedis },
   [`${SRC}/lib/error-capture.ts`]: {
-    captureError: (error: unknown, context: string) => { captured.push(`${context}: ${error instanceof Error ? error.message : String(error)}`); },
-    captureWarning: (message: string, context: string) => { captured.push(`${context}: ${message}`); },
+    captureError: (error: unknown, context: string, extra?: unknown) => {
+      captured.push(`${context}: ${error instanceof Error ? error.message : String(error)}`);
+      reported.push(inspect({ context, error, extra }, { depth: null }));
+    },
+    captureWarning: (message: string, context: string, extra?: unknown) => {
+      captured.push(`${context}: ${message}`);
+      reported.push(inspect({ context, message, extra }, { depth: null }));
+    },
     captureInfo: () => undefined,
   },
   [`${SRC}/services/telegram/bot.ts`]: {
@@ -557,10 +566,11 @@ const waAudio = (from: string) => whatsappMessage(from, { type: 'audio', audio: 
 
 const sentTo = (via: Sent['via']) => sent.filter(s => s.via === via);
 
-/** Runs fn with the console lines kept in `logs` (the code under test logs a lot). */
+/** Runs fn with the console lines kept in `logs` (the code under test logs a lot), as the real console prints them. */
 async function withLogs<T>(fn: () => Promise<T>): Promise<T> {
   const kept = { log: console.log, warn: console.warn, error: console.error };
-  const take = (...args: unknown[]) => { logs.push(args.map(String).join(' ')); };
+  // util.format inspects an error with everything it carries, its cause (where 2.x keeps the request URL) included
+  const take = (...args: unknown[]) => { logs.push(format(...args)); };
   console.log = take; console.warn = take; console.error = take;
   try {
     return await fn();
@@ -1431,7 +1441,8 @@ async function fix7() {
     assert(!JSON.stringify(answer.body).includes(token), 'the token is in the answer');
     unchanged(before);
     assert(captured.some(c => c.startsWith('admin-refund')), `not captured: ${show(captured)}`);
-    assert(logs.some(l => l.includes('[admin-refund]')) && !logs.some(l => l.includes(token)) && !captured.some(c => c.includes(token)), `the token is in a log or in Sentry: ${show(logs)} ${show(captured)}`);
+    assert(logs.some(l => l.includes('[admin-refund]')), `not logged: ${show(logs)}`);
+    assert(!logs.some(l => l.includes(token)) && !reported.some(r => r.includes(token)), 'the token is in a log or in Sentry');
   });
 
   await check("7: no payment to refund (an unknown payment, another person's payment, no payment named, no Telegram id, no such person) answers 409 NO_PAYMENT, 400 or 404 and never reaches Telegram", async () => {

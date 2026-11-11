@@ -5,7 +5,8 @@
 //   - a voice note and the weather photo: files with today's names and types (voice-….opus / application/octet-stream,
 //     weather.png / image/png), plus caption and duration;
 //   - a guest answer: `result` as JSON once; a draft: a numeric chat_id;
-//   - no library retry or timeout: a lost answer, a gateway's 502 and a 429 each reach Telegram exactly once.
+//   - no library retry or timeout: a lost answer, a gateway's 502 and a 429 each reach Telegram exactly once, also through the
+//     client getBot() itself builds (the recorder stands in for the global fetch while it is built).
 // 2.x sends a plain call as application/x-www-form-urlencoded (fields as strings, objects JSON-encoded once) and a call with a
 // file as multipart/form-data. No network: the fetch is the recorder.
 //
@@ -15,7 +16,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Api } from 'node-telegram-bot-api';
-import { TELEGRAM_API_OPTIONS } from '../src/services/telegram/bot';
+import { getBot, TELEGRAM_API_OPTIONS } from '../src/services/telegram/bot';
 import { guestAnswerArticle, TelegramAdapter } from '../src/services/messaging/telegram-adapter';
 import { MessageFormat } from '../src/services/messaging/types';
 
@@ -39,6 +40,8 @@ type Sent = {
   url: string;
   method: string;
   contentType: string;
+  /** The request carried an abort signal (the library's own timeout, when it has one) */
+  signal: boolean;
   fields: Record<string, string>;
   files: Record<string, { filename: string; type: string; size: number }>;
 };
@@ -59,7 +62,7 @@ function recorder(answers: Answer[] = []) {
       if (typeof value === 'string') fields[key] = value;
       else files[key] = { filename: value.name, type: value.type, size: value.size };
     }
-    sent.push({ url, method: url.split('/').pop() ?? '', contentType, fields, files });
+    sent.push({ url, method: url.split('/').pop() ?? '', contentType, signal: init?.signal != null, fields, files });
     const next = answers[sent.length - 1];
     if (next instanceof Error) throw next;
     if (next) return next;
@@ -177,6 +180,31 @@ async function main() {
     thrown = undefined;
     try { await limited.adapter.sendMessage(555, 'hi'); } catch (e) { thrown = e; }
     assert((thrown as { code?: string } | undefined)?.code === 'ETELEGRAM' && limited.sent.length === 1, `429: ${(thrown as { code?: string } | undefined)?.code} after ${limited.sent.length}`);
+  });
+
+  await check('getBot() builds the client with TELEGRAM_API_OPTIONS: a lost answer and a gateway\'s 502 each make exactly one request, and no request carries a timeout', async () => {
+    // 2.x's transport takes the global fetch when the client is built: the recorder stands in for it until getBot() has built
+    // the one client (nothing earlier in this smoke calls getBot()). The URL holds the token, so no assertion prints it.
+    process.env.TELEGRAM_BOT_TOKEN ||= '000000:fake';
+    const rec = recorder([new TypeError('fetch failed'), new Response('<html>Bad Gateway</html>', { status: 502 })]);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = rec.fetchImpl as typeof fetch;
+    let bot: ReturnType<typeof getBot>;
+    try {
+      bot = getBot();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const codeOf = async () => {
+      try { await bot.sendMessage({ chat_id: 555, text: 'hi' }); } catch (e) { return (e as { code?: string }).code; }
+      return 'sent';
+    };
+    const requests = () => rec.sent.length;
+    const lost = await codeOf();
+    assert(lost === 'EFETCH' && requests() === 1, `lost: ${lost} after ${requests()} requests`);
+    const page = await codeOf();
+    assert(page === 'EFETCH' && requests() === 2, `502: ${page} after ${requests()} requests in all`);
+    assert(rec.sent.every(r => r.method === 'sendMessage' && !r.signal), `methods ${show(rec.sent.map(r => r.method))}, signals ${show(rec.sent.map(r => r.signal))}`);
   });
 
   await check('TELEGRAM_API_OPTIONS is { maxRetries: 0, timeoutMs: 0 }', () => {

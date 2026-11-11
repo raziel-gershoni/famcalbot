@@ -97,7 +97,7 @@ export async function handleStartCommand(
   chatType?: string
 ): Promise<void> {
   // Google connect claim: t.me/<bot>?start=gc_<pendingId> from the OAuth finish page.
-  // Both the webhook and polling /start land here. It runs before auto-registration, so a
+  // The webhook's /start lands here. It runs before auto-registration, so a
   // stranger tapping someone else's link gets no account, and before the breadcrumb,
   // which would record the id.
   if (args?.startsWith('gc_') && platform === MessagingPlatform.TELEGRAM) {
@@ -180,7 +180,7 @@ export async function handleStartCommand(
 
   // ?start=connect is on the WhatsApp summary button and the dashboard banner, which linked
   // accounts see too. Linked already (by phone or BSUID): the usual reply below, with the
-  // dashboard button. The polling /start lands here as well.
+  // dashboard button.
   if (args === 'connect' && !user.whatsappPhone && !user.whatsappBsuid) {
     await handleConnectCommand(Number(chatId), userIdNum, platform, true, links);
     return;

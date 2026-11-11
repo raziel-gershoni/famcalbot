@@ -27,3 +27,9 @@ export function telegramErrorInfo(error: unknown): TelegramErrorInfo | null {
   if (e.code === 'EPARSE') return { kind: 'unreadable', code: e.code };
   return null;
 }
+
+/** True when Telegram refused the call in words that contain `words` (an edit's "message is not modified", ...). */
+export function telegramRefusalSays(error: unknown, words: string): boolean {
+  const info = telegramErrorInfo(error);
+  return info?.kind === 'refused' && info.description.includes(words);
+}
