@@ -132,7 +132,7 @@ One-time setup:
 
 1. **Telegram:** @BotFather → the bot → Login Widget → Switch to OpenID Connect Login; redirect URI `https://famcal.bot/api/auth/telegram/callback`, trusted origin `https://famcal.bot`. Its Client ID and Client Secret go in `TELEGRAM_LOGIN_CLIENT_ID` and `TELEGRAM_LOGIN_CLIENT_SECRET`.
 2. **Google:** Google Auth Platform (the Calendar's project) → Clients → Create client → Web application "FamCal sign-in", redirect URI `https://famcal.bot/api/auth/google/callback`. Its ID and secret go in `GOOGLE_SIGNIN_CLIENT_ID` and `GOOGLE_SIGNIN_CLIENT_SECRET`; never the Calendar client's.
-3. **Resend:** add the domain `famcal.bot` in region eu-west-1 and let it write its records to Cloudflare (`send.famcal.bot` MX and SPF, `resend._domainkey` DKIM). The apex MX and SPF stay Cloudflare Email Routing's, so mail to privacy@famcal.bot keeps arriving, and Resend's Receiving stays off. An API key with sending access to famcal.bot goes in `RESEND_API_KEY`.
+3. **Resend:** the domain `famcal.bot` is verified in region eu-west-1 with Resend Forge (done 2026-11-14): Cloudflare holds `send` CNAME `send.forge.rmta.net`, `rsend` CNAME `rsend-euw1.forge.rmta.net` and the `resend._domainkey` DKIM TXT, all DNS only. The apex MX and SPF stay Cloudflare Email Routing's, so mail to privacy@famcal.bot keeps arriving, and Resend's Receiving stays off. Left to do: an API key with sending access to famcal.bot in `RESEND_API_KEY` (its own key, not the one Gmail's Send mail as uses).
 
 ### Web sign-up
 
