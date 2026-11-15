@@ -211,7 +211,7 @@ for (const level of ['error', 'warn'] as const) {
     if (text.startsWith('[telegram-ui]')) return original(...args);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
-    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]') || text.startsWith('[telegram-connect]') || text.startsWith('[sign-in-again]')) {
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]') || text.startsWith('[next-zman]') || text.startsWith('[telegram-connect]') || text.startsWith('[sign-in-again]')) {
       appLogs.push(text.slice(0, 300));
       return;
     }
@@ -2426,7 +2426,7 @@ async function main() {
       assert(m, `no rule ${selector}`);
       return m[1];
     };
-    for (const selector of ['.ch-icon-btn', '.ch-banner', '.ch-option', '.ch-option-compact', '.ch-home-card-action']) {
+    for (const selector of ['.ch-icon-btn', '.ch-banner', '.ch-option', '.ch-option-compact', '.ch-home-card-action', '.ch-head-zman']) {
       const min = /min-height:\s*(\d+)px/.exec(rule(selector));
       assert(min && Number(min[1]) >= 44, `${selector} min-height ${min?.[1]}`);
     }
@@ -9966,11 +9966,12 @@ async function main() {
   const sunCalls = () => zmanimCalls.length;
   const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
 
-  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and it asks nothing until tapped', async () => {
+  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks only for today, the header\'s next zman (a home that is not jewish asks nothing)', async () => {
     for (const jewish of [undefined, false]) {
       const a = await editingHome('en', {}, jewish === undefined ? {} : { jewish });
       try {
         assert(sunButton(a.m).length === 0, `jewish ${String(jewish)}: a sun button`);
+        assert(zmanimCalls.length === 0, `jewish ${String(jewish)}: ${zmanimCalls.length} zmanim requests`);
         assert(byLabel(a.m.container, 'Send to chat') && byLabel(a.m.container, 'Menu'), 'the other buttons');
       } finally {
         a.m.unmount();
@@ -9985,7 +9986,7 @@ async function main() {
         const row = sun[0].parentNode as FakeElement;
         const header = messages[locale].calendarHome.header;
         assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, label, header.menu]), `${locale}: the "+", Send, the sun, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
-        assert(zmanimCalls.length === 0, `${locale}: a request before the tap`);
+        assert(zmanimCalls.length === 1 && zmanimCalls[0].query.get('date') === TODAY, `${locale}: before the tap, ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
       } finally {
         a.m.unmount();
       }
@@ -10230,13 +10231,15 @@ async function main() {
     const a = await editingHome('en', {}, { jewish: true });
     try {
       serveZmanim = serveSun();
+      // The header's own request for today came with the home (smoke #128n); the sheet's are counted from here
+      const before = sunCalls();
       const sun = sunButton(a.m)[0];
       sun.focus();
       a.tg.calls.length = 0;
       a.m.click(sun);
       await settle();
-      assert(sunCalls() === 1, `${sunCalls()} requests`);
-      const first = zmanimCalls[0];
+      assert(sunCalls() === before + 1, `${sunCalls() - before} requests`);
+      const first = zmanimCalls[before];
       assert(first.method === 'GET' && first.path === '/api/zmanim' && first.query.get('user_id') === '5550001' && first.query.get('date') === TODAY, `${first.url}`);
       assert(first.headers['X-Telegram-Init-Data'] === a.tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url) && first.body === null, 'the init data in the header, never in the URL or a body');
       const dialog = byRole(a.m.container, 'dialog');
@@ -10248,7 +10251,7 @@ async function main() {
       // The arrows ask the next and the previous day
       a.m.click(byLabel(a.m.container, 'Next day'));
       await settle();
-      assert(sunCalls() === 2 && zmanimCalls[1].query.get('date') === day(1), `next: ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
+      assert(sunCalls() === before + 2 && zmanimCalls[before + 1].query.get('date') === day(1), `next: ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
       assertHas(dialogText(a.m.container), ['Zmanim', 'Friday, 16 October'], 'tomorrow');
       a.m.click(byLabel(a.m.container, 'Previous day'));
       a.m.click(byLabel(a.m.container, 'Previous day'));
@@ -10307,7 +10310,125 @@ async function main() {
     }
   });
 
-  await check('#128 React logged no warning in #126-#127a (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
+  const zmanLine = (m: Home) => elements(m.container).filter((e) => e.localName === 'button' && e.className.split(' ').includes('ch-head-zman'));
+  const zmanDates = () => zmanimCalls.map((c) => c.query.get('date'));
+
+  await check('#128n the header\'s next zman: one request for today with the home (user_id and date in the query, the init data in the header only), then the line under the date lines with the next time still ahead (Sunset 17:55 at 10:00), whose tap opens the sun sheet; at that time it moves on: past the day\'s last, tomorrow\'s list is asked once and the line reads "Tomorrow: Sunrise 06:54"', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = serveSun();
+    const clock = fakeClock('2026-10-15T07:00:00Z');
+    const m = await mountHome('en', { jewish: true }, clock);
+    try {
+      assert(show(zmanDates()) === show([TODAY]), `requests ${show(zmanDates())}`);
+      const first = zmanimCalls[0];
+      assert(first.method === 'GET' && first.path === '/api/zmanim' && first.query.get('user_id') === '5550001' && first.headers['X-Telegram-Init-Data'] === tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url), `${first.url}`);
+      let line = zmanLine(m);
+      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Next zman: Sunset, 17:55' && line[0].textContent === 'Sunset17:55', `line ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
+      assert((line[0].parentNode as FakeElement).className === 'ch-head-text', 'in the text column');
+      // Its tap opens the sun sheet, which asks for today itself
+      m.click(line[0]);
+      await settle();
+      assert(byRole(m.container, 'dialog')[0]?.getAttribute('aria-label') === 'Today’s zmanim' && zmanLine(m)[0].getAttribute('aria-expanded') === 'true', 'the sheet opened');
+      m.click(button(topDialog(m), 'Close'));
+      const asked = zmanimCalls.length;
+      // At the sunset (14:55Z) the day's last is past: tomorrow's list, once
+      await clock.advance(Date.parse('2026-10-15T14:55:30Z') - Date.parse('2026-10-15T07:00:00Z'));
+      await settle();
+      assert(show(zmanDates().slice(asked)) === show([day(1)]), `after the sunset ${show(zmanDates().slice(asked))}`);
+      line = zmanLine(m);
+      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54' && line[0].textContent === 'Tomorrow: Sunrise06:54', `tomorrow ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
+      await clock.advance(60 * 60 * 1000);
+      await settle();
+      assert(zmanimCalls.length === asked + 1, `an hour later ${show(zmanDates())}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#128o the next zman in Hebrew moves on within the day (the morning\'s Shema after the sunrise), and over midnight the new today\'s list is the one already asked (no second request), its sunrise no longer "tomorrow"', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = serveSun();
+    const clock = fakeClock('2026-10-15T03:00:00Z');
+    const m = await mountHome('he', { jewish: true }, clock);
+    try {
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'הזמן הבא: הנץ החמה, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      await clock.advance(55 * 60 * 1000);
+      await settle();
+      const label = zmanLine(m)[0]?.getAttribute('aria-label') ?? '';
+      assert(label.startsWith('הזמן הבא: סוף זמן קריאת שמע') && label.endsWith(', 08:37') && show(zmanDates()) === show([TODAY]), `after the sunrise: ${label} ${show(zmanDates())}`);
+    } finally {
+      m.unmount();
+    }
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    const clock2 = fakeClock('2026-10-15T20:59:30Z');
+    let serverToday = TODAY;
+    answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
+    serveZmanim = serveSun();
+    const late = await mountHome('he', { jewish: true }, clock2);
+    try {
+      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הבא: מחר, הנץ החמה, 06:54', `before midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
+      serverToday = day(1);
+      await clock2.advance(31_000);
+      await settle();
+      assert(late.html().includes('יום שישי'), 'the header moved on');
+      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הבא: הנץ החמה, 06:54', `after midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      late.unmount();
+    }
+  });
+
+  await check('#128p the next zman waits for a hidden tab: today\'s last passing while hidden asks nothing until the tab shows; and nothing shows (no line, no other request) when the list failed, threw, or is counted at the zone\'s main city', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = serveSun();
+    const clock = fakeClock('2026-10-15T14:50:00Z');
+    const m = await mountHome('en', { jewish: true }, clock);
+    try {
+      assert(show(zmanDates()) === show([TODAY]), `${show(zmanDates())}`);
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      await clock.advance(10 * 60 * 1000);
+      await settle();
+      assert(show(zmanDates()) === show([TODAY]), `hidden: ${show(zmanDates())}`);
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(zmanDates().filter((d) => d === day(1)).length === 1 && zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54', `shown: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
+    }
+    const realError = console.error;
+    console.error = () => undefined;
+    try {
+      for (const [what, serve] of [
+        ['a 500', () => ({ status: 500, body: { error: 'internal_error' } })],
+        ['a throw', () => { throw new Error('offline'); }],
+        ['the zone', serveSun({ place: { source: 'zone' } })],
+      ] as const) {
+        resetHome();
+        fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+        answerFetch = (c) => answerFor(c, { items: WEEK });
+        serveZmanim = serve as typeof serveZmanim;
+        const bad = await mountHome('en', { jewish: true }, fakeClock('2026-10-15T07:00:00Z'));
+        try {
+          assert(show(zmanDates()) === show([TODAY]) && zmanLine(bad).length === 0 && sunButton(bad).length === 1, `${what}: ${show(zmanDates())} ${zmanLine(bad).length} lines`);
+        } finally {
+          bad.unmount();
+        }
+      }
+    } finally {
+      console.error = realError;
+    }
+  });
+
+  await check('#128 React logged no warning in #126-#128p (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
     assert(reactWarnings.length === warnedBeforeSun, `React warned: ${show(reactWarnings.slice(warnedBeforeSun, warnedBeforeSun + 3))}`);
   });
 

@@ -99,14 +99,14 @@ import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-
 import { readConnectBannerClosed, readHomeTab, readMonthLayout, writeConnectBannerClosed, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
 import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
-import { closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
+import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
-import { REAL_ZMANIM, type ZmanimApi } from '@/src/lib/calendar-view/zmanim-list';
+import { REAL_ZMANIM, nextZmanOf, type ZmanimApi, type ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
 import { REAL_HOME_WEATHER, type HomeWeather, type HomeWeatherApi } from '@/src/lib/calendar-view/home-weather';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
-import type { ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
+import type { DayKey, ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { usePushDevice } from '@/src/lib/use-push-device';
@@ -678,6 +678,53 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     };
   }, [hasLocation, homeUsable, weatherDay, userId, locale, deps]);
 
+  // The next zman under the header's date lines, wherever the sun is: today's list (the sheet's own request) asked once the
+  // home is usable, and again on a new today; once today's are all past, tomorrow's. A timer moves the line on at each
+  // zman; a hidden tab asks nothing (it waits to be shown). A failed list shows nothing (fetchZmanimList logs it).
+  const zmanToday = canZmanim ? (facts?.today ?? null) : null;
+  const [zmanLists, setZmanLists] = useState<Record<DayKey, ZmanimListResponse | null>>({});
+  const zmanAsked = useRef(new Set<string>());
+  const [zmanTick, setZmanTick] = useState(0);
+  const askZmanList = useCallback(
+    (day: DayKey) => {
+      const key = `${userId}:${day}`;
+      if (zmanAsked.current.has(key)) return;
+      zmanAsked.current.add(key);
+      deps.zmanim
+        .list(userId, day)
+        .then((out) => setZmanLists((lists) => ({ ...lists, [day]: out.kind === 'ok' ? out.list : null })))
+        .catch((error: unknown) => {
+          console.error(`[next-zman] the list for ${day} could not be read:`, error);
+          setZmanLists((lists) => ({ ...lists, [day]: null }));
+        });
+    },
+    [userId, deps],
+  );
+  const zmanTomorrow = zmanToday ? addDaysToKey(zmanToday, 1) : null;
+  const todayZmanim = zmanToday ? zmanLists[zmanToday] : undefined;
+  const tomorrowZmanim = zmanTomorrow ? zmanLists[zmanTomorrow] : undefined;
+  // zmanTick: a timer below moved the clock past the shown zman.
+  const nextZman = useMemo(
+    () => (todayZmanim === undefined ? null : nextZmanOf(todayZmanim, tomorrowZmanim, deps.now())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [todayZmanim, tomorrowZmanim, zmanTick, deps],
+  );
+  useEffect(() => {
+    if (zmanToday) askZmanList(zmanToday);
+  }, [zmanToday, askZmanList]);
+  useEffect(() => {
+    if (!zmanTomorrow) return;
+    if (nextZman === 'tomorrow') {
+      if (!DOM_VISIBILITY.isHidden()) {
+        askZmanList(zmanTomorrow);
+        return;
+      }
+      return afterShown(() => askZmanList(zmanTomorrow));
+    }
+    if (nextZman === null) return;
+    return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, Date.parse(nextZman.row.at) - deps.now()) + 1000);
+  }, [nextZman, zmanTomorrow, askZmanList, deps]);
+
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
   // after an edit of it). An item of either source is one the user may be able to change:
   // the server answers per item.
@@ -1179,6 +1226,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           onZmanim={canZmanim ? () => setSheet('zmanim') : undefined}
           zmanimOpen={sheet === 'zmanim'}
           weather={hasLocation && homeUsable ? weather : null}
+          nextZman={nextZman !== null && nextZman !== 'tomorrow' ? nextZman : null}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>

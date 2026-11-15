@@ -123,3 +123,37 @@ export function formatHalachicHour(ms: number | null): string {
   const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
+
+/** The home header's next zman: a row of the person's list with its time, and whether it is tomorrow's. */
+export interface NextZman {
+  row: ZmanimListRow & { at: string };
+  tz: string;
+  tomorrow: boolean;
+}
+
+/** The earliest row of a list still ahead at `now` (a row the sun does not make is skipped; a tie keeps the list's order). */
+function earliestAhead(list: ZmanimListResponse, now: number): (ZmanimListRow & { at: string }) | null {
+  let best: (ZmanimListRow & { at: string }) | null = null;
+  for (const row of list.rows) {
+    if (row.at === null) continue;
+    const at = Date.parse(row.at);
+    if (Number.isFinite(at) && at > now && (best === null || at < Date.parse(best.at))) best = { ...row, at: row.at };
+  }
+  return best;
+}
+
+/**
+ * The header's next zman at `now`, from today's list and, once today's are all past, tomorrow's (the person's zone): the
+ * same rows the sun sheet shows, so the line and the sheet never disagree. Only for a saved place (a list counted at the
+ * zone's main city says so in the sheet, and the header has no room for that note). 'tomorrow' when today's are all past
+ * and tomorrow's list has not come yet; null when there is nothing to show (no list, no saved place, no time ahead).
+ */
+export function nextZmanOf(today: ZmanimListResponse | null, tomorrow: ZmanimListResponse | null | undefined, now: number): NextZman | 'tomorrow' | null {
+  if (today === null || today.place?.source !== 'saved') return null;
+  const ahead = earliestAhead(today, now);
+  if (ahead) return { row: ahead, tz: today.tz, tomorrow: false };
+  if (tomorrow === undefined) return 'tomorrow';
+  if (tomorrow === null || tomorrow.place?.source !== 'saved') return null;
+  const next = earliestAhead(tomorrow, now);
+  return next ? { row: next, tz: tomorrow.tz, tomorrow: true } : null;
+}

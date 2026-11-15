@@ -22,6 +22,10 @@
 //   - the request: the URL, the init data in the header only, and every way it can fail read as `failed` and logged;
 //   - the rows are one plain component (no 'use client', no hook), shared with the public city pages: rendered with a
 //     server's translator it gives the sheet's own markup, and the sheet re-exports the CSS module's string;
+//   - the header's next zman (nextZmanOf and its line): the earliest time still ahead in today's list (a time the sun does
+//     not make skipped, a tie in the list's order), tomorrow's first once today's are past ('tomorrow' while that list has
+//     not come), nothing without a saved place; the line names it with the sheet's own words, its time in the list's zone,
+//     "Tomorrow:" for tomorrow's, the accent for a window row, and opens the sun sheet (no line without the sun);
 //   - the sheet's CSS: nothing under 11 px, logical properties only, no hover, no colour literal, and only the contrast
 //     pairs the app's design smoke already holds; the header's room: the usual three buttons beside the day from 320 px.
 // React must log no warning. No network, no DB. Run under three process zones (this file re-runs itself as child
@@ -47,7 +51,7 @@ import { formatDayLong } from '../src/lib/calendar-view/format';
 import { hebrewFullDate } from '../src/lib/calendar-view/hebrew-date';
 import { zoneLabel } from '../src/lib/calendar-view/home-client';
 import type { ZmanOpinion } from '../src/lib/calendar-view/zman-spec';
-import { fetchZmanimList, formatHalachicHour, isZmanimList, type ZmanimListOutcome, type ZmanimListResponse } from '../src/lib/calendar-view/zmanim-list';
+import { fetchZmanimList, formatHalachicHour, isZmanimList, nextZmanOf, type NextZman, type ZmanimListOutcome, type ZmanimListResponse } from '../src/lib/calendar-view/zmanim-list';
 import { elements, fakeWindow, installWindow, mount, type FakeElement, type FakeNode, type Mounted } from './lib/fake-dom';
 import { lintCss } from './lib/css-lint';
 import { cssBlocks, customProps, TEXT_PAIRS } from './lib/css-resolve';
@@ -691,6 +695,78 @@ async function runChecks(): Promise<void> {
     assert(/\.ch-zl-note \.ch-notice \{\s*background: var\(--ch-surface\)/.test(ZMANIM_SHEET_CSS), 'the note sits on the surface, not on its own colour');
     assert(/\.ch-zl-row \{[^}]*min-block-size: 44px/.test(ZMANIM_SHEET_CSS), 'a row is at least 44 px');
     assert(/font-variant-numeric: tabular-nums/.test(ZMANIM_SHEET_CSS), 'times line up');
+  });
+
+  await check('nextZmanOf: the earliest time still ahead in today\'s list (a time already past or exactly now is not, a time the sun does not make is skipped, a tie keeps the list\'s order); once today\'s are past, tomorrow\'s first (\'tomorrow\' while that list has not come, null when it failed or has none ahead); nothing without a saved place', () => {
+    const at = (day: string, hhmm: string) => Date.parse(il(day, hhmm));
+    const today = harish(TODAY, { rows: [row(TODAY, 'ALOT', '04:44'), row(TODAY, 'MISHEYAKIR', null), row(TODAY, 'SHKIA', '16:55'), row(TODAY, 'CANDLE_LIGHTING', '16:35'), row(TODAY, 'TZEIT', '17:09')] });
+    const tomorrow = harish('2026-10-29');
+    const pick = (n: NextZman | 'tomorrow' | null) => (n === null || n === 'tomorrow' ? n : `${n.row.key}@${n.row.at}${n.tomorrow ? ' tomorrow' : ''} ${n.tz}`);
+    assert(pick(nextZmanOf(today, undefined, at(TODAY, '03:00'))) === `ALOT@${il(TODAY, '04:44')} ${TZ}`, 'before dawn: dawn');
+    // The list's order puts the sunset before the candle lighting here; the earlier instant wins
+    assert(pick(nextZmanOf(today, undefined, at(TODAY, '12:00'))) === `CANDLE_LIGHTING@${il(TODAY, '16:35')} ${TZ}`, `noon: ${pick(nextZmanOf(today, undefined, at(TODAY, '12:00')))}`);
+    assert(pick(nextZmanOf(today, undefined, at(TODAY, '16:35'))) === `SHKIA@${il(TODAY, '16:55')} ${TZ}`, 'exactly at the candle lighting: the next one');
+    const tie = harish(TODAY, { rows: [row(TODAY, 'SHKIA', '16:55'), row(TODAY, 'SHABBAT_ENDS', '16:55')] });
+    assert(pick(nextZmanOf(tie, undefined, at(TODAY, '12:00')))?.startsWith('SHKIA@'), 'a tie keeps the list\'s order');
+    assert(nextZmanOf(today, undefined, at(TODAY, '17:10')) === 'tomorrow', 'after the last: tomorrow\'s list is wanted');
+    assert(pick(nextZmanOf(today, tomorrow, at(TODAY, '17:10'))) === `ALOT@${il('2026-10-29', '04:44')} tomorrow ${TZ}`, 'after the last: tomorrow\'s dawn');
+    assert(nextZmanOf(today, null, at(TODAY, '17:10')) === null, 'tomorrow\'s list failed: nothing');
+    assert(nextZmanOf(today, harish('2026-10-29', { rows: [row('2026-10-29', 'ALOT', null)] }), at(TODAY, '17:10')) === null, 'tomorrow has no time: nothing');
+    assert(nextZmanOf(null, tomorrow, at(TODAY, '03:00')) === null, 'today\'s list failed: nothing');
+    assert(nextZmanOf(harish(TODAY, { place: { source: 'zone' } }), undefined, at(TODAY, '03:00')) === null, 'the zone\'s main city: nothing');
+    assert(nextZmanOf(harish(TODAY, { place: null, rows: [] }), undefined, at(TODAY, '03:00')) === null, 'no place: nothing');
+    assert(nextZmanOf(today, harish('2026-10-29', { place: { source: 'zone' } }), at(TODAY, '17:10')) === null, 'tomorrow counted at the zone: nothing');
+  });
+
+  await check('the header\'s next zman line (en, he, ru): under the date lines, one button that opens the sun sheet (aria-haspopup="dialog", aria-expanded as the sheet), its name in the sheet\'s words and its time in 24 hours in the list\'s zone inside <bdi dir="ltr">, "Tomorrow:" for tomorrow\'s, the accent class for a window row; the label says it all; none without the sun or without a next zman', () => {
+    const header = (locale: Locale, extra: Row) =>
+      renderToString(inIntl(locale, createElement(HomeHeader, { today: TODAY, hebrewDates: true, zone: null, sendOpen: false, menuOpen: false, onSend: noop, onMenu: noop, onZmanim: noop, ...extra })));
+    const sunset: NextZman = { row: { key: 'SHKIA', opinion: null, at: il(TODAY, '16:55') }, tz: TZ, tomorrow: false };
+    const dawn: NextZman = { row: { key: 'ALOT', opinion: null, at: il('2026-10-29', '04:44') }, tz: TZ, tomorrow: true };
+    const candles: NextZman = { row: { key: 'CANDLE_LIGHTING', opinion: null, at: il(TODAY, '16:35') }, tz: TZ, tomorrow: false };
+    const shema: NextZman = { row: { key: 'SOF_SHMA_GRA', opinion: 'gra', at: il(TODAY, '08:37') }, tz: TZ, tomorrow: false };
+    const WORDS: Record<Locale, { sunset: string; dawn: string; label: string; labelTomorrow: string; tomorrow: string }> = {
+      en: { sunset: 'Sunset', dawn: 'Dawn (alot hashachar)', label: 'Next zman: Sunset, 16:55', labelTomorrow: 'Next zman: tomorrow, Dawn (alot hashachar), 04:44', tomorrow: 'Tomorrow: Dawn (alot hashachar)' },
+      he: { sunset: 'שקיעה', dawn: 'עלות השחר', label: 'הזמן הבא: שקיעה, 16:55', labelTomorrow: 'הזמן הבא: מחר, עלות השחר, 04:44', tomorrow: 'מחר: עלות השחר' },
+      ru: { sunset: 'Закат (шкия)', dawn: 'Алот ха-шахар', label: 'Ближайший зман: Закат (шкия), 16:55', labelTomorrow: 'Ближайший зман: завтра, Алот ха-шахар, 04:44', tomorrow: 'Завтра: Алот ха-шахар' },
+    };
+    for (const locale of LOCALES) {
+      const w = WORDS[locale];
+      const html = header(locale, { nextZman: sunset });
+      const line = `<button type="button" class="ch-head-zman" aria-label="${w.label}" aria-haspopup="dialog" aria-expanded="false"><span class="ch-head-zman-name" aria-hidden="true">${w.sunset}</span><bdi dir="ltr" class="ch-head-zman-time" aria-hidden="true">16:55</bdi></button>`;
+      assert(html.includes(line), `${locale}: ${/<button type="button" class="ch-head-zman[^]*?<\/button>/.exec(html)?.[0]}`);
+      // Inside the text column, after the date lines and before the side column
+      assert(html.indexOf('class="ch-head-zman"') > html.indexOf('ch-head-line') && html.indexOf('class="ch-head-zman"') < html.indexOf('class="ch-head-side"'), `${locale}: the line sits under the date lines`);
+      const tomorrow = header(locale, { nextZman: dawn, zmanimOpen: true });
+      assert(tomorrow.includes(`aria-label="${w.labelTomorrow}" aria-haspopup="dialog" aria-expanded="true"><span class="ch-head-zman-name" aria-hidden="true">${w.tomorrow}</span><bdi dir="ltr" class="ch-head-zman-time" aria-hidden="true">04:44</bdi>`), `${locale} tomorrow: ${/<button type="button" class="ch-head-zman[^]*?<\/button>/.exec(tomorrow)?.[0]}`);
+      assert(header(locale, { nextZman: candles }).includes('class="ch-head-zman is-key"') && !html.includes('is-key'), `${locale}: the accent is the window rows'`);
+      assert(!header(locale, { nextZman: sunset, onZmanim: undefined }).includes('ch-head-zman') && !header(locale, { nextZman: null }).includes('ch-head-zman') && !header(locale, {}).includes('ch-head-zman'), `${locale}: no line without the sun or a next zman`);
+    }
+    assert(header('en', { nextZman: shema }).includes('<span class="ch-head-zman-name" aria-hidden="true">Latest time for Shema (GRA)</span>'), 'the name carries its opinion, as in the sheet');
+  });
+
+  await check('the next zman line opens the sun sheet when tapped, and its CSS: a 44 px tap target, 14 px muted with the time in the text colour (the accent for a window row), tabular figures, logical properties only, a visible focus ring, no hover', async () => {
+    installWindow();
+    let opened = 0;
+    const m = mount(inIntl('he', createElement(HomeHeader, { today: null, hebrewDates: false, zone: null, sendOpen: false, menuOpen: false, onSend: noop, onMenu: noop, onZmanim: () => void opened++, nextZman: { row: { key: 'SHKIA', opinion: null, at: il(TODAY, '16:55') }, tz: TZ, tomorrow: false } })));
+    try {
+      m.click(byLabel(m.container, 'הזמן הבא: שקיעה, 16:55'));
+      assert(opened === 1, `${opened} opens`);
+    } finally {
+      m.unmount();
+    }
+    const rule = (selector: string) => {
+      const found = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(HOME_SHELL_CSS);
+      assert(found, `no rule ${selector}`);
+      return found[1];
+    };
+    const line = rule('.ch-head-zman');
+    assert(/min-height:\s*44px/.test(line) && /font-size:\s*14px/.test(line) && /color:\s*var\(--ch-muted\)/.test(line) && /text-align:\s*start/.test(line), `.ch-head-zman: ${line}`);
+    assert(/color:\s*var\(--ch-text\)/.test(rule('.ch-head-zman-time')) && /font-variant-numeric:\s*tabular-nums/.test(rule('.ch-head-zman-time')), 'the time');
+    assert(/color:\s*var\(--ch-accent\)/.test(rule('.ch-head-zman.is-key .ch-head-zman-time')), 'the accent');
+    assert(/outline:\s*2px solid var\(--ch-accent\)/.test(rule('.ch-head-zman:focus-visible')), 'the focus ring');
+    const zmanCss = HOME_SHELL_CSS.split('\n.').filter((b) => b.startsWith('ch-head-zman')).join('\n');
+    assert(!/(?:^|[^-])(?:left|right|top|bottom|width)\s*:|(?:margin|padding)-(?:left|right)/m.test(zmanCss) && !/:hover/.test(zmanCss), `physical properties or hover: ${zmanCss}`);
   });
 
   await check('the header makes room for the fourth button: the day keeps 120 px beside the buttons and the buttons wrap to a row of their own, at the end, when it would be left less; so the usual three never wrap on a phone of 320 px or more (128 px stay for the day, as before the sun), four buttons (the sun) wrap on a 360 px phone and sit beside the day from 364 px', () => {

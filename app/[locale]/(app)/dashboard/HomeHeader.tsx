@@ -8,15 +8,20 @@
 // calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
 // they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
 // the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar.
+// Under the date lines, the next zman still ahead at the person's place ("Sunset 16:42", "Tomorrow: Dawn 05:01" once
+// today's are past; nextZmanOf in zmanim-list.ts picks it from the sun sheet's own list): a quiet line that opens the sun
+// sheet, its time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
-import { daysBetween, formatDayLong, formatForecastWeekday, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
+import { daysBetween, formatDayLong, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { HomeWeather } from '@/src/lib/calendar-view/home-weather';
 import type { DayKey } from '@/src/lib/calendar-view/types';
+import { zmanRowName } from '@/src/lib/calendar-view/zman-words';
+import { WINDOW_ROW_KEYS, type NextZman } from '@/src/lib/calendar-view/zmanim-list';
 
 export interface HomeHeaderProps {
   /** The server's today; null until the first answer. */
@@ -37,6 +42,8 @@ export interface HomeHeaderProps {
   zmanimOpen?: boolean;
   /** Today's weather under the buttons: 'loading' is a placeholder; null or absent (no place, no forecast) shows nothing. */
   weather?: HomeWeather | 'loading' | null;
+  /** The next zman under the date lines, a tap away from the sun sheet; null or absent (or no sun) shows nothing. */
+  nextZman?: NextZman | null;
 }
 
 /** The icon names the server sends (weatherIconName), as lucide icons; a name this build does not know is a cloud. */
@@ -149,7 +156,29 @@ function PlusIcon() {
   );
 }
 
-export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather }: HomeHeaderProps) {
+/** The next zman's line: the name (with "Tomorrow:" once today's are past) and the time, one button that opens the sun sheet. */
+function NextZmanLine({ next, open, onOpen }: { next: NextZman; open: boolean; onOpen: () => void }) {
+  const t = useTranslations('calendarHome');
+  const locale = useLocale();
+  const name = zmanRowName(t, next.row);
+  const time = formatTime(next.row.at, next.tz, locale);
+  const label = next.tomorrow ? t('header.nextZmanLabelTomorrow', { name, time }) : t('header.nextZmanLabel', { name, time });
+  return (
+    <button
+      type="button"
+      className={WINDOW_ROW_KEYS.includes(next.row.key) ? 'ch-head-zman is-key' : 'ch-head-zman'}
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      onClick={onOpen}
+    >
+      <span className="ch-head-zman-name" aria-hidden="true">{next.tomorrow ? t('header.nextZmanTomorrow', { name }) : name}</span>
+      <bdi dir="ltr" className="ch-head-zman-time" aria-hidden="true">{time}</bdi>
+    </button>
+  );
+}
+
+export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, nextZman }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: only Russian reads it (Ruling R9).
@@ -197,6 +226,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
             <bdi>{holidayTitles(holidays)}</bdi>
           </p>
         ) : null}
+        {nextZman && onZmanim ? <NextZmanLine next={nextZman} open={zmanimOpen ?? false} onOpen={onZmanim} /> : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}
       </div>
       <div className="ch-head-side">

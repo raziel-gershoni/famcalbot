@@ -83,6 +83,39 @@ export const HOME_SHELL_CSS = `
   font-size: 13px;
   color: var(--ch-muted);
 }
+.ch-head-zman {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-content: center;
+  column-gap: 0.4em;
+  max-inline-size: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: inherit;
+  color: var(--ch-muted);
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.ch-head-zman-time {
+  color: var(--ch-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ch-head-zman.is-key .ch-head-zman-time {
+  color: var(--ch-accent);
+}
+.ch-head-zman:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 .ch-head-ghost {
   display: flex;
   flex-direction: column;
