@@ -91,6 +91,14 @@ const KEYS: Record<string, readonly string[]> = {
   'header.period.arvit': [],
   'header.period.until': ['time'],
   'header.period.untilTwo': ['first', 'second'],
+  // Line 2 naming the period's end (owner 2026-11-15: "עד השקיעה 16:41"); Shema and Shacharit keep until/untilTwo
+  'header.period.end.night': ['time'],
+  'header.period.end.alot': ['time'],
+  'header.period.end.shacharitLate': ['time'],
+  'header.period.end.midday': ['time'],
+  'header.period.end.mincha': ['time'],
+  'header.period.end.beinHashmashot': ['time'],
+  'header.period.end.arvit': ['time'],
   // SendSheet (D6), with the send results of Ruling R5 (D4's outcomes)
   'send.title': [],
   'send.subtitle': [],

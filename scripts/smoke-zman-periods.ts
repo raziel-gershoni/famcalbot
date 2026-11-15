@@ -13,7 +13,7 @@
 //   - no period, so the header's two zman lines: a zman with no time that day, a list not here, no saved place;
 //   - nextZmanChange: the earliest row of any list still ahead (yesterday's midnight zman after midnight);
 //   - the header in en, he and ru, short for the text column beside the buttons (owner 2026-11-15): line 1 the period's
-//     name (Mincha's its latest start's, without the plag's opinion), line 2 its ends still ahead with each time bold and
+//     name (Mincha's its latest start's, without the plag's opinion), line 2 its end by name where it fits or its ends\' times, each time bold and
 //     left to right ("עד 08:14 · 08:50"), one button whose label names both lines and each end's opinion when there are
 //     two; the two zman lines when there is no period; the CSS of line 1.
 // React must log no warning. No network, no DB.
@@ -182,31 +182,31 @@ async function runChecks(): Promise<void> {
     assert(nextZmanChange(lists, at(TODAY, '13:00')) === at(TODAY, '14:43') && nextZmanChange(lists, at(TODAY, '23:50')) === at(TOMORROW, '04:52') && nextZmanChange({ today: sephardi(TODAY) }, at(TODAY, '23:50')) === null, 'the next change');
   });
 
-  await check('the header in en, he and ru, short for the text column: line 1 the period\'s name (Mincha\'s by its latest start, no plag opinion), line 2 its ends still ahead with each time bold and left to right; one button whose label says both lines and each end\'s opinion when there are two', () => {
+  await check('the header in en, he and ru, short for the text column: line 1 the period\'s name (Mincha\'s by its latest start, no plag opinion), line 2 its end by name where it fits or its ends\' times, each time bold and left to right; one button whose label says both lines and each end\'s opinion when there are two', () => {
     const want: Record<Locale, Record<string, [string, string, string]>> = {
       en: {
         '05:30': ['Shema', 'until 08:14 · 08:50', 'Shema. until 08:14 (MGA) · 08:50 (GRA)'],
         '08:20': ['Shema', 'until 08:50', 'Shema. until 08:50'],
-        '15:30': ['Plag hamincha', 'until 16:41', 'Plag hamincha. until 16:41'],
-        '20:00': ['Maariv', 'until 23:36', 'Maariv. until 23:36'],
+        '15:30': ['Plag hamincha', 'until sunset 16:41', 'Plag hamincha. until sunset 16:41'],
+        '20:00': ['Maariv', 'until midnight 23:36', 'Maariv. until midnight 23:36'],
       },
       he: {
-        '00:30': ['לילה', 'עד 04:52', 'לילה. עד 04:52'],
-        '04:52': ['עלות השחר', 'עד 05:04', 'עלות השחר. עד 05:04'],
+        '00:30': ['לילה', 'עד עלות השחר 04:52', 'לילה. עד עלות השחר 04:52'],
+        '04:52': ['עלות השחר', 'טלית ותפילין מ־05:04', 'עלות השחר. טלית ותפילין מ־05:04'],
         '05:30': ['קריאת שמע', 'עד 08:14 · 08:50', 'קריאת שמע. עד 08:14 (מג״א) · 08:50 (גר״א)'],
         '09:00': ['תפילת שחרית', 'עד 09:50', 'תפילת שחרית. עד 09:50'],
-        '10:00': ['שחרית בדיעבד', 'עד 11:36', 'שחרית בדיעבד. עד 11:36'],
-        '11:40': ['אחרי חצות היום', 'עד 12:06', 'אחרי חצות היום. עד 12:06'],
-        '13:00': ['מנחה גדולה', 'עד 16:41', 'מנחה גדולה. עד 16:41'],
-        '15:00': ['מנחה קטנה', 'עד 16:41', 'מנחה קטנה. עד 16:41'],
-        '16:00': ['פלג המנחה', 'עד 16:41', 'פלג המנחה. עד 16:41'],
-        '16:45': ['בין השמשות', 'עד 16:55', 'בין השמשות. עד 16:55'],
-        '20:00': ['ערבית', 'עד 23:36', 'ערבית. עד 23:36'],
+        '10:00': ['שחרית בדיעבד', 'עד חצות 11:36', 'שחרית בדיעבד. עד חצות 11:36'],
+        '11:40': ['אחרי חצות היום', 'מנחה גדולה מ־12:06', 'אחרי חצות היום. מנחה גדולה מ־12:06'],
+        '13:00': ['מנחה גדולה', 'עד השקיעה 16:41', 'מנחה גדולה. עד השקיעה 16:41'],
+        '15:00': ['מנחה קטנה', 'עד השקיעה 16:41', 'מנחה קטנה. עד השקיעה 16:41'],
+        '16:00': ['פלג המנחה', 'עד השקיעה 16:41', 'פלג המנחה. עד השקיעה 16:41'],
+        '16:45': ['בין השמשות', 'עד צאת הכוכבים 16:55', 'בין השמשות. עד צאת הכוכבים 16:55'],
+        '20:00': ['ערבית', 'עד חצות הלילה 23:36', 'ערבית. עד חצות הלילה 23:36'],
       },
       ru: {
         '05:30': ['Чтение Шма', 'до 08:14 · 08:50', 'Чтение Шма. до 08:14 (Маген Авраам) · 08:50 (ГРА)'],
-        '10:00': ['Поздний шахарит', 'до 11:36', 'Поздний шахарит. до 11:36'],
-        '16:45': ['Бейн а-шмашот', 'до 16:55', 'Бейн а-шмашот. до 16:55'],
+        '10:00': ['Поздний шахарит', 'до полудня 11:36', 'Поздний шахарит. до полудня 11:36'],
+        '16:45': ['Бейн а-шмашот', 'до ночи 16:55', 'Бейн а-шмашот. до ночи 16:55'],
       },
     };
     for (const locale of LOCALES) {
@@ -221,6 +221,20 @@ async function runChecks(): Promise<void> {
         assert(line1.length <= 20 && line2.length <= 20, `${locale} ${hhmm}: too long for the column`);
       }
     }
+  });
+
+  await check('every period\'s two lines in every language fit the text column (at most 20 characters with a time), in a Sephardi day', () => {
+    const long: string[] = [];
+    for (const locale of LOCALES) {
+      for (let minute = 0; minute < 24 * 60; minute += 5) {
+        const hhmm = `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+        const html = buttonOf(header(locale, { zmanPeriod: zmanPeriodOf(lists, at(TODAY, hhmm)) }));
+        if (!html) continue;
+        const rows = [...html.matchAll(/<span class="ch-head-zman-row[^"]*" aria-hidden="true">([^]*?)<\/span><\/span>/g)].map((m) => textOf(m[1]));
+        for (const r of rows) if (r.length > 20) long.push(`${locale} ${hhmm}: ${r}`);
+      }
+    }
+    assert(long.length === 0, `too long: ${show([...new Set(long.map((l) => l.replace(/^\S+ \S+ /, '')))])}`);
   });
 
   await check('the header: the period in place of the two zman lines, which still show when there is no period; nothing without the sun; line 1 in the text colour, line 2\'s times bold', () => {

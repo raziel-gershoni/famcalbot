@@ -53,7 +53,16 @@
         "beinHashmashot": "Bein hashmashot",
         "arvit": "Maariv",
         "until": "until {time}",
-        "untilTwo": "until {first} · {second}"
+        "untilTwo": "until {first} · {second}",
+        "end": {
+          "night": "until dawn {time}",
+          "alot": "tefillin from {time}",
+          "shacharitLate": "until midday {time}",
+          "midday": "Mincha from {time}",
+          "mincha": "until sunset {time}",
+          "beinHashmashot": "until night {time}",
+          "arvit": "until midnight {time}"
+        }
       },
       "nextHoliday": "{name} in {count, plural, one {# day} other {# days}}",
       "nextHolidayTomorrow": "{name} tomorrow",

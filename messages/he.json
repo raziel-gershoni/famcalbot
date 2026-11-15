@@ -53,7 +53,16 @@
         "beinHashmashot": "בין השמשות",
         "arvit": "ערבית",
         "until": "עד {time}",
-        "untilTwo": "עד {first} · {second}"
+        "untilTwo": "עד {first} · {second}",
+        "end": {
+          "night": "עד עלות השחר {time}",
+          "alot": "טלית ותפילין מ־{time}",
+          "shacharitLate": "עד חצות {time}",
+          "midday": "מנחה גדולה מ־{time}",
+          "mincha": "עד השקיעה {time}",
+          "beinHashmashot": "עד צאת הכוכבים {time}",
+          "arvit": "עד חצות הלילה {time}"
+        }
       },
       "nextHoliday": "{name} בעוד {count, plural, =2 {יומיים} one {# יום} other {# ימים}}",
       "nextHolidayTomorrow": "{name} מחר",

@@ -53,7 +53,16 @@
         "beinHashmashot": "Бейн а-шмашот",
         "arvit": "Маарив",
         "until": "до {time}",
-        "untilTwo": "до {first} · {second}"
+        "untilTwo": "до {first} · {second}",
+        "end": {
+          "night": "до рассвета {time}",
+          "alot": "тфилин с {time}",
+          "shacharitLate": "до полудня {time}",
+          "midday": "минха с {time}",
+          "mincha": "до заката {time}",
+          "beinHashmashot": "до ночи {time}",
+          "arvit": "до полуночи {time}"
+        }
       },
       "nextHoliday": "{name} через {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
       "nextHolidayTomorrow": "{name} завтра",

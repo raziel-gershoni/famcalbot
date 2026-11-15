@@ -13,8 +13,8 @@
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the sun
 // sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet. When the
 // period the person is in is known (zmanPeriodOf, zman-periods.ts), the same button reads it instead, short enough for
-// the text column beside the buttons: line 1 the period's name ("קריאת שמע", Mincha by its latest start), line 2 its ends
-// still ahead ("עד 08:14 · 08:50"); the label names each end's opinion.
+// the text column beside the buttons: line 1 the period's name ("קריאת שמע", Mincha by its latest start), line 2 its end
+// by name where it fits ("עד השקיעה 16:41") or its ends' times ("עד 08:14 · 08:50"); the label names each end's opinion.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
@@ -218,7 +218,10 @@ function ZmanPeriodLines({ period, open, onOpen }: { period: ZmanPeriod; open: b
   const name = period.id === 'mincha' ? t(`zmanim.names.${period.start.row.key}`) : t(`header.period.${period.id}`);
   const ends = period.otherEnd ? [period.end, period.otherEnd] : [period.end];
   const shown = ends.map(timeOf);
-  const line2 = (first: string, second: string) => (period.otherEnd ? t('header.period.untilTwo', { first, second }) : t('header.period.until', { time: first }));
+  // Line 2 names the end where it fits ("עד השקיעה 16:41"); Shema (two ends) and Shacharit (a long end) give the times alone.
+  const NAMED_END = ['night', 'alot', 'shacharitLate', 'midday', 'mincha', 'beinHashmashot', 'arvit'];
+  const line2 = (first: string, second: string) =>
+    period.otherEnd ? t('header.period.untilTwo', { first, second }) : NAMED_END.includes(period.id) ? t(`header.period.end.${period.id}`, { time: first }) : t('header.period.until', { time: first });
   const withOpinion = (zman: ZmanAt) => (zman.row.opinion && period.otherEnd ? t('zmanim.withOpinion', { name: timeOf(zman), opinion: t(`zmanim.opinions.${zman.row.opinion}`) }) : timeOf(zman));
   const label = `${name}. ${line2(withOpinion(period.end), period.otherEnd ? withOpinion(period.otherEnd) : '')}`;
   return (
