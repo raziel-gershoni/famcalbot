@@ -12,9 +12,9 @@
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the sun
 // sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet. When the
-// period the person is in is known (zmanPeriodOf, zman-periods.ts), the same button reads it instead: line 1 the period
-// and its first end still ahead ("Shema until 08:14 (MGA)", "Mincha ketana until sunset 16:41"), line 2 its second end
-// ("GRA: until 08:50") or else the next zman not on line 1.
+// period the person is in is known (zmanPeriodOf, zman-periods.ts), the same button reads it instead, short enough for
+// the text column beside the buttons: line 1 the period's name ("קריאת שמע", Mincha by its latest start), line 2 its ends
+// still ahead ("עד 08:14 · 08:50"); the label names each end's opinion.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
@@ -195,48 +195,40 @@ function ZmanWindowLines({ lines, open, onOpen }: { lines: ZmanWindow; open: boo
   );
 }
 
-/** The text of a message with a time in it: the parts around the time, and the time (bold, left to right) between them. */
-const TIME_MARK = '\u2060\u2063\u2060';
-function TimedText({ text, time }: { text: string; time: string }) {
-  const [before, after = ''] = text.split(TIME_MARK);
+/** Marks a formatted message carries in place of its times, so each time is drawn bold and left to right. */
+const TIME_MARKS = ['\u2060\u2063\u2060', '\u2060\u2064\u2060'] as const;
+function TimedText({ text, times }: { text: string; times: readonly string[] }) {
+  const parts = text.split(new RegExp(`(${TIME_MARKS.join('|')})`));
   return (
     <span className="ch-head-zman-text">
-      {before}
-      <bdi dir="ltr" className="ch-head-zman-time">{time}</bdi>
-      {after}
+      {parts.map((part, i) => {
+        const mark = TIME_MARKS.indexOf(part as (typeof TIME_MARKS)[number]);
+        return mark >= 0 ? <bdi key={i} dir="ltr" className="ch-head-zman-time">{times[mark]}</bdi> : part;
+      })}
     </span>
   );
 }
 
-/** The period lines: line 1 the period and its first end still ahead, line 2 its second end or the next zman. */
+/** The period lines: line 1 the period's name, line 2 its ends still ahead ("עד 08:14 · 08:50"). */
 function ZmanPeriodLines({ period, open, onOpen }: { period: ZmanPeriod; open: boolean; onOpen: () => void }) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const timeOf = (zman: ZmanAt) => formatTime(zman.row.at, zman.tz, locale);
-  const opinionOf = (zman: ZmanAt) => (zman.row.opinion ? t(`zmanim.opinions.${zman.row.opinion}`) : '');
-  const first = (time: string) => {
-    const line = t(`header.period.${period.id}`, { time, start: zmanRowName(t, period.start.row) });
-    return period.severalEnds && period.end.row.opinion ? t('zmanim.withOpinion', { name: line, opinion: opinionOf(period.end) }) : line;
-  };
-  const other = (time: string) => (period.otherEnd ? t('header.period.otherEnd', { opinion: opinionOf(period.otherEnd), time }) : '');
-  const next = period.otherEnd ? null : period.next;
-  const nextText = (zman: ZmanAt) => {
-    const name = zmanRowName(t, zman.row);
-    return `${zman.when === 'tomorrow' ? t('header.nextZmanTomorrow', { name }) : name} ${timeOf(zman)}`;
-  };
-  const label = [first(timeOf(period.end)), period.otherEnd ? other(timeOf(period.otherEnd)) : next ? nextText(next) : null].filter(Boolean).join('. ');
+  // Mincha is named by its latest start (without the plag's opinion, for room); every other period by its own name.
+  const name = period.id === 'mincha' ? t(`zmanim.names.${period.start.row.key}`) : t(`header.period.${period.id}`);
+  const ends = period.otherEnd ? [period.end, period.otherEnd] : [period.end];
+  const shown = ends.map(timeOf);
+  const line2 = (first: string, second: string) => (period.otherEnd ? t('header.period.untilTwo', { first, second }) : t('header.period.until', { time: first }));
+  const withOpinion = (zman: ZmanAt) => (zman.row.opinion && period.otherEnd ? t('zmanim.withOpinion', { name: timeOf(zman), opinion: t(`zmanim.opinions.${zman.row.opinion}`) }) : timeOf(zman));
+  const label = `${name}. ${line2(withOpinion(period.end), period.otherEnd ? withOpinion(period.otherEnd) : '')}`;
   return (
     <button type="button" className="ch-head-zman" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={onOpen}>
       <span className="ch-head-zman-row is-now" aria-hidden="true">
-        <TimedText text={first(TIME_MARK)} time={timeOf(period.end)} />
+        <span className="ch-head-zman-name">{name}</span>
       </span>
-      {period.otherEnd ? (
-        <span className="ch-head-zman-row" aria-hidden="true">
-          <TimedText text={other(TIME_MARK)} time={timeOf(period.otherEnd)} />
-        </span>
-      ) : next ? (
-        <ZmanLine zman={next} className="ch-head-zman-row" />
-      ) : null}
+      <span className="ch-head-zman-row is-next" aria-hidden="true">
+        <TimedText text={line2(TIME_MARKS[0], TIME_MARKS[1])} times={shown} />
+      </span>
     </button>
   );
 }

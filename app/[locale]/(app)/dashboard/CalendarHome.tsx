@@ -731,10 +731,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [yesterdayZmanim, todayZmanim, tomorrowZmanim, zmanTick, deps],
   );
-  // Maariv's end is today's midnight zman, the day's last: its line 2 (the next zman) is tomorrow's, so a period with
-  // nothing for line 2 asks for tomorrow's list too.
-  const periodWantsTomorrow = zmanPeriod !== null && !zmanPeriod.otherEnd && !zmanPeriod.next && tomorrowZmanim === undefined;
-  const zmanWants = [...zmanWindow.wants, ...(periodWantsTomorrow && !zmanWindow.wants.includes('tomorrow') ? ['tomorrow'] : [])].join(',');
+  const zmanWants = zmanWindow.wants.join(',');
   useEffect(() => {
     const tick = () => {
       if (!DOM_VISIBILITY.isHidden()) setZmanTick((n) => n + 1);

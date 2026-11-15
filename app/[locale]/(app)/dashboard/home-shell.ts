@@ -120,9 +120,6 @@ export const HOME_SHELL_CSS = `
 .ch-head-zman-row.is-now {
   color: var(--ch-text);
 }
-.ch-head-zman-row.is-now .ch-head-zman-time {
-  font-weight: 600;
-}
 .ch-head-zman-row.is-key .ch-head-zman-time {
   color: var(--ch-accent);
 }

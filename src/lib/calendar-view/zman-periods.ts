@@ -2,11 +2,11 @@
 // the zmanim of the sun sheet's own lists (zmanim-list.ts), so the header and the sheet never disagree. A period is
 // bounded by zman types: it may have several starts (Mincha: gedola, ketana and each plag of the set; Maariv: nightfall
 // and the stricter nightfall) and several ends (Shema: the Magen Avraham's and the Gra's). The latest start that passed
-// names Mincha; the earliest end still ahead closes the period on line 1, and a second end still ahead is line 2 ("GRA:
-// until 08:50"), else the next zman not on line 1. The table is the owner's (2026-11-15); a zman the person's set does
-// not have is skipped, and a period whose start or ends have no time that day is no period (the header then shows the
-// last zman over the next, zmanWindowOf). Shabbat and Yom Tov have no periods of their own: their candle lighting and
-// end come up on line 2 as the next zman. Client-safe and pure: plain keys, no import from src/services/zmanim.
+// names Mincha. The header writes the period's name on line 1 and its ends still ahead on line 2 ("until 08:14 · 08:50"),
+// short enough for the text column beside the buttons (owner 2026-11-15). The table is the owner's (2026-11-15); a zman
+// the person's set does not have is skipped, and a period whose start or ends have no time that day is no period (the
+// header then shows the last zman over the next, zmanWindowOf). Shabbat and Yom Tov have no periods of their own.
+// Client-safe and pure: plain keys, no import from src/services/zmanim.
 
 import type { ZmanAt, ZmanimListResponse } from './zmanim-list';
 
@@ -45,14 +45,10 @@ export interface ZmanPeriod {
   id: PeriodId;
   /** The latest start that has passed (Mincha is named by it). */
   start: ZmanAt;
-  /** The earliest end still ahead: line 1's time. */
+  /** The earliest end still ahead. */
   end: ZmanAt;
-  /** The period has more than one end in this set (Shema with the Magen Avraham's and the Gra's): line 1 names its opinion. */
-  severalEnds: boolean;
-  /** A second end still ahead: line 2 ("GRA: until 08:50"). */
+  /** A second end still ahead (Shema's Gra end while the Magen Avraham's is ahead too). */
   otherEnd: ZmanAt | null;
-  /** With no second end: the next zman not on line 1 (null when none is known yet). */
-  next: ZmanAt | null;
 }
 
 type Lists = { yesterday?: ZmanimListResponse | null; today: ZmanimListResponse | null; tomorrow?: ZmanimListResponse | null };
@@ -86,13 +82,13 @@ function allTimed(lists: Lists): Timed[] {
   return out.map((t, i) => ({ t, i })).sort((a, b) => a.t.ms - b.t.ms || a.i - b.i).map(({ t }) => t);
 }
 
-/** The instant of the next change of either line: the earliest row of any list still ahead (null when none is known). */
+/** The instant the lines may change next: the earliest row of any list still ahead (null when none is known). */
 export function nextZmanChange(lists: Lists, now: number): number | null {
   return allTimed(lists).find((t) => t.ms > now)?.ms ?? null;
 }
 
 /** The period of one civil day that holds `now`, or null: its rows in `cur`, the night's start in `prev`. */
-function periodOfDay(prev: Map<string, Timed>, cur: Map<string, Timed>, now: number): Omit<ZmanPeriod, 'next'> | null {
+function periodOfDay(prev: Map<string, Timed>, cur: Map<string, Timed>, now: number): ZmanPeriod | null {
   for (const def of PERIODS) {
     const ends = def.ends.map((key) => cur.get(key)).filter((t): t is Timed => t !== undefined);
     const shemaEnds = SHEMA_ENDS.map((key) => cur.get(key)).filter((t): t is Timed => t !== undefined);
@@ -105,7 +101,7 @@ function periodOfDay(prev: Map<string, Timed>, cur: Map<string, Timed>, now: num
     const ahead = ends.filter((t) => t.ms > now).sort((a, b) => a.ms - b.ms);
     if (passed.length === 0 || ahead.length === 0) continue;
     const start = passed.reduce((a, b) => (b.ms >= a.ms ? b : a));
-    return { id: def.id, start: start.zman, end: ahead[0].zman, severalEnds: ends.length > 1, otherEnd: ahead[1]?.zman ?? null };
+    return { id: def.id, start: start.zman, end: ahead[0].zman, otherEnd: ahead[1]?.zman ?? null };
   }
   return null;
 }
@@ -121,9 +117,5 @@ export function zmanPeriodOf(lists: Lists, now: number): ZmanPeriod | null {
   const yesterday = byKey(lists.yesterday, 'yesterday');
   const today = byKey(lists.today, 'today');
   const tomorrow = byKey(lists.tomorrow, 'tomorrow');
-  const found = periodOfDay(new Map(), yesterday, now) ?? periodOfDay(yesterday, today, now) ?? periodOfDay(today, tomorrow, now);
-  if (!found) return null;
-  const onLine1 = (t: Timed) => t.zman.row.key === found.end.row.key && t.zman.row.at === found.end.row.at;
-  const next = found.otherEnd ? null : (allTimed(lists).find((t) => t.ms > now && !onLine1(t))?.zman ?? null);
-  return { ...found, next };
+  return periodOfDay(new Map(), yesterday, now) ?? periodOfDay(yesterday, today, now) ?? periodOfDay(today, tomorrow, now);
 }

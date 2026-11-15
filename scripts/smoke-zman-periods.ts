@@ -11,11 +11,11 @@
 //   - Maariv runs on past midnight until yesterday's own midnight zman (a summer abroad);
 //   - the Ashkenazi set (one plag) and Chabad's (one Shema end: no opinion on line 1);
 //   - no period, so the header's two zman lines: a zman with no time that day, a list not here, no saved place;
-//   - line 2: a second end still ahead, else the next zman not on line 1 (tomorrow's marked), the candle lighting on Friday;
 //   - nextZmanChange: the earliest row of any list still ahead (yesterday's midnight zman after midnight);
-//   - the header in en, he and ru: line 1's exact words with the time bold and left to right, the opinion only where the
-//     period has two ends, line 2's words, the accent where line 1's end is a window row, one button whose label says both
-//     lines and opens the sun sheet; the two zman lines when there is no period; the CSS of line 1.
+//   - the header in en, he and ru, short for the text column beside the buttons (owner 2026-11-15): line 1 the period's
+//     name (Mincha's its latest start's, without the plag's opinion), line 2 its ends still ahead with each time bold and
+//     left to right ("עד 08:14 · 08:50"), one button whose label names both lines and each end's opinion when there are
+//     two; the two zman lines when there is no period; the CSS of line 1.
 // React must log no warning. No network, no DB.
 //   npx tsx scripts/smoke-zman-periods.ts
 
@@ -110,9 +110,8 @@ function sephardi(day: string, o: Partial<ZmanimListResponse> & { midnight?: str
   };
 }
 const lists = { yesterday: sephardi(YESTERDAY), today: sephardi(TODAY), tomorrow: sephardi(TOMORROW) };
-/** A period as "id start→end (other end) | next", for one-line asserts. */
-const sum = (p: ZmanPeriod | null): string =>
-  p === null ? 'none' : `${p.id} ${p.start.row.key}→${p.end.row.key}${p.otherEnd ? ` +${p.otherEnd.row.key}` : ''}${p.next ? ` | ${p.next.row.key}${p.next.when === 'today' ? '' : ` ${p.next.when}`}` : ''}`;
+/** A period as "id start→end (+other end)", for one-line asserts. */
+const sum = (p: ZmanPeriod | null): string => (p === null ? 'none' : `${p.id} ${p.start.row.key}→${p.end.row.key}${p.otherEnd ? ` +${p.otherEnd.row.key}` : ''}`);
 
 function inIntl(locale: Locale, el: ReactElement): ReactElement {
   const provider = { locale, messages: messages[locale], timeZone: TZ } as ComponentProps<typeof NextIntlClientProvider>;
@@ -127,21 +126,21 @@ const textOf = (html: string) => html.replace(/<[^>]+>/g, '').replace(/\u2060|\u
 async function runChecks(): Promise<void> {
   await check('the owner\'s table through a Sephardi day: each period from its start to its end, a time at a boundary belonging to the period it starts', () => {
     const cases: Array<[string, string]> = [
-      ['00:30', 'night CHATZOT_HALAYLA→ALOT | MISHEYAKIR'],
-      ['04:52', 'alot ALOT→MISHEYAKIR | NETZ'],
+      ['00:30', 'night CHATZOT_HALAYLA→ALOT'],
+      ['04:52', 'alot ALOT→MISHEYAKIR'],
       ['05:30', 'shema MISHEYAKIR→SOF_SHMA_MGA +SOF_SHMA_GRA'],
-      ['08:14', 'shema MISHEYAKIR→SOF_SHMA_GRA | SOF_TFILA'],
-      ['08:50', 'shacharit SOF_SHMA_GRA→SOF_TFILA | CHATZOT'],
-      ['10:00', 'shacharitLate SOF_TFILA→CHATZOT | MINCHA_GEDOLA'],
-      ['11:40', 'midday CHATZOT→MINCHA_GEDOLA | MINCHA_KETANA'],
-      ['13:00', 'mincha MINCHA_GEDOLA→SHKIA | MINCHA_KETANA'],
-      ['15:00', 'mincha MINCHA_KETANA→SHKIA | PLAG_HALACHA_BERURA'],
-      ['15:30', 'mincha PLAG_HALACHA_BERURA→SHKIA | PLAG_YALKUT_YOSEF'],
-      ['16:00', 'mincha PLAG_YALKUT_YOSEF→SHKIA | TZEIT'],
-      ['16:45', 'beinHashmashot SHKIA→TZEIT | TZEIT_LECHUMRA'],
-      ['16:58', 'arvit TZEIT→CHATZOT_HALAYLA | TZEIT_LECHUMRA'],
-      ['20:00', 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA | ALOT tomorrow'],
-      ['23:50', 'night CHATZOT_HALAYLA→ALOT | MISHEYAKIR tomorrow'],
+      ['08:14', 'shema MISHEYAKIR→SOF_SHMA_GRA'],
+      ['08:50', 'shacharit SOF_SHMA_GRA→SOF_TFILA'],
+      ['10:00', 'shacharitLate SOF_TFILA→CHATZOT'],
+      ['11:40', 'midday CHATZOT→MINCHA_GEDOLA'],
+      ['13:00', 'mincha MINCHA_GEDOLA→SHKIA'],
+      ['15:00', 'mincha MINCHA_KETANA→SHKIA'],
+      ['15:30', 'mincha PLAG_HALACHA_BERURA→SHKIA'],
+      ['16:00', 'mincha PLAG_YALKUT_YOSEF→SHKIA'],
+      ['16:45', 'beinHashmashot SHKIA→TZEIT'],
+      ['16:58', 'arvit TZEIT→CHATZOT_HALAYLA'],
+      ['20:00', 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA'],
+      ['23:50', 'night CHATZOT_HALAYLA→ALOT'],
     ];
     const wrong = cases.map(([hhmm, want]) => [hhmm, want, sum(zmanPeriodOf(lists, at(TODAY, hhmm)))]).filter(([, want, got]) => want !== got);
     assert(wrong.length === 0, `${show(wrong)}`);
@@ -152,85 +151,79 @@ async function runChecks(): Promise<void> {
 
   await check('Maariv runs on past midnight until yesterday\'s own midnight zman (a summer abroad), then the night begins; before it, yesterday\'s list is needed and without it there is no period', () => {
     const late = { yesterday: sephardi(YESTERDAY, { midnight: '24:40' }), today: sephardi(TODAY, { midnight: '24:40' }), tomorrow: undefined };
-    assert(sum(zmanPeriodOf(late, at(TODAY, '00:20'))) === 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA | ALOT', `00:20 ${sum(zmanPeriodOf(late, at(TODAY, '00:20')))}`);
-    assert(sum(zmanPeriodOf(late, at(TODAY, '00:45'))) === 'night CHATZOT_HALAYLA→ALOT | MISHEYAKIR', `00:45 ${sum(zmanPeriodOf(late, at(TODAY, '00:45')))}`);
+    assert(sum(zmanPeriodOf(late, at(TODAY, '00:20'))) === 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA', `00:20 ${sum(zmanPeriodOf(late, at(TODAY, '00:20')))}`);
+    assert(sum(zmanPeriodOf(late, at(TODAY, '00:45'))) === 'night CHATZOT_HALAYLA→ALOT', `00:45 ${sum(zmanPeriodOf(late, at(TODAY, '00:45')))}`);
     assert(nextZmanChange(late, at(TODAY, '00:20')) === at(TODAY, '00:40'), 'the next change is yesterday\'s midnight zman');
     assert(zmanPeriodOf({ today: sephardi(TODAY) }, at(TODAY, '00:30')) === null, 'yesterday not here: no period');
     assert(zmanPeriodOf({ today: sephardi(TODAY), tomorrow: undefined }, at(TODAY, '23:50')) === null, 'tomorrow not here: no night yet');
   });
 
-  await check('the Ashkenazi set (one plag, two Shema ends) and Chabad\'s (one Shema end, so no second end and no opinion)', () => {
+  await check('the Ashkenazi set (one plag, two Shema ends) and Chabad\'s (one Shema end, so no second end)', () => {
     const ashkenazi = (day: string) => sephardi(day, { community: 'ashkenazi', rows: sephardi(day).rows.filter((r) => !['PLAG_HALACHA_BERURA', 'PLAG_YALKUT_YOSEF', 'TZEIT_LECHUMRA'].includes(r.key)).concat([row(day, 'PLAG_GRA', '15:26', 'gra')]) });
     const a = { yesterday: ashkenazi(YESTERDAY), today: ashkenazi(TODAY), tomorrow: ashkenazi(TOMORROW) };
     assert(sum(zmanPeriodOf(a, at(TODAY, '07:00'))) === 'shema MISHEYAKIR→SOF_SHMA_MGA +SOF_SHMA_GRA', `ashkenazi shema ${sum(zmanPeriodOf(a, at(TODAY, '07:00')))}`);
-    assert(sum(zmanPeriodOf(a, at(TODAY, '15:30'))) === 'mincha PLAG_GRA→SHKIA | TZEIT', `ashkenazi plag ${sum(zmanPeriodOf(a, at(TODAY, '15:30')))}`);
+    assert(sum(zmanPeriodOf(a, at(TODAY, '15:30'))) === 'mincha PLAG_GRA→SHKIA', `ashkenazi plag ${sum(zmanPeriodOf(a, at(TODAY, '15:30')))}`);
     const chabad = (day: string) => sephardi(day, { community: 'chabad', rows: sephardi(day).rows.filter((r) => !['SOF_SHMA_MGA', 'PLAG_HALACHA_BERURA', 'PLAG_YALKUT_YOSEF', 'TZEIT_LECHUMRA'].includes(r.key)).map((r) => (r.key === 'SOF_SHMA_GRA' ? { ...r, opinion: 'baalHatanya' as const } : r)) });
     const c = zmanPeriodOf({ yesterday: chabad(YESTERDAY), today: chabad(TODAY), tomorrow: chabad(TOMORROW) }, at(TODAY, '07:00'));
-    assert(sum(c) === 'shema MISHEYAKIR→SOF_SHMA_GRA | SOF_TFILA' && c?.severalEnds === false, `chabad ${sum(c)} ${c?.severalEnds}`);
-    assert(zmanPeriodOf(lists, at(TODAY, '07:00'))?.severalEnds === true, 'Sephardi Shema has two ends');
+    assert(sum(c) === 'shema MISHEYAKIR→SOF_SHMA_GRA', `chabad ${sum(c)}`);
   });
 
   await check('no period, so the header\'s two zman lines: a start or the ends with no time that day, a list that failed, a place counted at the zone\'s main city', () => {
     const noMisheyakir = { ...lists, today: sephardi(TODAY, { rows: sephardi(TODAY).rows.map((r) => (r.key === 'MISHEYAKIR' ? { ...r, at: null } : r)) }) };
     // Without misheyakir, dawn has no end and Shema no start: 05:30 is in no period; Shacharit still is
     assert(zmanPeriodOf(noMisheyakir, at(TODAY, '05:30')) === null, `${sum(zmanPeriodOf(noMisheyakir, at(TODAY, '05:30')))}`);
-    assert(sum(zmanPeriodOf(noMisheyakir, at(TODAY, '09:00'))) === 'shacharit SOF_SHMA_GRA→SOF_TFILA | CHATZOT', 'the other periods stand');
+    assert(sum(zmanPeriodOf(noMisheyakir, at(TODAY, '09:00'))) === 'shacharit SOF_SHMA_GRA→SOF_TFILA', 'the other periods stand');
     assert(zmanPeriodOf({ today: null }, at(TODAY, '09:00')) === null, 'today failed');
     assert(zmanPeriodOf({ ...lists, today: sephardi(TODAY, { place: { source: 'zone' } }) }, at(TODAY, '09:00')) === null, 'the zone');
   });
 
-  await check('line 2: the second end while it is ahead, else the next zman not on line 1 (the candle lighting on a Friday, tomorrow\'s marked); nextZmanChange is the earliest row ahead in any list', () => {
-    const friday = { ...lists, today: sephardi(TODAY, { rows: [...sephardi(TODAY).rows, row(TODAY, 'CANDLE_LIGHTING', '16:21')] }) };
-    assert(sum(zmanPeriodOf(friday, at(TODAY, '16:00'))) === 'mincha PLAG_YALKUT_YOSEF→SHKIA | CANDLE_LIGHTING', `friday ${sum(zmanPeriodOf(friday, at(TODAY, '16:00')))}`);
-    assert(zmanPeriodOf(lists, at(TODAY, '20:00'))?.next?.when === 'tomorrow', 'tomorrow\'s dawn is marked');
-    assert(zmanPeriodOf(lists, at(TODAY, '05:30'))?.next === null, 'no next while a second end shows');
-    // In the evening the next zman is tomorrow's: without tomorrow's list Maariv has nothing for line 2 (the home then asks for it, #128r)
-    assert(sum(zmanPeriodOf({ yesterday: lists.yesterday, today: lists.today }, at(TODAY, '20:00'))) === 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA', `20:00 without tomorrow: ${sum(zmanPeriodOf({ yesterday: lists.yesterday, today: lists.today }, at(TODAY, '20:00')))}`);
+  await check('the second end while it is ahead (Shema\'s Gra end until the Magen Avraham\'s passes); nextZmanChange is the earliest row ahead in any list', () => {
+    assert(zmanPeriodOf(lists, at(TODAY, '05:30'))?.otherEnd?.row.key === 'SOF_SHMA_GRA' && zmanPeriodOf(lists, at(TODAY, '08:20'))?.otherEnd === null, 'the other end');
     assert(nextZmanChange(lists, at(TODAY, '13:00')) === at(TODAY, '14:43') && nextZmanChange(lists, at(TODAY, '23:50')) === at(TOMORROW, '04:52') && nextZmanChange({ today: sephardi(TODAY) }, at(TODAY, '23:50')) === null, 'the next change');
   });
 
-  await check('the header in en, he and ru: line 1 in the period\'s words with the time bold and left to right, the opinion only where the period has two ends, line 2 the other end or the next zman, one button whose label says both lines', () => {
-    const want: Record<Locale, Record<string, [string, string]>> = {
+  await check('the header in en, he and ru, short for the text column: line 1 the period\'s name (Mincha\'s by its latest start, no plag opinion), line 2 its ends still ahead with each time bold and left to right; one button whose label says both lines and each end\'s opinion when there are two', () => {
+    const want: Record<Locale, Record<string, [string, string, string]>> = {
       en: {
-        '05:30': ['Shema until 08:14 (MGA)', 'GRA: until 08:50'],
-        '08:14': ['Shema until 08:50 (GRA)', 'Latest time for morning prayer 09:50'],
-        '15:00': ['Mincha ketana until sunset 16:41', 'Plag hamincha (Halacha Berura) 15:26'],
-        '16:00': ['Plag hamincha (Yalkut Yosef) until sunset 16:41', 'Nightfall (tzeit hakochavim) 16:55'],
-        '20:00': ['Maariv until midnight 23:36', 'Tomorrow: Dawn (alot hashachar) 04:52'],
-        '00:30': ['Night, until dawn 04:52', 'Tallit and tefillin 05:04'],
+        '05:30': ['Shema', 'until 08:14 · 08:50', 'Shema. until 08:14 (MGA) · 08:50 (GRA)'],
+        '08:20': ['Shema', 'until 08:50', 'Shema. until 08:50'],
+        '15:30': ['Plag hamincha', 'until 16:41', 'Plag hamincha. until 16:41'],
+        '20:00': ['Maariv', 'until 23:36', 'Maariv. until 23:36'],
       },
       he: {
-        '05:30': ['קריאת שמע עד 08:14 (מג״א)', 'לגר״א עד 08:50'],
-        '04:52': ['עלות השחר, טלית ותפילין מ־05:04', 'הנץ החמה 06:04'],
-        '10:00': ['שחרית בדיעבד עד חצות 11:36', 'מנחה גדולה 12:06'],
-        '11:40': ['אחרי חצות היום, מנחה גדולה מ־12:06', 'מנחה קטנה 14:43'],
-        '13:00': ['מנחה גדולה עד השקיעה 16:41', 'מנחה קטנה 14:43'],
-        '16:45': ['בין השמשות עד צאת הכוכבים 16:55', 'צאת הכוכבים לחומרא 17:01'],
-        '23:50': ['לילה, עד עלות השחר 04:52', 'מחר: זמן טלית ותפילין 05:04'],
+        '00:30': ['לילה', 'עד 04:52', 'לילה. עד 04:52'],
+        '04:52': ['עלות השחר', 'עד 05:04', 'עלות השחר. עד 05:04'],
+        '05:30': ['קריאת שמע', 'עד 08:14 · 08:50', 'קריאת שמע. עד 08:14 (מג״א) · 08:50 (גר״א)'],
+        '09:00': ['תפילת שחרית', 'עד 09:50', 'תפילת שחרית. עד 09:50'],
+        '10:00': ['שחרית בדיעבד', 'עד 11:36', 'שחרית בדיעבד. עד 11:36'],
+        '11:40': ['אחרי חצות היום', 'עד 12:06', 'אחרי חצות היום. עד 12:06'],
+        '13:00': ['מנחה גדולה', 'עד 16:41', 'מנחה גדולה. עד 16:41'],
+        '15:00': ['מנחה קטנה', 'עד 16:41', 'מנחה קטנה. עד 16:41'],
+        '16:00': ['פלג המנחה', 'עד 16:41', 'פלג המנחה. עד 16:41'],
+        '16:45': ['בין השמשות', 'עד 16:55', 'בין השמשות. עד 16:55'],
+        '20:00': ['ערבית', 'עד 23:36', 'ערבית. עד 23:36'],
       },
       ru: {
-        '05:30': ['Чтение Шма до 08:14 (Маген Авраам)', 'ГРА: до 08:50'],
-        '09:00': ['Шахарит до 09:50', 'Полдень (хацот) 11:36'],
-        '16:45': ['Бейн а-шмашот до выхода звёзд 16:55', 'Выход звёзд, по строгому мнению 17:01'],
+        '05:30': ['Чтение Шма', 'до 08:14 · 08:50', 'Чтение Шма. до 08:14 (Маген Авраам) · 08:50 (ГРА)'],
+        '10:00': ['Поздний шахарит', 'до 11:36', 'Поздний шахарит. до 11:36'],
+        '16:45': ['Бейн а-шмашот', 'до 16:55', 'Бейн а-шмашот. до 16:55'],
       },
     };
     for (const locale of LOCALES) {
-      for (const [hhmm, [line1, line2]] of Object.entries(want[locale])) {
-        const period = zmanPeriodOf(lists, at(TODAY, hhmm));
-        const html = buttonOf(header(locale, { zmanPeriod: period, zmanWindow: { last: null, next: null } }));
-        const rows = [...html.matchAll(/<span class="ch-head-zman-row[^"]*" aria-hidden="true">([^]*?)<\/span>(?=<span class="ch-head-zman-row|<\/button>)/g)].map((m) => textOf(m[1]));
-        const flat = (text: string) => text.replace(/\s+/g, '');
-        assert(show(rows.map(flat)) === show([line1, line2].map(flat)), `${locale} ${hhmm}: ${show(rows)}`);
-        assert(html.includes(`aria-label="${line1}. ${line2}"`), `${locale} ${hhmm} label: ${/aria-label="([^"]*)"/.exec(html)?.[1]}`);
-        assert(/class="ch-head-zman-row is-now[^"]*" aria-hidden="true"><span class="ch-head-zman-text">[^<]*<bdi dir="ltr" class="ch-head-zman-time">\d\d:\d\d<\/bdi>/.test(html), `${locale} ${hhmm}: line 1's time is a bdi inside its text: ${html}`);
+      for (const [hhmm, [line1, line2, label]] of Object.entries(want[locale])) {
+        const html = buttonOf(header(locale, { zmanPeriod: zmanPeriodOf(lists, at(TODAY, hhmm)), zmanWindow: { last: null, next: null } }));
+        const rows = [...html.matchAll(/<span class="ch-head-zman-row[^"]*" aria-hidden="true">([^]*?)<\/span><\/span>/g)].map((m) => textOf(m[1]));
+        assert(show(rows) === show([line1, line2]), `${locale} ${hhmm}: ${show(rows)}`);
+        assert(html.includes(`aria-label="${label}"`), `${locale} ${hhmm} label: ${/aria-label="([^"]*)"/.exec(html)?.[1]}`);
+        const times = [...html.matchAll(/<bdi dir="ltr" class="ch-head-zman-time">(\d\d:\d\d)<\/bdi>/g)].map((m) => m[1]);
+        assert(show(times) === show(line2.match(/\d\d:\d\d/g)), `${locale} ${hhmm}: each time a bdi: ${show(times)}`);
+        // A line fits the text column beside the buttons (about 145 px at 14 px): at most 20 characters
+        assert(line1.length <= 20 && line2.length <= 20, `${locale} ${hhmm}: too long for the column`);
       }
     }
   });
 
-  await check('the header: the accent on line 2 when the next zman is a window row (the candle lighting); the period in place of the two zman lines, which still show when there is no period; nothing without the sun; line 1\'s CSS (the text colour, its time bold)', () => {
-    const friday = { ...lists, today: sephardi(TODAY, { rows: [...sephardi(TODAY).rows, row(TODAY, 'CANDLE_LIGHTING', '16:21')] }) };
-    const candles = buttonOf(header('he', { zmanPeriod: zmanPeriodOf(friday, at(TODAY, '16:00')) }));
-    assert(candles.includes('<span class="ch-head-zman-row is-key" aria-hidden="true"><span class="ch-head-zman-name">הדלקת נרות</span>') && candles.includes('<span class="ch-head-zman-row is-now" aria-hidden="true">'), `the candle lighting: ${candles}`);
+  await check('the header: the period in place of the two zman lines, which still show when there is no period; nothing without the sun; line 1 in the text colour, line 2\'s times bold', () => {
     const window = { last: { row: { key: 'SHKIA', opinion: null, at: il(TODAY, '16:41') }, tz: TZ, when: 'today' as const }, next: { row: { key: 'TZEIT', opinion: null, at: il(TODAY, '16:55') }, tz: TZ, when: 'today' as const } };
     const both = buttonOf(header('en', { zmanPeriod: zmanPeriodOf(lists, at(TODAY, '13:00')), zmanWindow: window }));
     assert(both.includes('is-now') && !both.includes('is-last'), 'the period, not the two lines');
@@ -242,7 +235,7 @@ async function runChecks(): Promise<void> {
       assert(found, `no rule ${selector}`);
       return found[1];
     };
-    assert(/color:\s*var\(--ch-text\)/.test(rule('.ch-head-zman-row.is-now')) && /font-weight:\s*600/.test(rule('.ch-head-zman-row.is-now .ch-head-zman-time')), 'line 1\'s CSS');
+    assert(/color:\s*var\(--ch-text\)/.test(rule('.ch-head-zman-row.is-now')) && /font-weight:\s*600/.test(rule('.ch-head-zman-row.is-next .ch-head-zman-time')), 'the CSS');
   });
 
   await check('React logged no warning', () => {
