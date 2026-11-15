@@ -85,10 +85,10 @@ export const HOME_SHELL_CSS = `
 }
 .ch-head-zman {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  align-content: center;
-  column-gap: 0.4em;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  row-gap: 2px;
   max-inline-size: 100%;
   min-height: 44px;
   margin: 0;
@@ -103,12 +103,21 @@ export const HOME_SHELL_CSS = `
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
+.ch-head-zman-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.4em;
+  max-inline-size: 100%;
+}
 .ch-head-zman-time {
-  color: var(--ch-text);
-  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.ch-head-zman.is-key .ch-head-zman-time {
+.ch-head-zman-row.is-next .ch-head-zman-time {
+  color: var(--ch-text);
+  font-weight: 600;
+}
+.ch-head-zman-row.is-key .ch-head-zman-time {
   color: var(--ch-accent);
 }
 .ch-head-zman:focus-visible {

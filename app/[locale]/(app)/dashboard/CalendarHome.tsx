@@ -102,7 +102,7 @@ import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type M
 import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
-import { REAL_ZMANIM, nextZmanOf, type ZmanimApi, type ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
+import { REAL_ZMANIM, zmanWindowOf, type ZmanimApi, type ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
 import { REAL_HOME_WEATHER, type HomeWeather, type HomeWeatherApi } from '@/src/lib/calendar-view/home-weather';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
@@ -678,11 +678,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     };
   }, [hasLocation, homeUsable, weatherDay, userId, locale, deps]);
 
-  // The next zman under the header's date lines, wherever the sun is and a place is saved (a list counted at the zone's
-  // main city shows nothing): today's list (the sheet's own request) asked once the home is usable, and again on a new
-  // today; once today's are all past, tomorrow's. A timer moves the line on at each zman, and so does the foreground (iOS
-  // freezes the timer with the app). A hidden tab asks nothing (it waits to be shown). A failed list shows nothing
-  // (fetchZmanimList logs it) and is asked again on the next foreground, never in a loop.
+  // The zman that passed last and the next one under the header's date lines, wherever the sun is and a place is saved (a
+  // list counted at the zone's main city shows nothing): today's list (the sheet's own request) asked once the home is
+  // usable, and again on a new today; once today's are all past, tomorrow's, and before today's first, yesterday's. A timer
+  // moves the lines on at each zman, and so does the foreground (iOS freezes the timer with the app). A hidden tab asks
+  // nothing (it waits to be shown). A failed list shows nothing (fetchZmanimList logs it) and is asked again on the next
+  // foreground, never in a loop.
   const zmanToday = canZmanim && hasLocation ? (facts?.today ?? null) : null;
   const [zmanLists, setZmanLists] = useState<Record<string, ZmanimListResponse>>({});
   const zmanAsked = useRef(new Set<string>());
@@ -706,15 +707,20 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     },
     [userId, deps],
   );
+  const zmanYesterday = zmanToday ? addDaysToKey(zmanToday, -1) : null;
   const zmanTomorrow = zmanToday ? addDaysToKey(zmanToday, 1) : null;
-  const todayZmanim = zmanToday ? zmanLists[`${userId}:${zmanToday}`] : undefined;
-  const tomorrowZmanim = zmanTomorrow ? zmanLists[`${userId}:${zmanTomorrow}`] : undefined;
+  const listOf = (day: DayKey | null) => (day ? zmanLists[`${userId}:${day}`] : undefined);
+  const todayZmanim = listOf(zmanToday);
+  const yesterdayZmanim = listOf(zmanYesterday);
+  const tomorrowZmanim = listOf(zmanTomorrow);
   // zmanTick: a timer below, or the foreground, moved the clock on.
-  const nextZman = useMemo(
-    () => (todayZmanim === undefined ? null : nextZmanOf(todayZmanim, tomorrowZmanim, deps.now())),
+  const zmanWindow = useMemo(
+    () => (todayZmanim === undefined ? { window: null, wants: [] } : zmanWindowOf({ yesterday: yesterdayZmanim, today: todayZmanim, tomorrow: tomorrowZmanim }, deps.now())),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [todayZmanim, tomorrowZmanim, zmanTick, deps],
+    [yesterdayZmanim, todayZmanim, tomorrowZmanim, zmanTick, deps],
   );
+  const zmanWants = zmanWindow.wants.join(',');
+  const nextZmanAt = zmanWindow.window?.next?.row.at ?? null;
   useEffect(() => {
     const tick = () => {
       if (!DOM_VISIBILITY.isHidden()) setZmanTick((n) => n + 1);
@@ -730,17 +736,21 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     if (zmanToday) askZmanList(zmanToday);
   }, [zmanToday, askZmanList, zmanTick]);
   useEffect(() => {
-    if (!zmanTomorrow) return;
-    if (nextZman === 'tomorrow') {
-      if (!DOM_VISIBILITY.isHidden()) {
-        askZmanList(zmanTomorrow);
-        return;
-      }
-      return afterShown(() => askZmanList(zmanTomorrow));
+    if (!zmanYesterday || !zmanTomorrow || zmanWants === '') return;
+    const ask = () => {
+      if (zmanWants.includes('yesterday')) askZmanList(zmanYesterday);
+      if (zmanWants.includes('tomorrow')) askZmanList(zmanTomorrow);
+    };
+    if (!DOM_VISIBILITY.isHidden()) {
+      ask();
+      return;
     }
-    if (nextZman === null) return;
-    return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, Date.parse(nextZman.row.at) - deps.now()) + 1000);
-  }, [nextZman, zmanTomorrow, askZmanList, deps, zmanTick]);
+    return afterShown(ask);
+  }, [zmanWants, zmanYesterday, zmanTomorrow, askZmanList, zmanTick]);
+  useEffect(() => {
+    if (nextZmanAt === null) return;
+    return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, Date.parse(nextZmanAt) - deps.now()) + 1000);
+  }, [nextZmanAt, deps, zmanTick]);
 
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
   // after an edit of it). An item of either source is one the user may be able to change:
@@ -1243,7 +1253,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           onZmanim={canZmanim ? () => setSheet('zmanim') : undefined}
           zmanimOpen={sheet === 'zmanim'}
           weather={hasLocation && homeUsable ? weather : null}
-          nextZman={nextZman !== null && nextZman !== 'tomorrow' ? nextZman : null}
+          zmanWindow={zmanWindow.window}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>

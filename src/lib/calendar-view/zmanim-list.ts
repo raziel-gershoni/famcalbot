@@ -124,36 +124,75 @@ export function formatHalachicHour(ms: number | null): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-/** The home header's next zman: a row of the person's list with its time, and whether it is tomorrow's. */
-export interface NextZman {
+/** One zman of the header's two lines: a row of the person's list with its time, and the day of the list it came from. */
+export interface ZmanAt {
   row: ZmanimListRow & { at: string };
   tz: string;
-  tomorrow: boolean;
+  when: 'yesterday' | 'today' | 'tomorrow';
 }
 
-/** The earliest row of a list still ahead at `now` (a row the sun does not make is skipped; a tie keeps the list's order). */
-function earliestAhead(list: ZmanimListResponse, now: number): (ZmanimListRow & { at: string }) | null {
-  let best: (ZmanimListRow & { at: string }) | null = null;
-  for (const row of list.rows) {
-    if (row.at === null) continue;
-    const at = Date.parse(row.at);
-    if (Number.isFinite(at) && at > now && (best === null || at < Date.parse(best.at))) best = { ...row, at: row.at };
-  }
-  return best;
+/** The header's two lines: the zman that passed last and the next one still ahead; either may be missing. */
+export interface ZmanWindow {
+  last: ZmanAt | null;
+  next: ZmanAt | null;
 }
+
+/** The rows of a list that have a time (a row the sun does not make is skipped), with their instants. */
+function timed(list: ZmanimListResponse): Array<{ row: ZmanimListRow & { at: string }; ms: number }> {
+  const out: Array<{ row: ZmanimListRow & { at: string }; ms: number }> = [];
+  for (const row of list.rows) {
+    const ms = row.at === null ? Number.NaN : Date.parse(row.at);
+    if (row.at !== null && Number.isFinite(ms)) out.push({ row: { ...row, at: row.at }, ms });
+  }
+  return out;
+}
+
+/** The earliest row still ahead at `now` (a time exactly now has passed; a tie keeps the list's order). */
+function earliestAhead(list: ZmanimListResponse, now: number): ZmanimListRow & { at: string } | null {
+  let best: { row: ZmanimListRow & { at: string }; ms: number } | null = null;
+  for (const t of timed(list)) if (t.ms > now && (best === null || t.ms < best.ms)) best = t;
+  return best?.row ?? null;
+}
+
+/** The latest row that has passed at `now` (a time exactly now has; a tie keeps the later row in the list's order). */
+function latestPassed(list: ZmanimListResponse, now: number): ZmanimListRow & { at: string } | null {
+  let best: { row: ZmanimListRow & { at: string }; ms: number } | null = null;
+  for (const t of timed(list)) if (t.ms <= now && (best === null || t.ms >= best.ms)) best = t;
+  return best?.row ?? null;
+}
+
+const saved = (list: ZmanimListResponse | null | undefined): list is ZmanimListResponse => !!list && list.place?.source === 'saved';
 
 /**
- * The header's next zman at `now`, from today's list and, once today's are all past, tomorrow's (the person's zone): the
- * same rows the sun sheet shows, so the line and the sheet never disagree. Only for a saved place (a list counted at the
- * zone's main city says so in the sheet, and the header has no room for that note). 'tomorrow' when today's are all past
- * and tomorrow's list has not come yet; null when there is nothing to show (no list, no saved place, no time ahead).
+ * The header's two lines at `now`, from the sun sheet's own lists (the person's zone), so the lines and the sheet never
+ * disagree: the zman that passed last (yesterday's last before today's first) and the next one (tomorrow's first after
+ * today's last). Only for a saved place (a list counted at the zone's main city says so in the sheet, and the header has
+ * no room for that note). A list given as undefined has not come yet: `wants` names the days to ask for (yesterday only
+ * before today's first, tomorrow only after today's last); null is a list that failed. `window` is null when there is
+ * nothing to show.
  */
-export function nextZmanOf(today: ZmanimListResponse | null, tomorrow: ZmanimListResponse | null | undefined, now: number): NextZman | 'tomorrow' | null {
-  if (today === null || today.place?.source !== 'saved') return null;
+export function zmanWindowOf(
+  lists: { yesterday?: ZmanimListResponse | null; today: ZmanimListResponse | null; tomorrow?: ZmanimListResponse | null },
+  now: number,
+): { window: ZmanWindow | null; wants: Array<'yesterday' | 'tomorrow'> } {
+  const { today } = lists;
+  if (!saved(today)) return { window: null, wants: [] };
+  const wants: Array<'yesterday' | 'tomorrow'> = [];
+  let next: ZmanAt | null = null;
   const ahead = earliestAhead(today, now);
-  if (ahead) return { row: ahead, tz: today.tz, tomorrow: false };
-  if (tomorrow === undefined) return 'tomorrow';
-  if (tomorrow === null || tomorrow.place?.source !== 'saved') return null;
-  const next = earliestAhead(tomorrow, now);
-  return next ? { row: next, tz: tomorrow.tz, tomorrow: true } : null;
+  if (ahead) next = { row: ahead, tz: today.tz, when: 'today' };
+  else if (lists.tomorrow === undefined) wants.push('tomorrow');
+  else if (saved(lists.tomorrow)) {
+    const first = earliestAhead(lists.tomorrow, now);
+    if (first) next = { row: first, tz: lists.tomorrow.tz, when: 'tomorrow' };
+  }
+  let last: ZmanAt | null = null;
+  const passed = latestPassed(today, now);
+  if (passed) last = { row: passed, tz: today.tz, when: 'today' };
+  else if (lists.yesterday === undefined) wants.push('yesterday');
+  else if (saved(lists.yesterday)) {
+    const yesterdays = latestPassed(lists.yesterday, now);
+    if (yesterdays) last = { row: yesterdays, tz: lists.yesterday.tz, when: 'yesterday' };
+  }
+  return { window: last || next ? { last, next } : null, wants };
 }

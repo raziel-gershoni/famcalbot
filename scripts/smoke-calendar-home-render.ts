@@ -10313,7 +10313,7 @@ async function main() {
   const zmanLine = (m: Home) => elements(m.container).filter((e) => e.localName === 'button' && e.className.split(' ').includes('ch-head-zman'));
   const zmanDates = () => zmanimCalls.map((c) => c.query.get('date'));
 
-  await check('#128n the header\'s next zman: one request for today with the home (user_id and date in the query, the init data in the header only), then the line under the date lines with the next time still ahead (Sunset 17:55 at 10:00), whose tap opens the sun sheet; at that time it moves on: past the day\'s last, tomorrow\'s list is asked once and the line reads "Tomorrow: Sunrise 06:54"', async () => {
+  await check('#128n the header\'s zman lines: one request for today with the home (user_id and date in the query, the init data in the header only), then under the date lines the zman that passed (Shema 08:37 at 10:00) over the next (Sunset 17:55), whose tap opens the sun sheet; at that time they move on: past the day\'s last, tomorrow\'s list is asked once and they read Sunset 17:55 over "Tomorrow: Sunrise 06:54"', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -10326,7 +10326,7 @@ async function main() {
       const first = zmanimCalls[0];
       assert(first.method === 'GET' && first.path === '/api/zmanim' && first.query.get('user_id') === '5550001' && first.headers['X-Telegram-Init-Data'] === tg.webApp.initData && !/hash=|auth_date|query_id/.test(first.url), `${first.url}`);
       let line = zmanLine(m);
-      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Next zman: Sunset, 17:55' && line[0].textContent === 'Sunset17:55', `line ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
+      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Last zman: Latest time for Shema (GRA), 08:37. Next zman: Sunset, 17:55' && line[0].textContent === 'Latest time for Shema (GRA)08:37Sunset17:55', `line ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
       assert((line[0].parentNode as FakeElement).className === 'ch-head-text', 'in the text column');
       // Its tap opens the sun sheet, which asks for today itself
       m.click(line[0]);
@@ -10339,7 +10339,7 @@ async function main() {
       await settle();
       assert(show(zmanDates().slice(asked)) === show([day(1)]), `after the sunset ${show(zmanDates().slice(asked))}`);
       line = zmanLine(m);
-      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54' && line[0].textContent === 'Tomorrow: Sunrise06:54', `tomorrow ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
+      assert(line.length === 1 && line[0].getAttribute('aria-label') === 'Last zman: Sunset, 17:55. Next zman: tomorrow, Sunrise, 06:54' && line[0].textContent === 'Sunset17:55Tomorrow: Sunrise06:54', `tomorrow ${show(line.map((l) => [l.getAttribute('aria-label'), l.textContent]))}`);
       await clock.advance(60 * 60 * 1000);
       await settle();
       assert(zmanimCalls.length === asked + 1, `an hour later ${show(zmanDates())}`);
@@ -10348,7 +10348,7 @@ async function main() {
     }
   });
 
-  await check('#128o the next zman in Hebrew moves on within the day (the morning\'s Shema after the sunrise), and over midnight the new today\'s list is the one already asked (no second request), its sunrise no longer "tomorrow"', async () => {
+  await check('#128o the zman lines in Hebrew: before today\'s first, yesterday\'s list is asked and its sunset is the one that passed ("אתמול:"); they move on within the day (the sunrise over the Shema); over midnight the lists already asked serve the new day (no request), yesterday\'s sunset over the sunrise, no longer "tomorrow"', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -10356,11 +10356,11 @@ async function main() {
     const clock = fakeClock('2026-10-15T03:00:00Z');
     const m = await mountHome('he', { jewish: true, hasLocation: true }, clock);
     try {
-      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'הזמן הבא: הנץ החמה, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'הזמן הקודם: אתמול, שקיעה, 17:55. הזמן הבא: הנץ החמה, 06:54' && show(zmanDates()) === show([TODAY, day(-1)]), `before the first: ${zmanLine(m)[0]?.getAttribute('aria-label')} ${show(zmanDates())}`);
       await clock.advance(55 * 60 * 1000);
       await settle();
       const label = zmanLine(m)[0]?.getAttribute('aria-label') ?? '';
-      assert(label.startsWith('הזמן הבא: סוף זמן קריאת שמע') && label.endsWith(', 08:37') && show(zmanDates()) === show([TODAY]), `after the sunrise: ${label} ${show(zmanDates())}`);
+      assert(label.startsWith('הזמן הקודם: הנץ החמה, 06:54. הזמן הבא: סוף זמן קריאת שמע') && label.endsWith(', 08:37') && show(zmanDates()) === show([TODAY, day(-1)]), `after the sunrise: ${label} ${show(zmanDates())}`);
     } finally {
       m.unmount();
     }
@@ -10372,12 +10372,12 @@ async function main() {
     serveZmanim = serveSun();
     const late = await mountHome('he', { jewish: true, hasLocation: true }, clock2);
     try {
-      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הבא: מחר, הנץ החמה, 06:54', `before midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
+      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הקודם: שקיעה, 17:55. הזמן הבא: מחר, הנץ החמה, 06:54', `before midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
       serverToday = day(1);
       await clock2.advance(31_000);
       await settle();
       assert(late.html().includes('יום שישי'), 'the header moved on');
-      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הבא: הנץ החמה, 06:54', `after midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
+      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הקודם: אתמול, שקיעה, 17:55. הזמן הבא: הנץ החמה, 06:54', `after midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
     } finally {
       late.unmount();
     }
@@ -10400,7 +10400,7 @@ async function main() {
       fakeDocument.visibilityState = 'visible';
       fireDocument('visibilitychange');
       await settle();
-      assert(zmanDates().filter((d) => d === day(1)).length === 1 && zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54', `shown: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      assert(zmanDates().filter((d) => d === day(1)).length === 1 && zmanLine(m)[0]?.getAttribute('aria-label') === 'Last zman: Sunset, 17:55. Next zman: tomorrow, Sunrise, 06:54', `shown: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
     } finally {
       m.unmount();
     }
@@ -10447,21 +10447,21 @@ async function main() {
     const clock = fakeClock('2026-10-15T03:00:00Z');
     const m = await mountHome('en', { jewish: true, hasLocation: true }, clock);
     try {
-      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: Sunrise, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Last zman: yesterday, Sunset, 17:55. Next zman: Sunrise, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
       clock.jump(2 * 60 * 60 * 1000);
       fakeDocument.visibilityState = 'hidden';
       fireDocument('visibilitychange');
       fakeDocument.visibilityState = 'visible';
       fireDocument('visibilitychange');
       await settle();
-      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: Latest time for Shema (GRA), 08:37', `after the jump: ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Last zman: Sunrise, 06:54. Next zman: Latest time for Shema (GRA), 08:37', `after the jump: ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
       clock.jump(10 * 60 * 60 * 1000);
       fakeDocument.visibilityState = 'hidden';
       fireDocument('visibilitychange');
       fakeDocument.visibilityState = 'visible';
       fireDocument('visibilitychange');
       await settle();
-      assert(zmanDates().includes(day(1)) && zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54', `past the sunset: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      assert(zmanDates().includes(day(1)) && zmanLine(m)[0]?.getAttribute('aria-label') === 'Last zman: Sunset, 17:55. Next zman: tomorrow, Sunrise, 06:54', `past the sunset: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
     } finally {
       m.unmount();
     }
@@ -10485,7 +10485,7 @@ async function main() {
       fakeDocument.visibilityState = 'visible';
       fireDocument('visibilitychange');
       await settle();
-      assert(show(zmanDates()) === show([TODAY, TODAY]) && zmanLine(f)[0]?.getAttribute('aria-label') === 'Next zman: Sunset, 17:55', `the retry: ${show(zmanDates())} ${zmanLine(f)[0]?.getAttribute('aria-label')}`);
+      assert(show(zmanDates()) === show([TODAY, TODAY]) && zmanLine(f)[0]?.getAttribute('aria-label') === 'Last zman: Latest time for Shema (GRA), 08:37. Next zman: Sunset, 17:55', `the retry: ${show(zmanDates())} ${zmanLine(f)[0]?.getAttribute('aria-label')}`);
     } finally {
       f.unmount();
       console.error = realError;
