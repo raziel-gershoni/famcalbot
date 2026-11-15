@@ -10478,7 +10478,7 @@ async function main() {
       assert(show(zmanDates()) === show([TODAY]) && zmanLine(f).length === 0, `failed: ${show(zmanDates())}`);
       await clock2.advance(30 * 60 * 1000);
       await settle();
-      assert(zmanimCalls.length === 1, `no retry loop: ${show(zmanDates())}`);
+      assert(zmanDates().length === 1, `no retry loop: ${show(zmanDates())}`);
       serveZmanim = serveSun();
       fakeDocument.visibilityState = 'hidden';
       fireDocument('visibilitychange');
