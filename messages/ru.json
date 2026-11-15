@@ -43,27 +43,6 @@
       "lastZmanYesterday": "Вчера: {name}",
       "lastZmanLabel": "Предыдущий зман: {name}, {time}",
       "lastZmanLabelYesterday": "Предыдущий зман: вчера, {name}, {time}",
-      "period": {
-        "night": "Ночь",
-        "alot": "Алот ха-шахар",
-        "shema": "Чтение Шма",
-        "shacharit": "Шахарит",
-        "shacharitLate": "Поздний шахарит",
-        "midday": "После полудня",
-        "beinHashmashot": "Бейн а-шмашот",
-        "arvit": "Маарив",
-        "until": "до {time}",
-        "untilTwo": "до {first} · {second}",
-        "end": {
-          "night": "до рассвета {time}",
-          "alot": "тфилин с {time}",
-          "shacharitLate": "до полудня {time}",
-          "midday": "минха с {time}",
-          "mincha": "до заката {time}",
-          "beinHashmashot": "до ночи {time}",
-          "arvit": "до полуночи {time}"
-        }
-      },
       "nextHoliday": "{name} через {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
       "nextHolidayTomorrow": "{name} завтра",
       "weatherNow": "{now}°",

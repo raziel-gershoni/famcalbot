@@ -102,7 +102,6 @@ import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type M
 import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
 import { REAL_EDITING, type EditingApi, type WriteOutcome } from '@/src/lib/calendar-view/editor-client';
-import { nextZmanChange, zmanPeriodOf } from '@/src/lib/calendar-view/zman-periods';
 import { REAL_ZMANIM, zmanWindowOf, type ZmanimApi, type ZmanimListResponse } from '@/src/lib/calendar-view/zmanim-list';
 import { REAL_HOME_WEATHER, type HomeWeather, type HomeWeatherApi } from '@/src/lib/calendar-view/home-weather';
 import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, newItemForm, updateBody, type EditorForm } from '@/src/lib/calendar-view/editor-model';
@@ -720,18 +719,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [yesterdayZmanim, todayZmanim, tomorrowZmanim, zmanTick, deps],
   );
-  // The period the person is in (zman-periods.ts), read in place of the two lines when known; and when either changes next.
-  const zmanPeriod = useMemo(
-    () => (todayZmanim === undefined ? null : zmanPeriodOf({ yesterday: yesterdayZmanim, today: todayZmanim, tomorrow: tomorrowZmanim }, deps.now())),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [yesterdayZmanim, todayZmanim, tomorrowZmanim, zmanTick, deps],
-  );
-  const nextZmanAt = useMemo(
-    () => (todayZmanim === undefined ? null : nextZmanChange({ yesterday: yesterdayZmanim, today: todayZmanim, tomorrow: tomorrowZmanim }, deps.now())),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [yesterdayZmanim, todayZmanim, tomorrowZmanim, zmanTick, deps],
-  );
   const zmanWants = zmanWindow.wants.join(',');
+  const nextZmanAt = zmanWindow.window?.next?.row.at ?? null;
   useEffect(() => {
     const tick = () => {
       if (!DOM_VISIBILITY.isHidden()) setZmanTick((n) => n + 1);
@@ -760,7 +749,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   }, [zmanWants, zmanYesterday, zmanTomorrow, askZmanList, zmanTick]);
   useEffect(() => {
     if (nextZmanAt === null) return;
-    return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, nextZmanAt - deps.now()) + 1000);
+    return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, Date.parse(nextZmanAt) - deps.now()) + 1000);
   }, [nextZmanAt, deps, zmanTick]);
 
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
@@ -1265,7 +1254,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
           zmanimOpen={sheet === 'zmanim'}
           weather={hasLocation && homeUsable ? weather : null}
           zmanWindow={zmanWindow.window}
-          zmanPeriod={zmanPeriod}
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>

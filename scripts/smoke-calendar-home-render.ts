@@ -10492,39 +10492,7 @@ async function main() {
     }
   });
 
-  await check('#128r with a full list the header reads the period instead (zman-periods.ts): at 10:00 Late Shacharit until midday 11:36, at 12:10, moved on by the timer, Mincha gedola until sunset 16:41, at 20:00 Maariv until midnight 23:36; no request but today\'s', async () => {
-    resetHome();
-    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
-    answerFetch = (c) => answerFor(c, { items: WEEK });
-    // Harish-like times in summer time (UTC+3 on 15 Oct): each wall time minus three hours
-    const utc = (date: string, hhmm: string) => {
-      const [h, mm] = hhmm.split(':').map(Number);
-      return new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10)), h - 3, mm)).toISOString();
-    };
-    const full = (date: string) => sunList(date, {
-      rows: [['ALOT', '04:52'], ['MISHEYAKIR', '05:04'], ['NETZ', '06:04'], ['SOF_SHMA_MGA', '08:14', 'mga'], ['SOF_SHMA_GRA', '08:50', 'gra'], ['SOF_TFILA', '09:50'], ['CHATZOT', '11:36'], ['MINCHA_GEDOLA', '12:06'], ['MINCHA_KETANA', '14:43'], ['SHKIA', '16:41'], ['TZEIT', '16:55'], ['CHATZOT_HALAYLA', '23:36']]
-        .map(([key, hhmm, opinion]) => ({ key, opinion: opinion ?? null, at: utc(date, hhmm) })),
-    });
-    serveZmanim = (c: FetchCall) => ok200(full(c.query.get('date') ?? ''));
-    const clock = fakeClock('2026-10-15T07:00:00Z');
-    const m = await mountHome('en', { jewish: true, hasLocation: true }, clock);
-    try {
-      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Late Shacharit. until midday 11:36', `10:00 ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
-      assert(elements(zmanLine(m)[0]).some((e) => e.className === 'ch-head-zman-row is-now'), 'line 1 is the period');
-      await clock.advance(Date.parse('2026-10-15T09:10:00Z') - Date.parse('2026-10-15T07:00:00Z'));
-      await settle();
-      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Mincha gedola. until sunset 16:41', `12:10 ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
-      assert(show(zmanDates()) === show([TODAY]), `requests ${show(zmanDates())}`);
-      // In the evening Maariv until the midnight zman: today's list alone, no request for tomorrow's before it passes
-      await clock.advance(Date.parse('2026-10-15T17:00:00Z') - Date.parse('2026-10-15T09:10:00Z'));
-      await settle();
-      assert(show(zmanDates()) === show([TODAY]) && zmanLine(m)[0]?.getAttribute('aria-label') === 'Maariv. until midnight 23:36', `20:00 ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
-    } finally {
-      m.unmount();
-    }
-  });
-
-  await check('#128 React logged no warning in #126-#128r (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
+  await check('#128 React logged no warning in #126-#128q (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
     assert(reactWarnings.length === warnedBeforeSun, `React warned: ${show(reactWarnings.slice(warnedBeforeSun, warnedBeforeSun + 3))}`);
   });
 

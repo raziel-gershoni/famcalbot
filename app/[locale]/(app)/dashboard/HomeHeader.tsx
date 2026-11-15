@@ -11,10 +11,7 @@
 // Under the date lines, two lines at the person's place: the zman that passed last ("Sunset 16:42", "Yesterday: Midnight
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the sun
-// sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet. When the
-// period the person is in is known (zmanPeriodOf, zman-periods.ts), the same button reads it instead, short enough for
-// the text column beside the buttons: line 1 the period's name ("קריאת שמע", Mincha by its latest start), line 2 its end
-// by name where it fits ("עד השקיעה 16:41") or its ends' times ("עד 08:14 · 08:50"); the label names each end's opinion.
+// sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
@@ -25,7 +22,6 @@ import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { HomeWeather } from '@/src/lib/calendar-view/home-weather';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 import { zmanRowName } from '@/src/lib/calendar-view/zman-words';
-import type { ZmanPeriod } from '@/src/lib/calendar-view/zman-periods';
 import { WINDOW_ROW_KEYS, type ZmanAt, type ZmanWindow } from '@/src/lib/calendar-view/zmanim-list';
 
 export interface HomeHeaderProps {
@@ -49,8 +45,6 @@ export interface HomeHeaderProps {
   weather?: HomeWeather | 'loading' | null;
   /** The zman that passed last and the next one under the date lines, a tap away from the sun sheet; null or absent (or no sun) shows nothing. */
   zmanWindow?: ZmanWindow | null;
-  /** The period the person is in: read in place of the two zman lines when known. */
-  zmanPeriod?: ZmanPeriod | null;
 }
 
 /** The icon names the server sends (weatherIconName), as lucide icons; a name this build does not know is a cloud. */
@@ -195,48 +189,7 @@ function ZmanWindowLines({ lines, open, onOpen }: { lines: ZmanWindow; open: boo
   );
 }
 
-/** Marks a formatted message carries in place of its times, so each time is drawn bold and left to right. */
-const TIME_MARKS = ['\u2060\u2063\u2060', '\u2060\u2064\u2060'] as const;
-function TimedText({ text, times }: { text: string; times: readonly string[] }) {
-  const parts = text.split(new RegExp(`(${TIME_MARKS.join('|')})`));
-  return (
-    <span className="ch-head-zman-text">
-      {parts.map((part, i) => {
-        const mark = TIME_MARKS.indexOf(part as (typeof TIME_MARKS)[number]);
-        return mark >= 0 ? <bdi key={i} dir="ltr" className="ch-head-zman-time">{times[mark]}</bdi> : part;
-      })}
-    </span>
-  );
-}
-
-/** The period lines: line 1 the period's name, line 2 its ends still ahead ("עד 08:14 · 08:50"). */
-function ZmanPeriodLines({ period, open, onOpen }: { period: ZmanPeriod; open: boolean; onOpen: () => void }) {
-  const t = useTranslations('calendarHome');
-  const locale = useLocale();
-  const timeOf = (zman: ZmanAt) => formatTime(zman.row.at, zman.tz, locale);
-  // Mincha is named by its latest start (without the plag's opinion, for room); every other period by its own name.
-  const name = period.id === 'mincha' ? t(`zmanim.names.${period.start.row.key}`) : t(`header.period.${period.id}`);
-  const ends = period.otherEnd ? [period.end, period.otherEnd] : [period.end];
-  const shown = ends.map(timeOf);
-  // Line 2 names the end where it fits ("עד השקיעה 16:41"); Shema (two ends) and Shacharit (a long end) give the times alone.
-  const NAMED_END = ['night', 'alot', 'shacharitLate', 'midday', 'mincha', 'beinHashmashot', 'arvit'];
-  const line2 = (first: string, second: string) =>
-    period.otherEnd ? t('header.period.untilTwo', { first, second }) : NAMED_END.includes(period.id) ? t(`header.period.end.${period.id}`, { time: first }) : t('header.period.until', { time: first });
-  const withOpinion = (zman: ZmanAt) => (zman.row.opinion && period.otherEnd ? t('zmanim.withOpinion', { name: timeOf(zman), opinion: t(`zmanim.opinions.${zman.row.opinion}`) }) : timeOf(zman));
-  const label = `${name}. ${line2(withOpinion(period.end), period.otherEnd ? withOpinion(period.otherEnd) : '')}`;
-  return (
-    <button type="button" className="ch-head-zman" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={onOpen}>
-      <span className="ch-head-zman-row is-now" aria-hidden="true">
-        <span className="ch-head-zman-name">{name}</span>
-      </span>
-      <span className="ch-head-zman-row is-next" aria-hidden="true">
-        <TimedText text={line2(TIME_MARKS[0], TIME_MARKS[1])} times={shown} />
-      </span>
-    </button>
-  );
-}
-
-export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, zmanWindow, zmanPeriod }: HomeHeaderProps) {
+export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, zmanWindow }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: only Russian reads it (Ruling R9).
@@ -284,11 +237,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
             <bdi>{holidayTitles(holidays)}</bdi>
           </p>
         ) : null}
-        {zmanPeriod && onZmanim ? (
-          <ZmanPeriodLines period={zmanPeriod} open={zmanimOpen ?? false} onOpen={onZmanim} />
-        ) : zmanWindow && onZmanim ? (
-          <ZmanWindowLines lines={zmanWindow} open={zmanimOpen ?? false} onOpen={onZmanim} />
-        ) : null}
+        {zmanWindow && onZmanim ? <ZmanWindowLines lines={zmanWindow} open={zmanimOpen ?? false} onOpen={onZmanim} /> : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}
       </div>
       <div className="ch-head-side">

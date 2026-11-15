@@ -43,27 +43,6 @@
       "lastZmanYesterday": "אתמול: {name}",
       "lastZmanLabel": "הזמן הקודם: {name}, {time}",
       "lastZmanLabelYesterday": "הזמן הקודם: אתמול, {name}, {time}",
-      "period": {
-        "night": "לילה",
-        "alot": "עלות השחר",
-        "shema": "קריאת שמע",
-        "shacharit": "תפילת שחרית",
-        "shacharitLate": "שחרית בדיעבד",
-        "midday": "אחרי חצות היום",
-        "beinHashmashot": "בין השמשות",
-        "arvit": "ערבית",
-        "until": "עד {time}",
-        "untilTwo": "עד {first} · {second}",
-        "end": {
-          "night": "עד עלות השחר {time}",
-          "alot": "טלית ותפילין מ־{time}",
-          "shacharitLate": "עד חצות {time}",
-          "midday": "מנחה גדולה מ־{time}",
-          "mincha": "עד השקיעה {time}",
-          "beinHashmashot": "עד צאת הכוכבים {time}",
-          "arvit": "עד חצות הלילה {time}"
-        }
-      },
       "nextHoliday": "{name} בעוד {count, plural, =2 {יומיים} one {# יום} other {# ימים}}",
       "nextHolidayTomorrow": "{name} מחר",
       "weatherNow": "{now}°",
