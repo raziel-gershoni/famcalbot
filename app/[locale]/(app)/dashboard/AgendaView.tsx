@@ -238,15 +238,27 @@ export const AGENDA_CSS = `
   margin: 0 0 6px;
   background: transparent;
 }
+/* A day opens with a full-width band on the surface colour that sticks under the safe areas while its
+   day scrolls (owner 2026-11-15, "the days separation is hard to see at a glance"). It sticks within
+   its own .ch-day, so the next day's band takes its place; the home's top bar never sticks on the
+   Agenda, so only the safe areas are above it. Its last row has no line: the next band separates. */
 .ch-day-head {
+  position: sticky;
+  top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 8px;
-  margin: 22px 16px 2px;
-  font-size: 14px;
+  margin: 20px 0 0;
+  padding: 8px 16px;
+  background: var(--ch-surface);
+  font-size: 15px;
   font-weight: 400;
   line-height: 1.35;
+}
+.ch-day .ch-row-li:last-child {
+  border-block-end: 0;
 }
 .ch-day-label {
   font-weight: 600;

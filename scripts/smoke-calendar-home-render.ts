@@ -10878,6 +10878,20 @@ async function main() {
     assert(reactWarnings.length === warnedBeforeBrowserOnly, `React warned: ${show(reactWarnings.slice(warnedBeforeBrowserOnly, warnedBeforeBrowserOnly + 3))}`);
   });
 
+  await check('#142 the Agenda\'s day band: each day opens with a full-width band on the surface colour that sticks under the safe areas within its own day, and a day\'s last row has no line (owner 2026-11-15)', () => {
+    const rule = (selector: string) => (new RegExp(`(?:^|\\n)${selector.replace(/[.\\[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(AGENDA_CSS) ?? ['', ''])[1];
+    const head = rule('.ch-day-head');
+    assert(/position: sticky;/.test(head), 'the band sticks');
+    assert(/top: calc\(var\(--tg-safe-area-inset-top, 0px\) \+ var\(--tg-content-safe-area-inset-top, 0px\)\);/.test(head), 'under the safe areas');
+    assert(/background: var\(--ch-surface\);/.test(head), 'an opaque band on the surface colour');
+    assert(/margin: 20px 0 0;/.test(head) && /padding: 8px 16px;/.test(head), 'full width, the text at the rows\' 16 px');
+    assert(/z-index: 2;/.test(head), 'over the rows, under the sheets');
+    assert(/border-block-end: 0;/.test(rule('.ch-day .ch-row-li:last-child')), 'the day\'s last row has no line');
+    const html = markup(renderAgenda('en', famcalWeek()));
+    const days = [...html.matchAll(/<section class="ch-day"[^>]*>(<[a-z0-9]+ class="[^"]*")/g)].map((m) => m[1]);
+    assert(days.length > 1 && days.every((first) => first === '<h2 class="ch-day-head"'), `the band opens each day: ${show(days)}`);
+  });
+
   let failed = 0;
   for (const r of results) {
     process.stdout.write(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}\n`);
