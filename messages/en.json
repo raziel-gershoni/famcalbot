@@ -43,6 +43,18 @@
       "lastZmanYesterday": "Yesterday: {name}",
       "lastZmanLabel": "Last zman: {name}, {time}",
       "lastZmanLabelYesterday": "Last zman: yesterday, {name}, {time}",
+      "period": {
+        "night": "Night, until dawn {time}",
+        "alot": "Dawn, tallit and tefillin from {time}",
+        "shema": "Shema until {time}",
+        "shacharit": "Shacharit until {time}",
+        "shacharitLate": "Shacharit, after the fact, until midday {time}",
+        "midday": "Past midday, Mincha gedola from {time}",
+        "mincha": "{start} until sunset {time}",
+        "beinHashmashot": "Bein hashmashot until nightfall {time}",
+        "arvit": "Maariv until midnight {time}",
+        "otherEnd": "{opinion}: until {time}"
+      },
       "nextHoliday": "{name} in {count, plural, one {# day} other {# days}}",
       "nextHolidayTomorrow": "{name} tomorrow",
       "weatherNow": "{now}°",

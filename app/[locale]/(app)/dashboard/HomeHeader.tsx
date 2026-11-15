@@ -11,7 +11,10 @@
 // Under the date lines, two lines at the person's place: the zman that passed last ("Sunset 16:42", "Yesterday: Midnight
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the sun
-// sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet.
+// sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet. When the
+// period the person is in is known (zmanPeriodOf, zman-periods.ts), the same button reads it instead: line 1 the period
+// and its first end still ahead ("Shema until 08:14 (MGA)", "Mincha ketana until sunset 16:41"), line 2 its second end
+// ("GRA: until 08:50") or else the next zman not on line 1.
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
@@ -22,6 +25,7 @@ import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { HomeWeather } from '@/src/lib/calendar-view/home-weather';
 import type { DayKey } from '@/src/lib/calendar-view/types';
 import { zmanRowName } from '@/src/lib/calendar-view/zman-words';
+import type { ZmanPeriod } from '@/src/lib/calendar-view/zman-periods';
 import { WINDOW_ROW_KEYS, type ZmanAt, type ZmanWindow } from '@/src/lib/calendar-view/zmanim-list';
 
 export interface HomeHeaderProps {
@@ -45,6 +49,8 @@ export interface HomeHeaderProps {
   weather?: HomeWeather | 'loading' | null;
   /** The zman that passed last and the next one under the date lines, a tap away from the sun sheet; null or absent (or no sun) shows nothing. */
   zmanWindow?: ZmanWindow | null;
+  /** The period the person is in: read in place of the two zman lines when known. */
+  zmanPeriod?: ZmanPeriod | null;
 }
 
 /** The icon names the server sends (weatherIconName), as lucide icons; a name this build does not know is a cloud. */
@@ -189,7 +195,53 @@ function ZmanWindowLines({ lines, open, onOpen }: { lines: ZmanWindow; open: boo
   );
 }
 
-export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, zmanWindow }: HomeHeaderProps) {
+/** The text of a message with a time in it: the parts around the time, and the time (bold, left to right) between them. */
+const TIME_MARK = '\u2060\u2063\u2060';
+function TimedText({ text, time }: { text: string; time: string }) {
+  const [before, after = ''] = text.split(TIME_MARK);
+  return (
+    <span className="ch-head-zman-text">
+      {before}
+      <bdi dir="ltr" className="ch-head-zman-time">{time}</bdi>
+      {after}
+    </span>
+  );
+}
+
+/** The period lines: line 1 the period and its first end still ahead, line 2 its second end or the next zman. */
+function ZmanPeriodLines({ period, open, onOpen }: { period: ZmanPeriod; open: boolean; onOpen: () => void }) {
+  const t = useTranslations('calendarHome');
+  const locale = useLocale();
+  const timeOf = (zman: ZmanAt) => formatTime(zman.row.at, zman.tz, locale);
+  const opinionOf = (zman: ZmanAt) => (zman.row.opinion ? t(`zmanim.opinions.${zman.row.opinion}`) : '');
+  const first = (time: string) => {
+    const line = t(`header.period.${period.id}`, { time, start: zmanRowName(t, period.start.row) });
+    return period.severalEnds && period.end.row.opinion ? t('zmanim.withOpinion', { name: line, opinion: opinionOf(period.end) }) : line;
+  };
+  const other = (time: string) => (period.otherEnd ? t('header.period.otherEnd', { opinion: opinionOf(period.otherEnd), time }) : '');
+  const next = period.otherEnd ? null : period.next;
+  const nextText = (zman: ZmanAt) => {
+    const name = zmanRowName(t, zman.row);
+    return `${zman.when === 'tomorrow' ? t('header.nextZmanTomorrow', { name }) : name} ${timeOf(zman)}`;
+  };
+  const label = [first(timeOf(period.end)), period.otherEnd ? other(timeOf(period.otherEnd)) : next ? nextText(next) : null].filter(Boolean).join('. ');
+  return (
+    <button type="button" className="ch-head-zman" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={onOpen}>
+      <span className="ch-head-zman-row is-now" aria-hidden="true">
+        <TimedText text={first(TIME_MARK)} time={timeOf(period.end)} />
+      </span>
+      {period.otherEnd ? (
+        <span className="ch-head-zman-row" aria-hidden="true">
+          <TimedText text={other(TIME_MARK)} time={timeOf(period.otherEnd)} />
+        </span>
+      ) : next ? (
+        <ZmanLine zman={next} className="ch-head-zman-row" />
+      ) : null}
+    </button>
+  );
+}
+
+export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, zmanWindow, zmanPeriod }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: only Russian reads it (Ruling R9).
@@ -237,7 +289,11 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
             <bdi>{holidayTitles(holidays)}</bdi>
           </p>
         ) : null}
-        {zmanWindow && onZmanim ? <ZmanWindowLines lines={zmanWindow} open={zmanimOpen ?? false} onOpen={onZmanim} /> : null}
+        {zmanPeriod && onZmanim ? (
+          <ZmanPeriodLines period={zmanPeriod} open={zmanimOpen ?? false} onOpen={onZmanim} />
+        ) : zmanWindow && onZmanim ? (
+          <ZmanWindowLines lines={zmanWindow} open={zmanimOpen ?? false} onOpen={onZmanim} />
+        ) : null}
         {zone ? <p className="ch-head-zone">{t('shell.timesIn', { zone: zoneLabel(zone, locale) })}</p> : null}
       </div>
       <div className="ch-head-side">
