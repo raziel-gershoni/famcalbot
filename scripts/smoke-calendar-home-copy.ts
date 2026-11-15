@@ -74,6 +74,9 @@ const KEYS: Record<string, readonly string[]> = {
   'header.weatherRange': ['low', 'high'],
   'header.weather': ['place', 'condition', 'now', 'low', 'high'],
   'header.weatherDay': ['weekday', 'condition', 'high'],
+  'header.nextZmanTomorrow': ['name'],
+  'header.nextZmanLabel': ['name', 'time'],
+  'header.nextZmanLabelTomorrow': ['name', 'time'],
   // SendSheet (D6), with the send results of Ruling R5 (D4's outcomes)
   'send.title': [],
   'send.subtitle': [],
