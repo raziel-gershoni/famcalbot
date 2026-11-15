@@ -9966,7 +9966,7 @@ async function main() {
   const sunCalls = () => zmanimCalls.length;
   const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
 
-  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks only for today, the header\'s next zman (a home that is not jewish asks nothing)', async () => {
+  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks nothing without a saved place (the header\'s next zman is #128n-#128q\'s)', async () => {
     for (const jewish of [undefined, false]) {
       const a = await editingHome('en', {}, jewish === undefined ? {} : { jewish });
       try {
@@ -9986,7 +9986,7 @@ async function main() {
         const row = sun[0].parentNode as FakeElement;
         const header = messages[locale].calendarHome.header;
         assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, label, header.menu]), `${locale}: the "+", Send, the sun, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
-        assert(zmanimCalls.length === 1 && zmanimCalls[0].query.get('date') === TODAY, `${locale}: before the tap, ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
+        assert(zmanimCalls.length === 0, `${locale}: before the tap, ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
       } finally {
         a.m.unmount();
       }
@@ -10320,7 +10320,7 @@ async function main() {
     answerFetch = (c) => answerFor(c, { items: WEEK });
     serveZmanim = serveSun();
     const clock = fakeClock('2026-10-15T07:00:00Z');
-    const m = await mountHome('en', { jewish: true }, clock);
+    const m = await mountHome('en', { jewish: true, hasLocation: true }, clock);
     try {
       assert(show(zmanDates()) === show([TODAY]), `requests ${show(zmanDates())}`);
       const first = zmanimCalls[0];
@@ -10354,7 +10354,7 @@ async function main() {
     answerFetch = (c) => answerFor(c, { items: WEEK });
     serveZmanim = serveSun();
     const clock = fakeClock('2026-10-15T03:00:00Z');
-    const m = await mountHome('he', { jewish: true }, clock);
+    const m = await mountHome('he', { jewish: true, hasLocation: true }, clock);
     try {
       assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'הזמן הבא: הנץ החמה, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
       await clock.advance(55 * 60 * 1000);
@@ -10370,7 +10370,7 @@ async function main() {
     let serverToday = TODAY;
     answerFetch = () => ok200(serverToday === TODAY ? answer({ items: WEEK }) : answer({ today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } }));
     serveZmanim = serveSun();
-    const late = await mountHome('he', { jewish: true }, clock2);
+    const late = await mountHome('he', { jewish: true, hasLocation: true }, clock2);
     try {
       assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(late)[0]?.getAttribute('aria-label') === 'הזמן הבא: מחר, הנץ החמה, 06:54', `before midnight ${show(zmanDates())} ${zmanLine(late)[0]?.getAttribute('aria-label')}`);
       serverToday = day(1);
@@ -10389,7 +10389,7 @@ async function main() {
     answerFetch = (c) => answerFor(c, { items: WEEK });
     serveZmanim = serveSun();
     const clock = fakeClock('2026-10-15T14:50:00Z');
-    const m = await mountHome('en', { jewish: true }, clock);
+    const m = await mountHome('en', { jewish: true, hasLocation: true }, clock);
     try {
       assert(show(zmanDates()) === show([TODAY]), `${show(zmanDates())}`);
       fakeDocument.visibilityState = 'hidden';
@@ -10416,7 +10416,7 @@ async function main() {
         fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
         answerFetch = (c) => answerFor(c, { items: WEEK });
         serveZmanim = serve as typeof serveZmanim;
-        const bad = await mountHome('en', { jewish: true }, fakeClock('2026-10-15T07:00:00Z'));
+        const bad = await mountHome('en', { jewish: true, hasLocation: true }, fakeClock('2026-10-15T07:00:00Z'));
         try {
           assert(show(zmanDates()) === show([TODAY]) && zmanLine(bad).length === 0 && sunButton(bad).length === 1, `${what}: ${show(zmanDates())} ${zmanLine(bad).length} lines`);
         } finally {
@@ -10428,7 +10428,71 @@ async function main() {
     }
   });
 
-  await check('#128 React logged no warning in #126-#128p (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
+  await check('#128q the next zman: no saved place asks nothing (no request, no line); back in the foreground the line moves on though no timer ran (iOS froze it), and asks for tomorrow when today\'s are past; a failed list is asked again on the next foreground, not before', async () => {
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = serveSun();
+    const noPlace = await mountHome('en', { jewish: true, hasLocation: false }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(zmanimCalls.length === 0 && zmanLine(noPlace).length === 0 && sunButton(noPlace).length === 1, `no place: ${show(zmanDates())}`);
+    } finally {
+      noPlace.unmount();
+    }
+    // A frozen timer: the clock jumps past the sunrise, then past the sunset, with no timer run
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = serveSun();
+    const clock = fakeClock('2026-10-15T03:00:00Z');
+    const m = await mountHome('en', { jewish: true, hasLocation: true }, clock);
+    try {
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: Sunrise, 06:54', `${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      clock.jump(2 * 60 * 60 * 1000);
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: Latest time for Shema (GRA), 08:37', `after the jump: ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+      clock.jump(10 * 60 * 60 * 1000);
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(zmanDates().includes(day(1)) && zmanLine(m)[0]?.getAttribute('aria-label') === 'Next zman: tomorrow, Sunrise, 06:54', `past the sunset: ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      m.unmount();
+    }
+    // A failure, asked again on the next foreground (and only then)
+    const realError = console.error;
+    console.error = () => undefined;
+    resetHome();
+    fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    serveZmanim = () => ({ status: 500, body: { error: 'internal_error' } });
+    const clock2 = fakeClock('2026-10-15T07:00:00Z');
+    const f = await mountHome('en', { jewish: true, hasLocation: true }, clock2);
+    try {
+      assert(show(zmanDates()) === show([TODAY]) && zmanLine(f).length === 0, `failed: ${show(zmanDates())}`);
+      await clock2.advance(30 * 60 * 1000);
+      await settle();
+      assert(zmanimCalls.length === 1, `no retry loop: ${show(zmanDates())}`);
+      serveZmanim = serveSun();
+      fakeDocument.visibilityState = 'hidden';
+      fireDocument('visibilitychange');
+      fakeDocument.visibilityState = 'visible';
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(zmanDates()) === show([TODAY, TODAY]) && zmanLine(f)[0]?.getAttribute('aria-label') === 'Next zman: Sunset, 17:55', `the retry: ${show(zmanDates())} ${zmanLine(f)[0]?.getAttribute('aria-label')}`);
+    } finally {
+      f.unmount();
+      console.error = realError;
+    }
+  });
+
+  await check('#128 React logged no warning in #126-#128q (keys, nesting, attributes, act), and the only logs of the app\'s own are the failed request\'s', () => {
     assert(reactWarnings.length === warnedBeforeSun, `React warned: ${show(reactWarnings.slice(warnedBeforeSun, warnedBeforeSun + 3))}`);
   });
 

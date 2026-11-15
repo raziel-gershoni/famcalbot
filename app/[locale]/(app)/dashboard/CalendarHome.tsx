@@ -678,11 +678,13 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     };
   }, [hasLocation, homeUsable, weatherDay, userId, locale, deps]);
 
-  // The next zman under the header's date lines, wherever the sun is: today's list (the sheet's own request) asked once the
-  // home is usable, and again on a new today; once today's are all past, tomorrow's. A timer moves the line on at each
-  // zman; a hidden tab asks nothing (it waits to be shown). A failed list shows nothing (fetchZmanimList logs it).
-  const zmanToday = canZmanim ? (facts?.today ?? null) : null;
-  const [zmanLists, setZmanLists] = useState<Record<DayKey, ZmanimListResponse | null>>({});
+  // The next zman under the header's date lines, wherever the sun is and a place is saved (a list counted at the zone's
+  // main city shows nothing): today's list (the sheet's own request) asked once the home is usable, and again on a new
+  // today; once today's are all past, tomorrow's. A timer moves the line on at each zman, and so does the foreground (iOS
+  // freezes the timer with the app). A hidden tab asks nothing (it waits to be shown). A failed list shows nothing
+  // (fetchZmanimList logs it) and is asked again on the next foreground, never in a loop.
+  const zmanToday = canZmanim && hasLocation ? (facts?.today ?? null) : null;
+  const [zmanLists, setZmanLists] = useState<Record<string, ZmanimListResponse>>({});
   const zmanAsked = useRef(new Set<string>());
   const [zmanTick, setZmanTick] = useState(0);
   const askZmanList = useCallback(
@@ -690,28 +692,43 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       const key = `${userId}:${day}`;
       if (zmanAsked.current.has(key)) return;
       zmanAsked.current.add(key);
+      const failed = () => zmanAsked.current.delete(key);
       deps.zmanim
         .list(userId, day)
-        .then((out) => setZmanLists((lists) => ({ ...lists, [day]: out.kind === 'ok' ? out.list : null })))
+        .then((out) => {
+          if (out.kind === 'ok') setZmanLists((lists) => ({ ...lists, [key]: out.list }));
+          else failed();
+        })
         .catch((error: unknown) => {
           console.error(`[next-zman] the list for ${day} could not be read:`, error);
-          setZmanLists((lists) => ({ ...lists, [day]: null }));
+          failed();
         });
     },
     [userId, deps],
   );
   const zmanTomorrow = zmanToday ? addDaysToKey(zmanToday, 1) : null;
-  const todayZmanim = zmanToday ? zmanLists[zmanToday] : undefined;
-  const tomorrowZmanim = zmanTomorrow ? zmanLists[zmanTomorrow] : undefined;
-  // zmanTick: a timer below moved the clock past the shown zman.
+  const todayZmanim = zmanToday ? zmanLists[`${userId}:${zmanToday}`] : undefined;
+  const tomorrowZmanim = zmanTomorrow ? zmanLists[`${userId}:${zmanTomorrow}`] : undefined;
+  // zmanTick: a timer below, or the foreground, moved the clock on.
   const nextZman = useMemo(
     () => (todayZmanim === undefined ? null : nextZmanOf(todayZmanim, tomorrowZmanim, deps.now())),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [todayZmanim, tomorrowZmanim, zmanTick, deps],
   );
   useEffect(() => {
+    const tick = () => {
+      if (!DOM_VISIBILITY.isHidden()) setZmanTick((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', tick);
+    const offActivated = onTelegramEvent('activated', tick);
+    return () => {
+      document.removeEventListener('visibilitychange', tick);
+      offActivated();
+    };
+  }, []);
+  useEffect(() => {
     if (zmanToday) askZmanList(zmanToday);
-  }, [zmanToday, askZmanList]);
+  }, [zmanToday, askZmanList, zmanTick]);
   useEffect(() => {
     if (!zmanTomorrow) return;
     if (nextZman === 'tomorrow') {
@@ -723,7 +740,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     if (nextZman === null) return;
     return deps.setTimer(() => setZmanTick((n) => n + 1), Math.max(0, Date.parse(nextZman.row.at) - deps.now()) + 1000);
-  }, [nextZman, zmanTomorrow, askZmanList, deps]);
+  }, [nextZman, zmanTomorrow, askZmanList, deps, zmanTick]);
 
   // The open item's edit info (FamCal's, or Google's), asked when its sheet opens (and again
   // after an edit of it). An item of either source is one the user may be able to change:
