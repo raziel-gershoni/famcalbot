@@ -184,6 +184,8 @@ async function runChecks(): Promise<void> {
     assert(sum(zmanPeriodOf(friday, at(TODAY, '16:00'))) === 'mincha PLAG_YALKUT_YOSEF→SHKIA | CANDLE_LIGHTING', `friday ${sum(zmanPeriodOf(friday, at(TODAY, '16:00')))}`);
     assert(zmanPeriodOf(lists, at(TODAY, '20:00'))?.next?.when === 'tomorrow', 'tomorrow\'s dawn is marked');
     assert(zmanPeriodOf(lists, at(TODAY, '05:30'))?.next === null, 'no next while a second end shows');
+    // In the evening the next zman is tomorrow's: without tomorrow's list Maariv has nothing for line 2 (the home then asks for it, #128r)
+    assert(sum(zmanPeriodOf({ yesterday: lists.yesterday, today: lists.today }, at(TODAY, '20:00'))) === 'arvit TZEIT_LECHUMRA→CHATZOT_HALAYLA', `20:00 without tomorrow: ${sum(zmanPeriodOf({ yesterday: lists.yesterday, today: lists.today }, at(TODAY, '20:00')))}`);
     assert(nextZmanChange(lists, at(TODAY, '13:00')) === at(TODAY, '14:43') && nextZmanChange(lists, at(TODAY, '23:50')) === at(TOMORROW, '04:52') && nextZmanChange({ today: sephardi(TODAY) }, at(TODAY, '23:50')) === null, 'the next change');
   });
 
@@ -207,7 +209,7 @@ async function runChecks(): Promise<void> {
         '23:50': ['לילה, עד עלות השחר 04:52', 'מחר: זמן טלית ותפילין 05:04'],
       },
       ru: {
-        '05:30': ['Шма до 08:14 (Маген Авраам)', 'ГРА: до 08:50'],
+        '05:30': ['Чтение Шма до 08:14 (Маген Авраам)', 'ГРА: до 08:50'],
         '09:00': ['Шахарит до 09:50', 'Полдень (хацот) 11:36'],
         '16:45': ['Бейн а-шмашот до выхода звёзд 16:55', 'Выход звёзд, по строгому мнению 17:01'],
       },

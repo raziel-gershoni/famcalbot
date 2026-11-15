@@ -10492,7 +10492,7 @@ async function main() {
     }
   });
 
-  await check('#128r with a full list the header reads the period instead (zman-periods.ts): at 10:00 Shacharit after the fact until midday over Mincha gedola, and at 12:10, moved on by the timer with no new request, Mincha gedola until sunset over Mincha ketana', async () => {
+  await check('#128r with a full list the header reads the period instead (zman-periods.ts): at 10:00 Shacharit after the fact until midday over Mincha gedola, and at 12:10, moved on by the timer with no new request, Mincha gedola until sunset over Mincha ketana; at 20:00 Maariv until midnight over tomorrow\'s dawn, tomorrow\'s list asked once for it', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -10515,6 +10515,10 @@ async function main() {
       await settle();
       assert(zmanLine(m)[0]?.getAttribute('aria-label') === 'Mincha gedola until sunset 16:41. Mincha ketana 14:43', `12:10 ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
       assert(show(zmanDates()) === show([TODAY]), `requests ${show(zmanDates())}`);
+      // In the evening Maariv ends at the day's last zman: tomorrow's list is asked for line 2, once
+      await clock.advance(Date.parse('2026-10-15T17:00:00Z') - Date.parse('2026-10-15T09:10:00Z'));
+      await settle();
+      assert(show(zmanDates()) === show([TODAY, day(1)]) && zmanLine(m)[0]?.getAttribute('aria-label') === 'Maariv until midnight 23:36. Tomorrow: Dawn (alot hashachar) 04:52', `20:00 ${show(zmanDates())} ${zmanLine(m)[0]?.getAttribute('aria-label')}`);
     } finally {
       m.unmount();
     }
