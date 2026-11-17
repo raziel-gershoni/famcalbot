@@ -1,6 +1,10 @@
 // The Month's calendar arithmetic (spec §7.4, §5's month windows, Ruling R12): the
-// months of the window, each month's own days and its week rows. Client-safe and pure:
-// no Intl, no @hebcal, no timezone, no clock. It imports only the DTO types.
+// months browse holds (its span), each month's own days and its week rows. Client-safe and
+// pure: no Intl, no @hebcal, no timezone, no clock. It imports only the DTO types and the
+// reach (year-limits.ts).
+// - The span (owner 2026-11-17, "infinite scroll"): browse opens on today's month −12 … +18,
+//   grows SPAN_GROW months at an end the month in view comes within SPAN_EDGE months of, and
+//   moves to a month far past it (a jump), all inside MONTH_REACH.
 //
 // - A day key is a calendar day in the viewer's timezone, so every step is UTC
 //   arithmetic on UTC noon of the day, the rule of store.ts's addDaysToKey and
@@ -12,13 +16,23 @@
 // - Nothing here throws: a malformed key gives '' (or [], or an empty window).
 
 import type { DayKey, WeekStart } from './types';
+import { MONTH_REACH } from './year-limits';
 
 /** A calendar month, 'yyyy-MM'. */
 export type MonthKey = string;
 
-/** The Month's window (spec §7.4): 12 months before today's month … 18 months after it. */
+/** Browse's opening span (spec §7.4): 12 months before today's month … 18 months after it. */
 export const MONTHS_BACK = 12;
 export const MONTHS_AHEAD = 18;
+/** The months browse adds at an end, and how near the month in view comes to it first. */
+export const SPAN_GROW = 12;
+export const SPAN_EDGE = 6;
+
+/** The months browse holds, oldest and newest, inside MONTH_REACH. */
+export interface MonthSpan {
+  first: MonthKey;
+  last: MonthKey;
+}
 
 const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const MONTH_KEY = /^\d{4}-\d{2}$/;
@@ -115,19 +129,74 @@ export function monthGrid(month: MonthKey, weekStart: WeekStart): DayKey[][] {
   return first ? grid(first, monthLastDay(month), weekStart) : [];
 }
 
+/** A month held inside MONTH_REACH; '' for a malformed one. */
+function inReach(month: MonthKey): MonthKey {
+  if (!addMonths(month, 0)) return '';
+  return month < MONTH_REACH.first ? MONTH_REACH.first : month > MONTH_REACH.last ? MONTH_REACH.last : month;
+}
+
+/** The span around `month`: MONTHS_BACK before it … MONTHS_AHEAD after it, inside the reach; null for a malformed month. */
+function spanAround(month: MonthKey): MonthSpan | null {
+  if (!addMonths(month, 0)) return null;
+  return { first: inReach(addMonths(month, -MONTHS_BACK)), last: inReach(addMonths(month, MONTHS_AHEAD)) };
+}
+
+/** Browse's opening span (spec §7.4): today's month −MONTHS_BACK … +MONTHS_AHEAD; null for a malformed today. */
+export function defaultSpan(today: DayKey): MonthSpan | null {
+  return spanAround(monthOf(today));
+}
+
+/** The span's months, oldest first; [] for a malformed span. */
+export function spanMonths(span: MonthSpan | null): MonthKey[] {
+  const first = span ? monthIndex(span.first) : null;
+  const last = span ? monthIndex(span.last) : null;
+  if (first === null || last === null) return [];
+  const out: MonthKey[] = [];
+  for (let i = first; i <= last; i++) out.push(monthAt(i));
+  return out;
+}
+
+/** Whether `month` is one of the span's. */
+export function inSpan(span: MonthSpan, month: MonthKey): boolean {
+  return addMonths(month, 0) !== '' && month >= span.first && month <= span.last;
+}
+
+/** Whether the month in view is within SPAN_EDGE months of an end the span can still grow at. */
+export function nearSpanEdge(span: MonthSpan, month: MonthKey, edge: 'before' | 'after'): boolean {
+  const at = monthIndex(month);
+  const end = monthIndex(edge === 'before' ? span.first : span.last);
+  if (at === null || end === null) return false;
+  return edge === 'before' ? span.first > MONTH_REACH.first && at - end < SPAN_EDGE : span.last < MONTH_REACH.last && end - at < SPAN_EDGE;
+}
+
+/** The span with SPAN_GROW more months at one end, inside the reach; the same span when it can't grow. */
+export function growSpan(span: MonthSpan, edge: 'before' | 'after'): MonthSpan {
+  const next = edge === 'before' ? { first: inReach(addMonths(span.first, -SPAN_GROW)), last: span.last } : { first: span.first, last: inReach(addMonths(span.last, SPAN_GROW)) };
+  return next.first && next.last && (next.first !== span.first || next.last !== span.last) ? next : span;
+}
+
 /**
- * The Month's window around today (spec §7.4): MONTHS_BACK months before today's month,
- * today's month, then MONTHS_AHEAD after it, oldest first (31 months). [] for a malformed today.
+ * The span once `month` must be in it (a jump, picked's chevrons, Today): the same span when it
+ * is; grown to MONTHS_BACK / MONTHS_AHEAD past it when it is at most SPAN_GROW months beyond an
+ * end; else the span around it, so browse never holds decades of months it skipped.
+ */
+export function spanToShow(span: MonthSpan, month: MonthKey): MonthSpan {
+  const at = monthIndex(month);
+  const first = monthIndex(span.first);
+  const last = monthIndex(span.last);
+  if (at === null || first === null || last === null) return span;
+  if (at >= first && at <= last) return span;
+  if (at < first && first - at <= SPAN_GROW) return { first: inReach(addMonths(month, -MONTHS_BACK)), last: span.last };
+  if (at > last && at - last <= SPAN_GROW) return { first: span.first, last: inReach(addMonths(month, MONTHS_AHEAD)) };
+  return spanAround(month) ?? span;
+}
+
+/**
+ * The span around today (spec §7.4): MONTHS_BACK months before today's month, today's month,
+ * then MONTHS_AHEAD after it, oldest first (31 months). [] for a malformed today.
  */
 export function monthSpan(today: DayKey): MonthKey[] {
-  const month = monthOf(today);
-  if (!month) return [];
-  const out: MonthKey[] = [];
-  for (let n = -MONTHS_BACK; n <= MONTHS_AHEAD; n++) {
-    const m = addMonths(month, n);
-    if (m) out.push(m);
-  }
-  return out;
+  return spanMonths(defaultSpan(today));
 }
 
 /** The weekdays in column order: [weekStart, weekStart + 1, …] mod 7. */

@@ -35,8 +35,6 @@
 import { reminderMark, whoseItem, type AgendaRow } from './agenda';
 import { allDayLastDay, formatTime, instantDay } from './format';
 import {
-  MONTHS_AHEAD,
-  MONTHS_BACK,
   addMonths,
   monthFirstDay,
   monthGrid,
@@ -59,6 +57,7 @@ import {
   type SourceFailure,
 } from './store';
 import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
+import { MONTH_REACH } from './year-limits';
 
 export type MonthLayout = 'browse' | 'picked';
 
@@ -566,11 +565,13 @@ export function dayRows(store: CalendarStore, day: DayKey): AgendaRow[] {
   return dayItems(store, day).map((item) => ({ item, whose: whoseItem(item, partner), mark: reminderMark(item), origin: day }));
 }
 
-/** The window's first and last months around `today` (spec §7.4), or null for a malformed day. */
+/**
+ * The months the Month reaches (owner 2026-11-17, "infinite scroll"): MONTH_REACH, the years an
+ * item may start in, whatever today is; null for a malformed today. Browse holds a span of them
+ * (grid.ts), which picked and wantedMonths never need: picked shows one month.
+ */
 function windowOf(today: DayKey): { first: MonthKey; last: MonthKey } | null {
-  const month = monthOf(today);
-  if (!month) return null;
-  return { first: addMonths(month, -MONTHS_BACK), last: addMonths(month, MONTHS_AHEAD) };
+  return monthOf(today) ? MONTH_REACH : null;
 }
 
 function inWindow(month: MonthKey, ends: { first: MonthKey; last: MonthKey }): boolean {
@@ -604,7 +605,7 @@ export function backToBrowse(ui: MonthUi): MonthUi {
   return ui.layout === 'browse' && ui.selected === null ? ui : { layout: 'browse', month: ui.month, selected: null };
 }
 
-/** Whether a chevron can move one month: false past the window's ends (spec §7.4). */
+/** Whether a chevron can move one month: false past the reach's ends (January 1900, December 2100). */
 export function canStep(ui: MonthUi, delta: -1 | 1, today: DayKey): boolean {
   const ends = windowOf(today);
   const next = addMonths(ui.month, delta);
@@ -627,10 +628,10 @@ export function pickToday(ui: MonthUi, today: DayKey): MonthUi {
 }
 
 /**
- * After today moves (midnight, other facts): the UI kept, but inside the new window.
- * A month past an end moves to that end, and picked then selects its 1st (or today in
- * today's month); a malformed month goes to today's. A picked day stays picked, even
- * when it was today. The same UI when nothing changes.
+ * After today moves (midnight, other facts): the UI kept, inside the reach. A month past
+ * an end moves to that end, and picked then selects its 1st (or today in today's month);
+ * a malformed month goes to today's. A picked day stays picked, even when it was today.
+ * The same UI when nothing changes.
  */
 export function clampMonthUi(ui: MonthUi, today: DayKey): MonthUi {
   const ends = windowOf(today);

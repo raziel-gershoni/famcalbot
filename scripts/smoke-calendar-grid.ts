@@ -21,7 +21,15 @@ import path from 'path';
 import {
   MONTHS_AHEAD,
   MONTHS_BACK,
+  SPAN_EDGE,
+  SPAN_GROW,
   addMonths,
+  defaultSpan,
+  growSpan,
+  inSpan,
+  nearSpanEdge,
+  spanMonths,
+  spanToShow,
   grid,
   monthFirstDay,
   monthGrid,
@@ -213,6 +221,36 @@ async function main() {
     assertEqual([monthSpan(''), monthSpan('2026-10'), monthSpan('2026-02-30')], [[], [], []], 'a bad today');
   });
 
+  await check('the span (owner 2026-11-17, "infinite scroll"): browse opens on today\'s month −12 … +18, grows 12 months at an end the month in view comes within 6 months of, takes a month at most 12 past an end by growing and one further by moving there, all inside January 1900 … December 2100', () => {
+    assertEqual([SPAN_GROW, SPAN_EDGE], [12, 6], 'the constants');
+    const span = defaultSpan('2026-10-15');
+    assertEqual(span, { first: '2025-10', last: '2028-04' }, 'the opening span');
+    assertEqual(spanMonths(span), monthSpan('2026-10-15'), 'its months are monthSpan\'s');
+    assertEqual([defaultSpan(''), spanMonths(null), spanMonths({ first: 'bad', last: '2026-01' })], [null, [], []], 'bad input');
+    assertEqual(defaultSpan('1900-06-01'), { first: '1900-01', last: '1901-12' }, 'held inside the reach at the start');
+    assertEqual(defaultSpan('2100-03-01'), { first: '2099-03', last: '2100-12' }, 'and at the end');
+    const s = span!;
+    assertEqual([inSpan(s, '2025-10'), inSpan(s, '2028-04'), inSpan(s, '2025-09'), inSpan(s, '2028-05'), inSpan(s, 'bad')], [true, true, false, false, false], 'inSpan');
+    // Near an end: within 6 months of it.
+    assertEqual([nearSpanEdge(s, '2026-03', 'before'), nearSpanEdge(s, '2026-04', 'before'), nearSpanEdge(s, '2025-10', 'before')], [true, false, true], 'near the first month');
+    assertEqual([nearSpanEdge(s, '2027-11', 'after'), nearSpanEdge(s, '2027-10', 'after'), nearSpanEdge(s, '2028-04', 'after')], [true, false, true], 'near the last month');
+    assertEqual([nearSpanEdge({ first: '1900-01', last: '1902-01' }, '1900-02', 'before'), nearSpanEdge({ first: '2099-01', last: '2100-12' }, '2100-10', 'after')], [false, false], 'not at the reach\'s ends');
+    assertEqual(nearSpanEdge(s, 'bad', 'before'), false, 'a bad month');
+    // Growing.
+    assertEqual(growSpan(s, 'before'), { first: '2024-10', last: '2028-04' }, '12 months before');
+    assertEqual(growSpan(s, 'after'), { first: '2025-10', last: '2029-04' }, '12 months after');
+    assertEqual(growSpan({ first: '1900-06', last: '1902-01' }, 'before'), { first: '1900-01', last: '1902-01' }, 'only to the reach');
+    const atEnd = { first: '2099-01', last: '2100-12' };
+    assert(growSpan(atEnd, 'after') === atEnd, 'the same span at the reach\'s end');
+    // A month that must be in the span.
+    assert(spanToShow(s, '2026-01') === s, 'already in: the same span');
+    assertEqual(spanToShow(s, '2025-01'), { first: '2024-01', last: '2028-04' }, '9 months before: grown to 12 before it');
+    assertEqual(spanToShow(s, '2029-04'), { first: '2025-10', last: '2030-10' }, '12 months after: grown to 18 after it');
+    assertEqual(spanToShow(s, '2018-06'), { first: '2017-06', last: '2019-12' }, 'June 2018: the span around it');
+    assertEqual(spanToShow(s, '1900-03'), { first: '1900-01', last: '1901-09' }, 'March 1900: around it, inside the reach');
+    assert(spanToShow(s, 'bad') === s, 'a bad month: the same span');
+  });
+
   await check("weekdayOrder starts at the week start and matches every grid row's weekdays", () => {
     assertEqual(weekdayOrder(0), [0, 1, 2, 3, 4, 5, 6], 'ws 0');
     assertEqual(weekdayOrder(1), [1, 2, 3, 4, 5, 6, 0], 'ws 1');
@@ -277,11 +315,15 @@ async function main() {
     }
   });
 
-  await check('grid.ts is pure: it imports only the DTO types (or date-fns), with no Intl, @hebcal, timezone library, local-time getter or clock', () => {
+  await check('grid.ts is pure: it imports only the DTO types, the reach (year-limits.ts, itself pure) or date-fns, with no Intl, @hebcal, timezone library, local-time getter or clock', () => {
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/grid.ts'), 'utf8');
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const imports = [...code.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map(m => `${m[1] ? 'type ' : ''}${m[2]}`);
-    for (const spec of imports) assert(spec === 'type ./types' || /^date-fns(\/|$)/.test(spec), `grid.ts imports ${spec}`);
+    for (const spec of imports) assert(spec === 'type ./types' || spec === './year-limits' || /^date-fns(\/|$)/.test(spec), `grid.ts imports ${spec}`);
+    const limits = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/year-limits.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const limitImports = [...limits.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map((m) => `${m[1] ? 'type ' : ''}${m[2]}`);
+    assert(limitImports.every((spec) => spec.startsWith('type ')), `year-limits.ts imports more than types: ${limitImports.join(', ')}`);
+    assert(!/\bIntl\b|new Date\(|Date\.now/.test(limits), 'year-limits.ts reads no clock and no Intl');
     assert(!/require\(|import\(/.test(code), 'no require() or import()');
     for (const banned of [/\bIntl\b/, /toLocale/, /@hebcal/, /date-fns-tz/, /getTimezoneOffset/, /new Date\(\)/, /Date\.now/]) {
       assert(!banned.test(code), `grid.ts uses ${banned}`);

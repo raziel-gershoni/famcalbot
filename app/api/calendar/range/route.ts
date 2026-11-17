@@ -27,6 +27,7 @@ import { zmanClockIfNeeded } from '@/src/services/zmanim/reminder-clock';
 import { hebrewDatesFor, tzKnownFor, weekStartOfUser } from '@/src/utils/locale-rules';
 import { addDaysToDate, localDate } from '@/src/utils/day-events';
 import type { DayKey, ItemDTO, RangeResponse, SourceName } from '@/src/lib/calendar-view/types';
+import { MAX_YEAR, MONTH_REACH } from '@/src/lib/calendar-view/year-limits';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -36,7 +37,9 @@ const NO_STORE = 'private, no-store';
 const DEFAULT_DAYS = 7;
 /** The longest window: a month grid's 6 weeks. */
 const MAX_DAYS = 42;
-const MAX_YEARS_AWAY = 5;
+/** The Month's reach (year-limits.ts MONTH_REACH): a window's days from its first month's 1st to the day after its last month. */
+const REACH_FROM: DayKey = `${MONTH_REACH.first}-01`;
+const REACH_TO: DayKey = `${MAX_YEAR + 1}-01-01`;
 /** The whole Google half, cache miss included (spec §2.2 Deadlines). */
 const GOOGLE_DEADLINE_MS = 6000;
 const SOURCE_NAMES: readonly SourceName[] = ['famcal', 'google'];
@@ -60,8 +63,6 @@ function isSourceName(value: string): value is SourceName {
   return (SOURCE_NAMES as readonly string[]).includes(value);
 }
 
-const yearsApart = (a: DayKey, b: DayKey) => Math.abs(Number(a.slice(0, 4)) - Number(b.slice(0, 4)));
-
 /**
  * The window and the sources asked for, or why the query is refused (a 400). from and to
  * come both or neither; to is at most 42 days after from, compared as dates, so a 42-day
@@ -76,9 +77,7 @@ function parseQuery(params: URLSearchParams, today: DayKey): Query | { error: st
     if (fromParam === null || toParam === null) return { error: 'from and to come together' };
     if (!isDayKey(fromParam) || !isDayKey(toParam)) return { error: 'from and to are yyyy-MM-dd dates' };
     if (!(fromParam < toParam)) return { error: 'from must come before to' };
-    if (yearsApart(fromParam, today) > MAX_YEARS_AWAY || yearsApart(toParam, today) > MAX_YEARS_AWAY) {
-      return { error: `from and to are within ${MAX_YEARS_AWAY} years of today` };
-    }
+    if (fromParam < REACH_FROM || toParam > REACH_TO) return { error: `from and to are within ${REACH_FROM} … ${REACH_TO}` };
     if (toParam > addDaysToDate(fromParam, MAX_DAYS)) return { error: `at most ${MAX_DAYS} days` };
     from = fromParam;
     to = toParam;

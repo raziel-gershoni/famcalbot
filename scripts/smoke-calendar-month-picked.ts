@@ -13,7 +13,7 @@
 //  - the dots: filled for the viewer's, a ring for the partner's, at most 3, then
 //    month.moreShort's "+N";
 //  - daily reminders listed under the day but never dotted or counted (Ruling 5);
-//  - the chevrons at the window's ends (12 months back, 18 ahead);
+//  - the chevrons at the reach's ends (January 1900, December 2100; owner 2026-11-17), not today's span's;
 //  - the Today pill only while the selected day isn't today;
 //  - the notices as rows (failed, busy, calendars gone, partial; never a reconnect), and
 //    the day's states: "Nothing planned" only when answered and empty, placeholders while
@@ -823,16 +823,20 @@ async function main() {
     assert(cellOn(html15, 15).label?.includes('4 items') && chrome(html15).rows[0] === 'Take vitamins' && chrome(html15).rows.length === 5, `today: ${show(chrome(html15).rows)}`);
   });
 
-  await check('#7 the chevrons at the window\'s ends (12 months back, 18 ahead): October 2025 has no previous month and April 2028 no next one; in real React a tap that reaches an end disables that chevron, a second tap calls nothing, and focus moves to the selected day', () => {
+  await check('#7 the chevrons at the reach\'s ends (owner 2026-11-17: January 1900 … December 2100, not 12 months back and 18 ahead): October 2025 and April 2028 step on; January 1900 has no previous month and December 2100 no next one; in real React a tap that reaches an end disables that chevron, a second tap calls nothing, and focus moves to the selected day', () => {
     const store = octoberStore();
-    const first = chrome(render('en', propsFor(store, picked('2025-10-01'))));
-    assert(first.month === 'October 2025' && show(first.chevrons.map((x) => x.disabled)) === show([true, false]), `October 2025: ${show(first.chevrons)}`);
-    const last = chrome(render('en', propsFor(store, picked('2028-04-01'))));
-    assert(last.month === 'April 2028' && show(last.chevrons.map((x) => x.disabled)) === show([false, true]), `April 2028: ${show(last.chevrons)}`);
+    for (const day of ['2025-10-01', '2028-04-01']) {
+      const open = chrome(render('en', propsFor(store, picked(day))));
+      assert(show(open.chevrons.map((x) => x.disabled)) === show([false, false]), `${day}: ${show(open.chevrons)}`);
+    }
+    const first = chrome(render('en', propsFor(store, picked('1900-01-01'))));
+    assert(first.month === 'January 1900' && show(first.chevrons.map((x) => x.disabled)) === show([true, false]), `January 1900: ${show(first.chevrons)}`);
+    const last = chrome(render('en', propsFor(store, picked('2100-12-01'))));
+    assert(last.month === 'December 2100' && show(last.chevrons.map((x) => x.disabled)) === show([false, true]), `December 2100: ${show(last.chevrons)}`);
     installWindow();
     for (const [start, cls, call, wantTitle, wantDay] of [
-      ['2025-11-03', 0, 'prev', 'October 2025', '2025-10-01'],
-      ['2028-03-31', 1, 'next', 'April 2028', '2028-04-01'],
+      ['1900-02-03', 0, 'prev', 'January 1900', '1900-01-01'],
+      ['2100-11-30', 1, 'next', 'December 2100', '2100-12-01'],
     ] as const) {
       const seen: string[] = [];
       const m = mount(inHome('en', createElement(PickedHost, { store, start: picked(start), seen })));

@@ -15,6 +15,13 @@ export const MIN_YEAR_BIRTH = 1900;
 /** The earliest year for every other repeat. */
 export const MIN_YEAR_SERIES = 2000;
 
+/**
+ * The months the calendar home's Month reaches (owner 2026-11-17, "infinite scroll"): the years an
+ * item may start in, so every item the editor can make has its month. The range route refuses a
+ * window outside them.
+ */
+export const MONTH_REACH = { first: `${MIN_YEAR_BIRTH}-01`, last: `${MAX_YEAR}-12` } as const;
+
 /** The earliest year an item with this repeat (a choice or a spec) may start in. No repeat reads as a one-off. */
 export function minYearFor(repeat: RuleChoice | RepeatSpec | undefined): number {
   const choice = typeof repeat === 'object' ? repeat.freq : repeat;

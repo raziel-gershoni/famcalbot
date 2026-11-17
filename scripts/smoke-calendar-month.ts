@@ -675,13 +675,15 @@ async function main() {
     assert(backToBrowse(browse) === browse, 'back in browse keeps the UI');
   });
 
-  await check('canStep and stepMonth at both ends of the window (2025-10 … 2028-04): the 1st, or today in today\'s month', () => {
-    const first = ui('picked', '2025-10', '2025-10-01');
-    const last = ui('picked', '2028-04', '2028-04-01');
+  await check('canStep and stepMonth at both ends of the reach (1900-01 … 2100-12, owner 2026-11-17), not of today\'s span: the 1st, or today in today\'s month', () => {
+    assert(canStep(ui('picked', '2025-10', '2025-10-01'), -1, TODAY) && canStep(ui('picked', '2028-04', '2028-04-01'), 1, TODAY), 'past today\'s span');
+    assertJson(stepMonth(ui('picked', '2018-07', '2018-07-01'), -1, TODAY), ui('picked', '2018-06', '2018-06-01'), 'in 2018');
+    const first = ui('picked', '1900-01', '1900-01-01');
+    const last = ui('picked', '2100-12', '2100-12-01');
     assert(!canStep(first, -1, TODAY) && canStep(first, 1, TODAY), 'the first month');
     assert(canStep(last, -1, TODAY) && !canStep(last, 1, TODAY), 'the last month');
     assert(stepMonth(first, -1, TODAY) === first && stepMonth(last, 1, TODAY) === last, 'no step past the ends');
-    assertJson(stepMonth(first, 1, TODAY), ui('picked', '2025-11', '2025-11-01'), 'to the 1st');
+    assertJson(stepMonth(first, 1, TODAY), ui('picked', '1900-02', '1900-02-01'), 'to the 1st');
     assertJson(stepMonth(ui('picked', '2026-09', '2026-09-20'), 1, TODAY), ui('picked', '2026-10', TODAY), 'into today\'s month: today');
     assertJson(stepMonth(ui('picked', '2026-10', TODAY), 1, TODAY), ui('picked', '2026-11', '2026-11-01'), 'out of it: the 1st');
     assertJson(stepMonth(ui('picked', '2027-01', '2027-01-01'), -1, TODAY), ui('picked', '2026-12', '2026-12-01'), 'back across a year');
@@ -696,27 +698,29 @@ async function main() {
     assertJson(pickToday(ui('browse', '2026-12'), TODAY), ui('browse', '2026-10'), 'the Today button');
     const browseToday = ui('browse', '2026-10');
     assert(pickToday(browseToday, TODAY) === browseToday, 'browse on today\'s month');
-    // Midnight to 1 November: the window becomes 2025-11 … 2028-05.
+    // Midnight to 1 November: the UI stays wherever it is inside the reach.
     const NEXT = '2026-11-01';
-    assertJson(clampMonthUi(ui('picked', '2025-10', '2025-10-07'), NEXT), ui('picked', '2025-11', '2025-11-01'), 'off the start');
-    assertJson(clampMonthUi(ui('browse', '2025-10'), NEXT), ui('browse', '2025-11'), 'browse off the start');
+    const old = ui('picked', '2025-10', '2025-10-07');
+    assert(clampMonthUi(old, NEXT) === old, 'a month before today\'s span stays');
+    assertJson(clampMonthUi(ui('picked', '1899-12', '1899-12-07'), NEXT), ui('picked', '1900-01', '1900-01-01'), 'off the reach\'s start');
+    assertJson(clampMonthUi(ui('browse', '2101-01'), NEXT), ui('browse', '2100-12'), 'browse off the reach\'s end');
     const yesterday = ui('picked', '2026-10', TODAY);
     assert(clampMonthUi(yesterday, NEXT) === yesterday, 'the picked day stays, though it was today');
     const inside = ui('browse', '2027-03');
     assert(clampMonthUi(inside, NEXT) === inside, 'inside the window');
-    assert(canStep(ui('picked', '2028-04', '2028-04-01'), 1, NEXT), 'the window reaches 2028-05');
-    // Other facts can move today back: the window becomes 2025-09 … 2028-03.
-    assertJson(clampMonthUi(ui('picked', '2028-04', '2028-04-09'), '2026-09-30'), ui('picked', '2028-03', '2028-03-01'), 'off the end');
+    const later = ui('picked', '2028-04', '2028-04-09');
+    assert(clampMonthUi(later, '2026-09-30') === later, 'today moved back: a month after today\'s span stays');
     assertJson(clampMonthUi(ui('picked', '2026-10', '2026-11-02'), NEXT), ui('picked', '2026-10', '2026-10-01'), 'a picked day outside its month');
     assertJson(clampMonthUi(ui('picked', 'bad', null), NEXT), ui('picked', '2026-11', NEXT), 'a bad month: today');
   });
 
-  await check('wantedMonths (Ruling 7): picked then the next and the previous; browse nearest the month in view first, the later on a tie, its two neighbours always (a web client\'s observer reports only the months on screen); the fallback; in the window only', () => {
+  await check('wantedMonths (Ruling 7): picked then the next and the previous; browse nearest the month in view first, the later on a tie, its two neighbours always (a web client\'s observer reports only the months on screen); the fallback; in the reach only', () => {
     const months = (w: { from: string; to: string }[]) => w.map((x) => `${x.from}..${x.to}`);
     assertJson(months(wantedMonths(ui('picked', '2026-10', TODAY), ['2027-05'], '2027-05', TODAY)), ['2026-10-01..2026-11-01', '2026-11-01..2026-12-01', '2026-09-01..2026-10-01'], 'picked');
     const short = (w: { from: string }[]) => w.map((x) => x.from.slice(0, 7));
-    assertJson(short(wantedMonths(ui('picked', '2028-04', '2028-04-01'), [], null, TODAY)), ['2028-04', '2028-03'], 'picked at the last month');
-    assertJson(short(wantedMonths(ui('picked', '2025-10', '2025-10-01'), [], null, TODAY)), ['2025-10', '2025-11'], 'picked at the first month');
+    assertJson(short(wantedMonths(ui('picked', '2028-04', '2028-04-01'), [], null, TODAY)), ['2028-04', '2028-05', '2028-03'], 'picked past today\'s span');
+    assertJson(short(wantedMonths(ui('picked', '2100-12', '2100-12-01'), [], null, TODAY)), ['2100-12', '2100-11'], 'picked at the reach\'s last month');
+    assertJson(short(wantedMonths(ui('picked', '1900-01', '1900-01-01'), [], null, TODAY)), ['1900-01', '1900-02'], 'picked at the reach\'s first month');
     const browse = ui('browse', '2026-10');
     assertJson(short(wantedMonths(browse, ['2026-09', '2026-10', '2026-11', '2026-12'], '2026-10', TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'browse');
     assertJson(short(wantedMonths(browse, ['2027-01', '2027-02'], '2026-12', TODAY)), ['2026-12', '2027-01', '2026-11', '2027-02'], 'the month in view comes first, with its neighbours');
@@ -724,7 +728,7 @@ async function main() {
     assertJson(short(wantedMonths(browse, [], null, TODAY)), ['2026-10', '2026-11', '2026-09'], 'no observer yet: ui.month and its neighbours');
     assertJson(short(wantedMonths(browse, [], '2027-06', TODAY)), ['2027-06', '2027-07', '2027-05'], 'no observer: the month in view and its neighbours');
     assertJson(short(wantedMonths(browse, ['2026-12', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'near months by distance from ui.month, with it and its neighbours');
-    assertJson(short(wantedMonths(ui('browse', '2025-10'), ['2025-09', '2025-10', '2025-11'], '2025-10', TODAY)), ['2025-10', '2025-11'], 'outside the window dropped');
+    assertJson(short(wantedMonths(ui('browse', '1900-01'), ['1899-12', '1900-01', '1900-02'], '1900-01', TODAY)), ['1900-01', '1900-02'], 'outside the reach dropped');
     assertJson(short(wantedMonths(browse, ['2026-11', 'bad', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09'], 'junk and repeats dropped');
     assertJson(wantedMonths(browse, [], null, 'bad'), [], 'a bad today');
   });

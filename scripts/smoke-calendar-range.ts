@@ -544,7 +544,7 @@ async function main() {
     const bad = [
       'from=2026-02-30&to=2026-03-02', 'from=2026-1-05&to=2026-01-09', 'from=tomorrow&to=2026-10-20', 'from=2026-10-16',
       'to=2026-10-20', 'from=2026-10-16&to=2026-10-16', 'from=2026-10-20&to=2026-10-16', 'from=2026-10-01&to=2026-11-13',
-      'from=2020-01-01&to=2020-01-10', 'from=2031-12-20&to=2032-01-02', 'sources=outlook', 'sources=famcal,', 'sources=',
+      'from=1899-12-31&to=1900-01-10', 'from=2100-12-20&to=2101-01-02', 'sources=outlook', 'sources=famcal,', 'sources=',
     ];
     const wrong: string[] = [];
     for (const qs of bad) {
@@ -553,8 +553,11 @@ async function main() {
     }
     assert(wrong.length === 0, wrong.join('; '));
     assert(famcalCalls.length === 0, `read on a 400: ${famcalCalls.length}`);
-    const edge = await get('from=2031-12-01&to=2031-12-10');
-    assert(edge.status === 200, `5 years away is allowed: ${edge.status} ${edge.text}`);
+    // The Month's reach (owner 2026-11-17): January 1900 … December 2100, the years an item may start in.
+    for (const qs of ['from=1900-01-01&to=1900-02-01', 'from=2100-12-01&to=2101-01-01', 'from=2018-06-01&to=2018-07-01']) {
+      const edge = await get(qs);
+      assert(edge.status === 200, `${qs} is inside the reach: ${edge.status} ${edge.text}`);
+    }
   });
 
   await check('#6 200 for 42-day windows across 2026-10-25 in Israel and 2026-11-01 in New York, with local-midnight windows', async () => {
