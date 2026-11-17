@@ -760,6 +760,31 @@ async function main() {
     assertSame(sent(back + 1), [], 'the foreground refetch left September as it was');
   });
 
+  await check('a month the write\'s own refetch queued, then dropped once no longer wanted (scrolled or stepped away before a slot freed), stays out of date: asked again, anew, when it comes back', async () => {
+    reset();
+    const h = fakeHost({ months: [SEP], agenda: false });
+    await h.firstLoad();
+    for (const [m, what] of [[SEP, 'famcal 2026-09-01..2026-10-01'], [OCT, 'famcal 2026-10-01..2026-11-01'], [NOV, 'famcal 2026-11-01..2026-12-01']] as const) {
+      h.state.months = [m];
+      h.loader.ensure();
+      await answer(what);
+    }
+    h.state.months = [OCT, NOV, SEP]; // picked on October: the month, the next, the previous
+    const start = calls.length;
+    h.loader.refetchVisible({ only: 'famcal', renew: true }); // the save
+    assertSame(sent(start), ['famcal 2026-10-01..2026-11-01', 'famcal 2026-11-01..2026-12-01'], 'two go, September waits');
+    h.state.months = [NOV]; // a chevron to November before a slot frees
+    await answer('famcal 2026-10-01..2026-11-01');
+    await answer('famcal 2026-11-01..2026-12-01');
+    assertSame(sent(start + 2), [], 'September was dropped from the queue');
+    h.state.months = [SEP];
+    h.loader.ensure();
+    assertSame(sent(start + 2), ['famcal 2026-09-01..2026-10-01'], 'September, read before the save, is asked again');
+    await answer('famcal 2026-09-01..2026-10-01');
+    h.loader.ensure();
+    assertSame(sent(start + 3), [], 'once');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

@@ -23,7 +23,8 @@
 //   missing from a month seen before the save). ensure() asks an out-of-date window again as
 //   soon as it is wanted (a month coming near, the Agenda's weeks once the Agenda shows), anew
 //   and fresh as the refetch was, whatever the store holds for it; a month dropped from the
-//   queue before it went stays out of date. A return to the foreground marks nothing.
+//   queue before it went (the refetch's own, or a later re-ask) stays out of date. A return to
+//   the foreground marks nothing.
 // - patchReminder(): a reminder's new state after an action. An answer whose request
 //   started before the latest patch of a key leaves that key's reminder as patched (the
 //   store's `hold`); a request started after it is taken as it is.
@@ -285,7 +286,15 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       const wanted = wantedMonths().map(windowKey);
       const rank = (q: Queued) => wanted.indexOf(windowKey(q.ask.window));
       for (let i = queue.length - 1; i >= 0; i--) {
-        if (queue[i].epoch !== epoch || rank(queue[i]) < 0 || (inflight.has(queue[i].key) && !queue[i].ask.renew)) drop(i);
+        const q = queue[i];
+        if (q.epoch !== epoch || rank(q) < 0 || (inflight.has(q.key) && !q.ask.renew)) {
+          // A write's or Refresh's month dropped before it went, after an earlier answer: still out of date when it comes back.
+          const asked = `${q.epoch}|${q.ask.source}|${windowKey(q.ask.window)}`;
+          if (q.epoch === epoch && rank(q) < 0 && (q.ask.renew || q.ask.fresh) && issued.has(asked)) {
+            stale.set(asked, { fresh: q.ask.fresh === true || stale.get(asked)?.fresh === true });
+          }
+          drop(i);
+        }
       }
       if (queue.length === 0) return;
       let best = 0;

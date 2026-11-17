@@ -181,14 +181,18 @@ export function growSpan(span: MonthSpan, edge: 'before' | 'after'): MonthSpan {
  * end; else the span around it, so browse never holds decades of months it skipped.
  */
 export function spanToShow(span: MonthSpan, month: MonthKey): MonthSpan {
-  const at = monthIndex(month);
+  // A month past the reach is its end: the span never chases a month it can't hold.
+  const target = inReach(month);
+  const at = monthIndex(target);
   const first = monthIndex(span.first);
   const last = monthIndex(span.last);
   if (at === null || first === null || last === null) return span;
   if (at >= first && at <= last) return span;
-  if (at < first && first - at <= SPAN_GROW) return { first: inReach(addMonths(month, -MONTHS_BACK)), last: span.last };
-  if (at > last && at - last <= SPAN_GROW) return { first: span.first, last: inReach(addMonths(month, MONTHS_AHEAD)) };
-  return spanAround(month) ?? span;
+  let next: MonthSpan | null;
+  if (at < first && first - at <= SPAN_GROW) next = { first: inReach(addMonths(target, -MONTHS_BACK)), last: span.last };
+  else if (at > last && at - last <= SPAN_GROW) next = { first: span.first, last: inReach(addMonths(target, MONTHS_AHEAD)) };
+  else next = spanAround(target);
+  return next && (next.first !== span.first || next.last !== span.last) ? next : span;
 }
 
 /**

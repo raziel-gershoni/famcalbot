@@ -3647,12 +3647,13 @@ async function main() {
     }
   });
 
-  await check('#59b the jump to a date (owner 2026-11-17): the month\'s name in browse\'s bar opens the date sheet, which the BackButton closes; 10 September 2024, 13 months before the span, opens picked on it and asks its month; All months browses the span around it (2023-09 … 2026-03); Today, outside that span, brings browse back on October 2026 with the span grown to it', async () => {
+  await check('#59b the jump to a date (owner 2026-11-17): the month\'s name in browse\'s bar opens the date sheet, which the BackButton closes; 10 September 2024, 13 months before the span, opens picked on it and asks its month; All months browses the span around it (2023-09 … 2026-03), which midnight leaves as it is; Today, outside that span, brings browse back on October 2026 with the span grown to it', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
-    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    const clock = fakeClock('2026-10-15T20:57:00Z');
+    const m = await mountHome('en', {}, clock);
     const jumpButton = () => byClass(m.container, 'ch-mb-bar-text')[0];
     const sheet = () => byRole(m.container, 'dialog')[0] ?? null;
     const spanShown = () => byClass(m.container, 'ch-mb-month').map((e) => e.getAttribute('data-month'));
@@ -3679,6 +3680,14 @@ async function main() {
       const around = spanShown();
       assert(around[0] === '2023-09' && around.at(-1) === '2026-03' && around.length === 31, `the span around it: ${around[0]} … ${around.at(-1)} (${around.length})`);
       assert(barMonth(m) === 'September 2024', `browse opens on it: ${barMonth(m)}`);
+      // Midnight passes while browsing there: the store starts over on the 16th, and the span keeps its months.
+      answerFetch = (c) => answerFor(c, { today: day(1), items: WEEK });
+      await clock.advance(4 * 60_000);
+      await settle();
+      flushFrames();
+      await settle();
+      const night = spanShown();
+      assert(night[0] === '2023-09' && night.at(-1) === '2026-03' && barMonth(m) === 'September 2024', `after midnight: ${night[0]} … ${night.at(-1)}, ${barMonth(m)}`);
       await tap(m, byClass(m.container, 'ch-mb-today')[0]);
       const back = spanShown();
       assert(back[0] === '2023-09' && back.at(-1) === '2028-04', `grown to October 2026's +18: ${back[0]} … ${back.at(-1)}`);

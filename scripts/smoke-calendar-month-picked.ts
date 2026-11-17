@@ -6,7 +6,7 @@
 // dayStatus, canStep). It checks:
 //  - client-safe imports: no server module, no @hebcal/core, no date-fns-tz;
 //  - en, he and ru: the bar ("All months", the Today pill), the nav (the chevrons'
-//    labels, the title with its year and Hebrew months in aria-live="polite"), the
+//    labels, the title with its year and Hebrew months in aria-live="polite", the jump's button), the
 //    weekday row from the week start, the blanks, one button per day with browse's label
 //    (E1's parts), aria-pressed and aria-current, the Hebrew day at 11 px with the short
 //    month on Hebrew day 1 and the 1st, the day header and D's rows; RTL in Hebrew;
@@ -369,7 +369,8 @@ function chrome(html: string) {
   const chevrons = byClass('ch-mp-chev').map((b) => ({ label: attr(b[1], 'aria-label'), disabled: / disabled=""/.test(b[1]), flip: /<svg class="ch-flip"[^>]*aria-hidden="true"/.test(b[2]) }));
   const back = byClass('ch-mp-back').map((b) => ({ text: textOf(b[2]), flip: /<svg class="ch-flip"[^>]*aria-hidden="true"/.test(b[2]) }));
   const today = byClass('ch-mp-today').map((b) => textOf(b[2]));
-  const title = /<h2 class="ch-mp-title" aria-live="polite">([\s\S]*?)<\/h2>/.exec(body);
+  // The title is the jump's button (owner 2026-11-17); only its text is the live region, never the button's name.
+  const title = /<h2 class="ch-mp-title"><button type="button" class="ch-mp-jump" aria-haspopup="dialog" aria-label="[^"]*"><span class="ch-mp-live" aria-live="polite">([\s\S]*?)<\/span><\/button><\/h2>/.exec(body);
   const month = title ? /<span class="ch-mp-month">([^<]*)<\/span>/.exec(title[1])?.[1] ?? null : null;
   const range = title ? /<span class="ch-mp-range">([^<]*)<\/span>/.exec(title[1])?.[1] ?? null : null;
   const weekdays = /<div class="ch-mp-weekdays" aria-hidden="true">([\s\S]*?)<\/div>/.exec(body);

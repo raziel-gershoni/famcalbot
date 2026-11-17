@@ -458,7 +458,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     setHeld({ facts, unavailable: notices.unavailableCalendars });
     if (held === null || held.facts.today !== facts.today) {
       setMonthUi(monthUi === null || (monthFresh && activeTab !== 'month') ? initialMonthUi(savedLayout, facts.today) : clampMonthUi(monthUi, facts.today));
-      setSpan(span === null ? defaultSpan(facts.today) : spanToShow(span, monthOf(facts.today)));
+      // The span is set once; a later today keeps it (the months grown or jumped to stay), and Today moves it when asked.
+      if (span === null) setSpan(defaultSpan(facts.today));
     }
   }
   // The span always holds the Month's month: a jump, a chevron or Today past its ends moves it there.
@@ -1194,6 +1195,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     setJumping(false);
     if (monthUi !== null) changeUi(pickDay(monthUi, day));
   };
+  /** The jump's sheet shows only while the Month does (a block or a card hides it). */
+  const jumpShown = jumping && monthShown;
   const jumpValue: DayKey =
     monthUi === null ? '' : monthUi.layout === 'picked' && monthUi.selected !== null ? monthUi.selected : `${inView ?? monthUi.month}-01`;
 
@@ -1203,7 +1206,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null : pickedShown);
   const back = () => {
     if (dragging) dragCancel.current?.();
-    else if (jumping) setJumping(false);
+    else if (jumpShown) setJumping(false);
     else if (scopeAsk !== null) cancelScopeAsk();
     else if (deleting !== null) {
       if (!deleteBusy) setDeleting(null);
@@ -1212,14 +1215,14 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     else if (itemOpen) setSelected(null);
     else if (pickedShown && monthUi !== null) changeUi(backToBrowse(monthUi));
   };
-  const backActive = itemOpen || pickedShown || dragging || jumping || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null));
+  const backActive = itemOpen || pickedShown || dragging || jumpShown || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null));
   // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
   // included): there a drag down scrolls the months. The header and the tab bar stick
   // over browse at the same time. An open date or time sheet locks them too (editor
   // upgrades spec §1), and so does a lifted item (drag to move, spec §4): the finger is dragging it.
   const monthLayout = monthUi?.layout ?? (savedLayout === 'picked' ? 'picked' : 'browse');
   const browsing = activeTab === 'month' && monthLayout === 'browse';
-  useTelegramVerticalSwipes(browsing || pickerOpen || jumping || dragging);
+  useTelegramVerticalSwipes(browsing || pickerOpen || jumpShown || dragging);
 
   // The Month's chunk, once the first answer is in and the tab bar shows, so the first
   // tap on Month rarely waits for it. A failed fetch is tried again by that tap.
@@ -1272,7 +1275,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         onNeedMonths={needMonths}
         onBrowseToday={browseToday}
         onJump={() => setJumping(true)}
-        jump={jumping ? { value: jumpValue, onPick: jumpTo, onClose: () => setJumping(false) } : null}
+        jump={jumpShown ? { value: jumpValue, onPick: jumpTo, onClose: () => setJumping(false) } : null}
         drag={dragProps}
       />
     ) : (

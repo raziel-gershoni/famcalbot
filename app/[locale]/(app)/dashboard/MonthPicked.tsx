@@ -8,9 +8,10 @@
 // sheet. From top to bottom:
 // - the bar: "All months" (back to browse) and, while a day other than today is
 //   selected, the Today pill;
-// - the nav: the previous and next chevrons, disabled at the window's ends, around the
+// - the nav: the previous and next chevrons, disabled at the reach's ends, around the
 //   month's title with its year and, when on, its Hebrew months, read out when it
-//   changes (aria-live="polite");
+//   changes (aria-live="polite" on the title's text only). The title is the jump to a
+//   date's button (owner 2026-11-17), named "<month>, go to a date";
 // - the month's notices as rows (failed, busy, calendars gone, partial), with Retry or
 //   Choose again. Never a reconnect: the Reconnect banner says it;
 // - the weekday row from the week start, then the compact grid: one 48 px button per
@@ -369,7 +370,7 @@ export function MonthPicked({
             onPrev();
           }}
         />
-        <h2 className="ch-mp-title" aria-live="polite">
+        <h2 className="ch-mp-title">
           <button
             type="button"
             className="ch-mp-jump"
@@ -377,13 +378,15 @@ export function MonthPicked({
             aria-haspopup="dialog"
             aria-label={t('month.jumpLabel', { month: formatMonthTitle(model.month, locale, true) })}
           >
-            <span className="ch-mp-month-line">
-              <span className="ch-mp-month">{formatMonthTitle(model.month, locale, true)}</span>
-              <svg className="ch-mp-jump-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+            <span className="ch-mp-live" aria-live="polite">
+              <span className="ch-mp-month-line">
+                <span className="ch-mp-month">{formatMonthTitle(model.month, locale, true)}</span>
+                <svg className="ch-mp-jump-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </span>
+              {range ? <span className="ch-mp-range">{range}</span> : null}
             </span>
-            {range ? <span className="ch-mp-range">{range}</span> : null}
           </button>
         </h2>
         <NavButton
@@ -602,6 +605,9 @@ export const MONTH_PICKED_CSS = `
 .ch-mp-jump:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: 2px;
+}
+.ch-mp-live {
+  display: block;
 }
 .ch-mp-month-line {
   display: flex;

@@ -249,6 +249,12 @@ async function main() {
     assertEqual(spanToShow(s, '2018-06'), { first: '2017-06', last: '2019-12' }, 'June 2018: the span around it');
     assertEqual(spanToShow(s, '1900-03'), { first: '1900-01', last: '1901-09' }, 'March 1900: around it, inside the reach');
     assert(spanToShow(s, 'bad') === s, 'a bad month: the same span');
+    // A month past the reach is its end, and asking again gives the very same span (no render loop).
+    const low = spanToShow({ first: '1900-06', last: '1902-01' }, '1899-05');
+    assertEqual(low, { first: '1900-01', last: '1902-01' }, 'before 1900: grown to January 1900');
+    assert(spanToShow(low, '1899-05') === low, 'asked again: the same object');
+    const high = { first: '2099-01', last: '2100-12' };
+    assert(spanToShow(high, '2101-03') === high, 'after 2100 with December 2100 in: the same object');
   });
 
   await check("weekdayOrder starts at the week start and matches every grid row's weekdays", () => {
