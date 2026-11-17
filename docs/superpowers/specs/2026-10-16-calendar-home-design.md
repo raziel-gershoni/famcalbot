@@ -619,6 +619,7 @@ export function compareItems(a: ItemDTO, b: ItemDTO): number;   // all-day first
 - Refetch the visible windows on every return to the foreground (`visibilitychange`, Telegram `activated`). That's cheap: FamCal is one query, and a Google cache hit is one `MGET`.
 - A response with `google.stale` triggers one re-request of that window after about 3 s. If that one is stale too, the window waits for the next return to the foreground or ⋯ → Refresh.
 - ⋯ → Refresh sends `fresh=1` on every visible window.
+- After a write (a save, a move, a delete, a reminder action) or ⋯ → Refresh, every window already loaded that the refetch did not ask again is out of date, and is asked again (fresh, as Refresh was) as soon as it is wanted: a month coming near, the Agenda's weeks once the Agenda shows (owner 2026-11-17; a new event was missing from a month seen before the save). A return to the foreground marks nothing.
 - No pull-to-refresh: in Telegram that gesture minimizes the app.
 
 **Empty means answered.** "Nothing planned", the fold lines and free-looking Month cells appear for a day only once every applicable source has answered `ok` for it (partial included), now or in an earlier response still in the store. An `error` or `reconnect` answer does not count.
@@ -783,7 +784,7 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 
 **Browse** (default):
 - **Months:** stacked vertically, each with an `h2` title and, when on, the Hebrew months it touches (§7.8). Month titles get `scroll-margin-top` equal to the sticky bar's height.
-- **Sticky bar:** shows the month in view, plus a Today button when today's month is off screen, with the weekday row under it.
+- **Sticky bar:** shows the month in view, plus a Today button when today's month is off screen, with the weekday row under it. The month's name is a button: the jump to a date (below).
   - Its top is `var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)`.
 - **Cells:** about 92 px tall; the grid is full-bleed within the gutter (about 54 px wide). Each cell shows:
   - the Gregorian day;
@@ -794,7 +795,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
   - Multi-day items are bars across days, placed first; the title shows on the first day and at each week-row start.
   - Whose an item is (§7.3) decides filled or outlined.
   - Daily-repeating reminders are not drawn (Ruling R11).
-- **Window:** 12 months back to 18 months ahead, rendered with known heights.
+- **Span** (owner 2026-11-17, "infinite scroll"; was a fixed window of 12 months back to 18 ahead): it opens on today's month −12 … +18, rendered with known heights, and grows 12 months at an end once the month in view comes within 6 months of it: at once at the bottom, and at the top only after scrolling stops (about 150 ms with no scroll event; on iOS a scroll set during a fling stops the fling), with the month in view kept in place. Everything stays inside the reach, January 1900 … December 2100 (`MONTH_REACH`, the years an item may start in; the range route refuses windows outside it). A month far outside the span (a jump, Today after one) moves the span to it rather than filling decades. A new visit opens on today's month again.
+  - **Jump to a date:** the month's name in the sticky bar and in picked's header opens the editor's date sheet (Gregorian | Hebrew while Hebrew dates are on, month and year wheels, Today). Picking a day opens picked on it.
   - It opens scrolled to today's month, with half a week row of the previous month showing.
   - Opening partway down also keeps `scrollY > 0`, which avoids Telegram's swipe-to-minimize on clients without `disableVerticalSwipes`.
 - **Fetching:** per month (Ruling R12), as months come near the viewport.
@@ -802,7 +804,7 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 **Tap a day → picked:**
 - **Compact month:** only that month stays, with 46–48 px cells showing dots (filled or ring) and "+N". The grid's height follows its row count, so the list starts above the fold.
 - **Bar:** "All months" (a back chevron) and a Today pill.
-- **Nav:** previous/next chevrons, disabled at the window's ends. Changing month selects the 1st, or today in today's month.
+- **Nav:** previous/next chevrons, disabled only at the reach's ends (January 1900, December 2100). Changing month selects the 1st, or today in today's month. The month's name opens the jump to a date.
 - **Below:** the day header ("Today · …" when it is today) and that day's rows, the same rows as the Agenda. "Nothing planned" shows when the day is empty and answered.
   - The list ends with `padding-bottom: var(--tg-safe-area-inset-bottom, 0px)`.
 - **Back:** "All months", Telegram's BackButton and Android's back gesture all return to browse, scrolled to the month picked was showing.

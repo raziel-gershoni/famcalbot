@@ -3647,6 +3647,47 @@ async function main() {
     }
   });
 
+  await check('#59b the jump to a date (owner 2026-11-17): the month\'s name in browse\'s bar opens the date sheet, which the BackButton closes; 10 September 2024, 13 months before the span, opens picked on it and asks its month; All months browses the span around it (2023-09 … 2026-03); Today, outside that span, brings browse back on October 2026 with the span grown to it', async () => {
+    resetHome();
+    const tg = fakeTelegramHome();
+    fakeWindow.Telegram = { WebApp: tg.webApp };
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    const jumpButton = () => byClass(m.container, 'ch-mb-bar-text')[0];
+    const sheet = () => byRole(m.container, 'dialog')[0] ?? null;
+    const spanShown = () => byClass(m.container, 'ch-mb-month').map((e) => e.getAttribute('data-month'));
+    try {
+      await openMonth(m);
+      assert(jumpButton().getAttribute('aria-label') === 'October 2026, go to a date', `the bar's button: ${jumpButton().getAttribute('aria-label')}`);
+      tg.calls.length = 0;
+      await tap(m, jumpButton());
+      assert(sheet()?.getAttribute('aria-label') === 'Go to a date', 'the date sheet opens');
+      assert(backCalls(tg.calls).includes('BackButton.show()'), `the BackButton shows over browse: ${show(backCalls(tg.calls))}`);
+      React.act(() => tg.fire('backButtonClicked'));
+      await settle();
+      assert(sheet() === null && browseShown(m), 'the BackButton closed the sheet; browse stays');
+      await tap(m, jumpButton());
+      const prev = () => elements(sheet() as FakeNode).find((e) => e.getAttribute('aria-label') === messages.en.calendarHome.picker.prevMonth) as FakeElement;
+      for (let i = 0; i < 25; i++) m.click(prev());
+      await settle();
+      const asked = ranges().length;
+      await tap(m, byData(sheet() as FakeNode, 'day', '2024-09-10'));
+      assert(sheet() === null && pickedShown(m), 'picked, the sheet closed');
+      assertHas(m.text(), ['September 2024', 'Tuesday, 10 September'], 'the picked day');
+      assert(ranges().slice(asked).includes(monthAsk('2024-09')), `September 2024 asked: ${show(ranges().slice(asked))}`);
+      await tap(m, button(m.container, 'All months'));
+      const around = spanShown();
+      assert(around[0] === '2023-09' && around.at(-1) === '2026-03' && around.length === 31, `the span around it: ${around[0]} … ${around.at(-1)} (${around.length})`);
+      assert(barMonth(m) === 'September 2024', `browse opens on it: ${barMonth(m)}`);
+      await tap(m, byClass(m.container, 'ch-mb-today')[0]);
+      const back = spanShown();
+      assert(back[0] === '2023-09' && back.at(-1) === '2028-04', `grown to October 2026's +18: ${back[0]} … ${back.at(-1)}`);
+      assert(barMonth(m) === 'October 2026', `Today: browse on October 2026: ${barMonth(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#60 React logged no warning in #43-#59 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeMonth, `warnings: ${show(reactWarnings.slice(warnedBeforeMonth, warnedBeforeMonth + 5))}`);
   });

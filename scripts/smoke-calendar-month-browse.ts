@@ -37,7 +37,7 @@
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-calendar-month-browse.ts
 
 // The view first: the import-rule check walks what it loads.
-import { MonthBrowse, MONTH_BROWSE_CSS, type MonthBrowseProps } from '../app/[locale]/(app)/dashboard/MonthBrowse';
+import { MonthBrowse, MONTH_BROWSE_CSS, SCROLL_IDLE_MS, type MonthBrowseProps } from '../app/[locale]/(app)/dashboard/MonthBrowse';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
 import path from 'path';
@@ -47,7 +47,7 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { BROWSE_CELL_PX, monthBarPx, monthBlockPx, monthModels, monthTitlePx } from '../src/lib/calendar-view/month';
-import { monthGrid, monthSpan, type MonthKey } from '../src/lib/calendar-view/grid';
+import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
 import { daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type SourceName, type WeekStart } from '../src/lib/calendar-view/types';
 
@@ -316,10 +316,11 @@ function titleOf(html: string, month: MonthKey) {
   return { month: decode(m[1]), hebrew: m[2] === undefined ? null : decode(m[2]) };
 }
 
+/** The sticky bar: its month and Hebrew months (the jump button, owner 2026-11-17, with its label), the Today button and the weekday row. */
 function barOf(html: string) {
-  const m = /<div class="ch-mb-bar"><div class="ch-mb-bar-row"><p class="ch-mb-bar-text" aria-hidden="true"><span class="ch-mb-bar-month">([^<]*)<\/span>(?:<span class="ch-mb-bar-hebrew">([^<]*)<\/span>)?<\/p>(<button type="button" class="ch-mb-today">([^<]*)<\/button>)?<\/div><div class="ch-mb-weekdays" aria-hidden="true">((?:<span class="ch-mb-weekday">[^<]*<\/span>)*)<\/div><\/div>/.exec(html);
+  const m = /<div class="ch-mb-bar"><div class="ch-mb-bar-row"><button type="button" class="ch-mb-bar-text" aria-haspopup="dialog" aria-label="([^"]*)"><span class="ch-mb-bar-line"><span class="ch-mb-bar-month">([^<]*)<\/span><svg class="ch-mb-bar-chev"[^>]*>(?:(?!<\/svg>)[\s\S])*<\/svg><\/span>(?:<span class="ch-mb-bar-hebrew">([^<]*)<\/span>)?<\/button>(<button type="button" class="ch-mb-today">([^<]*)<\/button>)?<\/div><div class="ch-mb-weekdays" aria-hidden="true">((?:<span class="ch-mb-weekday">[^<]*<\/span>)*)<\/div><\/div>/.exec(html);
   assert(m, `no sticky bar in ${show(markup(html).slice(0, 600))}`);
-  return { month: m[1], hebrew: m[2] ?? null, today: m[4] ?? null, weekdays: [...m[5].matchAll(/<span class="ch-mb-weekday">([^<]*)<\/span>/g)].map((w) => w[1]) };
+  return { jump: decode(m[1]), month: m[2], hebrew: m[3] ?? null, today: m[5] ?? null, weekdays: [...m[6].matchAll(/<span class="ch-mb-weekday">([^<]*)<\/span>/g)].map((w) => w[1]) };
 }
 
 /** Each month's block-size in the markup, and its body's. */
@@ -801,6 +802,7 @@ async function main() {
     assert(/<section class="ch-mb" dir="ltr" style="--ch-mb-bar:76px;--ch-mb-title:58px;--ch-mb-cell:92px">/.test(html), 'the root: dir="ltr" and the heights');
     const bar = barOf(html);
     assert(show([bar.month, bar.hebrew, bar.today]) === show(['October 2026', 'Tishrei – Cheshvan 5787', null]), `bar: ${show(bar)}`);
+    assert(bar.jump === 'October 2026, go to a date', `the month's name is the jump to a date: ${bar.jump}`);
     const titles = (['2025-10', '2026-09', '2026-10', '2026-11', '2027-01', '2028-04'] as const).map((m) => titleOf(html, m));
     assert(
       show(titles) ===
@@ -891,6 +893,7 @@ async function main() {
     assert(/<section class="ch-mb" dir="rtl"/.test(html), 'the root is dir="rtl"');
     const bar = barOf(html);
     assert(show([bar.month, bar.hebrew]) === show(['אוקטובר 2026', 'תשרי – חשון תשפ״ז']), `bar: ${show(bar)}`);
+    assert(bar.jump === 'אוקטובר 2026, מעבר לתאריך', `the jump's label: ${bar.jump}`);
     const titles = (['2026-09', '2026-10', '2027-01'] as const).map((m) => titleOf(html, m));
     assert(
       show(titles) === show([{ month: 'ספטמבר', hebrew: 'אלול תשפ״ו – תשרי תשפ״ז' }, { month: 'אוקטובר', hebrew: 'תשרי – חשון תשפ״ז' }, { month: 'ינואר 2027', hebrew: 'טבת – שבט תשפ״ז' }]),
@@ -914,6 +917,7 @@ async function main() {
     const html = renderBrowse('ru', browseProps(famcalStore()));
     const bar = barOf(html);
     assert(show([bar.month, bar.hebrew]) === show(['Октябрь 2026', 'Тишрей – Хешван 5787']), `bar: ${show(bar)}`);
+    assert(bar.jump === 'Октябрь 2026, перейти к дате', `the jump's label: ${bar.jump}`);
     const titles = (['2026-09', '2026-10', '2027-01'] as const).map((m) => titleOf(html, m));
     assert(
       show(titles) === show([{ month: 'Сентябрь', hebrew: 'Элул 5786 – Тишрей 5787' }, { month: 'Октябрь', hebrew: 'Тишрей – Хешван 5787' }, { month: 'Январь 2027', hebrew: 'Тевет – Шват 5787' }]),
@@ -1474,6 +1478,80 @@ async function main() {
     const tags = he.match(/<span class="ch-mb-chip[^>]*>/g) ?? [];
     assert(tags.length > 10 && tags.every((tag) => !/ dir=/.test(tag)), `a chip with its own direction: ${show(tags.find((tag) => / dir=/.test(tag)))}`);
     assert(/<span class="ch-mb-chip is-bar[^"]*is-after[^"]*"[^>]*><bdi>/.test(he) && /<span class="ch-mb-chip is-bar[^"]*is-before[^"]*"[^>]*><\/span>/.test(he), 'a titled segment isolates its title in <bdi>; an untitled one is empty');
+  });
+
+  await check('#26b the span grows (owner 2026-11-17, "infinite scroll"): within 6 months of its last month onNeedMonths("after") at once, once per span; within 6 of its first, onNeedMonths("before") only once no scroll event has come for SCROLL_IDLE_MS (an iOS fling is never cut); 12 months added above keep the month in view where it was', async () => {
+    resetPage();
+    const need: string[] = [];
+    const base = browseProps(famcalStore(), { start: { month: '2026-10', peek: false }, onNeedMonths: (edge) => void need.push(edge) });
+    const m = mount(browseIn('en', base));
+    // Real time passes inside act, as React's own updates would in the page.
+    const wait = (ms: number) => React.act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    const idle = () => wait(SCROLL_IDLE_MS + 40);
+    try {
+      flushFrames();
+      await idle();
+      assert(show(need) === show([]), `nothing near an end at the opening: ${show(need)}`);
+      scrollPageTo(titleUnderBar(m, '2027-10'));
+      flushFrames();
+      assert(show(need) === show([]), `October 2027 is 6 months from April 2028: ${show(need)}`);
+      scrollPageTo(titleUnderBar(m, '2027-11'));
+      flushFrames();
+      assert(show(need) === show(['after']), `November 2027, 5 from the end: at once: ${show(need)}`);
+      scrollPageTo(titleUnderBar(m, '2028-02'));
+      flushFrames();
+      assert(show(need) === show(['after']), `once per span: ${show(need)}`);
+      // Scrolling up to March 2026 (5 months from October 2025), still moving: nothing yet.
+      for (const month of ['2026-06', '2026-04', '2026-03'] as const) {
+        scrollPageTo(titleUnderBar(m, month));
+        flushFrames();
+        await wait(SCROLL_IDLE_MS / 3);
+      }
+      assert(show(need) === show(['after']), `while scrolling, nothing above: ${show(need)}`);
+      await idle();
+      assert(show(need) === show(['after', 'before']), `stopped: before: ${show(need)}`);
+      scrollPageTo(fakeWindow.scrollY + 40);
+      flushFrames();
+      await idle();
+      assert(show(need) === show(['after', 'before']), `once per span: ${show(need)}`);
+      // The container adds 12 months above: March 2026 stays where it was under the bar.
+      const under = bandTop(m) - topOf(m, '2026-03');
+      scrollCalls.length = 0;
+      m.render(browseIn('en', { ...base, months: spanMonths({ first: '2024-10', last: '2029-04' }) }));
+      assert(scrollCalls.length === 1 && scrollCalls[0].behavior === 'instant', `one instant scroll: ${show(scrollCalls)}`);
+      assert(bandTop(m) - topOf(m, '2026-03') === under, `March 2026 still ${under} px under the bar: ${bandTop(m) - topOf(m, '2026-03')}`);
+      flushFrames();
+      await idle();
+      assert(show(need) === show(['after', 'before']), `the grown span is not near an end: ${show(need)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#26c far from today (a span around June 2018 after a jump): the Today button shows and calls onToday without scrolling; the bar\'s month name calls onJump', () => {
+    resetPage();
+    let today = 0;
+    let jumps = 0;
+    const props = browseProps(famcalStore(), {
+      months: spanMonths({ first: '2017-06', last: '2019-12' }),
+      start: { month: '2018-06', peek: false },
+      onToday: () => void today++,
+      onJump: () => void jumps++,
+    });
+    const m = mount(browseIn('en', props));
+    try {
+      flushFrames();
+      assert(barText(m) === 'June 2018', `the bar: ${barText(m)}`);
+      const button = todayButton(m);
+      assert(button, 'the Today button shows: today\'s month is not in the span');
+      scrollCalls.length = 0;
+      m.click(button);
+      assert(today === 1 && scrollCalls.length === 0, `onToday, no scroll: ${today} ${show(scrollCalls)}`);
+      m.click(byClass(m.container, 'ch-mb-bar-text')[0]);
+      assert(jumps === 1, `onJump: ${jumps}`);
+    } finally {
+      m.unmount();
+    }
   });
 
   await check('#27 React logged no warning', () => {

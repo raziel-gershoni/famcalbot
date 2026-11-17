@@ -37,6 +37,14 @@
 //   has no scroll anchoring), the month in view stays where it was on screen.
 // - MonthBrowse reads the layout when it mounts, so the container mounts it only while
 //   it is displayed.
+// - The months are the container's span (grid.ts; owner 2026-11-17, "infinite scroll"). When
+//   the month in view comes within SPAN_EDGE months of its last month, onNeedMonths('after')
+//   asks for more at once; near its first month, onNeedMonths('before') waits until no scroll
+//   event has come for SCROLL_IDLE_MS (on iOS a scroll set during a fling stops the fling). Each
+//   end is asked once per span. Months added above keep the month in view where it was (the
+//   layout effect below). Today with today's month outside the span (after a far jump) calls
+//   onToday: the container moves the span there and mounts browse again on it.
+// - The bar's month name is a button: the jump to a date (onJump).
 // - No ancestor of the sticky bar clips with overflow: hidden (the root clips with
 //   overflow-x: clip); logical properties only; nothing under 11 px; taps at least
 //   44 px; no hover styles.
@@ -44,7 +52,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { formatDayLong, formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
-import { monthGrid, monthOf, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
+import { monthGrid, monthOf, nearSpanEdge, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, hebrewMonthHeader, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
 import { holidayTitles, isPortion, retryFailedHolidays, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import {
@@ -88,6 +96,12 @@ export interface MonthBrowseProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again" on a calendars-gone pill: the existing select-calendars page. */
   onChooseCalendars: () => void;
+  /** The month in view came near an end of `months` the span can still grow at ('before' once scrolling has stopped). */
+  onNeedMonths?: (edge: 'before' | 'after') => void;
+  /** Today while today's month isn't in `months` (after a far jump): the container moves the span to it. */
+  onToday?: () => void;
+  /** A tap on the bar's month name: the jump to a date. */
+  onJump?: () => void;
 }
 
 /**
@@ -98,6 +112,8 @@ export interface MonthBrowseProps {
 const PEEK_PX = BROWSE_CELL_PX / 2;
 /** About one viewport above and below the screen: the months that count as near (Ruling 7). */
 const NEAR_MARGIN = '100% 0px';
+/** How long the page must go without a scroll event before months are added above. */
+export const SCROLL_IDLE_MS = 150;
 const NARROW_QUERY = `(max-width: ${NARROW_MAX_PX}px)`;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -449,6 +465,10 @@ export function MonthBrowse(props: MonthBrowseProps) {
   const reported = useRef<{ inView: MonthKey | null; near: string | null }>({ inView: null, near: null });
   /** Whether an IntersectionObserver reports the near months (else the scroll measure does). */
   const observing = useRef(false);
+  /** The span's end each edge was last asked to grow at (once per end), and whether the month in view is near the first. */
+  const grown = useRef<{ before: MonthKey | null; after: MonthKey | null }>({ before: null, after: null });
+  const nearFirst = useRef(false);
+  const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelFrame = useRef<(() => void) | null>(null);
   // The latest props and offsets, for the listeners and callbacks (synced before any other effect reads them).
   const live = useRef({ props, offsets });
@@ -485,9 +505,28 @@ export function MonthBrowse(props: MonthBrowseProps) {
     }
     const at = p.months.indexOf(monthOf(p.today));
     const end = at >= 0 ? tops[at] + blockPx(p.months[at], p.weekStart, p.hebrewDates) : 0;
-    setShowToday(at >= 0 && !(tops[at] < bottom && end > top));
+    setShowToday(at < 0 || !(tops[at] < bottom && end > top));
     if (!observing.current) reportNear(around(p.months, first));
+    const span = { first: p.months[0], last: p.months[p.months.length - 1] };
+    if (nearSpanEdge(span, month, 'after') && grown.current.after !== span.last) {
+      grown.current.after = span.last;
+      p.onNeedMonths?.('after');
+    }
+    nearFirst.current = nearSpanEdge(span, month, 'before');
   }, [reportNear]);
+
+  /** The page has stopped scrolling: months above, when the month in view is near the first. */
+  const settle = useCallback(() => {
+    idle.current = null;
+    const p = live.current.props;
+    if (!nearFirst.current || p.months.length === 0 || grown.current.before === p.months[0]) return;
+    grown.current.before = p.months[0];
+    p.onNeedMonths?.('before');
+  }, []);
+  const restartIdle = useCallback(() => {
+    if (idle.current !== null) clearTimeout(idle.current);
+    idle.current = setTimeout(settle, SCROLL_IDLE_MS);
+  }, [settle]);
 
   /** One measure per frame, however many scroll events come. */
   const requestMeasure = useCallback(() => {
@@ -535,19 +574,27 @@ export function MonthBrowse(props: MonthBrowseProps) {
     requestMeasure();
   });
 
-  // The scroll listener: passive, one measure a frame. The first measure follows the opening scroll.
+  // The scroll listener: passive, one measure a frame, and the idle timer for months above.
+  // The first measure follows the opening scroll.
   useEffect(() => {
     const options: AddEventListenerOptions = { passive: true };
-    window.addEventListener('scroll', requestMeasure, options);
+    const onScroll = () => {
+      requestMeasure();
+      restartIdle();
+    };
+    window.addEventListener('scroll', onScroll, options);
     window.addEventListener('resize', requestMeasure, options);
     requestMeasure();
+    restartIdle();
     return () => {
-      window.removeEventListener('scroll', requestMeasure, options);
+      window.removeEventListener('scroll', onScroll, options);
       window.removeEventListener('resize', requestMeasure, options);
       cancelFrame.current?.();
       cancelFrame.current = null;
+      if (idle.current !== null) clearTimeout(idle.current);
+      idle.current = null;
     };
-  }, [requestMeasure]);
+  }, [requestMeasure, restartIdle]);
 
   // The near months: one observer on every month, about a viewport beyond the screen,
   // its reports gathered into one call a frame.
@@ -589,7 +636,9 @@ export function MonthBrowse(props: MonthBrowseProps) {
     const p = live.current.props;
     const title = titles.current.get(monthOf(p.today));
     if (title) scrollPage(titleScrollTop(title, monthBarPx(p.hebrewDates), 0), reducedMotion() ? 'instant' : 'smooth');
+    else p.onToday?.();
   }, []);
+  const jump = useCallback(() => live.current.props.onJump?.(), []);
   const pickDay = useCallback((day: DayKey) => live.current.props.onPickDay(day), []);
   const retryMonth = useCallback((month: MonthKey, source: SourceName) => live.current.props.onRetryMonth(month, source), []);
   const chooseCalendars = useCallback(() => live.current.props.onChooseCalendars(), []);
@@ -607,10 +656,21 @@ export function MonthBrowse(props: MonthBrowseProps) {
       <style>{MONTH_BROWSE_CSS}</style>
       <div className="ch-mb-bar" ref={barRef}>
         <div className="ch-mb-bar-row">
-          <p className="ch-mb-bar-text" aria-hidden="true">
-            <span className="ch-mb-bar-month">{formatMonthTitle(inView, locale, true)}</span>
+          <button
+            type="button"
+            className="ch-mb-bar-text"
+            onClick={jump}
+            aria-haspopup="dialog"
+            aria-label={t('month.jumpLabel', { month: formatMonthTitle(inView, locale, true) })}
+          >
+            <span className="ch-mb-bar-line">
+              <span className="ch-mb-bar-month">{formatMonthTitle(inView, locale, true)}</span>
+              <svg className="ch-mb-bar-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
             {hebrewDates ? <span className="ch-mb-bar-hebrew">{hebrewMonthHeader(inView, locale)}</span> : null}
-          </p>
+          </button>
           {showToday ? (
             <button type="button" className="ch-mb-today" onClick={goToday}>
               {t('month.today')}
@@ -711,8 +771,33 @@ export const MONTH_BROWSE_CSS = `
 .ch-mb-bar-text {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   min-width: 0;
+  min-height: 44px;
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-mb-bar-text:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.ch-mb-bar-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.ch-mb-bar-chev {
+  flex: none;
+  color: var(--ch-muted);
 }
 .ch-mb-bar-month {
   font-size: 17px;

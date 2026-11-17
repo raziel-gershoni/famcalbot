@@ -484,6 +484,9 @@ const KEYS: Record<string, readonly string[]> = {
   'month.cellLoading': [],
   'month.cellFailed': [],
   'month.failed': [],
+  // The jump to a date (owner 2026-11-17): the month name's button and the sheet's name
+  'month.jumpLabel': ['month'],
+  'month.jumpSheet': [],
 };
 /** Keys whose value is an array (read with t.raw). */
 const ARRAY_KEYS = ['hebrewMonthGenitive', 'hebrewMonthShort'];
@@ -491,6 +494,7 @@ const ARRAY_KEYS = ['hebrewMonthGenitive', 'hebrewMonthShort'];
 /** A sample value per argument. count and weekday also run over several values. */
 const SAMPLES: Record<string, string | number> = {
   name: 'Noa',
+  month: 'June 2018',
   calendar: 'Family',
   when: '02:00',
   time: '13:45',

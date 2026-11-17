@@ -69,7 +69,7 @@ export interface MonthPickedProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
-  /** canStep(ui, -1, today) and canStep(ui, 1, today): false at the window's ends. */
+  /** canStep(ui, -1, today) and canStep(ui, 1, today): false at the reach's ends (January 1900, December 2100). */
   canPrev: boolean;
   canNext: boolean;
   /** The selected day's rows (dayRows: the Agenda's, daily reminders included) and its status (dayStatus). */
@@ -89,6 +89,8 @@ export interface MonthPickedProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again" (calendars gone): the existing select-calendars page. */
   onChooseCalendars: () => void;
+  /** A tap on the month's name: the jump to a date (owner 2026-11-17). */
+  onJump?: () => void;
 }
 
 /** A row of the picked day's list, lifted from that day (drag to move; the Agenda's rows never are, so the library stays in the Month's chunk). */
@@ -298,6 +300,7 @@ export function MonthPicked({
   onOpenItem,
   onRetryMonth,
   onChooseCalendars,
+  onJump,
 }: MonthPickedProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
@@ -367,8 +370,21 @@ export function MonthPicked({
           }}
         />
         <h2 className="ch-mp-title" aria-live="polite">
-          <span className="ch-mp-month">{formatMonthTitle(model.month, locale, true)}</span>
-          {range ? <span className="ch-mp-range">{range}</span> : null}
+          <button
+            type="button"
+            className="ch-mp-jump"
+            onClick={onJump}
+            aria-haspopup="dialog"
+            aria-label={t('month.jumpLabel', { month: formatMonthTitle(model.month, locale, true) })}
+          >
+            <span className="ch-mp-month-line">
+              <span className="ch-mp-month">{formatMonthTitle(model.month, locale, true)}</span>
+              <svg className="ch-mp-jump-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+            {range ? <span className="ch-mp-range">{range}</span> : null}
+          </button>
         </h2>
         <NavButton
           side="next"
@@ -568,8 +584,38 @@ export const MONTH_PICKED_CSS = `
   font-weight: 400;
   text-align: center;
 }
+.ch-mp-jump {
+  display: block;
+  inline-size: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-mp-jump:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: 2px;
+}
+.ch-mp-month-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.ch-mp-jump-chev {
+  flex: none;
+  color: var(--ch-muted);
+}
 .ch-mp-month {
   display: block;
+  min-width: 0;
   font-size: 17px;
   font-weight: 600;
   line-height: 22px;

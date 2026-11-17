@@ -23,14 +23,20 @@
 // - Until a month has a model (a store drop at midnight, or a model drawn under another
 //   week start), picked draws it as loading, so a day never looks free before it is
 //   answered (§5); browse does the same for each of its months.
+// - The months browse holds are the container's span (owner 2026-11-17, "infinite scroll"):
+//   browse asks for more at its ends (onNeedMonths), and its Today, with today's month outside
+//   the span, asks the container to move there (onBrowseToday; browseKey mounts browse again).
+//   The month's name in browse's bar and picked's header opens the jump to a date (onJump).
 
 import { useTranslations } from 'next-intl';
+import { MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
 import { sameItemRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthGrid, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, type MonthModel, type MonthUi } from '@/src/lib/calendar-view/month';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
+import { DatePickerSheet } from './DatePickerSheet';
 import { DragLayer, type DragLayerProps } from './DragSurface';
 import { ItemSheet, type SheetActions } from './ItemSheet';
 import { MonthBrowse } from './MonthBrowse';
@@ -45,8 +51,10 @@ export interface MonthViewProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
-  /** The window, oldest first: monthSpan(today), memoized. */
+  /** The span's months, oldest first (grid.ts spanMonths), memoized. */
   months: readonly MonthKey[];
+  /** Changes when browse must mount again on `start` (Today after a far jump). */
+  browseKey?: number;
   /** monthModels(store): a month's model, or null (it then draws as loading). */
   getMonth: (month: MonthKey) => MonthModel | null;
   /** Where the Month is: the layout, its month and, in picked, the selected day. */
@@ -72,6 +80,14 @@ export interface MonthViewProps {
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again": the existing select-calendars page. */
   onChooseCalendars: () => void;
+  /** Browse's month in view came near an end of the span it can still grow at. */
+  onNeedMonths?: (edge: 'before' | 'after') => void;
+  /** Browse's Today with today's month outside the span. */
+  onBrowseToday?: () => void;
+  /** A tap on the month's name (browse's bar, picked's header): the jump to a date. */
+  onJump?: () => void;
+  /** The jump's sheet while it is open: the day it opens on, the day picked, and its close. The container holds it (its BackButton closes it). */
+  jump?: { value: DayKey; onPick: (day: DayKey) => void; onClose: () => void } | null;
   /** Drag to move; absent: nothing lifts. */
   drag?: MonthDrag;
 }
@@ -117,11 +133,41 @@ function UnavailableRow({ count, withStyles, onChooseCalendars }: { count: numbe
 }
 
 export function MonthView(props: MonthViewProps) {
-  const { drag, ...rest } = props;
-  const view = <MonthLayouts {...rest} previewMonth={drag?.previewMonth ?? null} />;
+  const { drag, jump, ...rest } = props;
+  const layouts = <MonthLayouts {...rest} previewMonth={drag?.previewMonth ?? null} />;
+  const view = jump ? (
+    <>
+      {layouts}
+      <JumpSheet {...jump} today={props.today} weekStart={props.weekStart} hebrewDates={props.hebrewDates} />
+    </>
+  ) : (
+    layouts
+  );
   if (!drag) return view;
   const { previewMonth: _previewMonth, ...layer } = drag;
   return <DragLayer {...layer}>{view}</DragLayer>;
+}
+
+/**
+ * The jump to a date (owner 2026-11-17): the editor's date sheet over the reach's years (1900 …
+ * 2100), opening in Gregorian on the picked day or the month in view, with the Gregorian | Hebrew
+ * switch while the home shows Hebrew dates.
+ */
+function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: NonNullable<MonthViewProps['jump']> & Pick<MonthViewProps, 'today' | 'weekStart' | 'hebrewDates'>) {
+  const t = useTranslations('calendarHome');
+  return (
+    <DatePickerSheet
+      label={t('month.jumpSheet')}
+      value={value}
+      today={today}
+      weekStart={weekStart}
+      hebrewDates={hebrewDates}
+      mode="gregorian"
+      minYear={MIN_YEAR_BIRTH}
+      onPick={onPick}
+      onClose={onClose}
+    />
+  );
 }
 
 function MonthLayouts({
@@ -130,6 +176,7 @@ function MonthLayouts({
   weekStart,
   hebrewDates,
   months,
+  browseKey,
   getMonth,
   ui,
   start,
@@ -143,6 +190,9 @@ function MonthLayouts({
   onMonthInView,
   onRetryMonth,
   onChooseCalendars,
+  onNeedMonths,
+  onBrowseToday,
+  onJump,
   previewMonth,
 }: Omit<MonthViewProps, 'drag'> & { previewMonth: MonthKey | null }) {
   const picked = ui.layout === 'picked' && ui.selected !== null ? ui.selected : null;
@@ -154,6 +204,7 @@ function MonthLayouts({
       <>
         {unavailable}
         <MonthBrowse
+          key={browseKey}
           months={months}
           today={today}
           weekStart={weekStart}
@@ -165,6 +216,9 @@ function MonthLayouts({
           onPickDay={(day) => onUi(pickDay(ui, day))}
           onRetryMonth={onRetryMonth}
           onChooseCalendars={onChooseCalendars}
+          onNeedMonths={onNeedMonths}
+          onToday={onBrowseToday}
+          onJump={onJump}
         />
       </>
     );
@@ -195,6 +249,7 @@ function MonthLayouts({
         onOpenItem={onSelect}
         onRetryMonth={onRetryMonth}
         onChooseCalendars={onChooseCalendars}
+        onJump={onJump}
       />
       {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} actions={sheetActions} /> : null}
     </>

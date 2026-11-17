@@ -155,7 +155,9 @@
       "cellNothing": "nothing planned",
       "cellLoading": "loading",
       "cellFailed": "couldn’t load",
-      "failed": "Couldn’t load this month"
+      "failed": "Couldn’t load this month",
+      "jumpLabel": "{month}, go to a date",
+      "jumpSheet": "Go to a date"
     },
     "stillOpen": {
       "title": "Still open",

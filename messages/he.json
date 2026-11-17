@@ -155,7 +155,9 @@
       "cellNothing": "אין אירועים",
       "cellLoading": "בטעינה",
       "cellFailed": "לא נטען",
-      "failed": "לא הצלחנו לטעון את החודש הזה"
+      "failed": "לא הצלחנו לטעון את החודש הזה",
+      "jumpLabel": "{month}, מעבר לתאריך",
+      "jumpSheet": "מעבר לתאריך"
     },
     "stillOpen": {
       "title": "עדיין פתוחות",
