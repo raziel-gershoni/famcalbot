@@ -677,6 +677,89 @@ async function main() {
     assertSame(storedState(h)?.done, true, 'an answer asked after the last patch is taken');
   });
 
+  await check('a write (renew) leaves every window it did not ask again out of date: a month seen before is asked anew when it comes back (owner 2026-11-17, a new event missing from a month seen before); one the refetch asked is not asked twice', async () => {
+    reset();
+    const h = fakeHost({ months: [OCT], agenda: false });
+    await h.firstLoad();
+    h.loader.ensure();
+    await answer('famcal 2026-10-01..2026-11-01');
+    h.state.months = [DEC]; // scrolled on to December
+    h.loader.ensure();
+    await answer('famcal 2026-12-01..2027-01-01');
+    const start = calls.length;
+    h.loader.refetchVisible({ only: 'famcal', renew: true }); // the save
+    assertSame(sent(start), ['famcal 2026-12-01..2027-01-01'], 'the write asks the month on screen');
+    await answer('famcal 2026-12-01..2027-01-01');
+    h.state.months = [OCT]; // back to October, answered before the save
+    h.loader.ensure();
+    assertSame(sent(start + 1), ['famcal 2026-10-01..2026-11-01'], 'October is asked again');
+    h.loader.ensure();
+    assertSame(sent(start + 1), ['famcal 2026-10-01..2026-11-01'], 'once');
+    await answer('famcal 2026-10-01..2026-11-01');
+    h.state.months = [DEC];
+    h.loader.ensure();
+    assertSame(sent(start + 2), [], 'December, asked by the refetch itself, is not asked again');
+  });
+
+  await check('after a write on the Month, the Agenda\'s weeks are asked again once the Agenda shows (week 0 too, which the first load\'s no-dates request answered)', async () => {
+    reset();
+    const h = fakeHost({ months: [OCT], agenda: false, weeks: 2 });
+    await h.firstLoad();
+    h.state.agenda = true;
+    h.state.months = [];
+    h.loader.ensure();
+    await answer('famcal 2026-10-22..2026-10-29');
+    h.state.agenda = false;
+    h.state.months = [OCT];
+    h.loader.ensure();
+    await answer('famcal 2026-10-01..2026-11-01');
+    const start = calls.length;
+    h.loader.refetchVisible({ only: 'famcal', renew: true });
+    assertSame(sent(start), ['famcal 2026-10-01..2026-11-01'], 'the Month\'s window only');
+    await answer('famcal 2026-10-01..2026-11-01');
+    h.loader.ensure();
+    assertSame(sent(start + 1), [], 'nothing while the Month shows');
+    h.state.agenda = true;
+    h.state.months = [];
+    h.loader.ensure();
+    assertSame(sent(start + 1), ['famcal 2026-10-15..2026-10-22', 'famcal 2026-10-22..2026-10-29'], 'the Agenda\'s two weeks');
+    await answer('famcal 2026-10-15..2026-10-22');
+    await answer('famcal 2026-10-22..2026-10-29');
+    h.loader.ensure();
+    assertSame(sent(start + 3), [], 'once');
+  });
+
+  await check('a stale month waiting for a slot that is no longer wanted stays out of date: asked when it is wanted again; Refresh (fresh) marks the rest too and asks them fresh; the foreground refetch marks nothing', async () => {
+    reset();
+    const h = fakeHost({ months: [SEP], agenda: false });
+    await h.firstLoad();
+    for (const [m, what] of [[SEP, 'famcal 2026-09-01..2026-10-01'], [OCT, 'famcal 2026-10-01..2026-11-01'], [NOV, 'famcal 2026-11-01..2026-12-01'], [DEC, 'famcal 2026-12-01..2027-01-01']] as const) {
+      h.state.months = [m];
+      h.loader.ensure();
+      await answer(what);
+    }
+    const start = calls.length;
+    h.loader.refetchVisible({ only: 'famcal', fresh: true }); // ⋯ → Refresh on December
+    assertSame(sent(start), ['famcal 2026-12-01..2027-01-01 fresh'], 'Refresh asks December fresh');
+    h.state.months = [SEP, OCT, NOV]; // two slots, December's still taken: November waits
+    h.loader.ensure();
+    assertSame(sent(start + 1), ['famcal 2026-09-01..2026-10-01 fresh'], 'September goes fresh, the rest wait');
+    h.state.months = [SEP]; // scrolled away before the queue moved
+    await answer('famcal 2026-12-01..2027-01-01 fresh');
+    await answer('famcal 2026-09-01..2026-10-01 fresh');
+    assertSame(sent(start + 2), [], 'October and November were dropped from the queue');
+    h.state.months = [NOV];
+    h.loader.ensure();
+    assertSame(sent(start + 2), ['famcal 2026-11-01..2026-12-01 fresh'], 'November, still out of date, is asked once wanted');
+    await answer('famcal 2026-11-01..2026-12-01 fresh');
+    const back = calls.length;
+    h.loader.refetchVisible(); // a return to the foreground on November
+    await answer('famcal 2026-11-01..2026-12-01');
+    h.state.months = [SEP];
+    h.loader.ensure();
+    assertSame(sent(back + 1), [], 'the foreground refetch left September as it was');
+  });
+
   let failed = 0;
   for (const r of results) {
     console.log(`${r.ok ? 'OK' : 'FAIL'}  ${r.name}${r.ok ? '' : ` — ${r.reason}`}`);

@@ -13,10 +13,17 @@
 // - refetchVisible(): every visible window again: a return to the foreground, a Retry,
 //   or ⋯ → Refresh (fresh=1). The Agenda's weeks only while the Agenda is on screen,
 //   and the wanted months. A request already in flight is not sent twice, except with
-//   `renew`: the confirming read after a reminder action always goes out anew, since an
-//   older request may have been asked before the action took. It resolves once every
-//   request it sent has been answered and applied, or dropped (a queued month no longer
-//   wanted): an edit waits on it to see whether its item is still there.
+//   `renew`: the confirming read after a write (a save, a move, a delete, a reminder
+//   action) always goes out anew, since an older request may have been asked before the
+//   write took. It resolves once every request it sent has been answered and applied, or
+//   dropped (a queued month no longer wanted): an edit waits on it to see whether its item
+//   is still there.
+// - After a write (`renew`) or Refresh (`fresh`), every window of those sources asked in this
+//   epoch that the refetch did not send is out of date (owner 2026-11-17: a new event was
+//   missing from a month seen before the save). ensure() asks an out-of-date window again as
+//   soon as it is wanted (a month coming near, the Agenda's weeks once the Agenda shows), anew
+//   and fresh as the refetch was, whatever the store holds for it; a month dropped from the
+//   queue before it went stays out of date. A return to the foreground marks nothing.
 // - patchReminder(): a reminder's new state after an action. An answer whose request
 //   started before the latest patch of a key leaves that key's reminder as patched (the
 //   store's `hold`); a request started after it is taken as it is.
@@ -118,6 +125,8 @@ function isMonthWindow(window: RangeWindow | null): boolean {
 export function createHomeLoader(host: LoaderHost): HomeLoader {
   /** `${epoch}|${source}|${windowKey}`: asked in that epoch. */
   const issued = new Set<string>();
+  /** The same keys, out of date since a write or Refresh, with whether that refetch was fresh. Sending one clears it. */
+  const stale = new Map<string, { fresh: boolean }>();
   /** The same plus `|fresh` or `|plain`: on its way now. */
   const inflight = new Map<string, number>();
   /** Each in-flight key's latest request, settled once its answer is applied. */
@@ -221,6 +230,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
     inflight.set(key, (inflight.get(key) ?? 0) + 1);
     const startedAt = patchSeq;
     issued.add(`${epoch}|${ask.source}|${where}`);
+    stale.delete(`${epoch}|${ask.source}|${where}`);
     if (month) monthsInFlight++;
     const done = fetchRange(host.userId, ask.source, ask.window, ask.fresh === true, { ms: RANGE_TIMEOUT_MS, setTimer: host.setTimer })
       .catch((): RangeOutcome => ({ kind: 'error', status: null }))
@@ -239,6 +249,20 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       .catch((err: unknown) => console.error('[calendar-home] A range answer could not be applied:', err));
     running.set(key, done);
     return done;
+  }
+
+  /**
+   * After a write or Refresh: every window of `sources` asked in `epoch` that this refetch did
+   * not ask (`asked`, as `${source}|${windowKey}`) is out of date. The first load's no-dates
+   * request counts as Agenda week 0 (`week0`).
+   */
+  function markRestStale(epoch: number, sources: readonly SourceName[], asked: ReadonlySet<string>, week0: RangeWindow, fresh: boolean) {
+    for (const key of issued) {
+      const [e, source, where] = key.split('|');
+      if (Number(e) !== epoch || !(sources as readonly string[]).includes(source)) continue;
+      const askedNow = asked.has(`${source}|${where}`) || (where === 'default' && asked.has(`${source}|${windowKey(week0)}`));
+      if (!askedNow) stale.set(key, { fresh: fresh || stale.get(key)?.fresh === true });
+    }
   }
 
   /** Take a month off the queue without sending it: whoever waited on it is told. */
@@ -283,15 +307,28 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         }
         return;
       }
+      const agendaShowing = host.agendaShowing?.() !== false;
       visibleWindows(facts.today).forEach((window, week) => {
         for (const source of facts.sources) {
-          const asked = issued.has(`${store.epoch}|${source}|${windowKey(window)}`) || (week === 0 && issued.has(`${store.epoch}|${source}|default`));
+          const key = `${store.epoch}|${source}|${windowKey(window)}`;
+          // Week 0 was answered by the first load's no-dates request: out of date under that key.
+          const firstKey = week === 0 ? `${store.epoch}|${source}|default` : null;
+          const out = stale.get(key) ?? (firstKey ? stale.get(firstKey) : undefined);
+          if (out && agendaShowing) {
+            if (firstKey) stale.delete(firstKey);
+            send({ source, window, fresh: out.fresh, renew: true });
+            continue;
+          }
+          const asked = issued.has(key) || (firstKey !== null && issued.has(firstKey));
           if (!asked && uncovered(store, source, window)) send({ source, window });
         }
       });
       for (const window of wantedMonths()) {
         for (const source of facts.sources) {
-          if (!issued.has(`${store.epoch}|${source}|${windowKey(window)}`) && uncovered(store, source, window)) send({ source, window });
+          const key = `${store.epoch}|${source}|${windowKey(window)}`;
+          const out = stale.get(key);
+          if (out) send({ source, window, fresh: out.fresh, renew: true });
+          else if (!issued.has(key) && uncovered(store, source, window)) send({ source, window });
         }
       }
     },
@@ -304,14 +341,21 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       if (!facts) {
         for (const source of sources) sent.push(send({ source, window: null, fresh, renew }));
       } else {
+        /** `${source}|${windowKey}` of each window this refetch asks. */
+        const asked = new Set<string>();
+        const ask = (source: SourceName, window: RangeWindow) => {
+          asked.add(`${source}|${windowKey(window)}`);
+          sent.push(send({ source, window, fresh, renew }));
+        };
         if (host.agendaShowing?.() !== false) {
           for (const window of visibleWindows(facts.today)) {
-            for (const source of sources) sent.push(send({ source, window, fresh, renew }));
+            for (const source of sources) ask(source, window);
           }
         }
         for (const window of wantedMonths()) {
-          for (const source of sources) sent.push(send({ source, window, fresh, renew }));
+          for (const source of sources) ask(source, window);
         }
+        if (renew || fresh) markRestStale(host.getStore().epoch, sources, asked, agendaWeekWindow(facts.today, 0), fresh);
       }
       return Promise.all(sent).then(() => undefined);
     },
