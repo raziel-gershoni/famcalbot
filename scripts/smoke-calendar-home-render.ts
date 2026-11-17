@@ -3663,6 +3663,10 @@ async function main() {
       tg.calls.length = 0;
       await tap(m, jumpButton());
       assert(sheet()?.getAttribute('aria-label') === 'Go to a date', 'the date sheet opens');
+      // No editor under it here: the sheet brings the form kit's CSS for its Gregorian | Hebrew switch (owner 2026-11-17: it showed as bare text).
+      const switchGroup = byClass(sheet() as FakeNode, 'ch-segmented')[0];
+      assert(switchGroup && textOf(htmlOf(switchGroup)).includes('Gregorian') && textOf(htmlOf(switchGroup)).includes('Hebrew'), 'the Gregorian | Hebrew switch is there');
+      assert(m.html().includes('.ch-segmented {') && m.html().includes('.ch-segment[aria-checked=\'true\'] {'), 'and its CSS is on the page');
       assert(backCalls(tg.calls).includes('BackButton.show()'), `the BackButton shows over browse: ${show(backCalls(tg.calls))}`);
       React.act(() => tg.fire('backButtonClicked'));
       await settle();

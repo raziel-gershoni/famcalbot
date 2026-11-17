@@ -13,7 +13,9 @@
 // - The grid is role="grid" with one focus stop (roving tabindex): arrows by day and week,
 //   PageUp and PageDown by month, Home and End to the week's ends, Enter or Space picks. Focus
 //   lands on the chosen day and goes back to the pill on close (BottomSheet restores it).
-// - All the logic is picker-model.ts; this file draws it. Rendered in place by PillRow.
+// - All the logic is picker-model.ts; this file draws it. Rendered in place by PillRow, and by the
+//   Month's jump to a date (MonthView), where no editor is under it: so it brings the form kit's
+//   CSS for its Gregorian | Hebrew switch itself, as ScopeSheet does.
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
@@ -48,7 +50,7 @@ import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
 import { hapticSelection } from '@/src/lib/telegram-ui';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
-import { Segmented } from '@/components/app-ui/form-kit';
+import { FORM_CSS, Segmented } from '@/components/app-ui/form-kit';
 import { PICKER_CSS, Wheel, WheelPickerWrapper } from './picker-kit';
 
 export interface DatePickerSheetProps {
@@ -196,6 +198,7 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
 
   return (
     <>
+      <style>{FORM_CSS}</style>
       <style>{PICKER_CSS}</style>
       <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose}>
         <div className="ch-picker">
