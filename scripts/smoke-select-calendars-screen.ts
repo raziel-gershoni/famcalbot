@@ -506,8 +506,8 @@ async function main() {
       assert(canon(call.body) === canon(want), `the body:\n${canon(call.body)}\nwant\n${canon(want)}`);
       assert(isOn(switchOf(o.m, 'Family')) && listRows(o.m).length === 3, 'the row is on and Chosen lists it');
       assert(show(statusText(o.m)) === show([ui('en', 'saved')]) && elements(o.m.container).some((e) => classes(e).includes('ch-notice') && e.getAttribute('role') === 'status'), `the status: ${show(statusText(o.m))}`);
-      // The status stays until the next save, and a save that fails replaces it
-      assert(show(statusText(o.m)) === show(['Saved']), 'Saved stays');
+      // "Saved" goes by itself after a few seconds (S29); before that it is still there
+      assert(show(statusText(o.m)) === show(['Saved']), 'Saved went at once');
     } finally {
       close(o);
     }
@@ -1481,6 +1481,72 @@ async function main() {
     assert(/unlistedChoices\(chosen, availableCalendars\)/.test(data) && /unlistedCalendars[,\s}]/.test(data), 'the page data does not hand over unlistedChoices(chosen, availableCalendars) as unlistedCalendars');
     const logged = data.match(/console\.\w+\(`\[select-calendars\][^`]*`\)/g) ?? [];
     assert(logged.length >= 1 && logged.every((l) => !/name|calendarId|\.id\b(?!\})/.test(l.replace(/user\.id/g, ''))), `the page data's log line: ${show(logged)}`);
+  });
+
+  await check('S29 "Saved" and the new-events note go by themselves after NOTE_MS, like a toast (the bar goes with them); a refusal stays until the next save (it may carry See plans or Sign in); a new save starts the wait again and clears the old one', async () => {
+    const { NOTE_MS } = (await import('../app/[locale]/(app)/select-calendars/SelectCalendarsClient')) as unknown as { NOTE_MS: number };
+    assert(typeof NOTE_MS === 'number' && NOTE_MS >= 2000 && NOTE_MS <= 6000, `NOTE_MS ${NOTE_MS}`);
+    const realSet = globalThis.setTimeout;
+    const realClear = globalThis.clearTimeout;
+    const waiting = new Map<unknown, () => void>();
+    let nextTimer = 0;
+    (globalThis as Row).setTimeout = (fn: () => void, ms?: number, ...rest: unknown[]) => {
+      if (ms !== NOTE_MS) return realSet(fn, ms, ...rest);
+      const id = { note: ++nextTimer };
+      waiting.set(id, fn);
+      return id;
+    };
+    (globalThis as Row).clearTimeout = (id: unknown) => (waiting.has(id) ? void waiting.delete(id) : realClear(id as never));
+    const elapse = () => act(async () => {
+      for (const [id, fn] of [...waiting]) {
+        waiting.delete(id);
+        fn();
+      }
+    });
+    /** The waits pending (a call, so a narrowing by an earlier assert does not stick). */
+    const waits = () => waiting.size;
+    const bars = (m: Mounted) => elements(m.container).filter((e) => classes(e).includes('ch-save-bar-sticky') && !isInside(e, sheetOf(m)));
+    try {
+      for (const locale of LOCALES) {
+        resetWorld();
+        waiting.clear();
+        const n = NAMES[locale];
+        const o = await open(locale, { famcalPrimaryName: 'Home', currentSelections: selectionOf({ selectedCalendars: new Set([ME, FAMILY]), calendarLabels: new Map([[ME, new Set(['yours'])], [FAMILY, new Set(['yours'])]]) }) }, TELEGRAM);
+        try {
+          // Saved, then gone
+          await tapAndSettle(o, switchOf(o.m, n.kids));
+          assert(show(statusText(o.m)) === show([ui(locale, 'saved')]) && waits() === 1, `${locale}: Saved ${show(statusText(o.m))}, ${waits()} waits`);
+          await elapse();
+          assert(statusText(o.m).length === 0 && bars(o.m).length === 0, `${locale}: Saved stayed: ${show(statusText(o.m))}`);
+          // A second save before the first has gone: one wait, the newest
+          await tapAndSettle(o, switchOf(o.m, n.noa));
+          await tapAndSettle(o, switchOf(o.m, n.noa));
+          assert(waits() === 1 && show(statusText(o.m)) === show([ui(locale, 'saved')]), `${locale}: ${waits()} waits after two saves`);
+          await elapse();
+          assert(statusText(o.m).length === 0, `${locale}: the second Saved stayed`);
+          // A refusal stays, with no wait
+          srv.save = () => json({ error: 'calendar_limit_reached', limit: 3 }, 403);
+          await tapAndSettle(o, switchOf(o.m, n.noa));
+          assert(waits() === 0 && alertsOf(o.m).length === 1, `${locale}: the refusal: ${waits()} waits, ${show(alertsOf(o.m))}`);
+          await elapse();
+          assert(alertsOf(o.m).length === 1 && bars(o.m).length === 1, `${locale}: the refusal went by itself`);
+          // The new-events note goes too
+          srv.save = () => json({ success: true });
+          await openRow(o, n.family);
+          o.m.click(switchesOf(sheetOf(o.m) as FakeElement)[0]);
+          o.m.click(saveButton(o.m));
+          await settle();
+          assert(statusText(o.m).length === 1 && !statusText(o.m)[0].startsWith(ui(locale, 'saved')) && alertsOf(o.m).length === 0 && waits() === 1, `${locale}: the note ${show(statusText(o.m))}`);
+          await elapse();
+          assert(statusText(o.m).length === 0 && bars(o.m).length === 0, `${locale}: the note stayed`);
+        } finally {
+          close(o);
+        }
+      }
+    } finally {
+      globalThis.setTimeout = realSet;
+      globalThis.clearTimeout = realClear;
+    }
   });
 
   await check('S18 window.confirm was never called on any path above, and React logged no warning (keys, nesting, attributes, act)', () => {

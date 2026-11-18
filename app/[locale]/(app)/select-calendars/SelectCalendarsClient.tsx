@@ -17,15 +17,15 @@
 // Every save is the whole selection (selection.ts builds the body; the request is POST /api/select-calendars?user_id=… as it has
 // always been, with the credential in the X-Telegram-Init-Data header). A tap on a switch applies at once and is undone if the
 // save fails; a sheet's Save applies on success only, and a refusal keeps the sheet open with what was typed. The status line
-// (Saved, "new events will go to …", or what went wrong) is a bar fixed to the bottom of the screen until the next save, so a
-// tap anywhere on a long list shows its result. Two refusals have their own words, from the server's codes: the last calendar
+// (Saved, "new events will go to …", or what went wrong) is a bar fixed to the bottom of the screen, so a tap anywhere on a long
+// list shows its result: Saved and the note go by themselves after NOTE_MS, like a toast; a refusal stays until the next save. Two refusals have their own words, from the server's codes: the last calendar
 // can't be turned off and one calendar must stay marked as yours; the plan's limit has See plans.
 // - One request at a time (the Calendars screen's pattern): the one that runs shows a spinner and the other controls are off.
 //   Every failure is logged and said in the page's language; the server's own text is never shown.
 // - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the open sheet,
 //   does nothing while a request runs, else returns to the calendar.
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { initDataHeaders } from '@/src/lib/read-init-data';
@@ -91,7 +91,10 @@ function failureOf(status: number, data: { error?: unknown; code?: unknown; limi
   return { failure: status >= 500 ? 'retry' : 'generic', limit: null };
 }
 
-/** The line under the intro: what the last save came to. It stays until the next save. */
+/** How long Saved and the new-events note stay. A refusal stays until the next save: it may carry its way on (See plans, Sign in). */
+export const NOTE_MS = 4000;
+
+/** The status bar: what the last save came to. */
 type Status = { id: number; kind: 'saved' } | { id: number; kind: 'newEvents'; name: string } | { id: number; kind: 'failed'; why: SaveFailure };
 
 type Sheet = { kind: 'calendar'; id: string } | { kind: 'notes' };
@@ -180,6 +183,13 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
   const [status, setStatus] = useState<Status | null>(null);
   const statusIds = useRef(0);
   const say = (next: { kind: 'saved' } | { kind: 'newEvents'; name: string } | { kind: 'failed'; why: SaveFailure }) => setStatus({ ...next, id: ++statusIds.current });
+  // Saved and the note go by themselves; a newer status (another save) clears the wait and starts its own
+  useEffect(() => {
+    if (!status || status.kind === 'failed') return;
+    const shown = status.id;
+    const timer = setTimeout(() => setStatus((now) => (now?.id === shown ? null : now)), NOTE_MS);
+    return () => clearTimeout(timer);
+  }, [status]);
   // The FamCal calendar that holds the default today. The first primary tick here takes it away (the server clears it on save), so the note shows once.
   const [famcalPrimary, setFamcalPrimary] = useState<string | null>(famcalPrimaryName);
 
