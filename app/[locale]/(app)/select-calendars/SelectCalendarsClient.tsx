@@ -3,8 +3,8 @@
 // The Select calendars screen (the Google calendars a person shows in FamCal), in the home's design (spec 2026-10-19 §4, §5;
 // plan W4-2): an AppScreen on the grouped ground, a header with its back, and cards drawn with the form kit (components/app-ui).
 //
-// - Calendars not available (first, only when there are any): the chosen calendars Google no longer lists (deleted, unshared or
-//   on another Google account; the home's "N calendars aren't available · Choose again" lands here). Each is its saved name and
+// - Not in your Google list (first, only when there are any): the chosen calendars Google no longer lists (deleted, unshared or
+//   removed from the list; the home's "N calendars aren't available · Choose again" lands here). Each is its saved name and
 //   colour and a Remove row, which saves at once as a switch does. They are no switch and no Chosen row, and a save keeps the ones
 //   left with their saved name and colour.
 // - Show in FamCal: one switch row per calendar Google lists (a dot in Google's colour, the name, the description as its hint).

@@ -112,17 +112,27 @@ export interface CalendarInfo {
  * @param userId - the user's DB id, whose copy links are hidden
  * @returns Array of calendar information
  */
+/**
+ * Every page of the user's calendar list, hidden calendars (birthdays) included. A list cut at its first page would make a
+ * chosen calendar past it look like one Google no longer lists (the select-calendars page offers those for removal).
+ */
+async function listEveryCalendar(calendar: calendar_v3.Calendar): Promise<calendar_v3.Schema$CalendarListEntry[]> {
+  const entries: calendar_v3.Schema$CalendarListEntry[] = [];
+  let pageToken: string | undefined;
+  do {
+    const response = await calendar.calendarList.list({ showHidden: true, maxResults: 250, ...(pageToken ? { pageToken } : {}) });
+    entries.push(...(response.data.items ?? []));
+    pageToken = response.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return entries;
+}
+
 export async function listUserCalendars(refreshToken: string, userId: number): Promise<CalendarInfo[]> {
   const calendar = getCalendarClient(refreshToken);
 
   try {
-    const [response, copies] = await Promise.all([
-      calendar.calendarList.list({
-        showHidden: true,  // Include hidden calendars like birthdays
-      }),
-      syncCopyFilter(userId),
-    ]);
-    const calendars = (response.data.items || []).filter(cal => !copies.isCopy(cal));
+    const [entries, copies] = await Promise.all([listEveryCalendar(calendar), syncCopyFilter(userId)]);
+    const calendars = entries.filter(cal => !copies.isCopy(cal));
 
     return calendars.map(cal => ({
       id: cal.id || '',

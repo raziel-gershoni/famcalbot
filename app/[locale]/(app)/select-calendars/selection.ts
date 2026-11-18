@@ -30,7 +30,7 @@ export interface ListedCalendar {
 const FALLBACK_COLOUR = '#4285f4';
 
 /**
- * The chosen calendars Google's list no longer has (deleted, unshared or on another Google account; the home's
+ * The chosen calendars Google's list no longer has (deleted, unshared or removed from the list; the home's
  * "N calendars aren't available" row leads here): the screen has no switch for them, so it shows them with Remove. Each keeps
  * the name and colour saved for it, so a save that leaves one chosen keeps those too. Once each, in the order chosen.
  */

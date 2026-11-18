@@ -682,7 +682,29 @@ async function main() {
     const page = await loadPageData('select-calendars', await configOf(6), 5550006, 'en');
     assert(page.kind === 'props', show(page));
     eq(page.props.famcalPrimaryName, 'Tami', 'the note');
-    eq(Object.keys(page.props).sort(), ['availableCalendars', 'currentSelections', 'famcalPrimaryName', 'locale', 'userId'], 'the page\'s props');
+    eq(Object.keys(page.props).sort(), ['availableCalendars', 'currentSelections', 'famcalPrimaryName', 'locale', 'unlistedCalendars', 'userId'], 'the page\'s props');
+    eq(page.props.unlistedCalendars, [], 'nothing unlisted');
+  });
+
+  await check('E3b select-calendars page: the chosen calendars Google no longer lists are handed over as unlistedCalendars (once each, the saved name and colour) while they stay in the selection, and the page logs only their count with the user id', async () => {
+    seed();
+    googleListed = [{ id: 'tami@gmail.com', name: 'Tami', primary: true, accessRole: 'owner' }];
+    Object.assign(userRow(6), { calendarAssignments: [gcal('tami@gmail.com', ['yours'], 'Tami'), gcal('old@group.calendar.google.com', ['kids'], 'Old school'), gcal('old@group.calendar.google.com', ['kids'], 'Old school')] });
+    const { loadPageData } = await load('src/lib/page-data.ts');
+    const lines: string[] = [];
+    const info = console.info;
+    console.info = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+    let page;
+    try {
+      page = await loadPageData('select-calendars', await configOf(6), 5550006, 'en');
+    } finally {
+      console.info = info;
+    }
+    assert(page.kind === 'props', show(page));
+    eq(page.props.unlistedCalendars, [{ id: 'old@group.calendar.google.com', name: 'Old school', backgroundColor: '#4285F4' }], 'the unlisted calendars');
+    eq(page.props.currentSelections.selectedCalendars, ['tami@gmail.com', 'old@group.calendar.google.com'], 'the selection keeps it');
+    const said = lines.filter((l) => l.startsWith('[select-calendars]'));
+    eq(said, ['[select-calendars] user 6: 1 chosen calendar(s) not in Google\'s list'], 'the log line');
   });
 
   // ---- F. One primary across both lists ----

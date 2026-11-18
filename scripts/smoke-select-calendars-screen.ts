@@ -132,7 +132,7 @@ const selectionOf = (o: Row = {}): Row => ({
   ...o,
 });
 
-/** A chosen calendar Google no longer lists (deleted, unshared or on another account), as the page data hands it over: its saved name and colour. */
+/** A chosen calendar Google no longer lists (deleted, unshared or removed from the list), as the page data hands it over: its saved name and colour. */
 const GONE = 'old@group.calendar.google.com';
 const GONE_NAMES: Record<Locale, string> = { en: 'Last school year', he: 'שנת הלימודים הקודמת', ru: 'Прошлый учебный год' };
 const GONE_COLOUR = '#8E24AA';
@@ -1325,7 +1325,7 @@ async function main() {
     ...o,
   });
 
-  await check('S23 a chosen calendar Google no longer lists (en, he RTL, ru; light and dark): "Calendars not available" is the first section, above "Show in FamCal", with the calendar\'s saved name in a <bdi> and its saved colour, a Remove row in the danger colour described by that name, and the hint (deleted, unshared or on another account; removing changes nothing in Google); it is no switch and no Chosen row; a calendar Google lists that is handed over as unlisted is not drawn twice; none of it shows when nothing is unlisted', async () => {
+  await check('S23 a chosen calendar Google no longer lists (en, he RTL, ru; light and dark): "Not in your Google list" is the first section, above "Show in FamCal", with the calendar\'s saved name in a <bdi> and its saved colour, a Remove row in the danger colour described by that name, and the hint (deleted, unshared or removed from the list; removing changes nothing in Google); it is no switch and no Chosen row; a calendar Google lists that is handed over as unlisted is not drawn twice; none of it shows when nothing is unlisted', async () => {
     for (const locale of LOCALES) {
       for (const scheme of ['light', 'dark'] as const) {
         resetWorld();
@@ -1456,7 +1456,7 @@ async function main() {
     assert(sel.toggleShown(start, GONE, new Set([GONE])).selected.size === 0 && !sel.toggleShown(start, GONE, new Set([GONE])).labels.has(GONE), 'turning the unlisted calendar off');
   });
 
-  await check('S27 an account whose Google lists no calendar at all, with a chosen calendar it no longer has: "Calendars not available" and Remove show above the empty state', async () => {
+  await check('S27 an account whose Google lists no calendar at all, with a chosen calendar it no longer has: "Not in your Google list" and Remove show above the empty state', async () => {
     for (const locale of LOCALES) {
       resetWorld();
       const o = await open(locale, { availableCalendars: [], unlistedCalendars: [unlistedFor(locale)], currentSelections: selectionOf({ selectedCalendars: new Set([GONE]), calendarLabels: new Map([[GONE, new Set(['yours'])]]), calendarRules: new Map() }) }, TELEGRAM);

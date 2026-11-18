@@ -1176,8 +1176,8 @@
     "notesCount": "{count, plural, =0 {None} one {# note} other {# notes}}",
     "newEventsGoTo": "New events will go to {name}",
     "unavailable": {
-      "title": "Calendars not available",
-      "hint": "These were deleted, unshared or are on another Google account, so FamCal can't show them. Removing them here changes nothing in Google.",
+      "title": "Not in your Google list",
+      "hint": "Google no longer lists these calendars in this account: they were deleted, unshared or removed from the list. Removing them here changes nothing in Google.",
       "remove": "Remove"
     },
     "errors": {

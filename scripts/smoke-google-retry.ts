@@ -529,6 +529,21 @@ async function main() {
     assert(!scopes.ok && scopes.error.message === 'GOOGLE_INSUFFICIENT_SCOPES', `scopes: ${scopes.ok ? 'ok' : scopes.error.message}`);
   });
 
+  await check('listUserCalendars reads every page of the calendar list (250 at a time, then each nextPageToken), so a chosen calendar past the first page is never taken for one Google no longer lists (the select-calendars page shows those with Remove)', async () => {
+    resetSeam();
+    apiScript = [
+      { status: 200, data: { items: [{ id: 'a@example.com', summary: 'A', primary: true, accessRole: 'owner' }], nextPageToken: 'page-2' } },
+      { status: 200, data: { items: [{ id: 'b@example.com', summary: 'B', accessRole: 'reader' }], nextPageToken: 'page-3' } },
+      { status: 200, data: { items: [{ id: 'c@example.com', summary: 'C', accessRole: 'reader' }] } },
+    ];
+    const all = await outcome(() => calendarModule.listUserCalendars('refresh-1', 7));
+    assert(all.ok && show((all.value as { id: string }[]).map((c) => c.id)) === show(['a@example.com', 'b@example.com', 'c@example.com']), `the calendars: ${show(all)}`);
+    const urls = apiCalls().map((c) => new URL(c.url));
+    assertEq(urls.length, 3, 'requests');
+    assert(urls.every((u) => u.pathname.endsWith('/users/me/calendarList') && u.searchParams.get('maxResults') === '250' && u.searchParams.get('showHidden') === 'true'), `the requests: ${show(urls.map(String))}`);
+    assert(show(urls.map((u) => u.searchParams.get('pageToken'))) === show([null, 'page-2', 'page-3']), `the page tokens: ${show(urls.map((u) => u.searchParams.get('pageToken')))}`);
+  });
+
   await check('fetchEventsInRange: a 403 rate limit on every calendar is GOOGLE_FETCH_FAILED (not GOOGLE_TOKEN_EXPIRED); a 401 is GOOGLE_TOKEN_EXPIRED; one calendar failing keeps the other\'s events; the failures are captured as warnings', async () => {
     const range = () => calendarModule.fetchEventsInRange('refresh-1', ['c1@example.com', 'c2@example.com'], new Date(NOW), new Date(NOW + 86_400_000));
     apiScript = [fail(403, 'rateLimitExceeded')];
