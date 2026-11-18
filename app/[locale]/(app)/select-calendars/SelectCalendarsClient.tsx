@@ -3,6 +3,10 @@
 // The Select calendars screen (the Google calendars a person shows in FamCal), in the home's design (spec 2026-10-19 §4, §5;
 // plan W4-2): an AppScreen on the grouped ground, a header with its back, and cards drawn with the form kit (components/app-ui).
 //
+// - Calendars not available (first, only when there are any): the chosen calendars Google no longer lists (deleted, unshared or
+//   on another Google account; the home's "N calendars aren't available · Choose again" lands here). Each is its saved name and
+//   colour and a Remove row, which saves at once as a switch does. They are no switch and no Chosen row, and a save keeps the ones
+//   left with their saved name and colour.
 // - Show in FamCal: one switch row per calendar Google lists (a dot in Google's colour, the name, the description as its hint).
 //   A tap saves at once (owner decision 2026-10-28: instant save, with a Saved note and a rollback).
 // - Chosen calendars: a list row per chosen calendar (its category, and a tag on the main one). A tap opens its sheet: the
@@ -45,6 +49,8 @@ import {
 interface SelectCalendarsClientProps {
   userId: number;
   availableCalendars: ListedCalendar[];
+  /** The chosen calendars Google no longer lists, with their saved name and colour (unlistedChoices, selection.ts). */
+  unlistedCalendars?: ListedCalendar[];
   currentSelections: {
     selectedCalendars: Set<string>;
     calendarLabels: Map<string, Set<CalendarLabel>>;
@@ -132,7 +138,28 @@ function CalendarSwitch({ calendar, on, busy, locked, onToggle }: { calendar: Li
   );
 }
 
-export default function SelectCalendarsClient({ userId, availableCalendars, currentSelections, locale, famcalPrimaryName = null }: SelectCalendarsClientProps) {
+/** A chosen calendar Google no longer lists: its dot and saved name, then Remove (described by the name), which saves at once. */
+function UnlistedCalendar({ calendar, busy, locked, removeLabel, onRemove }: { calendar: ListedCalendar; busy: boolean; locked: boolean; removeLabel: string; onRemove: () => void }) {
+  const nameId = `${useId()}-name`;
+  return (
+    <>
+      <div className="ch-form-row">
+        <span className="ch-form-label">
+          <span id={nameId} className="ch-list-title">
+            <Dot colour={calendar.backgroundColor} />
+            <bdi dir="auto">{calendar.name}</bdi>
+          </span>
+        </span>
+      </div>
+      <button type="button" className="ch-form-row ch-danger-row" aria-describedby={nameId} aria-busy={busy || undefined} disabled={locked} onClick={onRemove}>
+        {busy ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
+        {removeLabel}
+      </button>
+    </>
+  );
+}
+
+export default function SelectCalendarsClient({ userId, availableCalendars, unlistedCalendars = [], currentSelections, locale, famcalPrimaryName = null }: SelectCalendarsClientProps) {
   const t = useTranslations('selectCalendars');
   const page = useTranslations('calendarsPage');
   const categories = useTranslations('calendars.categories');
@@ -183,12 +210,18 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
     }
   };
 
+  // Google's list and the chosen calendars it no longer has: a save names each with what is known of it (the saved name and colour for those).
+  const listedIds = new Set(availableCalendars.map((c) => c.id));
+  const unlisted = unlistedCalendars.filter((c) => !listedIds.has(c.id));
+  const unlistedIds = new Set(unlisted.map((c) => c.id));
+  const known = [...availableCalendars, ...unlisted];
+
   /** The whole selection to the server: null when it went through, else why not (a refusal is logged). */
   const post = async (next: Selection): Promise<SaveFailure | null> => {
     const res = await fetch(`/api/select-calendars?user_id=${userId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...initDataHeaders() },
-      body: JSON.stringify(saveBody(next, availableCalendars)),
+      body: JSON.stringify(saveBody(next, known)),
     });
     if (res.ok) return null;
     const data = (await res.json().catch(() => null)) as { error?: unknown; code?: unknown; limit?: unknown } | null;
@@ -196,14 +229,14 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
     return failureOf(res.status, data);
   };
 
-  const nameOf = (id: string) => availableCalendars.find((c) => c.id === id)?.name ?? id;
+  const nameOf = (id: string) => known.find((c) => c.id === id)?.name ?? id;
 
   // ---- A switch: the calendar shown in FamCal, or not ----
 
   const toggle = (id: string) => {
     if (running.current) return;
     const before = selRef.current;
-    const next = toggleShown(before, id);
+    const next = toggleShown(before, id, unlistedIds);
     return run(
       { kind: 'switch', id },
       async () => {
@@ -313,6 +346,8 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
   const seePlans = { label: page('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) };
   const signIn = { label: gate('signIn'), onClick: () => void signInAgain(locale) };
   const chosen = availableCalendars.filter((c) => sel.selected.has(c.id));
+  // The one being removed stays, with its spinner, until the server has it (the selection already dropped it)
+  const stillUnlisted = unlisted.filter((c) => sel.selected.has(c.id) || (busy?.kind === 'switch' && busy.id === c.id));
 
   const statusLine = () => {
     if (!status) return null;
@@ -479,6 +514,25 @@ export default function SelectCalendarsClient({ userId, availableCalendars, curr
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
       <div className="ch-form-page ch-form-page-grouped">
         <p className="ch-form-fixed">{t('intro')}</p>
+
+        {stillUnlisted.length > 0 ? (
+          <>
+            <SectionLabel>{t('unavailable.title')}</SectionLabel>
+            <FormCard>
+              {stillUnlisted.map((c) => (
+                <UnlistedCalendar
+                  key={c.id}
+                  calendar={c}
+                  busy={busy?.kind === 'switch' && busy.id === c.id}
+                  locked={locked}
+                  removeLabel={t('unavailable.remove')}
+                  onRemove={() => void toggle(c.id)}
+                />
+              ))}
+            </FormCard>
+            <p className="ch-form-fixed">{t('unavailable.hint')}</p>
+          </>
+        ) : null}
 
         {availableCalendars.length === 0 ? (
           <StateCard title={t('empty.title')} body={t('empty.body')} />

@@ -1175,6 +1175,11 @@
     "notesPlaceholder": "Note {number}",
     "notesCount": "{count, plural, =0 {None} one {# note} other {# notes}}",
     "newEventsGoTo": "New events will go to {name}",
+    "unavailable": {
+      "title": "Calendars not available",
+      "hint": "These were deleted, unshared or are on another Google account, so FamCal can't show them. Removing them here changes nothing in Google.",
+      "remove": "Remove"
+    },
     "errors": {
       "save": "Couldn't save, so the change was undone.",
       "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together.",

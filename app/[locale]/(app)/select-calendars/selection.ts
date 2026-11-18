@@ -26,6 +26,24 @@ export interface ListedCalendar {
   accessRole?: string;
 }
 
+/** The colour saved for a calendar Google gives none for. */
+const FALLBACK_COLOUR = '#4285f4';
+
+/**
+ * The chosen calendars Google's list no longer has (deleted, unshared or on another Google account; the home's
+ * "N calendars aren't available" row leads here): the screen has no switch for them, so it shows them with Remove. Each keeps
+ * the name and colour saved for it, so a save that leaves one chosen keeps those too. Once each, in the order chosen.
+ */
+export function unlistedChoices(chosen: readonly CalendarAssignment[], listed: readonly ListedCalendar[]): ListedCalendar[] {
+  const listedIds = new Set(listed.map((c) => c.id));
+  const seen = new Set<string>();
+  return chosen.flatMap((a) => {
+    if (!a?.calendarId || listedIds.has(a.calendarId) || seen.has(a.calendarId)) return [];
+    seen.add(a.calendarId);
+    return [{ id: a.calendarId, name: a.name || a.calendarId, backgroundColor: a.color || FALLBACK_COLOUR }];
+  });
+}
+
 /** The categories of which a calendar has at most one (primary is a label of its own). */
 export const CATEGORIES = ['yours', 'spouse', 'kids', 'birthdays'] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -97,9 +115,9 @@ export function withPrimary(labels: ReadonlySet<CalendarLabel>, on: boolean): Se
 /**
  * The calendar shown in FamCal, or no more. Off drops its labels and its note. On adds it with no labels, except that a
  * selection with no calendar of yours gives it yours: the server refuses such a selection, so without it a first tap
- * would always be undone.
+ * would always be undone. `unlisted` are the chosen calendars Google no longer lists (unlistedChoices): theirs doesn't count.
  */
-export function toggleShown(sel: Selection, id: string): Selection {
+export function toggleShown(sel: Selection, id: string, unlisted: ReadonlySet<string> = new Set()): Selection {
   const selected = new Set(sel.selected);
   const labels = cloneLabels(sel.labels);
   const rules = new Map(sel.rules);
@@ -109,7 +127,8 @@ export function toggleShown(sel: Selection, id: string): Selection {
     rules.delete(id);
   } else {
     selected.add(id);
-    const hasYours = [...selected].some((other) => other !== id && labels.get(other)?.has('yours'));
+    // A calendar Google no longer lists doesn't count: it is there to be removed, and the server's rule needs a yours without it.
+    const hasYours = [...selected].some((other) => other !== id && !unlisted.has(other) && labels.get(other)?.has('yours'));
     labels.set(id, new Set<CalendarLabel>(hasYours ? [] : ['yours']));
   }
   return { ...sel, selected, labels, rules };
@@ -160,7 +179,7 @@ export function saveBody(sel: Selection, listed: readonly ListedCalendar[]): { c
       calendarId,
       labels,
       name: calendar?.name || calendarId,
-      color: calendar?.backgroundColor || '#4285f4',
+      color: calendar?.backgroundColor || FALLBACK_COLOUR,
       // One set of details for every spouse calendar
       ...(labels.includes('spouse') && sel.spouse
         ? { personName: sel.spouse.personName, personEnglishName: sel.spouse.personEnglishName, personGender: sel.spouse.personGender }

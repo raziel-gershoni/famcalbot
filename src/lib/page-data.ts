@@ -30,6 +30,7 @@ import { listUserCalendars, scrubbedGoogleError } from '@/src/services/calendar'
 import { classifyGoogleError } from '@/src/services/calendar-read/google-map';
 import { sourcesFor } from '@/src/services/calendar-read';
 import { googleStateOf, liveGoogleChoices, type GoogleState } from '@/src/lib/google-state';
+import { unlistedChoices } from '@/app/[locale]/(app)/select-calendars/selection';
 import { listVisibleCalendars, sortingForViewer } from '@/src/services/native-calendar/event-store';
 import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
@@ -383,6 +384,9 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
 
     // Convert user's current selections to new state format
     const chosen = liveGoogleChoices(user);
+    // The chosen calendars Google no longer lists (the home's "N calendars aren't available" row leads here): shown with Remove
+    const unlistedCalendars = unlistedChoices(chosen, availableCalendars);
+    if (unlistedCalendars.length > 0) console.info(`[select-calendars] user ${user.id}: ${unlistedCalendars.length} chosen calendar(s) not in Google's list`);
     const currentSelections = chosen.length > 0
       ? convertAssignmentsToSelections(chosen, user.globalRules)
       : { selectedCalendars: [], calendarLabels: [], spouseInfo: null, calendarRules: [], globalRules: user.globalRules || [] };
@@ -390,6 +394,7 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
     const props: SelectCalendarsPageProps = {
       userId,
       availableCalendars,
+      unlistedCalendars,
       currentSelections,
       locale: userLocale,
       famcalPrimaryName: ownFamcal.find((c) => c.labels.includes('primary'))?.name ?? null,

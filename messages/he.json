@@ -1175,6 +1175,11 @@
     "notesPlaceholder": "הערה {number}",
     "notesCount": "{count, plural, =0 {אין} one {הערה אחת} two {שתי הערות} other {# הערות}}",
     "newEventsGoTo": "מעכשיו אירועים חדשים יירשמו ב־{name}",
+    "unavailable": {
+      "title": "יומנים לא זמינים",
+      "hint": "היומנים האלה נמחקו, השיתוף שלהם הופסק או שהם בחשבון Google אחר, ולכן FamCal לא יכול להציג אותם. הסרה כאן לא משנה שום דבר ב־Google.",
+      "remove": "הסרה"
+    },
     "errors": {
       "save": "לא הצלחנו לשמור, והשינוי בוטל.",
       "limit": "בתוכנית שלכם יש מקום {limit, plural, one {ליומן אחד} two {לשני יומנים} other {ל־# יומנים}}, של FamCal ושל Google יחד.",

@@ -132,6 +132,12 @@ const selectionOf = (o: Row = {}): Row => ({
   ...o,
 });
 
+/** A chosen calendar Google no longer lists (deleted, unshared or on another account), as the page data hands it over: its saved name and colour. */
+const GONE = 'old@group.calendar.google.com';
+const GONE_NAMES: Record<Locale, string> = { en: 'Last school year', he: 'שנת הלימודים הקודמת', ru: 'Прошлый учебный год' };
+const GONE_COLOUR = '#8E24AA';
+const unlistedFor = (l: Locale): Row => ({ id: GONE, name: GONE_NAMES[l], backgroundColor: GONE_COLOUR });
+
 // ---- Mounting the screen ----
 
 type Props = Row;
@@ -413,7 +419,7 @@ async function main() {
       }
     }
   });
-  await check('S3 nothing chosen: no "Chosen calendars" section and the notes count says None in each language (0 / 1 / 2 / 3 plurals: he dual, ru few); a Google account with no calendars shows the empty state in place of the sections; a chosen calendar Google no longer lists keeps its place in the saved selection under an unrelated tap', async () => {
+  await check('S3 nothing chosen: no "Chosen calendars" section and the notes count says None in each language (0 / 1 / 2 / 3 plurals: he dual, ru few); a Google account with no calendars shows the empty state in place of the sections; a chosen calendar Google no longer lists is neither a switch nor a Chosen row, and keeps its place, its labels, its saved name and its saved colour in the saved selection under an unrelated tap', async () => {
     for (const locale of LOCALES) {
       resetWorld();
       const none = await open(locale, { currentSelections: selectionOf({ selectedCalendars: new Set(), calendarLabels: new Map(), calendarRules: new Map(), globalRules: [] }) }, TELEGRAM);
@@ -452,16 +458,18 @@ async function main() {
         close(empty);
       }
     }
-    // A chosen calendar Google no longer lists: not on the screen, still in the saved choices
+    // A chosen calendar Google no longer lists: no switch and no Chosen row, still in the saved choices with what was saved for it
     resetWorld();
-    const GONE = 'old@group.calendar.google.com';
-    const o = await open('en', { currentSelections: selectionOf({ selectedCalendars: new Set([ME, GONE, KIDS]), calendarLabels: new Map([[ME, new Set(['yours'])], [GONE, new Set(['kids'])], [KIDS, new Set(['kids'])]]) }) }, TELEGRAM);
+    const o = await open('en', {
+      unlistedCalendars: [unlistedFor('en')],
+      currentSelections: selectionOf({ selectedCalendars: new Set([ME, GONE, KIDS]), calendarLabels: new Map([[ME, new Set(['yours'])], [GONE, new Set(['kids'])], [KIDS, new Set(['kids'])]]) }),
+    }, TELEGRAM);
     try {
-      assert(listRows(o.m).length === 2 && !page(o.m).includes('old@group'), 'the calendar Google does not list is on the page');
+      assert(listRows(o.m).length === 2 && pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => flat(s).startsWith(GONE_NAMES.en)) && !page(o.m).includes('old@group'), 'the calendar Google does not list is a switch or a Chosen row, or shows its id');
       await tapAndSettle(o, switchOf(o.m, 'Family'));
       const ids = bodyOf().calendarAssignments.map((a) => a.calendarId);
       assert(show(ids) === show([ME, GONE, KIDS, FAMILY]), `the saved choices after an unrelated tap: ${show(ids)}`);
-      assert(bodyOf().calendarAssignments[1].name === GONE && show(bodyOf().calendarAssignments[1].labels) === show(['kids']), `its entry: ${show(bodyOf().calendarAssignments[1])}`);
+      assert(canon(bodyOf().calendarAssignments[1]) === canon({ calendarId: GONE, labels: ['kids'], name: GONE_NAMES.en, color: GONE_COLOUR }), `its entry: ${show(bodyOf().calendarAssignments[1])}`);
     } finally {
       close(o);
     }
@@ -1305,6 +1313,174 @@ async function main() {
         close(o);
       }
     }
+  });
+
+  // ---- Calendars Google no longer lists (the home's "N calendars aren't available · Choose again" lands here) ----
+
+  const removeButtons = (m: Mounted) => buttonsOf(m.container).filter((b) => classes(b).includes('ch-danger-row'));
+  const goneSelection = (o: Row = {}) => selectionOf({
+    selectedCalendars: new Set([ME, GONE, KIDS]),
+    calendarLabels: new Map([[ME, new Set(['yours'])], [GONE, new Set(['primary', 'yours'])], [KIDS, new Set(['kids'])]]),
+    calendarRules: new Map([[GONE, 'Old timetable'], [KIDS, 'Early dismissal']]),
+    ...o,
+  });
+
+  await check('S23 a chosen calendar Google no longer lists (en, he RTL, ru; light and dark): "Calendars not available" is the first section, above "Show in FamCal", with the calendar\'s saved name in a <bdi> and its saved colour, a Remove row in the danger colour described by that name, and the hint (deleted, unshared or on another account; removing changes nothing in Google); it is no switch and no Chosen row; a calendar Google lists that is handed over as unlisted is not drawn twice; none of it shows when nothing is unlisted', async () => {
+    for (const locale of LOCALES) {
+      for (const scheme of ['light', 'dark'] as const) {
+        resetWorld();
+        const o = await open(locale, { unlistedCalendars: [unlistedFor(locale)], currentSelections: goneSelection() }, { ...TELEGRAM, scheme });
+        try {
+          const n = NAMES[locale];
+          assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title'), word(locale, 'show'), word(locale, 'chosen'), word(locale, 'notes')]), `${locale} ${scheme}: sections ${show(sectionLabels(o.m))}`);
+          const removes = removeButtons(o.m);
+          assert(removes.length === 1 && flat(removes[0]) === word(locale, 'unavailable.remove'), `${locale} ${scheme}: Remove ${show(removes.map(flat))}`);
+          const describedBy = removes[0].getAttribute('aria-describedby');
+          const named = elements(o.m.container).find((e) => describedBy && e.getAttribute('id') === describedBy);
+          assert(named && flat(named) === GONE_NAMES[locale] && elements(named).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto'), `${locale} ${scheme}: Remove is not described by the calendar's name (${describedBy})`);
+          assert(dotColour(named) === GONE_COLOUR, `${locale} ${scheme}: the dot ${dotColour(named)}`);
+          assert(!removes[0].hasAttribute('disabled') && !removes[0].hasAttribute('aria-busy'), `${locale} ${scheme}: Remove is off at rest`);
+          assert(elements(o.m.container).some((e) => e.localName === 'p' && classes(e).includes('ch-form-fixed') && flat(e) === word(locale, 'unavailable.hint')), `${locale} ${scheme}: the hint`);
+          assert(pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => flat(s).startsWith(GONE_NAMES[locale])), `${locale} ${scheme}: a switch for the unlisted calendar`);
+          assert(listRows(o.m).length === 2 && flat(listRows(o.m)[0]).startsWith(n.me) && flat(listRows(o.m)[1]).startsWith(n.kids), `${locale} ${scheme}: Chosen ${show(listRows(o.m).map(flat))}`);
+          const text = page(o.m);
+          assert(!text.includes('old@group') && !/\b(?:selectCalendars)\.[a-zA-Z]/.test(text), `${locale} ${scheme}: an id or a raw key in ${text}`);
+          if (locale !== 'en') assert(!/[A-Za-z]/.test(text.replace(/Google|FamCal/g, '')), `${locale} ${scheme}: Latin letters in ${text}`);
+        } finally {
+          close(o);
+        }
+      }
+    }
+    // Handed over as unlisted but in Google's list after all: drawn once, as its switch
+    resetWorld();
+    const twice = await open('en', { unlistedCalendars: [{ id: KIDS, name: 'Kids and school', backgroundColor: '#F4511E' }], currentSelections: selectionOf() }, TELEGRAM);
+    try {
+      assert(removeButtons(twice.m).length === 0 && !sectionLabels(twice.m).includes(word('en', 'unavailable.title')), `a listed calendar drawn as unlisted: ${show(sectionLabels(twice.m))}`);
+    } finally {
+      close(twice);
+    }
+    // Nothing unlisted, or an unlisted calendar no longer chosen: no section
+    for (const o of [{}, { unlistedCalendars: [unlistedFor('en')] }]) {
+      resetWorld();
+      const none = await open('en', o, TELEGRAM);
+      try {
+        assert(removeButtons(none.m).length === 0 && show(sectionLabels(none.m)) === show([word('en', 'show'), word('en', 'chosen'), word('en', 'notes')]), `${show(Object.keys(o))}: ${show(sectionLabels(none.m))}`);
+      } finally {
+        close(none);
+      }
+    }
+  });
+
+  await check('S24 Remove saves at once, as a switch does: the whole selection without that calendar (its labels and its rule gone too, the rest exactly as before), the credential in the header; the section goes and "Saved" shows; a switch save before it keeps the unlisted calendar with its labels, rule, saved name and saved colour', async () => {
+    for (const locale of LOCALES) {
+      resetWorld();
+      const o = await open(locale, { unlistedCalendars: [unlistedFor(locale)], currentSelections: goneSelection() }, TELEGRAM);
+      try {
+        const n = NAMES[locale];
+        await tapAndSettle(o, switchOf(o.m, n.family));
+        const kept = bodyOf().calendarAssignments.find((a) => a.calendarId === GONE);
+        assert(canon(kept) === canon({ calendarId: GONE, labels: ['primary', 'yours'], name: GONE_NAMES[locale], color: GONE_COLOUR, rules: ['Old timetable'] }), `${locale}: the unlisted calendar under a switch save: ${show(kept)}`);
+        await tapAndSettle(o, removeButtons(o.m)[0]);
+        assert(saves().length === 2, `${locale}: ${saves().length} saves`);
+        assert(saves()[1].headers['x-telegram-init-data'] === (o.tg as Row).initData && !('initData' in (saves()[1].body as Row)), `${locale}: the credential`);
+        const want = {
+          calendarAssignments: [
+            { calendarId: ME, labels: ['yours'], name: n.me, color: '#039BE5' },
+            { calendarId: KIDS, labels: ['kids'], name: n.kids, color: '#F4511E', rules: ['Early dismissal'] },
+            { calendarId: FAMILY, labels: [], name: n.family, color: '#7986CB' },
+          ],
+          globalRules: ['Be brief'],
+        };
+        assert(canon(bodyOf()) === canon(want), `${locale}: the body after Remove:\n${canon(bodyOf())}\nwant\n${canon(want)}`);
+        assert(removeButtons(o.m).length === 0 && !sectionLabels(o.m).includes(word(locale, 'unavailable.title')) && !page(o.m).includes(GONE_NAMES[locale]), `${locale}: the section stays: ${show(sectionLabels(o.m))}`);
+        assert(show(statusText(o.m)) === show([ui(locale, 'saved')]) && alertsOf(o.m).length === 0, `${locale}: the status ${show(statusText(o.m))}`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
+  await check('S25 Remove while it runs and when it is refused: the Remove row shows the spinner and aria-busy and every switch, row and the notes row are off (a tap sends nothing); a refusal (the server\'s no_yours, a 500) puts the calendar back with its labels, says why and is logged, and the next save sends it again as it was', async () => {
+    const cases: [string, () => Response, string][] = [
+      ['400 no_yours', () => json({ error: 'At least one calendar must be marked as "yours"', code: 'no_yours' }, 400), word('en', 'errors.noYours')],
+      ['400 none_selected', () => json({ error: 'At least one calendar must be selected', code: 'none_selected' }, 400), word('en', 'errors.noneSelected')],
+      ['500', () => json({ error: 'Failed to update calendars' }, 500), word('en', 'errors.retry')],
+    ];
+    for (const [name, reply, text] of cases) {
+      resetWorld();
+      const o = await open('en', { unlistedCalendars: [unlistedFor('en')], currentSelections: goneSelection() }, TELEGRAM);
+      try {
+        const release = holdNext();
+        o.m.click(removeButtons(o.m)[0]);
+        await settle();
+        const running = removeButtons(o.m)[0];
+        assert(running && running.getAttribute('aria-busy') === 'true' && elements(running).some((e) => classes(e).includes('ch-form-spinner')), `${name}: Remove does not show that it runs`);
+        assert(pageSwitches(o.m).every((s) => s.hasAttribute('disabled')) && listRows(o.m).every((r) => r.hasAttribute('disabled')) && notesRow(o.m).hasAttribute('disabled'), `${name}: a control is on while Remove runs`);
+        o.m.click(switchOf(o.m, 'Family'));
+        o.m.click(running);
+        await settle();
+        assert(saves().length === 1, `${name}: a tap while Remove runs sent ${saves().length - 1} more`);
+        await release(reply());
+        await settle();
+        assert(removeButtons(o.m).length === 1 && page(o.m).includes(GONE_NAMES.en), `${name}: the calendar did not come back`);
+        assert(show(alertsOf(o.m)) === show([text]), `${name}: alerts ${show(alertsOf(o.m))}`);
+        assert(appLogs.some((l) => l.startsWith('[select-calendars]')), `${name}: not logged`);
+        srv.save = () => json({ success: true });
+        await tapAndSettle(o, switchOf(o.m, 'Family'));
+        const back = bodyOf().calendarAssignments.find((a) => a.calendarId === GONE);
+        assert(canon(back) === canon({ calendarId: GONE, labels: ['primary', 'yours'], name: GONE_NAMES.en, color: GONE_COLOUR, rules: ['Old timetable'] }), `${name}: the next save: ${show(back)}`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
+  await check('S26 an unlisted calendar never counts as "yours" for a calendar turned on: with the only "yours" unlisted, the calendar turned on is yours, so Remove then passes the server\'s rule; the same in the pure rule (toggleShown\'s unlisted set)', async () => {
+    resetWorld();
+    const o = await open('en', {
+      unlistedCalendars: [unlistedFor('en')],
+      currentSelections: selectionOf({ selectedCalendars: new Set([GONE]), calendarLabels: new Map([[GONE, new Set(['primary', 'yours'])]]), calendarRules: new Map() }),
+    }, TELEGRAM);
+    try {
+      await tapAndSettle(o, switchOf(o.m, 'Family'));
+      assert(show(bodyOf().calendarAssignments.find((a) => a.calendarId === FAMILY)?.labels) === show(['yours']), `the calendar turned on: ${show(bodyOf().calendarAssignments)}`);
+      await tapAndSettle(o, removeButtons(o.m)[0]);
+      assert(canon(bodyOf()) === canon({ calendarAssignments: [{ calendarId: FAMILY, labels: ['yours'], name: 'Family', color: '#7986CB' }], globalRules: ['Be brief'] }), `after Remove: ${canon(bodyOf())}`);
+    } finally {
+      close(o);
+    }
+    const sel = await import('../app/[locale]/(app)/select-calendars/selection');
+    const start = sel.selectionFrom({ selectedCalendars: new Set([GONE]), calendarLabels: new Map([[GONE, new Set(['yours']) as Set<never>]]), spouseInfo: null, calendarRules: new Map(), globalRules: [] });
+    assert(show([...(sel.toggleShown(start, FAMILY, new Set([GONE])).labels.get(FAMILY) ?? [])]) === show(['yours']), 'an unlisted yours counted');
+    assert(show([...(sel.toggleShown(start, FAMILY).labels.get(FAMILY) ?? [])]) === show([]), 'with no unlisted set, a chosen yours still counts');
+    assert(sel.toggleShown(start, GONE, new Set([GONE])).selected.size === 0 && !sel.toggleShown(start, GONE, new Set([GONE])).labels.has(GONE), 'turning the unlisted calendar off');
+  });
+
+  await check('S27 an account whose Google lists no calendar at all, with a chosen calendar it no longer has: "Calendars not available" and Remove show above the empty state', async () => {
+    for (const locale of LOCALES) {
+      resetWorld();
+      const o = await open(locale, { availableCalendars: [], unlistedCalendars: [unlistedFor(locale)], currentSelections: selectionOf({ selectedCalendars: new Set([GONE]), calendarLabels: new Map([[GONE, new Set(['yours'])]]), calendarRules: new Map() }) }, TELEGRAM);
+      try {
+        const text = page(o.m);
+        assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title')]) && removeButtons(o.m).length === 1, `${locale}: ${show(sectionLabels(o.m))}`);
+        assert(text.includes(word(locale, 'empty.title')) && text.indexOf(word(locale, 'unavailable.title')) < text.indexOf(word(locale, 'empty.title')), `${locale}: the order in ${text}`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
+  await check('S28 unlistedChoices (selection.ts), what the page data hands over: the chosen calendars Google\'s list does not have, once each, in the order chosen, with the saved name (the id when there is none) and the saved colour (#4285f4 when there is none); a listed one and an entry with no id are left out; the page data passes it as unlistedCalendars and logs only a count', async () => {
+    const sel = await import('../app/[locale]/(app)/select-calendars/selection');
+    const listed = availableFor('en') as never[];
+    const a = (calendarId: string, extra: Row = {}) => ({ calendarId, labels: [], name: '', color: '', ...extra }) as never;
+    const got = sel.unlistedChoices([a(ME, { name: 'Dana' }), a(GONE, { name: 'Old', color: GONE_COLOUR }), a('x@group.calendar.google.com'), a(GONE, { name: 'Again' }), a('')], listed);
+    assert(canon(got) === canon([{ id: GONE, name: 'Old', backgroundColor: GONE_COLOUR }, { id: 'x@group.calendar.google.com', name: 'x@group.calendar.google.com', backgroundColor: '#4285f4' }]), `unlistedChoices: ${canon(got)}`);
+    assert(sel.unlistedChoices([], listed).length === 0 && sel.unlistedChoices([a(ME)], listed).length === 0, 'unlistedChoices with nothing unlisted');
+    const data = noComments(source('src/lib/page-data.ts'));
+    assert(/unlistedChoices\(chosen, availableCalendars\)/.test(data) && /unlistedCalendars[,\s}]/.test(data), 'the page data does not hand over unlistedChoices(chosen, availableCalendars) as unlistedCalendars');
+    const logged = data.match(/console\.\w+\(`\[select-calendars\][^`]*`\)/g) ?? [];
+    assert(logged.length >= 1 && logged.every((l) => !/name|calendarId|\.id\b(?!\})/.test(l.replace(/user\.id/g, ''))), `the page data's log line: ${show(logged)}`);
   });
 
   await check('S18 window.confirm was never called on any path above, and React logged no warning (keys, nesting, attributes, act)', () => {
