@@ -229,7 +229,7 @@ check('title fallback: a Google kids calendar titled הילה and a FamCal kids 
   }
 });
 
-check('names across alphabets: הילה with the spellings Hila and Хила picks the line titled Hila; with none it is person-none; the name wins over a spelling', () => {
+check('names across alphabets: הילה with the spellings Hila and Хила picks the line titled Hila; with none it is person-none; the shorter forms only when no whole one answers', () => {
   const people = peopleOf({
     assignments: [cal('g1@x', ['kids'], { name: 'Hila' }), cal('g2@x', ['kids'], { name: 'Noa' })],
     partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he',
@@ -238,7 +238,7 @@ check('names across alphabets: הילה with the spellings Hila and Хила pic
   same([...spelled.keys!], ['kid:hila'], 'by spelling');
   same(spelled.log, 'person', 'log');
   same(askedKeys('הילה', [], people), { keys: null, log: 'person-none' }, 'no spellings');
-  same([...askedKeys('Noa', ['Hila'], people).keys!], ['kid:noa'], 'the name first');
+  same([...askedKeys('Noa Levi', ['Hila Levi'], people).keys!], ['kid:noa'], 'no whole form answers: the name\'s first word before the spelling\'s');
   same([...askedKeys('Nope', ['Хила', 'Hila'], people).keys!], ['kid:hila'], 'a later spelling');
 });
 
@@ -254,6 +254,20 @@ check('title fallback: a title with an @ (an address, or the id a calendar saved
   same(rows(people.filter(p => p.kind === 'kid')), [['kid:', null, ['kid.account@gmail.com', 'xyz@group.calendar.google.com']], ['kid:hila', 'Hila', ['g1@x']]], 'the two @ titles share the nameless line');
   assert(!people.some(p => p.aliases.some(a => a.includes('@'))), 'no @ alias');
   same(askedKeys('kid.account@gmail.com', [], people), { keys: null, log: 'person-none' }, 'an address matches nothing');
+});
+
+check('one child, two calendars titled in two alphabets (Hila, הילה; no person): two lines, and a question by name asks for both', () => {
+  const people = peopleOf({
+    assignments: [cal('g1@x', ['kids'], { name: 'Hila' }), cal('g2@x', ['kids'], { name: 'הילה' }), cal('g3@x', ['kids'], { name: 'Noa' })],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he',
+  });
+  same(people.filter(p => p.kind === 'kid').map(p => p.key), ['kid:hila', 'kid:הילה', 'kid:noa'], 'three lines');
+  for (const [name, spellings] of [['Hila', ['הילה', 'Хила']], ['הילה', ['Hila', 'Хила']], ['Хила', ['Hila', 'הילה']]] as const) {
+    const asked = askedKeys(name, [...spellings], people);
+    same([...asked.keys!].sort(), ['kid:hila', 'kid:הילה'], `${name}: both of her lines, not Noa's`);
+    same(asked.log, 'person', `${name}: log`);
+  }
+  same([...askedKeys('Hila', [], people).keys!], ['kid:hila'], 'with no spellings, only the line in its own alphabet');
 });
 
 check('the repro: me, partner, Hila and הילה (one line each), family; no nameless Kids line', () => {

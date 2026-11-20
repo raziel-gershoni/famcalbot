@@ -218,8 +218,10 @@ function askedForms(name: string): string[] {
 }
 
 /**
- * The lines a question asked for (spec §3.3): a group's lines, everyone's, or the lines one name matches (the first form
- * of it that any line answers, then the forms of each spelling of it in the other alphabets, in order; folded, so case, niqqud and ё don't matter). A group with no line, or a name no line
+ * The lines a question asked for (spec §3.3): a group's lines, everyone's, or the lines one name matches: every line
+ * that the whole name or any of its spellings in the other alphabets answers (one child's calendars titled "Hila" and
+ * "הילה" are two lines, and both are asked for), else the first shorter form (its first word, without a Hebrew prefix
+ * letter) that any line answers, the name's before its spellings'; folded, so case, niqqud and ё don't matter. A group with no line, or a name no line
  * answers, is no one in particular. So is a question about the caller alone ("can you pick me up?", or the caller's own
  * name): the others' plans bear on the caller's time, so it shows the caller's line and every busy one (the owner,
  * 2026-11-08). Only the partner, the kids, the family, everyone or another person's name narrows an answer.
@@ -228,11 +230,16 @@ export function askedLines(who: AskWho | null, people: readonly Person[]): Asked
   if (!who) return { keys: null, log: 'none' };
   let picked: readonly Person[] = [];
   if (who.kind === 'person') {
-    // the name as written first, then its spellings in other alphabets: the first form any line answers wins
-    const forms = [who.name, ...who.spellings].flatMap(askedForms);
-    for (const form of forms) {
-      picked = people.filter(p => p.aliases.includes(form));
-      if (picked.length > 0) break;
+    // The whole name and each spelling together: every line any of them answers
+    const names = [who.name, ...who.spellings];
+    const whole = new Set(names.map(foldName).filter(Boolean));
+    picked = people.filter(p => p.aliases.some(a => whole.has(a)));
+    // Else the shorter forms, the name's before its spellings': the first form any line answers wins
+    if (picked.length === 0) {
+      for (const form of names.flatMap(askedForms)) {
+        picked = people.filter(p => p.aliases.includes(form));
+        if (picked.length > 0) break;
+      }
     }
   } else if (who.kind === 'everyone') {
     picked = people;
