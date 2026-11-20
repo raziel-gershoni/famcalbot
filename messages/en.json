@@ -1979,6 +1979,7 @@
       "proEverything": "Everything in Basic, with unlimited calendars",
       "proVoice": "Add events by voice",
       "proReminders": "Reminders and event alerts",
+      "proAskInChat": "Asking when you’re free from another chat, on Telegram",
       "agreeAndPay": "I agree to the Terms, pay",
       "seller": "Sold by {name}.",
       "oneMonth": "One month from the day you pay. It never renews by itself.",

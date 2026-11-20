@@ -172,7 +172,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
 
   const bullets: Record<(typeof CARD_PLANS)[number], string[]> = {
     BASIC: [t('basicSummaries'), t('calendarsUpTo', { count: PLAN_CONFIGS.BASIC.limits.calendars })],
-    PRO: [t('proEverything'), t('proVoice'), t('proReminders')],
+    PRO: [t('proEverything'), t('proVoice'), t('proReminders'), t('proAskInChat')],
   };
 
   return (

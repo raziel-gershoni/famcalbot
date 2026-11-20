@@ -398,6 +398,11 @@ async function main() {
       // The markup, without the style sheets (their rules name the classes too)
       const render = (state: State, over: Row = {}) => renderToString(tree(locale, propsOf(state, over))).replace(/<style[^>]*>[\s\S]*?<\/style>/g, '');
       const both = [planName(locale, 'basic'), planName(locale, 'pro')];
+      // The Pro card's bullets in order, asking from another chat last (owner 2026-11-20: Pro only); Basic's card never has it
+      const cardText = (id: 'basic' | 'pro') => textOf(cardsOf(render('free')).find(([name]) => name === planName(locale, id))?.[1] ?? '');
+      const at = ['screen.proEverything', 'screen.proVoice', 'screen.proReminders', 'screen.proAskInChat'].map((k) => cardText('pro').indexOf(textOf(w(k))));
+      assert(at.every((i, n) => i >= 0 && (n === 0 || i > at[n - 1])), `${locale}: the Pro card's bullets at ${show(at)}`);
+      assert(!cardText('basic').includes(textOf(w('screen.proAskInChat'))), `${locale}: Basic's card lists asking from another chat`);
       // Which cards have a pay button, and what else each state says
       const cases: [State, string[]][] = [['free', both], ['trial', both], ['basic', both], ['canceled', both], ['pro', [planName(locale, 'pro')]], ['lapsed', [planName(locale, 'pro')]], ['comped', []], ['early', []], ['whatsapp', []]];
       for (const [state, want] of cases) {
@@ -676,7 +681,7 @@ async function main() {
     for (const locale of LOCALES) {
       const screen = messages[locale].subscription.screen as Row;
       const keys = leaves(screen);
-      assert(keys.length === 33, `${locale}: ${keys.length} keys in subscription.screen`);
+      assert(keys.length === 34, `${locale}: ${keys.length} keys in subscription.screen`);
       // The trial's days left is the home's banner line, said once: the screen has no copy of it, and reads the home's with { count }
       assert(!('trialLeft' in screen), `${locale}: subscription.screen.trialLeft is back (the home's calendarHome.banner.trial says it)`);
       assert(typeof (messages[locale].calendarHome as Row).banner.trial === 'string' && (messages[locale].calendarHome as Row).banner.trial.includes('{count, plural'), `${locale}: calendarHome.banner.trial`);
