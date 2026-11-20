@@ -44,6 +44,9 @@ export interface AskTexts {
   noAccount: string;
   openButton: string;
   rateLimited: string;
+  /** The line for a caller whose plan has no ask_in_chat (Pro only), with the plans button. */
+  proOnly: string;
+  plansButton: string;
 }
 
 export interface AskWords {

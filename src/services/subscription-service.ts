@@ -47,7 +47,7 @@ export function featureAccessTtlSeconds(now: number = Date.now()): number {
 // TYPES
 // ============================================
 
-export type FeatureType = 'text_summary' | 'voice_summary' | 'reminders' | 'voice_events' | 'calendars' | 'google_sync';
+export type FeatureType = 'text_summary' | 'voice_summary' | 'reminders' | 'voice_events' | 'calendars' | 'google_sync' | 'ask_in_chat';
 
 export interface FeatureAccessResult {
   allowed: boolean;
@@ -706,8 +706,10 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
       return override.unlimitedSummaries === true;
     case 'reminders':
     // The copy to Google is on the plans reminders are on (google-sync spec §1), so the
-    // admin's reminders grant gives it too.
+    // admin's reminders grant gives it too. Ask FamCal in a chat (Pro only, owner 2026-11-20)
+    // rides on the same grant: the admin's grant of the Pro features.
     case 'google_sync':
+    case 'ask_in_chat':
       return override.remindersEnabled === true;
     case 'voice_events':
       return override.voiceEventsEnabled === true;
@@ -727,7 +729,7 @@ function checkOverrideGrant(override: UserFeatureOverride, feature: FeatureType)
  * Call this when subscription status changes
  */
 export async function invalidateFeatureAccessCache(userId: number): Promise<void> {
-  const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync'];
+  const features: FeatureType[] = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync', 'ask_in_chat'];
   try {
     await Promise.all([
       ...features.map(f => redis.del(REDIS_KEYS.featureAccess(userId, f))),
@@ -954,6 +956,18 @@ async function computeFeatureAccess(
         if (track) {
           await trackActivity(userId, 'feature_blocked', {
             feature: 'google_sync',
+          });
+        }
+        return { allowed: false, reason: 'upgrade_required' };
+      }
+      return { allowed: true };
+    }
+
+    case 'ask_in_chat': {
+      if (!limits.askInChat) {
+        if (track) {
+          await trackActivity(userId, 'feature_blocked', {
+            feature: 'ask_in_chat',
           });
         }
         return { allowed: false, reason: 'upgrade_required' };

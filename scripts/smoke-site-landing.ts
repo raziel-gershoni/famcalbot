@@ -175,6 +175,22 @@ async function main() {
     }
   });
 
+  await check('G3b asking from another chat (Pro only, owner 2026-11-20): Pro\'s card shows its bullet right after Copy to Google, Free\'s and Basic\'s do not', async () => {
+    const plansHtml = (html: string) => decodeEntities(html.slice(html.indexOf('id="plans"'), html.indexOf('id="founder-title"')));
+    for (const locale of LOCALES) {
+      const tr = nodeRequire('next-intl').createTranslator({ locale, messages: messages[locale] });
+      const ask = tr('landing.plans.bullets.askInChat');
+      const copy = tr('landing.plans.bullets.googleCopy');
+      const html = plansHtml(pages[locale]);
+      const [, free, basic, pro] = html.split(/id="plan-(?:FREE|BASIC|PRO)"/);
+      assert(free && basic && pro, `${locale}: the three cards`);
+      assert(pro.includes(ask) && !free.includes(ask) && !basic.includes(ask), `${locale}: the bullet is on Pro only`);
+      assert(pro.indexOf(copy) !== -1 && pro.indexOf(copy) < pro.indexOf(ask), `${locale}: Pro lists it after Copy to Google`);
+      const after = pro.slice(pro.indexOf(copy) + copy.length);
+      assert(after.slice(0, after.indexOf(ask)).split('</li>').length === 2, `${locale}: it is not the bullet right after Copy to Google: ${after.slice(0, 160)}`);
+    }
+  });
+
   await check('G4 the live parts: the bot\'s card in its own words, the dentist\'s day and 24-hour time; the real Agenda twice (light, dark) with the coming Thursday and Friday, their Hebrew dates, the new event first and the birthday\'s count; the ping with Done and the snoozes; the frame inert', () => {
     for (const locale of LOCALES) {
       const html = pages[locale];

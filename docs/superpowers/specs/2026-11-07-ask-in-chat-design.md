@@ -13,7 +13,7 @@ The owner's decisions (2026-11-06/07, binding):
 3. **No private message to the person's FamCal chat.** Anyone who wants the full schedule can open the app.
 4. **Busy means an event on any calendar the person selected in FamCal**: the same set their summary reads, partner's and shared ones included. Reminders, birthdays and holidays never count. An all-day event makes the whole day busy.
 5. **A caller with no FamCal Telegram account gets one short line with a Start button.** Nobody ever sees anyone else's calendar: the caller is the guest message's sender, matched by `telegramId` only.
-6. **Every plan, Free included.** It counts against no limit. The usual per-person rate limit against abuse applies.
+6. **Every plan, Free included** (superseded 2026-11-20: Pro only, see the amendment at the end). It counts against no limit. The usual per-person rate limit against abuse applies.
 7. **The Privacy Policy and the Terms get a new paragraph** (§9). `LEGAL_UPDATED` moves on ship day.
 8. **Order:** the probe ships first, then this build.
 
@@ -395,3 +395,7 @@ The probe release (b0078d27) logged a real mention by the owner in a private cha
 7. **Direction:** the probe's Hebrew text began with the Latin word "FamCal", and Telegram laid the whole paragraph out left to right (the full stop landed on the wrong side). Every Hebrew answer starts with a right-to-left letter, or with U+200F when its first character is a digit or a Latin letter.
 
 The guest message's own keys were `chat`, `date`, `entities`, `from`, `guest_query_id`, `message_id`, `reply_to_message` and `text`, and the chat type `private`.
+
+## Amendment 2026-11-20: Pro only (owner)
+
+Ruling 6 ("every plan, Free included") is superseded. Ask FamCal in a chat is a Pro feature: `PlanLimits.askInChat` (Free and Basic false, Pro true) behind `checkFeatureAccess(user.id, 'ask_in_chat')`, so the Pro plan, the 14-day trial, early adopters and the admin's reminders grant have it (it rides on `remindersEnabled` like `google_sync`). It is still not counted and has no meter, and the 10-a-minute rate limit stays. The handler asks the plan after the claim, the rate limit and the no-account Start line, and before the zone and the model: a caller without it gets one line (`bot.askInChat.proOnly`, in the caller's own language, since the model has not read the message yet) with a See plans button to the site's `#plans`, and nothing is read. A failing plan check gives "couldn't check" and a `read` report. The Terms' plan lists, the website's Pro card (`landing.plans.bullets.askInChat`) and `LEGAL_UPDATED.terms` (2026-11-20) follow; the Privacy Policy does not change.

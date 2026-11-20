@@ -2,6 +2,9 @@
 // docs/superpowers/specs/2026-11-07-ask-in-chat-design.md §3, §5.4, §8, rulings 5, 9, 11, 13 and 15):
 //   - a caller with no account gets the Start line with the Open FamCal url button, in Telegram's language, and no
 //     model call or calendar read;
+//   - a caller on a plan without ask_in_chat (Pro only, owner 2026-11-20) gets the proOnly line with the See plans button
+//     to the site's #plans in their language, after the Start line and before any zone, model or read; a plan check that
+//     throws gives "couldn't check" with a 'read' report;
 //   - the rate limit gives its line; the same query id twice is answered once;
 //   - the window, the read and the words end in one answer, and one `[ask] user <id>: answered ...` line;
 //   - who the model read is matched against the read's people (spec 2026-11-08-ask-in-chat-people §3.3): a kid asked
@@ -119,8 +122,8 @@ interface World {
 }
 
 /** The fakes, with what the model answers (`reply`), what the reader returns or throws (`busy`) and the limiter's verdict (`allowed`). */
-function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Error; allowed?: boolean } = {}): { w: World; deps: Partial<AskDeps> } {
-  const { reply, busy: busyOver, allowed, ...overrides } = over;
+function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Error; allowed?: boolean; hasAccess?: boolean } = {}): { w: World; deps: Partial<AskDeps> } {
+  const { reply, busy: busyOver, allowed, hasAccess, ...overrides } = over;
   const w: World = { answers: [], prompts: [], reads: [], reports: [], claims: new Set() };
   const busy = busyOver ?? readOf();
   const deps: Partial<AskDeps> = {
@@ -131,6 +134,7 @@ function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Erro
       return true;
     },
     allow: async () => allowed ?? true,
+    access: async () => hasAccess ?? true,
     timezoneOf: async () => IL,
     complete: async prompt => {
       w.prompts.push(prompt);
@@ -188,6 +192,41 @@ async function main() {
     const w = await run(guest(CALLER), RAZ, { allowed: false });
     assert(textOf(w) === en.bot.askInChat.rateLimited && w.prompts.length === 0, show(w));
     assert(logs.includes('[ask] user 1: rate limited'), show(logs));
+  });
+
+  await check('a caller on a plan without ask_in_chat: one proOnly line in their language with the plans button (#plans, their locale); no zone, model or read; the log line', async () => {
+    let zones = 0;
+    const calls: number[] = [];
+    const over = { hasAccess: false, timezoneOf: async () => { zones++; return IL; }, access: async (u: UserConfig) => { calls.push(u.id); return false; } };
+    const w = await run(guest(CALLER), RAZ, over);
+    assert(w.answers.length === 1 && w.prompts.length === 0 && w.reads.length === 0 && zones === 0 && w.reports.length === 0, show({ a: w.answers.length, p: w.prompts.length, r: w.reads.length, zones, rep: w.reports.length }));
+    assert(calls.length === 1 && calls[0] === 1, show(calls));
+    assert(textOf(w) === en.bot.askInChat.proOnly, show(textOf(w)));
+    assert(show(w.answers[0].article.reply_markup) === show({ inline_keyboard: [[{ text: en.bot.askInChat.plansButton, url: 'https://famcal.bot/#plans' }]] }), show(w.answers[0].article));
+    assert(logs.includes('[ask] user 1: not on a plan with ask_in_chat'), show(logs));
+    const hebrew = await run(guest(SISTER), DANA, over);
+    const heText = textOf(hebrew) ?? '';
+    assert(hebrew.answers.length === 1 && heText === he.bot.askInChat.proOnly && /^\p{Script=Hebrew}/u.test(heText), show(heText));
+    assert(show(hebrew.answers[0].article.reply_markup) === show({ inline_keyboard: [[{ text: he.bot.askInChat.plansButton, url: 'https://famcal.bot/he#plans' }]] }), show(hebrew.answers[0].article));
+    const russian = await run(guest(CALLER), { ...RAZ, language: 'ru' } as UserConfig, over);
+    assert(textOf(russian) === ru.bot.askInChat.proOnly && show(russian.answers[0].article.reply_markup) === show({ inline_keyboard: [[{ text: ru.bot.askInChat.plansButton, url: 'https://famcal.bot/ru#plans' }]] }), show(russian.answers[0].article));
+  });
+
+  await check('no account: the Start line and the plan is never asked; rate limited: the rate-limit line and the plan is never asked', async () => {
+    let asked = 0;
+    const access = async () => { asked++; return false; };
+    const noAccount = await run(guest(STRANGER), null, { access });
+    assert(textOf(noAccount) === he.bot.askInChat.noAccount, show(textOf(noAccount)));
+    const limited = await run(guest(CALLER), RAZ, { access, allowed: false });
+    assert(textOf(limited) === en.bot.askInChat.rateLimited, show(textOf(limited)));
+    assert(asked === 0, `the plan was asked ${asked} times`);
+  });
+
+  await check('the plan check throws: "couldn\'t check", a report with stage read, no zone or model call, a log line with the plan code', async () => {
+    const w = await run(guest(CALLER), RAZ, { access: async () => { throw Object.assign(new Error('boom'), { code: 'P1001' }); } });
+    assert(w.answers.length === 1 && textOf(w) === en.bot.askInChat.unavailable && w.prompts.length === 0 && w.reads.length === 0, show(w.answers));
+    assert(w.reports.length === 1 && show(w.reports[0].extra) === show({ user_id: 1, stage: 'read' }), show(w.reports));
+    assert(logs.includes('[ask] user 1: unavailable (plan: P1001)'), show(logs));
   });
 
   await check('the same query delivered twice is answered once; the claim key is a hash, not the id', async () => {

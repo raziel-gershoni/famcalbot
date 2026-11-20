@@ -6,8 +6,8 @@
 //  - N1 the trial: the Trial paragraph's only number is TRIAL_DURATION_DAYS.
 //  - N2 each plan's numbers (Free, Basic, Pro, in that order): its lines hold exactly the limits that aren't unlimited,
 //    text then voice summaries then calendars (an unlimited one is words, never a number).
-//  - N3 each plan's features: its last three lines are reminders, adding events (voice, photo, PDF, a forward) and Copy
-//    to Google, each one "no ..." exactly when the plan table leaves it off.
+//  - N3 each plan's features: its last four lines are reminders, adding events (voice, photo, PDF, a forward), Copy
+//    to Google and asking from another chat (Ask FamCal in a chat, Pro only since 2026-11-20), each one "no ..." exactly when the plan table leaves it off.
 //  - N4 the bot's copy that states the trial (the /terms reply) says TRIAL_DURATION_DAYS, and the trial's end notice
 //    lists the Free plan's limits, in each language (the final review's M-6).
 //  - N5 the refund window is one constant, REFUND_WINDOW_DAYS (src/lib/refund-eligibility.ts): every text that states it
@@ -49,7 +49,7 @@ const numbers = (text: string) => (text.match(/\d+/g) ?? []).map(Number);
 const ORDER: PlanId[] = ['FREE', 'BASIC', 'PRO'];
 /** A feature line the plan leaves off starts with the language's "no". */
 const OFF: Record<Locale, RegExp> = { en: /^no\b/i, he: /^בלי\b|^בלי /, ru: /^без\b|^без /i };
-const FLAGS = ['reminders', 'voiceEvents', 'googleSync'] as const;
+const FLAGS = ['reminders', 'voiceEvents', 'googleSync', 'askInChat'] as const;
 
 /** The Terms' "Plans and payment" blocks in a language: the Trial paragraph and the plan list (an item per plan). */
 function termsPlans(locale: Locale): { trial: string; plans: { text: string; items: string[] }[] } {
@@ -82,7 +82,7 @@ check('N2 each plan\'s numbers in the Terms are the plan table\'s limits that ar
   }
 });
 
-check('N3 each plan\'s features in the Terms (reminders, adding events, Copy to Google) are on or off as the plan table has them, in en, he and ru', () => {
+check('N3 each plan\'s features in the Terms (reminders, adding events, Copy to Google, asking from another chat) are on or off as the plan table has them, in en, he and ru', () => {
   for (const locale of LOCALES) {
     const { plans } = termsPlans(locale);
     ORDER.forEach((id, i) => {

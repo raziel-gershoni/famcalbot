@@ -7,7 +7,7 @@
 // - the calendars: up to N, or unlimited;
 // - a plan that holds everything of the plan below it (Pro over Basic) says so first, then only what it adds;
 // - one bullet for each feature the plan turns on: reminders, adding events by voice (and photo or PDF on
-//   Telegram), Copy to Google.
+//   Telegram), Copy to Google, asking from another chat (Ask FamCal in a chat).
 // Client-safe: it imports only the plan table, which imports nothing.
 
 import { PLAN_CONFIGS, type PlanConfig, type PlanId, type PlanLimits } from '@/src/config/plans';
@@ -33,6 +33,7 @@ const FLAGS = [
   ['reminders', 'reminders'],
   ['voiceEvents', 'voiceEvents'],
   ['googleSync', 'googleCopy'],
+  ['askInChat', 'askInChat'],
 ] as const;
 const COUNTS = ['textSummaries', 'voiceSummaries', 'calendars'] as const;
 
@@ -53,7 +54,7 @@ function covers(plan: PlanLimits, base: PlanLimits): boolean {
   return COUNTS.every((k) => plan[k] >= base[k]) && FLAGS.every(([flag]) => plan[flag] || !base[flag]);
 }
 
-/** A feature the plan table turns on or off: reminders, adding events by voice (photo, PDF, a forward), Copy to Google. */
+/** A feature the plan table turns on or off: reminders, adding events by voice (photo, PDF, a forward), Copy to Google, asking from another chat. */
 export type PlanFlag = (typeof FLAGS)[number][0];
 
 /**

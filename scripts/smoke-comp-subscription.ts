@@ -66,7 +66,7 @@ const ADMIN = 9;
 // ---- Fakes ----
 
 type Row = Record<string, unknown>;
-const FEATURES = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync'];
+const FEATURES = ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync', 'ask_in_chat'];
 
 const redisStore = new Map<string, unknown>();
 let redisDeletes: string[] = [];
@@ -278,7 +278,7 @@ async function main(): Promise<void> {
 
   // ---- Giving ----
 
-  await check('grant over a live trial succeeds: the row becomes PRO / ACTIVE with the comp marked, no period end, the trial\'s own dates untouched; the usage is reset, the grant is tracked, and the six feature-access keys and the downgrade-notified key are deleted', async () => {
+  await check('grant over a live trial succeeds: the row becomes PRO / ACTIVE with the comp marked, no period end, the trial\'s own dates untouched; the usage is reset, the grant is tracked, and the seven feature-access keys and the downgrade-notified key are deleted', async () => {
     reset();
     const before = trial(1, 9);
     const trialEnd = time(before.trialEndsAt);
@@ -435,6 +435,33 @@ async function main(): Promise<void> {
     assert((await service.checkFeatureAccess(2, 'voice_events')).allowed === false, 'the grant is for reminders only');
     assert((await grant(2)).ok && (await revoke(2)).ok, 'a gift and stopping it');
     assert((await service.checkFeatureAccess(2, 'reminders')).allowed === true && (await service.checkFeatureAccess(2, 'voice_events')).allowed === false, 'the feature grant after the gift');
+  });
+
+  await check('ask_in_chat (Ask FamCal in a chat, Pro only, owner 2026-11-20): Free and Basic are blocked (upgrade_required, feature_blocked tracked); Pro, a live trial (Pro) and early access are allowed; the admin\'s reminders grant allows it, the voice-events grant does not', async () => {
+    const ask = async (userId: number) => service.checkFeatureAccess(userId, 'ask_in_chat');
+    reset();
+    expired(1);
+    const free = await ask(1);
+    assert(free.allowed === false && free.reason === 'upgrade_required', `Free: ${JSON.stringify(free)}`);
+    assert(activity.includes('1:feature_blocked'), `Free: the block was not tracked: ${JSON.stringify(activity)}`);
+    activePaid(2);
+    const basic = await ask(2);
+    assert(basic.allowed === false && basic.reason === 'upgrade_required' && activity.includes('2:feature_blocked'), `Basic: ${JSON.stringify(basic)} ${JSON.stringify(activity)}`);
+    seed(3, { plan: 'PRO', status: 'ACTIVE', trialEndsAt: new RealDate(NOW - 20 * DAY), currentPeriodStart: new RealDate(NOW - 10 * DAY), currentPeriodEnd: new RealDate(NOW + 20 * DAY) });
+    assert((await ask(3)).allowed === true, 'Pro');
+    trial(4, 9);
+    assert((await ask(4)).allowed === true, 'a live trial');
+    reset();
+    earlyAdoption = true;
+    expired(5);
+    assert((await ask(5)).allowed === true, 'early access');
+    reset();
+    expired(6);
+    overrides.set(6, { userId: 6, remindersEnabled: true, unlimitedSummaries: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: false });
+    assert((await ask(6)).allowed === true, 'the reminders grant');
+    expired(7);
+    overrides.set(7, { userId: 7, remindersEnabled: null, unlimitedSummaries: null, voiceEventsEnabled: true, unlimitedCalendars: null, earlyAdopter: false });
+    assert((await ask(7)).allowed === false, 'the voice-events grant is not for this');
   });
 
   // ---- Silence ----

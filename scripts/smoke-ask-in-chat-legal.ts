@@ -4,7 +4,8 @@
 //   - G1 each language holds the eight edits of scripts/lib/legal-ask.ts word for word, each in its place, the same
 //     places in en, he and ru, and the entry after each new one is the one that moved on;
 //   - G2 none still says a sentence an edit replaced;
-//   - G3 LEGAL_UPDATED is the day of the change or later, the same day for both texts, and not in the future;
+//   - G3 LEGAL_UPDATED is the day of the change or later (the Terms never older than the Privacy Policy: they moved alone on
+//     2026-11-20, Pro only), and not in the future;
 //   - G4 the Russian edits bind a one-letter word and a dash with a no-break space;
 //   - G5 every edit of the 2026-11-08 people spec (A1, A6, A7, A8) is drafted in that spec's section 6 in all three
 //     languages, word for word, so the owner has seen the wording that is in the messages;
@@ -67,11 +68,12 @@ async function main() {
     }
   });
 
-  await check('G3 LEGAL_UPDATED is the day of the change or later, the same for both texts, not in the future', async () => {
+  await check('G3 LEGAL_UPDATED is the day of the change or later, the Terms never older than the Privacy Policy, not in the future', async () => {
     const { LEGAL_UPDATED } = (await import(path.join(__dirname, '../src/site/legal.ts'))) as { LEGAL_UPDATED: { privacy: string; terms: string } };
     const today = new Date().toISOString().slice(0, 10);
     assert(LEGAL_UPDATED.privacy >= ASK_WORDING_DAY && LEGAL_UPDATED.terms >= ASK_WORDING_DAY, show(LEGAL_UPDATED));
-    assert(LEGAL_UPDATED.privacy === LEGAL_UPDATED.terms, show(LEGAL_UPDATED));
+    // The Terms moved on alone 2026-11-20 (Ask FamCal in a chat is Pro only; the Privacy Policy did not change), so they are never older than the Privacy Policy
+    assert(LEGAL_UPDATED.terms >= LEGAL_UPDATED.privacy, show(LEGAL_UPDATED));
     // One day of slack: the ship day is Israel's, and UTC can still be on the day before.
     assert(LEGAL_UPDATED.privacy <= new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10), `in the future: ${show(LEGAL_UPDATED)}`);
   });

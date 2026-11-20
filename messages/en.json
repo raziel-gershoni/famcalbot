@@ -1503,7 +1503,9 @@
       "tooManyDays": "I can check up to 3 days at a time. Name a day, e.g. @{bot} Friday.",
       "noAccount": "To check your calendar here, start FamCal first.",
       "openButton": "Open FamCal",
-      "rateLimited": "That's a lot of questions at once. Try again in a minute."
+      "rateLimited": "That's a lot of questions at once. Try again in a minute.",
+      "proOnly": "Asking FamCal from another chat comes with the Pro plan.",
+      "plansButton": "See plans"
     },
     "weatherOnly": {
       "title": "Weather",
@@ -2718,7 +2720,8 @@
                   "up to 3 calendars;",
                   "no reminders;",
                   "no adding events by voice, photo, PDF or forwarded message;",
-                  "no Copy to Google."
+                  "no Copy to Google;",
+                  "no asking when you’re free from another chat."
                 ]
               },
               {
@@ -2728,7 +2731,8 @@
                   "up to 5 calendars;",
                   "no reminders;",
                   "no adding events by voice, photo, PDF or forwarded message;",
-                  "no Copy to Google."
+                  "no Copy to Google;",
+                  "no asking when you’re free from another chat."
                 ]
               },
               {
@@ -2737,7 +2741,8 @@
                   "unlimited briefings and calendars;",
                   "reminders;",
                   "adding events by voice, photo, PDF or forwarded message;",
-                  "Copy to Google."
+                  "Copy to Google;",
+                  "asking when you’re free from another chat."
                 ]
               }
             ],
@@ -3015,7 +3020,8 @@
         "everythingInBasic": "Everything in Basic",
         "reminders": "Reminders, on Telegram",
         "voiceEvents": "Adding events by voice, and on Telegram by photo or PDF",
-        "googleCopy": "Copy to Google: your FamCal calendars in Google Calendar too"
+        "googleCopy": "Copy to Google: your FamCal calendars in Google Calendar too",
+        "askInChat": "Asking when you’re free from another chat, on Telegram"
       },
       "allPlans": "Every plan has the calendar, Hebrew dates and holidays, the day’s zmanim, the Shabbat pause and partner sharing.",
       "notes": {

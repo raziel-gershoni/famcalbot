@@ -1342,7 +1342,7 @@ async function fix7() {
     assertSame([row.plan, row.status, row.telegramPaymentChargeId, row.currentPeriodStart, row.currentPeriodEnd, row.cancelAtPeriodEnd, row.compedBy], ['FREE', 'EXPIRED', null, null, null, false, null], 'the subscription after');
     assert(paymentOf('p-dana').refundedAt instanceof Date, `the payment is not marked refunded: ${show(paymentOf('p-dana'))}`);
     assertSame(paymentOf('p-dana-basic').refundedAt, null, 'the earlier payment was marked');
-    for (const feature of ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync']) {
+    for (const feature of ['text_summary', 'voice_summary', 'reminders', 'voice_events', 'calendars', 'google_sync', 'ask_in_chat']) {
       assert(redisDeletes.includes(REDIS_KEYS.featureAccess(2, feature)), `the ${feature} access cache was not cleared: ${show(redisDeletes)}`);
     }
     assertSame(refundedActivity().map(t => [t.userId, t.metadata?.admin_id, t.metadata?.plan, t.metadata?.ended_plan]), [[2, ADMIN_ID, 'PRO', true]], 'the activity row');

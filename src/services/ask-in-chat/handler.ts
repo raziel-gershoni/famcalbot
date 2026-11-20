@@ -8,7 +8,9 @@
  * (spec 2026-11-08-ask-in-chat-people), never an event's name.
  *
  * Steps: read the update; a bare reply from anyone but the answer's caller is not answered (ruling 9); one answer per
- * query (a Redis claim on the query id's hash); the per-person rate limit; no account gets the Start line; one model
+ * query (a Redis claim on the query id's hash); the per-person rate limit; no account gets the Start line; a caller
+ * whose plan has no ask_in_chat gets the Pro-only line with the plans button (Pro only, owner 2026-11-20: the plan is
+ * asked after the Start line and before the zone and the model, so no model call or calendar read); one model
  * call for the window and who was asked; one read through the summaries' reader, split by person; the lines asked
  * for (askedLines); the words.
  *
@@ -21,11 +23,12 @@ import type { UserConfig } from '../../types';
 import { guestAnswerArticle, type GuestAnswerArticle } from '../messaging/telegram-adapter';
 import { getBotMessages } from '../../lib/bot-messages';
 import { DEFAULT_BOT_USERNAME } from '../../lib/gate-links';
+import { pageUrl } from '../../site/seo';
 import { telegramErrorInfo } from '../../lib/telegram-errors';
 import { normalizeLocale, type Locale } from '../../utils/locale';
 import { judgeWindow, type BusyRead } from './busy';
 import { askedLines } from './people';
-import { askAnswerText, noDateText, tooManyDaysText, type AskTexts, type AskWords } from './text';
+import { askAnswerText, leadRtl, noDateText, tooManyDaysText, type AskTexts, type AskWords } from './text';
 import { answersThis, botIdFromToken, readGuestUpdate, type GuestAsk } from './update';
 import { readAskWindow, type CompletionFn } from './window';
 
@@ -44,6 +47,8 @@ export interface AskDeps {
   claimQuery: (key: string) => Promise<boolean>;
   /** The per-person rate limit (10 a minute); false when over it, or when Redis is down (fails closed). */
   allow: (telegramId: number) => Promise<boolean>;
+  /** Whether the caller's plan has ask_in_chat (Pro, the trial, early adopters, the admin's grant): checkFeatureAccess. */
+  access: (user: UserConfig) => Promise<boolean>;
   timezoneOf: (user: UserConfig) => Promise<string>;
   /** The model call; undefined is generateAICompletion. */
   complete?: CompletionFn;
@@ -61,6 +66,7 @@ const defaultDeps: AskDeps = {
     // A bucket of its own, by Telegram id (a caller may have no account): it shares none with the API's `u<id>` buckets
     return (await checkRateLimit(askInChatRateLimiter, `tg${telegramId}`)).success;
   },
+  access: async user => (await (await import('../subscription-service')).checkFeatureAccess(user.id, 'ask_in_chat')).allowed,
   timezoneOf: async user => (await import('../../lib/timezone')).resolveUserTimezone(user),
   readBusy: async (user, days, tz, locale) => (await import('./busy')).readBusyDays(user, days, tz, locale),
   answer: async (guestQueryId, article) => {
@@ -175,6 +181,24 @@ export async function handleGuestMessage(message: unknown, user: UserConfig | nu
     if (!user) {
       console.log(`[ask] telegram ${telegramId}: no account, Start line`);
       await send(words.t.noAccount, { text: words.t.openButton, url: `https://t.me/${botUsername}` });
+      return;
+    }
+
+    let allowed: boolean;
+    try {
+      allowed = await deps.access(user);
+    } catch (error) {
+      console.warn(`[ask] user ${user.id}: unavailable (plan: ${codeOf(error)})`);
+      deps.report(plainError(`ask plan check failed (${codeOf(error)})`), { user_id: user.id, stage: 'read' });
+      await send(words.t.unavailable);
+      return;
+    }
+    if (!allowed) {
+      console.log(`[ask] user ${user.id}: not on a plan with ask_in_chat`);
+      // The site's plans section in the caller's language (the same pageUrl the policy links use; the English home has
+      // no path, so it gets its slash before the fragment)
+      const home = pageUrl(locale, '/').replace(/^(https?:\/\/[^/]+)$/, '$1/');
+      await send(leadRtl(words.t.proOnly, locale), { text: words.t.plansButton, url: `${home}#plans` });
       return;
     }
 

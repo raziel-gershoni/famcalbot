@@ -12,6 +12,7 @@ export interface PlanLimits {
   reminders: boolean;         // feature enabled
   voiceEvents: boolean;       // voice event creation
   googleSync: boolean;        // copy FamCal calendars to Google (google-sync spec §1: the plans reminders are on)
+  askInChat: boolean;         // Ask FamCal in a chat (spec 2026-11-07-ask-in-chat); Pro only (owner 2026-11-20)
 }
 
 export interface PlanConfig {
@@ -36,6 +37,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       reminders: false,
       voiceEvents: false,
       googleSync: false,
+      askInChat: false,
     },
     features: [
       '10 text summaries/month',
@@ -55,6 +57,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       reminders: false,
       voiceEvents: false,
       googleSync: false,
+      askInChat: false,
     },
     features: [
       'Unlimited text summaries',
@@ -74,6 +77,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       reminders: true,
       voiceEvents: true,
       googleSync: true,
+      askInChat: true,
     },
     features: [
       'Unlimited text summaries',
@@ -81,6 +85,7 @@ export const PLAN_CONFIGS: Record<PlanId, PlanConfig> = {
       'Unlimited calendars',
       'Event reminders',
       'Voice event creation',
+      'Ask FamCal from another chat',
     ],
   },
 };
@@ -107,7 +112,7 @@ export function getPlanLimits(planId: PlanId): PlanLimits {
  */
 export function planHasFeature(
   planId: PlanId,
-  feature: keyof Pick<PlanLimits, 'reminders' | 'voiceEvents' | 'googleSync'>
+  feature: keyof Pick<PlanLimits, 'reminders' | 'voiceEvents' | 'googleSync' | 'askInChat'>
 ): boolean {
   return PLAN_CONFIGS[planId].limits[feature];
 }
