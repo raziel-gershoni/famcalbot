@@ -87,8 +87,16 @@ function aliasesOf(...names: Array<string | null | undefined>): string[] {
   return [...out];
 }
 
-/** The title of a kids calendar that names no person, which then stands in for the person's name; '' for any other. */
-const standInTitle = (a: CalendarAssignment): string => (tidy(a.personName) || tidy(a.personEnglishName) ? '' : tidy(a.name));
+/**
+ * The title of a kids calendar that names no person, which then stands in for the person's name; '' for any other. A
+ * title with an @ is no name: Google titles a shared account's calendar with its owner's address, and a calendar saved
+ * with no title carries its id, and the answer would show either in the chat.
+ */
+const standInTitle = (a: CalendarAssignment): string => {
+  if (tidy(a.personName) || tidy(a.personEnglishName)) return '';
+  const title = tidy(a.name);
+  return title.includes('@') ? '' : title;
+};
 
 /** A calendar's person in the answer's language: the English name in an English or Russian answer, when it is set. */
 function personNameOf(a: CalendarAssignment, locale: Locale): string {

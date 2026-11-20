@@ -242,6 +242,20 @@ check('names across alphabets: הילה with the spellings Hila and Хила pic
   same([...askedKeys('Nope', ['Хила', 'Hila'], people).keys!], ['kid:hila'], 'a later spelling');
 });
 
+check('title fallback: a title with an @ (an address, or the id a calendar saved with no title carries) is no name: it is never shown or matched', () => {
+  const people = peopleOf({
+    assignments: [
+      cal('kid.account@gmail.com', ['kids'], { name: 'kid.account@gmail.com' }),
+      cal('xyz@group.calendar.google.com', ['kids'], { name: 'xyz@group.calendar.google.com' }),
+      cal('g1@x', ['kids'], { name: 'Hila' }),
+    ],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'en',
+  });
+  same(rows(people.filter(p => p.kind === 'kid')), [['kid:', null, ['kid.account@gmail.com', 'xyz@group.calendar.google.com']], ['kid:hila', 'Hila', ['g1@x']]], 'the two @ titles share the nameless line');
+  assert(!people.some(p => p.aliases.some(a => a.includes('@'))), 'no @ alias');
+  same(askedKeys('kid.account@gmail.com', [], people), { keys: null, log: 'person-none' }, 'an address matches nothing');
+});
+
 check('the repro: me, partner, Hila and הילה (one line each), family; no nameless Kids line', () => {
   const people = peopleOf({
     assignments: [
