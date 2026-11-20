@@ -194,6 +194,28 @@ async function runChecks(): Promise<void> {
     assert(fromLearning === fromRoot, `@hebcal/learning resolves ${fromLearning}, the home ${fromRoot}`);
   });
 
+  await check('D7 the line\'s markup', () => {
+    const React = nodeRequire('react');
+    const { renderToString } = nodeRequire('react-dom/server');
+    const { NextIntlClientProvider } = nodeRequire('next-intl');
+    const { DafYomiLine } = nodeRequire('../app/[locale]/(app)/dashboard/DafYomiLine') as typeof import('../app/[locale]/(app)/dashboard/DafYomiLine');
+    const render = (lang: string, dayKey: string) =>
+      renderToString(
+        React.createElement(NextIntlClientProvider, { locale: lang, messages: messagesOf(lang) }, React.createElement(DafYomiLine, { day: dayKey }))
+      ) as string;
+    const want: Record<string, string> = { en: 'Daf Yomi · Arachin 3', he: 'דף יומי · ערכין ג׳', ru: 'Даф йоми · Арахин 3' };
+    const problems: string[] = [];
+    for (const lang of ['en', 'he', 'ru']) {
+      const html = render(lang, '2026-11-20');
+      const text = html.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, '').replace(/&#x27;/g, "'");
+      if (text !== want[lang]) problems.push(`${lang}: "${text}", want "${want[lang]}"`);
+      if ((html.match(/<svg/g) ?? []).length !== 1 || !/<svg[^>]*aria-hidden="true"/.test(html)) problems.push(`${lang}: one aria-hidden svg expected`);
+      if (!/class="ch-daf"/.test(html)) problems.push(`${lang}: class ch-daf missing`);
+      if (render(lang, '1923-09-10') !== '') problems.push(`${lang}: 1923-09-10 should render nothing`);
+    }
+    assert(problems.length === 0, problems.join('; '));
+  });
+
   let failed = 0;
   for (const r of results) {
     if (!r.ok) failed++;

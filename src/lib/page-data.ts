@@ -87,6 +87,8 @@ export interface DashboardPageProps {
   lookahead7: boolean;
   /** The calendar setting is Jewish: the home shows the zmanim button. */
   jewish: boolean;
+  /** The Daf Yomi line is on: the calendar is Jewish and the setting is on. */
+  dafYomi: boolean;
   /** Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat. */
   push: PushPageProps | null;
 }
@@ -191,6 +193,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string, sessi
     trial: { ...trialStatus, trialEndsAt: trialStatus.trialEndsAt?.toISOString() ?? null },
     isEarlyAdopter,
     jewish: user.culture === 'jewish',
+    dafYomi: user.culture === 'jewish' && user.dafYomi === true,
     hasTelegram: user.telegramId !== null,
     hasChat: hasChat(user),
     push,

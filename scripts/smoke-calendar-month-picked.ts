@@ -682,6 +682,9 @@ async function main() {
     for (const want of ['src/lib/calendar-view/month.ts', 'src/lib/calendar-view/grid.ts', 'src/lib/calendar-view/hebrew-date.ts', 'src/lib/calendar-view/format.ts', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'app/[locale]/(app)/dashboard/DayList.tsx']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
+    const files = [...loaded].map((p) => p.split(path.sep).join('/'));
+    assert(files.some((p) => p.endsWith('@hebcal/learning/dist/esm/dafYomiBase.js')), 'dafYomiBase.js is not among the loaded modules: the check would be empty');
+    assert(!files.some((p) => p.endsWith('@hebcal/learning/dist/esm/index.js')), 'the main entry of @hebcal/learning is loaded');
     const forbidden = [...loaded].filter((p) =>
       /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
@@ -1165,6 +1168,23 @@ async function main() {
 
   await check('#15 React logged no warning in any render (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
+  });
+
+  await check('#16 the Daf Yomi line under the picked day: right after the day header, before the rows; none without the prop', () => {
+    const want: Record<string, string> = { en: 'Daf Yomi · Bechorot 28', he: 'דף יומי · בכורות כ״ח', ru: 'Даф йоми · Бехорот 28' };
+    const warned = reactWarnings.length;
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const store = octoberStore();
+      const html = render(locale, propsFor(store, picked('2026-10-16'), { dafYomi: true }));
+      const after = html.slice(html.indexOf('id="ch-mp-day"'));
+      const rest = after.slice(after.indexOf('</h3>') + 5);
+      assert(rest.startsWith('<p class="ch-daf">'), `${locale}: the line right after the day header: ${rest.slice(0, 80)}`);
+      const line = rest.slice(0, rest.indexOf('</p>') + 4).replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, '');
+      assert(line === want[locale], `${locale}: "${line}"`);
+      assert(rest.indexOf('class="ch-daf"') < rest.indexOf('<ul'), `${locale}: before the rows`);
+      assert(!render(locale, propsFor(store, picked('2026-10-16'))).includes('ch-daf"'), `${locale}: none without the prop`);
+    }
+    assert(reactWarnings.length === warned, `React warned: ${show(reactWarnings.slice(warned))}`);
   });
 
   let failed = 0;

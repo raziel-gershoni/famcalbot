@@ -59,6 +59,11 @@ export type CalendarHomeProps = {
    */
   jewish?: boolean;
   /**
+   * Show the day's Daf Yomi page under each Agenda day and the Month's picked day. On only when the setting is on and
+   * the calendar is Jewish (page-data decides); absent means off.
+   */
+  dafYomi?: boolean;
+  /**
    * This browser's notifications (6c-2, page-data's push): the "Get reminders on this device" banner and the open's check.
    * Null inside Telegram and with a chat; absent: as before.
    */

@@ -58,6 +58,7 @@ import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { AGENDA_CSS } from './AgendaView';
 import { PlaceholderRows } from './DayList';
+import { DafYomiLine } from './DafYomiLine';
 import { ItemRow, calendarMark, useItemTitle, type ItemRowProps } from './ItemRow';
 import { useDayDrop, useItemDrag, useNavDrop } from './DragSurface';
 
@@ -70,6 +71,8 @@ export interface MonthPickedProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
+  /** Show the picked day's Daf Yomi page under its header (CalendarHomeProps.dafYomi). */
+  dafYomi?: boolean;
   /** canStep(ui, -1, today) and canStep(ui, 1, today): false at the reach's ends (January 1900, December 2100). */
   canPrev: boolean;
   canNext: boolean;
@@ -289,6 +292,7 @@ export function MonthPicked({
   tz,
   weekStart,
   hebrewDates,
+  dafYomi,
   canPrev,
   canNext,
   rows,
@@ -453,6 +457,7 @@ export function MonthPicked({
             </>
           ) : null}
         </h3>
+        {dafYomi ? <DafYomiLine day={selected} /> : null}
         {rows.length > 0 ? (
           <ul className="ch-list" role="list">
             {rows.map((row) => (

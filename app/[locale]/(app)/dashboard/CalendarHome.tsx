@@ -358,7 +358,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish, push } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish, dafYomi, push } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -1248,6 +1248,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       onShowNextWeek={showNextWeek}
       onRetry={retrySource}
       onChooseCalendars={chooseCalendars}
+      dafYomi={dafYomi === true}
     />
   );
   const monthView =
@@ -1257,6 +1258,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         tz={held.facts.tz}
         weekStart={held.facts.weekStart}
         hebrewDates={held.facts.hebrewDates}
+        dafYomi={dafYomi === true}
         months={months}
         browseKey={browseKey}
         getMonth={getMonth}

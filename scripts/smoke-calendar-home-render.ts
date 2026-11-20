@@ -1259,6 +1259,9 @@ async function main() {
     for (const want of ['app/[locale]/(app)/dashboard/DayList.tsx', 'app/[locale]/(app)/dashboard/ItemRow.tsx', 'src/lib/calendar-view/format.ts', 'src/lib/telegram-ui.ts']) {
       assert(loaded.has(path.join(ROOT, want)), `${want} not among the loaded modules: the check would be empty`);
     }
+    const files = [...loaded].map((p) => p.split(path.sep).join('/'));
+    assert(files.some((p) => p.endsWith('@hebcal/learning/dist/esm/dafYomiBase.js')), 'dafYomiBase.js is not among the loaded modules: the check would be empty');
+    assert(!files.some((p) => p.endsWith('@hebcal/learning/dist/esm/index.js')), 'the main entry of @hebcal/learning is loaded');
     const forbidden = [...loaded].filter((p) =>
       /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
@@ -10944,6 +10947,77 @@ async function main() {
     const html = markup(renderAgenda('en', famcalWeek()));
     const days = [...html.matchAll(/<section class="ch-day"[^>]*>(<[a-z0-9]+ class="[^"]*")/g)].map((m) => m[1]);
     assert(days.length > 1 && days.every((first) => first === '<h2 class="ch-day-head"'), `the band opens each day: ${show(days)}`);
+  });
+
+  const DAF_WANT: Record<Locale, Record<string, string>> = {
+    en: { [day(0)]: 'Daf Yomi · Bechorot 27', [day(1)]: 'Daf Yomi · Bechorot 28' },
+    he: { [day(0)]: 'דף יומי · בכורות כ״ז', [day(1)]: 'דף יומי · בכורות כ״ח' },
+    ru: { [day(0)]: 'Даф йоми · Бехорот 27', [day(1)]: 'Даф йоми · Бехорот 28' },
+  };
+  const warnedBeforeDaf = reactWarnings.length;
+
+  await check('#143 the Daf Yomi line in the Agenda: one under each day header, before its list, never on a fold line, none without the prop', () => {
+    for (const locale of LOCALES) {
+      const html = markup(renderAgenda(locale, famcalWeek(), { dafYomi: true }));
+      const days = (html.match(/<section class="ch-day"/g) ?? []).length;
+      assert(days > 1 && (html.match(/class="ch-daf"/g) ?? []).length === days, `${locale}: one ch-daf per day section (${days} days)`);
+      for (const [dayKey, line] of Object.entries(DAF_WANT[locale])) {
+        const sec = html.slice(html.indexOf(`id="ch-day-${dayKey}"`));
+        const afterHead = sec.slice(sec.indexOf('</h2>') + 5);
+        assert(afterHead.startsWith('<p class="ch-daf">'), `${locale} ${dayKey}: the line right after the header: ${afterHead.slice(0, 80)}`);
+        assert(textOf(afterHead.slice(0, afterHead.indexOf('</p>') + 4)) === line, `${locale} ${dayKey}: ${textOf(afterHead.slice(0, afterHead.indexOf('</p>') + 4))}`);
+      }
+      assert(!markup(renderAgenda(locale, famcalWeek())).includes('ch-daf"'), `${locale}: no line without the prop`);
+    }
+    const folds = markup(renderAgenda('en', famcalWeek(), { dafYomi: true }));
+    assert(!/<p class="ch-fold">[^<]*<[^>]*ch-daf/.test(folds), 'no line on a fold');
+  });
+
+  await check('#144 the line\'s CSS: muted, at least 11 px, logical properties, no hover', () => {
+    const rule = (selector: string) => (new RegExp(`(?:^|\\n)${selector.replace(/[.\\[\]]/g, '\\$&')} \\{([^}]*)\\}`).exec(AGENDA_CSS) ?? ['', ''])[1];
+    const daf = rule('.ch-daf');
+    assert(daf !== '', '.ch-daf has a rule in AGENDA_CSS');
+    assert(/color: var\(--ch-muted\);/.test(daf), 'muted');
+    const size = /font-size: (\d+)px;/.exec(daf);
+    assert(size !== null && Number(size[1]) >= 11, `font size: ${size?.[0]}`);
+    assert(/margin-inline: 16px;/.test(daf) && /padding-block:/.test(daf), 'logical spacing');
+    const icon = rule('.ch-daf-icon');
+    assert(/flex: none;/.test(icon), 'the icon does not shrink');
+    const all = daf + icon;
+    assert(!/\b(left|right)\b|margin-(top|bottom|left|right)|padding-(top|bottom|left|right)/.test(all), `physical property: ${all}`);
+    assert(!/:hover/.test(AGENDA_CSS.slice(AGENDA_CSS.indexOf('.ch-daf'), AGENDA_CSS.indexOf('.ch-daf') + 400)), 'no hover');
+  });
+
+  await check('#145 through the container: the Agenda\'s day headers and the Month\'s picked day show the line with the prop, and none without it', async () => {
+    resetHome();
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const on = await mountHome('en', { dafYomi: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      const first = byClass(on.container, 'ch-daf')[0];
+      assert(first && first.textContent === DAF_WANT.en[day(0)], `today's line: ${first?.textContent}`);
+      await openMonth(on);
+      await tap(on, dayButton(on, day(1)));
+      assert(pickedShown(on), 'picked');
+      const lines = byClass(byClass(on.container, 'ch-mp')[0], 'ch-daf');
+      assert(lines.length === 1 && lines[0].textContent === DAF_WANT.en[day(1)], `the picked line: ${show(lines.map((l) => l.textContent))}`);
+    } finally {
+      on.unmount();
+    }
+    resetHome();
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const off = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      assert(byClass(off.container, 'ch-daf').length === 0, 'none in the Agenda without the prop');
+      await openMonth(off);
+      await tap(off, dayButton(off, day(1)));
+      assert(pickedShown(off) && byClass(off.container, 'ch-daf').length === 0, 'none in the picked list without the prop');
+    } finally {
+      off.unmount();
+    }
+  });
+
+  await check('#146 React logged no warning in #143-#145', () => {
+    assert(reactWarnings.length === warnedBeforeDaf, `React warned: ${show(reactWarnings.slice(warnedBeforeDaf, warnedBeforeDaf + 3))}`);
   });
 
   let failed = 0;

@@ -543,6 +543,7 @@ async function main() {
       hasLocation: true,
       lookahead7: false,
       jewish: false,
+      dafYomi: false,
       push: null,
     };
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);
@@ -554,6 +555,13 @@ async function main() {
     const { jewish: _gone, ...older } = DASHBOARD;
     const no = await renderDashboard(older);
     assert(no.html.includes('smoke:CalendarHome') && rendered[0]?.props.jewish === false, `no jewish: ${canon(rendered[0]?.props)}`);
+  });
+
+  await check('#16c the Daf Yomi switch reaches the home: dafYomi true from the page\'s props is true on CalendarHome, and a page without it reads as false', async () => {
+    const yes = await renderDashboard({ ...DASHBOARD, dafYomi: true });
+    assert(yes.html.includes('smoke:CalendarHome') && rendered[0]?.props.dafYomi === true, `dafYomi true: ${canon(rendered[0]?.props)}`);
+    const no = await renderDashboard(DASHBOARD);
+    assert(no.html.includes('smoke:CalendarHome') && rendered[0]?.props.dafYomi === false, `no dafYomi: ${canon(rendered[0]?.props)}`);
   });
 
   await check('#16b the page\'s push (6c-2: the key, the recent sign-in, the devices) reaches the home; a page without it reads as null', async () => {

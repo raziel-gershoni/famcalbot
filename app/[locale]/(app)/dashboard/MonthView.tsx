@@ -51,6 +51,8 @@ export interface MonthViewProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
+  /** Show the picked day's Daf Yomi page (CalendarHomeProps.dafYomi); the browse layout never shows it. */
+  dafYomi?: boolean;
   /** The span's months, oldest first (grid.ts spanMonths), memoized. */
   months: readonly MonthKey[];
   /** Changes when browse must mount again on `start` (Today after a far jump). */
@@ -175,6 +177,7 @@ function MonthLayouts({
   tz,
   weekStart,
   hebrewDates,
+  dafYomi,
   months,
   browseKey,
   getMonth,
@@ -237,6 +240,7 @@ function MonthLayouts({
         tz={tz}
         weekStart={weekStart}
         hebrewDates={hebrewDates}
+        dafYomi={dafYomi}
         canPrev={canStep(shownUi, -1, today)}
         canNext={canStep(shownUi, 1, today)}
         rows={list.rows}

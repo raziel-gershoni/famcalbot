@@ -193,6 +193,20 @@ async function main() {
     assert(show(got) === show(['7:settings_viewed', '7:subscription_page_viewed', '7:webapp_opened']), show(got));
   });
 
+  await check('page data: the Daf Yomi line is on only with the Jewish calendar and the switch on, and Settings shows the stored switch', async () => {
+    const { loadPageData } = await import('../src/lib/page-data');
+    const dafOf = async (over: Record<string, unknown>) => {
+      const page = await loadPageData('dashboard', { ...(USER as object), ...over } as never, 7, 'en');
+      assert(page.kind === 'props', `dashboard: ${page.kind}`);
+      return (page.props as { dafYomi?: unknown }).dafYomi;
+    };
+    assert((await dafOf({ culture: 'jewish', dafYomi: true })) === true, 'jewish + on');
+    assert((await dafOf({ culture: 'default', dafYomi: true })) === false, 'general + on');
+    assert((await dafOf({ culture: 'jewish', dafYomi: false })) === false, 'jewish + off');
+    const settings = await loadPageData('settings', { ...(USER as object), culture: 'default', dafYomi: true } as never, 7, 'en');
+    assert(settings.kind === 'props' && (settings.props as { currentSettings: { dafYomi: unknown } }).currentSettings.dafYomi === true, 'Settings shows the stored switch');
+  });
+
   await check('executeCommand: true when the command ran to the end; an error shown to the user is one user_error_shown row, with no row when no user id is given', async () => {
     activity = [];
     const { executeCommand } = await import('../src/services/telegram/command-pipeline');

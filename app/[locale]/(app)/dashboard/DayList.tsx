@@ -13,12 +13,15 @@ import type { AgendaDay, AgendaEntry, AgendaRow } from '@/src/lib/calendar-view/
 import { formatDayRange, formatDayShort } from '@/src/lib/calendar-view/format';
 import { hebrewDayLabel } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, useHolidays, type HolidayDays } from '@/src/lib/calendar-view/holidays-client';
+import { DafYomiLine } from './DafYomiLine';
 import { ItemRow } from './ItemRow';
 
 export interface DayListProps {
   entries: AgendaEntry[];
   tz: string;
   hebrewDates: boolean;
+  /** Show the day's Daf Yomi page under each day header (the Jewish calendar with the switch on). */
+  dafYomi?: boolean;
   onOpen: (row: AgendaRow) => void;
 }
 
@@ -70,12 +73,13 @@ function DayHeader({ day, hebrew }: { day: AgendaDay; hebrew: HebrewDates }) {
   );
 }
 
-function Day({ day, tz, hebrew, onOpen }: { day: AgendaDay; tz: string; hebrew: HebrewDates; onOpen: DayListProps['onOpen'] }) {
+function Day({ day, tz, hebrew, dafYomi, onOpen }: { day: AgendaDay; tz: string; hebrew: HebrewDates; dafYomi: boolean; onOpen: DayListProps['onOpen'] }) {
   const t = useTranslations('calendarHome');
   const loading = day.status === 'loading';
   return (
     <section className="ch-day" aria-labelledby={`ch-day-${day.date}`} aria-busy={loading || undefined}>
       <DayHeader day={day} hebrew={hebrew} />
+      {dafYomi ? <DafYomiLine day={day.date} /> : null}
       {day.rows.length > 0 ? (
         <ul className="ch-list" role="list">
           {day.rows.map((row) => (
@@ -89,7 +93,7 @@ function Day({ day, tz, hebrew, onOpen }: { day: AgendaDay; tz: string; hebrew: 
   );
 }
 
-export function DayList({ entries, tz, hebrewDates, onOpen }: DayListProps) {
+export function DayList({ entries, tz, hebrewDates, dafYomi, onOpen }: DayListProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // calendarHome.hebrewMonthGenitive: 14 names in D2's HEBREW_MONTHS order; only Russian reads them.
@@ -109,7 +113,7 @@ export function DayList({ entries, tz, hebrewDates, onOpen }: DayListProps) {
             {t('agenda.nothingPlannedRange', { range: formatDayRange(entry.first, entry.last, locale) })}
           </p>
         ) : (
-          <Day key={entry.date} day={entry} tz={tz} hebrew={hebrew} onOpen={onOpen} />
+          <Day key={entry.date} day={entry} tz={tz} hebrew={hebrew} dafYomi={dafYomi === true} onOpen={onOpen} />
         ),
       )}
     </div>

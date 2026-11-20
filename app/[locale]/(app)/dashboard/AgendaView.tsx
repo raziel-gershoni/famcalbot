@@ -45,6 +45,8 @@ export interface AgendaViewProps {
   onRetry: (source: SourceName) => void;
   /** "Choose again" (calendars gone or unavailable): the existing select-calendars page. */
   onChooseCalendars: () => void;
+  /** Show the day's Daf Yomi page under each day header (CalendarHomeProps.dafYomi). */
+  dafYomi?: boolean;
 }
 
 function StateIcon() {
@@ -131,7 +133,7 @@ function AgendaLoading() {
   );
 }
 
-export function AgendaView({ agenda, hints, selected, onSelect, sheetActions, onShowNextWeek, onRetry, onChooseCalendars }: AgendaViewProps) {
+export function AgendaView({ agenda, hints, selected, onSelect, sheetActions, onShowNextWeek, onRetry, onChooseCalendars, dafYomi }: AgendaViewProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const openSheet = useCallback((row: AgendaRow) => onSelect(row), [onSelect]);
@@ -152,7 +154,7 @@ export function AgendaView({ agenda, hints, selected, onSelect, sheetActions, on
           {agenda.empty ? (
             <EmptyState hints={hints} />
           ) : (
-            <DayList entries={agenda.entries} tz={agenda.tz} hebrewDates={agenda.hebrewDates} onOpen={openSheet} />
+            <DayList entries={agenda.entries} tz={agenda.tz} hebrewDates={agenda.hebrewDates} dafYomi={dafYomi} onOpen={openSheet} />
           )}
           <button type="button" className="ch-btn ch-more" onClick={onShowNextWeek}>
             {t('agenda.showNextWeek')}
@@ -441,6 +443,19 @@ export const AGENDA_CSS = `
   line-height: 18px;
   background: var(--ch-surface);
   color: var(--ch-text);
+}
+.ch-daf {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline: 16px;
+  padding-block: 6px 2px;
+  color: var(--ch-muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+.ch-daf-icon {
+  flex: none;
 }
 .ch-nothing {
   margin: 0 16px;
