@@ -158,6 +158,7 @@ const settings = (over: Partial<Omit<SettingsValues, 'defaultReminderMinutes'>> 
   voiceInputEnabled: false,
   pauseOnShabbat: true,
   zmanimCommunity: 'sephardi',
+  dafYomi: false,
   ...over,
 });
 const subscription = (over: Row = {}) => ({ effectivePlan: 'pro', textSummariesUsed: 3, textSummariesLimit: 10, voiceSummariesUsed: 1, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false, ...over });
@@ -400,6 +401,7 @@ async function main() {
       voiceInputEnabled: true,
       pauseOnShabbat: true,
       zmanimCommunity: 'ashkenazi',
+      dafYomi: true,
     };
     const wire = (value: unknown) => JSON.parse(JSON.stringify(value));
     assert(
@@ -427,6 +429,7 @@ async function main() {
           voiceInputEnabled: true,
           pauseOnShabbat: true,
           zmanimCommunity: 'ashkenazi',
+          dafYomi: true,
           initData: 'init-data',
         }),
       `alerts on: ${show(wire(buildSettingsBody(values, true, 'init-data')))}`,
@@ -456,6 +459,7 @@ async function main() {
           voiceInputEnabled: true,
           pauseOnShabbat: true,
           zmanimCommunity: 'ashkenazi',
+          dafYomi: true,
         }),
       `alerts off: ${show(wire(buildSettingsBody(off, false, undefined)))}`,
     );
@@ -494,6 +498,7 @@ async function main() {
             voiceInputEnabled: false,
             pauseOnShabbat: true,
             zmanimCommunity: 'sephardi',
+            dafYomi: false,
             initData: opened.tg?.initData,
           }),
         `the body: ${String(call.init.body)}`,
@@ -971,6 +976,50 @@ async function main() {
     } finally {
       close(off);
     }
+  });
+
+  await check('S15 the Daf Yomi switch (Task 2): Jewish calendar only, after the pause switch and before the platform row, in en, he and ru; a tap and Save post it; General hides it and keeps the value; an account with no chat sees it too', async () => {
+    for (const locale of LOCALES) {
+      const html = renderToString(tree(locale, propsOf({}, { language: locale })));
+      const text = textOf(html);
+      const label = word(locale, 'dafYomi.label');
+      assert(text.includes(label) && text.includes(word(locale, 'dafYomi.hint')), `${locale}: the label and the hint`);
+      const at = (k: string) => text.indexOf(word(locale, k));
+      assert(at('culture.label') < at('pause.label') && at('pause.label') < text.indexOf(label) && text.indexOf(label) < at('platform.label'), `${locale}: the switch sits after the pause and before the platform`);
+    }
+    const label = word('en', 'dafYomi.label');
+    const checked = (m: Mounted) => switchOf(m, label)?.getAttribute('aria-checked');
+    reset();
+    const a = open('en', propsOf());
+    try {
+      assert(checked(a.m) === 'false', 'off as saved');
+      a.m.click(switchOf(a.m, label) as FakeElement);
+      assert(checked(a.m) === 'true' && !saveButton(a.m)?.hasAttribute('disabled'), 'a tap turns it on and Save comes on');
+      a.m.click(saveButton(a.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(posts().length === 1 && body.dafYomi === true && body.culture === 'jewish', `the request: ${show(body)}`);
+    } finally {
+      close(a);
+    }
+    reset();
+    const b = open('en', propsOf({}, { culture: 'default', dafYomi: true }));
+    try {
+      const culture = () => selectOf(b.m, word('en', 'culture.label')) as FakeElement;
+      assert(switchOf(b.m, label) === undefined, 'General: no switch');
+      b.m.change(culture(), 'jewish');
+      assert(checked(b.m) === 'true', 'Jewish: shown, on as stored');
+      b.m.change(culture(), 'default');
+      assert(switchOf(b.m, label) === undefined, 'General again: hidden');
+      b.m.click(switchOf(b.m, word('en', 'weather.label')) as FakeElement);
+      b.m.click(saveButton(b.m) as FakeElement);
+      await settle();
+      const body = JSON.parse(String(posts()[0].init.body));
+      assert(body.dafYomi === true && body.culture === 'default', `kept under General: ${show(body)}`);
+    } finally {
+      close(b);
+    }
+    assert(renderToString(tree('en', propsOf({ hasChat: false }))).includes(label), 'shown to an account with no chat and no push device');
   });
 
   await check('S12 the zmanim community (Task 3): a "Zmanim" row in the Language and place card right under Location, with Sephardi (as in Zmanei Yosef), Ashkenazi and Chabad in the person\'s language, the saved one selected; a pick enables Save and is posted; it does not touch the pause switch or the days', async () => {

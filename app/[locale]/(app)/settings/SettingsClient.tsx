@@ -29,6 +29,8 @@
 //   to and the Shabbat and Yom Tov windows are counted at that place, by that community's set.
 // - The pause switch ("Pause messages on Shabbat and Yom Tov") sits in the first card under the calendar: choosing a
 //   calendar sets it as it sets the day chips (Jewish on, General off), and it is the person's to change after.
+// - The Daf Yomi switch sits right under the pause, only while the Jewish calendar is picked, for every account; General hides
+//   it and the stored value stays (the home's line, release 1 of spec 2026-11-19-responsive-home §6).
 // - The location is a sheet (LocationSheet): a changed place is checked after the sheet closes, and Save
 //   waits for the check and refuses a place that is not one.
 // - What the alerts rows show follows the saved platform, not the one picked in the list: the list
@@ -98,6 +100,7 @@ interface SettingsClientProps {
     voiceInputEnabled: boolean;
     pauseOnShabbat: boolean;
     zmanimCommunity: string;
+    dafYomi: boolean;
   };
   /**
    * Where the person's week starts (0 = Sunday ... 6 = Saturday), worked out on the server: the day chips
@@ -338,6 +341,8 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           />
           {/* Under the calendar, whose choice sets it, and in the place card: the pause is counted at the place (sunset to nightfall). It pauses chat messages and notifications: none to pause with neither. */}
           {chatOnly ? null : <SwitchRow label={t('pause.label')} hint={t('pause.hint')} checked={form.pauseOnShabbat} onChange={(on) => set('pauseOnShabbat', on)} />}
+          {/* The home's Daf Yomi line, not a message: every account sees it, while the Jewish calendar is picked. The stored value stays when General is picked. */}
+          {form.culture === 'jewish' ? <SwitchRow label={t('dafYomi.label')} hint={t('dafYomi.hint')} checked={form.dafYomi} onChange={(on) => set('dafYomi', on)} /> : null}
           {bothChannels ? (
             <ValueRow
               label={t('platform.label')}

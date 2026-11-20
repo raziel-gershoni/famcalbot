@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, initData } = body;
+    const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, dafYomi, initData } = body;
     // "Voice style" (Settings, under the voice switch): the two-host show or the calm single voice
     const { voiceFormat } = body;
 
@@ -124,6 +124,8 @@ export async function POST(request: NextRequest) {
       voiceInputEnabled: typeof voiceInputEnabled === 'boolean' ? voiceInputEnabled : undefined,
       // The Shabbat and Yom Tov pause (src/services/zmanim/pause.ts); the reminder cache below carries it to the 5-minute run
       pauseOnShabbat: typeof pauseOnShabbat === 'boolean' ? pauseOnShabbat : undefined,
+      // The home reads it at page load; nothing caches it.
+      dafYomi: typeof dafYomi === 'boolean' ? dafYomi : undefined,
       // Whose zmanim: a reminder by zman and the pause windows are counted by this community's set
       zmanimCommunity: isCommunity(zmanimCommunity) ? zmanimCommunity : undefined
     };

@@ -952,6 +952,15 @@ async function main() {
     assert(cached?.some(c => c.id === 5), `cache ${show(cached)}`);
   });
 
+  await check('H1b the settings save stores the Daf Yomi switch: a boolean sets it, anything else and a culture change leave it', async () => {
+    seed();
+    const post = async (body: Row) => { const r = await route('app/api/settings/route.ts', 'POST', 5, body); assert(r.status === 200, show(r)); return userRow(5).dafYomi; };
+    eq(await post({ dafYomi: true }), true, 'true');
+    eq(await post({ dafYomi: 'yes' }), true, 'a string leaves it');
+    eq(await post({ culture: 'default' }), true, 'a culture change leaves it');
+    eq(await post({ dafYomi: false }), false, 'false');
+  });
+
   await check('H2 the editor info is the union: FamCal kinds, partner and calendars plus the writable Google rows; main follows defaultCalendarFor', async () => {
     seed();
     Object.assign(userRow(1), { googleRefreshToken: TOKENS.a, calendarAssignments: [gcal('nava@gmail.com', ['primary', 'yours'], 'Nava G')] });

@@ -41,6 +41,8 @@ export interface SettingsValues {
   pauseOnShabbat: boolean;
   /** Whose zmanim the person follows: 'sephardi' | 'ashkenazi' | 'chabad' (src/services/zmanim/sets.ts COMMUNITIES). */
   zmanimCommunity: string;
+  /** The Daf Yomi line on the home: shown in Settings only while the Jewish calendar is picked, and kept when another is. */
+  dafYomi: boolean;
 }
 
 /** The values a page's props carry (the server's saved ones): a user with no alert lead yet starts the list on 15. */
@@ -74,6 +76,7 @@ export function buildSettingsBody(values: SettingsValues, nativeRemindersSupport
     voiceInputEnabled: values.voiceInputEnabled,
     pauseOnShabbat: values.pauseOnShabbat,
     zmanimCommunity: values.zmanimCommunity,
+    dafYomi: values.dafYomi,
     initData,
   };
 }
@@ -104,7 +107,8 @@ export function sameSettings(a: SettingsValues, b: SettingsValues): boolean {
     a.pickupRemindersEnabled === b.pickupRemindersEnabled &&
     a.voiceInputEnabled === b.voiceInputEnabled &&
     a.pauseOnShabbat === b.pauseOnShabbat &&
-    a.zmanimCommunity === b.zmanimCommunity
+    a.zmanimCommunity === b.zmanimCommunity &&
+    a.dafYomi === b.dafYomi
   );
 }
 

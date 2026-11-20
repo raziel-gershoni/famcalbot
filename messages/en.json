@@ -904,6 +904,10 @@
       "label": "Pause messages on Shabbat and Yom Tov",
       "hint": "Nothing is sent from sunset until nightfall"
     },
+    "dafYomi": {
+      "label": "Daf Yomi",
+      "hint": "Shows the day's page of Talmud under each date"
+    },
     "zmanim": {
       "label": "Zmanim",
       "hint": "How halachic times are counted",

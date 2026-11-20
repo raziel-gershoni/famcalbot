@@ -302,7 +302,8 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
       pickupRemindersEnabled: user.pickupRemindersEnabled ?? true,
       voiceInputEnabled: user.voiceInputEnabled,
       pauseOnShabbat: user.pauseOnShabbat,
-      zmanimCommunity: user.zmanimCommunity
+      zmanimCommunity: user.zmanimCommunity,
+      dafYomi: user.dafYomi
     },
     weekStart,
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
