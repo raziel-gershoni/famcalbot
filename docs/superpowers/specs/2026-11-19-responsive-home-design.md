@@ -145,15 +145,15 @@ One sizing rule, given the square's measured height `h` and width `w` in CSS px:
   - English: "Daf Yomi · Berachot 12".
   - Russian: "Даф йоми · Брахот 12".
   - We write "Daf Yomi" ourselves in each language (i18n keys).
-  - Tractate names come from hebcal: Hebrew, and English as hebcal spells them. For Russian, the builder checks all of the cycle's tractates in `@hebcal/locales/ru`. It keeps a small override table for any that are missing or translated instead of named: `Berachot` comes out as "Благословения" and should read "Брахот". The table is reviewed in Russian by the owner at build.
-  - Hebrew needs two overrides too (checked 2026-11-20): `@hebcal/learning`'s own Hebrew table lacks `Shabbat` and `Rosh Hashana`, which only `@hebcal/core`'s Hebrew has, and the browser doesn't load core. Without an override they would show in English: "שבת" and "ראש השנה".
+  - Tractate names come from FamCal's own table, in all three languages (owner, 2026-11-20: "small fixed lists that we can manage locally"), never from hebcal's translation files. hebcal only says which tractate and page (`DafPage.getName()`, `getBlatt()`); its English name is the table's key. The table's wording is the owner's review of the translation list (2026-11-20).
+    - Why not hebcal's: its Russian translates four names into words ("Благословения" for Berachot, "Яйцо" for Beitzah, "Пост" for Taanit, "Свиток" for Megillah), and in the browser its Hebrew lacks Shabbat and Rosh Hashana (they live only in `@hebcal/core`, which the browser doesn't load), so they would show in English.
   - hebcal's `DafPage.render('he')` gives "ברכות דף י״ב". The line formats the name and the gematriya itself, so "דף" is not said twice.
 - **Where it shows:**
   - under the day header of the selected day's list (today's picked list in release 1, the split list and the wide panel from release 2);
   - under each Agenda day header. Empty days that fold into one line ("Nothing planned Sat 17 – Sun 18") stay folded, without a daf (my call: the line is quiet and doesn't unfold days).
   - Nowhere else (non-goals).
   - It is muted, like the holiday line, and never pushes a row's actions.
-- **Tests:** the day-to-daf function on known dates, including a cycle boundary; the setting's gate (shown only when Jewish, and the stored value kept across a culture switch); the Russian override table covering every tractate name hebcal can return.
+- **Tests:** the day-to-daf function on known dates, including a cycle boundary; the setting's gate (shown only when Jewish, and the stored value kept across a culture switch); the name table covering, in all three languages, every tractate name hebcal can return (its 40 `bavli.json` keys).
 
 ## 7. Release 3: Hebrew months
 
@@ -170,7 +170,7 @@ One sizing rule, given the square's measured height `h` and width `w` in CSS px:
 
 ## 8. Copy and i18n
 
-All new copy goes in `messages/{he,en,ru}.json` under the home's existing namespaces: the handle's labels, the Daf Yomi label and setting, the Months row, and the Russian tractate overrides (as data, not copy). Hebrew is gender-neutral, Russian formal and natural. Lucide icons only.
+All new copy goes in `messages/{he,en,ru}.json` under the home's existing namespaces: the handle's labels, the Daf Yomi label and setting, the Months row, and the tractate names (FamCal's own he/en/ru table, §6). The Russian nominative Hebrew month names for release 3 are FamCal's own list too. Hebrew is gender-neutral, Russian formal and natural. Lucide icons only.
 
 ## 9. Accepted limitations
 
