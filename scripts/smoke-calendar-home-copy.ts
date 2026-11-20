@@ -28,6 +28,7 @@ import os from 'os';
 import path from 'path';
 import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
+import { TRACTATE_NAMES } from '@hebcal/learning/dafYomiBase';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -487,7 +488,11 @@ const KEYS: Record<string, readonly string[]> = {
   // The jump to a date (owner 2026-11-17): the month name's button and the sheet's name
   'month.jumpLabel': ['month'],
   'month.jumpSheet': [],
+  // Daf Yomi (release 1): the line, and one tractate name per hebcal English name (added below)
+  'dafYomi.line': ['tractate', 'page'],
 };
+// The tractate table follows hebcal's own list, so #2 (exact keys) and #3 (each formats) cover all 40.
+for (const name of TRACTATE_NAMES) KEYS[`dafYomi.tractates.${name}`] = [];
 /** Keys whose value is an array (read with t.raw). */
 const ARRAY_KEYS = ['hebrewMonthGenitive', 'hebrewMonthShort'];
 
@@ -498,6 +503,8 @@ const SAMPLES: Record<string, string | number> = {
   calendar: 'Family',
   when: '02:00',
   time: '13:45',
+  tractate: 'Arachin',
+  page: '3',
   date: '12 Oct',
   range: 'Sat 17 – Sun 18 Oct',
   zone: 'Asia/Jerusalem',

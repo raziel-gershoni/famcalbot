@@ -29,6 +29,7 @@
     "@googleapis/calendar": "^9.8.0",
     "@hebcal/core": "^6.16.0",
     "@hebcal/hdate": "^0.23.1",
+    "@hebcal/learning": "6.13.1",
     "@hebcal/locales": "^6.5.3",
     "@ncdai/react-wheel-picker": "1.2.3",
     "@openmeteo/file-reader": "0.0.21",
