@@ -155,6 +155,17 @@ export function startScheduler(): void {
     }
   });
 
+  // Memory line — every 15 minutes, to find what fills the heap (src/services/memory-log.ts). No database or network.
+  import('../services/memory-log')
+    .then(({ installMemoryWatch, logMemory }) => {
+      installMemoryWatch();
+      cron.schedule('*/15 * * * *', logMemory);
+    })
+    .catch(error => {
+      console.error('[Scheduler] Memory line failed to start:', error);
+      captureError(error, 'memory-log-start');
+    });
+
   console.log('[Scheduler] Cron jobs registered:');
   console.log('  */5 * * * *  Event reminders (FamCal gated: reads the DB only when an alert may be due or after a write)');
   console.log('  * * * * *    Native reminders (gated: reads the DB only when one may be due)');
@@ -165,6 +176,7 @@ export function startScheduler(): void {
   console.log('  0 3 * * *    Health check (UTC 3:00 = Israel 6:00 in summer, 5:00 in winter)');
   console.log('  30 3 * * *   Activity purge (UserActivity rows older than 90 days, in batches)');
   console.log('  */10 * * * * Key sweep (re-encrypts stored Google tokens after a key rotation; idle in the first 10 min)');
+  console.log('  */15 * * * * Memory line (heap after full GCs, heap spaces, handles, cache sizes; no DB)');
 }
 
 /**
