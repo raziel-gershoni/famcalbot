@@ -768,7 +768,7 @@ async function main() {
   const { REDIS_KEYS } = await load('src/config/redis-keys.ts');
   const show = (value: unknown) => JSON.stringify(value);
   /** The dashboard's props on the wire: the calendar home's, nothing of the old dashboard's. */
-  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'hasTelegram', 'hasChat', 'lookahead7', 'jewish', 'push'];
+  const DASHBOARD_KEYS = ['user', 'locale', 'sources', 'googleConnected', 'googleState', 'trial', 'isEarlyAdopter', 'hints', 'hasTelegram', 'hasChat', 'lookahead7', 'jewish', 'dafYomi', 'push'];
   const keysOf = (value: Row) => Object.keys(value).sort().join(',');
   const hintsOf = (props: Row) => `reminders=${props.hints?.reminders} voiceEvents=${props.hints?.voiceEvents}`;
   /** A feature check's answer in the 24 h cache checkFeatureAccess reads first. */

@@ -631,7 +631,7 @@ const titleOf = (m: Mounted) => one(m.container, 'ch-mp-month').textContent;
  * MonthPicked as MonthView (E8) holds it: the UI in state, moved with month.ts's
  * helpers; `seen` records each callback.
  */
-function PickedHost({ store, start, seen }: { store: CalendarStore; start: MonthUi; seen: string[] }) {
+function PickedHost({ store, start, seen, dafYomi }: { store: CalendarStore; start: MonthUi; seen: string[]; dafYomi?: boolean }) {
   const [ui, setUi] = React.useState<MonthUi>(start);
   const today = store.facts?.today ?? TODAY;
   return createElement(
@@ -657,6 +657,7 @@ function PickedHost({ store, start, seen }: { store: CalendarStore; start: Month
       onOpenItem: (row) => void seen.push(`open ${row.item.key}`),
       onRetryMonth: (month, source) => void seen.push(`retry ${month} ${source}`),
       onChooseCalendars: () => void seen.push('choose'),
+      ...(dafYomi ? { dafYomi } : {}),
     }),
   );
 }
@@ -1185,6 +1186,43 @@ async function main() {
       assert(!render(locale, propsFor(store, picked('2026-10-16'))).includes('ch-daf"'), `${locale}: none without the prop`);
     }
     assert(reactWarnings.length === warned, `React warned: ${show(reactWarnings.slice(warned))}`);
+  });
+
+  await check('#17 a short screen with the Daf Yomi line (Ruling 6): the header block ends at the line\'s bottom, so entering picked scrolls that much further and the day\'s first row still shows; without the line, as #13', () => {
+    installWindow();
+    const proto = FakeElement.prototype as unknown as Row;
+    const saved = { innerHeight: fakeWindow.innerHeight, scrollY: fakeWindow.scrollY, getComputedStyle: fakeWindow.getComputedStyle };
+    // The layout at 247 (two banners), the day's header ending at 800 (37 px tall), the Daf Yomi line 26 px under it.
+    const DAF_PX = 26;
+    proto.getBoundingClientRect = function (this: FakeElement) {
+      const y = Number(fakeWindow.scrollY) || 0;
+      const classes = this.className.split(' ');
+      const [top, height] = classes.includes('ch-mp') ? [247, 0] : this.getAttribute('id') === 'ch-mp-day' ? [650 - 37, 37] : classes.includes('ch-daf') ? [650, DAF_PX] : [0, 0];
+      return { top: top - y, bottom: top - y + height, left: 0, right: 0, width: 0, height, x: 0, y: top - y };
+    };
+    fakeWindow.getComputedStyle = () => ({ scrollMarginBlockStart: '0px', scrollMarginTop: '0px' });
+    try {
+      const run = (dafYomi: boolean) => {
+        fakeWindow.innerHeight = 560;
+        fakeWindow.scrollY = 0;
+        pageLog.length = 0;
+        const m = mount(inHome('en', createElement(PickedHost, { store: octoberStore(), start: picked('2026-10-16'), seen: [], dafYomi })));
+        try {
+          return pageLog.filter((l) => l.startsWith('scrollTo'));
+        } finally {
+          m.unmount();
+        }
+      };
+      const plain = pickedScrollTop(247, 650, 560);
+      const withLine = pickedScrollTop(247, 650 + DAF_PX, 560);
+      assert(withLine === plain + DAF_PX && withLine < 247, `the arithmetic: ${plain} then ${withLine}`);
+      assert(show(run(false)) === show([`scrollTo [0,${plain}]`]), `without the line: ${show(pageLog)}`);
+      assert(show(run(true)) === show([`scrollTo [0,${withLine}]`]), `with the line: ${show(pageLog)}`);
+    } finally {
+      delete proto.getBoundingClientRect;
+      Object.assign(fakeWindow, saved);
+      if (!saved.getComputedStyle) delete fakeWindow.getComputedStyle;
+    }
   });
 
   let failed = 0;

@@ -265,8 +265,9 @@ type Refocus = 'today' | 'prev' | 'next' | null;
 /**
  * Where entering picked scrolls the page (Ruling 6, pickedScrollTop): from where the
  * layout starts, less its scroll margin (the safe areas it stops under), and where the
- * day's header ends, in the document, and the screen's height. The top (0) wherever the
- * page can't be measured.
+ * day's header ends, in the document, and the screen's height. The header's end is the
+ * Daf Yomi line's bottom when that line shows under it, so the first row still fits. The
+ * top (0) wherever the page can't be measured.
  */
 function enterTop(layout: HTMLElement | null, dayHead: HTMLElement | null): number {
   try {
@@ -313,12 +314,13 @@ export function MonthPicked({
   const selectedCell = useRef<HTMLButtonElement | null>(null);
   const layout = useRef<HTMLElement | null>(null);
   const dayHead = useRef<HTMLHeadingElement | null>(null);
+  const dafLine = useRef<HTMLParagraphElement | null>(null);
   const refocus = useRef<Refocus>(null);
 
   // Entering picked (Ruling 6, spec §7.7): the page to the top (or, on a short screen, as
   // far down as shows the day's header and first row), focus on the selected day.
   useEffect(() => {
-    window.scrollTo(0, enterTop(layout.current, dayHead.current));
+    window.scrollTo(0, enterTop(layout.current, dafLine.current ?? dayHead.current));
     selectedCell.current?.focus({ preventScroll: true });
   }, []);
 
@@ -457,7 +459,7 @@ export function MonthPicked({
             </>
           ) : null}
         </h3>
-        {dafYomi ? <DafYomiLine day={selected} /> : null}
+        {dafYomi ? <DafYomiLine day={selected} ref={dafLine} /> : null}
         {rows.length > 0 ? (
           <ul className="ch-list" role="list">
             {rows.map((row) => (
