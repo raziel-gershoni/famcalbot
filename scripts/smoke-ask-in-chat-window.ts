@@ -196,7 +196,7 @@ async function main() {
     assert(who(null) === null && parseAskWho(answer({ date: '2026-11-13' })) === null, 'null and missing');
     for (const kind of ['me', 'partner', 'kids', 'family', 'everyone'] as const) assert(show(who({ kind, name: null })) === show({ kind }), kind);
     assert(show(who({ kind: 'kids', name: 'Maya' })) === show({ kind: 'kids' }), 'a name on a group');
-    assert(show(who({ kind: 'person', name: '  מאיה ' })) === show({ kind: 'person', name: 'מאיה' }), 'person');
+    assert(show(who({ kind: 'person', name: '  מאיה ' })) === show({ kind: 'person', name: 'מאיה', spellings: [] }), 'person');
   });
 
   await check('who: a bad kind, a person with no name or one over 60 characters, or not an object is an AskWindowError naming the field, never the value', () => {
@@ -221,13 +221,33 @@ async function main() {
       tz: 'Asia/Jerusalem', language: 'en', now: NOW,
       complete: async (p, _model, options) => { prompts.push(p); schema = options?.responseJsonSchema; return fakeCompletion(replies[prompts.length - 1]); },
     });
-    assert(show(result.who) === show({ kind: 'person', name: 'Maya' }) && result.attempts === 2, show(result));
+    assert(show(result.who) === show({ kind: 'person', name: 'Maya', spellings: [] }) && result.attempts === 2, show(result));
     assert(prompts[1].includes('Your previous answer was rejected: "who.kind" is not'), 'the reason in the second prompt');
     const s = schema as { required: string[]; properties: Record<string, unknown> };
     assert(s.required.includes('who') && 'who' in s.properties, 'the schema');
+    const whoObject = (s.properties.who as { anyOf: Array<{ required?: string[]; properties?: Record<string, unknown> }> }).anyOf.find(o => o.properties);
+    assert(whoObject!.required!.includes('spellings') && 'spellings' in whoObject!.properties!, 'who.spellings is required');
+    assert(prompts[0].includes('"spellings" is the same name written in the other two of Hebrew, Latin and Cyrillic letters') && prompts[0].includes('"הילה" -> ["Hila", "Хила"]') && prompts[0].includes('"spellings": [string]'), 'the spellings rule');
     assert(prompts[0].includes('"who" is whose time') && prompts[0].includes('in the nominative') && prompts[0].includes('read "who" only from what is asked'), 'the rules');
     const none = await readAskWindow(ASK, { tz: 'Asia/Jerusalem', language: 'en', now: NOW, complete: async () => fakeCompletion(answer({ date: '2026-11-13' })) });
     assert(none.who === null, show(none.who));
+  });
+
+  await check('who.spellings: missing or null is []; a group drops them; they are trimmed, deduplicated (the name too), capped at 4 and bounded', () => {
+    const who = (value: unknown) => parseAskWho(answer({ date: '2026-11-13', who: value }));
+    assert(show(who({ kind: 'person', name: 'Hila' })) === show({ kind: 'person', name: 'Hila', spellings: [] }), 'missing');
+    assert(show(who({ kind: 'person', name: 'Hila', spellings: null })) === show({ kind: 'person', name: 'Hila', spellings: [] }), 'null');
+    assert(show(who({ kind: 'person', name: 'הילה', spellings: ['  Hila ', '', 'Hila', 'הילה'] })) === show({ kind: 'person', name: 'הילה', spellings: ['Hila'] }), 'cleaned');
+    assert(show(who({ kind: 'person', name: 'Hila', spellings: ['a', 'b', 'c', 'd', 'e', 'f'] })) === show({ kind: 'person', name: 'Hila', spellings: ['a', 'b', 'c', 'd'] }), 'six entries');
+    assert(show(who({ kind: 'person', name: 'Hila', spellings: ['x'.repeat(61), 'Хила'] })) === show({ kind: 'person', name: 'Hila', spellings: ['Хила'] }), 'too long dropped');
+    assert(show(who({ kind: 'kids', name: null, spellings: ['Hila'] })) === show({ kind: 'kids' }), 'a group');
+  });
+
+  await check('who.spellings: not a list, or an entry that is not text, is an AskWindowError naming the field, never the value', () => {
+    for (const [label, value] of [['a string', 'SECRET-VALUE'], ['an entry 5', ['Hila', 5]], ['an object entry', [{ SECRET: 'VALUE' }]]] as Array<[string, unknown]>) {
+      const error = throwsAskError(() => parseAskWho(answer({ date: '2026-11-13', who: { kind: 'person', name: 'Hila', spellings: value } })), label);
+      assert(error.message.includes('"who.spellings"') && !error.message.includes('SECRET'), `${label}: ${error.message}`);
+    }
   });
 
   await check('language: he, en, ru and other parse; null or missing is null', () => {

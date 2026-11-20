@@ -3,7 +3,9 @@
  * docs/superpowers/specs/2026-11-08-ask-in-chat-people-design.md §3). Pure: no database, no model.
  *
  * The people come from the labels the calendars already carry (getCalendarsWithOwners): the caller, the partner, each
- * kid by the person named on their calendar, and the family (a calendar with no label). The model never gets these
+ * kid by the person named on their calendar (a kids calendar that names no person is known by its own title: Select
+ * calendars names a person only on a spouse calendar, so a Google calendar called "Hila" is Hila), and the family (a
+ * calendar with no label). The model never gets these
  * names: it says who was asked as a kind, and a person's name as the messages write it, and the name is matched here.
  */
 
@@ -85,6 +87,9 @@ function aliasesOf(...names: Array<string | null | undefined>): string[] {
   return [...out];
 }
 
+/** The title of a kids calendar that names no person, which then stands in for the person's name; '' for any other. */
+const standInTitle = (a: CalendarAssignment): string => (tidy(a.personName) || tidy(a.personEnglishName) ? '' : tidy(a.name));
+
 /** A calendar's person in the answer's language: the English name in an English or Russian answer, when it is set. */
 function personNameOf(a: CalendarAssignment, locale: Locale): string {
   const english = tidy(a.personEnglishName);
@@ -100,11 +105,14 @@ function personNameOf(a: CalendarAssignment, locale: Locale): string {
  *   label the family's. A calendar with several labels counts for each of them.
  * - A birthdays calendar and a Google holiday calendar are no one's: they are never busy.
  * Kids' calendars that name the same person are one line, in every language: they share a line when any of their
- * folded names, personName or personEnglishName, is the same; those that name no one ("Kids") share one. The
- * caller is there with no calendar when no calendar is anyone's, so an answer always has a line.
+ * folded names, personName or personEnglishName, is the same. A kids calendar that names no person (a Google one: Select
+ * calendars saves a person only for spouse) is known by its own title in their place, so "Hila" and "Noa" are two lines
+ * and a calendar titled "הילה" shares a line with the one whose person is "הילה"; a calendar that names a person never
+ * uses its title (two kids' calendars both titled "School" stay two lines). Those with no person and no title share one
+ * nameless line ("Kids"). The caller is there with no calendar when no calendar is anyone's, so an answer always has a line.
  * Names: the caller's first name (user.name); the partner's first name from the pairing, else the first spouse
  * calendar's person; a kid's person (personEnglishName in an English or Russian answer when set, from the first
- * calendar of the kid that has one). None is null.
+ * calendar of the kid that has one, else a calendar's title when none names a person). None is null.
  */
 export function peopleOf(input: PeopleInput): Person[] {
   const mine: string[] = [];
@@ -116,7 +124,7 @@ export function peopleOf(input: PeopleInput): Person[] {
   // A kid's calendars share a line when any whole name (personName or personEnglishName, folded) is the same, whatever
   // the answer's language: a group is the calendars so linked, and a calendar linking several groups joins them.
   const addKid = (a: CalendarAssignment) => {
-    const names = [...new Set([foldName(tidy(a.personName)), foldName(tidy(a.personEnglishName))].filter(Boolean))];
+    const names = [...new Set([foldName(tidy(a.personName)), foldName(tidy(a.personEnglishName)), foldName(standInTitle(a))].filter(Boolean))];
     const linked = kidGroups.filter(g => (names.length === 0 ? g.names.size === 0 : names.some(n => g.names.has(n))));
     const group = linked[0] ?? { names: new Set<string>(), calendars: [] };
     if (!linked[0]) kidGroups.push(group);
@@ -169,12 +177,13 @@ export function peopleOf(input: PeopleInput): Person[] {
     // else the first name the group has in the other one
     const hebrew = calendars.map(c => tidy(c.personName)).find(Boolean);
     const english = calendars.map(c => tidy(c.personEnglishName)).find(Boolean);
-    const name = (input.locale !== 'he' ? english || hebrew : hebrew || english) ?? '';
+    const title = calendars.map(standInTitle).find(Boolean);
+    const name = (input.locale !== 'he' ? english || hebrew : hebrew || english) ?? title ?? '';
     people.push({
       key: `kid:${foldName(name)}`,
       kind: 'kid',
       name: name || null,
-      aliases: [...new Set(calendars.flatMap(c => aliasesOf(c.personName, c.personEnglishName)))],
+      aliases: [...new Set(calendars.flatMap(c => aliasesOf(c.personName, c.personEnglishName, standInTitle(c))))],
       calendarIds: calendars.map(c => c.calendarId),
     });
   }
@@ -202,7 +211,7 @@ function askedForms(name: string): string[] {
 
 /**
  * The lines a question asked for (spec §3.3): a group's lines, everyone's, or the lines one name matches (the first form
- * of it that any line answers; folded, so case, niqqud and ё don't matter). A group with no line, or a name no line
+ * of it that any line answers, then the forms of each spelling of it in the other alphabets, in order; folded, so case, niqqud and ё don't matter). A group with no line, or a name no line
  * answers, is no one in particular. So is a question about the caller alone ("can you pick me up?", or the caller's own
  * name): the others' plans bear on the caller's time, so it shows the caller's line and every busy one (the owner,
  * 2026-11-08). Only the partner, the kids, the family, everyone or another person's name narrows an answer.
@@ -211,7 +220,9 @@ export function askedLines(who: AskWho | null, people: readonly Person[]): Asked
   if (!who) return { keys: null, log: 'none' };
   let picked: readonly Person[] = [];
   if (who.kind === 'person') {
-    for (const form of askedForms(who.name)) {
+    // the name as written first, then its spellings in other alphabets: the first form any line answers wins
+    const forms = [who.name, ...who.spellings].flatMap(askedForms);
+    for (const form of forms) {
       picked = people.filter(p => p.aliases.includes(form));
       if (picked.length > 0) break;
     }

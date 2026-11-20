@@ -40,10 +40,12 @@ export type AskGroup = 'me' | 'partner' | 'kids' | 'family' | 'everyone';
 export const ASK_GROUPS: readonly AskGroup[] = ['me', 'partner', 'kids', 'family', 'everyone'];
 
 /** Whose time a question asks about, as the model read it: a group, or one person by the name the messages write. */
-export type AskWho = { kind: AskGroup } | { kind: 'person'; name: string };
+export type AskWho = { kind: AskGroup } | { kind: 'person'; name: string; spellings: string[] };
 
 /** A person's name longer than this is no name. */
 export const WHO_NAME_MAX_CHARS = 60;
+/** The other spellings of a person's name that are kept. */
+export const WHO_SPELLINGS_MAX = 4;
 
 /** Up to this many days in a row (ruling 10). */
 export const MAX_DAYS = 3;
@@ -138,7 +140,9 @@ export function parseAskWindow(text: string, today: DayKey): AskWindow {
 
 /**
  * Whose time the model read the question to ask about (spec 2026-11-08 §3.1): null (or missing) is no one in particular.
- * A group drops any name; a person needs a name of 1 to WHO_NAME_MAX_CHARS characters. Throws AskWindowError otherwise,
+ * A group drops any name and spellings; a person needs a name of 1 to WHO_NAME_MAX_CHARS characters, and carries the name's
+ * spellings in the other alphabets: missing or null is none, entries are trimmed, empty, over-long and repeated ones
+ * (the name too) dropped, at most WHO_SPELLINGS_MAX kept. Throws AskWindowError otherwise,
  * naming the field and never the value.
  */
 export function parseAskWho(text: string): AskWho | null {
@@ -150,7 +154,16 @@ export function parseAskWho(text: string): AskWho | null {
     const name = (who as Raw).name;
     const trimmed = typeof name === 'string' ? name.trim() : '';
     if (!trimmed || trimmed.length > WHO_NAME_MAX_CHARS) throw new AskWindowError(`"who.name" is not a name of 1 to ${WHO_NAME_MAX_CHARS} characters`);
-    return { kind: 'person', name: trimmed };
+    const raw = (who as Raw).spellings ?? null;
+    if (raw !== null && !Array.isArray(raw)) throw new AskWindowError('"who.spellings" is not a list');
+    const spellings: string[] = [];
+    for (const entry of raw ?? []) {
+      if (typeof entry !== 'string') throw new AskWindowError('"who.spellings" has an entry that is not text');
+      const text = entry.trim();
+      if (!text || text.length > WHO_NAME_MAX_CHARS || text === trimmed || spellings.includes(text)) continue;
+      spellings.push(text);
+    }
+    return { kind: 'person', name: trimmed, spellings: spellings.slice(0, WHO_SPELLINGS_MAX) };
   }
   if (!ASK_GROUPS.includes(kind as AskGroup)) throw new AskWindowError('"who.kind" is not me, partner, kids, family, everyone or person');
   return { kind: kind as AskGroup };

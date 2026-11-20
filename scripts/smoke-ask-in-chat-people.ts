@@ -50,7 +50,7 @@ const CALENDARS: CalendarAssignment[] = [
   cal('native:home', []), // Raziel's own, no label: the family's
   cal('work@example.com', ['yours']),
   cal('maya@group.calendar.google.com', ['kids'], { personName: 'מאיה', personEnglishName: 'Maya' }), // the same kid
-  cal('school@group.calendar.google.com', ['kids']), // a kids calendar naming no one
+  cal('school@group.calendar.google.com', ['kids'], { name: '' }), // a kids calendar naming no one, with no title either
   cal('en.jewish#holiday@group.v.calendar.google.com', []),
   cal('bdays@group.calendar.google.com', ['birthdays']),
 ];
@@ -126,26 +126,26 @@ check('askedLines: each group, everyone, and no one in particular', () => {
 });
 
 check('askedLines: a person by any of their names; the caller by their own; the partner by the pairing\'s or the calendar\'s', () => {
-  const one = (name: string) => [...(askedLines({ kind: 'person', name }, he).keys ?? [])];
+  const one = (name: string) => [...(askedLines({ kind: 'person', name, spellings: [] }, he).keys ?? [])];
   for (const name of ['מאיה', 'מָאיָה', 'Maya', 'MAYA', 'Maya Cohen', 'למאיה']) same(one(name), ['kid:מאיה'], name);
   same(one('נועה'), ['kid:נועה'], 'a partner\'s kid');
   same(one('Dana'), ['partner'], 'the partner in English');
   same(one('דנה'), ['partner'], 'the partner in Hebrew');
-  same(askedLines({ kind: 'person', name: 'Raziel' }, he), { keys: null, log: 'person-me' }, 'the caller by name is no one in particular too');
-  same(askedLines({ kind: 'person', name: 'Maya' }, he).log, 'person', 'log');
+  same(askedLines({ kind: 'person', name: 'Raziel', spellings: [] }, he), { keys: null, log: 'person-me' }, 'the caller by name is no one in particular too');
+  same(askedLines({ kind: 'person', name: 'Maya', spellings: [] }, he).log, 'person', 'log');
 });
 
 check('askedLines: a group with no line and a name no line answers are no one in particular, and the log holds no name', () => {
   const alone = peopleOf({ assignments: [cal('me@example.com', ['yours'])], partnerOwned: new Set(), me: RAZ, partner: null, locale: 'en' });
   same(askedLines({ kind: 'kids' }, alone), { keys: null, log: 'kids-none' }, 'no kids');
   same(askedLines({ kind: 'partner' }, alone), { keys: null, log: 'partner-none' }, 'no partner');
-  same(askedLines({ kind: 'person', name: 'SECRET-NAME' }, he), { keys: null, log: 'person-none' }, 'unknown');
+  same(askedLines({ kind: 'person', name: 'SECRET-NAME', spellings: [] }, he), { keys: null, log: 'person-none' }, 'unknown');
 });
 
 check('review focus: a calendar person written over two lines or with extra spaces heads its line on one line', () => {
   const people = peopleOf({ assignments: [cal('k@x', ['kids'], { personName: '  Maya\n Cohen ' })], partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he' });
   same(people[0].name, 'Maya Cohen', 'tidy');
-  same([...askedLines({ kind: 'person', name: 'maya' }, people).keys!], ['kid:maya cohen'], 'its first word matches');
+  same([...askedLines({ kind: 'person', name: 'maya', spellings: [] }, people).keys!], ['kid:maya cohen'], 'its first word matches');
 });
 
 check('review focus: a partner\'s calendar labelled kids and birthdays is no one\'s', () => {
@@ -155,7 +155,7 @@ check('review focus: a partner\'s calendar labelled kids and birthdays is no one
 
 check('review focus: a name two people share gives both lines; "me" asked with no calendar of the caller\'s is no one in particular', () => {
   const people = peopleOf({ assignments: [cal('native:p', []), cal('k@x', ['kids'], { personName: 'Noa' })], partnerOwned: new Set(['native:p']), me: RAZ, partner: { name: 'Noa' }, locale: 'en' });
-  same([...askedLines({ kind: 'person', name: 'Noa' }, people).keys!], ['partner', 'kid:noa'], 'both');
+  same([...askedLines({ kind: 'person', name: 'Noa', spellings: [] }, people).keys!], ['partner', 'kid:noa'], 'both');
   same(askedLines({ kind: 'me' }, people), { keys: null, log: 'me-none' }, 'no caller line');
 });
 
@@ -170,8 +170,8 @@ check('review focus (F4): one child whose calendars name them in different ways 
       same([...kids[0].calendarIds].sort(), ['g@x', 'native:a'], `${label} ${locale} calendars`);
       same(kids[0].name, locale === 'he' ? 'מאיה' : 'Maya', `${label} ${locale} name`);
       same(kids[0].key, `kid:${foldName(kids[0].name!)}`, `${label} ${locale} key`);
-      same([...askedLines({ kind: 'person', name: 'Maya' }, people).keys!], [kids[0].key], `${label} ${locale} asked by English`);
-      same([...askedLines({ kind: 'person', name: 'מאיה' }, people).keys!], [kids[0].key], `${label} ${locale} asked by Hebrew`);
+      same([...askedLines({ kind: 'person', name: 'Maya', spellings: [] }, people).keys!], [kids[0].key], `${label} ${locale} asked by English`);
+      same([...askedLines({ kind: 'person', name: 'מאיה', spellings: [] }, people).keys!], [kids[0].key], `${label} ${locale} asked by Hebrew`);
     }
   }
 });
@@ -183,15 +183,79 @@ check('review focus (F4): calendars linked through a shared name are one child; 
   });
   same(rows(linked.filter(p => p.kind === 'kid')), [['kid:maya', 'Maya', ['a', 'b', 'c']]], 'linked through c');
   const two = peopleOf({
-    assignments: [cal('a', ['kids'], { personName: 'Maya Cohen' }), cal('b', ['kids'], { personName: 'Maya Levi' }), cal('c', ['kids'])],
+    assignments: [cal('a', ['kids'], { personName: 'Maya Cohen' }), cal('b', ['kids'], { personName: 'Maya Levi' }), cal('c', ['kids'], { name: '' })],
     partnerOwned: new Set(), me: RAZ, partner: null, locale: 'en',
   });
   same(rows(two.filter(p => p.kind === 'kid')), [['kid:maya cohen', 'Maya Cohen', ['a']], ['kid:maya levi', 'Maya Levi', ['b']], ['kid:', null, ['c']]], 'two children');
 });
 
 check('review focus (F4): in a Hebrew answer a kid known only by an English name keeps their own line, apart from the unnamed kids', () => {
-  const people = peopleOf({ assignments: [cal('a', ['kids'], { personEnglishName: 'Maya' }), cal('b', ['kids'])], partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he' });
+  const people = peopleOf({ assignments: [cal('a', ['kids'], { personEnglishName: 'Maya' }), cal('b', ['kids'], { name: '' })], partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he' });
   same(rows(people.filter(p => p.kind === 'kid')), [['kid:maya', 'Maya', ['a']], ['kid:', null, ['b']]], 'he');
+});
+
+const askedKeys = (name: string, spellings: string[], people: Person[]) => askedLines({ kind: 'person', name, spellings }, people);
+
+check('title fallback: Google kids calendars with no person, titled "Hila" and "Noa", are two lines named by their titles', () => {
+  const people = peopleOf({
+    assignments: [cal('g1@x', ['kids'], { name: 'Hila' }), cal('g2@x', ['kids'], { name: 'Noa' })],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he',
+  });
+  same(rows(people.filter(p => p.kind === 'kid')), [['kid:hila', 'Hila', ['g1@x']], ['kid:noa', 'Noa', ['g2@x']]], 'two lines');
+  assert(people[0].aliases.includes('hila') || people[1].aliases.includes('hila'), 'alias hila');
+  same(people.find(p => p.key === 'kid:noa')!.aliases, ['noa'], 'noa aliases');
+  const asked = askedKeys('Hila', [], people);
+  same([...asked.keys!], ['kid:hila'], 'only Hila');
+  same(asked.log, 'person', 'log');
+});
+
+check('title fallback: a calendar that names a person never uses its title, so two "School" calendars of two kids stay two lines', () => {
+  const people = peopleOf({
+    assignments: [cal('s1@x', ['kids'], { name: 'School', personName: 'מאיה' }), cal('s2@x', ['kids'], { name: 'School', personName: 'Noa' })],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he',
+  });
+  same(rows(people.filter(p => p.kind === 'kid')), [['kid:מאיה', 'מאיה', ['s1@x']], ['kid:noa', 'Noa', ['s2@x']]], 'two kids');
+  same(askedKeys('School', [], people), { keys: null, log: 'person-none' }, 'the title matches no line');
+});
+
+check('title fallback: a Google kids calendar titled הילה and a FamCal kids calendar whose person is הילה are one line', () => {
+  for (const order of [0, 1]) {
+    const pair = [cal('g@x', ['kids'], { name: 'הילה' }), cal('native:k', ['kids'], { name: 'Kids', personName: 'הילה' })];
+    const people = peopleOf({ assignments: order ? pair.reverse() : pair, partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he' });
+    const kids = people.filter(p => p.kind === 'kid');
+    assert(kids.length === 1, `order ${order}: ${show(rows(kids))}`);
+    same(kids[0].key, 'kid:הילה', 'key');
+    same([...kids[0].calendarIds].sort(), ['g@x', 'native:k'], 'calendars');
+  }
+});
+
+check('names across alphabets: הילה with the spellings Hila and Хила picks the line titled Hila; with none it is person-none; the name wins over a spelling', () => {
+  const people = peopleOf({
+    assignments: [cal('g1@x', ['kids'], { name: 'Hila' }), cal('g2@x', ['kids'], { name: 'Noa' })],
+    partnerOwned: new Set(), me: RAZ, partner: null, locale: 'he',
+  });
+  const spelled = askedKeys('הילה', ['Hila', 'Хила'], people);
+  same([...spelled.keys!], ['kid:hila'], 'by spelling');
+  same(spelled.log, 'person', 'log');
+  same(askedKeys('הילה', [], people), { keys: null, log: 'person-none' }, 'no spellings');
+  same([...askedKeys('Noa', ['Hila'], people).keys!], ['kid:noa'], 'the name first');
+  same([...askedKeys('Nope', ['Хила', 'Hila'], people).keys!], ['kid:hila'], 'a later spelling');
+});
+
+check('the repro: me, partner, Hila and הילה (one line each), family; no nameless Kids line', () => {
+  const people = peopleOf({
+    assignments: [
+      cal('me@example.com', ['primary', 'yours'], { name: 'Me' }),
+      cal('spouse@example.com', ['spouse'], { name: 'Partner', personName: 'דנה' }),
+      cal('abc@group.calendar.google.com', ['kids'], { name: 'Hila' }),
+      cal('def@group.calendar.google.com', ['kids'], { name: 'Noa' }),
+      cal('fam@group.calendar.google.com', [], { name: 'Family' }),
+    ],
+    partnerOwned: new Set(), me: { name: 'Raz' }, partner: null, locale: 'he',
+  });
+  same(people.map(p => [p.key, p.name]), [['me', 'Raz'], ['partner', 'דנה'], ['kid:hila', 'Hila'], ['kid:noa', 'Noa'], ['family', null]], 'lines');
+  assert(!people.some(p => p.kind === 'kid' && p.name === null), 'no nameless kid');
+  same([...askedKeys('הילה', ['Hila'], people).keys!], ['kid:hila'], 'asked in Hebrew');
 });
 
 let failed = 0;
