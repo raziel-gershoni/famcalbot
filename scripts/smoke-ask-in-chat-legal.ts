@@ -75,7 +75,8 @@ async function main() {
     // The Terms moved on alone 2026-11-20 (Ask FamCal in a chat is Pro only; the Privacy Policy did not change), so they are never older than the Privacy Policy
     assert(LEGAL_UPDATED.terms >= LEGAL_UPDATED.privacy, show(LEGAL_UPDATED));
     // One day of slack: the ship day is Israel's, and UTC can still be on the day before.
-    assert(LEGAL_UPDATED.privacy <= new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10), `in the future: ${show(LEGAL_UPDATED)}`);
+    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+    assert(LEGAL_UPDATED.privacy <= tomorrow && LEGAL_UPDATED.terms <= tomorrow, `in the future: ${show(LEGAL_UPDATED)}`);
   });
 
   await check('G4 the Russian edits bind a one-letter word to the next, and a dash to the word before it, with a no-break space', () => {

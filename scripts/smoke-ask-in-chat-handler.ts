@@ -122,8 +122,8 @@ interface World {
 }
 
 /** The fakes, with what the model answers (`reply`), what the reader returns or throws (`busy`) and the limiter's verdict (`allowed`). */
-function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Error; allowed?: boolean; hasAccess?: boolean } = {}): { w: World; deps: Partial<AskDeps> } {
-  const { reply, busy: busyOver, allowed, hasAccess, ...overrides } = over;
+function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Error; allowed?: boolean; hasAccess?: boolean; realAccess?: boolean } = {}): { w: World; deps: Partial<AskDeps> } {
+  const { reply, busy: busyOver, allowed, hasAccess, realAccess, ...overrides } = over;
   const w: World = { answers: [], prompts: [], reads: [], reports: [], claims: new Set() };
   const busy = busyOver ?? readOf();
   const deps: Partial<AskDeps> = {
@@ -153,6 +153,8 @@ function world(over: Partial<AskDeps> & { reply?: string; busy?: BusyRead | Erro
     },
     ...overrides,
   };
+  // The handler's own plan check (checkFeatureAccess), for the check that pins its wiring
+  if (realAccess) delete deps.access;
   return { w, deps };
 }
 
@@ -210,6 +212,48 @@ async function main() {
     assert(show(hebrew.answers[0].article.reply_markup) === show({ inline_keyboard: [[{ text: he.bot.askInChat.plansButton, url: 'https://famcal.bot/he#plans' }]] }), show(hebrew.answers[0].article));
     const russian = await run(guest(CALLER), { ...RAZ, language: 'ru' } as UserConfig, over);
     assert(textOf(russian) === ru.bot.askInChat.proOnly && show(russian.answers[0].article.reply_markup) === show({ inline_keyboard: [[{ text: ru.bot.askInChat.plansButton, url: 'https://famcal.bot/ru#plans' }]] }), show(russian.answers[0].article));
+  });
+
+  await check('the handler\'s own plan check asks checkFeatureAccess (the tracking one, never peekFeatureAccess) for ask_in_chat by the DB id, and follows its answer', async () => {
+    const modPath = require.resolve('../src/services/subscription-service');
+    const saved = require.cache[modPath];
+    const calls: unknown[][] = [];
+    let allowed = false;
+    require.cache[modPath] = {
+      id: modPath,
+      filename: modPath,
+      loaded: true,
+      exports: {
+        checkFeatureAccess: async (...args: unknown[]) => { calls.push(args); return allowed ? { allowed: true } : { allowed: false, reason: 'upgrade_required' }; },
+        peekFeatureAccess: async () => { throw new Error('peekFeatureAccess asked'); },
+      },
+    } as unknown as NodeJS.Module;
+    try {
+      const refused = await run(guest(CALLER), RAZ, { realAccess: true });
+      assert(show(calls) === show([[1, 'ask_in_chat']]), `the calls: ${show(calls)}`);
+      assert(textOf(refused) === en.bot.askInChat.proOnly && refused.prompts.length === 0, show(textOf(refused)));
+      allowed = true;
+      const answered = await run(guest(CALLER), RAZ, { realAccess: true });
+      assert(calls.length === 2 && answered.prompts.length === 1 && answered.answers.length === 1 && textOf(answered) !== en.bot.askInChat.proOnly, show({ calls, prompts: answered.prompts.length }));
+    } finally {
+      if (saved) require.cache[modPath] = saved;
+      else delete require.cache[modPath];
+    }
+  });
+
+  await check('the proOnly line in Hebrew always starts right to left (leadRtl): a wording that began with a Latin word would get the mark first', async () => {
+    // The bot's own copy of the Hebrew messages (getBotMessages caches one object per language), changed for this check only
+    const bot = (await (await import('../src/lib/bot-messages')).getBotMessages('he')) as unknown as { askInChat: Record<string, string> };
+    const approved = bot.askInChat.proOnly;
+    assert(approved === he.bot.askInChat.proOnly, 'the bot reads another Hebrew text');
+    bot.askInChat.proOnly = 'Pro: ' + approved;
+    try {
+      const w = await run(guest(SISTER), DANA, { hasAccess: false });
+      const text = textOf(w) ?? '';
+      assert(text.startsWith('\u200F') && text.endsWith(approved), show(text));
+    } finally {
+      bot.askInChat.proOnly = approved;
+    }
   });
 
   await check('no account: the Start line and the plan is never asked; rate limited: the rate-limit line and the plan is never asked', async () => {
