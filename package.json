@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "prisma generate && prisma migrate deploy && next build",
     "lint": "eslint .",
-    "start": "NODE_OPTIONS='--max-old-space-size=256' next start",
+    "start": "NODE_OPTIONS='--max-old-space-size=256 --max-semi-space-size=16' next start",
     "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "type-check": "tsc --noEmit",
     "get-google-token": "tsx scripts/get-google-token.ts",

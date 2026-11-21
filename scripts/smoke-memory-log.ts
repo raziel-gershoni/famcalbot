@@ -6,9 +6,13 @@
 //   #2 the line: counts and code names only; a cache's keys and values never appear
 //   #3 the live floor: a full GC is noted, and the next line starts over ("no full GC")
 //   #4 logMemory never throws: a failure is logged as "[memory] could not read the memory"
+//   #5 package.json "start" keeps the 256 MB heap cap and Node 22's 16 MB semi-spaces (Node 24's 64 MB ones made every
+//      collection a full one past about 130 MB kept)
 //
 // No network, no DB. Run: npx tsx scripts/smoke-memory-log.ts
 
+import fs from 'fs';
+import path from 'path';
 import v8 from 'v8';
 import vm from 'vm';
 import { globalCounts, installMemoryWatch, logMemory, memoryLine } from '../src/services/memory-log';
@@ -75,6 +79,13 @@ async function main(): Promise<void> {
   }
   check('no throw', !threw);
   check('the failure is logged', errors.some((e) => e.startsWith('[memory] could not read the memory')), JSON.stringify(errors));
+
+  console.log('#5 the start command sizes the young generation');
+  // Node 24 gives a 256 MB old space a 192 MB young generation (64 MB semi-spaces; Node 22 gave 48 MB). Past about 130 MB
+  // kept, every collection is then a full one, about 20 a second: 4.35 vCPU in production from 2026-11-20 until this flag.
+  const start = (JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as { scripts: { start: string } }).scripts.start;
+  check('the heap cap', /--max-old-space-size=256\b/.test(start), start);
+  check('16 MB semi-spaces (Node 22\'s size)', /--max-semi-space-size=16\b/.test(start), start);
 
   if (failures > 0) {
     console.error(`\nsmoke-memory-log: ${failures} failed`);
