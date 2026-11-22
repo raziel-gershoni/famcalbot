@@ -48,6 +48,7 @@ const EXEMPT_KEYS: Record<string, string> = {
 /** Source files whose Hebrew is not copy for the person, with the reason. */
 const EXEMPT_FILES: Record<string, string> = {
   'services/voice/gemini-voice.ts': 'lists the Hebrew verbs a person may say, as input examples for the model',
+  'services/voice-show/hebrew-pointing.ts': 'niqqud tables for words the script already holds (such as the parasha "שלח לך"), never copy of its own',
 };
 /** Source folders whose Hebrew is not copy for the person. */
 const EXEMPT_DIRS: Record<string, string> = {
