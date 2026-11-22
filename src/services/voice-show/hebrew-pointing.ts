@@ -11,16 +11,20 @@
  * - quarter: רבע → רֶבַע, ורבע → וָרֶבַע
  *
  * Second person: "לך", "שלך", "אותך" and the like are spelled the same for a man and
- * a woman, so TTS has to guess and defaults to the masculine. The show addresses only
- * the listener in the second person, so they are pointed for the listener's gender.
- * Bare "לך" is the exception for a man: the imperative "לך" (go, as in "לך על זה")
- * is spelled the same, and the masculine "to you" is Gemini's default reading anyway.
- * A woman's imperative is "לכי", so for her "לך" is always "to you".
+ * a woman, so TTS has to guess, and it guesses either way. The show addresses only
+ * the listener in the second person, so they are pointed for the listener's gender,
+ * bare "לך" too: a man's script never uses the imperative "לך" (go, as in "לך על זה";
+ * the prompt's addressRule), and a woman's imperative is "לכי", so "לך" is always "to
+ * you". Until 2026-11-22 a man's "לך" was left bare on the guess that Gemini reads it
+ * masculine by default; the owner heard himself addressed as a woman "a lot".
  *
- * A prefix ו/ב/ל/כ (or ו plus one of the others) is pointed too; מ, ש and ה prefixes
- * are left bare. After a prefix the word's own ב, כ or פ no longer starts the word and
- * loses its dagesh ("ובשבילך" is "u-vi", not "u-bi"). Words that already carry niqqud
- * are left alone.
+ * Clock words take a prefix ו/ב/ל/כ (or ו plus one of the others), pointed; מ, ש and ה
+ * prefixes are left bare. After such a prefix the word's own ב, כ or פ no longer
+ * starts the word and loses its dagesh ("ובשבילך" is "u-vi", not "u-bi").
+ * Second-person words take ו, ש, מ, כש and ו before any of them ("ומשלך",
+ * "שלפניך", "כשאיתך"), all pointed: שֶׁ and מִ double the next letter (it keeps or
+ * gains a dagesh), and before a guttural or ר nothing doubles and מ is מֵ. Bare "לך"
+ * and "בך" take only ו: "מלך" is a king. Words that already carry niqqud are left alone.
  */
 
 const LETTER = '\\u05D0-\\u05EA';
@@ -35,6 +39,11 @@ const HIRIQ = 'ִ';
 const PATAH = 'ַ';
 const QAMATS = 'ָ';
 const DAGESH = 'ּ';
+const SEGOL = 'ֶ';
+const TSERE = 'ֵ';
+const SHIN_DOT = 'ׁ';
+// Letters that take no doubling dagesh after שֶׁ or מִ: the gutturals and ר.
+const NO_DOUBLING = 'אהחער';
 
 const FEMININE_UNITS: Record<string, string> = {
   'אחת': 'אַחַת',
@@ -53,9 +62,8 @@ const TEN = 'עֶשֶׂר';
 const QUARTER = 'רֶבַע';
 const MASCULINE_UNITS = ['אחד', 'שנים', 'שניים', 'שלושה', 'ארבעה', 'חמישה', 'שישה', 'שבעה', 'שמונה', 'תשעה'];
 
-// No male form means: leave the word bare for a man.
-const SECOND_PERSON: Record<string, { male?: string; female: string }> = {
-  'לך': { female: 'לָךְ' },
+const SECOND_PERSON: Record<string, { male: string; female: string }> = {
+  'לך': { male: 'לְךָ', female: 'לָךְ' },
   'שלך': { male: 'שֶׁלְּךָ', female: 'שֶׁלָּךְ' },
   'אותך': { male: 'אוֹתְךָ', female: 'אוֹתָךְ' },
   'עליך': { male: 'עָלֶיךָ', female: 'עָלַיִךְ' },
@@ -82,7 +90,11 @@ const SECOND_PERSON: Record<string, { male?: string; female: string }> = {
 const TEEN_RE = new RegExp(`${START}${PREFIX}(${Object.keys(FEMININE_UNITS).join('|')})\\s+עשרה${END}`, 'g');
 const TEN_RE = new RegExp(`(?<!(?:${MASCULINE_UNITS.join('|')})\\s+)${START}${PREFIX}עשר${END}`, 'g');
 const QUARTER_RE = new RegExp(`${START}${PREFIX}רבע${END}`, 'g');
-const SECOND_PERSON_RE = new RegExp(`${START}(ו?)(${Object.keys(SECOND_PERSON).join('|')})${END}`, 'g');
+// A bare Hebrew word: no niqqud on it, no letter or mark on either side.
+const BARE_WORD_RE = new RegExp(`${START}[${LETTER}]+${END}`, 'g');
+// Shortest first, so "ושלך" is ו plus "שלך", never וש plus "לך".
+const CLINGING_PREFIXES = ['ו', 'ש', 'מ', 'וש', 'ומ', 'כש', 'וכש'];
+const ONLY_VAV = new Set(['לך', 'בך']);
 
 type Lead = 'shva' | 'hataf' | 'vowel';
 
@@ -138,9 +150,42 @@ export function pointHebrewTimes(text: string): string {
     .replace(QUARTER_RE, (_m, prefix: string) => nfc((prefix === 'ו' ? 'ו' + QAMATS : pointPrefix(prefix, QUARTER)) + QUARTER));
 }
 
+/** A bare word as a second-person word of the table and the prefix before it, or null. */
+function splitSecondPerson(token: string): { prefix: string; word: string } | null {
+  if (Object.hasOwn(SECOND_PERSON, token)) return { prefix: '', word: token };
+  for (const prefix of CLINGING_PREFIXES) {
+    const word = token.slice(prefix.length);
+    if (!token.startsWith(prefix) || !Object.hasOwn(SECOND_PERSON, word)) continue;
+    if (ONLY_VAV.has(word) && prefix !== 'ו') continue;
+    return { prefix, word };
+  }
+  return null;
+}
+
+/**
+ * A prefix ending in ש or מ (with כ or ו before it) and the pointed word: שֶׁ and מִ double the word's first letter
+ * (a dagesh), and before a guttural or ר nothing doubles and מ is מֵ.
+ */
+function withClinging(prefix: string, pointed: string): string {
+  const doubles = !NO_DOUBLING.includes(pointed[0]);
+  const marks = /^[֑-ׇ]*/.exec(pointed.slice(1))![0];
+  const word = doubles && !marks.includes(DAGESH) ? pointed[0] + DAGESH + pointed.slice(1) : pointed;
+  const last = prefix[prefix.length - 1];
+  let head = last === 'ש' ? 'ש' + SHIN_DOT + SEGOL : 'מ' + (doubles ? HIRIQ : TSERE);
+  const vav = prefix.startsWith('ו');
+  // כשֶׁ: a word-initial כ takes dagesh; after a ו it no longer starts the word.
+  if (prefix.includes('כ')) head = 'כ' + (vav ? '' : DAGESH) + SHVA + head;
+  // ו: shuruk before a shva or a labial (מ), else shva.
+  if (vav) head = 'ו' + (head.startsWith('כ') || head.startsWith('מ') ? DAGESH : SHVA) + head;
+  return head + word;
+}
+
 export function pointSecondPerson(text: string, gender: 'male' | 'female'): string {
-  return text.replace(SECOND_PERSON_RE, (match, vav: string, word: string) => {
-    const pointed = SECOND_PERSON[word][gender];
-    return pointed ? nfc(withPrefix(vav, pointed)) : match;
+  return text.replace(BARE_WORD_RE, (token: string) => {
+    const split = splitSecondPerson(token);
+    if (!split) return token;
+    const pointed = SECOND_PERSON[split.word][gender];
+    const { prefix } = split;
+    return nfc(prefix === '' || prefix === 'ו' ? withPrefix(prefix, pointed) : withClinging(prefix, pointed));
   });
 }

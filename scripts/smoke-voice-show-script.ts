@@ -394,9 +394,45 @@ check('second person is pointed for the listener', () => {
   assert(same(pointSecondPerson('מחכה בשבילך', 'female'), 'מחכה בִּשְׁבִילֵךְ'), 'female בשבילך');
 });
 
-check('bare "לך" stays unpointed for a man: "לך על זה" (go for it) is spelled the same', () => {
-  for (const text of ['יש לך פגישה', 'ולך', 'לך על זה דני!']) {
-    assert(pointSecondPerson(text, 'male') === text, `${text} → ${pointSecondPerson(text, 'male')}`);
+// Left bare until 2026-11-22, and the owner heard himself addressed as a woman: the man's script never uses the
+// imperative "לך" (addressRule), so "לך" is always "to you".
+check('bare "לך" is pointed for a man too', () => {
+  assert(same(pointSecondPerson('יש לך פגישה', 'male'), 'יש לְךָ פגישה'), `male לך ${pointSecondPerson('יש לך פגישה', 'male')}`);
+  assert(same(pointSecondPerson('ולך', 'male'), 'וּלְךָ'), `male ולך ${pointSecondPerson('ולך', 'male')}`);
+});
+
+// [text, a man's, a woman's]
+const CLINGING: Array<[string, string, string]> = [
+  ['משלך', 'מִשֶּׁלְּךָ', 'מִשֶּׁלָּךְ'],
+  ['שלפניך', 'שֶׁלְּפָנֶיךָ', 'שֶׁלְּפָנַיִךְ'],
+  ['שבשבילך', 'שֶׁבִּשְׁבִילְךָ', 'שֶׁבִּשְׁבִילֵךְ'],
+  ['שכמוך', 'שֶׁכָּמוֹךָ', 'שֶׁכָּמוֹךְ'],
+  ['מעליך', 'מֵעָלֶיךָ', 'מֵעָלַיִךְ'],
+  ['שאיתך', 'שֶׁאִתְּךָ', 'שֶׁאִתָּךְ'],
+  ['מלפניך', 'מִלְּפָנֶיךָ', 'מִלְּפָנַיִךְ'],
+  ['ששלך', 'שֶׁשֶּׁלְּךָ', 'שֶׁשֶּׁלָּךְ'],
+  ['שממך', 'שֶׁמִּמְּךָ', 'שֶׁמִּמֵּךְ'],
+  ['שמאחוריך', 'שֶׁמֵּאֲחוֹרֶיךָ', 'שֶׁמֵּאֲחוֹרַיִךְ'],
+  ['מעצמך', 'מֵעַצְמְךָ', 'מֵעַצְמֵךְ'],
+  ['ומשלך', 'וּמִשֶּׁלְּךָ', 'וּמִשֶּׁלָּךְ'],
+  ['ושלפניך', 'וְשֶׁלְּפָנֶיךָ', 'וְשֶׁלְּפָנַיִךְ'],
+  ['כשאיתך', 'כְּשֶׁאִתְּךָ', 'כְּשֶׁאִתָּךְ'],
+  ['וכשאיתך', 'וּכְשֶׁאִתְּךָ', 'וּכְשֶׁאִתָּךְ'],
+];
+for (const [word, male, female] of CLINGING) {
+  check(`points "${word}" with its prefix for a man and for a woman`, () => {
+    const m = pointSecondPerson(`זה ${word}!`, 'male');
+    const f = pointSecondPerson(`זה ${word}!`, 'female');
+    assert(same(m, `זה ${male}!`), `male ${m}`);
+    assert(same(f, `זה ${female}!`), `female ${f}`);
+  });
+}
+
+check('a pointed word is left alone, with or without a prefix', () => {
+  for (const text of ['יש לְךָ', 'מִשֶּׁלְּךָ', 'שֶׁלָּךְ']) {
+    for (const gender of ['male', 'female'] as const) {
+      assert(pointSecondPerson(text, gender) === text, `${gender} ${text} → ${pointSecondPerson(text, gender)}`);
+    }
   }
 });
 
@@ -436,8 +472,11 @@ check('after a prefix, a leading ב, כ or פ loses its dagesh', () => {
 });
 
 check('second-person pointing leaves other words alone', () => {
-  for (const text of ['הולך', 'מלך', 'ללכת', 'לכת', 'הלך', 'לבך', 'שבך', 'לפני', 'כמו', 'בכך', 'אתכם', 'עבור']) {
-    assert(pointSecondPerson(text, 'female') === text, `${text} → ${pointSecondPerson(text, 'female')}`);
+  // "מלך" and "ומלך" are a king: bare "לך" and "בך" take only ו.
+  for (const text of ['הולך', 'מלך', 'ומלך', 'ללכת', 'לכת', 'הלך', 'לבך', 'שבך', 'מבך', 'כשלך', 'לפני', 'כמו', 'בכך', 'אתכם', 'עבור', 'משל', 'שלכם']) {
+    for (const gender of ['male', 'female'] as const) {
+      assert(pointSecondPerson(text, gender) === text, `${gender} ${text} → ${pointSecondPerson(text, gender)}`);
+    }
   }
 });
 
