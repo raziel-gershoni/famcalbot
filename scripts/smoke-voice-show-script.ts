@@ -418,6 +418,7 @@ const CLINGING: Array<[string, string, string]> = [
   ['ושלפניך', 'וְשֶׁלְּפָנֶיךָ', 'וְשֶׁלְּפָנַיִךְ'],
   ['כשאיתך', 'כְּשֶׁאִתְּךָ', 'כְּשֶׁאִתָּךְ'],
   ['וכשאיתך', 'וּכְשֶׁאִתְּךָ', 'וּכְשֶׁאִתָּךְ'],
+  ['שבך', 'שֶׁבְּךָ', 'שֶׁבָּךְ'],
 ];
 for (const [word, male, female] of CLINGING) {
   check(`points "${word}" with its prefix for a man and for a woman`, () => {
@@ -427,6 +428,29 @@ for (const [word, male, female] of CLINGING) {
     assert(same(f, `זה ${female}!`), `female ${f}`);
   });
 }
+
+// [text, pointed the same for a man and a woman]: "לך" that is no "to you".
+const SET_PHRASES: Array<[string, string]> = [
+  ['פרשת לך לך', 'פרשת לֶךְ־לְךָ'],
+  ['פרשת לך-לך!', 'פרשת לֶךְ־לְךָ!'],
+  ['פרשת לך־לך', 'פרשת לֶךְ־לְךָ'],
+  ['פרשת שלח לך', 'פרשת שְׁלַח־לְךָ'],
+  ['פרשת שלח־לך', 'פרשת שְׁלַח־לְךָ'],
+  ['אבל לך תדע, אולי ירד גשם', 'אבל לֵךְ תדע, אולי ירד גשם'],
+  ['לך תבין את מזג האוויר', 'לֵךְ תבין את מזג האוויר'],
+];
+for (const [text, pointed] of SET_PHRASES) {
+  check(`"${text}" is pointed as the set phrase, for a man and for a woman`, () => {
+    for (const gender of ['male', 'female'] as const) {
+      assert(same(pointSecondPerson(text, gender), pointed), `${gender} ${pointSecondPerson(text, gender)}`);
+    }
+  });
+}
+
+check('a set phrase leaves the "לך" around it to the listener', () => {
+  assert(same(pointSecondPerson('יש לך תדריך', 'male'), 'יש לְךָ תדריך'), 'תדריך is no תדע');
+  assert(same(pointSecondPerson('פרשת לך לך, ויש לך יום מלא', 'female'), 'פרשת לֶךְ־לְךָ, ויש לָךְ יום מלא'), 'female after the parasha');
+});
 
 check('a pointed word is left alone, with or without a prefix', () => {
   for (const text of ['יש לְךָ', 'מִשֶּׁלְּךָ', 'שֶׁלָּךְ']) {
@@ -472,8 +496,8 @@ check('after a prefix, a leading ב, כ or פ loses its dagesh', () => {
 });
 
 check('second-person pointing leaves other words alone', () => {
-  // "מלך" and "ומלך" are a king: bare "לך" and "בך" take only ו.
-  for (const text of ['הולך', 'מלך', 'ומלך', 'ללכת', 'לכת', 'הלך', 'לבך', 'שבך', 'מבך', 'כשלך', 'לפני', 'כמו', 'בכך', 'אתכם', 'עבור', 'משל', 'שלכם']) {
+  // "מלך" and "ומלך" are a king: bare "לך" takes only ו, and "בך" no מ.
+  for (const text of ['הולך', 'מלך', 'ומלך', 'ללכת', 'לכת', 'הלך', 'לבך', 'מבך', 'כשלך','לפני', 'כמו', 'בכך', 'אתכם', 'עבור', 'משל', 'שלכם']) {
     for (const gender of ['male', 'female'] as const) {
       assert(pointSecondPerson(text, gender) === text, `${gender} ${text} → ${pointSecondPerson(text, gender)}`);
     }

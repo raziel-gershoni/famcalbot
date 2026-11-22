@@ -13,10 +13,11 @@
  * Second person: "לך", "שלך", "אותך" and the like are spelled the same for a man and
  * a woman, so TTS has to guess, and it guesses either way. The show addresses only
  * the listener in the second person, so they are pointed for the listener's gender,
- * bare "לך" too: a man's script never uses the imperative "לך" (go, as in "לך על זה";
- * the prompt's addressRule), and a woman's imperative is "לכי", so "לך" is always "to
- * you". Until 2026-11-22 a man's "לך" was left bare on the guess that Gemini reads it
- * masculine by default; the owner heard himself addressed as a woman "a lot".
+ * bare "לך" too: the writer points the imperative "לֵךְ" itself (POINTING_RULE in
+ * prompts/voice-show/he.ts), and the set phrases (SET_PHRASES: Lech-Lecha, Sh'lach,
+ * "לך תדע") are pointed here first, so a bare "לך" left is "to you". Until 2026-11-22
+ * a man's "לך" was left bare on the guess that Gemini reads it masculine by default;
+ * the owner heard himself addressed as a woman "a lot".
  *
  * Clock words take a prefix ו/ב/ל/כ (or ו plus one of the others), pointed; מ, ש and ה
  * prefixes are left bare. After such a prefix the word's own ב, כ or פ no longer
@@ -24,7 +25,8 @@
  * Second-person words take ו, ש, מ, כש and ו before any of them ("ומשלך",
  * "שלפניך", "כשאיתך"), all pointed: שֶׁ and מִ double the next letter (it keeps or
  * gains a dagesh), and before a guttural or ר nothing doubles and מ is מֵ. Bare "לך"
- * and "בך" take only ו: "מלך" is a king. Words that already carry niqqud are left alone.
+ * takes only ו ("מלך" is a king) and "בך" no מ (PREFIXES_OF). Words that already carry
+ * niqqud are left alone.
  */
 
 const LETTER = '\\u05D0-\\u05EA';
@@ -94,7 +96,17 @@ const QUARTER_RE = new RegExp(`${START}${PREFIX}רבע${END}`, 'g');
 const BARE_WORD_RE = new RegExp(`${START}[${LETTER}]+${END}`, 'g');
 // Shortest first, so "ושלך" is ו plus "שלך", never וש plus "לך".
 const CLINGING_PREFIXES = ['ו', 'ש', 'מ', 'וש', 'ומ', 'כש', 'וכש'];
-const ONLY_VAV = new Set(['לך', 'בך']);
+// "מלך" is a king and "ומלך" and "כשלך" are no second person: bare "לך" takes only ו, and "בך" no מ.
+const PREFIXES_OF: Record<string, string[]> = { 'לך': ['ו'], 'בך': ['ו', 'ש', 'וש'] };
+
+// Phrases whose "לך" is no "to you", the same for a man and a woman: the parashot Lech-Lecha and Sh'lach (hebcal
+// writes a maqaf; a summary or the writer may write a space or a hyphen) and the idioms "לך תדע" and "לך תבין".
+const JOIN = '[\\s\\-\\u05BE\\u2013]+';
+const SET_PHRASES: Array<[RegExp, string]> = [
+  [new RegExp(`${START}לך${JOIN}לך${END}`, 'g'), 'לֶךְ־לְךָ'],
+  [new RegExp(`${START}שלח${JOIN}לך${END}`, 'g'), 'שְׁלַח־לְךָ'],
+  [new RegExp(`${START}לך(?=\\s+(?:תדע|תבין)${END})`, 'g'), 'לֵךְ'],
+];
 
 type Lead = 'shva' | 'hataf' | 'vowel';
 
@@ -156,7 +168,7 @@ function splitSecondPerson(token: string): { prefix: string; word: string } | nu
   for (const prefix of CLINGING_PREFIXES) {
     const word = token.slice(prefix.length);
     if (!token.startsWith(prefix) || !Object.hasOwn(SECOND_PERSON, word)) continue;
-    if (ONLY_VAV.has(word) && prefix !== 'ו') continue;
+    if (Object.hasOwn(PREFIXES_OF, word) && !PREFIXES_OF[word].includes(prefix)) continue;
     return { prefix, word };
   }
   return null;
@@ -181,7 +193,8 @@ function withClinging(prefix: string, pointed: string): string {
 }
 
 export function pointSecondPerson(text: string, gender: 'male' | 'female'): string {
-  return text.replace(BARE_WORD_RE, (token: string) => {
+  const phrased = SET_PHRASES.reduce((out, [re, pointed]) => out.replace(re, pointed), text);
+  return phrased.replace(BARE_WORD_RE, (token: string) => {
     const split = splitSecondPerson(token);
     if (!split) return token;
     const pointed = SECOND_PERSON[split.word][gender];

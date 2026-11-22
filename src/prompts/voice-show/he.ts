@@ -155,20 +155,17 @@ export function factRules(context: ShowPromptContext): string[] {
   ];
 }
 
-/**
- * Second person, by name, in the listener's gender. Shared with ./calm-he.ts. A man's script has no imperative "לך"
- * (go): the code points every bare "לך" as "to you" (hebrew-pointing.ts), and a woman's imperative is "לכי".
- */
+/** Second person, by name, in the listener's gender. Shared with ./calm-he.ts. */
 export function addressRule(context: ShowPromptContext): string {
-  const female = context.listener.gender === 'female';
-  return `פנייה אישית: הזכירו את השם כבר בפתיחה, ודברו ${female ? 'אליה' : 'אליו'} ישירות בגוף שני ובלשון הנכונה. לא "יש לכם" — "יש לך".${female ? '' : ' בלי הציווי "לך" (כמו "לך על זה"): כתבו "קדימה" במקומו.'}`;
+  return `פנייה אישית: הזכירו את השם כבר בפתיחה, ודברו ${context.listener.gender === 'female' ? 'אליה' : 'אליו'} ישירות בגוף שני ובלשון הנכונה. לא "יש לכם" — "יש לך".`;
 }
 
 /**
  * The writer points the words only their subject genders (the code points the rest: hebrew-pointing.ts). Shared with
- * ./calm-he.ts word for word: it also covers the calm presenter speaking of themself.
+ * ./calm-he.ts word for word: it also covers the calm presenter speaking of themself. The imperative "לֵךְ" is here
+ * because the code points every bare "לך" as "to you", for a man too.
  */
-export const POINTING_RULE = 'ניקוד: כשמילה נכתבת אותו דבר בזכר ובנקבה, הקריינות מנחשת ולעתים קרובות טועה. נקדו ניקוד מלא כל מילה כזאת, לפי מי שהיא מתארת: פועל בהווה מגזרת ל״ה ("יום מְחַכֶּה", "ישיבה מְחַכָּה", "מה שֶׁמְּחַכֶּה"), פועל בעבר בגוף שני ("הָיִיתָ", "קִבַּלְתָּ" למאזין; "הָיִית", "קִבַּלְתְּ" למאזינה), סיומת של גוף שני על שם עצם או על פועל ("תּוֹרְךָ", "לִרְאוֹתְךָ" למאזין; "תּוֹרֵךְ", "לִרְאוֹתֵךְ" למאזינה), והכינוי "אַתְּ". את שאר המילים אל תנקדו.';
+export const POINTING_RULE = 'ניקוד: כשמילה נכתבת אותו דבר בזכר ובנקבה, הקריינות מנחשת ולעתים קרובות טועה. נקדו ניקוד מלא כל מילה כזאת, לפי מי שהיא מתארת: פועל בהווה מגזרת ל״ה ("יום מְחַכֶּה", "ישיבה מְחַכָּה", "מה שֶׁמְּחַכֶּה"), פועל בעבר בגוף שני ("הָיִיתָ", "קִבַּלְתָּ" למאזין; "הָיִית", "קִבַּלְתְּ" למאזינה), סיומת של גוף שני על שם עצם או על פועל ("תּוֹרְךָ", "לִרְאוֹתְךָ" למאזין; "תּוֹרֵךְ", "לִרְאוֹתֵךְ" למאזינה), הציווי "לֵךְ" (גם בביטוי "לֵךְ תֵּדַע" ובכותרת של תזכורת כמו "לֵךְ לדואר"), והכינוי "אַתְּ". את שאר המילים אל תנקדו.';
 
 export function buildShowPrompt(context: ShowPromptContext): string {
   const female = context.listener.gender === 'female';
