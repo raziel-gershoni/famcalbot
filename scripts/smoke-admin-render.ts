@@ -1211,6 +1211,74 @@ async function main() {
     }
   });
 
+  await check('U2w Who: Open in Telegram only with a Telegram id (it posts open-profile with the profile\'s database id, is busy meanwhile, opens a link with Telegram\'s openTelegramLink, says "sent to your chat" for a sent one and "could not open" for a failure or a 404), Open in WhatsApp only with a number (wa.me with its digits, no request), in en, he and ru', async () => {
+    for (const locale of LOCALES) {
+      const w = (key: string) => word(locale, key, 'admin');
+      // A person with both: a link, then a sent mention, then failures
+      reset();
+      const o = open(locale, propsOf(locale), { version: '7.7' });
+      const opened: string[] = [];
+      Object.assign(o.tg as Row, { openTelegramLink: (url: string) => void opened.push(`tg:${url}`), openLink: (url: string) => void opened.push(`link:${url}`) });
+      Object.assign(scenario.people.get(TRIAL) as Row, { whatsappPhone: '+972501234567' });
+      try {
+        await openPerson(o, locale, 0);
+        assert(btn(o.m, w('profile.who.openTelegram')) && btn(o.m, w('profile.who.openWhatsapp')), `${locale}: the two buttons: ${show(buttonsOf(o.m).map(flat))}`);
+        calls.splice(0);
+        // A link: the route answers it, the Mini App opens it
+        let release!: (r: Response) => void;
+        world.respond = (call) => (call.method === 'POST' && call.url.endsWith('/open-profile') ? new Promise<Response>((resolve) => void (release = resolve)) : respond(call));
+        o.m.click(btn(o.m, w('profile.who.openTelegram')));
+        await settle();
+        const first = btn(o.m, w('profile.who.openTelegram'));
+        assert(posts('open-profile').length === 1 && first.getAttribute('disabled') !== null, `${locale}: busy while it runs: ${show(posts('open-profile').length)}`);
+        o.m.click(first);
+        await settle();
+        assert(posts('open-profile').length === 1, `${locale}: a second tap while busy sent ${posts('open-profile').length}`);
+        await act(async () => release(ok({ kind: 'link', url: 'https://t.me/alice_fake' })));
+        await settle();
+        const body = posts('open-profile')[0].body as Row;
+        assert(body.userId === TRIAL && body.initData !== undefined && !viewerIdSent(), `${locale}: body ${show({ ...body, initData: undefined })}`);
+        assert(show(opened) === show(['tg:https://t.me/alice_fake']), `${locale}: opened ${show(opened)}`);
+        assert(!page(o.m).includes(w('profile.who.sentToChat')) && !page(o.m).includes(w('profile.who.openFailed')), `${locale}: a notice after a link`);
+        // A mention sent to the admin's chat
+        world.respond = (call) => (call.url.endsWith('/open-profile') ? ok({ kind: 'sent' }) : respond(call));
+        o.m.click(btn(o.m, w('profile.who.openTelegram')));
+        await settle();
+        assert(page(o.m).includes(w('profile.who.sentToChat')) && opened.length === 1, `${locale}: sent: ${page(o.m).slice(0, 200)} ${show(opened)}`);
+        // A refusal, a 404 and a link Telegram's client will not open each say it failed (and clear the earlier line)
+        for (const answer of [json({ error: 'x' }, 502), json({ error: 'User not found' }, 404), ok({ kind: 'link', url: 'https://example.com' })]) {
+          world.respond = (call) => (call.url.endsWith('/open-profile') ? answer.clone() : respond(call));
+          o.m.click(btn(o.m, w('profile.who.openTelegram')));
+          await settle();
+          assert(page(o.m).includes(w('profile.who.openFailed')) && !page(o.m).includes(w('profile.who.sentToChat')), `${locale}: a failure: ${page(o.m).slice(0, 200)}`);
+        }
+        assert(opened.length === 1, `${locale}: a failure opened ${show(opened)}`);
+        // WhatsApp: the number's digits, and no request
+        world.respond = respond;
+        calls.splice(0);
+        o.m.click(btn(o.m, w('profile.who.openWhatsapp')));
+        await settle();
+        assert(show(opened.slice(1)) === show(['link:https://wa.me/972501234567']) && calls.length === 0, `${locale}: whatsapp ${show(opened)} ${show(calls.length)}`);
+        assert(!/\p{Extended_Pictographic}/u.test(page(o.m)), `${locale}: an emoji`);
+      } finally {
+        world.respond = respond;
+        close(o);
+      }
+    }
+    // Who is offered which button
+    for (const [index, wantTelegram, wantWhatsapp] of [[2, true, false], [4, false, true]] as [number, boolean, boolean][]) {
+      reset();
+      const o = open('en', propsOf('en'), { version: '7.7' });
+      try {
+        await openPerson(o, 'en', index);
+        const labels = buttonsOf(o.m).map(flat);
+        assert(labels.includes(word('en', 'profile.who.openTelegram')) === wantTelegram && labels.includes(word('en', 'profile.who.openWhatsapp')) === wantWhatsapp, `person ${index}: ${show(labels)}`);
+      } finally {
+        close(o);
+      }
+    }
+  });
+
   await check('U2b the Reminders switch follows whom reminders can reach (6c-2): a person with no chat whose browser notifications are on has it; one with none does not', async () => {
     for (const remindable of [true, false]) {
       reset();

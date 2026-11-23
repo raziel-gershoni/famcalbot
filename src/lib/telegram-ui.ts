@@ -255,6 +255,29 @@ export function openExternalLink(url: string): boolean {
 }
 
 /**
+ * Opens a Telegram link (https://t.me/..., a person's profile) inside Telegram: the SDK's openTelegramLink on a 6.1+
+ * client, else a new tab. Only an https://t.me/ link is opened (`tg://` links, other hosts, http and a look-alike host such as
+ * t.me.example.com are refused). Returns whether it opened something.
+ */
+export function openTelegramLink(url: string): boolean {
+  let href: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 't.me' || parsed.username !== '' || parsed.password !== '' || parsed.port !== '') return false;
+    href = parsed.href;
+  } catch {
+    return false;
+  }
+  if (tgCall(OPEN_LINK, 'openTelegramLink', (tg) => tg.openTelegramLink(href))) return true;
+  try {
+    window.open(href, '_blank', 'noopener');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Telegram's own pop-up with one OK button; `onClose` runs once the person has dismissed it. True when it was shown.
  * False outside Telegram, or when the client throws (logged): the caller then says the same on its page.
  */

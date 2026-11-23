@@ -703,6 +703,10 @@
         "noTelegram": "לא ב-Telegram",
         "whatsapp": "מספר WhatsApp",
         "noWhatsapp": "אין WhatsApp",
+        "openTelegram": "פתיחה בטלגרם",
+        "openWhatsapp": "פתיחה בוואטסאפ",
+        "sentToChat": "אין שם משתמש ציבורי, אז נשלח לצ'אט קישור לפרופיל.",
+        "openFailed": "לא הצלחנו לפתוח את הפרופיל. כדאי לנסות שוב.",
         "copy": "העתקה",
         "copied": "הועתק",
         "signedUp": "{count, plural, =0 {הרשמה: היום} one {הרשמה: לפני יום אחד} two {הרשמה: לפני יומיים} other {הרשמה: לפני # ימים}}"
@@ -1376,6 +1380,7 @@
     "nextweek": "מביא את אירועי השבוע הבא"
   },
   "bot": {
+    "adminProfileLink": "להקיש על השם כדי לפתוח את הפרופיל: {name}",
     "eventAlertWhen": {
       "startsAt": "מתחיל ב-{time}",
       "pickupAt": "איסוף ב-{time}",

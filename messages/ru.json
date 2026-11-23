@@ -703,6 +703,10 @@
         "noTelegram": "Нет в Telegram",
         "whatsapp": "Номер WhatsApp",
         "noWhatsapp": "Нет WhatsApp",
+        "openTelegram": "Открыть в Telegram",
+        "openWhatsapp": "Открыть в WhatsApp",
+        "sentToChat": "Публичного имени пользователя нет, поэтому бот отправил ссылку на профиль в ваш чат.",
+        "openFailed": "Не удалось открыть профиль. Попробуйте ещё раз.",
         "copy": "Копировать",
         "copied": "Скопировано",
         "signedUp": "{count, plural, =0 {Регистрация: сегодня} one {Регистрация: # день назад} few {Регистрация: # дня назад} many {Регистрация: # дней назад} other {Регистрация: # дня назад}}"
@@ -1376,6 +1380,7 @@
     "nextweek": "Загружаю события следующей недели"
   },
   "bot": {
+    "adminProfileLink": "Нажмите на имя, чтобы открыть профиль: {name}",
     "eventAlertWhen": {
       "startsAt": "Начало в {time}",
       "pickupAt": "Забрать в {time}",

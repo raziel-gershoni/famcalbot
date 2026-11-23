@@ -703,6 +703,10 @@
         "noTelegram": "Not on Telegram",
         "whatsapp": "WhatsApp number",
         "noWhatsapp": "No WhatsApp",
+        "openTelegram": "Open in Telegram",
+        "openWhatsapp": "Open in WhatsApp",
+        "sentToChat": "No public username, so the bot sent a link to the profile to your chat.",
+        "openFailed": "Couldn't open the profile. Try again.",
         "copy": "Copy",
         "copied": "Copied",
         "signedUp": "{count, plural, =0 {Signed up today} one {Signed up # day ago} other {Signed up # days ago}}"
@@ -1376,6 +1380,7 @@
     "nextweek": "Fetching next week events"
   },
   "bot": {
+    "adminProfileLink": "Tap the name to open the profile: {name}",
     "eventAlertWhen": {
       "startsAt": "Starting at {time}",
       "pickupAt": "Pickup at {time}",

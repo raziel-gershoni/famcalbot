@@ -301,6 +301,7 @@ const NOT_PAUSED: Record<string, string> = {
   'app/api/signin-methods/email/add/route.ts': 'the Add email code the person just asked for in Settings (their own action)',
   'app/api/push/devices/route.ts': 'the "Notifications are on" notification after the person turned a device on in Settings (a reply to their own tap; the only send from this route)',
   // To the admin
+  'src/services/admin-open-profile.ts': 'the admin pressing "Open in Telegram" on a person: a message to the admin\'s own chat, the answer to their own tap',
   'app/api/admin/send-reminder/route.ts': 'the admin pressing "send a reminder" for one person',
   'src/services/admin-refund.ts': 'the note to the person that an admin refunded their payment: the answer to their own /paysupport request, sent when the admin acts',
   'src/utils/error-notifier.ts': 'messages to the admin (errors and warnings)',
