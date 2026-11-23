@@ -60,7 +60,7 @@ export function isPageName(value: unknown): value is PageName {
 }
 
 /** A static notice the page renders instead of its client component. */
-export type PageNotice = 'noGoogleToken' | 'error';
+export type PageNotice = 'noGoogleToken' | 'googleReconnect' | 'error';
 
 type SelectCalendarsProps = ComponentProps<typeof SelectCalendarsClient>;
 
@@ -332,7 +332,6 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     },
     weekStart,
     remindersGloballyEnabled: adminSettings?.remindersEnabled ?? false,
-    googleConnected: Boolean(user.googleRefreshToken),
     nativeRemindersSupported,
     subscriptionInfo,
     plan,
@@ -441,6 +440,12 @@ async function selectCalendars(user: UserConfig, userId: number, userLocale: str
       console.warn(`[select-calendars] user ${user.id}: the Google token lacks permissions; token kept, sent to /refresh-token`);
       // /refresh-token lives outside [locale] and picks the language itself; a /he or /ru prefix 404s.
       return { kind: 'redirect', to: `/refresh-token?user_id=${userId}` };
+    }
+
+    // Google refused the token (revoked or expired): the Reconnect card, with Disconnect under it (menu revamp §4)
+    if (cls === 'token') {
+      console.warn(`[select-calendars] user ${user.id}: Google refused the token; the Reconnect card`);
+      return { kind: 'notice', notice: 'googleReconnect' };
     }
 
     // Generic error fallback: captured above, and the message stays out of the page

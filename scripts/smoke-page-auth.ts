@@ -276,8 +276,8 @@ const recorder = (platform: string, prefix: string): Row =>
 // ---- Boundaries: stubs in require's cache, served to import() by a load hook ----
 
 const googleCalls: string[] = [];
-/** When set, the stubbed Google calendar list throws this message (#10). */
-let googleListError: string | null = null;
+/** When set, the stubbed Google calendar list throws this message, or this error (#10, #10b). */
+let googleListError: string | Error | null = null;
 /** What the stubbed place lookup answers (#6d): an IANA zone, or 'hang' until releaseGeocode is called. */
 let geocodeZone = 'Europe/London';
 let releaseGeocode: (() => void) | null = null;
@@ -346,7 +346,7 @@ function installStubs() {
     ...nodeRequire(path.join(ROOT, 'src/services/calendar.ts')),
     listUserCalendars: async (refreshToken: string) => {
       googleCalls.push(`listUserCalendars(${refreshToken})`);
-      if (googleListError) throw new Error(googleListError);
+      if (googleListError) throw typeof googleListError === 'string' ? new Error(googleListError) : googleListError;
       return [{ id: 'CAL-SECRET-google@group.calendar.google.com', name: 'CAL-SECRET-google', description: '', primary: false, accessRole: 'writer', backgroundColor: '#123456' }];
     },
   });
@@ -794,6 +794,34 @@ async function main() {
     const body = await fullBody(res);
     assert(body.includes('redirect'), `no redirect: status ${res.status} ${await bodyOf(res)}`);
     assert(body.includes('"/refresh-token?user_id=8880004"'), `the redirect is not to /refresh-token?user_id=8880004: ${await bodyOf(res)}`);
+  });
+
+  await check('#10b select-calendars when Google refuses the token (classifyGoogleError: token, an invalid_grant or a 401): the googleReconnect notice, a warning with the user id only; missing scopes still redirect; any other failure is the generic error notice', async () => {
+    const run = async (error: string | Error) => {
+      seed();
+      googleListError = error;
+      const warned: string[] = [];
+      const original = console.warn;
+      console.warn = (...args: unknown[]) => void warned.push(args.map(String).join(' '));
+      try {
+        const res = await pageData({ page: 'select-calendars', user_id: 8880004, locale: 'en', initData: initDataFor(8880004) });
+        return { body: await fullBody(res), warned };
+      } finally {
+        console.warn = original;
+      }
+    };
+    const grant = await run(Object.assign(new Error('invalid_grant'), { response: { status: 400, data: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' } } }));
+    assert(grant.body.includes('"kind":"notice"') && grant.body.includes('"notice":"googleReconnect"'), `invalid_grant: ${grant.body}`);
+    assert(grant.warned.some((l) => l === '[select-calendars] user 4: Google refused the token; the Reconnect card'), `the warning: ${JSON.stringify(grant.warned)}`);
+    assert(!grant.warned.join(' ').includes('revoked') && !grant.warned.join(' ').includes('8880004'), `the warning carries Google's words or the Telegram id: ${JSON.stringify(grant.warned)}`);
+    const unauthorized = await run(Object.assign(new Error('Request failed with status code 401'), { response: { status: 401, data: {} } }));
+    assert(unauthorized.body.includes('"notice":"googleReconnect"'), `401: ${unauthorized.body}`);
+    const scopes = await run('GOOGLE_INSUFFICIENT_SCOPES');
+    assert(scopes.body.includes('"/refresh-token?user_id=8880004"') && !scopes.body.includes('googleReconnect'), `scopes: ${scopes.body}`);
+    const other = await run(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500, data: {} } }));
+    assert(other.body.includes('"notice":"error"'), `a 500: ${other.body}`);
+    const plain = await run('something else');
+    assert(plain.body.includes('"notice":"error"'), `an unknown failure: ${plain.body}`);
   });
 
   // ---- The dashboard branch: the calendar home's props, hints and open (spec §7.1, §7.3) ----

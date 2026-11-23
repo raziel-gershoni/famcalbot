@@ -618,7 +618,7 @@ async function main() {
     assert(!/^import /m.test(leaf), 'reload-guard imports something');
   });
 
-  await check("#20 a missing user_id gives the app's MissingParameterCard on all seven pages that had their own copy (settings, admin-panel, feedback, select-calendars, calendars, pair and refresh-token), in en, he and ru, with its text from messages and none of the old inline cards; subscription still answers notFound; select-calendars' two notices are StateCards in an AppScreen with their copy from messages in en, he and ru and nothing from the server", async () => {
+  await check("#20 a missing user_id gives the app's MissingParameterCard on all seven pages that had their own copy (settings, admin-panel, feedback, select-calendars, calendars, pair and refresh-token), in en, he and ru, with its text from messages and none of the old inline cards; subscription still answers notFound; select-calendars' three notices are StateCards in an AppScreen with their copy from messages in en, he and ru and nothing from the server (googleReconnect, a dead Google token, with Reconnect Google to /refresh-token and Disconnect Google under it)", async () => {
     const { renderToString } = nodeRequire('react-dom/server');
     const problems: string[] = [];
     const old = (html: string) => /Missing Parameter|user_id parameter is required|Missing user_id|#667eea|linear-gradient|text-rose-600/.test(html);
@@ -660,6 +660,12 @@ async function main() {
       if (!error.startsWith(root) || !error.includes(asHtml(m.pageGate.errorTitle)) || !error.includes(asHtml(m.pageGate.errorBody)) || !error.includes(retry) || old(error)) problems.push(`${locale} error: ${error.slice(error.indexOf('<h1'), error.indexOf('<h1') + 300)}`);
       // The server's message never reaches the page: no fallback text, and no detail in the wire type or in PageGate
       if (/Unknown error|Try Again|NoticeDetail/.test(error)) problems.push(`${locale} error notice shows server detail or old copy`);
+      // A token Google refused (menu revamp §4): its own card, Reconnect Google as a full page load of /refresh-token, Disconnect under it
+      const { AppRouterContext } = nodeRequire('next/dist/shared/lib/app-router-context.shared-runtime');
+      const React = nodeRequire('react');
+      const dead = renderHtml(React.createElement(AppRouterContext.Provider, { value: {} }, notices.googleReconnect), locale);
+      const reconnect = `<a class="ch-btn ch-btn-primary ch-home-card-action" href="/refresh-token?user_id=5550001">${asHtml(m.selectCalendars.account.reconnect)}</a>`;
+      if (!dead.startsWith(root.replace('ch-screen"', 'ch-screen ch-grouped"')) || !dead.includes(asHtml(m.selectCalendars.reconnectCard.title)) || !dead.includes(asHtml(m.selectCalendars.reconnectCard.body)) || !dead.includes(reconnect) || !dead.includes(asHtml(m.settings.googleDisconnect.button)) || dead.includes(asHtml(m.pageGate.retry)) || old(dead)) problems.push(`${locale} googleReconnect: ${dead.slice(0, 600)}`);
     }
     for (const rel of ['app/[locale]/(app)/PageGate.tsx', 'src/lib/page-data.ts']) {
       const code = readSource(rel).split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');

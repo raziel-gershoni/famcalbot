@@ -261,7 +261,6 @@ async function main() {
                 userId: 1,
                 weekStart: 0,
                 remindersGloballyEnabled: true,
-                googleConnected: false,
                 nativeRemindersSupported: true,
                 bothChannels: true,
                 plan: { effectivePlan: 'BASIC', status: null },

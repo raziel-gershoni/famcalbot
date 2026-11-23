@@ -4,10 +4,14 @@
 //
 //  - W1 the screen's words in en, he and ru (the same keys, ICU plurals for the notes and the limit);
 //  - S1 the screen's source is made of the kit (no styled-jsx, no Tailwind, no purple, no inline copy, initData only in the header);
-//  - S2..S19 the screen itself (light and dark, en / he (RTL) / ru): the three sections and the empty state; a switch saves the
-//    whole selection at once (the exact body, the credential in the header, the colour from Google); a refused save rolls the
-//    switch back and says so; the limit sentence (plurals) and See plans; one request at a time; the primary rules; the
-//    "new events will go to" note once; the calendar's sheet and the notes sheet; Back; a browser; no word of the old copy.
+//  - S2..S19 the screen itself (light and dark, en / he (RTL) / ru): one compact list (menu revamp 2026-11-24 §4: a shown
+//    calendar's row is a text button that opens its sheet beside a sibling switch, a hidden one's whole row is its switch), the
+//    notes and the empty state; a switch saves the whole selection at once (the exact body, the credential in the header, the
+//    colour from Google); a refused save rolls the switch back and says so; the limit sentence (plurals) and See plans; one
+//    request at a time; the primary rules; the "new events will go to" note once; the calendar's sheet and the notes sheet;
+//    Back (to Calendars); a browser; no word of the old copy.
+//  - S30, S31 the Google account section (Reconnect Google, a full page load of /refresh-token; Disconnect Google, moved here
+//    from Settings, whose result goes to Calendars) and the dead-token card (the googleReconnect notice) with Disconnect under it.
 //  - R1 the route reads the credential from the header (and, as every route, from the body).
 //
 // Run with the fake env (never the real one), from the repo root:
@@ -85,7 +89,7 @@ interface Call {
 const calls: Call[] = [];
 type Reply = Response | Promise<Response>;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-const srv = { save: (_c: Call): Reply => json({ success: true }) };
+const srv = { save: (_c: Call): Reply => json({ success: true }), disconnect: (_c: Call): Reply => json({ status: 'disconnected', leftover: [] }) };
 globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const url = new URL(String(input), 'https://famcal.test');
   const method = init.method ?? 'GET';
@@ -93,6 +97,8 @@ globalThis.fetch = (async (input: unknown, init: RequestInit = {}) => {
   const call: Call = { method, path: url.pathname, query: url.searchParams, headers: Object.fromEntries(new Headers(init.headers).entries()), body };
   calls.push(call);
   if (url.pathname === '/api/select-calendars' && method === 'POST') return srv.save(call);
+  // Disconnect Google, in the Google account section (S30, S31)
+  if (url.pathname === '/api/google-disconnect' && method === 'POST') return srv.disconnect(call);
   // Sign in again (6c-1): this browser signs out first
   if (url.pathname === '/api/auth/signout' && method === 'POST') return json({ ok: true });
   throw new Error(`an unexpected request: ${method} ${url.pathname}`);
@@ -104,6 +110,8 @@ function resetWorld() {
   appLogs.length = 0;
   confirmCalls = 0;
   srv.save = () => json({ success: true });
+  srv.disconnect = () => json({ status: 'disconnected', leftover: [] });
+  assigned.length = 0;
 }
 
 // ---- Fixtures: four Google calendars, two of them chosen ----
@@ -141,6 +149,8 @@ const unlistedFor = (l: Locale): Row => ({ id: GONE, name: GONE_NAMES[l], backgr
 // ---- Mounting the screen ----
 
 type Props = Row;
+/** The full page loads the screen asked for (window.location.assign): Reconnect Google's /refresh-token. */
+const assigned: string[] = [];
 let Screen: (props: Props) => ReactElement;
 const propsOf = (locale: Locale, o: Props = {}): Props => ({
   userId: 5550001, availableCalendars: availableFor(locale), currentSelections: selectionOf(), locale, famcalPrimaryName: null, ...o,
@@ -161,7 +171,7 @@ async function open(locale: Locale, o: Props = {}, telegram?: { version: string;
   const tg = telegram ? fakeTelegram(tgCalls, telegram.version) : null;
   if (tg && telegram?.scheme) tg.colorScheme = telegram.scheme;
   fakeWindow.Telegram = tg ? { WebApp: tg } : undefined;
-  fakeWindow.location = { hash: '', assign: () => undefined, reload: () => undefined };
+  fakeWindow.location = { hash: '', assign: (href: string) => void assigned.push(href), reload: () => undefined };
   const m = mount(tree(locale, propsOf(locale, o)));
   await settle();
   return { m, tg, tgCalls, locale };
@@ -213,10 +223,25 @@ const sectionLabels = (m: Mounted) => elements(m.container).filter((e) => e.loca
 const switchesOf = (node: FakeNode) => byRole(node, 'switch');
 /** The page's own switches (the calendars), not the sheet's. */
 const pageSwitches = (m: Mounted) => switchesOf(m.container).filter((s) => !isInside(s, sheetOf(m)));
+/**
+ * A calendar switch's name: what its aria-labelledby points to (a shown calendar's switch holds only the track, and is named by
+ * the name in its sibling text button; a hidden calendar's switch is the whole row and names itself the same way).
+ */
+const switchName = (m: Mounted, s: FakeElement) => {
+  const by = s.getAttribute('aria-labelledby');
+  const named = by ? elements(m.container).find((e) => e.getAttribute('id') === by) : undefined;
+  return named ? flat(named) : flat(s);
+};
 const switchOf = (m: Mounted, name: string) => {
-  const s = pageSwitches(m).find((x) => flat(x).startsWith(name));
-  assert(s, `no switch for ${name} in ${show(pageSwitches(m).map(flat))}`);
+  const s = pageSwitches(m).find((x) => switchName(m, x).startsWith(name));
+  assert(s, `no switch for ${name} in ${show(pageSwitches(m).map((x) => switchName(m, x)))}`);
   return s;
+};
+/** The row a calendar switch sits in (.ch-cal-row): the text button and the switch of a shown calendar, the switch alone of a hidden one. */
+const calendarRowOf = (s: FakeElement) => {
+  const row = s.parentNode as FakeElement;
+  assert(row instanceof FakeElement && classes(row).includes('ch-cal-row'), `the switch is not in a .ch-cal-row: ${row instanceof FakeElement ? row.className : show(row)}`);
+  return row;
 };
 const isOn = (s: FakeElement) => s.getAttribute('aria-checked') === 'true';
 const listRows = (m: Mounted) => buttonsOf(m.container).filter((b) => classes(b).includes('ch-list-row'));
@@ -270,6 +295,10 @@ const labelAbove = (field: FakeElement) => {
 const saveButton = (m: Mounted) => buttonsOf(sheetOf(m) as FakeNode).find((b) => classes(b).includes('ch-save') && !classes(b).includes('ch-btn-danger')) as FakeElement;
 const cancelButton = (m: Mounted) => buttonsOf(sheetOf(m) as FakeNode).find((b) => classes(b).includes('ch-sheet-close')) as FakeElement;
 const ui = (locale: Locale, key: string) => messageAt(locale, `ui.${key}`);
+/** Disconnect Google's words: its section moved here from Settings with its i18n (settings.googleDisconnect). */
+const gdw = (locale: Locale, key: string) => messageAt(locale, `settings.googleDisconnect.${key}`);
+/** The section labels after the calendars: the Google account, then Disconnect Google's own. */
+const accountLabels = (locale: Locale) => [word(locale, 'account.title'), gdw(locale, 'sectionTitle')];
 const cat = (locale: Locale, key: string) => messageAt(locale, `calendars.categories.${key}`);
 const hint = (locale: Locale, key: string) => messageAt(locale, `calendarsPage.categoryHint.${key}`);
 const calendarsPageText = (locale: Locale, key: string) => messageAt(locale, `calendarsPage.${key}`);
@@ -308,8 +337,10 @@ async function main() {
     const block = (l: Locale) => new Map(leaves(messages[l].selectCalendars));
     const keys = (l: Locale) => [...block(l).keys()].sort();
     for (const l of ['he', 'ru'] as Locale[]) assert(show(keys(l)) === show(keys('en')), `${l}: the keys differ from en`);
-    for (const need of ['title', 'intro', 'show', 'chosen', 'chosenHint', 'category', 'noCategory', 'mainIsYours', 'note', 'notePlaceholder', 'noteHint', 'spouse', 'spouseHint', 'spouseName', 'spouseNamePlaceholder', 'spouseEnglishName', 'spouseGender', 'male', 'female', 'notes', 'notesHint', 'notesPlaceholder', 'notesCount', 'newEventsGoTo', 'errors.save', 'errors.limit', 'errors.noneSelected', 'errors.noYours', 'errors.retry', 'mainHowToChange', 'empty.title', 'empty.body']) assert(block('en').has(need), `en: no ${need}`);
+    for (const need of ['title', 'intro', 'show', 'account.title', 'account.reconnect', 'account.reconnectHint', 'reconnectCard.title', 'reconnectCard.body', 'category', 'noCategory', 'mainIsYours', 'note', 'notePlaceholder', 'noteHint', 'spouse', 'spouseHint', 'spouseName', 'spouseNamePlaceholder', 'spouseEnglishName', 'spouseGender', 'male', 'female', 'notes', 'notesHint', 'notesPlaceholder', 'notesCount', 'newEventsGoTo', 'errors.save', 'errors.limit', 'errors.noneSelected', 'errors.noYours', 'errors.retry', 'mainHowToChange', 'empty.title', 'empty.body']) assert(block('en').has(need), `en: no ${need}`);
     for (const l of LOCALES) assert(!block(l).has('noNote'), `${l}: the unread key noNote is still there`);
+    // The "Chosen calendars" section is gone (menu revamp §4): its title and hint with it
+    for (const l of LOCALES) for (const gone of ['chosen', 'chosenHint']) assert(!block(l).has(gone), `${l}: selectCalendars.${gone} is still there`);
     assert(messages.en.selectCalendars.errors.retry === "Couldn't save. Try again." && messages.he.selectCalendars.errors.retry === 'לא הצלחנו לשמור. נסו שוב.' && messages.ru.selectCalendars.errors.retry === 'Не удалось сохранить. Попробуйте ещё раз.', 'the retry sentence');
     assert(messages.en.selectCalendars.mainHowToChange === 'To change the main calendar, turn it on for another one.' && messages.he.selectCalendars.mainHowToChange === 'כדי להחליף את היומן הראשי, מפעילים אותו ביומן אחר.' && messages.ru.selectCalendars.mainHowToChange === 'Чтобы сменить основной календарь, включите этот переключатель у другого календаря.', 'how to change the main calendar');
     assert(messages.en.selectCalendars.errors.noneSelected === 'Keep at least one calendar on. To stop using Google, disconnect it in Settings.' && messages.en.selectCalendars.errors.noYours === 'Keep at least one calendar marked as yours.', 'the English refusals');
@@ -337,6 +368,33 @@ async function main() {
     }
   });
 
+  await check('W3 the Google account section and the dead-token card in the plan\'s words (menu revamp, Task 3), in en, he and ru', () => {
+    const want: Record<Locale, Record<string, string>> = {
+      en: {
+        'account.title': 'Google account',
+        'account.reconnect': 'Reconnect Google',
+        'account.reconnectHint': 'If your Google events stop showing up, connect again.',
+        'reconnectCard.title': 'The connection to Google stopped working',
+        'reconnectCard.body': 'Google no longer gives FamCal access to this account. Connect again to keep seeing your calendars.',
+      },
+      he: {
+        'account.title': 'חשבון Google',
+        'account.reconnect': 'חיבור מחדש ל־Google',
+        'account.reconnectHint': 'אם האירועים מ־Google הפסיקו להופיע, אפשר להתחבר מחדש.',
+        'reconnectCard.title': 'החיבור ל־Google הפסיק לעבוד',
+        'reconnectCard.body': 'Google כבר לא מאפשר ל־FamCal גישה לחשבון הזה. כדי להמשיך לראות את היומנים, צריך להתחבר מחדש.',
+      },
+      ru: {
+        'account.title': 'Аккаунт Google',
+        'account.reconnect': 'Переподключить Google',
+        'account.reconnectHint': 'Если события из Google перестали появляться, подключите его заново.',
+        'reconnectCard.title': 'Подключение к Google перестало работать',
+        'reconnectCard.body': 'Google больше не даёт FamCal доступ к этому аккаунту. Чтобы календари снова отображались, подключите его заново.',
+      },
+    };
+    for (const l of LOCALES) for (const [key, text] of Object.entries(want[l])) assert(messageAt(l, `selectCalendars.${key}`) === text, `${l} selectCalendars.${key}: ${messageAt(l, `selectCalendars.${key}`)}`);
+  });
+
   await check('W2 the reviewed wording: the Hebrew spouse hint names the spouse (not "them"), the Hebrew empty state says "in the Google account" with no English product line, the Russian note copy is native (lessons end earlier, not "ранний уход"), the Hebrew limit has its singular and dual', () => {
     assert(messages.he.selectCalendars.spouseHint === 'משמשים לכל יומני בן או בת הזוג, כדי שהסיכומים יזכירו את בן או בת הזוג בשם.', messages.he.selectCalendars.spouseHint);
     assert(messages.he.selectCalendars.empty.body === 'אפשר להוסיף יומן בחשבון Google ולפתוח את הדף הזה שוב.', messages.he.selectCalendars.empty.body);
@@ -345,7 +403,7 @@ async function main() {
     for (const l of LOCALES) assert(!/ранний уход|early dismissal/i.test(messages[l].selectCalendars.notePlaceholder + messages[l].selectCalendars.notesHint) || l === 'en', `${l}: the calque is back`);
   });
 
-  await check('S1 the screen is made of the kit: no styled-jsx, Tailwind class, hex colour, emoji, :hover, window.confirm or direct useTelegramBackButton; no old Layout/Forms import, no inline Hebrew or Russian; initData only through initDataHeaders (never window.Telegram or the body); the grouped AppScreen owns Back and the form kit\'s style sheet is the only one', () => {
+  await check('S1 the screen is made of the kit: no styled-jsx, Tailwind class, hex colour, emoji, :hover, window.confirm or direct useTelegramBackButton; no old Layout/Forms import, no inline Hebrew or Russian; initData only through initDataHeaders (never window.Telegram or the body); the grouped AppScreen owns Back; the form kit\'s style sheet and the screen\'s own row rules (CALENDAR_ROW_CSS, after it and clean under the kit\'s lint) are the only ones; no "Chosen calendars" key is read', async () => {
     const raw = source(SCREEN_FILE);
     const code = noComments(raw);
     assert(!/<style jsx|styled-jsx/.test(code), 'styled-jsx');
@@ -362,12 +420,16 @@ async function main() {
     assert(!/\bcalendarLimit\b|\buserName\b/.test(code), 'the screen takes a prop it does not use (calendarLimit, userName)');
     assert(/import \{ isolate \} from '@\/src\/lib\/isolate';/.test(code) && !/GoogleCopyRow/.test(code), 'isolate does not come from src/lib/isolate (a component module is no home for a helper)');
     const styles = code.match(/<style[^>]*>/g) ?? [];
-    assert(styles.length === 1 && /<style>\{FORM_CSS\}<\/style>/.test(code), 'a style sheet but the form kit\'s');
+    assert(styles.length === 2 && /<style>\{FORM_CSS\}<\/style>\s*<style>\{CALENDAR_ROW_CSS\}<\/style>/.test(code), 'a style sheet but the form kit\'s, then the row rules');
+    const { CALENDAR_ROW_CSS } = (await import('../app/[locale]/(app)/select-calendars/SelectCalendarsClient')) as unknown as { CALENDAR_ROW_CSS?: string };
+    const { lintCss } = await import('./lib/css-lint');
+    assert(typeof CALENDAR_ROW_CSS === 'string' && lintCss(CALENDAR_ROW_CSS).length === 0, `CALENDAR_ROW_CSS lint: ${show(typeof CALENDAR_ROW_CSS === 'string' ? lintCss(CALENDAR_ROW_CSS) : 'missing')}`);
+    assert(!/t\('chosen(?:Hint)?'\)/.test(code), 'the screen reads chosen or chosenHint');
     assert(/<AppScreen ground="grouped" onBack=\{back\}>/.test(code) && /<ScreenHeader title=\{t\('title'\)\} backLabel=\{ui\('back'\)\} onBack=\{back\} \/>/.test(code), 'the grouped AppScreen and the header with the same back');
     for (const gone of ['components/Layout/TelegramLayout.tsx', 'components/Layout/Header.tsx', 'components/Layout/index.ts', 'components/Forms/CategoryIcon.tsx']) assert(!fs.existsSync(path.join(ROOT, gone)), `${gone} is still there`);
   });
 
-  await check('S2 the screen in en, he (RTL) and ru, light and dark: the grouped root, the title, the intro, "Show in FamCal" with one switch per Google calendar (on for the chosen ones, a dot in Google\'s colour, the name in a <bdi>, the description as its hint), "Chosen calendars" with a row per chosen calendar (category or "No category", primary in the accent tag, a chevron) and the hint, and "Notes for all calendars" with the count; no raw key, no emoji, no Latin letter in he and ru', async () => {
+  await check('S2 the screen in en, he (RTL) and ru, light and dark: the grouped root, the title, the intro, "Show in FamCal" with one row per Google calendar: a shown one is two sibling buttons (a text button with the dot, the name in a <bdi>, its role or "No role" and the Main tag in the accent, then a switch that holds only the track, named by that name), a hidden one is one switch with the dot and the name and no description; no "Chosen calendars" section; "Notes for all calendars" with the count; then the Google account section (Reconnect Google described by its hint) and Disconnect Google; no raw key, no emoji, no Latin letter in he and ru', async () => {
     for (const locale of LOCALES) {
       const dir = locale === 'he' ? 'rtl' : 'ltr';
       const n = NAMES[locale];
@@ -386,23 +448,46 @@ async function main() {
           assert(root && root.getAttribute('data-theme') === scheme && root.getAttribute('dir') === dir && root.getAttribute('lang') === locale, `${locale} ${scheme}: the root`);
           assert(flat(elements(o.m.container).find((e) => e.localName === 'h1') as FakeNode) === word(locale, 'title'), `${locale} ${scheme}: the h1`);
           assert(page(o.m).includes(word(locale, 'intro')) && elements(o.m.container).some((e) => e.localName === 'p' && classes(e).includes('ch-form-fixed') && flat(e) === word(locale, 'intro')), `${locale} ${scheme}: the intro`);
-          assert(show(sectionLabels(o.m)) === show([word(locale, 'show'), word(locale, 'chosen'), word(locale, 'notes')]), `${locale} ${scheme}: sections ${show(sectionLabels(o.m))}`);
-          // The switches
+          assert(show(sectionLabels(o.m)) === show([word(locale, 'show'), word(locale, 'notes'), ...accountLabels(locale)]), `${locale} ${scheme}: sections ${show(sectionLabels(o.m))}`);
+          // The switches: one per calendar, in Google's order, each in its own row
           const switches = pageSwitches(o.m);
-          assert(switches.length === 4 && show(switches.map(isOn)) === show([true, false, true, false]), `${locale} ${scheme}: switches ${show(switches.map((s) => [flat(s), isOn(s)]))}`);
-          assert(show(switches.map((s) => dotColour(s))) === show(['#039BE5', '#7986CB', '#F4511E', '#0B8043']), `${locale} ${scheme}: dots ${show(switches.map((s) => dotColour(s)))}`);
-          assert(switches.every((s, i) => flat(s).startsWith([n.me, n.family, n.kids, n.noa][i])), `${locale} ${scheme}: names`);
-          assert(switches.every((s) => elements(s).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto') && elements(s).some((e) => classes(e).includes('ch-switch'))), `${locale} ${scheme}: a switch without its <bdi> name or its track`);
-          assert(flat(switches[1]).includes(n.familyDesc) && !flat(switches[0]).includes(n.familyDesc), `${locale} ${scheme}: the description is Family's hint`);
+          assert(switches.length === 4 && show(switches.map(isOn)) === show([true, false, true, false]), `${locale} ${scheme}: switches ${show(switches.map((s) => [switchName(o.m, s), isOn(s)]))}`);
+          assert(switches.every((s, i) => switchName(o.m, s).startsWith([n.me, n.family, n.kids, n.noa][i])), `${locale} ${scheme}: names ${show(switches.map((s) => switchName(o.m, s)))}`);
+          const rowsOf = switches.map(calendarRowOf);
+          assert(show(rowsOf.map((r) => dotColour(r))) === show(['#039BE5', '#7986CB', '#F4511E', '#0B8043']), `${locale} ${scheme}: dots ${show(rowsOf.map((r) => dotColour(r)))}`);
+          assert(rowsOf.every((r) => elements(r).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto') && elements(r).some((e) => classes(e).includes('ch-switch'))), `${locale} ${scheme}: a row without its <bdi> name or its track`);
           assert(switches.every((s) => !s.hasAttribute('disabled') && !s.hasAttribute('aria-busy')), `${locale} ${scheme}: a switch is off at rest`);
-          // The chosen rows
+          // A shown calendar: a text button and its switch, siblings in the row, neither inside the other
+          for (const i of [0, 2]) {
+            const row = rowsOf[i];
+            const own = row.childNodes.filter((c): c is FakeElement => c instanceof FakeElement);
+            assert(own.length === 2 && own[0].localName === 'button' && own[1] === switches[i] && classes(own[0]).includes('ch-list-row'), `${locale} ${scheme}: row ${i} is ${show(own.map((e) => `${e.localName}.${e.className}`))}`);
+            assert(buttonsOf(own[0]).length === 0 && buttonsOf(switches[i]).length === 0, `${locale} ${scheme}: a button inside a button in row ${i}`);
+            assert(flat(switches[i]) === '' && elements(switches[i]).some((e) => classes(e).includes('ch-switch') && classes(e).includes('is-on')), `${locale} ${scheme}: the shown switch holds ${show(flat(switches[i]))}`);
+            assert(own[0].getAttribute('role') === null && !own[0].hasAttribute('aria-haspopup'), `${locale} ${scheme}: the text button reads as a switch or a dialog opener`);
+          }
+          // A hidden calendar: the whole row is its switch (the dot and the name), no description and no details
+          for (const i of [1, 3]) {
+            const own = rowsOf[i].childNodes.filter((c): c is FakeElement => c instanceof FakeElement);
+            assert(own.length === 1 && own[0] === switches[i] && classes(switches[i]).includes('ch-form-row'), `${locale} ${scheme}: hidden row ${i} is ${show(own.map((e) => `${e.localName}.${e.className}`))}`);
+            assert(flat(switches[i]) === [n.me, n.family, n.kids, n.noa][i] && !elements(switches[i]).some((e) => classes(e).includes('ch-form-hint')) && !switches[i].hasAttribute('aria-describedby'), `${locale} ${scheme}: the hidden row holds ${show(flat(switches[i]))}`);
+          }
+          assert(!page(o.m).includes(n.familyDesc), `${locale} ${scheme}: Google's description is drawn`);
+          // The text buttons: the role (or No role) and the Main tag
           const rows = listRows(o.m);
           assert(rows.length === 2 && flat(rows[0]).startsWith(n.me) && flat(rows[1]).startsWith(n.kids), `${locale} ${scheme}: rows ${show(rows.map(flat))}`);
           assert(flat(rows[0]).includes(cat(locale, 'yours')) && show(tagsOf(rows[0])) === show([{ text: cat(locale, 'primary'), tone: 'accent' }]), `${locale} ${scheme}: ${n.me}'s row ${flat(rows[0])} ${show(tagsOf(rows[0]))}`);
           assert(flat(rows[1]).includes(cat(locale, 'kids')) && tagsOf(rows[1]).length === 0, `${locale} ${scheme}: ${n.kids}'s row ${flat(rows[1])}`);
-          assert(show(rows.map((r) => dotColour(r))) === show(['#039BE5', '#F4511E']), `${locale} ${scheme}: row dots`);
-          assert(rows.every((r) => elements(r).some((e) => classes(e).includes('ch-form-chevron')) && elements(r).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto')), `${locale} ${scheme}: a row without its chevron or <bdi> name`);
-          assert(elements(o.m.container).some((e) => e.localName === 'p' && classes(e).includes('ch-form-fixed') && flat(e) === word(locale, 'chosenHint')), `${locale} ${scheme}: the chosen hint`);
+          assert(rows.every((r) => elements(r).some((e) => e.localName === 'bdi' && e.getAttribute('dir') === 'auto') && elements(r).some((e) => classes(e).includes('ch-form-hint'))), `${locale} ${scheme}: a text button without its <bdi> name or its role line`);
+          // The Google account section, last: Reconnect Google (an accent row described by its hint), then Disconnect Google
+          const reconnect = mustButton(o.m.container, word(locale, 'account.reconnect'));
+          assert(classes(reconnect).includes('ch-action-row') && classes(reconnect).includes('ch-form-row'), `${locale} ${scheme}: Reconnect is ${reconnect.className}`);
+          const hintOf = elements(o.m.container).find((e) => e.getAttribute('id') === reconnect.getAttribute('aria-describedby'));
+          assert(hintOf && hintOf.localName === 'p' && flat(hintOf) === word(locale, 'account.reconnectHint'), `${locale} ${scheme}: Reconnect's hint ${hintOf && flat(hintOf)}`);
+          const disconnect = mustButton(o.m.container, gdw(locale, 'button'));
+          assert(classes(disconnect).includes('ch-danger-row') && page(o.m).includes(gdw(locale, 'sectionHint')), `${locale} ${scheme}: Disconnect Google`);
+          const order = buttonsOf(o.m.container);
+          assert(order.indexOf(notesRow(o.m)) < order.indexOf(reconnect) && order.indexOf(reconnect) < order.indexOf(disconnect) && order.at(-1) === disconnect, `${locale} ${scheme}: the Google account section is not last`);
           // The notes row
           const notesCount = { en: '1 note', he: 'הערה אחת', ru: '1 заметка' }[locale];
           assert(flat(notesRow(o.m)) === `${word(locale, 'notes')} ${notesCount}`, `${locale} ${scheme}: the notes row ${flat(notesRow(o.m))}`);
@@ -424,7 +509,7 @@ async function main() {
       resetWorld();
       const none = await open(locale, { currentSelections: selectionOf({ selectedCalendars: new Set(), calendarLabels: new Map(), calendarRules: new Map(), globalRules: [] }) }, TELEGRAM);
       try {
-        assert(show(sectionLabels(none.m)) === show([word(locale, 'show'), word(locale, 'notes')]) && listRows(none.m).length === 0, `${locale}: ${show(sectionLabels(none.m))}`);
+        assert(show(sectionLabels(none.m)) === show([word(locale, 'show'), word(locale, 'notes'), ...accountLabels(locale)]) && listRows(none.m).length === 0, `${locale}: ${show(sectionLabels(none.m))}`);
         assert(flat(notesRow(none.m)) === `${word(locale, 'notes')} ${{ en: 'None', he: 'אין', ru: 'Нет' }[locale]}`, `${locale}: ${flat(notesRow(none.m))}`);
       } finally {
         close(none);
@@ -452,7 +537,8 @@ async function main() {
         const text = page(empty.m);
         assert(text.includes(word(locale, 'empty.title')) && text.includes(word(locale, 'empty.body')), `${locale}: the empty state in ${text}`);
         assert(elements(empty.m.container).some((e) => classes(e).includes('ch-home-card') && e.getAttribute('role') === 'status'), `${locale}: the state card`);
-        assert(sectionLabels(empty.m).length === 0 && pageSwitches(empty.m).length === 0 && !notesRow(empty.m), `${locale}: sections with no calendars: ${show(sectionLabels(empty.m))}`);
+        // The Google account section stays: the token is there, so Reconnect and Disconnect still apply
+        assert(show(sectionLabels(empty.m)) === show(accountLabels(locale)) && pageSwitches(empty.m).length === 0 && !notesRow(empty.m), `${locale}: sections with no calendars: ${show(sectionLabels(empty.m))}`);
         assert(flat(elements(empty.m.container).find((e) => e.localName === 'h1') as FakeNode) === word(locale, 'title'), `${locale}: the title stays`);
       } finally {
         close(empty);
@@ -465,7 +551,7 @@ async function main() {
       currentSelections: selectionOf({ selectedCalendars: new Set([ME, GONE, KIDS]), calendarLabels: new Map([[ME, new Set(['yours'])], [GONE, new Set(['kids'])], [KIDS, new Set(['kids'])]]) }),
     }, TELEGRAM);
     try {
-      assert(listRows(o.m).length === 2 && pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => flat(s).startsWith(GONE_NAMES.en)) && !page(o.m).includes('old@group'), 'the calendar Google does not list is a switch or a Chosen row, or shows its id');
+      assert(listRows(o.m).length === 2 && pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => switchName(o.m, s).startsWith(GONE_NAMES.en)) && !page(o.m).includes('old@group'), 'the calendar Google does not list is a switch or a Chosen row, or shows its id');
       await tapAndSettle(o, switchOf(o.m, 'Family'));
       const ids = bodyOf().calendarAssignments.map((a) => a.calendarId);
       assert(show(ids) === show([ME, GONE, KIDS, FAMILY]), `the saved choices after an unrelated tap: ${show(ids)}`);
@@ -527,8 +613,12 @@ async function main() {
     const o = await open('en', {}, TELEGRAM);
     try {
       await tapAndSettle(o, switchOf(o.m, 'Kids and school'));
-      assert(show(bodyOf().calendarAssignments.map((a) => a.calendarId)) === show([ME]) && !JSON.stringify(bodyOf()).includes('Early dismissal'), `after the off tap: ${show(bodyOf())}`);
-      assert(!isOn(switchOf(o.m, 'Kids and school')) && listRows(o.m).length === 1, 'the row stays on');
+      // The shown row's switch (beside its text button) sends the whole selection without it, exactly
+      assert(canon(bodyOf()) === canon({ calendarAssignments: [{ calendarId: ME, labels: ['yours'], name: 'Dana', color: '#039BE5' }], globalRules: ['Be brief'] }), `after the off tap: ${canon(bodyOf())}`);
+      assert(saves().length === 1 && !sheetOf(o.m), 'the switch opened the sheet, or saved twice');
+      // Its row is now a hidden one: the whole row is the switch, with no text button and no role line
+      const off = switchOf(o.m, 'Kids and school');
+      assert(!isOn(off) && listRows(o.m).length === 1 && calendarRowOf(off).childNodes.length === 1 && flat(off) === 'Kids and school', 'the row stays on, or keeps its details');
       // On again: back with no labels and no rule (they were dropped)
       await tapAndSettle(o, switchOf(o.m, 'Kids and school'));
       const again = bodyOf().calendarAssignments.find((a) => a.calendarId === KIDS) as Row;
@@ -989,7 +1079,7 @@ async function main() {
     }
   });
 
-  await check('S14 Back has one owner (AppScreen): it closes an open sheet first, never while a request runs, else goes to the dashboard; Cancel, Escape and the scrim do the same and are off while a save runs; in a browser the header\'s own back (once, mirrored in he) does the same; a swipe down in a sheet is held off', async () => {
+  await check('S14 Back has one owner (AppScreen): it closes an open sheet first, never while a request runs, else goes to the Calendars screen (its parent, whoever opened this one); Cancel, Escape and the scrim do the same and are off while a save runs; in a browser the header\'s own back (once, mirrored in he) does the same; a swipe down in a sheet is held off', async () => {
     resetWorld();
     const o = await open('en', {}, TELEGRAM);
     try {
@@ -1005,7 +1095,7 @@ async function main() {
       await back(o);
       assert(!sheetOf(o.m) && pushes.length === 0, 'Back with the notes sheet open');
       await back(o);
-      assert(show(pushes) === show(['/en/dashboard?user_id=5550001']), `Back with no sheet: ${show(pushes)}`);
+      assert(show(pushes) === show(['/en/calendars?user_id=5550001']), `Back with no sheet: ${show(pushes)}`);
       // While a request runs nothing closes the sheet or leaves the page
       pushes.length = 0;
       await openRow(o, 'Dana');
@@ -1028,7 +1118,7 @@ async function main() {
       await hold(json({ success: true }));
       await settle();
       await back(o);
-      assert(show(pushes) === show(['/en/dashboard?user_id=5550001']), `Back after it: ${show(pushes)}`);
+      assert(show(pushes) === show(['/en/calendars?user_id=5550001']), `Back after it: ${show(pushes)}`);
     } finally {
       close(o);
     }
@@ -1042,7 +1132,7 @@ async function main() {
         b.m.click(buttons[0]);
         assert(!sheetOf(b.m) && pushes.length === 0, `${locale}: the header back with a sheet open`);
         b.m.click(buttons[0]);
-        assert(show(pushes) === show([`/${locale}/dashboard?user_id=5550001`]), `${locale}: the header back: ${show(pushes)}`);
+        assert(show(pushes) === show([`/${locale}/calendars?user_id=5550001`]), `${locale}: the header back: ${show(pushes)}`);
         assert(elements(buttons[0]).some((e) => e.localName === 'svg' && classes(e).includes('ch-flip')), `${locale}: the back arrow does not flip in RTL`);
       } finally {
         close(b);
@@ -1092,18 +1182,23 @@ async function main() {
     }
   });
 
-  await check('S16 a long Google name and description (a link, no spaces) stay inside the row: the name is isolated in a <bdi>, the row\'s label can shrink; the dot, the chevron and the switch are never squeezed out', async () => {
+  await check('S16 a long Google name (a link, no spaces) stays inside its row, shown or hidden: the name is isolated in a <bdi>, the text button takes the room and can shrink (CALENDAR_ROW_CSS), the switch never does; the description is never drawn', async () => {
     resetWorld();
     const long = 'https://calendar.example.com/ical/very-long-unbroken-calendar-address-for-the-school-parents-committee@group.calendar.google.com';
-    const o = await open('he', { availableCalendars: [{ id: ME, name: long, description: long, backgroundColor: '#039BE5' }, ...availableFor('he').slice(1)] }, { ...TELEGRAM, scheme: 'dark' });
+    const o = await open('he', { availableCalendars: [{ id: ME, name: long, description: long, backgroundColor: '#039BE5' }, { id: FAMILY, name: long, description: long, backgroundColor: '#7986CB' }, ...availableFor('he').slice(2)] }, { ...TELEGRAM, scheme: 'dark' });
     try {
-      const s = pageSwitches(o.m)[0];
-      assert(flat(s).includes(long), 'the long name is not shown');
-      const hintEl = elements(s).find((e) => classes(e).includes('ch-form-hint')) as FakeElement;
-      assert(hintEl && elements(hintEl).some((e) => e.localName === 'bdi'), 'the description is not isolated');
+      const [shown, hidden] = pageSwitches(o.m);
+      assert(switchName(o.m, shown) === long && flat(hidden) === long, 'the long name is not shown');
+      assert(page(o.m).split(long).length === 3, 'the description is drawn');
+      for (const row of [calendarRowOf(shown), calendarRowOf(hidden)]) assert(elements(row).some((e) => e.localName === 'bdi' && flat(e) === long), 'the long name is not isolated');
     } finally {
       close(o);
     }
+    const { CALENDAR_ROW_CSS } = (await import('../app/[locale]/(app)/select-calendars/SelectCalendarsClient')) as unknown as { CALENDAR_ROW_CSS: string };
+    // A rule's body by one of the selectors it lists
+    const rowRule = (selector: string) => [...CALENDAR_ROW_CSS.matchAll(/([^{}]+)\{([^}]*)\}/g)].find((r) => r[1].split(',').map((x) => x.trim()).includes(selector))?.[2] ?? '';
+    assert(/flex:\s*1 1 0/.test(rowRule('.ch-cal-row > .ch-cal-open')) && /min-inline-size:\s*0/.test(rowRule('.ch-cal-row > .ch-cal-open')), `the text button does not take the room or cannot shrink: ${rowRule('.ch-cal-row > .ch-cal-open')}`);
+    assert(/flex:\s*none/.test(rowRule('button.ch-cal-switch')) && /min-inline-size:\s*44px/.test(rowRule('button.ch-cal-switch')), `the switch can be squeezed or is under 44 px: ${rowRule('button.ch-cal-switch')}`);
     // The kit lets a person's own unbroken text in a hint wrap (the <bdi> in it), and only that: a hint that wraps "anywhere" itself
     // shrinks its label column to one letter and breaks the words of the editor's Repeat row in Russian
     const { FORM_CSS } = await import('../components/app-ui/form-kit');
@@ -1317,7 +1412,8 @@ async function main() {
 
   // ---- Calendars Google no longer lists (the home's "N calendars aren't available · Choose again" lands here) ----
 
-  const removeButtons = (m: Mounted) => buttonsOf(m.container).filter((b) => classes(b).includes('ch-danger-row'));
+  // The unlisted calendars' Remove rows: the danger rows but Disconnect Google's (the Google account section, S30)
+  const removeButtons = (m: Mounted) => buttonsOf(m.container).filter((b) => classes(b).includes('ch-danger-row') && !LOCALES.some((l) => flat(b) === gdw(l, 'button')));
   const goneSelection = (o: Row = {}) => selectionOf({
     selectedCalendars: new Set([ME, GONE, KIDS]),
     calendarLabels: new Map([[ME, new Set(['yours'])], [GONE, new Set(['primary', 'yours'])], [KIDS, new Set(['kids'])]]),
@@ -1332,7 +1428,7 @@ async function main() {
         const o = await open(locale, { unlistedCalendars: [unlistedFor(locale)], currentSelections: goneSelection() }, { ...TELEGRAM, scheme });
         try {
           const n = NAMES[locale];
-          assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title'), word(locale, 'show'), word(locale, 'chosen'), word(locale, 'notes')]), `${locale} ${scheme}: sections ${show(sectionLabels(o.m))}`);
+          assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title'), word(locale, 'show'), word(locale, 'notes'), ...accountLabels(locale)]), `${locale} ${scheme}: sections ${show(sectionLabels(o.m))}`);
           const removes = removeButtons(o.m);
           assert(removes.length === 1 && flat(removes[0]) === word(locale, 'unavailable.remove'), `${locale} ${scheme}: Remove ${show(removes.map(flat))}`);
           const describedBy = removes[0].getAttribute('aria-describedby');
@@ -1341,7 +1437,7 @@ async function main() {
           assert(dotColour(named) === GONE_COLOUR, `${locale} ${scheme}: the dot ${dotColour(named)}`);
           assert(!removes[0].hasAttribute('disabled') && !removes[0].hasAttribute('aria-busy'), `${locale} ${scheme}: Remove is off at rest`);
           assert(elements(o.m.container).some((e) => e.localName === 'p' && classes(e).includes('ch-form-fixed') && flat(e) === word(locale, 'unavailable.hint')), `${locale} ${scheme}: the hint`);
-          assert(pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => flat(s).startsWith(GONE_NAMES[locale])), `${locale} ${scheme}: a switch for the unlisted calendar`);
+          assert(pageSwitches(o.m).length === 4 && !pageSwitches(o.m).some((s) => switchName(o.m, s).startsWith(GONE_NAMES[locale])), `${locale} ${scheme}: a switch for the unlisted calendar`);
           assert(listRows(o.m).length === 2 && flat(listRows(o.m)[0]).startsWith(n.me) && flat(listRows(o.m)[1]).startsWith(n.kids), `${locale} ${scheme}: Chosen ${show(listRows(o.m).map(flat))}`);
           const text = page(o.m);
           assert(!text.includes('old@group') && !/\b(?:selectCalendars)\.[a-zA-Z]/.test(text), `${locale} ${scheme}: an id or a raw key in ${text}`);
@@ -1364,7 +1460,7 @@ async function main() {
       resetWorld();
       const none = await open('en', o, TELEGRAM);
       try {
-        assert(removeButtons(none.m).length === 0 && show(sectionLabels(none.m)) === show([word('en', 'show'), word('en', 'chosen'), word('en', 'notes')]), `${show(Object.keys(o))}: ${show(sectionLabels(none.m))}`);
+        assert(removeButtons(none.m).length === 0 && show(sectionLabels(none.m)) === show([word('en', 'show'), word('en', 'notes'), ...accountLabels('en')]), `${show(Object.keys(o))}: ${show(sectionLabels(none.m))}`);
       } finally {
         close(none);
       }
@@ -1462,7 +1558,7 @@ async function main() {
       const o = await open(locale, { availableCalendars: [], unlistedCalendars: [unlistedFor(locale)], currentSelections: selectionOf({ selectedCalendars: new Set([GONE]), calendarLabels: new Map([[GONE, new Set(['yours'])]]), calendarRules: new Map() }) }, TELEGRAM);
       try {
         const text = page(o.m);
-        assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title')]) && removeButtons(o.m).length === 1, `${locale}: ${show(sectionLabels(o.m))}`);
+        assert(show(sectionLabels(o.m)) === show([word(locale, 'unavailable.title'), ...accountLabels(locale)]) && removeButtons(o.m).length === 1, `${locale}: ${show(sectionLabels(o.m))}`);
         assert(text.includes(word(locale, 'empty.title')) && text.indexOf(word(locale, 'unavailable.title')) < text.indexOf(word(locale, 'empty.title')), `${locale}: the order in ${text}`);
       } finally {
         close(o);
@@ -1547,6 +1643,128 @@ async function main() {
       globalThis.setTimeout = realSet;
       globalThis.clearTimeout = realClear;
     }
+  });
+
+  await check('S30 the Google account section, last: Reconnect Google is a full page load of /refresh-token?user_id=<id> (window.location.assign, never a client route; off while a save runs); Disconnect Google (moved here from Settings) opens its sheet, which Back closes first, with a swipe down held off while it is open; the request is POST /api/google-disconnect; once disconnected, the result\'s Done or Back goes to /<locale>/calendars?user_id=<id>', async () => {
+    for (const locale of LOCALES) {
+      resetWorld();
+      const o = await open(locale, {}, TELEGRAM);
+      try {
+        o.m.click(mustButton(o.m.container, word(locale, 'account.reconnect')));
+        await settle();
+        assert(show(assigned) === show(['/refresh-token?user_id=5550001']) && pushes.length === 0 && calls.length === 0, `${locale}: Reconnect ${show({ assigned, pushes, calls: calls.length })}`);
+        // Off while a save runs
+        assigned.length = 0;
+        const hold = holdNext();
+        o.m.click(switchOf(o.m, NAMES[locale].family));
+        await settle();
+        const reconnect = mustButton(o.m.container, word(locale, 'account.reconnect'));
+        assert(reconnect.hasAttribute('disabled'), `${locale}: Reconnect is on while a save runs`);
+        o.m.click(reconnect);
+        assert(assigned.length === 0, `${locale}: Reconnect went while a save ran`);
+        await hold(json({ success: true }));
+        await settle();
+        // Disconnect: its sheet, which Back closes without leaving the page
+        const swipes = () => o.tgCalls.filter((c) => /VerticalSwipes/.test(c)).at(-1);
+        o.m.click(mustButton(o.m.container, gdw(locale, 'button')));
+        await settle();
+        assert(sheetOf(o.m) && flat(sheetOf(o.m) as FakeNode).includes(gdw(locale, 'confirmTitle')) && swipes() === 'disableVerticalSwipes()', `${locale}: the disconnect sheet, swipes ${swipes()}`);
+        await back(o);
+        assert(!sheetOf(o.m) && pushes.length === 0 && swipes() === 'enableVerticalSwipes()', `${locale}: Back with the disconnect sheet open: ${show(pushes)}, swipes ${swipes()}`);
+        // Confirm: the request, the result, and Done goes to Calendars
+        o.m.click(mustButton(o.m.container, gdw(locale, 'button')));
+        await settle();
+        o.m.click(mustButton(sheetOf(o.m) as FakeNode, gdw(locale, 'confirm')));
+        await settle();
+        const sent = calls.filter((c) => c.path === '/api/google-disconnect');
+        assert(sent.length === 1 && sent[0].method === 'POST' && sent[0].query.get('user_id') === '5550001' && canon(sent[0].body) === canon({ deleteCopies: true }) && sent[0].headers['x-telegram-init-data'] === (o.tg as Row).initData, `${locale}: the disconnect request ${show(sent.map((c) => [c.query.toString(), c.body]))}`);
+        assert(flat(sheetOf(o.m) as FakeNode).includes(gdw(locale, 'doneTitle')) && pushes.length === 0, `${locale}: the result`);
+        o.m.click(mustButton(sheetOf(o.m) as FakeNode, gdw(locale, 'close')));
+        await settle();
+        assert(show(pushes) === show([`/${locale}/calendars?user_id=5550001`]), `${locale}: Done after a disconnect: ${show(pushes)}`);
+      } finally {
+        close(o);
+      }
+    }
+    // Back on the result does the same
+    resetWorld();
+    const o = await open('en', {}, TELEGRAM);
+    try {
+      o.m.click(mustButton(o.m.container, gdw('en', 'button')));
+      await settle();
+      o.m.click(mustButton(sheetOf(o.m) as FakeNode, gdw('en', 'confirm')));
+      await settle();
+      assert(flat(sheetOf(o.m) as FakeNode).includes(gdw('en', 'doneTitle')), 'no result');
+      await back(o);
+      await settle();
+      assert(show(pushes) === show(['/en/calendars?user_id=5550001']), `Back on the result: ${show(pushes)}`);
+    } finally {
+      close(o);
+    }
+    // A tap on a shown calendar's text opens its sheet and saves nothing
+    resetWorld();
+    const t = await open('en', {}, TELEGRAM);
+    try {
+      await openRow(t, 'Dana');
+      assert(saves().length === 0 && flat(sheetOf(t.m) as FakeNode).includes('Dana'), 'the text button saved, or opened another sheet');
+    } finally {
+      close(t);
+    }
+  });
+
+  await check('S31 the dead-token card (page-data\'s googleReconnect notice), en, he (RTL), ru: the screen\'s title and its own Back, a card that says the connection stopped working, Reconnect Google as a link to /refresh-token?user_id=<id> (a full page load), and Disconnect Google under it; never the generic retry card; Back closes the disconnect sheet first, else goes to Calendars, and so does the result once disconnected; select-calendars/page.tsx hands it over as the googleReconnect notice', async () => {
+    const Notice = (await import('../app/[locale]/(app)/select-calendars/GoogleReconnectNotice')).default as unknown as (props: Props) => ReactElement;
+    const noticeTree = (locale: Locale) =>
+      createElement(AppRouterContext.Provider, { value: router }, createElement(NextIntlClientProvider, { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as never, createElement(Notice, { userId: 5550001, locale })));
+    for (const locale of LOCALES) {
+      resetWorld();
+      const html = renderToString(noticeTree(locale));
+      const dir = locale === 'he' ? 'rtl' : 'ltr';
+      assert(html.startsWith(`<div class="ch-app ch-screen ch-grouped" data-theme="light" dir="${dir}" lang="${locale}">`), `${locale}: the root ${html.slice(0, 140)}`);
+      installWindow();
+      const tgCalls: string[] = [];
+      const tg = fakeTelegram(tgCalls, '7.7');
+      fakeWindow.Telegram = { WebApp: tg };
+      fakeWindow.location = { hash: '', assign: (href: string) => void assigned.push(href), reload: () => undefined };
+      const m = mount(noticeTree(locale));
+      await settle();
+      try {
+        const text = page(m);
+        assert(flat(elements(m.container).find((e) => e.localName === 'h1') as FakeNode) === word(locale, 'title'), `${locale}: the title`);
+        const card = elements(m.container).find((e) => classes(e).includes('ch-home-card'));
+        assert(card && flat(card).includes(word(locale, 'reconnectCard.title')) && flat(card).includes(word(locale, 'reconnectCard.body')), `${locale}: the card ${card && flat(card)}`);
+        const link = elements(card as FakeNode).find((e) => e.localName === 'a');
+        assert(link && link.getAttribute('href') === '/refresh-token?user_id=5550001' && flat(link) === word(locale, 'account.reconnect') && classes(link).includes('ch-btn-primary'), `${locale}: the Reconnect link ${link && [link.getAttribute('href'), flat(link)]}`);
+        assert(text.includes(gdw(locale, 'sectionTitle')) && mustButton(m.container, gdw(locale, 'button')), `${locale}: no Disconnect section`);
+        assert(!text.includes(messageAt(locale, 'pageGate.errorTitle')) && !text.includes(messageAt(locale, 'pageGate.retry')), `${locale}: the generic retry card`);
+        if (locale !== 'en') assert(!/[A-Za-z]/.test(text.replace(/Google|FamCal/g, '')), `${locale}: Latin letters in ${text}`);
+        // Back: the disconnect sheet first, else Calendars
+        const backOf = () => act(() => void (tg as Row as { backHandlers: (() => void)[] }).backHandlers[0]());
+        m.click(mustButton(m.container, gdw(locale, 'button')));
+        await settle();
+        assert(dialogs(m).length === 1, `${locale}: no disconnect sheet`);
+        await backOf();
+        assert(dialogs(m).length === 0 && pushes.length === 0, `${locale}: Back with the sheet open ${show(pushes)}`);
+        await backOf();
+        assert(show(pushes) === show([`/${locale}/calendars?user_id=5550001`]), `${locale}: Back ${show(pushes)}`);
+        // Disconnected: the result's Done goes to Calendars too
+        pushes.length = 0;
+        m.click(mustButton(m.container, gdw(locale, 'button')));
+        await settle();
+        m.click(mustButton(dialogs(m)[0], gdw(locale, 'confirm')));
+        await settle();
+        m.click(mustButton(dialogs(m)[0], gdw(locale, 'close')));
+        await settle();
+        assert(calls.filter((c) => c.path === '/api/google-disconnect').length === 1 && show(pushes) === show([`/${locale}/calendars?user_id=5550001`]), `${locale}: after the disconnect ${show(pushes)}`);
+      } finally {
+        m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
+    const pageCode = noComments(source('app/[locale]/(app)/select-calendars/page.tsx'));
+    assert(/googleReconnect:\s*<GoogleReconnectNotice userId=\{userId\} locale=\{locale\} \/>/.test(pageCode), 'select-calendars/page.tsx does not hand over the googleReconnect notice');
+    const gateCode = source('src/lib/page-data.ts');
+    assert(/export type PageNotice = 'noGoogleToken' \| 'googleReconnect' \| 'error';/.test(gateCode), 'PageNotice does not name googleReconnect');
   });
 
   await check('S18 window.confirm was never called on any path above, and React logged no warning (keys, nesting, attributes, act)', () => {

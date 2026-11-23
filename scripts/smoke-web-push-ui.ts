@@ -336,7 +336,6 @@ const settingsProps = (locale: Locale, over: Row = {}): Row => ({
   currentSettings: settingsValues(locale),
   weekStart: 0,
   remindersGloballyEnabled: true,
-  googleConnected: false,
   nativeRemindersSupported: false,
   plan: { effectivePlan: 'PRO', status: { kind: 'trial', days: 5 } },
   subscriptionInfo: { effectivePlan: 'PRO', textSummariesUsed: 3, textSummariesLimit: 10, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: true },

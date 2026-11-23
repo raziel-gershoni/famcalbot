@@ -1198,8 +1198,6 @@
     "title": "Google calendars",
     "intro": "Choose the Google calendars FamCal shows in your calendar and summaries.",
     "show": "Show in FamCal",
-    "chosen": "Chosen calendars",
-    "chosenHint": "Tap a calendar to set its category and a note for the AI.",
     "category": "Category",
     "noCategory": "No category",
     "mainIsYours": "The main calendar is always one of yours.",
@@ -1235,6 +1233,15 @@
     "empty": {
       "title": "No calendars in this Google account",
       "body": "Add a calendar in Google Calendar, then open this page again."
+    },
+    "account": {
+      "title": "Google account",
+      "reconnect": "Reconnect Google",
+      "reconnectHint": "If your Google events stop showing up, connect again."
+    },
+    "reconnectCard": {
+      "title": "The connection to Google stopped working",
+      "body": "Google no longer gives FamCal access to this account. Connect again to keep seeing your calendars."
     }
   },
   "calendars": {

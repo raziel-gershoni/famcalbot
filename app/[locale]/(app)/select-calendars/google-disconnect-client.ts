@@ -1,4 +1,4 @@
-// The Settings page's side of POST /api/google-disconnect: disconnect Google, with or without
+// The Google calendars screen's side of POST /api/google-disconnect: disconnect Google, with or without
 // deleting FamCal's copy calendars there. The initData goes in the header (initDataHeaders),
 // never in the URL. Every failure comes back as a code the dialog words
 // (messages settings.googleDisconnect.error*), and is logged with the status only.

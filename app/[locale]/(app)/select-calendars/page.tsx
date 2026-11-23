@@ -3,6 +3,7 @@ import { AppScreen } from '@/components/app-ui/AppScreen';
 import { MissingParameterCard, StateCard } from '@/components/app-ui/StateCard';
 import PageGate from '../PageGate';
 import { gateLinks } from '@/src/lib/gate-links';
+import GoogleReconnectNotice from './GoogleReconnectNotice';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
@@ -36,6 +37,8 @@ export default async function SelectCalendarsPage({ params, searchParams }: Page
             <StateCard tone="crash" title={noGoogle('title')} body={noGoogle('body')} />
           </AppScreen>
         ),
+        // Google refused the stored token: Reconnect Google, and Disconnect Google under it
+        googleReconnect: <GoogleReconnectNotice userId={userId} locale={locale} />,
         // Generic error fallback
         error: (
           <AppScreen>

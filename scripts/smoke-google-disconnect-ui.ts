@@ -1,6 +1,7 @@
 // Smoke test for the Mini App side of "Disconnect Google"
-// (docs/superpowers/specs/2026-10-25-disconnect-google-design.md): Settings' Google section
-// and its confirmation (app/[locale]/(app)/settings/GoogleDisconnect.tsx, drawn with the app's kit),
+// (docs/superpowers/specs/2026-10-25-disconnect-google-design.md): the Google calendars screen's Disconnect section
+// (moved there from Settings by the menu revamp, 2026-11-24 §4) and its confirmation
+// (app/[locale]/(app)/select-calendars/GoogleDisconnect.tsx, drawn with the app's kit),
 // the request helper (google-disconnect-client.ts), the copy in en, he and ru, the admin
 // timeline's wording of the activity row, and the privacy page's promise. Rendered through
 // next-intl with the real messages. No network, no DB, no Redis.
@@ -12,8 +13,8 @@ import path from 'path';
 import { act, createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
-import GoogleDisconnect, { GoogleDisconnectView, type GoogleDisconnectViewProps } from '../app/[locale]/(app)/settings/GoogleDisconnect';
-import { requestDisconnect } from '../app/[locale]/(app)/settings/google-disconnect-client';
+import GoogleDisconnect, { GoogleDisconnectView, type GoogleDisconnectViewProps } from '../app/[locale]/(app)/select-calendars/GoogleDisconnect';
+import { requestDisconnect } from '../app/[locale]/(app)/select-calendars/google-disconnect-client';
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { activityDetail } from '../src/lib/admin-activity';
 import { TEXT_PAIRS } from './lib/css-resolve';
@@ -255,11 +256,18 @@ async function main() {
 
   // ---- Wiring, activity row, privacy ----
 
-  await check('wiring: Settings renders the section from a googleConnected prop that page-data fills from the stored token', () => {
-    const client = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings/SettingsClient.tsx'), 'utf8');
-    const pageData = fs.readFileSync(path.join(ROOT, 'src/lib/page-data.ts'), 'utf8');
-    assert(/<GoogleDisconnect\b/.test(client) && /googleConnected: boolean/.test(client), 'SettingsClient does not render the section');
-    assert(/googleConnected: Boolean\(user\.googleRefreshToken\)/.test(pageData), 'page-data does not pass googleConnected');
+  await check('wiring: the section lives with the Google calendars screen (select-calendars/), which renders it connected (its list loads only with a stored token), and so does the dead-token card; Settings no longer renders it or takes googleConnected, and its page data no longer sends it', () => {
+    const read = (rel: string) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+    const code = (rel: string) => read(rel).split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
+    for (const gone of ['app/[locale]/(app)/settings/GoogleDisconnect.tsx', 'app/[locale]/(app)/settings/google-disconnect-client.ts']) assert(!fs.existsSync(path.join(ROOT, gone)), `${gone} is still there`);
+    for (const rel of ['app/[locale]/(app)/select-calendars/SelectCalendarsClient.tsx', 'app/[locale]/(app)/select-calendars/GoogleReconnectNotice.tsx']) {
+      assert(/import GoogleDisconnect from '\.\/GoogleDisconnect';/.test(code(rel)) && /<GoogleDisconnect userId=\{userId\} connected\b/.test(code(rel)), `${rel} does not render the section, connected`);
+    }
+    const settings = code('app/[locale]/(app)/settings/SettingsClient.tsx');
+    assert(!/GoogleDisconnect|googleConnected|googleClose/.test(settings), 'SettingsClient still renders the section or takes googleConnected');
+    const pageData = read('src/lib/page-data.ts');
+    const settingsBody = pageData.slice(pageData.indexOf('async function settings('), pageData.indexOf('function convertAssignmentsToSelections'));
+    assert(settingsBody.length > 0 && !/googleConnected/.test(settingsBody), 'page-data still sends googleConnected to Settings');
   });
 
   await check('admin timeline: calendar_disconnected reads as words, not raw JSON', () => {

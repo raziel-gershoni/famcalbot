@@ -1,7 +1,9 @@
 'use client';
 
-// Settings' "Google Calendar" section and its confirmation (docs/superpowers/specs/
-// 2026-10-25-disconnect-google-design.md). The section is shown while Google is connected; the
+// The "Google Calendar" section and its confirmation (docs/superpowers/specs/
+// 2026-10-25-disconnect-google-design.md). It sits last in the Google calendars screen's "Google account" part, under
+// Reconnect Google, and under the dead-token card (moved there from Settings: menu revamp, 2026-11-24 §4; its words stay
+// settings.googleDisconnect). The section is shown while Google is connected; the
 // button opens a sheet with the "Also delete the FamCal copies from Google" switch (on by
 // default); the result says Google is disconnected and lists the copy calendars that stayed.
 //

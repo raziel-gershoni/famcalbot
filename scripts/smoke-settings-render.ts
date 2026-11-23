@@ -4,7 +4,8 @@
 //  - S1 the render in en, he and ru, light and dark: the grouped root, the Plan card, the four sections and Sign in on the web in order, no raw key,
 //    no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right;
 //  - S2 the state matrix: what the alerts rows show for the saved platform, the plan and the global switch, the
-//    reminder time, the Google section, the usage lines, and that the platform list changes the section only once saved;
+//    reminder time, no Google section (Disconnect Google lives on the Google calendars screen since the menu revamp, 2026-11-24 §4),
+//    the usage lines, and that the platform list changes the section only once saved;
 //  - S3 buildSettingsBody against the JSON the page has always posted;
 //  - S4 saving on the page: Save only while something differs, one request, "Saved", the error that leaves the
 //    controls usable, a changed language reloading the page in it;
@@ -167,7 +168,6 @@ const propsOf = (over: Row = {}, current: Parameters<typeof settings>[0] = {}) =
   currentSettings: settings(current),
   weekStart: 0,
   remindersGloballyEnabled: true,
-  googleConnected: false,
   nativeRemindersSupported: true,
   subscriptionInfo: subscription(),
   plan: { effectivePlan: 'PRO', status: null },
@@ -284,7 +284,7 @@ async function main() {
     }
   });
 
-  await check('S2 the state matrix: alerts (and the default alert and pickup) for Telegram and a plan that allows them; Pro Only with See plans, which goes to the plans, when the plan does not; Coming soon, disabled, when the global switch is off; a WhatsApp-saved user sees only voice input and the reminder time; no reminder time without FamCal reminders; the Google section when connected; usage lines only above a limit of 0; the platform list changes the section only once saved', async () => {
+  await check('S2 the state matrix: alerts (and the default alert and pickup) for Telegram and a plan that allows them; Pro Only with See plans, which goes to the plans, when the plan does not; Coming soon, disabled, when the global switch is off; a WhatsApp-saved user sees only voice input and the reminder time; no reminder time without FamCal reminders; no Google section, connected or not; usage lines only above a limit of 0; the platform list changes the section only once saved', async () => {
     for (const locale of LOCALES) {
       const w = (key: string) => word(locale, key);
       const full = textOf(renderToString(tree(locale, propsOf({}, { language: locale }))));
@@ -307,10 +307,10 @@ async function main() {
       // No FamCal reminders: no reminder time
       const none =textOf(renderToString(tree(locale, propsOf({ nativeRemindersSupported: false }, { language: locale }))));
       assert(!none.includes(w('reminderTime')) && none.includes(w('alerts.label')), `${locale}: the reminder time without FamCal reminders`);
-      // Google
+      // Google: no section here, even for a connected account (Disconnect Google moved to the Google calendars screen)
       const google = renderToString(tree(locale, propsOf({ googleConnected: true }, { language: locale })));
-      assert(show(sectionLabels(google)) === show([word(locale, 'screen.title', 'subscription'), ...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('googleDisconnect.sectionTitle'), w('signIn.title')]), `${locale}: the Google section: ${show(sectionLabels(google))}`);
-      assert(!textOf(renderToString(tree(locale, propsOf({}, { language: locale })))).includes(w('googleDisconnect.sectionTitle')), `${locale}: Google shows when not connected`);
+      assert(show(sectionLabels(google)) === show([word(locale, 'screen.title', 'subscription'), ...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('signIn.title')]), `${locale}: the sections of a Google account: ${show(sectionLabels(google))}`);
+      assert(!textOf(google).includes(w('googleDisconnect.sectionTitle')) && !textOf(google).includes(w('googleDisconnect.button')), `${locale}: Settings still shows Disconnect Google`);
     }
     // The usage lines: text has a limit of 10, voice is unlimited (-1), and a limit of 0 shows none
     const en = (over: Row) => textOf(renderToString(tree('en', propsOf({ subscriptionInfo: subscription(over) }))));
@@ -760,13 +760,13 @@ async function main() {
     }
   });
 
-  await check("S6 Back: AppScreen is the only BackButton caller on Settings; Telegram's Back closes only the sheet that is open (time, location, Google) and does nothing while the disconnect is in flight; with none open it returns to the calendar in the saved language, even after an unsaved language pick", async () => {
+  await check("S6 Back: AppScreen is the only BackButton caller on Settings; Telegram's Back closes only the sheet that is open (time, location); with none open it returns to the calendar in the saved language, even after an unsaved language pick", async () => {
     for (const file of fs.readdirSync(path.join(ROOT, 'app/[locale]/(app)/settings')).filter((f) => /\.tsx?$/.test(f))) {
       const code = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/settings', file), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
       assert(!/useTelegramBackButton\(/.test(code), `${file} calls useTelegramBackButton`);
     }
     reset();
-    const o = open('en', propsOf({ googleConnected: true }), { version: '7.7' });
+    const o = open('en', propsOf(), { version: '7.7' });
     const back = () => act(() => void (o.tg as Row).backHandlers[0]());
     // A sheet that is open locks Telegram's swipe down; closing it lets it go
     const swipes = () => o.calls.filter((c) => /VerticalSwipes/.test(c)).at(-1);
@@ -783,22 +783,6 @@ async function main() {
       assert(dialogs(o.m).length === 1 && swipes() === 'disableVerticalSwipes()', `the location sheet opens, swipes ${swipes()}`);
       back();
       assert(dialogs(o.m).length === 0 && pushes.length === 0 && swipes() === 'enableVerticalSwipes()', `Back closes the location sheet only: ${show(pushes)}, swipes ${swipes()}`);
-      // The Google sheet, and not while it works
-      o.m.click(elements(o.m.container).find((e) => e.localName === 'button' && e.className.includes('ch-danger-row')) as FakeElement);
-      assert(dialogs(o.m).length === 1 && swipes() === 'disableVerticalSwipes()', `the Google sheet opens, swipes ${swipes()}`);
-      let release: (r: Response) => void = () => undefined;
-      const origFetch = globalThis.fetch;
-      globalThis.fetch = (() => new Promise<Response>((resolve) => void (release = resolve))) as typeof fetch;
-      o.m.click(elements(o.m.container).find((e) => e.className.includes('ch-btn-danger')) as FakeElement);
-      back();
-      assert(dialogs(o.m).length === 1 && pushes.length === 0, `Back does nothing while the disconnect is in flight: ${dialogs(o.m).length} dialog(s), ${show(pushes)}`);
-      await act(async () => {
-        release(json({ status: 'disconnected', leftover: [] }));
-        await new Promise((r) => setTimeout(r, 0));
-      });
-      globalThis.fetch = origFetch;
-      back();
-      assert(dialogs(o.m).length === 0 && pushes.length === 0 && !page(o.m).includes(word('en', 'googleDisconnect.sectionTitle')), `Back closes the result, and Google is gone: ${show(pushes)}`);
       // None open: the calendar, in the saved language (a language picked and not saved does not count)
       o.m.change(selectOf(o.m, word('en', 'language.label')) as FakeElement, 'ru');
       back();
@@ -1219,8 +1203,9 @@ async function main() {
 
   await check('S10 the messages: every key the screen reads exists in en, he and ru, and no key of the settings namespace is left unread (googleDisconnect, signIn and accountDelete are their own sections\')', () => {
     const dir = path.join(ROOT, 'app/[locale]/(app)/settings');
-    // The Google and the sign-in sections read their own namespaces (settings.googleDisconnect, settings.signIn), which their own smokes hold.
-    const OWN_SMOKE = ['GoogleDisconnect.tsx', 'SignInMethods.tsx', 'signin-methods-client.ts', 'AccountDelete.tsx', 'account-delete-client.ts'];
+    // The sign-in section reads its own namespace (settings.signIn), which its own smoke holds; settings.googleDisconnect stays the
+    // Disconnect section's namespace on the Google calendars screen (select-calendars/GoogleDisconnect.tsx, smoke-google-disconnect-ui).
+    const OWN_SMOKE = ['SignInMethods.tsx', 'signin-methods-client.ts', 'AccountDelete.tsx', 'account-delete-client.ts'];
     // The notifications card's keys (settings.push.*) are named in the hook it shares with the home's banner and in the steps list
     // both draw (6c-2); smoke-web-push-ui W16 holds every one of them to a reader.
     const OUTSIDE = ['src/lib/use-push-device.ts', 'components/app-ui/IosPushSteps.tsx'];

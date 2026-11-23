@@ -1,18 +1,26 @@
 'use client';
 
-// The Select calendars screen (the Google calendars a person shows in FamCal), in the home's design (spec 2026-10-19 §4, §5;
-// plan W4-2): an AppScreen on the grouped ground, a header with its back, and cards drawn with the form kit (components/app-ui).
+// The Google calendars screen (the Google calendars a person shows in FamCal), in the home's design (spec 2026-10-19 §4, §5;
+// plan W4-2; one compact list since the menu revamp, spec 2026-11-24 §4): an AppScreen on the grouped ground, a header with its
+// back, and cards drawn with the form kit (components/app-ui) and this screen's own row rules (CALENDAR_ROW_CSS).
 //
 // - Not in your Google list (first, only when there are any): the chosen calendars Google no longer lists (deleted, unshared or
 //   removed from the list; the home's "N calendars aren't available · Choose again" lands here). Each is its saved name and
-//   colour and a Remove row, which saves at once as a switch does. They are no switch and no Chosen row, and a save keeps the ones
-//   left with their saved name and colour.
-// - Show in FamCal: one switch row per calendar Google lists (a dot in Google's colour, the name, the description as its hint).
-//   A tap saves at once (owner decision 2026-10-28: instant save, with a Saved note and a rollback).
-// - Chosen calendars: a list row per chosen calendar (its category, and a tag on the main one). A tap opens its sheet: the
-//   main-calendar switch, the category, a note for the AI and, for a spouse calendar, the one set of spouse details.
+//   colour and a Remove row, which saves at once as a switch does. They are no switch and no row of the list, and a save keeps
+//   the ones left with their saved name and colour.
+// - Show in FamCal: one row per calendar Google lists, a dot in Google's colour and the name (Google's description is not drawn).
+//   - A shown calendar's row is two sibling buttons, never one inside the other: its text (the dot, the name, a quiet line with
+//     its role or "No category", and the Main tag) opens its sheet: the main-calendar switch, the category, a note for the AI
+//     and, for a spouse calendar, the one set of spouse details; the switch at the row's end turns it off.
+//   - A hidden calendar's whole row is its switch: there is nothing to edit until it is shown.
+//   - A switch saves at once (owner decision 2026-10-28: instant save, with a Saved note and a rollback). The switch button keeps
+//     its place when its row changes shape, so it keeps the focus.
 // - Notes for all calendars: one row (the count) that opens the sheet of up to three notes.
-// - A Google account with no calendars shows a state card instead of the sections.
+// - A Google account with no calendars shows a state card instead of those sections.
+// - Google account (last, always: the list loads only with a stored token): Reconnect Google, an accent row that is a full page
+//   load of /refresh-token?user_id=… (which comes back here after Google's consent), with its hint; then Disconnect Google
+//   (./GoogleDisconnect.tsx, moved here from Settings with its words), whose result goes to the Calendars screen.
+//   A token Google refuses never reaches this screen: page-data answers the googleReconnect notice (./GoogleReconnectNotice.tsx).
 //
 // Every save is the whole selection (selection.ts builds the body; the request is POST /api/select-calendars?user_id=… as it has
 // always been, with the credential in the X-Telegram-Init-Data header). A tap on a switch applies at once and is undone if the
@@ -22,8 +30,9 @@
 // can't be turned off and one calendar must stay marked as yours; the plan's limit has See plans.
 // - One request at a time (the Calendars screen's pattern): the one that runs shows a spinner and the other controls are off.
 //   Every failure is logged and said in the page's language; the server's own text is never shown.
-// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the open sheet,
-//   does nothing while a request runs, else returns to the calendar.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It closes the open sheet
+//   (the disconnect sheet's own closer first, which does nothing while that request runs), does nothing while a save runs,
+//   else goes to the Calendars screen, this screen's parent, whoever opened it (the OAuth return, a banner, a bot button).
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -35,12 +44,12 @@ import type { CalendarLabel } from '@/src/types';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { ButtonRow, FORM_CSS, FormCard, RadioCard, RadioPair, SaveBar, SwitchRow, TextField } from '@/components/app-ui/form-kit';
-import { ListRow } from '@/components/app-ui/ListRow';
 import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { StateCard } from '@/components/app-ui/StateCard';
 import { Tag } from '@/components/app-ui/Tag';
 import { isolate } from '@/src/lib/isolate';
+import GoogleDisconnect from './GoogleDisconnect';
 import {
   CATEGORIES, applyCalendar, categoriesOf, categoryOf, noteCount, paddedNotes, saveBody, selectionFrom, toggleShown, withCategory, withNotes, withPrimary,
   type CalendarDraft, type ListedCalendar, type Selection, type SpouseInfo,
@@ -102,42 +111,100 @@ type Sheet = { kind: 'calendar'; id: string } | { kind: 'notes' };
 /** The one request that runs: a switch's save (which row shows it) or a sheet's. */
 type Busy = { kind: 'switch'; id: string } | { kind: 'sheet' };
 
+/**
+ * The row of a shown calendar, beside the kit's (FORM_CSS) and after it: the row holds a text button that takes the room and
+ * can shrink (a long name wraps) and a switch button that never does (at least 44 px). The row itself has no padding, so each
+ * button is its own whole target; a hidden calendar's switch is the kit's own row (.ch-form-row) that fills it.
+ */
+export const CALENDAR_ROW_CSS = `
+.ch-form-row.ch-cal-row {
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+}
+.ch-cal-row > .ch-cal-open,
+.ch-cal-row > .ch-cal-whole {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+.ch-cal-row > .ch-cal-open {
+  padding-inline-end: 8px;
+}
+button.ch-cal-switch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-inline-size: 44px;
+  padding-block: 0;
+  padding-inline: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--ch-text);
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button.ch-cal-switch:focus-visible {
+  outline: 2px solid var(--ch-accent);
+  outline-offset: -2px;
+}
+button.ch-cal-switch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+`;
+
 /** The dot of a calendar's colour, in a row's title. */
 function Dot({ colour }: { colour: string }) {
   return <span className="ch-swatch-dot is-lg" style={HEX.test(colour) ? { background: colour } : undefined} aria-hidden="true" />;
 }
 
-/** A Google calendar's switch row: the dot and the name, its description under it, the switch at the end. */
-function CalendarSwitch({ calendar, on, busy, locked, onToggle }: { calendar: ListedCalendar; on: boolean; busy: boolean; locked: boolean; onToggle: () => void }) {
-  const id = useId();
-  const nameId = `${id}-name`;
-  const hintId = `${id}-hint`;
+/**
+ * A Google calendar's row in "Show in FamCal". Shown: its text (the dot, the name, `role` and the Main tag) is a button that
+ * opens its sheet, and the switch beside it (named by the name) turns it off; the two are siblings, never nested. Hidden: the
+ * whole row is the switch, the dot and the name. The switch is keyed, so it stays the same element when the row changes shape.
+ */
+function CalendarRow({ calendar, on, role, main, busy, locked, onOpen, onToggle }: { calendar: ListedCalendar; on: boolean; role: string; main: string | null; busy: boolean; locked: boolean; onOpen: () => void; onToggle: () => void }) {
+  const nameId = `${useId()}-name`;
+  const name = (
+    <span id={nameId} className="ch-list-title">
+      <Dot colour={calendar.backgroundColor} />
+      <bdi dir="auto">{calendar.name}</bdi>
+    </span>
+  );
+  const spinner = busy ? <span className="ch-form-spinner" aria-hidden="true" /> : null;
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-labelledby={nameId}
-      aria-describedby={calendar.description ? hintId : undefined}
-      aria-busy={busy || undefined}
-      disabled={locked}
-      className="ch-form-row"
-      onClick={onToggle}
-    >
-      <span className="ch-form-label">
-        <span id={nameId} className="ch-list-title">
-          <Dot colour={calendar.backgroundColor} />
-          <bdi dir="auto">{calendar.name}</bdi>
-        </span>
-        {calendar.description ? (
-          <span id={hintId} className="ch-form-hint">
-            <bdi dir="auto">{calendar.description}</bdi>
+    <div className="ch-form-row ch-cal-row">
+      {on ? (
+        <button key="open" type="button" className="ch-form-row ch-list-row ch-cal-open" disabled={locked} onClick={onOpen}>
+          <span className="ch-form-label">
+            {name}
+            <span className="ch-form-hint">{role}</span>
+            {main ? (
+              <span className="ch-list-tags">
+                <Tag tone="accent">{main}</Tag>
+              </span>
+            ) : null}
           </span>
-        ) : null}
-      </span>
-      {busy ? <span className="ch-form-spinner" aria-hidden="true" /> : null}
-      <span className={on ? 'ch-switch is-on' : 'ch-switch'} aria-hidden="true" />
-    </button>
+        </button>
+      ) : null}
+      <button
+        key="switch"
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-labelledby={nameId}
+        aria-busy={busy || undefined}
+        disabled={locked}
+        className={on ? 'ch-cal-switch' : 'ch-form-row ch-cal-whole'}
+        onClick={onToggle}
+      >
+        {on ? null : <span className="ch-form-label">{name}</span>}
+        {spinner}
+        <span className={on ? 'ch-switch is-on' : 'ch-switch'} aria-hidden="true" />
+      </button>
+    </div>
   );
 }
 
@@ -171,6 +238,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
   const router = useRouter();
   const noteHintId = useId();
   const notesHintId = useId();
+  const reconnectHintId = useId();
 
   const [sel, setSel] = useState<Selection>(() => selectionFrom(currentSelections));
   /** The same, readable in a handler that runs right after another one (the value a failed save puts back). */
@@ -201,8 +269,10 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
   /** The same as `busy`, readable in the handler that runs right after another (two taps in one frame). */
   const running = useRef(false);
   const locked = busy !== null;
+  // The disconnect sheet's closer while it is open (GoogleDisconnect reports it), for Back
+  const [googleClose, setGoogleClose] = useState<(() => void) | null>(null);
   // A swipe down in a sheet must not minimize the app.
-  useTelegramVerticalSwipes(sheet !== null);
+  useTelegramVerticalSwipes(sheet !== null || googleClose !== null);
 
   /** One request at a time: `kind` is busy while `work` runs; a throw is logged and `fail` tells the person. */
   const run = async (kind: Busy, work: () => Promise<void>, fail: () => void) => {
@@ -330,12 +400,20 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
 
   const saveNotes = () => saveSheet(withNotes(selRef.current, notesDraft), null);
 
-  // ---- Back ----
+  // ---- Back: the open sheet, else the Calendars screen ----
 
-  const back = () => {
+  const toCalendars = () => router.push(`/${locale}/calendars?user_id=${userId}`);
+  // Reconnect Google: Google's consent again, which returns here (the Calendars screen's Connect does the same)
+  const reconnect = () => {
     if (running.current) return;
-    if (sheet) closeSheet();
-    else router.push(`/${locale}/dashboard?user_id=${userId}`);
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a full load on purpose: /refresh-token has its own root layout, (connect)
+    window.location.assign(`/refresh-token?user_id=${userId}`);
+  };
+  const back = () => {
+    if (googleClose) googleClose();
+    else if (running.current) return;
+    else if (sheet) closeSheet();
+    else toCalendars();
   };
 
   // ---- Drawing ----
@@ -355,7 +433,6 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
   };
   const seePlans = { label: page('seePlans'), onClick: () => router.push(`/${locale}/subscription?user_id=${userId}`) };
   const signIn = { label: gate('signIn'), onClick: () => void signInAgain(locale) };
-  const chosen = availableCalendars.filter((c) => sel.selected.has(c.id));
   // The one being removed stays, with its spinner, until the server has it (the selection already dropped it)
   const stillUnlisted = unlisted.filter((c) => sel.selected.has(c.id) || (busy?.kind === 'switch' && busy.id === c.id));
 
@@ -381,24 +458,10 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
     ) : null;
   const sheetSaveError = () => (sheetError && sheetError.failure !== 'limit' ? failureText(sheetError, true) : null);
 
-  const chosenRow = (c: ListedCalendar) => {
-    const labels = sel.labels.get(c.id);
-    const names = categoriesOf(labels).map((k) => categories(k));
-    return (
-      <ListRow
-        key={c.id}
-        title={
-          <>
-            <Dot colour={c.backgroundColor} />
-            <bdi dir="auto">{c.name}</bdi>
-          </>
-        }
-        meta={names.length > 0 ? names.join(', ') : t('noCategory')}
-        tags={labels?.has('primary') ? <Tag tone="accent">{categories('primary')}</Tag> : undefined}
-        disabled={locked}
-        onClick={() => openCalendar(c.id)}
-      />
-    );
+  /** A shown calendar's quiet line: its role (the categories), or "No category". */
+  const roleOf = (id: string) => {
+    const names = categoriesOf(sel.labels.get(id)).map((k) => categories(k));
+    return names.length > 0 ? names.join(', ') : t('noCategory');
   };
 
   const calendarSheet = (calendar: ListedCalendar) => {
@@ -521,6 +584,7 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
   return (
     <AppScreen ground="grouped" onBack={back}>
       <style>{FORM_CSS}</style>
+      <style>{CALENDAR_ROW_CSS}</style>
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
       <div className="ch-form-page ch-form-page-grouped">
         <p className="ch-form-fixed">{t('intro')}</p>
@@ -551,24 +615,19 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
             <SectionLabel>{t('show')}</SectionLabel>
             <FormCard>
               {availableCalendars.map((c) => (
-                <CalendarSwitch
+                <CalendarRow
                   key={c.id}
                   calendar={c}
                   on={sel.selected.has(c.id)}
+                  role={roleOf(c.id)}
+                  main={sel.labels.get(c.id)?.has('primary') ? categories('primary') : null}
                   busy={busy?.kind === 'switch' && busy.id === c.id}
                   locked={locked}
+                  onOpen={() => openCalendar(c.id)}
                   onToggle={() => void toggle(c.id)}
                 />
               ))}
             </FormCard>
-
-            {chosen.length > 0 ? (
-              <>
-                <SectionLabel>{t('chosen')}</SectionLabel>
-                <FormCard>{chosen.map(chosenRow)}</FormCard>
-                <p className="ch-form-fixed">{t('chosenHint')}</p>
-              </>
-            ) : null}
 
             <SectionLabel>{t('notes')}</SectionLabel>
             <FormCard>
@@ -577,6 +636,18 @@ export default function SelectCalendarsClient({ userId, availableCalendars, unli
             <p className="ch-form-fixed">{t('notesHint')}</p>
           </>
         )}
+
+        {/* The Google account, last: Reconnect Google (a full page load: /refresh-token sits outside [locale] and returns here), then Disconnect Google */}
+        <SectionLabel>{t('account.title')}</SectionLabel>
+        <FormCard>
+          <button type="button" className="ch-form-row ch-action-row" aria-describedby={reconnectHintId} disabled={locked} onClick={reconnect}>
+            {t('account.reconnect')}
+          </button>
+        </FormCard>
+        <p id={reconnectHintId} className="ch-form-fixed">
+          {t('account.reconnectHint')}
+        </p>
+        <GoogleDisconnect userId={userId} connected onDisconnected={toCalendars} onSheet={(close) => setGoogleClose(() => close)} />
       </div>
 
       {/* The status line is a bar fixed to the bottom of the screen (the kit's sticky save-bar container, with no button of its own): a tap anywhere on a long list shows its result */}

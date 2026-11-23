@@ -2,8 +2,9 @@
 
 // The Settings screen, in the home's design (spec 2026-10-19 §4, §5; plan W1a): an AppScreen on the
 // grouped ground, a header with its back, the sections of cards (language and place, summaries, when
-// summaries arrive, events and reminders, Google while connected, and Sign in on the web: SignInMethods,
-// spec 2026-11-02-web-sign-in §4, which saves each change itself), and a Save bar that stays at the bottom.
+// summaries arrive, events and reminders, and Sign in on the web: SignInMethods, spec 2026-11-02-web-sign-in §4,
+// which saves each change itself), and a Save bar that stays at the bottom. Disconnect Google is not here: it sits in the
+// Google calendars screen's Google account section (menu revamp, spec 2026-11-24 §4).
 // - An account with no chat (made on famcal.bot; spec 2026-11-03-web-sign-up §4) has nothing that sets up chat messages: no
 //   Summaries, no Timing, no Shabbat pause, voice input or alerts, no Pro notice. In their place the Telegram note
 //   ("Briefings and reminders come in Telegram"; with push set up, "Turn on notifications, or connect Telegram, ...") with
@@ -59,7 +60,6 @@ import { ListRow } from '@/components/app-ui/ListRow';
 import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
-import GoogleDisconnect from './GoogleDisconnect';
 import SignInMethods from './SignInMethods';
 import PushCard from './PushCard';
 import AccountDelete from './AccountDelete';
@@ -111,8 +111,6 @@ interface SettingsClientProps {
    */
   weekStart: WeekStart;
   remindersGloballyEnabled: boolean;
-  /** A Google token is stored: the Google section (Disconnect Google) shows. */
-  googleConnected: boolean;
   /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
   nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
@@ -188,7 +186,7 @@ function TelegramNote({ userId, locale, pushOffered }: { userId: number; locale:
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, plan, bothChannels, hasChat, push, accountDelete }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, nativeRemindersSupported, subscriptionInfo, plan, bothChannels, hasChat, push, accountDelete }: SettingsClientProps) {
   const t = useTranslations('settings');
   // The Plan row's words: the plan's name, and the Subscription screen's status phrases (the trial's days are the home's own banner line)
   const planNames = useTranslations('subscription.plans');
@@ -203,19 +201,17 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const [busy, setBusy] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
-  const [googleConnected, setGoogleConnected] = useState(googleConnectedProp);
   // The account's devices with notifications on (6c-2): the page's count, then each turn on or off in the card
   const [pushDevices, setPushDevices] = useState(push?.devices ?? 0);
 
-  // The sheets: one is open at a time, and Back closes it. The Google and the sign-in sections report their own.
+  // The sheets: one is open at a time, and Back closes it. The sign-in and delete sections report their own.
   const [timeOpen, setTimeOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState('');
-  const [googleClose, setGoogleClose] = useState<(() => void) | null>(null);
   const [signInClose, setSignInClose] = useState<(() => void) | null>(null);
   const [deleteClose, setDeleteClose] = useState<(() => void) | null>(null);
   // A wheel dragged down in a sheet must not minimize the app.
-  useTelegramVerticalSwipes(timeOpen || locationOpen || googleClose !== null || signInClose !== null || deleteClose !== null);
+  useTelegramVerticalSwipes(timeOpen || locationOpen || signInClose !== null || deleteClose !== null);
 
   // The check of a changed place. Save waits for it; a later edit makes an earlier answer stale.
   const [locationChecking, setLocationChecking] = useState(false);
@@ -258,7 +254,6 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
   const backHandler = () => {
     if (timeOpen) setTimeOpen(false);
     else if (locationOpen) void closeLocation();
-    else if (googleClose) googleClose();
     else if (signInClose) signInClose();
     else if (deleteClose) deleteClose();
     else router.push(`/${saved.language}/dashboard?user_id=${userId}`);
@@ -466,7 +461,6 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
           <Notice action={{ label: t('alerts.seePlans'), onClick: () => router.push(`/${saved.language}/subscription?user_id=${userId}`) }}>{t('alerts.proOnly')}</Notice>
         ) : null}
 
-        <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
         {noChat && push?.key ? <PushCard userId={userId} push={push} onDevices={setPushDevices} /> : null}
         <SignInMethods userId={userId} onSheet={(close) => setSignInClose(() => close)} />
         {/* Send feedback: a navigation row (not a sheet), in its own card; the Feedback screen comes back here */}
