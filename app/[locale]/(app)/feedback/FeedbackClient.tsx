@@ -12,7 +12,9 @@
 // - Why a send failed is said in the page's language, never in the server's words: the daily limit, a page opened outside the
 //   user's FamCal chat (the server could not tell who sent it), the limits again, or "couldn't send". The text stays, so a
 //   failure never costs what was written.
-// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser).
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser). It goes to Settings when the
+//   screen was opened from there (`from`, Settings' Send feedback row), else to the calendar; "Back to calendar" after a send always
+//   goes to the calendar.
 
 import { useEffect, useId, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -28,9 +30,11 @@ import { startMiniApp } from '../PageGate';
 interface FeedbackClientProps {
   userId: number;
   locale: string;
+  /** Opened from Settings' Send feedback row (?from=settings): Back returns there. Absent: Back goes to the calendar, as from /feedback in the bot. */
+  from?: 'settings';
 }
 
-export default function FeedbackClient({ userId, locale }: FeedbackClientProps) {
+export default function FeedbackClient({ userId, locale, from }: FeedbackClientProps) {
   const t = useTranslations('feedback');
   const ui = useTranslations('ui');
   const router = useRouter();
@@ -44,7 +48,8 @@ export default function FeedbackClient({ userId, locale }: FeedbackClientProps) 
     startMiniApp();
   }, []);
 
-  const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
+  const home = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
+  const back = from === 'settings' ? () => router.push(`/${locale}/settings?user_id=${userId}`) : home;
 
   const trimmed = text.trim();
   const short = trimmed.length < FEEDBACK_LIMITS.minLength;
@@ -98,7 +103,7 @@ export default function FeedbackClient({ userId, locale }: FeedbackClientProps) 
       <style>{FORM_CSS}</style>
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={back} />
       {sent ? (
-        <StateCard title={t('thanksTitle')} body={t('thanksBody')} action={{ label: t('backToCalendar'), onClick: back }} />
+        <StateCard title={t('thanksTitle')} body={t('thanksBody')} action={{ label: t('backToCalendar'), onClick: home }} />
       ) : (
         <>
           <div className="ch-form-page">

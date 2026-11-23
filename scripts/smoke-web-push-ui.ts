@@ -338,6 +338,7 @@ const settingsProps = (locale: Locale, over: Row = {}): Row => ({
   remindersGloballyEnabled: true,
   googleConnected: false,
   nativeRemindersSupported: false,
+  plan: { effectivePlan: 'PRO', status: { kind: 'trial', days: 5 } },
   subscriptionInfo: { effectivePlan: 'PRO', textSummariesUsed: 3, textSummariesLimit: 10, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: true },
   bothChannels: false,
   hasChat: false,
@@ -517,7 +518,7 @@ async function main() {
       const m = mountIn(locale, Settings, settingsProps(locale));
       await settle();
       try {
-        const plain = [at(locale, 'settings.sections.place'), p(locale, 'title'), at(locale, 'settings.signIn.title')];
+        const plain = [at(locale, 'subscription.screen.title'), at(locale, 'settings.sections.place'), p(locale, 'title'), at(locale, 'settings.signIn.title')];
         assert(show(sectionLabels(m)) === show(plain), `${locale}: the sections ${show(sectionLabels(m))}`);
         assert(show(steps) === show(['getRegistration /', 'GET /api/signin-methods']) || show(steps) === show(['GET /api/signin-methods', 'getRegistration /']), `${locale}: the open asked ${show(steps)}`);
         const off = pushSwitch(m, locale);
@@ -530,7 +531,7 @@ async function main() {
         const on = pushSwitch(m, locale);
         assert(on && on.getAttribute('aria-checked') === 'true' && flat(on) === `${p(locale, 'switchOn')}${p(locale, 'onHint')}`, `${locale}: on ${on && flat(on)}`);
         assert(callsTo('/api/push/devices', 'POST').length === 1, `${locale}: one POST`);
-        const full = ['place', 'summaries', 'timing', 'events'].map((k) => at(locale, `settings.sections.${k}`)).concat(p(locale, 'title'), at(locale, 'settings.signIn.title'));
+        const full = [at(locale, 'subscription.screen.title')].concat(['place', 'summaries', 'timing', 'events'].map((k) => at(locale, `settings.sections.${k}`)), p(locale, 'title'), at(locale, 'settings.signIn.title'));
         assert(show(sectionLabels(m)) === show(full), `${locale}: the rows back ${show(sectionLabels(m))}`);
         const texts = switchTexts(m);
         assert(texts.includes(`${at(locale, 'settings.text.label')}${p(locale, 'textHint')}`), `${locale}: the summary switch with the push hint and no count: ${show(texts)}`);

@@ -4,7 +4,7 @@ import { gateLinks } from '@/src/lib/gate-links';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ user_id?: string }>;
+  searchParams: Promise<{ user_id?: string; from?: string }>;
 }
 
 export default async function SubscriptionPage({ params, searchParams }: PageProps) {
@@ -17,6 +17,7 @@ export default async function SubscriptionPage({ params, searchParams }: PagePro
   }
 
   // No user data in the server HTML: PageGate loads it through /api/page-data
-  // (src/lib/page-data.ts), which proves the user first.
-  return <PageGate page="subscription" userId={userId} locale={locale} links={gateLinks()} />;
+  // (src/lib/page-data.ts), which proves the user first. ?from=settings (Settings' Plan row) is no user data: it only
+  // tells the screen where Back goes; any other value is ignored.
+  return <PageGate page="subscription" userId={userId} locale={locale} links={gateLinks()} from={searchParamsData.from === 'settings' ? 'settings' : undefined} />;
 }

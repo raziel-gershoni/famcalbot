@@ -3,7 +3,7 @@ import FeedbackClient from './FeedbackClient';
 
 interface PageProps {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ user_id?: string }>;
+  searchParams: Promise<{ user_id?: string; from?: string }>;
 }
 
 export default async function FeedbackPage({ params, searchParams }: PageProps) {
@@ -22,6 +22,7 @@ export default async function FeedbackPage({ params, searchParams }: PageProps) 
     <FeedbackClient
       userId={userId}
       locale={locale}
+      from={searchParamsData.from === 'settings' ? 'settings' : undefined}
     />
   );
 }

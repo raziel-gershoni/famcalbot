@@ -862,6 +862,7 @@
   "settings": {
     "title": "Settings",
     "saveFailed": "Couldn't save. Try again.",
+    "feedbackRow": "Send feedback",
     "sections": {
       "place": "Language and place",
       "summaries": "Summaries",

@@ -11,7 +11,7 @@
 //  - U4 the upgrade: one request with the body the route has always read, a tap while one is in flight sends nothing and every
 //    button waits, the outcome in Telegram (a pop-up, then close) and in a browser (on the page), an error in the user's
 //    language and never the server's, a throw logged;
-//  - U5 Back: AppScreen is the only BackButton caller, and both backs go to the calendar;
+//  - U5 Back: AppScreen is the only BackButton caller, and both backs go to the calendar (to Settings when opened with from=settings);
 //  - U6 React logs no warning; U7 the messages: every key of the screen is read, the bot's keys are all still there;
 //  - U9 the terms before paying (the legal review of 2026-10-29, issue 4): the seller, one month that never renews, the
 //    14-day full refund and the Terms before the first pay button, wherever there is one; the button agrees to the Terms;
@@ -647,7 +647,7 @@ async function main() {
     }
   });
 
-  await check('U5 Back: AppScreen is the only BackButton caller (the screen never calls useTelegramBackButton); in Telegram 7.7 the BackButton shows and goes to /<locale>/dashboard?user_id=<id>, with no second back on the page; in a browser the header\'s own back goes to the same place', () => {
+  await check('U5 Back: AppScreen is the only BackButton caller (the screen never calls useTelegramBackButton); in Telegram 7.7 the BackButton shows and goes to /<locale>/dashboard?user_id=<id>, with no second back on the page; in a browser the header\'s own back goes to the same place; opened with from=settings, both go to /<locale>/settings?user_id=<id>', () => {
     const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/subscription/SubscriptionClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/useTelegramBackButton\(/.test(source), 'SubscriptionClient calls useTelegramBackButton');
     for (const locale of LOCALES) {
@@ -670,6 +670,25 @@ async function main() {
         assert(show(pushes) === show([`/${locale}/dashboard?user_id=1`]), `${locale}: the page's back goes to ${show(pushes)}`);
       } finally {
         close(browser);
+      }
+      // Opened from Settings (?from=settings): Back goes to Settings, in Telegram and in a browser alike
+      reset();
+      const fromTg = open(locale, propsOf('free', { from: 'settings' }), { version: '7.7' });
+      try {
+        fromTg.tg?.backHandlers[0]();
+        assert(show(pushes) === show([`/${locale}/settings?user_id=1`]), `${locale}: Back from Settings goes to ${show(pushes)}`);
+      } finally {
+        close(fromTg);
+      }
+      reset();
+      const fromBrowser = open(locale, propsOf('free', { from: 'settings' }));
+      try {
+        const back = buttonsOf(fromBrowser.m).find((b) => b.getAttribute('aria-label') === word(locale, 'back', 'ui'));
+        assert(back, `${locale}: no back in a browser`);
+        fromBrowser.m.click(back);
+        assert(show(pushes) === show([`/${locale}/settings?user_id=1`]), `${locale}: the page's back from Settings goes to ${show(pushes)}`);
+      } finally {
+        close(fromBrowser);
       }
     }
   });
@@ -696,7 +715,7 @@ async function main() {
       assert(!('features' in sub), `${locale}: subscription.features is back, and nothing reads it`);
       for (const key of ['expiringSoon', 'lastDay', 'expired']) assert(typeof sub.reminders[key] === 'object', `${locale}: subscription.reminders.${key}`);
     }
-    assert(code.includes("useTranslations('calendarHome')") && code.includes("home('banner.trial', { count: trial.daysRemaining })"), "the screen does not read the home's banner.trial with { count: trial.daysRemaining }");
+    assert(code.includes("useTranslations('calendarHome')") && code.includes("home('banner.trial', { count: days })"), "the screen does not read the home's banner.trial with { count } (through planStatusWords)");
     assert(!/TelegramLayout|@\/components\/Layout|@\/components\/UI|styled-jsx|<style jsx|Crown|Sparkles|Clock/.test(code), 'a part of the old page is still imported');
     assert(!/Unable to identify|Failed to send invoice|An error occurred|Invoice sent|'\.\.\.'|\/mo\b/.test(code), 'hard-coded English is still there');
     assert(!fs.existsSync(path.join(ROOT, 'components/UI')), 'components/UI (the Section, whose last user this screen was) is still there');

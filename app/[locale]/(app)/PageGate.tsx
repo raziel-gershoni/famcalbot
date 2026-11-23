@@ -115,7 +115,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
 }
 
 /** The JSON props back in the shapes the client components take (Date, Set, Map). Exported for the smokes. */
-export function renderPage(page: PageName, props: PagePropsMap[PageName]) {
+export function renderPage(page: PageName, props: PagePropsMap[PageName], from?: 'settings') {
   switch (page) {
     case 'dashboard':
       return (
@@ -141,7 +141,7 @@ export function renderPage(page: PageName, props: PagePropsMap[PageName]) {
       );
     }
     case 'subscription':
-      return <Subscription {...(props as PagePropsMap['subscription'])} />;
+      return <Subscription {...(props as PagePropsMap['subscription'])} from={from} />;
     case 'calendars':
       return <Calendars {...(props as PagePropsMap['calendars'])} />;
     case 'pair':
@@ -255,9 +255,11 @@ interface PageGateProps {
   notices?: Partial<Record<PageNotice, ReactNode>>;
   /** Where the no-credential card sends someone (gateLinks(), from the server's env). */
   links: GateLinks;
+  /** The Subscription screen opened from Settings (?from=settings): where its Back goes. No user data. */
+  from?: 'settings';
 }
 
-export default function PageGate({ page, userId, locale, notices = {}, links }: PageGateProps) {
+export default function PageGate({ page, userId, locale, notices = {}, links, from }: PageGateProps) {
   const t = useTranslations('pageGate');
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
@@ -331,7 +333,7 @@ export default function PageGate({ page, userId, locale, notices = {}, links }: 
   const data = outcome.data;
   switch (data.kind) {
     case 'props':
-      return renderPage(page, data.props);
+      return renderPage(page, data.props, from);
     case 'notice': {
       const notice = notices[data.notice];
       if (notice === undefined) return errorCard;

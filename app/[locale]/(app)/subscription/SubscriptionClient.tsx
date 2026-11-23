@@ -5,7 +5,8 @@
 // to move to, each with its price in Telegram Stars.
 //
 // - The current plan is the effective plan (a trial or early access counts as Pro), with one tag (Current, Trial,
-//   Early access) and one status line (early access, the trial's days left, or when a paid plan runs until). The
+//   Early access) and one status line (early access, the trial's days left, or when a paid plan runs until: the
+//   rule and the date's format are src/lib/plan-glance.ts, which Settings' Plan row reads too). The
 //   limits come from PLAN_CONFIGS, the same constants that enforce them; the calendar count arrives as a prop.
 // - Only Basic and Pro have a card. A card offers its button when it is above the user's plan (a Pro user is never
 //   offered Basic), or when it is the user's own paid plan while its month runs (ACTIVE or CANCELED with a period end,
@@ -24,7 +25,8 @@
 //   the answer is Telegram's pop-up (the window closes once it is dismissed); in a browser it is a notice on the
 //   page. A failure is a notice in the page's language, never the server's text, and is logged. While one request is
 //   in flight every Choose button waits, so a second tap cannot send a second invoice.
-// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser); both go to the calendar.
+// - Back has one owner, AppScreen (Telegram's BackButton, and the header's own back in a browser); both go to the calendar, or to Settings when the screen was opened from there (`from`: Settings' Plan row adds
+//   ?from=settings; a bot button, a banner or a See plans link does not, so those still go home).
 
 import { useId, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -35,6 +37,7 @@ import { readInitData } from '@/src/lib/read-init-data';
 import { openExternalLink, showTelegramAlert, telegramWebApp } from '@/src/lib/telegram-ui';
 import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { policyUrl, sellerName } from '@/src/lib/plan-disclosure';
+import { planStatusOf, planStatusWords } from '@/src/lib/plan-glance';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { FORM_CSS } from '@/components/app-ui/form-kit';
 import { Meter } from '@/components/app-ui/Meter';
@@ -47,8 +50,6 @@ import { SUBSCRIPTION_CSS } from './subscription-css';
 const PLAN_ORDER: PlanId[] = ['FREE', 'BASIC', 'PRO'];
 /** The plans that have a card to choose from. */
 const CARD_PLANS = ['BASIC', 'PRO'] as const;
-/** The date's language: Gregorian, in the device's zone (a period end is a point in time, not a Hebrew date). */
-const DATE_LOCALES: Record<string, string> = { he: 'he-IL', ru: 'ru-RU', en: 'en-US' };
 
 interface SubscriptionProps {
   plan: string;
@@ -85,9 +86,11 @@ interface SubscriptionClientProps {
   telegramLinked: boolean;
   /** false: no chat at all (no Telegram, no WhatsApp): Connect Telegram in place of the WhatsApp note. Absent: as before. */
   hasChat?: boolean;
+  /** Opened from Settings' Plan row (?from=settings): Back returns there. Absent: Back goes to the calendar, as from a bot button. */
+  from?: 'settings';
 }
 
-export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked, hasChat }: SubscriptionClientProps) {
+export default function SubscriptionClient({ userId, locale, subscription, usage, trial, isEarlyAdopter, calendarsUsed, telegramLinked, hasChat, from }: SubscriptionClientProps) {
   const t = useTranslations('subscription.screen');
   const names = useTranslations('subscription.plans');
   // The trial's days left is the home's own line (its banner), read from there so the two never say it twice
@@ -105,7 +108,7 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
   const connect = useTelegramConnect(userId, locale);
   const connectLine = connectLineKey(connect.phase);
 
-  const back = () => router.push(`/${locale}/dashboard?user_id=${userId}`);
+  const back = () => router.push(from === 'settings' ? `/${locale}/settings?user_id=${userId}` : `/${locale}/dashboard?user_id=${userId}`);
   const nameOf = (id: PlanId) => names(`${id.toLowerCase()}.name`);
   const price = new Intl.NumberFormat(locale);
 
@@ -162,13 +165,12 @@ export default function SubscriptionClient({ userId, locale, subscription, usage
     Number.isFinite(limit) ? <Meter label={label} used={used} limit={limit} valueText={t('usageOf', { used, limit })} /> : <Meter label={label} used={used} limit={null} valueText={unlimited} />;
 
   const tag = isEarlyAdopter ? t('badge.earlyAccess') : trial.isTrialing ? t('badge.trial') : t('badge.current');
-  const status = isEarlyAdopter
-    ? t('earlyAccessNote')
-    : trial.isTrialing
-      ? home('banner.trial', { count: trial.daysRemaining })
-      : subscription.plan !== 'FREE' && subscription.currentPeriodEnd
-        ? t('activeUntil', { date: new Date(subscription.currentPeriodEnd).toLocaleDateString(DATE_LOCALES[locale] ?? 'en-US', { day: 'numeric', month: 'long', year: 'numeric' }) })
-        : null;
+  // The status line is the shared rule (src/lib/plan-glance.ts), the one Settings' Plan row reads too
+  const status = planStatusWords(
+    planStatusOf({ plan: subscription.plan as PlanId, currentPeriodEnd: subscription.currentPeriodEnd, isEarlyAdopter, isTrialing: trial.isTrialing, trialDaysRemaining: trial.daysRemaining }),
+    { earlyAccess: () => t('earlyAccessNote'), trial: (days) => home('banner.trial', { count: days }), activeUntil: (date) => t('activeUntil', { date }) },
+    locale,
+  );
 
   const bullets: Record<(typeof CARD_PLANS)[number], string[]> = {
     BASIC: [t('basicSummaries'), t('calendarsUpTo', { count: PLAN_CONFIGS.BASIC.limits.calendars })],

@@ -208,6 +208,7 @@ const settingsProps = (locale: Locale, over: Row = {}): Row => ({
   remindersGloballyEnabled: true,
   googleConnected: false,
   nativeRemindersSupported: false,
+  plan: { effectivePlan: 'BASIC', status: null },
   subscriptionInfo: { effectivePlan: 'BASIC', textSummariesUsed: 0, textSummariesLimit: -1, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: false, isTrialing: false },
   bothChannels: false,
   hasChat: false,
@@ -358,7 +359,7 @@ async function main() {
       await settle();
       try {
         const where = locale;
-        const want = [at(locale, 'settings.sections.place'), at(locale, 'settings.signIn.title')];
+        const want = [at(locale, 'subscription.screen.title'), at(locale, 'settings.sections.place'), at(locale, 'settings.signIn.title')];
         assert(show(sectionLabels(m)) === show(want), `${where}: the sections ${show(sectionLabels(m))}, want ${show(want)}`);
         for (const key of ['pause.label', 'text.label', 'voice.label', 'weather.label', 'voiceInput.label', 'alerts.label', 'pickup.label']) {
           assert(!switches(m).some((s) => s.startsWith(at(locale, `settings.${key}`))), `${where}: the ${key} switch shows`);
@@ -383,7 +384,7 @@ async function main() {
       const m = mountIn(locale, Settings, settingsProps(locale, { hasChat: true, nativeRemindersSupported: true }));
       await settle();
       try {
-        const want = ['place', 'summaries', 'timing', 'events'].map((k) => at(locale, `settings.sections.${k}`)).concat(at(locale, 'settings.signIn.title'));
+        const want = [at(locale, 'subscription.screen.title')].concat(['place', 'summaries', 'timing', 'events'].map((k) => at(locale, `settings.sections.${k}`)), at(locale, 'settings.signIn.title'));
         assert(show(sectionLabels(m)) === show(want), `${locale}: the sections ${show(sectionLabels(m))}`);
         for (const key of ['pause.label', 'text.label', 'voiceInput.label', 'alerts.label']) assert(switches(m).some((s) => s.startsWith(at(locale, `settings.${key}`))), `${locale}: no ${key} switch`);
         const text = page(m);

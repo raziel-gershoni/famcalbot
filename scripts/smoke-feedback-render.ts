@@ -10,6 +10,7 @@
 //  - F4 the outcomes: 429 or rateLimit is the daily limit; 401, 403 and 404 say to open the page from the chat; tooShort and tooLong say
 //    their numbers; anything else, or a throw (logged), is "couldn't send"; the text is kept and Send comes back; typing clears the error;
 //  - F5 success: the thanks card in the same screen, its button back to the calendar, startMiniApp('app') run once (ready, expand, swipes);
+//  - F5b Back by `from`: from=settings both backs go to Settings, else the dashboard; "Back to calendar" after a send is always the dashboard;
 //  - F6 TextField: maxLength, rows (default 3) and describedBy render, and a field that uses none of them is byte for byte what it was;
 //  - F7 the route reads its limits from the shared constant; the messages: every key read, the old namespace gone, the old page's parts gone;
 //  - F8 React logs no warning.
@@ -95,8 +96,8 @@ const reset = () => {
 const posts = () => fetchCalls.filter((c) => c.url === '/api/feedback');
 
 let Feedback: (props: Row) => ReactElement;
-function tree(locale: Locale): ReactElement {
-  const intl = createElement(NextIntlClientProvider, { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as never, createElement(Feedback, { userId: 5, locale }));
+function tree(locale: Locale, from?: 'settings'): ReactElement {
+  const intl = createElement(NextIntlClientProvider, { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as never, createElement(Feedback, { userId: 5, locale, ...(from ? { from } : {}) }));
   return createElement(AppRouterContext.Provider, { value: router }, intl);
 }
 
@@ -149,7 +150,7 @@ interface Opened {
   calls: string[];
 }
 /** Mount in a browser (no Telegram) or in Telegram `version`; the caller closes it. */
-function open(locale: Locale, telegram?: { version: string; scheme?: 'light' | 'dark' }): Opened {
+function open(locale: Locale, telegram?: { version: string; scheme?: 'light' | 'dark' }, from?: 'settings'): Opened {
   installWindow();
   const calls: string[] = [];
   const tg = telegram ? fakeTelegram(calls, telegram.version) : null;
@@ -158,7 +159,7 @@ function open(locale: Locale, telegram?: { version: string; scheme?: 'light' | '
     if (telegram?.scheme) tg.colorScheme = telegram.scheme;
   }
   fakeWindow.Telegram = tg ? { WebApp: tg } : undefined;
-  const m = mount(tree(locale));
+  const m = mount(tree(locale, from));
   return { m, tg, calls };
 }
 const close = (opened: Opened) => {
@@ -362,6 +363,44 @@ async function main() {
     const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/feedback/FeedbackClient.tsx'), 'utf8').split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/.test(l)).join('\n');
     assert(!/useTelegramBackButton\(/.test(source), 'FeedbackClient calls useTelegramBackButton');
     assert((source.match(/startMiniApp\(/g) ?? []).length === 1, 'startMiniApp is called once');
+  });
+
+  await check('F5b Back by where the screen was opened from: with from=settings both backs (Telegram\'s BackButton, the browser header\'s) go to /<locale>/settings?user_id=5; with no from they go to the dashboard; a sent feedback still offers "Back to calendar", to the dashboard, even from Settings', async () => {
+    for (const locale of LOCALES) {
+      reset();
+      const tg = open(locale, { version: '7.7' }, 'settings');
+      try {
+        tg.tg?.backHandlers[0]();
+        assert(show(pushes) === show([`/${locale}/settings?user_id=5`]), `${locale}: the BackButton goes to ${show(pushes)}`);
+        pushes.length = 0;
+        await send(tg, 'a message that is long enough');
+        const home = buttonsOf(tg.m).find((b) => flat(b) === word(locale, 'backToCalendar'));
+        assert(home, `${locale}: no way back to the calendar after a send`);
+        tg.m.click(home);
+        assert(show(pushes) === show([`/${locale}/dashboard?user_id=5`]), `${locale}: Back to calendar goes to ${show(pushes)}`);
+      } finally {
+        close(tg);
+      }
+      reset();
+      const browser = open(locale, undefined, 'settings');
+      try {
+        const back = buttonsOf(browser.m).find((b) => b.getAttribute('aria-label') === word(locale, 'back', 'ui'));
+        assert(back, `${locale}: no back in a browser`);
+        browser.m.click(back);
+        assert(show(pushes) === show([`/${locale}/settings?user_id=5`]), `${locale}: the page's back goes to ${show(pushes)}`);
+      } finally {
+        close(browser);
+      }
+    }
+    // Without from, as today
+    reset();
+    const plain = open('he', { version: '7.7' });
+    try {
+      plain.tg?.backHandlers[0]();
+      assert(show(pushes) === show(['/he/dashboard?user_id=5']), `no from: ${show(pushes)}`);
+    } finally {
+      close(plain);
+    }
   });
 
   await check('F6 TextField: maxLength, rows and describedBy render (describedBy alone, or with the error\'s id after it); a field that uses none of them is byte for byte what it was, for a single line, the title, notes, and either with an error', () => {

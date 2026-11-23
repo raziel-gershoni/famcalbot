@@ -862,6 +862,7 @@
   "settings": {
     "title": "הגדרות",
     "saveFailed": "לא הצלחנו לשמור. כדאי לנסות שוב.",
+    "feedbackRow": "שליחת משוב",
     "sections": {
       "place": "שפה ומיקום",
       "summaries": "סיכומים",

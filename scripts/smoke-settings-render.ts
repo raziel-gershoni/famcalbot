@@ -1,7 +1,7 @@
 // Smoke test for the Settings screen (plan docs/superpowers/plans/2026-10-27-app-ui-W1a-settings.md, Task 3;
 // spec 2026-10-19-screens-and-colours §4, §5): SettingsClient on AppScreen and the form kit, in real React on
 // the small fake DOM, with a fake Telegram.WebApp, a router stub and a fake fetch. No network, no DB.
-//  - S1 the render in en, he and ru, light and dark: the grouped root, the four sections and Sign in on the web in order, no raw key,
+//  - S1 the render in en, he and ru, light and dark: the grouped root, the Plan card, the four sections and Sign in on the web in order, no raw key,
 //    no emoji, no English in he and ru beyond the brands and the endonyms, the times left to right;
 //  - S2 the state matrix: what the alerts rows show for the saved platform, the plan and the global switch, the
 //    reminder time, the Google section, the usage lines, and that the platform list changes the section only once saved;
@@ -170,6 +170,7 @@ const propsOf = (over: Row = {}, current: Parameters<typeof settings>[0] = {}) =
   googleConnected: false,
   nativeRemindersSupported: true,
   subscriptionInfo: subscription(),
+  plan: { effectivePlan: 'PRO', status: null },
   bothChannels: true,
   ...over,
 });
@@ -250,7 +251,7 @@ async function main() {
       const p = propsOf({}, { language: locale, location: places[locale] });
       const html = renderToString(tree(locale, p));
       assert(html.startsWith(`<div class="ch-app ch-screen ch-grouped" data-theme="light" dir="${dir}" lang="${locale}">`), `${locale}: the root: ${html.slice(0, 140)}`);
-      const sections = [...['place', 'summaries', 'timing', 'events'].map((k) => word(locale, `sections.${k}`)), word(locale, 'signIn.title')];
+      const sections = [word(locale, 'screen.title', 'subscription'), ...['place', 'summaries', 'timing', 'events'].map((k) => word(locale, `sections.${k}`)), word(locale, 'signIn.title')];
       assert(show(sectionLabels(html)) === show(sections), `${locale}: the sections: ${show(sectionLabels(html))}`);
       const text = textOf(html);
       assert(!/settings\.|ui\.|calendarHome\./.test(text), `${locale}: a raw key in ${text}`);
@@ -308,7 +309,7 @@ async function main() {
       assert(!none.includes(w('reminderTime')) && none.includes(w('alerts.label')), `${locale}: the reminder time without FamCal reminders`);
       // Google
       const google = renderToString(tree(locale, propsOf({ googleConnected: true }, { language: locale })));
-      assert(show(sectionLabels(google)) === show([...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('googleDisconnect.sectionTitle'), w('signIn.title')]), `${locale}: the Google section: ${show(sectionLabels(google))}`);
+      assert(show(sectionLabels(google)) === show([word(locale, 'screen.title', 'subscription'), ...['place', 'summaries', 'timing', 'events'].map((k) => w(`sections.${k}`)), w('googleDisconnect.sectionTitle'), w('signIn.title')]), `${locale}: the Google section: ${show(sectionLabels(google))}`);
       assert(!textOf(renderToString(tree(locale, propsOf({}, { language: locale })))).includes(w('googleDisconnect.sectionTitle')), `${locale}: Google shows when not connected`);
     }
     // The usage lines: text has a limit of 10, voice is unlimited (-1), and a limit of 0 shows none
@@ -933,7 +934,7 @@ async function main() {
       assert(text.includes(label) && text.includes(hint), `${locale}: the label and the hint`);
       // In the first card, after the calendar row and before the platform row
       assert(text.indexOf(word(locale, 'culture.label')) < text.indexOf(label) && text.indexOf(label) < text.indexOf(word(locale, 'platform.label')), `${locale}: the switch sits between the calendar and the platform`);
-      assert(sectionLabels(html)[0] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
+      assert(sectionLabels(html)[1] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
     }
     assert(word('en', 'pause.label') === 'Pause messages on Shabbat and Yom Tov' && word('he', 'pause.label') === 'השהיית הודעות בשבת ובחג' && word('ru', 'pause.label') === 'Пауза в Шаббат и праздники', 'the owner\'s labels');
     assert(word('en', 'pause.hint') === 'Nothing is sent from sunset until nightfall' && word('he', 'pause.hint') === 'לא נשלחות הודעות מהשקיעה ועד צאת השבת או החג' && word('ru', 'pause.hint') === 'С заката до выхода звёзд ничего не приходит', 'the owner\'s hints (the pause begins at sunset, not candle lighting: 2026-10-28)');
@@ -1034,7 +1035,7 @@ async function main() {
       const label = word(locale, 'zmanim.label');
       assert(text.includes(label) && text.includes(word(locale, 'zmanim.hint')), `${locale}: the label and the hint`);
       assert(text.indexOf(word(locale, 'location.label')) < text.indexOf(label) && text.indexOf(label) < text.indexOf(word(locale, 'culture.label')), `${locale}: the row sits between the location and the calendar`);
-      assert(sectionLabels(html)[0] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
+      assert(sectionLabels(html)[1] === word(locale, 'sections.place') && html.indexOf(label) < html.indexOf(`<h2 class="ch-section-label">${word(locale, 'sections.summaries')}`), `${locale}: in the first card`);
       assert(show(['sephardi', 'ashkenazi', 'chabad'].map((c) => word(locale, `zmanim.${c}`))) === show(options[locale]), `${locale}: ${show(['sephardi', 'ashkenazi', 'chabad'].map((c) => word(locale, `zmanim.${c}`)))}`);
     }
     reset();
@@ -1086,7 +1087,8 @@ async function main() {
           assert(row, `${locale}: no row ${want.label}`);
           // The rows of the page, in order: Language, then this one, then Location
           const rows = elements(m.m.container).filter((e) => (e.localName === 'button' || e.localName === 'label') && e.className.split(' ').includes('ch-form-row'));
-          const firstThree = rows.slice(0, 3).map((r) => flat(r));
+          // (the Plan row is the page's very first row, in its own card above the place card)
+          const firstThree = rows.filter((r) => !r.className.split(' ').includes('ch-list-row')).slice(0, 3).map((r) => flat(r));
           assert(firstThree[0].startsWith(word(locale, 'language.label')) && firstThree[1].startsWith(want.label) && firstThree[2].startsWith(word(locale, 'location.label')), `${locale}: the first rows are ${show(firstThree)}`);
           const shown = elements(row).find((e) => e.className.split(' ').includes('ch-form-value-text'));
           assert(shown && flat(shown) === want[gender], `${locale} ${gender}: the row shows ${shown ? flat(shown) : '(nothing)'}`);
@@ -1233,6 +1235,104 @@ async function main() {
     const read = [...source.matchAll(/\bt\('([\w.]+)'/g)].map((m) => m[1]);
     for (const key of read) assert(own.includes(key) || key.startsWith('googleDisconnect.') || key.startsWith('signIn.') || key.startsWith('accountDelete.'), `${key} is read but is not a message`);
     for (const key of ['back', 'save', 'saved', 'done']) for (const locale of LOCALES) assert(typeof (messages[locale].ui as Row)[key] === 'string', `${locale}: ui.${key}`);
+    for (const locale of LOCALES) assert(typeof (messages[locale].settings as Row).feedbackRow === 'string' && source.includes("t('feedbackRow')"), `${locale}: settings.feedbackRow is missing or unread`);
+  });
+
+  await check('S15 the Plan card, first on the screen: the section label subscription.screen.title, one two-line row (the plan\'s name from subscription.plans, the status line from the shared helper: early access, the trial\'s days, active until the date, nothing for Free) with a chevron, not a dialog opener; a tap goes to /<locale>/subscription?user_id=<id>&from=settings in the saved language', async () => {
+    const statusOf = (locale: Locale, plan: Row) => {
+      const m = open(locale, propsOf({ plan }, { language: locale }));
+      try {
+        const row = elements(m.m.container).find((e) => e.localName === 'button' && classes(e).includes('ch-list-row'));
+        assert(row, `${locale}: no Plan row`);
+        return { m, row };
+      } catch (err) {
+        close(m);
+        throw err;
+      }
+    };
+    const classes = (e: FakeElement) => e.className.split(' ');
+    for (const locale of LOCALES) {
+      const name = (id: string) => word(locale, `plans.${id}.name`, 'subscription');
+      const cases: [string, Row, string][] = [
+        ['early access', { effectivePlan: 'PRO', status: { kind: 'earlyAccess' } }, `${name('pro')}${word(locale, 'screen.earlyAccessNote', 'subscription')}`],
+        ['a trial of 5 days', { effectivePlan: 'PRO', status: { kind: 'trial', days: 5 } }, name('pro')],
+        ['free', { effectivePlan: 'FREE', status: null }, name('free')],
+        ['basic', { effectivePlan: 'BASIC', status: null }, name('basic')],
+      ];
+      for (const [label, plan, want] of cases) {
+        reset();
+        const { m, row } = statusOf(locale, plan);
+        try {
+          const text = flat(row);
+          if (label === 'a trial of 5 days') {
+            assert(text.startsWith(name('pro')) && /5/.test(text) && text.length > name('pro').length, `${locale}: ${label}: ${text}`);
+          } else {
+            assert(text === want, `${locale}: ${label}: ${text} (want ${want})`);
+          }
+          assert(row.getAttribute('aria-haspopup') === null, `${locale}: the Plan row opens no dialog`);
+          assert(elements(row).some((e) => e.localName === 'svg' && classes(e).includes('ch-form-chevron')), `${locale}: no chevron`);
+        } finally {
+          close(m);
+        }
+      }
+      // Active until, in the page's date format
+      reset();
+      const until = statusOf(locale, { effectivePlan: 'PRO', status: { kind: 'activeUntil', date: '2026-12-12T12:00:00.000Z' } });
+      try {
+        const tag = ({ en: 'en-US', he: 'he-IL', ru: 'ru-RU' } as const)[locale];
+        const date = new Date('2026-12-12T12:00:00.000Z').toLocaleDateString(tag, { day: 'numeric', month: 'long', year: 'numeric' });
+        const sentence = (messages[locale].subscription as Row).screen.activeUntil.replace('{date}', date);
+        assert(flat(until.row) === `${name('pro')}${sentence}`, `${locale}: ${flat(until.row)}`);
+      } finally {
+        close(until.m);
+      }
+    }
+    // First on the screen, with its label, and a tap goes to the plan screen in the saved language (not the one picked in the list)
+    reset();
+    const o = open('en', propsOf({ plan: { effectivePlan: 'PRO', status: null } }, { language: 'ru' }));
+    try {
+      const labels = elements(o.m.container).filter((e) => e.className === 'ch-section-label').map(flat);
+      assert(labels[0] === word('en', 'screen.title', 'subscription'), `the first label: ${show(labels)}`);
+      const rows = elements(o.m.container).filter((e) => e.className.split(' ').includes('ch-list-row'));
+      assert(rows.length === 1, `${rows.length} list rows`);
+      o.m.change(selectOf(o.m, word('en', 'language.label')) as FakeElement, 'he');
+      o.m.click(rows[0]);
+      assert(show(pushes) === show(['/ru/subscription?user_id=1&from=settings']), `the Plan row went to ${show(pushes)}`);
+    } finally {
+      close(o);
+    }
+  });
+
+  await check('S16 the Send feedback row: after Sign in on the web and before Delete account, in its own card with a chevron (a navigation button, not a dialog opener), in en, he and ru; a tap goes to /<locale>/feedback?user_id=<id>&from=settings', async () => {
+    for (const locale of LOCALES) {
+      reset();
+      const o = open(locale, propsOf({ accountDelete: { paidMonthRunning: false } }, { language: locale }));
+      try {
+        await settle();
+        const all = elements(o.m.container);
+        const label = word(locale, 'feedbackRow');
+        const row = all.find((e) => e.localName === 'button' && flat(e) === label);
+        assert(row, `${locale}: no feedback row`);
+        assert(row.getAttribute('aria-haspopup') === null, `${locale}: the feedback row opens no dialog`);
+        assert(all.indexOf(row) > -1 && elements(row).some((e) => e.localName === 'svg' && e.className.split(' ').includes('ch-form-chevron')), `${locale}: no chevron`);
+        const signIn = all.find((e) => e.className === 'ch-section-label' && flat(e) === word(locale, 'signIn.title'));
+        const del = all.find((e) => e.localName === 'button' && e.className.split(' ').includes('ch-danger-row'));
+        assert(signIn && del, `${locale}: no Sign in label or Delete row`);
+        assert(all.indexOf(signIn) < all.indexOf(row) && all.indexOf(row) < all.indexOf(del), `${locale}: the order is wrong`);
+        o.m.click(row);
+        assert(show(pushes) === show([`/${locale}/feedback?user_id=1&from=settings`]), `${locale}: went to ${show(pushes)}`);
+      } finally {
+        close(o);
+      }
+    }
+    // An admin account has no Delete row: the feedback row is still there, last
+    reset();
+    const admin = open('en', propsOf({ accountDelete: null }));
+    try {
+      assert(elements(admin.m.container).some((e) => e.localName === 'button' && flat(e) === word('en', 'feedbackRow')), 'no feedback row without Delete account');
+    } finally {
+      close(admin);
+    }
   });
 
   await check('S9 React logged no warning', () => {

@@ -487,10 +487,10 @@ async function bodyOf(res: Response): Promise<string> {
 }
 
 /** Call a page server component as Next does. A redirect or notFound comes back as `thrown`. */
-async function callPage(rel: string, locale: string, userId: string): Promise<{ el?: unknown; thrown?: string }> {
+async function callPage(rel: string, locale: string, userId: string, extra: Row = {}): Promise<{ el?: unknown; thrown?: string }> {
   const page = (await load(rel)).default;
   try {
-    return { el: await page({ params: Promise.resolve({ locale }), searchParams: Promise.resolve({ user_id: userId }) }) };
+    return { el: await page({ params: Promise.resolve({ locale }), searchParams: Promise.resolve({ user_id: userId, ...extra }) }) };
   } catch (err) {
     return { thrown: String((err as Row)?.digest ?? (err instanceof Error ? err.message : err)) };
   }
@@ -658,6 +658,39 @@ async function main() {
       const body = await fullBody(res);
       const voiceFormat = body.match(/"currentSettings":\{[^}]*?"voiceFormat":"(\w+)"/)?.[1];
       assert(voiceFormat === want, `stored ${JSON.stringify(stored)}: the props say ${voiceFormat} (want ${want}) in ${await bodyOf(res)}`);
+    }
+  });
+
+  await check('#6e page-data settings: the props carry the plan at a glance (plan.effectivePlan and plan.status, the Subscription screen\'s own rule): a paid plan with a period end is activeUntil with that date; a running trial is its days; a Free row has no status', async () => {
+    const show = (value: unknown) => JSON.stringify(value);
+    const planOf = async () => {
+      const res = await pageData({ page: 'settings', user_id: 42, locale: 'ru' }, waCookie);
+      assert(res.status === 200, `status ${res.status} ${await bodyOf(res)}`);
+      return ((await res.json()) as Row).props.plan as Row;
+    };
+    seed();
+    const end = new Date(Date.now() + 9 * DAY);
+    DB.subscription = [{ id: 'sub-pro', userId: 42, plan: 'PRO', status: 'ACTIVE', currentPeriodStart: null, currentPeriodEnd: end, cancelAtPeriodEnd: false, trialStartedAt: null, trialEndsAt: new Date(0) }];
+    const paid = await planOf();
+    assert(show(paid) === show({ effectivePlan: 'PRO', status: { kind: 'activeUntil', date: end.toISOString() } }), `paid: ${show(paid)}`);
+    seed();
+    DB.subscription = [{ id: 'sub-trial', userId: 42, plan: 'PRO', status: 'TRIALING', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: new Date(), trialEndsAt: new Date(Date.now() + 5 * DAY) }];
+    const trial = await planOf();
+    assert(trial.effectivePlan === 'PRO' && trial.status?.kind === 'trial' && trial.status.days >= 4 && trial.status.days <= 5, `trial: ${show(trial)}`);
+    seed();
+    DB.subscription = [{ id: 'sub-free', userId: 42, plan: 'FREE', status: 'ACTIVE', currentPeriodStart: null, currentPeriodEnd: null, cancelAtPeriodEnd: false, trialStartedAt: null, trialEndsAt: new Date(0) }];
+    const free = await planOf();
+    assert(show(free) === show({ effectivePlan: 'FREE', status: null }), `free: ${show(free)}`);
+  });
+
+  await check('#6f the Subscription and Feedback pages pass from=settings to their screen only when the URL says exactly that', async () => {
+    for (const [name, marker] of [['subscription', '"from":"settings"'], ['feedback', '"from":"settings"']] as const) {
+      seed();
+      const withFrom = serialize((await callPage(`app/[locale]/(app)/${name}/page.tsx`, 'en', '5550001', { from: 'settings' })).el);
+      const without = serialize((await callPage(`app/[locale]/(app)/${name}/page.tsx`, 'en', '5550001')).el);
+      const other = serialize((await callPage(`app/[locale]/(app)/${name}/page.tsx`, 'en', '5550001', { from: 'dashboard' })).el);
+      assert(withFrom.includes(marker), `${name}: from=settings is not passed: ${withFrom.slice(0, 300)}`);
+      assert(!without.includes('"from"') && !other.includes('"from"'), `${name}: from is passed without from=settings: ${without.slice(0, 200)} / ${other.slice(0, 200)}`);
     }
   });
 

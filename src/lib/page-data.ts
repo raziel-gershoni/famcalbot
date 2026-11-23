@@ -34,7 +34,8 @@ import { unlistedChoices } from '@/app/[locale]/(app)/select-calendars/selection
 import { listVisibleCalendars, sortingForViewer } from '@/src/services/native-calendar/event-store';
 import { ensurePrimaryNativeCalendar } from '@/src/services/native-calendar/onboarding';
 import { getActivePartner, getActiveInvite } from '@/src/services/pairing-service';
-import { getPlanLimits } from '@/src/config/plans';
+import { getPlanLimits, type PlanId } from '@/src/config/plans';
+import { planStatusOf } from '@/src/lib/plan-glance';
 import { buildUrl } from '@/src/config/urls';
 import { normalizeLocale } from '@/src/utils/locale';
 import { tzKnownFor, weekStartOfUser } from '@/src/utils/locale-rules';
@@ -245,8 +246,8 @@ async function weekStartForSettings(user: UserConfig): Promise<WeekStart> {
 }
 
 async function settings(user: UserConfig, userId: number, userLocale: string, session: PageSession): Promise<PageDataResult> {
-  // Fetch admin settings, subscription data, the week start and the notifications prop in parallel
-  const [nativeRemindersSupported, adminSettings, subWithUsage, weekStart, push] = await Promise.all([
+  // Fetch admin settings, subscription data, the plan's trial and early access, the week start and the notifications prop in parallel
+  const [nativeRemindersSupported, adminSettings, subWithUsage, weekStart, push, planFacts] = await Promise.all([
     // quiet: a gate for one control, so a plan without reminders logs nothing
     canReceiveReminderPings(user, { quiet: true }),
     prisma.adminSettings.findUnique({
@@ -259,6 +260,11 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     }),
     weekStartForSettings(user),
     pushPropsFor(user, session),
+    // The Plan row's two facts (the Subscription screen's own reads); a failed read leaves the row at Free, reported
+    Promise.all([getTrialStatus(user.id), checkEarlyAdopterAccess(user.id)]).catch((error) => {
+      captureError(error, 'settings-plan', { user_id: user.id });
+      return null;
+    }),
   ]);
 
   // Build subscription info for the client
@@ -277,6 +283,22 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     remindersAllowed: limits.reminders,
     isTrialing,
   };
+
+  // The Plan row: the plan's name and its one status line, by the rule the Subscription screen shares (src/lib/plan-glance.ts).
+  // Either read failing (reported above) shows Free with no status, never a guess.
+  const plan: PagePropsMap['settings']['plan'] =
+    subWithUsage && planFacts
+      ? {
+          effectivePlan,
+          status: planStatusOf({
+            plan: subWithUsage.subscription.plan as PlanId,
+            currentPeriodEnd: subWithUsage.subscription.currentPeriodEnd?.toISOString() ?? null,
+            isEarlyAdopter: planFacts[1],
+            isTrialing: planFacts[0].isTrialing,
+            trialDaysRemaining: planFacts[0].daysRemaining,
+          }),
+        }
+      : { effectivePlan: 'FREE', status: null };
 
   const props: PagePropsMap['settings'] = {
     userId,
@@ -313,6 +335,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
     googleConnected: Boolean(user.googleRefreshToken),
     nativeRemindersSupported,
     subscriptionInfo,
+    plan,
     bothChannels: channels.telegram && channels.whatsapp,
     // No chat: the chat-only cards and rows give way to the Telegram note (6c-1)
     hasChat: hasChat(user),

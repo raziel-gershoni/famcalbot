@@ -46,13 +46,16 @@ import { REMINDER_TIME_STEP_MINUTES } from '@/src/lib/reminder-time';
 import { weekdayOrder } from '@/src/lib/calendar-view/grid';
 import { WEEKDAY_IDS_BY_INDEX } from '@/src/lib/calendar-view/repeat-model';
 import type { WeekStart } from '@/src/lib/calendar-view/types';
+import { planStatusWords, type PlanStatus } from '@/src/lib/plan-glance';
+import type { PlanId } from '@/src/config/plans';
 import { readInitData } from '@/src/lib/read-init-data';
 import type { PushPageProps } from '@/src/lib/web-push-props';
 import { useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { connectButtonKey, connectLineKey, useTelegramConnect } from '@/src/lib/telegram-connect-client';
 import { AppScreen } from '@/components/app-ui/AppScreen';
 import { DayChips, type DayChip } from '@/components/app-ui/DayChips';
-import { FORM_CSS, FormCard, FormRow, SaveBar, SwitchRow, ButtonRow, ValueRow } from '@/components/app-ui/form-kit';
+import { FORM_CSS, FormCard, FormRow, SaveBar, SwitchRow, ButtonRow, ValueRow, Chevron } from '@/components/app-ui/form-kit';
+import { ListRow } from '@/components/app-ui/ListRow';
 import { Notice } from '@/components/app-ui/Notice';
 import { ScreenHeader, SectionLabel } from '@/components/app-ui/ScreenHeader';
 import { TimePickerSheet } from '../dashboard/TimePickerSheet';
@@ -113,6 +116,8 @@ interface SettingsClientProps {
   /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
   nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
+  /** The Plan row at the top: the plan's name (its effective plan, as the Subscription screen names it) and its one status line (src/lib/plan-glance.ts). */
+  plan: { effectivePlan: PlanId; status: PlanStatus };
   /** The person has Telegram and WhatsApp both: the platform choice shows only then (with one channel there is nothing to choose). */
   bothChannels: boolean;
   /** false: no chat at all (no Telegram, no WhatsApp): the chat-only cards and rows give way to the Telegram note. Absent: as before. */
@@ -183,8 +188,12 @@ function TelegramNote({ userId, locale, pushOffered }: { userId: number; locale:
   );
 }
 
-export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, bothChannels, hasChat, push, accountDelete }: SettingsClientProps) {
+export default function SettingsClient({ userId, currentSettings, weekStart, remindersGloballyEnabled, googleConnected: googleConnectedProp, nativeRemindersSupported, subscriptionInfo, plan, bothChannels, hasChat, push, accountDelete }: SettingsClientProps) {
   const t = useTranslations('settings');
+  // The Plan row's words: the plan's name, and the Subscription screen's status phrases (the trial's days are the home's own banner line)
+  const planNames = useTranslations('subscription.plans');
+  const planScreen = useTranslations('subscription.screen');
+  const banner = useTranslations('calendarHome.banner');
   const ui = useTranslations('ui');
   const router = useRouter();
 
@@ -297,6 +306,16 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
       <style>{FORM_CSS}</style>
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={backHandler} />
       <div className="ch-form-page ch-form-page-grouped">
+        {/* The plan at a glance, first: its name and one status line; a tap opens the Subscription screen, which comes back here */}
+        <SectionLabel>{planScreen('title')}</SectionLabel>
+        <FormCard>
+          <ListRow
+            title={planNames(`${plan.effectivePlan.toLowerCase() as Lowercase<PlanId>}.name`)}
+            meta={planStatusWords(plan.status, { earlyAccess: () => planScreen('earlyAccessNote'), trial: (days) => banner('trial', { count: days }), activeUntil: (date) => planScreen('activeUntil', { date }) }, saved.language)}
+            onClick={() => router.push(`/${saved.language}/subscription?user_id=${userId}&from=settings`)}
+          />
+        </FormCard>
+
         <SectionLabel>{t('sections.place')}</SectionLabel>
         <FormCard>
           <ValueRow label={t('language.label')} hint={t('language.hint')} value={form.language} options={LANGUAGES} onChange={(value) => set('language', value)} />
@@ -450,6 +469,15 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
         <GoogleDisconnect userId={userId} connected={googleConnected} onDisconnected={() => setGoogleConnected(false)} onSheet={(close) => setGoogleClose(() => close)} />
         {noChat && push?.key ? <PushCard userId={userId} push={push} onDevices={setPushDevices} /> : null}
         <SignInMethods userId={userId} onSheet={(close) => setSignInClose(() => close)} />
+        {/* Send feedback: a navigation row (not a sheet), in its own card; the Feedback screen comes back here */}
+        <FormCard>
+          <button type="button" className="ch-form-row" onClick={() => router.push(`/${saved.language}/feedback?user_id=${userId}&from=settings`)}>
+            <span className="ch-form-label">
+              <span>{t('feedbackRow')}</span>
+            </span>
+            <Chevron />
+          </button>
+        </FormCard>
         {accountDelete ? <AccountDelete userId={userId} paidMonthRunning={accountDelete.paidMonthRunning} onSheet={(close) => setDeleteClose(() => close)} /> : null}
       </div>
 

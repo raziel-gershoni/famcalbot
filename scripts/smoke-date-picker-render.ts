@@ -264,6 +264,7 @@ async function main() {
                 googleConnected: false,
                 nativeRemindersSupported: true,
                 bothChannels: true,
+                plan: { effectivePlan: 'BASIC', status: null },
                 subscriptionInfo: { effectivePlan: 'basic', textSummariesUsed: 0, textSummariesLimit: -1, voiceSummariesUsed: 0, voiceSummariesLimit: -1, remindersAllowed: true, isTrialing: false },
                 currentSettings: {
                   language: locale, gender: 'male', location: 'x', messagingPlatform: 'telegram', culture: 'jewish', textSummaryEnabled: true, voiceSummaryEnabled: false, voiceFormat: 'show', weatherEnabled: true,
