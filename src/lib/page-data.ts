@@ -285,7 +285,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
   };
 
   // The Plan row: the plan's name and its one status line, by the rule the Subscription screen shares (src/lib/plan-glance.ts).
-  // Either read failing (reported above) shows Free with no status, never a guess.
+  // Either read failing (reported above) leaves the row out (null): a plan the page could not read is never named.
   const plan: PagePropsMap['settings']['plan'] =
     subWithUsage && planFacts
       ? {
@@ -298,7 +298,7 @@ async function settings(user: UserConfig, userId: number, userLocale: string, se
             trialDaysRemaining: planFacts[0].daysRemaining,
           }),
         }
-      : { effectivePlan: 'FREE', status: null };
+      : null;
 
   const props: PagePropsMap['settings'] = {
     userId,

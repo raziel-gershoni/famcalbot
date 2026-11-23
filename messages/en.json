@@ -994,7 +994,7 @@
       "confirm": "Disconnect",
       "working": "Disconnecting…",
       "doneTitle": "Google is disconnected",
-      "doneBody": "FamCal no longer reads your Google calendars. You can connect Google again from the menu whenever you like.",
+      "doneBody": "FamCal no longer reads your Google calendars. You can connect Google again from Calendars in the menu whenever you like.",
       "leftoverIntro": "We couldn’t delete these from Google. You can remove them in Google Calendar:",
       "close": "Done",
       "errorFailed": "Disconnecting didn’t finish, and Google may already have lost access. Try again to complete it.",
@@ -1230,7 +1230,7 @@
     "errors": {
       "save": "Couldn't save, so the change was undone.",
       "limit": "Your plan has room for {limit, plural, one {# calendar} other {# calendars}}, FamCal and Google together.",
-      "noneSelected": "Keep at least one calendar on. To stop using Google, disconnect it in Settings.",
+      "noneSelected": "Keep at least one calendar on. To stop using Google, disconnect it under Google account.",
       "noYours": "Keep at least one calendar marked as yours.",
       "retry": "Couldn't save. Try again."
     },
@@ -1268,7 +1268,7 @@
     },
     "denied": {
       "title": "Google wasn't connected",
-      "body": "You can connect it any time from FamCal's menu."
+      "body": "You can connect it any time from Calendars in FamCal's menu."
     },
     "refused": {
       "title": "Google didn't allow this connection",
@@ -1603,7 +1603,7 @@
       "langConfirm": "Language set to English ✓",
       "valueProp": "Here's what you get:\n\n📅 *Your family calendar* — FamCal's own, ready now. No Google account needed\n🎤 *Add by voice* — send a voice note with what and when\n☀️ *A morning summary* — the family's day, the kids' pickup order and the weather\n🎧 *A voice show* — the same summary as a short radio show with two hosts",
       "sampleSummary": "Here's what a morning summary looks like:\n\n━━━━━━━━━━━━━━━\n☀️ *Good morning!*\nToday — Sunday, 15 March\n\n*Your day:*\n• 09:00 – Team meeting\n• 14:00 – Client meeting\n\n*Sarah's day:*\n• 10:30 – Dentist\n\n*Kids' pickup:*\n1. 14:00 — Noah (school)\n2. 16:30 — Maya, Liam (football)\n\n💡 Sarah finishes at 12, so she can pick up Noah\n🌤️ 22°C and sunny. A light jacket for the evening.\n━━━━━━━━━━━━━━━",
-      "ctaSetup": "Your calendar is ready. Open it to add your city, for the weather and zmanim. Google Calendar is optional: you can connect it from the calendar's menu any time.",
+      "ctaSetup": "Your calendar is ready. Open it to add your city, for the weather and zmanim. Google Calendar is optional: you can connect it any time from Calendars in the calendar's menu.",
       "ctaButton": "🚀 Set Up FamCal",
       "nativeWelcome": "👋 Hi {name}, your calendar is ready in {platform}. Tell me where you live so weather and timezones work right.",
       "nativeLocationButton": "📍 Set my location",

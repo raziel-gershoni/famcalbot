@@ -43,7 +43,7 @@ export interface HomeHeaderProps {
   zmanimOpen?: boolean;
   /** Today's weather under the buttons: 'loading' is a placeholder; null or absent (no place, no forecast) shows nothing. */
   weather?: HomeWeather | 'loading' | null;
-  /** The zman that passed last and the next one under the date lines, a tap away from the sun sheet; null or absent (or no sun) shows nothing. */
+  /** The zman that passed last and the next one under the date lines, a tap away from the zmanim sheet; null or absent (or no zmanim button) shows nothing. */
   zmanWindow?: ZmanWindow | null;
 }
 

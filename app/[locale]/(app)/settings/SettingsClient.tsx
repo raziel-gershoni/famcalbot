@@ -114,8 +114,8 @@ interface SettingsClientProps {
   /** FamCal reminders can be used (the native switch, Telegram, the plan): the reminder time applies. */
   nativeRemindersSupported: boolean;
   subscriptionInfo: SubscriptionInfo;
-  /** The Plan row at the top: the plan's name (its effective plan, as the Subscription screen names it) and its one status line (src/lib/plan-glance.ts). */
-  plan: { effectivePlan: PlanId; status: PlanStatus };
+  /** The Plan row at the top: the plan's name (its effective plan, as the Subscription screen names it) and its one status line (src/lib/plan-glance.ts); null when the plan could not be read, and then the card is left out. */
+  plan: { effectivePlan: PlanId; status: PlanStatus } | null;
   /** The person has Telegram and WhatsApp both: the platform choice shows only then (with one channel there is nothing to choose). */
   bothChannels: boolean;
   /** false: no chat at all (no Telegram, no WhatsApp): the chat-only cards and rows give way to the Telegram note. Absent: as before. */
@@ -302,14 +302,18 @@ export default function SettingsClient({ userId, currentSettings, weekStart, rem
       <ScreenHeader title={t('title')} backLabel={ui('back')} onBack={backHandler} />
       <div className="ch-form-page ch-form-page-grouped">
         {/* The plan at a glance, first: its name and one status line; a tap opens the Subscription screen, which comes back here */}
-        <SectionLabel>{planScreen('title')}</SectionLabel>
-        <FormCard>
-          <ListRow
-            title={planNames(`${plan.effectivePlan.toLowerCase() as Lowercase<PlanId>}.name`)}
-            meta={planStatusWords(plan.status, { earlyAccess: () => planScreen('earlyAccessNote'), trial: (days) => banner('trial', { count: days }), activeUntil: (date) => planScreen('activeUntil', { date }) }, saved.language)}
-            onClick={() => router.push(`/${saved.language}/subscription?user_id=${userId}&from=settings`)}
-          />
-        </FormCard>
+        {plan ? (
+          <>
+            <SectionLabel>{planScreen('title')}</SectionLabel>
+            <FormCard>
+              <ListRow
+                title={planNames(`${plan.effectivePlan.toLowerCase() as Lowercase<PlanId>}.name`)}
+                meta={planStatusWords(plan.status, { earlyAccess: () => planScreen('earlyAccessNote'), trial: (days) => banner('trial', { count: days }), activeUntil: (date) => planScreen('activeUntil', { date }) }, saved.language)}
+                onClick={() => router.push(`/${saved.language}/subscription?user_id=${userId}&from=settings`)}
+              />
+            </FormCard>
+          </>
+        ) : null}
 
         <SectionLabel>{t('sections.place')}</SectionLabel>
         <FormCard>

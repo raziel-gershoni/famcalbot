@@ -1223,7 +1223,7 @@ async function main() {
     for (const locale of LOCALES) assert(typeof (messages[locale].settings as Row).feedbackRow === 'string' && source.includes("t('feedbackRow')"), `${locale}: settings.feedbackRow is missing or unread`);
   });
 
-  await check('S15 the Plan card, first on the screen: the section label subscription.screen.title, one two-line row (the plan\'s name from subscription.plans, the status line from the shared helper: early access, the trial\'s days, active until the date, nothing for Free) with a chevron, not a dialog opener; a tap goes to /<locale>/subscription?user_id=<id>&from=settings in the saved language', async () => {
+  await check('S15 the Plan card, first on the screen: the section label subscription.screen.title, one two-line row (the plan\'s name from subscription.plans, the status line from the shared helper: early access, the trial\'s days, active until the date, nothing for Free) with a chevron, not a dialog opener; a tap goes to /<locale>/subscription?user_id=<id>&from=settings in the saved language; no card when the plan could not be read', async () => {
     const statusOf = (locale: Locale, plan: Row) => {
       const m = open(locale, propsOf({ plan }, { language: locale }));
       try {
@@ -1285,6 +1285,17 @@ async function main() {
       assert(show(pushes) === show(['/ru/subscription?user_id=1&from=settings']), `the Plan row went to ${show(pushes)}`);
     } finally {
       close(o);
+    }
+    // A plan the page could not read is never named: no Plan card, and the screen starts with its first section
+    reset();
+    const unread = open('en', propsOf({ plan: null }));
+    try {
+      const labels = elements(unread.m.container).filter((e) => e.className === 'ch-section-label').map(flat);
+      assert(labels[0] === word('en', 'sections.place'), `no plan: the first label is ${show(labels)}`);
+      assert(!elements(unread.m.container).some((e) => e.className.split(' ').includes('ch-list-row')), 'no plan: a Plan row shows');
+      assert(!flat(unread.m.container).includes(word('en', 'plans.free.name', 'subscription')), 'no plan: the screen names Free');
+    } finally {
+      close(unread);
     }
   });
 

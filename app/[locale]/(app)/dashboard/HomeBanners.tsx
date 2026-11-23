@@ -23,7 +23,7 @@
 // Each banner is one button (or, for Telegram, a link) with a 44 px or taller target; Connect Telegram is two (its own and the
 // close), Get reminders on this device three (Turn on, Connect Telegram, the close).
 // Google is a connection beside FamCal (spec "Google as a connection" §2): a user who never
-// connected sees no Google banner at all, and Connect Google lives in the ⋯ menu only.
+// connected sees no Google banner at all, and Connect Google lives on the Calendars screen's Google row only.
 
 import { useTranslations } from 'next-intl';
 import { Bell, Loader2, Send, X } from 'lucide-react';

@@ -343,7 +343,7 @@ async function main() {
     for (const l of LOCALES) for (const gone of ['chosen', 'chosenHint']) assert(!block(l).has(gone), `${l}: selectCalendars.${gone} is still there`);
     assert(messages.en.selectCalendars.errors.retry === "Couldn't save. Try again." && messages.he.selectCalendars.errors.retry === 'לא הצלחנו לשמור. נסו שוב.' && messages.ru.selectCalendars.errors.retry === 'Не удалось сохранить. Попробуйте ещё раз.', 'the retry sentence');
     assert(messages.en.selectCalendars.mainHowToChange === 'To change the main calendar, turn it on for another one.' && messages.he.selectCalendars.mainHowToChange === 'כדי להחליף את היומן הראשי, מפעילים אותו ביומן אחר.' && messages.ru.selectCalendars.mainHowToChange === 'Чтобы сменить основной календарь, включите этот переключатель у другого календаря.', 'how to change the main calendar');
-    assert(messages.en.selectCalendars.errors.noneSelected === 'Keep at least one calendar on. To stop using Google, disconnect it in Settings.' && messages.en.selectCalendars.errors.noYours === 'Keep at least one calendar marked as yours.', 'the English refusals');
+    assert(messages.en.selectCalendars.errors.noneSelected === 'Keep at least one calendar on. To stop using Google, disconnect it under Google account.' && messages.en.selectCalendars.errors.noYours === 'Keep at least one calendar marked as yours.', 'the English refusals');
     for (const l of LOCALES) {
       for (const [key, text] of block(l)) {
         const english = block('en').get(key) as string;

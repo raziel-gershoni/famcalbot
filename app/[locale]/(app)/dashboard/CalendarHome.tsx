@@ -655,7 +655,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     reminder: !!editorInfo?.kinds.reminder && hints.reminders,
   };
   const canAdd = editorInfo !== null && (kinds.event || kinds.reminder) && facts !== null && card === null && blocked === null;
-  // The sun (today's zmanim) is for the Jewish calendar setting, once the first answer has pinned the day.
+  // The zmanim button (today's zmanim) is for the Jewish calendar setting, once the first answer has pinned the day.
   const canZmanim = jewish === true && facts !== null && card === null && blocked === null;
 
   // Today's weather in the header, for a person with a saved place, once the home is usable (the sun's conditions besides

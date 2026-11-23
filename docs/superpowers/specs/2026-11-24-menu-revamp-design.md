@@ -44,8 +44,8 @@ Owner's request 2026-11-24; the short version was approved in chat ("go") with t
      `/refresh-token?user_id=<id>`. Missing scopes still redirect to `/refresh-token` as today, and other failures keep the generic
      card.
 5. **Settings gets two link rows.**
-   - **Plan at a glance**, first on the screen, in its own card under the section label "Plan". The row shows the plan's name and
-     one status line:
+   - **Plan at a glance**, first on the screen, in its own card. Its section label is the Subscription screen's own title, so the label
+     names the screen the row opens (a ruling at build). The row shows the plan's name and one status line:
      - "Early access" when the person is an early adopter;
      - the trial's days left while trialing (the same words as the home's trial banner);
      - "Active until <date>" for a paid plan with a period end;
@@ -86,6 +86,8 @@ Owner's request 2026-11-24; the short version was approved in chat ("go") with t
     for a paid plan with a period end, else none.
   - So an admin grant, a paid plan with no period end, and a cancelled plan show the name alone, as the Subscription screen does.
   - No tag on the row.
+  - When the plan could not be read (a failed read, reported), the card is left out rather than naming a plan (a ruling after the
+    final review).
 - **`from=settings`** decides only Back on those two screens. It is not carried into their other links.
 - **The admin buttons.**
   - "Open in Telegram" shows only when the user has a `telegramId` (a web-only account shows "no Telegram" as today). It is not

@@ -40,7 +40,7 @@ export default async function RefreshTokenPage({ searchParams }: PageProps) {
   const user = await getUserByTelegramId(parseInt(user_id)) ?? await getUserById(parseInt(user_id));
   const locale = normalizeLocale(user?.language);
   const messages = { en: enMessages, he: heMessages, ru: ruMessages }[locale];
-  // A user who never connected Google (the menu's Connect entry) is asked to connect; everyone
+  // A user who never connected Google (the Calendars screen's Connect row) is asked to connect; everyone
   // else is reconnecting, so the page says their access expired.
   const rt = messages.refreshToken;
   const connecting = !!user && googleStateOf(user) === 'none';
