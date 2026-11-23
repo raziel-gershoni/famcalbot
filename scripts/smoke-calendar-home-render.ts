@@ -2262,28 +2262,20 @@ async function main() {
     }
   });
 
-  await check('#31 the ⋯ menu (R6, Google as a connection §2): everyone gets Calendars and Partner; a user who never connected gets Connect Google, one with a token Choose calendars and Reconnect Google, one with a cleared token only Reconnect Google; admins the Admin panel; each opens its page with the page\'s user_id, and the sheet closes', async () => {
-    const famcal = menuEntries({ googleState: 'none', isAdmin: false, inTelegram: true, locale: 'en', userId: 5550001 });
-    assert(show(famcal.map((e) => [e.id, e.href])) === show([['settings', '/en/settings?user_id=5550001'], ['calendars', '/en/calendars?user_id=5550001'], ['partner', '/en/pair?user_id=5550001'], ['connectGoogle', '/refresh-token?user_id=5550001'], ['subscription', '/en/subscription?user_id=5550001'], ['refresh', null], ['feedback', '/en/feedback?user_id=5550001']]), `never connected: ${show(famcal)}`);
-    const idsFor = (googleState: 'none' | 'choose' | 'reconnect' | 'connected') => menuEntries({ googleState, isAdmin: false, inTelegram: true, locale: 'en', userId: 1 }).map((e) => e.id);
-    assert(show(idsFor('choose')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `choose: ${show(idsFor('choose'))}`);
-    assert(show(idsFor('reconnect')) === show(['settings', 'calendars', 'partner', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `a cleared token: ${show(idsFor('reconnect'))}`);
-    assert(show(idsFor('connected')) === show(['settings', 'calendars', 'partner', 'chooseCalendars', 'reconnectGoogle', 'subscription', 'refresh', 'feedback']), `connected: ${show(idsFor('connected'))}`);
-    const google = menuEntries({ googleState: 'connected', isAdmin: true, inTelegram: true, locale: 'ru', userId: 5550002 });
+  await check('#31 the ⋯ menu (R6, menu revamp): Settings, Calendars, Partner and Refresh for everyone, Admin panel for an admin inside Telegram only; Google, plan and feedback live on their own screens; each opens its page with the page\'s user_id, and the sheet closes', async () => {
+    const famcal = menuEntries({ isAdmin: false, inTelegram: true, locale: 'en', userId: 5550001 });
+    assert(show(famcal.map((e) => [e.id, e.href])) === show([['settings', '/en/settings?user_id=5550001'], ['calendars', '/en/calendars?user_id=5550001'], ['partner', '/en/pair?user_id=5550001'], ['refresh', null]]), `non-admin: ${show(famcal)}`);
+    const admin = menuEntries({ isAdmin: true, inTelegram: true, locale: 'ru', userId: 5550002 });
     const want = [
       ['settings', '/ru/settings?user_id=5550002'],
       ['calendars', '/ru/calendars?user_id=5550002'],
       ['partner', '/ru/pair?user_id=5550002'],
-      ['chooseCalendars', '/ru/select-calendars?user_id=5550002'],
-      ['reconnectGoogle', '/refresh-token?user_id=5550002'],
-      ['subscription', '/ru/subscription?user_id=5550002'],
       ['refresh', null],
-      ['feedback', '/ru/feedback?user_id=5550002'],
       ['admin', '/ru/admin-panel?user_id=5550002'],
     ];
-    assert(show(google.map((e) => [e.id, e.href])) === show(want), `Google admin: ${show(google)}`);
+    assert(show(admin.map((e) => [e.id, e.href])) === show(want), `admin: ${show(admin)}`);
     // The admin panel is Telegram-only: an admin in a browser does not get the entry.
-    const webAdmin = menuEntries({ googleState: 'connected', isAdmin: true, inTelegram: false, locale: 'ru', userId: 5550002 });
+    const webAdmin = menuEntries({ isAdmin: true, inTelegram: false, locale: 'ru', userId: 5550002 });
     assert(!webAdmin.some((e) => e.id === 'admin') && webAdmin.length === want.length - 1, `an admin in a browser: ${show(webAdmin.map((e) => e.id))}`);
 
     resetHome();
@@ -2292,8 +2284,8 @@ async function main() {
     try {
       m.click(byLabel(m.container, 'Menu'));
       assert(byRole(m.container, 'dialog')[0]?.getAttribute('aria-label') === 'Menu', 'a dialog labelled Menu');
-      assertHas(dialogText(m.container), ['Settings Calendars Partner Connect Google Calendar Subscription Refresh Feedback Close'], 'the never-connected menu');
-      assertLacks(dialogText(m.container), ['Choose calendars', 'Reconnect Google', 'Admin panel'], 'only the Connect entry, no admin entry');
+      assertHas(dialogText(m.container), ['Settings Calendars Partner Refresh Close'], 'the four-entry menu');
+      assertLacks(dialogText(m.container), ['Connect Google', 'Choose calendars', 'Reconnect Google', 'Subscription', 'Feedback', 'Admin panel'], 'none of the moved entries, no admin entry');
       m.click(byData(m.container, 'menu', 'partner'));
       assert(show(pushes) === show(['/en/pair?user_id=5550001']), `push: ${show(pushes)}`);
       assert(byRole(m.container, 'dialog').length === 0, 'the menu closed');
@@ -2307,7 +2299,7 @@ async function main() {
     const g = await mountHome('ru', GOOGLE_HOME);
     try {
       g.click(byLabel(g.container, 'Меню'));
-      assertHas(dialogText(g.container), ['Настройки Календари Партнёр Выбрать календари Переподключить Google Подписка Обновить Обратная связь Панель администратора'], 'the Google admin\'s menu (ru)');
+      assertHas(dialogText(g.container), ['Настройки Календари Партнёр Обновить Панель администратора Закрыть'], 'the Google admin\'s menu (ru)');
       g.click(byData(g.container, 'menu', 'admin'));
       assert(show(pushes) === show(['/ru/admin-panel?user_id=5550002']), `push: ${show(pushes)}`);
     } finally {
@@ -9305,7 +9297,7 @@ async function main() {
     }
   });
 
-  await check('#111 the Google states in en, he and ru: Choose calendars and Reconnect banners and the menu\'s Connect entry read real text, none of them for the wrong state', async () => {
+  await check('#111 the Google states in en, he and ru: the Reconnect banner reads real text for a cleared token, and the menu lists no Google entry in any state (they live on the Calendars screens)', async () => {
     const wants: [Locale, string, string][] = [
       ['en', 'Connect Google Calendar', 'Reconnect Google'],
       ['he', 'חיבור ליומן Google', 'חיבור מחדש ל-Google'],
@@ -9318,10 +9310,7 @@ async function main() {
       try {
         never.click(byLabel(never.container, messages[locale].calendarHome.header.menu));
         const text = dialogText(never.container);
-        assertHas(text, [connect], `${locale}: the Connect entry`);
-        assertLacks(text, [reconnect], `${locale}: no Reconnect for a user who never connected`);
-        never.click(byData(never.container, 'menu', 'connectGoogle'));
-        assert(show(pushes) === show(['/refresh-token?user_id=5550001']), `${locale}: Connect opens the token page: ${show(pushes)}`);
+        assertLacks(text, [connect, reconnect], `${locale}: no Google entry for a user who never connected`);
       } finally {
         never.unmount();
       }
@@ -9332,8 +9321,7 @@ async function main() {
         assertHas(cleared.text(), [messages[locale].calendarHome.banner.reconnect], `${locale}: the Reconnect banner`);
         cleared.click(byLabel(cleared.container, messages[locale].calendarHome.header.menu));
         const text = dialogText(cleared.container);
-        assertHas(text, [reconnect], `${locale}: the menu's Reconnect`);
-        assertLacks(text, [connect], `${locale}: no Connect for a user with calendars stored`);
+        assertLacks(text, [connect, reconnect], `${locale}: no Google entry in the menu for a cleared token`);
       } finally {
         cleared.unmount();
       }
@@ -10079,6 +10067,14 @@ async function main() {
   ];
   const WEATHER_OK = { weather: { place: 'Harish', now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy', days: WEATHER_DAYS } };
   const weatherBlock = (m: Home) => elements(m.container).filter((e) => e.getAttribute('role') === 'img' && e.className === 'ch-head-weather');
+
+  await check('#126s the zmanim button draws lucide Sunset, not a hand-drawn sun: HomeHeader imports Sunset, renders it in the button labelled header.zmanim, and no SunIcon remains', async () => {
+    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/HomeHeader.tsx'), 'utf8');
+    assert(/import \{[^}]*\bSunset\b[^}]*\} from 'lucide-react'/.test(src), 'HomeHeader imports Sunset from lucide-react');
+    assert(!/SunIcon/.test(src), 'no SunIcon remains');
+    const button = src.match(/<button[^>]*aria-label=\{t\('header\.zmanim'\)\}[^>]*>\s*([\s\S]*?)<\/button>/);
+    assert(button !== null && /<Sunset\b/.test(button[1]), 'the zmanim button renders <Sunset />');
+  });
 
   await check('#126w the header\'s weather: one request when the home is usable and a place is saved (user_id and locale in the query, the init data in the header only), then the block under the buttons with its label, in the person\'s words; a ghost while it is on its way; none without a place (no request), none before the first answer or on the retry card (no request), and none, with a warning, when the forecast failed or came in a form this build does not know', async () => {
     // A place and a forecast

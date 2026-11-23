@@ -242,7 +242,7 @@ async function runChecks(): Promise<void> {
       assert(buttons.length === 3 && buttons[1].label === label, `${locale}: ${show(buttons.map((b) => b.label))}`);
       assert(buttons[0].label === messages[locale].calendarHome.header.send && buttons[2].label === messages[locale].calendarHome.header.menu, `${locale}: the sun sits between Send and the menu`);
       assert(/class="ch-icon-btn"/.test(buttons[1].attrs) && /aria-haspopup="dialog"/.test(buttons[1].attrs) && /aria-expanded="false"/.test(buttons[1].attrs) && /type="button"/.test(buttons[1].attrs), `${locale}: ${buttons[1].attrs}`);
-      assert(/aria-hidden="true"/.test(buttons[1].icon) && /<circle/.test(buttons[1].icon), `${locale}: the icon ${buttons[1].icon.slice(0, 120)}`);
+      assert(/aria-hidden="true"/.test(buttons[1].icon) && /lucide-sunset/.test(buttons[1].icon) && !/<circle/.test(buttons[1].icon), `${locale}: the icon ${buttons[1].icon.slice(0, 120)}`);
       assert(/aria-expanded="true"/.test(opened.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? ''), `${locale}: expanded while open`);
     }
     assert(messages.en.calendarHome.header.zmanim === 'Zmanim' && messages.he.calendarHome.header.zmanim === 'זמני היום' && messages.ru.calendarHome.header.zmanim === 'Зманим', 'the labels');

@@ -78,12 +78,7 @@
       "settings": "Settings",
       "calendars": "Calendars",
       "partner": "Partner",
-      "connectGoogle": "Connect Google Calendar",
-      "chooseCalendars": "Choose calendars",
-      "reconnectGoogle": "Reconnect Google",
-      "subscription": "Subscription",
       "refresh": "Refresh",
-      "feedback": "Feedback",
       "admin": "Admin panel"
     },
     "banner": {

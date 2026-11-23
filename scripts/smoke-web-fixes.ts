@@ -139,7 +139,7 @@ async function main() {
 
   await check('#4 the admin entry shows only inside Telegram', async () => {
     const { menuEntries } = await load(`${HOME}/MenuSheet.tsx`);
-    const ids = (o: Row) => menuEntries({ googleState: 'connected', locale: 'en', userId: 7, ...o }).map((e: Row) => e.id);
+    const ids = (o: Row) => menuEntries({ locale: 'en', userId: 7, ...o }).map((e: Row) => e.id);
     assert(ids({ isAdmin: true, inTelegram: true }).includes('admin'), 'an admin inside Telegram has it');
     assert(!ids({ isAdmin: true, inTelegram: false }).includes('admin'), 'an admin in a browser does not');
     assert(!ids({ isAdmin: false, inTelegram: true }).includes('admin'), 'a non-admin never does');

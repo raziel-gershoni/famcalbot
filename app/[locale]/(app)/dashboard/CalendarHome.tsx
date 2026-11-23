@@ -1350,7 +1350,6 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       ) : null}
       {sheet === 'menu' ? (
         <MenuSheet
-          googleState={googleState}
           isAdmin={user.isAdmin}
           inTelegram={inTelegram}
           locale={locale}

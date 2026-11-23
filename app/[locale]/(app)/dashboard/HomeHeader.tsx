@@ -4,17 +4,17 @@
 // route says so, its Hebrew date ("Thursday, 15 October" over "4 Cheshvan 5787"), both
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
-// when the user can add one, home editing spec §2), Send to chat (only for an account with a chat, 6c-1), the sun (today's zmanim, only for the Jewish
+// when the user can add one, home editing spec §2), Send to chat (only for an account with a chat, 6c-1), the zmanim button (lucide Sunset; today's zmanim, only for the Jewish
 // calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
 // they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
 // the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar.
 // Under the date lines, two lines at the person's place: the zman that passed last ("Sunset 16:42", "Yesterday: Midnight
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
-// past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the sun
+// past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the zmanim
 // sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet.
 
 import { useLocale, useTranslations } from 'next-intl';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, Sunset, type LucideIcon } from 'lucide-react';
 import { daysBetween, formatDayLong, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
@@ -140,15 +140,6 @@ function MoreIcon() {
   );
 }
 
-function SunIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
-  );
-}
-
 function PlusIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true" focusable="false">
@@ -261,7 +252,7 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
           ) : null}
           {onZmanim ? (
             <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
-              <SunIcon />
+              <Sunset size={22} strokeWidth={2} aria-hidden="true" focusable="false" />
             </button>
           ) : null}
           <button

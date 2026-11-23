@@ -78,12 +78,7 @@
       "settings": "Настройки",
       "calendars": "Календари",
       "partner": "Партнёр",
-      "connectGoogle": "Подключить Google Календарь",
-      "chooseCalendars": "Выбрать календари",
-      "reconnectGoogle": "Переподключить Google",
-      "subscription": "Подписка",
       "refresh": "Обновить",
-      "feedback": "Обратная связь",
       "admin": "Панель администратора"
     },
     "banner": {

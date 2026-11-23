@@ -108,12 +108,7 @@ const KEYS: Record<string, readonly string[]> = {
   'menu.settings': [],
   'menu.calendars': [],
   'menu.partner': [],
-  'menu.connectGoogle': [],
-  'menu.chooseCalendars': [],
-  'menu.reconnectGoogle': [],
-  'menu.subscription': [],
   'menu.refresh': [],
-  'menu.feedback': [],
   'menu.admin': [],
   // HomeBanners (D6), spec §7.2 and §5's Reconnect banner
   'banner.trial': ['count'],
