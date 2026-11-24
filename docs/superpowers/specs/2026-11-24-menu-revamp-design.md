@@ -97,7 +97,10 @@ Owner's request 2026-11-24; the short version was approved in chat ("go") with t
 ## Non-goals
 
 - No change to the Calendars screen's own sections (FamCal calendars, Copy to Google, the partner's) or to its Google row's words.
-- No new stored data. No username column, and no change to the Privacy Policy or the Terms.
+- No new stored data. No username column, and no change to the Terms. The Privacy Policy changed in one place after the
+  build, on the owner's word ("sure", 2026-11-24): its Disconnect line said "in Settings" and now names the Google
+  account section of the Google calendars screen, opened from Calendars, in en, he and ru, with `LEGAL_UPDATED.privacy`
+  2026-11-24. `scripts/smoke-google-disconnect-ui.ts` holds that line to the app's own labels.
 - No change to the Subscription or Feedback screens beyond Back, and the shared status helper's extraction.
 - No change to the home's banners (the reconnect banners keep linking to `/refresh-token`) or to the OAuth return page.
 - No hover styles.

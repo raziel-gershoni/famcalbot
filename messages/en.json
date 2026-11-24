@@ -2567,7 +2567,7 @@
             [
               "change your settings in Settings;",
               "turn briefings and reminders off in Settings. To stop all messages, block the bot on Telegram, or block FamCal’s number on WhatsApp. To stop notifications in a browser, turn them off in Settings in that browser, or block FamCal’s notifications in your browser’s or device’s settings. You can also ask us to stop them;",
-              "disconnect Google in Settings. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
+              "disconnect Google under “Google account” on the Google calendars screen, which opens from Calendars. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached. If you tick the box, we also delete the FamCal copy calendars from your Google account. You can also remove FamCal’s access at any time from your Google Account’s permissions page;",
               "remove a sign-in method in Settings, under “Sign in on the web”, except your only one;",
               "unlink your partner in the web app;",
               "delete your account in Settings. It can’t be undone: below is what we delete and what stays."

@@ -282,7 +282,7 @@ async function main() {
   await check('privacy: the old blanket promise is gone; the text says, in en, he and ru: disconnecting revokes the access at Google, then deletes the key, the calendar choices and the cached data; the box deletes the copy calendars; the access can be removed at Google; what is kept from Google is deleted on disconnect, a moved event stays a FamCal event, and copies chosen to be kept stay', async () => {
     const want: Record<Locale, RegExp[]> = {
       en: [
-        /disconnect Google in Settings\. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached\./,
+        /disconnect Google under “Google account” on the Google calendars screen, which opens from Calendars\. We revoke FamCal’s access at Google, then delete the key, your Google calendar choices and the Google data we cached\./,
         /If you tick the box, we also delete the FamCal copy calendars from your Google account\./,
         /You can also remove FamCal’s access at any time from your Google Account’s permissions page/,
         /Disconnecting Google deletes it/,
@@ -290,7 +290,7 @@ async function main() {
         /remove your FamCal copy calendars from Google, except those you chose to keep, and revoke FamCal’s access to your Google account/,
       ],
       he: [
-        /לנתק את Google בהגדרות\. אנחנו מבטלים את הגישה של FamCal אצל Google, ואז מוחקים את המפתח, את בחירת יומני ה־Google שלכם ואת המידע מ־Google שהחזקנו בזיכרון המטמון\./,
+        /לנתק את Google תחת ״חשבון Google״ במסך ״יומני Google״, שנכנסים אליו דרך ״יומנים״\. אנחנו מבטלים את הגישה של FamCal אצל Google, ואז מוחקים את המפתח, את בחירת יומני ה־Google שלכם ואת המידע מ־Google שהחזקנו בזיכרון המטמון\./,
         /אם מסמנים את התיבה, אנחנו מוחקים גם את יומני העותק של FamCal מחשבון ה־Google שלכם\./,
         /אפשר גם להסיר בכל עת את הגישה של FamCal בדף ההרשאות של חשבון Google שלכם/,
         /ניתוק Google מוחק את המידע הזה/,
@@ -298,7 +298,7 @@ async function main() {
         /מסירים מ־Google את יומני העותק של FamCal, חוץ מאלה שבחרתם להשאיר, ומבטלים את הגישה של FamCal לחשבון ה־Google שלכם/,
       ],
       ru: [
-        /отключить Google в «Настройках»\. Мы отзываем доступ FamCal в Google, а затем удаляем ключ, ваш выбор календарей Google и закешированные данные Google\./,
+        /отключить Google в разделе «Аккаунт Google» на экране «Календари Google», который открывается из раздела «Календари»\. Мы отзываем доступ FamCal в Google, а затем удаляем ключ, ваш выбор календарей Google и закешированные данные Google\./,
         /Если вы отметите галочку, мы удалим также календари-копии FamCal из вашего аккаунта Google\./,
         /вы в любой момент можете отозвать доступ FamCal на странице разрешений вашего аккаунта Google/,
         /При отключении Google эти данные удаляются/,
@@ -312,6 +312,25 @@ async function main() {
     const spaces = (l: Locale, re: RegExp) => (l === 'ru' ? new RegExp(re.source.replace(/ /g, '\\s'), re.flags) : re);
     for (const [i, l] of LOCALES.entries()) assert(texts[i].length > 0 && !spaces(l, old[i]).test(texts[i]), `${l}: no privacy text, or the old promise is still there`);
     for (const [i, l] of LOCALES.entries()) for (const re of want[l]) assert(spaces(l, re).test(texts[i]), `${l}: ${re} missing`);
+  });
+
+  // The menu revamp (2026-11-24) moved Disconnect from Settings to the Google calendars screen, and the owner had the
+  // policy say so (LEGAL_UPDATED.privacy 2026-11-24). Its line names the screens by the app's own labels, read from the
+  // messages, so renaming one of them fails here until the policy is changed with it (on the owner's word).
+  await check('privacy: the Disconnect line names where Disconnect lives, by the app\'s own labels (the menu\'s Calendars, the Google calendars screen, its Google account section), and no longer says Settings', () => {
+    const lead: Record<Locale, string> = { en: 'disconnect Google ', he: 'לנתק את Google ', ru: 'отключить Google ' };
+    const settingsWord: Record<Locale, RegExp> = { en: /Settings/, he: /הגדרות/, ru: /Настройк/ };
+    const strings = (n: unknown): string[] => (typeof n === 'string' ? [n] : n && typeof n === 'object' ? Object.values(n).flatMap(strings) : []);
+    for (const l of LOCALES) {
+      const m = messages[l] as { legal: Row; calendarHome: { menu: Row }; selectCalendars: { title: string; account: Row } };
+      const hits = strings(m.legal.privacy).filter((s) => s.startsWith(lead[l]));
+      assert(hits.length === 1, `${l}: ${hits.length} Disconnect lines`);
+      const line = hits[0].split('. ')[0];
+      for (const label of [String(m.calendarHome.menu.calendars), m.selectCalendars.title, String(m.selectCalendars.account.title)]) {
+        assert(line.includes(label), `${l}: the line does not name "${label}": ${line}`);
+      }
+      assert(!settingsWord[l].test(line), `${l}: the line still names Settings: ${line}`);
+    }
   });
 
   const failed = results.filter((r) => !r.ok);
