@@ -690,6 +690,7 @@
       "empty": "Никто не подходит",
       "deleted": "Аккаунт удалён: {name}",
       "suspended": "Приостановлен",
+      "botBlocked": "Бот заблокирован",
       "earlyAccess": "Ранний доступ",
       "overrides": "Особый доступ",
       "whatsapp": "WhatsApp",

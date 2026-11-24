@@ -24,6 +24,8 @@ export interface UserListItem {
   telegramId: number | null;
   name: string;
   suspendedAt: string | null;
+  /** Since when Telegram (or WhatsApp, for someone only there) refuses our messages, mostly a blocked bot; cleared when they write again. */
+  unreachableSince: string | null;
   subscription: {
     plan: string;
     status: string;

@@ -123,6 +123,7 @@ function mapUserToResponse(user: {
   whatsappBsuid: string | null;
   name: string;
   suspendedAt: Date | null;
+  unreachableSince: Date | null;
   subscription: { plan: string; status: string; trialEndsAt: Date | null; currentPeriodEnd: Date | null; compedBy: number | null } | null;
   featureOverride: { earlyAdopter: boolean } | null;
   usageCounter: { textSummariesUsed: number; voiceSummariesUsed: number; voiceEventsCreated: number } | null;
@@ -141,6 +142,8 @@ function mapUserToResponse(user: {
     telegramId: user.telegramId ? Number(user.telegramId) : null,
     name: user.name,
     suspendedAt: user.suspendedAt ? user.suspendedAt.toISOString() : null,
+    // Since when Telegram (or WhatsApp, for someone only there) refuses our messages: the list's Bot blocked tag (src/lib/user-reachability.ts)
+    unreachableSince: user.unreachableSince ? user.unreachableSince.toISOString() : null,
     subscription: user.subscription ? {
       plan: user.subscription.plan,
       status: user.subscription.status,

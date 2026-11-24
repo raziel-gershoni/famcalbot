@@ -134,7 +134,7 @@ function makePeople(locale: Locale): Map<number, Row> {
   const person = (id: number, over: Row): [number, Row] => [id, detail(id, { name: names[IDS.indexOf(id)], ...over })];
   return new Map<number, Row>([
     person(TRIAL, { subscription: SUBS.trial, registrationStatus: { hasOAuth: false, hasCalendars: false, hasLocation: false, applicableReminder: 'location', googleState: 'none' }, setupReminders: { daysSinceCreated: 12, daysSinceStart: 12, wasReset: false, calendars: [], reconnect: [], location: [{ day: 1, sent: true, due: true }, { day: 3, sent: true, due: true }, { day: 7, sent: false, due: true }, { day: 14, sent: false, due: false }] } }),
-    person(FREE, { subscription: SUBS.free, whatsappPhone: null, registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars', googleState: 'choose' } }),
+    person(FREE, { subscription: SUBS.free, whatsappPhone: null, unreachableSince: ago(3 * 24 * 60), registrationStatus: { hasOAuth: true, hasCalendars: false, hasLocation: false, applicableReminder: 'calendars', googleState: 'choose' } }),
     person(PAID, { subscription: SUBS.paid, payments: [PAYMENT], whatsappPhone: null, paidFeatures: { ...NO_PAID, unlimitedSummaries: true, remindersEnabled: true }, limits: { textSummaries: null, voiceSummaries: 20, calendars: 5 }, override: { unlimitedSummaries: null, remindersEnabled: null, voiceEventsEnabled: null, unlimitedCalendars: null, earlyAdopter: true, reason: 'early tester', grantedAt: ago(100), grantedBy: 9 }, registrationStatus: { hasOAuth: true, hasCalendars: true, hasLocation: true, applicableReminder: null, googleState: 'connected' }, setupReminders: { daysSinceCreated: 40, daysSinceStart: 3, wasReset: true, calendars: [{ day: 1, sent: true, due: true }], reconnect: [{ day: 1, sent: true, due: true }, { day: 3, sent: false, due: false }], location: [{ day: 1, sent: true, due: true }] } }),
     person(COMPED, { subscription: SUBS.comped, whatsappPhone: null }),
     person(WA_ONLY, { telegramId: null, whatsappPhone: '+972501230023', messagingPlatform: 'whatsapp', subscription: SUBS.free, remindable: false }),
@@ -147,6 +147,7 @@ const listOf = (d: Row): Row => ({
   telegramId: d.telegramId,
   name: d.name,
   suspendedAt: d.suspendedAt,
+  unreachableSince: d.unreachableSince ?? null,
   subscription: d.subscription && { plan: d.subscription.plan, status: d.subscription.status, trialEndsAt: d.subscription.trialEndsAt, trialDaysRemaining: d.subscription.trialDaysRemaining, currentPeriodEnd: d.subscription.currentPeriodEnd, comped: d.subscription.comped },
   usage: d.usage,
   calendarsCount: d.calendarsCount,
@@ -1029,7 +1030,7 @@ async function main() {
 
   // ---- Task 3: Users and a person's profile ----
 
-  await check('U1 Users: a row per person (the name; the plan in a line, WhatsApp for someone who is only there; the tags Suspended, Early access and Overrides in their tones) and the count; the search by name (any case) and by Telegram id; each filter; a line for no match; the search and the filter as they were after a profile is opened and Back is tapped; a failed list says so with a retry', async () => {
+  await check('U1 Users: a row per person (the name; the plan in a line, WhatsApp for someone who is only there; the tags Suspended, Bot blocked, Early access and Overrides in their tones) and the count; the search by name (any case) and by Telegram id; each filter; a line for no match; the search and the filter as they were after a profile is opened and Back is tapped; a failed list says so with a retry', async () => {
     const planLines: Record<Locale, Record<number, string>> = {
       en: { [TRIAL]: 'Pro · trial, 9 days left', [FREE]: 'Free · expired', [PAID]: 'Basic · until', [COMPED]: 'Pro · free from an admin' },
       he: { [TRIAL]: 'Pro · תקופת ניסיון, נשארו 9 ימים', [FREE]: 'חינם · פג תוקף', [PAID]: 'בסיסי · עד', [COMPED]: 'Pro · במתנה מהניהול' },
@@ -1054,6 +1055,7 @@ async function main() {
         assert(flat(personRow(o.m, locale, 4)).includes(w('users.whatsapp')) && !flat(personRow(o.m, locale, 0)).includes(w('users.whatsapp')) && !listRows(o.m).some((r) => flat(r).includes(` · ${w('users.web')}`)), `${locale}: WhatsApp only for the person with no Telegram, and Web for no one (everyone here has a chat): ${flat(personRow(o.m, locale, 4))}`);
         const tagsOf = (row: FakeElement) => elements(row).filter((e) => classes(e).includes('ch-tag')).map((e) => `${classes(e).filter((c) => c.startsWith('ch-tag-')).join('')}:${flat(e)}`);
         assert(show(tagsOf(personRow(o.m, locale, 5))) === show([`ch-tag-danger:${w('users.suspended')}`]), `${locale}: Suspended: ${show(tagsOf(personRow(o.m, locale, 5)))}`);
+        assert(show(tagsOf(personRow(o.m, locale, 1))) === show([`ch-tag-danger:${w('users.botBlocked')}`]), `${locale}: Bot blocked: ${show(tagsOf(personRow(o.m, locale, 1)))}`);
         assert(show(tagsOf(personRow(o.m, locale, 2))) === show([`:${w('users.earlyAccess')}`, `ch-tag-muted:${w('users.overrides')}`]), `${locale}: early access and overrides: ${show(tagsOf(personRow(o.m, locale, 2)))}`);
         assert(tagsOf(personRow(o.m, locale, 0)).length === 0 && tagsOf(personRow(o.m, locale, 3)).length === 0, `${locale}: tags on people who have none`);
         // The search: a name in any case, a Telegram id (in part), nothing

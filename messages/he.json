@@ -690,6 +690,7 @@
       "empty": "לא נמצאו תוצאות",
       "deleted": "החשבון של {name} נמחק",
       "suspended": "בהשעיה",
+      "botBlocked": "הבוט חסום",
       "earlyAccess": "גישה מוקדמת",
       "overrides": "הרשאות מיוחדות",
       "whatsapp": "WhatsApp",

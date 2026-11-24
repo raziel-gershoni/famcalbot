@@ -33,6 +33,7 @@ export const listItem = (id: number, over: Row = {}): Row => ({
   telegramId: 7000000 + id,
   name: NAMES[id] ?? `Person ${id}`,
   suspendedAt: null,
+  unreachableSince: null,
   subscription: { plan: 'FREE', status: 'TRIALING', trialEndsAt: null, trialDaysRemaining: 9, currentPeriodEnd: null },
   usage: null,
   calendarsCount: 1,

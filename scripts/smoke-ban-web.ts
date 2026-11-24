@@ -361,6 +361,15 @@ async function main() {
     assert(show(blockedKeys()) === show(['blocked:google:g-nonascii-0092']), `keys ${show(blockedKeys())}`);
   });
 
+  await check('#8u the users list carries unreachableSince (when Telegram, or WhatsApp for someone only there, stopped taking our messages: the Bot blocked tag), as an ISO time or null', async () => {
+    seed();
+    user(Q).unreachableSince = new Date('2026-11-20T09:00:00.000Z');
+    const res = await overridesRoute.GET(request('/api/admin/user-overrides?list=all', { initData: adminInit }));
+    const rows = (await body(res)).users as Row[];
+    const since = (id: number) => rows.find(r => r.id === id)?.unreachableSince;
+    assert(res.status === 200 && since(Q) === '2026-11-20T09:00:00.000Z' && since(T) === null && since(ADMIN) === null, `unreachableSince ${show(rows.map(r => [r.id, r.unreachableSince]))}`);
+  });
+
   await check('#8 the users list carries hasChat (false for an account with no Telegram and no WhatsApp), reachLabel words a row Web, WhatsApp or nothing, and the new admin words exist in en, he and ru', async () => {
     seed();
     const res = await overridesRoute.GET(request('/api/admin/user-overrides?list=all', { initData: adminInit }));

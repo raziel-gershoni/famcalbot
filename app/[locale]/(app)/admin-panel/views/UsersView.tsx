@@ -2,7 +2,8 @@
 
 // Everyone (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > Users): a search field (a name or a Telegram id), a
 // "Show" row (everyone, on trial, paid, free, with overrides) and the people, each a row with their name, their plan in a line (and
-// WhatsApp for someone who is only there, Web for an account with no chat: reachLabel) and tags (suspended, early access, overrides).
+// WhatsApp for someone who is only there, Web for an account with no chat: reachLabel) and tags (suspended, bot blocked: the delivery
+// refused since unreachableSince, early access, overrides).
 // A tap opens their profile.
 //
 // - The search text and the filter live in the shell (useUsers), so they are as you left them when you come back from a profile.
@@ -77,9 +78,10 @@ export function UsersView({ users, deleted, onBack, onOpenUser }: UsersViewProps
                 title={user.name}
                 meta={line(user)}
                 tags={
-                  user.suspendedAt || user.earlyAdopter || user.hasOverride ? (
+                  user.suspendedAt || user.unreachableSince || user.earlyAdopter || user.hasOverride ? (
                     <>
                       {user.suspendedAt ? <Tag tone="danger">{t('users.suspended')}</Tag> : null}
+                      {user.unreachableSince ? <Tag tone="danger">{t('users.botBlocked')}</Tag> : null}
                       {user.earlyAdopter ? <Tag>{t('users.earlyAccess')}</Tag> : null}
                       {user.hasOverride ? <Tag tone="muted">{t('users.overrides')}</Tag> : null}
                     </>

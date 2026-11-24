@@ -690,6 +690,7 @@
       "empty": "No one matches",
       "deleted": "{name} was deleted",
       "suspended": "Suspended",
+      "botBlocked": "Bot blocked",
       "earlyAccess": "Early access",
       "overrides": "Overrides",
       "whatsapp": "WhatsApp",
