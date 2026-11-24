@@ -1,7 +1,7 @@
 'use client';
 
 // Everyone (plan docs/superpowers/plans/2026-10-27-app-ui-A-admin-panel.md, Design > Users): a search field (a name or a Telegram id), a
-// "Show" row (everyone, on trial, paid, free, with overrides) and the people, each a row with their name, their plan in a line (and
+// "Show" row (everyone, on trial, paid, free, with overrides, bot blocked) and the people, each a row with their name, their plan in a line (and
 // WhatsApp for someone who is only there, Web for an account with no chat: reachLabel) and tags (suspended, bot blocked: the delivery
 // refused since unreachableSince, early access, overrides).
 // A tap opens their profile.
@@ -30,6 +30,7 @@ const FILTERS: { value: FilterType; label: string }[] = [
   { value: 'paid', label: 'users.filters.paid' },
   { value: 'free', label: 'users.filters.free' },
   { value: 'override', label: 'users.filters.override' },
+  { value: 'blocked', label: 'users.filters.blocked' },
 ];
 
 export interface UsersViewProps {

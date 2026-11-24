@@ -710,12 +710,12 @@ async function main() {
     solo.unmount();
   });
 
-  await check('D6b the people list: the filters and the search (name or Telegram id, any case), a newer load makes an older answer stale, and a list that failed to refresh keeps its rows', async () => {
+  await check('D6b the people list: the filters (Bot blocked included) and the search (name or Telegram id, any case), a newer load makes an older answer stale, and a list that failed to refresh keeps its rows', async () => {
     const mk = (id: number, name: string, sub: Row | null, extra: Row = {}) => ({ ...listItem(id), name, telegramId: 1000 + id, subscription: sub, ...extra }) as never;
     const people = [
       mk(1, 'Noa Levi', { plan: 'FREE', status: 'TRIALING', trialEndsAt: null, trialDaysRemaining: 5, currentPeriodEnd: null }),
       mk(2, 'Dan Cohen', { plan: 'PRO', status: 'ACTIVE', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: '2026-12-01T00:00:00.000Z' }, { hasOverride: true }),
-      mk(3, 'Ron', { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null }),
+      mk(3, 'Ron', { plan: 'FREE', status: 'EXPIRED', trialEndsAt: null, trialDaysRemaining: null, currentPeriodEnd: null }, { unreachableSince: '2026-11-20T09:00:00.000Z' }),
       mk(4, 'Mia', null),
     ];
     const names = (filter: Parameters<typeof filterUsers>[1], search = '') => filterUsers(people, filter, search).map((u) => u.name);
@@ -724,6 +724,7 @@ async function main() {
     assert(canon(names('paid')) === canon(['Dan Cohen']), `paid: ${canon(names('paid'))}`);
     assert(canon(names('free')) === canon(['Ron', 'Mia']), `free: ${canon(names('free'))}`);
     assert(canon(names('override')) === canon(['Dan Cohen']), `override: ${canon(names('override'))}`);
+    assert(canon(names('blocked')) === canon(['Ron']) && canon(names('blocked', 'noa')) === '[]', `blocked: ${canon(names('blocked'))}`);
     assert(canon(names('all', ' LEVI ')) === canon(['Noa Levi']) && canon(names('all', '1002')) === canon(['Dan Cohen']) && canon(names('all', 'zzz')) === '[]', 'the search');
     assert(canon(names('paid', 'noa')) === '[]', 'a filter and a search together');
 

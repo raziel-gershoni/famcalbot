@@ -46,7 +46,7 @@ export interface UserListItem {
   hasChat: boolean;
 }
 
-export type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override';
+export type FilterType = 'all' | 'trial' | 'paid' | 'free' | 'override' | 'blocked';
 
 export type SetupAttempts = Array<{ day: number; sent: boolean; due: boolean }>;
 

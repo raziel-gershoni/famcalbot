@@ -27,6 +27,8 @@ export function filterUsers(users: UserListItem[], filter: FilterType, search: s
         return !user.subscription || (user.subscription.plan === 'FREE' && user.subscription.status !== 'TRIALING');
       case 'override':
         return user.hasOverride;
+      case 'blocked':
+        return user.unreachableSince !== null;
       default:
         return true;
     }

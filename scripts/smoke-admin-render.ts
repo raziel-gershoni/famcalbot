@@ -1030,7 +1030,7 @@ async function main() {
 
   // ---- Task 3: Users and a person's profile ----
 
-  await check('U1 Users: a row per person (the name; the plan in a line, WhatsApp for someone who is only there; the tags Suspended, Bot blocked, Early access and Overrides in their tones) and the count; the search by name (any case) and by Telegram id; each filter; a line for no match; the search and the filter as they were after a profile is opened and Back is tapped; a failed list says so with a retry', async () => {
+  await check('U1 Users: a row per person (the name; the plan in a line, WhatsApp for someone who is only there; the tags Suspended, Bot blocked, Early access and Overrides in their tones) and the count; the search by name (any case) and by Telegram id; each filter (Bot blocked last); a line for no match; the search and the filter as they were after a profile is opened and Back is tapped; a failed list says so with a retry', async () => {
     const planLines: Record<Locale, Record<number, string>> = {
       en: { [TRIAL]: 'Pro · trial, 9 days left', [FREE]: 'Free · expired', [PAID]: 'Basic · until', [COMPED]: 'Pro · free from an admin' },
       he: { [TRIAL]: 'Pro · תקופת ניסיון, נשארו 9 ימים', [FREE]: 'חינם · פג תוקף', [PAID]: 'בסיסי · עד', [COMPED]: 'Pro · במתנה מהניהול' },
@@ -1069,12 +1069,12 @@ async function main() {
         type('');
         // The filters
         const pick = (value: string) => o.m.change(selectOf(o.m), value);
-        const wanted: Record<string, number[]> = { trial: [0], paid: [2, 3], free: [1, 4, 5], override: [2], all: [0, 1, 2, 3, 4, 5] };
+        const wanted: Record<string, number[]> = { trial: [0], paid: [2, 3], free: [1, 4, 5], override: [2], blocked: [1], all: [0, 1, 2, 3, 4, 5] };
         for (const [value, rows] of Object.entries(wanted)) {
           pick(value);
           assert(show(shown()) === show(rows), `${locale}: the ${value} filter: ${show(shown())}`);
         }
-        assert(show(selectOf(o.m).options.map((x) => x.value)) === show(['all', 'trial', 'paid', 'free', 'override']) && flat(selectOf(o.m).options[4]) === w('users.filters.override'), `${locale}: the filter's options`);
+        assert(show(selectOf(o.m).options.map((x) => x.value)) === show(['all', 'trial', 'paid', 'free', 'override', 'blocked']) && flat(selectOf(o.m).options[4]) === w('users.filters.override') && flat(selectOf(o.m).options[5]) === w('users.filters.blocked'), `${locale}: the filter's options`);
         // Kept after a profile: a filter and a search, a tap on a row, Back
         pick('free');
         type('7000');
