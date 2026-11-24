@@ -11,7 +11,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { planStatusOf, planStatusWords, type PlanStatus } from '../src/lib/plan-glance';
+import { planStatusOf, type PlanStatus } from '../src/lib/plan-glance';
+import { planStatusWords } from '../src/lib/plan-status-words';
 
 const ROOT = path.resolve(__dirname, '..');
 
