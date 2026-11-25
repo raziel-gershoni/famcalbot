@@ -26,6 +26,7 @@ import { markSyncDirty, markedTransaction, type SyncSeries } from '../google-syn
 import { getActivePartnerSummary, recipientIds } from '../native-reminders/ownership';
 import { reachableForReminders } from '../web-push/reach';
 import { ensurePrimaryNativeCalendar } from './onboarding';
+import { birthYearOf, canBeBirthday, isEveryYearRule } from '../../lib/birthday';
 import {
   assertStorableRule,
   daysFromTo,
@@ -388,6 +389,8 @@ export interface CreateNativeEventInput {
   eachMarksDone?: boolean;
   /** A reminder by zman: its rule. Only on a date-only reminder (allDay); refused on anything else. */
   zmanSpec?: ZmanSpecValue | null;
+  /** The Birthday switch (birthday spec): only on an all-day event repeating every year (canBeBirthday); refused on anything else. */
+  birthday?: boolean;
 }
 
 /**
@@ -443,7 +446,7 @@ export class NativeFixedDaysError extends Error {
  */
 export class NativeScopeError extends Error {
   constructor(
-    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone' | 'zmanSpec',
+    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone' | 'zmanSpec' | 'birthday',
     message = 'This change cannot apply to that scope'
   ) {
     super(message);
@@ -572,6 +575,11 @@ async function writeNewNativeEvent(input: CreateNativeEventInput): Promise<Nativ
   // A rule by zman is for a date-only reminder; an event has none.
   if (!isReminder && input.zmanSpec != null) throw new NativeScopeError('zmanSpec', 'Only a reminder is set by zman');
   const zmanSpec = isReminder ? storableZmanSpec(input.zmanSpec, input.allDay ?? false) : null;
+  // A birthday is an all-day event repeating every year (birthday spec).
+  const birthday = input.birthday === true;
+  if (birthday && !canBeBirthday({ kind: isReminder ? 'REMINDER' : 'EVENT', allDay: input.allDay ?? false, rrule: input.rrule || null })) {
+    throw new NativeScopeError('birthday', 'Only an all-day event repeating every year is a birthday');
+  }
   const event = await eventWrite(isReminder ? 'REMINDER' : 'EVENT', async (db) => {
     const created = await db.nativeEvent.create({
       data: {
@@ -587,6 +595,7 @@ async function writeNewNativeEvent(input: CreateNativeEventInput): Promise<Nativ
         rrule: input.rrule ?? null,
         hebrewRule: input.hebrewRule ?? null,
         hebrewAnchor,
+        birthday,
         ...alertColumns(input.alert ?? 'default'),
         // armedAt bounds how far back the ping pass looks, so a reminder created for a
         // time long gone doesn't ping (spec §4.2).
@@ -768,6 +777,12 @@ export interface UpdateNativeEventInput {
    * its own (scope 'single' with a start and allDay false) is a fixed-time override: it needs no change here.
    */
   zmanSpec?: ZmanSpecValue | null;
+  /**
+   * The Birthday switch (birthday spec): series-level, like the calendar and the alert, so with 'single' on a series it
+   * is refused. True is refused on a reminder and on a shape that is not an all-day event repeating every year; an edit
+   * that leaves such a shape (a timed event, another repeat, a stop) turns it off whatever this says (birthdayAfter).
+   */
+  birthday?: boolean;
 }
 
 /** A ping message whose buttons a reminder's time change made stale. */
@@ -1107,6 +1122,7 @@ function changesOnly(series: NativeEvent, input: UpdateNativeEventInput): Update
   if (out.eachMarksDone !== undefined && out.forUserId === undefined && out.eachMarksDone === series.eachMarksDone) delete out.eachMarksDone;
   // The same rule (or none, for one that has none) is no change.
   if (out.zmanSpec !== undefined && sameZmanSpec(out.zmanSpec, readZmanSpec(series.zmanSpec))) delete out.zmanSpec;
+  if (out.birthday !== undefined && out.birthday === series.birthday) delete out.birthday;
   return out;
 }
 
@@ -1123,7 +1139,7 @@ async function checkSeriesFields(
   actor: Pick<User, 'id' | 'pairingId'>,
   input: UpdateNativeEventInput
 ): Promise<void> {
-  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined || input.eachMarksDone !== undefined || input.zmanSpec !== undefined;
+  const seriesLevel = input.rrule !== undefined || input.calendarId !== undefined || input.alert !== undefined || input.forUserId !== undefined || input.eachMarksDone !== undefined || input.zmanSpec !== undefined || input.birthday !== undefined;
   if (!seriesLevel) return;
   if (series.rrule) {
     // An occurrence has no rule, calendar, alert or recipient of its own.
@@ -1171,6 +1187,15 @@ async function checkSeriesFields(
     // A rule needs a date-only reminder after this save: the edit's allDay, else the series' own.
     storableZmanSpec(input.zmanSpec, input.allDay ?? series.allDay);
   }
+  // A birthday is an all-day event repeating every year after this save: the edit's rule and allDay, else the series' own.
+  if (input.birthday === true && !canBeBirthday({ kind: series.kind, allDay: input.allDay ?? series.allDay, rrule: input.rrule !== undefined ? input.rrule : series.rrule })) {
+    throw new NativeScopeError('birthday', 'Only an all-day event repeating every year is a birthday');
+  }
+}
+
+/** The Birthday switch a row has after an edit (birthday spec): the edit's, else the series' own, and off on a shape that can't be one. */
+function birthdayAfter(series: NativeEvent, input: Pick<UpdateNativeEventInput, 'birthday'>, shape: { kind: string; allDay: boolean; rrule: string | null }): boolean {
+  return (input.birthday ?? series.birthday) && canBeBirthday(shape);
 }
 
 /**
@@ -1226,6 +1251,8 @@ async function stopRepeating(series: NativeEvent, input: UpdateNativeEventInput,
   const alertNow = input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes };
   const values = {
     ...alertNow,
+    // A one-off is never a birthday (birthday spec).
+    birthday: false,
     title: input.title ?? occ.title,
     description: input.description !== undefined ? input.description : (occ.description ?? null),
     location: input.location !== undefined ? input.location : (occ.location ?? null),
@@ -1349,6 +1376,9 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
   if (input.allDay !== undefined) seriesUpdate.allDay = input.allDay;
   if (input.calendarId !== undefined) seriesUpdate.calendarId = input.calendarId;
   if (input.alert !== undefined) Object.assign(seriesUpdate, alertColumns(input.alert));
+  // The switch as the edit leaves this row: off once it is no longer an all-day event repeating every year.
+  const birthdayNow = birthdayAfter(series, input, { kind: series.kind, allDay: input.allDay ?? series.allDay, rrule: input.rrule !== undefined ? input.rrule : series.rrule });
+  if (birthdayNow !== series.birthday) seriesUpdate.birthday = birthdayNow;
   // A one-off that starts repeating keeps its row; its key gains its start.
   if (input.rrule && !series.rrule) {
     seriesUpdate.rrule = input.rrule;
@@ -1505,6 +1535,7 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
             allDay: shape.allDay,
             rrule,
             ...pair,
+            birthday: birthdayAfter(series, input, shape),
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
           },
         });
@@ -1533,6 +1564,9 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
           timeZone: series.timeZone,
           rrule,
           ...pair,
+          // The tail is a birthday by its own shape; a civil one keeps counting from the original series' year.
+          birthday: birthdayAfter(series, input, shape),
+          birthYear: !pair.hebrewRule && isEveryYearRule(rrule) ? birthYearOf(series) : null,
           // The tail gets the new alert; the head keeps its own.
           ...(input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes }),
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),

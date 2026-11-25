@@ -97,6 +97,8 @@ function series(title: string, startsAt: Date, over: Partial<NativeEvent> = {}):
     eachMarksDone: false,
     zmanSpec: null,
     armedAt: startsAt,
+    birthday: false,
+    birthYear: null,
     isDeleted: false,
     createdAt: startsAt,
     updatedAt: startsAt,

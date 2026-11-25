@@ -287,6 +287,8 @@ model NativeEvent {
   eachMarksDone   Boolean         @default(false) // REMINDER for both partners: each marks their own Done (NativeReminderPing.doneAt) instead of one Done covering both. False whenever forBoth is off
   zmanSpec        Json? // REMINDER by zman: { zman, offsetMin } or { halachicHours, offsetMin }; the due time is worked out per recipient and day (src/services/zmanim). Only on a date-only (allDay) reminder; null = a plain one
   armedAt         DateTime? // REMINDER: when its time was last set (create or time change); bounds the ping lookback
+  birthday        Boolean         @default(false) // The Birthday switch: only on an all-day EVENT repeating every year (src/lib/birthday.ts canBeBirthday), set and cleared by the event store
+  birthYear       Int? // A civil-date birthday's count starts here when set: a part split off "from this one on" keeps the original series' start year. Null: the series' own start year (birthYearOf)
   isDeleted       Boolean         @default(false)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt

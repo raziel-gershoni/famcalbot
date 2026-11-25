@@ -334,7 +334,7 @@ function nativeEvent(fields: Partial<NativeEvent> & Pick<NativeEvent, 'id' | 'ca
   return {
     description: null, location: null, endsAt: fields.startsAt, allDay: false, timeZone: IL, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [],
     ownAlerts: false, alertMinutes: [], isDeleted: false, createdAt: CREATED, updatedAt: CREATED,
-    kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, zmanSpec: null, armedAt: null,
+    kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, zmanSpec: null, armedAt: null, birthday: false, birthYear: null,
     ...fields,
   };
 }
