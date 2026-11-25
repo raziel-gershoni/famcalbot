@@ -3539,6 +3539,30 @@ async function main() {
     assertSame(bday(lastEvent().id), [true, 1985], 'a split of a split');
   });
 
+  await check('birthday, moving the date: a part that moves to another year counts from its own new start (the picked date is the original); a move within the year keeps the original year', async () => {
+    seed();
+    // A series from 2020, split at 2024 by a rename: the part from 2024 counts from 2020.
+    const { occ } = await birthdaySeries({ start: '2020-03-03', end: '2020-03-03', birthday: true });
+    await patch({ key: occ('2024-03-03'), scope: 'following', changes: { title: 'Dana Cohen' } });
+    const tail = lastEvent();
+    assertSame(bday(tail.id), [true, 2020], 'the rename split');
+    const tailOcc = (day: string) => `famcal|${tail.id}#${iso(at(`${day} 00:00`))}`;
+    // The person follows the hint: the date is set to the birth date, 1985, for every occurrence of that part.
+    const all = await patch({ key: tailOcc('2026-03-03'), scope: 'all', changes: { start: '1985-03-03', end: '1985-03-03' } });
+    assertSame(all.status, 200, `all ${all.text}`);
+    assertSame([iso(eventRow(tail.id).startsAt).slice(0, 4), bday(tail.id)], ['1985', [true, null]], 'a far move with All counts from 1985');
+    // A day correction from this one on, in the same year, keeps the original year.
+    const fix = await birthdaySeries({ birthday: true });
+    await patch({ key: fix.occ('2026-03-03'), scope: 'following', changes: { start: '2026-03-05', end: '2026-03-05' } });
+    assertSame(bday(lastEvent().id), [true, 1985], 'a day correction keeps 1985');
+    // From a part's first occurrence (in place), a move to another year: counts from the new start.
+    const first = await birthdaySeries({ start: '2020-03-03', end: '2020-03-03', birthday: true });
+    await patch({ key: first.occ('2024-03-03'), scope: 'following', changes: { title: 'Dana C.' } });
+    const part = lastEvent();
+    await patch({ key: `famcal|${part.id}#${iso(at('2024-03-03 00:00'))}`, scope: 'following', changes: { start: '1985-03-03', end: '1985-03-03' } });
+    assertSame([iso(eventRow(part.id).startsAt).slice(0, 4), bday(part.id)], ['1985', [true, null]], 'in place, moved to 1985');
+  });
+
   await check('birthday, an edit that leaves an all-day yearly event turns it off: another repeat, a time of day, a stop; asking for it in the same save is 400 field birthday', async () => {
     seed();
     const weekly = await birthdaySeries({ birthday: true, start: '2026-03-03', end: '2026-03-03' });

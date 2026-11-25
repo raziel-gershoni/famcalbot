@@ -72,7 +72,7 @@ ${days.join('\n\n')}`;
 // Only prompts with a yearly event that has a count (a Hebrew anniversary, or a civil-date birthday) get this, so every other prompt stays as it was.
 function buildAnniversaryGuideline(has: boolean): string {
   if (!has) return '';
-  return `- **Year counts**: An event marked "[Year N since the original date]" repeats every year, and N is how many years it has been since the original date (a birthday with N = 35 is a 35th birthday; a wedding anniversary with N = 10 is a 10th anniversary). Work the number into the event's own wording naturally (e.g. "[Name]'s 35th birthday"), but only when the title, or a "(Birthday)" mark, makes clear what is being counted; otherwise leave it out. Never invent or change the number.
+  return `- **Year counts**: An event marked "[Year N since the original date]" repeats every year, and N is how many years it has been since the original date (a birthday with N = 35 is a 35th birthday; a wedding anniversary with N = 10 is a 10th anniversary). Work the number into the event's own wording naturally (e.g. "[Name]'s 35th birthday"), but only when the title, or a "Birthday" label in place of its time, makes clear what is being counted; otherwise leave it out. Never invent or change the number.
 `;
 }
 

@@ -1193,6 +1193,16 @@ async function checkSeriesFields(
   }
 }
 
+/**
+ * Whether two instants fall in the same civil year on the series' clock. A part of a civil-date birthday whose start moves
+ * to another year counts its age from that start (the person picked the original date, as the editor's hint asks);
+ * within the year (a day corrected) it keeps the year it counted from (birthday spec).
+ */
+function sameCivilYear(series: NativeEvent, a: Date, b: Date): boolean {
+  const tz = series.timeZone || TIMEZONE;
+  return localDate(a, tz).slice(0, 4) === localDate(b, tz).slice(0, 4);
+}
+
 /** The Birthday switch a row has after an edit (birthday spec): the edit's, else the series' own, and off on a shape that can't be one. */
 function birthdayAfter(series: NativeEvent, input: Pick<UpdateNativeEventInput, 'birthday'>, shape: { kind: string; allDay: boolean; rrule: string | null }): boolean {
   return (input.birthday ?? series.birthday) && canBeBirthday(shape);
@@ -1454,7 +1464,14 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
       if (moved) {
         await tx.nativeEvent.update({
           where: { id: series.id },
-          data: { ...seriesUpdate, rrule: moved.rrule, hebrewAnchor: moved.hebrewAnchor, exdates: carriedExdates(series.exdates, undefined, moved.slotOf, moved.shape) },
+          data: {
+            ...seriesUpdate,
+            rrule: moved.rrule,
+            hebrewAnchor: moved.hebrewAnchor,
+            // Moved to another year (the original date picked): its age counts from the new start.
+            ...(series.birthYear !== null && !sameCivilYear(series, series.startsAt, moved.shape.startsAt) ? { birthYear: null } : {}),
+            exdates: carriedExdates(series.exdates, undefined, moved.slotOf, moved.shape),
+          },
         });
         await moveInstances(tx, {
           fromSeries: series.id, toSeries: series.id, slotOf: moved.slotOf, shape: moved.shape, dropOverrides: false,
@@ -1497,6 +1514,7 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
       // Fallback: nothing to truncate; treat as 'all'. A Hebrew series' anchor moves with its start, by its years.
       const anchor = series.hebrewAnchor ? yearlyMoveOf(series, input)?.hebrewAnchor : undefined;
       if (anchor) seriesUpdate.hebrewAnchor = anchor;
+      if (input.startsAt && series.birthYear !== null && !sameCivilYear(series, series.startsAt, input.startsAt)) seriesUpdate.birthYear = null;
       await eventWrite(series.kind, async (db) => {
         await db.nativeEvent.update({ where: { id: series.id }, data: seriesUpdate });
         await markSyncDirty(db, { series: [synced(series, series.calendarId, input.calendarId)] });
@@ -1536,6 +1554,7 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
             rrule,
             ...pair,
             birthday: birthdayAfter(series, input, shape),
+            birthYear: sameCivilYear(series, cut, newStarts) ? series.birthYear : null,
             exdates: carriedExdates(series.exdates, undefined, slotOf, shape),
           },
         });
@@ -1564,9 +1583,10 @@ async function writeNativeEventUpdate(given: UpdateNativeEventInput): Promise<Up
           timeZone: series.timeZone,
           rrule,
           ...pair,
-          // The tail is a birthday by its own shape; a civil one keeps counting from the original series' year.
+          // The tail is a birthday by its own shape; a civil one keeps counting from the original series' year unless
+          // its start moved to another year.
           birthday: birthdayAfter(series, input, shape),
-          birthYear: !pair.hebrewRule && isEveryYearRule(rrule) ? birthYearOf(series) : null,
+          birthYear: !pair.hebrewRule && isEveryYearRule(rrule) && sameCivilYear(series, cut, newStarts) ? birthYearOf(series) : null,
           // The tail gets the new alert; the head keeps its own.
           ...(input.alert !== undefined ? alertColumns(input.alert) : { ownAlerts: series.ownAlerts, alertMinutes: series.alertMinutes }),
           exdates: carriedExdates(series.exdates, cut, slotOf, shape),

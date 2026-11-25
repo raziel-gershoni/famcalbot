@@ -96,7 +96,8 @@ export function toUnifiedEvent(
   // (birthday spec); null hides it.
   const anniversary = series ? anniversaryOf(series, start, instance.timeZone) : null;
   // The Birthday switch: the summaries word it as a birthday and Ask FamCal never counts it busy, as a Google birthday.
-  const isBirthday = !isReminder && series?.birthday === true;
+  // An occurrence given a time of day on its own (a party) is not: it keeps its time and is busy.
+  const isBirthday = !isReminder && series?.birthday === true && instance.allDay;
 
   return {
     summary: instance.title,

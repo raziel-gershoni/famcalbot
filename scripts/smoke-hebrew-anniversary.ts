@@ -240,20 +240,32 @@ async function main() {
   });
 
   await check('birthday: the six year-count guidelines (summary, week; en, he, ru) count any yearly event, not only a Hebrew-date one, and let a "(Birthday)" mark say what is counted', () => {
-    const rules: Record<string, { hebrewOnly: RegExp; birthdayMark: RegExp }> = {
-      en: { hebrewOnly: /on its Hebrew date/, birthdayMark: /but only when the title, or a "\(Birthday\)" mark, makes clear what is being counted/ },
-      he: { hebrewOnly: /בתאריך העברי/, birthdayMark: /אבל רק כשהכותרת, או הסימון "\(Birthday\)", מבהירים מה נספר/ },
-      ru: { hebrewOnly: /по еврейской дате/, birthdayMark: /но только если из названия или из пометки "\(Birthday\)" ясно, что именно считается/ },
+    // The daily summary's lines carry "(Birthday)"; the week's carry the label in the person's language in place of the time (claude.ts birthdayLabel).
+    const hebrewOnly: Record<string, RegExp> = { en: /on its Hebrew date/, he: /בתאריך העברי/, ru: /по еврейской дате/ };
+    const marks: Record<string, Record<string, RegExp>> = {
+      'calendar-summary': {
+        en: /but only when the title, or a "\(Birthday\)" mark, makes clear what is being counted/,
+        he: /אבל רק כשהכותרת, או הסימון "\(Birthday\)", מבהירים מה נספר/,
+        ru: /но только если из названия или из пометки "\(Birthday\)" ясно, что именно считается/,
+      },
+      'week-lookahead': {
+        en: /but only when the title, or a "Birthday" label in place of its time, makes clear what is being counted/,
+        he: /אבל רק כשהכותרת, או התווית "יום הולדת" במקום השעה, מבהירות מה נספר/,
+        ru: /но только если из названия или из пометки «День рождения» вместо времени ясно, что именно считается/,
+      },
     };
     for (const kind of ['calendar-summary', 'week-lookahead']) {
       for (const lang of ['en', 'he', 'ru'] as const) {
         const src = fs.readFileSync(path.resolve(__dirname, `../src/prompts/${kind}/${lang}.ts`), 'utf8');
         const line = src.split('\n').find((l) => l.includes('[Year N since the original date]'));
         assert(line, `${kind}/${lang}: no guideline`);
-        assert(!rules[lang].hebrewOnly.test(line), `${kind}/${lang}: still Hebrew-date only`);
-        assert(rules[lang].birthdayMark.test(line), `${kind}/${lang}: no (Birthday) mark`);
+        assert(!hebrewOnly[lang].test(line), `${kind}/${lang}: still Hebrew-date only`);
+        assert(marks[kind][lang].test(line), `${kind}/${lang}: no birthday mark`);
       }
     }
+    // The week's label is the one claude.ts writes, in each language.
+    const claude = fs.readFileSync(path.resolve(__dirname, '../src/services/claude.ts'), 'utf8');
+    assert(claude.includes(`const birthdayLabel = language === 'he' ? 'יום הולדת' : language === 'ru' ? 'День рождения' : 'Birthday';`), 'the week label changed');
   });
 
   await check('count: a bad anchor or day gives null', () => {

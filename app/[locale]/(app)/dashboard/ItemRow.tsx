@@ -259,14 +259,15 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
           <span className="ch-title-line">
             {mark ? <ReminderIcon mark={mark} /> : null}
             {item.birthday ? <BirthdayIcon /> : null}
+            {/* Outside the title, whose dir="auto" is read from its own first letter. */}
+            {item.birthday ? <span className="ch-visually-hidden">{t('row.birthday')} </span> : null}
             <span className="ch-title" dir="auto">
-              {item.birthday ? <span className="ch-visually-hidden">{t('row.birthday')} </span> : null}
               {title}
               <AnniversaryCount n={item.anniversary} />
             </span>
           </span>
           {hasMeta ? (
-            <span className={`ch-meta${mark ? ' ch-indent' : ''}`}>
+            <span className={`ch-meta${mark || item.birthday ? ' ch-indent' : ''}`}>
               {mark === 'open' ? <span className="ch-open">{t('row.open')}</span> : null}
               {segments.length > 0 ? (
                 <span className="ch-meta-text">

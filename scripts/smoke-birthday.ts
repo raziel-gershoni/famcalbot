@@ -14,6 +14,7 @@ import { ItemRow } from '../app/[locale]/(app)/dashboard/ItemRow';
 import { ItemSheet } from '../app/[locale]/(app)/dashboard/ItemSheet';
 import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
 import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
+import { busyIntervals } from '../src/services/ask-in-chat/busy';
 import { toItemDto } from '../src/services/calendar-read/dto';
 import type { ReadItem } from '../src/services/calendar-read/types';
 import type { ItemDTO } from '../src/lib/calendar-view/types';
@@ -224,6 +225,22 @@ async function main() {
     const block = /\.ch-icon-birthday\s*\{[^}]*\}/.exec(AGENDA_CSS)?.[0] ?? '';
     assert(/var\(--ch-muted\)/.test(block), `block ${block}`);
     assert(!/\b(left|right|margin-left|margin-right|padding-left|padding-right)\b/.test(block), 'physical sides');
+  });
+
+  await check('an occurrence of a birthday given a time of day on its own (a party) is no birthday: it keeps its time in the summaries, is busy, and has no cake', () => {
+    const party = { ...occurrence, startsAt: new Date('2026-03-03T16:00:00Z'), endsAt: new Date('2026-03-03T19:00:00Z'), allDay: false };
+    const event = toUnifiedEvent({ id: 'c1', name: 'Family' }, party, { ...series, birthday: true });
+    assert(event.eventType === undefined, `type ${event.eventType}`);
+    assert(busyIntervals([event], '2026-03-03', 'Asia/Jerusalem', [{ calendarId: event.calendarId, labels: ['yours'], name: 'Family', color: '#000' }]).length === 1, 'not busy');
+  });
+
+  await check('row: the readers\' "Birthday" sits outside the title (whose dir="auto" reads its own first letter), and the meta line is indented under the title as a reminder\'s is', () => {
+    for (const source of ['famcal', 'google'] as const) {
+      const html = renderRow('en', dtoOf(true, source));
+      assert(!/class="ch-title" dir="auto"><span class="ch-visually-hidden"/.test(html), `${source}: the label is inside the title`);
+      if (source === 'google') assert(/class="ch-meta ch-indent"/.test(html), 'the meta line is not indented');
+    }
+    assert(!/ch-meta ch-indent/.test(renderRow('en', dtoOf(false, 'google'))), 'a plain Google event is indented');
   });
 
   const failed = results.filter((r) => !r.ok);
