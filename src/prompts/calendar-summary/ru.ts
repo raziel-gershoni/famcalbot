@@ -85,10 +85,10 @@ function buildGoogleUnavailableGuideline(data: SummaryPromptData): string {
 `;
 }
 
-// Only prompts with a Hebrew-calendar yearly event that has a count get this, so every other prompt stays as it was.
+// Only prompts with a yearly event that has a count (a Hebrew anniversary, or a civil-date birthday) get this, so every other prompt stays as it was.
 function buildAnniversaryGuideline(has: boolean): string {
   if (!has) return '';
-  return `- **Счёт лет**: Событие с пометкой "[Year N since the original date]" повторяется каждый год по еврейской дате, а N показывает, сколько лет прошло с исходной даты (день рождения при N = 35 — это 35-й день рождения; годовщина свадьбы при N = 10 — 10-я годовщина). Естественно вплетите число в формулировку события (например, «35-й день рождения [имя]»), но только если из названия ясно, что именно считается; иначе опустите его. Не придумывайте и не меняйте число.
+  return `- **Счёт лет**: Событие с пометкой "[Year N since the original date]" повторяется каждый год, а N показывает, сколько лет прошло с исходной даты (день рождения при N = 35 — это 35-й день рождения; годовщина свадьбы при N = 10 — 10-я годовщина). Естественно вплетите число в формулировку события (например, «35-й день рождения [имя]»), но только если из названия или из пометки "(Birthday)" ясно, что именно считается; иначе опустите его. Не придумывайте и не меняйте число.
 `;
 }
 

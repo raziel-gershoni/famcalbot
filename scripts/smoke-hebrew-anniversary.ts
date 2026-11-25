@@ -239,6 +239,23 @@ async function main() {
     assert(!('birthday' in toItemDto(readItem(plain), null, opts)), 'a plain FamCal event has no birthday key');
   });
 
+  await check('birthday: the six year-count guidelines (summary, week; en, he, ru) count any yearly event, not only a Hebrew-date one, and let a "(Birthday)" mark say what is counted', () => {
+    const rules: Record<string, { hebrewOnly: RegExp; birthdayMark: RegExp }> = {
+      en: { hebrewOnly: /on its Hebrew date/, birthdayMark: /but only when the title, or a "\(Birthday\)" mark, makes clear what is being counted/ },
+      he: { hebrewOnly: /בתאריך העברי/, birthdayMark: /אבל רק כשהכותרת, או הסימון "\(Birthday\)", מבהירים מה נספר/ },
+      ru: { hebrewOnly: /по еврейской дате/, birthdayMark: /но только если из названия или из пометки "\(Birthday\)" ясно, что именно считается/ },
+    };
+    for (const kind of ['calendar-summary', 'week-lookahead']) {
+      for (const lang of ['en', 'he', 'ru'] as const) {
+        const src = fs.readFileSync(path.resolve(__dirname, `../src/prompts/${kind}/${lang}.ts`), 'utf8');
+        const line = src.split('\n').find((l) => l.includes('[Year N since the original date]'));
+        assert(line, `${kind}/${lang}: no guideline`);
+        assert(!rules[lang].hebrewOnly.test(line), `${kind}/${lang}: still Hebrew-date only`);
+        assert(rules[lang].birthdayMark.test(line), `${kind}/${lang}: no (Birthday) mark`);
+      }
+    }
+  });
+
   await check('count: a bad anchor or day gives null', () => {
     assert(anniversaryCount(null, '2026-01-01') === null && anniversaryCount('nope', '2026-01-01') === null && anniversaryCount('2020-01-01', 'x') === null, 'bad input');
   });
