@@ -8,6 +8,7 @@
 // calendar behind a masked CalendarRef) never reach the JSON.
 
 import type { DaySpan } from '../../types';
+import { isBirthdayEvent } from '../../utils/event-formatter';
 import { addDaysToDate, daySpanOf, localDate, nextDate } from '../../utils/day-events';
 import { reminderDueAt, zmanDueAt, zmanRuleOf, type ZmanRule } from '../native-reminders/due';
 import type { ZmanClock } from '../../lib/calendar-view/zman-spec';
@@ -128,6 +129,8 @@ export function toItemDto(item: ReadItem, span: DaySpan | null, opts: ItemDtoOpt
   };
   if (item.kind === 'reminder') dto.reminder = reminderDto(item, opts);
   if (event.anniversary) dto.anniversary = event.anniversary;
+  // A FamCal birthday (the Birthday switch): the provider made it one. Absent on every other FamCal item.
+  if (item.source === 'famcal' && isBirthdayEvent(event)) dto.birthday = true;
   if (item.source === 'google') {
     dto.birthday = item.google?.birthday ?? false;
     dto.htmlLink = item.google?.htmlLink ?? null;

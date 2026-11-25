@@ -204,6 +204,41 @@ async function main() {
     assert(formatTomorrowLookahead(look({ isBirthday: true, anniversary: 36 })).endsWith('(Birthday) [Year 36 since the original date]'), 'birthday branch');
   });
 
+  // ---- A birthday (the Birthday switch, docs/superpowers/specs/2026-11-25-birthday-switch-design.md) ----
+
+  const CIVIL = { kind: 'EVENT' as const, rrule: 'FREQ=YEARLY', hebrewRule: null, hebrewAnchor: null, startsAt: new Date('1985-03-02T22:00:00Z'), timeZone: 'Asia/Jerusalem', birthYear: null, birthday: true };
+
+  await check('birthday, civil date: the age is the civil years since the series\' start year (or its birthYear, for a part split off); none without the switch, none at the start, none for another repeat', () => {
+    assert(anniversaryOf(CIVIL, '2026-03-03', 'Asia/Jerusalem') === 41, `2026 ${anniversaryOf(CIVIL, '2026-03-03', 'Asia/Jerusalem')}`);
+    assert(anniversaryOf(CIVIL, '2026-03-02T22:00:00Z', 'Asia/Jerusalem') === 41, 'the instant read in the zone');
+    assert(anniversaryOf(CIVIL, '1985-03-03', 'Asia/Jerusalem') === null, 'the first occurrence');
+    assert(anniversaryOf({ ...CIVIL, birthday: false }, '2026-03-03', 'Asia/Jerusalem') === null, 'a civil yearly event that is not a birthday has no count');
+    assert(anniversaryOf({ ...CIVIL, rrule: 'FREQ=YEARLY;INTERVAL=2' }, '2027-03-03', 'Asia/Jerusalem') === null, 'every two years is not a birthday');
+    const tail = { ...CIVIL, startsAt: new Date('2026-03-02T22:00:00Z'), birthYear: 1985 };
+    assert(anniversaryOf(tail, '2027-03-03', 'Asia/Jerusalem') === 42, `a split-off part ${anniversaryOf(tail, '2027-03-03', 'Asia/Jerusalem')}`);
+  });
+
+  await check('birthday, Hebrew date: the count is the Hebrew one, the same with or without the switch', () => {
+    const heb = { ...CIVIL, hebrewRule: 'anniversary', hebrewAnchor: '1990-05-01' };
+    const on = anniversaryOf(heb, '2026-05-01', 'Asia/Jerusalem');
+    assert(on === 36 && on === anniversaryOf({ ...heb, birthday: false }, '2026-05-01', 'Asia/Jerusalem'), `count ${on}`);
+  });
+
+  await check('birthday: the provider event is a birthday (the summaries\' "(Birthday)" line, with the age); a reminder stays a reminder; the DTO marks a FamCal birthday and only it', () => {
+    const occurrence = { ...instance('2026-03-02T22:00:00Z'), title: 'Dana' };
+    const event = toUnifiedEvent({ id: 'c1', name: 'Family' }, occurrence, CIVIL);
+    assert(event.eventType === 'birthday' && event.anniversary === 41, `event ${event.eventType} ${event.anniversary}`);
+    const line = formatEventForPrompt(event, 0, 'Asia/Jerusalem', '2026-03-03');
+    assert(line === '1. Dana (Birthday) [Year 41 since the original date] [Calendar: Family]', line);
+    assert(toUnifiedEvent({ id: 'c1', name: 'Family' }, occurrence, { ...CIVIL, kind: 'REMINDER' }).eventType === 'reminder', 'a reminder');
+    const plain = toUnifiedEvent({ id: 'c1', name: 'Family' }, occurrence, { ...CIVIL, birthday: false });
+    assert(plain.eventType === undefined && plain.anniversary === undefined, 'without the switch');
+    const opts = { now: new Date('2026-05-01T00:00:00Z'), open: false, openSince: null };
+    const dto = toItemDto({ ...readItem(event), rrule: 'FREQ=YEARLY', hebrewRule: null, hebrewAnchor: null }, null, opts);
+    assert(dto.birthday === true && dto.anniversary === 41, `dto ${dto.birthday} ${dto.anniversary}`);
+    assert(!('birthday' in toItemDto(readItem(plain), null, opts)), 'a plain FamCal event has no birthday key');
+  });
+
   await check('count: a bad anchor or day gives null', () => {
     assert(anniversaryCount(null, '2026-01-01') === null && anniversaryCount('nope', '2026-01-01') === null && anniversaryCount('2020-01-01', 'x') === null, 'bad input');
   });

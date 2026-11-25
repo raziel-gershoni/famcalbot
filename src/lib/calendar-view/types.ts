@@ -139,7 +139,7 @@ export interface ItemDTO {
   reminder?: ItemReminderDTO;
   /** A Hebrew yearly series: the Hebrew years since the original date (>= 1); absent on the first occurrence and elsewhere. */
   anniversary?: number;
-  /** Google only. */
+  /** A birthday: Google's own birthday events, and a FamCal event with the Birthday switch (absent on other FamCal items). */
   birthday?: boolean;
   /** Google only. */
   htmlLink?: string | null;

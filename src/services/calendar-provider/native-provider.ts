@@ -58,7 +58,8 @@ const PROVIDER_NAME = 'native' as const;
  * format: `YYYY-MM-DD` for all-day, ISO8601 for timed.
  *
  * Given a REMINDER series, the event is a reminder: eventType 'reminder', and `info`,
- * the viewer's side of it. Without `info` it reads as the viewer's own.
+ * the viewer's side of it. Without `info` it reads as the viewer's own. An event series with
+ * the Birthday switch is a birthday: eventType 'birthday'.
  */
 export function toUnifiedEvent(
   calendar: { id: string; name: string },
@@ -74,7 +75,7 @@ export function toUnifiedEvent(
     instanceStartsAt: Date;
     isRecurringInstance: boolean;
   },
-  series?: Pick<NativeEvent, 'kind'> & Partial<Pick<NativeEvent, 'hebrewRule' | 'hebrewAnchor' | 'ownAlerts' | 'alertMinutes'>>,
+  series?: Pick<NativeEvent, 'kind'> & Partial<Pick<NativeEvent, 'hebrewRule' | 'hebrewAnchor' | 'ownAlerts' | 'alertMinutes' | 'birthday' | 'birthYear' | 'rrule' | 'startsAt' | 'timeZone'>>,
   info?: ReminderInfo
 ): UnifiedEvent {
   const isReminder = series?.kind === 'REMINDER';
@@ -91,8 +92,11 @@ export function toUnifiedEvent(
     ? addDaysToDate(start, Math.max(1, Math.round((instance.endsAt.getTime() - instance.startsAt.getTime()) / 86_400_000)))
     : isReminder ? start : instance.endsAt.toISOString();
 
-  // A Hebrew yearly series counts its years from the anchor (anniversary count spec); null hides it.
+  // A Hebrew yearly series counts its years from the anchor (anniversary count spec), a civil-date birthday its age
+  // (birthday spec); null hides it.
   const anniversary = series ? anniversaryOf(series, start, instance.timeZone) : null;
+  // The Birthday switch: the summaries word it as a birthday and Ask FamCal never counts it busy, as a Google birthday.
+  const isBirthday = !isReminder && series?.birthday === true;
 
   return {
     summary: instance.title,
@@ -102,7 +106,7 @@ export function toUnifiedEvent(
     location: instance.location,
     calendarName: calendar.name,
     calendarId: encodeCalendarId(calendar.id),
-    eventType: isReminder ? 'reminder' : undefined,
+    eventType: isReminder ? 'reminder' : isBirthday ? 'birthday' : undefined,
     recurringEventId: instance.isRecurringInstance ? instance.seriesEventId : undefined,
     eventId: encodeEventId(instance.seriesEventId, instance.isRecurringInstance ? instance.instanceStartsAt : undefined),
     reminders: undefined,

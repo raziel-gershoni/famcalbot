@@ -20,6 +20,7 @@ import { spawn } from 'node:child_process';
 import type { CalendarAssignment, CalendarEvent, UserConfig } from '../src/types';
 import type { DigestEvents, DigestRead } from '../src/services/calendar-read/digest';
 import { busyIntervals, judgeWindow, readBusyDays, windowOf, type Interval } from '../src/services/ask-in-chat/busy';
+import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
 
 const ZONES = ['UTC', 'Asia/Jerusalem', 'America/New_York'] as const;
 const CHILD = 'ASK_BUSY_SMOKE_CHILD';
@@ -106,6 +107,16 @@ async function main() {
       ev('2026-11-13T19:00:00+02:00', '2026-11-13T21:00:00+02:00', { calendarId: 'native:partner' }),
     ];
     assert(show(busyIntervals(events, FRI, IL, ASSIGNMENTS)) === show([iv('2026-11-13T17:00:00Z', '2026-11-13T19:00:00Z')]), show(busyIntervals(events, FRI, IL, ASSIGNMENTS)));
+  });
+
+  await check('a FamCal birthday (the Birthday switch) never counts, as a Google one does; the same event without the switch makes the day busy', () => {
+    const day = { title: 'SECRET-TITLE', startsAt: new Date('2026-11-12T22:00:00Z'), endsAt: new Date('2026-11-13T21:59:00Z'), allDay: true, timeZone: IL, seriesEventId: 's1', instanceStartsAt: new Date('2026-11-12T22:00:00Z'), isRecurringInstance: true };
+    const series = { kind: 'EVENT' as const, rrule: 'FREQ=YEARLY', startsAt: new Date('1985-11-12T22:00:00Z'), timeZone: IL, birthYear: null };
+    const birthday = toUnifiedEvent({ id: 'mine', name: 'Mine' }, day, { ...series, birthday: true });
+    const plain = toUnifiedEvent({ id: 'mine', name: 'Mine' }, day, { ...series, birthday: false });
+    assert(birthday.eventType === 'birthday', `type ${birthday.eventType}`);
+    assert(busyIntervals([birthday], FRI, IL, ASSIGNMENTS).length === 0, 'the birthday is busy');
+    assert(busyIntervals([plain], FRI, IL, ASSIGNMENTS).length === 1, 'the plain event is not busy');
   });
 
   await check('overlapping and touching intervals merge, in time order; a gap keeps them apart', () => {

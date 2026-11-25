@@ -3,7 +3,9 @@
 // the screen are pinned where they are tested (smoke-calendar-editor-api, smoke-hebrew-anniversary). Pure: no DB, no network.
 //   TZ=UTC npx tsx scripts/smoke-birthday.ts
 
+import type { NativeEvent } from '@prisma/client';
 import { birthYearOf, canBeBirthday, isEveryYearRule } from '../src/lib/birthday';
+import { toGoogleEvent, toGoogleHebrewSingles } from '../src/services/calendar-move/mapper';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -66,6 +68,20 @@ async function main() {
     // 1 January 2000 00:00 in Jerusalem is still 1999 in UTC.
     assertSame(birthYearOf({ birthYear: null, startsAt: new Date('1999-12-31T22:00:00Z'), timeZone: 'Asia/Jerusalem' }), 2000, 'a new year in the zone');
     assertSame(birthYearOf({ birthYear: 1972, startsAt, timeZone: 'Asia/Jerusalem' }), 1972, 'the stored year wins');
+  });
+
+  await check('the Google copy is unchanged by the switch: a civil birthday maps as the same series without it, and a Hebrew one\'s yearly singles too', () => {
+    const base = {
+      id: 's1', calendarId: 'c1', creatorUserId: 1, title: 'Dana', description: null, location: null,
+      startsAt: new Date('1985-03-02T22:00:00Z'), endsAt: new Date('1985-03-03T21:59:00Z'), allDay: true, timeZone: 'Asia/Jerusalem',
+      rrule: 'FREQ=YEARLY', hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], kind: 'EVENT',
+      forUserId: null, forBoth: false, eachMarksDone: false, zmanSpec: null, armedAt: null, isDeleted: false,
+      createdAt: new Date('2026-01-01T00:00:00Z'), updatedAt: new Date('2026-01-01T00:00:00Z'), birthday: false, birthYear: null,
+    } as NativeEvent;
+    assertSame(toGoogleEvent({ ...base, birthday: true, birthYear: 1985 }, [], { exceptions: 'whole' }), toGoogleEvent(base, [], { exceptions: 'whole' }), 'civil');
+    const heb = { ...base, hebrewRule: 'anniversary', hebrewAnchor: '1985-03-03' };
+    const slots = [new Date('2026-03-02T22:00:00Z')];
+    assertSame(toGoogleHebrewSingles({ ...heb, birthday: true }, [], slots), toGoogleHebrewSingles(heb, [], slots), 'hebrew');
   });
 
   const failed = results.filter((r) => !r.ok);
