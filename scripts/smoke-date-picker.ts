@@ -347,6 +347,7 @@ async function main() {
       forWho: 'me',
       eachMarksDone: false,
       alert: 'default',
+      birthday: false,
       timeMode: 'time',
       zmanPick: '',
       zmanHours: 3,

@@ -128,11 +128,13 @@ export interface CreateCommand {
   eachMarksDone?: true;
   /** A reminder by zman (timeMode 'zman'): its rule. Only on a date-only reminder; absent for a plain time. Whether the writer's set offers the zman is the write's to check. */
   zmanSpec?: ZmanSpec;
+  /** The Birthday switch (birthday spec), present only when on: an event only; whether its shape can be one is the store's to check. */
+  birthday?: true;
 }
 
 export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   if (!isObject(raw)) return fail('body');
-  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec']);
+  const bad = unknownKey(raw, ['kind', 'title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec', 'birthday']);
   if (bad) return fail(bad);
   if (typeof raw.kind !== 'string' || !(KINDS as readonly string[]).includes(raw.kind)) return fail('kind');
   const kind = raw.kind as ItemKind;
@@ -190,7 +192,10 @@ export function parseCreate(raw: unknown): Parsed<CreateCommand> {
   } else if (raw.zmanSpec !== undefined) {
     return fail('zmanSpec');
   }
-  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}), ...(raw.eachMarksDone === true ? { eachMarksDone: true as const } : {}), ...(zmanSpec ? { zmanSpec } : {}) } };
+  // The Birthday switch: a boolean, and on only for an event.
+  if (raw.birthday !== undefined && typeof raw.birthday !== 'boolean') return fail('birthday');
+  if (raw.birthday === true && kind !== 'event') return fail('birthday');
+  return { ok: true, value: { kind, title, location, description, allDay, start, ...(end !== undefined ? { end } : {}), repeat, ...(calendarId ? { calendarId } : {}), forWho, ...(alert !== undefined ? { alert } : {}), ...(raw.eachMarksDone === true ? { eachMarksDone: true as const } : {}), ...(zmanSpec ? { zmanSpec } : {}), ...(raw.birthday === true ? { birthday: true as const } : {}) } };
 }
 
 /** A FamCal item's key: the series, and the occurrence's original start for a repeating one. */
@@ -274,6 +279,8 @@ export interface UpdateCommand {
     /** A reminder's time: 'zman' (with `zmanSpec`) or 'time' (a plain time; takes the zman rule away). Series-level unless it is one occurrence moved to a time of its own. */
     timeMode?: TimeMode;
     zmanSpec?: ZmanSpec;
+    /** The Birthday switch (birthday spec): series-level, a FamCal event only. */
+    birthday?: boolean;
   };
 }
 
@@ -293,7 +300,7 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (typeof raw.scope !== 'string' || !(SCOPES as readonly string[]).includes(raw.scope)) return fail('scope');
   if (!isObject(raw.changes)) return fail('changes');
   const c = raw.changes;
-  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec'].includes(k));
+  const unknown = Object.keys(c).find((k) => !['title', 'location', 'description', 'allDay', 'start', 'end', 'repeat', 'calendarId', 'forWho', 'alert', 'eachMarksDone', 'timeMode', 'zmanSpec', 'birthday'].includes(k));
   if (unknown) return fail(`changes.${unknown}`);
   if (Object.keys(c).length === 0) return fail('changes');
   const changes: UpdateCommand['changes'] = {};
@@ -347,6 +354,10 @@ export function parseUpdate(raw: unknown): Parsed<UpdateCommand> {
   if (c.eachMarksDone !== undefined) {
     if (typeof c.eachMarksDone !== 'boolean') return fail('eachMarksDone');
     changes.eachMarksDone = c.eachMarksDone;
+  }
+  if (c.birthday !== undefined) {
+    if (typeof c.birthday !== 'boolean') return fail('birthday');
+    changes.birthday = c.birthday;
   }
   // A reminder's time by zman: 'zman' brings its rule, 'time' takes any away; a rule alone is no change a body can make.
   if (c.timeMode !== undefined) {

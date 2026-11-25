@@ -67,7 +67,7 @@ const tables: Record<string, Row[]> = {};
 const COMPOUND_KEYS = ['seriesEventId_originalStartsAt'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], personName: null, privacy: 'PRIVATE', isDeleted: false }),
-  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, armedAt: null }),
+  nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, armedAt: null, birthday: false, birthYear: null }),
   nativeEventInstance: () => ({ title: null, description: null, location: null, startsAt: null, endsAt: null, allDay: null }),
   nativeReminderState: () => ({ doneAt: null, doneByUserId: null }),
   nativeReminderPing: () => ({ snoozedUntil: null, lastPingedAt: null, pingAttempts: 0, pingChatId: null, pingMessageId: null, doneAt: null }),
@@ -892,7 +892,7 @@ async function main() {
       tz: IL,
       // The fixtures share one colour, so the sheet shows each calendar shifted apart (displayColours); the saved colour is #039BE5.
       calendar: { id: 'native:cal-tal', name: 'Tal', color: '#7987ed' },
-      forName: null, alert: 'default', scopes: ['single'],
+      forName: null, alert: 'default', birthday: false, scopes: ['single'],
       canMoveCalendar: true, moveTargets: ['native:cal-tal', 'native:cal-tal-family', 'native:cal-noa-edit'],
       canChangeRecipient: false, forWho: 'me', source: 'famcal',
     }, 'a one-off');
@@ -3475,6 +3475,88 @@ async function main() {
     assertSame([alone.status, alone.body], [400, { error: 'invalid', field: 'timeMode' }], 'a rule alone');
     const notOffered = await patch({ key: once.body.key, scope: 'single', changes: { timeMode: 'zman', zmanSpec: { zman: 'SHABBAT_ENDS', offsetMin: 0 } } });
     assertSame([notOffered.status, notOffered.body], [400, { error: 'invalid', field: 'zmanSpec' }], 'the end of Shabbat is not a reminder\'s zman');
+  });
+
+  // ================= the Birthday switch (docs/superpowers/specs/2026-11-25-birthday-switch-design.md) =================
+
+  /** A yearly all-day event from 3 March 1985 (the original date), civil or on the Hebrew date. */
+  const birthdaySeries = async (extra: Row = {}) => {
+    const created = await post(eventBody({ title: 'Dana', allDay: true, start: '1985-03-03', end: '1985-03-03', repeat: 'yearly', ...extra }));
+    assert(created.status === 200, `create ${created.status} ${created.text}`);
+    const id = idOf(created.body.key);
+    const occ = (day: string) => `famcal|${id}#${iso(at(`${day} 00:00`))}`;
+    return { id, occ };
+  };
+  const bday = (id: string) => [eventRow(id).birthday, eventRow(id).birthYear];
+
+  await check('birthday, create: on for an all-day event repeating every year, civil or Hebrew; a weekly, every-two-years, timed or one-off event, a reminder, a Google calendar and a non-boolean are 400 field birthday, and nothing is written', async () => {
+    seed();
+    assertSame(bday((await birthdaySeries({ birthday: true })).id), [true, null], 'civil');
+    assertSame(bday((await birthdaySeries({ birthday: true, repeat: 'hebrew' })).id), [true, null], 'Hebrew');
+    assertSame(bday((await birthdaySeries()).id), [false, null], 'off by default');
+    const before = eventsAll().length;
+    const refused = [
+      eventBody({ allDay: true, start: '2026-03-03', end: '2026-03-03', repeat: 'weekly', birthday: true }),
+      eventBody({ allDay: true, start: '1985-03-03', end: '1985-03-03', repeat: { freq: 'yearly', interval: 2 }, birthday: true }),
+      eventBody({ repeat: 'yearly', birthday: true }),
+      eventBody({ allDay: true, start: '2026-03-03', end: '2026-03-03', birthday: true }),
+      reminderBody({ allDay: true, start: '1985-03-03', repeat: 'yearly', birthday: true }),
+      eventBody({ allDay: true, start: '1985-03-03', end: '1985-03-03', repeat: 'yearly', birthday: true, calendarId: 'avi@gmail.com' }),
+      eventBody({ allDay: true, start: '1985-03-03', end: '1985-03-03', repeat: 'yearly', birthday: 'yes' }),
+    ];
+    for (const body of refused) assertSame((await post(body)).body, { error: 'invalid', field: 'birthday' }, show(body));
+    assert(eventsAll().length === before, 'something was written');
+  });
+
+  await check('birthday, edit: series-level like the alert ("only this one" is 400 scope); All turns it on; the item info reads it back; the same value writes nothing', async () => {
+    seed();
+    const { id, occ } = await birthdaySeries();
+    const before = show(tables.nativeEvent);
+    assertSame((await patch({ key: occ('2026-03-03'), scope: 'single', changes: { birthday: true } })).body, { error: 'invalid', field: 'scope' }, 'single');
+    assert(show(tables.nativeEvent) === before && overrides(id).length === 0, 'single wrote something');
+    assertSame((await patch({ key: occ('2026-03-03'), scope: 'all', changes: { birthday: true } })).body, { status: 'ok', key: occ('2026-03-03') }, 'all');
+    assertSame([bday(id), eventsAll().length], [[true, null], 1], 'the series row');
+    assertSame((await itemOf(occ('2026-03-03'))).body.birthday, true, 'item info');
+    const same = show(tables.nativeEvent);
+    assertSame((await patch({ key: occ('2026-03-03'), scope: 'all', changes: { birthday: true } })).body, { status: 'ok', key: occ('2026-03-03') }, 'the same value');
+    assert(show(tables.nativeEvent) === same, 'the same value wrote something');
+    const reminder = await post(reminderBody());
+    assertSame((await patch({ key: reminder.body.key, scope: 'single', changes: { birthday: true } })).body, { error: 'invalid', field: 'birthday' }, 'a reminder');
+  });
+
+  await check('birthday, from this one on: the split-off part is the birthday and keeps counting from 1985 (birthYear); the earlier years stay as they were; a rename split carries the switch and the year', async () => {
+    seed();
+    const { id, occ } = await birthdaySeries();
+    assertSame((await patch({ key: occ('2026-03-03'), scope: 'following', changes: { birthday: true } })).status, 200, 'following');
+    const tail = lastEvent();
+    assertSame([bday(id), bday(tail.id), eventsAll().length], [[false, null], [true, 1985], 2], 'head and tail');
+    const on = await birthdaySeries({ birthday: true });
+    await patch({ key: on.occ('2027-03-03'), scope: 'following', changes: { title: 'Dana Cohen' } });
+    assertSame([bday(on.id), bday(lastEvent().id), lastEvent().title], [[true, null], [true, 1985], 'Dana Cohen'], 'a rename split');
+    // A split of the split-off part counts from the same year.
+    const again = lastEvent().id;
+    await patch({ key: `famcal|${again}#${iso(at('2030-03-03 00:00'))}`, scope: 'following', changes: { title: 'Dana C.' } });
+    assertSame(bday(lastEvent().id), [true, 1985], 'a split of a split');
+  });
+
+  await check('birthday, an edit that leaves an all-day yearly event turns it off: another repeat, a time of day, a stop; asking for it in the same save is 400 field birthday', async () => {
+    seed();
+    const weekly = await birthdaySeries({ birthday: true, start: '2026-03-03', end: '2026-03-03' });
+    assertSame((await patch({ key: weekly.occ('2026-03-03'), scope: 'following', changes: { repeat: 'weekly' } })).status, 200, 'weekly');
+    assertSame([eventRow(weekly.id).rrule, bday(weekly.id)[0], eventsAll().length], ['FREQ=WEEKLY', false, 1], 'weekly from the first occurrence (in place)');
+    const later = await birthdaySeries({ birthday: true });
+    await patch({ key: later.occ('2026-03-03'), scope: 'following', changes: { repeat: 'monthly' } });
+    assertSame([lastEvent().rrule, lastEvent().birthday, bday(later.id)[0]], ['FREQ=MONTHLY', false, true], 'monthly from a later year: the split-off part is not a birthday, the earlier years are');
+    const timed = await birthdaySeries({ birthday: true });
+    await patch({ key: timed.occ('2026-03-03'), scope: 'all', changes: { allDay: false, start: '2026-03-03T10:00', end: '2026-03-03T11:00' } });
+    assertSame([eventRow(timed.id).allDay, bday(timed.id)[0]], [false, false], 'a time of day');
+    const stop = await birthdaySeries({ birthday: true });
+    await patch({ key: stop.occ('2026-03-03'), scope: 'following', changes: { repeat: 'none' } });
+    assertSame([lastEvent().rrule, lastEvent().birthday, bday(stop.id)[0]], [null, false, true], 'a stop: the one-off is not a birthday, the earlier years are');
+    const both = await birthdaySeries();
+    const before = show(tables.nativeEvent);
+    assertSame((await patch({ key: both.occ('2026-03-03'), scope: 'following', changes: { repeat: 'weekly', birthday: true } })).body, { error: 'invalid', field: 'birthday' }, 'weekly and birthday');
+    assert(show(tables.nativeEvent) === before, 'the refused save wrote something');
   });
 
   await check('a store failure is 500 with no title in the response, the capture or the console', async () => {

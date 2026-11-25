@@ -62,6 +62,7 @@ import {
   repeatWords,
   scopePlan,
   setAllDay,
+  showsBirthday,
   setKind,
   spanOf,
   storedChoice,
@@ -337,6 +338,16 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
     // A lead stored off the list (a migrated one) is its own option, in order, for as long as the sheet is open.
     ...[...new Set([...ALERT_LEADS, ...(typeof start.alert === 'number' ? [start.alert] : [])])].sort((a, b) => a - b).map((m) => ({ value: String(m), text: leadWords(m, false) })),
   ];
+  // The Birthday switch (birthday spec), under Repeat: an all-day FamCal event repeating every year. On a civil-date
+  // birthday the count hint sits under it; the Hebrew repeat already says it under Repeat.
+  const birthdayRow = showsBirthday(form) ? (
+    <SwitchRow
+      label={t('row.birthday')}
+      hint={form.birthday && !isHebrewRepeat(form.repeat) ? t('editor.repeat.hebrewCountHint') : undefined}
+      checked={form.birthday}
+      onChange={(birthday) => change({ ...form, birthday })}
+    />
+  ) : null;
   const showAlertRow = alertsOn && !form.allDay; // the row sits in the event's card: a reminder has none
   // A move to the other kind of calendar drops the alert (Google) or lands on the default (FamCal): shown as that.
   const alertReadOnly = edit ? info?.alertReadOnly === true || crossPicked : !isNativeCalendar(form.calendarId);
@@ -517,6 +528,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
                   {...rowPicker('end')}
                 />
                 {repeatRow}
+                {birthdayRow}
                 {alertRow}
               </FormCard>
             )}

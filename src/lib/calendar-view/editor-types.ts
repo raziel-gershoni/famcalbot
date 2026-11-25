@@ -210,6 +210,8 @@ export interface ItemEditInfoResponse {
    */
   alert?: AlertChoice;
   alertReadOnly?: boolean;
+  /** A FamCal event's Birthday switch (birthday spec): on only for an all-day event repeating every year. Absent for a reminder and a Google item. */
+  birthday?: boolean;
   /** 3b: the calendar is writable but the item can only be changed in Google Calendar. */
   editableInGoogleOnly?: boolean;
   /** 3b: where the item lives. */
@@ -248,6 +250,8 @@ export interface CreateItemBody {
   zmanSpec?: ZmanSpecValue;
   /** Timed FamCal events only; omitted = the default (editor upgrades spec §2). */
   alert?: AlertChoice;
+  /** The Birthday switch, sent only when on: an all-day FamCal event repeating every year (birthday spec). */
+  birthday?: true;
 }
 
 /** PATCH /api/calendar/items: only what the editor changed needs to be in `changes`. */
@@ -283,6 +287,8 @@ export interface UpdateItemBody {
     zmanSpec?: ZmanSpecValue;
     /** An event's alert, from this occurrence on like the calendar (series-level); a FamCal event only. */
     alert?: AlertChoice;
+    /** The Birthday switch, from this occurrence on like the alert (series-level); a FamCal event only (birthday spec). */
+    birthday?: boolean;
   };
 }
 

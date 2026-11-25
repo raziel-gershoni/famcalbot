@@ -3,9 +3,17 @@
 // the screen are pinned where they are tested (smoke-calendar-editor-api, smoke-hebrew-anniversary). Pure: no DB, no network.
 //   TZ=UTC npx tsx scripts/smoke-birthday.ts
 
+import fs from 'fs';
+import path from 'path';
+import { createElement, type ComponentProps, type MutableRefObject } from 'react';
+import { renderToString } from 'react-dom/server';
+import { NextIntlClientProvider } from 'next-intl';
 import type { NativeEvent } from '@prisma/client';
+import { EditorSheet } from '../app/[locale]/(app)/dashboard/EditorSheet';
 import { birthYearOf, canBeBirthday, isEveryYearRule } from '../src/lib/birthday';
 import { toGoogleEvent, toGoogleHebrewSingles } from '../src/services/calendar-move/mapper';
+import { createBody, editItemForm, newItemForm, scopePlan, showsBirthday, updateBody, type EditorForm } from '../src/lib/calendar-view/editor-model';
+import type { ItemEditInfoResponse } from '../src/lib/calendar-view/editor-types';
 
 type Result = { name: string; ok: boolean; reason?: string };
 const results: Result[] = [];
@@ -27,6 +35,12 @@ const show = (value: unknown) => JSON.stringify(value);
 function assertSame(got: unknown, want: unknown, label: string) {
   assert(show(got) === show(want), `${label}\n     got  ${show(got)}\n     want ${show(want)}`);
 }
+
+const messages = Object.fromEntries((['en', 'he', 'ru'] as const).map((l) => [l, JSON.parse(fs.readFileSync(path.resolve(__dirname, `../messages/${l}.json`), 'utf8'))]));
+const inHome = (locale: 'en' | 'he' | 'ru', el: ReturnType<typeof createElement>) => {
+  const provider = { locale, messages: messages[locale], timeZone: 'Asia/Jerusalem' } as ComponentProps<typeof NextIntlClientProvider>;
+  return createElement(NextIntlClientProvider, provider, createElement('div', { className: 'ch-home', 'data-theme': 'light' }, el));
+};
 
 async function main() {
   await check('isEveryYearRule: FREQ=YEARLY with no interval or interval 1, an end allowed; any other rule, or none, is not', () => {
@@ -82,6 +96,77 @@ async function main() {
     const heb = { ...base, hebrewRule: 'anniversary', hebrewAnchor: '1985-03-03' };
     const slots = [new Date('2026-03-02T22:00:00Z')];
     assertSame(toGoogleHebrewSingles({ ...heb, birthday: true }, [], slots), toGoogleHebrewSingles(heb, [], slots), 'hebrew');
+  });
+
+  // ---- The editor model (src/lib/calendar-view/editor-model.ts) ----
+
+  const CALENDARS = [{ id: 'native:cal1', name: 'Family', color: null, main: true, mine: true }];
+  const YEARLY = { freq: 'yearly' as const, interval: 1 };
+  const blank = (over: Partial<EditorForm> = {}): EditorForm => ({
+    ...newItemForm({ today: '2026-03-03', pickedDay: '2026-03-03', nowMs: Date.UTC(2026, 2, 3, 6), tz: 'Asia/Jerusalem', kinds: { event: true, reminder: true }, calendars: CALENDARS }),
+    title: 'Dana', allDay: true, repeat: YEARLY,
+    ...over,
+  });
+  const info = (over: Partial<ItemEditInfoResponse> = {}): ItemEditInfoResponse => ({
+    kind: 'event', canEdit: true, canDelete: true,
+    occurrence: { start: '2026-03-03', end: '2026-03-03', allDay: true, title: 'Dana', location: '', description: '' },
+    series: { recurring: true, start: '1985-03-03', repeat: { freq: 'yearly', interval: 1, ends: false }, spec: YEARLY, fixedDays: false, zone: 'Asia/Jerusalem', rule: { choice: 'yearly' }, first: false },
+    tz: 'Asia/Jerusalem', calendar: { id: 'native:cal1', name: 'Family', color: null }, forName: null,
+    scopes: ['single', 'following', 'all'], alert: 'default', birthday: false, source: 'famcal',
+    ...over,
+  } as ItemEditInfoResponse);
+
+  await check('showsBirthday: an all-day FamCal event repeating every year, civil or Hebrew; not timed, weekly, every two years, a one-off, a reminder or a Google calendar', () => {
+    assertSame(
+      [
+        showsBirthday(blank()),
+        showsBirthday(blank({ repeat: { freq: 'hebrew', interval: 1 } })),
+        showsBirthday(blank({ allDay: false })),
+        showsBirthday(blank({ repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } })),
+        showsBirthday(blank({ repeat: { freq: 'yearly', interval: 2 } })),
+        showsBirthday(blank({ repeat: 'none' })),
+        showsBirthday(blank({ kind: 'reminder' })),
+        showsBirthday(blank({ calendarId: 'avi@gmail.com' })),
+      ],
+      [true, true, false, false, false, false, false, false],
+      'shows'
+    );
+  });
+
+  await check('createBody: birthday: true only when the switch is on and shown; never false, never for a hidden switch', () => {
+    assert(!('birthday' in createBody(blank())), 'off');
+    assertSame(createBody(blank({ birthday: true })).birthday, true, 'on');
+    assert(!('birthday' in createBody(blank({ birthday: true, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } }))), 'hidden under another repeat');
+    assert(!('birthday' in createBody(blank({ birthday: true, allDay: false }))), 'hidden on a timed event');
+  });
+
+  await check('edit: the form reads the switch; updateBody sends it only when changed and shown; a series asks "this one and after" or "all", as the alert does', () => {
+    const initial = editItemForm(info());
+    assertSame([initial.birthday, editItemForm(info({ birthday: true })).birthday, editItemForm(info({ birthday: undefined })).birthday], [false, true, false], 'prefill');
+    assert(updateBody(initial, initial, 'k', 'all', info()) === null, 'untouched');
+    assertSame(updateBody({ ...initial, birthday: true }, initial, 'k', 'all', info())?.changes, { birthday: true }, 'on');
+    const on = editItemForm(info({ birthday: true }));
+    assertSame(updateBody({ ...on, birthday: false }, on, 'k', 'all', info({ birthday: true }))?.changes, { birthday: false }, 'off');
+    const weekly = updateBody({ ...on, repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } }, on, 'k', 'following', info({ birthday: true }))?.changes;
+    assert(weekly !== undefined && !('birthday' in weekly), `another repeat sends no switch (the server turns it off): ${show(weekly)}`);
+    assertSame(scopePlan({ ...initial, birthday: true }, initial, info()), { kind: 'sheet', choices: ['following', 'all'], note: 'series' }, 'a series');
+  });
+
+  await check('editor: the Birthday switch shows under Repeat for an all-day yearly FamCal event, in en/he/ru; not for a weekly one; on a civil birthday the count hint sits under it (the Hebrew one keeps it under Repeat, once)', () => {
+    const cancelRef = { current: null } as MutableRefObject<(() => void) | null>;
+    const render = (locale: 'en' | 'he' | 'ru', over: Partial<EditorForm>) =>
+      renderToString(inHome(locale, createElement(EditorSheet, { mode: 'create', initial: blank(over), kinds: { event: true, reminder: true }, calendars: CALENDARS, hebrewDates: true, onSave: async () => ({ ok: true }) as never, onClose: () => undefined, cancelRef })));
+    const times = (html: string, text: string) => html.split(text.replace(/'/g, '&#x27;')).length - 1;
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const label = messages[locale].calendarHome.row.birthday as string;
+      const hint = messages[locale].calendarHome.editor.repeat.hebrewCountHint as string;
+      const off = render(locale, {});
+      assert(times(off, `>${label}<`) === 1, `${locale}: the switch is not shown`);
+      assert(times(off, hint) === 0, `${locale}: a hint with the switch off`);
+      assert(times(render(locale, { birthday: true }), hint) === 1, `${locale}: no hint on a civil birthday`);
+      assert(times(render(locale, { birthday: true, repeat: { freq: 'hebrew', interval: 1 } }), hint) === 1, `${locale}: the Hebrew hint twice or not at all`);
+      assert(times(render(locale, { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } }), `>${label}<`) === 0, `${locale}: shown for a weekly event`);
+    }
   });
 
   const failed = results.filter((r) => !r.ok);

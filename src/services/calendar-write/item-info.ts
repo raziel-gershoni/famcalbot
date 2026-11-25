@@ -404,6 +404,8 @@ export async function itemEditInfo(item: Extract<LoadedItem, { status: 'ok' }>, 
     forName: ownerIsPartner && ctx.partner ? ctx.partner.name : null,
     // An event's alert (a reminder has none); a stored lead off the list reads as it is.
     ...(isReminder ? {} : { alert: alertChoiceOf(series) }),
+    // The Birthday switch (birthday spec): an event's.
+    ...(isReminder ? {} : { birthday: series.birthday }),
     scopes: series.rrule ? ['single', 'following', 'all'] : ['single'],
     canMoveCalendar: moveTargets.length > 1,
     moveTargets,

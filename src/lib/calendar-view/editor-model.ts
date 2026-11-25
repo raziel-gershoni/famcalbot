@@ -86,6 +86,11 @@ export interface EditorForm {
    */
   alert: AlertChoice;
   /**
+   * The Birthday switch (birthday spec): an all-day FamCal event repeating every year (showsBirthday). A switch left on
+   * while hidden (another repeat, a time of day) is kept in the form but never sent; the server turns it off.
+   */
+  birthday: boolean;
+  /**
    * A reminder's time: 'time' (a time of day, or the reminder time when all-day), or 'zman': date-only, due each day at a
    * zman plus an offset at the person's place. Only a reminder has it; the zman* fields mean something only in 'zman'.
    */
@@ -287,6 +292,7 @@ export function newItemForm(ctx: NewItemContext): EditorForm {
     forWho: 'me',
     eachMarksDone: false,
     alert: 'default',
+    birthday: false,
     ...ZMAN_DEFAULTS,
   };
 }
@@ -326,6 +332,7 @@ export function editItemForm(info: ItemEditInfoResponse): EditorForm {
     forWho: info.forWho ?? 'me',
     eachMarksDone: info.eachMarksDone === true,
     alert: info.alert ?? 'default',
+    birthday: info.birthday === true,
     ...zmanFields(info),
   };
 }
@@ -563,6 +570,14 @@ export const hebrewAnchorOf = (info: ItemEditInfoResponse): string | null => inf
 /** The wall time the server takes: with the clock when timed, the bare day when all-day. */
 const wallOf = (day: string, time: string, allDay: boolean) => (allDay ? day : `${day}T${time}`);
 
+/**
+ * Whether the Birthday switch shows (birthday spec): an all-day event on a FamCal calendar whose repeat is every year,
+ * civil or on the Hebrew date. The store keeps the switch on such a series only (src/lib/birthday.ts canBeBirthday).
+ */
+export function showsBirthday(form: EditorForm): boolean {
+  return form.kind === 'event' && form.allDay && isNativeCalendar(form.calendarId) && isSpec(form.repeat) && (form.repeat.freq === 'yearly' || form.repeat.freq === 'hebrew') && form.repeat.interval === 1;
+}
+
 /** The POST body for a new item (user_id and the init data are added by the client). */
 export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | 'initData'> {
   const reminder = form.kind === 'reminder';
@@ -585,6 +600,7 @@ export function createBody(form: EditorForm): Omit<CreateItemBody, 'user_id' | '
     if (form.calendarId) body.calendarId = form.calendarId;
     // Only a timed FamCal event takes one: a Google calendar keeps its own, an all-day event has none.
     if (form.alert !== 'default' && !allDay && isNativeCalendar(form.calendarId)) body.alert = form.alert;
+    if (form.birthday && showsBirthday(form)) body.birthday = true;
   } else if (form.forWho !== 'me') {
     body.forWho = form.forWho;
     // The switch goes only for a reminder for both of us, and only when it is on (the default is one shared Done).
@@ -645,6 +661,8 @@ export function updateBody(
   if (each !== null) changes.eachMarksDone = each;
   const alert = alertChange(form, initial);
   if (alert !== null) changes.alert = alert;
+  const birthday = birthdayChange(form, initial);
+  if (birthday !== null) changes.birthday = birthday;
   // A stop makes this occurrence a one-off: it always carries the occurrence's own times,
   // with the form's edits on top, never the series' (3b spec §3.1).
   if (repeat === 'none' && initial.repeat !== 'none') {
@@ -668,6 +686,14 @@ function eachMarksDoneChange(form: EditorForm, initial: EditorForm): boolean | n
  */
 function alertChange(form: EditorForm, initial: EditorForm): AlertChoice | null {
   return form.kind === 'event' && !form.allDay && form.alert !== initial.alert ? form.alert : null;
+}
+
+/**
+ * The Birthday switch the person set, or null while it is as it was. Never sent while hidden: a save that leaves an
+ * all-day yearly event turns it off on the server (birthday spec).
+ */
+function birthdayChange(form: EditorForm, initial: EditorForm): boolean | null {
+  return showsBirthday(form) && form.birthday !== initial.birthday ? form.birthday : null;
 }
 
 /**
@@ -751,6 +777,7 @@ export function scopePlan(form: EditorForm, initial: EditorForm, info: ItemEditI
   const otherSeriesLevel =
     (!reminder && !!form.calendarId && form.calendarId !== initial.calendarId) ||
     alertChange(form, initial) !== null ||
+    birthdayChange(form, initial) !== null ||
     eachMarksDoneChange(form, initial) !== null ||
     (reminder && form.forWho !== initial.forWho);
   const zmanSeriesLevel = timeModeChange(form, initial) !== null && !zmanOffTimed;

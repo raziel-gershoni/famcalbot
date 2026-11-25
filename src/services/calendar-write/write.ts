@@ -160,7 +160,7 @@ export async function createItem(user: UserConfig, cmd: CreateCommand, tz: strin
       const calendarCuid = placed ? decodeCalendarId(placed) : (await getMainNativeCalendar(user.id)).id;
       if (!calendarCuid) return { status: 'invalid', field: 'calendarId' };
       const times = createTimes(cmd, tz);
-      const event = await createNativeEvent({ ...base, ...times, calendarCuid, ...(cmd.alert !== undefined ? { alert: cmd.alert } : {}) });
+      const event = await createNativeEvent({ ...base, ...times, calendarCuid, ...(cmd.alert !== undefined ? { alert: cmd.alert } : {}), ...(cmd.birthday ? { birthday: true } : {}) });
       const calendar = await prisma.nativeCalendar.findUnique({ where: { id: event.calendarId } });
       if (calendar) await clearCaches(user, [calendar], [null]);
       trackActivityAsync(user.id, 'voice_event_created', { calendar_id: placed ?? `native:${calendarCuid}`, source: 'app' });
@@ -375,7 +375,10 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
   // An event's alert is series-level like its calendar (editor upgrades spec §2). A reminder has none.
   if (c.alert !== undefined && reminder) return { status: 'invalid', field: 'alert' };
   const alert = c.alert !== undefined && c.alert !== alertChoiceOf(series) ? c.alert : undefined;
-  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined || eachMarksDone !== undefined || zmanChange !== undefined;
+  // The Birthday switch is series-level like the alert (birthday spec); a reminder has none. The store refuses it on a shape that can't be one.
+  if (c.birthday !== undefined && reminder) return { status: 'invalid', field: 'birthday' };
+  const birthday = c.birthday !== undefined && c.birthday !== series.birthday ? c.birthday : undefined;
+  const seriesLevel = repeat !== undefined || moveTo !== undefined || alert !== undefined || forUserId !== undefined || eachMarksDone !== undefined || zmanChange !== undefined || birthday !== undefined;
   const sameKey = itemKeyOf(series.id, key.slot);
   if (!timeChanged && Object.keys(text).length === 0 && !seriesLevel) return { status: 'ok', key: sameKey };
 
@@ -408,6 +411,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
     ...(built !== undefined ? { rrule: built?.rrule ?? null, hebrewRule: built?.hebrewRule ?? null, ...(built?.endGiven ? { endGiven: true } : {}), ...(built ? { rebuilt: true } : {}) } : {}),
     ...(moveTo !== undefined ? { calendarId: moveTo } : {}),
     ...(alert !== undefined ? { alert } : {}),
+    ...(birthday !== undefined ? { birthday } : {}),
     ...(forUserId !== undefined ? { forUserId, forBoth: forWho === 'both' } : {}),
     ...(eachMarksDone !== undefined ? { eachMarksDone } : {}),
     ...(zmanChange !== undefined ? { zmanSpec: zmanChange } : {}),
@@ -479,6 +483,7 @@ export async function updateItem(user: UserConfig, cmd: UpdateCommand, userTz: s
       ...(repeat !== undefined ? ['repeat'] : []),
       ...(moveTo !== undefined ? ['calendar'] : []),
       ...(alert !== undefined ? ['alert'] : []),
+      ...(birthday !== undefined ? ['birthday'] : []),
       ...(forUserId !== undefined ? ['recipient'] : []),
       ...(eachMarksDone !== undefined ? ['each_marks_done'] : []),
       ...(zmanChange !== undefined ? ['zman'] : []),

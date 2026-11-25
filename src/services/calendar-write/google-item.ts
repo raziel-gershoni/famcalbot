@@ -295,6 +295,8 @@ export async function createGoogleItem(user: UserConfig, cmd: CreateCommand, tz:
   if (cmd.kind !== 'event') return NOT_ALLOWED; // reminders always live in FamCal
   // A Google event's alert is Google's own, shown read-only (editor upgrades spec §2, ruling E).
   if (cmd.alert !== undefined) return { status: 'invalid', field: 'alert' };
+  // The Birthday switch is a FamCal event's (birthday spec): Google keeps its own birthdays.
+  if (cmd.birthday) return { status: 'invalid', field: 'birthday' };
   // Google can't hold a Hebrew-date rule (hebrew-repeats spec §4): never sent as a Gregorian yearly one.
   if (isHebrewChoice(cmd.repeat)) return { status: 'invalid', field: 'repeat' };
   // A legacy Google user's chosen calendar, with the token gone (scope errors used to clear it): reconnect.
@@ -344,6 +346,7 @@ export async function updateGoogleItem(user: UserConfig, cmd: UpdateCommand & { 
   const key = cmd.key;
   if (isHebrewChoice(cmd.changes.repeat)) return { status: 'invalid', field: 'repeat' };
   if (cmd.changes.alert !== undefined) return { status: 'invalid', field: 'alert' };
+  if (cmd.changes.birthday !== undefined) return { status: 'invalid', field: 'birthday' };
   const loaded = await loadGoogleItem(user, key, userTz);
   if (loaded.status === 'not_found') return NOT_FOUND;
   if (loaded.status === 'error') return loaded.result;
