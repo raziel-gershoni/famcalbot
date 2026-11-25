@@ -10,6 +10,13 @@ import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import type { NativeEvent } from '@prisma/client';
 import { EditorSheet } from '../app/[locale]/(app)/dashboard/EditorSheet';
+import { ItemRow } from '../app/[locale]/(app)/dashboard/ItemRow';
+import { ItemSheet } from '../app/[locale]/(app)/dashboard/ItemSheet';
+import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
+import { toUnifiedEvent } from '../src/services/calendar-provider/native-provider';
+import { toItemDto } from '../src/services/calendar-read/dto';
+import type { ReadItem } from '../src/services/calendar-read/types';
+import type { ItemDTO } from '../src/lib/calendar-view/types';
 import { birthYearOf, canBeBirthday, isEveryYearRule } from '../src/lib/birthday';
 import { toGoogleEvent, toGoogleHebrewSingles } from '../src/services/calendar-move/mapper';
 import { createBody, editItemForm, newItemForm, scopePlan, showsBirthday, updateBody, type EditorForm } from '../src/lib/calendar-view/editor-model';
@@ -167,6 +174,56 @@ async function main() {
       assert(times(render(locale, { birthday: true, repeat: { freq: 'hebrew', interval: 1 } }), hint) === 1, `${locale}: the Hebrew hint twice or not at all`);
       assert(times(render(locale, { repeat: { freq: 'weekly', interval: 1, byDay: ['TU'] } }), `>${label}<`) === 0, `${locale}: shown for a weekly event`);
     }
+  });
+
+  // ---- The calendar screen: a cake before the title (ItemRow, ItemSheet) ----
+
+  const cal = { id: 'native:c1', source: 'famcal' as const, name: 'Family', color: null, mine: true, inLegend: true };
+  const occurrence = { title: 'Dana', startsAt: new Date('2026-03-02T22:00:00Z'), endsAt: new Date('2026-03-03T21:59:00Z'), allDay: true, timeZone: 'Asia/Jerusalem', seriesEventId: 's1', instanceStartsAt: new Date('2026-03-02T22:00:00Z'), isRecurringInstance: true };
+  const series = { kind: 'EVENT' as const, rrule: 'FREQ=YEARLY', hebrewRule: null, hebrewAnchor: null, startsAt: new Date('1985-03-02T22:00:00Z'), timeZone: 'Asia/Jerusalem', birthYear: null };
+  const dtoOf = (birthday: boolean, source: 'famcal' | 'google' = 'famcal'): ItemDTO => {
+    const event = toUnifiedEvent({ id: 'c1', name: 'Family' }, occurrence, { ...series, birthday: source === 'famcal' && birthday });
+    const item: ReadItem = {
+      source, key: source === 'famcal' ? 'famcal|s1' : 'google|g@gmail.com|e1', event: source === 'google' && birthday ? { ...event, eventType: 'birthday' } : event, calendar: { ...cal, source },
+      title: 'Dana', kind: 'event', seriesId: 's1', originalStart: event.start, recurring: true, rrule: 'FREQ=YEARLY', hebrewRule: null, hebrewAnchor: null,
+      ...(source === 'google' ? { google: { birthday, htmlLink: null } } : {}),
+    };
+    return toItemDto(item, null, { now: new Date('2026-03-03T08:00:00Z'), open: false, openSince: null });
+  };
+  const rowOf = (item: ItemDTO) => ({ item, whose: { mine: true, person: null, relation: null }, mark: null });
+  const renderRow = (locale: 'en' | 'he' | 'ru', item: ItemDTO) => renderToString(inHome(locale, createElement(ItemRow, { row: rowOf(item), day: '2026-03-03', tz: 'Asia/Jerusalem', onOpen: () => undefined }))).replace(/<!-- -->/g, '');
+  const cakes = (html: string) => (html.match(/lucide-cake/g) ?? []).length;
+
+  await check('row: a FamCal birthday and a Google one have the cake before the title and "Birthday" only for screen readers (no word in the meta line), in en/he/ru; a plain event has none', () => {
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const label = messages[locale].calendarHome.row.birthday as string;
+      for (const source of ['famcal', 'google'] as const) {
+        const html = renderRow(locale, dtoOf(true, source));
+        assert(cakes(html) === 1, `${locale} ${source}: cakes ${cakes(html)}`);
+        assert(html.indexOf('lucide-cake') < html.indexOf('>Dana'), `${locale} ${source}: the cake is not before the title`);
+        assert(new RegExp(`ch-visually-hidden[^>]*>${label} <`).test(html), `${locale} ${source}: no hidden label`);
+        assert(html.split(label).length - 1 === 1, `${locale} ${source}: the word shows outside the hidden label`);
+      }
+      const plain = renderRow(locale, dtoOf(false));
+      assert(cakes(plain) === 0 && !plain.includes(label), `${locale}: a plain event`);
+    }
+  });
+
+  await check('sheet: the cake before the title, and the "Birthday" tag stays', () => {
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const label = messages[locale].calendarHome.row.birthday as string;
+      const html = renderToString(inHome(locale, createElement(ItemSheet, { row: rowOf(dtoOf(true)), today: '2026-03-03', tz: 'Asia/Jerusalem', onClose: () => undefined }))).replace(/<!-- -->/g, '');
+      assert(cakes(html) === 1 && html.indexOf('lucide-cake') < html.indexOf('ch-sheet-title'), `${locale}: cake`);
+      assert(/<p class="ch-sheet-tags"><span>([^<]*)<\/span>/.exec(html)?.[1].split(' · ').includes(label), `${locale}: tag`);
+      const plain = renderToString(inHome(locale, createElement(ItemSheet, { row: rowOf(dtoOf(false)), today: '2026-03-03', tz: 'Asia/Jerusalem', onClose: () => undefined })));
+      assert(cakes(plain) === 0, `${locale}: a plain event`);
+    }
+  });
+
+  await check('CSS: the cake is muted, sized as the row\'s other icons, uses the home tokens and no physical left/right', () => {
+    const block = /\.ch-icon-birthday\s*\{[^}]*\}/.exec(AGENDA_CSS)?.[0] ?? '';
+    assert(/var\(--ch-muted\)/.test(block), `block ${block}`);
+    assert(!/\b(left|right|margin-left|margin-right|padding-left|padding-right)\b/.test(block), 'physical sides');
   });
 
   const failed = results.filter((r) => !r.ok);

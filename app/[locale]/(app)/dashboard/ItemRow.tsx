@@ -24,6 +24,7 @@
 //   viewer's calendar, outlined for the partner's; no usable colour keeps the grey outline.
 
 import { Fragment, type CSSProperties } from 'react';
+import { Cake } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { AgendaRow, ReminderMark, Whose } from '@/src/lib/calendar-view/agenda';
 import type { DayKey, ItemDTO } from '@/src/lib/calendar-view/types';
@@ -93,6 +94,11 @@ export function ReminderIcon({ mark }: { mark: ReminderMark }) {
       <circle cx="12" cy="12" r="9" />
     </svg>
   );
+}
+
+/** A birthday's cake (birthday spec), before the title; decorative: the row gives readers the word, the sheet its tag. */
+export function BirthdayIcon() {
+  return <Cake className="ch-icon ch-icon-birthday" aria-hidden="true" focusable="false" />;
 }
 
 /** The person chip's text, or null for the viewer's own item. */
@@ -222,7 +228,6 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
     if (item.repeatsDaily) segments.push({ text: t('row.everyDay') });
     else if (item.recurring) segments.push({ text: t('row.repeats') });
   }
-  if (item.birthday) segments.push({ text: t('row.birthday') });
   const note = item.location && item.location.trim() !== '' ? item.location.trim() : firstLine(item.description);
   if (note) segments.push({ text: note, user: true });
 
@@ -253,7 +258,9 @@ export function ItemRow({ row, day, tz, onOpen, lift: liftIn }: ItemRowProps) {
         <span className="ch-body">
           <span className="ch-title-line">
             {mark ? <ReminderIcon mark={mark} /> : null}
+            {item.birthday ? <BirthdayIcon /> : null}
             <span className="ch-title" dir="auto">
+              {item.birthday ? <span className="ch-visually-hidden">{t('row.birthday')} </span> : null}
               {title}
               <AnniversaryCount n={item.anniversary} />
             </span>

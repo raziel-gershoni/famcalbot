@@ -360,6 +360,9 @@ export const AGENDA_CSS = `
 .ch-icon-later {
   color: var(--ch-muted);
 }
+.ch-icon-birthday {
+  color: var(--ch-muted);
+}
 .ch-title {
   display: block;
   min-width: 0;

@@ -40,7 +40,7 @@ import {
 import { openExternalLink } from '@/src/lib/telegram-ui';
 import { BottomSheet } from '@/components/app-ui/BottomSheet';
 import { hebrewRepeatText, type HebrewRepeat } from './hebrew-repeat-words';
-import { AnniversaryCount, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
+import { AnniversaryCount, BirthdayIcon, PersonChip, ReminderIcon, useItemTitle } from './ItemRow';
 import { zmanRuleWords } from '@/src/lib/calendar-view/zman-words';
 
 /** A calendar's colour is only an accent (Ruling R7), and only a plain hex one is drawn. */
@@ -274,6 +274,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
     <BottomSheet label={t('sheet.label')} closeLabel={t('actions.close')} onClose={onClose}>
       <div className={`ch-sheet-head${mark === 'done' ? ' is-done' : ''}`}>
         {mark ? <ReminderIcon mark={mark} /> : null}
+        {item.birthday ? <BirthdayIcon /> : null}
         <h2 className="ch-sheet-title" dir="auto">
           {title}
           <AnniversaryCount n={item.anniversary} />

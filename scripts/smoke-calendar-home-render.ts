@@ -1432,7 +1432,8 @@ async function main() {
         'Some calendars didn’t load Retry',
         '2 calendars aren’t available Choose again',
         '19:30 22:00 Dinner with the Cohens Google · Family',
-        'All day Noa’s birthday Birthday Google · Birthdays',
+        // The cake replaces the meta line's word (birthday spec); readers get "Birthday" just before the title.
+        'All day Birthday Noa’s birthday Google · Birthdays',
         '18:00 19:00 Yoga Noa Google · Noa',
       ],
       'en Google',
