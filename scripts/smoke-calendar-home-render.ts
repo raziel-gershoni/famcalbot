@@ -103,7 +103,7 @@ import { AgendaView, AGENDA_CSS, type AgendaViewProps } from '../app/[locale]/(a
 import { ItemSheet, type SheetActions } from '../app/[locale]/(app)/dashboard/ItemSheet';
 import { FORM_CSS } from '../components/app-ui/form-kit';
 import { EDITOR_FORM_CSS } from '../app/[locale]/(app)/dashboard/form-kit';
-import { DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/(app)/dashboard/DragSurface';
+import { DRAG_AUTO_SCROLL, DRAG_CSS, OVERLAY_CLASS, LIFT_DELAY_MS, LIFT_TOLERANCE_PX, MOUSE_DISTANCE_PX, NAV_DWELL_MS } from '../app/[locale]/(app)/dashboard/DragSurface';
 import { DRAG_BAR_CSS, DragBar } from '../app/[locale]/(app)/dashboard/DragBar';
 import { REPEAT_CSS } from '../app/[locale]/(app)/dashboard/RepeatSheet';
 import { SendSheet } from '../app/[locale]/(app)/dashboard/SendSheet';
@@ -573,6 +573,10 @@ class FakeElement extends FakeNode {
   }
   set className(value: string) {
     this.setAttribute('class', value);
+  }
+  /** What drag to move's autoScrollable reads (dnd-kit's canScroll gets the real scrollers). */
+  get classList(): { contains: (cls: string) => boolean } {
+    return { contains: (cls: string) => this.className.split(' ').includes(cls) };
   }
   // React sets an input's type as a property; a browser reflects it as the attribute
   get type(): string {
@@ -4914,7 +4918,10 @@ async function main() {
       // and the page auto-scrolls only while something is really lifted.
       const overlay = dgOverlay(m);
       assert(overlay.className === OVERLAY_CLASS && (overlay.style as Row).pointerEvents === 'none' && overlay.modifiers.length === 1, `overlay ${show({ c: overlay.className, s: overlay.style })}`);
-      assert(dgDnd(m).autoScroll === true, 'auto-scroll while lifted');
+      // Auto-scroll while lifted, for the day list and the page only: the month pane's months snap, so it would race (final review C1).
+      const auto = dgDnd(m).autoScroll as Row;
+      const listScroller = byClass(m.container, 'ch-dp-scroller')[0];
+      assert(auto === DRAG_AUTO_SCROLL && auto.canScroll(scroller(m)) === false && listScroller && auto.canScroll(listScroller) === true, `auto-scroll while lifted, never the pane: ${show(auto)}`);
       assert(DRAG_CSS.includes('.ch-drag-overlay {\n  pointer-events: none;'), 'the wrapper takes no pointer events in CSS either');
       await React.act(async () => dgDnd(m).onDragEnd({ over: { id: dgDay(day(2)) } }));
       await settle();

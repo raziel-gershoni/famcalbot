@@ -53,6 +53,7 @@ import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
 import { DAY_PANEL_CSS, DayPanel } from '../app/[locale]/(app)/dashboard/DayPanel';
 import { SPLIT_HANDLE_CSS, SplitHandle } from '../app/[locale]/(app)/dashboard/SplitHandle';
 import { MONTH_PANE_CSS, MonthPane, SCROLL_IDLE_MS, type MonthPaneHandle, type MonthPaneProps } from '../app/[locale]/(app)/dashboard/MonthPane';
+import { DRAG_AUTO_SCROLL, autoScrollable } from '../app/[locale]/(app)/dashboard/DragSurface';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
 import path from 'path';
@@ -1766,7 +1767,20 @@ async function main() {
     assert(/aria-label="Thursday, 15 October[^"]*items/.test(same), 'under its own week start the model draws');
   });
 
-  await check('#45 React logged no warning', () => {
+  // ---- The final review's fixes (.superpowers/sdd/2026-11-26-responsive-home-layouts/final-review.md) ----
+
+  await check('#46 C1: while an item is lifted, auto-scroll moves the day list and the page at their edges but never the month pane (its months snap, so each 5 ms scrollBy would turn a whole month under a finger at rest; a chevron dwell turns it, Ruling 5): autoScrollable refuses .ch-pane-scroller only, and DragLayer hands dnd-kit { canScroll: autoScrollable } while lifted, false otherwise', () => {
+    const box = (cls: string) => ({ classList: { contains: (c: string) => cls.split(' ').includes(c) } }) as unknown as Element;
+    assert(typeof autoScrollable === 'function', 'DragSurface exports autoScrollable');
+    assert(autoScrollable(box('ch-pane-scroller')) === false, 'the month pane never auto-scrolls');
+    assert(autoScrollable(box('ch-dp-scroller')) === true && autoScrollable(box('')) === true, 'the day list and the page (document.scrollingElement) do');
+    assert(DRAG_AUTO_SCROLL?.canScroll === autoScrollable, `the options dnd-kit gets: ${show(DRAG_AUTO_SCROLL)}`);
+    const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/DragSurface.tsx'), 'utf8');
+    const uses = source.match(/autoScroll=\{[^}]*\}/g) ?? [];
+    assert(show(uses) === show(['autoScroll={lifted !== null ? DRAG_AUTO_SCROLL : false}']), `DndContext's autoScroll: ${show(uses)}`);
+  });
+
+  await check('#99 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

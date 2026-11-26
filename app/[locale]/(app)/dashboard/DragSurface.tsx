@@ -3,7 +3,8 @@
 // Drag to move, the Month's side of it (editor upgrades spec §4; ruling C: the Month, never the
 // Agenda; responsive home release 2 §4). The library is @dnd-kit/core: a mouse sensor (6 px), a touch
 // sensor (a 450 ms press under 8 px of movement lifts; moving sooner scrolls, a short tap still
-// opens), auto-scroll at the scrollers' edges and a drag overlay for the ghost.
+// opens), auto-scroll at the day list's and the page's edges (never the month pane's: autoScrollable)
+// and a drag overlay for the ghost.
 //
 // This file only draws and reports. The rules (what lifts, where it lands, which occurrences) are
 // drag-model.ts's, and the save is the container's (CalendarHome), through the editor's own path.
@@ -54,6 +55,18 @@ export const MOUSE_DISTANCE_PX = 6;
 export const NAV_DWELL_MS = 600;
 /** A click this soon after a drag ended is the drag's, not a tap. */
 const CLICK_GUARD_MS = 400;
+
+/**
+ * Which scrollers auto-scroll while an item is lifted (dnd-kit's canScroll): the day list and the
+ * page at their edges, never the month pane. Its months snap (scroll-snap-type: y mandatory), so
+ * each of the library's 5 ms scrollBy ticks would turn a whole month under a finger at rest on the
+ * first or last week; resting on a chevron is the month turn (Ruling 5).
+ */
+export function autoScrollable(el: Element): boolean {
+  return el.classList?.contains('ch-pane-scroller') !== true;
+}
+/** DndContext's auto-scroll while lifted: one object, so the library's effect isn't re-run each render. */
+export const DRAG_AUTO_SCROLL = { canScroll: autoScrollable } as const;
 
 /** What a draggable carries to the layer. */
 interface DragData {
@@ -293,7 +306,7 @@ export function DragLayer({ children, pendingKey, onBlocked, onLift, onTarget, o
   return (
     <DragContext.Provider value={value}>
       <style>{DRAG_CSS}</style>
-      <DndContext sensors={sensors} collisionDetection={hitTest} autoScroll={lifted !== null} accessibility={ACCESSIBILITY} onDragStart={start} onDragOver={over} onDragEnd={end} onDragCancel={cancel}>
+      <DndContext sensors={sensors} collisionDetection={hitTest} autoScroll={lifted !== null ? DRAG_AUTO_SCROLL : false} accessibility={ACCESSIBILITY} onDragStart={start} onDragOver={over} onDragEnd={end} onDragCancel={cancel}>
         {children}
         <DragOverlay dropAnimation={null} className={OVERLAY_CLASS} modifiers={[ghostModifier]} style={{ inlineSize: 'auto', blockSize: 'auto', maxInlineSize: '72vw', pointerEvents: 'none' }}>
           {lifted ? (
