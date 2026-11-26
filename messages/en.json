@@ -140,7 +140,6 @@
     },
     "month": {
       "today": "Today",
-      "allMonths": "All months",
       "previous": "Previous month",
       "next": "Next month",
       "dayToday": "Today · {date}",

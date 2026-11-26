@@ -140,7 +140,6 @@
     },
     "month": {
       "today": "היום",
-      "allMonths": "כל החודשים",
       "previous": "החודש הקודם",
       "next": "החודש הבא",
       "dayToday": "היום · {date}",

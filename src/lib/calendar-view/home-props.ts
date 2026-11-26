@@ -59,7 +59,7 @@ export type CalendarHomeProps = {
    */
   jewish?: boolean;
   /**
-   * Show the day's Daf Yomi page under each Agenda day and the Month's picked day. On only when the setting is on and
+   * Show the day's Daf Yomi page under each Agenda day and the Month's selected day. On only when the setting is on and
    * the calendar is Jewish (page-data decides); absent means off.
    */
   dafYomi?: boolean;

@@ -3,7 +3,7 @@
 //
 // The squares part (Task 3): app/[locale]/(app)/dashboard/MonthSquares.tsx, a month's grid of
 // size-aware day squares. Its models come from E5's buildMonth over range answers that go
-// through D3's real reducer, as smoke-calendar-month-browse.ts feeds them, and it renders in
+// through D3's real reducer, as release 1's All months smoke fed them, and it renders in
 // en, he and ru through next-intl with the real messages. It checks:
 //  - the markup: dir, the rows (grid-template-rows: repeat(<weeks>, 1fr)) for 4-, 5- and
 //    6-week months, one button per day of the month and a blank, aria-hidden span for the
@@ -28,8 +28,8 @@
 // and a scroller of whole months, each one scroller tall and snapping, so a scroll position is
 // index × height. Its fake window (scripts/lib/fake-dom.ts) lays the scroller out at 390 × 400,
 // runs frames by hand, answers prefers-reduced-motion and has a ResizeObserver a check triggers.
-// It checks (ported from smoke-calendar-month-browse.ts #2, #7, #15–#18, #22, #26b, #26c, plus
-// the pane's own):
+// It checks (ported from release 1's All months smoke, #2, #7, #8, #11, #15–#18, #22, #26b,
+// #26c, and the tapped-day screen's #2–#3 and model guard, plus the pane's own):
 //  - the bar: ‹ title › at the start, an empty gap, Today at the end (shown while the selected
 //    day or the month in view isn't today's; it calls onToday only); the title with its Hebrew
 //    months, the jump to a date; the bar row and the weekday row add up to monthBarPx; dir; the
@@ -112,7 +112,7 @@ for (const level of ['error', 'warn'] as const) {
   };
 }
 
-// ---- Fixtures: an Israeli FamCal user paired with Noa, on Thursday 15 October 2026 (smoke-calendar-month-browse.ts's) ----
+// ---- Fixtures: an Israeli FamCal user paired with Noa, on Thursday 15 October 2026 (release 1's All months smoke's) ----
 
 const TZ = 'Asia/Jerusalem';
 const TODAY: DayKey = '2026-10-15';
@@ -1747,7 +1747,26 @@ async function main() {
     });
   });
 
-  await check('#43 React logged no warning', () => {
+  await check('#43 the title is a polite live region (a chevron or a step is announced), and the chevrons are drawn flipped in RTL (.ch-flip); ported from the tapped-day screen\'s #2–#3', () => {
+    const html = markup(renderPane('en', paneProps(famcalStore())));
+    assert(/<span class="ch-pane-title-text" aria-live="polite">/.test(html), `the live title: ${show(/<span class="ch-pane-title-text"[^>]*>/.exec(html)?.[0])}`);
+    const chevrons = [...html.matchAll(/<button[^>]*class="ch-pane-chev[^"]*"[^>]*><svg class="([^"]*)"/g)].map((m) => m[1]);
+    assert(show(chevrons) === show(['ch-flip', 'ch-flip']), `both chevrons flip in RTL: ${show(chevrons)}`);
+  });
+
+  await check('#44 a month whose model was drawn under another week start (a store drop with a new week start, the model not yet rebuilt) draws as loading, never free; ported from All months\' #11 and the tapped-day screen\'s model guard', () => {
+    const store = famcalStore();
+    const html = markup(renderPane('en', paneProps(store, { weekStart: 1 })));
+    const october = /<div class="ch-pane-month" data-month="2026-10">([\s\S]*?)<\/div><div class="ch-pane-month" data-month="2026-11">/.exec(html)?.[1] ?? '';
+    assert(october.length > 0, 'October is drawn');
+    const labels = [...october.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]);
+    assert(labels.length === 31 && labels.every((l) => l.endsWith('loading')), `every day reads loading: ${show(labels.slice(0, 3))}`);
+    assert(!/nothing planned|class="ch-sq-dot /.test(october), 'nothing free, no dots');
+    const same = markup(renderPane('en', paneProps(store)));
+    assert(/aria-label="Thursday, 15 October[^"]*items/.test(same), 'under its own week start the model draws');
+  });
+
+  await check('#45 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

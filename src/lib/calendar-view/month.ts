@@ -1,11 +1,12 @@
 // The Month's model (spec §7.4, §5's month windows, Rulings R11 and R12; Plan E
-// Rulings 3–7): what the Month draws, worked out from the client store. Pure and
-// client-safe: it imports the store, the Agenda's whose and reminder rules, the grid,
-// the day format, the Hebrew day-1 test and the RangeWindow type, and nothing else. The
-// views (MonthBrowse, MonthPicked) format dates and copy and fit the slots to the
-// screen; this file decides each cell's chips and bars, its dots and counts, each
-// month's status and notices, the heights the browse lays its months out with, the
-// layout's navigation and which months to fetch.
+// Rulings 3–7; responsive home release 2): what the Month draws, worked out from the
+// client store. Pure and client-safe: it imports the store, the Agenda's whose and
+// reminder rules, the grid, the day format, the Hebrew day-1 test, the RangeWindow type
+// and month-layout's line limit, and nothing else. The views (MonthPane, MonthSquares,
+// DayPanel) format dates and copy and size the squares; this file decides each cell's
+// chips and bars, its dots and counts, each month's status and notices, the bar's height,
+// the focus (the month sought and the selected day), the reach's ends and which months
+// to fetch, and fits a square's lines.
 //
 // - A month draws its own days; the days of its rows outside it are blank (R12).
 // - A cell's slots: the bars first, by lane, then its one-day items (all-day before
@@ -28,7 +29,7 @@
 //   lanes above a bar; if that is still too many, the spacers go and the bars move up,
 //   each with its title, then "+N". So a cell never shows an empty line over "+N", and a
 //   bar that is drawn out of its lane, or after a day that hid it, says what it is
-//   (limitRow, per week row).
+//   (fitRow, per week row).
 // - Nothing here throws: a malformed month gives null, and a malformed day leaves the
 //   layout as it is.
 
@@ -60,95 +61,19 @@ import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
 import { SQUARE_MAX_LINES } from './month-layout';
 import { MONTH_REACH } from './year-limits';
 
-export type MonthLayout = 'browse' | 'picked';
-
-/** Where the Month is: the layout, its month (browse: the month to bring under the bar), and the picked day. */
-export interface MonthUi {
-  layout: MonthLayout;
-  month: MonthKey;
-  /** Set exactly when picked: a day of `month`. */
-  selected: DayKey | null;
-}
-
-/** A browse cell's height (Ruling 3): the head line, the 13 px Hebrew month line and 3 slots of 18 px. */
-export const BROWSE_CELL_PX = 92;
-/** A picked cell's height (spec §7.4: 46–48 px). */
-export const PICKED_CELL_PX = 48;
-/** Slots in a browse cell (Ruling 3). */
-export const BROWSE_SLOTS = 3;
-/** Chips a browse cell shows at most on a narrow screen (Ruling 3). */
-export const BROWSE_CHIPS_NARROW = 2;
-/** A narrow screen: this wide or narrower (`(max-width: 360px)`). */
-export const NARROW_MAX_PX = 360;
-/** Dots a picked cell shows, then "+N". */
+/** Dots a small square shows, then "+N". */
 export const PICKED_DOTS = 3;
-/**
- * The picked day's first row (one of D's ItemRows with its meta line): entering picked
- * keeps it on screen when the screen is tall enough (pickedScrollTop).
- */
-export const PICKED_FIRST_ROW_PX = 64;
 
-/** A month title's padding (14 px above, 6 below, as the mockup's month titles). */
-const TITLE_PAD_PX = 20;
-/** One line of a title: the month name (or the bar's, beside the 44 px Today button). */
-const TITLE_LINE_PX = 22;
-/** The Hebrew months' line under a title, in smaller muted text. */
-const HEBREW_LINE_PX = 16;
-/** The sticky bar's row: it holds the 44 px Today button, with 2 px either side. */
+/** The month bar's row: it holds the 44 px chevrons, title and Today, with 2 px either side. */
 const BAR_ROW_PX = 48;
-/** The sticky bar's row with the Hebrew line: 22 + 16 px of text, 7 px either side. */
+/** The bar's row with the Hebrew months' line under the title: 22 + 16 px of text, 7 px either side. */
 const BAR_ROW_HEBREW_PX = 52;
 /** The weekday row under the bar, its bottom border included. */
 const WEEKDAY_ROW_PX = 24;
 
-/**
- * A month's title block in browse: the `h2`'s month line and, when on, its Hebrew
- * months' line, each one line with an ellipsis. The view sets this height exactly.
- */
-export function monthTitlePx(hebrewDates: boolean): number {
-  return TITLE_PAD_PX + TITLE_LINE_PX + (hebrewDates ? HEBREW_LINE_PX : 0);
-}
-
-/**
- * The browse's sticky bar with its weekday row. The view sets this height exactly; the
- * titles' scroll-margin-top is this plus the safe areas, which the bar sits under.
- */
+/** The pane's month bar with its weekday row (the split's chrome). The pane sets this height exactly. */
 export function monthBarPx(hebrewDates: boolean): number {
   return (hebrewDates ? BAR_ROW_HEBREW_PX : BAR_ROW_PX) + WEEKDAY_ROW_PX;
-}
-
-/** A month's block in browse: its title and `rows` week rows. */
-export function monthBlockPx(rows: number, hebrewDates: boolean): number {
-  const whole = Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : 0;
-  return monthTitlePx(hebrewDates) + whole * BROWSE_CELL_PX;
-}
-
-/** Each month's top, from the top of the list of months: 0, then the blocks above it added up. */
-export function monthOffsets(months: readonly MonthKey[], weekStart: WeekStart, hebrewDates: boolean): number[] {
-  const out: number[] = [];
-  let top = 0;
-  for (const month of months) {
-    out.push(top);
-    top += monthBlockPx(monthGrid(month, weekStart).length, hebrewDates);
-  }
-  return out;
-}
-
-/**
- * The months a band of the list shows, as indexes into `offsets` (both in the list's
- * coordinates): `first` is the month whose block holds `top` (the one under the
- * sticky bar when `top` is the bar's bottom), `last` the last one that starts above
- * `bottom`. Clamped to the list: a band above it gives the first month, below it the
- * last. An empty list gives { first: 0, last: -1 }.
- */
-export function monthsInViewport(offsets: readonly number[], top: number, bottom: number): { first: number; last: number } {
-  const n = offsets.length;
-  if (n === 0) return { first: 0, last: -1 };
-  let first = 0;
-  while (first + 1 < n && offsets[first + 1] <= top) first++;
-  let last = first;
-  while (last + 1 < n && offsets[last + 1] < bottom) last++;
-  return { first, last };
 }
 
 export type SlotKind = 'bar' | 'allDay' | 'timed' | 'spacer';
@@ -186,9 +111,9 @@ export interface MonthCell {
   inMonth: boolean;
   today: boolean;
   status: DayStatus;
-  /** Every slot, bars by lane first; the view limits them (limitSlots). Empty on a blank cell. */
+  /** Every slot, bars by lane first; a large square fits them to its lines (fitRow). Empty on a blank cell. */
   slots: MonthSlot[];
-  /** Picked's dots: each drawn item's, in slot order, spacers left out. */
+  /** A small square's dots: each drawn item's, in slot order, spacers left out. */
   dots: MonthDot[];
   /** Drawn items (Ruling 5: daily reminders not counted), and how many of them aren't the viewer's. */
   count: number;
@@ -197,7 +122,7 @@ export interface MonthCell {
   hebrewMonthStart: boolean;
 }
 
-/** One of picked's dots: filled (the viewer's) or a ring (the partner's), in the calendar's colour. */
+/** One of a small square's dots: filled (the viewer's) or a ring (the partner's), in the calendar's colour. */
 export interface MonthDot {
   mine: boolean;
   color: string | null;
@@ -483,84 +408,18 @@ export function monthModels(store: CalendarStore): (month: MonthKey) => MonthMod
   return get;
 }
 
-/**
- * The slots a browse cell shows (Ruling 3). Up to `maxChips` (BROWSE_SLOTS, or
- * BROWSE_CHIPS_NARROW on a narrow screen) every slot shows, spacers and all, so each bar
- * stays in its lane. Past it:
- * - the day's one-day items move up into the spacers above its bars (the bars keep their
- *   lanes); if all fits then, all shows;
- * - else the spacers go and the bars move up: a bar that leaves its lane shows its title
- *   (it no longer lines up with its other days); if all fits then, all shows;
- * - else the first min(maxChips, BROWSE_SLOTS - 1) items show, bars first, and "+N" in
- *   the next slot, N being the items left out.
- * So a spacer never shows over "+N", and "+N" never shows while the items would fit.
- * Trailing spacers never show.
- */
-export function limitSlots(slots: readonly MonthSlot[], maxChips: number): { shown: MonthSlot[]; more: number } {
-  const limit = Number.isFinite(maxChips) ? Math.max(1, Math.min(BROWSE_SLOTS, Math.floor(maxChips))) : BROWSE_SLOTS;
-  const items = withoutTrailingSpacers(slots);
-  if (items.length <= limit) return { shown: items, more: 0 };
-  // The one-day items into the bars' empty lanes.
-  const singles = items.filter((s) => s.kind !== 'bar' && s.kind !== 'spacer');
-  const packed = withoutTrailingSpacers([
-    ...items.filter((s) => s.kind === 'bar' || s.kind === 'spacer').map((s) => (s.kind === 'spacer' && singles.length > 0 ? (singles.shift() as MonthSlot) : s)),
-    ...singles,
-  ]);
-  if (packed.length <= limit) return { shown: packed, more: 0 };
-  // No spacers: a bar that moves up shows its title.
-  const real: MonthSlot[] = [];
-  items.forEach((s, lane) => {
-    if (s.kind === 'spacer') return;
-    real.push(s.kind === 'bar' && real.length !== lane && !s.showTitle ? { ...s, showTitle: true } : s);
-  });
-  if (real.length <= limit) return { shown: real, more: 0 };
-  const keep = Math.min(limit, BROWSE_SLOTS - 1);
-  return { shown: real.slice(0, keep), more: real.length - keep };
-}
-
 function withoutTrailingSpacers(slots: readonly MonthSlot[]): MonthSlot[] {
   let end = slots.length;
   while (end > 0 && slots[end - 1].kind === 'spacer') end--;
   return slots.slice(0, end);
 }
 
-/**
- * A week row's cells as browse shows them: limitSlots for each in-month cell (a blank
- * one shows nothing), then a bar that the day before did not draw in the same slot (it
- * was hidden behind "+N" there, or drawn in another slot) shows its title, so no bar is
- * drawn nameless.
- */
-export function limitRow(cells: readonly MonthCell[], maxChips: number): { shown: MonthSlot[]; more: number }[] {
-  const out = cells.map((cell) => (cell.inMonth ? limitSlots(cell.slots, maxChips) : { shown: [], more: 0 }));
-  for (let col = 1; col < out.length; col++) {
-    const before = out[col - 1].shown;
-    out[col].shown = out[col].shown.map((s, i) => (s.kind === 'bar' && !s.showTitle && before[i]?.key !== s.key ? { ...s, showTitle: true } : s));
-  }
-  return out;
-}
-
-/** The dots a picked cell shows: PICKED_DOTS, then "+N" for the rest. */
+/** The dots a small square shows: PICKED_DOTS, then "+N" for the rest. */
 export function limitDots<T>(dots: readonly T[]): { shown: T[]; more: number } {
   return { shown: dots.slice(0, PICKED_DOTS), more: Math.max(0, dots.length - PICKED_DOTS) };
 }
 
-/**
- * Where entering picked scrolls the page (Ruling 6), in document px: the top (0), so the
- * header, the tabs, the bar, the month and the start of the day's list show together;
- * when the screen is too short for that (a 6-row month under two banners on a 375 × 667
- * phone), just far enough down that the day's header and its first row
- * (PICKED_FIRST_ROW_PX) show, and never past the picked layout's own top, so its bar
- * stays on screen. `layoutTop` and `dayHeadBottom` are where the layout starts and the
- * day's header ends in the document; `viewport` is the screen's height. 0 for anything
- * that isn't a finite number, or no screen.
- */
-export function pickedScrollTop(layoutTop: number, dayHeadBottom: number, viewport: number): number {
-  if (!Number.isFinite(layoutTop) || !Number.isFinite(dayHeadBottom) || !Number.isFinite(viewport) || viewport <= 0) return 0;
-  const short = dayHeadBottom + PICKED_FIRST_ROW_PX - viewport;
-  return short <= 0 ? 0 : Math.round(Math.min(short, Math.max(0, layoutTop)));
-}
-
-/** A day's rows as the Agenda lists them, daily reminders included: the picked day's list. */
+/** A day's rows as the Agenda lists them, daily reminders included: the selected day's list. */
 export function dayRows(store: CalendarStore, day: DayKey): AgendaRow[] {
   const partner = store.partner?.name ?? null;
   return dayItems(store, day).map((item) => ({ item, whose: whoseItem(item, partner), mark: reminderMark(item), origin: day }));
@@ -568,8 +427,8 @@ export function dayRows(store: CalendarStore, day: DayKey): AgendaRow[] {
 
 /**
  * The months the Month reaches (owner 2026-11-17, "infinite scroll"): MONTH_REACH, the years an
- * item may start in, whatever today is; null for a malformed today. Browse holds a span of them
- * (grid.ts), which picked and wantedMonths never need: picked shows one month.
+ * item may start in, whatever today is; null for a malformed today. The pane holds a span of
+ * them (grid.ts).
  */
 function windowOf(today: DayKey): { first: MonthKey; last: MonthKey } | null {
   return monthOf(today) ? MONTH_REACH : null;
@@ -579,117 +438,9 @@ function inWindow(month: MonthKey, ends: { first: MonthKey; last: MonthKey }): b
   return addMonths(month, 0) !== '' && month >= ends.first && month <= ends.last;
 }
 
-/** The day picked selects in `month`: today in today's month, else the 1st. */
-function dayToSelect(month: MonthKey, today: DayKey): DayKey {
-  return month === monthOf(today) ? today : monthFirstDay(month);
-}
-
-/**
- * Where the Month opens (spec §7.4 Memory): browse on today's month, or, when the
- * remembered layout is picked, picked on today.
- */
-export function initialMonthUi(saved: MonthLayout | null, today: DayKey): MonthUi {
-  const month = monthOf(today);
-  return saved === 'picked' && month ? { layout: 'picked', month, selected: today } : { layout: 'browse', month, selected: null };
-}
-
-/** A tap on a day: picked, on that day and its month. The same UI back when nothing changes. */
-export function pickDay(ui: MonthUi, day: DayKey): MonthUi {
-  const month = monthOf(day);
-  if (!month) return ui;
-  if (ui.layout === 'picked' && ui.selected === day && ui.month === month) return ui;
-  return { layout: 'picked', month, selected: day };
-}
-
-/** "All months", the BackButton, Android's back: browse, with the picked month under the bar. */
-export function backToBrowse(ui: MonthUi): MonthUi {
-  return ui.layout === 'browse' && ui.selected === null ? ui : { layout: 'browse', month: ui.month, selected: null };
-}
-
-/** Whether a chevron can move one month: false past the reach's ends (January 1900, December 2100). */
-export function canStep(ui: MonthUi, delta: -1 | 1, today: DayKey): boolean {
-  const ends = windowOf(today);
-  const next = addMonths(ui.month, delta);
-  return ends !== null && next !== '' && inWindow(next, ends);
-}
-
-/** A chevron: the month before or after, selecting the 1st, or today in today's month. The same UI at the window's ends. */
-export function stepMonth(ui: MonthUi, delta: -1 | 1, today: DayKey): MonthUi {
-  if (!canStep(ui, delta, today)) return ui;
-  const month = addMonths(ui.month, delta);
-  return ui.layout === 'picked' ? { layout: 'picked', month, selected: dayToSelect(month, today) } : { layout: 'browse', month, selected: null };
-}
-
-/** The Today pill (picked: today selected) or button (browse: today's month). The same UI when already there. */
-export function pickToday(ui: MonthUi, today: DayKey): MonthUi {
-  const month = monthOf(today);
-  if (!month) return ui;
-  if (ui.layout === 'picked') return ui.month === month && ui.selected === today ? ui : { layout: 'picked', month, selected: today };
-  return ui.month === month && ui.selected === null ? ui : { layout: 'browse', month, selected: null };
-}
-
-/**
- * After today moves (midnight, other facts): the UI kept, inside the reach. A month past
- * an end moves to that end, and picked then selects its 1st (or today in today's month);
- * a malformed month goes to today's. A picked day stays picked, even when it was today.
- * The same UI when nothing changes.
- */
-export function clampMonthUi(ui: MonthUi, today: DayKey): MonthUi {
-  const ends = windowOf(today);
-  if (!ends) return ui;
-  let month = ui.month;
-  if (addMonths(month, 0) === '') month = monthOf(today);
-  else if (month < ends.first) month = ends.first;
-  else if (month > ends.last) month = ends.last;
-  if (ui.layout === 'picked') {
-    if (month === ui.month && ui.selected !== null && monthOf(ui.selected) === month) return ui;
-    return { layout: 'picked', month, selected: dayToSelect(month, today) };
-  }
-  return month === ui.month && ui.layout === 'browse' && ui.selected === null ? ui : { layout: 'browse', month, selected: null };
-}
-
 /** year × 12 + month index of a valid 'yyyy-MM'. */
 function monthNumber(month: MonthKey): number {
   return Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1;
-}
-
-/**
- * The Month windows to fetch now (spec §5, Ruling 7), most wanted first, each once and
- * inside the window, as the loader's getMonths wants them:
- * - picked: the picked month, then the month after it, then the month before;
- * - browse: the month in view (`inView`, or `ui.month` before browse reports one) and
- *   its two neighbours, Ruling 7's fallback, with the months near the viewport (`near`,
- *   from the IntersectionObserver). The neighbours are always in: on Telegram's web
- *   clients the app runs in a cross-origin iframe, where the observer ignores its
- *   rootMargin and reports only the months on screen. Nearest to the month in view
- *   first, and the later month first when two are as near.
- */
-export function wantedMonths(ui: MonthUi, near: readonly MonthKey[], inView: MonthKey | null, today: DayKey): RangeWindow[] {
-  const ends = windowOf(today);
-  if (!ends) return [];
-  const valid = (m: MonthKey | null): m is MonthKey => m !== null && inWindow(m, ends);
-  const anchor = ui.layout === 'browse' && inView !== null && addMonths(inView, 0) !== '' ? inView : ui.month;
-  if (addMonths(anchor, 0) === '') return [];
-  let months: MonthKey[];
-  if (ui.layout === 'picked') {
-    months = [anchor, addMonths(anchor, 1), addMonths(anchor, -1)];
-  } else {
-    const pool = [anchor, ...near, addMonths(anchor, 1), addMonths(anchor, -1)];
-    const at = monthNumber(anchor);
-    months = pool
-      .filter(valid)
-      .map((m) => ({ m, d: monthNumber(m) - at }))
-      .sort((a, b) => Math.abs(a.d) - Math.abs(b.d) || b.d - a.d)
-      .map((x) => x.m);
-  }
-  const out: RangeWindow[] = [];
-  const seen = new Set<MonthKey>();
-  for (const m of months) {
-    if (!valid(m) || seen.has(m)) continue;
-    seen.add(m);
-    out.push(monthWindow(m));
-  }
-  return out;
 }
 
 // ---- One Month screen (release 2): the focus, and fitting a square's lines ----
@@ -786,10 +537,17 @@ export function wantedFocusMonths(f: MonthFocus, near: readonly MonthKey[], inVi
 }
 
 /**
- * The slots a square shows in `lines` lines (the total drawn, "+N" included; clamped to
- * 1 to SQUARE_MAX_LINES): limitSlots' three steps (one-day items into the bars' empty
- * lanes, then the bars up with their titles), and when it still overflows, `lines - 1`
- * items then "+N".
+ * The slots a large square shows in `lines` lines (Ruling 3; the total drawn, "+N" included;
+ * clamped to 1 to SQUARE_MAX_LINES). Up to `lines` every slot shows, spacers and all, so each
+ * bar stays in its lane. Past it:
+ * - the day's one-day items move up into the spacers above its bars (the bars keep their
+ *   lanes); if all fits then, all shows;
+ * - else the spacers go and the bars move up: a bar that leaves its lane shows its title
+ *   (it no longer lines up with its other days); if all fits then, all shows;
+ * - else the first `lines - 1` items show, bars first, and "+N" in the last line, N being
+ *   the items left out.
+ * So a spacer never shows over "+N", and "+N" never shows while the items would fit.
+ * Trailing spacers never show.
  */
 export function fitSlots(slots: readonly MonthSlot[], lines: number): { shown: MonthSlot[]; more: number } {
   const limit = Number.isFinite(lines) ? Math.max(1, Math.min(SQUARE_MAX_LINES, Math.floor(lines))) : 1;

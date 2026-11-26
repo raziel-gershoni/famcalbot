@@ -469,7 +469,6 @@ const KEYS: Record<string, readonly string[]> = {
   'tabs.month': [],
   // The Month (E6 browse, E7 picked), spec §7.4 and §7.7
   'month.today': [],
-  'month.allMonths': [],
   'month.previous': [],
   'month.next': [],
   'month.dayToday': ['date'],

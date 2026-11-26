@@ -2,7 +2,7 @@
 // §3.3; Plan H1): calendarTones and calendarVars in src/lib/calendar-view/colours.ts, and
 // the theme rules that turn a mark's inline tones into --cal-fill, --cal-text and
 // --cal-line (components/app-ui/theme.ts), with the marks' own rules (the Agenda's stripe, the Month's
-// chips, picked's dots).
+// squares' chips and dots).
 //
 // It checks:
 //  - Google's 24 calendar colours (calendarList's backgroundColor palette), FamCal's
@@ -28,8 +28,11 @@
 import { CalendarTones, LINE_FLOOR, TEXT_FLOOR, calendarTones, calendarVars, contrast, toneGrounds, type ToneTheme } from '../src/lib/calendar-view/colours';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
-import { MONTH_PICKED_CSS } from '../app/[locale]/(app)/dashboard/MonthPicked';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
+import { DAY_PANEL_CSS } from '../app/[locale]/(app)/dashboard/DayPanel';
+import { MONTH_PANE_CSS } from '../app/[locale]/(app)/dashboard/MonthPane';
+import { MONTH_SQUARES_CSS } from '../app/[locale]/(app)/dashboard/MonthSquares';
+import { MONTH_VIEW_CSS } from '../app/[locale]/(app)/dashboard/MonthView';
+import { SPLIT_HANDLE_CSS } from '../app/[locale]/(app)/dashboard/SplitHandle';
 import fs from 'fs';
 import path from 'path';
 
@@ -177,17 +180,26 @@ async function main() {
       assert(light.includes(`--cal-${tone}: var(--cal-${tone}-l);`), `light ${tone}`);
       assert(dark.includes(`--cal-${tone}: var(--cal-${tone}-d);`), `dark ${tone}`);
     }
-    // Every rule that reads a --cal tone is a has-cal rule.
-    for (const [name, css] of [['AGENDA_CSS', AGENDA_CSS], ['MONTH_BROWSE_CSS', MONTH_BROWSE_CSS], ['MONTH_PICKED_CSS', MONTH_PICKED_CSS]] as const) {
+    // Every rule that reads a --cal tone is a has-cal rule; the Agenda's rows and the Month's squares have some.
+    const sheets = [
+      ['AGENDA_CSS', AGENDA_CSS, true],
+      ['MONTH_SQUARES_CSS', MONTH_SQUARES_CSS, true],
+      ['MONTH_PANE_CSS', MONTH_PANE_CSS, false],
+      ['DAY_PANEL_CSS', DAY_PANEL_CSS, false],
+      ['SPLIT_HANDLE_CSS', SPLIT_HANDLE_CSS, false],
+      ['MONTH_VIEW_CSS', MONTH_VIEW_CSS, false],
+    ] as const;
+    for (const [name, css, marks] of sheets) {
       const rules = [...css.matchAll(/\n([^\n{}]+(?:,\n[^\n{}]+)*) \{([^}]*)\}/g)];
+      assert(rules.length > 0, `${name}: no rule read`);
       const reading = rules.filter((m) => /var\(--cal-/.test(m[2]));
-      assert(reading.length > 0, `${name}: no rule reads a calendar tone`);
-      for (const m of reading) assert(m[1].split(',\n').every((sel) => sel.includes('.has-cal')), `${name}: ${show(m[1])} reads a tone without has-cal`);
+      assert(!marks || reading.length > 0, `${name}: no rule reads a calendar tone`);
+      for (const m of reading) assert(m[1].split(',\n').every((sel: string) => sel.includes('.has-cal')), `${name}: ${show(m[1])} reads a tone without has-cal`);
     }
     assert(/\.ch-stripe \{[^}]*background: var\(--ch-dot-mine\);/.test(AGENDA_CSS) && /\.ch-stripe\.is-partner \{[^}]*border: 1\.5px solid var\(--ch-dot-partner\);[^}]*background: transparent;/.test(AGENDA_CSS), 'the stripe without a colour: the accent, or an orange outline');
     assert(/\.ch-stripe\.has-cal \{\s*background: var\(--cal-line\);/.test(AGENDA_CSS) && /\.ch-stripe\.has-cal\.is-partner \{\s*border-color: var\(--cal-line\);\s*background: transparent;/.test(AGENDA_CSS), 'the stripe in a colour: solid, or hollow');
     assert(/\.ch-stripe \{[^}]*inline-size: 4px;/.test(AGENDA_CSS) && /\.ch-stripe \{[^}]*align-self: stretch;/.test(AGENDA_CSS), 'a 4 px stripe the row\'s height');
-    assert(/\.ch-mp-dot\.has-cal\.is-mine \{\s*background: var\(--cal-line\);/.test(MONTH_PICKED_CSS) && /\.ch-mp-dot\.has-cal\.is-partner \{\s*border-color: var\(--cal-line\);/.test(MONTH_PICKED_CSS), 'picked\'s dots and rings');
+    assert(/\.ch-sq-dot\.has-cal\.is-mine \{\s*background: var\(--cal-line\);/.test(MONTH_SQUARES_CSS) && /\.ch-sq-dot\.has-cal\.is-partner \{\s*border-color: var\(--cal-line\);/.test(MONTH_SQUARES_CSS), 'a small square\'s dots and rings');
   });
 
   await check(`#8 the floors hold for any colour: every #rrggbb on a 16-step grid (4,096 colours), both looks`, () => {

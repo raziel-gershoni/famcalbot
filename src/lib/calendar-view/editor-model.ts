@@ -247,7 +247,7 @@ export function movesDay(form: EditorForm, initial: EditorForm, tz: string, zone
 export interface NewItemContext {
   /** The server's today, in the user's zone. */
   today: string;
-  /** The Month's picked day, when the Month is in picked; else null. */
+  /** The Month's selected day, while the Month shows (it is always on screen there); else null. */
   pickedDay: string | null;
   /** The clock now (ms) and the user's zone. */
   nowMs: number;
@@ -257,9 +257,9 @@ export interface NewItemContext {
 }
 
 /**
- * The form for a new item. The day is the Month's picked day, else today. On today it
+ * The form for a new item. The day is the Month's selected day, else today. On today it
  * starts at the next round hour and lasts an hour; on another day it starts at 09:00 (a
- * picked day has no "now"). Events open first when both kinds apply.
+ * selected day has no "now"). Events open first when both kinds apply.
  */
 export function newItemForm(ctx: NewItemContext): EditorForm {
   const day = ctx.pickedDay ?? ctx.today;

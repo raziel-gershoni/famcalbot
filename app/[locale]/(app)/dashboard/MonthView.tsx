@@ -1,49 +1,52 @@
 'use client';
 
-// The Month tab (spec §7.4, §7.5, §7.6; Rulings R11 and R12; Plan E Rulings 4 and 6):
-// the browse layout (E6's MonthBrowse) or the picked one (E7's MonthPicked), as the
-// container's MonthUi says. Presentational: CalendarHome owns the store, the fetches, the
-// layout and its memory, and Telegram's BackButton and swipes. This file only turns the
-// views' taps into the next MonthUi (month.ts's helpers) and hands it to onUi.
+// The Month tab (responsive home release 2, spec §1–§4; Rulings 1–10): one screen, the month
+// and the selected day's list together. Presentational: CalendarHome owns the store, the
+// fetches, the focus (the month sought and the selected day), the split's memory, and
+// Telegram's BackButton and swipes. This file lays the parts out and measures the room.
 //
-// - "N calendars aren't available · Choose again" shows once, above either layout
-//   (Ruling 4), as the Agenda's state row does. In browse its styles come with it; in
-//   picked MonthPicked already renders D's AGENDA_CSS.
-// - Browse is mounted only while it shows, and again each time it comes back (back from
-//   picked, a tab switch): MonthBrowse reads `start` and measures the page on mount.
-// - Picked is one MonthPicked for as long as picked shows, never keyed by month or day:
-//   a chevron must not scroll the page to the top again.
-// - A row tapped under the picked day opens D's ItemSheet, as in AgendaView: the
-//   container holds the selection (its BackButton closes the sheet), and the sheet shows
-//   the row as the latest answer has it, else as it was tapped.
-// - Drag to move (editor upgrades spec §4): with `drag`, both layouts sit in a DragLayer (DragSurface),
-//   so rows of the picked day's list and browse's chips lift and drop on the days. The Agenda has none.
-//   While an item is lifted, picked can show another month than ui's (`drag.previewMonth`): the list
-//   under the grid stays the picked day's, so the lifted row stays in the page.
-// - Until a month has a model (a store drop at midnight, or a model drawn under another
-//   week start), picked draws it as loading, so a day never looks free before it is
-//   answered (§5); browse does the same for each of its months.
-// - The months browse holds are the container's span (owner 2026-11-17, "infinite scroll"):
-//   browse asks for more at its ends (onNeedMonths), and its Today, with today's month outside
-//   the span, asks the container to move there (onBrowseToday; browseKey mounts browse again).
-//   The month's name in browse's bar and picked's header opens the jump to a date (onJump).
+// - The region (.ch-mv) is the rest of the viewport under the header and the tab bar
+//   (--ch-top-h) and the safe areas, and clips: the page never scrolls on the Month, only the
+//   pane's months and the day's list do (two inner scrollers).
+// - Wide (WIDE_QUERY: 600 px or wider and landscape): the pane and the day's list side by side,
+//   2fr 1fr, the pane first in reading order, so on the right in Hebrew. The pane fills the
+//   region's height, so no split height (scrollerPx null).
+// - Upright: the split. The pane on top, its scroller as tall as splitHeights says for the
+//   region measured (collapsed or grown), then the handle, then the list filling the rest. The
+//   scroller's height animates over 200 ms (none under prefers-reduced-motion). Grown, a tap on
+//   a square selects it and collapses, and the list is a peek whose tap collapses.
+// - The region is measured before the pane mounts (a layout effect, before paint), so the pane
+//   opens on the split's real height; one ResizeObserver on the region follows it after (the
+//   window's resize where there is none).
+// - The banners and "N calendars aren't available · Choose again" go at the top of the list's
+//   scroller (spec §1), above the day's header.
+// - A row tapped in the list opens D's ItemSheet: the container holds the selection (its
+//   BackButton closes the sheet), and the sheet shows the row as the latest answer has it, else
+//   as it was tapped. The jump to a date is the editor's date sheet. Both sit outside the region.
+// - Drag to move (editor upgrades spec §4): with `drag`, the region and the sheets sit in a
+//   DragLayer (DragSurface), so the list's rows and the large squares' chips lift and drop on
+//   any square; resting on a chevron scrolls the pane a month (Ruling 5). The Agenda has none.
 
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTranslations } from 'next-intl';
 import { MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
 import { sameItemRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
-import { monthGrid, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { backToBrowse, canStep, loadingMonth, pickDay, pickToday, stepMonth, type MonthModel, type MonthUi } from '@/src/lib/calendar-view/month';
+import type { MonthKey } from '@/src/lib/calendar-view/grid';
+import type { MonthSplit } from '@/src/lib/calendar-view/home-storage';
+import { monthBarPx, type MonthFocus, type MonthModel } from '@/src/lib/calendar-view/month';
+import { WIDE_QUERY, splitHeights } from '@/src/lib/calendar-view/month-layout';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
-import { AGENDA_CSS } from './AgendaView';
+import { useMediaQuery } from '@/src/lib/calendar-view/use-media';
 import { DatePickerSheet } from './DatePickerSheet';
+import { DayPanel } from './DayPanel';
 import { DragLayer, type DragLayerProps } from './DragSurface';
 import { ItemSheet, type SheetActions } from './ItemSheet';
-import { MonthBrowse } from './MonthBrowse';
-import { MonthPicked } from './MonthPicked';
+import { MonthPane, type MonthPaneHandle } from './MonthPane';
+import { SPLIT_HANDLE_CSS, SplitHandle } from './SplitHandle';
 
-/** Drag to move: the DragLayer's props, and the month picked shows while an item is lifted (null: the picked day's). */
-export type MonthDrag = Omit<DragLayerProps, 'children'> & { previewMonth: MonthKey | null };
+/** Drag to move: the DragLayer's props but its month turn, which MonthView gives the pane (Ruling 5). */
+export type MonthDrag = Omit<DragLayerProps, 'children' | 'onNav'>;
 
 export interface MonthViewProps {
   /** The facts the Month draws with: the pinned ones, or the last ones through a store drop. */
@@ -51,57 +54,57 @@ export interface MonthViewProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
-  /** Show the picked day's Daf Yomi page (CalendarHomeProps.dafYomi); the browse layout never shows it. */
+  /** Show the selected day's Daf Yomi page (CalendarHomeProps.dafYomi). */
   dafYomi?: boolean;
   /** The span's months, oldest first (grid.ts spanMonths), memoized. */
   months: readonly MonthKey[];
-  /** Changes when browse must mount again on `start` (Today after a far jump). */
-  browseKey?: number;
   /** monthModels(store): a month's model, or null (it then draws as loading). */
   getMonth: (month: MonthKey) => MonthModel | null;
-  /** Where the Month is: the layout, its month and, in picked, the selected day. */
-  ui: MonthUi;
-  /** Where browse opens when it mounts (MonthBrowse reads it then only). */
-  start: { month: MonthKey; peek: boolean };
-  /** The picked day's list: dayRows(store, day) and dayStatus(store, day). null in browse. */
-  dayRows: { rows: AgendaRow[]; status: DayStatus } | null;
+  /** The month the pane was last sent to, and the day the list shows. */
+  focus: MonthFocus;
+  /** Where the pane goes: its month on mount, and again on each new seq (Today, the jump). */
+  seek: { month: MonthKey; seq: number };
+  /** The upright split: collapsed or the month grown (the device's memory). */
+  split: MonthSplit;
+  onSplit: (next: MonthSplit) => void;
+  /** The selected day's list: dayRows(store, day) and dayStatus(store, day). */
+  dayRows: { rows: AgendaRow[]; status: DayStatus };
   /** homeNotices(store).unavailableCalendars: chosen Google calendars that are gone. */
   unavailableCalendars: number;
-  /** The row whose item sheet is open (picked only), or null. The container holds it. */
+  /** The home's banners (HomeBanners), at the top of the list on the Month (spec §1). */
+  banners: ReactNode;
+  /** The row whose item sheet is open, or null. The container holds it. */
   selected: AgendaRow | null;
   /** A tap on a row: open its sheet (the row), or close it (null). */
   onSelect: (row: AgendaRow | null) => void;
   /** The open sheet's reminder actions (the container owns the request). */
   sheetActions?: SheetActions;
-  /** The next MonthUi: a day picked, a chevron, Today, "All months". */
-  onUi: (ui: MonthUi) => void;
-  /** MonthBrowse's near months and month in view, for the container's wantedMonths. */
-  onNearMonths: (months: MonthKey[]) => void;
+  /** A tap on a square: that day selected. */
+  onSelectDay: (day: DayKey) => void;
+  /** The pane's reports, for the container's wanted months and the span. */
   onMonthInView: (month: MonthKey) => void;
-  /** Retry on a month's notice: the container asks that month's window again. */
+  onNearMonths: (months: MonthKey[]) => void;
+  onNeedMonths: (edge: 'before' | 'after') => void;
+  /** The bar's Today: today selected and its month sought. */
+  onToday: () => void;
+  /** A tap on the month's name: the jump to a date. */
+  onJump?: () => void;
+  /** Retry on a month's pill: the container asks that month's window again. */
   onRetryMonth: (month: MonthKey, source: SourceName) => void;
   /** "Choose again": the existing select-calendars page. */
   onChooseCalendars: () => void;
-  /** Browse's month in view came near an end of the span it can still grow at. */
-  onNeedMonths?: (edge: 'before' | 'after') => void;
-  /** Browse's Today with today's month outside the span. */
-  onBrowseToday?: () => void;
-  /** A tap on the month's name (browse's bar, picked's header): the jump to a date. */
-  onJump?: () => void;
   /** The jump's sheet while it is open: the day it opens on, the day picked, and its close. The container holds it (its BackButton closes it). */
   jump?: { value: DayKey; onPick: (day: DayKey) => void; onClose: () => void } | null;
   /** Drag to move; absent: nothing lifts. */
   drag?: MonthDrag;
 }
 
-/** The month's model when it fits this week start, else the loading one. */
-function modelFor(getMonth: MonthViewProps['getMonth'], month: MonthKey, weekStart: WeekStart, today: DayKey): MonthModel {
-  const model = getMonth(month);
-  const first = monthGrid(month, weekStart)[0]?.[0];
-  return model && first !== undefined && model.weeks[0]?.[0]?.day === first ? model : loadingMonth(month, weekStart, today);
-}
+/** The squares' grid's inline padding, both sides (MONTH_SQUARES_CSS's .ch-sq-body), for the split's cell width. */
+const GRID_PAD_PX = 12;
 
-/** The open sheet's item as the picked day's latest rows have it (a refetch may have changed it), else as it was tapped. */
+type Box = { h: number; w: number };
+
+/** The open sheet's item as the selected day's latest rows have it (a refetch may have changed it), else as it was tapped. */
 function latestRow(rows: readonly AgendaRow[], selected: AgendaRow): AgendaRow {
   return sameItemRow(rows, selected) ?? selected;
 }
@@ -115,45 +118,26 @@ function StateIcon() {
   );
 }
 
-/** "N calendars aren't available · Choose again", once above the Month (Ruling 4). */
-function UnavailableRow({ count, withStyles, onChooseCalendars }: { count: number; withStyles: boolean; onChooseCalendars: () => void }) {
+/** "N calendars aren't available · Choose again", once, at the top of the list (Ruling 4, spec §1). DayPanel brings AGENDA_CSS. */
+function UnavailableRow({ count, onChooseCalendars }: { count: number; onChooseCalendars: () => void }) {
   const t = useTranslations('calendarHome');
   return (
-    <>
-      {withStyles ? <style>{AGENDA_CSS}</style> : null}
-      <div className="ch-states">
-        <div className="ch-state" role="status">
-          <StateIcon />
-          <span className="ch-state-text">{t('state.unavailable', { count })}</span>
-          <button type="button" className="ch-btn ch-state-action" onClick={onChooseCalendars}>
-            {t('actions.chooseAgain')}
-          </button>
-        </div>
+    <div className="ch-states">
+      <div className="ch-state" role="status">
+        <StateIcon />
+        <span className="ch-state-text">{t('state.unavailable', { count })}</span>
+        <button type="button" className="ch-btn ch-state-action" onClick={onChooseCalendars}>
+          {t('actions.chooseAgain')}
+        </button>
       </div>
-    </>
+    </div>
   );
-}
-
-export function MonthView(props: MonthViewProps) {
-  const { drag, jump, ...rest } = props;
-  const layouts = <MonthLayouts {...rest} previewMonth={drag?.previewMonth ?? null} />;
-  const view = jump ? (
-    <>
-      {layouts}
-      <JumpSheet {...jump} today={props.today} weekStart={props.weekStart} hebrewDates={props.hebrewDates} />
-    </>
-  ) : (
-    layouts
-  );
-  if (!drag) return view;
-  const { previewMonth: _previewMonth, ...layer } = drag;
-  return <DragLayer {...layer}>{view}</DragLayer>;
 }
 
 /**
  * The jump to a date (owner 2026-11-17): the editor's date sheet over the reach's years (1900 …
- * 2100), opening in Gregorian on the picked day or the month in view, with the Gregorian | Hebrew
- * switch while the home shows Hebrew dates.
+ * 2100), opening in Gregorian on the selected day or the month in view, with the Gregorian |
+ * Hebrew switch while the home shows Hebrew dates.
  */
 function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: NonNullable<MonthViewProps['jump']> & Pick<MonthViewProps, 'today' | 'weekStart' | 'hebrewDates'>) {
   const t = useTranslations('calendarHome');
@@ -172,90 +156,212 @@ function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: No
   );
 }
 
-function MonthLayouts({
+export function MonthView(props: MonthViewProps) {
+  const { drag, jump, selected, dayRows, today, tz, weekStart, hebrewDates, onSelect, sheetActions } = props;
+  const paneRef = useRef<MonthPaneHandle | null>(null);
+  const onNav = useCallback((delta: -1 | 1) => paneRef.current?.step(delta), []);
+  const sheetRow = selected ? latestRow(dayRows.rows, selected) : null;
+  const view = (
+    <>
+      <MonthRegion {...props} paneRef={paneRef} />
+      {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} actions={sheetActions} /> : null}
+      {jump ? <JumpSheet {...jump} today={today} weekStart={weekStart} hebrewDates={hebrewDates} /> : null}
+    </>
+  );
+  return drag ? (
+    <DragLayer {...drag} onNav={onNav}>
+      {view}
+    </DragLayer>
+  ) : (
+    view
+  );
+}
+
+/** The region: measured, then the pane, the handle (upright) and the day's list. */
+function MonthRegion({
   today,
   tz,
   weekStart,
   hebrewDates,
   dafYomi,
   months,
-  browseKey,
   getMonth,
-  ui,
-  start,
+  focus,
+  seek,
+  split,
+  onSplit,
   dayRows,
   unavailableCalendars,
-  selected,
+  banners,
   onSelect,
-  sheetActions,
-  onUi,
-  onNearMonths,
+  onSelectDay,
   onMonthInView,
+  onNearMonths,
+  onNeedMonths,
+  onToday,
+  onJump,
   onRetryMonth,
   onChooseCalendars,
-  onNeedMonths,
-  onBrowseToday,
-  onJump,
-  previewMonth,
-}: Omit<MonthViewProps, 'drag'> & { previewMonth: MonthKey | null }) {
-  const picked = ui.layout === 'picked' && ui.selected !== null ? ui.selected : null;
-  const unavailable =
-    unavailableCalendars > 0 ? <UnavailableRow count={unavailableCalendars} withStyles={picked === null} onChooseCalendars={onChooseCalendars} /> : null;
+  paneRef,
+}: MonthViewProps & { paneRef: RefObject<MonthPaneHandle | null> }) {
+  const wide = useMediaQuery(WIDE_QUERY);
+  const regionRef = useRef<HTMLDivElement | null>(null);
+  /** The region's size; null until measured (the pane and the list wait for it, before paint). */
+  const [box, setBox] = useState<Box | null>(null);
 
-  if (picked === null) {
-    return (
-      <>
-        {unavailable}
-        <MonthBrowse
-          key={browseKey}
-          months={months}
-          today={today}
-          weekStart={weekStart}
-          hebrewDates={hebrewDates}
-          getMonth={getMonth}
-          start={start}
-          onNearMonths={onNearMonths}
-          onMonthInView={onMonthInView}
-          onPickDay={(day) => onUi(pickDay(ui, day))}
-          onRetryMonth={onRetryMonth}
-          onChooseCalendars={onChooseCalendars}
-          onNeedMonths={onNeedMonths}
-          onToday={onBrowseToday}
-          onJump={onJump}
-        />
-      </>
-    );
-  }
+  const measure = useCallback(() => {
+    const el = regionRef.current;
+    if (!el) return;
+    const next = { h: el.clientHeight, w: el.clientWidth };
+    setBox((was) => (was && was.h === next.h && was.w === next.w ? was : next));
+  }, []);
 
-  const shownUi = previewMonth ? { ...ui, month: previewMonth } : ui;
-  const list = dayRows ?? { rows: [], status: 'loading' as const };
-  const sheetRow = selected ? latestRow(list.rows, selected) : null;
+  // The first measure, before paint.
+  useLayoutEffect(() => {
+    measure();
+  }, [measure]);
+
+  // Then one ResizeObserver on the region (a rotation, Telegram's expand, the header's height);
+  // where there is none (an old WebView), the window's resizes stand in.
+  useEffect(() => {
+    const el = regionRef.current;
+    if (!el) return;
+    let observer: ResizeObserver | null = null;
+    if (typeof window.ResizeObserver === 'function') {
+      try {
+        observer = new window.ResizeObserver(measure);
+        observer.observe(el);
+      } catch (err) {
+        console.warn('[month view] ResizeObserver failed, following the window instead:', err);
+        observer = null;
+      }
+    }
+    if (observer) return () => observer.disconnect();
+    window.addEventListener('resize', measure, { passive: true });
+    return () => window.removeEventListener('resize', measure);
+  }, [measure]);
+
+  const grown = !wide && split === 'grown';
+  const heights = box && !wide ? splitHeights(box.h, monthBarPx(hebrewDates), (box.w - GRID_PAD_PX) / 7, grown) : null;
+  const scrollerPx = heights && heights.scrollerPx > 0 ? heights.scrollerPx : null;
+
+  // Grown, a tap on a square selects it and collapses, so the person sees that day's list.
+  const selectDay = useCallback(
+    (day: DayKey) => {
+      onSelectDay(day);
+      if (grown) onSplit('split');
+    },
+    [onSelectDay, onSplit, grown],
+  );
+  const collapse = useCallback(() => onSplit('split'), [onSplit]);
+
+  const className = wide ? 'ch-mv is-wide' : grown ? 'ch-mv is-split is-grown' : 'ch-mv is-split';
   return (
-    <>
-      {unavailable}
-      <MonthPicked
-        model={modelFor(getMonth, shownUi.month, weekStart, today)}
-        selected={picked}
-        today={today}
-        tz={tz}
-        weekStart={weekStart}
-        hebrewDates={hebrewDates}
-        dafYomi={dafYomi}
-        canPrev={canStep(shownUi, -1, today)}
-        canNext={canStep(shownUi, 1, today)}
-        rows={list.rows}
-        dayStatus={list.status}
-        onSelectDay={(day) => onUi(pickDay(ui, day))}
-        onPrev={() => onUi(stepMonth(ui, -1, today))}
-        onNext={() => onUi(stepMonth(ui, 1, today))}
-        onToday={() => onUi(pickToday(ui, today))}
-        onAllMonths={() => onUi(backToBrowse(ui))}
-        onOpenItem={onSelect}
-        onRetryMonth={onRetryMonth}
-        onChooseCalendars={onChooseCalendars}
-        onJump={onJump}
-      />
-      {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} actions={sheetActions} /> : null}
-    </>
+    <div className={className} ref={regionRef}>
+      <style>{MONTH_VIEW_CSS}</style>
+      {box ? (
+        <>
+          <MonthPane
+            ref={paneRef}
+            months={months}
+            today={today}
+            weekStart={weekStart}
+            hebrewDates={hebrewDates}
+            getMonth={getMonth}
+            selected={focus.selected}
+            seek={seek}
+            scrollerPx={scrollerPx}
+            onSelectDay={selectDay}
+            onMonthInView={onMonthInView}
+            onNearMonths={onNearMonths}
+            onNeedMonths={onNeedMonths}
+            onToday={onToday}
+            onJump={onJump}
+            onRetryMonth={onRetryMonth}
+            onChooseCalendars={onChooseCalendars}
+          />
+          {wide ? null : (
+            <>
+              <style>{SPLIT_HANDLE_CSS}</style>
+              <SplitHandle grown={grown} onToggle={onSplit} />
+            </>
+          )}
+          <DayPanel
+            day={focus.selected}
+            today={today}
+            tz={tz}
+            hebrewDates={hebrewDates}
+            dafYomi={dafYomi}
+            rows={dayRows.rows}
+            status={dayRows.status}
+            top={
+              banners || unavailableCalendars > 0 ? (
+                <>
+                  {banners}
+                  {unavailableCalendars > 0 ? <UnavailableRow count={unavailableCalendars} onChooseCalendars={onChooseCalendars} /> : null}
+                </>
+              ) : undefined
+            }
+            peek={grown}
+            onPeek={collapse}
+            onOpenItem={onSelect}
+          />
+        </>
+      ) : null}
+    </div>
   );
 }
+
+/**
+ * The region's styles, on the home's tokens. The region is the stable viewport less the header
+ * and the tab bar (--ch-top-h, published by HomeTop), the safe areas above it and the bottom
+ * one, and clips; inside it a column (upright: the pane at the split's height, the handle, the
+ * list filling the rest) or a 2fr 1fr grid (wide: the pane and the list, each the region's
+ * height, the list's start edge a separator). The handle's 44 px touch area reaches 11 px over
+ * the pane and the list, so it sits above both (z-index 1). The split's height change animates
+ * on the pane's scroller (its inline block-size is what changes), none under reduced motion. The
+ * parts bring their own styles (the pane the squares' and its own, the list the Agenda's rows
+ * and its own; the handle's is rendered with it here). Logical properties only; no hover;
+ * overflow only on the region (the pane's and the list's scrollers are their own).
+ */
+export const MONTH_VIEW_CSS = `
+.ch-mv {
+  display: flex;
+  flex-direction: column;
+  block-size: calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)));
+  min-block-size: 0;
+  overflow: hidden;
+}
+.ch-mv.is-split > .ch-pane {
+  flex: none;
+}
+.ch-mv.is-split > .ch-dp {
+  flex: 1 1 0;
+  block-size: auto;
+  min-block-size: 0;
+}
+.ch-mv.is-split > .ch-handle {
+  z-index: 1;
+}
+.ch-mv .ch-pane-scroller {
+  transition: block-size 200ms ease-out;
+}
+.ch-mv.is-wide {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+.ch-mv.is-wide > .ch-pane,
+.ch-mv.is-wide > .ch-dp {
+  min-block-size: 0;
+  block-size: 100%;
+}
+.ch-mv.is-wide > .ch-dp {
+  border-inline-start: 1px solid var(--ch-separator);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ch-mv .ch-pane-scroller {
+    transition: none;
+  }
+}
+`;

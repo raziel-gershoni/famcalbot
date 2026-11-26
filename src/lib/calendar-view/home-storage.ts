@@ -1,7 +1,8 @@
 // The calendar home's memory on the device (spec §7.1 State, §7.4 Memory; Plan E Ruling 2):
 // - the tab on screen, in sessionStorage, so a new session opens on the Agenda, the landing
 //   tab (§7.3), while a reload inside a session keeps the tab;
-// - the Month's layout (browse or picked), in localStorage, kept per device;
+// - the Month's upright split (collapsed or grown), in localStorage, kept per device (v2; release
+//   1's v1 layout, browse or picked, is mapped to it once and removed);
 // - the Connect Telegram banner's close (6c-1), in localStorage: closed on this device for this account.
 // Both keys end with the page's own user_id as it is (a Telegram id or a DB id, never
 // swapped for the other), so two accounts on one device keep their own. Every access is
@@ -18,11 +19,6 @@ export type HomeTab = 'agenda' | 'month';
 /** The sessionStorage key for the tab on screen. */
 export function homeTabKey(userId: number): string {
   return 'famcal:homeTab:v1:' + userId;
-}
-
-/** The localStorage key for the Month's layout. */
-export function monthLayoutKey(userId: number | string): string {
-  return 'famcal:monthLayout:v1:' + userId;
 }
 
 /** The Month's layout on the one Month screen: the upright split collapsed, or the month grown over the list. */
@@ -71,17 +67,6 @@ export function writeHomeTab(userId: number, tab: HomeTab): void {
   writeKey('sessionStorage', homeTabKey(userId), tab);
 }
 
-/** The Month's last layout on this device; null when none is stored, it's unknown, or storage fails. */
-export function readMonthLayout(userId: number): 'browse' | 'picked' | null {
-  const value = readKey('localStorage', monthLayoutKey(userId));
-  return value === 'browse' || value === 'picked' ? value : null;
-}
-
-/** Remembers the Month's layout on this device. Never throws. */
-export function writeMonthLayout(userId: number, layout: 'browse' | 'picked'): void {
-  writeKey('localStorage', monthLayoutKey(userId), layout);
-}
-
 /** Removes `key`; never throws. */
 function removeKey(area: Area, key: string): void {
   try {
@@ -100,11 +85,13 @@ function removeKey(area: Area, key: string): void {
 export function readMonthSplit(userId: string): MonthSplit {
   const v2 = readKey('localStorage', monthSplitKey(userId));
   if (v2 === 'split' || v2 === 'grown') return v2;
-  const v1 = readKey('localStorage', monthLayoutKey(userId));
+  // Release 1's key for the Month's layout (All months or the tapped day), read once more and removed.
+  const v1Key = 'famcal:monthLayout:v1:' + userId;
+  const v1 = readKey('localStorage', v1Key);
   if (v1 !== 'browse' && v1 !== 'picked') return 'split';
   const split: MonthSplit = v1 === 'browse' ? 'grown' : 'split';
   writeMonthSplit(userId, split);
-  removeKey('localStorage', monthLayoutKey(userId));
+  removeKey('localStorage', v1Key);
   return split;
 }
 

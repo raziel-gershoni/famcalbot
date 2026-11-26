@@ -54,24 +54,27 @@
 // The midnight reset with a refetch in flight (Plan E, Task E3, #42): when that refetch
 // fails after the reset, no retry card flashes before the new day's answer.
 //
-// The tabs and the Month through the container (Plan E, Task E8, #43-#60), in real React
-// on a laid-out fake page (a fake scroll, frames, matchMedia, IntersectionObserver and
-// localStorage): the Month's views in a chunk of their own; the tab bar under the header
-// and above the banners, its tab kept for the session, and the header and tab bar
-// sticking above browse; the Month opening on today's month with a peek; its windows, a month's own
-// days, at most 2 in flight and each asked once; Telegram's swipes off in browse on a 7.7
-// client and never touched on a 7.0 one; picked and its BackButton, with the item sheet
-// over it closing first; the layout kept on the device, a restored picked opening on
-// today; the foreground and Refresh asking the Month's windows; a failed month's Retry;
-// midnight on the Month; the tab bar for a Google user with no token; no clipping ancestor above the Month; the unavailable-calendars row
-// once above the Month; a tab switch from picked and back; Telegram's activated on the
-// Month; the item sheet keeping focus over picked.
+// The tabs and the Month through the container (Plan E, Task E8, #43-#60; responsive home
+// release 2, Task 6: one Month screen), in real React on a laid-out fake page (the Month's
+// region and its pane's scroller have a size, a scroll and frames; matchMedia and
+// localStorage): the Month's parts in a chunk of their own; the tab bar under the header
+// and above the banners, its tab kept for the session, and the header and tab bar never
+// sticking; the Month opening on today's month with today selected and its list; its
+// windows, a month's own days, at most 2 in flight and each asked once, the selected day's
+// month among them however far the pane is; Telegram's swipes off on the whole Month tab on
+// a 7.7 client and never touched on a 7.0 one; the split's handle, kept on the device (v2,
+// v1 mapped once), with no BackButton, and the item sheet over the list closing first; the
+// wide layout side by side; the foreground and Refresh asking the Month's windows; a failed
+// month's Retry; midnight on the Month; the tab bar for a Google user with no token; only
+// the region and its two scrollers clip above the Month; the unavailable-calendars row once,
+// first in the day's list; a tab switch and back; Telegram's activated on the Month; the
+// item sheet keeping focus over the list; the jump to a date.
 //
 // Editing in the home (home editing spec §2, §4, §6; #74-#87), in real React on the same fake
 // DOM, with the editing routes served by a fake (the older checks leave them unserved, so
 // the "+" and the pencil never show): the "+" by kinds (events, reminders, both, neither, a
 // failed read, a Google user, before the first answer); the editor's defaults for the day in
-// view (today at the next round hour for an hour, the Month's picked day), its fields by
+// view (today at the next round hour for an hour, the Month's selected day), its fields by
 // kind, the start moving the end, all day hiding the times, the repeat and calendar choices;
 // inline errors, the request bodies (the init data in the header and the body), Save
 // disabled and busy in flight and every failure above Save; the item sheet's pencil and
@@ -137,10 +140,11 @@ import { menuEntries } from '../app/[locale]/(app)/dashboard/MenuSheet';
 import { isChunkLoadError, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '../src/lib/calendar-view/home-client';
 import { ERROR_RETRY_MS, MONTH_INFLIGHT_MAX, RANGE_TIMEOUT_MS, STALE_RETRY_MS } from '../src/lib/calendar-view/home-loader';
 import { PANEL_IDS, TAB_IDS } from '../app/[locale]/(app)/dashboard/HomeTabs';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
-import { homeTabKey, monthLayoutKey } from '../src/lib/calendar-view/home-storage';
-import { monthSpan, monthWindow, type MonthKey } from '../src/lib/calendar-view/grid';
-import { BROWSE_CELL_PX, monthBarPx, monthOffsets } from '../src/lib/calendar-view/month';
+import { homeTabKey, monthSplitKey } from '../src/lib/calendar-view/home-storage';
+import { monthWindow, spanMonths, defaultSpan, type MonthKey } from '../src/lib/calendar-view/grid';
+import { monthBarPx } from '../src/lib/calendar-view/month';
+import { SETTLE_MS, WIDE_QUERY, splitHeights } from '../src/lib/calendar-view/month-layout';
+import { lintCss } from './lib/css-lint';
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { postReminderAction } from '../src/lib/calendar-view/reminder-client';
@@ -630,15 +634,27 @@ class FakeElement extends FakeNode {
   getBoundingClientRect() {
     return layoutRect(this);
   }
+  /** The Month's scrollers (Task 6): a plain scroll position, the sizes boxOf gives, and scrollTo recorded. */
+  scrollTop = 0;
+  get clientHeight(): number {
+    return boxOf(this).height;
+  }
+  get clientWidth(): number {
+    return boxOf(this).width;
+  }
+  scrollTo(a: Row | number, b?: number) {
+    const top = typeof a === 'number' ? (b ?? 0) : Number(a.top);
+    elementScrolls.push({ cls: this.className, top, behavior: typeof a === 'number' ? 'plain' : String(a.behavior ?? 'auto') });
+    this.scrollTop = Math.max(0, top);
+  }
 }
 
-// The Month's page (Task E8): MonthBrowse measures it. The list of months starts
-// LAYOUT.listTop px down the document (under the header, the tab bar and the sticky
-// bar); the bar sticks at the top once the page scrolls past it (no safe area here);
-// each month's title sits at its block's top, from the block sizes the view rendered.
-// The header and tab bar's wrapper is LAYOUT.topH tall (0 unless a check says so).
-// Everything else sits at the document's top, 0 px tall.
-const LAYOUT = { listTop: 400, width: 390, topH: 0 };
+// The Month's page (Task 6): the Month is a region of a fixed size (.ch-mv, LAYOUT.monthH
+// tall, LAYOUT.width wide) and its pane's scroller is what the split sets (its inline
+// block-size), or, side by side (.ch-mv.is-wide), the region less the pane's bar and weekday
+// row, two thirds of the width. Both read clientHeight and clientWidth; every other element
+// is 0 × 0. The header and tab bar's wrapper is LAYOUT.topH tall (0 unless a check says so).
+const LAYOUT = { width: 390, topH: 0, monthH: 700 };
 const px = (value: unknown) => Number.parseFloat(String(value ?? '')) || 0;
 function closestClass(el: FakeNode | null, cls: string): FakeElement | null {
   for (let n = el; n; n = n.parentNode) if (n instanceof FakeElement && n.className.split(' ').includes(cls)) return n;
@@ -647,31 +663,25 @@ function closestClass(el: FakeNode | null, cls: string): FakeElement | null {
 function rectAt(top: number, height: number) {
   return { top, bottom: top + height, left: 0, right: LAYOUT.width, width: LAYOUT.width, height, x: 0, y: top };
 }
-/** A month block's top in the list: the blocks rendered above it. */
-function blockTop(section: FakeNode): number {
-  let y = 0;
-  for (const sibling of section.parentNode?.childNodes ?? []) {
-    if (sibling === section) break;
-    y += px((sibling as FakeElement).style?.blockSize);
-  }
-  return y;
-}
 function layoutRect(el: FakeElement) {
   const scrollY = Number(fakeWindow.scrollY) || 0;
-  const classes = el.className.split(' ');
-  if (classes.includes('ch-mb-months')) {
-    return rectAt(LAYOUT.listTop - scrollY, el.childNodes.reduce((sum, s) => sum + px((s as FakeElement).style?.blockSize), 0));
-  }
-  if (classes.includes('ch-mb-bar')) {
-    const bar = px(closestClass(el, 'ch-mb')?.style['--ch-mb-bar']);
-    return rectAt(Math.max(0, LAYOUT.listTop - bar - scrollY), bar);
-  }
-  if (classes.includes('ch-mb-title') && el.parentNode) {
-    return rectAt(LAYOUT.listTop + blockTop(el.parentNode) - scrollY, px(closestClass(el, 'ch-mb')?.style['--ch-mb-title']));
-  }
-  if (classes.includes('ch-home-top')) return rectAt(classes.includes('is-sticky') ? 0 : -scrollY, LAYOUT.topH);
+  if (el.className.split(' ').includes('ch-home-top')) return rectAt(-scrollY, LAYOUT.topH);
   return rectAt(-scrollY, 0);
 }
+/** An element's box as the Month reads it (clientHeight, clientWidth). */
+function boxOf(el: FakeElement): { width: number; height: number } {
+  const classes = el.className.split(' ');
+  if (classes.includes('ch-mv')) return { width: LAYOUT.width, height: LAYOUT.monthH };
+  if (classes.includes('ch-pane-scroller')) {
+    const wide = closestClass(el, 'ch-mv')?.className.split(' ').includes('is-wide') === true;
+    const set = px(el.style.blockSize);
+    const chrome = px(closestClass(el, 'ch-pane')?.style['--ch-pane-bar']) + 24;
+    return { width: wide ? Math.round((LAYOUT.width * 2) / 3) : LAYOUT.width, height: set > 0 ? set : LAYOUT.monthH - chrome };
+  }
+  return { width: 0, height: 0 };
+}
+/** Every element.scrollTo: the element's class, the top and the behaviour. */
+const elementScrolls: { cls: string; top: number; behavior: string }[] = [];
 
 const documentEvents: Row[] = [];
 (globalThis as Row).KeyboardEvent = class {
@@ -699,7 +709,7 @@ const fakeDocument: Row = {
 fakeDocument.body = new FakeElement('body', HTML_NS);
 fakeDocument.activeElement = fakeDocument.body;
 
-/** window.addEventListener's listeners (MonthBrowse's scroll and resize), with their options. */
+/** window.addEventListener's listeners (a resize where there is no ResizeObserver), with their options. */
 const windowListeners: { type: string; fn: () => void; options: unknown }[] = [];
 /** Every window.scrollTo: the top and the behaviour ('plain' for the two-number form). */
 const scrollCalls: { top: number; behavior: string }[] = [];
@@ -727,15 +737,15 @@ function fakeMediaList(query: string): Row {
   };
 }
 
-/** A fake IntersectionObserver: it records what it observes; a check fires its entries. */
-class FakeIO {
-  static all: FakeIO[] = [];
+/**
+ * A fake ResizeObserver (the Month's region and its pane, and the header's wrapper): it records what it
+ * observes; resized() runs every live one's callback, as the browser does after a size changed.
+ */
+class FakeRO {
+  static all: FakeRO[] = [];
   observed = new Set<FakeElement>();
-  constructor(
-    public callback: (entries: Row[], observer: FakeIO) => void,
-    public options: Row = {},
-  ) {
-    FakeIO.all.push(this);
+  constructor(public callback: (entries: Row[], observer: FakeRO) => void) {
+    FakeRO.all.push(this);
   }
   observe(el: FakeElement) {
     this.observed.add(el);
@@ -746,17 +756,8 @@ class FakeIO {
   disconnect() {
     this.observed.clear();
   }
-  takeRecords() {
-    return [];
-  }
-  /** One callback with an entry for each observed month named in `states`. */
-  fire(states: Record<MonthKey, boolean>) {
-    const entries = [...this.observed]
-      .filter((el) => (el.getAttribute('data-month') ?? '') in states)
-      .map((el) => ({ target: el, isIntersecting: states[el.getAttribute('data-month') ?? ''] }));
-    React.act(() => this.callback(entries, this));
-  }
 }
+const resized = () => React.act(() => FakeRO.all.filter((o) => o.observed.size > 0).forEach((o) => o.callback([...o.observed].map((target) => ({ target })), o)));
 
 /** A Storage over a Map (sessionStorage, localStorage). */
 function fakeStorage(): Row {
@@ -794,7 +795,7 @@ const fakeWindow: Row = {
     return id;
   },
   cancelAnimationFrame: (id: number) => void frames.delete(id),
-  IntersectionObserver: FakeIO,
+  ResizeObserver: FakeRO,
   open: (url: string) => {
     openedWindows.push(url);
     return null;
@@ -1194,7 +1195,7 @@ const reloads: string[] = [];
 /**
  * A fresh slate for a home check: the fake fetch, no calls or pushes, an empty
  * sessionStorage and localStorage, reload() recorded, no Telegram; the page at the top,
- * no scroll call, no frame, no media query matching, a fresh observer class.
+ * no scroll call, no frame, no media query matching, a fresh observer class, the Month's default sizes.
  */
 function resetHome() {
   (globalThis as Row).fetch = fakeFetch;
@@ -1215,12 +1216,16 @@ function resetHome() {
   fakeWindow.location = { hash: '', reload: () => reloads.push('reload') };
   fakeWindow.Telegram = undefined;
   fakeWindow.scrollY = 0;
-  fakeWindow.IntersectionObserver = FakeIO;
+  fakeWindow.ResizeObserver = FakeRO;
   fakeDocument.visibilityState = 'visible';
   scrollCalls.length = 0;
+  elementScrolls.length = 0;
   frames.clear();
   media.clear();
-  FakeIO.all = [];
+  FakeRO.all = [];
+  LAYOUT.width = 390;
+  LAYOUT.topH = 0;
+  LAYOUT.monthH = 700;
 }
 
 // ---- The checks ----
@@ -2752,17 +2757,11 @@ async function main() {
     assert(reactWarnings.length === warned, `warnings: ${show(reactWarnings.slice(warned, warned + 5))}`);
   });
 
-  // ---- The tabs and the Month through the container (Plan E, Task E8) ----
+  // ---- The tabs and the Month through the container (Plan E, Task E8; responsive home release 2, Task 6) ----
 
   const warnedBeforeMonth = reactWarnings.length;
-  /** The fixtures' window and each month's top in the browse list (Hebrew dates on, Sunday weeks). */
-  const WINDOW = monthSpan(TODAY);
-  const OFFSETS = monthOffsets(WINDOW, 0, true);
-  const topOfMonth = (month: MonthKey) => OFFSETS[WINDOW.indexOf(month)];
-  /** The page offset that puts `month`'s title just under the stuck bar, less `peek`. */
-  const underBar = (month: MonthKey, peek = 0) => LAYOUT.listTop + topOfMonth(month) - monthBarPx(true) - peek;
-  /** A scroll that reads `month` as the one in view (browse reads it half a week row under the bar). */
-  const inViewAt = (month: MonthKey) => underBar(month, BROWSE_CELL_PX / 2) + 10;
+  /** The span the Month opens with (today's −12/+18, grid.ts), oldest first. */
+  const SPAN = spanMonths(defaultSpan(TODAY));
   /** A month's window as ranges() writes it: "famcal 2026-10-01→2026-11-01". */
   const monthAsk = (month: MonthKey, o: { fresh?: boolean } = {}) => `famcal ${monthWindow(month).from}→${monthWindow(month).to}${o.fresh ? ' fresh' : ''}`;
   /** Runs the frames requested so far (and any they request), inside act. */
@@ -2774,12 +2773,6 @@ async function main() {
         for (const run of batch) run();
       }
     });
-  /** The user scrolls the page to `top`: the window gets a scroll event, and the next frame measures. */
-  const scrollPageTo = (top: number) => {
-    fakeWindow.scrollY = top;
-    React.act(() => windowListeners.filter((l) => l.type === 'scroll').forEach((l) => l.fn()));
-    flushFrames();
-  };
   type Home = Awaited<ReturnType<typeof mountHome>>;
   const tabButton = (m: Home, id: 'agenda' | 'month') => {
     const found = elements(m.container).find((e) => e.getAttribute('id') === TAB_IDS[id]);
@@ -2791,15 +2784,60 @@ async function main() {
     assert(found, `no ${id} panel`);
     return found;
   };
-  const browseShown = (m: Home) => byClass(m.container, 'ch-mb').length === 1;
-  const pickedShown = (m: Home) => byClass(m.container, 'ch-mp').length === 1;
-  const barMonth = (m: Home) => byClass(m.container, 'ch-mb-bar-month')[0]?.textContent ?? null;
-  /** A day's button in browse (inside its month's block) or in picked, by its label's start. */
-  const dayButton = (m: Home, dayKey: DayKey) => {
-    const where = browseShown(m) ? byClass(byData(m.container, 'month', dayKey.slice(0, 7)), 'ch-mb-cell') : byClass(m.container, 'ch-mp-cell');
-    const found = where.filter((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, 'en')));
-    assert(found.length === 1, `no day button for ${dayKey}`);
+  /** The Month's parts on the page: the region, the pane's scroller and months, the bar's month, the handle, the day's list. */
+  const region = (m: Home) => byClass(m.container, 'ch-mv')[0] ?? null;
+  const monthShown = (m: Home) => byClass(m.container, 'ch-mv').length === 1;
+  const scroller = (m: Home) => {
+    const found = byClass(m.container, 'ch-pane-scroller')[0];
+    assert(found, 'no pane scroller');
+    return found;
+  };
+  const shownMonths = (m: Home) => byClass(m.container, 'ch-pane-month').map((e) => e.getAttribute('data-month') ?? '');
+  const barMonth = (m: Home) => byClass(m.container, 'ch-pane-title-month')[0]?.textContent ?? null;
+  const handle = (m: Home) => byClass(m.container, 'ch-handle')[0] ?? null;
+  const grown = (m: Home) => handle(m)?.getAttribute('aria-expanded') === 'true';
+  const dayPanel = (m: Home) => {
+    const found = byClass(m.container, 'ch-dp')[0];
+    assert(found, 'no day panel');
+    return found;
+  };
+  const listDay = (m: Home) => elements(m.container).find((e) => e.getAttribute('id') === 'ch-dp-day')?.textContent ?? null;
+  const todayButton = (m: Home) => byClass(m.container, 'ch-pane-today')[0] ?? null;
+  /** A day's square (inside its month's box), by its label's start. */
+  const dayButton = (m: Home, dayKey: DayKey, locale: Locale = 'en') => {
+    const found = byClass(byData(m.container, 'month', dayKey.slice(0, 7)), 'ch-sq').filter((e) => e.localName === 'button' && (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, locale)));
+    assert(found.length === 1, `no day square for ${dayKey}`);
     return found[0];
+  };
+  /** The month the pane's scroll position is on (every month is one scroller tall). */
+  const paneAt = (m: Home) => {
+    const el = scroller(m);
+    return shownMonths(m)[Math.round(el.scrollTop / el.clientHeight)] ?? null;
+  };
+  /** The scroll event a scroll sends (the person's, or a smooth scrollTo's), and the frame that measures it. */
+  const scrolled = (m: Home) => {
+    const el = scroller(m);
+    React.act(() => el.listeners.filter((l) => l.type === 'scroll').forEach((l) => l.fn({ type: 'scroll' })));
+    flushFrames();
+  };
+  /** The person scrolls the pane to `month`. */
+  const scrollPaneTo = (m: Home, month: MonthKey) => {
+    const el = scroller(m);
+    const at = shownMonths(m).indexOf(month);
+    assert(at >= 0, `${month} is not in the span`);
+    el.scrollTop = at * el.clientHeight;
+    scrolled(m);
+  };
+  /** The browser's ResizeObserver callbacks after a size changed, then the pane's settle (SETTLE_MS) inside act. */
+  const settleResize = async () => {
+    resized();
+    await React.act(async () => new Promise((resolve) => setTimeout(resolve, SETTLE_MS + 40)));
+  };
+  /** The window turns wide (a phone on its side, a laptop) or upright: the media query's listeners, then the sizes. */
+  const setWide = async (wide: boolean) => {
+    media.set(WIDE_QUERY, wide);
+    React.act(() => [...(mediaListeners.get(WIDE_QUERY) ?? [])].forEach((fn) => fn()));
+    await settleResize();
   };
   /** A tap on the Month tab, then what follows: the answers, the first frame's measure, their effects. */
   const openMonth = async (m: Home) => {
@@ -2814,10 +2852,34 @@ async function main() {
     flushFrames();
     await settle();
   };
+  /** A tap on the split's handle, and the resize it causes. */
+  const toggle = async (m: Home) => {
+    const bar = handle(m);
+    assert(bar, 'no handle');
+    await tap(m, bar);
+    await settleResize();
+  };
+  /** The collapsed and the grown split's scroller for the fake region (Hebrew dates on). */
+  const splitPx = (isGrown: boolean) => splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, isGrown).scrollerPx;
+  /** Every style sheet on the page, as one text. */
+  const pageCss = (m: Home) =>
+    elements(m.container)
+      .filter((e) => e.localName === 'style')
+      .map((e) => e.textContent)
+      .join('\n');
+  const cssRule = (css: string, selector: string) => {
+    const found = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((r) => r[1].trim() === selector);
+    assert(found.length >= 1, `${found.length} ${selector} rules`);
+    assert(new Set(found.map((r) => r[2])).size === 1, `${selector}: ${found.length} different rules`);
+    return found[0][2];
+  };
+  const decl = (body: string, prop: string) => new RegExp(`(?:^|[\\s;])${prop}\\s*:\\s*([^;]+);`).exec(body)?.[1].trim() ?? null;
   const swipeCalls = (calls: string[]) => calls.filter((c) => /VerticalSwipes/.test(c));
   const backCalls = (calls: string[]) => calls.filter((c) => c.startsWith('BackButton'));
+  const V1_KEY = 'famcal:monthLayout:v1:5550001';
+  const storedSplit = () => fakeWindow.localStorage.getItem(monthSplitKey('5550001'));
 
-  await check('#43 the Month\'s parts are client-safe, and its views are a chunk of their own (every /dashboard open preloads CalendarHome\'s chunk): CalendarHome loads HomeTabs, month.ts, grid.ts, home-storage.ts and hebrew-date.ts, and reaches MonthView only through one import(), never MonthBrowse or MonthPicked; MonthView loads both; neither graph has a server module or @hebcal/core', () => {
+  await check('#43 the Month\'s parts are client-safe and a chunk of their own (every /dashboard open preloads CalendarHome\'s chunk): CalendarHome loads HomeTabs, month.ts, grid.ts, home-storage.ts and hebrew-date.ts, and reaches MonthView only through one import(), never its parts; MonthView loads MonthPane, MonthSquares, DayPanel, SplitHandle and the drag surface; All months and the tapped-day screen are gone; neither graph has a server module or @hebcal/core', () => {
     const graph = (id: string) => {
       const loaded = new Set<string>();
       const walk = (at: string) => {
@@ -2836,24 +2898,25 @@ async function main() {
     for (const want of [dashboard('HomeTabs.tsx'), ...['month.ts', 'grid.ts', 'home-storage.ts', 'hebrew-date.ts'].map((f) => path.join(ROOT, 'src/lib/calendar-view', f))]) {
       assert(home.has(want), `${path.relative(ROOT, want)} not among CalendarHome's modules`);
     }
-    const views = ['MonthView.tsx', 'MonthBrowse.tsx', 'MonthPicked.tsx'].map(dashboard);
+    const views = ['MonthView.tsx', 'MonthPane.tsx', 'MonthSquares.tsx', 'DayPanel.tsx', 'SplitHandle.tsx'].map(dashboard);
     assert(views.every((v) => !home.has(v)), `in CalendarHome's own chunk: ${show(views.filter((v) => home.has(v)).map((v) => path.relative(ROOT, v)))}`);
+    assert(!fs.existsSync(dashboard('MonthBrowse.tsx')) && !fs.existsSync(dashboard('MonthPicked.tsx')), 'All months (MonthBrowse) and the tapped-day screen (MonthPicked) are gone');
     const source = fs.readFileSync(root, 'utf8');
     assert((source.match(/import\('\.\/MonthView'\)/g) ?? []).length === 1, 'one import() of ./MonthView');
-    assert(!/^import (?!type )[^;]*from '\.\/Month(?:View|Browse|Picked)';/m.test(source), 'a static import of a Month view');
+    assert(!/^import (?!type )[^;]*from '\.\/(?:Month(?:View|Pane|Squares)|DayPanel|SplitHandle)';/m.test(source), 'a static import of a Month part');
     nodeRequire(views[0]);
     const view = graph(views[0]);
-    assert(view.has(views[1]) && view.has(views[2]), 'MonthView loads MonthBrowse and MonthPicked');
+    assert(views.slice(1).every((v) => view.has(v)), `MonthView does not load ${show(views.slice(1).filter((v) => !view.has(v)).map((v) => path.relative(ROOT, v)))}`);
     // Drag to move: the library and DragSurface come with the Month's chunk, not the Agenda's first one.
     assert(!home.has(dashboard('DragSurface.tsx')) && ![...home].some((p) => /@dnd-kit/.test(p)), `dnd-kit in CalendarHome's own chunk: ${show([...home].filter((p) => /@dnd-kit|DragSurface/.test(p)).map((p) => path.relative(ROOT, p)))}`);
-    assert(view.has(dashboard('DragSurface.tsx')) && [...view].some((p) => /@dnd-kit[\\/]core/.test(p)), 'the Month views load the drag surface');
+    assert(view.has(dashboard('DragSurface.tsx')) && [...view].some((p) => /@dnd-kit[\\/]core/.test(p)), 'the Month\'s parts load the drag surface');
     const forbidden = [...home, ...view].filter((p) =>
       !importsNothing(p) && /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma)/.test(p),
     );
     assert(forbidden.length === 0, `server modules in the home's graph: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
   });
 
-  await check('#44 the tab bar (Rulings 1 and 2): under the header and above the banners; a tap on Month shows the Month panel, closes the item sheet and is kept for the session; back on the Agenda the page goes to the top; a remount in the session opens on the Month, a new session or another user on the Agenda; in Hebrew the bar runs right to left', async () => {
+  await check('#44 the tab bar (Rulings 1 and 2): under the header and above the banners; a tap on Month shows the Month panel (the banners moving into its day list), closes the item sheet and is kept for the session; back on the Agenda the page goes to the top; a remount in the session opens on the Month, a new session or another user on the Agenda; in Hebrew the bar runs right to left', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -2872,9 +2935,11 @@ async function main() {
       assert(byRole(m.container, 'dialog').length === 0, 'the switch closed the item sheet');
       assert(tabButton(m, 'month').getAttribute('aria-selected') === 'true' && tabButton(m, 'agenda').getAttribute('aria-selected') === 'false', 'Month is selected');
       assert(!panel(m, 'month').hasAttribute('hidden') && panel(m, 'agenda').hasAttribute('hidden') && panel(m, 'agenda').childNodes.length === 0, 'the Month panel shows; the Agenda is unmounted');
-      assert(browseShown(m) && byClass(m.container, 'ch-agenda').length === 0, 'MonthBrowse in the Month panel');
+      assert(monthShown(m) && byClass(m.container, 'ch-agenda').length === 0, 'the Month in the Month panel');
+      const banners = byClass(m.container, 'ch-banners');
+      assert(banners.length === 1 && closestClass(banners[0], 'ch-dp-scroller') !== null, `the banners once, in the day list's scroller (spec §1): ${banners.length}`);
       assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550001)) === 'month', 'the tab is kept for the session');
-      assert(tg.backHandlers() === 0, `no BackButton in browse: ${show(backCalls(tg.calls))}`);
+      assert(tg.backHandlers() === 0, `no BackButton on the Month: ${show(backCalls(tg.calls))}`);
       m.click(byLabel(m.container, 'Menu'));
       assert(byRole(m.container, 'dialog').length === 1, 'the menu is open');
       scrollCalls.length = 0;
@@ -2883,6 +2948,7 @@ async function main() {
       assert(byRole(m.container, 'dialog').length === 0, 'the switch closed the menu');
       assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `the Agenda opens at the top: ${show(scrollCalls)}`);
       assertHas(m.text(), [`Today ${ref.dayShort('en-GB', day(0))} 4 Cheshvan`, 'Show next week'], 'the Agenda again');
+      assert(byClass(m.container, 'ch-banners').length === 1 && closestClass(byClass(m.container, 'ch-banners')[0], 'ch-dp') === null, 'the Agenda keeps the banners above its panel');
       assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550001)) === 'agenda', 'the Agenda is kept');
       m.click(tabButton(m, 'month'));
       await settle();
@@ -2892,7 +2958,7 @@ async function main() {
     }
     const again = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
-      assert(tabButton(again, 'month').getAttribute('aria-selected') === 'true' && browseShown(again), 'a remount in the same session opens on the Month');
+      assert(tabButton(again, 'month').getAttribute('aria-selected') === 'true' && monthShown(again), 'a remount in the same session opens on the Month');
     } finally {
       again.unmount();
     }
@@ -2906,7 +2972,7 @@ async function main() {
     answerFetch = (c) => answerFor(c, { items: WEEK });
     const fresh = await mountHome('he', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
-      assert(tabButton(fresh, 'agenda').getAttribute('aria-selected') === 'true' && !browseShown(fresh), 'a new session opens on the Agenda');
+      assert(tabButton(fresh, 'agenda').getAttribute('aria-selected') === 'true' && !monthShown(fresh), 'a new session opens on the Agenda');
       assert(/<div class="ch-tabs" role="tablist" aria-label="תצוגת היומן" dir="rtl">/.test(fresh.html()), 'he: the tablist reads right to left');
       assertHas(textOf(htmlOf(byRole(fresh.container, 'tablist')[0])), ['סדר יום חודש'], 'he: the tab labels');
     } finally {
@@ -2914,7 +2980,7 @@ async function main() {
     }
   });
 
-  await check('#45 the Month opens on today\'s month with a peek: placeholders and swipes off before the first answer; then one instant scroll puts October\'s title under the bar with half a week row of September above it; its windows are a month\'s own days ([2026-10-01, 2026-11-01) first), at most 2 in flight, each asked once; a month coming near is asked at once', async () => {
+  await check('#45 the Month opens on today\'s month with today selected and its list (spec §3: a new visit selects today): placeholders and swipes off before the first answer; then the pane at October at once (its index × the collapsed split\'s height, no animated scroll), today\'s square current and pressed, "Today · Thursday, 15 October" over its rows, the handle collapsed, no Today button; its windows are a month\'s own days ([2026-10-01, 2026-11-01) first), at most 2 in flight, each asked once; a month coming into view is asked at once', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
     const tg = fakeTelegramHome({ version: '7.7' });
@@ -2938,51 +3004,50 @@ async function main() {
     const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
       assertHas(textOf(htmlOf(panel(m, 'month'))), ['Loading your calendar…'], 'before the first answer: the Month\'s placeholders');
-      assert(!browseShown(m) && !/class="ch-mb-cell/.test(m.html()), 'no grid, so no free-looking day, before the facts');
-      assert(show(swipeCalls(tg.calls)) === show(['disableVerticalSwipes()']), `swipes off while browse loads: ${show(swipeCalls(tg.calls))}`);
+      assert(!monthShown(m) && !/class="ch-sq/.test(m.html()), 'no squares, so no free-looking day, before the facts');
+      assert(show(swipeCalls(tg.calls)) === show(['disableVerticalSwipes()']), `swipes off while the Month loads: ${show(swipeCalls(tg.calls))}`);
       await React.act(async () => first(answerFor({ query: new URLSearchParams() } as FetchCall, { items: WEEK })));
       await settle();
-      assert(browseShown(m), 'the Month tab, kept for the session, opens in browse');
-      assert(show(scrollCalls) === show([{ top: underBar('2026-10', BROWSE_CELL_PX / 2), behavior: 'instant' }]), `the opening scroll: ${show(scrollCalls)} (want ${underBar('2026-10', BROWSE_CELL_PX / 2)})`);
+      assert(monthShown(m), 'the Month tab, kept for the session, opens');
+      const h = scroller(m).clientHeight;
+      assert(h === splitPx(false) && h > 0, `the collapsed split's height: ${h} (want ${splitPx(false)})`);
+      assert(scroller(m).scrollTop === SPAN.indexOf('2026-10') * h && elementScrolls.length === 0, `the opening: ${scroller(m).scrollTop} (want ${SPAN.indexOf('2026-10') * h}), ${show(elementScrolls)}`);
+      assert(show(shownMonths(m)) === show(SPAN), `the span's months: ${shownMonths(m)[0]} … ${shownMonths(m).at(-1)}`);
       assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11')]), `October, then November; September waits: ${show(ranges())}`);
       flushFrames();
       await settle();
       assert(barMonth(m) === 'October 2026', `the bar: ${barMonth(m)}`);
-      assert(dayButton(m, TODAY).getAttribute('aria-current') === 'date', 'today\'s cell');
-      FakeIO.all[0].fire({ '2026-08': false, '2026-09': true, '2026-10': true, '2026-11': true, '2026-12': true });
-      flushFrames();
-      await settle();
-      assert(ranges().length === 3 && held.length === MONTH_INFLIGHT_MAX, `still 2 in flight: ${show(ranges())}`);
+      assert(dayButton(m, TODAY).getAttribute('aria-current') === 'date' && dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'today\'s square, current and selected');
+      assert(listDay(m)?.startsWith('Today · Thursday, 15 October'), `the list's day: ${listDay(m)}`);
+      assert(handle(m) !== null && !grown(m), 'the handle, collapsed');
+      assert(todayButton(m) === null, 'no Today button on today');
+      const inFlight = () => held.length;
+      assert(ranges().length === 3 && inFlight() === MONTH_INFLIGHT_MAX, `still 2 in flight: ${show(ranges())}`);
       await answerOne('2026-10');
-      assert(show(ranges().slice(3)) === show([monthAsk('2026-09')]), `a slot frees: September, the nearest one waiting: ${show(ranges())}`);
-      assert(held.length <= MONTH_INFLIGHT_MAX, `in flight: ${held.length}`);
+      assert(show(ranges().slice(3)) === show([monthAsk('2026-09')]), `a slot frees: September, the one waiting: ${show(ranges())}`);
+      assertHas(textOf(htmlOf(dayPanel(m))), ['09:30 10:30 Dentist'], 'today\'s rows under the day');
       await answerOne('2026-11');
-      assert(show(ranges().slice(3)) === show([monthAsk('2026-09'), monthAsk('2026-12')]), `then December: ${show(ranges())}`);
       await answerOne('2026-09');
-      await answerOne('2026-12');
-      FakeIO.all[0].fire({ '2026-09': true, '2026-12': false });
-      flushFrames();
-      await settle();
-      scrollPageTo(fakeWindow.scrollY + 30);
-      await settle();
-      const asked = ranges();
-      assert(new Set(asked).size === asked.length && asked.length === 5, `each window once: ${show(asked)}`);
-      assert(!asked.some((r) => r.startsWith(`famcal ${day(0)}`)), 'the Agenda\'s week isn\'t asked again on the Month');
-      const october = textOf(htmlOf(byData(m.container, 'month', '2026-10')));
-      assertHas(october, ['October', 'Dentist', 'Grandma visits', 'Trip to Eilat'], 'October\'s chips');
+      assert(ranges().length === 4 && inFlight() === 0, `nothing more while October is in view: ${show(ranges())}`);
       assert(!/loading/.test(dayButton(m, '2026-10-02').getAttribute('aria-label') ?? ''), 'an answered day reads answered');
-      // January comes near (no answer has changed the store): it is asked at once.
-      FakeIO.all[0].fire({ '2027-01': true });
-      flushFrames();
+      assert(byClass(dayButton(m, TODAY), 'ch-sq-dot').length > 0, 'today\'s square has its dots');
+      // November in view: December comes near and is asked at once.
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      scrollPaneTo(m, '2026-11');
       await settle();
-      assert(show(ranges().slice(5)) === show([monthAsk('2027-01')]), `a month coming near: ${show(ranges())}`);
+      assert(barMonth(m) === 'November 2026' && todayButton(m) !== null, `scrolled to November, Today offered: ${barMonth(m)}`);
+      assert(show(ranges().slice(4)) === show([monthAsk('2026-12')]), `a month coming near: ${show(ranges())}`);
+      assert(listDay(m)?.startsWith('Today · Thursday, 15 October'), 'scrolling never changes the selection');
+      const asked = ranges();
+      assert(new Set(asked).size === asked.length, `each window once: ${show(asked)}`);
+      assert(!asked.some((r) => r.startsWith(`famcal ${day(0)}`)), 'the Agenda\'s week isn\'t asked again on the Month');
     } finally {
       m.unmount();
       fakeWindow.Telegram = undefined;
     }
   });
 
-  await check('#46 swipes (Ruling 9): on a 7.7 client they go off in browse and on in picked, on the Agenda and on unmount, enabled on mount, isVerticalSwipesEnabled never read; a 7.0 client gets no swipe call', async () => {
+  await check('#46 swipes (spec §1): on a 7.7 client they go off on the Month tab and stay off whatever it shows (collapsed, grown, a tap while grown, wide), on in the Agenda and after unmount, enabled on mount, isVerticalSwipesEnabled never read; a 7.0 client gets no swipe call', async () => {
     for (const version of ['7.7', '7.0']) {
       resetHome();
       const tg = fakeTelegramHome({ version });
@@ -3004,19 +3069,22 @@ async function main() {
       try {
         step(); // mount, on the Agenda
         await openMonth(m);
-        step(); // browse
+        step(); // the Month, collapsed
+        await toggle(m);
+        assert(grown(m), `${version}: grown`);
+        step(); // grown
         await tap(m, dayButton(m, '2026-10-20'));
-        assert(pickedShown(m), `${version}: picked`);
-        step(); // picked
-        React.act(() => tg.fire('backButtonClicked'));
-        await settle();
-        flushFrames();
-        step(); // back in browse
+        assert(!grown(m), `${version}: a tap while grown collapses`);
+        step(); // collapsed by the tap
+        await setWide(true);
+        assert(region(m)?.className.split(' ').includes('is-wide'), `${version}: wide`);
+        step(); // wide
+        await setWide(false);
         m.click(tabButton(m, 'agenda'));
         await settle();
         step(); // the Agenda
         await openMonth(m);
-        tg.calls.length = 0;
+        step(); // the Month again
       } finally {
         m.unmount();
         fakeWindow.Telegram = undefined;
@@ -3024,14 +3092,14 @@ async function main() {
       step(); // unmount
       const want =
         version === '7.7'
-          ? [['enableVerticalSwipes()'], ['disableVerticalSwipes()'], ['enableVerticalSwipes()'], ['disableVerticalSwipes()'], ['enableVerticalSwipes()'], ['enableVerticalSwipes()']]
-          : [[], [], [], [], [], []];
+          ? [['enableVerticalSwipes()'], ['disableVerticalSwipes()'], [], [], [], ['enableVerticalSwipes()'], ['disableVerticalSwipes()'], ['enableVerticalSwipes()']]
+          : [[], [], [], [], [], [], [], []];
       assert(show(steps) === show(want), `${version}: ${show(steps)}`);
       assert(reads === 0, `${version}: isVerticalSwipesEnabled was read ${reads} times`);
     }
   });
 
-  await check('#47 picked (spec §7.4, §7.6): a tap on a day opens it, shows the BackButton and keeps "picked" on the device; with the item sheet over it one tap closes only the sheet, the next goes back to browse with the picked month under the bar; a tab switch brings browse back on the month that was in view', async () => {
+  await check('#47 the split (spec §3): the handle grows the month over the list (a peek of it left, the month in view kept) and back; a tap on the peek collapses; a tap on a square while grown selects it and collapses; each state is kept on the device (v2) and neither shows the BackButton; the item sheet over the list shows it, a refetch meanwhile shows the row as the latest answer has it, and one tap closes only the sheet; a square tapped behind the sheet closes it with its day', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -3040,126 +3108,84 @@ async function main() {
     try {
       await openMonth(m);
       tg.calls.length = 0;
-      scrollCalls.length = 0;
+      const gridOf = () => byClass(byData(m.container, 'month', '2026-10'), 'ch-sq-grid')[0];
+      assert(!grown(m) && handle(m)?.getAttribute('aria-label') === 'Show the month bigger' && scroller(m).clientHeight === splitPx(false), 'collapsed');
+      assert(gridOf()?.className === 'ch-sq-grid is-small', `small squares (dots) collapsed: ${gridOf()?.className}`);
+      await toggle(m);
+      assert(grown(m) && handle(m)?.getAttribute('aria-label') === 'Show the month smaller' && scroller(m).clientHeight === splitPx(true) && splitPx(true) > splitPx(false), `grown: ${scroller(m).clientHeight} (want ${splitPx(true)})`);
+      assert(paneAt(m) === '2026-10' && scroller(m).scrollTop === SPAN.indexOf('2026-10') * splitPx(true), `the month in view stays: ${paneAt(m)} at ${scroller(m).scrollTop}`);
+      assert(gridOf()?.className === 'ch-sq-grid is-large', `large squares (names) grown: ${gridOf()?.className}`);
+      assert(storedSplit() === 'grown', `kept on the device: ${storedSplit()}`);
+      const peek = byClass(dayPanel(m), 'ch-dp-peek')[0];
+      assert(peek && peek.getAttribute('aria-label') === 'Show the month smaller' && byClass(dayPanel(m), 'is-peek').length === 1, 'the list is a peek');
+      await tap(m, peek);
+      await settleResize();
+      assert(!grown(m) && storedSplit() === 'split' && scroller(m).clientHeight === splitPx(false) && paneAt(m) === '2026-10', `the peek collapses: ${storedSplit()} ${paneAt(m)}`);
+      assert(byClass(m.container, 'ch-dp-peek').length === 0, 'no peek collapsed');
+      await toggle(m);
+      await tap(m, dayButton(m, '2026-10-20'));
+      await settleResize();
+      assert(!grown(m) && storedSplit() === 'split' && listDay(m)?.startsWith('Tuesday, 20 October'), `a square while grown: ${listDay(m)} ${storedSplit()}`);
+      assert(dayButton(m, '2026-10-20').getAttribute('aria-pressed') === 'true' && dayButton(m, TODAY).getAttribute('aria-pressed') === 'false', 'the 20th selected');
+      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 0, `no BackButton for either: ${show(backCalls(tg.calls))}`);
+      // The item sheet over the list: the button shows; one tap closes only the sheet.
       await tap(m, dayButton(m, TODAY));
-      assert(pickedShown(m) && !browseShown(m), 'picked');
-      assert(show(backCalls(tg.calls)) === show(['BackButton.onClick', 'BackButton.show()']), `the BackButton shows: ${show(backCalls(tg.calls))}`);
-      assert(fakeWindow.localStorage.getItem(monthLayoutKey(5550001)) === 'picked', 'the layout is kept on the device');
-      assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `picked starts at the top: ${show(scrollCalls)}`);
-      assertHas(m.text(), ['All months', 'October 2026', 'Today · Thursday, 15 October', '09:30 10:30 Dentist'], 'the picked day and its rows');
-      // The item sheet over picked: the button stays; one tap closes only the sheet.
-      tg.calls.length = 0;
-      m.click(button(m.container, 'Dentist'));
-      assert(byRole(m.container, 'dialog').length === 1 && dialogText(m.container).includes('Clinic on Herzl St'), 'the item sheet over picked');
-      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 1, `the button was already there: ${show(backCalls(tg.calls))}`);
+      m.click(button(dayPanel(m), 'Dentist'));
+      assert(byRole(m.container, 'dialog').length === 1 && dialogText(m.container).includes('Clinic on Herzl St'), 'the item sheet over the list');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.onClick', 'BackButton.show()']) && tg.backHandlers() === 1, `the BackButton shows for the sheet: ${show(backCalls(tg.calls))}`);
       // A refetch meanwhile: the sheet shows the row as the latest answer has it.
       const moved = item('dentist', { ...DENTIST, location: 'Clinic on Jaffa Rd' });
       answerFetch = (c) => answerFor(c, { items: { ...WEEK, [day(0)]: [VITAMINS, moved, FORM, SNOOZED, FOOTBALL, CONCERT] } });
       fireDocument('visibilitychange');
       await settle();
       assert(dialogText(m.container).includes('Clinic on Jaffa Rd'), `the sheet after a refetch: ${dialogText(m.container).slice(0, 200)}`);
-      React.act(() => tg.fire('backButtonClicked'));
-      await settle();
-      assert(byRole(m.container, 'dialog').length === 0 && pickedShown(m), 'one tap closed only the sheet');
-      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 1, `the button stays for picked: ${show(backCalls(tg.calls))}`);
-      // The next tap: browse, on the picked month. A chevron moves it to November first: the
-      // same MonthPicked (no scroll to the top), December asked at once, and an item sheet
-      // still open when the day changes (the check taps the chevron behind it; the sheet keeps
-      // a keyboard's focus, #59) closes with the day it showed.
-      answerFetch = (c) => answerFor(c, { items: WEEK });
-      assert(!ranges().includes(monthAsk('2026-12')), 'December not asked yet');
-      m.click(button(m.container, 'Dentist'));
-      assert(byRole(m.container, 'dialog').length === 1, 'the sheet again');
-      const picked = byClass(m.container, 'ch-mp')[0];
-      scrollCalls.length = 0;
-      m.click(byLabel(m.container, 'Next month'));
-      await settle();
-      assertHas(m.text(), ['November 2026'], 'the next month');
-      assert(byClass(m.container, 'ch-mp')[0] === picked && scrollCalls.length === 0, `one MonthPicked, not keyed by month: ${show(scrollCalls)}`);
-      assert(byRole(m.container, 'dialog').length === 0, 'the sheet closed with its day');
-      assert(ranges().includes(monthAsk('2026-12')), `the chevron asks the month after November: ${show(ranges())}`);
       tg.calls.length = 0;
       React.act(() => tg.fire('backButtonClicked'));
       await settle();
-      assert(browseShown(m) && !pickedShown(m), 'back in browse');
-      assert(show(backCalls(tg.calls)) === show(['BackButton.offClick', 'BackButton.hide()']) && tg.backHandlers() === 0, `the button goes: ${show(backCalls(tg.calls))}`);
-      assert(fakeWindow.localStorage.getItem(monthLayoutKey(5550001)) === 'browse', 'browse is kept');
-      assert(show(scrollCalls) === show([{ top: underBar('2026-11'), behavior: 'instant' }]), `November under the bar, no peek: ${show(scrollCalls)}`);
-      // Before browse's first frame reports, the Month's windows centre on November, not on what was in view before picked.
-      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
-      answerFetch = (c) => new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve }));
-      fetchCalls.length = 0;
-      fireDocument('visibilitychange');
-      await settle();
-      assert(show(ranges()) === show([monthAsk('2026-11'), monthAsk('2026-12')]), `centred on November: ${show(ranges())}`);
-      for (const h of held.splice(0)) await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
-      await settle();
-      for (const h of held.splice(0)) await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+      assert(byRole(m.container, 'dialog').length === 0 && monthShown(m) && listDay(m)?.startsWith('Today · Thursday, 15 October'), 'one tap closed only the sheet');
+      assert(show(backCalls(tg.calls)) === show(['BackButton.offClick', 'BackButton.hide()']) && tg.backHandlers() === 0, `the button goes with the sheet: ${show(backCalls(tg.calls))}`);
+      // A square tapped behind an open sheet (the sheet keeps a keyboard's focus, #59): the sheet closes with its day.
       answerFetch = (c) => answerFor(c, { items: WEEK });
-      await settle();
-      flushFrames();
-      await settle();
-      assert(barMonth(m) === 'November 2026', `the bar: ${barMonth(m)}`);
-      // "All months" does the same.
-      await tap(m, dayButton(m, '2026-11-03'));
-      m.click(button(m.container, 'All months'));
-      await settle();
-      flushFrames();
-      assert(browseShown(m) && barMonth(m) === 'November 2026', 'All months: browse on November');
-      // The month in view is kept across a tab switch.
-      scrollPageTo(inViewAt('2027-01'));
-      await settle();
-      assert(barMonth(m) === 'January 2027', `scrolled to January: ${barMonth(m)}`);
-      m.click(tabButton(m, 'agenda'));
-      await settle();
-      scrollCalls.length = 0;
-      await openMonth(m);
-      assert(show(scrollCalls) === show([{ top: underBar('2027-01'), behavior: 'instant' }]), `browse comes back on January, no peek: ${show(scrollCalls)}`);
-      assert(barMonth(m) === 'January 2027', `the bar: ${barMonth(m)}`);
+      m.click(button(dayPanel(m), 'Dentist'));
+      assert(byRole(m.container, 'dialog').length === 1, 'the sheet again');
+      await tap(m, dayButton(m, '2026-10-20'));
+      assert(byRole(m.container, 'dialog').length === 0 && listDay(m)?.startsWith('Tuesday, 20 October'), 'the sheet closed with its day');
     } finally {
       m.unmount();
       fakeWindow.Telegram = undefined;
     }
   });
 
-  await check('#48 a restored picked layout opens on today with the BackButton shown, and asks the picked month, the one after, then the one before; its BackButton goes to browse on October', async () => {
+  await check('#48 the device\'s memory (spec §3): a stored v1 "browse" opens grown once (written as v2, v1 removed), a v1 "picked" collapsed; a stored v2 wins and leaves a v1 alone; a new visit selects today with no BackButton and asks today\'s month, the one after, then the one before', async () => {
+    for (const [v1, want] of [['browse', 'grown'], ['picked', 'split']] as const) {
+      resetHome();
+      fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+      fakeWindow.localStorage.setItem(V1_KEY, v1);
+      const tg = fakeTelegramHome();
+      fakeWindow.Telegram = { WebApp: tg.webApp };
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+      try {
+        assert(monthShown(m) && grown(m) === (want === 'grown'), `${v1}: ${grown(m) ? 'grown' : 'collapsed'}`);
+        assert(storedSplit() === want && fakeWindow.localStorage.getItem(V1_KEY) === null, `${v1}: mapped once: ${storedSplit()}, v1 ${fakeWindow.localStorage.getItem(V1_KEY)}`);
+        assert(dayButton(m, TODAY).getAttribute('aria-pressed') === 'true' && listDay(m)?.startsWith('Today · Thursday, 15 October'), `${v1}: today selected`);
+        assert(show(backCalls(tg.calls)) === show(['BackButton.hide()']), `${v1}: hidden on mount, no BackButton: ${show(backCalls(tg.calls))}`);
+        assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `${v1}: today's month, then its neighbours: ${show(ranges())}`);
+      } finally {
+        m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
-    fakeWindow.localStorage.setItem(monthLayoutKey(5550001), 'picked');
-    const tg = fakeTelegramHome();
-    fakeWindow.Telegram = { WebApp: tg.webApp };
+    fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
+    fakeWindow.localStorage.setItem(V1_KEY, 'picked');
     answerFetch = (c) => answerFor(c, { items: WEEK });
-    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    const v2 = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
-      assert(pickedShown(m), 'picked');
-      assert(dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'today is the selected day');
-      assertHas(m.text(), ['Today · Thursday, 15 October', 'Dentist'], 'today\'s list');
-      assert(show(backCalls(tg.calls)) === show(['BackButton.hide()', 'BackButton.onClick', 'BackButton.show()']), `hidden on mount, then shown for picked: ${show(backCalls(tg.calls))}`);
-      assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the picked month, then its neighbours: ${show(ranges())}`);
-      React.act(() => tg.fire('backButtonClicked'));
-      await settle();
-      flushFrames();
-      assert(browseShown(m) && barMonth(m) === 'October 2026', `browse on October: ${barMonth(m)}`);
+      assert(grown(v2) && fakeWindow.localStorage.getItem(V1_KEY) === 'picked', 'a valid v2 wins and leaves v1 alone');
     } finally {
-      m.unmount();
-      fakeWindow.Telegram = undefined;
-    }
-    // Opened on the Agenda, with the Month not seen yet when midnight passes: it still opens on the new today.
-    resetHome();
-    fakeWindow.localStorage.setItem(monthLayoutKey(5550001), 'picked');
-    const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
-    let serverToday = TODAY;
-    answerFetch = (c) => (serverToday === TODAY ? answerFor(c, { items: WEEK }) : answerFor(c, { today: day(1), from: c.query.get('from') ?? day(1), to: c.query.get('to') ?? day(8), items: { [day(1)]: [GRANDMA] } }));
-    const n = await mountHome('en', {}, clock);
-    try {
-      serverToday = day(1);
-      await clock.advance(31_000);
-      assert(n.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), 'the new day');
-      await openMonth(n);
-      assert(pickedShown(n) && dayButton(n, day(1)).getAttribute('aria-pressed') === 'true', 'picked opens on the new today');
-      assertHas(n.text(), ['Today · Friday, 16 October', 'Grandma visits'], 'the new today\'s list');
-    } finally {
-      n.unmount();
+      v2.unmount();
     }
   });
 
@@ -3207,7 +3233,50 @@ async function main() {
     }
   });
 
-  await check('#50 a month that fails (500) shows "Couldn\'t load this month · Retry" over dimmed cells that never look free; Retry asks that month\'s window again, and the answer clears it', async () => {
+  /** The jump to a date: the bar's title opens the sheet; `back` months back from the month it opens on, then the day. */
+  const jumpTo = async (m: Home, dayKey: DayKey, back: number) => {
+    await tap(m, byClass(m.container, 'ch-pane-title')[0]);
+    const sheet = byRole(m.container, 'dialog')[0];
+    assert(sheet, 'no date sheet');
+    const prev = elements(sheet).find((e) => e.getAttribute('aria-label') === messages.en.calendarHome.picker.prevMonth) as FakeElement;
+    for (let i = 0; i < back; i++) m.click(prev);
+    await settle();
+    await tap(m, byData(byRole(m.container, 'dialog')[0], 'day', dayKey));
+  };
+
+  await check('#49b a selected day far from the month in view still loads (Ruling 2, Review Focus 3): with 10 August selected (a jump) and the pane scrolled to October, a return asks October, then August, before the months around October; the list shows August\'s day answered, and Today shows', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      await jumpTo(m, '2026-08-10', 2);
+      assert(listDay(m)?.startsWith('Monday, 10 August') && barMonth(m) === 'August 2026', `the jump: ${listDay(m)}, ${barMonth(m)}`);
+      scrollPaneTo(m, '2026-10');
+      await settle();
+      assert(barMonth(m) === 'October 2026' && listDay(m)?.startsWith('Monday, 10 August'), `October in view, August selected: ${barMonth(m)}`);
+      const held: { call: FetchCall; resolve: (a: FetchAnswer) => void }[] = [];
+      answerFetch = (c) => new Promise<FetchAnswer>((resolve) => held.push({ call: c, resolve }));
+      fetchCalls.length = 0;
+      fireDocument('visibilitychange');
+      await settle();
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-08')]), `October, then August: ${show(ranges())}`);
+      while (held.length > 0) {
+        const h = held.shift() as (typeof held)[number];
+        await React.act(async () => h.resolve(answerFor(h.call, { items: WEEK })));
+        await settle();
+      }
+      assert(show(ranges()) === show([monthAsk('2026-10'), monthAsk('2026-08'), monthAsk('2026-11'), monthAsk('2026-09')]), `then the months around October: ${show(ranges())}`);
+      assert(dayPanel(m).getAttribute('aria-busy') === null && textOf(htmlOf(dayPanel(m))).includes('Nothing planned'), `August's day answered: ${textOf(htmlOf(dayPanel(m))).slice(0, 120)}`);
+      assert(todayButton(m) !== null, 'Today shows');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#50 a month that fails (500) shows "Couldn\'t load this month · Retry" over dimmed squares that never look free; Retry asks that month\'s window again, and the answer clears it', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
     let october: FetchAnswer = { status: 500, body: { error: 'internal_error' } };
@@ -3232,7 +3301,7 @@ async function main() {
     }
   });
 
-  await check('#51 midnight on the Month: browse stays where it is (no new opening scroll), its cells loading and never free until the new day\'s answer; then today moves to the 16th and the windows are asked again in the new epoch', async () => {
+  await check('#51 midnight on the Month: the pane stays mounted where it is (no new opening), its squares loading and never free until the new day\'s answer; then today moves to the 16th and the windows are asked again in the new epoch; a selected Tuesday 20 October stays selected (clampFocus), its list loading, then answered, with Today offered', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
     const clock = fakeClock('2026-10-15T20:59:30Z'); // 23:59:30 in Israel, Thursday 15 October
@@ -3241,8 +3310,9 @@ async function main() {
     try {
       flushFrames();
       await settle();
-      const browse = byClass(m.container, 'ch-mb')[0];
-      assert(browse && scrollCalls.length === 1, `browse, opened once: ${show(scrollCalls)}`);
+      const pane = byClass(m.container, 'ch-pane')[0];
+      const top = scroller(m).scrollTop;
+      assert(pane && top === SPAN.indexOf('2026-10') * splitPx(false), `the pane on October: ${top}`);
       let release: (a: FetchAnswer) => void = noop;
       answerFetch = (c) =>
         c.query.has('from') ? answerFor(c, { today: day(1), items: { [day(1)]: [GRANDMA] } }) : new Promise<FetchAnswer>((resolve) => (release = resolve));
@@ -3250,9 +3320,10 @@ async function main() {
       await clock.advance(31_000);
       flushFrames();
       assert(show(ranges()) === show(['famcal default']), `the new day's no-dates request: ${show(ranges())}`);
-      assert(byClass(m.container, 'ch-mb')[0] === browse && scrollCalls.length === 1, 'browse stayed mounted, no new opening scroll');
-      assert(/loading/.test(dayButton(m, '2026-10-17').getAttribute('aria-label') ?? ''), 'the cells read loading');
-      assertLacks(textOf(htmlOf(byData(m.container, 'month', '2026-10'))), ['Dentist', 'nothing planned'], 'nothing of Thursday\'s, no free day');
+      assert(byClass(m.container, 'ch-pane')[0] === pane && scroller(m).scrollTop === top && elementScrolls.length === 0, 'the pane stayed mounted where it was');
+      assert(/loading/.test(dayButton(m, '2026-10-17').getAttribute('aria-label') ?? ''), 'the squares read loading');
+      assertLacks(textOf(htmlOf(byData(m.container, 'month', '2026-10'))), ['nothing planned'], 'no free day');
+      assertLacks(textOf(htmlOf(dayPanel(m))), ['Dentist', 'Nothing planned'], 'nothing of Thursday\'s, no free list');
       await React.act(async () => release(answerFor({ query: new URLSearchParams() } as FetchCall, { today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } })));
       await settle();
       flushFrames();
@@ -3260,11 +3331,11 @@ async function main() {
       assert(m.html().includes('<h1 class="ch-head-title">Friday, 16 October</h1>'), `the header: ${m.text().slice(0, 80)}`);
       assert(dayButton(m, day(1)).getAttribute('aria-current') === 'date' && dayButton(m, TODAY).getAttribute('aria-current') === null, 'today moved to the 16th');
       assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the windows again: ${show(ranges())}`);
-      assert(byClass(m.container, 'ch-mb')[0] === browse && scrollCalls.length === 1, 'still the same browse, still one opening scroll');
+      assert(byClass(m.container, 'ch-pane')[0] === pane && scroller(m).scrollTop === top, 'still the same pane, where it was');
     } finally {
       m.unmount();
     }
-    // Picked on Tuesday 20 October at midnight: picked stays on that day (clampMonthUi), mounted, loading, then answered.
+    // Tuesday 20 October selected at midnight: it stays selected, mounted, loading, then answered.
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
     const late = fakeClock('2026-10-15T20:59:30Z');
@@ -3273,20 +3344,20 @@ async function main() {
     try {
       flushFrames();
       await tap(p, dayButton(p, '2026-10-20'));
-      const picked = byClass(p.container, 'ch-mp')[0];
-      assert(picked && dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'picked on the 20th');
+      const list = dayPanel(p);
+      assert(dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'the 20th selected');
       let release: (a: FetchAnswer) => void = noop;
       answerFetch = (c) =>
         c.query.has('from') ? answerFor(c, { today: day(1), items: { [day(1)]: [GRANDMA] } }) : new Promise<FetchAnswer>((resolve) => (release = resolve));
-      scrollCalls.length = 0;
       await late.advance(31_000);
-      assert(byClass(p.container, 'ch-mp')[0] === picked && scrollCalls.length === 0, 'picked stayed mounted, no scroll to the top');
-      assert(/loading/.test(dayButton(p, '2026-10-21').getAttribute('aria-label') ?? '') && dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'loading, the 20th still picked');
-      assertLacks(textOf(htmlOf(picked)), ['Nothing planned'], 'never free while loading');
+      assert(dayPanel(p) === list && elementScrolls.length === 0, 'the list stayed mounted, the pane unmoved');
+      assert(/loading/.test(dayButton(p, '2026-10-21').getAttribute('aria-label') ?? '') && dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true', 'loading, the 20th still selected');
+      assertLacks(textOf(htmlOf(list)), ['Nothing planned'], 'never free while loading');
       await React.act(async () => release(answerFor({ query: new URLSearchParams() } as FetchCall, { today: day(1), from: day(1), to: day(8), items: { [day(1)]: [GRANDMA] } })));
       await settle();
-      assert(dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true' && dayButton(p, day(1)).getAttribute('aria-current') === 'date', 'the 20th stays picked; today is the 16th');
-      assertHas(p.text(), ['Tuesday, 20 October', 'Nothing planned', 'Today'], 'the 20th answered, and the Today pill');
+      assert(dayButton(p, '2026-10-20').getAttribute('aria-pressed') === 'true' && dayButton(p, day(1)).getAttribute('aria-current') === 'date', 'the 20th stays selected; today is the 16th');
+      assertHas(textOf(htmlOf(dayPanel(p))), ['Tuesday, 20 October', 'Nothing planned'], 'the 20th answered');
+      assert(todayButton(p) !== null, 'and the Today button');
     } finally {
       p.unmount();
     }
@@ -3304,7 +3375,7 @@ async function main() {
       assert(m.html().includes('data-banner="reconnect"') && m.text().includes('Your Google connection expired'), 'the Reconnect banner, with no Google answer asking for it');
       assert(ranges().length > 0 && ranges().every((r) => r.startsWith('famcal ')), `FamCal alone is asked, the Month\'s windows too: ${show(ranges())}`);
       assert(fakeWindow.sessionStorage.getItem(homeTabKey(5550002)) === 'month', 'the stored tab is kept');
-      assert(swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `browse turns swipes off as for any home: ${show(swipeCalls(tg.calls))}`);
+      assert(swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `the Month turns swipes off as for any home: ${show(swipeCalls(tg.calls))}`);
       m.click(byData(m.container, 'banner', 'reconnect'));
       assert(show(pushes) === show(['/refresh-token?user_id=5550002']), `Reconnect opens the token page: ${show(pushes)}`);
     } finally {
@@ -3324,49 +3395,91 @@ async function main() {
     }
   });
 
-  await check('#54 no ancestor of the Month clips or transforms (spec §7.1): from the sticky bar and from picked up to the root, no rule or style sets overflow hidden, auto or scroll, a transform or a filter', async () => {
+  await check('#53 wide (spec §2: a laptop, a phone on its side): the month pane and the day\'s list side by side (2fr 1fr, the pane first, so on the right in Hebrew), no handle and no peek whatever the device remembers, the pane filling the region with big squares that name their items; turned upright, the split comes back as remembered', async () => {
+    for (const locale of ['en', 'he'] as const) {
+      resetHome();
+      LAYOUT.width = 1280;
+      media.set(WIDE_QUERY, true);
+      fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+      fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z'));
+      try {
+        flushFrames();
+        await settle();
+        const mv = region(m) as FakeElement;
+        assert(mv && mv.className.split(' ').includes('is-wide'), `${locale}: wide: ${mv?.className}`);
+        const parts = mv.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName !== 'style').map((c) => c.className.split(' ')[0]);
+        assert(show(parts) === show(['ch-pane', 'ch-dp']), `${locale}: the pane, then the list: ${show(parts)}`);
+        assert(handle(m) === null && byClass(m.container, 'ch-dp-peek').length === 0, `${locale}: no handle, no peek`);
+        assert(!scroller(m).style.blockSize && scroller(m).clientHeight === LAYOUT.monthH - monthBarPx(true), `${locale}: the pane fills the region: ${scroller(m).style.blockSize}`);
+        assert(scroller(m).scrollTop === SPAN.indexOf('2026-10') * scroller(m).clientHeight, `${locale}: on October`);
+        const grid = byClass(byData(m.container, 'month', '2026-10'), 'ch-sq-grid')[0];
+        assert(grid?.className === 'ch-sq-grid is-large is-big', `${locale}: big squares: ${grid?.className}`);
+        assert(byClass(dayButton(m, TODAY, locale), 'ch-sq-chip').some((c) => textOf(htmlOf(c)).includes('Dentist')), `${locale}: today's square names the Dentist`);
+        assert(textOf(htmlOf(dayPanel(m))).includes('Dentist'), `${locale}: and the list beside it`);
+        const wideRule = cssRule(pageCss(m), '.ch-mv.is-wide');
+        assert(decl(wideRule, 'grid-template-columns') === '2fr 1fr' && decl(wideRule, 'display') === 'grid', `${locale}: the grid: ${wideRule}`);
+        assert(elements(m.container).find((e) => e.className === 'ch-app ch-screen ch-home')?.getAttribute('dir') === (locale === 'he' ? 'rtl' : 'ltr'), `${locale}: the columns follow the page's direction`);
+        await setWide(false);
+        assert(handle(m) !== null && grown(m) && byClass(m.container, 'ch-dp-peek').length === 1, `${locale}: upright again, grown as remembered`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#54 above the Month only its region (.ch-mv) and its two scrollers clip (spec §1): from a square, the handle and a row of the list up to the root, no rule or style sets a transform or a filter, and overflow hidden, auto or scroll only on .ch-mv, .ch-pane-scroller and .ch-dp-scroller; the item sheet sits outside the region with nothing clipping or moving above it', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
     answerFetch = (c) => answerFor(c, { items: WEEK });
     const m = await mountHome('en', { trialDaysLeft: 5 }, fakeClock('2026-10-15T07:00:00Z'));
     try {
       flushFrames();
-      const css = elements(m.container)
-        .filter((e) => e.localName === 'style')
-        .map((e) => e.textContent)
-        .join('\n');
-      const bad = /(?:^|;|\{)\s*(?:overflow(?:-[xy])?\s*:\s*(?:hidden|auto|scroll)|transform\s*:|filter\s*:)/;
+      const css = pageCss(m);
+      const clips = /(?:^|;|\{)\s*overflow(?:-[xy])?\s*:\s*(?:hidden|auto|scroll)/;
+      const moves = /(?:^|;|\{)\s*(?:transform|filter)\s*:/;
       // The last compound of each selector (".ch-app[dir='rtl'] .ch-flip" → ".ch-flip"), as tag and classes.
       const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-        .filter((r) => bad.test(`{${r[2]}`))
-        .flatMap((r) => r[1].split(',').map((sel) => sel.trim().split(/[\s>+~]+/).pop() ?? ''))
-        .map((last) => ({ last, tag: /^[a-z][\w-]*/.exec(last)?.[0] ?? null, classes: [...last.matchAll(/\.([\w-]+)/g)].map((x) => x[1]) }))
+        .flatMap((r) => {
+          const kind = moves.test(`{${r[2]}`) ? 'moves' : clips.test(`{${r[2]}`) ? 'clips' : null;
+          return kind ? r[1].split(',').map((sel) => ({ kind, last: sel.trim().split(/[\s>+~]+/).pop() ?? '' })) : [];
+        })
+        .map((r) => ({ ...r, tag: /^[a-z][\w-]*/.exec(r.last)?.[0] ?? null, classes: [...r.last.matchAll(/\.([\w-]+)/g)].map((x) => x[1]) }))
         .filter((r) => r.tag !== null || r.classes.length > 0);
       assert(rules.some((r) => r.classes.includes('ch-visually-hidden')), `the rule scan reads the sheets: ${show(rules.map((r) => r.last).slice(0, 8))}`);
+      const MAY_CLIP = ['ch-mv', 'ch-pane-scroller', 'ch-dp-scroller'];
       const ancestorsOf = (el: FakeElement) => {
         const out: FakeElement[] = [];
         for (let n = el.parentNode; n && n !== m.container; n = n.parentNode) if (n instanceof FakeElement) out.push(n);
         return out;
       };
-      const offenders = (el: FakeElement) =>
+      const offenders = (el: FakeElement, mayClip: readonly string[]) =>
         ancestorsOf(el).flatMap((a) => {
           const classes = a.className.split(' ').filter(Boolean);
-          const byRule = rules.filter((r) => (r.tag === null || r.tag === a.localName) && r.classes.every((c) => classes.includes(c)) && (r.classes.length > 0 || r.tag === a.localName));
-          const inline = ['overflow', 'overflowX', 'overflowY', 'transform', 'filter'].filter((k) => a.style[k] && !(k.startsWith('overflow') && a.style[k] === 'clip'));
+          const allowed = classes.some((c) => mayClip.includes(c));
+          const byRule = rules.filter((r) => (r.kind === 'moves' || !allowed) && (r.tag === null || r.tag === a.localName) && r.classes.every((c) => classes.includes(c)) && (r.classes.length > 0 || r.tag === a.localName));
+          const inline = ['overflow', 'overflowX', 'overflowY', 'transform', 'filter'].filter((k) => a.style[k] && !(k.startsWith('overflow') && (a.style[k] === 'clip' || allowed)));
           return [...byRule.map((r) => `${a.localName}.${classes.join('.')} ← ${r.last}`), ...inline.map((k) => `${a.localName}.${classes.join('.')} style.${k}`)];
         });
-      const bar = byClass(m.container, 'ch-mb-bar')[0];
-      assert(bar && ancestorsOf(bar).some((a) => a.className.includes('ch-home')) && ancestorsOf(bar).some((a) => a.getAttribute('role') === 'tabpanel'), 'the bar sits in the tab panel, in the home');
-      assert(offenders(bar).length === 0, `browse: ${show(offenders(bar))}`);
-      await tap(m, dayButton(m, '2026-10-20'));
-      const picked = byClass(m.container, 'ch-mp')[0];
-      assert(picked && offenders(picked).length === 0, `picked: ${show(picked ? offenders(picked) : 'no picked')}`);
+      const square = dayButton(m, TODAY);
+      assert(ancestorsOf(square).some((a) => a.className.includes('ch-home')) && ancestorsOf(square).some((a) => a.getAttribute('role') === 'tabpanel'), 'the square sits in the tab panel, in the home');
+      assert(offenders(square, MAY_CLIP).length === 0, `a square: ${show(offenders(square, MAY_CLIP))}`);
+      const bar = handle(m) as FakeElement;
+      assert(bar && offenders(bar, MAY_CLIP).length === 0, `the handle: ${show(bar ? offenders(bar, MAY_CLIP) : 'no handle')}`);
+      const row = byClass(dayPanel(m), 'ch-row')[0];
+      assert(row && offenders(row, MAY_CLIP).length === 0, `a row: ${show(row ? offenders(row, MAY_CLIP) : 'no row')}`);
+      assert(MAY_CLIP.every((c) => byClass(m.container, c).length === 1), 'each of the three is on the page once');
+      m.click(button(dayPanel(m), 'Dentist'));
+      const layer = byClass(m.container, 'ch-sheet-layer')[0];
+      assert(layer && closestClass(layer, 'ch-mv') === null, 'the item sheet is outside the region');
+      assert(offenders(layer, []).length === 0, `the sheet: ${show(offenders(layer, []))}`);
     } finally {
       m.unmount();
     }
   });
 
-  await check('#55 a Google user\'s calendars that are gone (Ruling 4): "2 calendars aren\'t available · Choose again" once, above the Month, in browse and in picked; Choose again opens select-calendars; the Month asks Google for its windows', async () => {
+  await check('#55 a Google user\'s calendars that are gone (Ruling 4): "2 calendars aren\'t available · Choose again" once, first in the day\'s list (spec §1), whichever day is selected; Choose again opens select-calendars; the Month asks Google for its windows', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550002), 'month');
     const calendars: CalendarDTO[] = [
@@ -3380,16 +3493,16 @@ async function main() {
       flushFrames();
       await settle();
       const once = (where: string) => {
-        const html = m.html();
-        assert((textOf(html).match(/2 calendars aren’t available Choose again/g) ?? []).length === 1, `${where}: the row once: ${textOf(html).slice(0, 300)}`);
-        assert(html.indexOf('2 calendars aren’t available') < html.indexOf(where === 'browse' ? 'class="ch-mb"' : 'class="ch-mp"'), `${where}: above the Month`);
+        assert((m.text().match(/2 calendars aren’t available Choose again/g) ?? []).length === 1, `${where}: the row once: ${m.text().slice(0, 300)}`);
+        const list = byClass(dayPanel(m), 'ch-dp-scroller')[0];
+        const first = list?.childNodes.find((c): c is FakeElement => c instanceof FakeElement);
+        assert(first?.className === 'ch-states' && textOf(htmlOf(first)).includes('2 calendars aren’t available'), `${where}: first in the list: ${first ? htmlOf(first).slice(0, 160) : 'nothing'}`);
       };
-      assert(browseShown(m), 'browse');
-      once('browse');
+      assert(monthShown(m), 'the Month');
+      once('today');
       assert(show(ranges()) === show(['google default', 'google 2026-10-01→2026-11-01', 'google 2026-11-01→2026-12-01', 'google 2026-09-01→2026-10-01']), `Google's month windows: ${show(ranges())}`);
-      await tap(m, dayButton(m, TODAY));
-      assert(pickedShown(m), 'picked');
-      once('picked');
+      await tap(m, dayButton(m, '2026-10-20'));
+      once('the 20th');
       m.click(button(m.container, 'Choose again'));
       assert(show(pushes) === show(['/en/select-calendars?user_id=5550002']), `Choose again: ${show(pushes)}`);
     } finally {
@@ -3397,9 +3510,8 @@ async function main() {
     }
   });
 
-  await check('#56 browse keeps the header and the tab bar on screen, as the approved MonthFlow does: they sit in .ch-home-top, which sticks under the safe areas in browse only, above the Month\'s bar and under the sheets, and whose height goes on .ch-home as --ch-top-h for the bar\'s top and the titles\' scroll-margin-top; 6,400 px down at today\'s month, ⋯ → Refresh is a tap away and asks the months near October; on the Agenda and in picked it scrolls with the page', async () => {
+  await check('#56 the header and the tab bar never stick (Ruling 4): they sit in .ch-home-top with no sticky class or rule, on the Agenda and on the Month, a flow root so the tab bar\'s margin is inside its height; that height goes on .ch-home as --ch-top-h, and the Month\'s region is the stable viewport less it, the safe areas above and the bottom one, clipping (the page never scrolls on the Month)', async () => {
     resetHome();
-    const topH = LAYOUT.topH;
     LAYOUT.topH = 126;
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -3410,51 +3522,38 @@ async function main() {
       assert(found, 'the tab bar is not in .ch-home-top');
       return found;
     };
-    const sticky = () => top().className.split(' ').includes('is-sticky');
-    const rule = (css: string, selector: string) => {
-      const found = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((r) => r[1].trim() === selector);
-      assert(found.length === 1, `${found.length} ${selector} rules`);
-      return found[0][2];
-    };
-    const decl = (body: string, prop: string) => new RegExp(`(?:^|[\\s;])${prop}\\s*:\\s*([^;]+);`).exec(body)?.[1].trim() ?? null;
     try {
       assert(byClass(top(), 'ch-head').length === 1 && byRole(top(), 'tablist').length === 1 && byClass(top(), 'ch-banners').length === 0, 'the header and the tab bar, not the banners');
-      assert(!sticky(), 'on the Agenda it scrolls with the page');
+      assert(top().className === 'ch-home-top', `the Agenda: in the page: ${top().className}`);
       await openMonth(m);
-      assert(sticky(), 'browse: it sticks');
+      assert(top().className === 'ch-home-top', `the Month: in the page too: ${top().className}`);
       const home = byClass(m.container, 'ch-home')[0];
       assert(home.style['--ch-top-h'] === '126px', `--ch-top-h on .ch-home: ${home.style['--ch-top-h']}`);
-      const stuck = rule(HOME_TOP_CSS, '.ch-home-top.is-sticky');
-      assert(decl(stuck, 'position') === 'sticky' && decl(stuck, 'top') === 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))' && decl(stuck, 'background') === 'var(--ch-bg)', `the sticky rule: ${stuck}`);
-      const z = Number(decl(stuck, 'z-index'));
-      assert(z > Number(decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'z-index')) && z < Number(decl(rule(APP_THEME_CSS, '.ch-sheet-layer'), 'z-index')), `z-index ${z}: above the Month's bar, under the sheets`);
-      assert((decl(rule(MONTH_BROWSE_CSS, '.ch-mb-bar'), 'top') ?? '').includes('var(--ch-top-h, 0px)') && (decl(rule(MONTH_BROWSE_CSS, '.ch-mb-title'), 'scroll-margin-top') ?? '').includes('var(--ch-top-h, 0px)'), 'the bar\'s top and the titles\' scroll margin add --ch-top-h');
-      assert(elements(m.container).some((e) => e.localName === 'style' && e.textContent === HOME_TOP_CSS), 'its styles are rendered');
-      scrollPageTo(inViewAt('2026-10'));
-      await settle();
-      assert(barMonth(m) === 'October 2026' && Number(fakeWindow.scrollY) > 6000, `October, ${fakeWindow.scrollY} px down`);
-      fetchCalls.length = 0;
-      m.click(byLabel(m.container, 'Menu'));
-      m.click(byData(m.container, 'menu', 'refresh'));
-      await settle();
-      assert(show(ranges()) === show(['2026-10', '2026-11', '2026-09'].map((mo) => monthAsk(mo, { fresh: true }))), `Refresh at October: ${show(ranges())}`);
-      await tap(m, dayButton(m, '2026-10-20'));
-      assert(pickedShown(m) && !sticky(), 'picked: it scrolls with the page');
-      React.act(() => tg.fire('backButtonClicked'));
-      await settle();
-      flushFrames();
-      assert(browseShown(m) && sticky(), 'back in browse: it sticks again');
+      const css = pageCss(m);
+      assert(!/is-sticky/.test(css) && !/\.ch-home-top[^{}]*\{[^}]*position:\s*sticky/.test(css), 'no sticky rule for the header');
+      assert(elements(m.container).some((e) => e.localName === 'style' && e.textContent === HOME_TOP_CSS) && decl(cssRule(css, '.ch-home-top'), 'display') === 'flow-root', `the wrapper is a flow root: ${HOME_TOP_CSS}`);
+      assert(/\.ch-tabs \{[^}]*margin-block: 0 4px;/.test(css), 'the tab bar\'s bottom margin the flow root keeps inside');
+      const mv = cssRule(css, '.ch-mv');
+      assert(
+        decl(mv, 'block-size') ===
+          'calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)))',
+        `the region's height: ${decl(mv, 'block-size')}`,
+      );
+      assert(decl(mv, 'overflow') === 'hidden', `the region clips: ${mv}`);
+      // The region's own sheet: the home's CSS rules, and the split's 200 ms height change, none under reduced motion.
+      const own = (region(m) as FakeElement).childNodes.find((c): c is FakeElement => c instanceof FakeElement && c.localName === 'style')?.textContent ?? '';
+      assert(own.includes('.ch-mv {') && show(lintCss(own)) === '[]', `the region's sheet: ${show(lintCss(own))}`);
+      assert(/\.ch-mv \.ch-pane-scroller \{\s*transition: block-size 200ms/.test(own) && /@media \(prefers-reduced-motion: reduce\) \{\s*\.ch-mv \.ch-pane-scroller \{\s*transition: none;/.test(own), 'the split animates over 200 ms, not under reduced motion');
       m.click(tabButton(m, 'agenda'));
       await settle();
-      assert(!sticky(), 'the Agenda: in the page again');
+      assert(top().className === 'ch-home-top', 'the Agenda again: in the page');
     } finally {
       m.unmount();
-      LAYOUT.topH = topH;
       fakeWindow.Telegram = undefined;
     }
   });
 
-  await check('#57 a tab switch from picked and back (spec §7.1, §7.6): the Agenda lets the BackButton go (offClick, hide) and leaves swipes on; back on the Month, picked on the same day, the button again (onClick, show), one scroll to the top and focus on the selected day; its BackButton still goes to browse', async () => {
+  await check('#57 a tab switch and back (spec §7.1, §7.6): the Agenda leaves the BackButton hidden and turns swipes on; back on the Month the pane opens on the month that was in view and the selected day is kept, with swipes off again and no BackButton', async () => {
     resetHome();
     const tg = fakeTelegramHome({ version: '7.7' });
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -3463,24 +3562,19 @@ async function main() {
     try {
       await openMonth(m);
       await tap(m, dayButton(m, '2026-10-20'));
-      assert(pickedShown(m) && tg.backHandlers() === 1 && swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()', `picked: ${show(backCalls(tg.calls))} ${show(swipeCalls(tg.calls))}`);
+      scrollPaneTo(m, '2027-01');
+      await settle();
+      assert(barMonth(m) === 'January 2027' && listDay(m)?.startsWith('Tuesday, 20 October'), `January in view, the 20th selected: ${barMonth(m)}`);
       tg.calls.length = 0;
       m.click(tabButton(m, 'agenda'));
       await settle();
-      assert(show(backCalls(tg.calls)) === show(['BackButton.offClick', 'BackButton.hide()']) && tg.backHandlers() === 0, `the Agenda: ${show(backCalls(tg.calls))}`);
-      assert(!swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `swipes stay on: ${show(swipeCalls(tg.calls))}`);
+      assert(backCalls(tg.calls).length === 0 && tg.backHandlers() === 0, `the Agenda: ${show(backCalls(tg.calls))}`);
+      assert(show(swipeCalls(tg.calls)) === show(['enableVerticalSwipes()']), `swipes on: ${show(swipeCalls(tg.calls))}`);
       tg.calls.length = 0;
-      scrollCalls.length = 0;
       await openMonth(m);
-      assert(pickedShown(m) && dayButton(m, '2026-10-20').getAttribute('aria-pressed') === 'true', 'picked on the 20th again');
-      assert(show(backCalls(tg.calls)) === show(['BackButton.onClick', 'BackButton.show()']) && tg.backHandlers() === 1, `back on the Month: ${show(backCalls(tg.calls))}`);
-      assert(!swipeCalls(tg.calls).includes('disableVerticalSwipes()'), `swipes stay on in picked: ${show(swipeCalls(tg.calls))}`);
-      assert(show(scrollCalls) === show([{ top: 0, behavior: 'plain' }]), `one scroll to the top: ${show(scrollCalls)}`);
-      assert(fakeDocument.activeElement === dayButton(m, '2026-10-20'), 'focus on the selected day');
-      React.act(() => tg.fire('backButtonClicked'));
-      await settle();
-      flushFrames();
-      assert(browseShown(m) && barMonth(m) === 'October 2026', `the BackButton goes to browse: ${barMonth(m)}`);
+      assert(scroller(m).scrollTop === shownMonths(m).indexOf('2027-01') * scroller(m).clientHeight && barMonth(m) === 'January 2027', `back on January: ${barMonth(m)} at ${scroller(m).scrollTop}`);
+      assert(listDay(m)?.startsWith('Tuesday, 20 October') && todayButton(m) !== null, `the 20th still selected: ${listDay(m)}`);
+      assert(show(swipeCalls(tg.calls)) === show(['disableVerticalSwipes()']) && backCalls(tg.calls).length === 0, `swipes off, no BackButton: ${show(tg.calls)}`);
     } finally {
       m.unmount();
       fakeWindow.Telegram = undefined;
@@ -3524,7 +3618,7 @@ async function main() {
     }
   });
 
-  await check('#59 the item sheet over picked keeps focus (aria-modal, spec §7.7): Tab from its last control (Close) goes to its first ("Open in Google Calendar"), Shift+Tab from its first (or the panel) to its last; focus that lands behind it, on a day of the month, comes back to the sheet and picks nothing; Escape closes it wherever focus is; then focus goes back to the row and the trap lets go', async () => {
+  await check('#59 the item sheet over the Month\'s list keeps focus (aria-modal, spec §7.7): Tab from its last control (Close) goes to its first ("Open in Google Calendar"), Shift+Tab from its first (or the panel) to its last; focus that lands behind it, on a day of the month, comes back to the sheet and selects nothing; Escape closes it wherever focus is; then focus goes back to the row and the trap lets go', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
@@ -3536,9 +3630,8 @@ async function main() {
     const name = (n: unknown) => (n instanceof FakeElement ? `${n.localName}.${n.className} ${n.textContent.slice(0, 40)}` : String(n));
     try {
       await openMonth(m);
-      await tap(m, dayButton(m, TODAY));
       assert(trap().length === 0, `listeners before any sheet: ${trap().length}`);
-      const row = button(m.container, 'Dinner with the Cohens');
+      const row = button(dayPanel(m), 'Dinner with the Cohens');
       row.focus();
       m.click(row);
       const dialog = byRole(m.container, 'dialog')[0];
@@ -3559,10 +3652,10 @@ async function main() {
       behind.focus();
       focusIn(behind);
       assert(fakeDocument.activeElement === dialog, `focus behind the sheet: ${name(fakeDocument.activeElement)}`);
-      assert(byRole(m.container, 'dialog').length === 1 && dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'the sheet and the picked day stay');
+      assert(byRole(m.container, 'dialog').length === 1 && dayButton(m, TODAY).getAttribute('aria-pressed') === 'true', 'the sheet and the selected day stay');
       docKey('Escape', fakeDocument.body);
       await settle();
-      assert(byRole(m.container, 'dialog').length === 0 && pickedShown(m), 'Escape from outside closed only the sheet');
+      assert(byRole(m.container, 'dialog').length === 0 && monthShown(m), 'Escape from outside closed only the sheet');
       assert(fakeDocument.activeElement === row, `focus back on the row: ${name(fakeDocument.activeElement)}`);
       assert(trap().length === 0, `the trap's listeners left: ${trap().length}`);
     } finally {
@@ -3643,16 +3736,15 @@ async function main() {
     }
   });
 
-  await check('#59b the jump to a date (owner 2026-11-17): the month\'s name in browse\'s bar opens the date sheet, which the BackButton closes; 10 September 2024, 13 months before the span, opens picked on it and asks its month; All months browses the span around it (2023-09 … 2026-03), which midnight leaves as it is; Today, outside that span, brings browse back on October 2026 with the span grown to it', async () => {
+  await check('#59b the jump to a date (owner 2026-11-17): the month\'s name in the pane\'s bar opens the date sheet, which the BackButton closes; 10 September 2024, 13 months before the span, is selected and its month sought (the span moved around it, 2023-09 … 2026-03) and asked; midnight leaves the span and the selection as they are; Today, outside that span, selects today and brings the pane back to October 2026 with the span grown to it', async () => {
     resetHome();
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
     const clock = fakeClock('2026-10-15T20:57:00Z');
     const m = await mountHome('en', {}, clock);
-    const jumpButton = () => byClass(m.container, 'ch-mb-bar-text')[0];
+    const jumpButton = () => byClass(m.container, 'ch-pane-title')[0];
     const sheet = () => byRole(m.container, 'dialog')[0] ?? null;
-    const spanShown = () => byClass(m.container, 'ch-mb-month').map((e) => e.getAttribute('data-month'));
     try {
       await openMonth(m);
       assert(jumpButton().getAttribute('aria-label') === 'October 2026, go to a date', `the bar's button: ${jumpButton().getAttribute('aria-label')}`);
@@ -3663,35 +3755,33 @@ async function main() {
       const switchGroup = byClass(sheet() as FakeNode, 'ch-segmented')[0];
       assert(switchGroup && textOf(htmlOf(switchGroup)).includes('Gregorian') && textOf(htmlOf(switchGroup)).includes('Hebrew'), 'the Gregorian | Hebrew switch is there');
       assert(m.html().includes('.ch-segmented {') && m.html().includes('.ch-segment[aria-checked=\'true\'] {'), 'and its CSS is on the page');
-      assert(backCalls(tg.calls).includes('BackButton.show()'), `the BackButton shows over browse: ${show(backCalls(tg.calls))}`);
+      assert(backCalls(tg.calls).includes('BackButton.show()'), `the BackButton shows over the Month: ${show(backCalls(tg.calls))}`);
       React.act(() => tg.fire('backButtonClicked'));
       await settle();
-      assert(sheet() === null && browseShown(m), 'the BackButton closed the sheet; browse stays');
-      await tap(m, jumpButton());
-      const prev = () => elements(sheet() as FakeNode).find((e) => e.getAttribute('aria-label') === messages.en.calendarHome.picker.prevMonth) as FakeElement;
-      for (let i = 0; i < 25; i++) m.click(prev());
-      await settle();
+      assert(sheet() === null && monthShown(m), 'the BackButton closed the sheet; the Month stays');
+      assert(tg.backHandlers() === 0, 'and the button goes with it');
       const asked = ranges().length;
-      await tap(m, byData(sheet() as FakeNode, 'day', '2024-09-10'));
-      assert(sheet() === null && pickedShown(m), 'picked, the sheet closed');
-      assertHas(m.text(), ['September 2024', 'Tuesday, 10 September'], 'the picked day');
+      await jumpTo(m, '2024-09-10', 25);
+      assert(sheet() === null && listDay(m)?.startsWith('Tuesday, 10 September'), `the day selected, the sheet closed: ${listDay(m)}`);
+      assert(barMonth(m) === 'September 2024' && paneAt(m) === '2024-09', `the pane sought it: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(dayButton(m, '2024-09-10').getAttribute('aria-pressed') === 'true', 'its square pressed');
       assert(ranges().slice(asked).includes(monthAsk('2024-09')), `September 2024 asked: ${show(ranges().slice(asked))}`);
-      await tap(m, button(m.container, 'All months'));
-      const around = spanShown();
+      const around = shownMonths(m);
       assert(around[0] === '2023-09' && around.at(-1) === '2026-03' && around.length === 31, `the span around it: ${around[0]} … ${around.at(-1)} (${around.length})`);
-      assert(barMonth(m) === 'September 2024', `browse opens on it: ${barMonth(m)}`);
-      // Midnight passes while browsing there: the store starts over on the 16th, and the span keeps its months.
+      assert(todayButton(m) !== null, 'Today offered');
+      // Midnight passes there: the store starts over on the 16th, and the span and the selection stay.
       answerFetch = (c) => answerFor(c, { today: day(1), items: WEEK });
       await clock.advance(4 * 60_000);
       await settle();
       flushFrames();
       await settle();
-      const night = spanShown();
-      assert(night[0] === '2023-09' && night.at(-1) === '2026-03' && barMonth(m) === 'September 2024', `after midnight: ${night[0]} … ${night.at(-1)}, ${barMonth(m)}`);
-      await tap(m, byClass(m.container, 'ch-mb-today')[0]);
-      const back = spanShown();
+      const night = shownMonths(m);
+      assert(night[0] === '2023-09' && night.at(-1) === '2026-03' && barMonth(m) === 'September 2024' && listDay(m)?.startsWith('Tuesday, 10 September'), `after midnight: ${night[0]} … ${night.at(-1)}, ${barMonth(m)}, ${listDay(m)}`);
+      await tap(m, todayButton(m) as FakeElement);
+      const back = shownMonths(m);
       assert(back[0] === '2023-09' && back.at(-1) === '2028-04', `grown to October 2026's +18: ${back[0]} … ${back.at(-1)}`);
-      assert(barMonth(m) === 'October 2026', `Today: browse on October 2026: ${barMonth(m)}`);
+      assert(barMonth(m) === 'October 2026' && paneAt(m) === '2026-10', `Today: the pane on October 2026: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(listDay(m)?.startsWith('Today · Friday, 16 October') && todayButton(m) === null, `today (the 16th) selected: ${listDay(m)}`);
     } finally {
       m.unmount();
     }
@@ -4220,7 +4310,7 @@ async function main() {
     }
   });
 
-  await check('#72 the Month follows a tap: from a picked day, Done patches the sheet and the day\'s row, and the confirming refetch is FamCal\'s windows', async () => {
+  await check('#72 the Month follows a tap: from a row of the selected day\'s list, Done patches the sheet and the day\'s row, and the confirming refetch is FamCal\'s windows', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     live = { items: { [day(0)]: [form2()] }, carry: [] };
@@ -4228,10 +4318,9 @@ async function main() {
     const m = await mountHome('en', {}, fakeClock('2026-10-15T10:00:00Z'));
     try {
       await openMonth(m);
-      await tap(m, dayButton(m, TODAY));
-      assert(pickedShown(m), 'picked');
-      m.click(button(byClass(m.container, 'ch-mp')[0], 'Send the form'));
-      assert(dialogButtons(m).includes('Done'), `actions in picked: ${show(dialogButtons(m))}`);
+      assert(listDay(m)?.startsWith('Today'), `today's list: ${listDay(m)}`);
+      m.click(button(dayPanel(m), 'Send the form'));
+      assert(dialogButtons(m).includes('Done'), `actions from the Month's list: ${show(dialogButtons(m))}`);
       reminderReply = () => ok200({ status: 'ok', reminder: doneReminder });
       live = { items: { [day(0)]: [form2({ done: true, doneAt: DONE_AT, open: false })] }, carry: [] };
       const before = rangeCalls().length;
@@ -4240,7 +4329,7 @@ async function main() {
       flushFrames();
       await settle();
       assertHas(dialogText(m.container), ['Done at 13:05'], 'the sheet');
-      assert(byClass(byClass(m.container, 'ch-mp')[0], 'ch-row').some((r) => r.className.includes('is-done') && r.textContent.includes('Send the form')), 'the picked day\'s row is struck');
+      assert(byClass(dayPanel(m), 'ch-row').some((r) => r.className.includes('is-done') && r.textContent.includes('Send the form')), 'the selected day\'s row is struck');
       assert(rangeCalls().slice(before).length >= 1 && rangeCalls().slice(before).every((c) => c.query.get('sources') === 'famcal'), `FamCal only: ${show(ranges().slice(before))}`);
     } finally {
       m.unmount();
@@ -4261,7 +4350,7 @@ async function main() {
     assert(show(actionTexts('en', sheetWith('en', ACT({ done: true, doneAt: at(0, '12:00') }), IDLE))) === show([l.undo]), 'done: Not done');
   });
 
-  await check('#72b a past day picked in the Month: its never-done reminder opens as "Not done yet" with Done and the snoozes', async () => {
+  await check('#72b a past day selected in the Month: its never-done reminder opens as "Not done yet" with Done and the snoozes', async () => {
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     const old = item('old', { kind: 'reminder', title: 'Old errand', seriesId: 'series_old', start: at(-3, '10:00'), reminder: rem({ open: false }) });
@@ -4271,8 +4360,8 @@ async function main() {
     try {
       await openMonth(m);
       await tap(m, dayButton(m, day(-3)));
-      assert(pickedShown(m), 'picked');
-      m.click(button(byClass(m.container, 'ch-mp')[0], 'Old errand'));
+      assert(listDay(m)?.startsWith(formatDayLong(day(-3), 'en')), `the 12th selected: ${listDay(m)}`);
+      m.click(button(dayPanel(m), 'Old errand'));
       assertHas(dialogText(m.container), ['Not done yet'], 'the state line');
       assert(dialogButtons(m).slice(0, 4).join() === 'Done,15 min,1 hour,Tomorrow', `buttons: ${show(dialogButtons(m))}`);
     } finally {
@@ -4666,12 +4755,16 @@ async function main() {
   const alerts = (m: Home) => byRole(topDialog(m), 'alert').map((e) => e.textContent);
   const hasDialog = (m: Home) => byRole(m.container, 'dialog').length > 0;
 
-  await check('#75a on the Month with a day picked, the "+" starts on that day at 09:00; on today\'s picked day, at the next round hour', async () => {
+  await check('#75a on the Month the "+" starts on the selected day (Ruling 3: it is always on screen): today, as the Month opens, at the next round hour; another day at 09:00; today again at the next round hour; on the Agenda, today whatever the Month selected', async () => {
     const { m } = await editingHome('en');
     try {
       await openMonth(m);
+      tapPlus(m);
+      await settle();
+      assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `the Month as it opens: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
+      tapIn(m, 'Cancel');
       await tap(m, dayButton(m, '2026-10-20'));
-      assert(pickedShown(m), 'a day is picked');
+      assert(listDay(m)?.startsWith('Tuesday, 20 October'), 'the 20th selected');
       tapPlus(m);
       await settle();
       assert(fieldValue(m, 'Start date') === '2026-10-20' && fieldValue(m, 'Start time') === '09:00' && fieldValue(m, 'End time') === '10:00', `picked day: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
@@ -4680,6 +4773,13 @@ async function main() {
       tapPlus(m);
       await settle();
       assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `today picked: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
+      tapIn(m, 'Cancel');
+      await tap(m, dayButton(m, '2026-10-20'));
+      m.click(tabButton(m, 'agenda'));
+      await settle();
+      tapPlus(m);
+      await settle();
+      assert(fieldValue(m, 'Start date') === TODAY && fieldValue(m, 'Start time') === '11:00', `the Agenda: ${fieldValue(m, 'Start date')} ${fieldValue(m, 'Start time')}`);
     } finally {
       m.unmount();
     }
@@ -4698,22 +4798,32 @@ async function main() {
   const dgDentistInfo = (days: number, o: Partial<ItemEditInfoResponse> = {}) =>
     infoFor({ occurrence: { start: `${day(days)}T09:30`, end: `${day(days)}T10:30`, allDay: false, title: 'Dentist', location: '', description: '' }, series: { recurring: false, start: `${day(days)}T09:30`, repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true }, ...o });
 
+  /** The fiber of the Month's region: the drag layer wraps it. */
+  const dgFiber = (m: Home): Row => {
+    const mv = region(m);
+    assert(mv, 'no Month region');
+    const key = Object.keys(mv).find((k) => k.startsWith('__reactFiber$')) as string;
+    return (mv as unknown as Row)[key];
+  };
   const dgDnd = (m: Home): Row => {
-    const grid = byClass(m.container, 'ch-mp-grid')[0] ?? byClass(m.container, 'ch-mb-grid')[0];
-    assert(grid, 'no month grid');
-    const key = Object.keys(grid).find((k) => k.startsWith('__reactFiber$')) as string;
-    for (let f = (grid as unknown as Row)[key]; f; f = f.return) {
+    for (let f = dgFiber(m); f; f = f.return) {
       const p = f.memoizedProps;
       if (p && typeof p.onDragEnd === 'function' && p.collisionDetection) return p;
     }
-    throw new Error('no DndContext above the grid');
+    throw new Error('no DndContext above the Month');
+  };
+  /** The library's own drop targets (its public context's droppableContainers), found above the region. */
+  const dgTargets = (m: Home): Map<string, Row> => {
+    for (let f = dgFiber(m); f; f = f.return) {
+      const value = f.memoizedProps?.value;
+      if (value && value.droppableContainers instanceof Map) return value.droppableContainers;
+    }
+    throw new Error('no drop targets above the Month');
   };
   /** The DragOverlay's props, found below the DndContext. */
   const dgOverlay = (m: Home): Row => {
-    const grid = byClass(m.container, 'ch-mp-grid')[0] ?? byClass(m.container, 'ch-mb-grid')[0];
-    const key = Object.keys(grid).find((k) => k.startsWith('__reactFiber$')) as string;
     let context: Row | null = null;
-    for (let f = (grid as unknown as Row)[key]; f && !context; f = f.return) if (f.memoizedProps && typeof f.memoizedProps.onDragEnd === 'function') context = f;
+    for (let f = dgFiber(m); f && !context; f = f.return) if (f.memoizedProps && typeof f.memoizedProps.onDragEnd === 'function') context = f;
     const queue: Row[] = [context as Row];
     while (queue.length) {
       const f = queue.shift() as Row;
@@ -4737,17 +4847,15 @@ async function main() {
   const dgRow = (m: Home, title: string) => byClass(m.container, 'ch-row').find((r) => textOf(htmlOf(r)).includes(title)) as FakeElement;
   const DGMSG = messages.en.calendarHome;
 
-  /** The home on the Month with TODAY picked, the editing routes serving the Dentist's info. */
+  /** The home on the Month (TODAY selected as it opens), the editing routes serving the Dentist's info. */
   async function dgHome(locale: Locale, server: EditingServer = {}, week = dgWeek()) {
     const home = await editingHome(locale, server, {}, week);
     await openMonth(home.m);
-    const label = formatDayLong(TODAY, locale);
-    await tap(home.m, byClass(home.m.container, 'ch-mb-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(label)) as FakeElement);
-    assert(pickedShown(home.m), 'a day is picked');
+    assert(byClass(home.m.container, 'ch-dp').length === 1 && dayButton(home.m, TODAY, locale).getAttribute('aria-pressed') === 'true', 'today selected');
     return home;
   }
 
-  await check('#d1 what lifts: a row of picked\'s list and a chip of browse carry the one marker when the item can be changed and does not repeat every day; none in the Agenda; the library gets the spec\'s sensors', async () => {
+  await check('#d1 what lifts (spec §4): a row of the day\'s list and a chip of a large square carry the one marker when the item can be changed and does not repeat every day; small squares have no chips; none in the Agenda; the library gets the spec\'s sensors', async () => {
     const { m } = await dgHome('en');
     try {
       const lifted = (title: string) => dgRow(m, title).getAttribute('data-lift');
@@ -4758,12 +4866,12 @@ async function main() {
       const sensors = dgDnd(m).sensors as { sensor: { name: string }; options: Row }[];
       assert(show(sensors.map((s) => [s.sensor.name, s.options.activationConstraint])) === show([['MouseSensor', { distance: MOUSE_DISTANCE_PX }], ['TouchSensor', { delay: LIFT_DELAY_MS, tolerance: LIFT_TOLERANCE_PX }]]), `sensors ${show(sensors)}`);
       assert(MOUSE_DISTANCE_PX === 6 && LIFT_DELAY_MS === 450 && LIFT_TOLERANCE_PX === 8 && NAV_DWELL_MS === 600 && DRAG_BAR_MS === 6000, 'the spec\'s numbers');
-      // Browse: the chips.
-      m.click(byClass(m.container, 'ch-mp-back')[0]);
-      await settle();
-      flushFrames();
-      assert(browseShown(m), 'browse');
-      const chips = byClass(m.container, 'ch-mb-chip');
+      // Small squares (the collapsed split on a phone) have dots, no chips.
+      assert(byClass(region(m) as FakeElement, 'ch-sq-chip').length === 0 && byClass(dayButton(m, TODAY), 'ch-sq-dot').length > 0, 'small squares: dots, nothing to lift');
+      // Grown: large squares with chips.
+      await toggle(m);
+      assert(grown(m), 'grown');
+      const chips = byClass(m.container, 'ch-sq-chip');
       const markers = chips.filter((c) => c.getAttribute('data-lift') === 'yes');
       assert(chips.length > markers.length && markers.length > 0, `${markers.length} of ${chips.length} chips lift`);
       assert(markers.every((c) => textOf(htmlOf(c)).includes('Dentist') || textOf(htmlOf(c)).includes('Swimming')), 'only the Dentist and Swimming');
@@ -4776,7 +4884,7 @@ async function main() {
     }
   });
 
-  await check('#d2 a drop on another day: the item leaves the picked day at once, the editor\'s PATCH goes out (its info read first, the start shifted, the same body), then the source is asked again; the bar says where, with Undo; swipes are locked while it is lifted; haptics', async () => {
+  await check('#d2 a drop on another day: the item leaves the selected day at once, the editor\'s PATCH goes out (its info read first, the start shifted, the same body), then the source is asked again; the bar says where, with Undo; swipes stay locked while it is lifted and after (the Month locks them); every square takes a drop, the small ones too; haptics', async () => {
     let moved = 0;
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
@@ -4788,11 +4896,16 @@ async function main() {
       },
     });
     try {
-      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'listed on the picked day');
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'listed on the selected day');
+      assert(swipeCalls(tg.calls).at(-1) === 'disableVerticalSwipes()', `the Month locks the swipes: ${swipeCalls(tg.calls)}`);
       const before = swipeCalls(tg.calls).length;
       await dgLift(m, DENTIST, TODAY);
       assert(tg.calls.includes('haptic(impact medium)'), 'a medium impact on the lift');
-      assert(swipeCalls(tg.calls).slice(before).join() === 'disableVerticalSwipes()', `swipes locked: ${swipeCalls(tg.calls).slice(before)}`);
+      assert(swipeCalls(tg.calls).length === before, `still locked, no new call: ${swipeCalls(tg.calls).slice(before)}`);
+      // Every day square is a drop target while lifted: the small ones (dots) too, each with its own node.
+      assert(byClass(byData(m.container, 'month', '2026-10'), 'ch-sq-grid')[0]?.className === 'ch-sq-grid is-small', 'small squares');
+      const target = dgTargets(m).get(dgDay(day(2)));
+      assert(target && target.node.current === dayButton(m, day(2)) && target.disabled === false, `the 17th's square takes a drop: ${show(target ? { disabled: target.disabled, node: (target.node.current as FakeElement | null)?.className } : null)}`);
       await dgHover(m, dgDay(day(2)));
       assert(tg.calls.includes('haptic(selection)'), 'a tick per new day');
       // The ghost never takes the pointer (it would hide the cell under the finger from the hit test), follows the finger,
@@ -4803,10 +4916,10 @@ async function main() {
       assert(DRAG_CSS.includes('.ch-drag-overlay {\n  pointer-events: none;'), 'the wrapper takes no pointer events in CSS either');
       await React.act(async () => dgDnd(m).onDragEnd({ over: { id: dgDay(day(2)) } }));
       await settle();
-      assert(swipeCalls(tg.calls).at(-1) === 'enableVerticalSwipes()', 'swipes back on at the drop');
+      assert(swipeCalls(tg.calls).length === before, `swipes stay off at the drop: ${swipeCalls(tg.calls).slice(before)}`);
       assert(dgDnd(m).autoScroll === false, 'no auto-scroll once dropped');
-      // The PATCH is in flight: the item has left the picked day and stands on the target, pending.
-      assert(!dgRowTitles(m).some((t) => t.includes('Dentist')), `still on the picked day: ${dgRowTitles(m)}`);
+      // The PATCH is in flight: the item has left the selected day and stands on the target, pending.
+      assert(!dgRowTitles(m).some((t) => t.includes('Dentist')), `still on the selected day: ${dgRowTitles(m)}`);
       assert(writes().length === 1, 'one PATCH in flight');
       assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: `${day(2)}T09:30`, end: `${day(2)}T10:30` } }), `body ${show(writes()[0].body)}`);
       assert(itemCalls().map((c) => c.query.get('key')).join() === 'famcal|dentist', 'its edit info was read first');
@@ -4858,7 +4971,7 @@ async function main() {
       assert(itemCalls().length === itemReads + 1 && itemCalls().at(-1)?.query.get('key') === answered, `its info was read on ${itemCalls().at(-1)?.query.get('key')}, not the answered key`);
       assert(sameBody(writes()[1].body, { user_id: 5550001, initData: INIT, key: answered, scope: 'single', changes: { start: `${day(0)}T09:30`, end: `${day(0)}T10:30` } }), `undo body ${show(writes()[1].body)}`);
       assert(dgBarText(m) === DGMSG.drag.undone && !dgUndo(m), `bar: ${dgBarText(m)}`);
-      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'back on the picked day');
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'back on the selected day');
       // A newer drag: the old bar (and its Undo) is gone while it writes, then the new one takes its place.
       gate = new Promise<void>((resolve) => (release = resolve));
       await dgLift(m, DENTIST, TODAY);
@@ -4938,7 +5051,7 @@ async function main() {
       answerFetch = () => new Promise(() => {});
       await dgLift(m, DENTIST, TODAY);
       await dgDrop(m, dgDay(day(2)));
-      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), `back on the picked day: ${dgRowTitles(m)}`);
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), `back on the selected day: ${dgRowTitles(m)}`);
       assert(dgBarText(m) === messages.en.calendarHome.editor.submitErrors.failed && !dgUndo(m), `bar: ${dgBarText(m)}`);
       assert(tg.calls.includes('haptic(error)'), 'an error tap');
       assert(reports.length === 1 && reports[0].context === 'calendar-home-drag' && reports[0].extra.key === 'famcal|dentist' && reports[0].extra.scope === 'single', `report ${show(reports)}`);
@@ -4988,12 +5101,12 @@ async function main() {
     }
   });
 
-  await check('#d7 the BackButton cancels a lift (Escape, the library\'s own cancel, and nothing dropped), shown while lifting in browse; a tab switch while lifted lets the swipe lock go', async () => {
+  await check('#d7 the BackButton cancels a lift (Escape, the library\'s own cancel, and nothing dropped), shown while lifted (the Month shows none otherwise); a tab switch while lifted lets the swipe lock go', async () => {
     const { m, tg } = await editingHome('en', { item: () => ok200(dgDentistInfo(0)) }, {}, dgWeek());
     try {
       await openMonth(m);
-      assert(browseShown(m), 'browse');
-      assert(backCalls(tg.calls).at(-1) === 'BackButton.hide()', 'hidden in browse');
+      assert(monthShown(m), 'the Month');
+      assert(backCalls(tg.calls).at(-1) === 'BackButton.hide()' && tg.backHandlers() === 0, 'hidden on the Month');
       await dgLift(m, DENTIST, TODAY);
       assert(backCalls(tg.calls).at(-1) === 'BackButton.show()', 'shown while lifted');
       documentEvents.length = 0;
@@ -5013,34 +5126,40 @@ async function main() {
     }
   });
 
-  await check('#d8 over a month chevron for 600 ms the picked month turns (the picked day\'s list stays), again every 600 ms while the finger stays; a drop there is on a day of that month; it comes back to the picked day\'s month after', async () => {
+  await check('#d8 resting 600 ms on a month chevron while an item is lifted scrolls the pane a month (Ruling 5, Review Focus 4; the list stays the selected day\'s), again every 600 ms while the finger stays, and the month it reaches is asked with its neighbour; off the chevron it stops; a drop on a square two months on moves the item there, and the pane stays where it is', async () => {
     const { m } = await dgHome('en', { item: () => ok200(dgDentistInfo(0)), write: () => ok200({ status: 'ok' }) });
     try {
-      const title = () => textOf(htmlOf(byClass(m.container, 'ch-mp-title')[0]));
-      assert(title().includes('October'), title());
+      assert(barMonth(m) === 'October 2026' && paneAt(m) === '2026-10', `${barMonth(m)} ${paneAt(m)}`);
       await dgLift(m, DENTIST, TODAY);
       await dgHover(m, 'nav:next');
-      assert(title().includes('October'), 'not before the dwell');
+      assert(barMonth(m) === 'October 2026', 'not before the dwell');
+      elementScrolls.length = 0;
       await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
-      assert(title().includes('November'), `turned: ${title()}`);
-      assert(dgRowTitles(m).some((t) => t.includes('Dentist')), 'the lifted row is still in the page');
-      // Still over the chevron: it turns again after another dwell, and the month it lands on is asked (loaded) while lifted.
-      await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
-      assert(title().includes('December'), `turned again: ${title()}`);
+      scrolled(m);
       await settle();
-      assert(rangeCalls().some((c) => (c.query.get('from') ?? '').startsWith('2027-01') || (c.query.get('to') ?? '').startsWith('2027-01')), `January (December's neighbour) was asked: ${ranges()}`);
-      await dgHover(m, dgDay('2026-11-03'));
+      assert(barMonth(m) === 'November 2026' && paneAt(m) === '2026-11', `scrolled: ${barMonth(m)} ${paneAt(m)}`);
+      assert(elementScrolls.length === 1 && elementScrolls[0].cls === 'ch-pane-scroller' && elementScrolls[0].behavior === 'smooth', `the pane's own smooth scroll: ${show(elementScrolls)}`);
+      assert(dgRowTitles(m).some((t) => t.includes('Dentist')) && listDay(m)?.startsWith('Today'), 'the lifted row is still in the page, the list today\'s');
+      // Still over the chevron: it scrolls again after another dwell, and the month it lands on is asked (loaded) while lifted.
       await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
-      assert(title().includes('December'), 'it does not keep turning off the chevron');
-      await dgDrop(m, dgDay('2026-11-03'));
-      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: '2026-11-03T09:30', end: '2026-11-03T10:30' } }), `body ${show(writes()[0].body)}`);
-      assert(title().includes('October'), `back on the picked day's month: ${title()}`);
+      scrolled(m);
+      await settle();
+      assert(barMonth(m) === 'December 2026', `again: ${barMonth(m)}`);
+      assert(rangeCalls().some((c) => (c.query.get('from') ?? '').startsWith('2027-01')), `January (December's neighbour) was asked: ${ranges()}`);
+      await dgHover(m, dgDay('2026-12-03'));
+      await React.act(async () => new Promise((resolve) => setTimeout(resolve, NAV_DWELL_MS + 150)));
+      scrolled(m);
+      assert(barMonth(m) === 'December 2026', 'it does not keep scrolling off the chevron');
+      await dgDrop(m, dgDay('2026-12-03'));
+      assert(sameBody(writes()[0].body, { user_id: 5550001, initData: INIT, key: 'famcal|dentist', scope: 'single', changes: { start: '2026-12-03T09:30', end: '2026-12-03T10:30' } }), `body ${show(writes()[0].body)}`);
+      flushFrames();
+      assert(barMonth(m) === 'December 2026' && listDay(m)?.startsWith('Today'), `the pane stays, the list today's: ${barMonth(m)}`);
     } finally {
       m.unmount();
     }
   });
 
-  await check('#d10 browse: a bar of a multi-day all-day item grabbed on its 2nd day and dropped on a cell moves by the days between the two; it shows on the target at once with the pending look and the bar names its new start day (not the drop day)', async () => {
+  await check('#d10 a bar of a multi-day all-day item in large squares (the month grown), grabbed on its 2nd day and dropped on a cell moves by the days between the two; it shows on the target at once with the pending look and the bar names its new start day (not the drop day)', async () => {
     const TRIP = (span: ItemDTO['span']) => item('trip', { title: 'Camping', allDay: true, tz: null, start: day(5), end: day(8), span });
     const tripInfo = infoFor({ occurrence: { start: day(5), end: day(7), allDay: true, title: 'Camping', location: '', description: '' }, series: { recurring: false, start: day(5), repeat: null, fixedDays: false, zone: 'UTC', rule: { choice: 'none' }, first: true } });
     let release!: () => void;
@@ -5049,10 +5168,11 @@ async function main() {
     const { m, world } = await editingHome('en', { item: () => ok200(tripInfo), write: async () => { await gate; return ok200({ status: 'ok' }); } }, {}, week);
     try {
       await openMonth(m);
-      assert(browseShown(m), 'browse');
+      await toggle(m);
+      assert(grown(m) && byClass(byData(m.container, 'month', '2026-10'), 'ch-sq-grid')[0]?.className === 'ch-sq-grid is-large', 'grown: large squares');
       const cellOf = (d: DayKey) => dayButton(m, d);
-      const pendingIn = (d: DayKey) => byClass(cellOf(d), 'ch-mb-chip').filter((c) => c.className.includes('is-pending')).length;
-      const chipsIn = (d: DayKey) => byClass(cellOf(d), 'ch-mb-chip').filter((c) => c.getAttribute('data-lift') === 'yes').length;
+      const pendingIn = (d: DayKey) => byClass(cellOf(d), 'ch-sq-chip').filter((c) => c.className.includes('is-pending')).length;
+      const chipsIn = (d: DayKey) => byClass(cellOf(d), 'ch-sq-chip').filter((c) => c.getAttribute('data-lift') === 'yes').length;
       assert(chipsIn(day(5)) === 1 && chipsIn(day(6)) === 1 && chipsIn(day(7)) === 1, 'the bar lifts from each of its days');
       const delta = 4; // grabbed on day(6), dropped on day(10)
       await dgLift(m, TRIP('spansDay'), day(6));
@@ -6621,7 +6741,7 @@ async function main() {
     }
   });
 
-  await check('#91b the Month\'s cell on a Saturday holds the parasha\'s short name; its aria label and the picked day\'s header list the holidays first, then the parasha and the special Shabbat, muted', async () => {
+  await check('#91b a large square on a Saturday (the month grown) holds the parasha\'s short name; its aria label and the selected day\'s header list the holidays first, then the parasha and the special Shabbat, muted', async () => {
     resetHome();
     const SHEKALIM = [hol('Chanukah: 8 Candles', 'minor', 'Chanukah'), hol('Parashat Miketz', 'parasha', 'Miketz'), hol('Shabbat Shekalim', 'specialShabbat')];
     serveHolidays = (c) => {
@@ -6630,13 +6750,15 @@ async function main() {
     };
     answerFetch = (c) => answerFor(c, { items: WEEK });
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
     const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
       await settle();
       flushFrames();
       await settle();
-      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-mb-hmonth')[0];
-      assert(line('2026-10-17').textContent === 'Vayera' && line('2026-10-17').className === 'ch-mb-hmonth', `a Saturday: ${htmlOf(line('2026-10-17'))}`);
+      assert(grown(m), 'grown: large squares');
+      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-sq-line')[0];
+      assert(line('2026-10-17').textContent === 'Vayera' && line('2026-10-17').className === 'ch-sq-line', `a Saturday: ${htmlOf(line('2026-10-17'))}`);
       assert((dayButton(m, '2026-10-17').getAttribute('aria-label') ?? '').includes('Parashat Vayera'), 'the label names the full title');
       // The month's first cell (not a Hebrew day 1) keeps the Hebrew month name over a portion; a holiday takes it (#91).
       assert(line('2026-10-01').textContent === 'Tish.' && !(dayButton(m, '2026-10-01').getAttribute('aria-label') ?? '').includes('TestPortion'), `the first cell: ${htmlOf(line('2026-10-01'))}`);
@@ -6644,8 +6766,8 @@ async function main() {
       const SHEKALIM_LINE = 'Chanukah: 8 Candles, Parashat Miketz, Shabbat Shekalim';
       assert((dayButton(m, '2026-10-24').getAttribute('aria-label') ?? '').includes(SHEKALIM_LINE), `the label lists the holiday first: ${dayButton(m, '2026-10-24').getAttribute('aria-label')}`);
       await tap(m, dayButton(m, '2026-10-24'));
-      const head = byClass(m.container, 'ch-mp-day')[0];
-      assert(htmlOf(holidayIn(head)) === `<span class="ch-day-holiday"><bdi>${SHEKALIM_LINE}</bdi></span>`, `the picked day's header: ${htmlOf(head)}`);
+      const head = byClass(m.container, 'ch-dp-day')[0];
+      assert(htmlOf(holidayIn(head)) === `<span class="ch-day-holiday"><bdi>${SHEKALIM_LINE}</bdi></span>`, `the selected day's header: ${htmlOf(head)}`);
     } finally {
       m.unmount();
     }
@@ -6668,13 +6790,14 @@ async function main() {
     }
   });
 
-  await check('#90 a failed holidays request (500, no connection, a garbled answer) shows nothing and logs the month and status, the home carries on, and the failure is not remembered: the next view of the month asks again and shows them', async () => {
+  await check('#90 a failed holidays request (500, no connection, a garbled answer) shows nothing and logs the month and status, the home carries on, and the failure is not remembered: the next view of the month asks again and shows them (in its large squares)', async () => {
     for (const failure of [{ status: 500, body: { error: 'failed' } }, 'throw', { status: 200, body: { days: [] } }, { status: 200, body: { days: { [day(0)]: [{ title: 1 }] } } }] as FetchAnswer[]) {
       resetHome();
       serveHolidays = () => failure;
       answerFetch = (c) => answerFor(c, { items: WEEK });
       const logged = appLogs.length;
       fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'agenda');
+      fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
       const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
       try {
         assertHas(m.text(), ['Dentist', 'Grandma visits'], `the home, ${show(failure)}`);
@@ -6686,18 +6809,19 @@ async function main() {
         serveHolidays = serveFixtures;
         await openMonth(m);
         assert(asked().filter((a) => a.startsWith('2026-10-01')).length === 2, `October is asked again: ${show(asked())}`);
-        assert(byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
+        assert(byClass(m.container, 'ch-sq-line').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
       } finally {
         m.unmount();
       }
     }
   });
 
-  await check('#90a a month whose holidays request failed is asked again when the month in view changes, even though its grid never unmounted: October fails, the user scrolls to November and back, and October is asked a second time and shows its holidays', async () => {
+  await check('#90a a month whose holidays request failed is asked again when the month in view changes, even though its squares never unmounted: October fails, the pane scrolls to November and back, and October is asked a second time and shows its holidays', async () => {
     resetHome();
     serveHolidays = () => ({ status: 502, body: { error: 'deploying' } });
     answerFetch = (c) => answerFor(c, { items: WEEK });
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
     const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
       await settle();
@@ -6705,74 +6829,73 @@ async function main() {
       await settle();
       const octAsks = () => asked().filter((a) => a.startsWith('2026-10-01')).length;
       assert(octAsks() >= 1, `October was asked: ${show(asked())}`);
-      assert(!byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and failed: no holiday yet');
+      assert(!byClass(m.container, 'ch-sq-line').some((e) => e.textContent === 'Yom HaZikaron'), 'and failed: no holiday yet');
       const before = octAsks();
       serveHolidays = serveFixtures;
-      scrollPageTo(inViewAt('2026-11'));
+      scrollPaneTo(m, '2026-11');
       await settle();
-      scrollPageTo(inViewAt('2026-10'));
+      scrollPaneTo(m, '2026-10');
       await settle();
       flushFrames();
       await settle();
       assert(octAsks() === before + 1, `October is asked again after the month in view changed: ${before} then ${octAsks()}: ${show(asked())}`);
-      assert(byClass(m.container, 'ch-mb-hmonth').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
+      assert(byClass(m.container, 'ch-sq-line').some((e) => e.textContent === 'Yom HaZikaron'), 'and the holidays show');
     } finally {
       m.unmount();
     }
   });
 
-  await check('#91 the Month\'s cell: the second line holds the day\'s highest-priority holiday (brief), a yom tov in the accent; a Hebrew month\'s first day keeps the month name, except under a yom tov (1 Tishrei shows Rosh Hashana); the month\'s first cell gives its name up to a holiday; the aria label names the titles; the line is one dir=auto ellipsis line', async () => {
+  await check('#91 a large square (the month grown): the line holds the day\'s highest-priority holiday (brief), a yom tov in the accent; a Hebrew month\'s first day keeps the month name, except under a yom tov (1 Tishrei shows Rosh Hashana); the month\'s first square gives its name up to a holiday; the aria label names the titles; the line is one dir=auto ellipsis line', async () => {
     resetHome();
     serveHolidays = serveFixtures;
     answerFetch = (c) => answerFor(c, { items: WEEK });
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
     const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
     try {
       await settle();
       flushFrames();
       await settle();
-      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-mb-hmonth')[0];
+      const line = (dayKey: DayKey) => byClass(dayButton(m, dayKey), 'ch-sq-line')[0];
       // A plain holiday: its brief, muted.
-      assert(line('2026-10-20').textContent === 'Yom HaZikaron' && line('2026-10-20').className === 'ch-mb-hmonth' && line('2026-10-20').getAttribute('dir') === 'auto', `a modern day: ${htmlOf(line('2026-10-20'))}`);
+      assert(line('2026-10-20').textContent === 'Yom HaZikaron' && line('2026-10-20').className === 'ch-sq-line' && line('2026-10-20').getAttribute('dir') === 'auto', `a modern day: ${htmlOf(line('2026-10-20'))}`);
       assert((dayButton(m, '2026-10-20').getAttribute('aria-label') ?? '').includes('Yom HaZikaron'), `the label names it: ${dayButton(m, '2026-10-20').getAttribute('aria-label')}`);
       // 1 Cheshvan: Rosh Chodesh is implied, the month name stays.
-      assert(line('2026-10-12').textContent === 'Chesh.' && line('2026-10-12').className === 'ch-mb-hmonth', `1 Cheshvan: ${htmlOf(line('2026-10-12'))}`);
+      assert(line('2026-10-12').textContent === 'Chesh.' && line('2026-10-12').className === 'ch-sq-line', `1 Cheshvan: ${htmlOf(line('2026-10-12'))}`);
       assert((dayButton(m, '2026-10-12').getAttribute('aria-label') ?? '').includes('Rosh Chodesh Cheshvan'), 'but the label still names Rosh Chodesh');
       // The month's first cell (Hebrew day 19, not a Hebrew month start): the holiday takes the line, with its brief.
       assert(line('2026-10-01').textContent === 'Sukkot VI', `the first cell: ${htmlOf(line('2026-10-01'))}`);
       assert((dayButton(m, '2026-10-01').getAttribute('aria-label') ?? '').includes("Sukkot VI (CH''M)"), 'and the label has the full title');
       // 1 Tishrei: a yom tov takes the line from the month name, in the accent.
-      assert(line('2026-09-12').textContent === 'Rosh Hashana 5787' && line('2026-09-12').className === 'ch-mb-hmonth has-chag', `1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
+      assert(line('2026-09-12').textContent === 'Rosh Hashana 5787' && line('2026-09-12').className === 'ch-sq-line has-chag', `1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
       // A day with none keeps what it had: nothing on a plain day, a month name on a Hebrew day 1.
       assert(line('2026-10-17').textContent === '' && line('2026-10-17').getAttribute('dir') === null, `a plain day, nothing: ${htmlOf(line('2026-10-17'))}`);
-      // The cell's height is the browse math's: the line's size and the cell are untouched.
-      assert(/\.ch-mb-hmonth \{[^}]*block-size: 13px[^}]*white-space: nowrap[^}]*overflow: hidden[^}]*text-overflow: ellipsis/.test(MONTH_BROWSE_CSS), 'one ellipsis line of 13 px');
-      assert(/\.ch-mb-hmonth\.has-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(MONTH_BROWSE_CSS), 'a yom tov reads the accent');
+      // The square's height is month-layout's: the line's size is fixed.
+      const css = pageCss(m);
+      assert(/\.ch-sq-line \{[^}]*block-size: 13px[^}]*white-space: nowrap[^}]*overflow: hidden[^}]*text-overflow: ellipsis/.test(css), 'one ellipsis line of 13 px');
+      assert(/\.ch-sq-line\.has-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(css), 'a yom tov reads the accent');
     } finally {
       m.unmount();
     }
   });
 
-  await check('#91a the Month\'s cell in he and ru: the line holds the brief in the page\'s language (a Hebrew Rosh Chodesh keeps the month name in Hebrew), the label has the titles', async () => {
+  await check('#91a a large square in he and ru: the line holds the brief in the page\'s language (a Hebrew Rosh Chodesh keeps the month name in Hebrew), the label has the titles', async () => {
     for (const locale of ['he', 'ru'] as const) {
       resetHome();
       serveHolidays = serveFixtures;
       answerFetch = (c) => answerFor(c, { items: WEEK });
       fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+      fakeWindow.localStorage.setItem(monthSplitKey('5550001'), 'grown');
       const m = await mountHome(locale, {}, fakeClock('2026-10-15T07:00:00Z'));
       try {
         await settle();
         flushFrames();
         await settle();
-        const cell = (dayKey: DayKey) => {
-          const found = byClass(byData(m.container, 'month', dayKey.slice(0, 7)), 'ch-mb-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, locale)));
-          assert(found, `${locale}: no cell for ${dayKey}`);
-          return found;
-        };
-        const line = (dayKey: DayKey) => byClass(cell(dayKey), 'ch-mb-hmonth')[0];
+        const cell = (dayKey: DayKey) => dayButton(m, dayKey, locale);
+        const line = (dayKey: DayKey) => byClass(cell(dayKey), 'ch-sq-line')[0];
         assert(line('2026-10-20').textContent === HOLIDAYS[locale]['2026-10-20'][0].brief, `${locale}: ${line('2026-10-20').textContent}`);
-        assert(line('2026-09-12').className === 'ch-mb-hmonth has-chag' && line('2026-09-12').textContent === HOLIDAYS[locale]['2026-09-12'][0].brief, `${locale}: 1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
-        assert(/[א-ת]/.test(line('2026-10-12').textContent) === (locale === 'he') && line('2026-10-12').className === 'ch-mb-hmonth', `${locale}: 1 Cheshvan keeps the month: ${line('2026-10-12').textContent}`);
+        assert(line('2026-09-12').className === 'ch-sq-line has-chag' && line('2026-09-12').textContent === HOLIDAYS[locale]['2026-09-12'][0].brief, `${locale}: 1 Tishrei: ${htmlOf(line('2026-09-12'))}`);
+        assert(/[א-ת]/.test(line('2026-10-12').textContent) === (locale === 'he') && line('2026-10-12').className === 'ch-sq-line', `${locale}: 1 Cheshvan keeps the month: ${line('2026-10-12').textContent}`);
         assert((cell('2026-10-20').getAttribute('aria-label') ?? '').includes(HOLIDAYS[locale]['2026-10-20'][0].title), `${locale}: the label`);
       } finally {
         m.unmount();
@@ -6780,7 +6903,7 @@ async function main() {
     }
   });
 
-  await check('#92 the picked day\'s header names the holidays after its Hebrew date, a yom tov in the accent, bidi-isolated; the compact grid has no holiday line', async () => {
+  await check('#92 the selected day\'s header names the holidays after its Hebrew date, a yom tov in the accent, bidi-isolated; small squares (the collapsed split) have no holiday line', async () => {
     resetHome();
     serveHolidays = serveFixtures;
     answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -6791,13 +6914,14 @@ async function main() {
       flushFrames();
       await settle();
       await tap(m, dayButton(m, '2026-10-20'));
-      assert(pickedShown(m), 'picked');
-      const head = byClass(m.container, 'ch-mp-day')[0];
+      const head = byClass(m.container, 'ch-dp-day')[0];
       assert(htmlOf(holidayIn(head)) === '<span class="ch-day-holiday"><bdi>Yom HaZikaron</bdi></span>', `${htmlOf(head)}`);
-      assert(htmlOf(head).indexOf('ch-mp-day-hebrew') < htmlOf(head).indexOf('ch-day-holiday'), 'after the Hebrew date');
-      await tap(m, byClass(m.container, 'ch-mp-cell').find((e) => (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(day(0), 'en'))) as FakeElement);
-      assert(holidayIn(byClass(m.container, 'ch-mp-day')[0])?.className === 'ch-day-holiday is-chag', "today's yom tov reads the accent");
-      assert(byClass(m.container, 'ch-mp-cell').every((e) => !/Shmini|Zikaron/.test(e.textContent)), 'no holiday line in the compact grid');
+      assert(htmlOf(head).indexOf('ch-dp-day-hebrew') < htmlOf(head).indexOf('ch-day-holiday'), 'after the Hebrew date');
+      await tap(m, dayButton(m, day(0)));
+      assert(holidayIn(byClass(m.container, 'ch-dp-day')[0])?.className === 'ch-day-holiday is-chag', "today's yom tov reads the accent");
+      const october = byData(m.container, 'month', '2026-10');
+      assert(byClass(october, 'ch-sq-grid')[0]?.className === 'ch-sq-grid is-small', 'small squares');
+      assert(byClass(october, 'ch-sq-line').length === 0 && byClass(october, 'ch-sq').every((e) => !/Shmini|Zikaron/.test(e.textContent)), 'no holiday line in a small square');
     } finally {
       m.unmount();
     }
@@ -6815,11 +6939,12 @@ async function main() {
     assert(require.cache[client] !== undefined, 'holidays-client.ts is not in require.cache: the check would be empty');
     const loaded = [...walk(client)];
     assert(!loaded.some((id) => /@hebcal|hebrew-holidays|node_modules\/(?:@prisma|ioredis|@upstash)/.test(id)), `server code reached: ${show(loaded.filter((id) => /@hebcal|hebrew-holidays/.test(id)))}`);
-    for (const view of ['MonthBrowse', 'DayList', 'MonthPicked', 'HomeHeader']) {
+    for (const view of ['MonthPane', 'MonthSquares', 'DayPanel', 'DayList', 'HomeHeader']) {
       const file = fs.readFileSync(path.join(ROOT, `app/[locale]/(app)/dashboard/${view}.tsx`), 'utf8');
       assert(/holidays-client/.test(file) && !/@hebcal\/core|services\/hebrew-holidays/.test(file), `${view} reads holidays-client only`);
     }
-    const css = [HOME_SHELL_CSS, MONTH_BROWSE_CSS].join('\n');
+    const { MONTH_SQUARES_CSS } = nodeRequire(path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthSquares.tsx')) as { MONTH_SQUARES_CSS: string };
+    const css = [HOME_SHELL_CSS, MONTH_SQUARES_CSS].join('\n');
     assert(/\.ch-day-holiday \{\s*color: var\(--ch-muted\);\s*\}/.test(HOME_SHELL_CSS) && /\.ch-day-holiday\.is-chag \{\s*color: var\(--ch-accent\);\s*\}/.test(HOME_SHELL_CSS), 'the colours');
     const holidayCss = [...css.matchAll(/[^{}]*(?:ch-day-holiday|has-chag)[^{}]*\{[^}]*\}/g)].map((m) => m[0]).join('\n');
     assert(holidayCss.length > 0 && !/(?:margin|padding|border)-(?:left|right)|(?:^|[\s;{])(?:left|right)\s*:|text-align:\s*(?:left|right)|(?:^|[\s;{])(?:width|height)\s*:/.test(holidayCss), `physical properties in ${holidayCss}`);
@@ -10735,7 +10860,7 @@ async function main() {
       for (const done of [true, false]) assertPartnerChip(monthRow(locale, eachItem({ partnerDone: done })), locale, 'Dana', done, `${locale} Month list, partner ${done ? 'done' : 'not yet'}`);
     }
     // The Month's list renders ItemRow itself, so there is one chip for the Agenda, the Month list and the card
-    assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthPicked.tsx'), 'utf8')), 'MonthPicked no longer renders ItemRow');
+    assert(/import \{[^}]*\bItemRow\b[^}]*\} from '\.\/ItemRow'/.test(fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/DayPanel.tsx'), 'utf8')), 'DayPanel no longer renders ItemRow');
   });
 
   await check('#134 the chip\'s CSS: a small inline row (icon and label) on the existing chip, the icon 14 px in the chip\'s own colour, the label ellipsised, the done tone the muted one with a ring (so it shows on the Still open card in every theme); logical properties and no hover', () => {
@@ -11012,7 +11137,7 @@ async function main() {
     assert(!/:hover/.test(AGENDA_CSS.slice(AGENDA_CSS.indexOf('.ch-daf'), AGENDA_CSS.indexOf('.ch-daf') + 400)), 'no hover');
   });
 
-  await check('#145 through the container: the Agenda\'s day headers and the Month\'s picked day show the line with the prop, and none without it', async () => {
+  await check('#145 through the container: the Agenda\'s day headers and the Month\'s selected day show the line with the prop, and none without it', async () => {
     resetHome();
     answerFetch = (c) => answerFor(c, { items: WEEK });
     const on = await mountHome('en', { dafYomi: true }, fakeClock('2026-10-15T07:00:00Z'));
@@ -11021,9 +11146,8 @@ async function main() {
       assert(first && first.textContent === DAF_WANT.en[day(0)], `today's line: ${first?.textContent}`);
       await openMonth(on);
       await tap(on, dayButton(on, day(1)));
-      assert(pickedShown(on), 'picked');
-      const lines = byClass(byClass(on.container, 'ch-mp')[0], 'ch-daf');
-      assert(lines.length === 1 && lines[0].textContent === DAF_WANT.en[day(1)], `the picked line: ${show(lines.map((l) => l.textContent))}`);
+      const lines = byClass(dayPanel(on), 'ch-daf');
+      assert(lines.length === 1 && lines[0].textContent === DAF_WANT.en[day(1)], `the selected day's line: ${show(lines.map((l) => l.textContent))}`);
     } finally {
       on.unmount();
     }
@@ -11034,7 +11158,7 @@ async function main() {
       assert(byClass(off.container, 'ch-daf').length === 0, 'none in the Agenda without the prop');
       await openMonth(off);
       await tap(off, dayButton(off, day(1)));
-      assert(pickedShown(off) && byClass(off.container, 'ch-daf').length === 0, 'none in the picked list without the prop');
+      assert(monthShown(off) && byClass(off.container, 'ch-daf').length === 0, 'none in the Month\'s list without the prop');
     } finally {
       off.unmount();
     }

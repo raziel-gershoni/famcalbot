@@ -14,8 +14,7 @@ import type { ItemDTO } from '../src/lib/calendar-view/types';
 import { buildMonth } from '../src/lib/calendar-view/month';
 import { ItemRow } from '../app/[locale]/(app)/dashboard/ItemRow';
 import { ItemSheet } from '../app/[locale]/(app)/dashboard/ItemSheet';
-import { Slot } from '../app/[locale]/(app)/dashboard/MonthBrowse';
-import { MONTH_BROWSE_CSS } from '../app/[locale]/(app)/dashboard/MonthBrowse';
+import { MONTH_SQUARES_CSS, SquareChip } from '../app/[locale]/(app)/dashboard/MonthSquares';
 import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
 import { EditorSheet } from '../app/[locale]/(app)/dashboard/EditorSheet';
 import { newItemForm } from '../src/lib/calendar-view/editor-model';
@@ -154,20 +153,20 @@ async function main() {
 
   // ---- Month cell ----
 
-  await check('Month: the slot carries the count; the chip puts the pill after the title; the CSS drops the pill below a width before it hides the title', () => {
+  await check('Month: the slot carries the count; a large square\'s chip puts the pill after the title; the CSS drops the pill below a width before it hides the title', () => {
     const slot = {
       kind: 'allDay' as const, key: 'k', title: "Dana's birthday", showTitle: true, mine: true, color: null, done: false,
       continuesBefore: false, continuesAfter: false, count: 36, canEdit: true, repeatsEveryDay: false,
     };
-    const html = renderToString(createElement(Slot, { slot, noTitle: '(No title)' }));
-    assert(html.indexOf('<bdi') !== -1 && html.indexOf('<bdi') < html.indexOf('ch-mb-count') && html.includes('has-count'), `chip ${html}`);
-    assert(!renderToString(createElement(Slot, { slot: { ...slot, count: null }, noTitle: '' })).includes('ch-mb-count'), 'no count, no pill');
-    assert(!renderToString(createElement(Slot, { slot: { ...slot, showTitle: false }, noTitle: '' })).includes('ch-mb-count'), 'a bar day without a title has no pill');
-    const css = MONTH_BROWSE_CSS;
-    assert(/\.ch-mb-slot\s*\{[^}]*container-type:\s*inline-size/.test(css), 'the slot is the container');
-    assert(/@container\s*\(min-width:\s*\d+px\)\s*\{[^}]*\.ch-mb-count[^}]*display:\s*inline-block/.test(css), 'the pill shows from a width');
-    assert(/\.ch-mb-count\s*\{[^}]*display:\s*none/.test(css), 'the pill is off by default');
-    assert(/\.ch-mb-chip-title\s*\{[^}]*text-overflow:\s*ellipsis/.test(css) && html.includes('class="ch-mb-chip-title"'), 'the title truncates');
+    const html = renderToString(createElement(SquareChip, { slot, noTitle: '(No title)' }));
+    assert(html.indexOf('<bdi') !== -1 && html.indexOf('<bdi') < html.indexOf('ch-sq-count') && html.includes('has-count'), `chip ${html}`);
+    assert(!renderToString(createElement(SquareChip, { slot: { ...slot, count: null }, noTitle: '' })).includes('ch-sq-count'), 'no count, no pill');
+    assert(!renderToString(createElement(SquareChip, { slot: { ...slot, showTitle: false }, noTitle: '' })).includes('ch-sq-count'), 'a bar day without a title has no pill');
+    const css = MONTH_SQUARES_CSS;
+    assert(/\.ch-sq-slot\s*\{[^}]*container-type:\s*inline-size/.test(css), 'the slot is the container');
+    assert(/@container\s*\(min-width:\s*\d+px\)\s*\{[^}]*\.ch-sq-count[^}]*display:\s*inline-block/.test(css), 'the pill shows from a width');
+    assert(/\.ch-sq-count\s*\{[^}]*display:\s*none/.test(css), 'the pill is off by default');
+    assert(/\.ch-sq-chip-title\s*\{[^}]*text-overflow:\s*ellipsis/.test(css) && html.includes('class="ch-sq-chip-title"'), 'the title truncates');
     assert(typeof buildMonth === 'function', 'buildMonth');
   });
 

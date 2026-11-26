@@ -6,7 +6,7 @@
 // BackButton and vertical swipes go first (releaseTelegramControls); the guard in
 // sessionStorage keeps that from looping. The fallback carries the home's own look,
 // hides a Telegram BackButton the client kept from before and turns vertical swipes back
-// on, which a reload in the Month's browse can leave off (Plan E Ruling 9). The home's
+// on, which a reload on the Month can leave off (spec 2026-11-19 §1). The home's
 // own chunk failing to load is PageGate's boundary's (D7): this one lives inside that
 // chunk.
 

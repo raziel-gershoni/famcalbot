@@ -40,7 +40,7 @@ export interface ItemRowProps {
   day: DayKey;
   tz: string;
   onOpen: (row: AgendaRow) => void;
-  /** Drag to move: what the Month's list hands a row (MonthPicked's LiftableRow); absent in the Agenda, which has no drag and loads none of the library. */
+  /** Drag to move: what the Month's list hands a row (DayPanel's LiftableRow); absent in the Agenda, which has no drag and loads none of the library. */
   lift?: ItemDrag;
 }
 

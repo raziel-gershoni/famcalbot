@@ -11,9 +11,9 @@
 //    only, no hover, the selected tab told apart by weight as well as colour, and only
 //    tokens components/app-ui/theme.ts defines;
 //  - the storage helpers (src/lib/calendar-view/home-storage.ts): the per-user keys, the
-//    tab in sessionStorage and the layout in localStorage, and their defaults with no
-//    window, with storage that throws (on the property, on get, on set) and for unknown
-//    values;
+//    tab in sessionStorage and the Month's split in localStorage (v2, release 1's v1
+//    layout mapped once), and their defaults with no window, with storage that throws (on
+//    the property, on get, on set) and for unknown values;
 //  - the Month's colour tokens in components/app-ui/theme.ts: each in light and dark; on Telegram's
 //    theme params where one fits (resolved with every param set); the contrast floor on
 //    the fallbacks, with and without color-mix (4.5:1 for text, 3:1 for the marks that
@@ -37,7 +37,10 @@ import { byRole, fakeDocument, fakeTelegram, fakeWindow, installWindow, memorySt
 import { cascade as cascadeOf, contrast, cssBlocks, customProps, resolver as resolverOf, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/(app)/dashboard/HomeErrorBoundary';
 import { useTelegramBackButton } from '../src/lib/telegram-ui';
-import { homeTabKey, monthLayoutKey, monthSplitKey, readHomeTab, readMonthLayout, readMonthSplit, writeHomeTab, writeMonthLayout, writeMonthSplit, type HomeTab } from '../src/lib/calendar-view/home-storage';
+import { homeTabKey, monthSplitKey, readHomeTab, readMonthSplit, writeHomeTab, writeMonthSplit, type HomeTab } from '../src/lib/calendar-view/home-storage';
+
+/** Release 1's key for the Month's layout ('browse' | 'picked'), which home-storage maps to the split once. */
+const monthLayoutKey = (userId: number | string) => 'famcal:monthLayout:v1:' + userId;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -338,37 +341,37 @@ async function main() {
     assert(used.length >= 5 && used.every((n) => defined.has(n)), `tokens read but not defined: ${show(used.filter((n) => !defined.has(n)))}`);
   });
 
-  await check('#6 the storage helpers: per-user keys with the page\'s user_id as it is; the tab in sessionStorage and the layout in localStorage, never the other way round; unknown values read as the defaults', () => {
+  await check('#6 the storage helpers: per-user keys with the page\'s user_id as it is; the tab in sessionStorage and the Month\'s split in localStorage, never the other way round; unknown values read as the defaults', () => {
     const saved = g.window;
     try {
       assert(homeTabKey(5550001) === 'famcal:homeTab:v1:5550001' && homeTabKey(42) === 'famcal:homeTab:v1:42', `homeTabKey ${homeTabKey(5550001)}`);
-      assert(monthLayoutKey(5550001) === 'famcal:monthLayout:v1:5550001' && monthLayoutKey(42) === 'famcal:monthLayout:v1:42', `monthLayoutKey ${monthLayoutKey(5550001)}`);
+      assert(monthSplitKey('5550001') === 'famcal:monthLayout:v2:5550001' && monthSplitKey('42') === 'famcal:monthLayout:v2:42', `monthSplitKey ${monthSplitKey('5550001')}`);
       const session = new Map<string, string>();
       const local = new Map<string, string>();
       g.window = { sessionStorage: memoryStorage(session), localStorage: memoryStorage(local) };
-      assert(readHomeTab(1) === 'agenda' && readMonthLayout(1) === null, 'an empty storage');
+      assert(readHomeTab(1) === 'agenda' && readMonthSplit('1') === 'split', 'an empty storage');
       writeHomeTab(1, 'month');
       assert(show([...session]) === show([['famcal:homeTab:v1:1', 'month']]) && local.size === 0, `the tab: ${show([...session])} ${show([...local])}`);
       assert(readHomeTab(1) === 'month' && readHomeTab(2) === 'agenda', 'per user');
-      writeMonthLayout(1, 'picked');
-      writeMonthLayout(2, 'browse');
-      assert(show([...local]) === show([['famcal:monthLayout:v1:1', 'picked'], ['famcal:monthLayout:v1:2', 'browse']]) && session.size === 1, `the layouts: ${show([...local])}`);
-      assert(readMonthLayout(1) === 'picked' && readMonthLayout(2) === 'browse' && readMonthLayout(3) === null, 'per user');
+      writeMonthSplit('1', 'grown');
+      writeMonthSplit('2', 'split');
+      assert(show([...local]) === show([['famcal:monthLayout:v2:1', 'grown'], ['famcal:monthLayout:v2:2', 'split']]) && session.size === 1, `the splits: ${show([...local])}`);
+      assert(readMonthSplit('1') === 'grown' && readMonthSplit('2') === 'split' && readMonthSplit('3') === 'split', 'per user');
       writeHomeTab(1, 'agenda');
       assert(readHomeTab(1) === 'agenda', 'back to the Agenda');
       for (const value of ['Month', 'week', '', ' month', '"month"', 'null', 'picked']) {
         session.set(homeTabKey(7), value);
         assert(readHomeTab(7) === 'agenda', `the tab ${show(value)} read as ${readHomeTab(7)}`);
       }
-      for (const value of ['Picked', 'grid', '', 'month', 'agenda', '"picked"']) {
-        local.set(monthLayoutKey(7), value);
-        assert(readMonthLayout(7) === null, `the layout ${show(value)} read as ${readMonthLayout(7)}`);
+      for (const value of ['Grown', 'grid', '', 'month', 'browse', '"grown"']) {
+        local.set(monthSplitKey('7'), value);
+        assert(readMonthSplit('7') === 'split', `the split ${show(value)} read as ${readMonthSplit('7')}`);
       }
       session.clear();
       local.clear();
       local.set(homeTabKey(8), 'month');
-      session.set(monthLayoutKey(8), 'picked');
-      assert(readHomeTab(8) === 'agenda' && readMonthLayout(8) === null, 'a value in the other storage counts');
+      session.set(monthSplitKey('8'), 'grown');
+      assert(readHomeTab(8) === 'agenda' && readMonthSplit('8') === 'split', 'a value in the other storage counts');
     } finally {
       g.window = saved;
     }
@@ -409,11 +412,11 @@ async function main() {
     try {
       const all = () => {
         writeHomeTab(1, 'month');
-        writeMonthLayout(1, 'picked');
-        return show([readHomeTab(1), readMonthLayout(1)]);
+        writeMonthSplit('1', 'grown');
+        return show([readHomeTab(1), readMonthSplit('1')]);
       };
       delete g.window;
-      assert(all() === show(['agenda', null]), 'no window');
+      assert(all() === show(['agenda', 'split']), 'no window');
       const blocked: Row = {};
       for (const area of ['sessionStorage', 'localStorage']) {
         Object.defineProperty(blocked, area, {
@@ -423,9 +426,9 @@ async function main() {
         });
       }
       g.window = blocked;
-      assert(all() === show(['agenda', null]), 'a blocked storage');
+      assert(all() === show(['agenda', 'split']), 'a blocked storage');
       g.window = { sessionStorage: null, localStorage: undefined };
-      assert(all() === show(['agenda', null]), 'no storage');
+      assert(all() === show(['agenda', 'split']), 'no storage');
       const writes: string[] = [];
       const throwing = {
         getItem: () => {
@@ -437,13 +440,13 @@ async function main() {
         },
       };
       g.window = { sessionStorage: throwing, localStorage: throwing };
-      assert(all() === show(['agenda', null]) && writes.length === 2, `throwing get and set: ${show(writes)}`);
-      const full = new Map<string, string>([[homeTabKey(1), 'month'], [monthLayoutKey(1), 'picked']]);
+      assert(all() === show(['agenda', 'split']) && writes.length === 2, `throwing get and set: ${show(writes)}`);
+      const full = new Map<string, string>([[homeTabKey(1), 'month'], [monthSplitKey('1'), 'grown']]);
       const readOnly = { getItem: (k: string) => full.get(k) ?? null, setItem: () => { throw new Error('QuotaExceededError'); } };
       g.window = { sessionStorage: readOnly, localStorage: readOnly };
       writeHomeTab(1, 'agenda');
-      writeMonthLayout(1, 'browse');
-      assert(readHomeTab(1) === 'month' && readMonthLayout(1) === 'picked', 'a full storage still reads');
+      writeMonthSplit('1', 'split');
+      assert(readHomeTab(1) === 'month' && readMonthSplit('1') === 'grown', 'a full storage still reads');
     } finally {
       g.window = saved;
     }

@@ -15,8 +15,9 @@
 // - the answers: 401, 403 and any 404 show PageGate's NoCredentialCard; 429 is busy and a 500
 //   is a retry, as a state row once the facts are pinned, else as a card;
 // - the shell: the theme (AppScreen's, with D4's useTelegramTheme: Telegram's bg_color for the header and
-//   background, data-theme for the tokens), the direction, document-level scroll and
-//   the safe areas (components/app-ui/screen.ts, the home's own ./home-shell), the header, the tab bar, the banners, the tab on
+//   background, data-theme for the tokens), the direction, document-level scroll on the Agenda (the
+//   Month is a fixed region with two inner scrollers, MonthView) and the safe areas
+//   (components/app-ui/screen.ts, the home's own ./home-shell), the header, the tab bar, the banners, the tab on
 //   screen (AgendaView, or the Month's MonthView), and the send and menu sheets;
 //   the banners include this device's notifications (6c-2): usePushDevice checks this browser on every open;
 // - the tabs (Ruling 1): the bar sits under the header and above the banners, and shows
@@ -24,20 +25,22 @@
 //   is kept in sessionStorage for the session (Ruling 2). A switch closes any sheet and
 //   the item sheet, and the Agenda opens at the top. Only the tab on screen is mounted;
 //   the other one's tabpanel is there, empty and hidden, for the tab's aria-controls.
-//   While the Month shows browse, the header and the tab bar stick under the safe areas,
-//   as in the approved MonthFlow (whose inner scroller the spec's document scroll
-//   replaces): 6,400 px down at today's month, Send, ⋯ and the Agenda tab are still a tap
-//   away. Their height goes on .ch-home as --ch-top-h, where browse's own bar sticks
-//   under them. On the Agenda and in picked they scroll with the page;
-// - the Month (spec §7.4): its MonthUi (month.ts) once the facts are pinned, from the
-//   layout this device remembers (localStorage), kept inside the window when today
-//   moves; browse opens on today's month with a peek the first time, on the picked
-//   month after "All months", and on the month that was in view after a tab switch.
-//   While the Month shows, the loader asks its windows (wantedMonths: the months near
-//   the screen, or picked's month and its neighbours), at most 2 at a time; a return to
+//   The header and the tab bar never stick (release 2, Ruling 4): the Agenda scrolls them
+//   away with the page, and on the Month the page does not scroll. Their height goes on
+//   .ch-home as --ch-top-h, which the Month's region is sized by. On the Month the banners
+//   go at the top of the day's list (spec §1), so the top-level ones show off the Month only;
+// - the Month (responsive home release 2, spec §1–§4): its focus (month.ts MonthFocus) once
+//   the facts are pinned: today's month with today selected on a new visit, kept inside the
+//   reach when today moves. A tap on a square selects its day (the list follows; the item
+//   sheet of another day closes); Today selects today and seeks its month, the jump selects
+//   its day and seeks its month, each with a new seek seq; leaving the tab keeps the month
+//   that was in view for the next time. The span holds the focus month. The upright split
+//   (collapsed or grown) is this device's memory (localStorage, v2; v1 mapped once). While
+//   the Month shows, the loader asks its windows (wantedFocusMonths: the month in view, the
+//   selected day's month, then the months around), at most 2 at a time; a return to
 //   the foreground and Refresh ask the Month's windows, not the Agenda's weeks; Retry
 //   asks one month again. Through a store drop the Month keeps the last facts, so it
-//   stays where it is with its cells loading until the new answer;
+//   stays where it is with its squares loading until the new answer;
 // - the item sheet's reminder actions (reminder-actions spec §4): a tap posts through
 //   deps.reminderAction; the answer's reminder patches every copy of the item in the
 //   store (patchReminder, and the answer's closedKeys for the earlier open times a Done on a
@@ -47,10 +50,9 @@
 //   key on every render (the tapped row is only the fallback), and a sheet whose item has
 //   left the store closes a moment after its note;
 // - Telegram's one BackButton (spec §7.6; AppScreen's onBack, set while it should show): shown while the item sheet, the Send sheet or
-//   the ⋯ menu is open, or while the Month is in picked. A tap closes the sheet on top,
-//   else the item sheet, else goes back to browse (Android's back gesture too). Vertical
-//   swipes are off while the Month shows browse, its loading included (Ruling 9), and on
-//   everywhere else. Before a reload (a chunk-load error) both are let go,
+//   the ⋯ menu is open (the split's collapsed and grown are no back step, spec §3). A tap closes the sheet on top,
+//   else the item sheet (Android's back gesture too). Vertical swipes are off while the Month tab
+//   shows, its loading included (spec §1), and on everywhere else. Before a reload (a chunk-load error) both are let go,
 //   since a reload runs no cleanup and the client keeps them;
 // - a return to the foreground after the day has ended in tz (iOS suspends the midnight
 //   timer with the app) drops the store at once, rather than asking for yesterday's
@@ -59,7 +61,7 @@
 //   the sources the server lists (FamCal for everyone, Google with a token), and a Google
 //   state that needs the user (choose calendars, reconnect) is a banner over the Agenda,
 //   never a screen without one. The Agenda, the tabs and the "+" are FamCal's for everyone;
-// - the Month's views (MonthView, MonthBrowse, MonthPicked) are a chunk of their own
+// - the Month's parts (MonthView, MonthPane, MonthSquares, DayPanel, SplitHandle) are a chunk of their own
 //   (import()): PageGate preloads this file's chunk on every /dashboard open. The chunk
 //   is fetched once the first answer is in,
 //   and the Month shows its placeholders until it is there;
@@ -74,7 +76,7 @@
 //   "following" edit starts a new series, "all" can move its slot) once the refetch the
 //   edit started brings that row, and closes if that refetch landed without the item. The
 //   BackButton cancels the editor (which asks to discard only after a change);
-// - drag to move (editor upgrades spec §4; the Month's picked list and browse chips, never the
+// - drag to move (editor upgrades spec §4; the Month's list rows and large squares' chips, never the
 //   Agenda): MonthView draws the lift and the drop (DragSurface); the container saves. A drop is the
 //   editor's own edit with the start shifted (drag-model: the item's edit info, editItemForm, scopePlan,
 //   updateBody), sent through deps.editing.update, so no scope or body rule is restated. The item shows
@@ -92,12 +94,12 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
-import { defaultSpan, growSpan, inSpan, monthOf, monthWindow, spanMonths, spanToShow, type MonthKey, type MonthSpan } from '@/src/lib/calendar-view/grid';
+import { defaultSpan, growSpan, inSpan, monthWindow, spanMonths, spanToShow, type MonthKey, type MonthSpan } from '@/src/lib/calendar-view/grid';
 import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
-import { readConnectBannerClosed, readHomeTab, readMonthLayout, writeConnectBannerClosed, writeHomeTab, writeMonthLayout, type HomeTab } from '@/src/lib/calendar-view/home-storage';
-import { backToBrowse, clampMonthUi, dayRows, initialMonthUi, monthModels, pickDay, stepMonth, wantedMonths, type MonthUi } from '@/src/lib/calendar-view/month';
+import { readConnectBannerClosed, readHomeTab, readMonthSplit, writeConnectBannerClosed, writeHomeTab, writeMonthSplit, type HomeTab, type MonthSplit } from '@/src/lib/calendar-view/home-storage';
+import { clampFocus, dayRows, focusJump, focusMonth, focusToday, initialFocus, monthModels, selectDay, wantedFocusMonths, type MonthFocus } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
 import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
@@ -122,6 +124,7 @@ import { HomeTabs, PANEL_IDS, TAB_IDS } from './HomeTabs';
 import { HOME_SHELL_CSS } from './home-shell';
 import { DragBar, type BarContent, type BarState, type UndoEntry } from './DragBar';
 import type { DropEvent } from './DragSurface';
+import type { MonthDrag } from './MonthView';
 import { EditorSheet, type MoveNote, type SaveOutcome } from './EditorSheet';
 import type { SheetActions, SheetEditing, SheetNote } from './ItemSheet';
 import { MenuSheet } from './MenuSheet';
@@ -131,10 +134,10 @@ import { SendSheet } from './SendSheet';
 import { ZmanimSheet } from './ZmanimSheet';
 
 /**
- * The Month's views, in a chunk of their own: PageGate preloads this file's chunk on
- * every /dashboard open (every user), so the Month's
- * three views come only when the home asks for them. A chunk that fails to load reloads
- * the page once (HomeErrorBoundary).
+ * The Month's parts, in a chunk of their own: PageGate preloads this file's chunk on
+ * every /dashboard open (every user), so the Month's pane, squares, day list, handle and
+ * the drag library come only when the home asks for them. A chunk that fails to load
+ * reloads the page once (HomeErrorBoundary).
  */
 const loadMonthView = () => import('./MonthView');
 const MonthView = lazy(() => loadMonthView().then((m) => ({ default: m.MonthView })));
@@ -265,27 +268,25 @@ function saveOutcome(out: WriteOutcome): SaveOutcome {
 type HeldFacts = { facts: StoreFacts; unavailable: number };
 
 /** What the loader reads about the Month: the tab on screen and where the Month is. */
-type MonthWants = { tab: HomeTab; ui: MonthUi | null; near: readonly MonthKey[]; inView: MonthKey | null };
+type MonthWants = { tab: HomeTab; focus: MonthFocus | null; near: readonly MonthKey[]; inView: MonthKey | null };
 
 /**
- * The header and the tab bar's wrapper. While the Month shows browse it sticks under the
- * safe areas, above browse's own bar (z-index 4 over 3) and under the sheets (50), on the
- * page's background, as the approved MonthFlow keeps them on screen.
+ * The header and the tab bar's wrapper (Ruling 4: it never sticks). A flow root, so the tab bar's
+ * bottom margin stays inside the height published as --ch-top-h: the Month's region is the
+ * viewport less that height, and a margin collapsing out of the wrapper would make the page
+ * scroll by it.
  */
 export const HOME_TOP_CSS = `
-.ch-home-top.is-sticky {
-  position: sticky;
-  top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
-  z-index: 4;
-  background: var(--ch-bg);
+.ch-home-top {
+  display: flow-root;
 }
 `;
 
 /**
- * Puts the wrapper's height on the home's root as --ch-top-h: browse's bar sticks under it, and its
- * titles stop under both. React attaches the root's ref after its children's layout effects, so on
- * the first commit the ref is still empty and the wrapper's parent, the root, stands in. Exported
- * for smoke-app-ui, which pins both.
+ * Puts the wrapper's height on the home's root as --ch-top-h: the Month's region is the viewport
+ * less it. React attaches the root's ref after its children's layout effects, so on the first
+ * commit the ref is still empty and the wrapper's parent, the root, stands in. Exported for
+ * smoke-app-ui, which pins both.
  */
 export function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLElement | null>) {
   try {
@@ -293,18 +294,19 @@ export function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLEl
     if (!top || !home || typeof top.getBoundingClientRect !== 'function') return;
     const height = `${Math.round(top.getBoundingClientRect().height)}px`;
     if (home.style.getPropertyValue?.('--ch-top-h') !== height) home.style.setProperty('--ch-top-h', height);
-  } catch {
-    // Without it the bar sticks at the safe areas, as it would with nothing above it.
+  } catch (err) {
+    // Without it the Month's region reads 0 for the header and is that much taller (the page then scrolls a little).
+    console.warn('[calendar-home] The header\'s height could not be published:', err);
   }
 }
 
 /**
- * The header and the tab bar, sticky while `sticky` (browse). Its height is published on
- * every commit, in a layout effect: as an earlier sibling's, it runs before the Month's
- * own layout effects in the same commit (browse's opening scroll reads it), and a
+ * The header and the tab bar (they never stick, Ruling 4). Its height is published on every
+ * commit, in a layout effect: as an earlier sibling's, it runs before the Month's own layout
+ * effects in the same commit (the region's first measure reads the height through CSS), and a
  * ResizeObserver catches what changes it outside a render (fonts, a rotation).
  */
-function HomeTop({ sticky, homeRef, children }: { sticky: boolean; homeRef: RefObject<HTMLElement | null>; children: ReactNode }) {
+function HomeTop({ homeRef, children }: { homeRef: RefObject<HTMLElement | null>; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => publishTopHeight(ref.current, homeRef));
   useEffect(() => {
@@ -314,13 +316,14 @@ function HomeTop({ sticky, homeRef, children }: { sticky: boolean; homeRef: RefO
     try {
       observer = new window.ResizeObserver(() => publishTopHeight(el, homeRef));
       observer.observe(el);
-    } catch {
+    } catch (err) {
+      console.warn('[calendar-home] ResizeObserver failed; the header\'s height follows renders only:', err);
       return;
     }
     return () => observer.disconnect();
   }, [homeRef]);
   return (
-    <div ref={ref} className={sticky ? 'ch-home-top is-sticky' : 'ch-home-top'}>
+    <div ref={ref} className="ch-home-top">
       {children}
     </div>
   );
@@ -366,7 +369,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [store, dispatch] = useReducer(reduceStore, undefined, () => emptyStore());
   const [weeks, setWeeks] = useState(1);
   const [sheet, setSheet] = useState<'send' | 'menu' | 'zmanim' | null>(null);
-  /** The row whose item sheet is open (AgendaView or the Month's picked renders it; the BackButton here closes it). */
+  /** The row whose item sheet is open (AgendaView or the Month's MonthView renders it; the BackButton here closes it). */
   const [selected, setSelected] = useState<AgendaRow | null>(null);
   /** The sheet's reminder action in flight (one at a time), and the note after a tap that changed nothing. */
   const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
@@ -394,10 +397,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const editorCancel = useRef<(() => void) | null>(null);
   /** A date or time sheet of the editor is open: a wheel dragged down would otherwise minimize the app. */
   const [pickerOpen, setPickerOpen] = useState(false);
-  /** Drag to move: an item is lifted (the swipe lock and the BackButton count it). */
+  /** Drag to move: an item is lifted (the BackButton counts it). */
   const [dragging, setDragging] = useState(false);
-  /** The month picked shows while an item is lifted over a chevron, else null (the picked day's month). */
-  const [previewMonth, setPreviewMonth] = useState<MonthKey | null>(null);
   /** The item whose move is saving (the pending look), and the drop waiting for which occurrences. */
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [scopeAsk, setScopeAsk] = useState<ScopeAsk | null>(null);
@@ -412,8 +413,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const deviceZone = useSyncExternalStore(subscribeNothing, deps.deviceTimeZone, noZone);
   /** The tab this session last showed (sessionStorage; Ruling 2). */
   const [tab, setTab] = useState<HomeTab>(() => readHomeTab(userId));
-  /** The Month's layout as this device remembers it (localStorage), read once. */
-  const [savedLayout] = useState(() => readMonthLayout(userId));
+  /** The upright split, collapsed or grown, as this device remembers it (localStorage, v2; v1 mapped once), read once. */
+  const [split, setSplit] = useState<MonthSplit>(() => readMonthSplit(String(userId)));
   /** The Connect Telegram banner's close (no chat, 6c-1), as this device remembers it for this account. */
   const [connectClosed, setConnectClosed] = useState(() => readConnectBannerClosed(userId));
   const closeConnect = () => {
@@ -422,21 +423,22 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   };
   /** This device's notifications (6c-2): the open's check (every account in a browser) and "Get reminders on this device". */
   const pushDevice = usePushDevice(userId, push, locale);
-  /** Where the Month is (month.ts); null until the first answer pins the facts. In browse, its month is where browse opens next. */
-  const [monthUi, setMonthUi] = useState<MonthUi | null>(null);
-  /** True until the Month is first left or changed: browse's first opening peeks at the month before (spec §7.4). */
-  const [monthFresh, setMonthFresh] = useState(true);
   /**
-   * The months browse holds (grid.ts; owner 2026-11-17, "infinite scroll"): today's −12/+18 on the
-   * first answer, grown at an end as browse scrolls near it, and moved to hold the Month's month
-   * (a jump, picked's chevrons, Today). It is not remembered: a new visit opens on today's month.
+   * Where the Month is (month.ts): the month the pane was last sent to and the selected day; null
+   * until the first answer pins the facts. A new visit opens on today's month with today selected.
+   */
+  const [focus, setFocus] = useState<MonthFocus | null>(null);
+  /** Bumped by Today and the jump: the pane scrolls to the focus month on each new value. */
+  const [seekSeq, setSeekSeq] = useState(0);
+  /**
+   * The months the pane holds (grid.ts; owner 2026-11-17, "infinite scroll"): today's −12/+18 on the
+   * first answer, grown at an end as the pane scrolls near it, and moved to hold the focus month
+   * (a jump, Today). It is not remembered: a new visit opens on today's month.
    */
   const [span, setSpan] = useState<MonthSpan | null>(null);
-  /** Changes when browse must mount again on its start month (Today after a far jump). */
-  const [browseKey, setBrowseKey] = useState(0);
-  /** The jump to a date's sheet is open (the month's name in browse's bar or picked's header). */
+  /** The jump to a date's sheet is open (the month's name in the pane's bar). */
   const [jumping, setJumping] = useState(false);
-  /** MonthBrowse's reports: the months near the screen, and the month under its bar. */
+  /** The pane's reports: the months it draws (in view and its neighbours), and the month in view. */
   const [near, setNear] = useState<readonly MonthKey[]>([]);
   const [inView, setInView] = useState<MonthKey | null>(null);
   const [held, setHeld] = useState<HeldFacts | null>(null);
@@ -450,21 +452,20 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const activeTab: HomeTab = tabsShown ? tab : 'agenda';
 
   // New facts (the first answer, a hebrewDates change, the next answer after a drop):
-  // the Month holds them. When today moved (or on the first answer), the Month's UI
-  // starts from the remembered layout while the Month hasn't been on screen yet (a
-  // restored picked opens on today, browse on today's month), else it stays inside
-  // the new window (clampMonthUi).
+  // the Month holds them. On the first answer the focus is today's month with today
+  // selected (a new visit selects today); when today moves later, it stays inside the
+  // reach (clampFocus), the selected day kept.
   if (facts && (held === null || held.facts !== facts || held.unavailable !== notices.unavailableCalendars)) {
     setHeld({ facts, unavailable: notices.unavailableCalendars });
     if (held === null || held.facts.today !== facts.today) {
-      setMonthUi(monthUi === null || (monthFresh && activeTab !== 'month') ? initialMonthUi(savedLayout, facts.today) : clampMonthUi(monthUi, facts.today));
+      setFocus(focus === null ? initialFocus(facts.today) : clampFocus(focus, facts.today));
       // The span is set once; a later today keeps it (the months grown or jumped to stay), and Today moves it when asked.
       if (span === null) setSpan(defaultSpan(facts.today));
     }
   }
-  // The span always holds the Month's month: a jump, a chevron or Today past its ends moves it there.
-  if (span !== null && monthUi !== null && !inSpan(span, monthUi.month)) {
-    const next = spanToShow(span, monthUi.month);
+  // The span always holds the focus month: a jump or Today past its ends moves it there.
+  if (span !== null && focus !== null && !inSpan(span, focus.month)) {
+    const next = spanToShow(span, focus.month);
     if (next !== span) setSpan(next);
   }
 
@@ -473,7 +474,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const weeksRef = useRef(weeks);
   const blockedRef = useRef(blocked);
   const firstLoadRef = useRef(firstLoad);
-  const monthRef = useRef<MonthWants>({ tab: activeTab, ui: monthUi, near, inView });
+  const monthRef = useRef<MonthWants>({ tab: activeTab, focus, near, inView });
   const loaderRef = useRef<HomeLoader | null>(null);
   const resetFor = useRef<string | null>(null);
   useEffect(() => {
@@ -481,8 +482,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     weeksRef.current = weeks;
     blockedRef.current = blocked;
     firstLoadRef.current = firstLoad;
-    // While an item is lifted over a chevron, the month shown is the one wanted (it loads, with its neighbours).
-    monthRef.current = { tab: activeTab, ui: previewMonth && monthUi ? { ...monthUi, month: previewMonth } : monthUi, near, inView };
+    monthRef.current = { tab: activeTab, focus, near, inView };
   });
 
   useEffect(() => {
@@ -508,7 +508,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       getMonths: () => {
         const month = monthRef.current;
         const today = storeRef.current.facts?.today;
-        return month.tab === 'month' && month.ui && today ? wantedMonths(month.ui, month.near, month.inView, today) : [];
+        return month.tab === 'month' && month.focus && today ? wantedFocusMonths(month.focus, month.near, month.inView, today) : [];
       },
       agendaShowing: () => monthRef.current.tab === 'agenda',
     });
@@ -521,10 +521,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
 
   // Every visible window a source hasn't answered in this epoch: the first load, "Show
   // next week", the refetch after a drop, and the Month's windows as it comes on screen,
-  // scrolls, or changes layout or month.
+  // scrolls, or selects a day in another month.
   useEffect(() => {
     loaderRef.current?.ensure();
-  }, [store, weeks, blocked, firstLoad, activeTab, near, inView, monthUi, previewMonth]);
+  }, [store, weeks, blocked, firstLoad, activeTab, near, inView, focus]);
 
   // Back in the foreground: the visible windows again (FamCal is one query; a Google
   // cache hit is one MGET). No pull-to-refresh: in Telegram that gesture minimizes the app.
@@ -601,13 +601,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const selectedNow = selected && liveRow ? liveRow : selected;
   const selectedGone = selected !== null && store.facts !== null && liveRow === null;
 
-  // The Month: the span's months, each month's model (memoized per store), and the picked day's list.
+  // The Month: the span's months, each month's model (memoized per store), and the selected day's list.
   const months = useMemo(() => spanMonths(span), [span]);
   const getMonth = useMemo(() => monthModels(store), [store]);
-  const monthShown = activeTab === 'month' && held !== null && monthUi !== null;
-  const pickedShown = monthShown && monthUi?.layout === 'picked';
-  const pickedDay = pickedShown ? (monthUi?.selected ?? null) : null;
-  const pickedList = useMemo(() => (pickedDay ? { rows: dayRows(store, pickedDay), status: dayStatus(store, pickedDay) } : null), [store, pickedDay]);
+  const monthShown = activeTab === 'month' && held !== null && focus !== null;
+  const listDay = monthShown && focus !== null ? focus.selected : null;
+  const dayList = useMemo(() => (listDay ? { rows: dayRows(store, listDay), status: dayStatus(store, listDay) } : null), [store, listDay]);
 
   const closeSheet = useCallback(() => setSheet(null), []);
   const navigate = useCallback(
@@ -870,7 +869,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     if (!editorInfo || !facts) return;
     const initial = newItemForm({
       today: facts.today,
-      pickedDay: pickedShown ? (monthUi?.selected ?? null) : null,
+      // On the Month the selected day is always on screen: "+" starts on it (Ruling 3).
+      pickedDay: listDay,
       nowMs: deps.now(),
       tz: editorInfo.tz,
       kinds,
@@ -1103,11 +1103,9 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     }
     void refreshWritten(sourceOfKey(entry.key));
   };
-  const turnPreviewMonth = (delta: -1 | 1) =>
-    setPreviewMonth((cur) => (monthUi && facts ? stepMonth({ ...monthUi, month: cur ?? monthUi.month }, delta, facts.today).month : cur));
-  const dragProps = {
+  // Resting on a chevron scrolls the pane (MonthView gives the layer its onNav, Ruling 5).
+  const dragProps: MonthDrag = {
     pendingKey,
-    previewMonth,
     onBlocked: (reason: CantLift) => {
       hapticWarning();
       showBar({ kind: 'note', note: reason });
@@ -1115,11 +1113,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     onLift: hapticImpact,
     onTarget: hapticSelection,
     onDrop: (drop: DropEvent) => void moveItem(drop),
-    onNav: turnPreviewMonth,
-    onDraggingChange: (now: boolean) => {
-      setDragging(now);
-      if (!now) setPreviewMonth(null);
-    },
+    onDraggingChange: setDragging,
     cancelRef: dragCancel,
   };
   const editing: SheetEditing | undefined =
@@ -1141,16 +1135,13 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       : undefined,
   };
 
-  // A tab switch (Ruling 2): any sheet and the item sheet close; leaving browse keeps the
-  // month in view for the next time; the Agenda opens at the top.
+  // A tab switch (Ruling 2): any sheet and the item sheet close; leaving the Month keeps the
+  // month in view for the next time (the selected day stays); the Agenda opens at the top.
   const switchTab = (next: HomeTab) => {
     setSheet(null);
     setSelected(null);
     setJumping(false);
-    if (activeTab === 'month' && monthUi !== null && held !== null) {
-      setMonthFresh(false);
-      if (monthUi.layout === 'browse' && inView !== null && inView !== monthUi.month) setMonthUi({ ...monthUi, month: inView });
-    }
+    if (activeTab === 'month' && focus !== null && held !== null && inView !== null) setFocus(focusMonth(focus, inView));
     if (next === 'month') {
       setNear([]);
       setInView(null);
@@ -1159,51 +1150,43 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     writeHomeTab(userId, next);
     if (next === 'agenda') scrollToTop();
   };
-  // The Month's next UI (a day picked, a chevron, Today, "All months", the BackButton):
-  // a layout change is remembered on this device, and browse comes back on its month.
-  const changeUi = (next: MonthUi) => {
-    if (monthUi === null || next === monthUi) return;
-    setMonthUi(next);
-    setMonthFresh(false);
-    if (next.selected !== monthUi.selected) setSelected(null);
-    if (next.layout !== monthUi.layout) {
-      writeMonthLayout(userId, next.layout);
-      if (next.layout === 'browse') {
-        setNear([]);
-        setInView(null);
-      }
-    }
+  // The focus changes (a square, Today, the jump): the item sheet of another day closes with it.
+  const changeFocus = (next: MonthFocus) => {
+    if (focus === null || next === focus) return;
+    if (next.selected !== focus.selected) setSelected(null);
+    setFocus(next);
   };
-
-  // Browse near an end of the span: 12 more months there (grid.ts growSpan).
+  const selectListDay = (day: DayKey) => {
+    if (focus !== null) changeFocus(selectDay(focus, day));
+  };
+  // The split's handle, the peek, a square while grown: remembered on this device.
+  const changeSplit = (next: MonthSplit) => {
+    setSplit(next);
+    writeMonthSplit(String(userId), next);
+  };
+  // Near an end of the span: 12 more months there (grid.ts growSpan).
   const needMonths = useCallback((edge: 'before' | 'after') => setSpan((cur) => (cur ? growSpan(cur, edge) : cur)), []);
-  // Browse's Today with today's month outside the span (after a far jump): the span moves to
-  // today and browse mounts again on today's month.
-  const browseToday = () => {
-    if (held === null || monthUi === null) return;
-    const month = monthOf(held.facts.today);
-    if (!month) return;
-    setSpan((cur) => (cur ? spanToShow(cur, month) : cur));
-    setMonthUi({ layout: 'browse', month, selected: null });
-    setMonthFresh(false);
-    setNear([]);
-    setInView(null);
-    setBrowseKey((k) => k + 1);
+  // Today: today selected, and the pane sent to its month (the span follows it there).
+  const goToday = () => {
+    if (held === null || focus === null) return;
+    changeFocus(focusToday(focus, held.facts.today));
+    setSeekSeq((n) => n + 1);
   };
-  // The jump to a date (owner 2026-11-17): the picked day opens picked on it; the span follows.
+  // The jump to a date (owner 2026-11-17): the day selected, and the pane sent to its month; the span follows.
   const jumpTo = (day: DayKey) => {
     setJumping(false);
-    if (monthUi !== null) changeUi(pickDay(monthUi, day));
+    if (focus === null) return;
+    changeFocus(focusJump(focus, day));
+    setSeekSeq((n) => n + 1);
   };
   /** The jump's sheet shows only while the Month does (a block or a card hides it). */
   const jumpShown = jumping && monthShown;
-  const jumpValue: DayKey =
-    monthUi === null ? '' : monthUi.layout === 'picked' && monthUi.selected !== null ? monthUi.selected : `${inView ?? monthUi.month}-01`;
+  // It opens on the selected day while its month is the one in view, else on the 1st of the month in view.
+  const jumpValue: DayKey = focus === null ? '' : inView === null || focus.selected.startsWith(inView) ? focus.selected : `${inView}-01`;
 
-  // The one BackButton (§7.6): a tap closes the send or menu sheet, else the item sheet,
-  // else takes picked back to browse.
-  const itemOpen =
-    selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null : pickedShown);
+  // The one BackButton (§7.6): a tap closes the send or menu sheet, else the item sheet. The
+  // split's collapsed and grown are no back step (spec §3).
+  const itemOpen = selected !== null && (activeTab === 'agenda' ? blocked === null && card === null && agenda !== null : monthShown);
   const back = () => {
     if (dragging) dragCancel.current?.();
     else if (jumpShown) setJumping(false);
@@ -1213,16 +1196,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     } else if (editor !== null) editorCancel.current?.();
     else if (sheet !== null) setSheet(null);
     else if (itemOpen) setSelected(null);
-    else if (pickedShown && monthUi !== null) changeUi(backToBrowse(monthUi));
   };
-  const backActive = itemOpen || pickedShown || dragging || jumpShown || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null));
-  // Ruling 9: no swipe-down to minimize while the Month shows browse (its loading
-  // included): there a drag down scrolls the months. The header and the tab bar stick
-  // over browse at the same time. An open date or time sheet locks them too (editor
+  const backActive = itemOpen || dragging || jumpShown || scopeAsk !== null || (blocked !== 'noCredential' && (sheet !== null || editor !== null || deleting !== null));
+  // No swipe-down to minimize while the Month tab shows (spec §1; its loading included): there a
+  // drag down scrolls the months or the list. An open date or time sheet locks them too (editor
   // upgrades spec §1), and so does a lifted item (drag to move, spec §4): the finger is dragging it.
-  const monthLayout = monthUi?.layout ?? (savedLayout === 'picked' ? 'picked' : 'browse');
-  const browsing = activeTab === 'month' && monthLayout === 'browse';
-  useTelegramVerticalSwipes(browsing || pickerOpen || jumpShown || dragging);
+  useTelegramVerticalSwipes(activeTab === 'month' || pickerOpen || jumpShown || dragging);
 
   // The Month's chunk, once the first answer is in and the tab bar shows, so the first
   // tap on Month rarely waits for it. A failed fetch is tried again by that tap.
@@ -1251,8 +1230,28 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
       dafYomi={dafYomi === true}
     />
   );
+  // The banners: above the Agenda's panel, and at the top of the Month's day list (spec §1), never both.
+  const banners = (
+    <HomeBanners
+      googleState={googleState}
+      googleConnected={googleConnected}
+      trialDaysLeft={trialDaysLeft}
+      hasLocation={hasLocation}
+      reconnect={notices.reconnect}
+      inTelegram={inTelegram}
+      hasTelegram={hasTelegram}
+      hasChat={hasChat}
+      connectClosed={connectClosed}
+      onCloseConnect={closeConnect}
+      pushBanner={pushBannerOf(push, pushDevice)}
+      pushDevice={pushDevice}
+      userId={userId}
+      locale={locale}
+      onNavigate={navigate}
+    />
+  );
   const monthView =
-    monthShown && held !== null && monthUi !== null ? (
+    monthShown && held !== null && focus !== null && dayList !== null ? (
       <MonthView
         today={held.facts.today}
         tz={held.facts.tz}
@@ -1260,23 +1259,25 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         hebrewDates={held.facts.hebrewDates}
         dafYomi={dafYomi === true}
         months={months}
-        browseKey={browseKey}
         getMonth={getMonth}
-        ui={monthUi}
-        start={{ month: monthUi.month, peek: monthFresh }}
-        dayRows={pickedList}
+        focus={focus}
+        seek={{ month: focus.month, seq: seekSeq }}
+        split={split}
+        onSplit={changeSplit}
+        dayRows={dayList}
         unavailableCalendars={held.unavailable}
+        banners={banners}
         selected={selectedNow}
         onSelect={setSelected}
         sheetActions={sheetActions}
-        onUi={changeUi}
+        onSelectDay={selectListDay}
         onNearMonths={setNear}
         onMonthInView={setInView}
+        onNeedMonths={needMonths}
+        onToday={goToday}
+        onJump={() => setJumping(true)}
         onRetryMonth={retryMonth}
         onChooseCalendars={chooseCalendars}
-        onNeedMonths={needMonths}
-        onBrowseToday={browseToday}
-        onJump={() => setJumping(true)}
         jump={jumpShown ? { value: jumpValue, onPick: jumpTo, onClose: () => setJumping(false) } : null}
         drag={dragProps}
       />
@@ -1288,7 +1289,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     <AppScreen className="ch-home" rootRef={homeRef} onBack={backActive ? back : null}>
       <style>{HOME_SHELL_CSS}</style>
       <style>{HOME_TOP_CSS}</style>
-      <HomeTop sticky={browsing} homeRef={homeRef}>
+      <HomeTop homeRef={homeRef}>
         <HomeHeader
           today={facts?.today ?? null}
           hebrewDates={facts?.hebrewDates ?? false}
@@ -1306,23 +1307,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         />
         {tabsShown ? <HomeTabs tab={tab} onTab={switchTab} /> : null}
       </HomeTop>
-      <HomeBanners
-        googleState={googleState}
-        googleConnected={googleConnected}
-        trialDaysLeft={trialDaysLeft}
-        hasLocation={hasLocation}
-        reconnect={notices.reconnect}
-        inTelegram={inTelegram}
-        hasTelegram={hasTelegram}
-        hasChat={hasChat}
-        connectClosed={connectClosed}
-        onCloseConnect={closeConnect}
-        pushBanner={pushBannerOf(push, pushDevice)}
-        pushDevice={pushDevice}
-        userId={userId}
-        locale={locale}
-        onNavigate={navigate}
-      />
+      {activeTab === 'month' ? null : banners}
       {card ? (
         <HomeCard kind={card} onRetry={retryCard} />
       ) : tabsShown ? (

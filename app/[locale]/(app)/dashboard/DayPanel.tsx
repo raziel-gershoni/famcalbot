@@ -1,7 +1,7 @@
 'use client';
 
 // The Month's day panel (spec 2026-11-19 §2, plan Task 5): the selected day's list, moved out of
-// MonthPicked so the one Month screen shares it. From top to bottom inside one scroller: `top` (the
+// release 1's tapped-day screen into the one Month screen (the wide panel and the split's list). From top to bottom inside one scroller: `top` (the
 // banners and the unavailable row, spec §1), the day's header ("Today · Thursday, 15 October" or the
 // weekday and date, the Hebrew date, the holiday line), the Daf Yomi line, the rows (LiftableRow:
 // an item lifted from the list to move it), "Nothing planned" once the day is answered and empty,

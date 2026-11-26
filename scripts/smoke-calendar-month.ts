@@ -5,17 +5,18 @@
 // A cell's slots are the bars first, by lane, then its one-day items; whose an item is
 // follows the Agenda's rule, and a done reminder is struck through. Daily-repeating
 // reminders are left out of the slots, the dots and the counts (R11, Ruling 5) but are
-// listed for the picked day. A bar is an all-day item over its dates or a timed one
+// listed for the selected day. A bar is an all-day item over its dates or a timed one
 // the store lists on the next or the day before; at the month's edges its span marks
 // decide, with daySpanOf's 06:00 rule, and the checks hold that against the server's
 // own bucketing of the next month. Lanes are per week row, with spacers that keep a
-// bar in line; a bar's title shows on the first day it is drawn in each row. A cell
-// shows 3 slots, or 2 and "+N" (Ruling 3); a day with more than fits lets its one-day
-// items into a bar's empty lanes, then moves its bars up with their titles, so no cell
-// shows an empty line over "+N" (limitRow, per week row). A month is answered, loading or failed, and
-// its notices carry the earliest failing day's reason, never a reconnect. Then the
-// layout's navigation over the window of 12 months back to 18 ahead, the months to
-// fetch (Ruling 7), the block heights the browse lays out with, and the memo.
+// bar in line; a bar's title shows on the first day it is drawn in each row. A large
+// square shows its lines, or one less and "+N" (Ruling 3); a day with more than fits lets
+// its one-day items into a bar's empty lanes, then moves its bars up with their titles, so
+// no square shows an empty line over "+N" (fitRow, per week row). A month is answered,
+// loading or failed, and its notices carry the earliest failing day's reason, never a
+// reconnect. Then the reach's ends (January 1900 … December 2100, not today's span), the
+// focus kept inside it, the months to fetch (Ruling 7, Ruling 2), the bar's height, and the
+// memo. The focus helpers' own rules are smoke-month-layout.ts's.
 //
 // The store is fed real answers for month windows: the fixtures are ReadItems, each
 // month's days come from the server's toRangeDays (daySpanOf, as the route builds
@@ -28,38 +29,23 @@
 //   TZ=Pacific/Kiritimati npx tsx scripts/smoke-calendar-month.ts
 
 import {
-  BROWSE_CELL_PX,
-  BROWSE_CHIPS_NARROW,
-  BROWSE_SLOTS,
-  NARROW_MAX_PX,
-  PICKED_CELL_PX,
   PICKED_DOTS,
-  PICKED_FIRST_ROW_PX,
-  backToBrowse,
   buildMonth,
-  canStep,
-  clampMonthUi,
+  canStepMonth,
+  clampFocus,
   dayRows,
-  initialMonthUi,
+  fitRow,
+  fitSlots,
+  initialFocus,
   limitDots,
-  limitRow,
-  limitSlots,
   loadingMonth,
   monthBarPx,
-  monthBlockPx,
   monthModels,
-  monthOffsets,
-  monthTitlePx,
-  monthsInViewport,
-  pickDay,
-  pickToday,
-  pickedScrollTop,
-  stepMonth,
-  wantedMonths,
+  wantedFocusMonths,
   type MonthCell,
+  type MonthFocus,
   type MonthModel,
   type MonthSlot,
-  type MonthUi,
 } from '../src/lib/calendar-view/month';
 import fs from 'fs';
 import path from 'path';
@@ -314,7 +300,7 @@ function slotsOf(model: MonthModel, days: DayKey[]): Record<DayKey, string[]> {
 
 const keysOn = (store: CalendarStore, day: DayKey) => dayItems(store, day).map((i) => i.key);
 
-const ui = (layout: 'browse' | 'picked', month: string, selected: DayKey | null = null): MonthUi => ({ layout, month, selected });
+const focus = (month: string, selected: DayKey): MonthFocus => ({ month, selected });
 const slot = (kind: MonthSlot['kind'], id: string | null): MonthSlot => ({
   kind,
   key: id === null ? null : `famcal|${id}`,
@@ -517,36 +503,36 @@ async function main() {
     assert(cellOf(oct, '2026-10-12').slots.map(show).join() === 'timed:recycle*', 'the weekly reminder on Monday the 12th');
   });
 
-  await check('limitSlots (Ruling 3): 3 → 3; 4 → 2 + "+2"; narrow 3 → 2 + "+1"; spacers never counted; past the limit the one-day items fill a bar\'s empty lanes, then the bars move up with their titles, so no spacer shows over "+N"; limitDots: 3, then "+N"', () => {
+  await check('fitSlots (Ruling 3; lines are the total drawn, "+N" included): 3 lines: 3 → 3, 4 → 2 + "+2"; 2 lines: 3 → 1 + "+2"; spacers never counted; past the lines the one-day items fill a bar\'s empty lanes, then the bars move up with their titles, so no spacer shows over "+N"; limitDots: 3, then "+N"', () => {
     const view = (r: { shown: MonthSlot[]; more: number }) => `${r.shown.map(show).join(' ')} +${r.more}`;
-    assert(view(limitSlots(chips(3), BROWSE_SLOTS)) === 'timed:c0* timed:c1* timed:c2* +0', '3 wide');
-    assert(view(limitSlots(chips(4), BROWSE_SLOTS)) === 'timed:c0* timed:c1* +2', '4 wide');
-    assert(view(limitSlots(chips(3), BROWSE_CHIPS_NARROW)) === 'timed:c0* timed:c1* +1', '3 narrow');
-    assert(view(limitSlots(chips(2), BROWSE_CHIPS_NARROW)) === 'timed:c0* timed:c1* +0', '2 narrow');
-    assert(view(limitSlots([], BROWSE_SLOTS)) === ' +0', 'none');
+    assert(view(fitSlots(chips(3), 3)) === 'timed:c0* timed:c1* timed:c2* +0', '3 in 3');
+    assert(view(fitSlots(chips(4), 3)) === 'timed:c0* timed:c1* +2', '4 in 3');
+    assert(view(fitSlots(chips(3), 2)) === 'timed:c0* +2', '3 in 2');
+    assert(view(fitSlots(chips(2), 2)) === 'timed:c0* timed:c1* +0', '2 in 2');
+    assert(view(fitSlots([], 3)) === ' +0', 'none');
     const withSpacer = [slot('spacer', null), slot('bar', 'b'), ...chips(2)];
-    assert(view(limitSlots(withSpacer, BROWSE_SLOTS)) === 'timed:c0* bar:b* timed:c1* +0', `a spacer and 3 items, wide: the first one-day item in the spacer: ${view(limitSlots(withSpacer, BROWSE_SLOTS))}`);
-    assert(view(limitSlots(withSpacer, BROWSE_CHIPS_NARROW)) === 'bar:b* timed:c0* +1', `a spacer and 3 items, narrow: ${view(limitSlots(withSpacer, BROWSE_CHIPS_NARROW))}`);
+    assert(view(fitSlots(withSpacer, 3)) === 'timed:c0* bar:b* timed:c1* +0', `a spacer and 3 items in 3: the first one-day item in the spacer: ${view(fitSlots(withSpacer, 3))}`);
+    assert(view(fitSlots(withSpacer, 2)) === 'bar:b* +2', `a spacer and 3 items in 2: ${view(fitSlots(withSpacer, 2))}`);
     const deep = [slot('spacer', null), slot('spacer', null), slot('bar', 'b')];
-    assert(view(limitSlots(deep, BROWSE_SLOTS)) === '_ _ bar:b* +0', 'a lane-2 bar fits wide');
-    assert(view(limitSlots(deep, BROWSE_CHIPS_NARROW)) === 'bar:b* +0', `a lane-2 bar, narrow: moved up to lane 0: ${view(limitSlots(deep, BROWSE_CHIPS_NARROW))}`);
+    assert(view(fitSlots(deep, 3)) === '_ _ bar:b* +0', 'a lane-2 bar fits in 3');
+    assert(view(fitSlots(deep, 2)) === 'bar:b* +0', `a lane-2 bar in 2: moved up to lane 0: ${view(fitSlots(deep, 2))}`);
     const untitled = [slot('spacer', null), { ...slot('bar', 'b'), showTitle: false }];
-    assert(view(limitSlots(untitled, 1)) === 'bar:b* +0', `a bar that moves up shows its title: ${view(limitSlots(untitled, 1))}`);
-    assert(view(limitSlots([...chips(1), slot('spacer', null)], BROWSE_SLOTS)) === 'timed:c0* +0', 'a trailing spacer goes');
+    assert(view(fitSlots(untitled, 1)) === 'bar:b* +0', `a bar that moves up shows its title: ${view(fitSlots(untitled, 1))}`);
+    assert(view(fitSlots([...chips(1), slot('spacer', null)], 3)) === 'timed:c0* +0', 'a trailing spacer goes');
     const hiddenSpacer = [slot('bar', 'b0'), slot('bar', 'b1'), slot('spacer', null), slot('bar', 'b3')];
-    assert(view(limitSlots(hiddenSpacer, BROWSE_SLOTS)) === 'bar:b0* bar:b1* bar:b3* +0', `three bars in four lanes, wide: ${view(limitSlots(hiddenSpacer, BROWSE_SLOTS))}`);
+    assert(view(fitSlots(hiddenSpacer, 3)) === 'bar:b0* bar:b1* bar:b3* +0', `three bars in four lanes, in 3: ${view(fitSlots(hiddenSpacer, 3))}`);
     const four = [slot('bar', 'b0'), slot('spacer', null), slot('bar', 'b2'), ...chips(2)];
-    assert(view(limitSlots(four, BROWSE_SLOTS)) === 'bar:b0* bar:b2* +2', `two bars and two items, wide: bars first: ${view(limitSlots(four, BROWSE_SLOTS))}`);
+    assert(view(fitSlots(four, 3)) === 'bar:b0* bar:b2* +2', `two bars and two items in 3: bars first: ${view(fitSlots(four, 3))}`);
     const oct = modelOf(STORE_0, '2026-10');
-    assert(view(limitSlots(cellOf(oct, '2026-10-14').slots, BROWSE_SLOTS)) === 'timed:gym* timed:bill*x +3', 'the 14th, wide');
-    assert(view(limitSlots(cellOf(oct, '2026-10-26').slots, BROWSE_SLOTS)) === 'bar:eilat<> timed:snorkel*~ timed:recycle* +0', 'the 26th, wide');
-    assert(view(limitSlots(cellOf(oct, '2026-10-26').slots, BROWSE_CHIPS_NARROW)) === 'bar:eilat<> timed:snorkel*~ +1', 'the 26th, narrow');
+    assert(view(fitSlots(cellOf(oct, '2026-10-14').slots, 3)) === 'timed:gym* timed:bill*x +3', 'the 14th in 3');
+    assert(view(fitSlots(cellOf(oct, '2026-10-26').slots, 3)) === 'bar:eilat<> timed:snorkel*~ timed:recycle* +0', 'the 26th in 3');
+    assert(view(fitSlots(cellOf(oct, '2026-10-26').slots, 2)) === 'bar:eilat<> +2', 'the 26th in 2');
     assertJson(limitDots([true, false, true]), { shown: [true, false, true], more: 0 }, '3 dots');
     assertJson(limitDots([true, false, true, false, true]), { shown: [true, false, true], more: 2 }, '5 dots');
     assertJson(limitDots(cellOf(oct, '2026-10-14').dots.map((d) => d.mine)), { shown: [true, true, true], more: 2 }, 'the 14th\'s dots');
   });
 
-  await check('limitRow (Ruling 3) on three overlapping bars, Alpha 5–7, Beta 6–8 and Gamma 7–9 October: on a 360 px screen the 9th shows Gamma with its title, not "+1" under two empty lines, and a bar drawn out of its lane or after a day that hid it shows its title; wide, the three keep their lanes; over every row of the fixtures, at both widths, no spacer over "+N", no "+N" while the items fit, no item lost and no bar drawn nameless', () => {
+  await check('fitRow (Ruling 3) on three overlapping bars, Alpha 5–7, Beta 6–8 and Gamma 7–9 October: in 2 lines the 9th shows Gamma with its title, not "+1" under an empty line, and a bar drawn out of its lane or after a day that hid it shows its title; in 3 lines the three keep their lanes; over every row of the fixtures, in 1, 2, 3, 4 and 7 lines, no spacer over "+N", no "+N" while the items fit, no item lost and no bar drawn nameless', () => {
     const abg = storeOf([
       respond(answer([famcal('alpha', 'Alpha', '2026-10-05', '2026-10-08'), famcal('beta', 'Beta', '2026-10-06', '2026-10-09'), famcal('gamma', 'Gamma', '2026-10-07', '2026-10-10')], { month: '2026-10' })),
     ]);
@@ -555,28 +541,28 @@ async function main() {
     const view = (r: { shown: MonthSlot[]; more: number }) => `${r.shown.map(show).join(' ')}${r.more ? ` +${r.more}` : ''}`;
     const days = (limited: { shown: MonthSlot[]; more: number }[]) =>
       Object.fromEntries(row.map((c, i) => [c.day.slice(8), view(limited[i])] as const).filter(([d]) => ['05', '06', '07', '08', '09'].includes(d)));
-    assertJson(days(limitRow(row, BROWSE_CHIPS_NARROW)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< bar:beta<> +1', '08': 'bar:beta*< bar:gamma*<>', '09': 'bar:gamma*<' }, 'narrow');
-    assertJson(days(limitRow(row, BROWSE_SLOTS)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< bar:beta<> bar:gamma*>', '08': '_ bar:beta< bar:gamma<>', '09': '_ _ bar:gamma<' }, 'wide');
+    assertJson(days(fitRow(row, 2)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< +2', '08': 'bar:beta*< bar:gamma*<>', '09': 'bar:gamma*<' }, 'in 2 lines');
+    assertJson(days(fitRow(row, 3)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< bar:beta<> bar:gamma*>', '08': '_ bar:beta< bar:gamma<>', '09': '_ _ bar:gamma<' }, 'in 3 lines');
     // A bar hidden behind "+N" one day and back in its own lane the next shows its title there.
     const cellWith = (day: DayKey, slots: MonthSlot[]): MonthCell => ({ day, inMonth: true, today: false, status: 'answered', slots, dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false });
     const mid = (id: string) => ({ ...slot('bar', id), showTitle: false, continuesBefore: true, continuesAfter: true });
-    const hidden = limitRow([cellWith('2026-10-05', [slot('bar', 'a'), slot('bar', 'b'), slot('bar', 'c'), slot('timed', 't')]), cellWith('2026-10-06', [slot('spacer', null), slot('spacer', null), mid('c')])], BROWSE_SLOTS);
+    const hidden = fitRow([cellWith('2026-10-05', [slot('bar', 'a'), slot('bar', 'b'), slot('bar', 'c'), slot('timed', 't')]), cellWith('2026-10-06', [slot('spacer', null), slot('spacer', null), mid('c')])], 3);
     assertJson(hidden.map(view), ['bar:a* bar:b* +2', '_ _ bar:c*<>'], 'C, hidden on the 5th, named on the 6th');
-    const moved = limitRow([cellWith('2026-10-05', [slot('spacer', null), mid('b'), mid('c'), slot('timed', 't1'), slot('timed', 't2')]), cellWith('2026-10-06', [slot('spacer', null), slot('spacer', null), mid('c')])], BROWSE_SLOTS);
+    const moved = fitRow([cellWith('2026-10-05', [slot('spacer', null), mid('b'), mid('c'), slot('timed', 't1'), slot('timed', 't2')]), cellWith('2026-10-06', [slot('spacer', null), slot('spacer', null), mid('c')])], 3);
     assertJson(moved.map(view), ['bar:b*<> bar:c*<> +2', '_ _ bar:c*<>'], 'C, moved up on the 5th, back in its lane on the 6th: named again');
     let rows = 0;
     const stores: [CalendarStore, string[]][] = [[STORE_0, AUTUMN], [STORE_1, AUTUMN], [abg, ['2026-10']]];
     for (const [store, months] of stores) {
       for (const m of months) {
         for (const week of modelOf(store, m).weeks) {
-          for (const max of [BROWSE_SLOTS, BROWSE_CHIPS_NARROW]) {
+          for (const max of [1, 2, 3, 4, 7]) {
             rows++;
-            const limited = limitRow(week, max);
+            const limited = fitRow(week, max);
             week.forEach((cell, i) => {
               const { shown, more } = limited[i];
               const real = cell.slots.filter((s) => s.kind !== 'spacer');
               const where = `${cell.day} at ${max}`;
-              if (more > 0) assert(shown.every((s) => s.kind !== 'spacer') && shown.length === Math.min(max, BROWSE_SLOTS - 1), `${where}: ${shown.map(show).join(' ')} +${more}`);
+              if (more > 0) assert(shown.every((s) => s.kind !== 'spacer') && shown.length === max - 1, `${where}: ${shown.map(show).join(' ')} +${more}`);
               assert(more === 0 || real.length > max, `${where}: "+${more}" while its ${real.length} items fit`);
               assert(shown.filter((s) => s.kind !== 'spacer').length + more === real.length, `${where}: an item lost`);
               shown.forEach((s, k) => {
@@ -587,7 +573,7 @@ async function main() {
         }
       }
     }
-    assert(rows >= 30, `only ${rows} rows checked`);
+    assert(rows >= 75, `only ${rows} rows checked`);
   });
 
   await check('a month\'s cells: its week rows from the week start, blank outside it (R12), today, and each day\'s status', () => {
@@ -661,108 +647,42 @@ async function main() {
     assertJson(starts(modelOf(STORE_0, '2030-07')), ['2030-07-01', '2030-07-02', '2030-07-31'], 'July 2030 (1 Tamuz and 1 Av)');
   });
 
-  await check('initialMonthUi, pickDay and backToBrowse', () => {
-    assertJson(initialMonthUi(null, TODAY), ui('browse', '2026-10'), 'nothing saved');
-    assertJson(initialMonthUi('browse', TODAY), ui('browse', '2026-10'), 'browse saved');
-    assertJson(initialMonthUi('picked', TODAY), ui('picked', '2026-10', TODAY), 'a restored picked layout opens on today');
-    const browse = ui('browse', '2026-10');
-    assertJson(pickDay(browse, '2026-11-05'), ui('picked', '2026-11', '2026-11-05'), 'a tap');
-    const picked = ui('picked', '2026-11', '2026-11-05');
-    assert(pickDay(picked, '2026-11-05') === picked, 'the same day keeps the UI');
-    assert(pickDay(picked, '2026-11-31') === picked && pickDay(picked, '') === picked, 'a bad day keeps the UI');
-    assertJson(pickDay(picked, '2026-11-09'), ui('picked', '2026-11', '2026-11-09'), 'another day');
-    assertJson(backToBrowse(picked), ui('browse', '2026-11'), 'back: the picked month under the bar');
-    assert(backToBrowse(browse) === browse, 'back in browse keeps the UI');
-  });
-
-  await check('canStep and stepMonth at both ends of the reach (1900-01 … 2100-12, owner 2026-11-17), not of today\'s span: the 1st, or today in today\'s month', () => {
-    assert(canStep(ui('picked', '2025-10', '2025-10-01'), -1, TODAY) && canStep(ui('picked', '2028-04', '2028-04-01'), 1, TODAY), 'past today\'s span');
-    assertJson(stepMonth(ui('picked', '2018-07', '2018-07-01'), -1, TODAY), ui('picked', '2018-06', '2018-06-01'), 'in 2018');
-    const first = ui('picked', '1900-01', '1900-01-01');
-    const last = ui('picked', '2100-12', '2100-12-01');
-    assert(!canStep(first, -1, TODAY) && canStep(first, 1, TODAY), 'the first month');
-    assert(canStep(last, -1, TODAY) && !canStep(last, 1, TODAY), 'the last month');
-    assert(stepMonth(first, -1, TODAY) === first && stepMonth(last, 1, TODAY) === last, 'no step past the ends');
-    assertJson(stepMonth(first, 1, TODAY), ui('picked', '1900-02', '1900-02-01'), 'to the 1st');
-    assertJson(stepMonth(ui('picked', '2026-09', '2026-09-20'), 1, TODAY), ui('picked', '2026-10', TODAY), 'into today\'s month: today');
-    assertJson(stepMonth(ui('picked', '2026-10', TODAY), 1, TODAY), ui('picked', '2026-11', '2026-11-01'), 'out of it: the 1st');
-    assertJson(stepMonth(ui('picked', '2027-01', '2027-01-01'), -1, TODAY), ui('picked', '2026-12', '2026-12-01'), 'back across a year');
-    assertJson(stepMonth(ui('browse', '2026-10'), 1, TODAY), ui('browse', '2026-11'), 'browse moves the month only');
-    assert(!canStep(ui('picked', 'bad', null), 1, TODAY) && !canStep(first, 1, 'bad'), 'a bad month or today');
-  });
-
-  await check('pickToday, and clampMonthUi after a day change (forward and back), the picked day kept', () => {
-    assertJson(pickToday(ui('picked', '2026-11', '2026-11-05'), TODAY), ui('picked', '2026-10', TODAY), 'the Today pill');
-    const onToday = ui('picked', '2026-10', TODAY);
-    assert(pickToday(onToday, TODAY) === onToday, 'already on today');
-    assertJson(pickToday(ui('browse', '2026-12'), TODAY), ui('browse', '2026-10'), 'the Today button');
-    const browseToday = ui('browse', '2026-10');
-    assert(pickToday(browseToday, TODAY) === browseToday, 'browse on today\'s month');
-    // Midnight to 1 November: the UI stays wherever it is inside the reach.
+  await check('canStepMonth at both ends of the reach (1900-01 … 2100-12, owner 2026-11-17), not of today\'s span; clampFocus after a day change (forward and back) keeps the month and the selected day inside the reach, today\'s included', () => {
+    assert(canStepMonth('2025-10', -1, TODAY) && canStepMonth('2028-04', 1, TODAY) && canStepMonth('2018-07', -1, TODAY), 'past today\'s span');
+    assert(!canStepMonth('1900-01', -1, TODAY) && canStepMonth('1900-01', 1, TODAY), 'the first month');
+    assert(canStepMonth('2100-12', -1, TODAY) && !canStepMonth('2100-12', 1, TODAY), 'the last month');
+    assert(!canStepMonth('bad', 1, TODAY) && !canStepMonth('1900-01', 1, 'bad'), 'a bad month or today');
+    // Midnight to 1 November: the focus stays wherever it is inside the reach.
     const NEXT = '2026-11-01';
-    const old = ui('picked', '2025-10', '2025-10-07');
-    assert(clampMonthUi(old, NEXT) === old, 'a month before today\'s span stays');
-    assertJson(clampMonthUi(ui('picked', '1899-12', '1899-12-07'), NEXT), ui('picked', '1900-01', '1900-01-01'), 'off the reach\'s start');
-    assertJson(clampMonthUi(ui('browse', '2101-01'), NEXT), ui('browse', '2100-12'), 'browse off the reach\'s end');
-    const yesterday = ui('picked', '2026-10', TODAY);
-    assert(clampMonthUi(yesterday, NEXT) === yesterday, 'the picked day stays, though it was today');
-    const inside = ui('browse', '2027-03');
-    assert(clampMonthUi(inside, NEXT) === inside, 'inside the window');
-    const later = ui('picked', '2028-04', '2028-04-09');
-    assert(clampMonthUi(later, '2026-09-30') === later, 'today moved back: a month after today\'s span stays');
-    assertJson(clampMonthUi(ui('picked', '2026-10', '2026-11-02'), NEXT), ui('picked', '2026-10', '2026-10-01'), 'a picked day outside its month');
-    assertJson(clampMonthUi(ui('picked', 'bad', null), NEXT), ui('picked', '2026-11', NEXT), 'a bad month: today');
+    const old = focus('2025-10', '2025-10-07');
+    assert(clampFocus(old, NEXT) === old, 'a month before today\'s span stays');
+    assertJson(clampFocus(focus('1899-12', '1899-12-07'), NEXT), focus('1900-01', NEXT), 'off the reach\'s start: the first month, and today for a day outside the reach');
+    assertJson(clampFocus(focus('2101-01', '2026-10-20'), NEXT), focus('2100-12', '2026-10-20'), 'off the reach\'s end: the last month, the day kept');
+    const yesterday = focus('2026-10', TODAY);
+    assert(clampFocus(yesterday, NEXT) === yesterday, 'the selected day stays, though it was today');
+    const later = focus('2028-04', '2028-04-09');
+    assert(clampFocus(later, '2026-09-30') === later, 'today moved back: a month after today\'s span stays');
+    assertJson(clampFocus(focus('bad', 'bad'), NEXT), focus('2026-11', NEXT), 'a bad focus: today');
   });
 
-  await check('wantedMonths (Ruling 7): picked then the next and the previous; browse nearest the month in view first, the later on a tie, its two neighbours always (a web client\'s observer reports only the months on screen); the fallback; in the reach only', () => {
-    const months = (w: { from: string; to: string }[]) => w.map((x) => `${x.from}..${x.to}`);
-    assertJson(months(wantedMonths(ui('picked', '2026-10', TODAY), ['2027-05'], '2027-05', TODAY)), ['2026-10-01..2026-11-01', '2026-11-01..2026-12-01', '2026-09-01..2026-10-01'], 'picked');
+  await check('wantedFocusMonths (Ruling 7, Ruling 2): the month in view first (else the focus month), the selected day\'s month next, then the months near it nearest first, the later on a tie, its two neighbours always (the pane reports in view ±1); in the reach only, each once', () => {
+    const windows = (w: { from: string; to: string }[]) => w.map((x) => `${x.from}..${x.to}`);
+    const oct = focus('2026-10', TODAY);
+    assertJson(windows(wantedFocusMonths(oct, [], null, TODAY)), ['2026-10-01..2026-11-01', '2026-11-01..2026-12-01', '2026-09-01..2026-10-01'], 'a month\'s own days');
     const short = (w: { from: string }[]) => w.map((x) => x.from.slice(0, 7));
-    assertJson(short(wantedMonths(ui('picked', '2028-04', '2028-04-01'), [], null, TODAY)), ['2028-04', '2028-05', '2028-03'], 'picked past today\'s span');
-    assertJson(short(wantedMonths(ui('picked', '2100-12', '2100-12-01'), [], null, TODAY)), ['2100-12', '2100-11'], 'picked at the reach\'s last month');
-    assertJson(short(wantedMonths(ui('picked', '1900-01', '1900-01-01'), [], null, TODAY)), ['1900-01', '1900-02'], 'picked at the reach\'s first month');
-    const browse = ui('browse', '2026-10');
-    assertJson(short(wantedMonths(browse, ['2026-09', '2026-10', '2026-11', '2026-12'], '2026-10', TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'browse');
-    assertJson(short(wantedMonths(browse, ['2027-01', '2027-02'], '2026-12', TODAY)), ['2026-12', '2027-01', '2026-11', '2027-02'], 'the month in view comes first, with its neighbours');
-    assertJson(short(wantedMonths(browse, ['2027-03'], '2027-03', TODAY)), ['2027-03', '2027-04', '2027-02'], 'a web client: only the month on screen reported near');
-    assertJson(short(wantedMonths(browse, [], null, TODAY)), ['2026-10', '2026-11', '2026-09'], 'no observer yet: ui.month and its neighbours');
-    assertJson(short(wantedMonths(browse, [], '2027-06', TODAY)), ['2027-06', '2027-07', '2027-05'], 'no observer: the month in view and its neighbours');
-    assertJson(short(wantedMonths(browse, ['2026-12', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'near months by distance from ui.month, with it and its neighbours');
-    assertJson(short(wantedMonths(ui('browse', '1900-01'), ['1899-12', '1900-01', '1900-02'], '1900-01', TODAY)), ['1900-01', '1900-02'], 'outside the reach dropped');
-    assertJson(short(wantedMonths(browse, ['2026-11', 'bad', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09'], 'junk and repeats dropped');
-    assertJson(wantedMonths(browse, [], null, 'bad'), [], 'a bad today');
+    assertJson(short(wantedFocusMonths(oct, ['2026-09', '2026-10', '2026-11', '2026-12'], '2026-10', TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'near, nearest first');
+    assertJson(short(wantedFocusMonths(focus('2026-12', '2026-12-01'), ['2027-01', '2027-02'], '2026-12', TODAY)), ['2026-12', '2027-01', '2026-11', '2027-02'], 'the month in view comes first, with its neighbours');
+    assertJson(short(wantedFocusMonths(oct, ['2026-11', '2026-12', '2027-01'], '2026-12', TODAY)), ['2026-12', '2026-10', '2027-01', '2026-11'], 'the selected day\'s month second, however far the pane is');
+    assertJson(short(wantedFocusMonths(focus('2028-04', '2028-04-01'), [], null, TODAY)), ['2028-04', '2028-05', '2028-03'], 'past today\'s span');
+    assertJson(short(wantedFocusMonths(focus('2100-12', '2100-12-01'), [], null, TODAY)), ['2100-12', '2100-11'], 'at the reach\'s last month');
+    assertJson(short(wantedFocusMonths(focus('1900-01', '1900-01-01'), ['1899-12', '1900-01', '1900-02'], '1900-01', TODAY)), ['1900-01', '1900-02'], 'outside the reach dropped');
+    assertJson(short(wantedFocusMonths(oct, ['2026-12', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09', '2026-12'], 'near months by distance from the focus month, with it and its neighbours');
+    assertJson(short(wantedFocusMonths(oct, ['2026-11', 'bad', '2026-11'], null, TODAY)), ['2026-10', '2026-11', '2026-09'], 'junk and repeats dropped');
+    assertJson(wantedFocusMonths(oct, [], null, 'bad'), [], 'a bad today');
   });
 
-  await check('heights: the constants, the title, the bar and a month\'s block; monthOffsets adds up monthBlockPx; monthsInViewport', () => {
-    assertJson([BROWSE_CELL_PX, PICKED_CELL_PX, BROWSE_SLOTS, BROWSE_CHIPS_NARROW, NARROW_MAX_PX, PICKED_DOTS], [92, 48, 3, 2, 360, 3], 'constants');
-    assertJson([monthTitlePx(false), monthTitlePx(true), monthBarPx(false), monthBarPx(true)], [42, 58, 72, 76], 'title and bar');
-    assertJson([monthBlockPx(4, false), monthBlockPx(5, true), monthBlockPx(6, false), monthBlockPx(0, false)], [410, 518, 594, 42], 'blocks');
-    const months = ['2026-08', '2026-09', '2026-10', '2027-02'];
-    for (const [ws, hd, rows] of [[0, false, [6, 5, 5, 5]], [1, true, [6, 5, 5, 4]]] as [WeekStart, boolean, number[]][]) {
-      const offsets = monthOffsets(months, ws, hd);
-      assertJson(months.map((m) => monthGrid(m, ws).length), rows, `rows at week start ${ws}`);
-      let top = 0;
-      const want = months.map((m) => {
-        const at = top;
-        top += monthBlockPx(monthGrid(m, ws).length, hd);
-        return at;
-      });
-      assertJson(offsets, want, `offsets at week start ${ws}`);
-    }
-    const offsets = monthOffsets(months, 0, false);
-    assertJson(offsets, [0, 594, 1096, 1598], 'the offsets, in px');
-    assertJson(monthsInViewport(offsets, 0, 700), { first: 0, last: 1 }, 'the top');
-    assertJson(monthsInViewport(offsets, 593, 1096), { first: 0, last: 1 }, 'just above a title');
-    assertJson(monthsInViewport(offsets, 594, 1097), { first: 1, last: 2 }, 'a title at the top');
-    assertJson(monthsInViewport(offsets, -100, -50), { first: 0, last: 0 }, 'above the list');
-    assertJson(monthsInViewport(offsets, 5000, 6000), { first: 3, last: 3 }, 'below the list');
-    assertJson(monthsInViewport([], 0, 100), { first: 0, last: -1 }, 'no months');
-  });
-
-  await check('pickedScrollTop (Ruling 6): the top while the day\'s header and first row fit on the screen; else just far enough down to show them, never past the picked layout\'s top; 0 for anything not finite or no screen', () => {
-    assert(PICKED_FIRST_ROW_PX === 64, `PICKED_FIRST_ROW_PX is ${PICKED_FIRST_ROW_PX}`);
-    assertJson([pickedScrollTop(126, 526, 590), pickedScrollTop(126, 574, 590), pickedScrollTop(250, 698, 590), pickedScrollTop(250, 698, 470), pickedScrollTop(0, 900, 590)], [0, 48, 172, 250, 0], 'it fits; 48 down; 172 down; no further than the layout\'s top; a layout at the page\'s top');
-    assertJson([pickedScrollTop(Number.NaN, 500, 590), pickedScrollTop(100, Infinity, 590), pickedScrollTop(100, 800, 0), pickedScrollTop(-20, 800, 590), pickedScrollTop(126.4, 640.2, 590)], [0, 0, 0, 0, 114], 'not finite, no screen, a layout above the page, rounded');
+  await check('the bar\'s height (the split\'s chrome) and the dots a small square shows', () => {
+    assertJson([monthBarPx(false), monthBarPx(true), PICKED_DOTS], [72, 76, 3], 'the bar with its weekday row, without and with the Hebrew line; 3 dots');
   });
 
   await check('monthModels: one function per store, one model per month; a new store builds afresh and the old one keeps its own', () => {
@@ -802,14 +722,14 @@ async function main() {
     assert(buildMonth(STORE_0, '2026-13') === null && buildMonth(STORE_0, '') === null && buildMonth(STORE_0, '2026-1') === null, 'malformed');
   });
 
-  await check('the same models, windows and heights on five device clocks', () => {
+  await check('the same models, windows, focus and fitted rows on five device clocks', () => {
     const snapshot = () =>
       JSON.stringify([
         AUTUMN.map((m) => buildMonth(STORE_0, m)),
         buildMonth(STORE_1, '2026-10'),
-        wantedMonths(ui('browse', '2026-10'), [], null, TODAY),
-        stepMonth(ui('picked', '2026-09', '2026-09-20'), 1, TODAY),
-        monthOffsets(AUTUMN, 1, true),
+        wantedFocusMonths(initialFocus(TODAY) as MonthFocus, ['2026-09', '2026-11'], '2026-10', TODAY),
+        clampFocus(focus('2101-01', '2026-09-20'), TODAY),
+        fitRow(modelOf(STORE_0, '2026-10').weeks[2], 2),
       ]);
     const saved = process.env.TZ;
     try {

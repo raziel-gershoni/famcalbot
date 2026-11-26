@@ -1,7 +1,7 @@
 'use client';
 
 // One media query as a React boolean (responsive home, release 2): useSyncExternalStore
-// over matchMedia, with the guards MonthBrowse had: no window, no matchMedia or a
+// over matchMedia, with the guards release 1's All months had: no window, no matchMedia or a
 // throwing call reads false (logged once), the older addListener pair where there is no
 // addEventListener. The server renders false.
 

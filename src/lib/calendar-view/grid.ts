@@ -1,8 +1,8 @@
 // The Month's calendar arithmetic (spec §7.4, §5's month windows, Ruling R12): the
-// months browse holds (its span), each month's own days and its week rows. Client-safe and
+// months the pane holds (its span), each month's own days and its week rows. Client-safe and
 // pure: no Intl, no @hebcal, no timezone, no clock. It imports only the DTO types and the
 // reach (year-limits.ts).
-// - The span (owner 2026-11-17, "infinite scroll"): browse opens on today's month −12 … +18,
+// - The span (owner 2026-11-17, "infinite scroll"): the pane opens on today's month −12 … +18,
 //   grows SPAN_GROW months at an end the month in view comes within SPAN_EDGE months of, and
 //   moves to a month far past it (a jump), all inside MONTH_REACH.
 //
@@ -21,14 +21,14 @@ import { MONTH_REACH } from './year-limits';
 /** A calendar month, 'yyyy-MM'. */
 export type MonthKey = string;
 
-/** Browse's opening span (spec §7.4): 12 months before today's month … 18 months after it. */
+/** The pane's opening span (spec §7.4): 12 months before today's month … 18 months after it. */
 export const MONTHS_BACK = 12;
 export const MONTHS_AHEAD = 18;
-/** The months browse adds at an end, and how near the month in view comes to it first. */
+/** The months the pane adds at an end, and how near the month in view comes to it first. */
 export const SPAN_GROW = 12;
 export const SPAN_EDGE = 6;
 
-/** The months browse holds, oldest and newest, inside MONTH_REACH. */
+/** The months the pane holds, oldest and newest, inside MONTH_REACH. */
 export interface MonthSpan {
   first: MonthKey;
   last: MonthKey;
@@ -176,9 +176,9 @@ export function growSpan(span: MonthSpan, edge: 'before' | 'after'): MonthSpan {
 }
 
 /**
- * The span once `month` must be in it (a jump, picked's chevrons, Today): the same span when it
+ * The span once `month` must be in it (a jump, Today): the same span when it
  * is; grown to MONTHS_BACK / MONTHS_AHEAD past it when it is at most SPAN_GROW months beyond an
- * end; else the span around it, so browse never holds decades of months it skipped.
+ * end; else the span around it, so the pane never holds decades of months it skipped.
  */
 export function spanToShow(span: MonthSpan, month: MonthKey): MonthSpan {
   // A month past the reach is its end: the span never chases a month it can't hold.

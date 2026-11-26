@@ -1,21 +1,22 @@
 'use client';
 
-// Drag to move, the Month's side of it (editor upgrades spec §4; ruling C: Month picked and
-// browse, never the Agenda). The library is @dnd-kit/core: a mouse sensor (6 px), a touch sensor
-// (a 450 ms press under 8 px of movement lifts; moving sooner scrolls, a short tap still opens),
-// auto-scroll at the page's edges and a drag overlay for the ghost.
+// Drag to move, the Month's side of it (editor upgrades spec §4; ruling C: the Month, never the
+// Agenda; responsive home release 2 §4). The library is @dnd-kit/core: a mouse sensor (6 px), a touch
+// sensor (a 450 ms press under 8 px of movement lifts; moving sooner scrolls, a short tap still
+// opens), auto-scroll at the scrollers' edges and a drag overlay for the ghost.
 //
 // This file only draws and reports. The rules (what lifts, where it lands, which occurrences) are
 // drag-model.ts's, and the save is the container's (CalendarHome), through the editor's own path.
 //
-// - DragLayer wraps the Month's views. Without one around them (the Agenda, a view drawn alone) the
+// - DragLayer wraps the Month's region. Without one around them (the Agenda, a part drawn alone) the
 //   hooks below are inert: nothing is draggable and no marker shows.
-// - An item is a draggable (useItemDrag): a row of the picked day's list, or a chip of a browse cell.
+// - An item is a draggable (useItemDrag): a row of the selected day's list, or a chip of a large square.
 //   One that can't move still takes the press, so the same long-press says why (a warning haptic and
 //   the container's note), and is then inert until the finger lifts: no ghost, no outline, no drop.
-// - A day cell is a drop target (useDayDrop), found under the finger by a hit test, so a right-to-left
-//   grid is right without any x maths. In picked, the month chevrons are targets too (useNavDrop):
-//   600 ms over one turns the month, and again every 600 ms while the finger stays.
+// - A day square, whatever its size, is a drop target (useDayDrop), found under the finger by a hit
+//   test, so a right-to-left grid is right without any x maths. The pane's month chevrons are targets
+//   too (useNavDrop): 600 ms over one scrolls the pane a month (Ruling 5), and again every 600 ms
+//   while the finger stays.
 // - The ghost follows the finger, the origin dims, the day under the finger gets a 2 px --ch-accent
 //   outline. Motion respects prefers-reduced-motion.
 // - On a lift the container gives a medium impact, per new day a selection tick and, for an item that
@@ -57,7 +58,7 @@ const CLICK_GUARD_MS = 400;
 /** What a draggable carries to the layer. */
 interface DragData {
   key: string;
-  /** The day the item was grabbed on (a cell's day, or the picked day). */
+  /** The day the item was grabbed on (a square's day, or the selected day). */
   day: DayKey;
   title: string;
   verdict: CantLift | null;
@@ -96,7 +97,7 @@ export interface DragLayerProps {
   onTarget: () => void;
   /** A drop on another day. */
   onDrop: (drop: DropEvent) => void;
-  /** 600 ms over a month chevron: turn the month (picked). */
+  /** 600 ms over a month chevron: scroll the pane a month (MonthView gives it the pane's step). */
   onNav: (delta: -1 | 1) => void;
   /** A lift began or ended: the container locks Telegram's vertical swipes while true. */
   onDraggingChange: (dragging: boolean) => void;
@@ -342,7 +343,7 @@ export function useDayDrop(day: DayKey): { props: Record<string, unknown>; over:
   return ctx.enabled ? { props: { ref: setNode }, over: isOver && ctx.liftedKey !== null } : { props: {}, over: false };
 }
 
-/** A month chevron as a drop target (picked): 600 ms over it turns the month. */
+/** A month chevron as a drop target: 600 ms over it scrolls the pane a month. */
 export function useNavDrop(side: 'prev' | 'next'): { props: Record<string, unknown>; over: boolean } {
   const ctx = useContext(DragContext);
   const { setNodeRef: setNode } = useDroppable({ id: `nav:${side}`, disabled: !ctx.enabled || ctx.liftedKey === null });
@@ -386,11 +387,6 @@ export const DRAG_CSS = `
   pointer-events: none;
 }
 .is-drop {
-  outline: 2px solid var(--ch-accent);
-  outline-offset: -2px;
-}
-.ch-mp-chev.is-drop-nav {
-  background: var(--ch-pill-bg);
   outline: 2px solid var(--ch-accent);
   outline-offset: -2px;
 }

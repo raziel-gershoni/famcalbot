@@ -7,18 +7,18 @@
 // decides what it draws. Presentational: the pane builds the model and measures the size.
 // The parts are copied from the two Month screens this replaces, not rewritten:
 //
-// - small (under 60 px high or 44 wide): MonthPicked's cell. The day, the Hebrew day (with
+// - small (under 60 px high or 44 wide): the tapped-day screen's cell (release 1). The day, the Hebrew day (with
 //   the Hebrew month's short name on Hebrew day 1 and on the month's first day) and the
 //   dots: up to 3, filled for the viewer's items and a ring for the partner's, in the
 //   calendar's colour, then "+N". Size container queries keep it whole from 48 px down to
 //   about 30 (a sideways phone): an 18 px day under 48, the day and the Hebrew day on one
 //   line under 42.
-// - medium (under 82 px high): the small square plus MonthBrowse's holiday line between
+// - medium (under 82 px high): the small square plus All months' holiday line between
 //   the Hebrew day and the dots, by browse's rule: the day's highest-priority holiday's
 //   brief (a yom tov in the accent); where browse would name the Hebrew month instead (the
 //   portion never beats it), the line is empty, as the Hebrew day already names it. The
 //   line is always there, so a row's days line up.
-// - large: MonthBrowse's cell. The head line (the day, the Hebrew day at its end), the
+// - large: All months' cell (release 1). The head line (the day, the Hebrew day at its end), the
 //   line (the holiday by the same rule, or the Hebrew month's short name when due), then
 //   month.ts's fitRow over the week for the size's lines: chips and bars (bars joined
 //   across days, named on their first day in each week row), "+N more" as the last line
@@ -29,7 +29,7 @@
 // Daily-repeating reminders are left out of every square (R11): month.ts keeps them out of
 // the slots, the dots and the counts. A loading day shows a placeholder and a failed one
 // is dimmed, so a day never looks free before it is answered (§5), and a month's failure
-// is a pill centred over it, a partial answer a pill at its top (MonthBrowse's pills, Ruling
+// is a pill centred over it, a partial answer a pill at its top (All months' pills, Ruling
 // 1). Every square is a drop target while an item is lifted (drag to move), and a chip in
 // a large square lifts as browse's chips did; the drop outline is DRAG_CSS's .is-drop.
 //
