@@ -8,8 +8,9 @@
 // that opens a calendar, owner 2026-11-26; today's zmanim, only for the Jewish calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
 // they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
 // the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar. Before the
-// day's heading, its short form ("Thu 26 Nov"), hidden but on a short phone held upright on the Month tab, where the
-// header is one line (HOME_SHELL_CSS) and the long day stays the heading for screen readers.
+// day's heading, its short forms ("Thu 26 Nov", and "26 Nov" where that has no room), hidden but on a short phone held
+// upright on the Month tab, where the header is one line (HOME_SHELL_CSS) and the long day stays the heading for screen
+// readers.
 // Under the date lines, two lines at the person's place: the zman that passed last ("Sunset 16:42", "Yesterday: Midnight
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the zmanim
@@ -17,7 +18,7 @@
 
 import { useLocale, useTranslations } from 'next-intl';
 import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Clock, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
-import { daysBetween, formatDayLong, formatDayShort, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
+import { daysBetween, formatDayLong, formatDayMonth, formatDayShort, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
 import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
@@ -40,7 +41,7 @@ export interface HomeHeaderProps {
   /** Opens the editor for a new item; absent when the user can add neither kind, and there is no "+". */
   onAdd?: () => void;
   addOpen?: boolean;
-  /** Opens the zmanim sheet; absent for anyone but the Jewish calendar (and before the first answer), and there is no sun. */
+  /** Opens the zmanim sheet; absent for anyone but the Jewish calendar (and before the first answer), and there is no zmanim button. */
   onZmanim?: () => void;
   zmanimOpen?: boolean;
   /** Today's weather under the buttons: 'loading' is a placeholder; null or absent (no place, no forecast) shows nothing. */
@@ -212,7 +213,10 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
       <div className="ch-head-text">
         {title && today ? (
           <>
-            <p className="ch-head-short" aria-hidden="true">{formatDayShort(today, locale)}</p>
+            <p className="ch-head-short" aria-hidden="true">
+              <span className="ch-head-short-day">{formatDayShort(today, locale)}</span>
+              <span className="ch-head-short-date">{formatDayMonth(today, locale)}</span>
+            </p>
             <h1 className="ch-head-title">{title}</h1>
           </>
         ) : (

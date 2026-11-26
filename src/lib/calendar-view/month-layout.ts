@@ -31,7 +31,7 @@ export const PEEK_PX = 44;
 /** The month's week rows in the upright split. */
 export const SPLIT_ROWS = 6;
 /** With wide squares (a tablet held upright), the rows grow to a large square's height while the list keeps this share of the region. */
-export const SPLIT_GROW_LIST_SHARE = 0.25;
+export const SPLIT_GROW_LIST_SHARE = 0.2;
 /** How long a settle (a snap or a handle release) takes. */
 export const SETTLE_MS = 220;
 

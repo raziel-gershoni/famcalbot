@@ -106,15 +106,17 @@ async function main() {
     assert(HANDLE_PX === 22 && LIST_MIN_PX === 120, 'constants');
   });
 
-  await check('splitHeights, a tablet held upright (owner 2026-11-26): squares wide enough for names grow the rows to a large square\'s height (82), so a six-week month shows names, not dots, while the list keeps a quarter of the region; phones and the grown month are untouched', () => {
+  await check('splitHeights, a tablet held upright (owner 2026-11-26): squares wide enough for names grow the rows to a large square\'s height (82), so a six-week month shows names, not dots, while the list keeps a fifth of the region (an iPad mini\'s 770 px region too); phones and the grown month are untouched', () => {
     assert(SQUARE_LARGE_MIN_PX === 82 && squareSize(82, 110).kind === 'large' && squareSize(81, 110).kind === 'medium', 'the large square starts at 82');
     // 900 px region, 110 px cells: 0.6 of it gives rows of 77 (medium: dots); they grow to 82, the list keeps 310
     assertJson(splitHeights(900, 76, 110, false), { rowPx: 82, scrollerPx: 492, listPx: 310 }, '900');
     assert(squareSize(492 / 6, 110).kind === 'large' && squareSize(492 / 5, 110).kind === 'large', 'six- and five-week months draw names');
-    // 800: 67 grows to 82, the list keeps 210 (over 200, a quarter)
+    // 800: 67 grows to 82, the list keeps 210 (over 160, a fifth)
     assertJson(splitHeights(800, 76, 110, false), { rowPx: 82, scrollerPx: 492, listPx: 210 }, '800');
-    // 760: the list would keep 170, under 190: the rows stay 63
-    assertJson(splitHeights(760, 76, 110, false), { rowPx: 63, scrollerPx: 378, listPx: 284 }, '760');
+    // An iPad mini (744 px wide, cells 104): a 770 px region's 64 px rows grow to 82, the list keeps 180 (over 154)
+    assertJson(splitHeights(770, 76, (744 - GRID_PAD_PX) / 7, false), { rowPx: 82, scrollerPx: 492, listPx: 180 }, 'iPad mini');
+    // 700: the list would keep 110, under 140: the rows stay 57
+    assertJson(splitHeights(700, 76, 110, false), { rowPx: 57, scrollerPx: 342, listPx: 260 }, '700');
     // Squares too narrow for names (0.9 of 90 is 81): no growth; a phone's cells (54) neither
     assertJson(splitHeights(900, 76, 90, false), { rowPx: 77, scrollerPx: 462, listPx: 340 }, 'narrow squares');
     assertJson(splitHeights(560, 76, 54, false), { rowPx: 44, scrollerPx: 264, listPx: 198 }, 'phone');

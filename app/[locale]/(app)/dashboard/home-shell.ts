@@ -7,7 +7,7 @@
 // - Logical properties only; nothing under 11 px; every tap at least 44 px; no hover
 //   styles (touch only). The header sits in the frame's document-level scroll.
 // - The header's day keeps at least 120 px beside the buttons: the usual three (the + for who can add, Send, the menu)
-//   stay beside it from a 320 px phone (128 px are left), and with four of them (the sun for the Jewish calendar) on a
+//   stay beside it from a 320 px phone (128 px are left), and with four of them (the zmanim clock for the Jewish calendar) on a
 //   360 px phone it would be left 116 px and wrap in three lines, so the buttons drop to a row of their own under the
 //   day, at the end; from 364 px the four stay beside it. That wrap is the side column's (.ch-head-side holds the buttons
 //   and, under them, the weather block, which is never wider than the buttons' row). The weather block takes the side
@@ -554,8 +554,12 @@ export const HOME_SHELL_CSS = `
 }
 /* A short phone held upright, on the Month tab (owner 2026-11-26): the header is one line, the day's short form over
    the Hebrew date beside the buttons, so the Month's day list keeps its room (a 375 x 667 phone: about 76 px of list
-   with the full header, 124 with this one). The long day stays the heading for screen readers; the holiday, the zman
-   lines, the parasha and countdown and the weather go, as on a phone held sideways. */
+   with the full header, 124 with this one). The day shows its weekday only where the text column has 140 px (a
+   container query: the widest short form, "שלישי 28 בספט׳", is about 122 px), else the date alone (at most about 73 px,
+   so it fits beside four buttons on a 320 px phone): a cut never lands on the day's number, which in Hebrew would read
+   as another day. The Hebrew date's line is cut with an ellipsis where it has no room. So the header is the buttons'
+   44 px and 6 above and below; the loading placeholder fits in that too. The long day stays the heading for screen readers; the holiday, the zman lines, the parasha and
+   countdown and the weather go, as on a phone held sideways. */
 @media ${SHORT_UPRIGHT_QUERY} {
   .ch-home-top.is-month .ch-head {
     flex-wrap: nowrap;
@@ -565,6 +569,7 @@ export const HOME_SHELL_CSS = `
   }
   .ch-home-top.is-month .ch-head-text {
     flex: 1 1 0;
+    container-type: inline-size;
   }
   .ch-home-top.is-month .ch-head-short {
     display: block;
@@ -572,6 +577,30 @@ export const HOME_SHELL_CSS = `
     font-size: 17px;
     font-weight: 600;
     line-height: 1.25;
+    white-space: nowrap;
+    overflow: clip;
+    text-overflow: ellipsis;
+  }
+  .ch-home-top.is-month .ch-head-short-day {
+    display: none;
+  }
+  @container (inline-size >= 140px) {
+    .ch-home-top.is-month .ch-head-short-day {
+      display: inline;
+    }
+    .ch-home-top.is-month .ch-head-short-date {
+      display: none;
+    }
+  }
+  .ch-home-top.is-month .ch-head-line {
+    display: block;
+    white-space: nowrap;
+    overflow: clip;
+    text-overflow: ellipsis;
+  }
+  .ch-home-top.is-month .ch-head-ghost {
+    gap: 4px;
+    padding-block-start: 0;
   }
   .ch-home-top.is-month .ch-head-title {
     position: absolute;
@@ -594,7 +623,8 @@ export const HOME_SHELL_CSS = `
 }
 @media (max-height: 520px) and (orientation: landscape) {
   /* A short window (a phone held sideways): the header is one line, the date, the Hebrew date, the temperature and the
-     buttons; the holiday, the zman lines, the parasha and countdown and the weather's place, range and days go. */
+     buttons; the header's holiday line (only the header's: the day lists keep theirs), the zman lines, the parasha and
+     countdown and the weather's place, range and days go. */
   .ch-head {
     flex-wrap: nowrap;
     align-items: center;
@@ -620,7 +650,7 @@ export const HOME_SHELL_CSS = `
     flex-basis: 100%;
     margin: 0;
   }
-  .ch-day-holiday,
+  .ch-head .ch-day-holiday,
   .ch-head-zman,
   .ch-head-next,
   .ch-head-weather-place,

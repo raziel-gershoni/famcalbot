@@ -1,4 +1,4 @@
-// Smoke test for the home's sun sheet (the zmanim list): the header's sun button (HomeHeader), the sheet
+// Smoke test for the home's sun sheet (the zmanim list): the header's zmanim button (HomeHeader, a clock), the sheet
 // (app/[locale]/(app)/dashboard/ZmanimSheet.tsx, its rows drawn by components/app-ui/ZmanimRows.tsx and its CSS in
 // src/lib/calendar-view/zmanim-sheet-css.ts) and its request (src/lib/calendar-view/zmanim-list.ts), with the real
 // messages in en, he (RTL) and ru, in real React (react-dom/client with act on scripts/lib/fake-dom.ts). The route behind
@@ -7,7 +7,7 @@
 //
 // What it pins:
 //   - the button: only when the home gives it a handler, beside Send and before the menu, with the dialog's aria
-//     attributes, the sun icon hidden from readers, and its label in each language;
+//     attributes, the clock icon hidden from readers, and its label in each language;
 //   - the sheet in each language: the title (today's, else the plain one), the place and the set ("חריש · ספרדי"), the
 //     Gregorian and the Hebrew date (gematriya in Hebrew), every row named with its opinion, its time in 24 hours in the
 //     person's zone (not the device's) and left to right inside Hebrew, the candle lighting, the candle lighting "not
@@ -26,7 +26,7 @@
 //     first) over the earliest still ahead (tomorrow's first after today's last), a time the sun does not make skipped, a
 //     day's list asked only when needed, nothing without a saved place; each line names it with the sheet's own words, its
 //     time in the list's zone, "Yesterday:" or "Tomorrow:" for the other day's, the accent for a window row; the button
-//     opens the sun sheet (no lines without the sun);
+//     opens the sun sheet (no lines without the zmanim button);
 //   - the sheet's CSS: nothing under 11 px, logical properties only, no hover, no colour literal, and only the contrast
 //     pairs the app's design smoke already holds; the header's room: the usual three buttons beside the day from 320 px.
 // React must log no warning. No network, no DB. Run under three process zones (this file re-runs itself as child
@@ -228,19 +228,19 @@ async function runChecks(): Promise<void> {
 
   // ================= The button =================
 
-  await check('the sun button: no handler, no button; with one, a 44 px icon button after Send and before the menu, aria-haspopup="dialog" and aria-expanded following the sheet, the icon hidden from readers, labelled in each language', () => {
+  await check('the zmanim button: no handler, no button; with one, a 44 px icon button after Send and before the menu, aria-haspopup="dialog" and aria-expanded following the sheet, the icon hidden from readers, labelled in each language', () => {
     const header = (locale: Locale, extra: Row) =>
       renderToString(inIntl(locale, createElement(HomeHeader, { today: null, hebrewDates: true, zone: null, sendOpen: false, menuOpen: false, onSend: noop, onMenu: noop, ...extra })));
     for (const locale of LOCALES) {
       const label = messages[locale].calendarHome.header.zmanim;
       const without = header(locale, {});
-      assert(!without.includes(`aria-label="${label}"`) && (without.match(/<button/g) ?? []).length === 2, `${locale}: a sun without a handler`);
+      assert(!without.includes(`aria-label="${label}"`) && (without.match(/<button/g) ?? []).length === 2, `${locale}: a zmanim button without a handler`);
       const closed = header(locale, { onZmanim: noop, zmanimOpen: false });
       const opened = header(locale, { onZmanim: noop, zmanimOpen: true });
       const sun = /<button([^>]*aria-label="([^"]*)"[^>]*)>(<svg[^>]*>[\s\S]*?<\/svg>)<\/button>/g;
       const buttons = [...closed.matchAll(sun)].map((m) => ({ attrs: m[1], label: m[2], icon: m[3] }));
       assert(buttons.length === 3 && buttons[1].label === label, `${locale}: ${show(buttons.map((b) => b.label))}`);
-      assert(buttons[0].label === messages[locale].calendarHome.header.send && buttons[2].label === messages[locale].calendarHome.header.menu, `${locale}: the sun sits between Send and the menu`);
+      assert(buttons[0].label === messages[locale].calendarHome.header.send && buttons[2].label === messages[locale].calendarHome.header.menu, `${locale}: the zmanim button sits between Send and the menu`);
       assert(/class="ch-icon-btn"/.test(buttons[1].attrs) && /aria-haspopup="dialog"/.test(buttons[1].attrs) && /aria-expanded="false"/.test(buttons[1].attrs) && /type="button"/.test(buttons[1].attrs), `${locale}: ${buttons[1].attrs}`);
       assert(/aria-hidden="true"/.test(buttons[1].icon) && /lucide-clock/.test(buttons[1].icon) && !/lucide-sunset/.test(closed), `${locale}: the icon ${buttons[1].icon.slice(0, 120)}`);
       assert(/aria-expanded="true"/.test(opened.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0] ?? ''), `${locale}: expanded while open`);
@@ -781,7 +781,7 @@ async function runChecks(): Promise<void> {
       assert(one.includes('is-last') && !one.includes('is-next') && one.includes(`aria-label="${words.label.split('. ')[0]}"`), `${locale} the last alone: ${one}`);
       const keyed = lineOf(header(locale, { zmanWindow: { last: sunset, next: zman('CANDLE_LIGHTING', TODAY, '16:35', 'today') } }));
       assert(keyed.includes('class="ch-head-zman-row is-next is-key"') && keyed.includes('class="ch-head-zman-row is-last"'), `${locale}: the accent is the window row's line: ${keyed}`);
-      assert(!header(locale, { zmanWindow: { last: sunset, next: tzeit }, onZmanim: undefined }).includes('ch-head-zman') && !header(locale, { zmanWindow: null }).includes('ch-head-zman') && !header(locale, {}).includes('ch-head-zman'), `${locale}: no lines without the sun or a window`);
+      assert(!header(locale, { zmanWindow: { last: sunset, next: tzeit }, onZmanim: undefined }).includes('ch-head-zman') && !header(locale, { zmanWindow: null }).includes('ch-head-zman') && !header(locale, {}).includes('ch-head-zman'), `${locale}: no lines without the zmanim button or a window`);
     }
     assert(lineOf(header('en', { zmanWindow: { last: null, next: zman('SOF_SHMA_GRA', TODAY, '08:37', 'today', 'gra') } })).includes('<span class="ch-head-zman-name">Latest time for Shema (GRA)</span>'), 'the name carries its opinion, as in the sheet');
   });
@@ -812,7 +812,7 @@ async function runChecks(): Promise<void> {
     assert(!/(?:^|[^-])(?:left|right|top|bottom|width)\s*:|(?:margin|padding)-(?:left|right)/m.test(zmanCss) && !/:hover/.test(zmanCss), `physical properties or hover: ${zmanCss}`);
   });
 
-  await check('the header makes room for the fourth button: the day keeps 120 px beside the buttons and the buttons wrap to a row of their own, at the end, when it would be left less; so the usual three never wrap on a phone of 320 px or more (128 px stay for the day, as before the sun), four buttons (the sun) wrap on a 360 px phone and sit beside the day from 364 px', () => {
+  await check('the header makes room for the fourth button: the day keeps 120 px beside the buttons and the buttons wrap to a row of their own, at the end, when it would be left less; so the usual three never wrap on a phone of 320 px or more (128 px stay for the day, as before the zmanim button), four buttons (the zmanim button) wrap on a 360 px phone and sit beside the day from 364 px', () => {
     const rule = (selector: string) => {
       const m = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(HOME_SHELL_CSS);
       assert(m, `no rule ${selector}`);
@@ -831,7 +831,7 @@ async function runChecks(): Promise<void> {
     const fits = (width: number, n: number) => Number(basis[1]) + gap + buttons(n) + 2 * pad <= width;
     assert(fits(320, 3) && fits(320, 2) && fits(360, 3) && fits(360, 2), 'the usual three buttons stay beside the day from 320 px');
     assert(!fits(360, 4) && !fits(363, 4) && fits(364, 4) && fits(388, 4) && fits(390, 4), 'four buttons: a 360 px phone wraps, 364 and wider do not');
-    // What the day is left beside the buttons, in px: as before the sun at 320 px, and never narrower than the basis while it stays on the line
+    // What the day is left beside the buttons, in px: as before the zmanim button at 320 px, and never narrower than the basis while it stays on the line
     assert(320 - 2 * pad - gap - buttons(3) >= Number(basis[1]), 'at 320 px the day keeps its room beside three buttons');
   });
 
@@ -853,9 +853,12 @@ async function runChecks(): Promise<void> {
     const text = rule('.ch-head-text');
     assert(/display:\s*flex/.test(text) && /flex-wrap:\s*wrap/.test(text), `.ch-head-text: ${text}`);
     assert(/flex-basis:\s*100%/.test(rule('.ch-head-zone')), 'the zone has a line of its own');
-    for (const gone of ['.ch-day-holiday', '.ch-head-zman', '.ch-head-next', '.ch-head-weather-place', '.ch-head-weather-range', '.ch-head-weather-days']) {
+    for (const gone of ['.ch-head .ch-day-holiday', '.ch-head-zman', '.ch-head-next', '.ch-head-weather-place', '.ch-head-weather-range', '.ch-head-weather-days']) {
       assert(/display:\s*none/.test(rule(gone)), `${gone} is hidden`);
     }
+    // The header's holiday line only (final review): a bare .ch-day-holiday would also hide the holiday names in the
+    // Month's day list and the Agenda's day headers on a phone held sideways
+    assert(!rules.some((r) => r.selectors.includes('.ch-day-holiday')), 'the holiday rule is scoped to the header');
     for (const kept of ['.ch-head-line', '.ch-head-weather-now', '.ch-icon-btn']) {
       assert(!rules.some((r) => r.selectors.some((x) => x.startsWith(kept)) && /display:\s*none/.test(r.body)), `${kept} stays visible`);
     }

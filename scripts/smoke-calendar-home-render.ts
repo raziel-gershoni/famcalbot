@@ -127,7 +127,7 @@ import { buildAgenda, type AgendaModel, type AgendaRow } from '../src/lib/calend
 import { addDaysToKey, daysInWindow, emptyStore, reduceStore, type CalendarStore, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type WeekStart } from '../src/lib/calendar-view/types';
 import type { CalendarHomeProps, HomeHints } from '../src/lib/calendar-view/home-props';
-import { formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
+import { formatDayMonth, formatDayRange, formatDayShort } from '../src/lib/calendar-view/format';
 import { isolate } from '../src/lib/isolate';
 import { ItemRow } from '../app/[locale]/(app)/dashboard/ItemRow';
 import bidiFactory from 'bidi-js';
@@ -3608,7 +3608,8 @@ async function main() {
         assert(wrapper()?.className === 'ch-home-top', `${locale}: the Agenda: ${wrapper()?.className}`);
         const head = byClass(m.container, 'ch-head-text')[0];
         const short = formatDayShort(TODAY, locale);
-        assert(short.length > 0 && htmlOf(head).startsWith(`<div class="ch-head-text"><p class="ch-head-short" aria-hidden="true">${short}</p><h1 class="ch-head-title">`), `${locale}: the short day before the heading: ${htmlOf(head).slice(0, 180)}`);
+        const date = formatDayMonth(TODAY, locale);
+        assert(short.length > 0 && date.length > 0 && htmlOf(head).startsWith(`<div class="ch-head-text"><p class="ch-head-short" aria-hidden="true"><span class="ch-head-short-day">${short}</span><span class="ch-head-short-date">${date}</span></p><h1 class="ch-head-title">`), `${locale}: the short day before the heading: ${htmlOf(head).slice(0, 220)}`);
         await openMonth(m);
         assert(wrapper()?.className === 'ch-home-top is-month', `${locale}: the Month: ${wrapper()?.className}`);
         m.click(tabButton(m, 'agenda'));
@@ -3619,7 +3620,7 @@ async function main() {
         fakeWindow.Telegram = undefined;
       }
     }
-    assert(formatDayShort(TODAY, 'en') === 'Thu 15 Oct', `en: ${formatDayShort(TODAY, 'en')}`);
+    assert(formatDayShort(TODAY, 'en') === 'Thu 15 Oct' && formatDayMonth(TODAY, 'en') === '15 Oct', `en: ${formatDayShort(TODAY, 'en')}, ${formatDayMonth(TODAY, 'en')}`);
     assert(decl(cssRule(HOME_SHELL_CSS, '.ch-head-short'), 'display') === 'none', 'the short day is hidden by default');
     const at = HOME_SHELL_CSS.indexOf(`@media ${SHORT_UPRIGHT_QUERY} {`);
     assert(at > 0 && SHORT_UPRIGHT_QUERY === '(max-height: 700px) and (orientation: portrait)', `the upright block: ${SHORT_UPRIGHT_QUERY}`);
@@ -3629,9 +3630,35 @@ async function main() {
     assert(decl(inner('.ch-home-top.is-month .ch-head-short'), 'display') === 'block' && decl(inner('.ch-home-top.is-month .ch-head-short'), 'font-size') === '17px', 'the short day shows');
     const title = inner('.ch-home-top.is-month .ch-head-title');
     assert(decl(title, 'position') === 'absolute' && decl(title, 'clip-path') === 'inset(50%)' && decl(title, 'inline-size') === '1px' && decl(title, 'overflow') === 'clip', `the long day hidden but read: ${title}`);
+    // Every rule in the block, by each selector of its list (final review: a selector's mere presence proved nothing)
+    // (the @container group, checked on its own below, left out)
+    const rules = [...block.replace(/@container[^{]*\{[^]*?\n {2}\}/, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((r) => ({ selectors: r[1].split(',').map((x) => x.trim()), body: r[2] }));
+    const ruleOf = (selector: string) => {
+      const found = rules.filter((r) => r.selectors.includes(`.ch-home-top.is-month ${selector}`));
+      assert(found.length === 1, `${found.length} rules for ${selector} in the upright block`);
+      return found[0].body;
+    };
     for (const gone of ['.ch-day-holiday', '.ch-head-zman', '.ch-head-next', '.ch-head-weather', '.ch-head-weather-ghost']) {
-      assert(new RegExp(`\\.ch-home-top\\.is-month \\${gone}[,\\s]`).test(block), `${gone} goes`);
+      assert(decl(ruleOf(gone), 'display') === 'none', `${gone} goes: ${ruleOf(gone)}`);
     }
+    assert(decl(ruleOf('.ch-head-text'), 'flex') === '1 1 0', `the text column shares what the buttons leave: ${ruleOf('.ch-head-text')}`);
+    assert(decl(ruleOf('.ch-head-sub'), 'margin') === '0', 'the Hebrew date sits right under the day');
+    // Each of the two lines stays one line, cut with an ellipsis on a phone with no room (320 px, four buttons): the header stays 56 px
+    // The weekday only where the whole short form fits (the widest, "שלישי 28 בספט׳", is about 122 px): a text column of
+    // 140 px or more (a container query on it), else the date alone (at most about 73 px, so it fits beside four buttons on
+    // a 320 px phone). A cut never lands on the day's number, which in Hebrew would show another day ("חמישי 6…").
+    assert(decl(ruleOf('.ch-head-text'), 'container-type') === 'inline-size', 'the text column is the query container');
+    assert(decl(ruleOf('.ch-head-short-day'), 'display') === 'none', 'the date alone by default');
+    const wide = /@container \(inline-size >= 140px\) \{([^]*?)\n {2}\}/.exec(block)?.[1] ?? '';
+    assert(/\.ch-home-top\.is-month \.ch-head-short-day \{\s*display: inline;\s*\}/.test(wide) && /\.ch-home-top\.is-month \.ch-head-short-date \{\s*display: none;\s*\}/.test(wide), `the weekday from 140 px: ${wide}`);
+    for (const one of ['.ch-head-short', '.ch-head-line']) {
+      const body = ruleOf(one);
+      assert(decl(body, 'white-space') === 'nowrap' && decl(body, 'overflow') === 'clip' && decl(body, 'text-overflow') === 'ellipsis', `${one} on one line: ${body}`);
+    }
+    assert(decl(ruleOf('.ch-head-line'), 'display') === 'block', 'the line is a block, so its text can end in an ellipsis');
+    // The loading placeholder is no taller than the buttons, so the header keeps its 56 px when the day lands
+    const ghost = ruleOf('.ch-head-ghost');
+    assert(decl(ghost, 'gap') === '4px' && decl(ghost, 'padding-block-start') === '0', `the placeholder: ${ghost}`);
     assert(!/\.ch-head-short|is-month/.test(HOME_SHELL_CSS.slice(0, at).replace(/\.ch-head-short(::first-letter)?\s*\{\s*display:\s*none;\s*\}|\.ch-head-short::first-letter/g, '')), 'nothing outside the block shows the short day or reads is-month');
     assert(show(lintCss(HOME_SHELL_CSS)) === '[]', `lint: ${show(lintCss(HOME_SHELL_CSS))}`);
   });
@@ -10246,11 +10273,11 @@ async function main() {
   const sunCalls = () => zmanimCalls.length;
   const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
 
-  await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks nothing without a saved place (the header\'s next zman is #128n-#128q\'s)', async () => {
+  await check('#126 the zmanim button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks nothing without a saved place (the header\'s next zman is #128n-#128q\'s)', async () => {
     for (const jewish of [undefined, false]) {
       const a = await editingHome('en', {}, jewish === undefined ? {} : { jewish });
       try {
-        assert(sunButton(a.m).length === 0, `jewish ${String(jewish)}: a sun button`);
+        assert(sunButton(a.m).length === 0, `jewish ${String(jewish)}: a zmanim button`);
         assert(zmanimCalls.length === 0, `jewish ${String(jewish)}: ${zmanimCalls.length} zmanim requests`);
         assert(byLabel(a.m.container, 'Send to chat') && byLabel(a.m.container, 'Menu'), 'the other buttons');
       } finally {
@@ -10261,7 +10288,7 @@ async function main() {
       const a = await editingHome(locale, {}, { jewish: true });
       try {
         const sun = sunButton(a.m, label);
-        assert(sun.length === 1, `${locale}: ${sun.length} sun buttons`);
+        assert(sun.length === 1, `${locale}: ${sun.length} zmanim buttons`);
         assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn', `${locale}: ${show([...sun[0].attributes])}`);
         const row = sun[0].parentNode as FakeElement;
         const header = messages[locale].calendarHome.header;
@@ -10271,13 +10298,13 @@ async function main() {
         a.m.unmount();
       }
     }
-    // Before the first answer there is no day to open on: no button; a first load that failed leaves the card, not the sun
+    // Before the first answer there is no day to open on: no button; a first load that failed leaves the card, not the zmanim button
     resetHome();
     fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
     answerFetch = () => new Promise<FetchAnswer>(() => undefined);
     const pending = await mountHome('en', { jewish: true });
     try {
-      assert(sunButton(pending).length === 0, 'a sun before the first answer');
+      assert(sunButton(pending).length === 0, 'a zmanim button before the first answer');
     } finally {
       pending.unmount();
     }
@@ -10287,7 +10314,7 @@ async function main() {
     const failed = await mountHome('en', { jewish: true });
     try {
       assertHas(failed.text(), ['Something went wrong'], 'the retry card');
-      assert(sunButton(failed).length === 0, 'a sun on the retry card');
+      assert(sunButton(failed).length === 0, 'a zmanim button on the retry card');
     } finally {
       failed.unmount();
     }
@@ -10515,7 +10542,7 @@ async function main() {
     }
   });
 
-  await check('#127 the sun opens today\'s zmanim: one request for the home\'s today (user_id and date in the query, the init data in the header only), the sheet over the home with the rows and the hour line, aria-expanded true while it is open; Telegram\'s BackButton, Close and Escape close it; the arrows ask the next and the previous day', async () => {
+  await check('#127 the zmanim button opens today\'s zmanim: one request for the home\'s today (user_id and date in the query, the init data in the header only), the sheet over the home with the rows and the hour line, aria-expanded true while it is open; Telegram\'s BackButton, Close and Escape close it; the arrows ask the next and the previous day', async () => {
     const a = await editingHome('en', {}, { jewish: true });
     try {
       serveZmanim = serveSun();
@@ -10545,12 +10572,12 @@ async function main() {
       a.m.click(byLabel(a.m.container, 'Previous day'));
       await settle();
       assert(zmanimCalls[zmanimCalls.length - 1].query.get('date') === day(-1), `previous: ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
-      // The BackButton closes it, and focus goes back to the sun
+      // The BackButton closes it, and focus goes back to the zmanim button
       a.tg.calls.length = 0;
       React.act(() => a.tg.fire('backButtonClicked'));
       assert(byRole(a.m.container, 'dialog').length === 0 && sunButton(a.m)[0].getAttribute('aria-expanded') === 'false', 'the BackButton closed the sheet');
       assert(show(a.tg.calls.filter((c) => c.startsWith('BackButton'))) === show(['BackButton.offClick', 'BackButton.hide()']), `BackButton after ${show(a.tg.calls)}`);
-      assert(fakeDocument.activeElement === sun, 'focus is back on the sun');
+      assert(fakeDocument.activeElement === sun, 'focus is back on the zmanim button');
       // Close and Escape do too; reopening asks again for today
       a.m.click(sunButton(a.m)[0]);
       await settle();
