@@ -52,7 +52,7 @@ Also decided 2026-11-19: upright = **split** (not two screens). The month stays 
 
 - The layout follows the window, live. It changes when Telegram expands or collapses, when the phone turns, or when a desktop window is resized. Read it from `matchMedia('(min-width: 600px) and (orientation: landscape)')`. Use a listener, not resize polling. Treat equal width and height as upright.
 - It applies only to the Month tab. The Agenda keeps its single column, centred at up to about 720 px when wide (decision 5).
-- The header and the tab bar stay at the top of the screen whenever the Month tab shows. Under them, the Month takes exactly the rest of the viewport (`var(--tg-viewport-stable-height, 100dvh)` minus the header, the tabs and the safe areas). This replaces "document-level scroll, with no inner scroller" (home spec §7.1) for the Month tab only. The month pane and the day list are two inner scrollers, each with `overscroll-behavior: contain`. The page itself does not scroll on the Month tab.
+- The header and the tab bar stay at the top of the screen whenever the Month tab shows. Under them, the Month takes exactly the rest of the viewport (`var(--tg-viewport-stable-height, 100dvh)` minus the header, the tabs and the safe areas). This replaces "document-level scroll, with no inner scroller" (home spec §7.1) for the Month tab only. The month pane and the day list are two inner scrollers, each with `overscroll-behavior: contain`. The page itself does not scroll on the Month tab. *Amended 2026-11-26 (final review I2): minus the safe areas above only. The Month runs down to the screen's bottom edge: the day list scrolls under the home indicator and pads its own end by it, the wide pane's months end above it, and the grown split's 44 px peek stays clear of it.*
 - **Banners and notices on the Month tab** (my call, checked by the review: today `HomeBanners` and the "N calendars aren't available" row sit above the Month and could leave the split's list no room on a small phone). In both layouts they move to the top of the day list's scroller, above the day header. They are the first thing under the month and scroll away with the list. The Agenda tab keeps them where they are.
 - **When the upright space is short:**
   - the list keeps at least 120 px (the day header and one row);
@@ -70,7 +70,7 @@ Also decided 2026-11-19: upright = **split** (not two screens). The month stays 
   - The scroller holds the months stacked, each exactly the scroller's height (decision 2), with `scroll-snap-type: y mandatory` and each month `scroll-snap-align: start`.
   - The chevrons scroll the scroller by one month.
   - The span grows and the per-month fetch works as in today's browse (home spec §7.4 "Span" and "Fetching"). Reuse that code, don't write it again.
-- **Side panel:** the selected day: the banners (§1), the day header ("Today · …" when it is today), the Daf Yomi line (§6) when on, then that day's rows, exactly as today's picked list. It scrolls on its own.
+- **Side panel:** the selected day: the banners (§1), the day header ("Today · …" when it is today), the Daf Yomi line (§6) when on, then that day's rows, exactly as today's picked list. It scrolls on its own. *Amended 2026-11-26 (final review M2): a source that failed on the selected day adds picked's state row under the header ("Couldn't load this month" or busy with Retry, calendars gone with Choose again), since the month's pill may be out of view.*
   - That list is written inline in `MonthPicked.tsx` today (`LiftableRow` + `ItemRow`). Pull it out as the shared day-list component.
   - Don't use `DayList.tsx`: that is the Agenda's multi-day list, whose rows deliberately never lift, which keeps the drag library out of the Agenda's code.
 - **Row height:** no floor in the wide layout. On a sideways phone inside Telegram a 6-week month's rows come out about 30 px tall, but about 75 px wide. The owner saw this view in the prototype and called it "always perfect". It is listed in §9.
@@ -82,7 +82,7 @@ Also decided 2026-11-19: upright = **split** (not two screens). The month stays 
 
 - **Structure, top to bottom:**
   - the month area: the same bar, weekday row and snapping scroller as the wide pane (§2), one component used by both layouts;
-  - the handle: a full-width bar 22 px tall with a 36×5 px pill and a touch area of 8 px extra above and below;
+  - the handle: a full-width bar 22 px tall with a 36×5 px pill and a touch area of 8 px extra above and below; *amended 2026-11-26 (final review M1): 22 px below the bar only, 44 px in all, so it never covers the month's last week row;*
   - the day list (§2's side panel), which fills the rest and scrolls on its own.
 - **Split heights** (`h` = the Month's height from §1; `chrome` = the bar plus the weekday row):
   - **Collapsed** (the default): the month area is 6 rows, each `max(44, min(round(cellWidth × 0.9), floor((h × 0.6 − chrome) / 6)))` px. That gives near-square cells, using at most 60% of the height. On a phone the squares come out small (dots). On an upright iPad they are big enough for names, so a tablet gets names and the day together. Because each month is one pane tall (decision 2), a 5-week month spreads its 5 rows over the same height.
@@ -124,7 +124,7 @@ One sizing rule, given the square's measured height `h` and width `w` in CSS px:
   - `components/app-ui/BottomSheet.tsx` is shared with Settings, Calendars, Select calendars, Pair, the admin panel and the public website's `SiteMenu`. It gets an opt-in prop that the home's sheets pass. Every other page keeps its drawers.
 - **The rule is width alone** (my call): at `width ≥ 600 px` in any orientation, so an upright iPad gets cards too. "On a phone they stay drawers" is what the owner read.
   - Sheets become centred cards about 480 px wide, with a max height of about 85% of the viewport, scrolling inside.
-  - The editor becomes a centred panel about 640 px wide.
+  - The editor becomes a centred panel about 640 px wide. *Amended 2026-11-26 (final review M9): only when the window is also 521 px tall or more; a phone held sideways keeps the full-height editor.*
   - The Agenda becomes a centred column up to about 720 px.
   - The scrim and the close behaviour stay the same.
 - Below 600 px wide, nothing changes.
