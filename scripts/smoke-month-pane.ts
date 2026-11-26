@@ -24,27 +24,47 @@
 //  - in real React (scripts/lib/fake-dom.ts): a tap on a square, Retry and Choose again;
 //  - client-safe imports; React logs no warning. No network, no DB, no Redis.
 //
+// The pane part (Task 4): app/[locale]/(app)/dashboard/MonthPane.tsx, the bar, the weekday row
+// and a scroller of whole months, each one scroller tall and snapping, so a scroll position is
+// index × height. Its fake window (scripts/lib/fake-dom.ts) lays the scroller out at 390 × 400,
+// runs frames by hand, answers prefers-reduced-motion and has a ResizeObserver a check triggers.
+// It checks (ported from smoke-calendar-month-browse.ts #2, #7, #15–#18, #22, #26b, #26c, plus
+// the pane's own):
+//  - the bar: ‹ title › at the start, an empty gap, Today at the end (shown while the selected
+//    day or the month in view isn't today's; it calls onToday only); the title with its Hebrew
+//    months, the jump to a date; the bar row and the weekday row add up to monthBarPx; dir; the
+//    weekday row in week-start order; the CSS (the snapping scroller, the 44 px taps, lintCss);
+//  - the mount at the month sought (scrollTop 12 × h), one measure a frame, the month under the
+//    middle reported once per change with its neighbours as the near months, the squares drawn
+//    for those three only; the span asked to grow ('after' at once, 'before' after 150 ms with no
+//    scroll), 12 months added above keeping the month in view;
+//  - seek (smooth to a neighbour, else instant), step and the chevrons (a month, never a
+//    selection; the reach's ends; past the span's end the months asked for first);
+//  - a resize put back at once in the observer with no render, the squares' size after 220 ms,
+//    scrollerPx standing in for the height; the holidays asked again; unmount lets go of all.
+//
 // Run with the fake env (no dotenv):
 //   TZ=UTC npx tsx scripts/smoke-month-pane.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-month-pane.ts
 
 // The view first: the import-rule check walks what it loads.
 import { MONTH_SQUARES_CSS, MonthSquaresGrid, SquareChip, type MonthSquaresGridProps } from '../app/[locale]/(app)/dashboard/MonthSquares';
+import { MONTH_PANE_CSS, MonthPane, SCROLL_IDLE_MS, type MonthPaneHandle, type MonthPaneProps } from '../app/[locale]/(app)/dashboard/MonthPane';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
 import path from 'path';
-import { createElement, type ComponentProps, type ReactElement } from 'react';
+import React, { Profiler, createElement, createRef, type ComponentProps, type ReactElement, type RefObject } from 'react';
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { calendarVars } from '../src/lib/calendar-view/colours';
-import { monthGrid, type MonthKey } from '../src/lib/calendar-view/grid';
+import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
 import { holidaysFor } from '../src/lib/calendar-view/holidays-client';
-import { buildMonth, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
-import { SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
+import { buildMonth, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
+import { SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
 import { daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type Holiday, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type SourceName, type WeekStart } from '../src/lib/calendar-view/types';
 import { lintCss } from './lib/css-lint';
-import { FakeElement, elements, installWindow, mount, type FakeNode } from './lib/fake-dom';
+import { FakeElement, FakeResizeObserver, elements, fakeWindow, fireScroll, installWindow, mount, type FakeNode, type Mounted } from './lib/fake-dom';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -368,6 +388,138 @@ const containerBlock = (css: string, condition: string) => {
   }
   throw new Error(`@container ${condition} is not closed`);
 };
+
+// ---- The pane part (Task 4): a scroller with a size, frames, a media query and a ResizeObserver ----
+
+/** The pane's scroller as the fake lays it out (FakeElement.layout): a phone's month pane, 390 px wide (54 px squares). */
+const PANE = { height: 400, width: 390 };
+/** The frames requested and not run yet. */
+const frames = new Map<number, () => void>();
+let nextFrameId = 1;
+/** The media queries' answers (read when the pane asks; it subscribes to none). */
+const media = new Map<string, boolean>();
+const REDUCED = '(prefers-reduced-motion: reduce)';
+/** October 2026's index in monthSpan(TODAY) (12 months back to 18 ahead). */
+const OCT = 12;
+
+/** The window a pane needs: frames, matchMedia, a ResizeObserver, and the scroller's size. */
+function installPane() {
+  fakeWindow.requestAnimationFrame = (fn: () => void) => {
+    const id = nextFrameId++;
+    frames.set(id, fn);
+    return id;
+  };
+  fakeWindow.cancelAnimationFrame = (id: number) => void frames.delete(id);
+  fakeWindow.matchMedia = (query: string) => ({
+    media: query,
+    get matches() {
+      return media.get(query) === true;
+    },
+    addEventListener: noop,
+    removeEventListener: noop,
+    addListener: noop,
+    removeListener: noop,
+  });
+  fakeWindow.ResizeObserver = FakeResizeObserver;
+  FakeElement.layout = (el) => (el.className.split(' ').includes('ch-pane-scroller') ? { clientHeight: PANE.height, clientWidth: PANE.width } : null);
+}
+
+/** A clean start: no frames, motion allowed, no observers, the phone's size. */
+function resetPane() {
+  frames.clear();
+  media.clear();
+  FakeResizeObserver.all = [];
+  PANE.height = 400;
+  PANE.width = 390;
+}
+
+/** Runs the frames requested so far (and any they request), inside act. */
+function flushFrames() {
+  React.act(() => {
+    for (let round = 0; round < 5 && frames.size > 0; round++) {
+      const batch = [...frames.values()];
+      frames.clear();
+      for (const run of batch) run();
+    }
+  });
+}
+
+/** Real time passes inside act, as the page's own timers would. */
+const wait = (ms: number) => React.act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+function paneProps(store: CalendarStore, o: Partial<MonthPaneProps> = {}): MonthPaneProps {
+  const facts = store.facts;
+  assert(facts, 'the fixture pinned no facts');
+  return {
+    months: monthSpan(TODAY),
+    today: facts.today,
+    weekStart: facts.weekStart,
+    hebrewDates: facts.hebrewDates,
+    getMonth: monthModels(store),
+    selected: TODAY,
+    seek: { month: '2026-10', seq: 0 },
+    scrollerPx: null,
+    onSelectDay: noop,
+    onMonthInView: noop,
+    onNearMonths: noop,
+    onNeedMonths: noop,
+    onToday: noop,
+    onJump: noop,
+    onRetryMonth: noop,
+    onChooseCalendars: noop,
+    ...o,
+  };
+}
+
+/** The pane's callbacks, recording. */
+function paneRecorder() {
+  const seen = { inView: [] as MonthKey[], near: [] as MonthKey[][], need: [] as string[], selected: [] as DayKey[], today: 0, jumps: 0, retried: [] as string[], chosen: 0 };
+  const callbacks: Partial<MonthPaneProps> = {
+    onMonthInView: (month) => void seen.inView.push(month),
+    onNearMonths: (months) => void seen.near.push(months),
+    onNeedMonths: (edge) => void seen.need.push(edge),
+    onSelectDay: (day) => void seen.selected.push(day),
+    onToday: () => void seen.today++,
+    onJump: () => void seen.jumps++,
+    onRetryMonth: (month, source) => void seen.retried.push(`${month}:${source}`),
+    onChooseCalendars: () => void seen.chosen++,
+  };
+  return { seen, callbacks };
+}
+
+const paneIn = (locale: Locale, props: MonthPaneProps, ref?: RefObject<MonthPaneHandle | null>) => inIntl(locale, createElement(MonthPane, ref ? { ...props, ref } : props));
+const renderPane = (locale: Locale, props: MonthPaneProps) => renderToString(inHome(locale, createElement(MonthPane, props)));
+
+const hasClass = (el: FakeNode, cls: string) => el instanceof FakeElement && el.className.split(' ').includes(cls);
+const byClass = (node: FakeNode, cls: string) => elements(node).filter((e) => hasClass(e, cls));
+function scrollerOf(m: Mounted): FakeElement {
+  const found = byClass(m.container, 'ch-pane-scroller');
+  assert(found.length === 1, `one scroller: ${found.length}`);
+  return found[0];
+}
+function monthEl(m: Mounted, month: MonthKey): FakeElement {
+  const found = byClass(m.container, 'ch-pane-month').find((e) => e.getAttribute('data-month') === month);
+  assert(found, `no month box for ${month}`);
+  return found;
+}
+/** The months that draw their squares (the rest are empty boxes). */
+const drawnMonths = (m: Mounted) =>
+  byClass(m.container, 'ch-pane-month')
+    .filter((e) => e.childNodes.length > 0)
+    .map((e) => e.getAttribute('data-month') ?? '');
+const squareButtons = (m: Mounted, month: MonthKey) => elements(monthEl(m, month)).filter((e) => e.localName === 'button' && hasClass(e, 'ch-sq'));
+function squareButton(m: Mounted, month: MonthKey, labelStart: string): FakeElement {
+  const found = squareButtons(m, month).filter((b) => (b.getAttribute('aria-label') ?? '').startsWith(`${labelStart},`));
+  assert(found.length === 1, `one square ${show(labelStart)} in ${month}: ${found.length}`);
+  return found[0];
+}
+const gridClassOf = (m: Mounted, month: MonthKey) => elements(monthEl(m, month)).find((e) => hasClass(e, 'ch-sq-grid'))?.className ?? null;
+const paneTitle = (m: Mounted) => byClass(m.container, 'ch-pane-title-month')[0]?.textContent ?? null;
+const paneHebrew = (m: Mounted) => byClass(m.container, 'ch-pane-title-hebrew')[0]?.textContent ?? null;
+const todayOf = (m: Mounted) => byClass(m.container, 'ch-pane-today')[0] ?? null;
+const chevronsOf = (m: Mounted) => byClass(m.container, 'ch-pane-chev');
+/** The bar's own children, by their first class: the chevrons, the title, the gap, Today. */
+const barParts = (m: Mounted) => (byClass(m.container, 'ch-pane-bar')[0]?.childNodes ?? []).map((c) => (c as FakeElement).className.split(' ')[0]);
 
 async function main() {
   // October's holidays in English land in the client cache before any render; any other month or language answers none.
@@ -831,7 +983,578 @@ async function main() {
     assert(show(seen) === show(['select 2026-10-20', 'select 2026-10-16', 'retry 2026-11 famcal', 'choose']), `the callbacks: ${show(seen)}`);
   });
 
-  await check('#18 React logged no warning', () => {
+  // ---- The pane (Task 4) ----
+
+  await check('#18 the pane is client-safe: MonthPane loads no server module (DB, Redis, services, date-fns-tz, @hebcal/core), no home-client and no Telegram code; it reads month-layout.ts; its chevrons are useNavDrop targets', () => {
+    const root = path.join(ROOT, 'app/[locale]/(app)/dashboard/MonthPane.tsx');
+    assert(require.cache[root] !== undefined, 'MonthPane is not in require.cache: the check would be empty');
+    const loaded = new Set<string>();
+    const walk = (id: string) => {
+      for (const child of require.cache[id]?.children ?? []) {
+        if (loaded.has(child.id)) continue;
+        loaded.add(child.id);
+        walk(child.id);
+      }
+    };
+    walk(root);
+    assert(loaded.has(path.join(ROOT, 'src/lib/calendar-view/month-layout.ts')), 'month-layout.ts not among the loaded modules: the check would be empty');
+    const forbidden = [...loaded].filter((p) =>
+      /[\\/](src[\\/](services|utils|config)|@prisma|\.prisma|@upstash|date-fns-tz|@hebcal[\\/]core|googleapis|@googleapis)[\\/]|src[\\/]lib[\\/](page-data|api-auth|prisma|telegram-ui|calendar-view[\\/]home-client)/.test(p),
+    );
+    assert(forbidden.length === 0, `modules the pane must not load: ${show(forbidden.map((p) => path.relative(ROOT, p)))}`);
+    const source = fs.readFileSync(root, 'utf8');
+    assert(/useNavDrop\(side\)/.test(source) && /is-drop-nav/.test(source), 'the chevrons take a lifted item (useNavDrop) and show it (is-drop-nav)');
+    assert(SCROLL_IDLE_MS === 150, `SCROLL_IDLE_MS: ${SCROLL_IDLE_MS}`);
+  });
+
+  await check('#19 the server render: section.ch-pane with dir and the bar\'s row height; each style sheet once (the squares\' and the pane\'s); one box per month of the span in order, the squares drawn for the month sought and its neighbours only, small until measured; the scroller fills, or is scrollerPx tall', () => {
+    const raw = renderPane('en', paneProps(famcalStore()));
+    assert(raw.includes('<section class="ch-pane" dir="ltr" style="--ch-pane-bar:52px">'), `the root: ${show(/<section[^>]*>/.exec(raw)?.[0])}`);
+    assert(raw.split('.ch-pane-scroller {').length === 2 && raw.split('.ch-sq-grid {').length === 2, 'MONTH_PANE_CSS and MONTH_SQUARES_CSS once each');
+    const html = markup(raw);
+    const boxes = [...html.matchAll(/<div class="ch-pane-month" data-month="(\d{4}-\d{2})">/g)].map((m) => m[1]);
+    assert(show(boxes) === show(monthSpan(TODAY)), `one box per month, oldest first: ${boxes.length}`);
+    const drawn = [...html.matchAll(/<div class="ch-pane-month" data-month="(\d{4}-\d{2})"><div class="ch-sq-body"/g)].map((m) => m[1]);
+    assert(show(drawn) === show(['2026-09', '2026-10', '2026-11']), `drawn: ${show(drawn)}`);
+    assert(html.includes('<div class="ch-pane-month" data-month="2026-08"></div>') && html.includes('<div class="ch-pane-month" data-month="2026-12"></div>'), 'the rest are empty boxes');
+    assert(html.includes('<div class="ch-pane-scroller">'), 'no scrollerPx: the scroller fills (no inline size)');
+    assert((html.match(/class="ch-sq-grid is-small"/g) ?? []).length === 3, 'small squares until the pane measures');
+    const split = markup(renderPane('en', paneProps(famcalStore(), { scrollerPx: 300 })));
+    assert(split.includes('<div class="ch-pane-scroller" style="block-size:300px;flex:none">'), `scrollerPx: ${show(/<div class="ch-pane-scroller"[^>]*>/.exec(split)?.[0])}`);
+    const he = renderPane('he', paneProps(famcalStore()));
+    assert(he.includes('<section class="ch-pane" dir="rtl"'), 'he: dir="rtl"');
+    const off = renderPane('en', paneProps(storeOf([ok(answer('2026-10', OCTOBER, { hebrewDates: false }))])));
+    assert(off.includes('style="--ch-pane-bar:48px"'), 'without Hebrew dates the bar row is 48 px');
+  });
+
+  installPane();
+
+  await check('#20 the bar (en, he, ru): ‹ title › at the start, an empty gap, Today at the end; the chevrons named; the title the month in view with its year and, with Hebrew dates, its Hebrew months under it, the jump to a date; the bar row and the weekday row add up to monthBarPx', () => {
+    for (const [locale, want] of [
+      ['en', { title: 'October 2026', hebrew: 'Tishrei – Cheshvan 5787', jump: 'October 2026, go to a date', prev: 'Previous month', next: 'Next month', today: 'Today' }],
+      ['he', { title: 'אוקטובר 2026', hebrew: 'תשרי – חשון תשפ״ז', jump: 'אוקטובר 2026, מעבר לתאריך', prev: 'החודש הקודם', next: 'החודש הבא', today: 'היום' }],
+      ['ru', { title: 'Октябрь 2026', hebrew: 'Тишрей – Хешван 5787', jump: 'Октябрь 2026, перейти к дате', prev: 'Предыдущий месяц', next: 'Следующий месяц', today: 'Сегодня' }],
+    ] as const) {
+      resetPane();
+      const m = mount(paneIn(locale, paneProps(famcalStore(), { selected: '2026-10-16' })));
+      try {
+        const root = byClass(m.container, 'ch-pane')[0];
+        assert(root.getAttribute('dir') === (locale === 'he' ? 'rtl' : 'ltr'), `${locale}: dir ${root.getAttribute('dir')}`);
+        assert(show(barParts(m)) === show(['ch-pane-chev', 'ch-pane-title', 'ch-pane-chev', 'ch-pane-gap', 'ch-pane-today']), `${locale}: the bar ${show(barParts(m))}`);
+        const [prev, next] = chevronsOf(m);
+        assert(prev.getAttribute('aria-label') === want.prev && next.getAttribute('aria-label') === want.next && prev.getAttribute('type') === 'button', `${locale}: chevrons ${prev.getAttribute('aria-label')} / ${next.getAttribute('aria-label')}`);
+        const title = byClass(m.container, 'ch-pane-title')[0];
+        assert(title.localName === 'button' && title.getAttribute('aria-label') === want.jump && title.getAttribute('aria-haspopup') === 'dialog', `${locale}: the title ${title.getAttribute('aria-label')}`);
+        assert(paneTitle(m) === want.title && paneHebrew(m) === want.hebrew, `${locale}: ${paneTitle(m)} / ${paneHebrew(m)}`);
+        assert(todayOf(m)?.textContent === want.today, `${locale}: Today ${todayOf(m)?.textContent}`);
+        assert(byClass(m.container, 'ch-pane-gap')[0].childNodes.length === 0, 'the gap is empty');
+        assert(px(root.style['--ch-pane-bar']) + WEEKDAYS_PX === monthBarPx(true), `the bar row ${root.style['--ch-pane-bar']} + ${WEEKDAYS_PX} = ${monthBarPx(true)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+    resetPane();
+    const off = mount(paneIn('en', paneProps(storeOf([ok(answer('2026-10', OCTOBER, { hebrewDates: false }))]))));
+    try {
+      assert(paneTitle(off) === 'October 2026' && paneHebrew(off) === null, 'no Hebrew line without Hebrew dates');
+      assert(px(byClass(off.container, 'ch-pane')[0].style['--ch-pane-bar']) + WEEKDAYS_PX === monthBarPx(false), 'without Hebrew dates: monthBarPx(false)');
+    } finally {
+      off.unmount();
+    }
+  });
+
+  await check('#21 the weekday row in week-start order for week starts 0, 1 and 6 in en, he and ru, aria-hidden', () => {
+    const want: Record<Locale, Record<0 | 1 | 6, string>> = {
+      en: { 0: 'S M T W T F S', 1: 'M T W T F S S', 6: 'S S M T W T F' },
+      he: { 0: 'א׳ ב׳ ג׳ ד׳ ה׳ ו׳ ש׳', 1: 'ב׳ ג׳ ד׳ ה׳ ו׳ ש׳ א׳', 6: 'ש׳ א׳ ב׳ ג׳ ד׳ ה׳ ו׳' },
+      ru: { 0: 'Вс Пн Вт Ср Чт Пт Сб', 1: 'Пн Вт Ср Чт Пт Сб Вс', 6: 'Сб Вс Пн Вт Ср Чт Пт' },
+    };
+    for (const ws of [0, 1, 6] as const) {
+      const store = famcalStore({ weekStart: ws });
+      for (const locale of ['en', 'he', 'ru'] as const) {
+        const html = markup(renderPane(locale, paneProps(store)));
+        const row = /<div class="ch-pane-weekdays" aria-hidden="true">((?:<span>[^<]*<\/span>)+)<\/div>/.exec(html)?.[1];
+        assert(row, `${locale} ws ${ws}: no aria-hidden weekday row`);
+        const days = [...row.matchAll(/<span>([^<]*)<\/span>/g)].map((d) => d[1]).join(' ');
+        assert(days === want[locale][ws], `${locale} ws ${ws}: ${days}`);
+      }
+    }
+  });
+
+  await check('#22 the CSS: the scroller (overflow-y auto, overscroll-behavior contain, scroll-snap-type y mandatory, no scroll anchoring) fills; each month block-size 100% and scroll-snap-align start; the bar row is --ch-pane-bar and the weekday row 24 px; lintCss clean; the chevrons 44 × 44, the title and Today at least 44 tall; a chevron under a lifted item outlined; only the theme\'s tokens; no hover', () => {
+    const css = MONTH_PANE_CSS;
+    const problems = lintCss(css);
+    assert(problems.length === 0, `lintCss: ${show(problems)}`);
+    const scroller = ruleOf(css, '.ch-pane-scroller');
+    const want = { 'overflow-y': 'auto', 'overscroll-behavior': 'contain', 'scroll-snap-type': 'y mandatory', 'overflow-anchor': 'none', flex: '1 1 0', 'min-block-size': '0' };
+    for (const [prop, value] of Object.entries(want)) assert(declOf(scroller, prop) === value, `the scroller's ${prop}: ${declOf(scroller, prop)}`);
+    const month = ruleOf(css, '.ch-pane-month');
+    assert(declOf(month, 'block-size') === '100%' && declOf(month, 'scroll-snap-align') === 'start', `a month: ${month}`);
+    const pane = ruleOf(css, '.ch-pane');
+    assert(declOf(pane, 'display') === 'flex' && declOf(pane, 'flex-direction') === 'column' && declOf(pane, 'min-block-size') === '0', `the pane is a column: ${pane}`);
+    assert(declOf(ruleOf(css, '.ch-pane-bar'), 'block-size') === 'var(--ch-pane-bar)', 'the bar row is --ch-pane-bar');
+    const weekdays = ruleOf(css, '.ch-pane-weekdays');
+    assert(px(declOf(weekdays, 'block-size')) === WEEKDAYS_PX && declOf(weekdays, 'flex') === 'none', `the weekday row: ${weekdays}`);
+    assert(declOf(ruleOf(css, '.ch-pane-gap'), 'flex') === '1', 'the gap takes the free space');
+    const chev = ruleOf(css, '.ch-pane-chev');
+    assert(px(declOf(chev, 'inline-size')) === 44 && px(declOf(chev, 'block-size')) === 44 && px(declOf(chev, 'min-width')) === 44 && px(declOf(chev, 'min-height')) === 44, `the chevrons: ${chev}`);
+    assert(px(declOf(ruleOf(css, '.ch-pane-title'), 'min-height')) >= 44, 'the title is at least 44 px');
+    const today = ruleOf(css, '.ch-pane-today');
+    assert(px(declOf(today, 'min-height')) >= 44 && px(declOf(today, 'min-width')) >= 44, `Today: ${today}`);
+    const drop = ruleOf(css, '.ch-pane-chev.is-drop-nav');
+    assert(declOf(drop, 'outline') === '2px solid var(--ch-accent)', `a chevron under a lifted item: ${drop}`);
+    assert(declOf(ruleOf(css, '.ch-pane-chev:disabled'), 'color') === 'var(--ch-disabled)', 'a disabled chevron is muted');
+    const sizes = [...css.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
+    assert(sizes.length >= 3 && Math.min(...sizes) >= 11, `font sizes: ${show(sizes)}`);
+    const used = new Set([...css.matchAll(/var\((--ch-[a-z-]+)/g)].map((m) => m[1]));
+    const defined = new Set([...APP_THEME_CSS.matchAll(/(--ch-[a-z-]+)\s*:/g)].map((m) => m[1]));
+    const unknown = [...used].filter((v) => !defined.has(v) && v !== '--ch-pane-bar');
+    assert(unknown.length === 0, `tokens theme.ts doesn't define: ${show(unknown)}`);
+    assert(!/:hover/.test(css), 'no hover');
+  });
+
+  await check('#23 the mount in real React: seek October puts scrollTop at 12 × h at once (no animated scroll); the squares measured at once (400 / 5 weeks, 54 px wide: medium); nothing reported before the first frame, then October in view and Sep–Nov near; one passive scroll listener on the scroller, one ResizeObserver on it', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks)));
+    try {
+      const el = scrollerOf(m);
+      assert(el.scrollTop === OCT * PANE.height && el.scrollCalls.length === 0, `scrollTop ${el.scrollTop}, calls ${show(el.scrollCalls)}`);
+      assert(gridClassOf(m, '2026-10') === 'ch-sq-grid is-medium' && gridClassOf(m, '2026-09') === 'ch-sq-grid is-medium', `measured at once: ${gridClassOf(m, '2026-10')}`);
+      assert(show(drawnMonths(m)) === show(['2026-09', '2026-10', '2026-11']), `drawn: ${show(drawnMonths(m))}`);
+      assert(seen.inView.length === 0 && seen.near.length === 0, 'nothing reported before the first frame');
+      flushFrames();
+      assert(show(seen.inView) === show(['2026-10']) && show(seen.near) === show([['2026-09', '2026-10', '2026-11']]), `reported: ${show(seen)}`);
+      const scroll = el.listeners.filter((l) => l.type === 'scroll');
+      assert(scroll.length === 1 && (scroll[0].options as Row)?.passive === true, `one passive scroll listener: ${show(scroll.map((l) => l.options))}`);
+      assert(FakeResizeObserver.all.length === 1 && FakeResizeObserver.all[0].observed.size === 1 && FakeResizeObserver.all[0].observed.has(el), 'one ResizeObserver, on the scroller');
+      assert(seen.selected.length === 0 && seen.need.length === 0, `no selection, no growth: ${show(seen)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#24 scrolling: one measure a frame however many scroll events; 13.6 × h reports December once (the month under the middle), near Nov–Jan, the title following, the squares drawn for Nov–Jan only; the same month again reports nothing; the top is the span\'s first month', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks)));
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      el.scrollTop = 13.6 * PANE.height;
+      fireScroll(el);
+      fireScroll(el);
+      fireScroll(el);
+      assert(frames.size === 1, `three scroll events, one frame: ${frames.size}`);
+      flushFrames();
+      assert(show(seen.inView) === show(['2026-10', '2026-12']), `in view: ${show(seen.inView)}`);
+      assert(show(seen.near.at(-1)) === show(['2026-11', '2026-12', '2027-01']) && seen.near.length === 2, `near: ${show(seen.near)}`);
+      assert(paneTitle(m) === 'December 2026', `the title: ${paneTitle(m)}`);
+      assert(show(drawnMonths(m)) === show(['2026-11', '2026-12', '2027-01']), `drawn: ${show(drawnMonths(m))}`);
+      fireScroll(el, 13.9 * PANE.height);
+      flushFrames();
+      assert(seen.inView.length === 2 && seen.near.length === 2, 'the same month: no report');
+      fireScroll(el, 0);
+      flushFrames();
+      assert(seen.inView.at(-1) === '2025-10' && show(seen.near.at(-1)) === show(['2025-10', '2025-11']) && paneTitle(m) === 'October 2025', `at the top: ${show(seen.inView)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#25 Today: hidden while today is selected and its month in view; shown when another day is selected or another month is in view; it calls onToday only (no scroll, no selection); far from today (a span around June 2018) the same', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const base = paneProps(famcalStore(), callbacks);
+    const m = mount(paneIn('en', base));
+    try {
+      flushFrames();
+      assert(todayOf(m) === null, 'today selected, October in view: no Today');
+      m.render(paneIn('en', { ...base, selected: '2026-10-16' }));
+      assert(todayOf(m) !== null, 'another day selected: Today');
+      m.render(paneIn('en', base));
+      assert(todayOf(m) === null, 'today again: no Today');
+      const el = scrollerOf(m);
+      fireScroll(el, (OCT + 1) * PANE.height);
+      flushFrames();
+      const button = todayOf(m);
+      assert(button && paneTitle(m) === 'November 2026', 'November in view: Today');
+      el.scrollCalls.length = 0;
+      const top = el.scrollTop;
+      m.click(button);
+      assert(seen.today === 1 && el.scrollCalls.length === 0 && el.scrollTop === top && seen.selected.length === 0, `onToday only: ${show(seen)} ${show(el.scrollCalls)}`);
+    } finally {
+      m.unmount();
+    }
+    resetPane();
+    const far = paneRecorder();
+    const f = mount(paneIn('en', paneProps(famcalStore(), { ...far.callbacks, months: spanMonths({ first: '2017-06', last: '2019-12' }), seek: { month: '2018-06', seq: 0 } })));
+    try {
+      flushFrames();
+      assert(paneTitle(f) === 'June 2018' && far.seen.inView.at(-1) === '2018-06', `the title: ${paneTitle(f)}`);
+      const button = todayOf(f);
+      assert(button, 'Today shows: today\'s month is not in the span');
+      f.click(button);
+      assert(far.seen.today === 1 && scrollerOf(f).scrollCalls.length === 0, `onToday, no scroll: ${show(far.seen)}`);
+    } finally {
+      f.unmount();
+    }
+  });
+
+  await check('#26 the title opens onJump (and scrolls nothing); with Hebrew dates the Hebrew months follow the month in view', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks)));
+    try {
+      flushFrames();
+      m.click(byClass(m.container, 'ch-pane-title')[0]);
+      assert(seen.jumps === 1 && scrollerOf(m).scrollCalls.length === 0 && seen.selected.length === 0, `onJump: ${show(seen)}`);
+      fireScroll(scrollerOf(m), (OCT + 3) * PANE.height);
+      flushFrames();
+      assert(paneTitle(m) === 'January 2027' && paneHebrew(m) === 'Tevet – Sh\'vat 5787', `${paneTitle(m)} / ${paneHebrew(m)}`);
+      assert(byClass(m.container, 'ch-pane-title')[0].getAttribute('aria-label') === 'January 2027, go to a date', 'the jump\'s label follows');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#27 step(1) and the chevrons scroll the pane a month (smooth), never selecting; a second step before the scroll lands goes one further; ‹ goes back; under reduced motion an instant scroll', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const handle = createRef<MonthPaneHandle>();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks), handle));
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      assert(handle.current, 'the handle');
+      React.act(() => handle.current?.step(1));
+      assert(show(el.scrollCalls) === show([{ top: (OCT + 1) * PANE.height, behavior: 'smooth' }]), `step(1): ${show(el.scrollCalls)}`);
+      React.act(() => handle.current?.step(1));
+      assert(show(el.scrollCalls.at(-1)) === show({ top: (OCT + 2) * PANE.height, behavior: 'smooth' }), `a second step: ${show(el.scrollCalls)}`);
+      fireScroll(el, (OCT + 2) * PANE.height);
+      flushFrames();
+      assert(paneTitle(m) === 'December 2026', `landed: ${paneTitle(m)}`);
+      const [prev, next] = chevronsOf(m);
+      m.click(prev);
+      assert(show(el.scrollCalls.at(-1)) === show({ top: (OCT + 1) * PANE.height, behavior: 'smooth' }), `‹: ${show(el.scrollCalls)}`);
+      fireScroll(el, (OCT + 1) * PANE.height);
+      flushFrames();
+      m.click(next);
+      assert(show(el.scrollCalls.at(-1)) === show({ top: (OCT + 2) * PANE.height, behavior: 'smooth' }), `›: ${show(el.scrollCalls)}`);
+      fireScroll(el, (OCT + 2) * PANE.height);
+      flushFrames();
+      media.set(REDUCED, true);
+      const calls = el.scrollCalls.length;
+      React.act(() => handle.current?.step(-1));
+      assert(el.scrollCalls.length === calls && el.scrollTop === (OCT + 1) * PANE.height, `reduced motion: instant (${el.scrollTop}, ${show(el.scrollCalls.slice(calls))})`);
+      assert(seen.selected.length === 0, `no selection: ${show(seen.selected)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#28 the reach: at January 1900 ‹ is disabled and step(-1) does nothing; at December 2100 › is disabled and step(1) does nothing', () => {
+    for (const [span, seek, disabled, delta] of [
+      [{ first: '1900-01', last: '1902-07' }, '1900-01', 0, -1],
+      [{ first: '2098-06', last: '2100-12' }, '2100-12', 1, 1],
+    ] as const) {
+      resetPane();
+      const { seen, callbacks } = paneRecorder();
+      const handle = createRef<MonthPaneHandle>();
+      const months = spanMonths(span);
+      const m = mount(paneIn('en', paneProps(famcalStore(), { ...callbacks, months, seek: { month: seek, seq: 0 } }), handle));
+      try {
+        flushFrames();
+        const chevrons = chevronsOf(m);
+        assert(chevrons[disabled].hasAttribute('disabled') && !chevrons[1 - disabled].hasAttribute('disabled'), `${seek}: ${show(chevrons.map((c) => c.hasAttribute('disabled')))}`);
+        const el = scrollerOf(m);
+        const top = el.scrollTop;
+        const asked = seen.need.length;
+        React.act(() => handle.current?.step(delta));
+        assert(el.scrollCalls.length === 0 && el.scrollTop === top && seen.need.length === asked, `${seek}: step(${delta}) does nothing: ${show(el.scrollCalls)} ${show(seen.need)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('#29 a step past the span\'s end asks onNeedMonths first and scrolls once the months come: › at April 2028 asks "after", then scrolls to May 2028; ‹ at October 2025 asks "before", the 12 months added above keep October 2025 in view, then it scrolls to September 2025', () => {
+    resetPane();
+    const after = paneRecorder();
+    const handle = createRef<MonthPaneHandle>();
+    const base = paneProps(famcalStore(), { ...after.callbacks, seek: { month: '2028-04', seq: 0 } });
+    const m = mount(paneIn('en', base, handle));
+    try {
+      flushFrames();
+      assert(show(after.seen.need) === show(['after']), `near the end at once: ${show(after.seen.need)}`);
+      const el = scrollerOf(m);
+      React.act(() => handle.current?.step(1));
+      assert(show(after.seen.need) === show(['after', 'after']) && el.scrollCalls.length === 0, `asked first: ${show(after.seen.need)} ${show(el.scrollCalls)}`);
+      const grown = spanMonths({ first: '2025-10', last: '2029-04' });
+      m.render(paneIn('en', { ...base, months: grown }, handle));
+      assert(show(el.scrollCalls) === show([{ top: grown.indexOf('2028-05') * PANE.height, behavior: 'smooth' }]), `then scrolls: ${show(el.scrollCalls)}`);
+    } finally {
+      m.unmount();
+    }
+    resetPane();
+    const before = paneRecorder();
+    const back = paneProps(famcalStore(), { ...before.callbacks, seek: { month: '2025-10', seq: 0 } });
+    const b = mount(paneIn('en', back, handle));
+    try {
+      flushFrames();
+      assert(show(before.seen.need) === show([]), `"before" waits for an idle scroll: ${show(before.seen.need)}`);
+      const el = scrollerOf(b);
+      assert(el.scrollTop === 0, `October 2025 is the first: ${el.scrollTop}`);
+      React.act(() => handle.current?.step(-1));
+      assert(show(before.seen.need) === show(['before']) && el.scrollCalls.length === 0, `asked first: ${show(before.seen.need)}`);
+      const grown = spanMonths({ first: '2024-10', last: '2028-04' });
+      const sets: number[] = [];
+      const own = Object.getOwnPropertyDescriptor(el, 'scrollTop');
+      let value = el.scrollTop;
+      Object.defineProperty(el, 'scrollTop', { configurable: true, get: () => value, set: (v: number) => void sets.push((value = v)) });
+      try {
+        b.render(paneIn('en', { ...back, months: grown }, handle));
+      } finally {
+        Object.defineProperty(el, 'scrollTop', own ?? { configurable: true, writable: true, value });
+        el.scrollTop = value;
+      }
+      assert(sets[0] === 12 * PANE.height, `October 2025 kept in view first (12 months above): ${show(sets)}`);
+      assert(show(el.scrollCalls) === show([{ top: grown.indexOf('2025-09') * PANE.height, behavior: 'smooth' }]), `then scrolls to September 2025: ${show(el.scrollCalls)}`);
+    } finally {
+      b.unmount();
+    }
+  });
+
+  await check('#30 seek: a new seq scrolls to its month, smooth to the next or previous month, instant (the title and the squares at once) to any other or under reduced motion; the same seq again does nothing; a month outside the span waits for the span', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const base = paneProps(famcalStore(), callbacks);
+    const m = mount(paneIn('en', base));
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      m.render(paneIn('en', { ...base, seek: { month: '2026-11', seq: 1 } }));
+      assert(show(el.scrollCalls) === show([{ top: (OCT + 1) * PANE.height, behavior: 'smooth' }]), `the next month, smooth: ${show(el.scrollCalls)}`);
+      fireScroll(el, (OCT + 1) * PANE.height);
+      flushFrames();
+      m.render(paneIn('en', { ...base, seek: { month: '2027-06', seq: 2 } }));
+      assert(el.scrollCalls.length === 1 && el.scrollTop === (OCT + 8) * PANE.height, `far: instant ${el.scrollTop} ${show(el.scrollCalls)}`);
+      assert(paneTitle(m) === 'June 2027' && show(drawnMonths(m)) === show(['2027-05', '2027-06', '2027-07']) && seen.inView.at(-1) === '2027-06', `at once: ${paneTitle(m)} ${show(drawnMonths(m))}`);
+      media.set(REDUCED, true);
+      m.render(paneIn('en', { ...base, seek: { month: '2027-05', seq: 3 } }));
+      assert(el.scrollCalls.length === 1 && el.scrollTop === (OCT + 7) * PANE.height, `reduced motion: instant ${el.scrollTop}`);
+      el.scrollTop = 0;
+      m.render(paneIn('en', { ...base, selected: '2026-10-16', seek: { month: '2027-05', seq: 3 } }));
+      assert(el.scrollTop === 0 && el.scrollCalls.length === 1, 'the same seq: nothing');
+      el.scrollTop = (OCT + 7) * PANE.height;
+      m.render(paneIn('en', { ...base, seek: { month: '2030-01', seq: 4 } }));
+      assert(el.scrollTop === (OCT + 7) * PANE.height, 'outside the span: it waits');
+      const wide = spanMonths({ first: '2025-10', last: '2031-07' });
+      m.render(paneIn('en', { ...base, months: wide, seek: { month: '2030-01', seq: 4 } }));
+      assert(el.scrollTop === wide.indexOf('2030-01') * PANE.height && paneTitle(m) === 'January 2030', `the span came: ${el.scrollTop} ${paneTitle(m)}`);
+      assert(seen.selected.length === 0, 'a seek selects nothing');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#31 the span grows: within 6 months of its last onNeedMonths("after") at once, once per span; within 6 of its first onNeedMonths("before") only once no scroll has come for SCROLL_IDLE_MS, once per span; 12 months added above keep the month in view (scrollTop grows by 12 × h), and it is not reported again', async () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const base = paneProps(famcalStore(), callbacks);
+    const m = mount(paneIn('en', base));
+    const idle = () => wait(SCROLL_IDLE_MS + 40);
+    try {
+      flushFrames();
+      await idle();
+      assert(show(seen.need) === show([]), `nothing near an end at the opening: ${show(seen.need)}`);
+      const el = scrollerOf(m);
+      fireScroll(el, 24 * PANE.height);
+      flushFrames();
+      assert(show(seen.need) === show([]), `October 2027 is 6 months from April 2028: ${show(seen.need)}`);
+      fireScroll(el, 25 * PANE.height);
+      flushFrames();
+      assert(show(seen.need) === show(['after']), `November 2027: at once: ${show(seen.need)}`);
+      fireScroll(el, 28 * PANE.height);
+      flushFrames();
+      assert(show(seen.need) === show(['after']), `once per span: ${show(seen.need)}`);
+      for (const at of [8, 6, 5]) {
+        fireScroll(el, at * PANE.height);
+        flushFrames();
+        await wait(SCROLL_IDLE_MS / 3);
+      }
+      assert(show(seen.need) === show(['after']) && paneTitle(m) === 'March 2026', `while scrolling, nothing above: ${show(seen.need)}`);
+      await idle();
+      assert(show(seen.need) === show(['after', 'before']), `stopped: before: ${show(seen.need)}`);
+      fireScroll(el, 5 * PANE.height + 40);
+      flushFrames();
+      await idle();
+      assert(show(seen.need) === show(['after', 'before']), `once per span: ${show(seen.need)}`);
+      const top = el.scrollTop;
+      const reports = seen.inView.length;
+      m.render(paneIn('en', { ...base, months: spanMonths({ first: '2024-10', last: '2028-04' }) }));
+      assert(el.scrollTop === top + 12 * PANE.height && el.scrollCalls.length === 0, `scrollTop grew by 12 × h: ${top} → ${el.scrollTop}`);
+      assert(paneTitle(m) === 'March 2026' && show(drawnMonths(m)) === show(['2026-02', '2026-03', '2026-04']), `March 2026 stays: ${paneTitle(m)} ${show(drawnMonths(m))}`);
+      fireScroll(el);
+      flushFrames();
+      await idle();
+      assert(seen.inView.length === reports && show(seen.need) === show(['after', 'before']), `no new report, the grown span is not near an end: ${show(seen.inView.slice(reports))} ${show(seen.need)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#32 a resize: each ResizeObserver callback puts the month in view back at index × the new height at once, with no React render; the squares\' size follows only SETTLE_MS (220 ms) after the last resize; with scrollerPx the squares size from it (a split mid-animation), at once when it changes', async () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    let commits = 0;
+    const props = paneProps(famcalStore(), { ...callbacks, seek: { month: '2026-02', seq: 0 } });
+    const m = mount(createElement(Profiler, { id: 'pane', onRender: () => void commits++ }, paneIn('en', props)));
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      const feb = monthSpan(TODAY).indexOf('2026-02');
+      assert(el.scrollTop === feb * 400 && gridClassOf(m, '2026-02') === 'ch-sq-grid is-large', `400 / 4 weeks: large (${gridClassOf(m, '2026-02')})`);
+      const ro = FakeResizeObserver.all[0];
+      PANE.height = 300;
+      const before = commits;
+      ro.trigger();
+      assert(commits === before, `no render in the callback: ${commits - before}`);
+      assert(el.scrollTop === feb * 300, `realigned at once: ${el.scrollTop}`);
+      assert(gridClassOf(m, '2026-02') === 'ch-sq-grid is-large', 'the squares wait');
+      await wait(100);
+      ro.trigger();
+      await wait(150);
+      assert(gridClassOf(m, '2026-02') === 'ch-sq-grid is-large', 'another resize restarts the wait');
+      await wait(SETTLE_MS - 150 + 40);
+      assert(gridClassOf(m, '2026-02') === 'ch-sq-grid is-medium', `settled: 300 / 4 weeks is medium (${gridClassOf(m, '2026-02')})`);
+      fireScroll(el);
+      flushFrames();
+      assert(paneTitle(m) === 'February 2026' && show(seen.inView) === show(['2026-02']), `February stays in view: ${show(seen.inView)}`);
+    } finally {
+      m.unmount();
+    }
+    resetPane();
+    PANE.height = 300;
+    const split = paneProps(famcalStore(), { scrollerPx: 600 });
+    const s = mount(paneIn('en', split));
+    try {
+      const el = scrollerOf(s);
+      assert(el.style.blockSize === '600px' && el.style.flex === 'none', `the scroller: ${show([el.style.blockSize, el.style.flex])}`);
+      assert(gridClassOf(s, '2026-10') === 'ch-sq-grid is-large', `600 / 5 weeks (not the 300 measured): ${gridClassOf(s, '2026-10')}`);
+      assert(el.scrollTop === OCT * 300, `the scroll uses the real height: ${el.scrollTop}`);
+      s.render(paneIn('en', { ...split, scrollerPx: 260 }));
+      assert(gridClassOf(s, '2026-10') === 'ch-sq-grid is-small' && el.style.blockSize === '260px', `260 / 5 weeks, at once: ${gridClassOf(s, '2026-10')}`);
+    } finally {
+      s.unmount();
+    }
+  });
+
+  await check('#33 a tap on a square calls onSelectDay with its day (the neighbours\' too); Retry on a failed pill calls onRetryMonth(month, source), on a month drawn after a scroll too; Choose again calls onChooseCalendars; partial\'s Retry names its source', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks)));
+    try {
+      flushFrames();
+      m.click(squareButton(m, '2026-10', 'Tuesday, 20 October'));
+      m.click(squareButton(m, '2026-11', 'Sunday, 1 November'));
+      assert(show(seen.selected) === show(['2026-10-20', '2026-11-01']), `selected: ${show(seen.selected)}`);
+      const retry = (mo: MonthKey) => elements(monthEl(m, mo)).find((e) => hasClass(e, 'ch-sq-pill-action'));
+      m.click(retry('2026-11') as FakeElement);
+      assert(retry('2026-12') === undefined, 'December is not drawn yet');
+      fireScroll(scrollerOf(m), (OCT + 1) * PANE.height);
+      flushFrames();
+      m.click(retry('2026-12') as FakeElement);
+      assert(show(seen.retried) === show(['2026-11:famcal', '2026-12:famcal']), `retried: ${show(seen.retried)}`);
+    } finally {
+      m.unmount();
+    }
+    resetPane();
+    const google = paneRecorder();
+    const g = mount(paneIn('en', paneProps(googleStore(), { ...google.callbacks, seek: { month: '2026-11', seq: 0 } })));
+    try {
+      const action = (mo: MonthKey) => elements(monthEl(g, mo)).find((e) => hasClass(e, 'ch-sq-pill-action')) as FakeElement;
+      g.click(action('2026-11'));
+      g.click(action('2026-10'));
+      assert(google.seen.chosen === 1 && show(google.seen.retried) === show(['2026-10:google']), `google: ${show(google.seen)}`);
+    } finally {
+      g.unmount();
+    }
+  });
+
+  await check('#34 a month whose holidays failed is asked again when the month in view changes (the second report on), not on the first', async () => {
+    resetPane();
+    const calls: string[] = [];
+    const savedFetch = (globalThis as Row).fetch;
+    (globalThis as Row).fetch = async (url: string) => {
+      calls.push(String(url));
+      return String(url).includes('from=2030-04-01') ? { ok: false, status: 503, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ days: {} }) };
+    };
+    const april = () => calls.filter((u) => u.includes('from=2030-04-01')).length;
+    const m = mount(paneIn('he', paneProps(famcalStore(), { months: spanMonths({ first: '2029-05', last: '2031-11' }), seek: { month: '2030-05', seq: 0 } })));
+    try {
+      await wait(0);
+      assert(april() === 1, `April 2030 asked once: ${april()}`);
+      flushFrames();
+      await wait(0);
+      assert(april() === 1, `the first report asks nothing again: ${april()}`);
+      fireScroll(scrollerOf(m), 13 * PANE.height);
+      flushFrames();
+      await wait(0);
+      assert(april() === 2, `the next month in view asks April again: ${april()}`);
+    } finally {
+      m.unmount();
+      (globalThis as Row).fetch = savedFetch;
+      // The failures' own lines (holidays-client logs each one) aren't React's.
+      for (let i = reactWarnings.length - 1; i >= 0; i--) if (reactWarnings[i].startsWith('[holidays] 2030-04')) reactWarnings.splice(i, 1);
+    }
+  });
+
+  await check('#35 unmount lets go of everything: the scroll listener, the ResizeObserver, the idle and settle timers and a pending frame; nothing is asked after it', async () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const pending = new Set<unknown>();
+    const g = globalThis as Row;
+    const realSet = g.setTimeout;
+    const realClear = g.clearTimeout;
+    g.setTimeout = (fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+      const id = realSet(() => {
+        pending.delete(id);
+        fn(...args);
+      }, ms);
+      if (ms === SCROLL_IDLE_MS || ms === SETTLE_MS) pending.add(id);
+      return id;
+    };
+    g.clearTimeout = (id: unknown) => {
+      pending.delete(id);
+      realClear(id);
+    };
+    try {
+      const m = mount(paneIn('en', paneProps(famcalStore(), { ...callbacks, seek: { month: '2026-01', seq: 0 } })));
+      flushFrames();
+      const el = scrollerOf(m);
+      fireScroll(el, el.scrollTop);
+      PANE.height = 350;
+      FakeResizeObserver.all[0].trigger();
+      fireScroll(el, el.scrollTop);
+      // Read through a call: an assert on .size would narrow it for the one after unmount.
+      const left = () => ({ frames: frames.size, timers: pending.size });
+      assert(show(left()) === show({ frames: 1, timers: 2 }), `a frame, the idle and the settle timers pending: ${show(left())}`);
+      m.unmount();
+      assert(el.listeners.filter((l) => l.type === 'scroll').length === 0, 'the scroll listener is gone');
+      assert(FakeResizeObserver.all[0].disconnected, 'the observer is disconnected');
+      assert(show(left()) === show({ frames: 0, timers: 0 }), `left after unmount: ${show(left())}`);
+    } finally {
+      g.setTimeout = realSet;
+      g.clearTimeout = realClear;
+    }
+    await wait(SETTLE_MS + 40);
+    assert(seen.need.length === 0, `nothing asked after unmount: ${show(seen.need)}`);
+  });
+
+  FakeElement.layout = null;
+
+  await check('#36 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 
@@ -846,6 +1569,8 @@ async function main() {
 
 /** squareSize's medium floor (spec §4: small under 60 px). */
 const MEDIUM_MIN_PX = 60;
+/** The pane's weekday row under its bar: monthBarPx is the bar's row and this. */
+const WEEKDAYS_PX = 24;
 
 main().catch((err) => {
   console.error(err);

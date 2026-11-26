@@ -1,8 +1,11 @@
 // A small fake DOM for react-dom/client (no jsdom in node_modules), the smokes' shared mount helpers:
 // a document and window that React can render into, `mount` (render, click, key, unmount, all inside
 // act), element lookups, and a fake Telegram.WebApp that records every call (and keeps the BackButton's
-// handlers, so a smoke can tap it). The render smoke keeps a larger copy of its own for the home; this
-// is the small one smoke-calendar-home-tabs.ts and smoke-app-ui.ts share. scripts/lib/ is not a
+// handlers, so a smoke can tap it). For a view that scrolls an element, an element has a scroller's
+// geometry (scrollTop, clientHeight and clientWidth through FakeElement.layout, scrollTo), and there
+// are `fireScroll` and an opt-in FakeResizeObserver; none of it is read unless a smoke sets it up.
+// The render smoke keeps a larger copy of its own for the home; this is the small one
+// smoke-calendar-home-tabs.ts, smoke-app-ui.ts and smoke-month-pane.ts share. scripts/lib/ is not a
 // smoke (ci-smokes.sh runs scripts/smoke-*.ts only).
 
 import { createRequire } from 'module';
@@ -15,7 +18,7 @@ const nodeRequire = createRequire(__filename);
 const noop = () => undefined;
 
 const HTML_NS = 'http://www.w3.org/1999/xhtml';
-type Listener = { type: string; capture: boolean; fn: (event: Row) => void };
+type Listener = { type: string; capture: boolean; fn: (event: Row) => void; options?: unknown };
 
 export class FakeNode {
   parentNode: FakeNode | null = null;
@@ -68,9 +71,9 @@ export class FakeNode {
     this.childNodes = [];
     if (value) this.appendChild(new FakeText(String(value)));
   }
-  addEventListener(type: string, fn: (event: Row) => void, options?: boolean | { capture?: boolean }) {
+  addEventListener(type: string, fn: (event: Row) => void, options?: boolean | { capture?: boolean; passive?: boolean }) {
     const capture = typeof options === 'boolean' ? options : !!options?.capture;
-    this.listeners.push({ type, capture, fn });
+    this.listeners.push({ type, capture, fn, options });
   }
   removeEventListener(type: string, fn: (event: Row) => void) {
     this.listeners = this.listeners.filter((l) => l.type !== type || l.fn !== fn);
@@ -257,6 +260,74 @@ export class FakeElement extends FakeNode {
   }
   blur() {
     if (fakeDocument.activeElement === this) fakeDocument.activeElement = fakeDocument.body;
+  }
+
+  // ---- A scroller's geometry, for a smoke that scrolls an element (nothing else reads it) ----
+
+  /**
+   * The size a smoke gives elements it lays out: clientHeight and clientWidth read an element's own value
+   * when one was set on it, else this (null: 0). React creates the elements, so a smoke that needs a size
+   * from the first render on sets this before it mounts, and puts it back to null after.
+   */
+  static layout: ((el: FakeElement) => { clientHeight?: number; clientWidth?: number } | null | undefined) | null = null;
+  private ownHeight: number | undefined;
+  private ownWidth: number | undefined;
+  get clientHeight(): number {
+    return this.ownHeight ?? FakeElement.layout?.(this)?.clientHeight ?? 0;
+  }
+  set clientHeight(value: number) {
+    this.ownHeight = value;
+  }
+  get clientWidth(): number {
+    return this.ownWidth ?? FakeElement.layout?.(this)?.clientWidth ?? 0;
+  }
+  set clientWidth(value: number) {
+    this.ownWidth = value;
+  }
+  /** Where the element is scrolled to; setting it fires no scroll event (fireScroll does). */
+  scrollTop = 0;
+  /** Every scrollTo call: the top and the behaviour ('plain' for the two-number form, 'auto' when none was given). */
+  scrollCalls: { top: number; behavior: string }[] = [];
+  scrollTo(a: Row | number, b?: number) {
+    const call = typeof a === 'number' ? { top: b ?? 0, behavior: 'plain' } : { top: Number(a?.top ?? this.scrollTop), behavior: String(a?.behavior ?? 'auto') };
+    this.scrollCalls.push(call);
+    this.scrollTop = call.top;
+  }
+}
+
+/** A scroll event on `el` (to its own listeners: a scroll event doesn't bubble), inside act; with `top`, scrollTop moves there first. */
+export function fireScroll(el: FakeElement, top?: number) {
+  if (top !== undefined) el.scrollTop = top;
+  React.act(() => {
+    for (const l of el.listeners.filter((x) => x.type === 'scroll')) l.fn({ type: 'scroll', target: el });
+  });
+}
+
+/**
+ * A ResizeObserver a smoke installs itself (`fakeWindow.ResizeObserver = FakeResizeObserver`; nothing installs
+ * it by default): it records what it observes, and `trigger` calls back with each observed element's size.
+ */
+export class FakeResizeObserver {
+  static all: FakeResizeObserver[] = [];
+  observed = new Set<FakeElement>();
+  disconnected = false;
+  constructor(public callback: (entries: Row[], observer: FakeResizeObserver) => void) {
+    FakeResizeObserver.all.push(this);
+  }
+  observe(el: FakeElement) {
+    this.observed.add(el);
+  }
+  unobserve(el: FakeElement) {
+    this.observed.delete(el);
+  }
+  disconnect() {
+    this.disconnected = true;
+    this.observed.clear();
+  }
+  /** One callback, inside act, with an entry per observed element (its client size as the content rect). */
+  trigger() {
+    const entries = [...this.observed].map((el) => ({ target: el, contentRect: { width: el.clientWidth, height: el.clientHeight } }));
+    React.act(() => this.callback(entries, this));
   }
 }
 
