@@ -51,7 +51,7 @@ import { formatDayLong } from '@/src/lib/calendar-view/format';
 import type { MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
 import { holidayTitles, isPortion, useHolidays } from '@/src/lib/calendar-view/holidays-client';
-import { fitRow, limitDots, type MonthCell, type MonthModel, type MonthNotice, type MonthSlot } from '@/src/lib/calendar-view/month';
+import { fitRow, limitDots, noticeCopy, type MonthCell, type MonthModel, type MonthNotice, type MonthSlot } from '@/src/lib/calendar-view/month';
 import type { SquareSize } from '@/src/lib/calendar-view/month-layout';
 import type { DayKey, Holiday, SourceName } from '@/src/lib/calendar-view/types';
 import { calendarMark } from './ItemRow';
@@ -263,13 +263,12 @@ function LiveSquare({ cell, partner, hebrewDates, size, selected, shown, more, g
 /** A month's notice (Ruling 4): busy, calendars gone or an error, or a partial answer. */
 function NoticePill({ notice, month, onRetryMonth, onChooseCalendars }: { notice: MonthNotice; month: MonthKey; onRetryMonth: MonthSquaresGridProps['onRetryMonth']; onChooseCalendars: () => void }) {
   const t = useTranslations('calendarHome');
-  const gone = notice.kind === 'failed' && notice.failure?.kind === 'calendarsGone';
-  const text = notice.kind === 'partial' ? t('state.partial') : gone ? t('state.calendarsGone') : notice.failure?.kind === 'busy' ? t('state.busy') : t('month.failed');
+  const copy = noticeCopy(notice);
   return (
     <div className="ch-sq-pill">
-      <span className="ch-sq-pill-text">{text}</span>
-      <button type="button" className="ch-btn ch-sq-pill-action" onClick={gone ? onChooseCalendars : () => onRetryMonth(month, notice.source)}>
-        {gone ? t('actions.chooseAgain') : t('actions.retry')}
+      <span className="ch-sq-pill-text">{t(copy.text)}</span>
+      <button type="button" className="ch-btn ch-sq-pill-action" onClick={copy.chooseAgain ? onChooseCalendars : () => onRetryMonth(month, notice.source)}>
+        {t(copy.action)}
       </button>
     </div>
   );

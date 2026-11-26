@@ -99,7 +99,7 @@ import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiff
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
 import { readConnectBannerClosed, readHomeTab, readMonthSplit, writeConnectBannerClosed, writeHomeTab, writeMonthSplit, type HomeTab, type MonthSplit } from '@/src/lib/calendar-view/home-storage';
-import { clampFocus, dayRows, focusJump, focusMonth, focusToday, initialFocus, monthModels, selectDay, wantedFocusMonths, type MonthFocus } from '@/src/lib/calendar-view/month';
+import { clampFocus, dayNotices, dayRows, focusJump, focusMonth, focusToday, initialFocus, monthModels, selectDay, wantedFocusMonths, type MonthFocus } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
 import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
@@ -608,7 +608,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const getMonth = useMemo(() => monthModels(store), [store]);
   const monthShown = activeTab === 'month' && held !== null && focus !== null;
   const listDay = monthShown && focus !== null ? focus.selected : null;
-  const dayList = useMemo(() => (listDay ? { rows: dayRows(store, listDay), status: dayStatus(store, listDay) } : null), [store, listDay]);
+  const dayList = useMemo(() => (listDay ? { rows: dayRows(store, listDay), status: dayStatus(store, listDay), notices: dayNotices(store, listDay) } : null), [store, listDay]);
 
   const closeSheet = useCallback(() => setSheet(null), []);
   const navigate = useCallback(

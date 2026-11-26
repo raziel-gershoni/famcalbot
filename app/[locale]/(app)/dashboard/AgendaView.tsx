@@ -58,7 +58,8 @@ function StateIcon() {
   );
 }
 
-function StateRow({ text, action, onAction }: { text: string; action: string; onAction: () => void }) {
+/** A state row: the icon, what went wrong, and its action (the Agenda's states, the Month's day list's). */
+export function StateRow({ text, action, onAction }: { text: string; action: string; onAction: () => void }) {
   return (
     <div className="ch-state" role="status">
       <StateIcon />

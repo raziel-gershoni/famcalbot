@@ -3,9 +3,11 @@
 // The Month's day panel (spec 2026-11-19 §2, plan Task 5): the selected day's list, moved out of
 // release 1's tapped-day screen into the one Month screen (the wide panel and the split's list). From top to bottom inside one scroller: `top` (the
 // banners and the unavailable row, spec §1), the day's header ("Today · Thursday, 15 October" or the
-// weekday and date, the Hebrew date, the holiday line), the Daf Yomi line, the rows (LiftableRow:
-// an item lifted from the list to move it), "Nothing planned" once the day is answered and empty,
-// placeholders while it loads, nothing when it failed (the pane's pills say why).
+// weekday and date, the Hebrew date, the holiday line), the Daf Yomi line, a state row per source
+// that failed on the day (`notices`, picked's words: "Couldn't load this month" with Retry, busy,
+// calendars gone with Choose again; the month's pill may be off screen), the rows (LiftableRow: an
+// item lifted from the list to move it), "Nothing planned" once the day is answered and empty, and
+// placeholders while it loads.
 //
 // `peek` (the month grown): the scroller cannot scroll and one transparent button over the whole
 // panel, named "Show the month smaller", calls onPeek on a tap anywhere on it.
@@ -14,12 +16,13 @@
 import { useLocale, useTranslations } from 'next-intl';
 import type { ReactNode } from 'react';
 import type { AgendaRow } from '@/src/lib/calendar-view/agenda';
+import { noticeCopy, type MonthNotice } from '@/src/lib/calendar-view/month';
 import { formatDayLong } from '@/src/lib/calendar-view/format';
 import { hebrewDayLabel } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
-import type { DayKey } from '@/src/lib/calendar-view/types';
-import { AGENDA_CSS } from './AgendaView';
+import type { DayKey, SourceName } from '@/src/lib/calendar-view/types';
+import { AGENDA_CSS, StateRow } from './AgendaView';
 import { DafYomiLine } from './DafYomiLine';
 import { PlaceholderRows } from './DayList';
 import { ItemRow, useItemTitle, type ItemRowProps } from './ItemRow';
@@ -36,6 +39,12 @@ export interface DayPanelProps {
   status: DayStatus;
   /** Rendered first inside the scroller: banners and the unavailable row. */
   top?: ReactNode;
+  /** The sources that failed on the day (dayNotices), each a state row with its action. */
+  notices?: readonly MonthNotice[];
+  /** Retry on a failed row: the container asks the day's month again for that source. */
+  onRetry?: (source: SourceName) => void;
+  /** Choose again on a calendars-gone row. */
+  onChooseCalendars?: () => void;
   /** The month is grown: the list is a peek that cannot scroll, and a tap on it calls onPeek. */
   peek?: boolean;
   onPeek?: () => void;
@@ -50,7 +59,9 @@ function LiftableRow(props: ItemRowProps) {
   return <ItemRow {...props} lift={lift} />;
 }
 
-export function DayPanel({ day, today, tz, hebrewDates, dafYomi, rows, status, top, peek, onPeek, onOpenItem }: DayPanelProps) {
+const NO_NOTICES: readonly MonthNotice[] = [];
+
+export function DayPanel({ day, today, tz, hebrewDates, dafYomi, rows, status, top, notices = NO_NOTICES, onRetry, onChooseCalendars, peek, onPeek, onOpenItem }: DayPanelProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const genitive = hebrewDates && locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
@@ -84,6 +95,21 @@ export function DayPanel({ day, today, tz, hebrewDates, dafYomi, rows, status, t
           ) : null}
         </h3>
         {dafYomi ? <DafYomiLine day={day} /> : null}
+        {notices.length > 0 ? (
+          <div className="ch-states">
+            {notices.map((notice) => {
+              const copy = noticeCopy(notice);
+              return (
+                <StateRow
+                  key={`${notice.kind}-${notice.source}`}
+                  text={t(copy.text)}
+                  action={t(copy.action)}
+                  onAction={() => (copy.chooseAgain ? onChooseCalendars?.() : onRetry?.(notice.source))}
+                />
+              );
+            })}
+          </div>
+        ) : null}
         {rows.length > 0 ? (
           <ul className="ch-list" role="list">
             {rows.map((row) => (

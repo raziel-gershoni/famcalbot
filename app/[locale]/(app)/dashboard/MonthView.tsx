@@ -22,7 +22,8 @@
 //   opens on the split's real height; one ResizeObserver on the region follows it after (the
 //   window's resize where there is none).
 // - The banners and "N calendars aren't available · Choose again" go at the top of the list's
-//   scroller (spec §1), above the day's header.
+//   scroller (spec §1), above the day's header; a source that failed on the selected day is a
+//   row under the header, with Retry for that day's month (its pill may be off screen).
 // - A row tapped in the list opens D's ItemSheet: the container holds the selection (its
 //   BackButton closes the sheet), and the sheet shows the row as the latest answer has it, else
 //   as it was tapped. The jump to a date is the editor's date sheet. Both sit outside the region.
@@ -34,9 +35,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { useTranslations } from 'next-intl';
 import { MIN_YEAR_BIRTH } from '@/src/lib/calendar-view/year-limits';
 import { sameItemRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
-import type { MonthKey } from '@/src/lib/calendar-view/grid';
+import { monthOf, type MonthKey } from '@/src/lib/calendar-view/grid';
 import type { MonthSplit } from '@/src/lib/calendar-view/home-storage';
-import { monthBarPx, type MonthFocus, type MonthModel } from '@/src/lib/calendar-view/month';
+import { monthBarPx, type MonthFocus, type MonthModel, type MonthNotice } from '@/src/lib/calendar-view/month';
 import { WIDE_QUERY, splitHeights } from '@/src/lib/calendar-view/month-layout';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
@@ -70,8 +71,8 @@ export interface MonthViewProps {
   /** The upright split: collapsed or the month grown (the device's memory). */
   split: MonthSplit;
   onSplit: (next: MonthSplit) => void;
-  /** The selected day's list: dayRows(store, day) and dayStatus(store, day). */
-  dayRows: { rows: AgendaRow[]; status: DayStatus };
+  /** The selected day's list: dayRows(store, day), dayStatus(store, day) and dayNotices(store, day). */
+  dayRows: { rows: AgendaRow[]; status: DayStatus; notices: MonthNotice[] };
   /** homeNotices(store).unavailableCalendars: chosen Google calendars that are gone. */
   unavailableCalendars: number;
   /** The home's banners (HomeBanners), at the top of the list on the Month (spec §1). */
@@ -262,6 +263,9 @@ function MonthRegion({
     [onSelectDay, onSplit, grown],
   );
   const collapse = useCallback(() => onSplit('split'), [onSplit]);
+  // Retry on the list's failed row: the selected day's month, for that source.
+  const selectedDay = focus.selected;
+  const retryDay = useCallback((source: SourceName) => onRetryMonth(monthOf(selectedDay), source), [onRetryMonth, selectedDay]);
 
   const className = wide ? 'ch-mv is-wide' : grown ? 'ch-mv is-split is-grown' : 'ch-mv is-split';
   return (
@@ -303,6 +307,9 @@ function MonthRegion({
             dafYomi={dafYomi}
             rows={dayRows.rows}
             status={dayRows.status}
+            notices={dayRows.notices}
+            onRetry={retryDay}
+            onChooseCalendars={onChooseCalendars}
             top={
               banners || unavailableCalendars > 0 ? (
                 <>

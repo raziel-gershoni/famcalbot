@@ -3308,6 +3308,32 @@ async function main() {
     }
   });
 
+  await check('#50b the selected day\'s month failed (final review M2): its list shows the failed row ("Couldn’t load this month · Retry") under the day\'s header, also with another month in view (Ruling 2); Retry asks that month\'s window again, and the answer replaces the row with the day', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    let october: FetchAnswer = { status: 500, body: { error: 'internal_error' } };
+    answerFetch = (c) => (c.query.get('from') === '2026-10-01' ? october : answerFor(c, { items: WEEK }));
+    const m = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      await tap(m, dayButton(m, '2026-10-02'));
+      assert(listDay(m)?.startsWith('Friday, 2 October'), `the 2nd selected: ${listDay(m)}`);
+      const states = () => byClass(dayPanel(m), 'ch-state');
+      assert(states().length === 1 && states()[0].getAttribute('role') === 'status' && textOf(htmlOf(states()[0])) === 'Couldn’t load this month Retry', `the failed row: ${show(states().map((e) => textOf(htmlOf(e))))}`);
+      scrollPaneTo(m, '2027-01');
+      await settle();
+      assert(paneAt(m) === '2027-01' && states().length === 1, `January in view, the row stays: ${paneAt(m)} ${states().length}`);
+      october = answerFor({ query: new URLSearchParams('from=2026-10-01&to=2026-11-01') } as FetchCall, { items: WEEK });
+      fetchCalls.length = 0;
+      await tap(m, button(dayPanel(m), 'Retry'));
+      assert(show(ranges()) === show([monthAsk('2026-10')]), `Retry asks October: ${show(ranges())}`);
+      assert(states().length === 0 && textOf(htmlOf(dayPanel(m))).includes('Nothing planned'), `the row goes, the day answered: ${textOf(htmlOf(dayPanel(m))).slice(0, 120)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#51 midnight on the Month: the pane stays mounted where it is (no new opening), its squares loading and never free until the new day\'s answer; then today moves to the 16th and the windows are asked again in the new epoch; a selected Tuesday 20 October stays selected (clampFocus), its list loading, then answered, with Today offered', async () => {
     resetHome();
     fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');

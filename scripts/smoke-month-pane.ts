@@ -63,7 +63,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
 import { holidaysFor } from '../src/lib/calendar-view/holidays-client';
-import { buildMonth, dayRows, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
+import { buildMonth, dayNotices, dayRows, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
 import { HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX, SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
 import { dayStatus, daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type Holiday, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type SourceName, type WeekStart } from '../src/lib/calendar-view/types';
@@ -1840,6 +1840,44 @@ async function main() {
     } finally {
       m.unmount();
     }
+  });
+
+  await check('#49 M2: a failed day\'s list says why and offers Retry (picked\'s rows and words): dayNotices gives the day\'s failed sources (busy, an error, calendars gone; a reconnect none, the Reconnect banner says it; an answered day none), and DayPanel draws each as the Agenda\'s .ch-state row (role status) right under the day\'s header: "Couldn’t load this month" and "Busy right now, try again in a minute" with Retry → onRetry(source), "Your calendars aren’t available" with Choose again → onChooseCalendars', () => {
+    const store = famcalStore();
+    const google = googleStore();
+    assert(typeof dayNotices === 'function', 'month.ts exports dayNotices');
+    const kinds = (st: CalendarStore, day: DayKey) => dayNotices(st, day).map((n) => `${n.kind} ${n.source} ${n.failure?.kind}`);
+    assert(show(kinds(store, '2026-11-15')) === show(['failed famcal busy']), `November's busy day: ${show(kinds(store, '2026-11-15'))}`);
+    assert(show(kinds(store, '2026-12-15')) === show(['failed famcal error']), `December's failed day: ${show(kinds(store, '2026-12-15'))}`);
+    assert(show(kinds(store, TODAY)) === '[]' && show(kinds(google, TODAY)) === '[]', 'an answered day: none (partial is the pane\'s pill)');
+    assert(show(kinds(google, '2026-11-15')) === show(['failed google calendarsGone']), `calendars gone: ${show(kinds(google, '2026-11-15'))}`);
+    assert(show(kinds(google, '2026-12-15')) === '[]', `a reconnect: none (the banner): ${show(kinds(google, '2026-12-15'))}`);
+    const seen: string[] = [];
+    const props = (st: CalendarStore, day: DayKey) =>
+      panelProps(st, day, { notices: dayNotices(st, day), onRetry: (source: SourceName) => void seen.push(`retry ${source}`), onChooseCalendars: () => void seen.push('choose') });
+    const cases: [CalendarStore, DayKey, string, string][] = [
+      [store, '2026-12-15', 'Couldn’t load this month', 'Retry'],
+      [store, '2026-11-15', 'Busy right now, try again in a minute', 'Retry'],
+      [google, '2026-11-15', 'Your calendars aren’t available', 'Choose again'],
+    ];
+    for (const [st, day, text, action] of cases) {
+      const html = renderPanel('en', props(st, day));
+      const header = html.indexOf('</h3>');
+      assert(header > 0 && html.indexOf('<div class="ch-states"><div class="ch-state" role="status">') === header + 5, `${day}: the row right under the header: ${html.slice(header, header + 120)}`);
+      const m = mount(inIntl('en', createElement(DayPanel, props(st, day))));
+      try {
+        const rows = byClass(m.container, 'ch-state');
+        assert(rows.length === 1 && rows[0].getAttribute('role') === 'status', `${day}: one status row: ${rows.length}`);
+        assert(byClass(rows[0], 'ch-state-text')[0]?.textContent === text, `${day}: ${byClass(rows[0], 'ch-state-text')[0]?.textContent}`);
+        const button = byClass(rows[0], 'ch-state-action')[0];
+        assert(button?.textContent === action && button.getAttribute('type') === 'button', `${day}: ${button?.textContent}`);
+        m.click(button);
+      } finally {
+        m.unmount();
+      }
+    }
+    assert(show(seen) === show(['retry famcal', 'retry famcal', 'choose']), `the actions: ${show(seen)}`);
+    assert(!renderPanel('en', props(store, TODAY)).includes('ch-state'), 'an answered day has no row');
   });
 
   await check('#99 React logged no warning', () => {

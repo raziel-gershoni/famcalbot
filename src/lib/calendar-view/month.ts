@@ -4,7 +4,8 @@
 // reminder rules, the grid, the day format, the Hebrew day-1 test, the RangeWindow type
 // and month-layout's line limit, and nothing else. The views (MonthPane, MonthSquares,
 // DayPanel) format dates and copy and size the squares; this file decides each cell's
-// chips and bars, its dots and counts, each month's status and notices, the bar's height,
+// chips and bars, its dots and counts, each month's status and notices (and the selected
+// day's, with the words both say), the bar's height,
 // the focus (the month sought and the selected day), the reach's ends and which months
 // to fetch, and fits a square's lines.
 //
@@ -128,7 +129,10 @@ export interface MonthDot {
   color: string | null;
 }
 
-/** A pill over the grid (Ruling 4). A reconnect never makes one: the Reconnect banner says it. */
+/**
+ * A pill over the grid (Ruling 4), and a row of the selected day's list when that day failed
+ * (dayNotices). A reconnect never makes one: the Reconnect banner says it.
+ */
 export interface MonthNotice {
   source: SourceName;
   kind: 'failed' | 'partial';
@@ -379,13 +383,46 @@ export function buildMonth(store: CalendarStore, month: MonthKey): MonthModel | 
   const notices: MonthNotice[] = [];
   for (const source of facts.sources) {
     const failedDay = days.find((cell) => failedSources(store, cell.day).includes(source));
-    if (failedDay) {
-      const failure: SourceFailure = dayFailure(store, failedDay.day, source) ?? store.lastFailure[source] ?? { kind: 'error', source, reason: null };
-      if (failure.kind !== 'reconnect') notices.push({ source, kind: 'failed', failure });
-    }
+    const failed = failedDay ? failedNotice(store, failedDay.day, source) : null;
+    if (failed) notices.push(failed);
     if (source === 'google' && days.some((cell) => isPartialDay(store, cell.day))) notices.push({ source, kind: 'partial', failure: null });
   }
   return { month, weeks, status, notices, partner };
+}
+
+/**
+ * `source`'s failed notice on a day it failed on: the day's failure, else the source's latest,
+ * else a plain error; null for a reconnect (the Reconnect banner says it).
+ */
+function failedNotice(store: CalendarStore, day: DayKey, source: SourceName): MonthNotice | null {
+  const failure: SourceFailure = dayFailure(store, day, source) ?? store.lastFailure[source] ?? { kind: 'error', source, reason: null };
+  return failure.kind === 'reconnect' ? null : { source, kind: 'failed', failure };
+}
+
+/**
+ * The selected day's failed notices, one per source that failed on it (FamCal first): the
+ * day's list says why it is empty and offers Retry for that month even when the month is out
+ * of view (its pill is then off screen). None for a day answered or loading, nor a reconnect.
+ */
+export function dayNotices(store: CalendarStore, day: DayKey): MonthNotice[] {
+  const out: MonthNotice[] = [];
+  for (const source of failedSources(store, day)) {
+    const notice = failedNotice(store, day, source);
+    if (notice) out.push(notice);
+  }
+  return out;
+}
+
+/**
+ * A notice's words and action, as message keys (the pane's pills and the day list's rows say
+ * the same): partial → "Some calendars didn't load"; calendars gone → "Your calendars aren't
+ * available" with Choose again; busy → "Busy…"; else "Couldn't load this month"; Retry for all
+ * but calendars gone.
+ */
+export function noticeCopy(notice: MonthNotice): { text: string; action: string; chooseAgain: boolean } {
+  const gone = notice.kind === 'failed' && notice.failure?.kind === 'calendarsGone';
+  const text = notice.kind === 'partial' ? 'state.partial' : gone ? 'state.calendarsGone' : notice.failure?.kind === 'busy' ? 'state.busy' : 'month.failed';
+  return { text, action: gone ? 'actions.chooseAgain' : 'actions.retry', chooseAgain: gone };
 }
 
 const models = new WeakMap<CalendarStore, (month: MonthKey) => MonthModel | null>();
