@@ -1469,6 +1469,9 @@
       "tomorrow": "אין לכם אירועים מתוכננים למחר. תיהנו מיום פנוי!"
     },
     "weatherCredit": "מזג האוויר: MET Norway · אבק: Copernicus (Open-Meteo.com)",
+    "eventCopy": {
+      "cardButton": "העתקה ליומן שלי"
+    },
     "askInChat": {
       "date": "{weekday} {date}",
       "range": "{from}–{to}",

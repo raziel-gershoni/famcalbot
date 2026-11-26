@@ -1469,6 +1469,9 @@
       "tomorrow": "На завтра нет запланированных событий. Наслаждайтесь свободным днём!"
     },
     "weatherCredit": "Погода: MET Norway · Пыль: Copernicus (Open-Meteo.com)",
+    "eventCopy": {
+      "cardButton": "Скопировать в свой календарь"
+    },
     "askInChat": {
       "date": "{weekday}, {date}",
       "range": "с {from} до {to}",

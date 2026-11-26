@@ -53,7 +53,7 @@ async function rejects(fn: () => Promise<unknown>, name: string, label: string) 
 // ---- Fake Prisma ----
 
 const db: Record<string, Row[]> = {};
-const MODELS = ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'eventCopyOffer', 'googleSyncLink'];
+const MODELS = ['user', 'pairing', 'nativeCalendar', 'nativeEvent', 'nativeEventInstance', 'eventCopyOffer', 'googleSyncLink'];
 const DEFAULTS: Record<string, () => Row> = {
   nativeCalendar: () => ({ color: '#039BE5', labels: [], privacy: 'PRIVATE', isDeleted: false }),
   nativeEvent: () => ({ description: null, location: null, allDay: false, rrule: null, hebrewRule: null, hebrewAnchor: null, exdates: [], ownAlerts: false, alertMinutes: [], isDeleted: false, kind: 'EVENT', forUserId: null, forBoth: false, eachMarksDone: false, zmanSpec: null, armedAt: null, birthday: false, birthYear: null }),
@@ -144,6 +144,9 @@ for (const name of MODELS) {
 const captured: { ctx: string; message: string }[] = [];
 const consoleLines: string[] = [];
 let blockedTelegramIds: bigint[] = [];
+/** The fake Bot API: the savePreparedInlineMessage calls it got, and what the next one does. */
+const preparedCalls: Row[] = [];
+let prepareBehaviour: 'ok' | 'refused' = 'ok';
 
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
@@ -182,6 +185,27 @@ function installStubs() {
     isIdentifierBlocked: async (args: { telegramId?: bigint | number | null }) =>
       args.telegramId != null && blockedTelegramIds.some((b) => b === BigInt(args.telegramId!)),
     isUserSuspended: (u: { suspendedAt: Date | null } | null | undefined) => !!u?.suspendedAt,
+  });
+  // The route's boundaries: the sign-in check (the body's user_id is the account's id), the rate limiter, the zone and the Bot API.
+  stub('src/lib/api-auth.ts', {
+    verifyUserAuth: async (_req: unknown, userId: string | null) => {
+      const row = db.user.find((u) => String(u.id) === userId);
+      if (!row) return { success: false, response: new Response(JSON.stringify({ error: 'auth' }), { status: 401 }) };
+      return { success: true, user: { ...row, telegramId: row.telegramId === null ? null : Number(row.telegramId) } };
+    },
+  });
+  stub('src/lib/rate-limit.ts', { calendarRateLimiter: {} });
+  stub('src/lib/timezone.ts', { resolveUserTimezone: async () => 'Asia/Jerusalem' });
+  stub('src/services/telegram/bot.ts', {
+    getBot: () => ({
+      savePreparedInlineMessage: async (params: Row) => {
+        preparedCalls.push(params);
+        if (prepareBehaviour === 'refused') {
+          throw Object.assign(new Error('Bad Request: inline mode is off'), { code: 'ETELEGRAM', errorCode: 400, description: 'Bad Request: inline mode is off' });
+        }
+        return { id: 'prepared-1', expiration_date: 1 };
+      },
+    }),
   });
 }
 
@@ -467,6 +491,117 @@ async function main() {
     assert(ok.exdates.length === 1, 'exdates not stored');
   });
 
+  // ================= the card and the route that prepares it =================
+
+  const card = await load('src/services/event-copy/card.ts');
+  const { POST } = await load('app/api/calendar/copy/route.ts');
+  const ask = async (body: Row): Promise<{ status: number; body: Row }> => {
+    const res = await POST(new Request('http://localhost/api/calendar/copy', { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } }));
+    return { status: res.status, body: await res.json() };
+  };
+  const setLanguage = (id: number, language: string) => { db.user.find((u) => u.id === id)!.language = language; };
+
+  await check('the route refuses a key that is not FamCal (400 invalid), a missing or unseen event (404), a reminder (409 not_event), an account with no Telegram (409 no_telegram)', async () => {
+    seed();
+    event('ev-ok');
+    event('ev-other', { calendarId: 'cal-other', creatorUserId: OTHER });
+    event('ev-rem', { kind: 'REMINDER', forUserId: SENDER });
+    const bad = await ask({ user_id: SENDER, key: 'google|cal@x.com|abc' });
+    assert(bad.status === 400 && bad.body.error === 'invalid', `google key: ${bad.status} ${show(bad.body)}`);
+    const none = await ask({ user_id: SENDER, key: 'famcal|nope-nope' });
+    assert(none.status === 404 && none.body.error === 'not_found', `missing: ${none.status} ${show(none.body)}`);
+    const unseen = await ask({ user_id: SENDER, key: 'famcal|ev-other' });
+    assert(unseen.status === 404 && unseen.body.error === 'not_found', `someone else's private calendar: ${unseen.status} ${show(unseen.body)}`);
+    const reminder = await ask({ user_id: SENDER, key: 'famcal|ev-rem' });
+    assert(reminder.status === 409 && reminder.body.error === 'not_event', `reminder: ${reminder.status} ${show(reminder.body)}`);
+    db.user.find((u) => u.id === SENDER)!.telegramId = null;
+    const web = await ask({ user_id: SENDER, key: 'famcal|ev-ok' });
+    assert(web.status === 409 && web.body.error === 'no_telegram', `no Telegram: ${web.status} ${show(web.body)}`);
+    assert(db.eventCopyOffer.length === 0 && preparedCalls.length === 0, 'a refusal made an offer or called Telegram');
+  });
+
+  await check('an event answers 200 with the prepared id, the deep link and the card text; the article carries the same link and text, for the sender\'s Telegram id', async () => {
+    seed();
+    preparedCalls.length = 0;
+    prepareBehaviour = 'ok';
+    event('ev-one');
+    const res = await ask({ user_id: SENDER, key: 'famcal|ev-one' });
+    assert(res.status === 200 && res.body.preparedId === 'prepared-1', `answer ${res.status} ${show(res.body)}`);
+    assertSame(res.body.text, `${SECRET_TITLE}\nThu 3 Dec, 10:00–11:00`, 'the card text');
+    assert(db.eventCopyOffer.length === 1 && db.eventCopyOffer[0].sourceEventId === 'ev-one' && db.eventCopyOffer[0].senderUserId === SENDER, 'the offer');
+    const token = String(res.body.link).split('?start=cp_')[1];
+    assert(res.body.link === offers.copyDeepLink(token) && offers.copyTokenFromStart(token) === token, `link ${res.body.link}`);
+    assert(db.eventCopyOffer[0].tokenHash === offers.copyTokenHash(token), 'the offer holds the link\'s token\'s hash');
+    assert(preparedCalls.length === 1, `${preparedCalls.length} prepare calls`);
+    const call = preparedCalls[0];
+    assert(call.user_id === 101 && call.allow_user_chats === true && call.allow_group_chats === true, `params ${show({ ...call, result: undefined })}`);
+    assert(!('allow_channel_chats' in call && call.allow_channel_chats) && !('allow_bot_chats' in call && call.allow_bot_chats), 'channels or bots allowed');
+    const article = call.result;
+    assert(article.type === 'article' && article.input_message_content.message_text === res.body.text, 'article text');
+    assert(article.input_message_content.link_preview_options.is_disabled === true, 'link preview on');
+    assertSame(article.reply_markup.inline_keyboard, [[{ text: 'Copy to my calendar', url: res.body.link }]], 'article button');
+  });
+
+  await check('a refused prepare still answers 200, with preparedId null and the link and text', async () => {
+    seed();
+    preparedCalls.length = 0;
+    prepareBehaviour = 'refused';
+    event('ev-one');
+    const res = await ask({ user_id: SENDER, key: 'famcal|ev-one' });
+    prepareBehaviour = 'ok';
+    assert(res.status === 200 && res.body.preparedId === null, `answer ${res.status} ${show(res.body)}`);
+    assert(String(res.body.link).includes('?start=cp_') && String(res.body.text).startsWith(SECRET_TITLE), `link and text ${show(res.body)}`);
+    assert(preparedCalls.length === 1, 'a refusal is not retried');
+    assert(consoleLines.some((l) => l.includes('[event-copy]') && l.includes('400')), 'the refusal is not logged with its status');
+  });
+
+  await check('the card text: weekly en, yearly Hebrew he, all-day ru, birthday-style yearly en, a multi-day all-day', async () => {
+    seed();
+    const mon = new Date('2026-12-07T08:00:00Z');
+    const weekly = event('ev-weekly', { rrule: 'FREQ=WEEKLY;BYDAY=MO', startsAt: mon, endsAt: new Date(mon.getTime() + 3_600_000) });
+    const heb = event('ev-heb', { rrule: 'FREQ=YEARLY', hebrewRule: 'anniversary', hebrewAnchor: '2026-12-03', allDay: true, startsAt: new Date('2026-12-02T22:00:00Z'), endsAt: new Date('2026-12-03T22:00:00Z') });
+    const allDay = event('ev-allday', { allDay: true, startsAt: new Date('2026-12-02T22:00:00Z'), endsAt: new Date('2026-12-03T22:00:00Z') });
+    const multi = event('ev-multi', { allDay: true, startsAt: new Date('2026-12-02T22:00:00Z'), endsAt: new Date('2026-12-05T22:00:00Z') });
+    const out: Row = {
+      weeklyEn: card.copyCardText(weekly, 'en', IL, 0),
+      hebHe: card.copyCardText(heb, 'he', IL, 0),
+      hebEn: card.copyCardText(heb, 'en', IL, 0),
+      weeklyHe: card.copyCardText(weekly, 'he', IL, 0),
+      hebRu: card.copyCardText(heb, 'ru', IL, 1),
+      allDayRu: card.copyCardText(allDay, 'ru', IL, 1),
+      multiEn: card.copyCardText(multi, 'en', IL, 0),
+    };
+    assertSame(out.weeklyEn, `${SECRET_TITLE}\nEvery week on Monday, 10:00–11:00`, 'weekly en');
+    assert(out.hebHe.startsWith(`${SECRET_TITLE}\nכל שנה ב`) && out.hebHe.endsWith('כל היום'), `heb he ${out.hebHe}`);
+    assertSame(out.weeklyHe, `${SECRET_TITLE}\nכל שבוע ביום שני, 10:00–11:00`, 'weekly he');
+    assertSame(out.hebRu, `${SECRET_TITLE}\nКаждый год 23 кислева, Весь день`, 'heb ru');
+    assertSame(out.hebEn, `${SECRET_TITLE}\nEvery year on 23 Kislev, All day`, 'heb en');
+    assertSame(out.allDayRu, `${SECRET_TITLE}\nчт, 3 дек., Весь день`, 'all-day ru');
+    assertSame(out.multiEn, `${SECRET_TITLE}\nThu 3 – Sat 5 Dec, All day`, 'multi-day en');
+  });
+
+  await check('the Hebrew and Russian cards come out of the route in the sender\'s language; the button too', async () => {
+    seed();
+    event('ev-one');
+    setLanguage(SENDER, 'he');
+    preparedCalls.length = 0;
+    await ask({ user_id: SENDER, key: 'famcal|ev-one' });
+    assertSame(preparedCalls[0].result.reply_markup.inline_keyboard[0][0].text, 'העתקה ליומן שלי', 'he button');
+    setLanguage(SENDER, 'ru');
+    await ask({ user_id: SENDER, key: 'famcal|ev-one' });
+    assertSame(preparedCalls[1].result.reply_markup.inline_keyboard[0][0].text, 'Скопировать в свой календарь', 'ru button');
+    setLanguage(SENDER, 'en');
+  });
+
+  await check('no log line or captured error holds a token, the title or the card text', () => {
+    const tokens = db.eventCopyOffer.map((o) => o.id);
+    assert(tokens.length > 0, 'no offers made');
+    const lines = [...consoleLines, ...captured.map((c) => c.message)];
+    const bad = lines.filter((l) => l.includes(SECRET_TITLE) || /cp_[A-Za-z0-9_-]{22}/.test(l) || l.includes('start='));
+    assert(bad.length === 0, `leaks: ${show(bad)}`);
+    assert(lines.some((l) => l.startsWith('[event-copy]')), 'no [event-copy] line');
+  });
+
   Object.assign(console, quiet);
   let failed = 0;
   for (const r of results) {
@@ -478,6 +613,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`);
   process.exit(1);
 });
