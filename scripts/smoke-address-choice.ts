@@ -88,6 +88,21 @@ async function main() {
     assert(feedback.length === 2 && feedback[1].text === words('ru').addressQuestion, `feedback: ${show(feedback.map((m) => m.text.slice(0, 40)))}`);
   });
 
+  await check('C1b a new account\'s /start cp_<token> hands the offer to the copy handler (language, footer), then asks the address question; a returning one is not asked', async () => {
+    seed();
+    const handed: Row[] = [];
+    stubModule('src/services/event-copy/bot.ts', {
+      handleCopyStart: async (chatId: number, user: Row, payload: string, locale: string, footer: string) => { handed.push({ chatId, userId: user.id, payload, locale, hasFooter: footer.length > 0 }); },
+    });
+    await start(NEW_TG + 3, `cp_${'A'.repeat(22)}`);
+    assert(handed.length === 1 && handed[0].payload === 'A'.repeat(22) && handed[0].locale === 'he' && handed[0].hasFooter, `handed ${show(handed)}`);
+    const mine = sent.filter((m) => m.chatId === String(NEW_TG + 3));
+    assert(mine.length === 1 && mine[0].text === words('he').addressQuestion, `after the handler: ${show(mine.map((m) => m.text.slice(0, 40)))}`);
+    sent.length = 0;
+    await start(OLD_TG, `cp_${'B'.repeat(22)}`);
+    assert((handed as Row[]).length === 2 && sent.length === 0, `a returning account: ${show(sent.map((m) => m.text.slice(0, 40)))}`);
+  });
+
   await check('C2 gd:f saves female for the presser\'s own account, answers the spinner and edits the question into the confirmation in the account\'s language; the other button, or the same again, saves again', async () => {
     seed();
     await choice.handleAddressPress(OLD_TG, 501, 'q-1', OLD_TG, 'gd:f');

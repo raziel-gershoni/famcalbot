@@ -245,6 +245,12 @@ export async function handleTelegramWebhook(
         // "Address me as" (address-choice.ts): saved for the presser's own account; the handler answers the spinner
         const { handleAddressPress } = await import('./address-choice');
         await handleAddressPress(chatId, callbackQuery.message?.message_id, queryId, callbackUserId, data);
+      } else if (data.startsWith('cp:')) {
+        // A calendar button under a copy of an event (event-copy/bot.ts): the handler answers the spinner itself
+        const messageId = callbackQuery.message?.message_id;
+        const { handleCopyPress } = await import('./event-copy/bot');
+        if (messageId) await handleCopyPress(chatId, messageId, queryId, callbackUserId, data);
+        else await getBot().answerCallbackQuery({ callback_query_id: queryId }).catch((err: unknown) => console.error('[event-copy] could not answer a copy button with no message:', err));
       } else if (data.startsWith('nr:')) {
         // Native reminder ping: ✅ Done / 💤 Snooze. The handler answers the tap itself.
         const { handleNativeReminderCallback } = await import('./native-reminders/callbacks');

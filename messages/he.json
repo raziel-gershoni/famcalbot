@@ -1473,7 +1473,20 @@
     "weatherCredit": "מזג האוויר: MET Norway · אבק: Copernicus (Open-Meteo.com)",
     "eventCopy": {
       "cardButton": "העתקה ליומן שלי",
-      "allDay": "כל היום"
+      "allDay": "כל היום",
+      "open": "<b>{title}</b>\n{when}\n\nלאיזה יומן להעתיק?",
+      "copied": "הועתק אל {calendar}:\n<b>{title}</b>\n{when}",
+      "told": "הודעה נשלחה אל {sender}.",
+      "taken": "מישהו כבר העתיק את האירוע הזה. אפשר לבקש עותק חדש.",
+      "yours": "כבר העתקת את האירוע אל {calendar}.",
+      "gone": "האירוע הזה כבר לא זמין.",
+      "mine": "זה האירוע שלך. העותק מחכה למישהו אחר.",
+      "invalid": "הקישור הזה לא עובד.",
+      "failed": "ההעתקה לא הצליחה. אפשר לנסות שוב.",
+      "notWritable": "אי אפשר להוסיף אירועים ליומן הזה. אפשר לבחור יומן אחר.",
+      "notice": "“{title}” הועתק ליומן של {name}.",
+      "noticeAnon": "“{title}” הועתק ליומן של מישהו.",
+      "senderFallback": "מי ששלח את האירוע"
     },
     "askInChat": {
       "date": "{weekday} {date}",

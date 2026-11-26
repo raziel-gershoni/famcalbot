@@ -1473,7 +1473,20 @@
     "weatherCredit": "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)",
     "eventCopy": {
       "cardButton": "Copy to my calendar",
-      "allDay": "all day"
+      "allDay": "all day",
+      "open": "<b>{title}</b>\n{when}\n\nWhich calendar should it go to?",
+      "copied": "Copied to {calendar}:\n<b>{title}</b>\n{when}",
+      "told": "{sender} was told.",
+      "taken": "Someone already copied this event. Ask for a new copy.",
+      "yours": "You already copied it, to {calendar}.",
+      "gone": "This event is no longer available.",
+      "mine": "This is your own event: the copy is waiting for someone else.",
+      "invalid": "This link doesn't work.",
+      "failed": "Couldn't copy the event. Try again.",
+      "notWritable": "This calendar can't take events any more. Pick another one.",
+      "notice": "{name} copied “{title}” to their calendar.",
+      "noticeAnon": "Someone copied “{title}” to their calendar.",
+      "senderFallback": "The sender"
     },
     "askInChat": {
       "date": "{weekday} {date}",

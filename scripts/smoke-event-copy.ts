@@ -9,6 +9,7 @@
 //   TZ=UTC npx tsx scripts/smoke-event-copy.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-event-copy.ts
 
+import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
@@ -147,6 +148,9 @@ let blockedTelegramIds: bigint[] = [];
 /** The fake Bot API: the savePreparedInlineMessage calls it got, and what the next one does. */
 const preparedCalls: Row[] = [];
 let prepareBehaviour: 'ok' | 'refused' = 'ok';
+/** Every Bot API call and messaging-service send the receiver's side made, in order; a chat id here makes a send to it fail like a blocked bot. */
+const botCalls: { method: string; params: Row }[] = [];
+let failChatId: number | null = null;
 
 const Module = nodeRequire('module');
 const stubs: Record<string, Row> = {};
@@ -196,15 +200,26 @@ function installStubs() {
   });
   stub('src/lib/rate-limit.ts', { calendarRateLimiter: {} });
   stub('src/lib/timezone.ts', { resolveUserTimezone: async () => 'Asia/Jerusalem' });
+  const bot = {
+    savePreparedInlineMessage: async (params: Row) => {
+      preparedCalls.push(params);
+      if (prepareBehaviour === 'refused') {
+        throw Object.assign(new Error('Bad Request: inline mode is off'), { code: 'ETELEGRAM', errorCode: 400, description: 'Bad Request: inline mode is off' });
+      }
+      return { id: 'prepared-1', expiration_date: 1 };
+    },
+    answerCallbackQuery: async (params: Row) => { botCalls.push({ method: 'answerCallbackQuery', params }); },
+    editMessageText: async (params: Row) => { botCalls.push({ method: 'editMessageText', params }); },
+    sendMessage: async (params: Row) => {
+      botCalls.push({ method: 'sendMessage', params });
+      if (params.chat_id === failChatId) throw Object.assign(new Error('Forbidden: bot was blocked by the user'), { code: 'ETELEGRAM', errorCode: 403, description: 'Forbidden: bot was blocked by the user' });
+      return { message_id: 900 };
+    },
+  };
   stub('src/services/telegram/bot.ts', {
-    getBot: () => ({
-      savePreparedInlineMessage: async (params: Row) => {
-        preparedCalls.push(params);
-        if (prepareBehaviour === 'refused') {
-          throw Object.assign(new Error('Bad Request: inline mode is off'), { code: 'ETELEGRAM', errorCode: 400, description: 'Bad Request: inline mode is off' });
-        }
-        return { id: 'prepared-1', expiration_date: 1 };
-      },
+    getBot: () => bot,
+    getMessagingService: () => ({
+      sendMessage: async (chatId: number | string, text: string, options?: Row) => { botCalls.push({ method: 'service.sendMessage', params: { chatId, text, options } }); return 901; },
     }),
   });
 }
@@ -593,11 +608,216 @@ async function main() {
     setLanguage(SENDER, 'en');
   });
 
+
+  // ================= the receiver's side in the bot =================
+
+  const bot = await load('src/services/event-copy/bot.ts');
+  const MSGS: Row = Object.fromEntries(['en', 'he', 'ru'].map((l) => [l, JSON.parse(fs.readFileSync(path.join(ROOT, `messages/${l}.json`), 'utf8')).bot.eventCopy]));
+  const CUID = 'cabcdefghijklmnopqrstuvwx'; // a real cuid's length: 25
+  const receiverUser = (): Row => ({ ...db.user.find((u) => u.id === RECEIVER)!, telegramId: 103 });
+  const serviceSends = () => botCalls.filter((c) => c.method === 'service.sendMessage').map((c) => c.params);
+  const calls = (method: string) => botCalls.filter((c) => c.method === method).map((c) => c.params);
+  const newOffer = async (eventId = 'ev1') => offers.createCopyOffer(SENDER, eventId);
+  const press = (token: string, cal: string, telegramId = 103) => bot.handleCopyPress(telegramId, 77, 'q1', telegramId, `cp:${token}:${cal}`);
+  const reset = () => { seed(); botCalls.length = 0; failChatId = null; };
+
+  await check('/start cp_<token> answers each state with its own line, in the receiver\'s language, with the policy footer', async () => {
+    reset();
+    event('ev1');
+    const open = await newOffer();
+    const deleted = await newOffer();
+    const taken = await newOffer();
+    await offers.claimCopyOffer(taken.offerId, OTHER);
+    const mine = await newOffer();
+    db.user.find((u) => u.id === RECEIVER)!.language = 'he';
+    const send = async (token: string, who = receiverUser()) => {
+      botCalls.length = 0;
+      await bot.handleCopyStart(103, who, token, who.language, 'FOOTER');
+      return serviceSends()[0];
+    };
+    const he = MSGS.he;
+    let out = await send('A'.repeat(21));
+    assertSame(out.text, `${he.invalid}\n\nFOOTER`, 'invalid (bad token)');
+    out = await send('B'.repeat(22));
+    assertSame(out.text, `${he.invalid}\n\nFOOTER`, 'invalid (unknown token)');
+    out = await send(taken.token);
+    assertSame(out.text, `${he.taken}\n\nFOOTER`, 'taken');
+    out = await send(mine.token, { ...db.user.find((u) => u.id === SENDER)!, language: 'he', telegramId: 101 });
+    assertSame(out.text, `${he.mine}\n\nFOOTER`, 'mine');
+    assert(offerRow(mine.offerId).takenAt === null, 'the sender\'s own start used the offer up');
+    db.nativeEvent.find((e) => e.id === 'ev1')!.isDeleted = true;
+    out = await send(deleted.token);
+    assertSame(out.text, `${he.gone}\n\nFOOTER`, 'gone');
+    db.nativeEvent.find((e) => e.id === 'ev1')!.isDeleted = false;
+    await offers.claimCopyOffer(open.offerId, RECEIVER);
+    const copy = await offers.copyEventFor(db.nativeEvent.find((e) => e.id === 'ev1') as never, receiverUser() as never, 'cal-receiver');
+    await offers.recordCopy(open.offerId, copy.id);
+    out = await send(open.token);
+    assertSame(out.text, `${he.yours.replace('{calendar}', 'Receiver cal')}\n\nFOOTER`, 'yours names the calendar');
+    assert(out.options.format === 'html' || out.options.format === 'HTML' || out.options.format !== undefined, 'html format');
+    assert(out.options.disablePreview === true, 'the footer comes with no preview');
+  });
+
+  await check('an open offer shows the card in the receiver\'s language and zone, one button per writable calendar (own first, main first), each at most 64 bytes with a real cuid; a user with none gets their main one made', async () => {
+    reset();
+    event('ev1');
+    const { token } = await newOffer();
+    // A second own calendar (not main, older id order) and the partner's shared editor calendar, with 25-character ids.
+    db.nativeCalendar.push(
+      { ...DEFAULTS.nativeCalendar(), id: CUID, ownerUserId: RECEIVER, name: 'Second', createdAt: new Date('2026-09-01T00:00:00Z') },
+    );
+    db.user.find((u) => u.id === RECEIVER)!.language = 'ru';
+    await bot.handleCopyStart(103, receiverUser(), token, 'ru', '');
+    const sent = serviceSends()[0];
+    const ru = MSGS.ru;
+    assert(sent.text.startsWith(`<b>${SECRET_TITLE}</b>\nчт, 3 дек., 10:00–11:00`) || sent.text.includes('3 дек'), `card text ${sent.text}`);
+    assert(sent.text.endsWith(ru.open.split('\n\n')[1]), `ask line ${sent.text}`);
+    const buttons = sent.options.replyMarkup.inline_keyboard.flat();
+    assertSame(buttons.map((b: Row) => b.text), ['Receiver cal', 'Second'], 'own calendars, main first');
+    for (const b of buttons) assert(Buffer.byteLength(b.callback_data) <= 64 && /^cp:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]+$/.test(b.callback_data), `data ${b.callback_data}`);
+    assertSame(buttons[1].callback_data, `cp:${token}:${CUID}`, 'real cuid in the data');
+    assert(Buffer.byteLength(buttons[1].callback_data) === 51, `51 bytes with a cuid, got ${Buffer.byteLength(buttons[1].callback_data)}`);
+    // No own calendar at all: the main one is made.
+    reset();
+    event('ev1');
+    const o2 = await newOffer();
+    db.nativeCalendar = db.nativeCalendar.filter((c) => c.ownerUserId !== RECEIVER);
+    const made = db.nativeCalendar.length;
+    await bot.handleCopyStart(103, receiverUser(), o2.token, 'en', '');
+    assert(db.nativeCalendar.length === made + 1 && db.nativeCalendar.some((c) => c.ownerUserId === RECEIVER), 'no main calendar made');
+    assertSame(serviceSends()[0].options.replyMarkup.inline_keyboard.flat().length, 1, 'one button for the new calendar');
+  });
+
+  await check('a press answers the spinner first, claims, copies into the picked calendar, records it, edits the card to "Copied to <calendar>" with "<sender> was told", and sends the sender one silent note in the SENDER\'s language naming the receiver and the title', async () => {
+    reset();
+    event('ev1');
+    const { token, offerId } = await newOffer();
+    db.user.find((u) => u.id === RECEIVER)!.language = 'ru';
+    db.user.find((u) => u.id === RECEIVER)!.name = 'Dana <b>';
+    db.user.find((u) => u.id === SENDER)!.language = 'he';
+    db.user.find((u) => u.id === SENDER)!.name = 'Avi';
+    await press(token, 'cal-receiver');
+    assertSame(botCalls.map((c) => c.method), ['answerCallbackQuery', 'sendMessage', 'editMessageText'], 'order: spinner, note, edit');
+    const copies = db.nativeEvent.filter((e) => e.calendarId === 'cal-receiver');
+    assert(copies.length === 1 && copies[0].creatorUserId === RECEIVER && copies[0].title === SECRET_TITLE, `copies ${show(copies)}`);
+    assert(offerRow(offerId).takenByUserId === RECEIVER && offerRow(offerId).copyEventId === copies[0].id, `offer ${show(offerRow(offerId))}`);
+    const edit = calls('editMessageText')[0];
+    assert(edit.chat_id === 103 && edit.message_id === 77 && edit.parse_mode === 'HTML', `edit ${show(edit)}`);
+    assert(edit.text.startsWith('Скопировано в календарь «Receiver cal»:') && edit.text.includes(`<b>${SECRET_TITLE}</b>`) && edit.text.endsWith('Уведомление отправлено: Avi.'), `edit text ${edit.text}`);
+    const note = calls('sendMessage')[0];
+    assertSame(note.chat_id, 101, 'the note goes to the sender\'s chat');
+    assert(note.disable_notification === true && note.parse_mode === 'HTML', `note ${show(note)}`);
+    assertSame(note.text, `“${SECRET_TITLE}” הועתק ליומן של Dana &lt;b&gt;.`, 'the note, Hebrew, escaped name');
+  });
+
+  await check('a receiver with no name: the note says "Someone" in the sender\'s language', async () => {
+    reset();
+    event('ev1');
+    const { token } = await newOffer();
+    db.user.find((u) => u.id === RECEIVER)!.name = '';
+    await press(token, 'cal-receiver');
+    assertSame(calls('sendMessage')[0].text, `Someone copied “${SECRET_TITLE}” to their calendar.`, 'anonymous note');
+  });
+
+  await check('a second press answers taken and copies nothing more; two presses at once give one copy', async () => {
+    reset();
+    event('ev1');
+    const { token } = await newOffer();
+    await press(token, 'cal-receiver');
+    botCalls.length = 0;
+    await bot.handleCopyPress(104, 78, 'q2', 104, `cp:${token}:cal-other`);
+    assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1, 'a second copy was made');
+    assertSame(calls('editMessageText')[0].text, MSGS.en.taken, 'taken line for the second');
+    assert(calls('sendMessage').length === 0, 'a note went out for the loser');
+    // The same person again: yours.
+    botCalls.length = 0;
+    await press(token, 'cal-receiver');
+    assertSame(calls('editMessageText')[0].text, MSGS.en.yours.replace('{calendar}', 'Receiver cal'), 'yours for the taker\'s second press');
+    // Two at once, on a fresh offer.
+    reset();
+    event('ev1');
+    const again = await newOffer();
+    await Promise.all([
+      press(again.token, 'cal-receiver'),
+      bot.handleCopyPress(104, 78, 'q2', 104, `cp:${again.token}:cal-other`),
+    ]);
+    assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1, `copies after two at once: ${db.nativeEvent.length - 1}`);
+    assert(calls('sendMessage').length === 1, `notes: ${calls('sendMessage').length}`);
+  });
+
+  await check('a store failure gives the claim back, says try again, reports it, and the offer works afterwards', async () => {
+    reset();
+    event('ev1');
+    const { token, offerId } = await newOffer();
+    const realCreate = fakePrisma.nativeEvent.create;
+    fakePrisma.nativeEvent.create = async () => { throw new Error('boom'); };
+    try {
+      await press(token, 'cal-receiver');
+    } finally {
+      fakePrisma.nativeEvent.create = realCreate;
+    }
+    assert(offerRow(offerId).takenAt === null && offerRow(offerId).takenByUserId === null, `claim kept ${show(offerRow(offerId))}`);
+    assert(db.nativeEvent.length === 1, 'an event was written');
+    assertSame(calls('sendMessage').map((c) => c.text), [MSGS.en.failed], 'the try-again line, to the receiver only');
+    assertSame(calls('sendMessage')[0].chat_id, 103, 'to the receiver');
+    assert(captured.some((c) => c.ctx === 'event-copy-write'), 'not reported');
+    await press(token, 'cal-receiver');
+    assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1, 'the retry did not copy');
+  });
+
+  await check('a calendar the receiver can\'t write is refused and the offer stays open; the sender\'s press is "mine" with no claim', async () => {
+    reset();
+    event('ev1');
+    const { token, offerId } = await newOffer();
+    await press(token, 'cal-other');
+    await press(token, 'cal-sender');
+    assert(offerRow(offerId).takenAt === null && db.nativeEvent.length === 1, 'the offer was used or an event written');
+    assertSame(calls('sendMessage').map((c) => c.text), [MSGS.en.notWritable, MSGS.en.notWritable], 'refusal lines');
+    botCalls.length = 0;
+    await bot.handleCopyPress(101, 79, 'q3', 101, `cp:${token}:cal-sender`);
+    assert(offerRow(offerId).takenAt === null && db.nativeEvent.length === 1, 'the sender used it up');
+    assertSame(calls('editMessageText')[0].text, MSGS.en.mine, 'mine');
+  });
+
+  await check('a note that cannot be sent (blocked bot) or a sender with no Telegram does not undo the copy, and the card then has no "was told" line', async () => {
+    reset();
+    event('ev1');
+    const { token } = await newOffer();
+    failChatId = 101;
+    await press(token, 'cal-receiver');
+    assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1, 'no copy');
+    assert(!calls('editMessageText')[0].text.includes('Avi') && calls('editMessageText')[0].text.startsWith('Copied to Receiver cal'), `edit ${calls('editMessageText')[0].text}`);
+    assert(captured.some((c) => c.ctx === 'event-copy-notice'), 'the failed note was not reported');
+    reset();
+    event('ev1');
+    const o2 = await newOffer();
+    db.user.find((u) => u.id === SENDER)!.telegramId = null;
+    await press(o2.token, 'cal-receiver');
+    assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1 && calls('sendMessage').length === 0, 'web sender');
+  });
+
+  await check('a button that is not cp:<token>:<calendar> is refused after answering the spinner', async () => {
+    reset();
+    await bot.handleCopyPress(103, 77, 'q', 103, 'cp:short:x');
+    await bot.handleCopyPress(103, 77, 'q', 103, `cp:${'A'.repeat(22)}:cal-receiver:extra`);
+    assertSame(botCalls.map((c) => c.method), ['answerCallbackQuery', 'answerCallbackQuery'], 'only the spinner');
+  });
+
+  // One more full run, with the log lines kept for the leak check below.
+  reset();
+  event('ev1');
+  db.user.find((u) => u.id === RECEIVER)!.name = 'Dana';
+  const last = await newOffer();
+  await bot.handleCopyStart(103, receiverUser(), last.token, 'en', '');
+  failChatId = 101;
+  await press(last.token, 'cal-receiver');
+  await press(last.token, 'cal-receiver');
+
   await check('no log line or captured error holds a token, the title or the card text', () => {
     const tokens = db.eventCopyOffer.map((o) => o.id);
     assert(tokens.length > 0, 'no offers made');
     const lines = [...consoleLines, ...captured.map((c) => c.message)];
-    const bad = lines.filter((l) => l.includes(SECRET_TITLE) || /cp_[A-Za-z0-9_-]{22}/.test(l) || l.includes('start='));
+    const bad = lines.filter((l) => l.includes(SECRET_TITLE) || l.includes('Dana') || /cp_[A-Za-z0-9_-]{22}/.test(l) || l.includes('start='));
     assert(bad.length === 0, `leaks: ${show(bad)}`);
     assert(lines.some((l) => l.startsWith('[event-copy]')), 'no [event-copy] line');
   });

@@ -194,6 +194,14 @@ export async function handleStartCommand(
     return;
   }
 
+  // A copy of an event someone sent: t.me/<bot>?start=cp_<token> (src/services/event-copy/bot.ts)
+  if (args && args.startsWith('cp_') && platform === MessagingPlatform.TELEGRAM) {
+    const { handleCopyStart } = await import('../event-copy/bot');
+    await handleCopyStart(chatId, user, args.slice('cp_'.length), locale, links);
+    await askAddress();
+    return;
+  }
+
   // No deep link: the welcome with the dashboard button (one builder, shared with Connect Telegram)
   await sendWelcome(chatId, user, platform);
   await askAddress();

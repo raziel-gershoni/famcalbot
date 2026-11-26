@@ -263,6 +263,7 @@ const PAUSED: Record<string, string> = {
 const NOT_PAUSED: Record<string, string> = {
   // Replies to the person's own action
   'src/services/address-choice.ts': '"Address me as": the question after a new account\'s first reply (/start, a first "accept", the WhatsApp language step) and the answer to the person\'s own button',
+  'src/services/event-copy/bot.ts': 'the receiver\'s replies to their own /start and button press (answers the person\'s own action), and the quiet note to the sender after someone copies their event (the receiver\'s action, sent without a sound)',
   'src/services/messaging/telegram-adapter.ts': 'the transport: sends what its caller decided to send',
   'src/services/messaging/whatsapp-adapter.ts': 'the transport',
   'src/services/web-push/send.ts': 'the browser notification transport (sendWebPush): sends what its caller decided to send; each scheduled caller asks the pause first, and a scheduled push\'s lifetime ends before the next window (nextPauseStart)',
