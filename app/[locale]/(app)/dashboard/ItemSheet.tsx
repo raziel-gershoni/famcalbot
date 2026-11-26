@@ -271,7 +271,7 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
   const swatch = item.calendar.color && HEX_COLOUR.test(item.calendar.color) ? item.calendar.color : null;
 
   return (
-    <BottomSheet label={t('sheet.label')} closeLabel={t('actions.close')} onClose={onClose}>
+    <BottomSheet label={t('sheet.label')} closeLabel={t('actions.close')} onClose={onClose} card>
       <div className={`ch-sheet-head${mark === 'done' ? ' is-done' : ''}`}>
         {mark ? <ReminderIcon mark={mark} /> : null}
         {item.birthday ? <BirthdayIcon /> : null}

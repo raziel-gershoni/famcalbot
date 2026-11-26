@@ -174,6 +174,12 @@ export const AGENDA_CSS = `
 .ch-agenda {
   padding-block-end: calc(24px + max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)));
 }
+@media (min-width: 600px) {
+  .ch-agenda {
+    max-inline-size: 720px;
+    margin-inline: auto;
+  }
+}
 .ch-states {
   display: flex;
   flex-direction: column;

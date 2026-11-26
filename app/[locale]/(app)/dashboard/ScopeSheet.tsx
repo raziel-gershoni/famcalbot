@@ -79,7 +79,7 @@ export function ScopeSheet({ kind, mode, title, day, all, weekStart = 0, choices
   const text: Record<EditScope, string> = { single: t('scope.single', { date: formatDayShort(day, locale) }), following: t('scope.following'), all: allText };
   const choices = offered.map((scope): [EditScope, string] => [scope, text[scope]]);
   return (
-    <BottomSheet label={heading} closeLabel={t('scope.cancel')} onClose={onClose}>
+    <BottomSheet label={heading} closeLabel={t('scope.cancel')} onClose={onClose} card>
       <style>{FORM_CSS}</style>
       <style>{EDITOR_FORM_CSS}</style>
       <div className="ch-scope">
@@ -127,7 +127,7 @@ export interface ConfirmSheetProps {
 export function ConfirmSheet({ heading, confirmLabel, cancelLabel, danger, busy, error, onConfirm, onClose }: ConfirmSheetProps) {
   const errorText = useErrorText(error);
   return (
-    <BottomSheet label={heading} closeLabel={cancelLabel} onClose={onClose}>
+    <BottomSheet label={heading} closeLabel={cancelLabel} onClose={onClose} card>
       <style>{FORM_CSS}</style>
       <style>{EDITOR_FORM_CSS}</style>
       <div className="ch-scope">

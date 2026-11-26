@@ -99,7 +99,7 @@ export function ZmanimSheet({ userId, locale, today, load, onOpenSettings, onClo
   const settings = { label: t('editor.zmanOpenSettings'), onClick: onOpenSettings };
 
   return (
-    <BottomSheet label={title} closeLabel={t('actions.close')} onClose={onClose}>
+    <BottomSheet label={title} closeLabel={t('actions.close')} onClose={onClose} card>
       <style>{ZMANIM_SHEET_CSS}</style>
       <div className="ch-zl">
         <h2 className="ch-sheet-heading">{title}</h2>

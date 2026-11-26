@@ -340,6 +340,36 @@ export const APP_THEME_CSS = `
 .ch-app[data-theme='dark'] .ch-sheet-full {
   background: var(--ch-bg);
 }
+@media (min-width: 600px) {
+  .ch-sheet-card {
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+  }
+  .ch-sheet-card > .ch-sheet {
+    inline-size: 480px;
+    max-inline-size: 100%;
+    max-block-size: 85vh;
+    border-radius: 20px;
+    padding-block-end: 16px;
+    animation: ch-card-in 180ms ease-out;
+  }
+  .ch-sheet-card > .ch-sheet-full {
+    flex: none;
+    inline-size: 640px;
+    block-size: 85vh;
+    padding: 0;
+    border-radius: 20px;
+    overflow: hidden;
+  }
+  .ch-sheet-card .ch-sheet-grab {
+    display: none;
+  }
+}
+@keyframes ch-card-in {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
 @keyframes ch-sheet-in {
   from { transform: translateY(24px); opacity: 0; }
   to { transform: none; opacity: 1; }

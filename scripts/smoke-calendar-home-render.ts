@@ -3473,6 +3473,7 @@ async function main() {
       m.click(button(dayPanel(m), 'Dentist'));
       const layer = byClass(m.container, 'ch-sheet-layer')[0];
       assert(layer && closestClass(layer, 'ch-mv') === null, 'the item sheet is outside the region');
+      assert(layer.className === 'ch-sheet-layer ch-sheet-card', `the home's item sheet is a card on wide windows: ${layer.className}`);
       assert(offenders(layer, []).length === 0, `the sheet: ${show(offenders(layer, []))}`);
     } finally {
       m.unmount();

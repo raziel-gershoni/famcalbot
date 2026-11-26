@@ -113,7 +113,7 @@ export function SendSheet({ userId, locale, today, weekStart, lookahead7, onClos
   };
 
   return (
-    <BottomSheet label={t('send.title')} closeLabel={t('actions.close')} onClose={onClose}>
+    <BottomSheet label={t('send.title')} closeLabel={t('actions.close')} onClose={onClose} card>
       <h2 className="ch-sheet-heading">{t('send.title')}</h2>
       <p className="ch-sheet-sub">{t('send.subtitle')}</p>
       <ul className="ch-options" role="list">

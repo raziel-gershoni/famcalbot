@@ -62,7 +62,7 @@ export function MenuSheet({ isAdmin, inTelegram, locale, userId, onNavigate, onR
   const t = useTranslations('calendarHome');
   const entries = menuEntries({ isAdmin, inTelegram, locale, userId });
   return (
-    <BottomSheet label={t('header.menu')} closeLabel={t('actions.close')} onClose={onClose}>
+    <BottomSheet label={t('header.menu')} closeLabel={t('actions.close')} onClose={onClose} card>
       <ul className="ch-options" role="list">
         {entries.map(({ id, href }) => (
           <li key={id} className="ch-option-li">

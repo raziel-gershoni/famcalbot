@@ -256,6 +256,7 @@ export function PillRow({
               onDay(next);
             }}
             onClose={() => setOpen(null)}
+            card
           />
         </Suspense>
       ) : null}
@@ -270,6 +271,7 @@ export function PillRow({
               onTime(next);
             }}
             onClose={() => setOpen(null)}
+            card
           />
         </Suspense>
       ) : null}

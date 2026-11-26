@@ -807,6 +807,55 @@ async function main() {
     }
   });
 
+  await check("K9b BottomSheet card: without it the markup is as it was (the layer's class is 'ch-sheet-layer'); with it the layer is 'ch-sheet-layer ch-sheet-card' and nothing else changes; the theme's @media (min-width: 600px) block centres the layer and sizes the card (480 px, the editor's full variant 640 px by 85vh, 20 px corners, no grab handle, a 180 ms ch-card-in entry) and passes #2's lint; only the home's sheets pass card (Settings, Calendars, Select calendars, Pair, admin and the site's menu do not)", () => {
+    installWindow();
+    const markup = (props: Record<string, unknown>) => renderToString(createElement(SheetProbe, { label: 'Sheet', closeLabel: 'Close', onClose: noop, ...props }));
+    const plain = markup({});
+    assert(plain.includes('class="ch-sheet-layer"') && !plain.includes('ch-sheet-card'), `default: ${plain}`);
+    const card = markup({ card: true });
+    assert(card.includes('class="ch-sheet-layer ch-sheet-card"') && card.replace(' ch-sheet-card', '') === plain, `card: ${card}`);
+    assert(markup({ card: false }) === plain, 'card={false} is the default');
+    const block = /@media \(min-width: 600px\) \{([\s\S]*?)\n\}\n/.exec(APP_THEME_CSS)?.[1] ?? '';
+    assert(block.includes('.ch-sheet-card'), 'the theme has the @media (min-width: 600px) card block');
+    const inBlock = (selector: string) => {
+      const m = new RegExp(`\\n  ${selector.replace(/[.*+?^${}()|[\]\\>]/g, '\\$&')} \\{([^}]*)\\}`).exec(block);
+      assert(m, `no rule ${selector} in the card block`);
+      return m[1];
+    };
+    const layer = inBlock('.ch-sheet-card');
+    assert(/justify-content:\s*center/.test(layer) && /align-items:\s*center/.test(layer) && /padding:\s*16px/.test(layer), `layer: ${layer}`);
+    const panel = inBlock('.ch-sheet-card > .ch-sheet');
+    assert(/inline-size:\s*480px/.test(panel) && /max-inline-size:\s*100%/.test(panel) && /max-block-size:\s*85vh/.test(panel) && /border-radius:\s*20px/.test(panel) && /padding-block-end:\s*16px/.test(panel) && /animation:\s*ch-card-in 180ms/.test(panel), `panel: ${panel}`);
+    const full = inBlock('.ch-sheet-card > .ch-sheet-full');
+    assert(/flex:\s*none/.test(full) && /inline-size:\s*640px/.test(full) && /block-size:\s*85vh/.test(full) && /padding:\s*0/.test(full) && /border-radius:\s*20px/.test(full) && /overflow:\s*hidden/.test(full), `full: ${full}`);
+    assert(/display:\s*none/.test(inBlock('.ch-sheet-card .ch-sheet-grab')), 'no grab handle on a card');
+    const keyframes = /@keyframes ch-card-in \{[\s\S]*?\n\}/.exec(APP_THEME_CSS)?.[0] ?? '';
+    assert(/scale\(/.test(keyframes) && /opacity:\s*0/.test(keyframes), 'the entry keyframe fades and scales in');
+    assert(lintCss(APP_THEME_CSS).length === 0, `lint: ${JSON.stringify(lintCss(APP_THEME_CSS))}`);
+    // Who passes card: the home's sheets, and nobody else
+    const dashboard = path.join(ROOT, 'app/[locale]/(app)/dashboard');
+    const files = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : /\.tsx$/.test(e.name) ? [path.join(dir, e.name)] : []));
+    const tags: { file: string; tag: string; at: string }[] = [];
+    for (const f of [...files(path.join(ROOT, 'app')), ...files(path.join(ROOT, 'components')), ...files(path.join(ROOT, 'src'))]) {
+      if (f.endsWith('BottomSheet.tsx')) continue;
+      const text = fs.readFileSync(f, 'utf8');
+      for (const m of text.matchAll(/<(BottomSheet|DatePickerSheet|TimePickerSheet)\b/g)) {
+        const rest = text.slice(m.index);
+        const end = m[1] === 'BottomSheet' ? rest.indexOf('\n') : rest.indexOf('/>');
+        tags.push({ file: f, tag: rest.slice(0, end), at: m[1] });
+      }
+    }
+    const home = tags.filter((t) => t.file.startsWith(dashboard) && !/(?:Date|Time)PickerSheet\.tsx$/.test(t.file));
+    const others = tags.filter((t) => !t.file.startsWith(dashboard) || /(?:Date|Time)PickerSheet\.tsx$/.test(t.file));
+    const homeFiles = ['EditorSheet', 'ItemSheet', 'MenuSheet', 'RepeatSheet', 'ScopeSheet', 'SendSheet', 'ZmanimSheet', 'MonthView', 'form-kit', 'DatePickerSheet', 'TimePickerSheet'];
+    assert(homeFiles.every((n) => tags.some((t) => path.basename(t.file).startsWith(n))), 'every home sheet user was found');
+    for (const t of home) assert(/\bcard\b/.test(t.tag), `${path.basename(t.file)} does not pass card: ${t.tag.slice(0, 80)}`);
+    for (const t of others.filter((x) => !/(?:Date|Time)PickerSheet\.tsx$/.test(x.file))) assert(!/\bcard\b/.test(t.tag), `${path.relative(ROOT, t.file)} passes card`);
+    assert(home.length >= 10, `${home.length} home sheets`);
+    assert(/@media \(min-width: 600px\) \{\s*\.ch-agenda \{\s*max-inline-size: 720px;\s*margin-inline: auto;\s*\}\s*\}/.test(AGENDA_CSS), 'the Agenda is a centred 720 px column from 600 px');
+    assert(lintCss(AGENDA_CSS).length === 0, `the Agenda's lint: ${JSON.stringify(lintCss(AGENDA_CSS))}`);
+  });
+
   await check('K9 BottomSheet closeDisabled: the close button is disabled, and Escape and the scrim do not call onClose; without it all three do', () => {
     installWindow();
     const run = (closeDisabled: boolean) => {

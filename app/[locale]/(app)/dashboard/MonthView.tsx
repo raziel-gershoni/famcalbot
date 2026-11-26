@@ -152,6 +152,7 @@ function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: No
       minYear={MIN_YEAR_BIRTH}
       onPick={onPick}
       onClose={onClose}
+      card
     />
   );
 }

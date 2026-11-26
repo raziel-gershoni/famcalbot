@@ -21,12 +21,14 @@ export interface TimePickerSheetProps {
   step: number;
   onPick: (time: string) => void;
   onClose: () => void;
+  /** A centred card on a wide window (BottomSheet's card): the home's call sites pass it. */
+  card?: boolean;
 }
 
 /** What a sheet opens on when the field holds no time. */
 const FALLBACK_TIME = '09:00';
 
-export function TimePickerSheet({ label, value, step, onPick, onClose }: TimePickerSheetProps) {
+export function TimePickerSheet({ label, value, step, onPick, onClose, card = false }: TimePickerSheetProps) {
   const t = useTranslations('calendarHome');
   const start = splitTime(value) ?? (splitTime(FALLBACK_TIME) as { hour: string; minute: string });
   const [hour, setHour] = useState(start.hour);
@@ -41,7 +43,7 @@ export function TimePickerSheet({ label, value, step, onPick, onClose }: TimePic
   return (
     <>
       <style>{PICKER_CSS}</style>
-      <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose}>
+      <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose} card={card}>
         <div className="ch-picker">
           <div className="ch-picker-body" dir="ltr">
             <WheelPickerWrapper className="ch-wheels">

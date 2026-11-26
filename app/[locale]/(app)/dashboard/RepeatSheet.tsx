@@ -122,7 +122,7 @@ export function RepeatSheet({ value, startDay, weekStart, hebrewOffered, custom,
   ];
 
   return (
-    <BottomSheet label={t('editor.repeat.label')} closeLabel={t('editor.cancel')} onClose={onClose} variant="full">
+    <BottomSheet label={t('editor.repeat.label')} closeLabel={t('editor.cancel')} onClose={onClose} variant="full" card>
       <style>{FORM_CSS}</style>
       <style>{EDITOR_FORM_CSS}</style>
       <style>{REPEAT_CSS}</style>

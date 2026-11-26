@@ -452,7 +452,7 @@ export function EditorSheet({ mode, initial, kinds, calendars = [], partner, heb
 
   return (
     <>
-      <BottomSheet label={heading} closeLabel={t('editor.cancel')} onClose={cancel} variant="full">
+      <BottomSheet label={heading} closeLabel={t('editor.cancel')} onClose={cancel} variant="full" card>
         <style>{FORM_CSS}</style>
         <style>{EDITOR_FORM_CSS}</style>
         <header className="ch-editor-head">

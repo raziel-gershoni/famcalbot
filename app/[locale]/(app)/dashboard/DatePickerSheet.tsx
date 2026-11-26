@@ -70,6 +70,8 @@ export interface DatePickerSheetProps {
   min?: string | null;
   onPick: (day: string) => void;
   onClose: () => void;
+  /** A centred card on a wide window (BottomSheet's card): the home's call sites pass it. */
+  card?: boolean;
 }
 
 /** A chevron: back (towards the start) or forward; flipped in RTL. */
@@ -90,7 +92,7 @@ const KEY_MOVES: Record<string, DayMove> = {
   End: 'weekEnd',
 };
 
-export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, mode: startMode, minYear, min = null, onPick, onClose }: DatePickerSheetProps) {
+export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, mode: startMode, minYear, min = null, onPick, onClose, card = false }: DatePickerSheetProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   const rtl = locale === 'he';
@@ -200,7 +202,7 @@ export function DatePickerSheet({ label, value, today, weekStart, hebrewDates, m
     <>
       <style>{FORM_CSS}</style>
       <style>{PICKER_CSS}</style>
-      <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose}>
+      <BottomSheet label={label} closeLabel={t('editor.cancel')} onClose={onClose} card={card}>
         <div className="ch-picker">
           <div className="ch-picker-head">
             <button type="button" className={`ch-picker-nav${wheels ? ' is-hidden' : ''}`} aria-label={t('picker.prevMonth')} disabled={!!wheels || !canStep(page, -1, limits)} onClick={() => step(-1)}>
