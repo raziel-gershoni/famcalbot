@@ -862,6 +862,34 @@ async function runChecks(): Promise<void> {
     assert(320 - 2 * pad - gap - buttons(3) >= Number(basis[1]), 'at 320 px the day keeps its room beside three buttons');
   });
 
+  await check('the short header (a phone held sideways): one @media (max-height: 520px) and (orientation: landscape) block, last in HOME_SHELL_CSS with indented selectors, the header never wraps, the title one line of 17 px, the text children in a row with the zone on a line of its own, the holiday, zman lines, weather place, range and days hidden, the Hebrew date (tile or line) and the temperature kept, the buttons still 44 px, logical properties only', () => {
+    const open = '@media (max-height: 520px) and (orientation: landscape) {';
+    assert(HOME_SHELL_CSS.split(open).length === 2, 'the short-header block exists once');
+    const start = HOME_SHELL_CSS.indexOf(open);
+    const block = HOME_SHELL_CSS.slice(start);
+    assert(!block.slice(open.length).includes('@media') && /\n\}\n$/.test(block), 'the block is the last thing in the CSS');
+    const rules = [...block.matchAll(/\n {2}([^{}/]+?) \{([^}]*)\}/g)].map((m) => ({ selectors: m[1].split(/,\s*/), body: m[2] }));
+    const rule = (selector: string) => {
+      const found = rules.find((r) => r.selectors.includes(selector));
+      assert(found, `no indented rule ${selector} in the short block`);
+      return found.body;
+    };
+    assert(/flex-wrap:\s*nowrap/.test(rule('.ch-head')), '.ch-head does not wrap');
+    const title = rule('.ch-head-title');
+    assert(/font-size:\s*17px/.test(title) && /white-space:\s*nowrap/.test(title), `the title: ${title}`);
+    const text = rule('.ch-head-text');
+    assert(/display:\s*flex/.test(text) && /flex-wrap:\s*wrap/.test(text), `.ch-head-text: ${text}`);
+    assert(/flex-basis:\s*100%/.test(rule('.ch-head-zone')), 'the zone has a line of its own');
+    for (const gone of ['.ch-day-holiday', '.ch-head-zman', '.ch-head-next', '.ch-head-weather-place', '.ch-head-weather-range', '.ch-head-weather-days']) {
+      assert(/display:\s*none/.test(rule(gone)), `${gone} is hidden`);
+    }
+    for (const kept of ['.ch-head-hdate', '.ch-head-line', '.ch-head-weather-now', '.ch-icon-btn']) {
+      assert(!rules.some((r) => r.selectors.some((x) => x.startsWith(kept)) && /display:\s*none/.test(r.body)), `${kept} stays visible`);
+    }
+    assert(!/(?:inline|block)-size:\s*(?:[0-9]|[1-3][0-9]|4[0-3])px/.test(block.replace(/\.ch-head-title[^}]*\}/, '')), 'no button or tile shrinks below 44 px');
+    assert(!/(?:^|[^-])(?:left|right|top|bottom|width|height)\s*:|(?:margin|padding)-(?:left|right|top|bottom)|min-height|max-height\s*:\s*\d/.test(block.replace(open, '')) && !/:hover/.test(block), `physical properties or hover: ${block}`);
+  });
+
   await check('React logged no warning (keys, nesting, attributes, act), and the sheet\'s own logs are only the failures the checks caused', () => {
     assert(reactWarnings.length === 0, `React warned: ${show(reactWarnings.slice(0, 3))}`);
     assert(appLogs.every((l) => /^\[zmanim-(list|sheet)\]/.test(l)), `logs ${show(appLogs)}`);

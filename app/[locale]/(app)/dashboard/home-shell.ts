@@ -565,4 +565,51 @@ export const HOME_SHELL_CSS = `
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
+@media (max-height: 520px) and (orientation: landscape) {
+  /* A short window (a phone held sideways): the header is one line, the date, the Hebrew date, the temperature and the
+     buttons; the holiday, the zman lines, the parasha and countdown and the weather's place, range and days go. */
+  .ch-head {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px;
+  }
+  .ch-head-text {
+    display: flex;
+    flex: 1 1 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 12px;
+  }
+  .ch-head-title {
+    font-size: 17px;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+  .ch-head-sub {
+    margin: 0;
+  }
+  .ch-head-zone {
+    flex-basis: 100%;
+    margin: 0;
+  }
+  .ch-day-holiday,
+  .ch-head-zman,
+  .ch-head-next,
+  .ch-head-weather-place,
+  .ch-head-weather-range,
+  .ch-head-weather-days {
+    display: none;
+  }
+  .ch-head-side {
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 12px;
+  }
+  .ch-head-weather,
+  .ch-head-weather-ghost {
+    inline-size: auto;
+    min-inline-size: 0;
+  }
+}
 `;
