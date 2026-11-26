@@ -1477,16 +1477,17 @@
       "open": "<b>{title}</b>\n{when}\n\nWhich calendar should it go to?",
       "copied": "Copied to {calendar}:\n<b>{title}</b>\n{when}",
       "told": "{sender} was told.",
+      "toldAnon": "The sender was told.",
       "taken": "Someone already copied this event. Ask for a new copy.",
       "yours": "You already copied it, to {calendar}.",
+      "yoursPlain": "You already copied this event.",
       "gone": "This event is no longer available.",
       "mine": "This is your own event: the copy is waiting for someone else.",
       "invalid": "This link doesn't work.",
       "failed": "Couldn't copy the event. Try again.",
       "notWritable": "This calendar can't take events any more. Pick another one.",
       "notice": "{name} copied “{title}” to their calendar.",
-      "noticeAnon": "Someone copied “{title}” to their calendar.",
-      "senderFallback": "The sender"
+      "noticeAnon": "Someone copied “{title}” to their calendar."
     },
     "askInChat": {
       "date": "{weekday} {date}",

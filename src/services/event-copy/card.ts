@@ -34,12 +34,12 @@ type WordsT = Parameters<typeof infoText>[0];
 const MESSAGES = { en: enMessages, he: heMessages, ru: ruMessages } as const;
 const TRANSLATORS = new Map<Locale, WordsT>();
 
-/** One translator of calendarHome.* per language, made once. */
 /** "all day" inside the card's line, lower case after the comma ("Every year on 23 Kislev, all day"), unlike the sheet's label. */
 function allDayWords(locale: Locale): string {
   return MESSAGES[locale].bot.eventCopy.allDay;
 }
 
+/** One translator of calendarHome.* per language, made once. */
 function wordsFor(locale: Locale): WordsT {
   let t = TRANSLATORS.get(locale);
   if (!t) {

@@ -101,6 +101,10 @@ async function main() {
     sent.length = 0;
     await start(OLD_TG, `cp_${'B'.repeat(22)}`);
     assert((handed as Row[]).length === 2 && sent.length === 0, `a returning account: ${show(sent.map((m) => m.text.slice(0, 40)))}`);
+    // Final review M5: only in the bot's private chat (the buttons name the person's calendars and their partner)
+    sent.length = 0;
+    await handleStartCommand(OLD_TG, OLD_TG, 'telegram', { id: OLD_TG, first_name: 'Noa', language_code: 'he' }, `cp_${'C'.repeat(22)}`, 'group');
+    assert((handed as Row[]).length === 2 && sent.length === 0, `a group's /start cp_ is not answered: ${show(handed)} ${show(sent.map((m) => m.text.slice(0, 40)))}`);
   });
 
   await check('C2 gd:f saves female for the presser\'s own account, answers the spinner and edits the question into the confirmation in the account\'s language; the other button, or the same again, saves again', async () => {

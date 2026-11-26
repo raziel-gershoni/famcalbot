@@ -478,6 +478,9 @@ model EventCopyOffer {
   copyEvent     NativeEvent? @relation("EventCopyOfferCopy", fields: [copyEventId], references: [id], onDelete: SetNull)
 
   @@index([senderUserId])
+  @@index([sourceEventId])
+  @@index([copyEventId])
+  @@index([takenByUserId])
 }
 
 // ============================================

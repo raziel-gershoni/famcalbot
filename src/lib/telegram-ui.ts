@@ -306,7 +306,11 @@ export function shareTelegramMessage(msgId: string): Promise<ShareMessageResult>
       console.warn(`[telegram-ui] shareMessage failed: ${error}`);
       finish('failed');
     });
-    const ran = tgCall(SHARE_MESSAGE, 'shareMessage', (webApp) => webApp.shareMessage(msgId, (sent) => finish(sent ? 'sent' : 'closed')));
+    // Telegram's script calls back with false first and fires shareMessageFailed right after, in the same turn: "closed" waits
+    // a microtask, so the failure's reason (UNSUPPORTED, a send that failed) wins when there is one.
+    const ran = tgCall(SHARE_MESSAGE, 'shareMessage', (webApp) =>
+      webApp.shareMessage(msgId, (sent) => (sent ? finish('sent') : queueMicrotask(() => finish('closed')))),
+    );
     if (!ran) finish('unsupported');
   });
 }

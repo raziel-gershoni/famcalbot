@@ -51,7 +51,7 @@ async function whenFor(source: NativeEvent, user: UserConfig, locale: Locale): P
 /** The line a state that is not open answers with (the offer's `yours` names the calendar). */
 function stateLine(words: Record<string, string>, view: CopyOfferView): string {
   switch (view.state) {
-    case 'yours': return fill(words.yours, { calendar: escapeHtml(view.calendarName) });
+    case 'yours': return view.calendarName === null ? words.yoursPlain : fill(words.yours, { calendar: escapeHtml(view.calendarName) });
     case 'invalid': return words.invalid;
     case 'open': return words.failed;
     default: return words[view.state];
@@ -64,7 +64,7 @@ function stateLine(words: Record<string, string>, view: CopyOfferView): string {
  */
 export async function handleCopyStart(chatId: number | string, user: UserConfig, payload: string, locale: string, footer: string): Promise<void> {
   const lang = normalizeLocale(locale);
-  const words = (await getBotMessages(lang)).eventCopy as Record<string, string>;
+  let words: Record<string, string> | null = null;
   const service = getMessagingService();
   const reply = (text: string, replyMarkup?: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }) =>
     service.sendMessage(chatId, footer ? `${text}\n\n${footer}` : text, {
@@ -73,6 +73,7 @@ export async function handleCopyStart(chatId: number | string, user: UserConfig,
       ...(replyMarkup ? { replyMarkup } : {}),
     });
   try {
+    words = (await getBotMessages(lang)).eventCopy as Record<string, string>;
     const token = copyTokenFromStart(payload);
     const view: CopyOfferView = token ? await viewCopyOffer(token, user.id) : { state: 'invalid' };
     if (view.state !== 'open' || !token) {
@@ -102,7 +103,7 @@ export async function handleCopyStart(chatId: number | string, user: UserConfig,
   } catch (error) {
     console.error(`${TAG} user ${user.id}: /start failed (${why(error)})`);
     captureError(error, 'event-copy-start', { user_id: user.id });
-    await reply(words.failed).catch((sendError: unknown) => console.error(`${TAG} user ${user.id}: the failure line was not sent (${failure(sendError)})`));
+    if (words) await reply(words.failed).catch((sendError: unknown) => console.error(`${TAG} user ${user.id}: the failure line was not sent (${failure(sendError)})`));
   }
 }
 
@@ -176,6 +177,11 @@ export async function handleCopyPress(chatId: number, messageId: number, queryId
     const words = (await getBotMessages(lang)).eventCopy as Record<string, string>;
 
     const view = await viewCopyOffer(token, user.id);
+    if (view.state === 'yours' && view.calendarName === null) {
+      // A second tap while the first one's copy is being made: the first one's answer is on its way
+      console.log(`${TAG} user ${user.id}: a press while their copy of offer ${view.offer.id} is being made`);
+      return;
+    }
     if (view.state !== 'open') {
       console.log(`${TAG} user ${user.id}: a press answered ${view.state}`);
       await editCard(chatId, messageId, stateLine(words, view), user.id);
@@ -214,9 +220,10 @@ export async function handleCopyPress(chatId: number, messageId: number, queryId
     });
     const told = await tellSender(view.sender, user, view.source, view.offer.id);
     const when = await whenFor(view.source, user, lang);
-    const senderName = view.sender.name?.trim() || words.senderFallback;
+    const senderName = view.sender.name?.trim();
     const copied = fill(words.copied, { calendar: escapeHtml(target.entry.name), title: escapeHtml(view.source.title), when: escapeHtml(when) });
-    await editCard(chatId, messageId, told ? `${copied}\n\n${fill(words.told, { sender: escapeHtml(senderName) })}` : copied, user.id);
+    const toldLine = senderName ? fill(words.told, { sender: escapeHtml(senderName) }) : words.toldAnon;
+    await editCard(chatId, messageId, told ? `${copied}\n\n${toldLine}` : copied, user.id);
   } catch (error) {
     console.error(`${TAG} user ${userId ?? 'unknown'}: a press failed (${why(error)})`);
     captureError(error, 'event-copy-press', { user_id: userId });

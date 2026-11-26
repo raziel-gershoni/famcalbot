@@ -11363,7 +11363,8 @@ async function main() {
       ['no shareMessage', reply('prep1'), undefined],
       ['a null preparedId', reply(null), (tg) => (tg.webApp.shareMessage = () => tg.calls.push('shareMessage(called)'))],
       ['a 7.7 client', reply('prep1'), (tg) => { tg.webApp.isVersionAtLeast = (v: string) => Number(v) <= 7.7; tg.webApp.shareMessage = () => tg.calls.push('shareMessage(called)'); }],
-      ['UNSUPPORTED', reply('prep1'), (tg) => (tg.webApp.shareMessage = (id: string) => { tg.calls.push(`shareMessage(${id})`); tg.fire('shareMessageFailed', { error: 'UNSUPPORTED' }); })],
+      // As Telegram's script does it (final review I1): the callback with false first, then the event, in the same turn
+      ['UNSUPPORTED', reply('prep1'), (tg) => (tg.webApp.shareMessage = (id: string, cb?: (s: boolean) => void) => { tg.calls.push(`shareMessage(${id})`); cb?.(false); tg.fire('shareMessageFailed', { error: 'UNSUPPORTED' }); })],
     ];
     for (const [what, answerWith, tweak] of cases) {
       const h = await copyHome(answerWith, tweak);
@@ -11373,6 +11374,21 @@ async function main() {
         assert(h.tg.calls.includes(`openTelegramLink(${shareUrl})`), `${what}: the share link ${show(h.tg.calls)}`);
         assert(!h.tg.calls.includes('shareMessage(called)'), `${what}: shareMessage not called`);
         assert(!dialogText(h.m.container).includes(NOTE), `${what}: no note`);
+      } finally {
+        h.m.unmount();
+      }
+    }
+  });
+
+  await check('#149b Send a copy, as Telegram\'s script reports a failed share (the callback with false, then shareMessageFailed in the same turn; final review I1): a send that failed shows the note, a declined picker shows none and opens no link', async () => {
+    const reply = ok200({ preparedId: 'prep1', link: COPY_LINK, text: COPY_TEXT });
+    for (const [error, noted] of [['MESSAGE_SEND_FAILED', true], ['MESSAGE_EXPIRED', true], ['USER_DECLINED', false]] as const) {
+      const h = await copyHome(reply, (tg) => (tg.webApp.shareMessage = (id: string, cb?: (s: boolean) => void) => { tg.calls.push(`shareMessage(${id})`); cb?.(false); tg.fire('shareMessageFailed', { error }); }));
+      try {
+        h.m.click(sendCopyOf(h.m)[0]);
+        await settle();
+        assert(dialogText(h.m.container).includes(NOTE) === noted, `${error}: the note ${noted ? 'shows' : 'stays away'}`);
+        assert(!h.tg.calls.some((c) => c.startsWith('openTelegramLink(')), `${error}: no link ${show(h.tg.calls)}`);
       } finally {
         h.m.unmount();
       }

@@ -58,7 +58,8 @@ export async function createCopyOffer(senderUserId: number, sourceEventId: strin
 export type CopyOfferView =
   | { state: 'invalid' }
   | { state: 'mine' | 'taken' | 'gone' | 'open'; offer: EventCopyOffer; source: NativeEvent; sender: User }
-  | { state: 'yours'; offer: EventCopyOffer; source: NativeEvent; sender: User; calendarName: string };
+  /** Taken by the viewer; calendarName is null while the copy is not recorded yet (a second tap during the first). */
+  | { state: 'yours'; offer: EventCopyOffer; source: NativeEvent; sender: User; calendarName: string | null };
 
 /**
  * What a token means to a viewer now:
@@ -81,10 +82,11 @@ export async function viewCopyOffer(token: string, viewerUserId: number): Promis
   if (!source || !sender) return { state: 'invalid' };
 
   if (offer.takenAt) {
-    if (offer.takenByUserId === viewerUserId && offer.copyEventId) {
+    if (offer.takenByUserId === viewerUserId) {
+      if (!offer.copyEventId) return { state: 'yours', offer, source, sender, calendarName: null };
       const copy = await prisma.nativeEvent.findUnique({ where: { id: offer.copyEventId }, select: { calendarId: true } });
       const calendar = copy ? await prisma.nativeCalendar.findUnique({ where: { id: copy.calendarId }, select: { name: true } }) : null;
-      if (calendar) return { state: 'yours', offer, source, sender, calendarName: calendar.name };
+      return { state: 'yours', offer, source, sender, calendarName: calendar?.name ?? null };
     }
     return { state: 'taken', offer, source, sender };
   }
@@ -115,12 +117,26 @@ async function senderCanStillSend(offer: EventCopyOffer, source: NativeEvent, se
  * two presses at once give one copy.
  */
 export async function claimCopyOffer(offerId: string, userId: number): Promise<boolean> {
+  // One plain conditional UPDATE (no relation filter, which could be read and written in two statements): two presses at
+  // once, one wins.
   const { count } = await prisma.eventCopyOffer.updateMany({
-    where: { id: offerId, takenAt: null, sourceEvent: { isDeleted: false } },
+    where: { id: offerId, takenAt: null },
     data: { takenAt: new Date(), takenByUserId: userId },
   });
-  console.log(`${TAG} offer ${offerId}: user ${userId} ${count === 1 ? 'claimed it' : 'did not get it'}`);
-  return count === 1;
+  if (count !== 1) {
+    console.log(`${TAG} offer ${offerId}: user ${userId} did not get it`);
+    return false;
+  }
+  // The original may have been deleted since the press looked: then the claim is given back and the offer is gone.
+  const offer = await prisma.eventCopyOffer.findUnique({ where: { id: offerId }, select: { sourceEventId: true } });
+  const source = offer ? await prisma.nativeEvent.findUnique({ where: { id: offer.sourceEventId }, select: { isDeleted: true } }) : null;
+  if (!source || source.isDeleted) {
+    await releaseCopyOffer(offerId, userId);
+    console.log(`${TAG} offer ${offerId}: the original is gone, the claim of user ${userId} given back`);
+    return false;
+  }
+  console.log(`${TAG} offer ${offerId}: user ${userId} claimed it`);
+  return true;
 }
 
 /** Gives a claim back (the copy's write failed): the offer is open again. Only its taker, and only before a copy is recorded. */

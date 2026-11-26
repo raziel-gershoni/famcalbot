@@ -91,9 +91,20 @@ const CONNECT_TOKEN = /\bw_[A-Za-z0-9_-]{22}(?![A-Za-z0-9_-])/g;
  * /start text, and in a WhatsApp message, so it is scrubbed the same way.
  */
 const GOOGLE_CONNECT_ID = /\bgc_[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g;
-/** Both ids out of a string. gc_ first: a w_ pattern could match inside a gc_ id that holds "-w_" and leave the rest. */
+/**
+ * Send a copy's offer token (src/services/event-copy/offers.ts): cp_<22 base64url characters> in the /start text and the
+ * command breadcrumb, cp:<token>:<calendar> in a button's callback data.
+ */
+const COPY_TOKEN = /\b(cp[_:])[A-Za-z0-9_-]{22}(?![A-Za-z0-9_-])/g;
+/** The partner invite's packed token in a /start parameter, invite_<43 base64url characters> (src/lib/invite-link.ts). */
+const INVITE_START = /\b(invite_)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])/g;
+/** The ids and tokens out of a string. gc_ first: a w_ pattern could match inside a gc_ id that holds "-w_" and leave the rest. */
 function scrubConnectIds(text: string): string {
-  return text.replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`).replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
+  return text
+    .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
+    .replace(COPY_TOKEN, `$1${SCRUBBED}`)
+    .replace(INVITE_START, `$1${SCRUBBED}`)
+    .replace(CONNECT_TOKEN, `w_${SCRUBBED}`);
 }
 /** The partner invite page's path, /invite/<the token's 64 hex characters> (src/lib/invite-token.ts), in a URL or a name. */
 const INVITE_PATH = /\/invite\/[0-9a-f]{64}(?![0-9a-f])/gi;
@@ -117,6 +128,8 @@ function scrubSecrets(text: string): string {
     .replace(PLACE_PARAM, `$1$2=${SCRUBBED}`)
     .replace(BOT_TOKEN_PATH, `/bot${SCRUBBED}`)
     .replace(GOOGLE_CONNECT_ID, `gc_${SCRUBBED}`)
+    .replace(COPY_TOKEN, `$1${SCRUBBED}`)
+    .replace(INVITE_START, `$1${SCRUBBED}`)
     .replace(CONNECT_TOKEN, `w_${SCRUBBED}`)
     .replace(INVITE_PATH, `/invite/${SCRUBBED}`)
     .replace(PUSH_SERVICE_PATH, `$1/${SCRUBBED}`);

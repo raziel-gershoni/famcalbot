@@ -703,11 +703,12 @@ async function main() {
     assert(offerRow(offerId).takenByUserId === RECEIVER && offerRow(offerId).copyEventId === copies[0].id, `offer ${show(offerRow(offerId))}`);
     const edit = calls('editMessageText')[0];
     assert(edit.chat_id === 103 && edit.message_id === 77 && edit.parse_mode === 'HTML', `edit ${show(edit)}`);
-    assert(edit.text.startsWith('Скопировано в календарь «Receiver cal»:') && edit.text.includes(`<b>${SECRET_TITLE}</b>`) && edit.text.endsWith('Уведомление отправлено: Avi.'), `edit text ${edit.text}`);
+    assert(edit.text.startsWith('Скопировано в календарь «Receiver cal»:') && edit.text.includes(`<b>${SECRET_TITLE}</b>`) && edit.text.endsWith('Отправитель (Avi) получил уведомление.'), `edit text ${edit.text}`);
     const note = calls('sendMessage')[0];
     assertSame(note.chat_id, 101, 'the note goes to the sender\'s chat');
     assert(note.disable_notification === true && note.parse_mode === 'HTML', `note ${show(note)}`);
-    assertSame(note.text, `“${SECRET_TITLE}” הועתק ליומן של Dana &lt;b&gt;.`, 'the note, Hebrew, escaped name');
+    // Starts with Hebrew, so a Latin title doesn't turn the line left to right (final review M7)
+    assertSame(note.text, `האירוע “${SECRET_TITLE}” הועתק ליומן של Dana &lt;b&gt;.`, 'the note, Hebrew, escaped name');
   });
 
   await check('a receiver with no name: the note says "Someone" in the sender\'s language', async () => {
@@ -794,6 +795,81 @@ async function main() {
     db.user.find((u) => u.id === SENDER)!.telegramId = null;
     await press(o2.token, 'cal-receiver');
     assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1 && calls('sendMessage').length === 0, 'web sender');
+  });
+
+  await check('final review M8: a sender with no name is "the sender" in a sentence of its own, in the receiver\'s language (en and ru)', async () => {
+    for (const [lang, want] of [['en', 'The sender was told.'], ['ru', 'Отправитель получил уведомление.']] as const) {
+      reset();
+      event('ev1');
+      const { token } = await newOffer();
+      db.user.find((u) => u.id === RECEIVER)!.language = lang;
+      db.user.find((u) => u.id === SENDER)!.name = '  ';
+      await press(token, 'cal-receiver');
+      const edit = calls('editMessageText')[0];
+      assert(edit && edit.text.endsWith(want), `${lang}: ${edit?.text}`);
+    }
+  });
+
+  await check('final review M4: the taker\'s own second look while the copy is not recorded yet is "yours" with no calendar: /start says so, and a press changes nothing', async () => {
+    reset();
+    event('ev1');
+    const { token, offerId } = await newOffer();
+    Object.assign(offerRow(offerId), { takenAt: new Date(), takenByUserId: RECEIVER, copyEventId: null });
+    const view = await offers.viewCopyOffer(token, RECEIVER);
+    assert(view.state === 'yours' && view.calendarName === null, `view ${show(view)}`);
+    const other = await offers.viewCopyOffer(token, OTHER);
+    assert(other.state === 'taken', `another person: ${other.state}`);
+    await press(token, 'cal-receiver');
+    assertSame(botCalls.map((c) => c.method), ['answerCallbackQuery'], 'only the spinner is answered');
+  });
+
+  await check('final review (declined, ruled): the claim is one plain conditional update (id and takenAt null, no relation filter), and a claim whose original was deleted meanwhile gives itself back', async () => {
+    reset();
+    const ev = event('ev1');
+    const { offerId } = await offerFor();
+    const wheres: unknown[] = [];
+    const real = fakePrisma.eventCopyOffer.updateMany;
+    fakePrisma.eventCopyOffer.updateMany = async (a: { where?: Row; data?: Row }) => { wheres.push(a.where); return real(a); };
+    try {
+      assert(await offers.claimCopyOffer(offerId, RECEIVER), 'claimed');
+      assertSame(Object.keys(wheres[0] as Row).sort(), ['id', 'takenAt'], 'the claim\'s where');
+      offerRow(offerId).takenAt = null;
+      offerRow(offerId).takenByUserId = null;
+      ev.isDeleted = true;
+      assert(!(await offers.claimCopyOffer(offerId, RECEIVER)), 'a deleted original is not claimed');
+      assert(offerRow(offerId).takenAt === null && offerRow(offerId).takenByUserId === null, `given back ${show(offerRow(offerId))}`);
+    } finally {
+      fakePrisma.eventCopyOffer.updateMany = real;
+    }
+  });
+
+  await check('final review M6: the offer\'s three other keys are indexed, in the schema and the migration', () => {
+    const schema = fs.readFileSync(path.join(ROOT, 'prisma/schema.prisma'), 'utf8');
+    const model = /model EventCopyOffer \{[^}]*\}/.exec(schema)?.[0] ?? '';
+    const sql = fs.readFileSync(path.join(ROOT, 'prisma/migrations/20261127000000_event_copy_offer/migration.sql'), 'utf8');
+    for (const column of ['senderUserId', 'sourceEventId', 'copyEventId', 'takenByUserId']) {
+      assert(model.includes(`@@index([${column}])`), `schema: ${column}`);
+      assert(sql.includes(`CREATE INDEX "EventCopyOffer_${column}_idx" ON "EventCopyOffer"("${column}");`), `migration: ${column}`);
+    }
+  });
+
+  await check('final review I2: Sentry gets no offer token: the webhook body\'s "/start cp_<token>", the command breadcrumb\'s args, the callback breadcrumb\'s cp:<token>:<calendar>; and no partner invite\'s invite_<packed token> either', async () => {
+    const scrub = await load('src/lib/sentry-scrub.ts');
+    const token = 'Ab3_-Ab3_-Ab3_-Ab3_-Ab';
+    const packed = 'A'.repeat(20) + '_-' + 'b'.repeat(21);
+    assert(token.length === 22 && packed.length === 43, 'fixture lengths');
+    const body = JSON.stringify(scrub.scrubServerEvent({ request: { data: { message: { text: `/start cp_${token}` } } } }));
+    assert(!body.includes(token) && body.includes('/start cp_[scrubbed]'), `body ${body}`);
+    const args = scrub.scrubServerBreadcrumb({ category: 'command', message: 'command_started', data: { args: `cp_${token}` } });
+    assertSame(args.data.args, 'cp_[scrubbed]', 'the command breadcrumb');
+    const press = scrub.scrubServerBreadcrumb({ category: 'user_action', message: 'callback_received', data: { callback_data: `cp:${token}:ckabcdefghijklmnopqrstuvw` } });
+    assertSame(press.data.callback_data, 'cp:[scrubbed]:ckabcdefghijklmnopqrstuvw', 'the callback breadcrumb');
+    const invite = scrub.scrubServerBreadcrumb({ category: 'command', message: 'command_started', data: { args: `invite_${packed}` } });
+    assertSame(invite.data.args, 'invite_[scrubbed]', 'the invite breadcrumb');
+    const inviteBody = JSON.stringify(scrub.scrubServerEvent({ request: { data: { message: { text: `/start invite_${packed}` } } } }));
+    assert(!inviteBody.includes(packed), `invite body ${inviteBody}`);
+    const plain = scrub.scrubServerBreadcrumb({ category: 'command', message: 'm', data: { args: 'cp_short' } });
+    assertSame(plain.data.args, 'cp_short', 'not a token: left alone');
   });
 
   await check('a button that is not cp:<token>:<calendar> is refused after answering the spinner', async () => {

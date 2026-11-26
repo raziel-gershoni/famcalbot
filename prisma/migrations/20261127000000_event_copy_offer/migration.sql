@@ -16,6 +16,12 @@ CREATE UNIQUE INDEX "EventCopyOffer_tokenHash_key" ON "EventCopyOffer"("tokenHas
 
 CREATE INDEX "EventCopyOffer_senderUserId_idx" ON "EventCopyOffer"("senderUserId");
 
+CREATE INDEX "EventCopyOffer_sourceEventId_idx" ON "EventCopyOffer"("sourceEventId");
+
+CREATE INDEX "EventCopyOffer_copyEventId_idx" ON "EventCopyOffer"("copyEventId");
+
+CREATE INDEX "EventCopyOffer_takenByUserId_idx" ON "EventCopyOffer"("takenByUserId");
+
 ALTER TABLE "EventCopyOffer" ADD CONSTRAINT "EventCopyOffer_sourceEventId_fkey" FOREIGN KEY ("sourceEventId") REFERENCES "NativeEvent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "EventCopyOffer" ADD CONSTRAINT "EventCopyOffer_senderUserId_fkey" FOREIGN KEY ("senderUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

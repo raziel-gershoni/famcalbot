@@ -196,6 +196,11 @@ export async function handleStartCommand(
 
   // A copy of an event someone sent: t.me/<bot>?start=cp_<token> (src/services/event-copy/bot.ts)
   if (args && args.startsWith('cp_') && platform === MessagingPlatform.TELEGRAM) {
+    // Only in the bot's private chat: the answer's buttons name the person's calendars and their partner
+    if (chatType !== 'private') {
+      console.warn(`[event-copy] a /start cp_ in a ${chatType ?? 'unknown'} chat was not answered: only the bot's private chat`);
+      return;
+    }
     const { handleCopyStart } = await import('../event-copy/bot');
     await handleCopyStart(chatId, user, args.slice('cp_'.length), locale, links);
     await askAddress();
