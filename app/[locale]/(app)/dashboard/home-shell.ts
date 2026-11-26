@@ -26,6 +26,8 @@
 //   were ahead of them when the theme held them: a header line that is also a holiday cell
 //   keeps the same winner.
 
+import { SHORT_UPRIGHT_QUERY } from '@/src/lib/calendar-view/month-layout';
+
 export const HOME_SHELL_CSS = `
 .ch-day-holiday {
   color: var(--ch-muted);
@@ -51,8 +53,12 @@ export const HOME_SHELL_CSS = `
   font-weight: 600;
   line-height: 1.25;
 }
-.ch-head-title::first-letter {
+.ch-head-title::first-letter,
+.ch-head-short::first-letter {
   text-transform: uppercase;
+}
+.ch-head-short {
+  display: none;
 }
 .ch-head-sub {
   margin: 2px 0 0;
@@ -157,25 +163,6 @@ export const HOME_SHELL_CSS = `
 .ch-head-buttons {
   display: flex;
   gap: 8px;
-}
-.ch-icon-btn.ch-head-hdate {
-  flex-direction: column;
-  gap: 1px;
-  inline-size: auto;
-  min-inline-size: 44px;
-  padding-inline: 4px;
-  font-family: inherit;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-.ch-head-hdate-day {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--ch-text);
-}
-.ch-head-hdate-month {
-  font-size: 11px;
-  color: var(--ch-muted);
 }
 .ch-head-weather,
 .ch-head-weather-ghost {
@@ -564,6 +551,46 @@ export const HOME_SHELL_CSS = `
 @keyframes ch-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
+}
+/* A short phone held upright, on the Month tab (owner 2026-11-26): the header is one line, the day's short form over
+   the Hebrew date beside the buttons, so the Month's day list keeps its room (a 375 x 667 phone: about 76 px of list
+   with the full header, 124 with this one). The long day stays the heading for screen readers; the holiday, the zman
+   lines, the parasha and countdown and the weather go, as on a phone held sideways. */
+@media ${SHORT_UPRIGHT_QUERY} {
+  .ch-home-top.is-month .ch-head {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px;
+  }
+  .ch-home-top.is-month .ch-head-text {
+    flex: 1 1 0;
+  }
+  .ch-home-top.is-month .ch-head-short {
+    display: block;
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+  .ch-home-top.is-month .ch-head-title {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: clip;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .ch-home-top.is-month .ch-head-sub {
+    margin: 0;
+  }
+  .ch-home-top.is-month .ch-day-holiday,
+  .ch-home-top.is-month .ch-head-zman,
+  .ch-home-top.is-month .ch-head-next,
+  .ch-home-top.is-month .ch-head-weather,
+  .ch-home-top.is-month .ch-head-weather-ghost {
+    display: none;
+  }
 }
 @media (max-height: 520px) and (orientation: landscape) {
   /* A short window (a phone held sideways): the header is one line, the date, the Hebrew date, the temperature and the

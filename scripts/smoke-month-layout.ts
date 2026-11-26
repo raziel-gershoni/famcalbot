@@ -15,6 +15,8 @@ import {
   HANDLE_PX,
   LIST_MIN_PX,
   SHORT_QUERY,
+  SHORT_UPRIGHT_QUERY,
+  SQUARE_LARGE_MIN_PX,
   WIDE_QUERY,
   monthAtScroll,
   splitHeights,
@@ -96,12 +98,29 @@ async function main() {
     assertJson(splitHeights(560, 76, 54, false), { rowPx: 44, scrollerPx: 264, listPx: 198 }, '560');
     assertJson(splitHeights(440, 76, 54, false), { rowPx: 37, scrollerPx: 222, listPx: 120 }, '440');
     assertJson(splitHeights(380, 76, 54, false), { rowPx: 36, scrollerPx: 216, listPx: 66 }, '380');
-    assertJson(splitHeights(900, 76, 110, false), { rowPx: 77, scrollerPx: 462, listPx: 340 }, '900');
+    assertJson(splitHeights(900, 76, 110, false), { rowPx: 82, scrollerPx: 492, listPx: 310 }, '900');
     assertJson(splitHeights(560, 76, 54, true), { rowPx: 69, scrollerPx: 418, listPx: 44 }, 'grown');
     assertJson(splitHeights(NaN, 76, 54, false), { rowPx: 0, scrollerPx: 0, listPx: 0 }, 'NaN');
     assertJson(splitHeights(560, 76, 0, false), { rowPx: 0, scrollerPx: 0, listPx: 0 }, 'no cell width');
     assertJson(splitHeights(-5, 76, 54, true), { rowPx: 0, scrollerPx: 0, listPx: 0 }, 'negative');
     assert(HANDLE_PX === 22 && LIST_MIN_PX === 120, 'constants');
+  });
+
+  await check('splitHeights, a tablet held upright (owner 2026-11-26): squares wide enough for names grow the rows to a large square\'s height (82), so a six-week month shows names, not dots, while the list keeps a quarter of the region; phones and the grown month are untouched', () => {
+    assert(SQUARE_LARGE_MIN_PX === 82 && squareSize(82, 110).kind === 'large' && squareSize(81, 110).kind === 'medium', 'the large square starts at 82');
+    // 900 px region, 110 px cells: 0.6 of it gives rows of 77 (medium: dots); they grow to 82, the list keeps 310
+    assertJson(splitHeights(900, 76, 110, false), { rowPx: 82, scrollerPx: 492, listPx: 310 }, '900');
+    assert(squareSize(492 / 6, 110).kind === 'large' && squareSize(492 / 5, 110).kind === 'large', 'six- and five-week months draw names');
+    // 800: 67 grows to 82, the list keeps 210 (over 200, a quarter)
+    assertJson(splitHeights(800, 76, 110, false), { rowPx: 82, scrollerPx: 492, listPx: 210 }, '800');
+    // 760: the list would keep 170, under 190: the rows stay 63
+    assertJson(splitHeights(760, 76, 110, false), { rowPx: 63, scrollerPx: 378, listPx: 284 }, '760');
+    // Squares too narrow for names (0.9 of 90 is 81): no growth; a phone's cells (54) neither
+    assertJson(splitHeights(900, 76, 90, false), { rowPx: 77, scrollerPx: 462, listPx: 340 }, 'narrow squares');
+    assertJson(splitHeights(560, 76, 54, false), { rowPx: 44, scrollerPx: 264, listPx: 198 }, 'phone');
+    // Rows already large stay as they were; grown is the grown month's own rule
+    assertJson(splitHeights(1100, 76, 110, false), { rowPx: 97, scrollerPx: 582, listPx: 420 }, '1100');
+    assertJson(splitHeights(900, 76, 110, true), { rowPx: 126, scrollerPx: 758, listPx: 44 }, 'grown');
   });
 
   await check('splitHeights: a 320 x 568 phone region keeps rows of at least 36', () => {
@@ -123,6 +142,14 @@ async function main() {
     const android = regionPx(560, 200, 0, 0);
     assert(android === 360, `Android region ${android}`);
     assertJson(splitHeights(android, monthBarPx(true), cellOf(360), false), { rowPx: 36, scrollerPx: 216, listPx: 46 }, '360x640');
+  });
+
+  await check('a short phone held upright (owner 2026-11-26): SHORT_UPRIGHT_QUERY is up to 700 px high in portrait; on the Month tab the header drops to one line (about 56 px and the tab bar\'s 48, against about 200 for both), so the list keeps about 120 px: a 375×667 iPhone SE (viewport 590) → region 486, rows 44, list 124; a 360×640 Android phone (viewport 560) → region 456, rows 39, list 124. These pin today\'s numbers, not a target', () => {
+    assert(SHORT_UPRIGHT_QUERY === '(max-height: 700px) and (orientation: portrait)', SHORT_UPRIGHT_QUERY);
+    const se = regionPx(590, 56 + 48, 0, 0);
+    assertJson(splitHeights(se, monthBarPx(true), cellOf(375), false), { rowPx: 44, scrollerPx: 264, listPx: 124 }, '375x667');
+    const android = regionPx(560, 56 + 48, 0, 0);
+    assertJson(splitHeights(android, monthBarPx(true), cellOf(360), false), { rowPx: 39, scrollerPx: 234, listPx: 124 }, '360x640');
   });
 
   await check('I2: grown, the list\'s peek stays PEEK_PX clear of the bottom safe area the region now runs under: a 509 px region with a 34 px home indicator → scroller 333, list 78 (44 + 34); with none 367 and 44; collapsed, the safe area is part of the list (the same heights with or without it); a bad inset counts as 0', () => {

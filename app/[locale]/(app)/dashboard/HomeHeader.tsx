@@ -4,19 +4,21 @@
 // route says so, its Hebrew date ("Thursday, 15 October" over "4 Cheshvan 5787"), both
 // from the server's today, never the device's clock; "Times in <zone>" when the device
 // is in another zone (§7.1); and 44 px buttons: "+" (add an event or a reminder, only
-// when the user can add one, home editing spec §2), Send to chat (only for an account with a chat, 6c-1), the zmanim button (lucide Sunset; today's zmanim, only for the Jewish
-// calendar; it shows today's Hebrew date like a calendar page, the day over the month, when there is one, owner 2026-11-26) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
+// when the user can add one, home editing spec §2), Send to chat (only for an account with a chat, 6c-1), the zmanim button (lucide Clock: a date on a button reads as one
+// that opens a calendar, owner 2026-11-26; today's zmanim, only for the Jewish calendar) and the ⋯ menu. Under the buttons, at the header's end edge, the weather at the person's place: the place as
 // they typed it, today (the icon, the temperature now and the low-high) and, as many as fit, the next days (the weekday,
-// the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar.
+// the icon and the high); nothing where there is none. Until the first answer the day is a placeholder bar. Before the
+// day's heading, its short form ("Thu 26 Nov"), hidden but on a short phone held upright on the Month tab, where the
+// header is one line (HOME_SHELL_CSS) and the long day stays the heading for screen readers.
 // Under the date lines, two lines at the person's place: the zman that passed last ("Sunset 16:42", "Yesterday: Midnight
 // 23:24" before today's first) over the next one still ahead ("Tzeit 16:58", "Tomorrow: Dawn 05:01" once today's are
 // past); zmanWindowOf in zmanim-list.ts picks both from the sun sheet's own lists. One quiet button that opens the zmanim
 // sheet, each time in the accent for the candle lighting and the end of Shabbat or Yom Tov, as in the sheet.
 
 import { useLocale, useTranslations } from 'next-intl';
-import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Flame, MapPin, Snowflake, Sun, Sunset, type LucideIcon } from 'lucide-react';
-import { daysBetween, formatDayLong, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
-import { hebrewCellLabel, hebrewFullDate, hebrewMonthOf } from '@/src/lib/calendar-view/hebrew-date';
+import { Cloud, CloudDrizzle, CloudFog, CloudLightning, CloudRain, CloudRainWind, CloudSnow, CloudSun, Clock, Flame, MapPin, Snowflake, Sun, type LucideIcon } from 'lucide-react';
+import { daysBetween, formatDayLong, formatDayShort, formatForecastWeekday, formatTime, formatWeekdayLong, shabbatOf } from '@/src/lib/calendar-view/format';
+import { hebrewFullDate } from '@/src/lib/calendar-view/hebrew-date';
 import { hasChag, holidayTitles, isPortion, monthLanded, useHolidays, useNextHoliday } from '@/src/lib/calendar-view/holidays-client';
 import { zoneLabel } from '@/src/lib/calendar-view/home-client';
 import type { HomeWeather } from '@/src/lib/calendar-view/home-weather';
@@ -180,21 +182,6 @@ function ZmanWindowLines({ lines, open, onOpen }: { lines: ZmanWindow; open: boo
   );
 }
 
-/**
- * The zmanim button as a calendar page (owner 2026-11-26): today's Hebrew day over its month ("ט״ז" over "כסלו", "16" over
- * "Kislev"), so the Hebrew date needs no line of its own under the title. Its label is the full date and "Zmanim".
- */
-function HebrewDateTile({ today, date, open, onOpen }: { today: DayKey; date: string; open: boolean; onOpen: () => void }) {
-  const t = useTranslations('calendarHome');
-  const locale = useLocale();
-  return (
-    <button type="button" className="ch-icon-btn ch-head-hdate" aria-label={t('header.zmanimOnDate', { date })} aria-haspopup="dialog" aria-expanded={open} onClick={onOpen}>
-      <span className="ch-head-hdate-day" aria-hidden="true"><bdi>{hebrewCellLabel(today, locale, false)}</bdi></span>
-      <span className="ch-head-hdate-month" aria-hidden="true"><bdi>{hebrewMonthOf(today, locale)}</bdi></span>
-    </button>
-  );
-}
-
 export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSend, onMenu, onAdd, addOpen, onZmanim, zmanimOpen, weather, zmanWindow }: HomeHeaderProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
@@ -202,8 +189,6 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
   const genitive = locale === 'ru' ? (t.raw('hebrewMonthGenitive') as string[]) : undefined;
   const title = today ? formatDayLong(today, locale) : '';
   const hebrew = today && hebrewDates ? hebrewFullDate(today, locale, genitive) : '';
-  // With the zmanim button, the Hebrew date is on it (HebrewDateTile) and leaves the line under the title.
-  const tile = today !== null && hebrew !== '' && onZmanim !== undefined;
   // This week's parasha (and its special Shabbat) on the Hebrew date's line, all week: the portions of
   // the first Saturday on or after today, which may fall in next month. They are no holiday: they
   // never make the holiday line and never hide the countdown.
@@ -225,17 +210,20 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
   return (
     <header className="ch-head">
       <div className="ch-head-text">
-        {title ? (
-          <h1 className="ch-head-title">{title}</h1>
+        {title && today ? (
+          <>
+            <p className="ch-head-short" aria-hidden="true">{formatDayShort(today, locale)}</p>
+            <h1 className="ch-head-title">{title}</h1>
+          </>
         ) : (
           <div className="ch-head-ghost" aria-hidden="true">
             <span className="ch-head-ghost-title" />
             <span className="ch-head-ghost-sub" />
           </div>
         )}
-        {hebrew && (!tile || portions.length > 0 || countdown) ? (
+        {hebrew ? (
           <p className="ch-head-sub ch-head-line">
-            {tile ? null : hebrew}
+            {hebrew}
             {portions.map((portion) => <span key={portion.kind} className="ch-head-next"><bdi>{portion.title}</bdi></span>)}
             {countdown ? <span className="ch-head-next"><bdi>{countdown}</bdi></span> : null}
           </p>
@@ -267,11 +255,9 @@ export function HomeHeader({ today, hebrewDates, zone, sendOpen, menuOpen, onSen
               <SendIcon />
             </button>
           ) : null}
-          {tile && today && onZmanim ? (
-            <HebrewDateTile today={today} date={hebrew} open={zmanimOpen ?? false} onOpen={onZmanim} />
-          ) : onZmanim ? (
+          {onZmanim ? (
             <button type="button" className="ch-icon-btn" aria-label={t('header.zmanim')} aria-haspopup="dialog" aria-expanded={zmanimOpen ?? false} onClick={onZmanim}>
-              <Sunset size={22} strokeWidth={2} aria-hidden="true" focusable="false" />
+              <Clock size={22} strokeWidth={2} aria-hidden="true" focusable="false" />
             </button>
           ) : null}
           <button

@@ -305,9 +305,10 @@ export function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLEl
  * The header and the tab bar (they never stick, Ruling 4). Its height is published on every
  * commit, in a layout effect: as an earlier sibling's, it runs before the Month's own layout
  * effects in the same commit (the region's first measure reads the height through CSS), and a
- * ResizeObserver catches what changes it outside a render (fonts, a rotation).
+ * ResizeObserver catches what changes it outside a render (fonts, a rotation). On the Month tab it
+ * carries is-month: a short phone held upright gets the one-line header there (HOME_SHELL_CSS).
  */
-function HomeTop({ homeRef, children }: { homeRef: RefObject<HTMLElement | null>; children: ReactNode }) {
+function HomeTop({ homeRef, month, children }: { homeRef: RefObject<HTMLElement | null>; month: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => publishTopHeight(ref.current, homeRef));
   useEffect(() => {
@@ -324,7 +325,7 @@ function HomeTop({ homeRef, children }: { homeRef: RefObject<HTMLElement | null>
     return () => observer.disconnect();
   }, [homeRef]);
   return (
-    <div ref={ref} className="ch-home-top">
+    <div ref={ref} className={month ? 'ch-home-top is-month' : 'ch-home-top'}>
       {children}
     </div>
   );
@@ -1292,7 +1293,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     <AppScreen className="ch-home" rootRef={homeRef} onBack={backActive ? back : null}>
       <style>{HOME_SHELL_CSS}</style>
       <style>{HOME_TOP_CSS}</style>
-      <HomeTop homeRef={homeRef}>
+      <HomeTop homeRef={homeRef} month={activeTab === 'month'}>
         <HomeHeader
           today={facts?.today ?? null}
           hebrewDates={facts?.hebrewDates ?? false}

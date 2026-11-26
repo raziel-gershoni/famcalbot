@@ -143,7 +143,7 @@ import { PANEL_IDS, TAB_IDS } from '../app/[locale]/(app)/dashboard/HomeTabs';
 import { homeTabKey, monthSplitKey } from '../src/lib/calendar-view/home-storage';
 import { monthWindow, spanMonths, defaultSpan, type MonthKey } from '../src/lib/calendar-view/grid';
 import { monthBarPx } from '../src/lib/calendar-view/month';
-import { GRID_PAD_PX, SETTLE_MS, WIDE_QUERY, splitHeights } from '../src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, SETTLE_MS, SHORT_UPRIGHT_QUERY, WIDE_QUERY, splitHeights } from '../src/lib/calendar-view/month-layout';
 import { lintCss } from './lib/css-lint';
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
@@ -3562,7 +3562,7 @@ async function main() {
       assert(byClass(top(), 'ch-head').length === 1 && byRole(top(), 'tablist').length === 1 && byClass(top(), 'ch-banners').length === 0, 'the header and the tab bar, not the banners');
       assert(top().className === 'ch-home-top', `the Agenda: in the page: ${top().className}`);
       await openMonth(m);
-      assert(top().className === 'ch-home-top', `the Month: in the page too: ${top().className}`);
+      assert(top().className === 'ch-home-top is-month', `the Month: in the page too, marked for the short upright header: ${top().className}`);
       const home = byClass(m.container, 'ch-home')[0];
       assert(home.style['--ch-top-h'] === '126px', `--ch-top-h on .ch-home: ${home.style['--ch-top-h']}`);
       const css = pageCss(m);
@@ -3595,6 +3595,45 @@ async function main() {
       m.unmount();
       fakeWindow.Telegram = undefined;
     }
+  });
+
+  await check('#56s a short phone held upright, on the Month tab (owner 2026-11-26): the header\'s wrapper is .ch-home-top.is-month there and plain on the Agenda; the header holds the day\'s short form, aria-hidden, before its heading, in each language; and under SHORT_UPRIGHT_QUERY the Month\'s header is one line: the short day over the Hebrew date beside the buttons, the long day hidden but for screen readers, and the holiday, zman lines, parasha and countdown and weather gone; elsewhere the short form never shows', async () => {
+    for (const locale of LOCALES) {
+      resetHome();
+      fakeWindow.Telegram = { WebApp: fakeTelegramHome().webApp };
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome(locale, { jewish: true });
+      try {
+        const wrapper = () => byClass(m.container, 'ch-home-top')[0];
+        assert(wrapper()?.className === 'ch-home-top', `${locale}: the Agenda: ${wrapper()?.className}`);
+        const head = byClass(m.container, 'ch-head-text')[0];
+        const short = formatDayShort(TODAY, locale);
+        assert(short.length > 0 && htmlOf(head).startsWith(`<div class="ch-head-text"><p class="ch-head-short" aria-hidden="true">${short}</p><h1 class="ch-head-title">`), `${locale}: the short day before the heading: ${htmlOf(head).slice(0, 180)}`);
+        await openMonth(m);
+        assert(wrapper()?.className === 'ch-home-top is-month', `${locale}: the Month: ${wrapper()?.className}`);
+        m.click(tabButton(m, 'agenda'));
+        await settle();
+        assert(wrapper()?.className === 'ch-home-top', `${locale}: the Agenda again: ${wrapper()?.className}`);
+      } finally {
+        m.unmount();
+        fakeWindow.Telegram = undefined;
+      }
+    }
+    assert(formatDayShort(TODAY, 'en') === 'Thu 15 Oct', `en: ${formatDayShort(TODAY, 'en')}`);
+    assert(decl(cssRule(HOME_SHELL_CSS, '.ch-head-short'), 'display') === 'none', 'the short day is hidden by default');
+    const at = HOME_SHELL_CSS.indexOf(`@media ${SHORT_UPRIGHT_QUERY} {`);
+    assert(at > 0 && SHORT_UPRIGHT_QUERY === '(max-height: 700px) and (orientation: portrait)', `the upright block: ${SHORT_UPRIGHT_QUERY}`);
+    const block = HOME_SHELL_CSS.slice(at, HOME_SHELL_CSS.indexOf('\n}\n', at));
+    const inner = (selector: string) => cssRule(block, selector);
+    assert(decl(inner('.ch-home-top.is-month .ch-head'), 'flex-wrap') === 'nowrap' && decl(inner('.ch-home-top.is-month .ch-head'), 'padding') === '6px 16px', 'one line, 6 px above and below');
+    assert(decl(inner('.ch-home-top.is-month .ch-head-short'), 'display') === 'block' && decl(inner('.ch-home-top.is-month .ch-head-short'), 'font-size') === '17px', 'the short day shows');
+    const title = inner('.ch-home-top.is-month .ch-head-title');
+    assert(decl(title, 'position') === 'absolute' && decl(title, 'clip-path') === 'inset(50%)' && decl(title, 'inline-size') === '1px' && decl(title, 'overflow') === 'clip', `the long day hidden but read: ${title}`);
+    for (const gone of ['.ch-day-holiday', '.ch-head-zman', '.ch-head-next', '.ch-head-weather', '.ch-head-weather-ghost']) {
+      assert(new RegExp(`\\.ch-home-top\\.is-month \\${gone}[,\\s]`).test(block), `${gone} goes`);
+    }
+    assert(!/\.ch-head-short|is-month/.test(HOME_SHELL_CSS.slice(0, at).replace(/\.ch-head-short(::first-letter)?\s*\{\s*display:\s*none;\s*\}|\.ch-head-short::first-letter/g, '')), 'nothing outside the block shows the short day or reads is-month');
+    assert(show(lintCss(HOME_SHELL_CSS)) === '[]', `lint: ${show(lintCss(HOME_SHELL_CSS))}`);
   });
 
   await check('#57 a tab switch and back (spec §7.1, §7.6): the Agenda leaves the BackButton hidden and turns swipes on; back on the Month the pane opens on the month that was in view and the selected day is kept, with swipes off again and no BackButton', async () => {
@@ -6607,11 +6646,11 @@ async function main() {
     }
   });
 
-  await check('#88e with the zmanim button (the Jewish calendar) the Hebrew date is on the button, not on the line under the title (owner 2026-11-26): the line holds the countdown alone, with no date text before it, and the button reads the day over the month', async () => {
-    const FAR: Record<Locale, { name: string; far: string; day: string; month: string }> = {
-      en: { name: 'Chanukah', far: 'Chanukah in 12 days', day: '4', month: 'Cheshvan' },
-      he: { name: 'חנוכה', far: 'חנוכה בעוד 12 ימים', day: 'ד׳', month: 'חשון' },
-      ru: { name: 'Ханука', far: 'Ханука через 12 дней', day: '4', month: 'Хешван' },
+  await check('#88e with the zmanim button (the Jewish calendar) the Hebrew date stays on its line under the title, before the countdown, and the button is the clock (owner 2026-11-26: a date on a button reads as one that opens a calendar)', async () => {
+    const FAR: Record<Locale, { name: string; far: string; date: string }> = {
+      en: { name: 'Chanukah', far: 'Chanukah in 12 days', date: '4 Cheshvan 5787' },
+      he: { name: 'חנוכה', far: 'חנוכה בעוד 12 ימים', date: 'ד׳ בחשון תשפ״ז' },
+      ru: { name: 'Ханука', far: 'Ханука через 12 дней', date: '4 хешвана 5787' },
     };
     for (const locale of LOCALES) {
       resetHome();
@@ -6621,9 +6660,9 @@ async function main() {
       try {
         await settle();
         const subs = headSubs(m);
-        assert(subs.length === 1 && subs[0].className === 'ch-head-sub ch-head-line' && subs[0].childNodes.length === 1 && htmlOf(subs[0].childNodes[0] as FakeElement) === `<span class="ch-head-next"><bdi>${FAR[locale].far}</bdi></span>`, `${locale}: the countdown alone: ${show(subs.map(htmlOf))}`);
-        const tile = byClass(m.container, 'ch-head-hdate');
-        assert(tile.length === 1 && byClass(tile[0], 'ch-head-hdate-day')[0]?.textContent === FAR[locale].day && byClass(tile[0], 'ch-head-hdate-month')[0]?.textContent === FAR[locale].month, `${locale}: the tile ${tile.map(htmlOf)}`);
+        assert(subs.length === 1 && htmlOf(subs[0]) === `<p class="ch-head-sub ch-head-line">${FAR[locale].date}<span class="ch-head-next"><bdi>${FAR[locale].far}</bdi></span></p>`, `${locale}: the date, then the countdown: ${show(subs.map(htmlOf))}`);
+        const sun = elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === messages[locale].calendarHome.header.zmanim);
+        assert(sun.length === 1 && byClass(sun[0], 'lucide-clock').length === 1 && byClass(m.container, 'ch-head-hdate').length === 0, `${locale}: the clock: ${sun.map(htmlOf)}`);
       } finally {
         m.unmount();
       }
@@ -10205,9 +10244,7 @@ async function main() {
   });
   const serveSun = (o: Record<string, unknown> = {}) => (c: FetchCall) => ok200(sunList(c.query.get('date') ?? '', o));
   const sunCalls = () => zmanimCalls.length;
-  // The zmanim button: the sun, or (with a day and Hebrew dates) the Hebrew date tile labelled "<date>. Zmanim" (owner 2026-11-26)
-  const sunButton = (m: Home, label = 'Zmanim') =>
-    elements(m.container).filter((e) => e.localName === 'button' && (e.getAttribute('aria-label') === label || (e.className.includes('ch-head-hdate') && (e.getAttribute('aria-label') ?? '').endsWith(`. ${label}`))));
+  const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
 
   await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks nothing without a saved place (the header\'s next zman is #128n-#128q\'s)', async () => {
     for (const jewish of [undefined, false]) {
@@ -10225,12 +10262,10 @@ async function main() {
       try {
         const sun = sunButton(a.m, label);
         assert(sun.length === 1, `${locale}: ${sun.length} sun buttons`);
-        assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn ch-head-hdate', `${locale}: ${show([...sun[0].attributes])}`);
+        assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn', `${locale}: ${show([...sun[0].attributes])}`);
         const row = sun[0].parentNode as FakeElement;
         const header = messages[locale].calendarHome.header;
-        const genitive = locale === 'ru' ? (messages.ru.calendarHome.hebrewMonthGenitive as string[]) : undefined;
-        const dated = header.zmanimOnDate.replace('{date}', hebrewFullDate(TODAY, locale, genitive));
-        assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, dated, header.menu]), `${locale}: the "+", Send, the date tile, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
+        assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, label, header.menu]), `${locale}: the "+", Send, the clock, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
         assert(zmanimCalls.length === 0, `${locale}: before the tap, ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
       } finally {
         a.m.unmount();
@@ -10268,12 +10303,12 @@ async function main() {
   const WEATHER_OK = { weather: { place: 'Harish', now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy', days: WEATHER_DAYS } };
   const weatherBlock = (m: Home) => elements(m.container).filter((e) => e.getAttribute('role') === 'img' && e.className === 'ch-head-weather');
 
-  await check('#126s the zmanim button draws lucide Sunset, not a hand-drawn sun, when it shows no Hebrew date: HomeHeader imports Sunset, renders it in the button labelled header.zmanim, and no SunIcon remains', async () => {
+  await check('#126s the zmanim button draws lucide Clock (owner 2026-11-26: a date on a button reads as one that opens a calendar; the date tile is gone): HomeHeader imports Clock, renders it in the button labelled header.zmanim, and no Sunset, SunIcon or date tile remains', async () => {
     const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/HomeHeader.tsx'), 'utf8');
-    assert(/import \{[^}]*\bSunset\b[^}]*\} from 'lucide-react'/.test(src), 'HomeHeader imports Sunset from lucide-react');
-    assert(!/SunIcon/.test(src), 'no SunIcon remains');
+    assert(/import \{[^}]*\bClock\b[^}]*\} from 'lucide-react'/.test(src), 'HomeHeader imports Clock from lucide-react');
+    assert(!/SunIcon|\bSunset\b|HebrewDateTile|ch-head-hdate/.test(src.replace(/^\/\/.*$/gm, '')), 'no Sunset, SunIcon or date tile remains');
     const button = src.match(/<button[^>]*aria-label=\{t\('header\.zmanim'\)\}[^>]*>\s*([\s\S]*?)<\/button>/);
-    assert(button !== null && /<Sunset\b/.test(button[1]), 'the zmanim button renders <Sunset />');
+    assert(button !== null && /<Clock\b/.test(button[1]), 'the zmanim button renders <Clock />');
   });
 
   await check('#126w the header\'s weather: one request when the home is usable and a place is saved (user_id and locale in the query, the init data in the header only), then the block under the buttons with its label, in the person\'s words; a ghost while it is on its way; none without a place (no request), none before the first answer or on the retry card (no request), and none, with a warning, when the forecast failed or came in a form this build does not know', async () => {

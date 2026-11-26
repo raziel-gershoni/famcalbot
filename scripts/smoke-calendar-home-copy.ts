@@ -219,7 +219,6 @@ const KEYS: Record<string, readonly string[]> = {
   // Editing (home editing spec §2): the header's +, the sheet's pencil and Delete, the editor and the scope sheet
   'header.add': [],
   'header.zmanim': [],
-  'header.zmanimOnDate': ['date'],
   'sheet.edit': [],
   'sheet.googleOnly': [],
   'sheet.deleteEvent': [],

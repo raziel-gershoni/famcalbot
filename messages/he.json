@@ -37,7 +37,6 @@
       "menu": "תפריט",
       "add": "הוספה",
       "zmanim": "זמני היום",
-      "zmanimOnDate": "{date}. זמני היום",
       "nextZmanTomorrow": "מחר: {name}",
       "nextZmanLabel": "הזמן הבא: {name}, {time}",
       "nextZmanLabelTomorrow": "הזמן הבא: מחר, {name}, {time}",
