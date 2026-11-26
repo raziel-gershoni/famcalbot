@@ -1,5 +1,5 @@
 // Smoke test for the one Month screen's month pane (responsive home, release 2; spec
-// §2–§4; plan docs/superpowers/plans/2026-11-26-responsive-home-layouts.md, Tasks 3 and 4).
+// §2–§4, docs/superpowers/specs/2026-11-19-responsive-home-design.md; its plan's Tasks 3 and 4, in git history).
 //
 // The squares part (Task 3): app/[locale]/(app)/dashboard/MonthSquares.tsx, a month's grid of
 // size-aware day squares. Its models come from E5's buildMonth over range answers that go
@@ -43,7 +43,7 @@
 //  - a resize put back at once in the observer with no render, the squares' size after 220 ms,
 //    scrollerPx standing in for the height; the holidays asked again; unmount lets go of all.
 //
-// The final review's fixes (#46–#53, .superpowers/sdd/2026-11-26-responsive-home-layouts/): no
+// The final review's fixes (#46–#53, release 2's whole-branch review): no
 // auto-scroll of the pane while an item is lifted (C1); a height change a scroll event sees before
 // the observer keeps the month (I1); positions on the exact height (M4); the day list's failed rows
 // (M2); no scrollbar in the pane (M6); one grid padding constant (M10); an inert peek (M7); the
@@ -1774,7 +1774,7 @@ async function main() {
     assert(/aria-label="Thursday, 15 October[^"]*items/.test(same), 'under its own week start the model draws');
   });
 
-  // ---- The final review's fixes (.superpowers/sdd/2026-11-26-responsive-home-layouts/final-review.md) ----
+  // ---- The final review's fixes (release 2's whole-branch review) ----
 
   installPane();
 
