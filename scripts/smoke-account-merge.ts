@@ -132,6 +132,10 @@ const FKS: FK[] = [
   { from: 'googleSyncItem', field: 'linkId', to: 'googleSyncLink', onDelete: 'Cascade' },
   { from: 'signInIdentity', field: 'userId', to: 'user', onDelete: 'Cascade' },
   { from: 'pushDevice', field: 'userId', to: 'user', onDelete: 'Cascade' },
+  { from: 'eventCopyOffer', field: 'senderUserId', to: 'user', onDelete: 'Cascade' },
+  { from: 'eventCopyOffer', field: 'takenByUserId', to: 'user', onDelete: 'SetNull' },
+  { from: 'eventCopyOffer', field: 'sourceEventId', to: 'nativeEvent', onDelete: 'Cascade' },
+  { from: 'eventCopyOffer', field: 'copyEventId', to: 'nativeEvent', onDelete: 'SetNull' },
 ];
 const UNIQUE: Record<string, string[]> = {
   user: ['telegramId', 'whatsappPhone', 'whatsappBsuid'],
@@ -946,6 +950,18 @@ async function main() {
     const into = rowOf('nativeCalendar', 'cal-t-dana');
     assert(rowOf('nativeEvent', 'ev-w')?.calendarId === 'cal-t-dana' && show(into?.labels) === show(['yours']), `ev-w ${show(rowOf('nativeEvent', 'ev-w'))}; folded into ${show(into)}`);
     assert(show(tPrimaries()) === show(['cal-t']), `T's primary calendars ${show(tPrimaries())}`);
+  });
+
+  await check('#3b the offers to copy an event W sent, and the ones W took, follow to T', async () => {
+    seed();
+    DB.nativeEvent.push({ id: 'ev-offer', calendarId: DB.nativeCalendar[0].id, creatorUserId: W });
+    DB.eventCopyOffer = [
+      { id: 'off-sent', tokenHash: 'h1', sourceEventId: 'ev-offer', senderUserId: W, takenAt: null, takenByUserId: null, copyEventId: null },
+      { id: 'off-took', tokenHash: 'h2', sourceEventId: 'ev-offer', senderUserId: P, takenAt: new Date(), takenByUserId: W, copyEventId: null },
+    ];
+    const result = await link();
+    assert(result.success === true, `result ${show(result)}`);
+    assert(rowOf('eventCopyOffer', 'off-sent')?.senderUserId === T && rowOf('eventCopyOffer', 'off-took')?.takenByUserId === T, `offers ${show(DB.eventCopyOffer)}`);
   });
 
   await check('#3 W\'s usage counter moves (T had none), T\'s override is kept with W\'s early-adopter flag, and W\'s activity and feedback move to T', async () => {

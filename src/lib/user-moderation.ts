@@ -195,6 +195,9 @@ export async function hardDeleteUser(userId: number, by: DeletedBy): Promise<voi
     await tx.pairing.updateMany({ where: { inviteeUserId: userId }, data: { inviteeUserId: null } });
     await tx.pairing.updateMany({ where: { unlinkedByUserId: userId }, data: { unlinkedByUserId: null } });
 
+    // Offers to copy the person's events go with them; one the person took stays, with the taker cleared (their copy goes with their events)
+    await tx.eventCopyOffer.deleteMany({ where: { senderUserId: userId } });
+    await tx.eventCopyOffer.updateMany({ where: { takenByUserId: userId }, data: { takenByUserId: null } });
     await tx.userActivity.deleteMany({ where: { userId } });
     await tx.userFeedback.deleteMany({ where: { userId } });
     await tx.usageCounter.deleteMany({ where: { userId } });

@@ -510,6 +510,9 @@ export async function mergeIntoAccount(
   await tx.nativeEvent.updateMany({ where: { creatorUserId: w.id }, data: { creatorUserId: t.id } });
   await tx.nativeEvent.updateMany({ where: { forUserId: w.id }, data: { forUserId: t.id } });
   await tx.nativeReminderState.updateMany({ where: { doneByUserId: w.id }, data: { doneByUserId: t.id } });
+  // Offers to copy an event (W sent them, or took them): they follow to T.
+  await tx.eventCopyOffer.updateMany({ where: { senderUserId: w.id }, data: { senderUserId: t.id } });
+  await tx.eventCopyOffer.updateMany({ where: { takenByUserId: w.id }, data: { takenByUserId: t.id } });
   // W's pings (snooze, last ping, live message) follow to T; where T already has the ping row of
   // the same occurrence (a reminder for both of them), T's stays.
   const tPingStates = (await tx.nativeReminderPing.findMany({ where: { userId: t.id }, select: { stateId: true } })).map(p => p.stateId);

@@ -391,6 +391,10 @@ export interface CreateNativeEventInput {
   zmanSpec?: ZmanSpecValue | null;
   /** The Birthday switch (birthday spec): only on an all-day event repeating every year (canBeBirthday); refused on anything else. */
   birthday?: boolean;
+  /** The series' skipped days (instant starts, as `NativeEvent.exdates`): only on a repeating event (a copy of one carries them); refused on a one-off. */
+  exdates?: Date[];
+  /** A civil birthday's count starts here (`NativeEvent.birthYear`): only with `birthday`; refused otherwise. */
+  birthYear?: number | null;
 }
 
 /**
@@ -446,7 +450,7 @@ export class NativeFixedDaysError extends Error {
  */
 export class NativeScopeError extends Error {
   constructor(
-    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone' | 'zmanSpec' | 'birthday',
+    public readonly field: 'scope' | 'calendarId' | 'alert' | 'eachMarksDone' | 'zmanSpec' | 'birthday' | 'birthYear' | 'exdates',
     message = 'This change cannot apply to that scope'
   ) {
     super(message);
@@ -580,6 +584,14 @@ async function writeNewNativeEvent(input: CreateNativeEventInput): Promise<Nativ
   if (birthday && !canBeBirthday({ kind: isReminder ? 'REMINDER' : 'EVENT', allDay: input.allDay ?? false, rrule: input.rrule || null })) {
     throw new NativeScopeError('birthday', 'Only an all-day event repeating every year is a birthday');
   }
+  // The birth year counts a birthday's age; it means nothing without the switch.
+  const birthYear = input.birthYear ?? null;
+  if (birthYear !== null && (!birthday || !Number.isInteger(birthYear))) {
+    throw new NativeScopeError('birthYear', 'A birth year goes only with the Birthday switch, as a whole year');
+  }
+  // Skipped days belong to a series; a one-off has none.
+  const exdates = input.exdates ?? [];
+  if (exdates.length > 0 && !input.rrule) throw new NativeScopeError('exdates', 'Skipped days belong only to a repeating event');
   const event = await eventWrite(isReminder ? 'REMINDER' : 'EVENT', async (db) => {
     const created = await db.nativeEvent.create({
       data: {
@@ -595,7 +607,9 @@ async function writeNewNativeEvent(input: CreateNativeEventInput): Promise<Nativ
         rrule: input.rrule ?? null,
         hebrewRule: input.hebrewRule ?? null,
         hebrewAnchor,
+        exdates,
         birthday,
+        birthYear,
         ...alertColumns(input.alert ?? 'default'),
         // armedAt bounds how far back the ping pass looks, so a reminder created for a
         // time long gone doesn't ping (spec §4.2).

@@ -109,6 +109,8 @@ model User {
   googleSyncLinks        GoogleSyncLink[]
   signInIdentities       SignInIdentity[]
   pushDevices            PushDevice[]
+  eventCopyOffersSent    EventCopyOffer[]      @relation("EventCopyOffersSent")
+  eventCopyOffersTaken   EventCopyOffer[]      @relation("EventCopyOffersTaken")
 
   @@index([telegramId])
   @@index([whatsappPhone])
@@ -293,8 +295,10 @@ model NativeEvent {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  instances NativeEventInstance[]
-  states    NativeReminderState[]
+  instances  NativeEventInstance[]
+  states     NativeReminderState[]
+  copyOffers EventCopyOffer[]       @relation("EventCopyOfferSource")
+  copiedFrom EventCopyOffer[]       @relation("EventCopyOfferCopy")
 
   @@index([calendarId, startsAt])
   @@index([calendarId, isDeleted])
@@ -455,6 +459,25 @@ model PairingInvite {
   @@index([token])
   @@index([inviterUserId])
   @@index([expiresAt])
+}
+
+// A single-use offer to copy a FamCal event (docs/superpowers/specs/2026-11-27-send-event-copy-design.md): the sender's
+// card carries the token; the first receiver to copy takes it. Once taken, the row also remembers the copy's original.
+model EventCopyOffer {
+  id            String       @id @default(cuid())
+  tokenHash     String       @unique // SHA-256 hex of the token; the token itself is never stored
+  sourceEventId String
+  sourceEvent   NativeEvent  @relation("EventCopyOfferSource", fields: [sourceEventId], references: [id], onDelete: Cascade)
+  senderUserId  Int
+  sender        User         @relation("EventCopyOffersSent", fields: [senderUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+  takenAt       DateTime?
+  takenByUserId Int?
+  takenBy       User?        @relation("EventCopyOffersTaken", fields: [takenByUserId], references: [id], onDelete: SetNull)
+  copyEventId   String?
+  copyEvent     NativeEvent? @relation("EventCopyOfferCopy", fields: [copyEventId], references: [id], onDelete: SetNull)
+
+  @@index([senderUserId])
 }
 
 // ============================================

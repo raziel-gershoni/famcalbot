@@ -84,6 +84,7 @@ const OPENS: Record<string, string> = {
   'src/services/calendar-move/move.ts': 'a move between calendars is a create and a delete, through the store\'s writes',
   'app/api/native-calendars/[id]/route.ts': 'PATCH: a kids label adds pickups, and sharing shows the partner the calendar\'s events',
   'src/services/pairing-service.ts': 'acceptInvite and unlink, for uniformity: the pass reads the pairing from the reminder cache, so it sees it at the next hourly sync, which opens the gate itself',
+  'src/services/event-copy/offers.ts': 'copyEventFor writes the receiver\'s copy only through createNativeEvent, which opens it',
   'src/services/account-linking.ts': 'afterMerge (the link code\'s merge and Join, both through mergeAccounts): T takes W\'s calendars, events and pairing',
 };
 

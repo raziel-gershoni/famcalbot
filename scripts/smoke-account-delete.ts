@@ -49,7 +49,7 @@ function seed(): void {
     { id: 'cal-dana', ownerUserId: DANA, name: 'Dana', privacy: 'SHARED_EDITOR', isDeleted: false },
     { id: 'cal-noa', ownerUserId: NOA, name: 'Noa', privacy: 'SHARED_EDITOR', isDeleted: false },
   ];
-  for (const table of ['nativeEvent', 'googleSyncLink', 'userActivity', 'userFeedback', 'usageCounter', 'payment', 'subscription', 'userFeatureOverride', 'oAuthState', 'pushDevice', 'pairingInvite']) DB[table] = [];
+  for (const table of ['nativeEvent', 'googleSyncLink', 'userActivity', 'userFeedback', 'usageCounter', 'payment', 'subscription', 'userFeatureOverride', 'oAuthState', 'pushDevice', 'pairingInvite', 'eventCopyOffer']) DB[table] = [];
 }
 const there = (id: number) => DB.user.some((u) => u.id === id);
 
@@ -117,6 +117,17 @@ async function main() {
     assert(pairing?.status === 'UNLINKED' && pairing.unlinkedByUserId === null && noa.pairingId === null, `pairing ${show(pairing)}, Noa ${noa.pairingId}`);
     assert(DB.nativeCalendar.find((c) => c.id === 'cal-noa')?.privacy === 'PRIVATE', 'the partner\'s calendar is still shared');
     assert(logs.filter((l) => l.startsWith('[account-delete]')).join('|') === `[account-delete] user ${DANA} deleted their account (session)`, `logs ${show(logs.filter((l) => l.startsWith('[account-delete]')))}`);
+  });
+
+  await check('D7b the offers to copy an event: those the account sent go, one it took stays with the taker cleared', async () => {
+    seed();
+    DB.eventCopyOffer = [
+      { id: 'off-sent', tokenHash: 'h1', sourceEventId: 'e1', senderUserId: DANA, takenAt: null, takenByUserId: null, copyEventId: null },
+      { id: 'off-took', tokenHash: 'h2', sourceEventId: 'e2', senderUserId: NOA, takenAt: new Date(), takenByUserId: DANA, copyEventId: 'e3' },
+    ];
+    const res = await post(DANA, { cookie: await sessionCookie(DANA, 'email') });
+    assert(res.status === 200 && !there(DANA), `${res.status}`);
+    assert(show(DB.eventCopyOffer.map((o) => [o.id, o.senderUserId, o.takenByUserId])) === show([['off-took', NOA, null]]), `offers ${show(DB.eventCopyOffer)}`);
   });
 
   await check('D8 pressed again (a second tab): 404, with the cookie cleared', async () => {
