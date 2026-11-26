@@ -1470,7 +1470,8 @@
     },
     "weatherCredit": "Погода: MET Norway · Пыль: Copernicus (Open-Meteo.com)",
     "eventCopy": {
-      "cardButton": "Скопировать в свой календарь"
+      "cardButton": "Скопировать в свой календарь",
+      "allDay": "весь день"
     },
     "askInChat": {
       "date": "{weekday}, {date}",

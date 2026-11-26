@@ -35,6 +35,11 @@ const MESSAGES = { en: enMessages, he: heMessages, ru: ruMessages } as const;
 const TRANSLATORS = new Map<Locale, WordsT>();
 
 /** One translator of calendarHome.* per language, made once. */
+/** "all day" inside the card's line, lower case after the comma ("Every year on 23 Kislev, all day"), unlike the sheet's label. */
+function allDayWords(locale: Locale): string {
+  return MESSAGES[locale].bot.eventCopy.allDay;
+}
+
 function wordsFor(locale: Locale): WordsT {
   let t = TRANSLATORS.get(locale);
   if (!t) {
@@ -63,17 +68,17 @@ function repeatText(t: WordsT, source: NativeEvent, locale: Locale, zone: string
   return withEndText(t, locale, own, endOfInfo(info));
 }
 
-/** When the event happens, for the card: a one-off's date and time (or "All day"), a series' repeat and its usual time. */
+/** When the event happens, for the card: a one-off's date and time (or "all day"), a series' repeat and its usual time. */
 export function copyWhen(source: NativeEvent, locale: Locale, zone: string, weekStart: WeekStart): string {
   const t = wordsFor(locale);
   const itemTz = itemZone(source);
   if (source.rrule) {
-    const usual = source.allDay ? t('row.allDay') : timeRange(source.startsAt, source.endsAt, zone, locale);
+    const usual = source.allDay ? allDayWords(locale) : timeRange(source.startsAt, source.endsAt, zone, locale);
     return `${repeatText(t, source, locale, zone, weekStart)}, ${usual}`;
   }
   if (source.allDay) {
     const days = wallFor(source.startsAt, source.endsAt, true, zone, itemTz);
-    return `${formatDayRange(days.start, days.end, locale)}, ${t('row.allDay')}`;
+    return `${formatDayRange(days.start, days.end, locale)}, ${allDayWords(locale)}`;
   }
   const startIso = source.startsAt.toISOString();
   const endIso = source.endsAt.toISOString();

@@ -574,10 +574,10 @@ async function main() {
     assertSame(out.weeklyEn, `${SECRET_TITLE}\nEvery week on Monday, 10:00–11:00`, 'weekly en');
     assert(out.hebHe.startsWith(`${SECRET_TITLE}\nכל שנה ב`) && out.hebHe.endsWith('כל היום'), `heb he ${out.hebHe}`);
     assertSame(out.weeklyHe, `${SECRET_TITLE}\nכל שבוע ביום שני, 10:00–11:00`, 'weekly he');
-    assertSame(out.hebRu, `${SECRET_TITLE}\nКаждый год 23 кислева, Весь день`, 'heb ru');
-    assertSame(out.hebEn, `${SECRET_TITLE}\nEvery year on 23 Kislev, All day`, 'heb en');
-    assertSame(out.allDayRu, `${SECRET_TITLE}\nчт, 3 дек., Весь день`, 'all-day ru');
-    assertSame(out.multiEn, `${SECRET_TITLE}\nThu 3 – Sat 5 Dec, All day`, 'multi-day en');
+    assertSame(out.hebRu, `${SECRET_TITLE}\nКаждый год 23 кислева, весь день`, 'heb ru');
+    assertSame(out.hebEn, `${SECRET_TITLE}\nEvery year on 23 Kislev, all day`, 'heb en');
+    assertSame(out.allDayRu, `${SECRET_TITLE}\nчт, 3 дек., весь день`, 'all-day ru');
+    assertSame(out.multiEn, `${SECRET_TITLE}\nThu 3 – Sat 5 Dec, all day`, 'multi-day en');
   });
 
   await check('the Hebrew and Russian cards come out of the route in the sender\'s language; the button too', async () => {

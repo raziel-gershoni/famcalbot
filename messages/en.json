@@ -1470,7 +1470,8 @@
     },
     "weatherCredit": "Weather: MET Norway · Dust: Copernicus (Open-Meteo.com)",
     "eventCopy": {
-      "cardButton": "Copy to my calendar"
+      "cardButton": "Copy to my calendar",
+      "allDay": "all day"
     },
     "askInChat": {
       "date": "{weekday} {date}",

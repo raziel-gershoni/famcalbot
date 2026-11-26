@@ -1470,7 +1470,8 @@
     },
     "weatherCredit": "מזג האוויר: MET Norway · אבק: Copernicus (Open-Meteo.com)",
     "eventCopy": {
-      "cardButton": "העתקה ליומן שלי"
+      "cardButton": "העתקה ליומן שלי",
+      "allDay": "כל היום"
     },
     "askInChat": {
       "date": "{weekday} {date}",
