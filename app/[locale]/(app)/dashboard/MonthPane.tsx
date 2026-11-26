@@ -32,10 +32,11 @@
 //   scrolls once they come.
 // - A resize (a rotation, Telegram's expand, the split's handle animating): one
 //   ResizeObserver on the scroller puts the month in view back at index × the new height in
-//   its callback, with no React render; the squares' size class follows SETTLE_MS after the
-//   last resize (the first measure at once). With scrollerPx (the split sets the scroller's
-//   height) the squares size from it, not from the measure, so the split's animation never
-//   re-renders them per frame (Ruling 7).
+//   its callback, with no React render (a scroll event that sees the new height first, before
+//   the observer in the same frame, does the same before it reads the month); the squares'
+//   size class follows SETTLE_MS after the last resize (the first measure at once). With
+//   scrollerPx (the split sets the scroller's height) the squares size from it, not from the
+//   measure, so the split's animation never re-renders them per frame (Ruling 7).
 // - Mobile Mini App rules: taps of 44 px or more (the squares aside, MonthSquares), nothing
 //   under 11 px, logical properties only, the chevrons flipped in RTL (.ch-flip), no hover,
 //   the theme's tokens. MONTH_SQUARES_CSS is rendered here, once.
@@ -195,6 +196,8 @@ export function MonthPane(props: MonthPaneProps) {
   const pendingStep = useRef<MonthKey | null>(null);
   /** The size the squares use now (the measured state's twin, for the observer). */
   const sized = useRef<Size | null>(null);
+  /** The scroller's height when the position was last put at index × height (the opening, a scroll to a month, a resize, months added above). */
+  const alignedAt = useRef(0);
   const seekDone = useRef(seek.seq);
   const laidMonths = useRef(months);
   const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -205,6 +208,16 @@ export function MonthPane(props: MonthPaneProps) {
     live.current = props;
   });
 
+  /** The month in view put back at index × `h` (a resize); nothing to keep when it isn't in the span. */
+  const realign = useCallback((el: HTMLDivElement, h: number) => {
+    alignedAt.current = h;
+    const at = live.current.months.indexOf(view.current.month);
+    if (!(h > 0) || at < 0) return;
+    const top = at * h;
+    if (el.scrollTop !== top) el.scrollTop = top;
+    view.current = { month: view.current.month, offset: 0 };
+  }, []);
+
   /** Reads where the scroller is: the month in view, the near months, the span's ends. */
   const measure = useCallback(() => {
     const el = scrollerRef.current;
@@ -213,6 +226,11 @@ export function MonthPane(props: MonthPaneProps) {
     if (!el || n === 0) return;
     const h = el.clientHeight;
     if (!(h > 0)) return;
+    // The height changed since the position was last put right and the ResizeObserver hasn't run
+    // yet (a scroll event comes first in a frame of the split's animation or a window resize):
+    // scrollTop is still index × the old height and would read a neighbour, so the month in view
+    // goes back where it belongs first (what the observer does), and the read below finds it.
+    if (h !== alignedAt.current) realign(el, h);
     const top = el.scrollTop;
     const at = monthAtScroll(top, h, n);
     const month = p.months[at];
@@ -237,7 +255,7 @@ export function MonthPane(props: MonthPaneProps) {
       p.onNeedMonths('after');
     }
     nearFirst.current = nearSpanEdge(span, month, 'before');
-  }, []);
+  }, [realign]);
 
   /** The scroller has stopped: months above, when the month in view is near the first. */
   const settle = useCallback(() => {
@@ -267,7 +285,9 @@ export function MonthPane(props: MonthPaneProps) {
     (index: number, smooth: boolean) => {
       const el = scrollerRef.current;
       if (!el) return;
-      const top = index * el.clientHeight;
+      const h = el.clientHeight;
+      alignedAt.current = h;
+      const top = index * h;
       if (smooth) {
         try {
           el.scrollTo({ top, behavior: 'smooth' });
@@ -318,6 +338,7 @@ export function MonthPane(props: MonthPaneProps) {
     if (!el) return;
     const at = live.current.months.indexOf(view.current.month);
     const h = el.clientHeight;
+    alignedAt.current = h;
     if (at >= 0 && h > 0) el.scrollTop = at * h;
     const size = { width: el.clientWidth, height: h };
     if (realSize(size)) applySize(size);
@@ -336,6 +357,7 @@ export function MonthPane(props: MonthPaneProps) {
     if (added > 0 && h > 0) {
       const at = months.indexOf(view.current.month);
       el.scrollTop = at >= 0 ? at * h + view.current.offset : el.scrollTop + added * h;
+      alignedAt.current = h;
     }
     const target = pendingStep.current;
     const to = target === null ? -1 : months.indexOf(target);
@@ -372,12 +394,7 @@ export function MonthPane(props: MonthPaneProps) {
     const el = scrollerRef.current;
     if (!el) return;
     const h = el.clientHeight;
-    const at = live.current.months.indexOf(view.current.month);
-    if (h > 0 && at >= 0) {
-      const top = at * h;
-      if (el.scrollTop !== top) el.scrollTop = top;
-      view.current = { month: view.current.month, offset: 0 };
-    }
+    realign(el, h);
     if (settleTimer.current !== null) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
@@ -394,7 +411,7 @@ export function MonthPane(props: MonthPaneProps) {
       const box = scrollerRef.current;
       if (box) applySize({ width: box.clientWidth, height: box.clientHeight });
     }, SETTLE_MS);
-  }, [applySize]);
+  }, [applySize, realign]);
 
   // The scroll listener (passive, one measure a frame, the idle timer for months above) and the
   // one ResizeObserver; the first measure follows the opening.

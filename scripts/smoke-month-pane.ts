@@ -1769,6 +1769,8 @@ async function main() {
 
   // ---- The final review's fixes (.superpowers/sdd/2026-11-26-responsive-home-layouts/final-review.md) ----
 
+  installPane();
+
   await check('#46 C1: while an item is lifted, auto-scroll moves the day list and the page at their edges but never the month pane (its months snap, so each 5 ms scrollBy would turn a whole month under a finger at rest; a chevron dwell turns it, Ruling 5): autoScrollable refuses .ch-pane-scroller only, and DragLayer hands dnd-kit { canScroll: autoScrollable } while lifted, false otherwise', () => {
     const box = (cls: string) => ({ classList: { contains: (c: string) => cls.split(' ').includes(c) } }) as unknown as Element;
     assert(typeof autoScrollable === 'function', 'DragSurface exports autoScrollable');
@@ -1778,6 +1780,36 @@ async function main() {
     const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/DragSurface.tsx'), 'utf8');
     const uses = source.match(/autoScroll=\{[^}]*\}/g) ?? [];
     assert(show(uses) === show(['autoScroll={lifted !== null ? DRAG_AUTO_SCROLL : false}']), `DndContext's autoScroll: ${show(uses)}`);
+  });
+
+  await check('#47 I1: a height change that a scroll event sees before the ResizeObserver runs (the split animating, a window resized) keeps the month in view: October at 400 px, the scroller made 380 px and a scroll event first (scrollTop still 12 × 400, which reads November) → October stays, nothing new reported, scrollTop 12 × 380; the observer and a later scroll keep it; 420 px the same; a real scroll at the settled height still reads its month', () => {
+    resetPane();
+    const { seen, callbacks } = paneRecorder();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks)));
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      assert(el.scrollTop === OCT * 400 && show(seen.inView) === show(['2026-10']), `the opening: ${el.scrollTop} ${show(seen.inView)}`);
+      const near = seen.near.length;
+      PANE.height = 380;
+      fireScroll(el);
+      flushFrames();
+      assert(paneTitle(m) === 'October 2026' && show(seen.inView) === show(['2026-10']) && seen.near.length === near, `October stays: ${paneTitle(m)} ${show(seen.inView)} ${show(seen.near.slice(near))}`);
+      assert(el.scrollTop === OCT * 380, `put back at 12 × 380 at once: ${el.scrollTop}`);
+      FakeResizeObserver.all[0].trigger();
+      fireScroll(el);
+      flushFrames();
+      assert(el.scrollTop === OCT * 380 && show(seen.inView) === show(['2026-10']), `the observer and a later scroll keep it: ${el.scrollTop} ${show(seen.inView)}`);
+      PANE.height = 420;
+      fireScroll(el);
+      flushFrames();
+      assert(el.scrollTop === OCT * 420 && show(seen.inView) === show(['2026-10']), `420 px: ${el.scrollTop} ${show(seen.inView)}`);
+      fireScroll(el, (OCT + 1) * 420);
+      flushFrames();
+      assert(show(seen.inView) === show(['2026-10', '2026-11']) && paneTitle(m) === 'November 2026', `a real scroll reads its month: ${show(seen.inView)}`);
+    } finally {
+      m.unmount();
+    }
   });
 
   await check('#99 React logged no warning', () => {
