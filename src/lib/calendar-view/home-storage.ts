@@ -21,8 +21,16 @@ export function homeTabKey(userId: number): string {
 }
 
 /** The localStorage key for the Month's layout. */
-export function monthLayoutKey(userId: number): string {
+export function monthLayoutKey(userId: number | string): string {
   return 'famcal:monthLayout:v1:' + userId;
+}
+
+/** The Month's layout on the one Month screen: the upright split collapsed, or the month grown over the list. */
+export type MonthSplit = 'split' | 'grown';
+
+/** The localStorage key for the Month's split (v2; v1's 'browse' | 'picked' is mapped once). */
+export function monthSplitKey(userId: string): string {
+  return 'famcal:monthLayout:v2:' + userId;
 }
 
 /** The localStorage key for the Connect Telegram banner's close. */
@@ -72,6 +80,37 @@ export function readMonthLayout(userId: number): 'browse' | 'picked' | null {
 /** Remembers the Month's layout on this device. Never throws. */
 export function writeMonthLayout(userId: number, layout: 'browse' | 'picked'): void {
   writeKey('localStorage', monthLayoutKey(userId), layout);
+}
+
+/** Removes `key`; never throws. */
+function removeKey(area: Area, key: string): void {
+  try {
+    if (typeof window === 'undefined') return;
+    window[area].removeItem(key);
+  } catch (err) {
+    console.warn('[home-storage] could not remove a key:', err);
+  }
+}
+
+/**
+ * The Month's split on this device: the v2 value when valid; else v1's 'browse' as
+ * 'grown' and 'picked' as 'split', written to v2 with v1 removed (mapped once); else
+ * 'split'. Storage that throws gives 'split'.
+ */
+export function readMonthSplit(userId: string): MonthSplit {
+  const v2 = readKey('localStorage', monthSplitKey(userId));
+  if (v2 === 'split' || v2 === 'grown') return v2;
+  const v1 = readKey('localStorage', monthLayoutKey(userId));
+  if (v1 !== 'browse' && v1 !== 'picked') return 'split';
+  const split: MonthSplit = v1 === 'browse' ? 'grown' : 'split';
+  writeMonthSplit(userId, split);
+  removeKey('localStorage', monthLayoutKey(userId));
+  return split;
+}
+
+/** Remembers the Month's split on this device. Never throws. */
+export function writeMonthSplit(userId: string, split: MonthSplit): void {
+  writeKey('localStorage', monthSplitKey(userId), split);
 }
 
 /** Whether this device closed the Connect Telegram banner for this account; false with no window, a throw or nothing stored. */

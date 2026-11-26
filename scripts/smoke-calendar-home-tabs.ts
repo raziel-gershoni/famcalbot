@@ -37,7 +37,7 @@ import { byRole, fakeDocument, fakeTelegram, fakeWindow, installWindow, memorySt
 import { cascade as cascadeOf, contrast, cssBlocks, customProps, resolver as resolverOf, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { CHUNK_RELOAD_KEY, HomeErrorBoundary } from '../app/[locale]/(app)/dashboard/HomeErrorBoundary';
 import { useTelegramBackButton } from '../src/lib/telegram-ui';
-import { homeTabKey, monthLayoutKey, readHomeTab, readMonthLayout, writeHomeTab, writeMonthLayout, type HomeTab } from '../src/lib/calendar-view/home-storage';
+import { homeTabKey, monthLayoutKey, monthSplitKey, readHomeTab, readMonthLayout, readMonthSplit, writeHomeTab, writeMonthLayout, writeMonthSplit, type HomeTab } from '../src/lib/calendar-view/home-storage';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -374,6 +374,36 @@ async function main() {
     }
   });
 
+  await check('#6b the v2 split memory: its key; v2 read back; v1 mapped once (browse to grown, picked to split) with v1 removed; garbage falls back to v1 then the default', () => {
+    const saved = g.window;
+    try {
+      assert(monthSplitKey('5550001') === 'famcal:monthLayout:v2:5550001', `monthSplitKey ${monthSplitKey('5550001')}`);
+      const local = new Map<string, string>();
+      g.window = { sessionStorage: memoryStorage(), localStorage: memoryStorage(local) };
+      assert(readMonthSplit('5550001') === 'split' && local.size === 0, 'nothing stored');
+      writeMonthSplit('5550001', 'grown');
+      assert(show([...local]) === show([['famcal:monthLayout:v2:5550001', 'grown']]) && readMonthSplit('5550001') === 'grown', 'v2 read back');
+      local.clear();
+      local.set(monthLayoutKey('5550001'), 'browse');
+      assert(readMonthSplit('5550001') === 'grown', 'v1 browse');
+      assert(show([...local]) === show([['famcal:monthLayout:v2:5550001', 'grown']]), `v2 written, v1 gone: ${show([...local])}`);
+      local.clear();
+      local.set(monthLayoutKey('5550001'), 'picked');
+      assert(readMonthSplit('5550001') === 'split' && !local.has(monthLayoutKey('5550001')) && local.get(monthSplitKey('5550001')) === 'split', 'v1 picked');
+      local.clear();
+      local.set(monthSplitKey('5550001'), 'wide');
+      assert(readMonthSplit('5550001') === 'split', 'garbage and no v1');
+      local.set(monthLayoutKey('5550001'), 'browse');
+      assert(readMonthSplit('5550001') === 'grown', 'garbage v2 falls back to v1');
+      local.clear();
+      local.set(monthSplitKey('5550001'), 'grown');
+      local.set(monthLayoutKey('5550001'), 'picked');
+      assert(readMonthSplit('5550001') === 'grown' && local.has(monthLayoutKey('5550001')), 'a valid v2 wins and leaves v1 alone');
+    } finally {
+      g.window = saved;
+    }
+  });
+
   await check('#7 the storage helpers never throw: no window (the server); a storage whose property read throws (blocked); a missing storage; getItem and setItem that throw (full) — reads give the defaults, writes do nothing', () => {
     const saved = g.window;
     try {
@@ -415,6 +445,37 @@ async function main() {
       writeMonthLayout(1, 'browse');
       assert(readHomeTab(1) === 'month' && readMonthLayout(1) === 'picked', 'a full storage still reads');
     } finally {
+      g.window = saved;
+    }
+  });
+
+  await check('#7b the split memory never throws: getItem, setItem and removeItem that throw, no window, a blocked storage all read \'split\'', () => {
+    const saved = g.window;
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      delete g.window;
+      writeMonthSplit('1', 'grown');
+      assert(readMonthSplit('1') === 'split', 'no window');
+      const boom = () => {
+        throw new Error('boom');
+      };
+      g.window = { sessionStorage: { getItem: boom, setItem: boom, removeItem: boom }, localStorage: { getItem: boom, setItem: boom, removeItem: boom } };
+      writeMonthSplit('1', 'grown');
+      assert(readMonthSplit('1') === 'split', 'all throw');
+      const v1 = new Map<string, string>([[monthLayoutKey('1'), 'browse']]);
+      g.window = { localStorage: { getItem: (k: string) => v1.get(k) ?? null, setItem: boom, removeItem: boom } };
+      assert(readMonthSplit('1') === 'grown', 'v1 still maps when the write and removal throw');
+      const blocked: Row = {};
+      Object.defineProperty(blocked, 'localStorage', {
+        get() {
+          throw new Error('SecurityError');
+        },
+      });
+      g.window = blocked;
+      assert(readMonthSplit('1') === 'split', 'blocked');
+    } finally {
+      console.warn = warn;
       g.window = saved;
     }
   });
