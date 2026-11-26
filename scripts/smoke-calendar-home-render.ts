@@ -658,7 +658,7 @@ class FakeElement extends FakeNode {
 // block-size), or, side by side (.ch-mv.is-wide), the region less the pane's bar and weekday
 // row, two thirds of the width. Both read clientHeight and clientWidth; every other element
 // is 0 × 0. The header and tab bar's wrapper is LAYOUT.topH tall (0 unless a check says so).
-const LAYOUT = { width: 390, topH: 0, monthH: 700 };
+const LAYOUT = { width: 390, topH: 0, monthH: 700, insetEnd: 0 };
 const px = (value: unknown) => Number.parseFloat(String(value ?? '')) || 0;
 function closestClass(el: FakeNode | null, cls: string): FakeElement | null {
   for (let n = el; n; n = n.parentNode) if (n instanceof FakeElement && n.className.split(' ').includes(cls)) return n;
@@ -676,6 +676,8 @@ function layoutRect(el: FakeElement) {
 function boxOf(el: FakeElement): { width: number; height: number } {
   const classes = el.className.split(' ');
   if (classes.includes('ch-mv')) return { width: LAYOUT.width, height: LAYOUT.monthH };
+  // The region's probe of the bottom safe area (MonthView's .ch-mv-inset): its height is the inset.
+  if (classes.includes('ch-mv-inset')) return { width: 0, height: LAYOUT.insetEnd };
   if (classes.includes('ch-pane-scroller')) {
     const wide = closestClass(el, 'ch-mv')?.className.split(' ').includes('is-wide') === true;
     const set = px(el.style.blockSize);
@@ -1230,6 +1232,7 @@ function resetHome() {
   LAYOUT.width = 390;
   LAYOUT.topH = 0;
   LAYOUT.monthH = 700;
+  LAYOUT.insetEnd = 0;
 }
 
 // ---- The checks ----
@@ -2864,7 +2867,7 @@ async function main() {
     await settleResize();
   };
   /** The collapsed and the grown split's scroller for the fake region (Hebrew dates on). */
-  const splitPx = (isGrown: boolean) => splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, isGrown).scrollerPx;
+  const splitPx = (isGrown: boolean) => splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, isGrown, LAYOUT.insetEnd).scrollerPx;
   /** Every style sheet on the page, as one text. */
   const pageCss = (m: Home) =>
     elements(m.container)
@@ -3414,7 +3417,7 @@ async function main() {
         await settle();
         const mv = region(m) as FakeElement;
         assert(mv && mv.className.split(' ').includes('is-wide'), `${locale}: wide: ${mv?.className}`);
-        const parts = mv.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName !== 'style').map((c) => c.className.split(' ')[0]);
+        const parts = mv.childNodes.filter((c): c is FakeElement => c instanceof FakeElement && c.localName !== 'style' && c.className !== 'ch-mv-inset').map((c) => c.className.split(' ')[0]);
         assert(show(parts) === show(['ch-pane', 'ch-dp']), `${locale}: the pane, then the list: ${show(parts)}`);
         assert(handle(m) === null && byClass(m.container, 'ch-dp-peek').length === 0, `${locale}: no handle, no peek`);
         assert(!scroller(m).style.blockSize && scroller(m).clientHeight === LAYOUT.monthH - monthBarPx(true), `${locale}: the pane fills the region: ${scroller(m).style.blockSize}`);
@@ -3516,9 +3519,10 @@ async function main() {
     }
   });
 
-  await check('#56 the header and the tab bar never stick (Ruling 4): they sit in .ch-home-top with no sticky class or rule, on the Agenda and on the Month, a flow root so the tab bar\'s margin is inside its height; that height goes on .ch-home as --ch-top-h, and the Month\'s region is the stable viewport less it, the safe areas above and the bottom one, clipping (the page never scrolls on the Month)', async () => {
+  await check('#56 the header and the tab bar never stick (Ruling 4): they sit in .ch-home-top with no sticky class or rule, on the Agenda and on the Month, a flow root so the tab bar\'s margin is inside its height; that height goes on .ch-home as --ch-top-h, and the Month\'s region is the stable viewport less it and the safe areas above, down to the screen\'s bottom edge, clipping (the page never scrolls on the Month); the bottom safe area (final review I2): the list pads its own end by it, the wide pane\'s months end above it, and the grown split keeps its 44 px peek clear of it (a 34 px inset: the scroller 34 px shorter)', async () => {
     resetHome();
     LAYOUT.topH = 126;
+    LAYOUT.insetEnd = 34;
     const tg = fakeTelegramHome();
     fakeWindow.Telegram = { WebApp: tg.webApp };
     answerFetch = (c) => answerFor(c, { items: WEEK });
@@ -3541,11 +3545,19 @@ async function main() {
       assert(/\.ch-tabs \{[^}]*margin-block: 0 4px;/.test(css), 'the tab bar\'s bottom margin the flow root keeps inside');
       const mv = cssRule(css, '.ch-mv');
       assert(
-        decl(mv, 'block-size') ===
-          'calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)))',
+        decl(mv, 'block-size') === 'calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px))',
         `the region's height: ${decl(mv, 'block-size')}`,
       );
       assert(decl(mv, 'overflow') === 'hidden', `the region clips: ${mv}`);
+      const insetEnd = 'max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px))';
+      assert(decl(cssRule(css, '.ch-dp-scroller'), 'padding-block-end') === `calc(24px + ${insetEnd})`, 'the list pads its own end by the bottom safe area');
+      assert(decl(cssRule(css, '.ch-mv.is-wide > .ch-pane'), 'padding-block-end') === insetEnd, 'the wide pane\'s months end above the bottom safe area');
+      const probe = byClass(region(m) as FakeElement, 'ch-mv-inset')[0];
+      assert(probe && probe.getAttribute('aria-hidden') === 'true' && decl(cssRule(css, '.ch-mv-inset'), 'block-size') === insetEnd && decl(cssRule(css, '.ch-mv-inset'), 'visibility') === 'hidden', 'the region measures the bottom safe area with a hidden probe');
+      assert(scroller(m).clientHeight === splitPx(false) && splitPx(false) === splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, false).scrollerPx, `collapsed, the inset is the list's: ${scroller(m).clientHeight}`);
+      await toggle(m);
+      assert(grown(m) && scroller(m).clientHeight === splitPx(true) && splitPx(true) === LAYOUT.monthH - monthBarPx(true) - 22 - 44 - 34, `grown, the peek clear of the inset: ${scroller(m).clientHeight} (want ${LAYOUT.monthH - monthBarPx(true) - 22 - 44 - 34})`);
+      await toggle(m);
       // The region's own sheet: the home's CSS rules, and the split's 200 ms height change, none under reduced motion.
       const own = (region(m) as FakeElement).childNodes.find((c): c is FakeElement => c instanceof FakeElement && c.localName === 'style')?.textContent ?? '';
       assert(own.includes('.ch-mv {') && show(lintCss(own)) === '[]', `the region's sheet: ${show(lintCss(own))}`);

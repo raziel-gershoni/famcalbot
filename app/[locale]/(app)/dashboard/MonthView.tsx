@@ -6,8 +6,11 @@
 // Telegram's BackButton and swipes. This file lays the parts out and measures the room.
 //
 // - The region (.ch-mv) is the rest of the viewport under the header and the tab bar
-//   (--ch-top-h) and the safe areas, and clips: the page never scrolls on the Month, only the
-//   pane's months and the day's list do (two inner scrollers).
+//   (--ch-top-h) and the safe areas above, down to the screen's bottom edge, and clips: the
+//   page never scrolls on the Month, only the pane's months and the day's list do (two inner
+//   scrollers). The bottom safe area (the home indicator) is inside it: the list scrolls under
+//   it and pads its own end by it, the wide pane's months end above it, and the grown split's
+//   peek stays clear of it (a hidden probe measures it with the region).
 // - Wide (WIDE_QUERY: 600 px or wider and landscape): the pane and the day's list side by side,
 //   2fr 1fr, the pane first in reading order, so on the right in Hebrew. The pane fills the
 //   region's height, so no split height (scrollerPx null).
@@ -102,7 +105,8 @@ export interface MonthViewProps {
 /** The squares' grid's inline padding, both sides (MONTH_SQUARES_CSS's .ch-sq-body), for the split's cell width. */
 const GRID_PAD_PX = 12;
 
-type Box = { h: number; w: number };
+/** The region's size and its bottom safe area (the probe's height). */
+type Box = { h: number; w: number; inset: number };
 
 /** The open sheet's item as the selected day's latest rows have it (a refetch may have changed it), else as it was tapped. */
 function latestRow(rows: readonly AgendaRow[], selected: AgendaRow): AgendaRow {
@@ -207,14 +211,15 @@ function MonthRegion({
 }: MonthViewProps & { paneRef: RefObject<MonthPaneHandle | null> }) {
   const wide = useMediaQuery(WIDE_QUERY);
   const regionRef = useRef<HTMLDivElement | null>(null);
+  const insetRef = useRef<HTMLSpanElement | null>(null);
   /** The region's size; null until measured (the pane and the list wait for it, before paint). */
   const [box, setBox] = useState<Box | null>(null);
 
   const measure = useCallback(() => {
     const el = regionRef.current;
     if (!el) return;
-    const next = { h: el.clientHeight, w: el.clientWidth };
-    setBox((was) => (was && was.h === next.h && was.w === next.w ? was : next));
+    const next = { h: el.clientHeight, w: el.clientWidth, inset: insetRef.current?.clientHeight ?? 0 };
+    setBox((was) => (was && was.h === next.h && was.w === next.w && was.inset === next.inset ? was : next));
   }, []);
 
   // The first measure, before paint.
@@ -222,8 +227,9 @@ function MonthRegion({
     measure();
   }, [measure]);
 
-  // Then one ResizeObserver on the region (a rotation, Telegram's expand, the header's height);
-  // where there is none (an old WebView), the window's resizes stand in.
+  // Then one ResizeObserver on the region (a rotation, Telegram's expand, the header's height)
+  // and the probe (Telegram's safe area arriving); where there is none (an old WebView), the
+  // window's resizes stand in.
   useEffect(() => {
     const el = regionRef.current;
     if (!el) return;
@@ -232,6 +238,7 @@ function MonthRegion({
       try {
         observer = new window.ResizeObserver(measure);
         observer.observe(el);
+        if (insetRef.current) observer.observe(insetRef.current);
       } catch (err) {
         console.warn('[month view] ResizeObserver failed, following the window instead:', err);
         observer = null;
@@ -243,7 +250,7 @@ function MonthRegion({
   }, [measure]);
 
   const grown = !wide && split === 'grown';
-  const heights = box && !wide ? splitHeights(box.h, monthBarPx(hebrewDates), (box.w - GRID_PAD_PX) / 7, grown) : null;
+  const heights = box && !wide ? splitHeights(box.h, monthBarPx(hebrewDates), (box.w - GRID_PAD_PX) / 7, grown, box.inset) : null;
   const scrollerPx = heights && heights.scrollerPx > 0 ? heights.scrollerPx : null;
 
   // Grown, a tap on a square selects it and collapses, so the person sees that day's list.
@@ -260,6 +267,7 @@ function MonthRegion({
   return (
     <div className={className} ref={regionRef}>
       <style>{MONTH_VIEW_CSS}</style>
+      <span className="ch-mv-inset" ref={insetRef} aria-hidden="true" />
       {box ? (
         <>
           <MonthPane
@@ -315,10 +323,13 @@ function MonthRegion({
 
 /**
  * The region's styles, on the home's tokens. The region is the stable viewport less the header
- * and the tab bar (--ch-top-h, published by HomeTop), the safe areas above it and the bottom
- * one, and clips; inside it a column (upright: the pane at the split's height, the handle, the
- * list filling the rest) or a 2fr 1fr grid (wide: the pane and the list, each the region's
- * height, the list's start edge a separator). The handle's 44 px touch area reaches 11 px over
+ * and the tab bar (--ch-top-h, published by HomeTop) and the safe areas above it, down to the
+ * screen's bottom edge, and clips; inside it a column (upright: the pane at the split's height,
+ * the handle, the list filling the rest) or a 2fr 1fr grid (wide: the pane and the list, each
+ * the region's height, the list's start edge a separator). The bottom safe area: the list pads
+ * its own end by it (DAY_PANEL_CSS), the wide pane by it too (its scroller ends above it, still
+ * whole months tall), and .ch-mv-inset, a hidden probe out of the flow, is as tall as it, so the
+ * grown split keeps its peek clear of it. The handle's 44 px touch area reaches 11 px over
  * the pane and the list, so it sits above both (z-index 1). The split's height change animates
  * on the pane's scroller (its inline block-size is what changes), none under reduced motion. The
  * parts bring their own styles (the pane the squares' and its own, the list the Agenda's rows
@@ -327,11 +338,21 @@ function MonthRegion({
  */
 export const MONTH_VIEW_CSS = `
 .ch-mv {
+  position: relative;
   display: flex;
   flex-direction: column;
-  block-size: calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px) - max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px)));
+  block-size: calc(var(--tg-viewport-stable-height, 100dvh) - var(--ch-top-h, 0px) - var(--tg-safe-area-inset-top, 0px) - var(--tg-content-safe-area-inset-top, 0px));
   min-block-size: 0;
   overflow: hidden;
+}
+.ch-mv-inset {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 0;
+  block-size: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px));
+  visibility: hidden;
+  pointer-events: none;
 }
 .ch-mv.is-split > .ch-pane {
   flex: none;
@@ -356,6 +377,9 @@ export const MONTH_VIEW_CSS = `
 .ch-mv.is-wide > .ch-dp {
   min-block-size: 0;
   block-size: 100%;
+}
+.ch-mv.is-wide > .ch-pane {
+  padding-block-end: max(env(safe-area-inset-bottom, 0px), var(--tg-safe-area-inset-bottom, 0px));
 }
 .ch-mv.is-wide > .ch-dp {
   border-inline-start: 1px solid var(--ch-separator);

@@ -22,6 +22,7 @@ import {
 import {
   canStepMonth,
   clampFocus,
+  monthBarPx,
   fitRow,
   fitSlots,
   focusJump,
@@ -105,6 +106,30 @@ async function main() {
   await check('splitHeights: a 320 x 568 phone region keeps rows of at least 36', () => {
     const s = splitHeights(330, 76, 42, false);
     assert(s.rowPx >= 36, `rowPx ${s.rowPx}`);
+  });
+
+  // The final review's I2: the upright region runs down to the screen's bottom edge (MONTH_VIEW_CSS: the
+  // stable viewport less the header and tabs and the top safe areas; the bottom one is no longer taken
+  // off, the list pads its own end by it). These pin today's numbers, not a target.
+  const regionPx = (viewport: number, headerAndTabs: number, safeTop: number, contentSafeTop: number) => viewport - headerAndTabs - safeTop - contentSafeTop;
+  const cellOf = (screenWidth: number) => (screenWidth - 12) / 7;
+
+  await check('I2: the collapsed list on small phones with Hebrew dates (chrome 76), the region h = viewport − 200 px of header and tabs − the top safe areas (0 in Telegram outside fullscreen): a 375×667 iPhone SE (viewport 590) → h 390, rows 36, scroller 216, list 76; a 360×640 Android phone (viewport 560) → h 360, rows 36, scroller 216, list 46', () => {
+    assert(monthBarPx(true) === 76, `chrome ${monthBarPx(true)}`);
+    const se = regionPx(590, 200, 0, 0);
+    assert(se === 390, `iPhone SE region ${se}`);
+    assertJson(splitHeights(se, monthBarPx(true), cellOf(375), false), { rowPx: 36, scrollerPx: 216, listPx: 76 }, '375x667');
+    const android = regionPx(560, 200, 0, 0);
+    assert(android === 360, `Android region ${android}`);
+    assertJson(splitHeights(android, monthBarPx(true), cellOf(360), false), { rowPx: 36, scrollerPx: 216, listPx: 46 }, '360x640');
+  });
+
+  await check('I2: grown, the list\'s peek stays PEEK_PX clear of the bottom safe area the region now runs under: a 509 px region with a 34 px home indicator → scroller 333, list 78 (44 + 34); with none 367 and 44; collapsed, the safe area is part of the list (the same heights with or without it); a bad inset counts as 0', () => {
+    assertJson(splitHeights(509, 76, cellOf(375), true, 34), { rowPx: 55, scrollerPx: 333, listPx: 78 }, 'grown, 34');
+    assertJson(splitHeights(509, 76, cellOf(375), true), { rowPx: 61, scrollerPx: 367, listPx: 44 }, 'grown, none');
+    assertJson(splitHeights(509, 76, cellOf(375), false, 34), splitHeights(509, 76, cellOf(375), false), 'collapsed');
+    assertJson(splitHeights(509, 76, cellOf(375), true, NaN), splitHeights(509, 76, cellOf(375), true), 'NaN inset');
+    assertJson(splitHeights(509, 76, cellOf(375), true, -3), splitHeights(509, 76, cellOf(375), true), 'negative inset');
   });
 
   await check('squareSize: small, medium and large by the cell, lines by the room', () => {

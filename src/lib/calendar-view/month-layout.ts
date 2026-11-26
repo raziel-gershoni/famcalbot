@@ -35,16 +35,19 @@ const positive = (n: number) => Number.isFinite(n) && n > 0;
 
 /**
  * The upright split's heights in a region `h` px tall under `chrome` px of bar and
- * weekday line, for cells `cellWidth` px wide. Collapsed: square-ish rows (0.9 of the
- * width) that leave the list at least LIST_MIN_PX, the rows shrinking toward
- * ROW_SHORT_MIN_PX first. Grown: the month takes all but the handle and the list's peek.
- * Anything not finite and positive gives zeros.
+ * weekday line, for cells `cellWidth` px wide. The region runs down to the screen's bottom
+ * edge, the bottom safe area (`endInset`, the home indicator) included: the list scrolls under
+ * it and pads its own end by it. Collapsed: square-ish rows (0.9 of the width) that leave the
+ * list at least LIST_MIN_PX (the safe area counts), the rows shrinking toward
+ * ROW_SHORT_MIN_PX first. Grown: the month takes all but the handle and the list's peek,
+ * PEEK_PX clear of the safe area. Anything not finite and positive gives zeros (an inset, 0).
  */
-export function splitHeights(h: number, chrome: number, cellWidth: number, grown: boolean): SplitHeights {
+export function splitHeights(h: number, chrome: number, cellWidth: number, grown: boolean, endInset = 0): SplitHeights {
   if (!positive(h) || !positive(cellWidth) || !Number.isFinite(chrome)) return { ...NONE };
   if (grown) {
-    const scrollerPx = Math.max(0, h - chrome - HANDLE_PX - PEEK_PX);
-    return { rowPx: Math.floor(scrollerPx / SPLIT_ROWS), scrollerPx, listPx: PEEK_PX };
+    const inset = positive(endInset) ? endInset : 0;
+    const scrollerPx = Math.max(0, h - chrome - HANDLE_PX - PEEK_PX - inset);
+    return { rowPx: Math.floor(scrollerPx / SPLIT_ROWS), scrollerPx, listPx: PEEK_PX + inset };
   }
   let rowPx = Math.max(ROW_MIN_PX, Math.min(Math.round(cellWidth * 0.9), Math.floor((h * 0.6 - chrome) / SPLIT_ROWS)));
   if (h - chrome - SPLIT_ROWS * rowPx - HANDLE_PX < LIST_MIN_PX) {
