@@ -3,8 +3,8 @@
 // 2026-11-27): scripts/lib/legal-copy.ts holds each sentence and its place, and this holds messages/<lang>.json to it.
 //
 // What it pins:
-//   - L1 the eight edits word for word, each in its place, the same places in en, he and ru;
-//   - L2 no text still says the sentence the Terms' responsibility line replaced;
+//   - L1 the seventeen edits word for word, each in its place, the same places in en, he and ru;
+//   - L2 no text still says a sentence the edits replaced;
 //   - L3 LEGAL_UPDATED is the day of the change or later for both texts, and not in the future;
 //   - L4 the Russian edits bind a one-letter word to the next, and a dash to the word before it, with a no-break space.
 // No network, no DB.
@@ -40,12 +40,12 @@ const strings = (node: unknown): string[] =>
   typeof node === 'string' ? [node] : node && typeof node === 'object' ? Object.values(node).flatMap(strings) : [];
 
 async function main() {
-  await check('L1 each language holds the eight edits word for word, each in its place, the same places in en, he and ru', () => {
+  await check('L1 each language holds the seventeen edits word for word, each in its place, the same places in en, he and ru', () => {
     const places = (l: Locale) => show(COPY_LEGAL[l].map(op => [op.id, op.doc, op.path, op.kind]));
     assert(places('he') === places('en') && places('ru') === places('en'), 'the edits sit in different places in different languages');
     const problems: string[] = [];
     for (const locale of LOCALES) {
-      if (COPY_LEGAL[locale].length !== 8) problems.push(`${locale}: ${COPY_LEGAL[locale].length} edits, want 8`);
+      if (COPY_LEGAL[locale].length !== 17) problems.push(`${locale}: ${COPY_LEGAL[locale].length} edits, want 17`);
       for (const op of COPY_LEGAL[locale]) {
         const why = problem(op, MESSAGES[locale].legal[op.doc].sections);
         if (why) problems.push(`${locale} ${why}`);
@@ -54,7 +54,7 @@ async function main() {
     assert(problems.length === 0, problems.join('\n'));
   });
 
-  await check('L2 no text still says the sentence C7 replaced', () => {
+  await check('L2 no text still says a sentence the edits replaced', () => {
     for (const locale of LOCALES) {
       const all = [...strings(MESSAGES[locale].legal.privacy), ...strings(MESSAGES[locale].legal.terms)].map(plain);
       for (const old of COPY_LEGAL_REPLACED[locale]) assert(!all.includes(old), `${locale} still says: ${old.slice(0, 80)}`);

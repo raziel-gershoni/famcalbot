@@ -110,7 +110,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', '**Sign-in counters:** up to a day.'],
     ['privacy', 'On famcal.bot it checks the session cookie set when you signed in.'],
     ['privacy', 'remove a sign-in method in Settings, under “Sign in on the web”, except your only one;'],
-    ['privacy', '(deleted ones too), your sign-in methods, your plan,'],
+    ['privacy', 'the ones you took, your sign-in methods, your plan,'], // Send a copy's records sit before them since 2026-11-27 (legal-copy C11)
     ['terms', 'Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you created your account with or added for signing in, can use FamCal as you. Keep those accounts safe.'],
   ],
   he: [
@@ -144,7 +144,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', '**ספירת ניסיונות הכניסה והחשבונות החדשים:** יום לכל היותר.'],
     ['privacy', 'ב־famcal.bot היא בודקת את עוגיית ההתחברות שנשמרה כשנכנסתם.'],
     ['privacy', 'להסיר דרך כניסה בהגדרות, תחת ״כניסה מהדפדפן״, אלא אם זו דרך הכניסה היחידה שלכם;'],
-    ['privacy', '(גם אירועים שנמחקו), את דרכי הכניסה, את המסלול,'],
+    ['privacy', 'לעותקים שהעתקתם, את דרכי הכניסה, את המסלול,'],
     ['terms', 'כל מי שיכול להשתמש בחשבון הטלגרם או הוואטסאפ שלכם, בחשבון ה־Google שהיומן שלכם מחובר ממנו, או בחשבון Google או בתיבת מייל שאיתם פתחתם את החשבון או שהוספתם לכניסה, יכול להשתמש ב־FamCal בשמכם. שמרו היטב על החשבונות האלה.'],
   ],
   ru: [
@@ -178,7 +178,7 @@ const SAYS: Record<Locale, [Doc, string][]> = {
     ['privacy', '**Счётчики попыток входа и новых аккаунтов:** не дольше суток.'],
     ['privacy', 'На famcal.bot оно проверяет сеансовый cookie, который ваш браузер получил при входе.'],
     ['privacy', 'удалить способ входа в «Настройках», в разделе «Вход через браузер», если он у вас не единственный;'],
-    ['privacy', '(в том числе удалённые), способы входа, ваш тариф,'],
+    ['privacy', 'которые вы взяли, способы входа, ваш тариф,'],
     ['terms', 'Любой, кто может пользоваться вашим аккаунтом Telegram или WhatsApp, аккаунтом Google, с которого подключён ваш календарь, а также аккаунтом Google или почтовым ящиком, с которыми вы создали аккаунт или которые добавили для входа, может пользоваться FamCal от вашего имени. Берегите эти аккаунты.'],
   ],
 };

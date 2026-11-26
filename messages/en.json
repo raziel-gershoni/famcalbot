@@ -2333,8 +2333,8 @@
             [
               "The events and reminders you add: the title, time, place and notes, how they repeat (including by Hebrew date), who each one is for, who added it, and whether a reminder is done or snoozed.",
               "Your calendars: each one’s name, colour and labels, the family member it is for (their name, and how to address them), and any note for the AI.",
-              "When you send a copy of an event: which event, when you sent it and, once someone copies it, who did and their copy.",
-              "When you copy an event someone sent you, the copy becomes your event, and we tell them your name, as it was on your Telegram profile when you started the bot.",
+              "When you tap Send a copy: which event, when you tapped and, once someone copies it, who did, when, and their copy. Whoever copies it first gets the event as it is at that moment. Until then the card keeps working, unless the event is deleted or you can no longer see its calendar.",
+              "When you copy an event someone sent you, the copy becomes your event. We keep a record that you copied it, and tell the sender your name as we keep it for your account.",
               "When you delete an event or a calendar, you and your partner no longer see it. We still keep it in our database until your account is deleted."
             ],
             {
@@ -2442,7 +2442,7 @@
           "heading": "How we use it",
           "blocks": [
             [
-              "To run the features you use: your calendar, reminders, briefings and the voice show, notifications in your browser, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, and your Google connection.",
+              "To run the features you use: your calendar, reminders, briefings and the voice show, notifications in your browser, weather, Hebrew dates and zmanim, the Shabbat and Yom Tov pause, sharing with your partner, sending copies of events, and your Google connection.",
               "To understand what you send the bot: voice notes, photos, PDFs, forwarded messages, typed reminders, and the message you ask about when you mention the bot in another chat.",
               "To apply your plan’s limits, and to handle payments and refunds.",
               "To answer you, fix problems, and keep FamCal safe from misuse."
@@ -2493,7 +2493,7 @@
                   "We use Gemini’s paid service. Under Google’s terms, Google doesn’t use what we send it to improve its products. It keeps that data for a limited time, only to detect misuse."
                 ]
               },
-              "**Telegram:** every message between you and the bot; the copies of events you send to other chats with Send a copy; when you mention the bot in another chat, the message you ask about, your mention and the bot’s answer there; the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.",
+              "**Telegram:** every message between you and the bot; the cards you send to other chats with Send a copy, with an event’s title and when it is, which everyone in that chat sees; when you mention the bot in another chat, the message you ask about, your mention and the bot’s answer there; the web app’s sign-in, signing in to famcal.bot with Telegram, and Stars payments.",
               "**Meta (WhatsApp):** your number and every message between you and the bot on WhatsApp.",
               "**Google Calendar,** if you connect it (see above).",
               "**Google,** if you sign in or create your account with Google: your Google account id and email address, to sign you in.",
@@ -2537,7 +2537,7 @@
               "they see the calendars you share with them, either to view or to view and edit. They see every event in those calendars and who added it, and they get the reminders from them;",
               "they see the reminders you make for both of you, and whether each of you marked them done;",
               "they can ask the bot in another Telegram chat when you’re busy: the answer, which everyone in that chat sees, shows by your name when you have plans and when you’re free, from the calendars you share with them, never what your events are;",
-              "they can send a copy of an event from the calendars you share with them to anyone on Telegram, with its title, time and how it repeats;",
+              "they can send a copy of an event from the calendars you share with them to anyone on Telegram: its title, time, how it repeats and, for a birthday, the year of birth, never its place or notes;",
               "calendars you keep private stay private."
             ],
             "When you unlink, both of your calendars go back to private. Events you added to your partner’s calendar stay in their calendar."
@@ -2573,7 +2573,8 @@
               "**Server logs:** 90 days.",
               "**Error reports:** at most 90 days.",
               "**What Google Gemini logs:** a limited time, under Google’s terms.",
-              "**Notifications in your browser:** each device until you turn them off or sign out there; until you sign out on all devices, or remove a way to sign in (the device you remove it on stays); until your account gets a chat (Telegram or WhatsApp), is suspended or banned, or is deleted. If the browser or its push service ends them, we delete the device at the next notification. We keep up to 10 devices: turning on an 11th removes the oldest. A notification waiting at a push service for a device that’s off is dropped there within a day."
+              "**Notifications in your browser:** each device until you turn them off or sign out there; until you sign out on all devices, or remove a way to sign in (the device you remove it on stays); until your account gets a chat (Telegram or WhatsApp), is suspended or banned, or is deleted. If the browser or its push service ends them, we delete the device at the next notification. We keep up to 10 devices: turning on an 11th removes the oldest. A notification waiting at a push service for a device that’s off is dropped there within a day.",
+              "**Copies of events:** the record of each copy you send, until your account, or the account whose calendar holds the event, is deleted. If you copied one, your link to that record goes when your account is deleted."
             ]
           ]
         },
@@ -2599,14 +2600,15 @@
             ],
             "**When we delete your account**, we:",
             [
-              "delete your account, settings, calendars and their events (deleted ones too), your sign-in methods, your plan, the list of devices you get notifications on, your activity log and your feedback;",
+              "delete your account, settings, calendars and their events (deleted ones too), the records of copies of events you sent and your link to the ones you took, your sign-in methods, your plan, the list of devices you get notifications on, your activity log and your feedback;",
               "remove your FamCal copy calendars from Google, except those you chose to keep, and revoke FamCal’s access to your Google account;",
               "unlink your partner."
             ],
             "**What stays after that:**",
             [
               "events you added to your partner’s calendars, which become theirs;",
-              "copies other people made of events you sent them, which are theirs;",
+              "copies other people made of your events, from cards you or your partner sent them, which are theirs;",
+              "cards you sent with Send a copy, and notices that named you in another person’s chat with the bot, which stay in Telegram;",
               "feedback that already reached us as Telegram messages;",
               "server logs and error reports, until they expire (up to 90 days);",
               "cache copies, until they expire (up to 30 days);",
@@ -2625,10 +2627,11 @@
               "title": "Our legal grounds"
             },
             [
-              "To run FamCal for you (your account and its sign-in methods, calendar, settings, Google connection, partner sharing, briefings, notifications in your browser, and reading what you send the bot): our agreement with you.",
+              "To run FamCal for you (your account and its sign-in methods, calendar, settings, Google connection, partner sharing, sending copies of events, briefings, notifications in your browser, and reading what you send the bot): our agreement with you.",
               "For payments and refunds: our agreement with you.",
               "To keep FamCal working and safe (server logs, error reports, the activity log, the sign-in counters, the bot check on the email-code form (Turnstile), and the record of banned accounts): our legitimate interest in running a reliable service and stopping misuse.",
-              "For details you add about family members: our legitimate interest in running the family calendar you asked for.",
+              "For details you add or send about family members: our legitimate interest in running the family calendar you asked for.",
+              "To tell the person who sent a copy of an event who copied it: our legitimate interest, and the sender’s, in knowing who took a copy that works once.",
               "For the settings that can show your religious practice (calendar culture, zmanim community and the Shabbat and Yom Tov pause): your explicit consent, which you give by turning them on and withdraw by turning them off."
             ],
             "**Your extra rights.** You can also ask us to limit how we use your data, object to a use based on our legitimate interest, get your data in a format you can take elsewhere, and withdraw a consent at any time. You can complain to your country’s data protection authority.",
@@ -2704,7 +2707,7 @@
               "sends you briefings, in text and voice;",
               "shows Hebrew dates, holidays and zmanim;",
               "can pause on Shabbat and Yom Tov;",
-              "lets you send a copy of an event to someone on Telegram;",
+              "lets you send a copy of an event to anyone on Telegram;",
               "lets you share calendars with a partner."
             ],
             "Connecting Google Calendar is optional.",
@@ -2733,7 +2736,7 @@
               "You’re responsible for what you add and the copies you send, including details about your children, your partner and other family members. Add and send only what you have the right to share.",
               "Anyone who can use your Telegram or WhatsApp account, the Google account your calendar is connected from, or a Google account or mailbox you created your account with or added for signing in, can use FamCal as you. Keep those accounts safe.",
               "If you lose every way you sign in, we may not be able to give the account back.",
-              "A partner sees the calendars you share with them. If you allow it, they can also change them.",
+              "A partner sees the calendars you share with them, and can send copies of their events. If you allow it, they can also change them.",
               "What you add stays yours. You allow us to store and process it only to run FamCal for you.",
               "Notifications show your reminders’ and events’ titles, times and places on each device where you turn them on and, depending on its settings, on its lock screen. Anyone who can see that device can read them, so turn them off on a device others use."
             ]
@@ -2852,7 +2855,7 @@
             "Don’t:",
             [
               "use FamCal for anything illegal, or to harass or harm anyone;",
-              "add details about someone that you have no right to share;",
+              "add or send details about someone that you have no right to share;",
               "try to break into FamCal, get around its limits or payments, or reach other people’s data;",
               "overload FamCal, spam it, or use it through bots or scripts;",
               "copy, resell or rebrand FamCal."
