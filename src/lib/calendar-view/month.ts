@@ -57,6 +57,7 @@ import {
   type SourceFailure,
 } from './store';
 import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
+import { SQUARE_MAX_LINES } from './month-layout';
 import { MONTH_REACH } from './year-limits';
 
 export type MonthLayout = 'browse' | 'picked';
@@ -687,6 +688,135 @@ export function wantedMonths(ui: MonthUi, near: readonly MonthKey[], inView: Mon
     if (!valid(m) || seen.has(m)) continue;
     seen.add(m);
     out.push(monthWindow(m));
+  }
+  return out;
+}
+
+// ---- One Month screen (release 2): the focus, and fitting a square's lines ----
+
+/**
+ * Where the one Month screen is: `month` is the month the pane was last sent to
+ * (opening, Today, a jump, leaving the tab); `selected` the day the list shows.
+ */
+export interface MonthFocus {
+  month: MonthKey;
+  selected: DayKey;
+}
+
+/** The opening focus: today's month with today selected; null for a malformed today. */
+export function initialFocus(today: DayKey): MonthFocus | null {
+  const month = monthOf(today);
+  return month ? { month, selected: today } : null;
+}
+
+/** A tap on a day: that day selected, the month unchanged. The same object for the same day. */
+export function selectDay(f: MonthFocus, day: DayKey): MonthFocus {
+  return f.selected === day ? f : { month: f.month, selected: day };
+}
+
+/** The Today button: today's month, today selected. The same object when already there. */
+export function focusToday(f: MonthFocus, today: DayKey): MonthFocus {
+  const next = initialFocus(today);
+  if (!next) return f;
+  return f.month === next.month && f.selected === next.selected ? f : next;
+}
+
+/** A jump to a date: its month, the day selected. The same object when already there. */
+export function focusJump(f: MonthFocus, day: DayKey): MonthFocus {
+  const month = monthOf(day);
+  if (!month) return f;
+  return f.month === month && f.selected === day ? f : { month, selected: day };
+}
+
+/** The pane sent to a month (a chevron, leaving the tab): the selection kept. The same object when already there. */
+export function focusMonth(f: MonthFocus, month: MonthKey): MonthFocus {
+  return f.month === month || addMonths(month, 0) === '' ? f : { month, selected: f.selected };
+}
+
+/** Whether a chevron can move one month: false past the reach's ends (January 1900, December 2100). */
+export function canStepMonth(month: MonthKey, delta: -1 | 1, today: DayKey): boolean {
+  const ends = windowOf(today);
+  const next = addMonths(month, delta);
+  return ends !== null && next !== '' && inWindow(next, ends);
+}
+
+/**
+ * After today moves (midnight, other facts): the focus kept inside the reach. A malformed
+ * month goes to today's, one past an end to that end; a selected day outside the reach
+ * (or malformed) becomes today. The same object when nothing changes.
+ */
+export function clampFocus(f: MonthFocus, today: DayKey): MonthFocus {
+  const ends = windowOf(today);
+  if (!ends) return f;
+  let month = f.month;
+  if (addMonths(month, 0) === '') month = monthOf(today) as MonthKey;
+  else if (month < ends.first) month = ends.first;
+  else if (month > ends.last) month = ends.last;
+  const selectedMonth = monthOf(f.selected);
+  const selected = selectedMonth !== null && inWindow(selectedMonth, ends) ? f.selected : today;
+  return month === f.month && selected === f.selected ? f : { month, selected };
+}
+
+/**
+ * The Month windows to fetch now (Ruling 7, Ruling 2), most wanted first, each once and
+ * inside the reach: the anchor (`inView` when valid, else the focus month), then the
+ * selected day's month when it is another, then browse's pool (`near` and the anchor's
+ * two neighbours) nearest the anchor first, the later month first on a tie.
+ */
+export function wantedFocusMonths(f: MonthFocus, near: readonly MonthKey[], inView: MonthKey | null, today: DayKey): RangeWindow[] {
+  const ends = windowOf(today);
+  if (!ends) return [];
+  const valid = (m: MonthKey | null): m is MonthKey => m !== null && inWindow(m, ends);
+  const anchor = inView !== null && addMonths(inView, 0) !== '' ? inView : f.month;
+  if (addMonths(anchor, 0) === '') return [];
+  const at = monthNumber(anchor);
+  const pool = [...near, addMonths(anchor, 1), addMonths(anchor, -1)]
+    .filter(valid)
+    .map((m) => ({ m, d: monthNumber(m) - at }))
+    .sort((a, b) => Math.abs(a.d) - Math.abs(b.d) || b.d - a.d)
+    .map((x) => x.m);
+  const out: RangeWindow[] = [];
+  const seen = new Set<MonthKey>();
+  for (const m of [anchor, monthOf(f.selected), ...pool]) {
+    if (!valid(m) || seen.has(m)) continue;
+    seen.add(m);
+    out.push(monthWindow(m));
+  }
+  return out;
+}
+
+/**
+ * The slots a square shows in `lines` lines (the total drawn, "+N" included; clamped to
+ * 1 to SQUARE_MAX_LINES): limitSlots' three steps (one-day items into the bars' empty
+ * lanes, then the bars up with their titles), and when it still overflows, `lines - 1`
+ * items then "+N".
+ */
+export function fitSlots(slots: readonly MonthSlot[], lines: number): { shown: MonthSlot[]; more: number } {
+  const limit = Number.isFinite(lines) ? Math.max(1, Math.min(SQUARE_MAX_LINES, Math.floor(lines))) : 1;
+  const items = withoutTrailingSpacers(slots);
+  if (items.length <= limit) return { shown: items, more: 0 };
+  const singles = items.filter((s) => s.kind !== 'bar' && s.kind !== 'spacer');
+  const packed = withoutTrailingSpacers([
+    ...items.filter((s) => s.kind === 'bar' || s.kind === 'spacer').map((s) => (s.kind === 'spacer' && singles.length > 0 ? (singles.shift() as MonthSlot) : s)),
+    ...singles,
+  ]);
+  if (packed.length <= limit) return { shown: packed, more: 0 };
+  const real: MonthSlot[] = [];
+  items.forEach((s, lane) => {
+    if (s.kind === 'spacer') return;
+    real.push(s.kind === 'bar' && real.length !== lane && !s.showTitle ? { ...s, showTitle: true } : s);
+  });
+  if (real.length <= limit) return { shown: real, more: 0 };
+  const keep = limit - 1;
+  return { shown: real.slice(0, keep), more: real.length - keep };
+}
+
+/** A week row's cells as the square shows them: fitSlots for each in-month cell, then a bar the day before did not draw in the same slot shows its title. */
+export function fitRow(cells: readonly MonthCell[], lines: number): { shown: MonthSlot[]; more: number }[] {
+  const out = cells.map((cell) => (cell.inMonth ? fitSlots(cell.slots, lines) : { shown: [], more: 0 }));
+  for (let col = 1; col < out.length; col++) {
+    const before = out[col - 1].shown;
+    out[col].shown = out[col].shown.map((s, i) => (s.kind === 'bar' && !s.showTitle && before[i]?.key !== s.key ? { ...s, showTitle: true } : s));
   }
   return out;
 }
