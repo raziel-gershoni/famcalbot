@@ -85,6 +85,7 @@ import { SPLIT_HANDLE_CSS } from '../app/[locale]/(app)/dashboard/SplitHandle';
 import { PICKER_CSS } from '../app/[locale]/(app)/dashboard/picker-kit';
 import { REPEAT_CSS } from '../app/[locale]/(app)/dashboard/RepeatSheet';
 import { ZMANIM_SHEET_CSS } from '../app/[locale]/(app)/dashboard/ZmanimSheet';
+import { SHORT_QUERY } from '../src/lib/calendar-view/month-layout';
 import { contrast, MARK_PAIRS, resolver, TEXT_PAIRS, TG_ALL, type Theme } from './lib/css-resolve';
 import { lintCss } from './lib/css-lint';
 import { byRole, elements, fakeDocument, fakeTelegram, fakeWindow, installWindow, mount, type Row } from './lib/fake-dom';
@@ -807,7 +808,7 @@ async function main() {
     }
   });
 
-  await check("K9b BottomSheet card: without it the markup is as it was (the layer's class is 'ch-sheet-layer'); with it the layer is 'ch-sheet-layer ch-sheet-card' and nothing else changes; the theme's @media (min-width: 600px) block centres the layer and sizes the card (480 px, the editor's full variant 640 px by 85vh, 20 px corners, no grab handle, a 180 ms ch-card-in entry) and passes #2's lint; only the home's sheets pass card (Settings, Calendars, Select calendars, Pair, admin and the site's menu do not)", () => {
+  await check("K9b BottomSheet card: without it the markup is as it was (the layer's class is 'ch-sheet-layer', the full variant's too); with it the layer is 'ch-sheet-layer ch-sheet-card' ('… ch-sheet-card is-full' for the editor's full variant) and nothing else changes; the theme's @media (min-width: 600px) block centres a small sheet's layer and sizes its card (480 px, 20 px corners, no grab handle, a 180 ms ch-card-in entry) and never the full variant; the editor's full card (640 px by 85vh) only under (min-width: 600px) and (min-height: 521px), so a sideways phone keeps the full-height drawer (final review M9); both pass #2's lint; only the home's sheets pass card (Settings, Calendars, Select calendars, Pair, admin and the site's menu do not)", () => {
     installWindow();
     const markup = (props: Record<string, unknown>) => renderToString(createElement(SheetProbe, { label: 'Sheet', closeLabel: 'Close', onClose: noop, ...props }));
     const plain = markup({});
@@ -815,19 +816,31 @@ async function main() {
     const card = markup({ card: true });
     assert(card.includes('class="ch-sheet-layer ch-sheet-card"') && card.replace(' ch-sheet-card', '') === plain, `card: ${card}`);
     assert(markup({ card: false }) === plain, 'card={false} is the default');
-    const block = /@media \(min-width: 600px\) \{([\s\S]*?)\n\}\n/.exec(APP_THEME_CSS)?.[1] ?? '';
+    const plainFull = markup({ variant: 'full' });
+    assert(plainFull.includes('class="ch-sheet-layer"') && !plainFull.includes('ch-sheet-card') && !plainFull.includes('is-full'), `the full variant by default: ${plainFull}`);
+    const cardFull = markup({ variant: 'full', card: true });
+    assert(cardFull.includes('class="ch-sheet-layer ch-sheet-card is-full"') && cardFull.replace(' ch-sheet-card is-full', '') === plainFull, `the full variant's card: ${cardFull}`);
+    const blockOf = (query: string) => new RegExp(`@media ${query.replace(/[()]/g, '\\$&')} \\{([\\s\\S]*?)\\n\\}\\n`).exec(APP_THEME_CSS)?.[1] ?? '';
+    const block = blockOf('(min-width: 600px)');
     assert(block.includes('.ch-sheet-card'), 'the theme has the @media (min-width: 600px) card block');
-    const inBlock = (selector: string) => {
-      const m = new RegExp(`\\n  ${selector.replace(/[.*+?^${}()|[\]\\>]/g, '\\$&')} \\{([^}]*)\\}`).exec(block);
+    const tall = blockOf('(min-width: 600px) and (min-height: 521px)');
+    assert(tall.includes('.ch-sheet-card.is-full'), 'the theme has the @media (min-width: 600px) and (min-height: 521px) full card block');
+    const ruleIn = (css: string, selector: string) => {
+      const m = new RegExp(`\\n  ${selector.replace(/[.*+?^${}()|[\]\\>]/g, '\\$&')} \\{([^}]*)\\}`).exec(css);
       assert(m, `no rule ${selector} in the card block`);
       return m[1];
     };
-    const layer = inBlock('.ch-sheet-card');
+    const inBlock = (selector: string) => ruleIn(block, selector);
+    const layer = inBlock('.ch-sheet-card:not(.is-full)');
     assert(/justify-content:\s*center/.test(layer) && /align-items:\s*center/.test(layer) && /padding:\s*16px/.test(layer), `layer: ${layer}`);
-    const panel = inBlock('.ch-sheet-card > .ch-sheet');
+    const panel = inBlock('.ch-sheet-card:not(.is-full) > .ch-sheet');
     assert(/inline-size:\s*480px/.test(panel) && /max-inline-size:\s*100%/.test(panel) && /max-block-size:\s*85vh/.test(panel) && /border-radius:\s*20px/.test(panel) && /padding-block-end:\s*16px/.test(panel) && /animation:\s*ch-card-in 180ms/.test(panel), `panel: ${panel}`);
-    const full = inBlock('.ch-sheet-card > .ch-sheet-full');
-    assert(/flex:\s*none/.test(full) && /inline-size:\s*640px/.test(full) && /block-size:\s*85vh/.test(full) && /padding:\s*0/.test(full) && /border-radius:\s*20px/.test(full) && /overflow:\s*hidden/.test(full), `full: ${full}`);
+    assert(!/ch-sheet-full|\.is-full[^)]/.test(block), `the width-only block never styles the full variant: ${block}`);
+    const fullLayer = ruleIn(tall, '.ch-sheet-card.is-full');
+    assert(/justify-content:\s*center/.test(fullLayer) && /align-items:\s*center/.test(fullLayer) && /padding:\s*16px/.test(fullLayer), `the full card's layer: ${fullLayer}`);
+    const full = ruleIn(tall, '.ch-sheet-card.is-full > .ch-sheet-full');
+    assert(/flex:\s*none/.test(full) && /inline-size:\s*640px/.test(full) && /max-inline-size:\s*100%/.test(full) && /block-size:\s*85vh/.test(full) && /padding:\s*0/.test(full) && /border-radius:\s*20px/.test(full) && /overflow:\s*hidden/.test(full) && /animation:\s*ch-card-in 180ms/.test(full), `full: ${full}`);
+    assert(SHORT_QUERY === '(max-height: 520px) and (orientation: landscape)', `the short window the full card leaves alone starts below 521 px: ${SHORT_QUERY}`);
     assert(/display:\s*none/.test(inBlock('.ch-sheet-card .ch-sheet-grab')), 'no grab handle on a card');
     const keyframes = /@keyframes ch-card-in \{[\s\S]*?\n\}/.exec(APP_THEME_CSS)?.[0] ?? '';
     assert(/scale\(/.test(keyframes) && /opacity:\s*0/.test(keyframes), 'the entry keyframe fades and scales in');

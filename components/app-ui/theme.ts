@@ -341,12 +341,12 @@ export const APP_THEME_CSS = `
   background: var(--ch-bg);
 }
 @media (min-width: 600px) {
-  .ch-sheet-card {
+  .ch-sheet-card:not(.is-full) {
     justify-content: center;
     align-items: center;
     padding: 16px;
   }
-  .ch-sheet-card > .ch-sheet {
+  .ch-sheet-card:not(.is-full) > .ch-sheet {
     inline-size: 480px;
     max-inline-size: 100%;
     max-block-size: 85vh;
@@ -354,16 +354,26 @@ export const APP_THEME_CSS = `
     padding-block-end: 16px;
     animation: ch-card-in 180ms ease-out;
   }
-  .ch-sheet-card > .ch-sheet-full {
+  .ch-sheet-card .ch-sheet-grab {
+    display: none;
+  }
+}
+@media (min-width: 600px) and (min-height: 521px) {
+  .ch-sheet-card.is-full {
+    justify-content: center;
+    align-items: center;
+    padding: 16px;
+  }
+  .ch-sheet-card.is-full > .ch-sheet-full {
     flex: none;
     inline-size: 640px;
+    max-inline-size: 100%;
     block-size: 85vh;
+    max-block-size: 85vh;
     padding: 0;
     border-radius: 20px;
     overflow: hidden;
-  }
-  .ch-sheet-card .ch-sheet-grab {
-    display: none;
+    animation: ch-card-in 180ms ease-out;
   }
 }
 @keyframes ch-card-in {

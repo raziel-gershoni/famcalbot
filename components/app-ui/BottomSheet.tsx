@@ -33,7 +33,11 @@ export interface BottomSheetProps {
   variant?: 'sheet' | 'full';
   /** The sheet cannot be closed now: the Close button is disabled, and Escape and the scrim do nothing. */
   closeDisabled?: boolean;
-  /** On a window 600 px wide or more the sheet is a centred card instead of a bottom sheet (CSS only; the home's sheets). Default false. */
+  /**
+   * On a window 600 px wide or more the sheet is a centred card instead of a bottom sheet (CSS only; the
+   * home's sheets); the full variant only when the window is also 521 px tall or more, so a phone held
+   * sideways keeps the full-height editor. Default false.
+   */
   card?: boolean;
   children: ReactNode;
 }
@@ -122,7 +126,7 @@ export function BottomSheet({ label, closeLabel, onClose, variant = 'sheet', clo
   };
 
   return (
-    <div className={card ? 'ch-sheet-layer ch-sheet-card' : 'ch-sheet-layer'}>
+    <div className={card ? (variant === 'full' ? 'ch-sheet-layer ch-sheet-card is-full' : 'ch-sheet-layer ch-sheet-card') : 'ch-sheet-layer'}>
       <div className="ch-sheet-backdrop" aria-hidden="true" onClick={requestClose} />
       <div ref={panel} className={variant === 'full' ? 'ch-sheet ch-sheet-full' : 'ch-sheet'} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} onKeyDown={onKeyDown}>
         {variant === 'full' ? null : <div className="ch-sheet-grab" aria-hidden="true" />}
