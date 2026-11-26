@@ -2,7 +2,8 @@
 // a document and window that React can render into, `mount` (render, click, key, unmount, all inside
 // act), element lookups, and a fake Telegram.WebApp that records every call (and keeps the BackButton's
 // handlers, so a smoke can tap it). For a view that scrolls an element, an element has a scroller's
-// geometry (scrollTop, clientHeight and clientWidth through FakeElement.layout, scrollTo), and there
+// geometry (scrollTop, clientHeight, clientWidth and getBoundingClientRect through FakeElement.layout,
+// scrollTo), and there
 // are `fireScroll` and an opt-in FakeResizeObserver; none of it is read unless a smoke sets it up.
 // The render smoke keeps a larger copy of its own for the home; this is the small one
 // smoke-calendar-home-tabs.ts, smoke-app-ui.ts and smoke-month-pane.ts share. scripts/lib/ is not a
@@ -269,7 +270,7 @@ export class FakeElement extends FakeNode {
    * when one was set on it, else this (null: 0). React creates the elements, so a smoke that needs a size
    * from the first render on sets this before it mounts, and puts it back to null after.
    */
-  static layout: ((el: FakeElement) => { clientHeight?: number; clientWidth?: number } | null | undefined) | null = null;
+  static layout: ((el: FakeElement) => { clientHeight?: number; clientWidth?: number; height?: number; width?: number } | null | undefined) | null = null;
   private ownHeight: number | undefined;
   private ownWidth: number | undefined;
   get clientHeight(): number {
@@ -283,6 +284,16 @@ export class FakeElement extends FakeNode {
   }
   set clientWidth(value: number) {
     this.ownWidth = value;
+  }
+  /**
+   * The element's box at the origin: the exact (fractional) size FakeElement.layout gives as `height` and
+   * `width`, else its client size (a browser rounds clientHeight and clientWidth to whole pixels).
+   */
+  getBoundingClientRect() {
+    const box = FakeElement.layout?.(this);
+    const width = box?.width ?? this.clientWidth;
+    const height = box?.height ?? this.clientHeight;
+    return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height };
   }
   /** Where the element is scrolled to; setting it fires no scroll event (fireScroll does). */
   scrollTop = 0;

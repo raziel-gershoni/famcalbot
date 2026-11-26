@@ -125,6 +125,17 @@ function nextFrame(run: () => void): () => void {
   return () => clearTimeout(id);
 }
 
+/**
+ * The scroller's height for scroll positions: its exact (fractional) height, as each month box is
+ * 100% of it and sits at index × it. clientHeight is rounded to a whole pixel, and index × a rounded
+ * height drifts up to half a pixel a month, a sliver of the neighbour where a programmatic scroll
+ * doesn't snap. clientHeight where the box disagrees by a pixel or more (no layout box; a transform).
+ */
+function heightOf(el: HTMLElement): number {
+  const exact = el.getBoundingClientRect().height;
+  return Math.abs(exact - el.clientHeight) < 1 ? exact : el.clientHeight;
+}
+
 /** The month at `index` and its two neighbours, inside the span. */
 function around(months: readonly MonthKey[], index: number): MonthKey[] {
   return index < 0 ? [] : months.slice(Math.max(0, index - 1), index + 2);
@@ -224,7 +235,7 @@ export function MonthPane(props: MonthPaneProps) {
     const p = live.current;
     const n = p.months.length;
     if (!el || n === 0) return;
-    const h = el.clientHeight;
+    const h = heightOf(el);
     if (!(h > 0)) return;
     // The height changed since the position was last put right and the ResizeObserver hasn't run
     // yet (a scroll event comes first in a frame of the split's animation or a window resize):
@@ -285,7 +296,7 @@ export function MonthPane(props: MonthPaneProps) {
     (index: number, smooth: boolean) => {
       const el = scrollerRef.current;
       if (!el) return;
-      const h = el.clientHeight;
+      const h = heightOf(el);
       alignedAt.current = h;
       const top = index * h;
       if (smooth) {
@@ -337,10 +348,10 @@ export function MonthPane(props: MonthPaneProps) {
     const el = scrollerRef.current;
     if (!el) return;
     const at = live.current.months.indexOf(view.current.month);
-    const h = el.clientHeight;
+    const h = heightOf(el);
     alignedAt.current = h;
     if (at >= 0 && h > 0) el.scrollTop = at * h;
-    const size = { width: el.clientWidth, height: h };
+    const size = { width: el.clientWidth, height: el.clientHeight };
     if (realSize(size)) applySize(size);
   }, [applySize]);
 
@@ -352,7 +363,7 @@ export function MonthPane(props: MonthPaneProps) {
     if (was[0] === months[0] && was.length === months.length) return;
     const el = scrollerRef.current;
     if (!el) return;
-    const h = el.clientHeight;
+    const h = heightOf(el);
     const added = was.length > 0 ? months.indexOf(was[0]) : -1;
     if (added > 0 && h > 0) {
       const at = months.indexOf(view.current.month);
@@ -393,13 +404,12 @@ export function MonthPane(props: MonthPaneProps) {
   const onResize = useCallback(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const h = el.clientHeight;
-    realign(el, h);
+    realign(el, heightOf(el));
     if (settleTimer.current !== null) {
       clearTimeout(settleTimer.current);
       settleTimer.current = null;
     }
-    const size = { width: el.clientWidth, height: h };
+    const size = { width: el.clientWidth, height: el.clientHeight };
     const now = sized.current;
     if (now && now.width === size.width && now.height === size.height) return;
     if (!realSize(now)) {

@@ -396,7 +396,7 @@ const containerBlock = (css: string, condition: string) => {
 // ---- The pane part (Task 4): a scroller with a size, frames, a media query and a ResizeObserver ----
 
 /** The pane's scroller as the fake lays it out (FakeElement.layout): a phone's month pane, 390 px wide (54 px squares). */
-const PANE = { height: 400, width: 390 };
+const PANE = { height: 400, width: 390, exact: null as number | null };
 /** The frames requested and not run yet. */
 const frames = new Map<number, () => void>();
 let nextFrameId = 1;
@@ -425,7 +425,7 @@ function installPane() {
     removeListener: noop,
   });
   fakeWindow.ResizeObserver = FakeResizeObserver;
-  FakeElement.layout = (el) => (el.className.split(' ').includes('ch-pane-scroller') ? { clientHeight: PANE.height, clientWidth: PANE.width } : null);
+  FakeElement.layout = (el) => (el.className.split(' ').includes('ch-pane-scroller') ? { clientHeight: PANE.height, clientWidth: PANE.width, height: PANE.exact ?? PANE.height } : null);
 }
 
 /** A clean start: no frames, motion allowed, no observers, the phone's size. */
@@ -435,6 +435,7 @@ function resetPane() {
   FakeResizeObserver.all = [];
   PANE.height = 400;
   PANE.width = 390;
+  PANE.exact = null;
 }
 
 /** Runs the frames requested so far (and any they request), inside act. */
@@ -1807,6 +1808,35 @@ async function main() {
       fireScroll(el, (OCT + 1) * 420);
       flushFrames();
       assert(show(seen.inView) === show(['2026-10', '2026-11']) && paneTitle(m) === 'November 2026', `a real scroll reads its month: ${show(seen.inView)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#48 M4: scroll positions use the scroller\'s exact height, not clientHeight (a whole number): a 424.6 px scroller (clientHeight 425) opens October at 12 × 424.6, not 12 × 425 (4.8 px into the next month); a step goes to 13 × 424.6; a resize to 380.5 px puts November at 13 × 380.5, and a scroll event after it reads November without re-aligning', () => {
+    resetPane();
+    PANE.height = 425;
+    PANE.exact = 424.6;
+    const { seen, callbacks } = paneRecorder();
+    const ref = createRef<MonthPaneHandle>();
+    const m = mount(paneIn('en', paneProps(famcalStore(), callbacks), ref));
+    const at = (top: number, index: number, h: number) => Math.abs(top - index * h) < 1e-6;
+    try {
+      flushFrames();
+      const el = scrollerOf(m);
+      assert(at(el.scrollTop, OCT, 424.6), `the opening at 12 × 424.6 (${OCT * 424.6}): ${el.scrollTop}`);
+      assert(show(seen.inView) === show(['2026-10']), `October: ${show(seen.inView)}`);
+      media.set(REDUCED, true);
+      React.act(() => ref.current?.step(1));
+      assert(at(el.scrollTop, OCT + 1, 424.6) && paneTitle(m) === 'November 2026', `a step to 13 × 424.6: ${el.scrollTop} ${paneTitle(m)}`);
+      PANE.height = 381;
+      PANE.exact = 380.5;
+      FakeResizeObserver.all[0].trigger();
+      assert(at(el.scrollTop, OCT + 1, 380.5), `the resize to 13 × 380.5: ${el.scrollTop}`);
+      const set = el.scrollTop;
+      fireScroll(el);
+      flushFrames();
+      assert(el.scrollTop === set && paneTitle(m) === 'November 2026' && show(seen.inView) === show(['2026-10', '2026-11']), `November read as it is: ${el.scrollTop} ${show(seen.inView)}`);
     } finally {
       m.unmount();
     }
