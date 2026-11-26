@@ -49,6 +49,9 @@
 
 // The view first: the import-rule check walks what it loads.
 import { MONTH_SQUARES_CSS, MonthSquaresGrid, SquareChip, type MonthSquaresGridProps } from '../app/[locale]/(app)/dashboard/MonthSquares';
+import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
+import { DAY_PANEL_CSS, DayPanel } from '../app/[locale]/(app)/dashboard/DayPanel';
+import { SPLIT_HANDLE_CSS, SplitHandle } from '../app/[locale]/(app)/dashboard/SplitHandle';
 import { MONTH_PANE_CSS, MonthPane, SCROLL_IDLE_MS, type MonthPaneHandle, type MonthPaneProps } from '../app/[locale]/(app)/dashboard/MonthPane';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
@@ -59,9 +62,9 @@ import { NextIntlClientProvider } from 'next-intl';
 import { calendarVars } from '../src/lib/calendar-view/colours';
 import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
 import { holidaysFor } from '../src/lib/calendar-view/holidays-client';
-import { buildMonth, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
-import { SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
-import { daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
+import { buildMonth, dayRows, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
+import { HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX, SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
+import { dayStatus, daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type Holiday, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type SourceName, type WeekStart } from '../src/lib/calendar-view/types';
 import { lintCss } from './lib/css-lint';
 import { FakeElement, FakeResizeObserver, elements, fakeWindow, fireScroll, installWindow, mount, type FakeNode, type Mounted } from './lib/fake-dom';
@@ -1554,7 +1557,197 @@ async function main() {
 
   FakeElement.layout = null;
 
-  await check('#36 React logged no warning', () => {
+
+  // ---- The day panel and the handle (Task 5) ----
+
+  const panelProps = (store: CalendarStore, day: DayKey, o: Partial<ComponentProps<typeof DayPanel>> = {}): ComponentProps<typeof DayPanel> => ({
+    day,
+    today: TODAY,
+    tz: TZ,
+    hebrewDates: true,
+    dafYomi: false,
+    rows: dayRows(store, day),
+    status: dayStatus(store, day),
+    onOpenItem: noop,
+    ...o,
+  });
+  const renderPanel = (locale: Locale, props: ComponentProps<typeof DayPanel>) => markup(renderToString(inHome(locale, createElement(DayPanel, props))));
+  const heading = (html: string) => {
+    const m = /<h3 class="ch-dp-day" id="ch-dp-day">([\s\S]*?)<\/h3>/.exec(html);
+    assert(m, `no h3#ch-dp-day: ${html.slice(0, 300)}`);
+    return m[1];
+  };
+  const plain = (html: string) => decode(html.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, ''));
+
+  await check('#36 the day panel: h3#ch-dp-day with "Today · …" on today (the weekday and date otherwise) and the Hebrew date; the holiday line (chag in the accent); the rows in order, one li each; dir; top first in the scroller', () => {
+    const store = famcalStore();
+    const today = renderPanel('en', panelProps(store, TODAY));
+    assert(plain(heading(today)).startsWith('Today · Thursday, 15 October'), `today: ${plain(heading(today))}`);
+    assert(heading(today).includes('class="ch-dp-day-hebrew"'), 'the Hebrew date');
+    assert(/<section class="ch-dp" dir="ltr" aria-labelledby="ch-dp-day"/.test(today), `root: ${today.slice(0, 200)}`);
+    const rows = dayRows(store, TODAY);
+    assert(rows.length > 1, 'fixture has rows');
+    assert((today.match(/<li /g) ?? []).length === rows.length, `one li per row: ${(today.match(/<li /g) ?? []).length} of ${rows.length}`);
+    const titles = rows.map((r) => r.item.title).filter(Boolean) as string[];
+    let at = -1;
+    for (const title of titles) {
+      const i = today.indexOf(title.replace(/'/g, '&#x27;'), at + 1);
+      assert(i > at, `rows in order: ${title}`);
+      at = i;
+    }
+    const other = renderPanel('en', panelProps(store, '2026-10-17'));
+    assert(plain(heading(other)).startsWith('Saturday, 17 October'), `other day: ${plain(heading(other))}`);
+    assert(heading(other).includes('class="ch-day-holiday"') && heading(other).includes('Noach'), `the holiday line: ${heading(other)}`);
+    const chag = renderPanel('en', panelProps(store, '2026-10-03'));
+    assert(heading(chag).includes('ch-day-holiday is-chag'), 'chag in the accent');
+    const off = renderPanel('en', panelProps(store, '2026-10-17', { hebrewDates: false }));
+    assert(!heading(off).includes('ch-dp-day-hebrew') && !heading(off).includes('ch-day-holiday'), 'no Hebrew date or holiday with Hebrew dates off');
+    const he = renderPanel('he', panelProps(store, TODAY));
+    assert(he.includes('dir="rtl"'), 'he rtl');
+    const withTop = renderPanel('en', panelProps(store, TODAY, { top: createElement('div', { className: 'probe-top' }, 'banner') }));
+    const scroller = withTop.indexOf('class="ch-dp-scroller');
+    assert(scroller >= 0 && withTop.indexOf('probe-top') > scroller && withTop.indexOf('probe-top') < withTop.indexOf('id="ch-dp-day"'), 'top first inside the scroller');
+  });
+
+  await check('#37 Daf Yomi line right after the day header and before the rows (en, he, ru); none without the prop (ported from picked #16)', () => {
+    const want: Record<string, string> = { en: 'Daf Yomi · Bechorot 28', he: 'דף יומי · בכורות כ״ח', ru: 'Даф йоми · Бехорот 28' };
+    const store = famcalStore();
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      const html = renderPanel(locale, panelProps(store, '2026-10-16', { dafYomi: true }));
+      const after = html.slice(html.indexOf('id="ch-dp-day"'));
+      const rest = after.slice(after.indexOf('</h3>') + 5);
+      assert(rest.startsWith('<p class="ch-daf">'), `${locale}: right after the header: ${rest.slice(0, 80)}`);
+      assert(plain(rest.slice(0, rest.indexOf('</p>') + 4)) === want[locale], `${locale}: ${plain(rest.slice(0, rest.indexOf('</p>') + 4))}`);
+      assert(rest.indexOf('class="ch-daf"') < rest.indexOf('<ul'), `${locale}: before the rows`);
+      assert(!renderPanel(locale, panelProps(store, '2026-10-16')).includes('ch-daf"'), `${locale}: none without the prop`);
+    }
+  });
+
+  await check('#38 nothing planned only when answered and empty; placeholders while loading (aria-busy); neither when failed; the AGENDA_CSS once', () => {
+    const store = famcalStore();
+    const empty = renderToString(inHome('en', createElement(DayPanel, panelProps(store, '2026-10-02', { rows: [], status: 'answered' }))));
+    assert(markup(empty).includes('<p class="ch-dp-nothing">Nothing planned</p>'), 'nothing planned');
+    assert(!markup(empty).includes('ch-ghosts'), 'no ghosts');
+    assert(empty.split(AGENDA_CSS.slice(0, 200)).length === 2, 'AGENDA_CSS once');
+    const loading = renderPanel('en', panelProps(store, '2026-10-02', { rows: [], status: 'loading' }));
+    assert(loading.includes('class="ch-ghosts"') && !loading.includes('ch-dp-nothing') && loading.includes('aria-busy="true"'), 'ghosts while loading');
+    assert((loading.match(/class="ch-ghost"/g) ?? []).length === 2, 'two ghosts with no rows');
+    const more = renderPanel('en', panelProps(store, TODAY, { status: 'loading' }));
+    assert((more.match(/class="ch-ghost"/g) ?? []).length === 1, 'one ghost under rows');
+    const failed = renderPanel('en', panelProps(store, '2026-10-02', { rows: [], status: 'failed' }));
+    assert(!failed.includes('ch-dp-nothing') && !failed.includes('ch-ghosts'), 'failed: nothing');
+  });
+
+  await check('#39 peek: the scroller cannot scroll and one full-size button (aria-label "Show the month smaller") calls onPeek; without peek there is none', () => {
+    const store = famcalStore();
+    const off = renderPanel('en', panelProps(store, TODAY));
+    assert(!off.includes('ch-dp-peek') && !off.includes('is-peek'), 'no peek by default');
+    const html = renderPanel('en', panelProps(store, TODAY, { peek: true, onPeek: noop }));
+    assert(html.includes('ch-dp-scroller is-peek'), 'is-peek scroller');
+    assert(/<button type="button" class="ch-dp-peek" aria-label="Show the month smaller">/.test(html), `the button: ${/<button[^>]*ch-dp-peek[^>]*>/.exec(html)?.[0]}`);
+    const calls: number[] = [];
+    const m = mount(inIntl('en', createElement(DayPanel, panelProps(store, TODAY, { peek: true, onPeek: () => void calls.push(1) }))));
+    try {
+      const btn = elements(m.container).find((e) => e.className === 'ch-dp-peek');
+      assert(btn, 'the peek button mounted');
+      m.click(btn);
+      assert(calls.length === 1, `onPeek once: ${calls.length}`);
+    } finally {
+      m.unmount();
+    }
+    const css = DAY_PANEL_CSS;
+    assert(/\.ch-dp-scroller\.is-peek \{[^}]*overflow: hidden/.test(css), 'peek scroller overflow hidden');
+    assert(/\.ch-dp-peek \{[^}]*position: absolute;[^}]*inset: 0/.test(css), 'the button covers the panel');
+    assert(lintCss(css + '\n' + SPLIT_HANDLE_CSS).length === 0, `lint: ${show(lintCss(css + '\n' + SPLIT_HANDLE_CSS))}`);
+  });
+
+  const handleIn = (grown: boolean, onToggle: (next: 'split' | 'grown') => void) => inIntl('en', createElement(SplitHandle, { grown, onToggle }));
+
+  await check('#40 the handle: a real button, aria-expanded and its label both ways (en, he, ru), touch-action none on it only, never a drag source', () => {
+    for (const [locale, bigger, smaller] of [['en', 'Show the month bigger', 'Show the month smaller'], ['he', 'הגדלת החודש', 'הקטנת החודש'], ['ru', 'Увеличить месяц', 'Уменьшить месяц']] as const) {
+      const a = markup(renderToString(inHome(locale, createElement(SplitHandle, { grown: false, onToggle: noop }))));
+      assert(a.includes('<button type="button" class="ch-handle" aria-expanded="false"') && a.includes(`aria-label="${bigger}"`), `${locale} collapsed: ${a.slice(0, 250)}`);
+      const b = markup(renderToString(inHome(locale, createElement(SplitHandle, { grown: true, onToggle: noop }))));
+      assert(b.includes('aria-expanded="true"') && b.includes(`aria-label="${smaller}"`), `${locale} grown`);
+    }
+    assert(/\.ch-handle \{[^}]*touch-action: none/.test(SPLIT_HANDLE_CSS), 'touch-action none');
+    assert((SPLIT_HANDLE_CSS.match(/touch-action/g) ?? []).length === 1, 'touch-action only on the handle');
+    const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/SplitHandle.tsx'), 'utf8');
+    assert(!/useItemDrag|DragSurface/.test(src), 'no drag source');
+  });
+
+  await check('#41 the handle\'s geometry: the bar is 22 px (HANDLE_PX), its tap area 22 + 2 × 11 = 44 px by padding and negative margins, a 36 × 5 pill, logical properties, lint clean', () => {
+    assert(HANDLE_PX === 22 && HANDLE_TOUCH_PX === 11 && HANDLE_TAP_PX === 12, 'constants');
+    const rule = /\.ch-handle \{([^}]*)\}/.exec(SPLIT_HANDLE_CSS)?.[1] ?? '';
+    assert(/block-size: 22px/.test(rule) && /box-sizing: content-box/.test(rule), `22 px content box: ${rule}`);
+    assert(/padding-block: 11px/.test(rule) && /margin-block: -11px/.test(rule), `11 px extension: ${rule}`);
+    const pill = /\.ch-handle-pill \{([^}]*)\}/.exec(SPLIT_HANDLE_CSS)?.[1] ?? '';
+    assert(/inline-size: 36px/.test(pill) && /block-size: 5px/.test(pill), `pill: ${pill}`);
+    const problems = lintCss(SPLIT_HANDLE_CSS);
+    assert(problems.length === 0, show(problems));
+  });
+
+  await check('#42 the handle\'s pointer: a 5 px move toggles; 30 px down grows; 30 px up shrinks; a pointer tap fires onToggle once (the click after it is swallowed); a keyboard click toggles; a cancelled gesture does nothing', () => {
+    const seen: string[] = [];
+    const down = (m: Mounted, btn: FakeNode, y: number) => m.fire(btn, 'pointerdown', { pointerId: 1, clientY: y, button: 0, isPrimary: true });
+    const up = (m: Mounted, btn: FakeNode, y: number) => m.fire(btn, 'pointerup', { pointerId: 1, clientY: y, button: 0, isPrimary: true });
+    const run = (grown: boolean, fn: (m: Mounted, btn: FakeElement) => void) => {
+      seen.length = 0;
+      const m = mount(handleIn(grown, (next) => void seen.push(next)));
+      try {
+        const btn = elements(m.container).find((e) => e.className === 'ch-handle');
+        assert(btn, 'handle mounted');
+        fn(m, btn);
+      } finally {
+        m.unmount();
+      }
+    };
+    run(false, (m, btn) => {
+      down(m, btn, 100);
+      up(m, btn, 105);
+      m.click(btn);
+      assert(show(seen) === '["grown"]', `a 5 px tap collapsed->grown once: ${show(seen)}`);
+    });
+    run(true, (m, btn) => {
+      down(m, btn, 100);
+      up(m, btn, 95);
+      m.click(btn);
+      assert(show(seen) === '["split"]', `a tap when grown shrinks: ${show(seen)}`);
+    });
+    run(false, (m, btn) => {
+      down(m, btn, 100);
+      up(m, btn, 130);
+      m.click(btn);
+      assert(show(seen) === '["grown"]', `30 px down grows: ${show(seen)}`);
+    });
+    run(true, (m, btn) => {
+      down(m, btn, 100);
+      up(m, btn, 70);
+      m.click(btn);
+      assert(show(seen) === '["split"]', `30 px up shrinks: ${show(seen)}`);
+    });
+    run(false, (m, btn) => {
+      m.click(btn);
+      assert(show(seen) === '["grown"]', `keyboard click: ${show(seen)}`);
+      m.click(btn);
+      assert(seen.length === 2, 'a second keyboard click toggles again');
+    });
+    run(false, (m, btn) => {
+      down(m, btn, 100);
+      up(m, btn, 101);
+      m.click(btn);
+      m.click(btn);
+      assert(seen.length === 2, `after a gesture's click is swallowed the next click counts: ${show(seen)}`);
+    });
+    run(false, (m, btn) => {
+      down(m, btn, 100);
+      m.fire(btn, 'pointercancel', { pointerId: 1 });
+      m.click(btn);
+      assert(seen.length === 1, `a cancelled gesture leaves the click to the keyboard path: ${show(seen)}`);
+    });
+  });
+
+  await check('#43 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

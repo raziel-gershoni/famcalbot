@@ -153,7 +153,9 @@
       "cellFailed": "couldn’t load",
       "failed": "Couldn’t load this month",
       "jumpLabel": "{month}, go to a date",
-      "jumpSheet": "Go to a date"
+      "jumpSheet": "Go to a date",
+      "showBigger": "Show the month bigger",
+      "showSmaller": "Show the month smaller"
     },
     "stillOpen": {
       "title": "Still open",

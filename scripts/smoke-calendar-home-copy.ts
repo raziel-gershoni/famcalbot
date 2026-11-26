@@ -477,6 +477,8 @@ const KEYS: Record<string, readonly string[]> = {
   'month.moreShort': ['count'],
   'month.cellItems': ['count'],
   'month.cellFromPartner': ['count', 'name'],
+  'month.showBigger': [],
+  'month.showSmaller': [],
   'month.cellNothing': [],
   'month.cellLoading': [],
   'month.cellFailed': [],

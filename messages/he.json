@@ -153,7 +153,9 @@
       "cellFailed": "לא נטען",
       "failed": "לא הצלחנו לטעון את החודש הזה",
       "jumpLabel": "{month}, מעבר לתאריך",
-      "jumpSheet": "מעבר לתאריך"
+      "jumpSheet": "מעבר לתאריך",
+      "showBigger": "הגדלת החודש",
+      "showSmaller": "הקטנת החודש"
     },
     "stillOpen": {
       "title": "עדיין פתוחות",

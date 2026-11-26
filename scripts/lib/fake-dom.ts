@@ -378,6 +378,8 @@ export type Mounted = {
   render: (el: ReactElement) => void;
   /** A click on `el` (`extra`: modifiers such as ctrlKey, or button for a middle click); returns the event, to see whether it was taken (defaultPrevented). */
   click: (el: FakeNode, extra?: Row) => Row;
+  /** Any event on `el` (a pointer event with clientY, say), as the browser fires it; returns the event. */
+  fire: (el: FakeNode, type: string, extra?: Row) => Row;
   /** A keydown on `el` (`extra`: modifiers such as shiftKey); returns the event, to see whether it was taken (defaultPrevented). */
   key: (el: FakeNode, key: string, extra?: Row) => Row;
   /** A select's change to `value`, as the platform's picker makes it. */
@@ -427,6 +429,7 @@ export function mount(el: ReactElement, rootOptions?: Row): Mounted {
     container,
     render: (next) => React.act(() => root.render(next)),
     click: (target, extra = {}) => dispatch(target, 'click', extra),
+    fire: (target, type, extra = {}) => dispatch(target, type, extra),
     key: (target, key, extra = {}) => dispatch(target, 'keydown', { key, ...extra }),
     change: (target, value) => {
       (target as FakeElement).value = value;
