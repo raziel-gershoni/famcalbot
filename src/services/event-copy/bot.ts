@@ -140,7 +140,9 @@ async function tellSender(sender: User, receiver: UserConfig, source: NativeEven
   try {
     const words = (await getBotMessages(normalizeLocale(sender.language))).eventCopy as Record<string, string>;
     const title = escapeHtml(source.title);
-    const name = receiver.name?.trim();
+    // An account whose Telegram name was empty is stored as "User" (createAccount): that is no name
+    const stored = receiver.name?.trim();
+    const name = stored && stored !== 'User' ? stored : '';
     const text = name ? fill(words.notice, { title, name: escapeHtml(name) }) : fill(words.noticeAnon, { title });
     await getBot().sendMessage({ chat_id: Number(sender.telegramId), text, parse_mode: 'HTML', disable_notification: true });
     console.log(`${TAG} offer ${offerId}: user ${sender.id} was told`);
@@ -220,10 +222,9 @@ export async function handleCopyPress(chatId: number, messageId: number, queryId
     });
     const told = await tellSender(view.sender, user, view.source, view.offer.id);
     const when = await whenFor(view.source, user, lang);
-    const senderName = view.sender.name?.trim();
     const copied = fill(words.copied, { calendar: escapeHtml(target.entry.name), title: escapeHtml(view.source.title), when: escapeHtml(when) });
-    const toldLine = senderName ? fill(words.told, { sender: escapeHtml(senderName) }) : words.toldAnon;
-    await editCard(chatId, messageId, told ? `${copied}\n\n${toldLine}` : copied, user.id);
+    // "The sender was told", never the sender's name: the receiver may not know them by it (legal review M1)
+    await editCard(chatId, messageId, told ? `${copied}\n\n${words.told}` : copied, user.id);
   } catch (error) {
     console.error(`${TAG} user ${userId ?? 'unknown'}: a press failed (${why(error)})`);
     captureError(error, 'event-copy-press', { user_id: userId });

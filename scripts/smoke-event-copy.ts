@@ -672,6 +672,8 @@ async function main() {
     const ru = MSGS.ru;
     assert(sent.text.startsWith(`<b>${SECRET_TITLE}</b>\nчт, 3 дек., 10:00–11:00`) || sent.text.includes('3 дек'), `card text ${sent.text}`);
     assert(sent.text.endsWith(ru.open.split('\n\n')[1]), `ask line ${sent.text}`);
+    // Legal review S3: before the press, the receiver is told the sender will learn their name
+    assert(sent.text.includes('Отправитель получит уведомление о том, что вы скопировали событие, с вашим именем.'), `the heads-up ${sent.text}`);
     const buttons = sent.options.replyMarkup.inline_keyboard.flat();
     assertSame(buttons.map((b: Row) => b.text), ['Receiver cal', 'Second'], 'own calendars, main first');
     for (const b of buttons) assert(Buffer.byteLength(b.callback_data) <= 64 && /^cp:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]+$/.test(b.callback_data), `data ${b.callback_data}`);
@@ -703,7 +705,7 @@ async function main() {
     assert(offerRow(offerId).takenByUserId === RECEIVER && offerRow(offerId).copyEventId === copies[0].id, `offer ${show(offerRow(offerId))}`);
     const edit = calls('editMessageText')[0];
     assert(edit.chat_id === 103 && edit.message_id === 77 && edit.parse_mode === 'HTML', `edit ${show(edit)}`);
-    assert(edit.text.startsWith('Скопировано в календарь «Receiver cal»:') && edit.text.includes(`<b>${SECRET_TITLE}</b>`) && edit.text.endsWith('Отправитель (Avi) получил уведомление.'), `edit text ${edit.text}`);
+    assert(edit.text.startsWith('Скопировано в календарь «Receiver cal»:') && edit.text.includes(`<b>${SECRET_TITLE}</b>`) && edit.text.endsWith('Отправитель получил уведомление.') && !edit.text.includes('Avi'), `edit text (the sender's name is never told to the receiver, legal review M1) ${edit.text}`);
     const note = calls('sendMessage')[0];
     assertSame(note.chat_id, 101, 'the note goes to the sender\'s chat');
     assert(note.disable_notification === true && note.parse_mode === 'HTML', `note ${show(note)}`);
@@ -795,6 +797,15 @@ async function main() {
     db.user.find((u) => u.id === SENDER)!.telegramId = null;
     await press(o2.token, 'cal-receiver');
     assert(db.nativeEvent.filter((e) => e.id !== 'ev1').length === 1 && calls('sendMessage').length === 0, 'web sender');
+  });
+
+  await check('legal review: a receiver whose name is the "User" placeholder (an empty Telegram name) is "Someone" in the note', async () => {
+    reset();
+    event('ev1');
+    const { token } = await newOffer();
+    db.user.find((u) => u.id === RECEIVER)!.name = 'User';
+    await press(token, 'cal-receiver');
+    assertSame(calls('sendMessage')[0].text, `Someone copied “${SECRET_TITLE}” to their calendar.`, 'the placeholder is no name');
   });
 
   await check('final review M8: a sender with no name is "the sender" in a sentence of its own, in the receiver\'s language (en and ru)', async () => {

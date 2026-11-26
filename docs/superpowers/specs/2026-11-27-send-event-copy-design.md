@@ -15,7 +15,10 @@ People want to hand one event to someone on Telegram: the dentist to a spouse wh
    - one button, **Copy to my calendar** (he "העתקה ליומן שלי", ru "Скопировать в свой календарь").
 2. **The receiver** taps the button. The FamCal chat opens; someone new gets an account on the way in, as with the partner invite. The bot shows the event in the receiver's language and time zone, and asks which calendar it goes to, with one button per FamCal calendar they can add to. They pick one, and the bot's message turns into "Copied to <calendar>", with the event's line.
 3. **One copy per card (owner):** the first person to copy it uses the card up. Anyone who taps it after that is told it was already copied and can ask for a new one. The person who took it is told which calendar it is in. Sending to a group therefore gives one copy; the sender sends again for each person who wants one.
-4. **The sender is told (owner):** once the copy is made, the bot tells the sender who copied it: "<name> copied “Dentist” to their calendar". The name is the one FamCal keeps for the receiver, their Telegram first and last name from when they started the bot; "Someone" if there is none. It is in the sender's language. The receiver's message says the sender was told.
+4. **The sender is told (owner):** once the copy is made, the bot tells the sender who copied it: "<name> copied “Dentist” to their calendar". The name is the one FamCal keeps for the receiver, their Telegram first and last name from when they started the bot; "Someone" if there is none. It is in the sender's language.
+   - The receiver's message says "the sender was told", never the sender's name, since the receiver may not know them by it (legal review, 2026-11-27).
+   - Before they pick a calendar, the receiver is told the sender will learn their name.
+   - A Telegram account stored as "User" (an empty Telegram name) counts as no name.
 
 ## Decisions (owner, 2026-11-26/27)
 
