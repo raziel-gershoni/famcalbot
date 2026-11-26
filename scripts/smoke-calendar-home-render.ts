@@ -942,7 +942,7 @@ let answerFetch: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () =>
  * answerFetch, which the older checks set for the range route alone: by default none of them is
  * served (the "+" and the pencil never show), and the editing checks (#74 on) set their own.
  */
-const EDITING_PATHS = ['/api/calendar/editor', '/api/calendar/item', '/api/calendar/items'];
+const EDITING_PATHS = ['/api/calendar/editor', '/api/calendar/item', '/api/calendar/items', '/api/calendar/copy'];
 let serveEditing: (call: FetchCall) => FetchAnswer | Promise<FetchAnswer> = () => ({ status: 500, body: { error: 'not served' } });
 
 /**
@@ -1102,7 +1102,7 @@ function fakeTelegramHome(o: { version?: string; scheme?: 'light' | 'dark'; clos
   return {
     webApp,
     calls,
-    fire: (e: string) => [...(events.get(e) ?? [])].forEach((h) => h()),
+    fire: (e: string, ...args: unknown[]) => [...(events.get(e) ?? [])].forEach((h) => (h as (...a: unknown[]) => void)(...args)),
     /** BackButton handlers still registered. */
     backHandlers: () => events.get('backButtonClicked')?.size ?? 0,
   };
@@ -11275,6 +11275,152 @@ async function main() {
 
   await check('#146 React logged no warning in #143-#145', () => {
     assert(reactWarnings.length === warnedBeforeDaf, `React warned: ${show(reactWarnings.slice(warnedBeforeDaf, warnedBeforeDaf + 3))}`);
+  });
+
+  // ---- Send a copy (docs/superpowers/specs/2026-11-27-send-event-copy-design.md, "Sending from the Mini App") ----
+  const COPY_TEXT = 'Dentist\nThursday 16 October, 09:30–10:30';
+  const COPY_LINK = 'https://t.me/FamCalBot?start=cp_AAAAAAAAAAAAAAAAAAAAAA';
+  const sendCopyCalls = () => fetchCalls.filter((c) => c.path === '/api/calendar/copy');
+  const sendCopyOf = (m: Home) => elements(topDialog(m)).filter((e) => e.localName === 'button' && e.className.includes('ch-sheet-copy'));
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(COPY_LINK)}&text=${encodeURIComponent(COPY_TEXT)}`;
+  /** The Dentist's sheet, the copy route answering `reply`; `tweak` sets what the fake WebApp has. */
+  async function copyHome(reply: FetchAnswer | (() => FetchAnswer | Promise<FetchAnswer>), tweak?: (tg: ReturnType<typeof fakeTelegramHome>) => void) {
+    const h = await editingHome('en', { item: dentistInfo(), write: (c) => (c.path === '/api/calendar/copy' ? (typeof reply === 'function' ? reply() : reply) : ok200({ status: 'ok' })) });
+    h.tg.webApp.openTelegramLink = (u: string) => h.tg.calls.push(`openTelegramLink(${u})`);
+    tweak?.(h.tg);
+    await openItem(h.m, 'Dentist');
+    return h;
+  }
+  const NOTE = messages.en.calendarHome.sheet.sendCopyFailed;
+
+  await check('#147 Send a copy: the button (lucide Forward, labelled in each language) shows for a FamCal event in Telegram and not for a reminder, a Google event or a browser; a tap POSTs { user_id, key, initData } with the init-data header', async () => {
+    for (const locale of LOCALES) {
+      const { m } = await editingHome(locale, { item: dentistInfo() });
+      try {
+        await openItem(m, 'Dentist');
+        const label = messages[locale].calendarHome.sheet.sendCopy;
+        const found = sendCopyOf(m);
+        assert(found.length === 1 && found[0].textContent.trim() === label, `${locale}: the button ${show(sheetButtons(m))}`);
+        assert(byClass(found[0], 'lucide-forward').length === 1 && byClass(found[0], 'lucide-forward')[0].getAttribute('aria-hidden') === 'true', `${locale}: the Forward icon`);
+      } finally {
+        m.unmount();
+      }
+    }
+    const rem = await editingHome('en', { item: dentistInfo() });
+    try {
+      await openItem(rem.m, 'Send the school form');
+      assert(sendCopyOf(rem.m).length === 0, 'none on a reminder');
+    } finally {
+      rem.m.unmount();
+    }
+    const g = await googleHome('en', { item: () => ok200(infoFor({ source: 'google' })) });
+    try {
+      await openItem(g.m, 'Dinner with the Cohens');
+      assert(sendCopyOf(g.m).length === 0, 'none on a Google event');
+    } finally {
+      g.m.unmount();
+    }
+    resetHome();
+    answerFetch = (c) => answerFor(c, { items: WEEK });
+    const b = await mountHome('en', {}, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      await openItem(b, 'Dentist');
+      assert(sendCopyOf(b).length === 0 && !sheetButtons(b).includes('Send a copy'), 'none in a browser');
+    } finally {
+      b.unmount();
+    }
+    const h = await copyHome(ok200({ preparedId: 'prep1', link: COPY_LINK, text: COPY_TEXT }), (tg) => (tg.webApp.shareMessage = (id: string, cb: (s: boolean) => void) => { tg.calls.push(`shareMessage(${id})`); cb(true); }));
+    try {
+      h.m.click(sendCopyOf(h.m)[0]);
+      await settle();
+      const [call, ...more] = sendCopyCalls();
+      assert(call && more.length === 0 && call.method === 'POST', `one POST ${show(sendCopyCalls().map((c) => [c.url, c.method]))}`);
+      assert(String(call.body?.user_id) === '5550001' && call.body?.key === 'famcal|dentist' && call.body?.initData === INIT, `the body ${show(call.body)}`);
+      assert(call.headers['X-Telegram-Init-Data'] === INIT, 'the init data in the header');
+    } finally {
+      h.m.unmount();
+    }
+  });
+
+  await check('#148 Send a copy: with a preparedId and shareMessage, the id goes to shareMessage; a sent or a closed picker shows no note; no link opens', async () => {
+    for (const sent of [true, false]) {
+      const h = await copyHome(ok200({ preparedId: 'prep1', link: COPY_LINK, text: COPY_TEXT }), (tg) => (tg.webApp.shareMessage = (id: string, cb: (s: boolean) => void) => { tg.calls.push(`shareMessage(${id})`); cb(sent); }));
+      try {
+        h.m.click(sendCopyOf(h.m)[0]);
+        await settle();
+        assert(h.tg.calls.includes('shareMessage(prep1)'), `shareMessage got the id ${show(h.tg.calls)}`);
+        assert(!h.tg.calls.some((c) => c.startsWith('openTelegramLink')), 'no link');
+        assert(!dialogText(h.m.container).includes(NOTE) && !sendCopyOf(h.m)[0].hasAttribute('disabled'), `${sent}: no note, the button is back`);
+      } finally {
+        h.m.unmount();
+      }
+    }
+  });
+
+  await check('#149 Send a copy: the share link opens (encoded link and text) without shareMessage, on a client older than 8.0, with a null preparedId, and when shareMessageFailed says UNSUPPORTED', async () => {
+    const reply = (preparedId: string | null) => ok200({ preparedId, link: COPY_LINK, text: COPY_TEXT });
+    const cases: [string, FetchAnswer, ((tg: ReturnType<typeof fakeTelegramHome>) => void) | undefined][] = [
+      ['no shareMessage', reply('prep1'), undefined],
+      ['a null preparedId', reply(null), (tg) => (tg.webApp.shareMessage = () => tg.calls.push('shareMessage(called)'))],
+      ['a 7.7 client', reply('prep1'), (tg) => { tg.webApp.isVersionAtLeast = (v: string) => Number(v) <= 7.7; tg.webApp.shareMessage = () => tg.calls.push('shareMessage(called)'); }],
+      ['UNSUPPORTED', reply('prep1'), (tg) => (tg.webApp.shareMessage = (id: string) => { tg.calls.push(`shareMessage(${id})`); tg.fire('shareMessageFailed', { error: 'UNSUPPORTED' }); })],
+    ];
+    for (const [what, answerWith, tweak] of cases) {
+      const h = await copyHome(answerWith, tweak);
+      try {
+        h.m.click(sendCopyOf(h.m)[0]);
+        await settle();
+        assert(h.tg.calls.includes(`openTelegramLink(${shareUrl})`), `${what}: the share link ${show(h.tg.calls)}`);
+        assert(!h.tg.calls.includes('shareMessage(called)'), `${what}: shareMessage not called`);
+        assert(!dialogText(h.m.container).includes(NOTE), `${what}: no note`);
+      } finally {
+        h.m.unmount();
+      }
+    }
+  });
+
+  await check('#150 Send a copy: a 500 (or no answer, or a garbled body) shows the note in en, he and ru and logs; the button is disabled while the request is in flight', async () => {
+    const slow = heldAnswer();
+    const w = await copyHome(() => slow.promise as unknown as FetchAnswer);
+    try {
+      w.m.click(sendCopyOf(w.m)[0]);
+      await settle();
+      assert(sendCopyOf(w.m)[0].hasAttribute('disabled'), 'disabled while busy');
+      w.m.click(sendCopyOf(w.m)[0]);
+      await settle();
+      assert(sendCopyCalls().length === 1, `a second tap sent nothing: ${sendCopyCalls().length}`);
+      await slow.release({ status: 500, body: { error: 'internal_error' } });
+      await settle();
+      assert(!sendCopyOf(w.m)[0].hasAttribute('disabled') && dialogText(w.m.container).includes(NOTE), `the note after a 500 ${dialogText(w.m.container)}`);
+    } finally {
+      w.m.unmount();
+    }
+    for (const [what, answerWith] of [['a throw', 'throw'], ['a garbled body', ok200({ preparedId: 5 })]] as [string, FetchAnswer][]) {
+      const h = await copyHome(answerWith);
+      const errors: string[] = [];
+      const realError = console.error;
+      console.error = (...a: unknown[]) => { errors.push(a.map(String).join(' ')); };
+      try {
+        h.m.click(sendCopyOf(h.m)[0]);
+        await settle();
+        assert(dialogText(h.m.container).includes(NOTE), `${what}: the note`);
+        assert(errors.some((e) => e.includes('[event-copy]')), `${what}: logged ${show(errors)}`);
+      } finally {
+        console.error = realError;
+        h.m.unmount();
+      }
+    }
+    for (const locale of ['he', 'ru'] as const) {
+      const h = await editingHome(locale, { item: dentistInfo(), write: () => ({ status: 500, body: {} }) });
+      try {
+        await openItem(h.m, 'Dentist');
+        h.m.click(sendCopyOf(h.m)[0]);
+        await settle();
+        assert(dialogText(h.m.container).includes(messages[locale].calendarHome.sheet.sendCopyFailed), `${locale}: the note`);
+      } finally {
+        h.m.unmount();
+      }
+    }
   });
 
   let failed = 0;

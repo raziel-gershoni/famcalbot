@@ -221,6 +221,8 @@ const KEYS: Record<string, readonly string[]> = {
   'header.zmanim': [],
   'sheet.edit': [],
   'sheet.googleOnly': [],
+  'sheet.sendCopy': [],
+  'sheet.sendCopyFailed': [],
   'sheet.deleteEvent': [],
   'sheet.deleteReminder': [],
   'editor.titleNew': [],

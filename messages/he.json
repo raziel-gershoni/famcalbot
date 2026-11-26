@@ -206,6 +206,8 @@
       "openInGoogle": "פתיחה ביומן Google",
       "googleOnly": "אפשר לשנות את זה רק ביומן Google",
       "edit": "עריכה",
+      "sendCopy": "שליחת עותק",
+      "sendCopyFailed": "לא הצלחנו להכין את העותק. אפשר לנסות שוב.",
       "deleteEvent": "מחיקת האירוע",
       "deleteReminder": "מחיקת התזכורת",
       "actions": {

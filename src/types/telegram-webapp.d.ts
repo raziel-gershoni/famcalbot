@@ -43,7 +43,8 @@ type TelegramWebAppEventType =
   | 'activated'
   | 'deactivated'
   | 'safeAreaChanged'
-  | 'contentSafeAreaChanged';
+  | 'contentSafeAreaChanged'
+  | 'shareMessageFailed';
 
 /** Insets in px (Bot API 8.0); the SDK also sets them as --tg-safe-area-inset-* and --tg-content-safe-area-inset-*. */
 interface TelegramWebAppSafeAreaInset {
@@ -100,6 +101,8 @@ interface TelegramWebApp {
   offEvent: (eventType: TelegramWebAppEventType, eventHandler: (...args: never[]) => void) => void;
   openLink: (url: string, options?: { try_instant_view?: boolean }) => void;
   openTelegramLink: (url: string) => void;
+  /** Bot API 8.0+: opens Telegram's chat picker for a message prepared with savePreparedInlineMessage. The callback tells whether it was sent; a failure also fires `shareMessageFailed` with `{ error }`. */
+  shareMessage: (msgId: string, callback?: (sent: boolean) => void) => void;
   openInvoice: (url: string, callback?: (status: string) => void) => void;
   showPopup: (params: {
     title?: string;

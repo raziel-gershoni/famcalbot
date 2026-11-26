@@ -18,6 +18,7 @@ const COLOURS = '6.1';
 const OPEN_LINK = '6.1';
 const HAPTIC = '6.1';
 const VERTICAL_SWIPES = '7.7';
+const SHARE_MESSAGE = '8.0';
 
 /** Events newer than the first SDK (6.0). */
 const EVENT_VERSION: Partial<Record<TelegramWebAppEventType, string>> = {
@@ -26,6 +27,7 @@ const EVENT_VERSION: Partial<Record<TelegramWebAppEventType, string>> = {
   deactivated: '8.0',
   safeAreaChanged: '8.0',
   contentSafeAreaChanged: '8.0',
+  shareMessageFailed: '8.0',
 };
 
 /** The SDK object once telegram-web-app.js has run, else null (server, script blocked). */
@@ -72,7 +74,7 @@ function tgCall(version: string, what: string, call: (tg: TelegramWebApp) => voi
  * Subscribes `handler` to a Telegram event when the client has that event (activated and
  * deactivated need Bot API 8.0). Returns the unsubscribe, a no-op when nothing subscribed.
  */
-export function onTelegramEvent(event: TelegramWebAppEventType, handler: () => void): () => void {
+export function onTelegramEvent(event: TelegramWebAppEventType, handler: (...args: never[]) => void): () => void {
   const version = EVENT_VERSION[event] ?? '6.0';
   if (!tgCall(version, `onEvent(${event})`, (tg) => tg.onEvent(event, handler))) return () => {};
   return () => {
@@ -275,6 +277,38 @@ export function openTelegramLink(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+export type ShareMessageResult = 'sent' | 'closed' | 'unsupported' | 'failed';
+
+/**
+ * Telegram's chat picker for a prepared message (`shareMessage`, Bot API 8.0+). Resolves once, from whichever comes first:
+ * - the callback: `sent`, or `closed` when the person left the picker (no error);
+ * - `shareMessageFailed`: UNSUPPORTED is `unsupported`, USER_DECLINED is `closed`, any other error is `failed` (logged, the error's name only).
+ * `unsupported` also when the client has no `shareMessage` (older than 8.0) or the call throws, so the caller can open the share link instead.
+ */
+export function shareTelegramMessage(msgId: string): Promise<ShareMessageResult> {
+  const tg = telegramWebApp();
+  if (!tg || typeof tg.shareMessage !== 'function' || !telegramSupports(SHARE_MESSAGE)) return Promise.resolve('unsupported');
+  return new Promise<ShareMessageResult>((resolve) => {
+    let off: () => void = () => {};
+    let done = false;
+    const finish = (result: ShareMessageResult) => {
+      if (done) return;
+      done = true;
+      off();
+      resolve(result);
+    };
+    off = onTelegramEvent('shareMessageFailed', (payload?: { error?: unknown }) => {
+      const error = typeof payload?.error === 'string' ? payload.error : 'UNKNOWN_ERROR';
+      if (error === 'UNSUPPORTED') return finish('unsupported');
+      if (error === 'USER_DECLINED') return finish('closed');
+      console.warn(`[telegram-ui] shareMessage failed: ${error}`);
+      finish('failed');
+    });
+    const ran = tgCall(SHARE_MESSAGE, 'shareMessage', (webApp) => webApp.shareMessage(msgId, (sent) => finish(sent ? 'sent' : 'closed')));
+    if (!ran) finish('unsupported');
+  });
 }
 
 /**

@@ -110,6 +110,7 @@ import { allOfThem, createBody, crossesKinds, editItemForm, isNativeCalendar, ne
 import type { EditScope, EditorInfoResponse, ItemEditInfoResponse } from '@/src/lib/calendar-view/editor-types';
 import type { DayKey, ItemDTO, ItemReminderDTO, SourceName } from '@/src/lib/calendar-view/types';
 import { DEFAULT_BOT_USERNAME, DEFAULT_WA_NUMBER, type GateLinks } from '@/src/lib/gate-links';
+import { sendEventCopy, type SendCopyOutcome } from '@/src/lib/calendar-view/copy-client';
 import { hapticError, hapticImpact, hapticSelection, hapticSuccess, hapticWarning, isInTelegram, onTelegramEvent, useTelegramVerticalSwipes } from '@/src/lib/telegram-ui';
 import { usePushDevice } from '@/src/lib/use-push-device';
 import { AppScreen } from '@/components/app-ui/AppScreen';
@@ -377,6 +378,10 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [acting, setActing] = useState<{ key: string; action: ReminderActionName } | null>(null);
   /** calendar: a note's calendar name ("Moved, but the old one is still in <calendar>"). */
   const [note, setNote] = useState<{ key: string; kind: SheetNote; calendar?: string } | null>(null);
+  /** "Send a copy" in flight (one at a time), and the key whose last try failed (its note). */
+  const [copying, setCopying] = useState<string | null>(null);
+  const [copyFailedFor, setCopyFailedFor] = useState<string | null>(null);
+  const copyingRef = useRef(false);
   const actingRef = useRef(false);
   /** The home's root (AppScreen's), which carries --ch-top-h. */
   const homeRef = useRef<HTMLDivElement | null>(null);
@@ -1120,6 +1125,27 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     onDraggingChange: setDragging,
     cancelRef: dragCancel,
   };
+  const sendCopy = async (row: AgendaRow) => {
+    if (copyingRef.current) return;
+    copyingRef.current = true;
+    const key = row.item.key;
+    setCopying(key);
+    setCopyFailedFor(null);
+    let outcome: SendCopyOutcome;
+    try {
+      outcome = await sendEventCopy(userId, key);
+    } catch (err) {
+      console.error('[event-copy] sending the copy threw', err);
+      outcome = 'failed';
+    }
+    copyingRef.current = false;
+    setCopying(null);
+    if (outcome === 'failed') {
+      hapticError();
+      setCopyFailedFor(key);
+    }
+  };
+  const canSendCopy = inTelegram && selected !== null && selected.item.source === 'famcal' && selected.item.kind === 'event';
   const editing: SheetEditing | undefined =
     openInfo && (openInfo.canEdit || openInfo.canDelete || openInfo.editableInGoogleOnly)
       ? { canEdit: openInfo.canEdit, canDelete: openInfo.canDelete, googleOnly: openInfo.editableInGoogleOnly === true, kind: openInfo.kind, onEdit: openEdit, onDelete: openDelete }
@@ -1133,6 +1159,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
     now: deps.now(),
     onAction: (action) => void runAction(action),
     editing,
+    ...(canSendCopy ? { sendCopy: { busy: copying !== null, failed: copyFailedFor === selectedKey, onSend: () => void sendCopy(selected) } } : {}),
     // The sheet's repeat tag names a Hebrew rule, to a viewer who can't edit too (hebrew-repeats spec §1).
     hebrewRepeat: openInfo?.series.repeat?.hebrew
       ? { count: openInfo.series.repeat.interval, anchor: openInfo.series.repeat.hebrew.anchor }

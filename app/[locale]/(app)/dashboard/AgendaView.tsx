@@ -553,6 +553,15 @@ export const AGENDA_CSS = `
   margin-block-start: -6px;
   color: var(--ch-accent);
 }
+.ch-sheet-copy {
+  display: flex;
+  inline-size: 100%;
+  margin-block-start: 12px;
+}
+.ch-sheet-copy:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .ch-sheet-delete {
   display: flex;
   inline-size: 100%;

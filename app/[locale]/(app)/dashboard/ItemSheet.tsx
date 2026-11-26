@@ -23,6 +23,7 @@
 // and the selection, so this sheet only renders. In a browser, the Close button, a tap on
 // the scrim and Escape do the same.
 
+import { Forward } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import { reminderStateAt, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import type { ItemKind } from '@/src/lib/calendar-view/editor-types';
@@ -75,6 +76,8 @@ export interface SheetActions {
   onAction: (action: ReminderActionName) => void;
   /** The viewer's editing rights on the open item, once known. */
   editing?: SheetEditing;
+  /** "Send a copy" (a FamCal event, inside Telegram): given only then. `busy` while the card is being prepared; `failed` shows the note. */
+  sendCopy?: { busy: boolean; failed: boolean; onSend: () => void };
   /** The open item's Hebrew-date repeat (its interval and anchor), once its info is known: the repeat tag names it (hebrew-repeats spec §1, §4). */
   hebrewRepeat?: HebrewRepeat;
 }
@@ -327,6 +330,19 @@ export function ItemSheet({ row, today, tz, onClose, actions }: ItemSheetProps) 
           </div>
         ) : null}
       </dl>
+      {actions?.sendCopy ? (
+        <>
+          <button type="button" className="ch-btn ch-sheet-copy" disabled={actions.sendCopy.busy} aria-busy={actions.sendCopy.busy || undefined} onClick={actions.sendCopy.onSend}>
+            {actions.sendCopy.busy ? <Spinner /> : <Forward size={18} aria-hidden="true" />}
+            {t('sheet.sendCopy')}
+          </button>
+          {actions.sendCopy.failed ? (
+            <p className="ch-sheet-note" role="status">
+              {t('sheet.sendCopyFailed')}
+            </p>
+          ) : null}
+        </>
+      ) : null}
       {editing?.canDelete ? (
         <button type="button" className="ch-btn ch-sheet-delete" disabled={actions?.busy} onClick={editing.onDelete}>
           {t(editing.kind === 'reminder' ? 'sheet.deleteReminder' : 'sheet.deleteEvent')}

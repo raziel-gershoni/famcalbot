@@ -206,6 +206,8 @@
       "openInGoogle": "Открыть в Google Календаре",
       "googleOnly": "Это можно изменить только в Google Календаре",
       "edit": "Изменить",
+      "sendCopy": "Отправить копию",
+      "sendCopyFailed": "Не удалось подготовить копию. Попробуйте ещё раз.",
       "deleteEvent": "Удалить событие",
       "deleteReminder": "Удалить напоминание",
       "actions": {
