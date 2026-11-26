@@ -7,9 +7,12 @@ export const WIDE_QUERY = '(min-width: 600px) and (orientation: landscape)';
 /** Short: the header drops a line (spec §1). */
 export const SHORT_QUERY = '(max-height: 520px) and (orientation: landscape)';
 
-/** The split's drag handle, its touch padding on each side, and the movement that still counts as a tap. */
+/**
+ * The split's drag handle, its touch area's reach below the bar (the bar and it make the 44 px tap;
+ * none above, so it never covers the month's last week row), and the movement that still counts as a tap.
+ */
 export const HANDLE_PX = 22;
-export const HANDLE_TOUCH_PX = 11;
+export const HANDLE_TOUCH_PX = 22;
 export const HANDLE_TAP_PX = 12;
 /** The day list never gets less than this when the split is collapsed. */
 export const LIST_MIN_PX = 120;

@@ -6,15 +6,16 @@
 // lifted from a list is the drag library's; this is not), and only it carries touch-action: none so
 // the finger moves the bar, not the page.
 //
-// The bar takes 22 px (HANDLE_PX); its touch area reaches 11 px above and below (HANDLE_TOUCH_PX:
-// padding plus negative margins, so the layout still gives it 22 px), 44 px in all, the home's tap
-// floor. Pointer events with capture: on release, a move under HANDLE_TAP_PX is a tap (toggle), a
+// The bar takes 22 px (HANDLE_PX); its touch area reaches 22 px below it (HANDLE_TOUCH_PX: padding
+// plus a negative margin at its end, so the layout still gives it 22 px), 44 px in all, the home's
+// tap floor. Nothing reaches above the bar: there it would cover the month's last week row (a tap on
+// a square would resize the split, a drop there would miss); below it is the list's top. Pointer events with capture: on release, a move under HANDLE_TAP_PX is a tap (toggle), a
 // longer one down grows, up shrinks. A pointer gesture marks the click that follows as handled, so it
 // never toggles twice; a keyboard click (no pointer gesture before it) toggles.
 
 import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslations } from 'next-intl';
-import { HANDLE_TAP_PX } from '@/src/lib/calendar-view/month-layout';
+import { HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX } from '@/src/lib/calendar-view/month-layout';
 
 export interface SplitHandleProps {
   /** True while the month is grown (the list is a peek). */
@@ -86,7 +87,7 @@ export function SplitHandle({ grown, onToggle }: SplitHandleProps) {
   );
 }
 
-/** The handle's styles: 22 px of bar inside a 44 px tap area; tokens only, logical properties. */
+/** The handle's styles: 22 px of bar, its 44 px tap area reaching below it only; tokens only, logical properties. */
 export const SPLIT_HANDLE_CSS = `
 .ch-handle {
   position: relative;
@@ -95,10 +96,10 @@ export const SPLIT_HANDLE_CSS = `
   justify-content: center;
   box-sizing: content-box;
   inline-size: 100%;
-  block-size: 22px;
-  padding-block: 11px;
+  block-size: ${HANDLE_PX}px;
+  padding-block: 0 ${HANDLE_TOUCH_PX}px;
   padding-inline: 0;
-  margin-block: -11px;
+  margin-block: 0 -${HANDLE_TOUCH_PX}px;
   border: 0;
   background: transparent;
   color: var(--ch-muted);

@@ -329,12 +329,13 @@ function MonthRegion({
  * the region's height, the list's start edge a separator). The bottom safe area: the list pads
  * its own end by it (DAY_PANEL_CSS), the wide pane by it too (its scroller ends above it, still
  * whole months tall), and .ch-mv-inset, a hidden probe out of the flow, is as tall as it, so the
- * grown split keeps its peek clear of it. The handle's 44 px touch area reaches 11 px over
- * the pane and the list, so it sits above both (z-index 1). The split's height change animates
- * on the pane's scroller (its inline block-size is what changes), none under reduced motion. The
- * parts bring their own styles (the pane the squares' and its own, the list the Agenda's rows
- * and its own; the handle's is rendered with it here). Logical properties only; no hover;
- * overflow only on the region (the pane's and the list's scrollers are their own).
+ * grown split keeps its peek clear of it. The handle's 44 px touch area reaches 22 px over the
+ * list's top (never over the pane's last week row), so it sits above it (z-index 1). The split's
+ * height change animates on the pane's scroller (its inline block-size is what changes), none
+ * under reduced motion. The parts bring their own styles (the pane the squares' and its own,
+ * the list the Agenda's rows and its own; the handle's is rendered with it here). Logical
+ * properties only; no hover; overflow only on the region (the pane's and the list's scrollers
+ * are their own).
  */
 export const MONTH_VIEW_CSS = `
 .ch-mv {

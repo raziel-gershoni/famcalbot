@@ -1678,11 +1678,11 @@ async function main() {
     assert(!/useItemDrag|DragSurface/.test(src), 'no drag source');
   });
 
-  await check('#41 the handle\'s geometry: the bar is 22 px (HANDLE_PX), its tap area 22 + 2 × 11 = 44 px by padding and negative margins, a 36 × 5 pill, logical properties, lint clean', () => {
-    assert(HANDLE_PX === 22 && HANDLE_TOUCH_PX === 11 && HANDLE_TAP_PX === 12, 'constants');
+  await check('#41 the handle\'s geometry: the bar is 22 px (HANDLE_PX), its tap area the bar and 22 px below it (HANDLE_TOUCH_PX) = 44 px by padding and a negative margin at its end, nothing above the bar, so it never covers the last week row\'s squares (final review M1); a 36 × 5 pill, logical properties, lint clean', () => {
+    assert(HANDLE_PX === 22 && HANDLE_TOUCH_PX === 22 && HANDLE_PX + HANDLE_TOUCH_PX === 44 && HANDLE_TAP_PX === 12, 'constants');
     const rule = /\.ch-handle \{([^}]*)\}/.exec(SPLIT_HANDLE_CSS)?.[1] ?? '';
     assert(/block-size: 22px/.test(rule) && /box-sizing: content-box/.test(rule), `22 px content box: ${rule}`);
-    assert(/padding-block: 11px/.test(rule) && /margin-block: -11px/.test(rule), `11 px extension: ${rule}`);
+    assert(/padding-block: 0 22px;/.test(rule) && /margin-block: 0 -22px;/.test(rule), `the 22 px extension below the bar only: ${rule}`);
     const pill = /\.ch-handle-pill \{([^}]*)\}/.exec(SPLIT_HANDLE_CSS)?.[1] ?? '';
     assert(/inline-size: 36px/.test(pill) && /block-size: 5px/.test(pill), `pill: ${pill}`);
     const problems = lintCss(SPLIT_HANDLE_CSS);
