@@ -3332,6 +3332,7 @@ async function main() {
       assert(dayButton(m, day(1)).getAttribute('aria-current') === 'date' && dayButton(m, TODAY).getAttribute('aria-current') === null, 'today moved to the 16th');
       assert(show(ranges()) === show(['famcal default', monthAsk('2026-10'), monthAsk('2026-11'), monthAsk('2026-09')]), `the windows again: ${show(ranges())}`);
       assert(byClass(m.container, 'ch-pane')[0] === pane && scroller(m).scrollTop === top, 'still the same pane, where it was');
+      assert(dayButton(m, day(1)).getAttribute('aria-pressed') === 'true' && dayButton(m, TODAY).getAttribute('aria-pressed') !== 'true' && listDay(m)?.includes('Friday, 16 October'), `the selection that was today follows to the new today: ${listDay(m)}`);
     } finally {
       m.unmount();
     }

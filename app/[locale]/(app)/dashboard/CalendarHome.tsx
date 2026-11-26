@@ -454,11 +454,13 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // New facts (the first answer, a hebrewDates change, the next answer after a drop):
   // the Month holds them. On the first answer the focus is today's month with today
   // selected (a new visit selects today); when today moves later, it stays inside the
-  // reach (clampFocus), the selected day kept.
+  // reach (clampFocus), the selected day kept, except that a selection that was the old today follows to the new one.
   if (facts && (held === null || held.facts !== facts || held.unavailable !== notices.unavailableCalendars)) {
     setHeld({ facts, unavailable: notices.unavailableCalendars });
     if (held === null || held.facts.today !== facts.today) {
-      setFocus(focus === null ? initialFocus(facts.today) : clampFocus(focus, facts.today));
+      // A selection that was the old today follows to the new today (the month target unchanged); any other stays.
+      const clamped = focus === null ? initialFocus(facts.today) : clampFocus(focus, facts.today);
+      setFocus(clamped !== null && focus !== null && held !== null && focus.selected === held.facts.today ? selectDay(clamped, facts.today) : clamped);
       // The span is set once; a later today keeps it (the months grown or jumped to stay), and Today moves it when asked.
       if (span === null) setSpan(defaultSpan(facts.today));
     }
