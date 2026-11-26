@@ -6440,6 +6440,29 @@ async function main() {
     }
   });
 
+  await check('#88e with the zmanim button (the Jewish calendar) the Hebrew date is on the button, not on the line under the title (owner 2026-11-26): the line holds the countdown alone, with no date text before it, and the button reads the day over the month', async () => {
+    const FAR: Record<Locale, { name: string; far: string; day: string; month: string }> = {
+      en: { name: 'Chanukah', far: 'Chanukah in 12 days', day: '4', month: 'Cheshvan' },
+      he: { name: 'חנוכה', far: 'חנוכה בעוד 12 ימים', day: 'ד׳', month: 'חשון' },
+      ru: { name: 'Ханука', far: 'Ханука через 12 дней', day: '4', month: 'Хешван' },
+    };
+    for (const locale of LOCALES) {
+      resetHome();
+      serveHolidays = (c) => (c.query.has('next') ? ok200({ next: { day: day(12), name: FAR[locale].name } }) : ok200({ days: {} }));
+      answerFetch = (c) => answerFor(c, { items: WEEK });
+      const m = await mountHome(locale, { jewish: true });
+      try {
+        await settle();
+        const subs = headSubs(m);
+        assert(subs.length === 1 && subs[0].className === 'ch-head-sub ch-head-line' && subs[0].childNodes.length === 1 && htmlOf(subs[0].childNodes[0] as FakeElement) === `<span class="ch-head-next"><bdi>${FAR[locale].far}</bdi></span>`, `${locale}: the countdown alone: ${show(subs.map(htmlOf))}`);
+        const tile = byClass(m.container, 'ch-head-hdate');
+        assert(tile.length === 1 && byClass(tile[0], 'ch-head-hdate-day')[0]?.textContent === FAR[locale].day && byClass(tile[0], 'ch-head-hdate-month')[0]?.textContent === FAR[locale].month, `${locale}: the tile ${tile.map(htmlOf)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
   await check('#88c the countdown on the Hebrew date\'s line on a day with no holiday line, in en, he and ru: the base name first, "tomorrow" the day before, counted in whole days from the server\'s today; none on a holiday day, with Hebrew dates off, and nothing (logged) when the request fails', async () => {
     const COPY: Record<Locale, { name: string; far: string; tomorrow: string }> = {
       en: { name: 'Chanukah', far: 'Chanukah in 12 days', tomorrow: 'Chanukah tomorrow' },
@@ -10010,7 +10033,9 @@ async function main() {
   });
   const serveSun = (o: Record<string, unknown> = {}) => (c: FetchCall) => ok200(sunList(c.query.get('date') ?? '', o));
   const sunCalls = () => zmanimCalls.length;
-  const sunButton = (m: Home, label = 'Zmanim') => elements(m.container).filter((e) => e.localName === 'button' && e.getAttribute('aria-label') === label);
+  // The zmanim button: the sun, or (with a day and Hebrew dates) the Hebrew date tile labelled "<date>. Zmanim" (owner 2026-11-26)
+  const sunButton = (m: Home, label = 'Zmanim') =>
+    elements(m.container).filter((e) => e.localName === 'button' && (e.getAttribute('aria-label') === label || (e.className.includes('ch-head-hdate') && (e.getAttribute('aria-label') ?? '').endsWith(`. ${label}`))));
 
   await check('#126 the sun button is for the Jewish calendar alone: no button when the home is not told jewish (absent or false), the button when it is (aria-haspopup="dialog", aria-expanded false), none before the first answer or on a card, in each language\'s words; and before a tap it asks nothing without a saved place (the header\'s next zman is #128n-#128q\'s)', async () => {
     for (const jewish of [undefined, false]) {
@@ -10028,10 +10053,12 @@ async function main() {
       try {
         const sun = sunButton(a.m, label);
         assert(sun.length === 1, `${locale}: ${sun.length} sun buttons`);
-        assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn', `${locale}: ${show([...sun[0].attributes])}`);
+        assert(sun[0].getAttribute('aria-haspopup') === 'dialog' && sun[0].getAttribute('aria-expanded') === 'false' && sun[0].className === 'ch-icon-btn ch-head-hdate', `${locale}: ${show([...sun[0].attributes])}`);
         const row = sun[0].parentNode as FakeElement;
         const header = messages[locale].calendarHome.header;
-        assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, label, header.menu]), `${locale}: the "+", Send, the sun, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
+        const genitive = locale === 'ru' ? (messages.ru.calendarHome.hebrewMonthGenitive as string[]) : undefined;
+        const dated = header.zmanimOnDate.replace('{date}', hebrewFullDate(TODAY, locale, genitive));
+        assert(show(elements(row).filter((e) => e.localName === 'button').map((e) => e.getAttribute('aria-label'))) === show([header.add, header.send, dated, header.menu]), `${locale}: the "+", Send, the date tile, then the menu: ${show(elements(row).map((e) => e.getAttribute('aria-label')))}`);
         assert(zmanimCalls.length === 0, `${locale}: before the tap, ${show(zmanimCalls.map((c) => c.query.get('date')))}`);
       } finally {
         a.m.unmount();
@@ -10069,7 +10096,7 @@ async function main() {
   const WEATHER_OK = { weather: { place: 'Harish', now: 22, low: 15, high: 24, icon: 'cloudSun', condition: 'Partly cloudy', days: WEATHER_DAYS } };
   const weatherBlock = (m: Home) => elements(m.container).filter((e) => e.getAttribute('role') === 'img' && e.className === 'ch-head-weather');
 
-  await check('#126s the zmanim button draws lucide Sunset, not a hand-drawn sun: HomeHeader imports Sunset, renders it in the button labelled header.zmanim, and no SunIcon remains', async () => {
+  await check('#126s the zmanim button draws lucide Sunset, not a hand-drawn sun, when it shows no Hebrew date: HomeHeader imports Sunset, renders it in the button labelled header.zmanim, and no SunIcon remains', async () => {
     const src = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard/HomeHeader.tsx'), 'utf8');
     assert(/import \{[^}]*\bSunset\b[^}]*\} from 'lucide-react'/.test(src), 'HomeHeader imports Sunset from lucide-react');
     assert(!/SunIcon/.test(src), 'no SunIcon remains');

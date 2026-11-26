@@ -37,6 +37,7 @@
       "menu": "Menu",
       "add": "Add",
       "zmanim": "Zmanim",
+      "zmanimOnDate": "{date}. Zmanim",
       "nextZmanTomorrow": "Tomorrow: {name}",
       "nextZmanLabel": "Next zman: {name}, {time}",
       "nextZmanLabelTomorrow": "Next zman: tomorrow, {name}, {time}",

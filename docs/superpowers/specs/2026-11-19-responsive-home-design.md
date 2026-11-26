@@ -42,7 +42,7 @@ Numbers 1–9 are the proposal of 2026-11-18. Each one's amendment is marked wit
 4. **The selected day's list** (the wide side panel, or the split's list) opens on today. It has the same rows and actions as today's tapped-day list. Tapping another day changes only the list.
 5. **On wide windows, pop-ups become centred cards** instead of drawers that fill the width. Sheets are about 480 px wide, the editor about 640 px, and the Agenda tab a centred column up to about 720 px. On a phone they stay drawers.
 6. ~~A light highlight under the mouse pointer~~. **Not now** (owner, 2026-11-20: "don't do hover for now"). None is built; the no-hover rule stands.
-7. **Hebrew/Gregorian month switch** (release 3, §7), in the Menu (⋯), saved on the account.
+7. **Hebrew/Gregorian month switch** (release 3, §7), on the Month's bar, saved on the account. *Amended 2026-11-26: was a Menu (⋯) row; owner, on a screenshot of the bar: "where i marked red is plenty of space to put hebrew switch for the calendar type".*
 8. **Daf Yomi** (release 1, §6). *Amended 2026-11-19: Daf Yomi only; was any of hebcal's 20 schedules.*
 9. **Three releases, in this order:** 1. Daf Yomi (small). 2. The layouts, the size-aware squares and the centred pop-ups (large). 3. Hebrew months (large). Each release ships and goes live before the next starts.
 
@@ -157,7 +157,7 @@ One sizing rule, given the square's measured height `h` and width `w` in CSS px:
 
 ## 7. Release 3: Hebrew months
 
-- A Menu (⋯) row: "Months: Gregorian | Hebrew". It is saved on the account (new column `User.monthMode String @default("gregorian")`, `'gregorian' | 'hebrew'`), so the phone and the laptop match.
+- A "Gregorian | Hebrew" switch on the Month's bar, in the empty space across from the month's name, beside Today when Today shows (owner 2026-11-26; it was a Menu row). Option A's wording stays for its two choices, and "Months" becomes its accessible name. It shows only for the Jewish calendar (Claude's call: with Hebrew dates off there is nothing Hebrew to switch to). It is saved on the account (new column `User.monthMode String @default("gregorian")`, `'gregorian' | 'hebrew'`), so the phone and the laptop match.
 - In Hebrew mode:
   - each month pane is a Hebrew month, Tishrei to Elul, with Adar I and Adar II in leap years;
   - the big number is the Hebrew day in gematriya, with the Gregorian date small and the Gregorian month's name on its 1st;

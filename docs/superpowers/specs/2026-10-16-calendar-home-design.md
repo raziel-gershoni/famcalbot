@@ -739,6 +739,7 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 ### 7.2 Header, send sheet, menu, banners
 
 - **Header:** "Thursday, 15 October" and, when `hebrewDates`, "4 Cheshvan 5787", from the server's `today`.
+  - *Amended 2026-11-26 (owner, to save a header line):* when the zmanim button shows (the Jewish calendar), the Hebrew date is on that button like a calendar page, the day over the month ("ט״ז" over "כסלו"), labelled with the full date and "Zmanim", and leaves the line under the title; the parasha and the countdown keep that line. Without the zmanim button the date stays on its line.
 - **Send icon** → a sheet with Today, Tomorrow, This week, Next week and Weather.
   - It goes through `src/lib/command-client.ts`, which sends the init-data header and the body fallback, checks `res.status`, and closes the app only per Ruling R5.
   - command-client treats a call as Telegram only when `readInitData()` (`src/lib/read-init-data.ts`) is non-empty. The SDK defines `Telegram.WebApp` in any browser (`layout.tsx:102-104`). Otherwise it takes the browser branch: the app stays open, the spinner resets, and a 2xx shows "Sent to WhatsApp".

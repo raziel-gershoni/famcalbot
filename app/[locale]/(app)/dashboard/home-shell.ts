@@ -158,6 +158,25 @@ export const HOME_SHELL_CSS = `
   display: flex;
   gap: 8px;
 }
+.ch-icon-btn.ch-head-hdate {
+  flex-direction: column;
+  gap: 1px;
+  inline-size: auto;
+  min-inline-size: 44px;
+  padding-inline: 4px;
+  font-family: inherit;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.ch-head-hdate-day {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ch-text);
+}
+.ch-head-hdate-month {
+  font-size: 11px;
+  color: var(--ch-muted);
+}
 .ch-head-weather,
 .ch-head-weather-ghost {
   display: flex;

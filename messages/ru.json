@@ -37,6 +37,7 @@
       "menu": "Меню",
       "add": "Добавить",
       "zmanim": "Зманим",
+      "zmanimOnDate": "{date}. Зманим",
       "nextZmanTomorrow": "Завтра: {name}",
       "nextZmanLabel": "Ближайший зман: {name}, {time}",
       "nextZmanLabelTomorrow": "Ближайший зман: завтра, {name}, {time}",

@@ -248,6 +248,51 @@ async function runChecks(): Promise<void> {
     assert(messages.en.calendarHome.header.zmanim === 'Zmanim' && messages.he.calendarHome.header.zmanim === 'זמני היום' && messages.ru.calendarHome.header.zmanim === 'Зманим', 'the labels');
   });
 
+  await check('the sun button shows the Hebrew date (owner 2026-11-26): with a day and Hebrew dates on, the button holds the Hebrew day over the month, like a calendar page, in place of the sun; its label is the full Hebrew date and "Zmanim"; the date leaves the line under the title; without Hebrew dates or before the first answer it is the sun, and without the sun the date stays on its line', () => {
+    const header = (locale: Locale, extra: Row) =>
+      renderToString(inIntl(locale, createElement(HomeHeader, { today: TODAY, hebrewDates: true, zone: null, sendOpen: false, menuOpen: false, onSend: noop, onMenu: noop, onZmanim: noop, ...extra })));
+    const TILE: Record<Locale, { day: string; month: string; full: string }> = {
+      en: { day: '17', month: 'Cheshvan', full: '17 Cheshvan 5787' },
+      he: { day: 'י״ז', month: 'חשון', full: 'י״ז בחשון תשפ״ז' },
+      ru: { day: '17', month: 'Хешван', full: '17 хешвана 5787' },
+    };
+    for (const locale of LOCALES) {
+      const tile = TILE[locale];
+      const genitive = locale === 'ru' ? (messages.ru.calendarHome.hebrewMonthGenitive as string[]) : undefined;
+      assert(hebrewFullDate(TODAY, locale, genitive) === tile.full, `${locale}: the fixture's date ${hebrewFullDate(TODAY, locale, genitive)}`);
+      const label = messages[locale].calendarHome.header.zmanimOnDate.replace('{date}', tile.full);
+      const html = header(locale, {});
+      const button = new RegExp(`<button type="button" class="ch-icon-btn ch-head-hdate" aria-label="${label}" aria-haspopup="dialog" aria-expanded="false">([^]*?)</button>`).exec(html);
+      assert(button, `${locale}: no date tile labelled ${label}: ${html.slice(0, 1600)}`);
+      assert(button[1] === `<span class="ch-head-hdate-day" aria-hidden="true"><bdi>${tile.day}</bdi></span><span class="ch-head-hdate-month" aria-hidden="true"><bdi>${tile.month}</bdi></span>`, `${locale}: the tile ${button[1]}`);
+      assert(!/lucide-sunset/.test(html), `${locale}: no sun beside the date`);
+      assert(!html.includes(tile.full) || html.indexOf(tile.full) > html.indexOf('ch-head-side'), `${locale}: the date left the line under the title`);
+      assert(!html.includes('ch-head-line'), `${locale}: no empty date line (no parasha or countdown before the holidays land)`);
+      assert(/aria-expanded="true"/.test(header(locale, { zmanimOpen: true }).match(/<button[^>]*ch-head-hdate[^>]*>/)?.[0] ?? ''), `${locale}: expanded while open`);
+      const noHebrew = header(locale, { hebrewDates: false });
+      assert(/lucide-sunset/.test(noHebrew) && !noHebrew.includes('ch-head-hdate'), `${locale}: the sun without Hebrew dates`);
+      const noSun = header(locale, { onZmanim: undefined });
+      assert(noSun.includes(`<p class="ch-head-sub ch-head-line">${tile.full}</p>`) && !noSun.includes('ch-head-hdate'), `${locale}: without the sun the date stays on its line`);
+    }
+    assert(messages.en.calendarHome.header.zmanimOnDate === '{date}. Zmanim' && messages.he.calendarHome.header.zmanimOnDate === '{date}. זמני היום' && messages.ru.calendarHome.header.zmanimOnDate === '{date}. Зманим', 'the tile\'s labels');
+  });
+
+  await check('the date tile\'s CSS: at least 44 × 44 px and wider only when the month needs it, the day 16 px semibold in the text colour over the month 11 px muted, centred, nothing under 11 px, logical properties only, no hover', () => {
+    const rule = (selector: string) => {
+      const found = new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`).exec(HOME_SHELL_CSS);
+      assert(found, `no rule ${selector}`);
+      return found[1];
+    };
+    const tile = rule('.ch-icon-btn.ch-head-hdate');
+    assert(/inline-size:\s*auto/.test(tile) && /min-inline-size:\s*44px/.test(tile) && /flex-direction:\s*column/.test(tile) && /padding-inline:\s*4px/.test(tile) && /white-space:\s*nowrap/.test(tile), `.ch-head-hdate: ${tile}`);
+    const day = rule('.ch-head-hdate-day');
+    assert(/font-size:\s*16px/.test(day) && /font-weight:\s*600/.test(day) && /color:\s*var\(--ch-text\)/.test(day), `the day: ${day}`);
+    const month = rule('.ch-head-hdate-month');
+    assert(/font-size:\s*11px/.test(month) && /color:\s*var\(--ch-muted\)/.test(month), `the month: ${month}`);
+    const css = HOME_SHELL_CSS.split('\n.').filter((b) => /^ch-(icon-btn\.)?head-hdate/.test(b)).join('\n');
+    assert(css.length > 0 && !/(?:^|[^-])(?:left|right|top|bottom|width)\s*:|(?:margin|padding)-(?:left|right)/m.test(css) && !/:hover/.test(css), `physical properties or hover: ${css}`);
+  });
+
   // ================= The sheet in each language =================
 
   await check('English: "Today\'s zmanim" under a dialog of that name, "Harish..." place line with the set, the day in Gregorian and Hebrew, every row named with its opinion, times in 24 hours in the person\'s zone inside <bdi dir="ltr">, the hour line "Halachic hour: 55:24 (GRA) · 66:29 (MGA)", and no key left bare', async () => {
@@ -756,7 +801,7 @@ async function runChecks(): Promise<void> {
       const want = `<button type="button" class="ch-head-zman" aria-label="${words.label}" aria-haspopup="dialog" aria-expanded="false"><span class="ch-head-zman-row is-last" aria-hidden="true"><span class="ch-head-zman-name">${words.sunset}</span><bdi dir="ltr" class="ch-head-zman-time">16:55</bdi></span><span class="ch-head-zman-row is-next" aria-hidden="true"><span class="ch-head-zman-name">${words.tzeit}</span><bdi dir="ltr" class="ch-head-zman-time">17:09</bdi></span></button>`;
       assert(lineOf(html) === want, `${locale}: ${lineOf(html)}`);
       // Inside the text column, after the date lines and before the side column
-      assert(html.indexOf('class="ch-head-zman"') > html.indexOf('ch-head-line') && html.indexOf('class="ch-head-zman"') < html.indexOf('class="ch-head-side"'), `${locale}: the lines sit under the date lines`);
+      assert(html.indexOf('class="ch-head-title"') >= 0 && html.indexOf('class="ch-head-zman"') > html.indexOf('class="ch-head-title"') && html.indexOf('class="ch-head-zman"') < html.indexOf('class="ch-head-side"'), `${locale}: the lines sit under the date lines`);
       const edges = lineOf(header(locale, { zmanWindow: { last: midnight, next: dawn }, zmanimOpen: true }));
       assert(edges.includes(`aria-label="${words.labelEdges}" aria-haspopup="dialog" aria-expanded="true"`) && edges.includes(`<span class="ch-head-zman-name">${words.yesterday}</span><bdi dir="ltr" class="ch-head-zman-time">23:24</bdi>`) && edges.includes(`<span class="ch-head-zman-name">${words.tomorrow}</span><bdi dir="ltr" class="ch-head-zman-time">04:44</bdi>`), `${locale} edges: ${edges}`);
       const one = lineOf(header(locale, { zmanWindow: { last: sunset, next: null } }));
