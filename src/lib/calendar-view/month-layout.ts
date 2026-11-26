@@ -14,6 +14,8 @@ export const SHORT_QUERY = '(max-height: 520px) and (orientation: landscape)';
 export const HANDLE_PX = 22;
 export const HANDLE_TOUCH_PX = 22;
 export const HANDLE_TAP_PX = 12;
+/** The squares' grid's inline padding, both sides together: MONTH_SQUARES_CSS and the weekday row pad half each side, and a cell is (width − it) / 7. */
+export const GRID_PAD_PX = 12;
 /** The day list never gets less than this when the split is collapsed. */
 export const LIST_MIN_PX = 120;
 /** A week row's least height, and its least on a short screen. */

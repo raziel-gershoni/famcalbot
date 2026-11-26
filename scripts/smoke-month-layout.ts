@@ -11,6 +11,7 @@ import path from 'path';
 import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import {
+  GRID_PAD_PX,
   HANDLE_PX,
   LIST_MIN_PX,
   SHORT_QUERY,
@@ -112,7 +113,7 @@ async function main() {
   // stable viewport less the header and tabs and the top safe areas; the bottom one is no longer taken
   // off, the list pads its own end by it). These pin today's numbers, not a target.
   const regionPx = (viewport: number, headerAndTabs: number, safeTop: number, contentSafeTop: number) => viewport - headerAndTabs - safeTop - contentSafeTop;
-  const cellOf = (screenWidth: number) => (screenWidth - 12) / 7;
+  const cellOf = (screenWidth: number) => (screenWidth - GRID_PAD_PX) / 7;
 
   await check('I2: the collapsed list on small phones with Hebrew dates (chrome 76), the region h = viewport − 200 px of header and tabs − the top safe areas (0 in Telegram outside fullscreen): a 375×667 iPhone SE (viewport 590) → h 390, rows 36, scroller 216, list 76; a 360×640 Android phone (viewport 560) → h 360, rows 36, scroller 216, list 46', () => {
     assert(monthBarPx(true) === 76, `chrome ${monthBarPx(true)}`);

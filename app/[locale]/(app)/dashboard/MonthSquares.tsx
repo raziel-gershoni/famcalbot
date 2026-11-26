@@ -52,7 +52,7 @@ import type { MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
 import { holidayTitles, isPortion, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { fitRow, limitDots, noticeCopy, type MonthCell, type MonthModel, type MonthNotice, type MonthSlot } from '@/src/lib/calendar-view/month';
-import type { SquareSize } from '@/src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, type SquareSize } from '@/src/lib/calendar-view/month-layout';
 import type { DayKey, Holiday, SourceName } from '@/src/lib/calendar-view/types';
 import { calendarMark } from './ItemRow';
 import { useDayDrop, useItemDrag } from './DragSurface';
@@ -349,7 +349,7 @@ export const MONTH_SQUARES_CSS = `
 .ch-sq-body {
   position: relative;
   block-size: 100%;
-  padding-inline: 6px;
+  padding-inline: ${GRID_PAD_PX / 2}px;
 }
 .ch-sq-grid {
   display: grid;

@@ -43,6 +43,12 @@
 //  - a resize put back at once in the observer with no render, the squares' size after 220 ms,
 //    scrollerPx standing in for the height; the holidays asked again; unmount lets go of all.
 //
+// The final review's fixes (#46–#53, .superpowers/sdd/2026-11-26-responsive-home-layouts/): no
+// auto-scroll of the pane while an item is lifted (C1); a height change a scroll event sees before
+// the observer keeps the month (I1); positions on the exact height (M4); the day list's failed rows
+// (M2); no scrollbar in the pane (M6); one grid padding constant (M10); an inert peek (M7); the
+// handle's click after a drag with no click of its own (M8).
+//
 // Run with the fake env (no dotenv):
 //   TZ=UTC npx tsx scripts/smoke-month-pane.ts
 //   TZ=Asia/Jerusalem npx tsx scripts/smoke-month-pane.ts
@@ -64,7 +70,7 @@ import { calendarVars } from '../src/lib/calendar-view/colours';
 import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
 import { holidaysFor } from '../src/lib/calendar-view/holidays-client';
 import { buildMonth, dayNotices, dayRows, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
-import { HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX, SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX, SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
 import { dayStatus, daysInWindow, emptyStore, reduceStore, type CalendarStore, type GoogleStatus, type StoreAction } from '../src/lib/calendar-view/store';
 import { compareItems, type CalendarDTO, type DayKey, type Holiday, type ItemCalendarDTO, type ItemDTO, type ItemReminderDTO, type RangeResponse, type SourceName, type WeekStart } from '../src/lib/calendar-view/types';
 import { lintCss } from './lib/css-lint';
@@ -1880,7 +1886,63 @@ async function main() {
     assert(!renderPanel('en', props(store, TODAY)).includes('ch-state'), 'an answered day has no row');
   });
 
-  await check('#99 React logged no warning', () => {
+  await check('#50 M6: the pane\'s scroller draws no scrollbar (scrollbar-width: none, ::-webkit-scrollbar display none), so a desktop\'s classic scrollbar never narrows the squares under the full-width weekday row; lint clean', () => {
+    const css = MONTH_PANE_CSS;
+    assert(declOf(ruleOf(css, '.ch-pane-scroller'), 'scrollbar-width') === 'none', `scrollbar-width: ${declOf(ruleOf(css, '.ch-pane-scroller'), 'scrollbar-width')}`);
+    assert(declOf(ruleOf(css, '.ch-pane-scroller::-webkit-scrollbar'), 'display') === 'none', 'the WebKit scrollbar hidden');
+    assert(lintCss(css).length === 0, `lintCss: ${show(lintCss(css))}`);
+  });
+
+  await check('#51 M10: the grid\'s inline padding is one constant, month-layout\'s GRID_PAD_PX (12, both sides): the squares\' .ch-sq-body and the weekday row pad half of it each side, and MonthPane and MonthView size cells from it without a copy of their own', () => {
+    assert(GRID_PAD_PX === 12, `GRID_PAD_PX ${GRID_PAD_PX}`);
+    assert(declOf(ruleOf(MONTH_SQUARES_CSS, '.ch-sq-body'), 'padding-inline') === `${GRID_PAD_PX / 2}px`, `the squares: ${declOf(ruleOf(MONTH_SQUARES_CSS, '.ch-sq-body'), 'padding-inline')}`);
+    assert(declOf(ruleOf(MONTH_PANE_CSS, '.ch-pane-weekdays'), 'padding-inline') === `${GRID_PAD_PX / 2}px`, `the weekday row: ${declOf(ruleOf(MONTH_PANE_CSS, '.ch-pane-weekdays'), 'padding-inline')}`);
+    for (const file of ['MonthPane.tsx', 'MonthView.tsx', 'MonthSquares.tsx']) {
+      const source = fs.readFileSync(path.join(ROOT, 'app/[locale]/(app)/dashboard', file), 'utf8');
+      assert(!/const GRID_PAD_PX\b/.test(source), `${file} declares its own GRID_PAD_PX`);
+      assert(/import \{[^}]*\bGRID_PAD_PX\b[^}]*\} from '@\/src\/lib\/calendar-view\/month-layout'/.test(source), `${file} reads month-layout's GRID_PAD_PX`);
+    }
+  });
+
+  await check('#52 M7: while the list is a peek its scroller is inert (inert=""), so a row under the transparent peek button takes no focus and tabbing never scrolls the peek; the button itself stays outside it; without peek nothing is inert', () => {
+    const store = famcalStore();
+    const off = renderPanel('en', panelProps(store, TODAY));
+    assert(!/\binert\b/.test(off), 'not inert by default');
+    const on = renderPanel('en', panelProps(store, TODAY, { peek: true, onPeek: noop }));
+    assert(on.includes('<div class="ch-dp-scroller is-peek" inert="">'), `the peek's scroller: ${show(/<div class="ch-dp-scroller[^>]*>/.exec(on)?.[0])}`);
+    const m = mount(inIntl('en', createElement(DayPanel, panelProps(store, TODAY, { peek: true, onPeek: noop }))));
+    try {
+      const scroller = byClass(m.container, 'ch-dp-scroller')[0];
+      const button = byClass(m.container, 'ch-dp-peek')[0];
+      assert(scroller?.hasAttribute('inert') && button && !button.hasAttribute('inert') && !elements(scroller).includes(button), 'the scroller inert, the button outside it');
+      m.render(inIntl('en', createElement(DayPanel, panelProps(store, TODAY))));
+      assert(!byClass(m.container, 'ch-dp-scroller')[0]?.hasAttribute('inert'), 'collapsed again: not inert');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#53 M8: a pointer drag with no click after it leaves the handle ready: the next click without a pointer (an assistive technology\'s, 2 s later) toggles; the click right after a pointer tap is still that tap\'s (once)', () => {
+    const seen: string[] = [];
+    const m = mount(handleIn(false, (next) => void seen.push(next)));
+    try {
+      const btn = elements(m.container).find((e) => e.className === 'ch-handle');
+      assert(btn, 'handle mounted');
+      m.fire(btn, 'pointerdown', { pointerId: 1, clientY: 100, button: 0, isPrimary: true, timeStamp: 1000 });
+      m.fire(btn, 'pointerup', { pointerId: 1, clientY: 140, button: 0, isPrimary: true, timeStamp: 1200 });
+      assert(show(seen) === '["grown"]', `the drag grows: ${show(seen)}`);
+      m.click(btn, { timeStamp: 3200 });
+      assert(show(seen) === '["grown","grown"]', `a later pointer-less click toggles: ${show(seen)}`);
+      m.fire(btn, 'pointerdown', { pointerId: 1, clientY: 100, button: 0, isPrimary: true, timeStamp: 5000 });
+      m.fire(btn, 'pointerup', { pointerId: 1, clientY: 102, button: 0, isPrimary: true, timeStamp: 5080 });
+      m.click(btn, { timeStamp: 5090 });
+      assert(seen.length === 3, `a pointer tap toggles once: ${show(seen)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('#54 React logged no warning', () => {
     assert(reactWarnings.length === 0, show(reactWarnings));
   });
 

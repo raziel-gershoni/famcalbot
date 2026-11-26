@@ -9,8 +9,9 @@
 // item lifted from the list to move it), "Nothing planned" once the day is answered and empty, and
 // placeholders while it loads.
 //
-// `peek` (the month grown): the scroller cannot scroll and one transparent button over the whole
-// panel, named "Show the month smaller", calls onPeek on a tap anywhere on it.
+// `peek` (the month grown): the scroller cannot scroll and is inert (its rows under the button take
+// no focus, so tabbing never scrolls it), and one transparent button over the whole panel, named
+// "Show the month smaller", calls onPeek on a tap anywhere on it.
 // Renders AGENDA_CSS once: the Agenda is not mounted on the Month tab.
 
 import { useLocale, useTranslations } from 'next-intl';
@@ -75,7 +76,7 @@ export function DayPanel({ day, today, tz, hebrewDates, dafYomi, rows, status, t
     <section className="ch-dp" dir={locale === 'he' ? 'rtl' : 'ltr'} aria-labelledby="ch-dp-day" aria-busy={loading || undefined}>
       <style>{AGENDA_CSS}</style>
       <style>{DAY_PANEL_CSS}</style>
-      <div className={peek ? 'ch-dp-scroller is-peek' : 'ch-dp-scroller'}>
+      <div className={peek ? 'ch-dp-scroller is-peek' : 'ch-dp-scroller'} inert={peek || undefined}>
         {top}
         <h3 className="ch-dp-day" id="ch-dp-day">
           <span className="ch-dp-day-label">{dayTitle}</span>

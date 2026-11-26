@@ -143,7 +143,7 @@ import { PANEL_IDS, TAB_IDS } from '../app/[locale]/(app)/dashboard/HomeTabs';
 import { homeTabKey, monthSplitKey } from '../src/lib/calendar-view/home-storage';
 import { monthWindow, spanMonths, defaultSpan, type MonthKey } from '../src/lib/calendar-view/grid';
 import { monthBarPx } from '../src/lib/calendar-view/month';
-import { SETTLE_MS, WIDE_QUERY, splitHeights } from '../src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, SETTLE_MS, WIDE_QUERY, splitHeights } from '../src/lib/calendar-view/month-layout';
 import { lintCss } from './lib/css-lint';
 import { formatDayLong } from '../src/lib/calendar-view/format';
 import { calendarVars } from '../src/lib/calendar-view/colours';
@@ -2867,7 +2867,7 @@ async function main() {
     await settleResize();
   };
   /** The collapsed and the grown split's scroller for the fake region (Hebrew dates on). */
-  const splitPx = (isGrown: boolean) => splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, isGrown, LAYOUT.insetEnd).scrollerPx;
+  const splitPx = (isGrown: boolean) => splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - GRID_PAD_PX) / 7, isGrown, LAYOUT.insetEnd).scrollerPx;
   /** Every style sheet on the page, as one text. */
   const pageCss = (m: Home) =>
     elements(m.container)
@@ -3580,7 +3580,7 @@ async function main() {
       assert(decl(cssRule(css, '.ch-mv.is-wide > .ch-pane'), 'padding-block-end') === insetEnd, 'the wide pane\'s months end above the bottom safe area');
       const probe = byClass(region(m) as FakeElement, 'ch-mv-inset')[0];
       assert(probe && probe.getAttribute('aria-hidden') === 'true' && decl(cssRule(css, '.ch-mv-inset'), 'block-size') === insetEnd && decl(cssRule(css, '.ch-mv-inset'), 'visibility') === 'hidden', 'the region measures the bottom safe area with a hidden probe');
-      assert(scroller(m).clientHeight === splitPx(false) && splitPx(false) === splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - 12) / 7, false).scrollerPx, `collapsed, the inset is the list's: ${scroller(m).clientHeight}`);
+      assert(scroller(m).clientHeight === splitPx(false) && splitPx(false) === splitHeights(LAYOUT.monthH, monthBarPx(true), (LAYOUT.width - GRID_PAD_PX) / 7, false).scrollerPx, `collapsed, the inset is the list's: ${scroller(m).clientHeight}`);
       await toggle(m);
       assert(grown(m) && scroller(m).clientHeight === splitPx(true) && splitPx(true) === LAYOUT.monthH - monthBarPx(true) - 22 - 44 - 34, `grown, the peek clear of the inset: ${scroller(m).clientHeight} (want ${LAYOUT.monthH - monthBarPx(true) - 22 - 44 - 34})`);
       await toggle(m);

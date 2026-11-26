@@ -48,7 +48,7 @@ import { addMonths, monthGrid, monthOf, nearSpanEdge, weekdayOrder, type MonthKe
 import { hebrewMonthHeader } from '@/src/lib/calendar-view/hebrew-date';
 import { retryFailedHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { canStepMonth, loadingMonth, monthBarPx, type MonthModel } from '@/src/lib/calendar-view/month';
-import { SETTLE_MS, monthAtScroll, squareSize, type SquareSize } from '@/src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, SETTLE_MS, monthAtScroll, squareSize, type SquareSize } from '@/src/lib/calendar-view/month-layout';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { useNavDrop } from './DragSurface';
 import { MONTH_SQUARES_CSS, MonthSquaresGrid } from './MonthSquares';
@@ -96,8 +96,6 @@ export interface MonthPaneProps {
 export const SCROLL_IDLE_MS = 150;
 /** The weekday row under the bar's row, its bottom border included: monthBarPx is the two. */
 const WEEKDAYS_PX = 24;
-/** The squares' grid's inline padding, both sides (MONTH_SQUARES_CSS's .ch-sq-body). */
-const GRID_PAD_PX = 12;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
 let motionWarned = false;
@@ -540,8 +538,10 @@ export function MonthPane(props: MonthPaneProps) {
  * (--ch-pane-bar, which the pane sets from monthBarPx: 48 px, 52 with the Hebrew line) and the
  * 24 px weekday row add up to monthBarPx, then the scroller fills what is left (flex: 1), or is
  * the split's height (set inline). The scroller snaps on whole months, each 100% of it, keeps
- * its scroll to itself (overscroll-behavior: contain) and leaves months added above to the pane
- * (overflow-anchor: none). The chevrons are 44 × 44, the title and Today at least 44 tall.
+ * its scroll to itself (overscroll-behavior: contain), leaves months added above to the pane
+ * (overflow-anchor: none) and draws no scrollbar (a desktop's classic one would narrow the
+ * squares under the full-width weekday row). The squares' grid and the weekday row both pad
+ * half of GRID_PAD_PX each side. The chevrons are 44 × 44, the title and Today at least 44 tall.
  * Logical properties only; nothing under 11 px; no hover; overflow: hidden only on the title's
  * text leaves (the ellipsis) and the scroller's inline axis.
  */
@@ -686,7 +686,7 @@ export const MONTH_PANE_CSS = `
   flex: none;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   block-size: 24px;
-  padding-inline: 6px;
+  padding-inline: ${GRID_PAD_PX / 2}px;
   border-block-end: 1px solid var(--ch-separator);
   font-size: 12px;
   line-height: 23px;
@@ -701,6 +701,10 @@ export const MONTH_PANE_CSS = `
   overscroll-behavior: contain;
   overflow-anchor: none;
   scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+}
+.ch-pane-scroller::-webkit-scrollbar {
+  display: none;
 }
 .ch-pane-month {
   block-size: 100%;

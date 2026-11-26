@@ -38,7 +38,7 @@ import { sameItemRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
 import { monthOf, type MonthKey } from '@/src/lib/calendar-view/grid';
 import type { MonthSplit } from '@/src/lib/calendar-view/home-storage';
 import { monthBarPx, type MonthFocus, type MonthModel, type MonthNotice } from '@/src/lib/calendar-view/month';
-import { WIDE_QUERY, splitHeights } from '@/src/lib/calendar-view/month-layout';
+import { GRID_PAD_PX, WIDE_QUERY, splitHeights } from '@/src/lib/calendar-view/month-layout';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { useMediaQuery } from '@/src/lib/calendar-view/use-media';
@@ -102,9 +102,6 @@ export interface MonthViewProps {
   /** Drag to move; absent: nothing lifts. */
   drag?: MonthDrag;
 }
-
-/** The squares' grid's inline padding, both sides (MONTH_SQUARES_CSS's .ch-sq-body), for the split's cell width. */
-const GRID_PAD_PX = 12;
 
 /** The region's size and its bottom safe area (the probe's height). */
 type Box = { h: number; w: number; inset: number };

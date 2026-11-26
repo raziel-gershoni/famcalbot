@@ -9,11 +9,14 @@
 // The bar takes 22 px (HANDLE_PX); its touch area reaches 22 px below it (HANDLE_TOUCH_PX: padding
 // plus a negative margin at its end, so the layout still gives it 22 px), 44 px in all, the home's
 // tap floor. Nothing reaches above the bar: there it would cover the month's last week row (a tap on
-// a square would resize the split, a drop there would miss); below it is the list's top. Pointer events with capture: on release, a move under HANDLE_TAP_PX is a tap (toggle), a
-// longer one down grows, up shrinks. A pointer gesture marks the click that follows as handled, so it
-// never toggles twice; a keyboard click (no pointer gesture before it) toggles.
+// a square would resize the split, a drop there would miss); below it is the list's top.
+//
+// Pointer events with capture: on release, a move under HANDLE_TAP_PX is a tap (toggle), a longer
+// one down grows, up shrinks. A click within CLICK_AFTER_UP_MS of a pointer gesture's release is
+// that gesture's own (already answered), so it never toggles twice; any other click (the keyboard's,
+// an assistive technology's, also after a drag that sent no click) toggles.
 
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
+import { useRef, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import { HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX } from '@/src/lib/calendar-view/month-layout';
 
@@ -23,16 +26,19 @@ export interface SplitHandleProps {
   onToggle: (next: 'split' | 'grown') => void;
 }
 
+/** A click this soon after a pointer gesture's release is that gesture's own click (a drag may send none). */
+const CLICK_AFTER_UP_MS = 1000;
+
 export function SplitHandle({ grown, onToggle }: SplitHandleProps) {
   const t = useTranslations('calendarHome');
   const startY = useRef<number | null>(null);
-  // A pointer gesture ended: the click the browser sends after it is already answered.
-  const handled = useRef(false);
+  // When a pointer gesture ended (its event's timeStamp): the click the browser sends after it is already answered.
+  const upAt = useRef<number | null>(null);
 
   const toggle = () => onToggle(grown ? 'split' : 'grown');
 
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    handled.current = false;
+    upAt.current = null;
     startY.current = event.clientY;
     try {
       event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -45,7 +51,7 @@ export function SplitHandle({ grown, onToggle }: SplitHandleProps) {
     const from = startY.current;
     startY.current = null;
     if (from === null) return;
-    handled.current = true;
+    upAt.current = event.timeStamp;
     const dy = event.clientY - from;
     if (dy > HANDLE_TAP_PX) {
       if (!grown) onToggle('grown');
@@ -57,17 +63,16 @@ export function SplitHandle({ grown, onToggle }: SplitHandleProps) {
   };
   const onPointerCancel = () => {
     startY.current = null;
-    handled.current = false;
+    upAt.current = null;
   };
-  const onClick = () => {
-    if (handled.current) {
-      handled.current = false;
-      return;
-    }
+  const onClick = (event: MouseEvent<HTMLButtonElement>) => {
+    const up = upAt.current;
+    upAt.current = null;
+    if (up !== null && event.timeStamp >= up && event.timeStamp - up < CLICK_AFTER_UP_MS) return;
     toggle();
   };
   const onKeyDown = (_event: KeyboardEvent<HTMLButtonElement>) => {
-    handled.current = false;
+    upAt.current = null;
   };
 
   return (
