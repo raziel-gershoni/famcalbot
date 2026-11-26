@@ -581,7 +581,7 @@ async function main() {
     }
   });
 
-  await check("#10 --ch-top-h goes on the home's root: through the ref once it is attached; on the first commit React has not attached it yet (a root's ref comes after its children's layout effects), and the wrapper's parent, the same element, takes it; nothing to set it on, nothing thrown", () => {
+  await check("#10 --ch-top-h goes on the home's root, rounded up (126.4 → 127 px, so the Month's region never makes the page scroll by a fraction; final review M5): through the ref once it is attached; on the first commit React has not attached it yet (a root's ref comes after its children's layout effects), and the wrapper's parent, the same element, takes it; nothing to set it on, nothing thrown", () => {
     const fakeRoot = (): Row => {
       const set: Record<string, string> = {};
       return { set, style: { getPropertyValue: (k: string) => set[k] ?? '', setProperty: (k: string, v: string) => void (set[k] = v) } };
@@ -591,11 +591,11 @@ async function main() {
     // The first commit: an empty ref, and the parent is the root
     const parent = fakeRoot();
     publishTopHeight(topOf(parent, 126.4), asRef(null));
-    assert(parent.set['--ch-top-h'] === '126px', `the first commit: ${show(parent.set)}`);
+    assert(parent.set['--ch-top-h'] === '127px', `the first commit, rounded up: ${show(parent.set)}`);
     // Later commits: the ref is set and is the one that takes it
     const attached = fakeRoot();
     publishTopHeight(topOf(parent, 140), asRef(attached));
-    assert(attached.set['--ch-top-h'] === '140px' && parent.set['--ch-top-h'] === '126px', `through the ref: ${show([attached.set, parent.set])}`);
+    assert(attached.set['--ch-top-h'] === '140px' && parent.set['--ch-top-h'] === '127px', `through the ref: ${show([attached.set, parent.set])}`);
     // An unchanged height sets nothing again; no root and no ref is no call and no throw
     let writes = 0;
     const counting = fakeRoot();

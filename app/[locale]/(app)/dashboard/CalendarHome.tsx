@@ -283,16 +283,17 @@ export const HOME_TOP_CSS = `
 `;
 
 /**
- * Puts the wrapper's height on the home's root as --ch-top-h: the Month's region is the viewport
- * less it. React attaches the root's ref after its children's layout effects, so on the first
- * commit the ref is still empty and the wrapper's parent, the root, stands in. Exported for
- * smoke-app-ui, which pins both.
+ * Puts the wrapper's height on the home's root as --ch-top-h, rounded up to a whole pixel (rounded
+ * down, the Month's region would be up to a pixel too tall and the page would scroll by it): the
+ * Month's region is the viewport less it. React attaches the root's ref after its children's
+ * layout effects, so on the first commit the ref is still empty and the wrapper's parent, the
+ * root, stands in. Exported for smoke-app-ui, which pins both.
  */
 export function publishTopHeight(top: HTMLElement | null, root: RefObject<HTMLElement | null>) {
   try {
     const home = root.current ?? top?.parentElement;
     if (!top || !home || typeof top.getBoundingClientRect !== 'function') return;
-    const height = `${Math.round(top.getBoundingClientRect().height)}px`;
+    const height = `${Math.ceil(top.getBoundingClientRect().height)}px`;
     if (home.style.getPropertyValue?.('--ch-top-h') !== height) home.style.setProperty('--ch-top-h', height);
   } catch (err) {
     // Without it the Month's region reads 0 for the header and is that much taller (the page then scrolls a little).
