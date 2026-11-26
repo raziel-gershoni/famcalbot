@@ -701,6 +701,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
 
 ### 7.1 Shell
 
+*Superseded in part 2026-11-26 (responsive home release 2, `2026-11-19-responsive-home-design.md` §1): on the Month tab the page no longer scrolls; the Month is a fixed region under the header with two inner scrollers, and the header and tab bar never stick. The Agenda keeps document scroll.*
+
 - **`/dashboard`:**
   - page-data adds `calendarHome: await isCalendarHomeOn(user)` and, when true, calls `trackActivityAsync(user.id, 'webapp_opened')` once per open;
   - PageGate renders `CalendarHome` when it is true, otherwise today's `DashboardClient`, which stays as the fallback;
@@ -782,6 +784,8 @@ export function nextWeekBoundaries(ws: 0|1|2|3|4|5|6, today: DayKey): { first: D
   - Both false → no hint.
 
 ### 7.4 Month
+
+*Superseded 2026-11-26 by the responsive home spec (`2026-11-19-responsive-home-design.md` §2–§4, release 2): Browse and Picked below are replaced by one screen, the month and the selected day together (side by side when wide, a split with a handle when upright), with size-aware squares. The span, the per-month fetch and the jump to a date below still apply; the rest is history.*
 
 **Browse** (default):
 - **Months:** stacked vertically, each with an `h2` title and, when on, the Hebrew months it touches (§7.8). Month titles get `scroll-margin-top` equal to the sticky bar's height.
