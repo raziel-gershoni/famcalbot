@@ -2,6 +2,18 @@
 
 Owner 2026-11-26: "sharing a calendar with tg user. as simple as possible", then "know what maybe not sharing a cal, but sharing a single event". Agreed in chat on 2026-11-27. The owner's one objection was the link's lifetime: "make it one time meaning the first to copy kills the copy proposal. all the rest accepted". After the builder check, the owner approved two more points ("both approved"): drafting new Privacy Policy and Terms lines, and letting a partner's events be sent. They also added a notice to the sender ("i'd like a notification when someone adds an event via link, i think you could tell me who it is also").
 
+**Status:** built 2026-11-27, with the Privacy Policy and Terms lines approved by the owner after a legal review ("ok"). The plan file was deleted at ship (git history: `docs/superpowers/plans/2026-11-27-send-event-copy.md`).
+
+**Claude's calls while building:**
+- Send a copy shows to anyone who can see the event, not only an editor.
+- The claim is one plain conditional update; a claim whose original was deleted meanwhile gives itself back.
+- A failure to record the copy keeps the claim, since a release would allow a second copy.
+- A second tap during one's own copy changes nothing; /start then says "You already copied this event".
+- /start cp_ is answered only in the bot's private chat.
+- Sentry scrubs cp_/cp: tokens (and the partner invite's invite_ token, a gap of the same kind).
+- The card's "all day" is lower case, in its own words; repeats read as the sheet's ("Every week on Monday").
+- A repeating event's usual time on the card is its first occurrence's, read in the viewer's zone. Across zones with different summer-time dates it can be an hour off part of the year (the copy itself is exact).
+
 ## Why
 
 People want to hand one event to someone on Telegram: the dentist to a spouse who uses another calendar, a recital to grandma, a party to a friend. Sharing a whole calendar would need a third kind of calendar (neither yours nor your partner's) in every reader: the home, the summaries, the voice show, alerts, Ask FamCal in a chat and the bot's placement. A copy needs none of that. Once made, it is the receiver's own event, and every part of FamCal already handles it.
