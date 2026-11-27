@@ -153,7 +153,8 @@
       "jumpLabel": "{month}, перейти к дате",
       "jumpSheet": "Перейти к дате",
       "showBigger": "Увеличить месяц",
-      "showSmaller": "Уменьшить месяц"
+      "showSmaller": "Уменьшить месяц",
+      "hebrewMonths": "Еврейские месяцы"
     },
     "stillOpen": {
       "title": "Невыполненные",

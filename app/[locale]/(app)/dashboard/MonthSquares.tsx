@@ -26,6 +26,11 @@
 //   enough (a container query on the slot). Big squares (110 × 100 and more) draw 13 px
 //   chips in 21 px slots under a taller head.
 //
+// In a Hebrew month (release 3: the Month in Hebrew months) every size leads with the Hebrew day
+// (gematriya in Hebrew, digits in en and ru) where the civil day sits, and shows the civil day small
+// where the Hebrew day sits: "1 Dec" on the civil 1st and on the month's first day, the number
+// otherwise. No square names the Hebrew month (the bar does); the line holds the holiday alone.
+//
 // Daily-repeating reminders are left out of every square (R11): month.ts keeps them out of
 // the slots, the dots and the counts. A loading day shows a placeholder and a failed one
 // is dimmed, so a day never looks free before it is answered (§5), and a month's failure
@@ -47,8 +52,8 @@
 
 import { memo, type CSSProperties } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { formatDayLong } from '@/src/lib/calendar-view/format';
-import type { MonthKey } from '@/src/lib/calendar-view/grid';
+import { formatDayLong, formatDayMonth } from '@/src/lib/calendar-view/format';
+import { monthModeOf, type MonthKey } from '@/src/lib/calendar-view/grid';
 import { hebrewCellLabel, hebrewCellMonth, hebrewDayLabel, isHebrewMonthStart } from '@/src/lib/calendar-view/hebrew-date';
 import { holidayTitles, isPortion, useHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { fitRow, limitDots, noticeCopy, type MonthCell, type MonthModel, type MonthNotice, type MonthSlot } from '@/src/lib/calendar-view/month';
@@ -148,6 +153,8 @@ export interface SquareProps {
   /** The partner's name, for the label's "N from <partner>". */
   partner: string | null;
   hebrewDates: boolean;
+  /** The square is a day of a Hebrew month: it leads with the Hebrew day and shows the civil one small. */
+  inHebrewMonth: boolean;
   size: SquareSize;
   /** The day the list shows. */
   selected: boolean;
@@ -169,7 +176,7 @@ export function Square(props: SquareProps) {
   return props.cell.inMonth ? <LiveSquare {...props} /> : <span className="ch-sq is-blank" aria-hidden="true" />;
 }
 
-function LiveSquare({ cell, partner, hebrewDates, size, selected, shown, more, genitive, shortMonths, holidays, noTitle, onSelectDay }: SquareProps) {
+function LiveSquare({ cell, partner, hebrewDates, inHebrewMonth, size, selected, shown, more, genitive, shortMonths, holidays, noTitle, onSelectDay }: SquareProps) {
   const t = useTranslations('calendarHome');
   const locale = useLocale();
   // The day is a drop target while an item is lifted (drag to move): the outline is the day under the finger.
@@ -210,7 +217,16 @@ function LiveSquare({ cell, partner, hebrewDates, size, selected, shown, more, g
         {line}
       </span>
     ) : null;
-  const day = (
+  // A Hebrew month's square leads with the Hebrew day (gematriya in Hebrew, digits in en and ru) and
+  // shows the civil day small where the Hebrew day sits in a civil month's square: "1 Dec" on the
+  // civil 1st and on the month's first day (gregorianMonthStart), the day's number otherwise (the
+  // date picker's Hebrew cells). Its line holds the day's holiday alone: the bar names the month.
+  const civil = inHebrewMonth ? (cell.gregorianMonthStart ? formatDayMonth(cell.day, locale) : String(Number(cell.day.slice(8, 10)))) : '';
+  const day = inHebrewMonth ? (
+    <span className="ch-sq-num is-hday" dir="auto">
+      {hebrewCellLabel(cell.day, locale, false)}
+    </span>
+  ) : (
     <span className="ch-sq-num" dir="ltr">
       {Number(cell.day.slice(8, 10))}
     </span>
@@ -221,7 +237,13 @@ function LiveSquare({ cell, partner, hebrewDates, size, selected, shown, more, g
       <button {...target.props} type="button" className={className} aria-label={parts.join(', ')} aria-pressed={selected} aria-current={cell.today ? 'date' : undefined} onClick={() => onSelectDay(cell.day)}>
         <span className="ch-sq-top" aria-hidden="true">
           {day}
-          {hebrewDates ? <span className="ch-sq-heb">{hebrewCellLabel(cell.day, locale, cell.hebrewMonthStart, shortMonths)}</span> : null}
+          {inHebrewMonth ? (
+            <span className="ch-sq-heb" dir="auto">
+              {civil}
+            </span>
+          ) : hebrewDates ? (
+            <span className="ch-sq-heb">{hebrewCellLabel(cell.day, locale, cell.hebrewMonthStart, shortMonths)}</span>
+          ) : null}
         </span>
         {lineEl}
         <span className="ch-sq-marks" aria-hidden="true">
@@ -233,12 +255,18 @@ function LiveSquare({ cell, partner, hebrewDates, size, selected, shown, more, g
 
   // A day still loading never looks free: a placeholder in the next free line.
   const placeholder = cell.status === 'loading' && more === 0 && shown.length < size.lines;
-  const hebrewDay = hebrewDates ? hebrewCellLabel(cell.day, locale, false) : '';
+  const hebrewDay = hebrewDates && !inHebrewMonth ? hebrewCellLabel(cell.day, locale, false) : '';
   return (
     <button {...target.props} type="button" className={className} aria-label={parts.join(', ')} aria-pressed={selected} aria-current={cell.today ? 'date' : undefined} onClick={() => onSelectDay(cell.day)}>
       <span className="ch-sq-head" aria-hidden="true">
         {day}
-        {hebrewDay ? <span className="ch-sq-hday">{hebrewDay}</span> : null}
+        {inHebrewMonth ? (
+          <span className="ch-sq-hday" dir="auto">
+            {civil}
+          </span>
+        ) : hebrewDay ? (
+          <span className="ch-sq-hday">{hebrewDay}</span>
+        ) : null}
       </span>
       {lineEl}
       <span className="ch-sq-slots" aria-hidden="true">
@@ -287,6 +315,7 @@ export const MonthSquaresGrid = memo(function MonthSquaresGrid({ model, month, s
   const failed = model.notices.filter((n) => n.kind === 'failed');
   const partial = model.notices.filter((n) => n.kind === 'partial');
   const large = size.kind === 'large';
+  const inHebrewMonth = monthModeOf(month) === 'hebrew';
   const gridClass = `ch-sq-grid is-${size.kind}${large && size.big ? ' is-big' : ''}`;
   const rows: CSSProperties = { gridTemplateRows: `repeat(${model.weeks.length}, 1fr)` };
   return (
@@ -314,6 +343,7 @@ export const MonthSquaresGrid = memo(function MonthSquaresGrid({ model, month, s
               cell={cell}
               partner={model.partner}
               hebrewDates={hebrewDates}
+              inHebrewMonth={inHebrewMonth}
               size={size}
               selected={cell.day === selected}
               shown={fitted?.[col].shown ?? NO_SLOTS}
@@ -412,6 +442,11 @@ button.ch-sq:active {
   font-size: 14px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+.ch-sq-num.is-hday {
+  inline-size: auto;
+  min-inline-size: 24px;
+  padding-inline: 3px;
 }
 .ch-sq-grid.is-large .ch-sq-num {
   display: block;
@@ -550,10 +585,13 @@ button.ch-sq:active {
   padding-inline: 2px;
 }
 .ch-sq-hday {
+  min-width: 0;
   font-size: 11px;
   line-height: 18px;
   color: var(--ch-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ch-sq-slots {
   display: block;

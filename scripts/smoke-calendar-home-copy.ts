@@ -486,6 +486,8 @@ const KEYS: Record<string, readonly string[]> = {
   // The jump to a date (owner 2026-11-17): the month name's button and the sheet's name
   'month.jumpLabel': ['month'],
   'month.jumpSheet': [],
+  // Hebrew months on the Month (release 3): the switch's name on the bar
+  'month.hebrewMonths': [],
   // Daf Yomi (release 1): the line, and one tractate name per hebcal English name (added below)
   'dafYomi.line': ['tractate', 'page'],
 };

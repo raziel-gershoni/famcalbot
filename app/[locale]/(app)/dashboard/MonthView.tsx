@@ -39,6 +39,7 @@ import { monthOf, type MonthKey } from '@/src/lib/calendar-view/grid';
 import type { MonthSplit } from '@/src/lib/calendar-view/home-storage';
 import { monthBarPx, type MonthFocus, type MonthModel, type MonthNotice } from '@/src/lib/calendar-view/month';
 import { GRID_PAD_PX, WIDE_QUERY, splitHeights } from '@/src/lib/calendar-view/month-layout';
+import type { MonthMode } from '@/src/lib/calendar-view/month-mode';
 import type { DayStatus } from '@/src/lib/calendar-view/store';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { useMediaQuery } from '@/src/lib/calendar-view/use-media';
@@ -58,6 +59,10 @@ export interface MonthViewProps {
   tz: string;
   weekStart: WeekStart;
   hebrewDates: boolean;
+  /** The calendar the Month counts its months in: the span's, the focus's and the seek's months are of its kind. */
+  monthMode: MonthMode;
+  /** The bar's Gregorian | Hebrew switch: the other calendar (shown only with Hebrew dates). */
+  onMonthMode?: (mode: MonthMode) => void;
   /** Show the selected day's Daf Yomi page (CalendarHomeProps.dafYomi). */
   dafYomi?: boolean;
   /** The span's months, oldest first (grid.ts spanMonths), memoized. */
@@ -138,10 +143,10 @@ function UnavailableRow({ count, onChooseCalendars }: { count: number; onChooseC
 
 /**
  * The jump to a date (owner 2026-11-17): the editor's date sheet over the reach's years (1900 …
- * 2100), opening in Gregorian on the selected day or the month in view, with the Gregorian |
- * Hebrew switch while the home shows Hebrew dates.
+ * 2100), opening on the selected day or the month in view in the Month's calendar (its Hebrew side
+ * while Hebrew months show), with the Gregorian | Hebrew switch while the home shows Hebrew dates.
  */
-function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: NonNullable<MonthViewProps['jump']> & Pick<MonthViewProps, 'today' | 'weekStart' | 'hebrewDates'>) {
+function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates, monthMode }: NonNullable<MonthViewProps['jump']> & Pick<MonthViewProps, 'today' | 'weekStart' | 'hebrewDates' | 'monthMode'>) {
   const t = useTranslations('calendarHome');
   return (
     <DatePickerSheet
@@ -150,7 +155,7 @@ function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: No
       today={today}
       weekStart={weekStart}
       hebrewDates={hebrewDates}
-      mode="gregorian"
+      mode={monthMode}
       minYear={MIN_YEAR_BIRTH}
       onPick={onPick}
       onClose={onClose}
@@ -160,7 +165,7 @@ function JumpSheet({ value, onPick, onClose, today, weekStart, hebrewDates }: No
 }
 
 export function MonthView(props: MonthViewProps) {
-  const { drag, jump, selected, dayRows, today, tz, weekStart, hebrewDates, onSelect, sheetActions } = props;
+  const { drag, jump, selected, dayRows, today, tz, weekStart, hebrewDates, monthMode, onSelect, sheetActions } = props;
   const paneRef = useRef<MonthPaneHandle | null>(null);
   const onNav = useCallback((delta: -1 | 1) => paneRef.current?.step(delta), []);
   const sheetRow = selected ? latestRow(dayRows.rows, selected) : null;
@@ -168,7 +173,7 @@ export function MonthView(props: MonthViewProps) {
     <>
       <MonthRegion {...props} paneRef={paneRef} />
       {sheetRow ? <ItemSheet row={sheetRow} today={today} tz={tz} onClose={() => onSelect(null)} actions={sheetActions} /> : null}
-      {jump ? <JumpSheet {...jump} today={today} weekStart={weekStart} hebrewDates={hebrewDates} /> : null}
+      {jump ? <JumpSheet {...jump} today={today} weekStart={weekStart} hebrewDates={hebrewDates} monthMode={monthMode} /> : null}
     </>
   );
   return drag ? (
@@ -186,6 +191,8 @@ function MonthRegion({
   tz,
   weekStart,
   hebrewDates,
+  monthMode,
+  onMonthMode,
   dafYomi,
   months,
   getMonth,
@@ -260,9 +267,9 @@ function MonthRegion({
     [onSelectDay, onSplit, grown],
   );
   const collapse = useCallback(() => onSplit('split'), [onSplit]);
-  // Retry on the list's failed row: the selected day's month, for that source.
+  // Retry on the list's failed row: the selected day's month in the Month's calendar, for that source.
   const selectedDay = focus.selected;
-  const retryDay = useCallback((source: SourceName) => onRetryMonth(monthOf(selectedDay), source), [onRetryMonth, selectedDay]);
+  const retryDay = useCallback((source: SourceName) => onRetryMonth(monthOf(selectedDay, monthMode), source), [onRetryMonth, selectedDay, monthMode]);
 
   const className = wide ? 'ch-mv is-wide' : grown ? 'ch-mv is-split is-grown' : 'ch-mv is-split';
   return (
@@ -272,11 +279,14 @@ function MonthRegion({
       {box ? (
         <>
           <MonthPane
+            key={monthMode}
             ref={paneRef}
             months={months}
             today={today}
             weekStart={weekStart}
             hebrewDates={hebrewDates}
+            monthMode={monthMode}
+            onMonthMode={onMonthMode}
             getMonth={getMonth}
             selected={focus.selected}
             seek={seek}

@@ -153,7 +153,8 @@
       "jumpLabel": "{month}, go to a date",
       "jumpSheet": "Go to a date",
       "showBigger": "Show the month bigger",
-      "showSmaller": "Show the month smaller"
+      "showSmaller": "Show the month smaller",
+      "hebrewMonths": "Hebrew months"
     },
     "stillOpen": {
       "title": "Still open",

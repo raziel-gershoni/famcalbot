@@ -14,7 +14,7 @@
 import { HDate, type MonthName } from '@hebcal/hdate';
 import { MAX_YEAR, MIN_YEAR_BIRTH } from './year-limits';
 import { grid, monthFirstDay, monthLastDay, monthOf } from './grid';
-import { formatDayFull, formatDayMonth, formatMonthRange, formatMonthTitle } from './format';
+import { formatDayFull, formatDayMonth, formatMonthTitle } from './format';
 import {
   HEBREW_MONTHS,
   dayKeyOfHDate,
@@ -22,9 +22,7 @@ import {
   hebrewDateOf,
   hebrewDayLabel,
   hebrewFullDate,
-  hebrewMonthHeader,
   hebrewMonthOf,
-  hebrewMonthRange,
   hebrewYearText,
   isHebrewMonthStart,
 } from './hebrew-date';

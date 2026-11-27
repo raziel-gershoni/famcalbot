@@ -11,13 +11,17 @@
 //   middle (month-layout.ts's monthAtScroll), read at most once a frame on `scroll`. Only the
 //   month in view and its two neighbours draw their squares (MonthSquares); the rest are
 //   empty boxes of the same height.
-// - The bar: ‹ the title › at the start, an empty gap (release 3's Gregorian | Hebrew switch
-//   goes there), Today at the end while the selected day or the month in view isn't today's
-//   (Ruling 6). The title is the month in view with its year and, with Hebrew dates, its
-//   Hebrew months under it; it opens the jump to a date. The bar's row and the weekday row are
-//   monthBarPx tall. The chevrons scroll a month (and are drop targets while an item is
-//   lifted: DragLayer's dwell calls step, Ruling 5); they never change the selection, and are
-//   disabled past the reach (January 1900, December 2100).
+// - The bar: ‹ the title › at the start, an empty gap, the Gregorian | Hebrew switch (release
+//   3: an "א" pill, pressed while Hebrew months show; with Hebrew dates and onMonthMode only),
+//   Today at the end while the selected day or the month in view isn't today's month in the
+//   pane's calendar (Ruling 6). The title is monthTitle's: the month in view with its year and,
+//   with Hebrew dates, the other calendar's months under it (a Gregorian month's Hebrew months,
+//   a Hebrew month's Gregorian ones); it opens the jump to a date. The bar's row and the weekday
+//   row are monthBarPx tall. The chevrons scroll a month of the pane's calendar (and are drop
+//   targets while an item is lifted: DragLayer's dwell calls step, Ruling 5); they never change
+//   the selection, and are disabled past the reach (January 1900, December 2100). A tap on the
+//   switch asks the container for the other calendar (onMonthMode); the container keys the pane
+//   by its calendar, so a new one mounts on the selected day's month in it.
 // - The pane never selects a day by itself: a tap on a square, Today and the jump go to the
 //   container, which selects and, for Today and the jump, moves `seek`.
 // - seek: on mount the scroller is put at the month sought at once; a new seq scrolls to its
@@ -43,12 +47,13 @@
 
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Ref } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { formatMonthTitle, formatWeekdayHeader } from '@/src/lib/calendar-view/format';
+import { formatWeekdayHeader } from '@/src/lib/calendar-view/format';
 import { addMonths, monthGrid, monthOf, nearSpanEdge, weekdayOrder, type MonthKey } from '@/src/lib/calendar-view/grid';
-import { hebrewMonthHeader } from '@/src/lib/calendar-view/hebrew-date';
 import { retryFailedHolidays } from '@/src/lib/calendar-view/holidays-client';
 import { canStepMonth, loadingMonth, monthBarPx, type MonthModel } from '@/src/lib/calendar-view/month';
 import { GRID_PAD_PX, SETTLE_MS, monthAtScroll, squareSize, type SquareSize } from '@/src/lib/calendar-view/month-layout';
+import type { MonthMode } from '@/src/lib/calendar-view/month-mode';
+import { monthTitle } from '@/src/lib/calendar-view/month-title';
 import type { DayKey, SourceName, WeekStart } from '@/src/lib/calendar-view/types';
 import { useNavDrop } from './DragSurface';
 import { MONTH_SQUARES_CSS, MonthSquaresGrid } from './MonthSquares';
@@ -64,6 +69,10 @@ export interface MonthPaneProps {
   today: DayKey;
   weekStart: WeekStart;
   hebrewDates: boolean;
+  /** The calendar the span's months count in (every month key is of its kind). */
+  monthMode: MonthMode;
+  /** A tap on the switch: the other calendar. The switch shows only with it and Hebrew dates. */
+  onMonthMode?: (mode: MonthMode) => void;
   /** monthModels(store): a month's model, or null (it then draws as loading). */
   getMonth: (month: MonthKey) => MonthModel | null;
   /** The day the list shows: pressed in its square. */
@@ -94,6 +103,8 @@ export interface MonthPaneProps {
 
 /** How long the scroller must go without a scroll event before months are added above. */
 export const SCROLL_IDLE_MS = 150;
+/** The switch's mark: the first Hebrew letter, the same in every language (aria-hidden; its name is month.hebrewMonths). */
+const HEBREW_MONTHS_MARK = 'א';
 /** The weekday row under the bar's row, its bottom border included: monthBarPx is the two. */
 const WEEKDAYS_PX = 24;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -139,10 +150,10 @@ function around(months: readonly MonthKey[], index: number): MonthKey[] {
   return index < 0 ? [] : months.slice(Math.max(0, index - 1), index + 2);
 }
 
-/** Where the pane opens: the month sought, else today's month, else the span's first. */
-function startMonth(months: readonly MonthKey[], seek: MonthKey, today: DayKey): MonthKey {
+/** Where the pane opens: the month sought, else today's month (in the pane's calendar), else the span's first. */
+function startMonth(months: readonly MonthKey[], seek: MonthKey, today: DayKey, mode: MonthMode): MonthKey {
   if (months.includes(seek)) return seek;
-  const todays = monthOf(today);
+  const todays = monthOf(today, mode);
   return todays && months.includes(todays) ? todays : (months[0] ?? '');
 }
 
@@ -182,11 +193,11 @@ type Size = { width: number; height: number };
 const realSize = (size: Size | null): size is Size => size !== null && size.width > 0 && size.height > 0;
 
 export function MonthPane(props: MonthPaneProps) {
-  const { months, today, weekStart, hebrewDates, getMonth, selected, seek, scrollerPx, ref } = props;
+  const { months, today, weekStart, hebrewDates, monthMode, getMonth, selected, seek, scrollerPx, ref } = props;
   const t = useTranslations('calendarHome');
   const locale = useLocale();
 
-  const [inView, setInView] = useState<MonthKey>(() => startMonth(months, seek.month, today));
+  const [inView, setInView] = useState<MonthKey>(() => startMonth(months, seek.month, today, monthMode));
   /** The scroller's size the squares are drawn for (settled); null until measured. */
   const [measured, setMeasured] = useState<Size | null>(null);
 
@@ -464,6 +475,10 @@ export function MonthPane(props: MonthPaneProps) {
   const chooseCalendars = useCallback(() => live.current.onChooseCalendars(), []);
   const goToday = useCallback(() => live.current.onToday(), []);
   const jump = useCallback(() => live.current.onJump?.(), []);
+  const toggleMode = useCallback(() => {
+    const p = live.current;
+    p.onMonthMode?.(p.monthMode === 'hebrew' ? 'gregorian' : 'hebrew');
+  }, []);
   const prev = useCallback(() => step(-1), [step]);
   const next = useCallback(() => step(1), [step]);
 
@@ -473,15 +488,16 @@ export function MonthPane(props: MonthPaneProps) {
   const sizes = useMemo(() => squareSizes(height, width), [height, width]);
 
   const drawn = new Set(around(months, months.indexOf(inView)));
-  const title = formatMonthTitle(inView, locale, true);
-  const showToday = selected !== today || inView !== monthOf(today);
+  const { title, subtitle } = monthTitle(inView, locale, hebrewDates);
+  const showToday = selected !== today || inView !== monthOf(today, monthMode);
+  const showMode = hebrewDates && props.onMonthMode !== undefined;
   const rootStyle = { '--ch-pane-bar': `${monthBarPx(hebrewDates) - WEEKDAYS_PX}px` } as CSSProperties;
 
   return (
     <section className="ch-pane" dir={locale === 'he' ? 'rtl' : 'ltr'} style={rootStyle}>
       <style>{MONTH_SQUARES_CSS}</style>
       <style>{MONTH_PANE_CSS}</style>
-      <div className="ch-pane-bar">
+      <div className={showMode ? 'ch-pane-bar is-mode' : 'ch-pane-bar'}>
         <NavButton side="prev" label={t('month.previous')} disabled={!canStepMonth(inView, -1, today)} onClick={prev} />
         <button type="button" className="ch-pane-title" onClick={jump} aria-haspopup="dialog" aria-label={t('month.jumpLabel', { month: title })}>
           <span className="ch-pane-title-text" aria-live="polite">
@@ -491,11 +507,18 @@ export function MonthPane(props: MonthPaneProps) {
                 <path d="m6 9 6 6 6-6" />
               </svg>
             </span>
-            {hebrewDates ? <span className="ch-pane-title-hebrew">{hebrewMonthHeader(inView, locale)}</span> : null}
+            {hebrewDates ? <span className="ch-pane-title-hebrew">{subtitle}</span> : null}
           </span>
         </button>
         <NavButton side="next" label={t('month.next')} disabled={!canStepMonth(inView, 1, today)} onClick={next} />
         <span className="ch-pane-gap" />
+        {showMode ? (
+          <button type="button" className="ch-pane-mode" aria-pressed={monthMode === 'hebrew'} aria-label={t('month.hebrewMonths')} onClick={toggleMode}>
+            <span className="ch-pane-mode-pill" aria-hidden="true">
+              {HEBREW_MONTHS_MARK}
+            </span>
+          </button>
+        ) : null}
         {showToday ? (
           <button type="button" className="ch-pane-today" onClick={goToday}>
             <span className="ch-pane-today-pill">{t('month.today')}</span>
@@ -542,9 +565,19 @@ export function MonthPane(props: MonthPaneProps) {
  * (overflow-anchor: none) and draws no scrollbar (a desktop's classic one would narrow the
  * squares under the full-width weekday row). The squares' grid and the weekday row both pad
  * half of GRID_PAD_PX each side. The chevrons are 44 × 44, the title and Today at least 44 tall.
+ * The switch is a 44 × 44 tap around a 32 px round pill on the Today pill's tokens, filled with
+ * the button colour while pressed (Hebrew months). With the switch, the bar is a size container:
+ * on a bar narrower than NARROW_BAR_PX the title's ▾ hides and its inline padding goes, so the
+ * month and year are never cut on a 375 px phone with Today showing (the title still opens the
+ * jump). A container query reads the bar's content box, its width less its inline padding, so the
+ * query is NARROW_BAR_PX less that padding.
  * Logical properties only; nothing under 11 px; no hover; overflow: hidden only on the title's
  * text leaves (the ellipsis) and the scroller's inline axis.
  */
+export const NARROW_BAR_PX = 420;
+/** The bar's inline padding, start and end. */
+const BAR_PAD_START_PX = 4;
+const BAR_PAD_END_PX = 12;
 export const MONTH_PANE_CSS = `
 .ch-pane {
   display: flex;
@@ -558,7 +591,7 @@ export const MONTH_PANE_CSS = `
   align-items: center;
   gap: 2px;
   block-size: var(--ch-pane-bar);
-  padding-inline: 4px 12px;
+  padding-inline: ${BAR_PAD_START_PX}px ${BAR_PAD_END_PX}px;
 }
 .ch-pane-chev {
   display: inline-flex;
@@ -675,11 +708,59 @@ export const MONTH_PANE_CSS = `
   line-height: 1.2;
   white-space: nowrap;
 }
+.ch-pane-mode {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ch-pane-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 32px;
+  block-size: 32px;
+  border: 1px solid var(--ch-pill-line);
+  border-radius: 16px;
+  background: var(--ch-pill-bg);
+  color: var(--ch-pill-text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+}
+.ch-pane-mode[aria-pressed='true'] .ch-pane-mode-pill {
+  background: var(--ch-button);
+  color: var(--ch-button-text);
+  border-color: var(--ch-button);
+}
 .ch-pane-chev:focus-visible,
 .ch-pane-title:focus-visible,
+.ch-pane-mode:focus-visible,
 .ch-pane-today:focus-visible {
   outline: 2px solid var(--ch-accent);
   outline-offset: -2px;
+}
+.ch-pane-bar.is-mode {
+  container-type: inline-size;
+  container-name: ch-pane-bar;
+}
+@container ch-pane-bar (inline-size < ${NARROW_BAR_PX - BAR_PAD_START_PX - BAR_PAD_END_PX}px) {
+  .ch-pane-bar.is-mode .ch-pane-title-chev {
+    display: none;
+  }
+  .ch-pane-bar.is-mode .ch-pane-title {
+    padding-inline: 0;
+  }
 }
 .ch-pane-weekdays {
   display: grid;

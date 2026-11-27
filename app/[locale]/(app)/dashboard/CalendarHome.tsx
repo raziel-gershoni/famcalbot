@@ -41,6 +41,11 @@
 //   the foreground and Refresh ask the Month's windows, not the Agenda's weeks; Retry
 //   asks one month again. Through a store drop the Month keeps the last facts, so it
 //   stays where it is with its squares loading until the new answer;
+// - the Month's calendar (release 3, Hebrew months): the account's choice (page-data's monthMode), then this
+//   visit's taps on the bar's switch, each saved on the account (saveMonthMode; a failed save keeps it for the
+//   visit). Hebrew months show while chosen and the facts show Hebrew dates; when the calendar on screen changes
+//   (a tap, Hebrew dates going off or back), the focus moves to the selected day's month in it, the span around
+//   that month, and the pane mounts anew there. The jump opens on that calendar's side;
 // - the item sheet's reminder actions (reminder-actions spec §4): a tap posts through
 //   deps.reminderAction; the answer's reminder patches every copy of the item in the
 //   store (patchReminder, and the answer's closedKeys for the earlier open times a Done on a
@@ -94,12 +99,14 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { buildAgenda, reminderMark, storeRow, type AgendaRow } from '@/src/lib/calendar-view/agenda';
-import { defaultSpan, growSpan, inSpan, monthWindow, spanMonths, spanToShow, type MonthKey, type MonthSpan } from '@/src/lib/calendar-view/grid';
+import { defaultSpan, growSpan, inSpan, monthFirstDay, monthLastDay, monthModeOf, monthWindow, spanMonths, spanToShow, type MonthKey, type MonthSpan } from '@/src/lib/calendar-view/grid';
+import type { MonthMode } from '@/src/lib/calendar-view/month-mode';
+import { saveMonthMode } from '@/src/lib/calendar-view/month-mode-client';
 import { deviceTimeZone, isPastDay, msUntilAheadCheck, msUntilDayCheck, zoneDiffers } from '@/src/lib/calendar-view/home-client';
 import { createHomeLoader, type HomeLoader } from '@/src/lib/calendar-view/home-loader';
 import type { CalendarHomeProps, HomeHints } from '@/src/lib/calendar-view/home-props';
 import { readConnectBannerClosed, readHomeTab, readMonthSplit, writeConnectBannerClosed, writeHomeTab, writeMonthSplit, type HomeTab, type MonthSplit } from '@/src/lib/calendar-view/home-storage';
-import { clampFocus, dayNotices, dayRows, focusJump, focusMonth, focusToday, initialFocus, monthModels, selectDay, wantedFocusMonths, type MonthFocus } from '@/src/lib/calendar-view/month';
+import { clampFocus, dayNotices, dayRows, focusInMode, focusJump, focusMonth, focusToday, initialFocus, monthModels, selectDay, wantedFocusMonths, type MonthFocus } from '@/src/lib/calendar-view/month';
 import { dayDelta, moveBody, planMove, undoBody, undoable, type CantLift, type MovePlan } from '@/src/lib/calendar-view/drag-model';
 import { addDaysToKey, closedReminders, dayStatus, emptyStore, homeNotices, itemCopies, reduceStore, type StoreFacts } from '@/src/lib/calendar-view/store';
 import { postReminderAction, type ReminderActionFn, type ReminderActionName } from '@/src/lib/calendar-view/reminder-client';
@@ -364,7 +371,7 @@ export type CalendarHomeContainerProps = CalendarHomeProps & { deps?: Partial<Ho
 
 /** The home without its error boundary; `deps` lets a smoke drive the clock and the timers. */
 export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeContainerProps) {
-  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish, dafYomi, push } = props;
+  const { user, locale, sources, googleConnected, googleState, hints, hasTelegram, hasChat, trialDaysLeft, hasLocation, lookahead7, jewish, dafYomi, push, monthMode: savedMonthMode } = props;
   const userId = user.id;
   const t = useTranslations('calendarHome');
   const router = useRouter();
@@ -449,6 +456,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [near, setNear] = useState<readonly MonthKey[]>([]);
   const [inView, setInView] = useState<MonthKey | null>(null);
   const [held, setHeld] = useState<HeldFacts | null>(null);
+  /** The Month's calendar the person chose: the account's (page-data), then this visit's taps on the bar's switch. */
+  const [chosenMode, setChosenMode] = useState<MonthMode>(() => savedMonthMode ?? 'gregorian');
 
   const facts = store.facts;
   const notices = homeNotices(store);
@@ -457,19 +466,37 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // the Agenda (or the card), with no tab bar; the remembered tab is left as it is.
   const tabsShown = card === null && blocked === null;
   const activeTab: HomeTab = tabsShown ? tab : 'agenda';
+  // The Month's calendar on screen: Hebrew months while chosen and the latest facts (the held ones through a store
+  // drop) show Hebrew dates; otherwise Gregorian, the choice kept for when Hebrew dates come back.
+  const monthFacts = facts ?? held?.facts ?? null;
+  const monthMode: MonthMode = monthFacts?.hebrewDates === true && chosenMode === 'hebrew' ? 'hebrew' : 'gregorian';
 
   // New facts (the first answer, a hebrewDates change, the next answer after a drop):
-  // the Month holds them. On the first answer the focus is today's month with today
-  // selected (a new visit selects today); when today moves later, it stays inside the
-  // reach (clampFocus), the selected day kept, except that a selection that was the old today follows to the new one.
+  // the Month holds them. On the first answer the focus is today's month (in the Month's
+  // calendar) with today selected (a new visit selects today); when today moves later, it
+  // stays inside the reach (clampFocus), the selected day kept, except that a selection that
+  // was the old today follows to the new one.
   if (facts && (held === null || held.facts !== facts || held.unavailable !== notices.unavailableCalendars)) {
     setHeld({ facts, unavailable: notices.unavailableCalendars });
     if (held === null || held.facts.today !== facts.today) {
       // A selection that was the old today follows to the new today (the month target unchanged); any other stays.
-      const clamped = focus === null ? initialFocus(facts.today) : clampFocus(focus, facts.today);
+      const clamped = focus === null ? initialFocus(facts.today, monthMode) : clampFocus(focus, facts.today);
       setFocus(clamped !== null && focus !== null && held !== null && focus.selected === held.facts.today ? selectDay(clamped, facts.today) : clamped);
       // The span is set once; a later today keeps it (the months grown or jumped to stay), and Today moves it when asked.
-      if (span === null) setSpan(defaultSpan(facts.today));
+      if (span === null) setSpan(defaultSpan(facts.today, monthMode));
+    }
+  } else if (focus !== null && monthModeOf(focus.month) !== monthMode) {
+    // The Month's calendar changed (the bar's switch, or Hebrew dates going off or back on a later answer), in a
+    // pass after any new facts above: the selected day kept, the focus on its month in the new calendar, the span
+    // around that month, the pane's reports dropped and the seek moved, as a jump does. MonthView keys the pane by
+    // the calendar, so a new pane mounts on that month.
+    const next = focusInMode(focus, monthMode);
+    if (next !== focus) {
+      setFocus(next);
+      if (span !== null) setSpan(spanToShow(span, next.month));
+      setNear([]);
+      setInView(null);
+      setSeekSeq((n) => n + 1);
     }
   }
   // The span always holds the focus month: a jump or Today past its ends moves it there.
@@ -1212,8 +1239,16 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   };
   /** The jump's sheet shows only while the Month does (a block or a card hides it). */
   const jumpShown = jumping && monthShown;
-  // It opens on the selected day while its month is the one in view, else on the 1st of the month in view.
-  const jumpValue: DayKey = focus === null ? '' : inView === null || focus.selected.startsWith(inView) ? focus.selected : `${inView}-01`;
+  // It opens on the selected day while it lies in the month in view (of either calendar), else on that month's first day.
+  const inViewFirst = inView === null ? '' : monthFirstDay(inView);
+  const jumpValue: DayKey =
+    focus === null ? '' : inView === null || inViewFirst === '' || (inViewFirst <= focus.selected && focus.selected <= monthLastDay(inView)) ? focus.selected : inViewFirst;
+  // The bar's Gregorian | Hebrew switch: the Month's calendar for this visit, saved on the account (a failed save keeps
+  // the choice for this visit; saveMonthMode logs why). The page's own user_id, as every request of the home's.
+  const changeMonthMode = (next: MonthMode) => {
+    setChosenMode(next);
+    void saveMonthMode(userId, next);
+  };
 
   // The one BackButton (§7.6): a tap closes the send or menu sheet, else the item sheet. The
   // split's collapsed and grown are no back step (spec §3).
@@ -1288,6 +1323,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         tz={held.facts.tz}
         weekStart={held.facts.weekStart}
         hebrewDates={held.facts.hebrewDates}
+        monthMode={monthMode}
+        onMonthMode={changeMonthMode}
         dafYomi={dafYomi === true}
         months={months}
         getMonth={getMonth}

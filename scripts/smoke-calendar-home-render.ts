@@ -215,7 +215,7 @@ for (const level of ['error', 'warn'] as const) {
     if (text.startsWith('[telegram-ui]')) return original(...args);
     // Node's own warnings (tsx's module.register() deprecation on Node 26 lands here, at a time that varies) aren't React's.
     if (text.startsWith('(node:')) return original(...args);
-    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]') || text.startsWith('[next-zman]') || text.startsWith('[telegram-connect]') || text.startsWith('[sign-in-again]')) {
+    if (text.startsWith('[command-client]') || text.startsWith('[calendar-home]') || text.startsWith('[holidays]') || text.startsWith('[zmanim-list]') || text.startsWith('[zmanim-sheet]') || text.startsWith('[next-zman]') || text.startsWith('[telegram-connect]') || text.startsWith('[sign-in-again]') || text.startsWith('[month mode]')) {
       appLogs.push(text.slice(0, 300));
       return;
     }
@@ -3892,6 +3892,167 @@ async function main() {
       assert(back[0] === '2023-09' && back.at(-1) === '2028-04', `grown to October 2026's +18: ${back[0]} … ${back.at(-1)}`);
       assert(barMonth(m) === 'October 2026' && paneAt(m) === '2026-10', `Today: the pane on October 2026: ${barMonth(m)}, ${paneAt(m)}`);
       assert(listDay(m)?.startsWith('Today · Friday, 16 October') && todayButton(m) === null, `today (the 16th) selected: ${listDay(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  // ---- Hebrew months on the Month (release 3, Task 5): the switch on the bar and the home's wiring ----
+
+  const modeButton = (m: Home) => byClass(m.container, 'ch-pane-mode')[0] ?? null;
+  const settingsCalls = () => fetchCalls.filter((c) => c.path === '/api/settings');
+  /** A day's square in the box of `month` (a Hebrew key too), by its label's start. */
+  const squareIn = (m: Home, month: MonthKey, dayKey: DayKey) => {
+    const found = byClass(byData(m.container, 'month', month), 'ch-sq').filter((e) => e.localName === 'button' && (e.getAttribute('aria-label') ?? '').startsWith(formatDayLong(dayKey, 'en')));
+    assert(found.length === 1, `no square for ${dayKey} in ${month}`);
+    return found[0];
+  };
+  const NOV27: DayKey = '2026-11-27';
+  /** The range route on 27 November 2026 (each call its own window; the no-dates one week 0), and the settings route's 200. */
+  const answerNov27 =
+    (o: Partial<RangeResponse> = {}) =>
+    (c: FetchCall): FetchAnswer =>
+      c.path === '/api/settings' ? ok200({ success: true }) : ok200(answer({ today: NOV27, from: c.query.get('from') ?? NOV27, to: c.query.get('to') ?? addDaysToKey(NOV27, 7), ...o }));
+  /** A Jewish home that chose Hebrew months, on the Month, on 27 November 2026. */
+  const mountHebrew = async (props: Partial<CalendarHomeProps> = {}) => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = answerNov27();
+    const m = await mountHome('en', { monthMode: 'hebrew', jewish: true, ...props }, fakeClock('2026-11-27T07:00:00Z'));
+    flushFrames();
+    await settle();
+    return m;
+  };
+
+  await check('R1 Hebrew months chosen, with a Jewish answer (hebrewDates): the Month opens on today\'s Hebrew month, Kislev 5787 (h5787-03, on 27 November 2026), today selected and current, the span the Hebrew months around it, the switch pressed, no Today; the first month window asked is Kislev\'s own days, from=2026-11-11&to=2026-12-11; nothing is saved on open', async () => {
+    const m = await mountHebrew();
+    try {
+      assert(monthShown(m), 'the Month shows');
+      assert(barMonth(m) === 'Kislev 5787' && paneAt(m) === 'h5787-03', `the pane: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(show(shownMonths(m)) === show(spanMonths(defaultSpan(NOV27, 'hebrew'))) && shownMonths(m).length === 31, `the span: ${shownMonths(m)[0]} … ${shownMonths(m).at(-1)}`);
+      const months = rangeCalls().filter((c) => c.query.has('from'));
+      assert(months.length > 0 && months[0].query.get('from') === '2026-11-11' && months[0].query.get('to') === '2026-12-11', `the first month window: ${show(ranges())}`);
+      const today = squareIn(m, 'h5787-03', NOV27);
+      assert(today.getAttribute('aria-pressed') === 'true' && today.getAttribute('aria-current') === 'date', 'today\'s square, current and selected');
+      assert(listDay(m)?.startsWith('Today · Friday, 27 November'), `the list's day: ${listDay(m)}`);
+      const toggle = modeButton(m);
+      assert(toggle && toggle.getAttribute('aria-pressed') === 'true' && toggle.getAttribute('aria-label') === 'Hebrew months', `the switch: ${toggle?.getAttribute('aria-pressed')} ${toggle?.getAttribute('aria-label')}`);
+      assert(todayButton(m) === null, 'no Today on today');
+      assert(settingsCalls().length === 0, `nothing saved on open: ${settingsCalls().length}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('R2 a tap on the switch while Hebrew months show: POST /api/settings with { monthMode: "gregorian" } and the page\'s own user_id; the pane on November 2026 with 27 November still selected, the Gregorian span, the switch not pressed, November\'s days answered from the Hebrew months\' windows (not asked again); a tap back saves "hebrew" and shows Kislev 5787; a save that fails (500) keeps the choice for this visit and logs why', async () => {
+    const m = await mountHebrew();
+    try {
+      await tap(m, modeButton(m) as FakeElement);
+      const saved = settingsCalls();
+      assert(
+        saved.length === 1 && saved[0].method === 'POST' && saved[0].query.get('user_id') === '5550001' && show(saved[0].body) === show({ user_id: 5550001, monthMode: 'gregorian' }),
+        `the save: ${show(saved.map((c) => [c.method, c.url, c.body]))}`,
+      );
+      assert(barMonth(m) === 'November 2026' && paneAt(m) === '2026-11', `Gregorian: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(show(shownMonths(m)) === show(spanMonths(defaultSpan(NOV27))), `the Gregorian span: ${shownMonths(m)[0]} … ${shownMonths(m).at(-1)}`);
+      assert(dayButton(m, NOV27).getAttribute('aria-pressed') === 'true' && listDay(m)?.startsWith('Today · Friday, 27 November'), `the day kept: ${listDay(m)}`);
+      assert(modeButton(m)?.getAttribute('aria-pressed') === 'false' && todayButton(m) === null, 'the switch off; no Today');
+      // November's days came with Cheshvan's and Kislev's windows: it shows them, asks nothing for them, and never loads.
+      assert(!ranges().includes(monthAsk('2026-11')), `November's days are held, not asked again: ${show(ranges())}`);
+      const novSquares = byClass(byData(m.container, 'month', '2026-11'), 'ch-sq').filter((e) => e.localName === 'button');
+      assert(novSquares.length === 30 && novSquares.every((e) => !/loading/.test(e.getAttribute('aria-label') ?? '')), `November answered: ${show(novSquares.filter((e) => /loading/.test(e.getAttribute('aria-label') ?? '')).map((e) => e.getAttribute('aria-label')))}`);
+      await tap(m, modeButton(m) as FakeElement);
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['gregorian', 'hebrew']), `saved back: ${show(settingsCalls().map((c) => c.body))}`);
+      assert(barMonth(m) === 'Kislev 5787' && paneAt(m) === 'h5787-03' && modeButton(m)?.getAttribute('aria-pressed') === 'true', `Hebrew again: ${barMonth(m)}`);
+      answerFetch = (c) => (c.path === '/api/settings' ? { status: 500, body: { error: 'smoke' } } : answerNov27()(c));
+      const logged = appLogs.length;
+      await tap(m, modeButton(m) as FakeElement);
+      assert(settingsCalls().length === 3, 'the third save was sent');
+      assert(barMonth(m) === 'November 2026' && modeButton(m)?.getAttribute('aria-pressed') === 'false', `a failed save keeps the choice: ${barMonth(m)}`);
+      assert(appLogs.slice(logged).some((l) => l.startsWith('[month mode] save failed: 500')), `the log line: ${show(appLogs.slice(logged))}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('R3 switch keeps the day: with Saturday 20 February 2027 selected in Gregorian months, a tap on the switch shows Adar I 5787 (h5787-06) with 20 February still selected and its list, the span the Hebrew months around it (Adar I the 13th of 31), its days answered from February\'s and March\'s windows; back in Gregorian months, February 2027 with the day kept', async () => {
+    resetHome();
+    fakeWindow.sessionStorage.setItem(homeTabKey(5550001), 'month');
+    answerFetch = (c) => (c.path === '/api/settings' ? ok200({ success: true }) : answerFor(c, { items: WEEK }));
+    const m = await mountHome('en', { monthMode: 'gregorian', jewish: true }, fakeClock('2026-10-15T07:00:00Z'));
+    try {
+      flushFrames();
+      await settle();
+      assert(barMonth(m) === 'October 2026' && modeButton(m)?.getAttribute('aria-pressed') === 'false', `opens Gregorian: ${barMonth(m)}`);
+      scrollPaneTo(m, '2027-02');
+      await settle();
+      await tap(m, dayButton(m, '2027-02-20'));
+      assert(listDay(m)?.startsWith('Saturday, 20 February') && barMonth(m) === 'February 2027', `20 February selected: ${listDay(m)}`);
+      await tap(m, modeButton(m) as FakeElement);
+      assert(barMonth(m) === 'Adar I 5787' && paneAt(m) === 'h5787-06', `Hebrew months: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(squareIn(m, 'h5787-06', '2027-02-20').getAttribute('aria-pressed') === 'true' && listDay(m)?.startsWith('Saturday, 20 February'), `the day kept: ${listDay(m)}`);
+      const around = shownMonths(m);
+      assert(around.length === 31 && around[12] === 'h5787-06' && around.every((k) => k.startsWith('h')), `the Hebrew span around Adar I: ${around[0]} … ${around.at(-1)} (${around.length})`);
+      // Adar I's days came with February's and March's windows: every one shows answered, none loading.
+      const adar = byClass(byData(m.container, 'month', 'h5787-06'), 'ch-sq').filter((e) => e.localName === 'button');
+      assert(adar.length === 30 && adar.every((e) => !/loading/.test(e.getAttribute('aria-label') ?? '')), `Adar I answered: ${adar.length}, ${show(adar.filter((e) => /loading/.test(e.getAttribute('aria-label') ?? '')).map((e) => e.getAttribute('aria-label')))}`);
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['hebrew']), `saved: ${show(settingsCalls().map((c) => c.body))}`);
+      await tap(m, modeButton(m) as FakeElement);
+      assert(barMonth(m) === 'February 2027' && paneAt(m) === '2027-02' && dayButton(m, '2027-02-20').getAttribute('aria-pressed') === 'true', `Gregorian again: ${barMonth(m)}, ${paneAt(m)}`);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('R4 culture off: while Hebrew months show (Wednesday 2 December 2026 selected), an answer with hebrewDates false turns the pane to the selected day\'s Gregorian month, December 2026, the day kept, and hides the switch and the Hebrew line, with no reload and nothing saved; an answer with hebrewDates true again brings Kislev 5787 back (the choice stayed)', async () => {
+    const m = await mountHebrew();
+    try {
+      await tap(m, squareIn(m, 'h5787-03', '2026-12-02'));
+      assert(listDay(m)?.startsWith('Wednesday, 2 December') && barMonth(m) === 'Kislev 5787', `2 December selected: ${listDay(m)}, ${barMonth(m)}`);
+      answerFetch = answerNov27({ hebrewDates: false });
+      fireDocument('visibilitychange');
+      await settle();
+      flushFrames();
+      await settle();
+      assert(barMonth(m) === 'December 2026' && paneAt(m) === '2026-12', `Gregorian at the selected day's month: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(dayButton(m, '2026-12-02').getAttribute('aria-pressed') === 'true' && listDay(m)?.startsWith('Wednesday, 2 December'), `the day kept: ${listDay(m)}`);
+      assert(modeButton(m) === null && byClass(m.container, 'ch-pane-title-hebrew').length === 0, 'no switch and no Hebrew line without Hebrew dates');
+      assert(settingsCalls().length === 0 && reloads.length === 0, `nothing saved, no reload: ${settingsCalls().length} ${reloads.length}`);
+      answerFetch = answerNov27();
+      fireDocument('visibilitychange');
+      await settle();
+      flushFrames();
+      await settle();
+      assert(barMonth(m) === 'Kislev 5787' && paneAt(m) === 'h5787-03' && modeButton(m)?.getAttribute('aria-pressed') === 'true', `Hebrew dates back: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(squareIn(m, 'h5787-03', '2026-12-02').getAttribute('aria-pressed') === 'true', 'the day still kept');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('R5 the jump while Hebrew months show: the date sheet opens on its Hebrew side (Hebrew checked, the page Kislev 5787) on the selected day; with Tevet in view it opens on Tevet\'s first day (11 December); a pick selects it in Hebrew months; in Gregorian months it opens on its Gregorian side', async () => {
+    const m = await mountHebrew();
+    const sheet = () => byRole(m.container, 'dialog')[0] ?? null;
+    const checked = () => byClass(sheet() as FakeNode, 'ch-segment').find((e) => e.getAttribute('aria-checked') === 'true')?.textContent ?? null;
+    const pageTitle = () => byClass(sheet() as FakeNode, 'ch-picker-title-main')[0]?.textContent ?? null;
+    const chosen = () => elements(sheet() as FakeNode).filter((e) => e.getAttribute('aria-selected') === 'true').map((e) => e.getAttribute('data-day'));
+    try {
+      await tap(m, byClass(m.container, 'ch-pane-title')[0]);
+      assert(sheet()?.getAttribute('aria-label') === 'Go to a date', 'the date sheet opens');
+      assert(checked() === 'Hebrew' && pageTitle() === 'Kislev 5787' && show(chosen()) === show([NOV27]), `the Hebrew side on today: ${checked()} ${pageTitle()} ${show(chosen())}`);
+      await tap(m, button(sheet() as FakeNode, 'Cancel'));
+      assert(sheet() === null, 'closed');
+      scrollPaneTo(m, 'h5787-04');
+      await settle();
+      assert(barMonth(m) === 'Tevet 5787', `Tevet in view: ${barMonth(m)}`);
+      await tap(m, byClass(m.container, 'ch-pane-title')[0]);
+      assert(checked() === 'Hebrew' && pageTitle() === 'Tevet 5787' && show(chosen()) === show(['2026-12-11']), `Tevet's first day: ${checked()} ${pageTitle()} ${show(chosen())}`);
+      await tap(m, byData(sheet() as FakeNode, 'day', '2026-12-25'));
+      assert(sheet() === null && listDay(m)?.startsWith('Friday, 25 December') && barMonth(m) === 'Tevet 5787' && paneAt(m) === 'h5787-04', `the pick: ${listDay(m)}, ${barMonth(m)}`);
+      assert(squareIn(m, 'h5787-04', '2026-12-25').getAttribute('aria-pressed') === 'true' && modeButton(m)?.getAttribute('aria-pressed') === 'true', 'selected, Hebrew months kept');
+      await tap(m, modeButton(m) as FakeElement);
+      await tap(m, byClass(m.container, 'ch-pane-title')[0]);
+      assert(checked() === 'Gregorian' && pageTitle() === 'December 2026' && show(chosen()) === show(['2026-12-25']), `Gregorian months: ${checked()} ${pageTitle()} ${show(chosen())}`);
     } finally {
       m.unmount();
     }

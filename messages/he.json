@@ -153,7 +153,8 @@
       "jumpLabel": "{month}, מעבר לתאריך",
       "jumpSheet": "מעבר לתאריך",
       "showBigger": "הגדלת החודש",
-      "showSmaller": "הקטנת החודש"
+      "showSmaller": "הקטנת החודש",
+      "hebrewMonths": "חודשים עבריים"
     },
     "stillOpen": {
       "title": "עדיין פתוחות",

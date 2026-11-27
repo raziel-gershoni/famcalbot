@@ -58,7 +58,7 @@ import { MONTH_SQUARES_CSS, MonthSquaresGrid, SquareChip, type MonthSquaresGridP
 import { AGENDA_CSS } from '../app/[locale]/(app)/dashboard/AgendaView';
 import { DAY_PANEL_CSS, DayPanel } from '../app/[locale]/(app)/dashboard/DayPanel';
 import { SPLIT_HANDLE_CSS, SplitHandle } from '../app/[locale]/(app)/dashboard/SplitHandle';
-import { MONTH_PANE_CSS, MonthPane, SCROLL_IDLE_MS, type MonthPaneHandle, type MonthPaneProps } from '../app/[locale]/(app)/dashboard/MonthPane';
+import { MONTH_PANE_CSS, MonthPane, NARROW_BAR_PX, SCROLL_IDLE_MS, type MonthPaneHandle, type MonthPaneProps } from '../app/[locale]/(app)/dashboard/MonthPane';
 import { DRAG_AUTO_SCROLL, autoScrollable } from '../app/[locale]/(app)/dashboard/DragSurface';
 import { APP_THEME_CSS } from '../components/app-ui/theme';
 import fs from 'fs';
@@ -67,7 +67,11 @@ import React, { Profiler, createElement, createRef, type ComponentProps, type Re
 import { renderToString } from 'react-dom/server';
 import { NextIntlClientProvider } from 'next-intl';
 import { calendarVars } from '../src/lib/calendar-view/colours';
-import { monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
+import { addMonths, defaultSpan, monthGrid, monthSpan, spanMonths, type MonthKey } from '../src/lib/calendar-view/grid';
+import { formatDayLong, formatDayMonth } from '../src/lib/calendar-view/format';
+import { hebrewCellLabel } from '../src/lib/calendar-view/hebrew-date';
+import { monthTitle } from '../src/lib/calendar-view/month-title';
+import type { MonthMode } from '../src/lib/calendar-view/month-mode';
 import { holidaysFor } from '../src/lib/calendar-view/holidays-client';
 import { buildMonth, dayNotices, dayRows, monthBarPx, monthModels, type MonthModel, type MonthSlot } from '../src/lib/calendar-view/month';
 import { GRID_PAD_PX, HANDLE_PX, HANDLE_TAP_PX, HANDLE_TOUCH_PX, SETTLE_MS, SQUARE_SLOT_BIG_PX, SQUARE_SLOT_PX, SQUARE_USED_BIG_PX, SQUARE_USED_PX, squareSize, type SquareSize } from '../src/lib/calendar-view/month-layout';
@@ -466,6 +470,7 @@ function paneProps(store: CalendarStore, o: Partial<MonthPaneProps> = {}): Month
     today: facts.today,
     weekStart: facts.weekStart,
     hebrewDates: facts.hebrewDates,
+    monthMode: 'gregorian',
     getMonth: monthModels(store),
     selected: TODAY,
     seek: { month: '2026-10', seq: 0 },
@@ -1939,6 +1944,145 @@ async function main() {
       assert(seen.length === 3, `a pointer tap toggles once: ${show(seen)}`);
     } finally {
       m.unmount();
+    }
+  });
+
+  // ---- Hebrew months on the Month (release 3, Task 5): the switch on the bar, a Hebrew pane's bar and its squares ----
+
+  /** The Hebrew months the home opens on around TODAY (4 Cheshvan 5787), oldest first. */
+  const HEBREW_SPAN = spanMonths(defaultSpan(TODAY, 'hebrew'));
+  /** The props of a pane in Hebrew months, sent to Cheshvan 5787. */
+  const hebrewPane = (store: CalendarStore, o: Partial<MonthPaneProps> = {}) => paneProps(store, { monthMode: 'hebrew', months: HEBREW_SPAN, seek: { month: 'h5787-02', seq: 0 }, ...o });
+  const modeButtonOf = (m: Mounted) => byClass(m.container, 'ch-pane-mode')[0] ?? null;
+
+  await check('P-H1 the Gregorian | Hebrew switch on the bar: shown only with Hebrew dates and onMonthMode, after the gap and before Today; a button whose aria-pressed is whether Hebrew months show and whose name is month.hebrewMonths in en, he and ru, an aria-hidden "א" pill inside; a tap asks the other mode; the CSS: 44 × 44, the pill 32 px round on the Today pill\'s tokens, the accent fill when on, the bar\'s focus ring, and under a 420 px bar the title\'s ▾ hidden and its padding 0 (@container), lint clean', () => {
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      for (const mode of ['gregorian', 'hebrew'] as const) {
+        resetPane();
+        const asked: MonthMode[] = [];
+        const hebrew = mode === 'hebrew';
+        const base = { selected: '2026-10-16', onMonthMode: (next: MonthMode) => void asked.push(next) };
+        const m = mount(paneIn(locale, hebrew ? hebrewPane(famcalStore(), base) : paneProps(famcalStore(), { ...base, monthMode: 'gregorian' })));
+        try {
+          assert(show(barParts(m)) === show(['ch-pane-chev', 'ch-pane-title', 'ch-pane-chev', 'ch-pane-gap', 'ch-pane-mode', 'ch-pane-today']), `${locale} ${mode}: the bar ${show(barParts(m))}`);
+          assert(byClass(m.container, 'ch-pane-bar')[0].className === 'ch-pane-bar is-mode', `${locale} ${mode}: the bar's class ${byClass(m.container, 'ch-pane-bar')[0].className}`);
+          const button = modeButtonOf(m);
+          assert(button && button.localName === 'button' && button.getAttribute('type') === 'button', `${locale} ${mode}: the switch is a button`);
+          assert(button.getAttribute('aria-pressed') === String(hebrew), `${locale} ${mode}: aria-pressed ${button.getAttribute('aria-pressed')}`);
+          assert(button.getAttribute('aria-label') === messages[locale].calendarHome.month.hebrewMonths, `${locale}: the name ${button.getAttribute('aria-label')}`);
+          const pills = byClass(button, 'ch-pane-mode-pill');
+          assert(pills.length === 1 && pills[0].getAttribute('aria-hidden') === 'true' && pills[0].textContent === 'א' && button.textContent === 'א', `${locale}: the pill ${show(button.textContent)}`);
+          m.click(button);
+          assert(show(asked) === show([hebrew ? 'gregorian' : 'hebrew']), `${locale} ${mode}: a tap asks ${show(asked)}`);
+          assert(button.getAttribute('aria-pressed') === String(hebrew), 'the pane waits for the container to change the mode');
+        } finally {
+          m.unmount();
+        }
+      }
+    }
+    resetPane();
+    const without = mount(paneIn('en', paneProps(famcalStore(), { selected: '2026-10-16' })));
+    try {
+      assert(modeButtonOf(without) === null && byClass(without.container, 'ch-pane-bar')[0].className === 'ch-pane-bar', 'no onMonthMode: no switch, the bar as before');
+    } finally {
+      without.unmount();
+    }
+    resetPane();
+    const off = mount(paneIn('en', paneProps(storeOf([ok(answer('2026-10', OCTOBER, { hebrewDates: false }))]), { onMonthMode: noop })));
+    try {
+      assert(modeButtonOf(off) === null && byClass(off.container, 'ch-pane-bar')[0].className === 'ch-pane-bar', 'no Hebrew dates: no switch');
+    } finally {
+      off.unmount();
+    }
+    const css = MONTH_PANE_CSS;
+    assert(lintCss(css).length === 0, `lintCss: ${show(lintCss(css))}`);
+    const button = ruleOf(css, '.ch-pane-mode');
+    assert(px(declOf(button, 'min-width')) === 44 && px(declOf(button, 'min-height')) === 44 && declOf(button, 'background') === 'transparent' && declOf(button, 'border') === '0', `the switch's tap area: ${button}`);
+    const pill = ruleOf(css, '.ch-pane-mode-pill');
+    const wantOff = { 'inline-size': '32px', 'block-size': '32px', 'border-radius': '16px', border: '1px solid var(--ch-pill-line)', background: 'var(--ch-pill-bg)', color: 'var(--ch-pill-text)', 'font-size': '16px', 'font-weight': '600', 'align-items': 'center', 'justify-content': 'center' };
+    for (const [prop, value] of Object.entries(wantOff)) assert(declOf(pill, prop) === value, `the pill's ${prop}: ${declOf(pill, prop)}`);
+    const on = ruleOf(css, ".ch-pane-mode[aria-pressed='true'] .ch-pane-mode-pill");
+    const wantOn = { background: 'var(--ch-button)', color: 'var(--ch-button-text)', 'border-color': 'var(--ch-button)' };
+    for (const [prop, value] of Object.entries(wantOn)) assert(declOf(on, prop) === value, `on, the pill's ${prop}: ${declOf(on, prop)}`);
+    assert(!/transition|box-shadow/.test(button + pill + on), 'no shadow and no transition');
+    const focus = cssRules(css).filter((r) => r.selector.split(',').map((s) => s.trim()).includes('.ch-pane-mode:focus-visible'));
+    assert(focus.length === 1 && declOf(focus[0].body, 'outline') === '2px solid var(--ch-accent)' && focus[0].selector.includes('.ch-pane-today:focus-visible'), `the focus ring, with the bar's other buttons: ${show(focus)}`);
+    const bar = ruleOf(css, '.ch-pane-bar.is-mode');
+    assert(declOf(bar, 'container-type') === 'inline-size' && declOf(bar, 'container-name') === 'ch-pane-bar', `the bar is a size container with the switch: ${bar}`);
+    // The query reads the bar's content box: a 420 px bar less its 4 + 12 px inline padding.
+    assert(NARROW_BAR_PX === 420 && declOf(ruleOf(css, '.ch-pane-bar'), 'padding-inline') === '4px 12px', `the bar's padding: ${declOf(ruleOf(css, '.ch-pane-bar'), 'padding-inline')}`);
+    const narrow = containerBlock(css, 'ch-pane-bar (inline-size < 404px)');
+    assert(declOf(ruleOf(narrow, '.ch-pane-bar.is-mode .ch-pane-title-chev'), 'display') === 'none', 'under 420 px the title\'s ▾ hides');
+    assert(declOf(ruleOf(narrow, '.ch-pane-bar.is-mode .ch-pane-title'), 'padding-inline') === '0', 'under 420 px the title\'s padding goes');
+  });
+
+  await check('P-H2 a Hebrew pane\'s bar: monthTitle\'s title and subtitle (Cheshvan 5787 over Oct – Nov 2026) and the jump\'s label with them, in en, he and ru; no Today on today\'s Hebrew month with today selected; › and ‹ step a Hebrew month (addMonths of the Hebrew kind: Kislev, then Tishrei), never selecting', () => {
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      resetPane();
+      media.set(REDUCED, true);
+      const { seen, callbacks } = paneRecorder();
+      const m = mount(paneIn(locale, hebrewPane(famcalStore(), { ...callbacks, onMonthMode: noop })));
+      try {
+        flushFrames();
+        const want = monthTitle('h5787-02', locale, true);
+        assert(paneTitle(m) === want.title && paneHebrew(m) === want.subtitle && want.title !== '' && want.subtitle !== '', `${locale}: ${paneTitle(m)} / ${paneHebrew(m)}`);
+        if (locale === 'en') assert(paneTitle(m) === 'Cheshvan 5787' && paneHebrew(m) === 'Oct – Nov 2026', `en: ${paneTitle(m)} / ${paneHebrew(m)}`);
+        const label = byClass(m.container, 'ch-pane-title')[0].getAttribute('aria-label');
+        assert(label === String(messages[locale].calendarHome.month.jumpLabel).replace('{month}', want.title), `${locale}: the jump's label ${label}`);
+        assert(seen.inView.at(-1) === 'h5787-02' && scrollerOf(m).scrollTop === HEBREW_SPAN.indexOf('h5787-02') * PANE.height, `${locale}: opened on Cheshvan: ${show(seen.inView)}`);
+        assert(todayOf(m) === null, `${locale}: today selected and its Hebrew month in view: no Today`);
+        const [prev, next] = chevronsOf(m);
+        m.click(next);
+        const ahead = addMonths('h5787-02', 1);
+        assert(ahead === 'h5787-03' && seen.inView.at(-1) === ahead && scrollerOf(m).scrollTop === HEBREW_SPAN.indexOf(ahead) * PANE.height, `${locale}: › ${show(seen.inView)}`);
+        assert(paneTitle(m) === monthTitle(ahead, locale, true).title && paneHebrew(m) === monthTitle(ahead, locale, true).subtitle, `${locale}: › shows ${paneTitle(m)} / ${paneHebrew(m)}`);
+        assert(todayOf(m) !== null, `${locale}: another Hebrew month in view: Today`);
+        m.click(prev);
+        m.click(prev);
+        const back = addMonths('h5787-02', -1);
+        assert(back === 'h5787-01' && seen.inView.at(-1) === back && paneTitle(m) === monthTitle(back, locale, true).title, `${locale}: ‹ ‹ ${show(seen.inView)} ${paneTitle(m)}`);
+        assert(seen.selected.length === 0, `${locale}: no selection: ${show(seen.selected)}`);
+      } finally {
+        m.unmount();
+      }
+    }
+  });
+
+  await check('P-H3 a Hebrew pane\'s squares (Kislev 5787, 11 November – 10 December 2026) lead with the Hebrew day (hebrewCellLabel: "י״ז" in Hebrew, "17" in en and ru) and show the Gregorian day small ("27"), as "1 Dec" (formatDayMonth) on the Gregorian 1st and on the month\'s first day; one button per day of the month; small, medium and large alike; no square names a Hebrew month (its line is the holiday alone)', () => {
+    const store = storeOf([ok(answer('2026-11', {})), ok(answer('2026-12', {}))]);
+    const month = 'h5787-03';
+    const textOnly = (html: string) => decode(html.replace(/<[^>]+>/g, ' '));
+    for (const locale of ['en', 'he', 'ru'] as const) {
+      for (const size of [SMALL, MEDIUM, LARGE3]) {
+        const large = size.kind === 'large';
+        const html = renderGrid(locale, gridProps(store, month, size));
+        const squares = squaresOf(html);
+        assert(squares.length === 30, `${locale} ${size.kind}: ${squares.length} squares (Kislev 5787 has 30 days)`);
+        const partsOf = (day: DayKey) => {
+          const sq = squareOf(html, formatDayLong(day, locale));
+          const re = large
+            ? /^<span class="ch-sq-head" aria-hidden="true"><span class="ch-sq-num is-hday" dir="auto">([^<]*)<\/span><span class="ch-sq-hday" dir="auto">([^<]*)<\/span><\/span>/
+            : /<span class="ch-sq-top" aria-hidden="true"><span class="ch-sq-num is-hday" dir="auto">([^<]*)<\/span><span class="ch-sq-heb" dir="auto">([^<]*)<\/span><\/span>/;
+          const found = re.exec(sq.inner);
+          assert(found, `${locale} ${size.kind} ${day}: no Hebrew-led day in ${show(sq.inner.slice(0, 300))}`);
+          return { lead: decode(found[1]), small: decode(found[2]), line: lineOf(sq)?.text ?? null, text: textOnly(sq.inner) };
+        };
+        const day27 = partsOf('2026-11-27');
+        assert(day27.lead === hebrewCellLabel('2026-11-27', locale, false) && day27.lead === (locale === 'he' ? 'י״ז' : '17') && day27.small === '27', `${locale} ${size.kind}: 27 November ${show(day27)}`);
+        const dec1 = partsOf('2026-12-01');
+        assert(dec1.small === formatDayMonth('2026-12-01', locale) && dec1.lead === (locale === 'he' ? 'כ״א' : '21'), `${locale} ${size.kind}: 1 December ${show(dec1)}`);
+        if (locale === 'he') assert(dec1.small === '1 בדצמ׳', `he: ${show(dec1.small)}`);
+        if (locale === 'en') assert(dec1.small === '1 Dec', `en: ${show(dec1.small)}`);
+        const first = partsOf('2026-11-11');
+        assert(first.small === formatDayMonth('2026-11-11', locale) && first.lead === (locale === 'he' ? 'א׳' : '1'), `${locale} ${size.kind}: the month's first day ${show(first)}`);
+        const shortNames = messages[locale].calendarHome.hebrewMonthShort as string[];
+        for (const sq of squares) {
+          const text = textOnly(sq.inner);
+          const named = shortNames.filter((name) => text.includes(name));
+          assert(named.length === 0, `${locale} ${size.kind}: a square names a Hebrew month: ${sq.label} ${show(named)}`);
+          if (size.kind !== 'small') assert(lineOf(sq)?.text === '', `${locale} ${size.kind}: a line with no holiday is empty: ${sq.label} ${show(lineOf(sq))}`);
+        }
+      }
     }
   });
 
