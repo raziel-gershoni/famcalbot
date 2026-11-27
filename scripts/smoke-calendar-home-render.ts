@@ -7051,7 +7051,8 @@ async function main() {
     const client = path.join(ROOT, 'src/lib/calendar-view/holidays-client.ts');
     assert(require.cache[client] !== undefined, 'holidays-client.ts is not in require.cache: the check would be empty');
     const loaded = [...walk(client)];
-    assert(!loaded.some((id) => /@hebcal|hebrew-holidays|node_modules\/(?:@prisma|ioredis|@upstash)/.test(id)), `server code reached: ${show(loaded.filter((id) => /@hebcal|hebrew-holidays/.test(id)))}`);
+    // @hebcal/hdate is client-safe and already in the home's chunk (hebrew-date.ts); the grid reads it for Hebrew month keys.
+    assert(!loaded.some((id) => /@hebcal\/core|hebrew-holidays|node_modules\/(?:@prisma|ioredis|@upstash)/.test(id)), `server code reached: ${show(loaded.filter((id) => /@hebcal\/core|hebrew-holidays/.test(id)))}`);
     for (const view of ['MonthPane', 'MonthSquares', 'DayPanel', 'DayList', 'HomeHeader']) {
       const file = fs.readFileSync(path.join(ROOT, `app/[locale]/(app)/dashboard/${view}.tsx`), 'utf8');
       assert(/holidays-client/.test(file) && !/@hebcal\/core|services\/hebrew-holidays/.test(file), `${view} reads holidays-client only`);
