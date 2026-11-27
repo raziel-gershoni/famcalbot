@@ -458,6 +458,8 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const [held, setHeld] = useState<HeldFacts | null>(null);
   /** The Month's calendar the person chose: the account's (page-data), then this visit's taps on the bar's switch. */
   const [chosenMode, setChosenMode] = useState<MonthMode>(() => savedMonthMode ?? 'gregorian');
+  /** The switch's save on its way, if any, and the latest choice (sent when that save lands). */
+  const modeSaving = useRef<{ busy: boolean; latest: MonthMode }>({ busy: false, latest: savedMonthMode ?? 'gregorian' });
 
   const facts = store.facts;
   const notices = homeNotices(store);
@@ -466,10 +468,12 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   // the Agenda (or the card), with no tab bar; the remembered tab is left as it is.
   const tabsShown = card === null && blocked === null;
   const activeTab: HomeTab = tabsShown ? tab : 'agenda';
-  // The Month's calendar on screen: Hebrew months while chosen and the latest facts (the held ones through a store
-  // drop) show Hebrew dates; otherwise Gregorian, the choice kept for when Hebrew dates come back.
+  // The Month's calendar on screen: Hebrew months while chosen, the account is on the Jewish calendar (spec §7, as
+  // page-data reads the stored choice; Hebrew dates alone also show for the Hebrew language or a zone in Israel) and
+  // the latest facts (the held ones through a store drop) show Hebrew dates; otherwise Gregorian, the choice kept for
+  // when Hebrew dates come back.
   const monthFacts = facts ?? held?.facts ?? null;
-  const monthMode: MonthMode = monthFacts?.hebrewDates === true && chosenMode === 'hebrew' ? 'hebrew' : 'gregorian';
+  const monthMode: MonthMode = jewish === true && monthFacts?.hebrewDates === true && chosenMode === 'hebrew' ? 'hebrew' : 'gregorian';
 
   // New facts (the first answer, a hebrewDates change, the next answer after a drop):
   // the Month holds them. On the first answer the focus is today's month (in the Month's
@@ -1244,10 +1248,25 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
   const jumpValue: DayKey =
     focus === null ? '' : inView === null || inViewFirst === '' || (inViewFirst <= focus.selected && focus.selected <= monthLastDay(inView)) ? focus.selected : inViewFirst;
   // The bar's Gregorian | Hebrew switch: the Month's calendar for this visit, saved on the account (a failed save keeps
-  // the choice for this visit; saveMonthMode logs why). The page's own user_id, as every request of the home's.
+  // the choice for this visit; saveMonthMode logs why). The page's own user_id, as every request of the home's. One save
+  // at a time (final review M-1): taps while one is on its way wait, and the latest choice is sent when it lands, unless
+  // it is the one just sent, so two saves never land out of order and quick taps stay under the settings' rate limit.
   const changeMonthMode = (next: MonthMode) => {
     setChosenMode(next);
-    void saveMonthMode(userId, next);
+    const saving = modeSaving.current;
+    if (saving.busy) {
+      saving.latest = next;
+      return;
+    }
+    const send = (mode: MonthMode) => {
+      saving.busy = true;
+      saving.latest = mode;
+      void saveMonthMode(userId, mode).then(() => {
+        saving.busy = false;
+        if (saving.latest !== mode) send(saving.latest);
+      });
+    };
+    send(next);
   };
 
   // The one BackButton (§7.6): a tap closes the send or menu sheet, else the item sheet. The
@@ -1324,7 +1343,7 @@ export function CalendarHomeContainer({ deps: depsIn, ...props }: CalendarHomeCo
         weekStart={held.facts.weekStart}
         hebrewDates={held.facts.hebrewDates}
         monthMode={monthMode}
-        onMonthMode={changeMonthMode}
+        onMonthMode={jewish === true ? changeMonthMode : undefined}
         dafYomi={dafYomi === true}
         months={months}
         getMonth={getMonth}

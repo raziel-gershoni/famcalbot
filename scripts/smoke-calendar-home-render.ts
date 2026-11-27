@@ -4058,6 +4058,45 @@ async function main() {
     }
   });
 
+  await check('R6 final review I-1: Hebrew months are the Jewish calendar\'s only (spec §7): a home that is not Jewish but sees Hebrew dates (the Hebrew language, or a zone in Israel) shows no switch and Gregorian months, even with a stored "hebrew"; nothing is saved', async () => {
+    const m = await mountHebrew({ jewish: false });
+    try {
+      assert(fetchCalls.some((c) => c.path !== '/api/settings') && byClass(m.container, 'ch-pane-title-hebrew').length > 0, 'the answer shows Hebrew dates');
+      assert(modeButton(m) === null, 'no switch');
+      assert(barMonth(m) === 'November 2026' && paneAt(m) === '2026-11', `Gregorian months: ${barMonth(m)}, ${paneAt(m)}`);
+      assert(settingsCalls().length === 0, 'nothing saved');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  await check('R7 final review M-1: one save at a time: taps while a save is on its way send nothing more until it lands, then one save of the latest choice (none when the latest is the one just saved), so the account never ends on an older choice than the screen', async () => {
+    const m = await mountHebrew();
+    try {
+      let release: (() => void) | null = null;
+      answerFetch = (c) => (c.path === '/api/settings' ? new Promise<FetchAnswer>((resolve) => { release = () => resolve(ok200({ success: true })); }) : answerNov27()(c));
+      await tap(m, modeButton(m) as FakeElement);
+      await tap(m, modeButton(m) as FakeElement);
+      await tap(m, modeButton(m) as FakeElement);
+      assert(barMonth(m) === 'November 2026' && modeButton(m)?.getAttribute('aria-pressed') === 'false', `the screen follows every tap: ${barMonth(m)}`);
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['gregorian']), `one save on its way: ${show(settingsCalls().map((c) => c.body))}`);
+      (release as unknown as () => void)();
+      await settle();
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['gregorian']), `the latest is the one saved, nothing more: ${show(settingsCalls().map((c) => c.body))}`);
+      await tap(m, modeButton(m) as FakeElement);
+      await tap(m, modeButton(m) as FakeElement);
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['gregorian', 'hebrew']), `the next save: ${show(settingsCalls().map((c) => c.body))}`);
+      (release as unknown as () => void)();
+      await settle();
+      assert(show(settingsCalls().map((c) => c.body?.monthMode)) === show(['gregorian', 'hebrew', 'gregorian']), `then the latest: ${show(settingsCalls().map((c) => c.body))}`);
+      (release as unknown as () => void)();
+      await settle();
+      assert(barMonth(m) === 'November 2026' && settingsCalls().length === 3, 'nothing more');
+    } finally {
+      m.unmount();
+    }
+  });
+
   await check('#60 React logged no warning in #43-#59 (keys, nesting, attributes, act)', () => {
     assert(reactWarnings.length === warnedBeforeMonth, `warnings: ${show(reactWarnings.slice(warnedBeforeMonth, warnedBeforeMonth + 5))}`);
   });

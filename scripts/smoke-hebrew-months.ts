@@ -114,6 +114,11 @@ async function main() {
     assertEqual(monthLastDay('h5861-03'), '2100-12-31', 'cut at the end');
     assertEqual(monthFirstDay('h5660-05'), '1900-01-01', 'cut at the start');
     assertEqual(monthWindow('h5861-03').to, '2101-01-01', 'window end');
+    // Final review M-2: a Hebrew month wholly outside the reach has no days, never a backwards window.
+    for (const k of ['h5861-04', 'h5660-04', 'h5900-01', 'h5600-01']) {
+      assertEqual([monthFirstDay(k), monthLastDay(k)], ['', ''], `${k} has no days in the reach`);
+      assertEqual(monthWindow(k), { from: '', to: '' }, `${k} has no window`);
+    }
     const reach = monthReach('hebrew');
     const ord = (k: string) => hebrewMonthOrdinal(k) as number;
     const inside = (k: string) => ord(k) >= ord(reach.first) && ord(k) <= ord(reach.last);

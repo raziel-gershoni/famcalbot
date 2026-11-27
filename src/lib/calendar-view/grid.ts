@@ -133,20 +133,23 @@ export function addMonths(month: MonthKey, n: number): MonthKey {
   return index === null || !Number.isInteger(n) ? '' : monthAtOrdinal(monthModeOf(month), index + n);
 }
 
-/** The month's 1st: '2026-10' → '2026-10-01'; '' for a malformed month. */
+/** The month's 1st: '2026-10' → '2026-10-01'; '' for a malformed month (or a Hebrew one wholly outside the reach). */
 export function monthFirstDay(month: MonthKey): DayKey {
   if (isHebrewMonthKey(month)) {
     const days = hebrewMonthDays(month);
-    return days ? (days.first < REACH_FIRST_DAY ? REACH_FIRST_DAY : days.first) : '';
+    // A month wholly outside the reach has no days in it (final review M-2).
+    if (!days || days.last < REACH_FIRST_DAY || days.first > REACH_LAST_DAY) return '';
+    return days.first < REACH_FIRST_DAY ? REACH_FIRST_DAY : days.first;
   }
   return monthIndex(month) === null ? '' : `${month}-01`;
 }
 
-/** The month's last day: '2028-02' → '2028-02-29'; '' for a malformed month. */
+/** The month's last day: '2028-02' → '2028-02-29'; '' for a malformed month (or a Hebrew one wholly outside the reach). */
 export function monthLastDay(month: MonthKey): DayKey {
   if (isHebrewMonthKey(month)) {
     const days = hebrewMonthDays(month);
-    return days ? (days.last > REACH_LAST_DAY ? REACH_LAST_DAY : days.last) : '';
+    if (!days || days.last < REACH_FIRST_DAY || days.first > REACH_LAST_DAY) return '';
+    return days.last > REACH_LAST_DAY ? REACH_LAST_DAY : days.last;
   }
   if (monthIndex(month) === null) return '';
   const [y, m] = month.split('-').map(Number);
