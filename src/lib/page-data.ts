@@ -51,6 +51,7 @@ import { hasChat } from '@/src/lib/has-chat';
 import { googleColoursOnScreen } from '@/src/services/native-calendar/colour';
 import { pushPropsFor, type PageSession } from '@/src/services/web-push/page-props';
 import type { PushPageProps } from '@/src/lib/web-push-props';
+import type { MonthMode } from '@/src/lib/calendar-view/month-mode';
 
 export const PAGE_NAMES = ['dashboard', 'settings', 'select-calendars', 'calendars', 'pair', 'subscription'] as const;
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -90,6 +91,8 @@ export interface DashboardPageProps {
   jewish: boolean;
   /** The Daf Yomi line is on: the calendar is Jewish and the setting is on. */
   dafYomi: boolean;
+  /** The Month counts Hebrew months: the calendar is Jewish and the person chose them. */
+  monthMode: MonthMode;
   /** Notifications in this browser (web push spec §3.2): null inside Telegram and for an account with a chat. */
   push: PushPageProps | null;
 }
@@ -195,6 +198,7 @@ async function dashboard(user: UserConfig, userId: number, locale: string, sessi
     isEarlyAdopter,
     jewish: user.culture === 'jewish',
     dafYomi: user.culture === 'jewish' && user.dafYomi === true,
+    monthMode: user.culture === 'jewish' && user.monthMode === 'hebrew' ? 'hebrew' : 'gregorian',
     hasTelegram: user.telegramId !== null,
     hasChat: hasChat(user),
     push,

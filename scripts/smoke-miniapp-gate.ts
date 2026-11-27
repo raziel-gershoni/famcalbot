@@ -544,6 +544,7 @@ async function main() {
       lookahead7: false,
       jewish: false,
       dafYomi: false,
+      monthMode: 'gregorian',
       push: null,
     };
     assert(canon(rendered[0]?.props) === canon(want), `CalendarHome got ${canon(rendered[0]?.props)}`);

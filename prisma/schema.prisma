@@ -65,6 +65,7 @@ model User {
   zmanimCommunity String  @default("sephardi") // 'sephardi' | 'ashkenazi' | 'chabad': which set of zmanim
   pauseOnShabbat  Boolean @default(false) // No scheduled message from candle lighting to nightfall on Shabbat and Yom Tov
   dafYomi         Boolean @default(false) // The Daf Yomi line on the calendar home, Jewish calendar only (spec 2026-11-19-responsive-home §6)
+  monthMode       String  @default("gregorian") // 'gregorian' | 'hebrew': the Month's months, Jewish calendar only (spec 2026-11-19-responsive-home §7)
 
   // Calendar integration
   calendarSource       CalendarSource @default(NATIVE) // GOOGLE for legacy GCal users, NATIVE for in-bot calendar

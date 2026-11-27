@@ -110,6 +110,7 @@ function calendarHomeProps(p: PagePropsMap['dashboard']): CalendarHomeProps {
     lookahead7: p.lookahead7,
     jewish: p.jewish === true,
     dafYomi: p.dafYomi === true,
+    monthMode: p.monthMode === 'hebrew' ? 'hebrew' : 'gregorian',
     push: p.push ?? null,
   };
 }

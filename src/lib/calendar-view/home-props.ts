@@ -5,6 +5,7 @@
 
 import type { GoogleState } from '../google-state';
 import type { SourceName } from './types';
+import type { MonthMode } from './month-mode';
 import type { PushProps } from '../web-push-client';
 
 /**
@@ -63,6 +64,8 @@ export type CalendarHomeProps = {
    * the calendar is Jewish (page-data decides); absent means off.
    */
   dafYomi?: boolean;
+  /** The Month's months: 'hebrew' only for a Jewish calendar whose person chose it (page-data decides); absent means Gregorian. */
+  monthMode?: MonthMode;
   /**
    * This browser's notifications (6c-2, page-data's push): the "Get reminders on this device" banner and the open's check.
    * Null inside Telegram and with a chat; absent: as before.

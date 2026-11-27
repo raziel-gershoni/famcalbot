@@ -125,7 +125,7 @@ const NEW_ACCOUNT = {
   preferredMorningHour: 7, preferredEveningHour: 19,
   dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6],
   remindersEnabled: false, defaultReminderMinutes: null as number | null, reminderTime: null as string | null, pickupRemindersEnabled: true,
-  zmanimCommunity: 'sephardi', pauseOnShabbat: false, dafYomi: false,
+  zmanimCommunity: 'sephardi', pauseOnShabbat: false, dafYomi: false, monthMode: 'gregorian',
 } satisfies Partial<User>;
 type SetupField = keyof typeof NEW_ACCOUNT | 'name' | 'location' | 'language' | 'latitude' | 'longitude' | 'elevationM';
 

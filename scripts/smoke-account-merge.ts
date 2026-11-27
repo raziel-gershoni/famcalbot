@@ -556,7 +556,7 @@ function baseUser(o: Row): Row {
     includeLookaheadInTomorrow: false, lookaheadAlways7Days: false, preferredMorningHour: 7, preferredEveningHour: 19,
     dailySummaryDays: [0, 1, 2, 3, 4, 5, 6], tomorrowSummaryDays: [0, 1, 2, 3, 4, 5, 6], defaultReminderMinutes: null,
     pickupRemindersEnabled: true, reminderStartAt: null,
-    voiceFormat: 'show', dafYomi: false,
+    voiceFormat: 'show', dafYomi: false, monthMode: 'gregorian',
     sessionsValidAfter: null, googleAccountKey: null, googleCalendarSignIn: true,
     createdAt: days(-30), updatedAt: days(-1),
     ...o,
@@ -694,7 +694,7 @@ const W_SETUP: Row = {
   tomorrowSummaryDays: [6, 0, 1, 2, 3], remindersEnabled: true, defaultReminderMinutes: 30, pickupRemindersEnabled: false,
   // Where W is (the coordinates and highest ground its location was looked up to, which travel with the location) and its zmanim setup.
   latitude: 32.794, longitude: 34.9896, elevationM: 120, zmanimCommunity: 'ashkenazi', pauseOnShabbat: true,
-  voiceFormat: 'calm', dafYomi: true,
+  voiceFormat: 'calm', dafYomi: true, monthMode: 'hebrew',
 };
 
 /** Google refresh tokens as the user row stores them (encrypted); set in main. */
@@ -1266,6 +1266,7 @@ async function main() {
     assert(show(t.globalRules) === show(W_SETUP.globalRules), `T's rules ${show(t.globalRules)}`);
     assert(t.pauseOnShabbat === true, `T never changed the Shabbat pause, so it takes W's: ${show(t.pauseOnShabbat)}`);
     assert(t.dafYomi === true, `T never chose Daf Yomi, so it takes W's: ${show(t.dafYomi)}`);
+    assert(t.monthMode === 'hebrew', `T never chose the Month's months, so it takes W's: ${show(t.monthMode)}`);
     assert(t.voiceFormat === 'calm', `T never changed the voice style, so it takes W's: ${show(t.voiceFormat)}`);
   });
 

@@ -15,6 +15,7 @@ import { isCommunity } from '@/src/services/zmanim/sets';
 import { isVoiceFormat } from '@/src/services/voice-show/types';
 import { channelsOf, platformAvailable } from '@/src/lib/delivery-platform';
 import { isGender } from '@/src/lib/gender';
+import { isMonthMode } from '@/src/lib/calendar-view/month-mode';
 
 
 export async function POST(request: NextRequest) {
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const userId = searchParams.get('user_id');
     const body = await request.json();
-    const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, dafYomi, initData } = body;
+    const { language, gender, location, messagingPlatform, culture, globalRules, name, textSummaryEnabled, voiceSummaryEnabled, weatherEnabled, includeLookaheadInTomorrow, lookaheadAlways7Days, preferredMorningHour, preferredEveningHour, dailySummaryDays, tomorrowSummaryDays, remindersEnabled, defaultReminderMinutes, reminderTime, pickupRemindersEnabled, voiceInputEnabled, pauseOnShabbat, zmanimCommunity, dafYomi, monthMode, initData } = body;
     // "Voice style" (Settings, under the voice switch): the two-host show or the calm single voice
     const { voiceFormat } = body;
 
@@ -60,6 +61,10 @@ export async function POST(request: NextRequest) {
     // A closed set: sephardi, ashkenazi or chabad (src/services/zmanim/sets.ts).
     if (zmanimCommunity !== undefined && !isCommunity(zmanimCommunity)) {
       return NextResponse.json({ error: 'Invalid zmanimCommunity' }, { status: 400 });
+    }
+    // A closed set: gregorian or hebrew (src/lib/calendar-view/month-mode.ts). Anything else is refused, never stored.
+    if (monthMode !== undefined && !isMonthMode(monthMode)) {
+      return NextResponse.json({ error: 'Invalid monthMode' }, { status: 400 });
     }
     // Where the summaries go can only be a channel the person has: a platform that names one they lack would leave
     // nothing to deliver to. Refused and never stored (the page offers the choice only to a person with both).
@@ -126,6 +131,8 @@ export async function POST(request: NextRequest) {
       pauseOnShabbat: typeof pauseOnShabbat === 'boolean' ? pauseOnShabbat : undefined,
       // The home reads it at page load; nothing caches it.
       dafYomi: typeof dafYomi === 'boolean' ? dafYomi : undefined,
+      // Read at page load like dafYomi; nothing caches it.
+      monthMode: isMonthMode(monthMode) ? monthMode : undefined,
       // Whose zmanim: a reminder by zman and the pause windows are counted by this community's set
       zmanimCommunity: isCommunity(zmanimCommunity) ? zmanimCommunity : undefined
     };

@@ -447,6 +447,30 @@ async function main() {
     }
   });
 
+  await check('A10 the Month\'s months: the route saves "hebrew" and "gregorian" (200, the row holds it, the activity log gets the field\'s name monthMode, never its value)', async () => {
+    seed();
+    const toHebrew = await save(3, { monthMode: 'hebrew' });
+    assert(toHebrew.status === 200, `hebrew: ${show(toHebrew)}`);
+    eq(userRow(3).monthMode, 'hebrew', 'the row after hebrew');
+    eq(activities.map(a => [a.userId, a.type, a.meta]), [[3, 'settings_changed', { changed_fields: ['monthMode'] }]], 'activity');
+    assert(!JSON.stringify(activities).includes('hebrew'), 'the activity carries the value');
+    assert((await save(3, { monthMode: 'gregorian' })).status === 200, 'and back');
+    eq(userRow(3).monthMode, 'gregorian', 'the row after gregorian');
+    assert((await save(3, { weatherEnabled: false })).status === 200, 'a save without one');
+    eq(userRow(3).monthMode, 'gregorian', 'left alone');
+  });
+
+  await check('A11 a Month mode other than "gregorian" or "hebrew" is refused with 400 "Invalid monthMode" and writes nothing', async () => {
+    const bad: unknown[] = ['Hebrew', '', 1, null];
+    for (const value of bad) {
+      seed();
+      const res = await save(3, { monthMode: value, language: 'he', weatherEnabled: false });
+      assert(res.status === 400 && res.body.error === 'Invalid monthMode', `${show(value)}: ${show(res)}`);
+      eq([userRow(3).monthMode, userRow(3).language, userRow(3).weatherEnabled], [undefined, 'en', true], `${show(value)}: the row`);
+      assert(userWrites.length === 0 && activities.length === 0, `${show(value)}: wrote ${show(userWrites)} ${show(activities)}`);
+    }
+  });
+
   const failed = results.filter(r => !r.ok);
   for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     ${r.reason}`}`);
   if (captured.length) console.log(`captured: ${captured.length}`);
