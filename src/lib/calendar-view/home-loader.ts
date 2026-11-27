@@ -32,8 +32,9 @@
 // - An answer with google.stale asks that window once more after about 3 s; if that is
 //   stale too, the window waits for the next foreground or Refresh. A Google error
 //   (not calendars_gone) gets one automatic retry after about 5 s.
-// - Month windows (spec §5, Plan E Ruling 7) are a month's own days, [1st, 1st of the
-//   next month) (R12). At most MONTH_INFLIGHT_MAX of them are in flight; every send for
+// - Month windows (spec §5, Plan E Ruling 7) are a month's own days (a Gregorian month's
+//   [1st, 1st of the next month) (R12), a Hebrew month's first day to the day after its last).
+//   Whether an ask is a month's comes from where it is made (`Ask.month`), never from its dates. At most MONTH_INFLIGHT_MAX of them are in flight; every send for
 //   one waits its turn (the first ask, a refetch, Retry, the stale and error follow-ups),
 //   and the Agenda's weeks never do. When a slot frees, the queued months the host no
 //   longer wants are dropped without being marked asked, so ensure() asks them again if
@@ -97,7 +98,7 @@ export interface HomeLoader {
   dispose(): void;
 }
 
-type Ask = { source: SourceName; window: RangeWindow | null; fresh?: boolean; followUp?: 'stale' | 'retry'; renew?: boolean };
+type Ask = { source: SourceName; window: RangeWindow | null; month: boolean; fresh?: boolean; followUp?: 'stale' | 'retry'; renew?: boolean };
 /** A month send waiting for a slot: its in-flight key, the epoch it was asked in, and what to tell when it is done or dropped. */
 type Queued = { key: string; ask: Ask; epoch: number; settle: () => void; settled: Promise<void> };
 
@@ -114,13 +115,6 @@ function uncovered(store: CalendarStore, source: SourceName, window: RangeWindow
 /** A window's key, both ends: `from..to`; 'default' for the no-dates request. */
 function windowKey(window: RangeWindow | null): string {
   return window ? `${window.from}..${window.to}` : 'default';
-}
-
-/** A month's own days, [1st, 1st of the next month) (R12). An Agenda week (7 days) never is one. */
-function isMonthWindow(window: RangeWindow | null): boolean {
-  if (!window || !/^\d{4}-\d{2}-01$/.test(window.from)) return false;
-  const [y, m] = window.from.split('-').map(Number);
-  return window.to === new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10);
 }
 
 export function createHomeLoader(host: LoaderHost): HomeLoader {
@@ -170,8 +164,8 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
         // scroll the months passed are not asked again (each is a request off the rate limit).
         const again = (followUp: 'stale' | 'retry') => {
           if (host.getStore().epoch !== epoch) return;
-          if (isMonthWindow(answered) && !wantedMonths().some((w) => windowKey(w) === windowKey(answered))) return;
-          send({ source, window: answered, followUp });
+          if (ask.month && !wantedMonths().some((w) => windowKey(w) === windowKey(answered))) return;
+          send({ source, window: answered, month: ask.month, followUp });
         };
         if (source === 'google' && google?.status === 'ok' && google.stale && ask.followUp === undefined) {
           later(() => again('stale'), STALE_RETRY_MS);
@@ -212,7 +206,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
     const epoch = host.getStore().epoch;
     const key = `${epoch}|${ask.source}|${windowKey(ask.window)}|${ask.fresh ? 'fresh' : 'plain'}`;
     if (inflight.has(key) && !ask.renew) return running.get(key) ?? SETTLED;
-    if (isMonthWindow(ask.window)) {
+    if (ask.month) {
       const waiting = queue.find((q) => q.key === key);
       if (waiting) return waiting.settled;
       if (monthsInFlight >= MONTH_INFLIGHT_MAX) {
@@ -227,7 +221,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
 
   function start(ask: Ask, epoch: number, key: string): Promise<void> {
     const where = windowKey(ask.window);
-    const month = isMonthWindow(ask.window);
+    const month = ask.month;
     inflight.set(key, (inflight.get(key) ?? 0) + 1);
     const startedAt = patchSeq;
     issued.add(`${epoch}|${ask.source}|${where}`);
@@ -312,7 +306,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       if (!facts) {
         if (host.firstLoadFailed()) return;
         for (const source of host.sources) {
-          if (!issued.has(`${store.epoch}|${source}|default`)) send({ source, window: null });
+          if (!issued.has(`${store.epoch}|${source}|default`)) send({ source, window: null, month: false });
         }
         return;
       }
@@ -325,19 +319,19 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
           const out = stale.get(key) ?? (firstKey ? stale.get(firstKey) : undefined);
           if (out && agendaShowing) {
             if (firstKey) stale.delete(firstKey);
-            send({ source, window, fresh: out.fresh, renew: true });
+            send({ source, window, month: false, fresh: out.fresh, renew: true });
             continue;
           }
           const asked = issued.has(key) || (firstKey !== null && issued.has(firstKey));
-          if (!asked && uncovered(store, source, window)) send({ source, window });
+          if (!asked && uncovered(store, source, window)) send({ source, window, month: false });
         }
       });
       for (const window of wantedMonths()) {
         for (const source of facts.sources) {
           const key = `${store.epoch}|${source}|${windowKey(window)}`;
           const out = stale.get(key);
-          if (out) send({ source, window, fresh: out.fresh, renew: true });
-          else if (!issued.has(key) && uncovered(store, source, window)) send({ source, window });
+          if (out) send({ source, window, month: true, fresh: out.fresh, renew: true });
+          else if (!issued.has(key) && uncovered(store, source, window)) send({ source, window, month: true });
         }
       }
     },
@@ -348,21 +342,21 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       const sources = (facts ? facts.sources : host.sources).filter((s) => only === undefined || s === only);
       const sent: Promise<void>[] = [];
       if (!facts) {
-        for (const source of sources) sent.push(send({ source, window: null, fresh, renew }));
+        for (const source of sources) sent.push(send({ source, window: null, month: false, fresh, renew }));
       } else {
         /** `${source}|${windowKey}` of each window this refetch asks. */
         const asked = new Set<string>();
-        const ask = (source: SourceName, window: RangeWindow) => {
+        const ask = (source: SourceName, window: RangeWindow, month: boolean) => {
           asked.add(`${source}|${windowKey(window)}`);
-          sent.push(send({ source, window, fresh, renew }));
+          sent.push(send({ source, window, month, fresh, renew }));
         };
         if (host.agendaShowing?.() !== false) {
           for (const window of visibleWindows(facts.today)) {
-            for (const source of sources) ask(source, window);
+            for (const source of sources) ask(source, window, false);
           }
         }
         for (const window of wantedMonths()) {
-          for (const source of sources) ask(source, window);
+          for (const source of sources) ask(source, window, true);
         }
         if (renew || fresh) markRestStale(host.getStore().epoch, sources, asked, agendaWeekWindow(facts.today, 0), fresh);
       }
@@ -379,7 +373,7 @@ export function createHomeLoader(host: LoaderHost): HomeLoader {
       if (!live) return;
       const facts = host.getStore().facts;
       for (const source of (facts ? facts.sources : host.sources).filter((s) => only === undefined || s === only)) {
-        send({ source, window });
+        send({ source, window, month: true });
       }
     },
 

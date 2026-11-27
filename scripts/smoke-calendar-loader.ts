@@ -32,6 +32,7 @@ import {
   type LoaderHost,
 } from '../src/lib/calendar-view/home-loader';
 import { dayStatus, emptyStore, reduceStore, type CalendarStore } from '../src/lib/calendar-view/store';
+import { monthWindow } from '../src/lib/calendar-view/grid';
 import type { RangeWindow } from '../src/lib/calendar-view/home-client';
 import type { DayKey, ItemDTO, ItemReminderDTO, RangeResponse, SourceName } from '../src/lib/calendar-view/types';
 
@@ -386,6 +387,50 @@ async function main() {
     await answer('google 2027-04-01..2027-05-01');
     await h.advance(STALE_RETRY_MS);
     assertSame(sent(start + 4), ['google 2027-03-01..2027-04-01'], 'March, still wanted: its stale re-request goes');
+  });
+
+  await check('L-H1: Hebrew month windows (not 1st-to-1st) queue like any month: two leave, the third waits until one settles', async () => {
+    reset();
+    const H3 = monthWindow('h5787-03');
+    const H4 = monthWindow('h5787-04');
+    const H2 = monthWindow('h5787-02');
+    const hk = (w: RangeWindow) => `famcal ${w.from}..${w.to}`;
+    const h = fakeHost({ months: [H3, H4, H2] });
+    await h.firstLoad();
+    const start = calls.length;
+    h.loader.ensure();
+    assertSame(sent(start), [hk(H3), hk(H4)], 'the two most wanted leave');
+    await answer(hk(H3));
+    assertSame(sent(start), [hk(H3), hk(H4), hk(H2)], 'one settled: the third goes');
+    await answer(hk(H4));
+    await answer(hk(H2));
+  });
+
+  await check('L-H2: a Hebrew month\'s stale Google follow-up is sent while getMonths() lists it, and dropped once it does not', async () => {
+    reset();
+    const H3 = monthWindow('h5787-03');
+    const H4 = monthWindow('h5787-04');
+    const hk = (w: RangeWindow) => `google ${w.from}..${w.to}`;
+    const h = fakeHost({ sources: ['google'], months: [H3, H4] });
+    await h.firstLoad();
+    const start = calls.length;
+    h.loader.ensure();
+    await answer(hk(H3), { status: { google: { status: 'ok', stale: true } } });
+    await answer(hk(H4), { status: { google: { status: 'ok', stale: true } } });
+    await h.advance(STALE_RETRY_MS);
+    assertSame(sent(start), [hk(H3), hk(H4), hk(H3), hk(H4)], 'both still wanted: both follow-ups go');
+    await answer(hk(H3));
+    await answer(hk(H4));
+    // Again, now with the host no longer wanting H3 when the follow-up falls due.
+    reset();
+    const g = fakeHost({ sources: ['google'], months: [H3] });
+    await g.firstLoad();
+    const s2 = calls.length;
+    g.loader.ensure();
+    await answer(hk(H3), { status: { google: { status: 'ok', stale: true } } });
+    g.state.months = [H4];
+    await g.advance(STALE_RETRY_MS);
+    assertSame(sent(s2), [hk(H3)], 'no longer wanted: the follow-up is dropped');
   });
 
   await check('a month request that never settles frees its slot at the time limit (about 15 s), and the next month goes', async () => {
