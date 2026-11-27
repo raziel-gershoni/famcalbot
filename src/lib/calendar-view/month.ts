@@ -41,12 +41,16 @@ import {
   monthFirstDay,
   monthGrid,
   monthLastDay,
+  monthModeOf,
   monthOf,
+  monthOrdinal,
+  monthReach,
   monthWindow,
   type MonthKey,
 } from './grid';
 import { isHebrewMonthStart } from './hebrew-date';
 import type { RangeWindow } from './home-client';
+import type { MonthMode } from './month-mode';
 import {
   addDaysToKey,
   dayFailure,
@@ -60,7 +64,6 @@ import {
 } from './store';
 import type { DayKey, ItemDTO, SourceName, WeekStart } from './types';
 import { SQUARE_MAX_LINES } from './month-layout';
-import { MONTH_REACH } from './year-limits';
 
 /** Dots a small square shows, then "+N". */
 export const PICKED_DOTS = 3;
@@ -119,8 +122,10 @@ export interface MonthCell {
   /** Drawn items (Ruling 5: daily reminders not counted), and how many of them aren't the viewer's. */
   count: number;
   fromPartner: number;
-  /** Hebrew day 1, or the month's first day: the cells that name the Hebrew month (Ruling 3). */
+  /** In a Gregorian month: Hebrew day 1, or the month's first day: the cells that name the Hebrew month (Ruling 3). False in a Hebrew month. */
   hebrewMonthStart: boolean;
+  /** In a Hebrew month: the Gregorian 1st, or the month's first day: the cells that name the civil month. False in a Gregorian month. */
+  gregorianMonthStart: boolean;
 }
 
 /** One of a small square's dots: filled (the viewer's) or a ring (the partner's), in the calendar's colour. */
@@ -309,21 +314,29 @@ function slotOf(d: Drawn, kind: SlotKind, showTitle: boolean): MonthSlot {
 }
 
 function blankCell(day: DayKey): MonthCell {
-  return { day, inMonth: false, today: false, status: 'answered', slots: [], dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false };
+  return { day, inMonth: false, today: false, status: 'answered', slots: [], dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false, gregorianMonthStart: false };
+}
+
+/** Whether a day starts a month of the other calendar than the month's own (or is the month's first day). */
+function startMarks(month: MonthKey, day: DayKey, first: DayKey): { hebrewMonthStart: boolean; gregorianMonthStart: boolean } {
+  const hebrew = monthModeOf(month) === 'hebrew';
+  const start = day === first || (hebrew ? day.endsWith('-01') : isHebrewMonthStart(day));
+  return { hebrewMonthStart: !hebrew && start, gregorianMonthStart: hebrew && start };
 }
 
 /** A month with no model yet: its own days loading, the rest blank (R12). */
 export function loadingMonth(month: MonthKey, weekStart: WeekStart, today: DayKey): MonthModel {
   const first = monthFirstDay(month);
+  const last = monthLastDay(month);
   const weeks = monthGrid(month, weekStart).map((row) =>
     row.map((day): MonthCell => {
-      const inMonth = monthOf(day) === month;
+      const inMonth = day >= first && day <= last;
       return {
         ...blankCell(day),
         inMonth,
         today: inMonth && day === today,
         status: inMonth ? 'loading' : 'answered',
-        hebrewMonthStart: inMonth && (day === first || isHebrewMonthStart(day)),
+        ...(inMonth ? startMarks(month, day, first) : {}),
       };
     }),
   );
@@ -331,7 +344,7 @@ export function loadingMonth(month: MonthKey, weekStart: WeekStart, today: DayKe
 }
 
 function buildRow(store: CalendarStore, row: readonly DayKey[], month: MonthKey, first: DayKey, last: DayKey, today: DayKey, tz: string, partner: string | null): MonthCell[] {
-  const cols = row.map((day) => (monthOf(day) === month ? drawnOn(store, day, first, last, tz, partner) : null));
+  const cols = row.map((day) => (day >= first && day <= last ? drawnOn(store, day, first, last, tz, partner) : null));
   const runs = rowRuns(cols);
   return row.map((day, col) => {
     const drawn = cols[col];
@@ -356,7 +369,7 @@ function buildRow(store: CalendarStore, row: readonly DayKey[], month: MonthKey,
       dots,
       count: dots.length,
       fromPartner: dots.filter((dot) => !dot.mine).length,
-      hebrewMonthStart: day === first || isHebrewMonthStart(day),
+      ...startMarks(month, day, first),
     };
   });
 }
@@ -463,21 +476,17 @@ export function dayRows(store: CalendarStore, day: DayKey): AgendaRow[] {
 }
 
 /**
- * The months the Month reaches (owner 2026-11-17, "infinite scroll"): MONTH_REACH, the years an
- * item may start in, whatever today is; null for a malformed today. The pane holds a span of
- * them (grid.ts).
+ * The months the Month reaches (owner 2026-11-17, "infinite scroll"): the reach of the month's
+ * calendar, the years an item may start in, whatever today is; null for a malformed today. The
+ * pane holds a span of them (grid.ts).
  */
-function windowOf(today: DayKey): { first: MonthKey; last: MonthKey } | null {
-  return monthOf(today) ? MONTH_REACH : null;
+function windowOf(today: DayKey, mode: MonthMode): { first: MonthKey; last: MonthKey } | null {
+  return monthOf(today) ? monthReach(mode) : null;
 }
 
 function inWindow(month: MonthKey, ends: { first: MonthKey; last: MonthKey }): boolean {
-  return addMonths(month, 0) !== '' && month >= ends.first && month <= ends.last;
-}
-
-/** year × 12 + month index of a valid 'yyyy-MM'. */
-function monthNumber(month: MonthKey): number {
-  return Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1;
+  const [at, first, last] = [monthOrdinal(month), monthOrdinal(ends.first), monthOrdinal(ends.last)];
+  return at !== null && first !== null && last !== null && monthModeOf(month) === monthModeOf(ends.first) && at >= first && at <= last;
 }
 
 // ---- One Month screen (release 2): the focus, and fitting a square's lines ----
@@ -491,10 +500,17 @@ export interface MonthFocus {
   selected: DayKey;
 }
 
-/** The opening focus: today's month with today selected; null for a malformed today. */
-export function initialFocus(today: DayKey): MonthFocus | null {
-  const month = monthOf(today);
+/** The opening focus: today's month (in the given calendar) with today selected; null for a malformed today. */
+export function initialFocus(today: DayKey, mode: MonthMode = 'gregorian'): MonthFocus | null {
+  const month = monthOf(today, mode);
   return month ? { month, selected: today } : null;
+}
+
+/** The focus counted in another calendar: the selected day's month there. The same object when already in it. */
+export function focusInMode(f: MonthFocus, mode: MonthMode): MonthFocus {
+  if (monthModeOf(f.month) === mode) return f;
+  const month = monthOf(f.selected, mode);
+  return month ? { month, selected: f.selected } : f;
 }
 
 /** A tap on a day: that day selected, the month unchanged. The same object for the same day. */
@@ -504,14 +520,14 @@ export function selectDay(f: MonthFocus, day: DayKey): MonthFocus {
 
 /** The Today button: today's month, today selected. The same object when already there. */
 export function focusToday(f: MonthFocus, today: DayKey): MonthFocus {
-  const next = initialFocus(today);
+  const next = initialFocus(today, monthModeOf(f.month));
   if (!next) return f;
   return f.month === next.month && f.selected === next.selected ? f : next;
 }
 
 /** A jump to a date: its month, the day selected. The same object when already there. */
 export function focusJump(f: MonthFocus, day: DayKey): MonthFocus {
-  const month = monthOf(day);
+  const month = monthOf(day, monthModeOf(f.month));
   if (!month) return f;
   return f.month === month && f.selected === day ? f : { month, selected: day };
 }
@@ -521,9 +537,9 @@ export function focusMonth(f: MonthFocus, month: MonthKey): MonthFocus {
   return f.month === month || addMonths(month, 0) === '' ? f : { month, selected: f.selected };
 }
 
-/** Whether a chevron can move one month: false past the reach's ends (January 1900, December 2100). */
+/** Whether a chevron can move one month: false past the reach's ends (January 1900, December 2100, or the Hebrew months of those days). */
 export function canStepMonth(month: MonthKey, delta: -1 | 1, today: DayKey): boolean {
-  const ends = windowOf(today);
+  const ends = windowOf(today, monthModeOf(month));
   const next = addMonths(month, delta);
   return ends !== null && next !== '' && inWindow(next, ends);
 }
@@ -534,13 +550,15 @@ export function canStepMonth(month: MonthKey, delta: -1 | 1, today: DayKey): boo
  * (or malformed) becomes today. The same object when nothing changes.
  */
 export function clampFocus(f: MonthFocus, today: DayKey): MonthFocus {
-  const ends = windowOf(today);
+  const mode = monthModeOf(f.month);
+  const ends = windowOf(today, mode);
   if (!ends) return f;
   let month = f.month;
-  if (addMonths(month, 0) === '') month = monthOf(today) as MonthKey;
-  else if (month < ends.first) month = ends.first;
-  else if (month > ends.last) month = ends.last;
-  const selectedMonth = monthOf(f.selected);
+  const at = monthOrdinal(month);
+  if (at === null) month = monthOf(today, mode);
+  else if (at < (monthOrdinal(ends.first) as number)) month = ends.first;
+  else if (at > (monthOrdinal(ends.last) as number)) month = ends.last;
+  const selectedMonth = monthOf(f.selected, mode);
   const selected = selectedMonth !== null && inWindow(selectedMonth, ends) ? f.selected : today;
   return month === f.month && selected === f.selected ? f : { month, selected };
 }
@@ -552,20 +570,20 @@ export function clampFocus(f: MonthFocus, today: DayKey): MonthFocus {
  * two neighbours) nearest the anchor first, the later month first on a tie.
  */
 export function wantedFocusMonths(f: MonthFocus, near: readonly MonthKey[], inView: MonthKey | null, today: DayKey): RangeWindow[] {
-  const ends = windowOf(today);
+  const ends = windowOf(today, monthModeOf(inView !== null && monthOrdinal(inView) !== null ? inView : f.month));
   if (!ends) return [];
   const valid = (m: MonthKey | null): m is MonthKey => m !== null && inWindow(m, ends);
-  const anchor = inView !== null && addMonths(inView, 0) !== '' ? inView : f.month;
-  if (addMonths(anchor, 0) === '') return [];
-  const at = monthNumber(anchor);
+  const anchor = inView !== null && monthOrdinal(inView) !== null ? inView : f.month;
+  const at = monthOrdinal(anchor);
+  if (at === null) return [];
   const pool = [...near, addMonths(anchor, 1), addMonths(anchor, -1)]
     .filter(valid)
-    .map((m) => ({ m, d: monthNumber(m) - at }))
+    .map((m) => ({ m, d: (monthOrdinal(m) as number) - at }))
     .sort((a, b) => Math.abs(a.d) - Math.abs(b.d) || b.d - a.d)
     .map((x) => x.m);
   const out: RangeWindow[] = [];
   const seen = new Set<MonthKey>();
-  for (const m of [anchor, monthOf(f.selected), ...pool]) {
+  for (const m of [anchor, monthOf(f.selected, monthModeOf(anchor)), ...pool]) {
     if (!valid(m) || seen.has(m)) continue;
     seen.add(m);
     out.push(monthWindow(m));

@@ -91,6 +91,7 @@ const cell = (day: string, slots: MonthSlot[], inMonth = true): MonthCell => ({
   count: slots.length,
   fromPartner: 0,
   hebrewMonthStart: false,
+  gregorianMonthStart: false,
 });
 
 async function main() {

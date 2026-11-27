@@ -36,6 +36,9 @@ import {
   dayRows,
   fitRow,
   fitSlots,
+  focusInMode,
+  focusJump,
+  focusToday,
   initialFocus,
   limitDots,
   loadingMonth,
@@ -50,7 +53,10 @@ import {
 import fs from 'fs';
 import path from 'path';
 import { fromZonedTime } from 'date-fns-tz';
-import { monthGrid } from '../src/lib/calendar-view/grid';
+import { monthGrid, monthModeOf, monthWindow } from '../src/lib/calendar-view/grid';
+import { monthTitle } from '../src/lib/calendar-view/month-title';
+import { formatMonthRange, formatMonthTitle } from '../src/lib/calendar-view/format';
+import { hebrewMonthHeader } from '../src/lib/calendar-view/hebrew-date';
 import { reminderMark, whoseItem } from '../src/lib/calendar-view/agenda';
 import {
   dayItems,
@@ -544,7 +550,7 @@ async function main() {
     assertJson(days(fitRow(row, 2)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< +2', '08': 'bar:beta*< bar:gamma*<>', '09': 'bar:gamma*<' }, 'in 2 lines');
     assertJson(days(fitRow(row, 3)), { '05': 'bar:alpha*>', '06': 'bar:alpha<> bar:beta*>', '07': 'bar:alpha< bar:beta<> bar:gamma*>', '08': '_ bar:beta< bar:gamma<>', '09': '_ _ bar:gamma<' }, 'in 3 lines');
     // A bar hidden behind "+N" one day and back in its own lane the next shows its title there.
-    const cellWith = (day: DayKey, slots: MonthSlot[]): MonthCell => ({ day, inMonth: true, today: false, status: 'answered', slots, dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false });
+    const cellWith = (day: DayKey, slots: MonthSlot[]): MonthCell => ({ day, inMonth: true, today: false, status: 'answered', slots, dots: [], count: 0, fromPartner: 0, hebrewMonthStart: false, gregorianMonthStart: false });
     const mid = (id: string) => ({ ...slot('bar', id), showTitle: false, continuesBefore: true, continuesAfter: true });
     const hidden = fitRow([cellWith('2026-10-05', [slot('bar', 'a'), slot('bar', 'b'), slot('bar', 'c'), slot('timed', 't')]), cellWith('2026-10-06', [slot('spacer', null), slot('spacer', null), mid('c')])], 3);
     assertJson(hidden.map(view), ['bar:a* bar:b* +2', '_ _ bar:c*<>'], 'C, hidden on the 5th, named on the 6th');
@@ -720,6 +726,56 @@ async function main() {
   await check('null before the first answer and for a malformed month', () => {
     assert(buildMonth(emptyStore(), '2026-10') === null, 'no facts');
     assert(buildMonth(STORE_0, '2026-13') === null && buildMonth(STORE_0, '') === null && buildMonth(STORE_0, '2026-1') === null, 'malformed');
+  });
+
+  await check('M-H1 cells: a Hebrew month draws its own days, marks the Gregorian 1st and no Hebrew day 1', () => {
+    const days = (m: MonthModel) => m.weeks.flat().filter((c) => c.inMonth).map((c) => c.day);
+    const model = modelOf(STORE_0, 'h5787-03');
+    const d = days(model);
+    assert(d[0] === '2026-11-11' && d[d.length - 1] === '2026-12-10' && d.length === 30, `days ${d[0]} … ${d[d.length - 1]} (${d.length})`);
+    assertJson(model.weeks.flat().filter((c) => c.gregorianMonthStart).map((c) => c.day), ['2026-11-11', '2026-12-01'], 'gregorianMonthStart');
+    assert(model.weeks.flat().every((c) => !c.hebrewMonthStart), 'hebrewMonthStart in a Hebrew month');
+    assert(model.weeks.flat().filter((c) => !c.inMonth).every((c) => !c.gregorianMonthStart), 'blank cell marked');
+    assertJson(days(loadingMonth('h5787-03', 0, '2026-11-27')), d, 'loadingMonth days');
+    assert(modelOf(STORE_0, '2026-10').weeks.flat().every((c) => !c.gregorianMonthStart), 'gregorianMonthStart in a Gregorian month');
+  });
+
+  await check('M-H2 focus: initial, jump, today and the mode switch', () => {
+    const f = initialFocus('2026-11-27', 'hebrew');
+    assertJson(f, { month: 'h5787-03', selected: '2026-11-27' }, 'initial');
+    assert(f !== null && focusJump(f, '2027-02-20').month === 'h5787-06', 'jump');
+    assertJson(focusToday({ month: 'h5787-08', selected: '2027-04-10' }, '2026-11-27'), { month: 'h5787-03', selected: '2026-11-27' }, 'today');
+    assertJson(focusInMode({ month: 'h5787-03', selected: '2026-11-27' }, 'gregorian'), { month: '2026-11', selected: '2026-11-27' }, 'to gregorian');
+    const g = { month: '2026-11', selected: '2026-11-27' };
+    assert(focusInMode(g, monthModeOf(g.month)) === g, 'same object');
+  });
+
+  await check('M-H3 chevrons stop at the reach in Hebrew months', () => {
+    assert(canStepMonth('h5861-03', 1, '2026-11-27') === false, 'end');
+    assert(canStepMonth('h5660-05', -1, '2026-11-27') === false, 'start');
+    assert(canStepMonth('h5787-03', 1, '2026-11-27') === true, 'middle');
+  });
+
+  await check('M-H4 wanted: the anchor, the selected day\'s month, then the neighbours', () => {
+    const got = wantedFocusMonths({ month: 'h5787-03', selected: '2027-02-20' }, [], null, '2026-11-27');
+    const want = ['h5787-03', 'h5787-06', 'h5787-04', 'h5787-02'].map((m) => monthWindow(m));
+    assertJson(got, want, 'windows');
+  });
+
+  await check('M-H5 clamp: a Hebrew month past the reach goes to its end', () => {
+    assert(clampFocus({ month: 'h5900-01', selected: '2026-11-27' }, '2026-11-27').month === 'h5861-03', 'end');
+  });
+
+  await check('M-H6 the reach\'s end: 2101-01-01 is blank', () => {
+    const cell = modelOf(STORE_0, 'h5861-03').weeks.flat().find((c) => c.day === '2101-01-01');
+    assert(cell === undefined || cell.inMonth === false, 'drawn as in month');
+  });
+
+  await check('M-H7 titles', () => {
+    assertJson(monthTitle('h5787-03', 'he', true), { title: 'כסלו תשפ״ז', subtitle: formatMonthRange('2026-11-11', '2026-12-10', 'he') }, 'he');
+    assert(monthTitle('h5787-06', 'en', true).title === 'Adar I 5787', 'Adar I');
+    assertJson(monthTitle('2026-11', 'en', true), { title: formatMonthTitle('2026-11', 'en', true), subtitle: hebrewMonthHeader('2026-11', 'en') }, 'gregorian');
+    assert(monthTitle('2026-11', 'en', false).subtitle === '', 'no subtitle');
   });
 
   await check('the same models, windows, focus and fitted rows on five device clocks', () => {

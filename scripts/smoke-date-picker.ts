@@ -384,7 +384,7 @@ async function main() {
   await check('the picker model is client-safe: no React, no @hebcal/core, no server module, no clock', () => {
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/picker-model.ts'), 'utf8');
     const imports = [...source.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map((m) => m[2]).sort();
-    assertEqual(imports, ['./format', './grid', './hebrew-date', './store', './types', './year-limits', '@hebcal/hdate'], 'imports');
+    assertEqual(imports, ['./format', './grid', './hebrew-date', './month-title', './store', './types', './year-limits', '@hebcal/hdate'], 'imports');
     assert(!/Date\.now\(|new Date\(\)/.test(source), 'no clock');
     assert(!/require\(|import\(/.test(source), 'no require() or import()');
     const limits = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/year-limits.ts'), 'utf8');

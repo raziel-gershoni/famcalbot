@@ -28,6 +28,7 @@ import {
   hebrewYearText,
   isHebrewMonthStart,
 } from './hebrew-date';
+import { monthTitle } from './month-title';
 import { addDaysToKey } from './store';
 import type { DayKey, WeekStart } from './types';
 
@@ -148,13 +149,7 @@ export function pageCells(page: PickerPage, weekStart: WeekStart): (DayKey | nul
 
 /** The page's title and, under it, the other calendar's months: "March 2027" over "Adar – Nisan 5787", or the reverse in Hebrew mode. */
 export function pageTitle(page: PickerPage, lang: string, hebrewDates: boolean): { title: string; subtitle: string } {
-  if (page.mode === 'gregorian') {
-    return {
-      title: formatMonthTitle(monthOf(page.first), lang, true),
-      subtitle: hebrewDates ? hebrewMonthHeader(monthOf(page.first), lang) : '',
-    };
-  }
-  return { title: hebrewMonthRange(page.first, page.last, lang), subtitle: formatMonthRange(page.first, page.last, lang) };
+  return monthTitle(monthOf(page.first, page.mode), lang, hebrewDates);
 }
 
 // ---- Labels ----
