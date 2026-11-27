@@ -325,7 +325,7 @@ async function main() {
     const source = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/grid.ts'), 'utf8');
     const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const imports = [...code.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map(m => `${m[1] ? 'type ' : ''}${m[2]}`);
-    for (const spec of imports) assert(spec === 'type ./types' || spec === './year-limits' || /^date-fns(\/|$)/.test(spec), `grid.ts imports ${spec}`);
+    for (const spec of imports) assert(spec === 'type ./types' || spec === './year-limits' || spec === './hebrew-months' || spec === 'type ./month-mode' || /^date-fns(\/|$)/.test(spec), `grid.ts imports ${spec}`);
     const limits = fs.readFileSync(path.join(ROOT, 'src/lib/calendar-view/year-limits.ts'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const limitImports = [...limits.matchAll(/^import\s+(type\s+)?(?:[^'"]*?\s+from\s+)?'([^']+)';/gm)].map((m) => `${m[1] ? 'type ' : ''}${m[2]}`);
     assert(limitImports.every((spec) => spec.startsWith('type ')), `year-limits.ts imports more than types: ${limitImports.join(', ')}`);
